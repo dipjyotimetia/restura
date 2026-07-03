@@ -61,6 +61,13 @@ The container is **stateless**. All user data (collections, environments,
 history, settings) lives in IndexedDB in the browser — nothing is persisted
 on the server side.
 
+The self-hosted server collects **no usage analytics** — Restura runs no
+application-level usage instrumentation anywhere (see
+[ADR-0027](adr/0027-telemetry-and-privacy-preserving-usage-analytics.md)). The
+only outbound reporting a self-hosted deployment can do is the opt-out renderer
+error sink at `/api/telemetry/error`, which logs (never stores) redacted error
+reports.
+
 ---
 
 ## Environment variables

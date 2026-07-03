@@ -120,6 +120,16 @@ function doInit(): void {
     release: `restura@${app.getVersion()}`,
     environment: isDev ? 'development' : 'production',
     sendDefaultPii: false,
+    // Release Health: track one anonymous session per main-process run (session
+    // start/end, crash-free rate, version adoption) — the single aggregate
+    // usage signal we collect on desktop, and how we gauge active users without
+    // any device or user identifier. `@sentry/electron` enables this by default;
+    // we list it explicitly so an SDK default change can't silently flip our one
+    // usage signal on or off. Gated by the same opt-out as errors (we only
+    // init() when opted in); sessions carry no IP (sendDefaultPii: false) and no
+    // user id. Like native crash capture, a mid-session opt-out fully stops
+    // sessions on next launch. See ADR-0027.
+    integrations: [Sentry.mainProcessSessionIntegration()],
     // Crash/error reporting only — no performance tracing. We leave
     // `tracesSampleRate` unset so the SDK creates no spans or transactions: a
     // span could carry the user's proxied request URL, the exact data the error

@@ -67,15 +67,15 @@ So I built Restura. One client that speaks all the protocols I actually use, sto
 
 ## Highlights
 
-|                        |                                                                                                                                    |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **Request scripting**  | Pre-request and test scripts in JavaScript, sandboxed in [QuickJS](https://bellard.org/quickjs/) WASM — no DOM, no network escape. |
-| **Workflows**          | Chain requests, extract variables via JSONPath / regex / headers, set retries with exponential backoff. Runs in the app or in CI.  |
-| **Import everything**  | Postman v2.1, Insomnia, Bruno, OpenAPI / Swagger, Hoppscotch — drop it in and start testing.                                       |
-| **Environments**       | Scope variables per environment; swap `{{base_url}}` between staging and prod in one click.                                        |
-| **Auth built-in**      | Basic, Bearer, API Key, OAuth 2.0, Digest, AWS SigV4, mTLS — per request or inherited from a collection or folder.                 |
-| **AI assistant**       | Chat with OpenAI, Anthropic, or OpenRouter with the current request and response as context. Secrets are redacted at the wire.     |
-| **Private by default** | Everything stored locally. No accounts, no cloud sync, no analytics or behavioural tracking.                                       |
+|                        |                                                                                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Request scripting**  | Pre-request and test scripts in JavaScript, sandboxed in [QuickJS](https://bellard.org/quickjs/) WASM — no DOM, no network escape.                     |
+| **Workflows**          | Chain requests, extract variables via JSONPath / regex / headers, set retries with exponential backoff. Runs in the app or in CI.                      |
+| **Import everything**  | Postman v2.1, Insomnia, Bruno, OpenAPI / Swagger, Hoppscotch — drop it in and start testing.                                                           |
+| **Environments**       | Scope variables per environment; swap `{{base_url}}` between staging and prod in one click.                                                            |
+| **Auth built-in**      | Basic, Bearer, API Key, OAuth 2.0, Digest, AWS SigV4, mTLS — per request or inherited from a collection or folder.                                     |
+| **AI assistant**       | Chat with OpenAI, Anthropic, or OpenRouter with the current request and response as context. Secrets are redacted at the wire.                         |
+| **Private by default** | Everything stored locally. No accounts, no cloud sync, no per-user tracking or behavioural profiling — usage metrics are anonymous and aggregate only. |
 
 ## Security
 
@@ -88,7 +88,8 @@ Restura signs auth **at the wire** and guards every outbound request — on both
 - **Privacy** — No accounts, no cloud sync. Optional crash & error reporting (opt-out, on by default) can be turned off in **Settings › Privacy**.
   - **Desktop (Electron):** Errors route to [Sentry](https://sentry.io) via a renderer→main IPC bridge — the renderer never makes a direct network call to Sentry. Captured: error message, stack trace, app version, OS. Never captured: request URLs, headers, response bodies, API keys, file paths, or user identity (`sendDefaultPii: false`; secrets scrubbed via the shared AI redaction core).
   - **Web:** Errors route to a self-hosted Cloudflare Worker endpoint (`/api/telemetry/error`) — no third-party telemetry service involved. Same scrubbing rules apply.
-  - Both paths gate on `settings.telemetry.errorsEnabled` and send nothing until that flag is checked.
+  - Both error paths gate on `settings.telemetry.errorsEnabled` and send nothing until that flag is checked.
+- **Usage signal (bare minimum, anonymous)** — On desktop, Sentry **Release Health** contributes anonymous session counts (crash-free rate, version adoption) — enough to gauge active users, gated by the same error-reporting opt-out, with no IP or per-user identifier. For the web app we add **no** instrumentation of our own — request volume is already visible in Cloudflare's built-in dashboard. The **self-hosted** server collects neither. There is deliberately no unique-user identifier, so this is an aggregate volume/adoption signal, not per-user tracking. See [`docs/adr/0027-telemetry-and-privacy-preserving-usage-analytics.md`](docs/adr/0027-telemetry-and-privacy-preserving-usage-analytics.md).
 
 See [`docs/adr/0004-security-hardening.md`](docs/adr/0004-security-hardening.md) for the design rationale.
 

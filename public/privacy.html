@@ -236,6 +236,13 @@
           Reports are used solely to diagnose problems. They are not used to identify you, are not
           combined with any profile, and contain none of your request data or secrets.
         </p>
+        <p>
+          On the desktop app, if error reporting is left enabled, Sentry also records anonymous
+          <strong>session health</strong> — that a session started and ended, whether it was
+          crash-free, and the app version — so we can tell how many people a bad release affects.
+          These sessions carry no IP address and no identifier, and turning off error reporting
+          turns them off too.
+        </p>
 
         <h2>4. AI assistant</h2>
         <p>
@@ -265,7 +272,9 @@
         <p>
           Restura uses <strong>no advertising or analytics cookies</strong> and does not track you
           across sites. The only browser storage we use is the local storage that keeps your
-          workspace working.
+          workspace working. We run no application-level analytics on the web app; the anonymous
+          session-health counts described in section 3 are the only usage signal, and they are
+          desktop-only.
         </p>
 
         <h2>7. Children</h2>
