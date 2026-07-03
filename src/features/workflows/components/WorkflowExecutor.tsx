@@ -1,20 +1,10 @@
 'use client';
 
-import {
-  Play,
-  Square,
-  CheckCircle2,
-  XCircle,
-  Clock,
-  Loader2,
-  SkipForward,
-  Variable,
-  FileText,
-} from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { Play, Square, CheckCircle2, XCircle, Clock, Variable, FileText } from 'lucide-react';
+import { useState } from 'react';
+import { useGraphValidation } from '../hooks/useGraphValidation';
 import { useWorkflowExecution } from '../hooks/useWorkflowExecution';
-import { validateWorkflowGraph } from '../lib/flowValidators';
-import { WorkflowStep } from './WorkflowStep';
+import { WorkflowStep, statusConfig } from './WorkflowStep';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -87,11 +77,7 @@ export function WorkflowExecutor({ workflow, open, onOpenChange }: WorkflowExecu
   // rather than trusting the graph was already checked upstream. Only
   // blocking ('error') issues gate Run — non-blocking warnings are visible
   // in FlowToolbar's popover, not worth blocking this simpler dialog.
-  const graphIssues = useMemo(() => {
-    if (!workflow.graph) return [];
-    const result = validateWorkflowGraph(workflow.graph);
-    return result.issues.filter((i) => (i.severity ?? 'error') === 'error');
-  }, [workflow.graph]);
+  const graphIssues = useGraphValidation(workflow.graph).blockingIssues;
 
   const completedSteps = execution?.steps.filter((s) => s.status === 'success').length || 0;
   const totalSteps = workflow.requests.length;
@@ -309,33 +295,17 @@ export function WorkflowExecutor({ workflow, open, onOpenChange }: WorkflowExecu
   );
 }
 
-const GRAPH_STEP_STATUS_ICON = {
-  pending: Clock,
-  running: Loader2,
-  success: CheckCircle2,
-  failed: XCircle,
-  skipped: SkipForward,
-} as const;
-
-const GRAPH_STEP_STATUS_COLOR = {
-  pending: 'text-muted-foreground',
-  running: 'text-blue-500',
-  success: 'text-green-500',
-  failed: 'text-red-500',
-  skipped: 'text-yellow-500',
-} as const;
-
 /**
  * Renders one `WorkflowExecutionStep` from a graph run — every node kind
  * the DAG executor produces (condition/switch/parallel/forEach/loop/
  * tryCatch/setVariable/delay/transform/template/display/sseSubscribe/
  * wsExchange/mcpCall/subWorkflow, not just `request`), in actual
  * traversal order. `WorkflowStep` (used for linear runs) is keyed to the
- * `WorkflowRequest` shape and can't represent these.
+ * `WorkflowRequest` shape and can't represent these, but shares its
+ * `statusConfig` icon/color mapping for the same 5 statuses.
  */
 function GraphRunStepRow({ step, index }: { step: WorkflowExecutionStep; index: number }) {
-  const StatusIcon = GRAPH_STEP_STATUS_ICON[step.status];
-  const color = GRAPH_STEP_STATUS_COLOR[step.status];
+  const { icon: StatusIcon, color } = statusConfig[step.status];
   return (
     <div className="flex items-center gap-3 p-3 rounded-lg border bg-muted/30">
       <div className="flex-shrink-0 w-6 h-6 rounded-full bg-muted flex items-center justify-center text-xs font-medium">

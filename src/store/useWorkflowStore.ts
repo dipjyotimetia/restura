@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { selectAtPath, setAtPath } from '@/features/workflows/lib/flowTypes';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { truncateForPersist } from '@/lib/shared/utils';
 import type {
   Workflow,
   WorkflowRequest,
@@ -100,33 +101,23 @@ interface WorkflowState {
 // full response, and `extractedVariables`/`finalVariables` can hold a
 // `JSON.stringify`'d capture of up to 10,000 sseSubscribe events or a large
 // forEach's `.results` — persisted verbatim, 100 such runs could bloat
-// storage arbitrarily. Mirrors the truncate/limit convention already
-// established for console entries (`useConsoleStore.ts`'s
-// PERSIST_BODY_LIMIT / PERSIST_LOG_MESSAGE_LIMIT).
+// storage arbitrarily. Uses the same `truncateForPersist` helper (and the
+// same limit values) as `useConsoleStore.ts`'s PERSIST_BODY_LIMIT /
+// PERSIST_LOG_MESSAGE_LIMIT.
 const PERSIST_VALUE_LIMIT = 64 * 1024;
 const PERSIST_LOG_MESSAGE_LIMIT = 4 * 1024;
 const PERSIST_LOG_LIMIT = 500;
 
-function truncateForPersist(str: string, limit: number): string {
-  if (str.length <= limit) return str;
-  return `${str.slice(0, limit)}…[truncated ${str.length - limit} chars]`;
-}
-
-function truncateVariableMap(
-  vars: Record<string, string> | undefined
-): Record<string, string> | undefined {
-  if (!vars) return vars;
-  let changed = false;
+// Every call site below already only invokes this on a defined map (guarded
+// by `step.extractedVariables &&` or `execution.finalVariables` being a
+// required field), so it takes/returns `Record<string, string>` directly
+// rather than carrying an `| undefined` case none of its callers need.
+function truncateVariableMap(vars: Record<string, string>): Record<string, string> {
   const next: Record<string, string> = {};
   for (const [k, v] of Object.entries(vars)) {
-    if (v.length > PERSIST_VALUE_LIMIT) {
-      changed = true;
-      next[k] = truncateForPersist(v, PERSIST_VALUE_LIMIT);
-    } else {
-      next[k] = v;
-    }
+    next[k] = v.length > PERSIST_VALUE_LIMIT ? truncateForPersist(v, PERSIST_VALUE_LIMIT) : v;
   }
-  return changed ? next : vars;
+  return next;
 }
 
 /** Bound the persisted footprint of one execution: response bodies,
@@ -148,7 +139,7 @@ function trimExecutionForPersist(execution: WorkflowExecution): WorkflowExecutio
         extractedVariables: truncateVariableMap(step.extractedVariables),
       }),
     })),
-    finalVariables: truncateVariableMap(execution.finalVariables) ?? execution.finalVariables,
+    finalVariables: truncateVariableMap(execution.finalVariables),
     executionLog: execution.executionLog
       .slice(-PERSIST_LOG_LIMIT)
       .map((l) => ({ ...l, message: truncateForPersist(l.message, PERSIST_LOG_MESSAGE_LIMIT) })),

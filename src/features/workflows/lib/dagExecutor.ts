@@ -637,6 +637,22 @@ class RequestNodeFailure extends Error {
 
 // ---------- parallel / forEach / tryCatch / subWorkflow ----------
 
+/**
+ * Fire `onAbort` when `parent` aborts (or immediately if it's already
+ * aborted) and return an unlink function to stop listening. Shared by
+ * runParallel/runForEach, which each propagate a Stop click down into
+ * their own per-branch/iteration AbortController.
+ */
+function linkAbort(parent: AbortSignal | undefined, onAbort: () => void): () => void {
+  if (!parent) return () => {};
+  if (parent.aborted) {
+    onAbort();
+    return () => {};
+  }
+  parent.addEventListener('abort', onAbort, { once: true });
+  return () => parent.removeEventListener('abort', onAbort);
+}
+
 async function runParallel(
   node: Extract<FlowNode, { kind: 'parallel' }>,
   args: RunGraphArgs,
@@ -662,12 +678,7 @@ async function runParallel(
   // mutating shared state (mcpClientPool, execution.steps) in the
   // background after the node has already reported its own result.
   const branchAborts = outgoing.map(() => new AbortController());
-  const parentSignal = args.abortSignal;
-  const onParentAbort = () => branchAborts.forEach((c) => c.abort());
-  if (parentSignal) {
-    if (parentSignal.aborted) onParentAbort();
-    else parentSignal.addEventListener('abort', onParentAbort, { once: true });
-  }
+  const unlinkAbort = linkAbort(args.abortSignal, () => branchAborts.forEach((c) => c.abort()));
   const cancelSiblings = (except: number) => {
     branchAborts.forEach((c, i) => {
       if (i !== except) c.abort();
@@ -710,7 +721,7 @@ async function runParallel(
     finishStep(args, step);
     throw err;
   } finally {
-    if (parentSignal) parentSignal.removeEventListener('abort', onParentAbort);
+    unlinkAbort();
   }
 }
 
@@ -818,12 +829,7 @@ async function runForEach(
   // of every other worker running to completion in the background after
   // the forEach node has already failed (mirrors the parallel-node fix).
   const forEachAbort = new AbortController();
-  const parentSignal = args.abortSignal;
-  const onParentAbort = () => forEachAbort.abort();
-  if (parentSignal) {
-    if (parentSignal.aborted) onParentAbort();
-    else parentSignal.addEventListener('abort', onParentAbort, { once: true });
-  }
+  const unlinkAbort = linkAbort(args.abortSignal, () => forEachAbort.abort());
 
   let cursor = 0;
   const workers: Array<Promise<void>> = [];
@@ -875,7 +881,7 @@ async function runForEach(
     finishStep(args, step);
     throw err;
   } finally {
-    if (parentSignal) parentSignal.removeEventListener('abort', onParentAbort);
+    unlinkAbort();
   }
 }
 

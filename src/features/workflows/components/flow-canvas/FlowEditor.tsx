@@ -10,6 +10,7 @@
 import { ReactFlowProvider } from '@xyflow/react';
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { toast } from 'sonner';
+import type { GraphValidationResult } from '../../hooks/useGraphValidation';
 import { selectAtPath, emptyStubGraph } from '../../lib/flowTypes';
 
 const SUBGRAPH_TOUR_KEY = 'restura.tour.subgraphDrillDown.v1';
@@ -27,9 +28,13 @@ import type { Workflow, WorkflowGraph, SubgraphPath } from '@/types';
 interface FlowEditorProps {
   workflow: Workflow;
   onRun: () => void;
+  /** Computed once by the caller (WorkflowBuilder) and passed down rather
+   *  than re-validated here — avoids running the same Zod parse + cycle
+   *  DFS twice per render for the graph this editor is already showing. */
+  validation: GraphValidationResult;
 }
 
-export default function FlowEditor({ workflow, onRun }: FlowEditorProps) {
+export default function FlowEditor({ workflow, onRun, validation }: FlowEditorProps) {
   const setWorkflowSubgraph = useWorkflowStore((s) => s.setWorkflowSubgraph);
   const [subgraphPath, setSubgraphPath] = useState<SubgraphPath>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -119,7 +124,7 @@ export default function FlowEditor({ workflow, onRun }: FlowEditorProps) {
   return (
     <ReactFlowProvider>
       <div className="flex flex-col h-full w-full">
-        <FlowToolbar workflow={workflow} onRun={onRun} canRun={canRun} />
+        <FlowToolbar workflow={workflow} onRun={onRun} canRun={canRun} validation={validation} />
         <FlowBreadcrumb workflow={workflow} path={subgraphPath} onNavigate={onNavigate} />
         <div className="flex-1 flex min-h-0">
           <FlowSidebar collectionId={workflow.collectionId} />

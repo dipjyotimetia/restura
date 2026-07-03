@@ -28,7 +28,10 @@ interface WorkflowStepProps {
   dragHandleProps?: React.HTMLAttributes<HTMLDivElement>;
 }
 
-const statusConfig = {
+/** Icon/color/bg per step status — shared with `GraphRunStepRow` in
+ *  WorkflowExecutor.tsx, which renders graph-run steps with the same
+ *  status vocabulary but no `WorkflowRequest` to key off of. */
+export const statusConfig = {
   pending: {
     icon: Clock,
     color: 'text-muted-foreground',

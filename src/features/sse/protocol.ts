@@ -13,12 +13,16 @@
  *     owns event accumulation and the in-canvas Run Monitor renders
  *     the live state independently.
  *
- * The two paths intentionally don't share infrastructure with
- * sseManager (which is heavily store-coupled). Both end up wrapping the
- * same shared parser, and both route through `executeProxiedStreamingRequest`
- * so the Worker's SSRF/header/auth pipeline applies uniformly.
+ * The two paths intentionally don't share sseManager's store-coupled
+ * connection bookkeeping (webConnections/electronConnections, reconnect,
+ * useSseStore writes). They do share its store-free
+ * `cleanupSseElectronListeners` helper, and both end up wrapping the same
+ * shared parser and routing through `executeProxiedStreamingRequest` (web)
+ * / the same `sse:connect` IPC channel (desktop) so the SSRF/header/auth
+ * pipeline applies uniformly either way.
  */
 import { v4 as uuidv4 } from 'uuid';
+import { cleanupSseElectronListeners } from './lib/sseManager';
 import { SseParser, type ParsedSseEvent } from './lib/sseParser';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import type { ProtocolModule, ProtocolStreamHandle } from '@/features/registry/types';
@@ -255,6 +259,13 @@ async function sseStartStreamElectron(
   headers: Record<string, string>,
   ctx: { signal: AbortSignal }
 ): Promise<ProtocolStreamHandle> {
+  // Destructured up front rather than closing over `ctx` itself: the
+  // executor's actual runtime `ctx` also carries `variables` (this
+  // function's declared type just doesn't need it) — capturing only the
+  // signal lets that map be GC'd once the caller's frame is done instead
+  // of staying reachable for this stream's whole lifetime.
+  const { signal } = ctx;
+
   const api = getElectronAPI();
   if (!api?.sse) {
     throw new Error('Electron SSE API is not available in this context.');
@@ -272,13 +283,6 @@ async function sseStartStreamElectron(
       resolveWaiter = null;
       r();
     }
-  };
-
-  const cleanupListeners = () => {
-    sse.removeAllListeners(`sse:open:${connectionId}`);
-    sse.removeAllListeners(`sse:event:${connectionId}`);
-    sse.removeAllListeners(`sse:error:${connectionId}`);
-    sse.removeAllListeners(`sse:close:${connectionId}`);
   };
 
   sse.on(`sse:event:${connectionId}`, (payload: unknown) => {
@@ -301,13 +305,13 @@ async function sseStartStreamElectron(
     sse.disconnect({ connectionId }).catch(() => undefined);
   };
   const onAbort = () => disconnectOnce();
-  if (ctx.signal.aborted) onAbort();
-  else ctx.signal.addEventListener('abort', onAbort, { once: true });
+  if (signal.aborted) onAbort();
+  else signal.addEventListener('abort', onAbort, { once: true });
 
   const connectResult = await sse.connect({ connectionId, url, headers });
   if (!connectResult.success) {
-    cleanupListeners();
-    ctx.signal.removeEventListener('abort', onAbort);
+    cleanupSseElectronListeners(connectionId, api);
+    signal.removeEventListener('abort', onAbort);
     throw new Error(connectResult.error || 'SSE connect failed');
   }
 
@@ -328,8 +332,8 @@ async function sseStartStreamElectron(
       }
     } finally {
       disconnectOnce();
-      cleanupListeners();
-      ctx.signal.removeEventListener('abort', onAbort);
+      cleanupSseElectronListeners(connectionId, api);
+      signal.removeEventListener('abort', onAbort);
     }
   }
 
@@ -337,8 +341,8 @@ async function sseStartStreamElectron(
     events: iterate(),
     close: async () => {
       disconnectOnce();
-      cleanupListeners();
-      ctx.signal.removeEventListener('abort', onAbort);
+      cleanupSseElectronListeners(connectionId, api);
+      signal.removeEventListener('abort', onAbort);
     },
   };
 }

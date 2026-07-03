@@ -6,8 +6,8 @@
 
 import { useReactFlow } from '@xyflow/react';
 import { Undo2, Redo2, LayoutGrid, Maximize2, Play, AlertTriangle } from 'lucide-react';
-import { useEffect, useCallback, useMemo } from 'react';
-import { validateWorkflowGraph } from '../../lib/flowValidators';
+import { useEffect, useCallback } from 'react';
+import type { GraphValidationResult } from '../../hooks/useGraphValidation';
 import { layoutGraph } from './layout/autoLayout';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -19,28 +19,23 @@ interface FlowToolbarProps {
   workflow: Workflow;
   onRun: () => void;
   canRun: boolean;
+  /** Computed once by FlowEditor (via `useGraphValidation`) and passed
+   *  down — structural validity (cycles, dangling edges, missing start
+   *  node, bad condition/switch handles, …) previously only surfaced at
+   *  Run time as a single opaque top-level failure; this is what lets the
+   *  toolbar show issues before the user clicks Run. */
+  validation: GraphValidationResult;
 }
 
-export function FlowToolbar({ workflow, onRun, canRun }: FlowToolbarProps) {
+export function FlowToolbar({ workflow, onRun, canRun, validation }: FlowToolbarProps) {
   const setWorkflowGraph = useWorkflowStore((s) => s.setWorkflowGraph);
   const temporal = useWorkflowStore.temporal;
   const reactFlow = useReactFlow();
 
-  // Structural validity (cycles, dangling edges, missing start node, bad
-  // condition/switch handles, …) previously only surfaced at Run time as a
-  // single opaque top-level failure — nothing in the editor told the user
-  // which node/edge was wrong before they clicked Run. Only validate the
-  // actually-persisted graph: before any real edit `workflow.graph` is
-  // absent and the canvas renders a synthesised, unpersisted view (see
-  // FlowEditor's `renderedGraph`) that isn't meaningful to validate yet.
-  const validation = useMemo(() => {
-    if (!workflow.graph) return null;
-    return validateWorkflowGraph(workflow.graph);
-  }, [workflow.graph]);
-  // `ok: true` can still carry non-blocking warnings (e.g. dead wiring off
-  // an `end` node) — show all issues, but only block Run on 'error' ones.
-  const issues = validation?.issues ?? [];
-  const blockingIssues = issues.filter((i) => (i.severity ?? 'error') === 'error');
+  // `issues` can still carry non-blocking warnings (e.g. dead wiring off an
+  // `end` node) even when nothing blocks Run — show all of them, but only
+  // gate the Run button on `blockingIssues`.
+  const { issues, blockingIssues } = validation;
 
   // We deliberately read pastStates / futureStates length lazily on each
   // render rather than subscribing through `useStore(temporal, ...)` — the

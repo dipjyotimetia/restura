@@ -3,7 +3,7 @@
 import { Plus, Play, GitBranch, AlertTriangle } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { validateWorkflowGraph } from '../lib/flowValidators';
+import { useGraphValidation } from '../hooks/useGraphValidation';
 import { VariableExtractorConfig } from './VariableExtractorConfig';
 import { WorkflowStep } from './WorkflowStep';
 import { Button } from '@/components/ui/button';
@@ -104,14 +104,14 @@ export function WorkflowBuilder({
   // Same structural-validity gate as FlowToolbar's in-canvas Run button —
   // this footer button is a second entry point into the same run, so it
   // needs the same guard or a user could bypass the canvas warning here.
-  // Only blocking ('error') issues gate Run — non-blocking warnings (e.g.
-  // dead wiring off an `end` node) are visible in FlowToolbar's popover,
-  // not worth a scary "won't run" message on this simpler footer button.
-  const graphIssues = useMemo(() => {
-    if (!workflow.graph) return [];
-    const result = validateWorkflowGraph(workflow.graph);
-    return result.issues.filter((i) => (i.severity ?? 'error') === 'error');
-  }, [workflow.graph]);
+  // Computed once here and threaded down to FlowEditor/FlowToolbar as a
+  // prop (rather than each independently re-validating the same graph) —
+  // both are mounted in the same tree whenever the Graph tab is open. Only
+  // blocking ('error') issues gate Run — non-blocking warnings (e.g. dead
+  // wiring off an `end` node) are visible in FlowToolbar's popover, not
+  // worth a scary "won't run" message on this simpler footer button.
+  const graphValidation = useGraphValidation(workflow.graph);
+  const graphIssues = graphValidation.blockingIssues;
 
   const availableRequests = useMemo(() => {
     if (!collection) return [];
@@ -306,7 +306,7 @@ export function WorkflowBuilder({
 
             <TabsContent value="graph" className="flex-1 min-h-0 mt-3">
               <div className="h-full w-full rounded-lg overflow-hidden border border-sp-line">
-                <FlowEditor workflow={workflow} onRun={onRun} />
+                <FlowEditor workflow={workflow} onRun={onRun} validation={graphValidation} />
               </div>
             </TabsContent>
           </Tabs>

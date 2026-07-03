@@ -14,6 +14,7 @@
  * inline shape rather than silently dropped.
  */
 import { v4 as uuidv4 } from 'uuid';
+import { cleanupWebSocketElectronListeners } from './lib/websocketManager';
 import type { ProtocolModule, ProtocolStreamHandle } from '@/features/registry/types';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 
@@ -198,6 +199,13 @@ async function websocketStartStreamElectron(
   url: string,
   ctx: { signal: AbortSignal }
 ): Promise<ProtocolStreamHandle & { send: (frame: string) => void }> {
+  // Destructured up front rather than closing over `ctx` itself: the
+  // executor's actual runtime `ctx` also carries `variables` (this
+  // function's declared type just doesn't need it) — capturing only the
+  // signal lets that map be GC'd once the caller's frame is done instead
+  // of staying reachable for this stream's whole lifetime.
+  const { signal } = ctx;
+
   const api = getElectronAPI();
   if (!api?.websocket) {
     throw new Error('Electron WebSocket API is not available in this context.');
@@ -215,13 +223,6 @@ async function websocketStartStreamElectron(
       resolveWaiter = null;
       r();
     }
-  };
-
-  const cleanupListeners = () => {
-    ws.removeAllListeners(`ws:open:${connectionId}`);
-    ws.removeAllListeners(`ws:message:${connectionId}`);
-    ws.removeAllListeners(`ws:error:${connectionId}`);
-    ws.removeAllListeners(`ws:close:${connectionId}`);
   };
 
   let disconnected = false;
@@ -271,14 +272,14 @@ async function websocketStartStreamElectron(
     openSettle = null;
     disconnectOnce();
   };
-  if (ctx.signal.aborted) onAbort();
-  else ctx.signal.addEventListener('abort', onAbort, { once: true });
+  if (signal.aborted) onAbort();
+  else signal.addEventListener('abort', onAbort, { once: true });
 
   // Wait for open BEFORE returning — matches the web path so the
   // caller's first `send()` isn't racing a still-connecting socket.
   try {
     await new Promise<void>((resolve, reject) => {
-      if (ctx.signal.aborted) {
+      if (signal.aborted) {
         reject(new DOMException('Aborted', 'AbortError'));
         return;
       }
@@ -291,9 +292,9 @@ async function websocketStartStreamElectron(
       }, reject);
     });
   } catch (err) {
-    cleanupListeners();
+    cleanupWebSocketElectronListeners(connectionId, api);
     disconnectOnce();
-    ctx.signal.removeEventListener('abort', onAbort);
+    signal.removeEventListener('abort', onAbort);
     throw err;
   }
 
@@ -314,8 +315,8 @@ async function websocketStartStreamElectron(
       }
     } finally {
       disconnectOnce();
-      cleanupListeners();
-      ctx.signal.removeEventListener('abort', onAbort);
+      cleanupWebSocketElectronListeners(connectionId, api);
+      signal.removeEventListener('abort', onAbort);
     }
   }
 
@@ -326,8 +327,8 @@ async function websocketStartStreamElectron(
     },
     close: async () => {
       disconnectOnce();
-      cleanupListeners();
-      ctx.signal.removeEventListener('abort', onAbort);
+      cleanupWebSocketElectronListeners(connectionId, api);
+      signal.removeEventListener('abort', onAbort);
     },
   };
 }
