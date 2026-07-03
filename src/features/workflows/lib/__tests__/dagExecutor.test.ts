@@ -1280,6 +1280,93 @@ describe('dagExecutor — switch / loop / template / display', () => {
     });
     expect(result.status).toBe('success');
     const step = result.steps.find((s) => s.nodeId === 'disp');
-    expect(step?.extractedVariables?.out).toBe('{"a":1}');
+    // 'json' mode pretty-prints (2-space indent) — see the 'raw'/'table'
+    // mode tests below for the other `DisplayMode`s this feeds.
+    expect(step?.extractedVariables?.out).toBe('{\n  "a": 1\n}');
+  });
+
+  it('display "raw" mode renders compact, unformatted text', async () => {
+    const workflow = makeGraphWorkflow({
+      version: 1,
+      nodes: [
+        { id: 'start', kind: 'start', position: { x: 0, y: 0 } },
+        {
+          id: 'disp',
+          kind: 'display',
+          position: { x: 0, y: 0 },
+          data: { valueExpression: '({ a: 1, b: [1, 2] })', mode: 'raw', label: 'out' },
+        },
+        { id: 'end', kind: 'end', position: { x: 0, y: 0 } },
+      ],
+      edges: [
+        { id: 'e1', source: 'start', target: 'disp' },
+        { id: 'e2', source: 'disp', target: 'end' },
+      ],
+    });
+    const result = await executeDag({
+      workflow,
+      getRequestById: () => undefined,
+      envVars: {},
+    });
+    const step = result.steps.find((s) => s.nodeId === 'disp');
+    expect(step?.extractedVariables?.out).toBe('{"a":1,"b":[1,2]}');
+  });
+
+  it('display "table" mode renders an array of objects as rows', async () => {
+    const workflow = makeGraphWorkflow({
+      version: 1,
+      nodes: [
+        { id: 'start', kind: 'start', position: { x: 0, y: 0 } },
+        {
+          id: 'disp',
+          kind: 'display',
+          position: { x: 0, y: 0 },
+          data: {
+            valueExpression: '([{ id: 1, name: "a" }, { id: 2, name: "b" }])',
+            mode: 'table',
+            label: 'out',
+          },
+        },
+        { id: 'end', kind: 'end', position: { x: 0, y: 0 } },
+      ],
+      edges: [
+        { id: 'e1', source: 'start', target: 'disp' },
+        { id: 'e2', source: 'disp', target: 'end' },
+      ],
+    });
+    const result = await executeDag({
+      workflow,
+      getRequestById: () => undefined,
+      envVars: {},
+    });
+    const step = result.steps.find((s) => s.nodeId === 'disp');
+    expect(step?.extractedVariables?.out).toBe('id | name\n--- | ---\n1 | a\n2 | b');
+  });
+
+  it('display "table" mode falls back to pretty JSON for non-tabular values', async () => {
+    const workflow = makeGraphWorkflow({
+      version: 1,
+      nodes: [
+        { id: 'start', kind: 'start', position: { x: 0, y: 0 } },
+        {
+          id: 'disp',
+          kind: 'display',
+          position: { x: 0, y: 0 },
+          data: { valueExpression: '(42)', mode: 'table', label: 'out' },
+        },
+        { id: 'end', kind: 'end', position: { x: 0, y: 0 } },
+      ],
+      edges: [
+        { id: 'e1', source: 'start', target: 'disp' },
+        { id: 'e2', source: 'disp', target: 'end' },
+      ],
+    });
+    const result = await executeDag({
+      workflow,
+      getRequestById: () => undefined,
+      envVars: {},
+    });
+    const step = result.steps.find((s) => s.nodeId === 'disp');
+    expect(step?.extractedVariables?.out).toBe('42');
   });
 });

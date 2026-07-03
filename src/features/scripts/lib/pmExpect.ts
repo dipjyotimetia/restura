@@ -33,6 +33,13 @@ export const PM_EXPECT_BOOTSTRAP = `
     if (v === null) return 'null';
     try { return JSON.stringify(v); } catch (_e) { return String(v); }
   }
+  function __pmStatusClass(digit, label) {
+    var status = typeof response !== 'undefined' ? response.status : undefined;
+    __pmAssert(
+      typeof status === 'number' && Math.floor(status / 100) === digit,
+      'Expected a ' + label + ' status (' + digit + 'xx) but got ' + (status === undefined ? 'undefined' : status)
+    );
+  }
   function __pmDeepEqual(a, b) {
     if (a === b) return true;
     if (typeof a !== typeof b) return false;
@@ -114,6 +121,19 @@ export const PM_EXPECT_BOOTSTRAP = `
           if (typeof response === 'undefined') __pmAssert(false, 'No response available');
           var ct = (response.headers && (response.headers['content-type'] || response.headers['Content-Type'])) || '';
           __pmAssert(String(ct).indexOf('text/html') !== -1, 'Expected response to be HTML');
+        },
+        // Status-class shorthands, mirroring chai-postman's response wrapper.
+        info: function () { __pmStatusClass(1, 'informational'); },
+        success: function () { __pmStatusClass(2, 'successful'); },
+        redirection: function () { __pmStatusClass(3, 'redirection'); },
+        clientError: function () { __pmStatusClass(4, 'client error'); },
+        serverError: function () { __pmStatusClass(5, 'server error'); },
+        error: function () {
+          __pmAssert(
+            typeof response !== 'undefined' && response.status >= 400,
+            'Expected an error status (4xx/5xx) but got ' +
+              (typeof response !== 'undefined' ? response.status : 'undefined')
+          );
         }
       }
     },

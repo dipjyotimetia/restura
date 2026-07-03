@@ -91,6 +91,18 @@ interface ResturaPmResponse {
       json(): void;
       /** Assert an HTML content-type. */
       html(): void;
+      /** Assert a 1xx status. */
+      info(): void;
+      /** Assert a 2xx status. */
+      success(): void;
+      /** Assert a 3xx status. */
+      redirection(): void;
+      /** Assert a 4xx status. */
+      clientError(): void;
+      /** Assert a 5xx status. */
+      serverError(): void;
+      /** Assert a 4xx or 5xx status. */
+      error(): void;
     };
   };
   time: {
@@ -131,6 +143,8 @@ interface ResturaPmInfo {
   readonly iteration: number;
   /** Total iteration count (collection runner). */
   readonly iterationCount: number;
+  /** Which script phase is running: 'prerequest' or 'test'. */
+  readonly eventName: string;
 }
 
 /** Result of rs.sendRequest. */
@@ -255,6 +269,21 @@ declare const response: ResturaResponseGlobal;
 declare const environment: ResturaVariableScope;
 /** Global variables. */
 declare const globals: ResturaVariableScope;
+
+/** Legacy pre-\`pm\` Postman API — prefer \`pm.*\` / \`rs.*\` in new scripts. */
+interface ResturaLegacyPostmanApi {
+  setEnvironmentVariable(key: string, value: string): void;
+  getEnvironmentVariable(key: string): string | undefined;
+  clearEnvironmentVariable(key: string): void;
+  setGlobalVariable(key: string, value: string): void;
+  getGlobalVariable(key: string): string | undefined;
+  clearGlobalVariable(key: string): void;
+  setNextRequest(name: string | null | undefined): void;
+}
+/** Legacy Postman API alias (predates \`pm.*\`). */
+declare const postman: ResturaLegacyPostmanApi;
+/** Legacy \`tests["label"] = true/false\` object-literal test style. */
+declare const tests: Record<string, boolean>;
 `;
 
 let registered = false;

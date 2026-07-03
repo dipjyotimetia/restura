@@ -313,11 +313,12 @@ Users can trigger manual update checks via the app menu or by using the IPC chan
 
 ## Monitoring and Analytics
 
-Consider integrating:
+Restura's telemetry is deliberately minimal and privacy-preserving (see [ADR-0027](adr/0027-telemetry-and-privacy-preserving-usage-analytics.md)):
 
-- **Sentry**: Error tracking and performance monitoring
-- **Countly**: Analytics and user behavior
-- **Matomo**: Privacy-focused analytics
+- **Sentry** (desktop): opt-out crash & error reporting plus anonymous Release Health session counts (crash-free rate, version adoption) — the one usage signal, with no IP or per-user identifier. No performance tracing — a span could leak a proxied request URL.
+- **Web**: no application-level analytics. Request volume for the hosted proxy is already visible in Cloudflare's built-in Worker dashboard (`observability.enabled`); we record nothing ourselves, and the self-hosted server collects nothing.
+
+Do **not** add behavioural-analytics SDKs (Countly, Matomo, Google Analytics, and the like) or per-request app instrumentation — per-user tracking and behavioural profiling are explicitly out of scope for Restura's privacy posture.
 
 ## Support
 

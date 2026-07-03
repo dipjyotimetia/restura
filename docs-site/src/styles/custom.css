@@ -240,32 +240,12 @@ header.header {
   background: linear-gradient(
     135deg,
     rgb(var(--restura-cobalt)) 0%,
-    rgb(var(--restura-violet)) 35%,
-    rgb(var(--restura-cyan)) 60%,
-    rgb(var(--restura-violet)) 80%,
-    rgb(var(--restura-cobalt)) 100%
+    rgb(var(--restura-violet)) 100%
   );
-  background-size: 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
   color: transparent;
-}
-
-/* Hero gradient shimmer */
-@media (prefers-reduced-motion: no-preference) {
-  .hero h1 {
-    animation: hero-shimmer 12s ease-in-out infinite;
-  }
-}
-@keyframes hero-shimmer {
-  0%,
-  100% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
 }
 
 .hero .tagline {
@@ -372,19 +352,19 @@ header.header {
 :root[data-theme='dark'] .protocol-grid a::after {
   background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.18) 50%, transparent);
 }
-/* Hover glow */
+/* Hover glow — a restrained tint, not a neon wash */
 .protocol-grid a::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, rgb(var(--pc) / 0.16), transparent 60%);
+  background: linear-gradient(135deg, rgb(var(--pc) / 0.07), transparent 60%);
   opacity: 0;
   transition: opacity 0.2s ease;
   pointer-events: none;
 }
 .protocol-grid a:hover {
   transform: translateY(-3px);
-  border-color: rgb(var(--pc) / 0.4);
+  border-color: rgb(var(--pc) / 0.3);
 }
 .protocol-grid a:hover::before {
   opacity: 1;
@@ -469,6 +449,13 @@ header.header {
 .card:hover {
   transform: translateY(-2px);
   border-color: rgb(var(--restura-cobalt) / 0.35) !important;
+}
+/* Starlight's default Card cycles icon badges through 4 unrelated hues
+   (orange/purple/green/red) by grid position — override with the single
+   brand accent so the section reads as one system, not a rainbow. */
+.card {
+  --sl-card-border: rgb(var(--restura-cobalt) / 0.35) !important;
+  --sl-card-bg: rgb(var(--restura-cobalt) / 0.1) !important;
 }
 .card .icon {
   color: rgb(var(--restura-cobalt)) !important;

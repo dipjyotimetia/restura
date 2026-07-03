@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { executeRequest } from './lib/requestExecutor';
 import type { ProtocolModule } from '@/features/registry/types';
+import { readPmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -84,11 +85,18 @@ export const httpProtocol: ProtocolModule = {
     }
     const globalSettings = useSettingsStore.getState().settings;
     const variables = ctx.variables ?? {};
+    const opts = readPmRunContextOptions(ctx.protocolOptions);
     const result = await executeRequest({
       request,
       envVars: { ...variables },
       globalSettings,
       resolveVariables: (text) => defaultResolveVariables(text, variables),
+      ...(opts.collectionVars ? { collectionVars: opts.collectionVars } : {}),
+      ...(opts.iterationData ? { iterationData: opts.iterationData } : {}),
+      // requestName/requestId default from `request` one layer down in
+      // executeRequest's own `baseInfo` — no need to repeat that here.
+      ...(opts.info ? { info: opts.info } : {}),
+      ...(opts.location ? { location: opts.location } : {}),
     });
     // Forward script results (pre-request + test) to the runner so the
     // Console panel sees logs/tests. `executeRequest` runs both scripts

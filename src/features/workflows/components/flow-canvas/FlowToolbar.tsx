@@ -5,10 +5,13 @@
 'use client';
 
 import { useReactFlow } from '@xyflow/react';
-import { Undo2, Redo2, LayoutGrid, Maximize2, Play } from 'lucide-react';
+import { Undo2, Redo2, LayoutGrid, Maximize2, Play, AlertTriangle } from 'lucide-react';
 import { useEffect, useCallback } from 'react';
+import type { GraphValidationResult } from '../../hooks/useGraphValidation';
 import { layoutGraph } from './layout/autoLayout';
 import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { cn } from '@/lib/shared/utils';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import type { Workflow, WorkflowGraph } from '@/types';
 
@@ -16,12 +19,23 @@ interface FlowToolbarProps {
   workflow: Workflow;
   onRun: () => void;
   canRun: boolean;
+  /** Computed once by FlowEditor (via `useGraphValidation`) and passed
+   *  down — structural validity (cycles, dangling edges, missing start
+   *  node, bad condition/switch handles, …) previously only surfaced at
+   *  Run time as a single opaque top-level failure; this is what lets the
+   *  toolbar show issues before the user clicks Run. */
+  validation: GraphValidationResult;
 }
 
-export function FlowToolbar({ workflow, onRun, canRun }: FlowToolbarProps) {
+export function FlowToolbar({ workflow, onRun, canRun, validation }: FlowToolbarProps) {
   const setWorkflowGraph = useWorkflowStore((s) => s.setWorkflowGraph);
   const temporal = useWorkflowStore.temporal;
   const reactFlow = useReactFlow();
+
+  // `issues` can still carry non-blocking warnings (e.g. dead wiring off an
+  // `end` node) even when nothing blocks Run — show all of them, but only
+  // gate the Run button on `blockingIssues`.
+  const { issues, blockingIssues } = validation;
 
   // We deliberately read pastStates / futureStates length lazily on each
   // render rather than subscribing through `useStore(temporal, ...)` — the
@@ -109,7 +123,52 @@ export function FlowToolbar({ workflow, onRun, canRun }: FlowToolbarProps) {
         Fit
       </Button>
       <div className="flex-1" />
-      <Button size="sm" className="h-7 px-3 text-xs" onClick={onRun} disabled={!canRun}>
+      {issues.length > 0 && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 px-2 text-xs text-amber-500 hover:text-amber-500"
+              title={`${issues.length} validation issue${issues.length === 1 ? '' : 's'}`}
+            >
+              <AlertTriangle className="h-3.5 w-3.5 mr-1.5" />
+              {issues.length} issue{issues.length === 1 ? '' : 's'}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-96 max-h-72 overflow-y-auto">
+            <div className="text-xs font-medium mb-2">
+              {blockingIssues.length > 0
+                ? "This graph won't run until these are fixed:"
+                : 'Non-blocking warnings:'}
+            </div>
+            <ul className="space-y-1.5">
+              {issues.map((issue, i) => (
+                <li key={i} className="text-xs">
+                  <span
+                    className={cn(
+                      'font-mono',
+                      (issue.severity ?? 'error') === 'error'
+                        ? 'text-red-500'
+                        : 'text-muted-foreground'
+                    )}
+                  >
+                    {issue.path || 'graph'}
+                  </span>
+                  <span className="block text-foreground">{issue.message}</span>
+                </li>
+              ))}
+            </ul>
+          </PopoverContent>
+        </Popover>
+      )}
+      <Button
+        size="sm"
+        className="h-7 px-3 text-xs"
+        onClick={onRun}
+        disabled={!canRun || blockingIssues.length > 0}
+        title={blockingIssues.length > 0 ? 'Fix validation issues before running' : undefined}
+      >
         <Play className="h-3.5 w-3.5 mr-1.5" />
         Run
       </Button>

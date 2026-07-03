@@ -6,6 +6,7 @@ import { applyFilters, type FilterOptions } from './filter.js';
 import { withRetry, DEFAULT_RETRY, type RetryOptions } from './retry.js';
 import { runPreRequestScript, runTestScript, type RunScriptResult } from './scriptRunner.js';
 import { buildDispatcher, type TlsOptions } from './undiciFetcher.js';
+import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
 
 export interface RunOptions {
   envVars: Record<string, string>;
@@ -53,9 +54,19 @@ export async function runCollection(
 
   // Merge: env vars first, then collection vars override.
   const baseVars: Record<string, string> = { ...options.envVars };
+  // Run-scoped `pm.collectionVariables` backing map — separate from
+  // `baseVars`/`allVars` (which fold everything together for `{{var}}`
+  // substitution). Mutations carry forward within the run (Postman/Newman
+  // semantics: transient, not written back to the collection file on disk).
+  const collectionVars: Record<string, string> = {};
   for (const v of loaded.meta.variables ?? []) {
-    if ((v as { enabled?: boolean }).enabled !== false) baseVars[v.key] = v.value;
+    if ((v as { enabled?: boolean }).enabled !== false) {
+      baseVars[v.key] = v.value;
+      collectionVars[v.key] = v.value;
+    }
   }
+  const applyCollectionMutations = (mutations: Record<string, string | null> | undefined) =>
+    applyVarMutations(collectionVars, mutations);
 
   const filtered = options.filter ? applyFilters(loaded.requests, options.filter) : loaded.requests;
 
@@ -117,12 +128,20 @@ export async function runCollection(
       let preResult: RunScriptResult | undefined;
       let testResult: RunScriptResult | undefined;
 
+      const runCtx = {
+        collectionVars,
+        iterationData: row,
+        iteration: iter,
+        iterationCount: iterations.length,
+      };
+
       if (preScript) {
         try {
-          const pre = await runPreRequestScript(preScript, item, perRequestVars);
+          const pre = await runPreRequestScript(preScript, item, perRequestVars, runCtx);
           preResult = pre;
           perRequestVars = pre.variables;
           for (const k of Object.keys(pre.variables)) allVars[k] = pre.variables[k]!;
+          applyCollectionMutations(pre.collectionMutations);
           if (pre.errors.length > 0) scriptError = `pre-request: ${pre.errors.join('; ')}`;
           if (pre.assertions.length > 0) allAssertions.push(...pre.assertions);
         } catch (err) {
@@ -147,9 +166,10 @@ export async function runCollection(
 
       if (testScript) {
         try {
-          const test = await runTestScript(testScript, item, outcome, perRequestVars);
+          const test = await runTestScript(testScript, item, outcome, perRequestVars, runCtx);
           testResult = test;
           for (const k of Object.keys(test.variables)) allVars[k] = test.variables[k]!;
+          applyCollectionMutations(test.collectionMutations);
           if (test.assertions.length > 0) allAssertions.push(...test.assertions);
           if (test.errors.length > 0) {
             const msg = `test: ${test.errors.join('; ')}`;

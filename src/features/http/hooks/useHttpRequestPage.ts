@@ -13,14 +13,20 @@ import {
   mapBodyType,
   resolveEffectiveSettings,
 } from '@/features/http/lib/requestExecutor';
+import { makeCookieAdapter } from '@/features/scripts/lib/pmCookieAdapter.renderer';
+import { makeRendererSendRequest } from '@/features/scripts/lib/pmSendRequestHost';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { buildActiveRequestValueMap } from '@/lib/shared/activeRequestScopes';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
+import { makeRendererJudge } from '@/lib/shared/judgeBridge';
 import { isElectron } from '@/lib/shared/platform';
 import { unwrapSecret } from '@/lib/shared/secretRef';
 import { executeProxiedRequest } from '@/lib/shared/transport';
+import { buildValueMap } from '@/lib/shared/variableScopes';
+import { makeVaultAdapter } from '@/lib/shared/vaultClient';
 import { useActiveRequest } from '@/store/selectors';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import { useConsoleStore, createConsoleEntry } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
@@ -112,10 +118,45 @@ export function useHttpRequestPage() {
       // globals < env < collection). Pre-request-script mutations layer on top below.
       const envVars: Record<string, string> = buildActiveRequestValueMap();
 
+      // Resolve the owning collection (if this request is saved in one) so
+      // scripts get a real `pm.collectionVariables` namespace + `pm.info`,
+      // and `pm.sendRequest` / `pm.cookies` / `pm.vault` / `rs.judge` are
+      // wired the same way the collection runner wires them — this is the
+      // single most common way a user triggers a script (the "Send"
+      // button), so it must not silently reject those calls.
+      const savedRequestId = useRequestStore.getState().getActiveTab()?.savedRequestId;
+      const collection = savedRequestId
+        ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)
+        : undefined;
+      const collectionVars = buildValueMap({ collection: collection?.variables });
+      const collectionVarsMutations: Record<string, string | null> = {};
+      const applyCollectionMutations = (mutations?: Record<string, string | null>) => {
+        if (!mutations) return;
+        Object.assign(collectionVarsMutations, mutations);
+      };
+      const scriptInfo = { requestName: httpRequest.name, requestId: httpRequest.id };
+      const judgeCfg = useSettingsStore.getState().settings.judge;
+
       let preRequestResult;
       if (httpRequest.preRequestScript) {
         const globalVars = useGlobalsStore.getState().vars;
-        const executor = new ScriptExecutor({ envVars, globalVars });
+        const inheritedHeadersPre = httpRequest.headers
+          .filter((h) => h.enabled)
+          .reduce((acc, h) => ({ ...acc, [h.key]: h.value }), {} as Record<string, string>);
+        const executor = new ScriptExecutor({
+          envVars,
+          globalVars,
+          collectionVars: { ...collectionVars },
+          info: { ...scriptInfo, eventName: 'prerequest' },
+          host: {
+            sendRequest: makeRendererSendRequest({
+              variables: envVars,
+              inheritedHeaders: inheritedHeadersPre,
+            }),
+            cookies: (currentUrl) => makeCookieAdapter(currentUrl),
+            vault: makeVaultAdapter(),
+          },
+        });
         preRequestResult = await executor.executeScript(httpRequest.preRequestScript, {
           request: {
             url: httpRequest.url,
@@ -134,6 +175,7 @@ export function useHttpRequestPage() {
         if (preRequestResult.globalsMutations) {
           useGlobalsStore.getState().applyMutations(preRequestResult.globalsMutations);
         }
+        applyCollectionMutations(preRequestResult.collectionMutations);
         setScriptResult({ preRequest: preRequestResult });
       }
 
@@ -315,7 +357,21 @@ export function useHttpRequestPage() {
       let testResult;
       if (httpRequest.testScript) {
         const globalVars = useGlobalsStore.getState().vars;
-        const executor = new ScriptExecutor({ envVars, globalVars });
+        const executor = new ScriptExecutor({
+          envVars,
+          globalVars,
+          collectionVars: { ...collectionVars },
+          info: { ...scriptInfo, eventName: 'test' },
+          host: {
+            sendRequest: makeRendererSendRequest({
+              variables: envVars,
+              inheritedHeaders: headers,
+            }),
+            cookies: (currentUrl) => makeCookieAdapter(currentUrl),
+            vault: makeVaultAdapter(),
+            ...(judgeCfg?.enabled ? { judge: makeRendererJudge(judgeCfg) } : {}),
+          },
+        });
         testResult = await executor.executeScript(httpRequest.testScript, {
           request: {
             url: httpRequest.url,
@@ -342,10 +398,17 @@ export function useHttpRequestPage() {
         if (testResult.globalsMutations) {
           useGlobalsStore.getState().applyMutations(testResult.globalsMutations);
         }
+        applyCollectionMutations(testResult.collectionMutations);
         setScriptResult({
           ...(preRequestResult !== undefined && { preRequest: preRequestResult }),
           ...(testResult !== undefined && { test: testResult }),
         });
+      }
+
+      if (collection && Object.keys(collectionVarsMutations).length > 0) {
+        useCollectionStore
+          .getState()
+          .applyCollectionVarMutations(collection.id, collectionVarsMutations);
       }
 
       setCurrentResponse(responseData);

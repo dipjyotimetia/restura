@@ -115,20 +115,23 @@ export function useWorkflowExecution(
         };
         const onStepComplete = (step: WorkflowExecutionStep) => {
           setCurrentStep(step);
-          setExecution((prev) =>
-            prev
-              ? {
-                  ...prev,
-                  steps: prev.steps.map((s) => {
-                    // graph executions match on nodeId; linear on workflowRequestId
-                    const matches = step.nodeId
-                      ? s.nodeId === step.nodeId
-                      : s.workflowRequestId === step.workflowRequestId;
-                    return matches ? step : s;
-                  }),
-                }
-              : null
-          );
+          setExecution((prev) => {
+            if (!prev) return null;
+            // graph executions match on nodeId + instanceId (so concurrent
+            // forEach iterations / parallel branches sharing a nodeId don't
+            // overwrite each other's row); linear matches on workflowRequestId.
+            const matchIdx = prev.steps.findIndex((s) =>
+              step.nodeId
+                ? s.nodeId === step.nodeId && s.instanceId === step.instanceId
+                : s.workflowRequestId === step.workflowRequestId
+            );
+            if (matchIdx === -1) {
+              return { ...prev, steps: [...prev.steps, step] };
+            }
+            const steps = prev.steps.slice();
+            steps[matchIdx] = step;
+            return { ...prev, steps };
+          });
           if (isGraphRun && step.nodeId) {
             const status = step.status;
             // Only commit a terminal status — pending/running already

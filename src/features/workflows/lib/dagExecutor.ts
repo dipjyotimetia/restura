@@ -9,6 +9,7 @@
  */
 import { validateURL } from '@shared/protocol/url-validation';
 import { v4 as uuidv4 } from 'uuid';
+import { mirrorStepToConsole } from './consoleMirror';
 import { findStartNode, getOutgoingEdges, getNodeById } from './flowTypes';
 import { validateWorkflowGraph } from './flowValidators';
 import { executeWithRetry, sleepWithAbort, isAbortError } from './retryHelpers';
@@ -42,6 +43,7 @@ import type {
   SseSubscribeFlowNode,
   WsExchangeFlowNode,
   McpCallFlowNode,
+  DisplayMode,
 } from '@/types';
 
 export interface DagExecutorOptions {
@@ -119,7 +121,7 @@ export async function executeDag(options: DagExecutorOptions): Promise<WorkflowE
     return execution;
   }
 
-  const mcpClientPool: Map<string, McpClient> = new Map();
+  const mcpClientPool: Map<string, Promise<McpClient>> = new Map();
 
   try {
     await runGraph({
@@ -132,6 +134,7 @@ export async function executeDag(options: DagExecutorOptions): Promise<WorkflowE
       abortSignal,
       callStack: [...callStack, workflow.id],
       mcpClientPool,
+      instancePath: '',
       onStepStart,
       onStepComplete,
     });
@@ -149,7 +152,9 @@ export async function executeDag(options: DagExecutorOptions): Promise<WorkflowE
     // Tear down pooled MCP clients in parallel — we don't await
     // sequentially since a slow disconnect shouldn't block the others.
     await Promise.all(
-      Array.from(mcpClientPool.values()).map((c) => c.disconnect().catch(() => undefined))
+      Array.from(mcpClientPool.values()).map((p) =>
+        p.then((c) => c.disconnect()).catch(() => undefined)
+      )
     );
     mcpClientPool.clear();
     execution.completedAt = Date.now();
@@ -177,7 +182,19 @@ interface RunGraphArgs {
    *  in `executeDag` and disposed in its finally block. Lets multiple
    *  mcpCall nodes hitting the same MCP server share one initialized
    *  session instead of paying the initialize round-trip N times. */
-  mcpClientPool: Map<string, McpClient>;
+  mcpClientPool: Map<string, Promise<McpClient>>;
+  /**
+   * Identifies the concurrent-execution branch this call is running in —
+   * '' at the top level. `forEach` iterations and `parallel` branches
+   * extend it (e.g. `>nodeId#3`) before recursing so steps produced by
+   * two simultaneous instances of the same subgraph carry distinct
+   * `instanceId`s and don't clobber each other in `execution.steps` /
+   * live run-monitor state. Sequential recursion (loop, tryCatch,
+   * subWorkflow) doesn't strictly need this for correctness, but `loop`
+   * uses it too so each iteration's steps stay distinct in history
+   * instead of only the last iteration surviving.
+   */
+  instancePath: string;
   onStepStart?: (step: WorkflowExecutionStep) => void;
   onStepComplete?: (step: WorkflowExecutionStep) => void;
 }
@@ -415,7 +432,7 @@ async function executeNode(node: FlowNode, args: RunGraphArgs): Promise<void> {
         finishStep(args, step);
         throw new Error(step.error);
       }
-      const text = typeof result.value === 'string' ? result.value : JSON.stringify(result.value);
+      const text = formatDisplayValue(result.value, node.data.mode ?? 'json');
       const label = node.data.label || 'value';
       // Surface in the run monitor (extractedVariables) without polluting
       // the downstream scope beyond a namespaced handle.
@@ -530,6 +547,7 @@ async function runRequestNode(
 
     step.response = response;
     step.duration = Date.now() - step.timestamp;
+    mirrorStepToConsole(workflow.name, args.execution.id, injected, response);
 
     if (workflowRequest.extractVariables?.length) {
       const extracted = extractVariables(response, workflowRequest.extractVariables);
@@ -557,6 +575,57 @@ async function runRequestNode(
   }
 }
 
+// ---------- display node formatting ----------
+
+/**
+ * Render a display node's evaluated value per its `mode` setting. Before
+ * this, `mode` was surfaced in the inspector/canvas UI but the executor
+ * always JSON-stringified non-string values regardless of what the user
+ * picked — 'table' had zero observable effect anywhere.
+ */
+function formatDisplayValue(value: unknown, mode: DisplayMode): string {
+  if (mode === 'table') {
+    const table = formatAsTable(value);
+    if (table !== null) return table;
+    // No tabular structure (scalar, or an array that isn't all objects) —
+    // fall through to the same pretty-printed JSON 'json' mode uses.
+  }
+  if (mode === 'raw') {
+    return typeof value === 'string' ? value : JSON.stringify(value);
+  }
+  return JSON.stringify(value, null, 2);
+}
+
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function displayCell(v: unknown): string {
+  return typeof v === 'string' ? v : JSON.stringify(v);
+}
+
+/** Array-of-objects -> a header/row table; a single object -> key/value
+ *  rows. Anything else (scalars, mixed/non-object arrays) has no natural
+ *  tabular shape — returns null so the caller falls back to pretty JSON. */
+function formatAsTable(value: unknown): string | null {
+  if (Array.isArray(value) && value.length > 0 && value.every(isPlainObject)) {
+    const rows = value as Array<Record<string, unknown>>;
+    const columns = Array.from(new Set(rows.flatMap((r) => Object.keys(r))));
+    const lines = [
+      columns.join(' | '),
+      columns.map(() => '---').join(' | '),
+      ...rows.map((r) => columns.map((c) => displayCell(r[c])).join(' | ')),
+    ];
+    return lines.join('\n');
+  }
+  if (isPlainObject(value)) {
+    return Object.entries(value)
+      .map(([k, v]) => `${k}: ${displayCell(v)}`)
+      .join('\n');
+  }
+  return null;
+}
+
 class RequestNodeFailure extends Error {
   status: number;
   constructor(message: string, status: number) {
@@ -567,6 +636,22 @@ class RequestNodeFailure extends Error {
 }
 
 // ---------- parallel / forEach / tryCatch / subWorkflow ----------
+
+/**
+ * Fire `onAbort` when `parent` aborts (or immediately if it's already
+ * aborted) and return an unlink function to stop listening. Shared by
+ * runParallel/runForEach, which each propagate a Stop click down into
+ * their own per-branch/iteration AbortController.
+ */
+function linkAbort(parent: AbortSignal | undefined, onAbort: () => void): () => void {
+  if (!parent) return () => {};
+  if (parent.aborted) {
+    onAbort();
+    return () => {};
+  }
+  parent.addEventListener('abort', onAbort, { once: true });
+  return () => parent.removeEventListener('abort', onAbort);
+}
 
 async function runParallel(
   node: Extract<FlowNode, { kind: 'parallel' }>,
@@ -582,13 +667,39 @@ async function runParallel(
   };
   args.onStepStart?.(step);
 
-  const outgoing = getOutgoingEdges(args.graph, node.id);
-  const branches: Array<Promise<Record<string, string>>> = outgoing.map((edge) =>
-    runBranch(edge, args, visited)
-  );
-
   const waitMode: ParallelWaitMode = node.data.waitMode;
   const mergeStrategy: ParallelMergeStrategy = node.data.mergeStrategy ?? 'fail-on-conflict';
+
+  const outgoing = getOutgoingEdges(args.graph, node.id);
+  // Each branch gets its own AbortController so we can actually cancel
+  // stragglers once the parallel node's wait condition is satisfied —
+  // 'any'/'race' picking a winner, or (for any mode) a branch throwing —
+  // instead of letting losing branches keep making outbound calls and
+  // mutating shared state (mcpClientPool, execution.steps) in the
+  // background after the node has already reported its own result.
+  const branchAborts = outgoing.map(() => new AbortController());
+  const unlinkAbort = linkAbort(args.abortSignal, () => branchAborts.forEach((c) => c.abort()));
+  const cancelSiblings = (except: number) => {
+    branchAborts.forEach((c, i) => {
+      if (i !== except) c.abort();
+    });
+  };
+
+  const branches: Array<Promise<Record<string, string>>> = outgoing.map((edge, i) =>
+    runBranch(edge, args, visited, {
+      signal: branchAborts[i]!.signal,
+      instanceSuffix: `${node.id}#branch${i}`,
+    }).then(
+      (result) => {
+        if (waitMode !== 'all') cancelSiblings(i);
+        return result;
+      },
+      (err) => {
+        cancelSiblings(i);
+        throw err;
+      }
+    )
+  );
 
   try {
     let branchResults: Array<Record<string, string>>;
@@ -609,17 +720,28 @@ async function runParallel(
     step.duration = Date.now() - step.timestamp;
     finishStep(args, step);
     throw err;
+  } finally {
+    unlinkAbort();
   }
 }
 
 async function runBranch(
   edge: FlowEdge,
   args: RunGraphArgs,
-  parentVisited: Set<string>
+  parentVisited: Set<string>,
+  opts: { signal: AbortSignal; instanceSuffix: string }
 ): Promise<Record<string, string>> {
-  // Each branch gets an isolated deep-cloned variables map.
+  // Each branch gets an isolated deep-cloned variables map, its own abort
+  // signal (so a winning sibling or a parent Stop can cancel it), and a
+  // distinct instancePath (so its steps don't clobber a sibling branch's
+  // steps for shared nodeIds in execution.steps / the run monitor).
   const branchVars: Record<string, string> = { ...args.variables };
-  const branchArgs: RunGraphArgs = { ...args, variables: branchVars };
+  const branchArgs: RunGraphArgs = {
+    ...args,
+    variables: branchVars,
+    abortSignal: opts.signal,
+    instancePath: `${args.instancePath}>${opts.instanceSuffix}`,
+  };
   const next = getNodeById(args.graph, edge.target);
   if (!next) return branchVars;
   // Branch visited set is independent of the parent's so a downstream
@@ -702,13 +824,20 @@ async function runForEach(
   const concurrency = Math.max(1, Math.min(node.data.concurrency ?? 8, 64));
   const allResults: unknown[] = new Array(items.length);
 
+  // A dedicated controller lets one iteration's failure stop the rest of
+  // the pool from grabbing new items / continuing mid-flight work, instead
+  // of every other worker running to completion in the background after
+  // the forEach node has already failed (mirrors the parallel-node fix).
+  const forEachAbort = new AbortController();
+  const unlinkAbort = linkAbort(args.abortSignal, () => forEachAbort.abort());
+
   let cursor = 0;
   const workers: Array<Promise<void>> = [];
   for (let w = 0; w < Math.min(concurrency, items.length); w++) {
     workers.push(
       (async () => {
         while (true) {
-          if (args.abortSignal?.aborted) {
+          if (forEachAbort.signal.aborted) {
             throw new DOMException('Aborted', 'AbortError');
           }
           const i = cursor++;
@@ -720,9 +849,20 @@ async function runForEach(
             ...args,
             graph: node.data.subgraph,
             variables: iterVars,
+            abortSignal: forEachAbort.signal,
+            // Distinct per-iteration instance so concurrent iterations
+            // executing the same subgraph (identical nodeIds) don't
+            // clobber each other's steps in execution.steps / the run
+            // monitor — each iteration keeps its own row.
+            instancePath: `${args.instancePath}>${node.id}#${i}`,
           };
-          // Each iteration walks its own subgraph from start.
-          await runGraph(iterArgs);
+          try {
+            // Each iteration walks its own subgraph from start.
+            await runGraph(iterArgs);
+          } catch (err) {
+            forEachAbort.abort();
+            throw err;
+          }
           allResults[i] = iterVars;
         }
       })()
@@ -740,6 +880,8 @@ async function runForEach(
     step.duration = Date.now() - step.timestamp;
     finishStep(args, step);
     throw err;
+  } finally {
+    unlinkAbort();
   }
 }
 
@@ -770,8 +912,15 @@ async function runLoop(
       // 'while' runs while truthy; 'until' runs until truthy (i.e. while falsy).
       const shouldRun = node.data.mode === 'while' ? cond : !cond;
       if (!shouldRun) break;
-      // Share the parent scope so body mutations affect the next condition.
-      await runGraph({ ...args, graph: node.data.subgraph });
+      // Share the parent scope (same `variables` reference) so body
+      // mutations affect the next condition, but give each iteration a
+      // distinct instancePath so its steps don't overwrite the previous
+      // iteration's entry in execution.steps / the run monitor.
+      await runGraph({
+        ...args,
+        graph: node.data.subgraph,
+        instancePath: `${args.instancePath}>${node.id}#${iterations}`,
+      });
       iterations++;
       if (node.data.delayMs && node.data.delayMs > 0) {
         await sleepWithAbort(node.data.delayMs, args.abortSignal);
@@ -823,7 +972,12 @@ async function runTryCatch(
     }
     const msg = err instanceof Error ? err.message : String(err);
     args.log(`tryCatch caught: ${msg}`, 'warn');
-    const catchVars: Record<string, string> = { ...args.variables };
+    // Seed the catch scope from `tryVars`, not the pre-try `args.variables`
+    // — nodes that ran successfully before the failing one already mutated
+    // `tryVars` in place, and those mutations must stay visible to the
+    // catch subgraph (e.g. a later node referencing `orderId` set by an
+    // earlier try-block node before a subsequent node threw).
+    const catchVars: Record<string, string> = { ...tryVars };
     catchVars.error = msg;
     catchVars.errorNode = err instanceof RequestNodeFailure ? String(err.status) : '';
     try {
@@ -930,16 +1084,20 @@ async function runSubWorkflow(
 // ---------- step bookkeeping ----------
 
 function pushStep(args: RunGraphArgs, step: WorkflowExecutionStep): void {
+  step.instanceId = args.instancePath || undefined;
   args.execution.steps.push(step);
   args.onStepStart?.(step);
   args.onStepComplete?.(step);
 }
 
 function finishStep(args: RunGraphArgs, step: WorkflowExecutionStep): void {
-  // Replace any prior in-flight copy of this step (matched by nodeId)
-  // so we don't duplicate the row.
+  step.instanceId = args.instancePath || undefined;
+  // Replace any prior in-flight copy of THIS SAME logical step — matched by
+  // both nodeId and instanceId, so concurrent forEach iterations / parallel
+  // branches (which share nodeIds but carry distinct instanceIds) each keep
+  // their own row instead of overwriting one another.
   const existingIdx = args.execution.steps.findIndex(
-    (s) => s.nodeId && s.nodeId === step.nodeId && s !== step
+    (s) => s.nodeId && s.nodeId === step.nodeId && s.instanceId === step.instanceId && s !== step
   );
   if (existingIdx >= 0) {
     args.execution.steps[existingIdx] = step;
@@ -1047,15 +1205,27 @@ async function consumeWithPolicy(
 ): Promise<void> {
   let count = 0;
 
-  // Set up the timeout race — only matters for `timeoutMs`. Linked to
-  // the executor's signal so an external abort tears down the timer.
+  // Set up the timeout race — only matters for `timeoutMs`. The `for
+  // await` loop below only re-checks `timeoutFired`/`signal.aborted` when
+  // a NEW event arrives from `handle.events` — on a truly idle stream
+  // neither flag would ever be observed, hanging forever. Proactively
+  // closing the handle is what actually interrupts a pending read: `close`
+  // is documented as idempotent and as ending the async iterable, so this
+  // also correctly stops abort (Stop click) from waiting on a stream that
+  // may never emit another event.
   let timeoutFired = false;
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   if (policy.kind === 'timeoutMs') {
     timeoutId = setTimeout(() => {
       timeoutFired = true;
+      handle.close().catch(() => undefined);
     }, policy.ms);
   }
+  const onAbort = () => {
+    handle.close().catch(() => undefined);
+  };
+  if (signal.aborted) onAbort();
+  else signal.addEventListener('abort', onAbort, { once: true });
 
   // For `eventMatch`, pre-warm a single QuickJS session and reuse it
   // across all events. Without this, each event would spin up a fresh
@@ -1090,6 +1260,7 @@ async function consumeWithPolicy(
     }
   } finally {
     if (timeoutId !== null) clearTimeout(timeoutId);
+    signal.removeEventListener('abort', onAbort);
     predicateEvaluator?.dispose();
     await handle.close().catch(() => undefined);
   }
@@ -1286,6 +1457,9 @@ async function runMcpCall(node: McpCallFlowNode, args: RunGraphArgs): Promise<vo
       get: (k) => args.mcpClientPool.get(k),
       set: (k, c) => {
         args.mcpClientPool.set(k, c);
+      },
+      delete: (k) => {
+        args.mcpClientPool.delete(k);
       },
     };
     const callArgs: McpRunJsonRpcOptions = {

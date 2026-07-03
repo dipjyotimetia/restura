@@ -1,6 +1,23 @@
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 
+/**
+ * Remove all `ws:{open,message,error,close}:<connectionId>` IPC listeners.
+ * Standalone (not a class method) so both this store-coupled manager and
+ * the store-free `websocketStartStream`'s Electron path
+ * (`src/features/websocket/protocol.ts`, used by the DAG executor's
+ * wsExchange node) share one definition of the channel set.
+ */
+export function cleanupWebSocketElectronListeners(
+  connectionId: string,
+  api: ReturnType<typeof getElectronAPI>
+): void {
+  api?.websocket?.removeAllListeners(`ws:open:${connectionId}`);
+  api?.websocket?.removeAllListeners(`ws:message:${connectionId}`);
+  api?.websocket?.removeAllListeners(`ws:error:${connectionId}`);
+  api?.websocket?.removeAllListeners(`ws:close:${connectionId}`);
+}
+
 // Singleton manager for WebSocket connections
 class WebSocketManager {
   private connections: Map<string, WebSocket> = new Map();
@@ -186,7 +203,7 @@ class WebSocketManager {
       const api = getElectronAPI();
       api?.websocket?.disconnect({ connectionId });
       this.electronConnections.delete(connectionId);
-      this.cleanupElectronListeners(connectionId, api);
+      cleanupWebSocketElectronListeners(connectionId, api);
       const state = useWebSocketStore.getState();
       state.updateConnectionStatus(connectionId, 'disconnected');
       state.setReconnectAttempts(connectionId, 0);
@@ -305,7 +322,7 @@ class WebSocketManager {
       );
       s.updateConnectionStatus(connectionId, 'disconnected');
       this.electronConnections.delete(connectionId);
-      this.cleanupElectronListeners(connectionId, api);
+      cleanupWebSocketElectronListeners(connectionId, api);
     });
 
     api.websocket
@@ -321,18 +338,8 @@ class WebSocketManager {
         s.addMessage(connectionId, 'system', `Failed to connect: ${errMsg}`);
         s.updateConnectionStatus(connectionId, 'disconnected');
         this.electronConnections.delete(connectionId);
-        this.cleanupElectronListeners(connectionId, api);
+        cleanupWebSocketElectronListeners(connectionId, api);
       });
-  }
-
-  private cleanupElectronListeners(
-    connectionId: string,
-    api: ReturnType<typeof getElectronAPI>
-  ): void {
-    api?.websocket?.removeAllListeners(`ws:open:${connectionId}`);
-    api?.websocket?.removeAllListeners(`ws:message:${connectionId}`);
-    api?.websocket?.removeAllListeners(`ws:error:${connectionId}`);
-    api?.websocket?.removeAllListeners(`ws:close:${connectionId}`);
   }
 
   private startHeartbeat(connectionId: string, interval: number, message: string): void {

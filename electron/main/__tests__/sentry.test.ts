@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vite
 // exercise the captured beforeSend directly.
 vi.mock('@sentry/electron/main', () => ({
   init: vi.fn(),
+  mainProcessSessionIntegration: vi.fn(() => ({ name: 'MainProcessSession' })),
 }));
 
 import * as Sentry from '@sentry/electron/main';
@@ -95,9 +96,17 @@ describe('opt-in gate', () => {
     expect(initMock).toHaveBeenCalledTimes(1);
 
     const opts = initMock.mock.calls[0]![0] as {
+      integrations: { name: string }[];
+      sendDefaultPii: boolean;
       beforeSend: (e: unknown) => unknown;
       beforeBreadcrumb: (crumb: unknown) => unknown;
     };
+
+    // Release Health session tracking is explicit, and no PII is sent — the
+    // documented desktop usage signal.
+    expect(opts.integrations.some((i) => i.name === 'MainProcessSession')).toBe(true);
+    expect(opts.sendDefaultPii).toBe(false);
+
     const crumb = { type: 'navigation', message: 'click' };
 
     // Both gates pass when enabled.

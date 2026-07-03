@@ -30,6 +30,11 @@ const baseNode = {
 };
 
 // Forward-declared lazy reference so we can nest subgraphs.
+// `version: z.literal(1)` is intentionally hardcoded, not
+// `z.literal(CURRENT_GRAPH_VERSION)` — see that constant's doc comment in
+// flowTypes.ts: there's no migration path yet, so bumping the version
+// number alone (here or there) would just hard-fail every existing
+// persisted graph rather than upgrade it.
 const workflowGraphSchemaInner: z.ZodType<WorkflowGraph> = z.lazy(() =>
   z.object({
     version: z.literal(1),
@@ -272,12 +277,23 @@ export const workflowGraphSchema = workflowGraphSchemaInner;
 export interface ValidationIssue {
   path: string;
   message: string;
+  /**
+   * 'error' blocks Run (structurally broken — the executor can't produce a
+   * meaningful result, e.g. a missing start node or a cycle). 'warning' is
+   * an authoring foot-gun that doesn't prevent a correct run (e.g. dead
+   * wiring off an `end` node) — surfaced in the editor but not blocking.
+   * Defaults to 'error' when omitted so every pre-existing check (written
+   * before this field existed) keeps blocking exactly as before.
+   */
+  severity?: 'error' | 'warning';
 }
 
 export function validateWorkflowGraph(graph: unknown):
   | {
       ok: true;
       graph: WorkflowGraph;
+      /** Non-blocking warnings — always present, empty when there are none. */
+      issues: ValidationIssue[];
     }
   | { ok: false; issues: ValidationIssue[] } {
   const parsed = workflowGraphSchema.safeParse(graph);
@@ -287,6 +303,7 @@ export function validateWorkflowGraph(graph: unknown):
       issues: parsed.error.issues.map((i) => ({
         path: i.path.join('.'),
         message: i.message,
+        severity: 'error',
       })),
     };
   }
@@ -373,12 +390,29 @@ export function validateWorkflowGraph(graph: unknown):
     if (hasCycle(sg)) {
       issues.push({ path: label, message: 'graph contains a cycle' });
     }
+
+    // `walkFrom` (dagExecutor.ts) returns immediately for `kind === 'end'`
+    // without following its outgoing edges, so any edge leaving an `end`
+    // node is silently unreachable dead wiring — not a run-breaking
+    // problem (nothing downstream of it can ever execute regardless), so
+    // it's a warning rather than a blocking error.
+    for (const node of sg.nodes) {
+      if (node.kind !== 'end') continue;
+      const dangling = getOutgoingEdges(sg, node.id);
+      for (const edge of dangling) {
+        issues.push({
+          path: `${label}.edges.${edge.id}`,
+          message: `edge leaves an "end" node ("${node.id}") — it will never be traversed`,
+          severity: 'warning',
+        });
+      }
+    }
   }
 
-  if (issues.length > 0) {
+  if (issues.some((i) => (i.severity ?? 'error') === 'error')) {
     return { ok: false, issues };
   }
-  return { ok: true, graph: parsed.data };
+  return { ok: true, graph: parsed.data, issues };
 }
 
 function hasCycle(graph: WorkflowGraph): boolean {

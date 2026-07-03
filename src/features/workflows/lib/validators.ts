@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { workflowGraphSchema } from './flowValidators';
+import { workflowGraphSchema, validateWorkflowGraph } from './flowValidators';
 
 export const extractionMethodSchema = z.enum(['jsonpath', 'regex', 'header']);
 
@@ -101,13 +101,30 @@ export const workflowExecutionSchema = z.object({
 // Validation helpers
 export function validateWorkflow(data: unknown): { success: boolean; errors?: string[] } {
   const result = workflowSchema.safeParse(data);
-  if (result.success) {
-    return { success: true };
+  if (!result.success) {
+    return {
+      success: false,
+      errors: result.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`),
+    };
   }
-  return {
-    success: false,
-    errors: result.error.issues.map((e) => `${e.path.join('.')}: ${e.message}`),
-  };
+  // `workflowGraphSchema` above only checks shape — it accepts a `graph`
+  // with cycles, dangling edges, a missing start node, etc. `graph` is
+  // re-validated through the same structural gate `dagExecutor.ts` and
+  // `workflowIO.ts`'s import path rely on, so a `Workflow` this function
+  // approves is actually runnable, not just shape-valid.
+  if (result.data.graph) {
+    const graphResult = validateWorkflowGraph(result.data.graph);
+    if (!graphResult.ok) {
+      const blocking = graphResult.issues.filter((i) => (i.severity ?? 'error') === 'error');
+      if (blocking.length > 0) {
+        return {
+          success: false,
+          errors: blocking.map((i) => `graph.${i.path}: ${i.message}`),
+        };
+      }
+    }
+  }
+  return { success: true };
 }
 
 export function validateWorkflowRequest(data: unknown): { success: boolean; errors?: string[] } {
