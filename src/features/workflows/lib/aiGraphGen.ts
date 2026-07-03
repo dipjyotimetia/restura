@@ -10,9 +10,19 @@
  *
  * Keeping this pure means the correctness-critical part (prompt + parse +
  * validate) is testable without an Electron harness or a live model.
+ *
+ * **Not wired up yet.** No UI, hook, store action, or Electron handler
+ * currently calls `buildGraphSystemPrompt`/`extractGraphFromAiText` —
+ * there is no "generate a workflow from a prompt" entry point in the app
+ * today. Whoever wires this up next should route the extracted graph
+ * through `remapGraphIds` (already applied on the success path here) if
+ * they ever merge/insert it into an EXISTING graph rather than creating a
+ * brand-new workflow, and confirm the transport layer applies the same
+ * SSRF/validation guarantees to AI-sourced content as human-authored edits.
  */
+import { v4 as uuidv4 } from 'uuid';
 import { validateWorkflowGraph } from './flowValidators';
-import type { WorkflowGraph } from '@/types';
+import type { WorkflowGraph, FlowNode } from '@/types';
 
 /**
  * System prompt that constrains the model to emit a single WorkflowGraph
@@ -75,7 +85,64 @@ export function extractGraphFromAiText(text: string): GraphExtractResult {
       error: `Generated graph is invalid${first ? `: ${first.path} — ${first.message}` : ''}`,
     };
   }
-  return { ok: true, graph: res.graph };
+  return { ok: true, graph: remapGraphIds(res.graph) };
+}
+
+/**
+ * Replace every node/edge id in the graph (recursively through nested
+ * forEach/loop/tryCatch subgraphs) with a fresh uuid. The model emits its
+ * own ids verbatim (often short/predictable, e.g. "start", "sv", "end" —
+ * see the test fixtures), and nothing else in the pipeline remaps them.
+ * Rewriting here means a generated graph is safe to merge into an
+ * existing one without id collisions, whether or not a merge path exists
+ * yet — id namespacing is cheap to guarantee now and expensive to retrofit
+ * once something depends on the model's ids being stable.
+ */
+function remapGraphIds(graph: WorkflowGraph): WorkflowGraph {
+  const idMap = new Map<string, string>();
+
+  const remapNode = (node: FlowNode): FlowNode => {
+    const newId = uuidv4();
+    idMap.set(node.id, newId);
+    if (node.kind === 'forEach') {
+      return {
+        ...node,
+        id: newId,
+        data: { ...node.data, subgraph: remapGraphIds(node.data.subgraph) },
+      };
+    }
+    if (node.kind === 'loop') {
+      return {
+        ...node,
+        id: newId,
+        data: { ...node.data, subgraph: remapGraphIds(node.data.subgraph) },
+      };
+    }
+    if (node.kind === 'tryCatch') {
+      return {
+        ...node,
+        id: newId,
+        data: {
+          ...node.data,
+          trySubgraph: remapGraphIds(node.data.trySubgraph),
+          catchSubgraph: remapGraphIds(node.data.catchSubgraph),
+        },
+      };
+    }
+    return { ...node, id: newId } as FlowNode;
+  };
+
+  const nodes = graph.nodes.map(remapNode);
+  // Edges are processed after all nodes so `idMap` is fully populated —
+  // `source`/`target` reference sibling nodes at this same graph level.
+  const edges = graph.edges.map((e) => ({
+    ...e,
+    id: uuidv4(),
+    source: idMap.get(e.source) ?? e.source,
+    target: idMap.get(e.target) ?? e.target,
+  }));
+
+  return { ...graph, nodes, edges };
 }
 
 /** Extract a JSON object string: prefer a fenced block, else the first

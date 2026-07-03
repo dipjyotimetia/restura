@@ -4,6 +4,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { selectAtPath, setAtPath } from '@/features/workflows/lib/flowTypes';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { truncateForPersist } from '@/lib/shared/utils';
 import type {
   Workflow,
   WorkflowRequest,
@@ -93,6 +94,56 @@ interface WorkflowState {
   // Helpers
   createNewWorkflowRequest: (requestId: string, name: string) => WorkflowRequest;
   createNewExtraction: (variableName: string, path: string) => VariableExtraction;
+}
+
+// `executions` is capped at 100 entries (see `saveExecution`), but nothing
+// bounded the SIZE of any one entry: a step's `response.body` can hold a
+// full response, and `extractedVariables`/`finalVariables` can hold a
+// `JSON.stringify`'d capture of up to 10,000 sseSubscribe events or a large
+// forEach's `.results` — persisted verbatim, 100 such runs could bloat
+// storage arbitrarily. Uses the same `truncateForPersist` helper (and the
+// same limit values) as `useConsoleStore.ts`'s PERSIST_BODY_LIMIT /
+// PERSIST_LOG_MESSAGE_LIMIT.
+const PERSIST_VALUE_LIMIT = 64 * 1024;
+const PERSIST_LOG_MESSAGE_LIMIT = 4 * 1024;
+const PERSIST_LOG_LIMIT = 500;
+
+// Every call site below already only invokes this on a defined map (guarded
+// by `step.extractedVariables &&` or `execution.finalVariables` being a
+// required field), so it takes/returns `Record<string, string>` directly
+// rather than carrying an `| undefined` case none of its callers need.
+function truncateVariableMap(vars: Record<string, string>): Record<string, string> {
+  const next: Record<string, string> = {};
+  for (const [k, v] of Object.entries(vars)) {
+    next[k] = v.length > PERSIST_VALUE_LIMIT ? truncateForPersist(v, PERSIST_VALUE_LIMIT) : v;
+  }
+  return next;
+}
+
+/** Bound the persisted footprint of one execution: response bodies,
+ *  extracted/final variables, and the log feed. The in-memory execution
+ *  object returned to the UI immediately after a run stays full-fidelity —
+ *  only the copy written to `executions` (and thus Dexie) is trimmed. */
+function trimExecutionForPersist(execution: WorkflowExecution): WorkflowExecution {
+  return {
+    ...execution,
+    steps: execution.steps.map((step) => ({
+      ...step,
+      ...(step.response && {
+        response: {
+          ...step.response,
+          body: truncateForPersist(step.response.body, PERSIST_VALUE_LIMIT),
+        },
+      }),
+      ...(step.extractedVariables && {
+        extractedVariables: truncateVariableMap(step.extractedVariables),
+      }),
+    })),
+    finalVariables: truncateVariableMap(execution.finalVariables),
+    executionLog: execution.executionLog
+      .slice(-PERSIST_LOG_LIMIT)
+      .map((l) => ({ ...l, message: truncateForPersist(l.message, PERSIST_LOG_MESSAGE_LIMIT) })),
+  };
 }
 
 /**
@@ -463,7 +514,11 @@ export const useWorkflowStore = create<WorkflowState>()(
         // Execution History
         saveExecution: (execution) =>
           set((state) => ({
-            executions: [...state.executions, execution].slice(-100), // Keep last 100 executions
+            // Keep last 100 executions, each bounded in size (see
+            // trimExecutionForPersist) — count alone doesn't cap storage
+            // when a single run's response bodies or captured variables
+            // (e.g. a large sseSubscribe/forEach) can be arbitrarily large.
+            executions: [...state.executions, trimExecutionForPersist(execution)].slice(-100),
           })),
 
         getExecutionsByWorkflowId: (workflowId) =>

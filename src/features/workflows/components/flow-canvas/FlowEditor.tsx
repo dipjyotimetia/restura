@@ -10,6 +10,7 @@
 import { ReactFlowProvider } from '@xyflow/react';
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { toast } from 'sonner';
+import type { GraphValidationResult } from '../../hooks/useGraphValidation';
 import { selectAtPath, emptyStubGraph } from '../../lib/flowTypes';
 
 const SUBGRAPH_TOUR_KEY = 'restura.tour.subgraphDrillDown.v1';
@@ -27,15 +28,27 @@ import type { Workflow, WorkflowGraph, SubgraphPath } from '@/types';
 interface FlowEditorProps {
   workflow: Workflow;
   onRun: () => void;
+  /** Computed once by the caller (WorkflowBuilder) and passed down rather
+   *  than re-validated here — avoids running the same Zod parse + cycle
+   *  DFS twice per render for the graph this editor is already showing. */
+  validation: GraphValidationResult;
 }
 
-export default function FlowEditor({ workflow, onRun }: FlowEditorProps) {
+export default function FlowEditor({ workflow, onRun, validation }: FlowEditorProps) {
   const setWorkflowSubgraph = useWorkflowStore((s) => s.setWorkflowSubgraph);
   const [subgraphPath, setSubgraphPath] = useState<SubgraphPath>([]);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   const renderedGraph: WorkflowGraph | null = useMemo(() => {
-    if (!workflow.graph) return null;
+    if (!workflow.graph) {
+      // No graph has been created yet — render a synthesised, in-memory
+      // view derived from `requests[]` instead of getting stuck on
+      // "Loading graph…" merely because the user opened this tab. This
+      // view is NOT persisted; `workflow.graph` is only materialised by
+      // an actual structural edit (see FlowCanvas's `commit` calls and
+      // its `graphMaterialized` guard on viewport-only changes).
+      return deriveGraphFromLinear(workflow.requests);
+    }
     if (subgraphPath.length === 0) {
       if (workflow.graph.nodes.length > 0) {
         const needsLayout = workflow.graph.nodes.every(
@@ -111,7 +124,7 @@ export default function FlowEditor({ workflow, onRun }: FlowEditorProps) {
   return (
     <ReactFlowProvider>
       <div className="flex flex-col h-full w-full">
-        <FlowToolbar workflow={workflow} onRun={onRun} canRun={canRun} />
+        <FlowToolbar workflow={workflow} onRun={onRun} canRun={canRun} validation={validation} />
         <FlowBreadcrumb workflow={workflow} path={subgraphPath} onNavigate={onNavigate} />
         <div className="flex-1 flex min-h-0">
           <FlowSidebar collectionId={workflow.collectionId} />
@@ -125,6 +138,7 @@ export default function FlowEditor({ workflow, onRun }: FlowEditorProps) {
                   commit={commit}
                   selectedNodeId={selectedNodeId}
                   onSelectionChange={setSelectedNodeId}
+                  graphMaterialized={Boolean(workflow.graph)}
                 />
               ) : (
                 <div className="flex items-center justify-center h-full text-sm text-muted-foreground">

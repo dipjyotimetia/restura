@@ -38,10 +38,29 @@ interface JsonRpcCallResult {
 }
 
 export interface McpClientPool {
-  /** Look up a cached client. */
-  get(key: string): McpClient | undefined;
-  /** Cache a client under `key`. */
-  set(key: string, client: McpClient): void;
+  /**
+   * Look up a cached (possibly still-connecting) client. Storing the
+   * *promise* rather than the resolved client is load-bearing: it lets a
+   * second concurrent `mcpCall` with the same `cacheKey` await the SAME
+   * in-flight `connect`+`initialize` instead of racing its own — a plain
+   * get-then-set here would otherwise let two concurrent callers both see
+   * `undefined`, both create+init a client, and have the second `set()`
+   * silently orphan the first (never disconnected).
+   */
+  get(key: string): Promise<McpClient> | undefined;
+  /** Cache a client (or its in-flight init) under `key`. */
+  set(key: string, client: Promise<McpClient>): void;
+  /** Evict a cached entry — used to un-poison the pool after a failed init. */
+  delete(key: string): void;
+}
+
+class McpInitError extends Error {
+  jsonRpcError?: JsonRpcCallResult['jsonRpcError'];
+  constructor(message: string, jsonRpcError?: JsonRpcCallResult['jsonRpcError']) {
+    super(message);
+    this.name = 'McpInitError';
+    if (jsonRpcError) this.jsonRpcError = jsonRpcError;
+  }
 }
 
 export interface McpRunJsonRpcOptions {
@@ -76,6 +95,33 @@ async function initializeClient(
   return { ok: true };
 }
 
+/** Build + connect + initialize a fresh client. Throws `McpInitError` on
+ *  failure rather than returning a result object, so it composes cleanly
+ *  as a cacheable `Promise<McpClient>` in the pool (a rejected promise
+ *  naturally clears itself; see the `.catch` below). */
+async function createAndInitClient(mcp: McpRequest, method: string): Promise<McpClient> {
+  const headerMap: Record<string, string> = {};
+  for (const h of mcp.headers ?? []) {
+    if (h.enabled !== false && h.key) headerMap[h.key] = h.value;
+  }
+  const client = new McpClient({
+    url: mcp.url,
+    transport: mcp.transport,
+    headers: headerMap,
+    connectionId: `flow-${uuidv4()}`,
+  });
+  // Skip the explicit initialize step when the caller asked for
+  // `initialize` themselves.
+  if (method !== 'initialize') {
+    const init = await initializeClient(client);
+    if (!init.ok) throw new McpInitError(init.error, init.jsonRpcError);
+  } else {
+    const conn = await client.connect();
+    if (!conn.ok) throw new McpInitError(conn.error);
+  }
+  return client;
+}
+
 async function mcpRunJsonRpc(
   request: Request,
   ctx: { signal: AbortSignal },
@@ -89,39 +135,40 @@ async function mcpRunJsonRpc(
   }
 
   const mcp = request as McpRequest;
-  const pooled = opts.clientPool && opts.cacheKey ? opts.clientPool.get(opts.cacheKey) : undefined;
+  const pool = opts.clientPool;
+  const cacheKey = opts.cacheKey;
 
-  let client = pooled;
   let ownsClient = false;
-  if (!client) {
-    const headerMap: Record<string, string> = {};
-    for (const h of mcp.headers ?? []) {
-      if (h.enabled !== false && h.key) headerMap[h.key] = h.value;
-    }
-    client = new McpClient({
-      url: mcp.url,
-      transport: mcp.transport,
-      headers: headerMap,
-      connectionId: `flow-${uuidv4()}`,
-    });
-    // Skip the explicit initialize step when the caller asked for
-    // `initialize` themselves.
-    if (opts.method !== 'initialize') {
-      const init = await initializeClient(client);
-      if (!init.ok) {
-        return init.jsonRpcError
-          ? { ok: false, error: init.error, jsonRpcError: init.jsonRpcError }
-          : { ok: false, error: init.error };
-      }
-    } else {
-      const conn = await client.connect();
-      if (!conn.ok) return { ok: false, error: conn.error };
-    }
-    if (opts.clientPool && opts.cacheKey) {
-      opts.clientPool.set(opts.cacheKey, client);
+  let clientPromise = pool && cacheKey ? pool.get(cacheKey) : undefined;
+  if (!clientPromise) {
+    // Create + register the promise synchronously (no `await` before
+    // `pool.set`) so a concurrent `mcpCall` with the same cacheKey that
+    // calls `pool.get` right after sees THIS in-flight init and awaits
+    // it too, instead of racing to create its own client.
+    clientPromise = createAndInitClient(mcp, opts.method);
+    if (pool && cacheKey) {
+      pool.set(cacheKey, clientPromise);
+      // Don't let a failed init permanently poison the pool for later,
+      // unrelated calls — evict it, but only if we're still the cached
+      // entry (a newer successful attempt may have already replaced us).
+      clientPromise.catch(() => {
+        if (pool.get(cacheKey) === clientPromise) pool.delete(cacheKey);
+      });
     } else {
       ownsClient = true;
     }
+  }
+
+  let client: McpClient;
+  try {
+    client = await clientPromise;
+  } catch (err) {
+    if (err instanceof McpInitError) {
+      return err.jsonRpcError
+        ? { ok: false, error: err.message, jsonRpcError: err.jsonRpcError }
+        : { ok: false, error: err.message };
+    }
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 
   const linkAbort = () => {

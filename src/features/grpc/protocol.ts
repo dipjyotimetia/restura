@@ -24,13 +24,20 @@
 import { v4 as uuidv4 } from 'uuid';
 import { makeProxyGrpcRequest, makeElectronGrpcRequest } from './lib/grpcClient';
 import type { ProtocolModule } from '@/features/registry/types';
+import { makeCookieAdapter } from '@/features/scripts/lib/pmCookieAdapter.renderer';
+import type { PmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
+import { readPmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
+import { makeRendererSendRequest } from '@/features/scripts/lib/pmSendRequestHost';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
+import { makeRendererJudge } from '@/lib/shared/judgeBridge';
 import { isElectron } from '@/lib/shared/platform';
 import { flattenMultiValueHeaders } from '@/lib/shared/utils';
+import { makeVaultAdapter } from '@/lib/shared/vaultClient';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import type { GrpcRequest, GrpcResponse, Request, Response as ApiResponse } from '@/types';
 
 function createDefaultGrpcRequest(): GrpcRequest {
@@ -65,7 +72,7 @@ function flattenMetadata(metadata: GrpcRequest['metadata']): Record<string, stri
   return out;
 }
 
-interface GrpcProtocolOptions {
+interface GrpcProtocolOptions extends PmRunContextOptions {
   /** Raw proto file contents (uploaded `.proto`; or reconstructed fallback). */
   protoContent?: string;
   /** Proto file name for Electron logging / cache keying. */
@@ -80,7 +87,7 @@ interface GrpcProtocolOptions {
 
 function readProtocolOptions(raw: Record<string, unknown> | undefined): GrpcProtocolOptions {
   if (!raw) return {};
-  const out: GrpcProtocolOptions = {};
+  const out: GrpcProtocolOptions = readPmRunContextOptions(raw);
   if (typeof raw.protoContent === 'string') out.protoContent = raw.protoContent;
   if (typeof raw.protoFileName === 'string') out.protoFileName = raw.protoFileName;
   if (Array.isArray(raw.descriptors) && raw.descriptors.every((d) => typeof d === 'string')) {
@@ -162,10 +169,23 @@ export const grpcProtocol: ProtocolModule = {
     // Pre-request script — populated env vars merge into the script-side
     // sandbox only (we don't mutate the parent caller's `variables` map).
     const scriptEnvVars: Record<string, string> = { ...variables };
+    const scriptInfo = { requestName: request.name, requestId: request.id, ...opts.info };
     let preRequestResult: ScriptResult | undefined;
     if (request.preRequestScript?.trim()) {
       const globalVars = useGlobalsStore.getState().vars;
-      const executor = new ScriptExecutor({ envVars: scriptEnvVars, globalVars });
+      const executor = new ScriptExecutor({
+        envVars: scriptEnvVars,
+        globalVars,
+        collectionVars: { ...(opts.collectionVars ?? {}) },
+        iterationData: { ...(opts.iterationData ?? {}) },
+        info: { ...scriptInfo, eventName: 'prerequest' },
+        ...(opts.location ? { location: opts.location } : {}),
+        host: {
+          sendRequest: makeRendererSendRequest({ variables: scriptEnvVars, inheritedHeaders: {} }),
+          cookies: (currentUrl) => makeCookieAdapter(currentUrl),
+          vault: makeVaultAdapter(),
+        },
+      });
       preRequestResult = await executor.executeScript(request.preRequestScript, {
         request: {
           url: request.url,
@@ -205,10 +225,24 @@ export const grpcProtocol: ProtocolModule = {
 
     // Test script — receives the response so users can assert on
     // grpcStatus, body, headers, etc.
+    const judgeCfg = useSettingsStore.getState().settings.judge;
     let testResult: ScriptResult | undefined;
     if (request.testScript?.trim()) {
       const globalVars = useGlobalsStore.getState().vars;
-      const executor = new ScriptExecutor({ envVars: scriptEnvVars, globalVars });
+      const executor = new ScriptExecutor({
+        envVars: scriptEnvVars,
+        globalVars,
+        collectionVars: { ...(opts.collectionVars ?? {}) },
+        iterationData: { ...(opts.iterationData ?? {}) },
+        info: { ...scriptInfo, eventName: 'test' },
+        ...(opts.location ? { location: opts.location } : {}),
+        host: {
+          sendRequest: makeRendererSendRequest({ variables: scriptEnvVars, inheritedHeaders: {} }),
+          cookies: (currentUrl) => makeCookieAdapter(currentUrl),
+          vault: makeVaultAdapter(),
+          ...(judgeCfg?.enabled ? { judge: makeRendererJudge(judgeCfg) } : {}),
+        },
+      });
       testResult = await executor.executeScript(request.testScript, {
         request: {
           url: request.url,

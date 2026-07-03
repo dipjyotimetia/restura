@@ -2,6 +2,12 @@
 
 **Status:** Accepted, 2025-11-12
 
+> **Update (2026-07):** The "Negative" consequences below describing v0.1 —
+> no test scripts, no gRPC/SSE/MCP — are historical. Script execution
+> (`quickjs-emscripten`, same sandbox as the renderer) and gRPC/SSE/MCP
+> executors have since landed; see `docs/cli/README.md` § Limitations for
+> the current, accurate list.
+
 ## Context
 
 Postman has `newman`. Bruno has `bru run`. Hoppscotch has `hoppcli`. These are the wedges that drive team adoption — without CI integration, an API client is a single-developer toy. Plan 1's file-collection schema (Git-native YAML files) is the natural input for a CLI; Plan 1's shared protocol layer is the natural runtime backend. The CLI is the third consumer of `executeHttpProxy` after the Worker and Electron.

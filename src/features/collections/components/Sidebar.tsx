@@ -95,6 +95,7 @@ import {
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useMockStore } from '@/store/useMockStore';
 import { useRequestStore } from '@/store/useRequestStore';
+import { useWorkflowStore } from '@/store/useWorkflowStore';
 import type { ActivePanel, Collection, CollectionItem, OpenAPIDocument, Workflow } from '@/types';
 
 interface SidebarProps {
@@ -292,51 +293,75 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
     startCollectionRename(newCollection.id, newCollection.name);
   }, [collections, createNewCollection, addCollection, startCollectionRename]);
 
-  const performExport = useCallback(async (collection: Collection, format: ExportFormat) => {
-    if (format === 'postman') {
-      const postmanData = exportToPostman(collection);
-      downloadJSON(postmanData, `${collection.name}.postman_collection.json`);
-    } else if (format === 'insomnia') {
-      const insomniaData = exportToInsomnia(collection);
-      downloadJSON(insomniaData, `${collection.name}.insomnia.json`);
-    } else if (format === 'bruno') {
-      // Lazy import — keeps @usebruno/lang out of the main bundle.
-      const { exportBrunoCollection } = await import('../lib/bruno-exporter');
-      const exported = await exportBrunoCollection(collection);
-      if (exported.kind !== 'directory') return;
-
-      const api = getElectronAPI();
-      if (api?.collections) {
-        const dirResult = await api.collections.selectDirectory();
-        if (dirResult.canceled || !dirResult.filePaths?.[0]) return;
-        const saveResult = await api.collections.saveBrunoToDirectory(
-          exported.entries,
-          dirResult.filePaths[0]
-        );
-        if (!saveResult.success) {
-          toast.error(saveResult.error ?? 'Bruno export failed');
-          return;
-        }
-        toast.success(`Exported ${exported.entries.length} files to ${dirResult.filePaths[0]}`);
-      } else {
-        const { zipEntries } = await import('@/lib/shared/zip-utils');
-        const blob = await zipEntries(exported.entries);
-        downloadBlob(blob, `${collection.name}.bruno.zip`, 'application/zip');
-      }
-
-      // Surface lossy-export warnings so users discover non-HTTP downgrades
-      // at export time rather than later when Bruno fails to run the request.
-      if (exported.warnings.length > 0) {
-        const first = exported.warnings[0]!;
-        const extra =
-          exported.warnings.length > 1 ? ` (+${exported.warnings.length - 1} more)` : '';
-        toast.warning(`Bruno export: ${first.message}${extra}`);
-      }
-    } else {
-      const yamlText = exportToOpenCollection(collection);
-      downloadText(yamlText, `${collection.name}.opencollection.yaml`, 'application/x-yaml');
-    }
+  // None of Postman/Insomnia/OpenCollection/Bruno have a DAG/graph concept,
+  // so a linked workflow isn't "flattened" on export — it's silently
+  // omitted entirely, which reads as "covered everything" when it didn't.
+  // Warn (matching the Bruno lossy-export pattern below) rather than stay
+  // silent.
+  const warnAboutOmittedWorkflows = useCallback((collection: Collection) => {
+    const linked = useWorkflowStore
+      .getState()
+      .workflows.filter((w) => w.collectionId === collection.id);
+    if (linked.length === 0) return;
+    toast.warning(
+      `This export format doesn't support Flow workflows — ${linked.length} workflow${
+        linked.length === 1 ? '' : 's'
+      } in "${collection.name}" ${linked.length === 1 ? 'was' : 'were'} not included.`
+    );
   }, []);
+
+  const performExport = useCallback(
+    async (collection: Collection, format: ExportFormat) => {
+      if (format === 'postman') {
+        const postmanData = exportToPostman(collection);
+        downloadJSON(postmanData, `${collection.name}.postman_collection.json`);
+        warnAboutOmittedWorkflows(collection);
+      } else if (format === 'insomnia') {
+        const insomniaData = exportToInsomnia(collection);
+        downloadJSON(insomniaData, `${collection.name}.insomnia.json`);
+        warnAboutOmittedWorkflows(collection);
+      } else if (format === 'bruno') {
+        // Lazy import — keeps @usebruno/lang out of the main bundle.
+        const { exportBrunoCollection } = await import('../lib/bruno-exporter');
+        const exported = await exportBrunoCollection(collection);
+        if (exported.kind !== 'directory') return;
+
+        const api = getElectronAPI();
+        if (api?.collections) {
+          const dirResult = await api.collections.selectDirectory();
+          if (dirResult.canceled || !dirResult.filePaths?.[0]) return;
+          const saveResult = await api.collections.saveBrunoToDirectory(
+            exported.entries,
+            dirResult.filePaths[0]
+          );
+          if (!saveResult.success) {
+            toast.error(saveResult.error ?? 'Bruno export failed');
+            return;
+          }
+          toast.success(`Exported ${exported.entries.length} files to ${dirResult.filePaths[0]}`);
+        } else {
+          const { zipEntries } = await import('@/lib/shared/zip-utils');
+          const blob = await zipEntries(exported.entries);
+          downloadBlob(blob, `${collection.name}.bruno.zip`, 'application/zip');
+        }
+
+        // Surface lossy-export warnings so users discover non-HTTP downgrades
+        // at export time rather than later when Bruno fails to run the request.
+        if (exported.warnings.length > 0) {
+          const first = exported.warnings[0]!;
+          const extra =
+            exported.warnings.length > 1 ? ` (+${exported.warnings.length - 1} more)` : '';
+          toast.warning(`Bruno export: ${first.message}${extra}`);
+        }
+        warnAboutOmittedWorkflows(collection);
+      } else {
+        const yamlText = exportToOpenCollection(collection);
+        downloadText(yamlText, `${collection.name}.opencollection.yaml`, 'application/x-yaml');
+        warnAboutOmittedWorkflows(collection);
+      }
+    },
+    [warnAboutOmittedWorkflows]
+  );
 
   const handleExportCollection = useCallback(
     async (collectionId: string, format: ExportFormat) => {

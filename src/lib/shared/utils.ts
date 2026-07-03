@@ -57,6 +57,17 @@ export function formatDate(timestamp: number): string {
 }
 
 /**
+ * Cut a string to `limit` characters, appending a marker with the count of
+ * chars dropped. Shared by every store that bounds a persisted blob's size
+ * (console entries, workflow execution history, …) so the "over the limit"
+ * marker text stays consistent across the app.
+ */
+export function truncateForPersist(str: string, limit: number): string {
+  if (str.length <= limit) return str;
+  return `${str.slice(0, limit)}…[truncated ${str.length - limit} chars]`;
+}
+
+/**
  * Convert an array of KeyValue items into a plain Record, dropping disabled or
  * blank-key entries. Used by every protocol that builds a header/param map for
  * a network call.

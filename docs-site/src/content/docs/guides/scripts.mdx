@@ -34,6 +34,7 @@ The script editors are Monaco with full type definitions registered for the API 
 - **`rs.visualizer.set(template, data)`** — render a custom HTML view of the response.
 - **`require(name)`** — a curated library set is bundled (see below).
 - **Console** — `console.log` writes to the script output panel.
+- **Legacy Postman globals** — `postman.setEnvironmentVariable(...)` and friends, plus the old `tests["label"] = true` object style, both still work for scripts written before the `pm.*` API existed. New scripts should prefer `rs.*` / `pm.*`.
 
 ### Bundled libraries (`require`)
 

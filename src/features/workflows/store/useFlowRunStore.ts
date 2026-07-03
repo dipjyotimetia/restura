@@ -23,6 +23,15 @@ export interface FlowRunNodeState {
   duration?: number;
   /** Latest extracted variable summary for hover preview. */
   extractedVariables?: Record<string, string>;
+  /**
+   * Count of in-flight instances of this node. A `forEach`/`parallel`
+   * node can execute the same canvas node more than once concurrently
+   * (one node box, several logical instances) — this keeps the single
+   * badge from flapping back to "running" when a fast sibling finishes
+   * while a slower one is still in flight, and from a failure being
+   * silently overwritten by a later-finishing sibling's success.
+   */
+  activeCount: number;
 }
 
 export interface FlowRunLogEntry {
@@ -99,20 +108,38 @@ export const useFlowRunStore = create<FlowRunState>((set) => ({
     }),
 
   markNodeStarted: (nodeId) =>
-    set((state) => ({
-      nodeStates: {
-        ...state.nodeStates,
-        [nodeId]: {
-          ...state.nodeStates[nodeId],
-          status: 'running',
+    set((state) => {
+      const prev = state.nodeStates[nodeId];
+      const activeCount = (prev?.activeCount ?? 0) + 1;
+      // A sticky failure stays visible until the node is re-armed by a
+      // fresh run (`clear`/`startRun`) — don't let another instance
+      // starting flip the badge back to "running".
+      const status: FlowRunNodeStatus = prev?.status === 'failed' ? 'failed' : 'running';
+      return {
+        nodeStates: {
+          ...state.nodeStates,
+          [nodeId]: { ...prev, status, activeCount },
         },
-      },
-    })),
+      };
+    }),
 
   markNodeComplete: (nodeId, status, meta) =>
     set((state) => {
-      const next: FlowRunNodeState = { status };
-      if (meta?.error) next.error = meta.error;
+      const prev = state.nodeStates[nodeId];
+      const activeCount = Math.max(0, (prev?.activeCount ?? 1) - 1);
+      // Once any instance fails, keep the badge red for the rest of the
+      // run so a later-finishing sibling instance's success can't paper
+      // over it; otherwise show "running" while siblings are still in
+      // flight, settling to the final status only once they've all
+      // finished.
+      const sticky = status === 'failed' || prev?.status === 'failed';
+      const shown: FlowRunNodeStatus = sticky ? 'failed' : activeCount > 0 ? 'running' : status;
+      const next: FlowRunNodeState = { status: shown, activeCount };
+      if (sticky) {
+        next.error = meta?.error ?? prev?.error;
+      } else if (meta?.error) {
+        next.error = meta.error;
+      }
       if (meta?.duration !== undefined) next.duration = meta.duration;
       if (meta?.extractedVariables) next.extractedVariables = meta.extractedVariables;
       return {

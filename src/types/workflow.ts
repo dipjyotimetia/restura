@@ -404,6 +404,15 @@ export interface WorkflowExecutionStep {
   /** Present for graph executions; absent for legacy linear executions. */
   nodeId?: string;
   nodeKind?: FlowNodeKind;
+  /**
+   * Disambiguates concurrent executions of the same `nodeId` — e.g. two
+   * `forEach` iterations or two `parallel` branches running the same
+   * subgraph at once produce steps with identical `nodeId`s. Undefined
+   * for steps that only ever run once at a time (the common case), so a
+   * later transition (running -> success/failed) for the *same* logical
+   * step still correctly replaces its own in-flight entry.
+   */
+  instanceId?: string;
 }
 
 export interface WorkflowExecution {

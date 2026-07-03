@@ -24,7 +24,7 @@ The sandbox — not source inspection — is the security boundary.
 
 - QuickJS WASM adds bundle weight and a marshalling cost between the VM and the host.
 - Every capability scripts need (cookies, sub-requests, vault, visualizer) must be explicitly bridged into the VM; there is no "just use the browser API" shortcut.
-- The CLI does not yet bundle the sandbox, so test scripts don't run there (noted in [ADR 0005](./0005-cli-runner.md)).
+- The CLI now bundles the same sandbox (`quickjs-emscripten`) and runs pre-request/test scripts, but does not wire the `sendRequest`/`cookies`/`vault` host bridges (no persistent cookie jar or OS keychain in a CI process) — those calls reject cleanly rather than hanging (noted in [ADR 0005](./0005-cli-runner.md)).
 
 ## References
 

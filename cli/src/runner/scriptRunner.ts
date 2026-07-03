@@ -15,6 +15,29 @@ export interface RunScriptResult {
   variables: Record<string, string>;
   /** `pm.execution` flow-control sentinel (setNextRequest), when the script set it. */
   execution?: ScriptResult['execution'];
+  /** `pm.collectionVariables.set/unset` mutations, when the script touched them. */
+  collectionMutations?: Record<string, string | null>;
+}
+
+/** Run-scoped context threaded into `pm.collectionVariables` / `pm.iterationData` / `pm.info`. */
+export interface ScriptRunContext {
+  /** Collection-scoped variables — mutable across the run (caller carries mutations forward). */
+  collectionVars: Record<string, string>;
+  /** Current iteration's data-row, backing `pm.iterationData`. */
+  iterationData: Record<string, string>;
+  /** 0-based iteration index and total iteration count for `pm.info`. */
+  iteration: number;
+  iterationCount: number;
+}
+
+function requestName(item: LoadedRequest): string {
+  const named = item.request as { name?: string };
+  return named.name ?? item.relativePath;
+}
+
+function requestId(item: LoadedRequest): string {
+  const withId = item.request as { id?: string };
+  return withId.id ?? item.relativePath;
 }
 
 /**
@@ -26,9 +49,26 @@ export interface RunScriptResult {
 export async function runPreRequestScript(
   script: string,
   item: LoadedRequest,
-  vars: Record<string, string>
+  vars: Record<string, string>,
+  runCtx: ScriptRunContext
 ): Promise<RunScriptResult> {
-  const executor = new ScriptExecutor({ envVars: { ...vars } });
+  const executor = new ScriptExecutor({
+    envVars: { ...vars },
+    collectionVars: { ...runCtx.collectionVars },
+    iterationData: { ...runCtx.iterationData },
+    info: {
+      requestName: requestName(item),
+      requestId: requestId(item),
+      iteration: runCtx.iteration,
+      iterationCount: runCtx.iterationCount,
+      eventName: 'prerequest',
+    },
+    location: {
+      currentRequestName: requestName(item),
+      folderPath: item.folderPath,
+      collectionName: '',
+    },
+  });
   const ctx = buildRequestContext(item, vars);
   const result = await executor.executeScript(script, { request: ctx });
   return toRunScriptResult(result, vars);
@@ -44,9 +84,26 @@ export async function runTestScript(
   script: string,
   item: LoadedRequest,
   outcome: ExecuteOutcome,
-  vars: Record<string, string>
+  vars: Record<string, string>,
+  runCtx: ScriptRunContext
 ): Promise<RunScriptResult> {
-  const executor = new ScriptExecutor({ envVars: { ...vars } });
+  const executor = new ScriptExecutor({
+    envVars: { ...vars },
+    collectionVars: { ...runCtx.collectionVars },
+    iterationData: { ...runCtx.iterationData },
+    info: {
+      requestName: requestName(item),
+      requestId: requestId(item),
+      iteration: runCtx.iteration,
+      iterationCount: runCtx.iterationCount,
+      eventName: 'test',
+    },
+    location: {
+      currentRequestName: requestName(item),
+      folderPath: item.folderPath,
+      collectionName: '',
+    },
+  });
   const requestCtx = buildRequestContext(item, vars);
   const responseCtx = {
     status: outcome.status,
@@ -107,6 +164,7 @@ function toRunScriptResult(
     errors: result.errors,
     variables: { ...originalVars, ...result.variables },
     ...(result.execution ? { execution: result.execution } : {}),
+    ...(result.collectionMutations ? { collectionMutations: result.collectionMutations } : {}),
   };
 }
 

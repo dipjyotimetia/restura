@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { ConsoleEntrySchema } from '@/lib/shared/store-validators';
+import { truncateForPersist as truncate } from '@/lib/shared/utils';
 import type { Response as ApiResponse, HttpMethod, HttpRequest, RequestBody } from '@/types';
 
 export type ConsoleProtocol =
@@ -143,11 +144,6 @@ interface ConsoleState {
   setRunFilter: (filter: string) => void;
   setPreserveOnSend: (preserve: boolean) => void;
   setCaptureEnabled: (enabled: boolean) => void;
-}
-
-function truncate(str: string, limit: number): string {
-  if (str.length <= limit) return str;
-  return `${str.slice(0, limit)}…[truncated ${str.length - limit} chars]`;
 }
 
 /**

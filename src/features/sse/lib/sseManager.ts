@@ -3,6 +3,23 @@ import { useSseStore } from '@/features/sse/store/useSseStore';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { executeProxiedStreamingRequest } from '@/lib/shared/transport';
 
+/**
+ * Remove all `sse:{open,event,error,close}:<connectionId>` IPC listeners.
+ * Standalone (not a class method) so both this store-coupled manager and
+ * the store-free `sseStartStream`'s Electron path (`src/features/sse/protocol.ts`,
+ * used by the DAG executor's sseSubscribe node) share one definition of the
+ * channel set instead of each re-listing all four channel names.
+ */
+export function cleanupSseElectronListeners(
+  connectionId: string,
+  api: ReturnType<typeof getElectronAPI>
+): void {
+  api?.sse?.removeAllListeners(`sse:open:${connectionId}`);
+  api?.sse?.removeAllListeners(`sse:event:${connectionId}`);
+  api?.sse?.removeAllListeners(`sse:error:${connectionId}`);
+  api?.sse?.removeAllListeners(`sse:close:${connectionId}`);
+}
+
 // Singleton SSE manager. Desktop → `sse:connect` IPC. Web → proxied
 // stream via `/api/proxy`. Native EventSource and direct fetch are
 // intentionally absent — they bypassed the Worker's SSRF / header / auth
@@ -65,7 +82,7 @@ class SseManager {
       const api = getElectronAPI();
       api?.sse?.disconnect({ connectionId });
       this.electronConnections.delete(connectionId);
-      this.cleanupElectronListeners(connectionId, api);
+      cleanupSseElectronListeners(connectionId, api);
       const s = useSseStore.getState();
       s.updateConnectionStatus(connectionId, 'disconnected');
       s.setReconnectAttempts(connectionId, 0);
@@ -198,7 +215,7 @@ class SseManager {
 
     // Always clear any prior listeners for this id before re-registering — otherwise
     // a retry after a failed connect leaves stale handlers that fire on the next event.
-    this.cleanupElectronListeners(connectionId, api);
+    cleanupSseElectronListeners(connectionId, api);
 
     api.sse.on(`sse:open:${connectionId}`, () => {
       const s = useSseStore.getState();
@@ -230,7 +247,7 @@ class SseManager {
       s.appendSystem(connectionId, `Stream closed${ev.reason ? `: ${ev.reason}` : ''}`);
       s.updateConnectionStatus(connectionId, 'disconnected');
       this.electronConnections.delete(connectionId);
-      this.cleanupElectronListeners(connectionId, api);
+      cleanupSseElectronListeners(connectionId, api);
     });
 
     api.sse.connect({ connectionId, url, headers }).catch((err: unknown) => {
@@ -239,18 +256,8 @@ class SseManager {
       s.appendSystem(connectionId, `Failed to connect: ${msg}`);
       s.updateConnectionStatus(connectionId, 'disconnected');
       this.electronConnections.delete(connectionId);
-      this.cleanupElectronListeners(connectionId, api);
+      cleanupSseElectronListeners(connectionId, api);
     });
-  }
-
-  private cleanupElectronListeners(
-    connectionId: string,
-    api: ReturnType<typeof getElectronAPI>
-  ): void {
-    api?.sse?.removeAllListeners(`sse:open:${connectionId}`);
-    api?.sse?.removeAllListeners(`sse:event:${connectionId}`);
-    api?.sse?.removeAllListeners(`sse:error:${connectionId}`);
-    api?.sse?.removeAllListeners(`sse:close:${connectionId}`);
   }
 }
 

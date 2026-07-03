@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Collection, HttpRequest, Response as ApiResponse } from '@/types';
 import type { RunContext, ProtocolScriptResult } from '@/features/registry/types';
 import type { RunnableRequest } from '../flattenRunnables';
+import { useCollectionStore } from '@/store/useCollectionStore';
 
 // --- Mock the protocol registry so we control runRequest per request ---------
 type Behavior = {
@@ -10,18 +11,23 @@ type Behavior = {
   tests?: Array<{ name: string; passed: boolean; error?: string }>;
   setVars?: Record<string, string>;
   scriptErrors?: string[];
+  collectionMutations?: Record<string, string | null>;
 };
 
 const behaviors: Behavior[] = [];
 const seenVariables: Array<Record<string, string>> = [];
+const seenCollectionVars: Array<Record<string, string> | undefined> = [];
 let callIndex = 0;
 
 const runRequestMock = vi.fn(async (_req: unknown, ctx: RunContext): Promise<ApiResponse> => {
   seenVariables.push({ ...ctx.variables });
+  seenCollectionVars.push(
+    (ctx.protocolOptions as { collectionVars?: Record<string, string> } | undefined)?.collectionVars
+  );
   const b = behaviors[callIndex] ?? {};
   callIndex++;
   if (b.throws) throw new Error(b.throws);
-  if (ctx.onScriptResult && (b.tests || b.setVars || b.scriptErrors)) {
+  if (ctx.onScriptResult && (b.tests || b.setVars || b.scriptErrors || b.collectionMutations)) {
     const result: ProtocolScriptResult = {
       test: {
         success: true,
@@ -29,6 +35,7 @@ const runRequestMock = vi.fn(async (_req: unknown, ctx: RunContext): Promise<Api
         errors: b.scriptErrors ?? [],
         variables: b.setVars ?? {},
         ...(b.tests ? { tests: b.tests } : {}),
+        ...(b.collectionMutations ? { collectionMutations: b.collectionMutations } : {}),
       },
     };
     ctx.onScriptResult(result);
@@ -88,8 +95,10 @@ const noop = () => {};
 beforeEach(() => {
   behaviors.length = 0;
   seenVariables.length = 0;
+  seenCollectionVars.length = 0;
   callIndex = 0;
   runRequestMock.mockClear();
+  useCollectionStore.setState({ collections: [collection], activeCollectionId: null });
 });
 
 describe('runCollection', () => {
@@ -218,5 +227,55 @@ describe('runCollection', () => {
     );
     expect(seenVariables[0]).toEqual({ base: 'x', id: '1' });
     expect(seenVariables[1]).toEqual({ base: 'x', id: '2' });
+  });
+
+  it('threads collection.variables into ctx.protocolOptions.collectionVars', async () => {
+    useCollectionStore.setState({
+      collections: [
+        { ...collection, variables: [{ id: 'v', key: 'apiVersion', value: 'v1', enabled: true }] },
+      ],
+      activeCollectionId: null,
+    });
+    behaviors.push({});
+    await runCollection(
+      {
+        collection: useCollectionStore.getState().collections[0]!,
+        scopeName: 'C',
+        runnables: [runnable('1', 'a')],
+        baseVars: {},
+        iterations: 1,
+        dataRows: [],
+        delayMs: 0,
+        stopOnFailure: false,
+      },
+      noop,
+      new AbortController().signal
+    );
+    expect(seenCollectionVars[0]).toEqual({ apiVersion: 'v1' });
+  });
+
+  it('persists pm.collectionVariables mutations and carries them forward within the run', async () => {
+    behaviors.push({ collectionMutations: { token: 'abc123' } }, {});
+    await runCollection(
+      {
+        collection,
+        scopeName: 'C',
+        runnables: [runnable('1', 'first'), runnable('2', 'second')],
+        baseVars: {},
+        iterations: 1,
+        dataRows: [],
+        delayMs: 0,
+        stopOnFailure: false,
+      },
+      noop,
+      new AbortController().signal
+    );
+    // Second request in the same run sees the mutation from the first.
+    expect(seenCollectionVars[1]).toEqual({ token: 'abc123' });
+    // And it's written back to the persisted collection.
+    const persisted = useCollectionStore.getState().getCollectionById(collection.id);
+    expect(persisted?.variables).toEqual([
+      { id: expect.any(String), key: 'token', value: 'abc123', enabled: true },
+    ]);
   });
 });

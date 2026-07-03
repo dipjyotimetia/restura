@@ -1,15 +1,11 @@
 import { v4 as uuidv4 } from 'uuid';
+import { mirrorStepToConsole } from './consoleMirror';
 import { executeWithRetry } from './retryHelpers';
 import { evalScriptBoolean } from './scriptHelpers';
 import { extractVariables } from './variableExtractor';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
 import { protocolRegistry } from '@/features/registry/registry';
-import {
-  useConsoleStore,
-  createProtocolConsoleEntry,
-  type ConsoleProtocol,
-} from '@/store/useConsoleStore';
 import type {
   Workflow,
   WorkflowRequest,
@@ -20,36 +16,6 @@ import type {
   AppSettings,
   AuthConfig,
 } from '@/types';
-
-/**
- * Mirror an executed workflow step into the unified console, tagged with the
- * execution id so the Run filter can isolate one workflow run — the same
- * provenance pattern the collection runner uses (`useCollectionRun`).
- */
-function mirrorStepToConsole(
-  workflowName: string,
-  executionId: string,
-  request: Request,
-  response: Response
-): void {
-  const headers: Record<string, string> = {};
-  if ('headers' in request && Array.isArray(request.headers)) {
-    for (const h of request.headers) if (h.enabled && h.key) headers[h.key] = h.value;
-  }
-  const body =
-    request.type === 'http' && request.body.type !== 'none' ? request.body.raw : undefined;
-  useConsoleStore.getState().addEntry(
-    createProtocolConsoleEntry({
-      protocol: request.type as ConsoleProtocol,
-      method: request.type === 'http' ? request.method : request.type.toUpperCase(),
-      url: 'url' in request ? request.url : '',
-      headers,
-      ...(body !== undefined ? { body } : {}),
-      response,
-      extra: { runId: executionId, runLabel: `Workflow: ${workflowName}` },
-    })
-  );
-}
 
 export interface WorkflowExecutorOptions {
   workflow: Workflow;
