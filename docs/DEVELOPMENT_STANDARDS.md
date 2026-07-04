@@ -440,7 +440,7 @@ Light/dark is resolved via `light-dark()` against `color-scheme` plus the
   :root {
     color-scheme: light dark;
     /* canonical OKLCH tokens — single source of truth */
-    --sp-bg: light-dark(oklch(94.2% 0.012 260), oklch(15.5% 0.011 268));
+    --sp-bg: light-dark(oklch(91.8% 0.012 260), oklch(15.5% 0.011 268));
     --sp-surface: light-dark(oklch(100% 0 0), oklch(20.5% 0.015 267));
     --sp-text: light-dark(oklch(18.9% 0.028 268), oklch(95.8% 0.011 270));
     --sp-accent: light-dark(oklch(66% 0.19 255), oklch(70% 0.19 255));

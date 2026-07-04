@@ -170,6 +170,17 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       setActiveTab(activePanel);
     }
   }, [activePanel]);
+
+  // Tabs visited this mount. Radix unmounts inactive TabsContent, so the
+  // Stagger lists remount (and would replay their entrance) on every tab
+  // switch — the cascade should only play the first time a tab is shown.
+  // Stagger spreads props after its own initial="hidden", so passing
+  // initial={false} on revisits renders the list already settled.
+  const visitedTabsRef = useRef<Set<string>>(new Set());
+  const staggerInitial = visitedTabsRef.current.has(activeTab) ? false : 'hidden';
+  useEffect(() => {
+    visitedTabsRef.current.add(activeTab);
+  }, [activeTab]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [collectionToDelete, setCollectionToDelete] = useState<string | null>(null);
   const [settingsTarget, setSettingsTarget] = useState<SettingsTarget | null>(null);
@@ -865,7 +876,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                   }
                 />
               ) : (
-                <Stagger className="flex flex-col">
+                <Stagger className="flex flex-col" initial={staggerInitial}>
                   {filteredCollections.map((collection) => (
                     <StaggerItem
                       key={collection.id}
@@ -1179,7 +1190,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                 }
               />
             ) : (
-              <Stagger className="flex flex-col gap-0.5">
+              <Stagger className="flex flex-col gap-0.5" initial={staggerInitial}>
                 {filteredHistory.map((item) => (
                   <StaggerItem
                     key={item.id}

@@ -366,16 +366,16 @@
     color-scheme: light;
     --radius: 0.5rem;
 
-    --sp-bg: light-dark(oklch(94.2% 0.012 260), oklch(15.5% 0.011 268));
+    --sp-bg: light-dark(oklch(91.8% 0.012 260), oklch(15.5% 0.011 268));
     --sp-surface: light-dark(oklch(100% 0 0), oklch(20.5% 0.015 267));
     --sp-surface-hi: light-dark(oklch(97.3% 0.006 264), oklch(24.4% 0.018 266));
-    --sp-surface-lo: light-dark(oklch(95.7% 0.007 261), oklch(17.8% 0.013 270));
+    --sp-surface-lo: light-dark(oklch(94.5% 0.008 261), oklch(17.8% 0.013 270));
     --sp-text: light-dark(oklch(18.9% 0.028 268), oklch(95.8% 0.011 270));
     --sp-text-muted: light-dark(oklch(18.9% 0.028 268 / 0.62), oklch(95.8% 0.011 270 / 0.62));
     /* dim at ~WCAG 1.4.3 (4.5:1): light 0.60, dark 0.55 alpha */
     --sp-text-dim: light-dark(oklch(18.9% 0.028 268 / 0.6), oklch(95.8% 0.011 270 / 0.55));
-    --sp-line: light-dark(oklch(18.9% 0.028 268 / 0.1), oklch(100% 0 0 / 0.08));
-    --sp-line-strong: light-dark(oklch(18.9% 0.028 268 / 0.16), oklch(100% 0 0 / 0.14));
+    --sp-line: light-dark(oklch(18.9% 0.028 268 / 0.14), oklch(100% 0 0 / 0.08));
+    --sp-line-strong: light-dark(oklch(18.9% 0.028 268 / 0.22), oklch(100% 0 0 / 0.14));
     /* richer cobalt; AccentProvider overrides at runtime */
     --sp-accent: light-dark(oklch(66% 0.19 255), oklch(70% 0.19 255));
     --sp-code: light-dark(oklch(97.9% 0.006 264), oklch(16.4% 0.011 268));
