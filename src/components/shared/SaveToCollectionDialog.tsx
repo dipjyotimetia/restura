@@ -116,7 +116,6 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
     }
 
     const itemId = uuidv4();
-    const name = effectiveRequestName;
     // validFolderId re-checks the folder still exists — it may have been
     // deleted while the dialog was open, or selectedFolderId may be stale
     // from a prior 'existing' mode selection before the user switched to 'new'.
@@ -125,9 +124,9 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
       collectionId,
       {
         id: itemId,
-        name,
+        name: effectiveRequestName,
         type: 'request',
-        request: { ...tab.request, name },
+        request: { ...tab.request, name: effectiveRequestName },
       },
       safeFolderId
     );

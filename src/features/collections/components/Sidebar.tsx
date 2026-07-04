@@ -38,6 +38,8 @@ import {
   isNameTaken,
   siblingNamesForParent,
   siblingNamesOfItem,
+  folderPathTo,
+  parentFolderIdOf,
   moveWouldCollide,
 } from '../lib/names';
 import { CollectionDirectoryPicker } from './CollectionDirectoryPicker';
@@ -132,7 +134,7 @@ const toggledSet = (prev: Set<string>, id: string): Set<string> => {
  * stable so the memoized tree rows don't re-render on unrelated changes.
  */
 const getCollectionById = (collectionId: string) =>
-  useCollectionStore.getState().collections.find((c) => c.id === collectionId);
+  useCollectionStore.getState().getCollectionById(collectionId);
 
 const siblingNames = (collectionId: string, parentId?: string) => {
   const collection = getCollectionById(collectionId);
@@ -289,6 +291,28 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       return next;
     });
   }, []);
+
+  /**
+   * Expand the collection AND the folder chain down to `parentId`, so a
+   * freshly-added item (and its inline rename input) is actually visible
+   * even when it lands inside a collapsed folder.
+   */
+  const revealLocation = useCallback(
+    (collectionId: string, parentId?: string) => {
+      expandCollection(collectionId);
+      if (!parentId) return;
+      const collection = getCollectionById(collectionId);
+      if (!collection) return;
+      const chain = folderPathTo(collection.items, parentId);
+      setCollapsedFolders((prev) => {
+        if (!chain.some((id) => prev.has(id))) return prev;
+        const next = new Set(prev);
+        for (const id of chain) next.delete(id);
+        return next;
+      });
+    },
+    [expandCollection]
+  );
 
   // Multi-select: `${collectionId}:${itemId}` keys, toggled by cmd/ctrl-click.
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
@@ -662,25 +686,28 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       const folder = makeFolderItem(uniqueName('New Folder', siblingNames(collectionId, parentId)));
       addItemToCollection(collectionId, folder, parentId);
       // Make sure the new folder is visible for the inline rename.
-      expandCollection(collectionId);
+      revealLocation(collectionId, parentId);
       startItemRename(folder.id, folder.name);
     },
-    [addItemToCollection, expandCollection, startItemRename]
+    [addItemToCollection, revealLocation, startItemRename]
   );
 
   const handleAddRequest = useCallback(
     (collectionId: string, parentId?: string) => {
       const item = makeRequestItem(uniqueName('New Request', siblingNames(collectionId, parentId)));
       addItemToCollection(collectionId, item, parentId);
-      expandCollection(collectionId);
+      revealLocation(collectionId, parentId);
       // Land the user in the builder for the new saved request.
       if (item.request) openTab(item.request, { savedRequestId: item.id, switchTo: true });
     },
-    [addItemToCollection, expandCollection, openTab]
+    [addItemToCollection, revealLocation, openTab]
   );
 
   const handleDuplicateItem = useCallback(
-    (collectionId: string, item: CollectionItem, parentId?: string) => {
+    (collectionId: string, item: CollectionItem) => {
+      // Land the duplicate next to the original, not at the collection root.
+      const collection = getCollectionById(collectionId);
+      const parentId = collection ? parentFolderIdOf(collection.items, item.id) : undefined;
       const dup = duplicateRequestItem(item, siblingNames(collectionId, parentId));
       addItemToCollection(collectionId, dup, parentId);
     },
@@ -857,8 +884,10 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
     ]
   );
 
-  // Search forces folders open (like collections) so matches stay visible.
+  // Search forces every collapse level open so matches stay visible.
   const effectiveCollapsedFolders = searchQuery ? EMPTY_COLLAPSED : collapsedFolders;
+  const effectiveCollapsedCollections = searchQuery ? EMPTY_COLLAPSED : collapsedCollections;
+  const effectiveCollapsedWorkflowGroups = searchQuery ? EMPTY_COLLAPSED : collapsedWorkflowGroups;
 
   // Volatile tree state, fanned out to per-row booleans inside the tree.
   const treeState: TreeState = {
@@ -984,9 +1013,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
               ) : (
                 <Stagger className="flex flex-col" initial={staggerInitial}>
                   {filteredCollections.map((collection) => {
-                    // Search forces collections open so matches stay visible.
-                    const isCollectionCollapsed =
-                      collapsedCollections.has(collection.id) && !searchQuery;
+                    const isCollectionCollapsed = effectiveCollapsedCollections.has(collection.id);
                     const toggleHeader = () => {
                       if (renamingCollectionId !== collection.id)
                         toggleCollectionCollapse(collection.id);
@@ -1442,9 +1469,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
             ) : (
               <div className="space-y-4">
                 {filteredCollections.map((collection) => {
-                  // Search forces groups open, same as the Collections tab.
-                  const isGroupCollapsed =
-                    collapsedWorkflowGroups.has(collection.id) && !searchQuery;
+                  const isGroupCollapsed = effectiveCollapsedWorkflowGroups.has(collection.id);
                   return (
                     <div key={collection.id}>
                       <div

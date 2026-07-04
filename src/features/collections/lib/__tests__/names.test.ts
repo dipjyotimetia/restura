@@ -5,7 +5,8 @@ import {
   uniqueName,
   siblingNamesForParent,
   siblingNamesOfItem,
-  collectionContainingItem,
+  folderPathTo,
+  parentFolderIdOf,
   moveWouldCollide,
 } from '../names';
 
@@ -74,13 +75,44 @@ describe('siblingNamesOfItem', () => {
   });
 });
 
-describe('collectionContainingItem', () => {
-  it('finds the collection holding a nested item', () => {
-    expect(collectionContainingItem([collection], 'r-1')?.id).toBe('col-1');
+describe('parentFolderIdOf', () => {
+  it('returns the containing folder id for a nested item', () => {
+    expect(parentFolderIdOf(collection.items, 'r-1')).toBe('f-1');
   });
 
-  it('returns undefined when no collection holds the item', () => {
-    expect(collectionContainingItem([collection], 'nope')).toBeUndefined();
+  it('returns undefined for a root-level item', () => {
+    expect(parentFolderIdOf(collection.items, 'r-2')).toBeUndefined();
+  });
+
+  it('returns undefined for an unknown item', () => {
+    expect(parentFolderIdOf(collection.items, 'nope')).toBeUndefined();
+  });
+});
+
+describe('folderPathTo', () => {
+  const nested: Collection = {
+    id: 'col-3',
+    name: 'Col3',
+    items: [
+      {
+        id: 'f-outer',
+        name: 'Outer',
+        type: 'folder',
+        items: [{ id: 'f-inner', name: 'Inner', type: 'folder', items: [] }],
+      },
+    ],
+  } as Collection;
+
+  it('returns the ancestor chain including the folder itself', () => {
+    expect(folderPathTo(nested.items, 'f-inner')).toEqual(['f-outer', 'f-inner']);
+  });
+
+  it('returns a single id for a root folder', () => {
+    expect(folderPathTo(nested.items, 'f-outer')).toEqual(['f-outer']);
+  });
+
+  it('returns empty for an unknown folder', () => {
+    expect(folderPathTo(nested.items, 'nope')).toEqual([]);
   });
 });
 

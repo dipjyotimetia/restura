@@ -65,12 +65,33 @@ export function siblingNamesOfItem(collection: Collection, itemId: string): stri
   return level ? level.filter((i) => i.id !== itemId).map((i) => i.name) : [];
 }
 
-/** The collection whose tree contains `itemId`, if any. */
-export function collectionContainingItem(
-  collections: Collection[],
-  itemId: string
-): Collection | undefined {
-  return collections.find((c) => findContainingItems(c.items, itemId) !== undefined);
+/** Id of the folder directly containing `itemId`, or undefined at the root. */
+export function parentFolderIdOf(items: CollectionItem[], itemId: string): string | undefined {
+  for (const item of items) {
+    if (item.items) {
+      if (item.items.some((i) => i.id === itemId)) return item.id;
+      const found = parentFolderIdOf(item.items, itemId);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Ids of the folders on the path from the root down to and including
+ * `folderId` — the set that must be expanded for its children to be visible.
+ * Empty when the folder isn't in the tree.
+ */
+export function folderPathTo(items: CollectionItem[], folderId: string): string[] {
+  for (const item of items) {
+    if (item.type !== 'folder') continue;
+    if (item.id === folderId) return [item.id];
+    if (item.items) {
+      const rest = folderPathTo(item.items, folderId);
+      if (rest.length > 0) return [item.id, ...rest];
+    }
+  }
+  return [];
 }
 
 /**

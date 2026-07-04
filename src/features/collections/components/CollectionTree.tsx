@@ -14,10 +14,12 @@ import {
 import {
   memo,
   useMemo,
+  type ComponentType,
+  type CSSProperties,
   type DragEvent,
-  type ElementType,
   type KeyboardEvent,
   type MouseEvent,
+  type ReactNode,
   type RefObject,
 } from 'react';
 import { useShallow } from 'zustand/react/shallow';
@@ -192,14 +194,23 @@ function RenameInput({ actions, collectionId, itemId, value, ariaLabel }: Rename
  * The row menus render in two hosts — right-click (ContextMenu) and the
  * hover three-dots button (DropdownMenu). Radix's two families share the
  * same item/separator/sub APIs, so the item lists are written once against
- * this kit and instantiated with either component set.
+ * this kit and instantiated with either component set. Slots are typed
+ * against the minimal prop contract both families satisfy, keeping the
+ * shared item lists type-checked.
  */
+interface MenuSlotProps {
+  className?: string;
+  style?: CSSProperties;
+  onClick?: () => void;
+  children?: ReactNode;
+}
+
 interface MenuKit {
-  Item: ElementType;
-  Separator: ElementType;
-  Sub: ElementType;
-  SubTrigger: ElementType;
-  SubContent: ElementType;
+  Item: ComponentType<MenuSlotProps>;
+  Separator: ComponentType<{ className?: string }>;
+  Sub: ComponentType<{ children?: ReactNode }>;
+  SubTrigger: ComponentType<MenuSlotProps>;
+  SubContent: ComponentType<{ children?: ReactNode }>;
 }
 
 const CONTEXT_KIT: MenuKit = {
@@ -235,21 +246,16 @@ function DeleteMenuItem({
   selectedCount,
   actions,
 }: RowMenuItemsProps) {
-  return isSelected && selectedCount > 1 ? (
+  const multi = isSelected && selectedCount > 1;
+  return (
     <kit.Item
       className="text-destructive focus:text-destructive text-xs"
-      onClick={() => actions.deleteSelected(collectionId)}
+      onClick={() =>
+        multi ? actions.deleteSelected(collectionId) : actions.deleteItem(collectionId, item.id)
+      }
     >
       <Trash2 className="mr-2 h-3.5 w-3.5" />
-      Delete selected ({selectedCount})
-    </kit.Item>
-  ) : (
-    <kit.Item
-      className="text-destructive focus:text-destructive text-xs"
-      onClick={() => actions.deleteItem(collectionId, item.id)}
-    >
-      <Trash2 className="mr-2 h-3.5 w-3.5" />
-      Delete
+      {multi ? `Delete selected (${selectedCount})` : 'Delete'}
     </kit.Item>
   );
 }
@@ -305,7 +311,9 @@ function RequestMenuItems(props: RowMenuItemsProps) {
 }
 
 /** Hover-revealed three-dots button that opens the row's actions menu. */
-function RowOptionsMenu(props: Omit<RowMenuItemsProps, 'kit'> & { menuItems: ElementType }) {
+function RowOptionsMenu(
+  props: Omit<RowMenuItemsProps, 'kit'> & { menuItems: ComponentType<RowMenuItemsProps> }
+) {
   const { menuItems: MenuItems, ...itemProps } = props;
   return (
     <DropdownMenu>
@@ -403,7 +411,7 @@ const FolderRow = memo(function FolderRow({
             }}
             onDrop={(e) => actions.dropIntoFolder(e, collectionId, item.id)}
             className={cn(
-              'group flex items-center gap-1.5 min-w-0 rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-accent cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/row:pr-6',
+              'group flex items-center gap-1.5 min-w-0 rounded px-1.5 py-1 pr-6 text-[11px] text-muted-foreground hover:bg-accent cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
               isDropTarget && 'ring-1 ring-primary bg-primary/5',
               isSelected && 'bg-primary/10 text-foreground'
             )}
@@ -566,7 +574,7 @@ const RequestRow = memo(function RequestRow({
             }}
             onDrop={(e) => actions.dropBeforeItem(e, collectionId, item.id)}
             className={cn(
-              'flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-grab active:cursor-grabbing group-hover/row:pr-6',
+              'flex w-full items-center gap-1.5 rounded px-1.5 py-1 pr-6 text-left text-[11px] hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-grab active:cursor-grabbing',
               isDropTarget && 'border-t-2 border-primary',
               isSelected && 'bg-primary/10'
             )}
