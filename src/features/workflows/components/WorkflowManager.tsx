@@ -39,6 +39,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
+import { isNameTaken, uniqueName } from '@/features/collections/lib/names';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import type { Workflow } from '@/types';
 
@@ -105,15 +106,10 @@ export function WorkflowManager({
   const handleCreate = () => {
     if (!workflowName.trim()) return;
 
-    // Generate unique name if duplicate exists
-    const existingNames = workflows.map((w) => w.name.toLowerCase());
-    let finalName = workflowName.trim();
-    let counter = 1;
-    while (existingNames.includes(finalName.toLowerCase())) {
-      counter++;
-      finalName = `${workflowName.trim()} ${counter}`;
-    }
-
+    const finalName = uniqueName(
+      workflowName.trim(),
+      workflows.map((w) => w.name)
+    );
     const workflow = createNewWorkflow(finalName, collectionId);
     addWorkflow(workflow);
     setWorkflowName('');
@@ -124,7 +120,13 @@ export function WorkflowManager({
   const handleUpdate = () => {
     if (!editingWorkflow || !workflowName.trim()) return;
 
-    updateWorkflow(editingWorkflow.id, { name: workflowName.trim() });
+    const newName = workflowName.trim();
+    const otherNames = workflows.filter((w) => w.id !== editingWorkflow.id).map((w) => w.name);
+    if (isNameTaken(newName, otherNames)) {
+      toast.error(`A workflow named "${newName}" already exists`);
+      return;
+    }
+    updateWorkflow(editingWorkflow.id, { name: newName });
     setEditingWorkflow(null);
     setWorkflowName('');
   };

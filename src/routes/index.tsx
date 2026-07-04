@@ -14,6 +14,7 @@ import TopBar from '@/components/shared/TopBar';
 import WelcomeOnboarding from '@/components/shared/WelcomeOnboarding';
 import { AnimatePresence, motion } from '@/components/ui/motion';
 import { useAiChatStore } from '@/features/ai/store';
+import { saveTabBackToCollection } from '@/features/collections/lib/saveBack';
 import EnvironmentManager from '@/features/environments/components/EnvironmentManager';
 import RequestBuilder from '@/features/http/components/RequestBuilder';
 import { useKeybindings } from '@/hooks/useKeybindings';
@@ -22,7 +23,6 @@ import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { isElectron, onMenuEvent } from '@/lib/shared/platform';
 import { useActiveTab } from '@/store/selectors';
-import { useCollectionStore } from '@/store/useCollectionStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { RequestMode, ActivePanel } from '@/types';
@@ -210,11 +210,9 @@ export default function Home() {
         const tab = activeTabRef.current;
         if (!tab?.isDirty) return;
         if (tab.savedRequestId) {
-          useCollectionStore.getState().updateAnyCollectionItem(tab.savedRequestId, {
-            name: tab.request.name,
-            request: tab.request,
-          });
-          useRequestStore.getState().clearTabDirty(tab.id);
+          if (saveTabBackToCollection(tab.request, tab.savedRequestId)) {
+            useRequestStore.getState().clearTabDirty(tab.id);
+          }
         } else {
           setSaveDialogTabId(tab.id);
         }

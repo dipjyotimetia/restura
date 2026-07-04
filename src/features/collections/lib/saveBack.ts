@@ -1,0 +1,23 @@
+import { toast } from 'sonner';
+import { isNameTaken, siblingNamesOfItem } from './names';
+import { useCollectionStore } from '@/store/useCollectionStore';
+import type { Request } from '@/types';
+
+/**
+ * Save a dirty tab's request back to its saved collection item — the ONE
+ * entry point for this mutation (TabBar save button and the mod+s shortcut).
+ * Saving back also renames the item to the tab's name, so it refuses (with a
+ * toast) when that name would collide with a sibling.
+ *
+ * Returns true when saved; callers clear the tab's dirty flag on success.
+ */
+export function saveTabBackToCollection(request: Request, savedRequestId: string): boolean {
+  const store = useCollectionStore.getState();
+  const collection = store.getCollectionByItemId(savedRequestId);
+  if (collection && isNameTaken(request.name, siblingNamesOfItem(collection, savedRequestId))) {
+    toast.error(`An item named "${request.name}" already exists at this level`);
+    return false;
+  }
+  store.updateAnyCollectionItem(savedRequestId, { name: request.name, request });
+  return true;
+}

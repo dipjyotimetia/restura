@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
+import { uniqueName } from './names';
 import type { Collection, CollectionItem, HttpRequest, Request } from '@/types';
 
 /**
@@ -37,9 +38,10 @@ export function makeRequestItem(name = 'New Request'): CollectionItem {
 /**
  * Clone a request item with fresh ids (item id and the inner request id) so
  * the duplicate is an independent saved request, not an alias of the source.
+ * `siblingNames` de-conflicts the "<name> copy" name against the target level.
  */
-export function duplicateRequestItem(item: CollectionItem): CollectionItem {
-  const baseName = `${item.name} copy`;
+export function duplicateRequestItem(item: CollectionItem, siblingNames: string[]): CollectionItem {
+  const baseName = uniqueName(`${item.name} copy`, siblingNames);
   if (item.type !== 'request' || !item.request) {
     return { ...makeFolderItem(baseName) };
   }
@@ -64,10 +66,10 @@ export function duplicateRequestItem(item: CollectionItem): CollectionItem {
  * If handle reaping is ever added to the delete path, this sharing must be
  * revisited — deleting the original would silently break the duplicate's auth.
  */
-export function duplicateCollection(collection: Collection): Collection {
+export function duplicateCollection(collection: Collection, existingNames: string[]): Collection {
   const dup = structuredClone(collection);
   dup.id = uuidv4();
-  dup.name = `${collection.name} copy`;
+  dup.name = uniqueName(`${collection.name} copy`, existingNames);
   const reId = (items: CollectionItem[]) => {
     for (const item of items) {
       item.id = uuidv4();

@@ -15,9 +15,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Floater, ProtoChip } from '@/components/ui/spatial';
+import { saveTabBackToCollection } from '@/features/collections/lib/saveBack';
 import { isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
-import { useCollectionStore } from '@/store/useCollectionStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { isConnectionMode } from '@/types';
 import type { RequestMode, TabModeOverride } from '@/types';
@@ -111,11 +111,9 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
   const handleSaveBack = (tabId: string, savedRequestId: string) => {
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
-    useCollectionStore.getState().updateAnyCollectionItem(savedRequestId, {
-      name: tab.request.name,
-      request: tab.request,
-    });
-    clearTabDirty?.(tabId);
+    if (saveTabBackToCollection(tab.request, savedRequestId)) {
+      clearTabDirty?.(tabId);
+    }
   };
 
   return (

@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { isNameTaken, siblingNamesForParent } from '@/features/collections/lib/names';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { CollectionItem } from '@/types';
@@ -81,6 +82,26 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
   const selectedCollection = collections.find((c) => c.id === selectedCollectionId);
   const folders = selectedCollection ? flatFolders(selectedCollection.items) : [];
 
+  // Duplicate-name guards: collection names are unique globally, request
+  // names among their target siblings (chosen folder or collection root).
+  // Validate the name that will actually be saved — an empty field falls
+  // back to the tab's request name.
+  const effectiveRequestName = requestName.trim() || tab.request.name;
+  const collectionNameTaken =
+    effectiveMode === 'new' &&
+    isNameTaken(
+      newCollectionName,
+      collections.map((c) => c.name)
+    );
+  const validFolderId =
+    selectedFolderId && folders.some((f) => f.id === selectedFolderId)
+      ? selectedFolderId
+      : undefined;
+  const requestNameTaken =
+    effectiveMode === 'existing' &&
+    !!selectedCollection &&
+    isNameTaken(effectiveRequestName, siblingNamesForParent(selectedCollection, validFolderId));
+
   const handleSave = () => {
     let collectionId: string;
 
@@ -95,21 +116,17 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
     }
 
     const itemId = uuidv4();
-    const name = requestName.trim() || tab.request.name;
-    // Validate that the selected folder still exists — it may have been deleted
-    // while the dialog was open, or selectedFolderId may be stale from a prior
-    // 'existing' mode selection before the user switched to 'new'.
-    const safeFolderId =
-      selectedFolderId && folders.some((f) => f.id === selectedFolderId)
-        ? selectedFolderId
-        : undefined;
+    // validFolderId re-checks the folder still exists — it may have been
+    // deleted while the dialog was open, or selectedFolderId may be stale
+    // from a prior 'existing' mode selection before the user switched to 'new'.
+    const safeFolderId = effectiveMode === 'existing' ? validFolderId : undefined;
     addItemToCollection(
       collectionId,
       {
         id: itemId,
-        name,
+        name: effectiveRequestName,
         type: 'request',
-        request: { ...tab.request, name },
+        request: { ...tab.request, name: effectiveRequestName },
       },
       safeFolderId
     );
@@ -118,7 +135,11 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
   };
 
   const canSave =
-    effectiveMode === 'new' ? newCollectionName.trim().length > 0 : selectedCollectionId.length > 0;
+    !collectionNameTaken &&
+    !requestNameTaken &&
+    (effectiveMode === 'new'
+      ? newCollectionName.trim().length > 0
+      : selectedCollectionId.length > 0);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -138,6 +159,11 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
               // eslint-disable-next-line jsx-a11y/no-autofocus -- intentional initial focus on the primary field when the dialog opens
               autoFocus
             />
+            {requestNameTaken && (
+              <p className="text-xs text-destructive">
+                A request or folder with this name already exists there
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -189,6 +215,9 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
                   if (e.key === 'Enter' && canSave) handleSave();
                 }}
               />
+            )}
+            {collectionNameTaken && (
+              <p className="text-xs text-destructive">A collection with this name already exists</p>
             )}
           </div>
 
