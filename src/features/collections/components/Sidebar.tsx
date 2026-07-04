@@ -118,6 +118,14 @@ const HISTORY_PAGE_SIZE = 20;
 /** Stable "nothing collapsed" set used while a search is active. */
 const EMPTY_COLLAPSED: Set<string> = new Set();
 
+/** Immutable Set toggle for the collapse-state updaters. */
+const toggledSet = (prev: Set<string>, id: string): Set<string> => {
+  const next = new Set(prev);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  return next;
+};
+
 /**
  * Event-time store reads for the duplicate-name guards. Reading via
  * getState() (not the subscribed `collections`) keeps the handler callbacks
@@ -263,12 +271,14 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   const [collapsedCollections, setCollapsedCollections] = useState<Set<string>>(new Set());
 
   const toggleCollectionCollapse = useCallback((collectionId: string) => {
-    setCollapsedCollections((prev) => {
-      const next = new Set(prev);
-      if (next.has(collectionId)) next.delete(collectionId);
-      else next.add(collectionId);
-      return next;
-    });
+    setCollapsedCollections((prev) => toggledSet(prev, collectionId));
+  }, []);
+
+  // Collapsed per-collection workflow groups in the Workflows tab (session-local).
+  const [collapsedWorkflowGroups, setCollapsedWorkflowGroups] = useState<Set<string>>(new Set());
+
+  const toggleWorkflowGroup = useCallback((collectionId: string) => {
+    setCollapsedWorkflowGroups((prev) => toggledSet(prev, collectionId));
   }, []);
 
   const expandCollection = useCallback((collectionId: string) => {
@@ -296,6 +306,17 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   // Get visible history items using selector
   const visibleHistory = useHistoryStore(
     useShallow((state) => state.history.slice(0, visibleHistoryCount))
+  );
+
+  // Per-collection workflow counts for the Workflows tab group headers.
+  const workflowCounts = useWorkflowStore(
+    useShallow((state) => {
+      const counts: Record<string, number> = {};
+      for (const w of state.workflows) {
+        counts[w.collectionId] = (counts[w.collectionId] ?? 0) + 1;
+      }
+      return counts;
+    })
   );
 
   // Filter collections based on search query
@@ -1420,18 +1441,45 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
               />
             ) : (
               <div className="space-y-4">
-                {filteredCollections.map((collection) => (
-                  <div key={collection.id}>
-                    <div className="text-xs font-medium text-muted-foreground mb-2 px-1">
-                      {collection.name}
+                {filteredCollections.map((collection) => {
+                  // Search forces groups open, same as the Collections tab.
+                  const isGroupCollapsed =
+                    collapsedWorkflowGroups.has(collection.id) && !searchQuery;
+                  return (
+                    <div key={collection.id}>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={!isGroupCollapsed}
+                        onClick={() => toggleWorkflowGroup(collection.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            toggleWorkflowGroup(collection.id);
+                          }
+                        }}
+                        className="flex items-center gap-1.5 mb-2 px-1 rounded text-xs font-medium text-muted-foreground cursor-pointer hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      >
+                        {isGroupCollapsed ? (
+                          <ChevronRight className="h-3 w-3 shrink-0 text-sp-muted" />
+                        ) : (
+                          <ChevronDown className="h-3 w-3 shrink-0 text-sp-muted" />
+                        )}
+                        <span className="truncate">{collection.name}</span>
+                        <span className="ml-auto shrink-0 text-[10px] tabular-nums text-sp-dim">
+                          {workflowCounts[collection.id] ?? 0}
+                        </span>
+                      </div>
+                      {!isGroupCollapsed && (
+                        <WorkflowManager
+                          collectionId={collection.id}
+                          onSelectWorkflow={(workflow) => setSelectedWorkflow(workflow)}
+                          onRunWorkflow={(workflow) => setRunningWorkflow(workflow)}
+                        />
+                      )}
                     </div>
-                    <WorkflowManager
-                      collectionId={collection.id}
-                      onSelectWorkflow={(workflow) => setSelectedWorkflow(workflow)}
-                      onRunWorkflow={(workflow) => setRunningWorkflow(workflow)}
-                    />
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </TabsContent>
