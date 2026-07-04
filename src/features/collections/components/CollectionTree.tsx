@@ -4,6 +4,7 @@ import {
   FilePlus,
   Folder,
   FolderPlus,
+  MoreVertical,
   Pencil,
   Play,
   Settings2,
@@ -14,11 +15,13 @@ import {
   memo,
   useMemo,
   type DragEvent,
+  type ElementType,
   type KeyboardEvent,
   type MouseEvent,
   type RefObject,
 } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { Button } from '@/components/ui/button';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -29,6 +32,16 @@ import {
   ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { METHOD_COLORS, PROTOCOL_COLORS, PROTOCOL_LABELS } from '@/lib/shared/constants';
 import { cn } from '@/lib/shared/utils';
 import { useCollectionStore } from '@/store/useCollectionStore';
@@ -175,6 +188,144 @@ function RenameInput({ actions, collectionId, itemId, value, ariaLabel }: Rename
   );
 }
 
+/**
+ * The row menus render in two hosts — right-click (ContextMenu) and the
+ * hover three-dots button (DropdownMenu). Radix's two families share the
+ * same item/separator/sub APIs, so the item lists are written once against
+ * this kit and instantiated with either component set.
+ */
+interface MenuKit {
+  Item: ElementType;
+  Separator: ElementType;
+  Sub: ElementType;
+  SubTrigger: ElementType;
+  SubContent: ElementType;
+}
+
+const CONTEXT_KIT: MenuKit = {
+  Item: ContextMenuItem,
+  Separator: ContextMenuSeparator,
+  Sub: ContextMenuSub,
+  SubTrigger: ContextMenuSubTrigger,
+  SubContent: ContextMenuSubContent,
+};
+
+const DROPDOWN_KIT: MenuKit = {
+  Item: DropdownMenuItem,
+  Separator: DropdownMenuSeparator,
+  Sub: DropdownMenuSub,
+  SubTrigger: DropdownMenuSubTrigger,
+  SubContent: DropdownMenuSubContent,
+};
+
+interface RowMenuItemsProps {
+  kit: MenuKit;
+  collectionId: string;
+  item: CollectionItem;
+  isSelected: boolean;
+  selectedCount: number;
+  actions: TreeActions;
+}
+
+function DeleteMenuItem({
+  kit,
+  collectionId,
+  item,
+  isSelected,
+  selectedCount,
+  actions,
+}: RowMenuItemsProps) {
+  return isSelected && selectedCount > 1 ? (
+    <kit.Item
+      className="text-destructive focus:text-destructive text-xs"
+      onClick={() => actions.deleteSelected(collectionId)}
+    >
+      <Trash2 className="mr-2 h-3.5 w-3.5" />
+      Delete selected ({selectedCount})
+    </kit.Item>
+  ) : (
+    <kit.Item
+      className="text-destructive focus:text-destructive text-xs"
+      onClick={() => actions.deleteItem(collectionId, item.id)}
+    >
+      <Trash2 className="mr-2 h-3.5 w-3.5" />
+      Delete
+    </kit.Item>
+  );
+}
+
+function FolderMenuItems(props: RowMenuItemsProps) {
+  const { kit, collectionId, item, actions } = props;
+  return (
+    <>
+      <kit.Item className="text-xs" onClick={() => actions.runFolder(collectionId, item.id)}>
+        <Play className="mr-2 h-3.5 w-3.5" />
+        Run folder
+      </kit.Item>
+      <kit.Separator />
+      <kit.Item className="text-xs" onClick={() => actions.addRequest(collectionId, item.id)}>
+        <FilePlus className="mr-2 h-3.5 w-3.5" />
+        New request
+      </kit.Item>
+      <kit.Item className="text-xs" onClick={() => actions.addFolder(collectionId, item.id)}>
+        <FolderPlus className="mr-2 h-3.5 w-3.5" />
+        New subfolder
+      </kit.Item>
+      <kit.Item className="text-xs" onClick={() => actions.startRename(item.id, item.name)}>
+        <Pencil className="mr-2 h-3.5 w-3.5" />
+        Rename
+      </kit.Item>
+      <kit.Item className="text-xs" onClick={() => actions.openFolderSettings(collectionId, item)}>
+        <Settings2 className="mr-2 h-3.5 w-3.5" />
+        Folder settings
+      </kit.Item>
+      <kit.Separator />
+      <DeleteMenuItem {...props} />
+    </>
+  );
+}
+
+function RequestMenuItems(props: RowMenuItemsProps) {
+  const { kit, collectionId, item, actions } = props;
+  return (
+    <>
+      <kit.Item className="text-xs" onClick={() => actions.startRename(item.id, item.name)}>
+        <Pencil className="mr-2 h-3.5 w-3.5" />
+        Rename
+      </kit.Item>
+      <kit.Item className="text-xs" onClick={() => actions.duplicateItem(collectionId, item)}>
+        <Copy className="mr-2 h-3.5 w-3.5" />
+        Duplicate
+      </kit.Item>
+      <MoveToFolderMenu kit={kit} collectionId={collectionId} itemId={item.id} actions={actions} />
+      <kit.Separator />
+      <DeleteMenuItem {...props} />
+    </>
+  );
+}
+
+/** Hover-revealed three-dots button that opens the row's actions menu. */
+function RowOptionsMenu(props: Omit<RowMenuItemsProps, 'kit'> & { menuItems: ElementType }) {
+  const { menuItems: MenuItems, ...itemProps } = props;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="absolute right-0.5 top-1/2 h-5 w-5 -translate-y-1/2 opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+          aria-label={`${props.item.type === 'folder' ? 'Folder' : 'Request'} options`}
+        >
+          <MoreVertical className="h-3 w-3" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <MenuItems {...itemProps} kit={DROPDOWN_KIT} />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 interface FolderRowProps {
   collectionId: string;
   item: CollectionItem;
@@ -214,130 +365,82 @@ const FolderRow = memo(function FolderRow({
     actions.toggleCollapse(item.id);
   };
 
+  const menuProps = { collectionId, item, isSelected, selectedCount, actions };
+
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <div
-          data-tree-row
-          data-item-id={item.id}
-          data-item-type="folder"
-          tabIndex={0}
-          role="button"
-          aria-expanded={!isCollapsed}
-          draggable={!isRenaming}
-          onClick={handleClick}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
+    <div className="relative group/row">
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            data-tree-row
+            data-item-id={item.id}
+            data-item-type="folder"
+            tabIndex={0}
+            role="button"
+            aria-expanded={!isCollapsed}
+            draggable={!isRenaming}
+            onClick={handleClick}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                if (isRenaming) return;
+                actions.clearSelection();
+                actions.toggleCollapse(item.id);
+              }
+            }}
+            onDragStart={(e) => actions.dragStart(e, collectionId, item.id)}
+            onDragEnd={actions.dragEnd}
+            onDragOver={(e) => {
               e.preventDefault();
-              if (isRenaming) return;
-              actions.clearSelection();
-              actions.toggleCollapse(item.id);
-            }
-          }}
-          onDragStart={(e) => actions.dragStart(e, collectionId, item.id)}
-          onDragEnd={actions.dragEnd}
-          onDragOver={(e) => {
-            e.preventDefault();
-            // Stop the bubble so the collection root strip's
-            // onDragOver doesn't overwrite this row's drop highlight.
-            e.stopPropagation();
-            e.dataTransfer.dropEffect = 'move';
-            if (!isDropTarget) actions.setDropTarget(item.id);
-          }}
-          onDragLeave={() => {
-            if (isDropTarget) actions.setDropTarget(null);
-          }}
-          onDrop={(e) => actions.dropIntoFolder(e, collectionId, item.id)}
-          className={cn(
-            'group flex items-center gap-1.5 min-w-0 rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-accent cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-            isDropTarget && 'ring-1 ring-primary bg-primary/5',
-            isSelected && 'bg-primary/10 text-foreground'
-          )}
-          style={{ marginLeft: indent }}
-        >
-          {isCollapsed ? (
-            <ChevronRight className="h-3 w-3 shrink-0 text-sp-muted" />
-          ) : (
-            <ChevronDown className="h-3 w-3 shrink-0 text-sp-muted" />
-          )}
-          <Folder className="h-3 w-3 shrink-0 text-primary/60" />
-          {isRenaming ? (
-            <RenameInput
-              actions={actions}
-              collectionId={collectionId}
-              itemId={item.id}
-              value={renameValue}
-              ariaLabel="Rename folder"
-            />
-          ) : (
-            <>
-              <span className="truncate">{item.name}</span>
-              {isCollapsed && childCount > 0 && (
-                <span className="ml-auto shrink-0 text-[9px] tabular-nums text-sp-dim">
-                  {childCount}
-                </span>
-              )}
-            </>
-          )}
-        </div>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem
-          className="text-xs"
-          onClick={() => actions.runFolder(collectionId, item.id)}
-        >
-          <Play className="mr-2 h-3.5 w-3.5" />
-          Run folder
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem
-          className="text-xs"
-          onClick={() => actions.addRequest(collectionId, item.id)}
-        >
-          <FilePlus className="mr-2 h-3.5 w-3.5" />
-          New request
-        </ContextMenuItem>
-        <ContextMenuItem
-          className="text-xs"
-          onClick={() => actions.addFolder(collectionId, item.id)}
-        >
-          <FolderPlus className="mr-2 h-3.5 w-3.5" />
-          New subfolder
-        </ContextMenuItem>
-        <ContextMenuItem
-          className="text-xs"
-          onClick={() => actions.startRename(item.id, item.name)}
-        >
-          <Pencil className="mr-2 h-3.5 w-3.5" />
-          Rename
-        </ContextMenuItem>
-        <ContextMenuItem
-          className="text-xs"
-          onClick={() => actions.openFolderSettings(collectionId, item)}
-        >
-          <Settings2 className="mr-2 h-3.5 w-3.5" />
-          Folder settings
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        {isSelected && selectedCount > 1 ? (
-          <ContextMenuItem
-            className="text-destructive focus:text-destructive text-xs"
-            onClick={() => actions.deleteSelected(collectionId)}
+              // Stop the bubble so the collection root strip's
+              // onDragOver doesn't overwrite this row's drop highlight.
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = 'move';
+              if (!isDropTarget) actions.setDropTarget(item.id);
+            }}
+            onDragLeave={() => {
+              if (isDropTarget) actions.setDropTarget(null);
+            }}
+            onDrop={(e) => actions.dropIntoFolder(e, collectionId, item.id)}
+            className={cn(
+              'group flex items-center gap-1.5 min-w-0 rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-accent cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover/row:pr-6',
+              isDropTarget && 'ring-1 ring-primary bg-primary/5',
+              isSelected && 'bg-primary/10 text-foreground'
+            )}
+            style={{ marginLeft: indent }}
           >
-            <Trash2 className="mr-2 h-3.5 w-3.5" />
-            Delete selected ({selectedCount})
-          </ContextMenuItem>
-        ) : (
-          <ContextMenuItem
-            className="text-destructive focus:text-destructive text-xs"
-            onClick={() => actions.deleteItem(collectionId, item.id)}
-          >
-            <Trash2 className="mr-2 h-3.5 w-3.5" />
-            Delete
-          </ContextMenuItem>
-        )}
-      </ContextMenuContent>
-    </ContextMenu>
+            {isCollapsed ? (
+              <ChevronRight className="h-3 w-3 shrink-0 text-sp-muted" />
+            ) : (
+              <ChevronDown className="h-3 w-3 shrink-0 text-sp-muted" />
+            )}
+            <Folder className="h-3 w-3 shrink-0 text-primary/60" />
+            {isRenaming ? (
+              <RenameInput
+                actions={actions}
+                collectionId={collectionId}
+                itemId={item.id}
+                value={renameValue}
+                ariaLabel="Rename folder"
+              />
+            ) : (
+              <>
+                <span className="truncate">{item.name}</span>
+                {isCollapsed && childCount > 0 && (
+                  <span className="ml-auto shrink-0 text-[9px] tabular-nums text-sp-dim">
+                    {childCount}
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <FolderMenuItems kit={CONTEXT_KIT} {...menuProps} />
+        </ContextMenuContent>
+      </ContextMenu>
+      <RowOptionsMenu {...menuProps} menuItems={FolderMenuItems} />
+    </div>
   );
 });
 
@@ -352,10 +455,12 @@ function flatFolderItems(items: CollectionItem[], depth = 0): FolderEntry[] {
 // Combines the sub-menu trigger + content so it can return null when the
 // collection has no folders, avoiding a dead-end "Move to folder" option.
 function MoveToFolderMenu({
+  kit,
   collectionId,
   itemId,
   actions,
 }: {
+  kit: MenuKit;
   collectionId: string;
   itemId: string;
   actions: TreeActions;
@@ -371,14 +476,14 @@ function MoveToFolderMenu({
   if (folders.length === 0) return null;
 
   return (
-    <ContextMenuSub>
-      <ContextMenuSubTrigger className="text-xs">
+    <kit.Sub>
+      <kit.SubTrigger className="text-xs">
         <Folder className="mr-2 h-3.5 w-3.5" />
         Move to folder
-      </ContextMenuSubTrigger>
-      <ContextMenuSubContent>
+      </kit.SubTrigger>
+      <kit.SubContent>
         {folders.map(({ id, name, depth }) => (
-          <ContextMenuItem
+          <kit.Item
             key={id}
             className="text-xs"
             style={{ paddingLeft: 8 + depth * 12 }}
@@ -386,10 +491,10 @@ function MoveToFolderMenu({
           >
             <Folder className="mr-2 h-3.5 w-3.5 shrink-0" />
             {name}
-          </ContextMenuItem>
+          </kit.Item>
         ))}
-      </ContextMenuSubContent>
-    </ContextMenuSub>
+      </kit.SubContent>
+    </kit.Sub>
   );
 }
 
@@ -434,94 +539,67 @@ const RequestRow = memo(function RequestRow({
     actions.openItem(item);
   };
 
+  const menuProps = { collectionId, item, isSelected, selectedCount, actions };
+
   return (
-    <ContextMenu>
-      <ContextMenuTrigger asChild>
-        <button
-          type="button"
-          data-tree-row
-          data-item-id={item.id}
-          data-item-type="request"
-          draggable={!isRenaming}
-          onDragStart={(e) => actions.dragStart(e, collectionId, item.id)}
-          onDragEnd={actions.dragEnd}
-          onDragOver={(e) => {
-            e.preventDefault();
-            // Stop the bubble so the collection root strip's onDragOver
-            // doesn't overwrite this row's drop highlight.
-            e.stopPropagation();
-            e.dataTransfer.dropEffect = 'move';
-            if (!isDropTarget) actions.setDropTarget(item.id);
-          }}
-          onDragLeave={() => {
-            if (isDropTarget) actions.setDropTarget(null);
-          }}
-          onDrop={(e) => actions.dropBeforeItem(e, collectionId, item.id)}
-          className={cn(
-            'flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-grab active:cursor-grabbing',
-            isDropTarget && 'border-t-2 border-primary',
-            isSelected && 'bg-primary/10'
-          )}
-          style={{ marginLeft: indent }}
-          onClick={handleClick}
-        >
-          <span
+    <div className="relative group/row">
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <button
+            type="button"
+            data-tree-row
+            data-item-id={item.id}
+            data-item-type="request"
+            draggable={!isRenaming}
+            onDragStart={(e) => actions.dragStart(e, collectionId, item.id)}
+            onDragEnd={actions.dragEnd}
+            onDragOver={(e) => {
+              e.preventDefault();
+              // Stop the bubble so the collection root strip's onDragOver
+              // doesn't overwrite this row's drop highlight.
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = 'move';
+              if (!isDropTarget) actions.setDropTarget(item.id);
+            }}
+            onDragLeave={() => {
+              if (isDropTarget) actions.setDropTarget(null);
+            }}
+            onDrop={(e) => actions.dropBeforeItem(e, collectionId, item.id)}
             className={cn(
-              'shrink-0 rounded px-1 py-0.5 text-[9px] font-mono font-medium leading-none',
-              color ?? 'bg-muted text-muted-foreground border border-border'
+              'flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-grab active:cursor-grabbing group-hover/row:pr-6',
+              isDropTarget && 'border-t-2 border-primary',
+              isSelected && 'bg-primary/10'
             )}
+            style={{ marginLeft: indent }}
+            onClick={handleClick}
           >
-            {label}
-          </span>
-          {isRenaming ? (
-            <RenameInput
-              actions={actions}
-              collectionId={collectionId}
-              itemId={item.id}
-              value={renameValue}
-              ariaLabel="Rename request"
-            />
-          ) : (
-            <span className="min-w-0 flex-1 truncate text-foreground">{item.name}</span>
-          )}
-        </button>
-      </ContextMenuTrigger>
-      <ContextMenuContent>
-        <ContextMenuItem
-          className="text-xs"
-          onClick={() => actions.startRename(item.id, item.name)}
-        >
-          <Pencil className="mr-2 h-3.5 w-3.5" />
-          Rename
-        </ContextMenuItem>
-        <ContextMenuItem
-          className="text-xs"
-          onClick={() => actions.duplicateItem(collectionId, item)}
-        >
-          <Copy className="mr-2 h-3.5 w-3.5" />
-          Duplicate
-        </ContextMenuItem>
-        <MoveToFolderMenu collectionId={collectionId} itemId={item.id} actions={actions} />
-        <ContextMenuSeparator />
-        {isSelected && selectedCount > 1 ? (
-          <ContextMenuItem
-            className="text-destructive focus:text-destructive text-xs"
-            onClick={() => actions.deleteSelected(collectionId)}
-          >
-            <Trash2 className="mr-2 h-3.5 w-3.5" />
-            Delete selected ({selectedCount})
-          </ContextMenuItem>
-        ) : (
-          <ContextMenuItem
-            className="text-destructive focus:text-destructive text-xs"
-            onClick={() => actions.deleteItem(collectionId, item.id)}
-          >
-            <Trash2 className="mr-2 h-3.5 w-3.5" />
-            Delete
-          </ContextMenuItem>
-        )}
-      </ContextMenuContent>
-    </ContextMenu>
+            <span
+              className={cn(
+                'shrink-0 rounded px-1 py-0.5 text-[9px] font-mono font-medium leading-none',
+                color ?? 'bg-muted text-muted-foreground border border-border'
+              )}
+            >
+              {label}
+            </span>
+            {isRenaming ? (
+              <RenameInput
+                actions={actions}
+                collectionId={collectionId}
+                itemId={item.id}
+                value={renameValue}
+                ariaLabel="Rename request"
+              />
+            ) : (
+              <span className="min-w-0 flex-1 truncate text-foreground">{item.name}</span>
+            )}
+          </button>
+        </ContextMenuTrigger>
+        <ContextMenuContent>
+          <RequestMenuItems kit={CONTEXT_KIT} {...menuProps} />
+        </ContextMenuContent>
+      </ContextMenu>
+      <RowOptionsMenu {...menuProps} menuItems={RequestMenuItems} />
+    </div>
   );
 });
 

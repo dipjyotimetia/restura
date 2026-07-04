@@ -1,4 +1,6 @@
 import {
+  ChevronDown,
+  ChevronRight,
   FolderPlus,
   History,
   Star,
@@ -31,6 +33,13 @@ import {
   duplicateCollection,
 } from '../lib/itemFactory';
 import { buildMockRoutes, buildMockRoutesFromSpec, mergeMockRoutes } from '../lib/mockRoutes';
+import {
+  uniqueName,
+  isNameTaken,
+  siblingNamesForParent,
+  siblingNamesOfItem,
+  moveWouldCollide,
+} from '../lib/names';
 import { CollectionDirectoryPicker } from './CollectionDirectoryPicker';
 import { CollectionRunnerDialog, type RunnerScope } from './CollectionRunnerDialog';
 import { CollectionSettingsDialog, type SettingsTarget } from './CollectionSettingsDialog';
@@ -105,6 +114,22 @@ interface SidebarProps {
 }
 
 const HISTORY_PAGE_SIZE = 20;
+
+/** Stable "nothing collapsed" set used while a search is active. */
+const EMPTY_COLLAPSED: Set<string> = new Set();
+
+/**
+ * Event-time store reads for the duplicate-name guards. Reading via
+ * getState() (not the subscribed `collections`) keeps the handler callbacks
+ * stable so the memoized tree rows don't re-render on unrelated changes.
+ */
+const getCollectionById = (collectionId: string) =>
+  useCollectionStore.getState().collections.find((c) => c.id === collectionId);
+
+const siblingNames = (collectionId: string, parentId?: string) => {
+  const collection = getCollectionById(collectionId);
+  return collection ? siblingNamesForParent(collection, parentId) : [];
+};
 
 type ExportFormat = 'postman' | 'insomnia' | 'opencollection' | 'bruno';
 
@@ -234,6 +259,27 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   // Collapsed folder ids (session-local; collections default to expanded).
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
 
+  // Collapsed collection ids (session-local, same lifecycle as collapsedFolders).
+  const [collapsedCollections, setCollapsedCollections] = useState<Set<string>>(new Set());
+
+  const toggleCollectionCollapse = useCallback((collectionId: string) => {
+    setCollapsedCollections((prev) => {
+      const next = new Set(prev);
+      if (next.has(collectionId)) next.delete(collectionId);
+      else next.add(collectionId);
+      return next;
+    });
+  }, []);
+
+  const expandCollection = useCallback((collectionId: string) => {
+    setCollapsedCollections((prev) => {
+      if (!prev.has(collectionId)) return prev;
+      const next = new Set(prev);
+      next.delete(collectionId);
+      return next;
+    });
+  }, []);
+
   // Multi-select: `${collectionId}:${itemId}` keys, toggled by cmd/ctrl-click.
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
   const selectedKeysRef = useRef(selectedKeys);
@@ -311,14 +357,10 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   }, []);
 
   const handleNewCollection = useCallback(() => {
-    // Generate unique name with auto-increment
-    const existingNames = collections.map((c) => c.name);
-    let name = 'New Collection';
-    let counter = 1;
-    while (existingNames.includes(name)) {
-      counter++;
-      name = `New Collection ${counter}`;
-    }
+    const name = uniqueName(
+      'New Collection',
+      collections.map((c) => c.name)
+    );
     const newCollection = createNewCollection(name);
     addCollection(newCollection);
     startCollectionRename(newCollection.id, newCollection.name);
@@ -414,7 +456,12 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
     (collectionId: string) => {
       const collection = collections.find((c) => c.id === collectionId);
       if (!collection) return;
-      addCollection(duplicateCollection(collection));
+      addCollection(
+        duplicateCollection(
+          collection,
+          collections.map((c) => c.name)
+        )
+      );
     },
     [collections, addCollection]
   );
@@ -518,8 +565,17 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
   }, []);
 
   const commitCollectionRename = useCallback(() => {
-    if (renamingCollectionId && collectionRenameValueRef.current.trim()) {
-      updateCollection(renamingCollectionId, { name: collectionRenameValueRef.current.trim() });
+    const newName = collectionRenameValueRef.current.trim();
+    if (renamingCollectionId && newName) {
+      const otherNames = useCollectionStore
+        .getState()
+        .collections.filter((c) => c.id !== renamingCollectionId)
+        .map((c) => c.name);
+      if (isNameTaken(newName, otherNames)) {
+        toast.error(`A collection named "${newName}" already exists`);
+      } else {
+        updateCollection(renamingCollectionId, { name: newName });
+      }
     }
     setRenamingCollectionId(null);
   }, [renamingCollectionId, updateCollection]);
@@ -535,8 +591,14 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
 
   const commitItemRename = useCallback(
     (collectionId: string, itemId: string) => {
-      if (itemRenameValueRef.current.trim()) {
-        updateCollectionItem(collectionId, itemId, { name: itemRenameValueRef.current.trim() });
+      const newName = itemRenameValueRef.current.trim();
+      if (newName) {
+        const collection = getCollectionById(collectionId);
+        if (collection && isNameTaken(newName, siblingNamesOfItem(collection, itemId))) {
+          toast.error(`An item named "${newName}" already exists at this level`);
+        } else {
+          updateCollectionItem(collectionId, itemId, { name: newName });
+        }
       }
       setRenamingItemId(null);
     },
@@ -576,26 +638,30 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
 
   const handleAddFolder = useCallback(
     (collectionId: string, parentId?: string) => {
-      const folder = makeFolderItem();
+      const folder = makeFolderItem(uniqueName('New Folder', siblingNames(collectionId, parentId)));
       addItemToCollection(collectionId, folder, parentId);
+      // Make sure the new folder is visible for the inline rename.
+      expandCollection(collectionId);
       startItemRename(folder.id, folder.name);
     },
-    [addItemToCollection, startItemRename]
+    [addItemToCollection, expandCollection, startItemRename]
   );
 
   const handleAddRequest = useCallback(
     (collectionId: string, parentId?: string) => {
-      const item = makeRequestItem();
+      const item = makeRequestItem(uniqueName('New Request', siblingNames(collectionId, parentId)));
       addItemToCollection(collectionId, item, parentId);
+      expandCollection(collectionId);
       // Land the user in the builder for the new saved request.
       if (item.request) openTab(item.request, { savedRequestId: item.id, switchTo: true });
     },
-    [addItemToCollection, openTab]
+    [addItemToCollection, expandCollection, openTab]
   );
 
   const handleDuplicateItem = useCallback(
     (collectionId: string, item: CollectionItem, parentId?: string) => {
-      addItemToCollection(collectionId, duplicateRequestItem(item), parentId);
+      const dup = duplicateRequestItem(item, siblingNames(collectionId, parentId));
+      addItemToCollection(collectionId, dup, parentId);
     },
     [addItemToCollection]
   );
@@ -659,6 +725,22 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
     setDropTargetId(null);
   }, []);
 
+  /**
+   * Shared guard + move for all drop/move paths: refuse a move that would
+   * land the item next to a same-named sibling (same-level reorders pass).
+   */
+  const guardedMove = useCallback(
+    (collectionId: string, itemId: string, target: { parentId?: string; beforeId?: string }) => {
+      const collection = getCollectionById(collectionId);
+      if (collection && moveWouldCollide(collection, itemId, target)) {
+        toast.error('An item with this name already exists there');
+        return;
+      }
+      moveCollectionItem(collectionId, itemId, target);
+    },
+    [moveCollectionItem]
+  );
+
   /** Drop onto a folder row → move the dragged item *into* that folder. */
   const handleDropIntoFolder = useCallback(
     (e: React.DragEvent, collectionId: string, folderId: string) => {
@@ -667,9 +749,9 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       const drag = dragItemRef.current;
       setDropTargetId(null);
       if (!drag || drag.collectionId !== collectionId || drag.itemId === folderId) return;
-      moveCollectionItem(collectionId, drag.itemId, { parentId: folderId });
+      guardedMove(collectionId, drag.itemId, { parentId: folderId });
     },
-    [moveCollectionItem]
+    [guardedMove]
   );
 
   /** Drop onto a request row → place the dragged item before it, in that row's parent folder. */
@@ -680,9 +762,9 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       const drag = dragItemRef.current;
       setDropTargetId(null);
       if (!drag || drag.collectionId !== collectionId || drag.itemId === beforeId) return;
-      moveCollectionItem(collectionId, drag.itemId, { beforeId });
+      guardedMove(collectionId, drag.itemId, { beforeId });
     },
-    [moveCollectionItem]
+    [guardedMove]
   );
 
   /** Drop onto the collection root strip → move the dragged item to the root. */
@@ -692,16 +774,16 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       const drag = dragItemRef.current;
       setDropTargetId(null);
       if (!drag || drag.collectionId !== collectionId) return;
-      moveCollectionItem(collectionId, drag.itemId, {});
+      guardedMove(collectionId, drag.itemId, {});
     },
-    [moveCollectionItem]
+    [guardedMove]
   );
 
   const handleMoveToFolder = useCallback(
     (collectionId: string, itemId: string, folderId: string) => {
-      moveCollectionItem(collectionId, itemId, { parentId: folderId });
+      guardedMove(collectionId, itemId, { parentId: folderId });
     },
-    [moveCollectionItem]
+    [guardedMove]
   );
 
   // Stable callback bundle for the memoized tree rows. Everything in here is
@@ -754,12 +836,15 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
     ]
   );
 
+  // Search forces folders open (like collections) so matches stay visible.
+  const effectiveCollapsedFolders = searchQuery ? EMPTY_COLLAPSED : collapsedFolders;
+
   // Volatile tree state, fanned out to per-row booleans inside the tree.
   const treeState: TreeState = {
     renamingItemId,
     renameValue: itemRenameValue,
     dropTargetId,
-    collapsedFolders,
+    collapsedFolders: effectiveCollapsedFolders,
     selectedKeys,
   };
 
@@ -877,264 +962,309 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                 />
               ) : (
                 <Stagger className="flex flex-col" initial={staggerInitial}>
-                  {filteredCollections.map((collection) => (
-                    <StaggerItem
-                      key={collection.id}
-                      className="group border-b border-border/40 pb-1.5 mb-1.5 last:border-b-0 last:mb-0 last:pb-0"
-                    >
-                      <div className="flex items-center gap-2 rounded px-1.5 py-1.5 hover:bg-accent transition-colors">
-                        <div className="flex-1 flex items-center gap-2 min-w-0">
-                          <Folder className="h-3.5 w-3.5 text-sp-muted shrink-0" />
-                          <div className="min-w-0 flex-1 flex items-center gap-1.5">
-                            {renamingCollectionId === collection.id ? (
-                              <input
-                                ref={collectionRenameRef}
-                                value={collectionRenameValue}
-                                onChange={(e) => setCollectionRenameValue(e.target.value)}
-                                onBlur={commitCollectionRename}
-                                onKeyDown={(e) => {
-                                  e.stopPropagation();
-                                  if (e.key === 'Enter') commitCollectionRename();
-                                  if (e.key === 'Escape') setRenamingCollectionId(null);
-                                }}
-                                onClick={(e) => e.stopPropagation()}
-                                className="flex-1 bg-transparent border-b border-primary outline-none text-xs font-medium text-foreground"
-                                aria-label="Rename collection"
-                              />
+                  {filteredCollections.map((collection) => {
+                    // Search forces collections open so matches stay visible.
+                    const isCollectionCollapsed =
+                      collapsedCollections.has(collection.id) && !searchQuery;
+                    const toggleHeader = () => {
+                      if (renamingCollectionId !== collection.id)
+                        toggleCollectionCollapse(collection.id);
+                    };
+                    return (
+                      <StaggerItem
+                        key={collection.id}
+                        className="group border-b border-border/40 pb-1.5 mb-1.5 last:border-b-0 last:mb-0 last:pb-0"
+                      >
+                        {/* The options menu is a sibling of the clickable area (not a
+                            child) so menu clicks can't bubble into the collapse toggle
+                            and the ARIA button contains no nested controls. */}
+                        {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- onDragOver is a drag affordance only; click/keyboard interactivity lives on the role="button" child */}
+                        <div
+                          className="flex items-center gap-2 rounded px-1.5 py-1.5 hover:bg-accent transition-colors"
+                          onDragOver={() => {
+                            // Spring-open a collapsed collection so it can accept drops.
+                            if (dragItemRef.current) expandCollection(collection.id);
+                          }}
+                        >
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            aria-expanded={!isCollectionCollapsed}
+                            onClick={toggleHeader}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                toggleHeader();
+                              }
+                            }}
+                            className="flex-1 flex items-center gap-2 min-w-0 cursor-pointer rounded focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          >
+                            {isCollectionCollapsed ? (
+                              <ChevronRight className="h-3 w-3 text-sp-muted shrink-0" />
                             ) : (
-                              <span className="text-xs font-medium truncate">
-                                {collection.name}
-                              </span>
+                              <ChevronDown className="h-3 w-3 text-sp-muted shrink-0" />
                             )}
-                            <FileStatusBadge collectionId={collection.id} />
-                            <span className="ml-auto shrink-0 text-[10px] tabular-nums text-sp-dim">
-                              {collection.items.length}
-                            </span>
+                            <Folder className="h-3.5 w-3.5 text-sp-muted shrink-0" />
+                            <div className="min-w-0 flex-1 flex items-center gap-1.5">
+                              {renamingCollectionId === collection.id ? (
+                                <input
+                                  ref={collectionRenameRef}
+                                  value={collectionRenameValue}
+                                  onChange={(e) => setCollectionRenameValue(e.target.value)}
+                                  onBlur={commitCollectionRename}
+                                  onKeyDown={(e) => {
+                                    e.stopPropagation();
+                                    if (e.key === 'Enter') commitCollectionRename();
+                                    if (e.key === 'Escape') setRenamingCollectionId(null);
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="flex-1 bg-transparent border-b border-primary outline-none text-xs font-medium text-foreground"
+                                  aria-label="Rename collection"
+                                />
+                              ) : (
+                                <span className="text-xs font-medium truncate">
+                                  {collection.name}
+                                </span>
+                              )}
+                              <FileStatusBadge collectionId={collection.id} />
+                              <span className="ml-auto shrink-0 text-[10px] tabular-nums text-sp-dim">
+                                {collection.items.length}
+                              </span>
+                            </div>
                           </div>
-                        </div>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 opacity-0 group-hover:opacity-100 shrink-0"
-                              onPointerDown={(e) => e.stopPropagation()}
-                              aria-label="Collection options"
-                            >
-                              <MoreVertical className="h-3.5 w-3.5" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onClick={() => setRunnerScope({ collectionId: collection.id })}
-                              className="text-xs"
-                            >
-                              <Play className="mr-2 h-3.5 w-3.5" />
-                              Run collection
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              onClick={() => handleAddRequest(collection.id)}
-                              className="text-xs"
-                            >
-                              <FilePlus className="mr-2 h-3.5 w-3.5" />
-                              New request
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => handleAddFolder(collection.id)}
-                              className="text-xs"
-                            >
-                              <FolderPlus className="mr-2 h-3.5 w-3.5" />
-                              New folder
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              onClick={() => startCollectionRename(collection.id, collection.name)}
-                              className="text-xs"
-                            >
-                              <Pencil className="mr-2 h-3.5 w-3.5" />
-                              Rename
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => handleDuplicateCollection(collection.id)}
-                              className="text-xs"
-                            >
-                              <Copy className="mr-2 h-3.5 w-3.5" />
-                              Duplicate
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setDocsCollection(collection)}
-                              className="text-xs"
-                            >
-                              <FileText className="mr-2 h-3.5 w-3.5" />
-                              View API docs
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuSub>
-                              <DropdownMenuSubTrigger className="text-xs">
-                                <Download className="mr-2 h-3.5 w-3.5" />
-                                Export
-                              </DropdownMenuSubTrigger>
-                              <DropdownMenuSubContent>
-                                <DropdownMenuItem
-                                  onClick={() => handleExportCollection(collection.id, 'postman')}
-                                  className="text-xs"
-                                >
-                                  Postman Collection
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => handleExportCollection(collection.id, 'insomnia')}
-                                  className="text-xs"
-                                >
-                                  Insomnia Collection
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() =>
-                                    handleExportCollection(collection.id, 'opencollection')
-                                  }
-                                  className="text-xs"
-                                >
-                                  OpenCollection (YAML)
-                                </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onClick={() => handleExportCollection(collection.id, 'bruno')}
-                                  className="text-xs"
-                                >
-                                  Bruno (.bru archive)
-                                </DropdownMenuItem>
-                              </DropdownMenuSubContent>
-                            </DropdownMenuSub>
-                            {isElectronEnvironment() && (
-                              <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                  onClick={() => handleToggleMock(collection.id)}
-                                  className="text-xs"
-                                >
-                                  {mockStatus.running &&
-                                  mockStatus.collectionId === collection.id ? (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 opacity-0 group-hover:opacity-100 shrink-0"
+                                aria-label="Collection options"
+                              >
+                                <MoreVertical className="h-3.5 w-3.5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={() => setRunnerScope({ collectionId: collection.id })}
+                                className="text-xs"
+                              >
+                                <Play className="mr-2 h-3.5 w-3.5" />
+                                Run collection
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => handleAddRequest(collection.id)}
+                                className="text-xs"
+                              >
+                                <FilePlus className="mr-2 h-3.5 w-3.5" />
+                                New request
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleAddFolder(collection.id)}
+                                className="text-xs"
+                              >
+                                <FolderPlus className="mr-2 h-3.5 w-3.5" />
+                                New folder
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  startCollectionRename(collection.id, collection.name)
+                                }
+                                className="text-xs"
+                              >
+                                <Pencil className="mr-2 h-3.5 w-3.5" />
+                                Rename
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleDuplicateCollection(collection.id)}
+                                className="text-xs"
+                              >
+                                <Copy className="mr-2 h-3.5 w-3.5" />
+                                Duplicate
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => setDocsCollection(collection)}
+                                className="text-xs"
+                              >
+                                <FileText className="mr-2 h-3.5 w-3.5" />
+                                View API docs
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuSub>
+                                <DropdownMenuSubTrigger className="text-xs">
+                                  <Download className="mr-2 h-3.5 w-3.5" />
+                                  Export
+                                </DropdownMenuSubTrigger>
+                                <DropdownMenuSubContent>
+                                  <DropdownMenuItem
+                                    onClick={() => handleExportCollection(collection.id, 'postman')}
+                                    className="text-xs"
+                                  >
+                                    Postman Collection
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={() =>
+                                      handleExportCollection(collection.id, 'insomnia')
+                                    }
+                                    className="text-xs"
+                                  >
+                                    Insomnia Collection
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={() =>
+                                      handleExportCollection(collection.id, 'opencollection')
+                                    }
+                                    className="text-xs"
+                                  >
+                                    OpenCollection (YAML)
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem
+                                    onClick={() => handleExportCollection(collection.id, 'bruno')}
+                                    className="text-xs"
+                                  >
+                                    Bruno (.bru archive)
+                                  </DropdownMenuItem>
+                                </DropdownMenuSubContent>
+                              </DropdownMenuSub>
+                              {isElectronEnvironment() && (
+                                <>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem
+                                    onClick={() => handleToggleMock(collection.id)}
+                                    className="text-xs"
+                                  >
+                                    {mockStatus.running &&
+                                    mockStatus.collectionId === collection.id ? (
+                                      <>
+                                        <Square className="mr-2 h-3.5 w-3.5" />
+                                        Stop mock server
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Play className="mr-2 h-3.5 w-3.5" />
+                                        Start mock server
+                                      </>
+                                    )}
+                                  </DropdownMenuItem>
+                                  {isFileCollection(collection.id) ? (
                                     <>
-                                      <Square className="mr-2 h-3.5 w-3.5" />
-                                      Stop mock server
+                                      <DropdownMenuItem
+                                        onClick={() => {
+                                          const dir =
+                                            useFileCollectionStore.getState().fileCollections[
+                                              collection.id
+                                            ]?.directoryPath;
+                                          if (dir) setGitTarget({ collection, directoryPath: dir });
+                                        }}
+                                        className="text-xs"
+                                      >
+                                        <GitBranch className="mr-2 h-3.5 w-3.5" />
+                                        Git…
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        onClick={() => handleOpenInExplorer(collection.id)}
+                                        className="text-xs"
+                                      >
+                                        <FolderOpen className="mr-2 h-3.5 w-3.5" />
+                                        Open in Finder
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        onClick={() => handleSyncCollection(collection.id)}
+                                        className="text-xs"
+                                      >
+                                        <HardDrive className="mr-2 h-3.5 w-3.5" />
+                                        Sync to Disk
+                                      </DropdownMenuItem>
                                     </>
                                   ) : (
-                                    <>
-                                      <Play className="mr-2 h-3.5 w-3.5" />
-                                      Start mock server
-                                    </>
-                                  )}
-                                </DropdownMenuItem>
-                                {isFileCollection(collection.id) ? (
-                                  <>
                                     <DropdownMenuItem
-                                      onClick={() => {
-                                        const dir =
-                                          useFileCollectionStore.getState().fileCollections[
-                                            collection.id
-                                          ]?.directoryPath;
-                                        if (dir) setGitTarget({ collection, directoryPath: dir });
-                                      }}
-                                      className="text-xs"
-                                    >
-                                      <GitBranch className="mr-2 h-3.5 w-3.5" />
-                                      Git…
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      onClick={() => handleOpenInExplorer(collection.id)}
-                                      className="text-xs"
-                                    >
-                                      <FolderOpen className="mr-2 h-3.5 w-3.5" />
-                                      Open in Finder
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      onClick={() => handleSyncCollection(collection.id)}
+                                      onClick={() => handleSaveToFiles(collection.id)}
                                       className="text-xs"
                                     >
                                       <HardDrive className="mr-2 h-3.5 w-3.5" />
-                                      Sync to Disk
+                                      Save to Files
                                     </DropdownMenuItem>
-                                  </>
-                                ) : (
-                                  <DropdownMenuItem
-                                    onClick={() => handleSaveToFiles(collection.id)}
-                                    className="text-xs"
-                                  >
-                                    <HardDrive className="mr-2 h-3.5 w-3.5" />
-                                    Save to Files
-                                  </DropdownMenuItem>
-                                )}
-                              </>
+                                  )}
+                                </>
+                              )}
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() =>
+                                  setSettingsTarget({ scope: 'collection', collection })
+                                }
+                                className="text-xs"
+                              >
+                                <Settings2 className="mr-2 h-3.5 w-3.5" />
+                                Collection settings
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onClick={() => handleDeleteClick(collection.id)}
+                                className="text-destructive focus:text-destructive text-xs"
+                              >
+                                <Trash2 className="mr-2 h-3.5 w-3.5" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        </div>
+                        {!isCollectionCollapsed && (
+                          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- drag-and-drop drop target; keyboard tree navigation handled via onKeyDown
+                          <div
+                            role="group"
+                            aria-label={`${collection.name} items`}
+                            className={cn(
+                              'pl-3 pr-1 py-0.5',
+                              dropTargetId === `root:${collection.id}` &&
+                                'bg-primary/5 ring-1 ring-inset ring-primary rounded'
                             )}
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              onClick={() => setSettingsTarget({ scope: 'collection', collection })}
-                              className="text-xs"
-                            >
-                              <Settings2 className="mr-2 h-3.5 w-3.5" />
-                              Collection settings
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              onClick={() => handleDeleteClick(collection.id)}
-                              className="text-destructive focus:text-destructive text-xs"
-                            >
-                              <Trash2 className="mr-2 h-3.5 w-3.5" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- drag-and-drop drop target; keyboard tree navigation handled via onKeyDown */}
-                      <div
-                        role="group"
-                        aria-label={`${collection.name} items`}
-                        className={cn(
-                          'pl-3 pr-1 py-0.5',
-                          dropTargetId === `root:${collection.id}` &&
-                            'bg-primary/5 ring-1 ring-inset ring-primary rounded'
-                        )}
-                        onDragOver={(e) => {
-                          if (!dragItemRef.current) return;
-                          e.preventDefault();
-                          e.dataTransfer.dropEffect = 'move';
-                          setDropTargetId(`root:${collection.id}`);
-                        }}
-                        onDragLeave={() =>
-                          setDropTargetId((id) => (id === `root:${collection.id}` ? null : id))
-                        }
-                        onDrop={(e) => handleDropToRoot(e, collection.id)}
-                        onKeyDown={(e) => handleTreeKeyDown(e, treeActions, collapsedFolders)}
-                      >
-                        {collection.items.length > 0 ? (
-                          <div className="space-y-0.5">
-                            <CollectionTreeItems
-                              collectionId={collection.id}
-                              items={collection.items}
-                              state={treeState}
-                              actions={treeActions}
-                            />
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5 py-1">
-                            <button
-                              type="button"
-                              onClick={() => handleAddRequest(collection.id)}
-                              className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-                            >
-                              <FilePlus className="h-3 w-3" /> Add request
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleAddFolder(collection.id)}
-                              className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-                            >
-                              <FolderPlus className="h-3 w-3" /> Add folder
-                            </button>
+                            onDragOver={(e) => {
+                              if (!dragItemRef.current) return;
+                              e.preventDefault();
+                              e.dataTransfer.dropEffect = 'move';
+                              setDropTargetId(`root:${collection.id}`);
+                            }}
+                            onDragLeave={() =>
+                              setDropTargetId((id) => (id === `root:${collection.id}` ? null : id))
+                            }
+                            onDrop={(e) => handleDropToRoot(e, collection.id)}
+                            onKeyDown={(e) =>
+                              handleTreeKeyDown(e, treeActions, effectiveCollapsedFolders)
+                            }
+                          >
+                            {collection.items.length > 0 ? (
+                              <div className="space-y-0.5">
+                                <CollectionTreeItems
+                                  collectionId={collection.id}
+                                  items={collection.items}
+                                  state={treeState}
+                                  actions={treeActions}
+                                />
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1.5 py-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddRequest(collection.id)}
+                                  className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                                >
+                                  <FilePlus className="h-3 w-3" /> Add request
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddFolder(collection.id)}
+                                  className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                                >
+                                  <FolderPlus className="h-3 w-3" /> Add folder
+                                </button>
+                              </div>
+                            )}
                           </div>
                         )}
-                      </div>
-                    </StaggerItem>
-                  ))}
+                      </StaggerItem>
+                    );
+                  })}
                 </Stagger>
               )}
             </div>

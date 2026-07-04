@@ -36,7 +36,7 @@ const source: Collection = {
 
 describe('duplicateCollection', () => {
   it('appends " copy" to the name and keeps content', () => {
-    const dup = duplicateCollection(source);
+    const dup = duplicateCollection(source, []);
     expect(dup.name).toBe('My API copy');
     expect(dup.description).toBe('desc');
     // Auth is cloned as-is, SecretRef handle ids included — both collections
@@ -47,7 +47,7 @@ describe('duplicateCollection', () => {
   });
 
   it('regenerates the collection id and every item/request/variable id', () => {
-    const dup = duplicateCollection(source);
+    const dup = duplicateCollection(source, []);
     expect(dup.id).not.toBe(source.id);
 
     const collectIds = (items: CollectionItem[]): string[] =>
@@ -65,7 +65,7 @@ describe('duplicateCollection', () => {
   });
 
   it('is a deep copy — mutating the duplicate leaves the source untouched', () => {
-    const dup = duplicateCollection(source);
+    const dup = duplicateCollection(source, []);
     dup.items[0]!.items![0]!.name = 'MUTATED';
     expect(source.items[0]!.items![0]!.name).toBe('Nested');
   });

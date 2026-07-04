@@ -1,5 +1,6 @@
 import { Plus, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { SaveToCollectionDialog } from './SaveToCollectionDialog';
 import {
   ContextMenu,
@@ -15,6 +16,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Floater, ProtoChip } from '@/components/ui/spatial';
+import {
+  collectionContainingItem,
+  isNameTaken,
+  siblingNamesOfItem,
+} from '@/features/collections/lib/names';
 import { isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import { useCollectionStore } from '@/store/useCollectionStore';
@@ -111,6 +117,19 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
   const handleSaveBack = (tabId: string, savedRequestId: string) => {
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
+    // Saving back also renames the saved item to the tab's name — refuse
+    // when that would collide with a sibling in the collection.
+    const collection = collectionContainingItem(
+      useCollectionStore.getState().collections,
+      savedRequestId
+    );
+    if (
+      collection &&
+      isNameTaken(tab.request.name, siblingNamesOfItem(collection, savedRequestId))
+    ) {
+      toast.error(`An item named "${tab.request.name}" already exists at this level`);
+      return;
+    }
     useCollectionStore.getState().updateAnyCollectionItem(savedRequestId, {
       name: tab.request.name,
       request: tab.request,
