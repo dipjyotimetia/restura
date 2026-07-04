@@ -46,7 +46,7 @@ function markInner(color) {
   return `${strokes}<circle cx="${n.cx}" cy="${n.cy}" r="${n.r}" fill="${color}"/>`;
 }
 
-const gradientDef = `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="${brand.gradient.from}"/><stop offset="100%" stop-color="${brand.gradient.to}"/></linearGradient></defs>`;
+const gradientDef = `<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${brand.gradient.from}"/><stop offset="100%" stop-color="${brand.gradient.to}"/></linearGradient></defs>`;
 
 /** Subtle inner glass edge — only on rounded tiles (skipped when full-bleed). */
 function highlightRect(rx) {
