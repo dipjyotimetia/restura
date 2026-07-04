@@ -14,16 +14,16 @@ import sharp from 'sharp';
 
 const OUT = join(dirname(fileURLToPath(import.meta.url)), '..', 'store-assets');
 
-// Brand: single cobalt mark (#4aa0ff → #1162e0). Protocol accents mirror the
+// Brand: single cobalt mark (#3a7ee0 → #184cc0). Protocol accents mirror the
 // side-panel RequestList badge colors so the promo matches the product.
-const COBALT_A = '#4aa0ff';
-const COBALT_B = '#1162e0';
+const COBALT_A = '#3a7ee0';
+const COBALT_B = '#184cc0';
 const PROTO = {
-  rest: '#127eee',
-  graphql: '#e535ab',
-  'grpc-web': '#2bb673',
-  websocket: '#8b5cf6',
-  sse: '#f59e0b',
+  rest: '#3d8fe4',
+  graphql: '#dd7aa2',
+  'grpc-web': '#39b26f',
+  websocket: '#988bdd',
+  sse: '#2ba9c2',
 };
 const FONT = 'Helvetica, Arial, sans-serif';
 
@@ -32,11 +32,11 @@ const FONT = 'Helvetica, Arial, sans-serif';
 function markChip(x, y, size, id) {
   const s = size / 96;
   return `<g transform="translate(${x},${y}) scale(${s})">
-    <defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1">
+    <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="${COBALT_A}"/><stop offset="100%" stop-color="${COBALT_B}"/>
     </linearGradient></defs>
     <rect width="96" height="96" rx="22.08" fill="url(#${id})"/>
-    <rect x="1" y="1" width="94" height="94" rx="21.08" fill="none" stroke="rgba(255,255,255,0.16)" stroke-width="1.5"/>
+    <rect x="1" y="1" width="94" height="94" rx="21.08" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1.5"/>
     <path d="M34 23 V73" fill="none" stroke="#fff" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
     <path d="M34 23 H49 a14 14 0 0 1 0 28 H34" fill="none" stroke="#fff" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
     <path d="M45 51 L64 73" fill="none" stroke="#fff" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
@@ -63,8 +63,8 @@ function backdrop(w, h) {
       <stop offset="100%" stop-color="#15346e"/>
     </linearGradient>
     <radialGradient id="glow" cx="78%" cy="18%" r="55%">
-      <stop offset="0%" stop-color="#1162e0" stop-opacity="0.45"/>
-      <stop offset="100%" stop-color="#1162e0" stop-opacity="0"/>
+      <stop offset="0%" stop-color="#184cc0" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#184cc0" stop-opacity="0"/>
     </radialGradient>
     <pattern id="dots" width="26" height="26" patternUnits="userSpaceOnUse">
       <circle cx="1.2" cy="1.2" r="1.2" fill="#ffffff" fill-opacity="0.05"/>
@@ -228,8 +228,8 @@ function screenshot() {
     <rect x="${panelX}" y="${panelY}" width="${panelW}" height="${panelH}" rx="18" fill="none" stroke="#ffffff" stroke-opacity="0.5"/>
     <g transform="translate(${panelX},${panelY})">
       <text x="20" y="44" font-family="${FONT}" font-size="20" font-weight="800" fill="#16223a">Restura Capture</text>
-      <circle cx="194" cy="38" r="6" fill="#ef4444"/>
-      <text x="208" y="43" font-family="${FONT}" font-size="13" font-weight="600" fill="#ef4444">Capturing</text>
+      <circle cx="194" cy="38" r="6" fill="#d55753"/>
+      <text x="208" y="43" font-family="${FONT}" font-size="13" font-weight="600" fill="#d55753">Capturing</text>
       <!-- filter row -->
       <rect x="20" y="62" width="${panelW - 150}" height="32" rx="8" fill="#f4f6fb" stroke="#e2e8f2"/>
       <text x="34" y="83" font-family="${FONT}" font-size="13" fill="#9aa7bd">Filter URL…</text>

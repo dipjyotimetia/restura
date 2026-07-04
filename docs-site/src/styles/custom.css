@@ -4,18 +4,20 @@
 
 /* =========================================================================
    Restura Docs — Spatial Depth Design System
-   Mirrors the main app's brand: cobalt accent (#2e91ff) → violet (#a78bfa),
-   Geist + JetBrains Mono, app-matched backdrop/glass. Frosted-glass aesthetic
-   kept for the docs surface; values tuned to the app. Dark-mode aware.
+   Mirrors the main app's brand: single-hue cobalt (#2e91ff → #3a7ee0 deep
+   partner — no violet), Geist + JetBrains Mono, app-matched backdrop/glass.
+   Frosted-glass aesthetic kept for the docs surface; values tuned to the app.
+   Dark-mode aware.
    ========================================================================= */
 
 :root {
   /* Brand palette — space-separated RGB triplets (modern syntax).
-     Cobalt is the primary accent (app --sp-accent #2e91ff); violet #a78bfa
-     is the gradient partner. */
+     Cobalt is the primary accent (app --sp-accent #2e91ff); the gradient
+     partner is a deeper cobalt (brand mark gradient top #3a7ee0) so every
+     gradient stays single-hue — de-violeted with the 2026-07 premium pass. */
   --restura-cobalt: 46 145 255; /* #2e91ff — primary */
-  --restura-violet: 167 139 250; /* #a78bfa — gradient partner */
-  --restura-cyan: 6 182 212; /* #06b6d4 */
+  --restura-violet: 58 126 224; /* #3a7ee0 — deep-cobalt gradient partner (name kept for churn-free rename) */
+  --restura-cyan: 43 169 194; /* #2ba9c2 */
 
   /* Starlight accent overrides */
   --sl-color-accent-low: rgb(20 40 75);
@@ -38,10 +40,10 @@
     0 2px 6px -2px rgb(31 41 55 / 0.08);
 
   /* Backdrop (light) — app --sp-bg oklch(94.2% 0.012 260); orbs = cobalt +
-     violet hue 286, mirroring the app --sp-bg-glow. */
+     low-chroma cool neutral, mirroring the app --sp-bg-glow. */
   --backdrop-base: oklch(94.2% 0.012 260);
   --backdrop-orb-1: rgb(var(--restura-cobalt) / 0.14);
-  --backdrop-orb-2: oklch(55% 0.19 286 / 0.1);
+  --backdrop-orb-2: oklch(55% 0.06 262 / 0.1);
 }
 
 :root[data-theme='light'] {
@@ -67,7 +69,7 @@
   /* app --sp-bg dark oklch(15.5% 0.011 268) — lifted off pure-black for depth */
   --backdrop-base: oklch(15.5% 0.011 268);
   --backdrop-orb-1: rgb(var(--restura-cobalt) / 0.2);
-  --backdrop-orb-2: oklch(55% 0.19 286 / 0.16);
+  --backdrop-orb-2: oklch(60% 0.06 262 / 0.14);
 
   --sl-color-bg: var(--backdrop-base);
   --sl-color-bg-nav: oklch(18% 0.013 268 / 0.8);
@@ -373,28 +375,28 @@ header.header {
 /* Per-protocol accent — values match the app's protocol chip colors
    (src/styles/globals.css --color-proto-*). */
 .protocol-grid a[data-color='blue'] {
-  --pc: var(--restura-cobalt); /* HTTP #2e91ff */
+  --pc: 61 143 228; /* HTTP #3d8fe4 */
 }
 .protocol-grid a[data-color='green'] {
-  --pc: 34 197 94; /* gRPC #22c55e */
+  --pc: 57 178 111; /* gRPC #39b26f */
 }
 .protocol-grid a[data-color='violet'] {
-  --pc: var(--restura-violet); /* WS / Socket.IO #a78bfa */
+  --pc: 152 139 221; /* WS / Socket.IO #988bdd */
 }
 .protocol-grid a[data-color='pink'] {
-  --pc: 232 121 164; /* GraphQL #e879a4 */
+  --pc: 221 122 162; /* GraphQL #dd7aa2 */
 }
 .protocol-grid a[data-color='magenta'] {
-  --pc: 244 114 182; /* Kafka #f472b6 */
+  --pc: 220 112 149; /* Kafka #dc7095 */
 }
 .protocol-grid a[data-color='cyan'] {
-  --pc: var(--restura-cyan); /* SSE #06b6d4 */
+  --pc: var(--restura-cyan); /* SSE #2ba9c2 */
 }
 .protocol-grid a[data-color='amber'] {
-  --pc: 245 158 11; /* MCP #f59e0b */
+  --pc: 216 149 61; /* MCP #d8953d */
 }
 .protocol-grid a[data-color='teal'] {
-  --pc: 45 212 191; /* MQTT #2dd4bf (no app token) */
+  --pc: 41 169 135; /* MQTT #29a987 */
 }
 
 .protocol-grid .label {

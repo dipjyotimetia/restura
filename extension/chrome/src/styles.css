@@ -9,15 +9,15 @@
 
 :root {
   /* Brand — cobalt gradient from src/components/shared/lib/brandMark.json */
-  --rc-accent: #1f7ceb;
-  --rc-accent-from: #4aa0ff;
-  --rc-accent-to: #1162e0;
-  --rc-accent-soft: rgba(31, 124, 235, 0.12);
-  --rc-accent-ring: rgba(74, 160, 255, 0.45);
+  --rc-accent: #2969d2;
+  --rc-accent-from: #3a7ee0;
+  --rc-accent-to: #184cc0;
+  --rc-accent-soft: rgba(41, 105, 210, 0.12);
+  --rc-accent-ring: rgba(58, 126, 224, 0.45);
 
-  --rc-danger: #e5484d;
-  --rc-danger-soft: rgba(229, 72, 77, 0.1);
-  --rc-ok: #2bb673;
+  --rc-danger: #d55753;
+  --rc-danger-soft: rgba(213, 87, 83, 0.1);
+  --rc-ok: #39b26f;
 
   /* Surfaces */
   --rc-bg: #f7f8fa;
@@ -32,17 +32,17 @@
   --rc-fg-faint: #9aa1ab;
 
   /* Protocol accents */
-  --rc-proto-rest: #127eee;
-  --rc-proto-graphql: #e535ab;
-  --rc-proto-grpc-web: #2bb673;
-  --rc-proto-websocket: #8b5cf6;
-  --rc-proto-sse: #f59e0b;
+  --rc-proto-rest: #3d8fe4;
+  --rc-proto-graphql: #dd7aa2;
+  --rc-proto-grpc-web: #39b26f;
+  --rc-proto-websocket: #988bdd;
+  --rc-proto-sse: #2ba9c2;
 
   /* Status */
-  --rc-status-2xx: #2bb673;
+  --rc-status-2xx: #39b26f;
   --rc-status-3xx: #6b7280;
-  --rc-status-4xx: #f59e0b;
-  --rc-status-5xx: #e5484d;
+  --rc-status-4xx: #d8953d;
+  --rc-status-5xx: #d55753;
 
   --rc-radius: 8px;
   --rc-radius-sm: 6px;
@@ -52,12 +52,12 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --rc-accent: #4aa0ff;
-    --rc-accent-soft: rgba(74, 160, 255, 0.16);
-    --rc-accent-ring: rgba(74, 160, 255, 0.5);
+    --rc-accent: #5292ec;
+    --rc-accent-soft: rgba(82, 146, 236, 0.16);
+    --rc-accent-ring: rgba(82, 146, 236, 0.5);
 
-    --rc-danger: #ff6369;
-    --rc-danger-soft: rgba(255, 99, 105, 0.14);
+    --rc-danger: #e87876;
+    --rc-danger-soft: rgba(232, 120, 118, 0.14);
 
     --rc-bg: #14171c;
     --rc-panel: #1c2027;
@@ -553,7 +553,7 @@ body {
 }
 
 .rc-chip--ok {
-  background: rgba(43, 182, 115, 0.12);
+  background: rgba(57, 178, 111, 0.12);
   color: var(--rc-ok);
 }
 

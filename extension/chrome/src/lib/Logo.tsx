@@ -19,12 +19,12 @@ export function Logo({ size = 18 }: { size?: number }): React.JSX.Element {
           id="rcBrandGrad"
           x1="0"
           y1="0"
-          x2="96"
+          x2="0"
           y2="96"
           gradientUnits="userSpaceOnUse"
         >
-          <stop stopColor="#4aa0ff" />
-          <stop offset="1" stopColor="#1162e0" />
+          <stop stopColor="#3a7ee0" />
+          <stop offset="1" stopColor="#184cc0" />
         </linearGradient>
       </defs>
       <g stroke="url(#rcBrandGrad)" strokeWidth={11} strokeLinecap="round" strokeLinejoin="round">
