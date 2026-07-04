@@ -112,6 +112,10 @@ export function useHttpRequestPage() {
     setLoading(true);
     const startTime = Date.now();
     toast.loading('Sending request...', { id: 'request' });
+    // Hoisted out of the try block so the catch handler can persist the same
+    // resolved URL into history/console on a failed send instead of falling
+    // back to the raw `{{var}}` template.
+    let resolvedUrl: string | undefined;
 
     try {
       // Active environment + workspace globals + collection vars (precedence
@@ -194,7 +198,7 @@ export function useHttpRequestPage() {
         return resolveVariables(result);
       };
 
-      const resolvedUrl = resolveLocal(httpRequest.url);
+      resolvedUrl = resolveLocal(httpRequest.url);
       let params: Record<string, string> = {};
       httpRequest.params
         .filter((p) => p.enabled && p.key)
@@ -412,7 +416,11 @@ export function useHttpRequestPage() {
       }
 
       setCurrentResponse(responseData);
-      addHistoryItem(httpRequest, responseData);
+      // History/console persist the resolved URL, not the raw `{{var}}`
+      // template — the response/headers already reflect the resolved request,
+      // so the logged URL must match what was actually sent.
+      const loggedRequest = { ...httpRequest, url: resolvedUrl };
+      addHistoryItem(loggedRequest, responseData);
       const scriptLogs = [...(preRequestResult?.logs || []), ...(testResult?.logs || [])];
       const sentHeaders = captureSentHeaders(
         response.config?.headers,
@@ -420,7 +428,7 @@ export function useHttpRequestPage() {
         response.config?.url ?? resolvedUrl
       );
       addEntry(
-        createConsoleEntry(httpRequest, responseData, sentHeaders, scriptLogs, testResult?.tests)
+        createConsoleEntry(loggedRequest, responseData, sentHeaders, scriptLogs, testResult?.tests)
       );
       // The response panel already shows the outcome — just clear the
       // in-flight toast rather than stacking a redundant success one.
@@ -444,13 +452,18 @@ export function useHttpRequestPage() {
         timestamp: Date.now(),
       };
       setCurrentResponse(errorResponse);
-      addHistoryItem(httpRequest, errorResponse);
+      // Fall back to the raw URL only if resolution itself never ran (e.g.
+      // threw before `resolvedUrl` was assigned) — otherwise reuse it, same
+      // as the success path, so a failed send doesn't log the unresolved
+      // `{{var}}` template either.
+      const loggedRequest = { ...httpRequest, url: resolvedUrl ?? httpRequest.url };
+      addHistoryItem(loggedRequest, errorResponse);
       const sentHeaders = captureSentHeaders(
         axiosError?.config?.headers,
         {},
-        axiosError?.config?.url ?? httpRequest.url
+        axiosError?.config?.url ?? resolvedUrl ?? httpRequest.url
       );
-      addEntry(createConsoleEntry(httpRequest, errorResponse, sentHeaders, [], undefined));
+      addEntry(createConsoleEntry(loggedRequest, errorResponse, sentHeaders, [], undefined));
       toast.error(`Request failed: ${errorMessage}`, { id: 'request', duration: 5000 });
     } finally {
       setLoading(false);

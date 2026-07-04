@@ -98,6 +98,7 @@ import { getElectronAPI } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import { selectFavoriteIds, selectHistoryCount } from '@/store/selectors';
 import { useCollectionStore } from '@/store/useCollectionStore';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import {
   useFileCollectionStore,
   isElectronEnvironment,
@@ -441,7 +442,8 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       } else if (format === 'bruno') {
         // Lazy import — keeps @usebruno/lang out of the main bundle.
         const { exportBrunoCollection } = await import('../lib/bruno-exporter');
-        const exported = await exportBrunoCollection(collection);
+        const { environments } = useEnvironmentStore.getState();
+        const exported = await exportBrunoCollection(collection, { environments });
         if (exported.kind !== 'directory') return;
 
         const api = getElectronAPI();

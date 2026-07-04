@@ -8,7 +8,7 @@ An environment is a named set of variables. Pick one in the top-right selector a
 ## What you can put in a variable
 
 - **Plain strings** — `base_url`, `team_id`, `version`.
-- **Secrets** — `api_token`, `client_secret`. On desktop, secrets are stored as `SecretRef` handles in the encrypted main-process store and never appear in the renderer or in exports.
+- **Secrets** — `api_token`, `client_secret`. Marking an environment variable "secret" masks it in the UI and in collection exports, but the value is still stored as plaintext — environment variables don't use the `SecretRef` handle pattern. For values that need OS-keychain protection, store them on the request's Auth tab instead (see [Authentication](/guides/auth/)), where supported credential fields can be saved as a `SecretRef` handle.
 - **Environment-scoped overrides** — a variable in the active environment beats the same name in the collection-scope variable table.
 
 ## Variable resolution order
