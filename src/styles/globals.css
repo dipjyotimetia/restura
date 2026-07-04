@@ -59,39 +59,41 @@
   --color-sp-hover: var(--sp-hover-bg);
   --color-sp-active: var(--sp-active-bg);
 
-  /* Method colors */
-  --color-method-get: #22c55e;
-  --color-method-post: #f59e0b;
-  --color-method-put: #3b82f6;
-  --color-method-patch: #a855f7;
-  --color-method-delete: #ef4444;
-  --color-method-head: #06b6d4;
-  --color-method-options: #94a3b8;
-  --color-method-ws: #a78bfa;
-  --color-method-sse: #06b6d4;
-  --color-method-mcp: #f59e0b;
-  --color-method-gql: #e879a4;
+  /* Method colors — harmonized custom palette (OKLCH-tuned: L 62–72%, C
+     0.11–0.16, semantic hues kept) instead of stock framework hexes, so badges
+     sit at one perceived intensity instead of shouting at different volumes. */
+  --color-method-get: #39b26f;
+  --color-method-post: #d8953d;
+  --color-method-put: #468de5;
+  --color-method-patch: #a878db;
+  --color-method-delete: #d55753;
+  --color-method-head: #2ba9c2;
+  --color-method-options: #95a0ab;
+  --color-method-ws: #988bdd;
+  --color-method-sse: #2ba9c2;
+  --color-method-mcp: #d8953d;
+  --color-method-gql: #dd7aa2;
 
-  /* Protocol chip colors */
-  --color-proto-http: #2e91ff;
-  --color-proto-grpc: #22c55e;
-  --color-proto-ws: #a78bfa;
-  --color-proto-gql: #e879a4;
-  --color-proto-mcp: #f59e0b;
-  --color-proto-sse: #06b6d4;
-  --color-proto-kafka: #f472b6;
-  --color-proto-socketio: #a78bfa;
-  --color-proto-mqtt: #10b981;
+  /* Protocol chip colors — same harmonized ramp as the method palette */
+  --color-proto-http: #3d8fe4;
+  --color-proto-grpc: #39b26f;
+  --color-proto-ws: #988bdd;
+  --color-proto-gql: #dd7aa2;
+  --color-proto-mcp: #d8953d;
+  --color-proto-sse: #2ba9c2;
+  --color-proto-kafka: #dc7095;
+  --color-proto-socketio: #988bdd;
+  --color-proto-mqtt: #29a987;
 
   /* Semantic status colors — connection/health states across the protocol
      clients (connected/connecting/error/idle) and the HTTP status pill.
      Single hex (theme-independent), like the method/protocol palettes above.
      Generates text-success/bg-warning/border-danger/… utilities. */
-  --color-success: #22c55e;
-  --color-warning: #f59e0b;
-  --color-danger: #ef4444;
-  --color-info: #06b6d4;
-  --color-neutral: #94a3b8;
+  --color-success: #39b26f;
+  --color-warning: #d8953d;
+  --color-danger: #d55753;
+  --color-info: #2ba9c2;
+  --color-neutral: #95a0ab;
 
   /* slate-blue (custom) — override v4 defaults for violet/indigo with the
      existing hex so this pass is zero-color-change (re-skin is a later phase). */
@@ -176,12 +178,12 @@
   /* Elevation shadows — the canonical overlay depth ladder. elevation-2:
      tooltips; elevation-3: floating menus (dropdown/select/context/popover);
      elevation-4: sheets. Dialogs set a bespoke deep shadow inline. */
-  --shadow-elevation-1: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
-  --shadow-elevation-2: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-  --shadow-elevation-3: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
-  --shadow-elevation-4: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-  --shadow-inner-top: inset 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-inner-bottom: inset 0 -1px 2px 0 rgba(0, 0, 0, 0.05);
+  --shadow-elevation-1: 0 1px 2px rgba(12, 16, 30, 0.06), 0 1px 3px rgba(12, 16, 30, 0.05);
+  --shadow-elevation-2: 0 2px 4px rgba(12, 16, 30, 0.05), 0 4px 10px rgba(12, 16, 30, 0.07);
+  --shadow-elevation-3: 0 4px 8px rgba(12, 16, 30, 0.06), 0 12px 24px rgba(12, 16, 30, 0.09);
+  --shadow-elevation-4: 0 8px 16px rgba(12, 16, 30, 0.08), 0 24px 48px rgba(12, 16, 30, 0.12);
+  --shadow-inner-top: inset 0 1px 2px 0 rgba(12, 16, 30, 0.05);
+  --shadow-inner-bottom: inset 0 -1px 2px 0 rgba(12, 16, 30, 0.05);
 
   /* Animations + keyframes (emitted on use) */
   --animate-accordion-down: accordion-down 0.2s ease-out;
@@ -256,10 +258,10 @@
   @keyframes success-pulse {
     0%,
     100% {
-      box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+      box-shadow: 0 0 0 0 rgba(57, 178, 111, 0);
     }
     50% {
-      box-shadow: 0 0 0 8px rgba(34, 197, 94, 0.1);
+      box-shadow: 0 0 0 8px rgba(57, 178, 111, 0.1);
     }
   }
   @keyframes error-shake {
@@ -398,7 +400,7 @@
         color-mix(in oklch, var(--sp-accent) 6%, transparent),
         transparent 45%
       ),
-      radial-gradient(at 100% 100%, oklch(55% 0.19 286 / 0.05), transparent 45%), var(--sp-bg);
+      radial-gradient(at 100% 100%, oklch(55% 0.06 262 / 0.05), transparent 45%), var(--sp-bg);
   }
 
   .dark {
@@ -410,7 +412,7 @@
         color-mix(in oklch, var(--sp-accent) 10%, transparent),
         transparent 50%
       ),
-      radial-gradient(at 100% 100%, oklch(55% 0.19 286 / 0.08), transparent 50%), var(--sp-bg);
+      radial-gradient(at 100% 100%, oklch(60% 0.06 262 / 0.07), transparent 50%), var(--sp-bg);
   }
 }
 
@@ -509,8 +511,8 @@
 
   /* Variable highlight ({{varName}}) used across inputs/editors */
   .sp-variable {
-    background: rgba(245, 158, 11, 0.2);
-    color: #f59e0b;
+    background: rgba(216, 149, 61, 0.18);
+    color: #d8953d;
     padding: 0 4px;
     border-radius: 4px;
   }
@@ -519,11 +521,11 @@
      helper. Rendered in a warning red with a wavy underline so it reads as a
      problem before the request fires, distinct from the amber resolved token. */
   .sp-variable-unresolved {
-    background: rgba(239, 68, 68, 0.18);
-    color: #ef4444;
+    background: rgba(213, 87, 83, 0.16);
+    color: #d55753;
     padding: 0 4px;
     border-radius: 4px;
-    text-decoration: underline wavy rgba(239, 68, 68, 0.7);
+    text-decoration: underline wavy rgba(213, 87, 83, 0.7);
     text-underline-offset: 2px;
   }
 
@@ -531,13 +533,13 @@
      `!important` overrides the syntax-token color Monaco sets on the same span.
      Mirrors the .sp-variable / .sp-variable-unresolved palette above. */
   .monaco-var-resolved {
-    color: #f59e0b !important;
+    color: #d8953d !important;
     font-weight: 600;
   }
   .monaco-var-unresolved {
-    color: #ef4444 !important;
+    color: #d55753 !important;
     font-weight: 600;
-    text-decoration: underline wavy rgba(239, 68, 68, 0.7);
+    text-decoration: underline wavy rgba(213, 87, 83, 0.7);
     text-underline-offset: 2px;
   }
 

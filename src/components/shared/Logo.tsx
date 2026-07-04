@@ -17,9 +17,9 @@ interface LogoProps {
  * the static favicon/app-icon SVGs and the macOS tray template), so the in-app
  * mark can never drift from the favicon. The fill is the fixed brand gradient
  * (single-hue cobalt) rather than `--sp-accent`, so the mark stays brand-cobalt
- * even when the user picks a different accent preset. The glow shadow mirrors
- * the Spatial Depth `--sp-accent-glow-55` token so the tile reads as a
- * first-class surface in the design system.
+ * even when the user picks a different accent preset. The tile carries a
+ * restrained neutral drop shadow (no accent glow) so it reads as a machined
+ * object rather than a lit-up badge.
  *
  * The gradient is keyed by a unique React id so multiple logos can coexist on a
  * page without DOM-id collisions.
@@ -40,11 +40,11 @@ export function Logo({ size = 32, withWordmark = false, className }: LogoProps) 
         aria-label="Restura"
         style={{
           borderRadius: size * tileRadiusRatio,
-          boxShadow: '0 6px 18px var(--sp-accent-glow-55)',
+          boxShadow: '0 1px 2px rgba(9, 16, 40, 0.28), 0 3px 10px rgba(9, 16, 40, 0.16)',
         }}
       >
         <defs>
-          <linearGradient id={gradId} x1="0" y1="0" x2="1" y2="1">
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={gradient.from} />
             <stop offset="100%" stopColor={gradient.to} />
           </linearGradient>

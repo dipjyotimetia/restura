@@ -10,31 +10,31 @@
  * Naming heuristics override the hash so the common cases ("Production" /
  * "Staging" / "Local") read with their conventional colours and a user's
  * muscle memory transfers across projects:
- *   - prod → green (#22c55e) — go signal
- *   - staging / preprod / qa → amber (#f59e0b) — caution
- *   - dev / local → cobalt blue (#2e91ff) — the accent colour
+ *   - prod → green (#39b26f) — go signal
+ *   - staging / preprod / qa → amber (#d8953d) — caution
+ *   - dev / local → cobalt blue (#3d8fe4) — the accent colour
  * Any other name falls through to a hash-based palette pick so distinct envs
  * still get visually distinct colours.
  */
 const ENV_COLOR_PALETTE = [
-  '#2e91ff', // accent blue
-  '#22c55e', // green
-  '#f59e0b', // amber
-  '#a78bfa', // violet
-  '#06b6d4', // cyan
-  '#e879a4', // pink
-  '#f472b6', // hot pink
-  '#94a3b8', // slate
+  '#3d8fe4', // accent blue
+  '#39b26f', // green
+  '#d8953d', // amber
+  '#988bdd', // violet
+  '#2ba9c2', // cyan
+  '#dd7aa2', // pink
+  '#dc7095', // hot pink
+  '#95a0ab', // slate
 ] as const;
 
 export function envColorFor(env: { id: string; name: string } | null | undefined): string {
-  if (!env) return '#94a3b8';
+  if (!env) return '#95a0ab';
   const lower = env.name.toLowerCase();
   // `preprod` contains "prod" but is a pre-production env — keep it out of the
   // green (go-signal) bucket so it reads amber like staging/qa.
-  if (lower.includes('prod') && !lower.includes('preprod')) return '#22c55e';
-  if (lower.includes('stag') || lower.includes('preprod') || /\bqa\b/.test(lower)) return '#f59e0b';
-  if (lower.includes('dev') || lower.includes('local')) return '#2e91ff';
+  if (lower.includes('prod') && !lower.includes('preprod')) return '#39b26f';
+  if (lower.includes('stag') || lower.includes('preprod') || /\bqa\b/.test(lower)) return '#d8953d';
+  if (lower.includes('dev') || lower.includes('local')) return '#3d8fe4';
 
   const source = `${env.id}:${env.name}`;
   let hash = 0;
@@ -42,5 +42,5 @@ export function envColorFor(env: { id: string; name: string } | null | undefined
     hash = (hash * 31 + source.charCodeAt(i)) | 0;
   }
   const idx = Math.abs(hash) % ENV_COLOR_PALETTE.length;
-  return ENV_COLOR_PALETTE[idx] ?? '#2e91ff';
+  return ENV_COLOR_PALETTE[idx] ?? '#3d8fe4';
 }
