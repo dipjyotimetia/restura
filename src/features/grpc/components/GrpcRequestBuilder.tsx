@@ -487,9 +487,6 @@ function GrpcRequestBuilder() {
       );
 
       if (grpcResponse.grpcStatus === 0) {
-        toast.success('Request completed', {
-          description: `${grpcRequest.methodType} call to ${grpcRequest.service}/${grpcRequest.method}`,
-        });
         if (grpcResponse.messages) {
           setStreamingMessages(grpcResponse.messages);
         }

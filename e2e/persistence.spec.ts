@@ -8,7 +8,7 @@ import { setUrl } from './utils/selectors';
 // IndexedDB starts empty; `page.reload()` keeps the same context (same storage).
 test.describe('Persistence across reload', () => {
   test('a created collection survives a full page reload', async ({ app: page }) => {
-    await page.getByRole('button', { name: 'New', exact: true }).click();
+    await page.getByRole('button', { name: 'New collection', exact: true }).click();
     const rename = page.getByRole('textbox', { name: 'Rename collection' });
     await rename.fill('Persisted Collection');
     await page.keyboard.press('Enter');

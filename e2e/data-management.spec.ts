@@ -2,10 +2,10 @@ import { test, expect } from './fixtures/app';
 
 test.describe('Collections', () => {
   test('creates a new collection from the sidebar', async ({ app: page }) => {
-    // The Collections panel is open by default; click "New" to add one.
+    // The Collections panel is open by default; click "New collection" to add one.
     // Creating a collection auto-starts inline rename, so the name is the
     // value of the rename textbox until committed (Enter).
-    await page.getByRole('button', { name: 'New', exact: true }).click();
+    await page.getByRole('button', { name: 'New collection', exact: true }).click();
     await expect(page.getByRole('textbox', { name: 'Rename collection' })).toHaveValue(
       'New Collection'
     );
@@ -13,7 +13,7 @@ test.describe('Collections', () => {
     await expect(page.getByText('New Collection', { exact: true }).first()).toBeVisible();
 
     // Adding another should produce a uniquely-numbered name.
-    await page.getByRole('button', { name: 'New', exact: true }).click();
+    await page.getByRole('button', { name: 'New collection', exact: true }).click();
     await expect(page.getByRole('textbox', { name: 'Rename collection' })).toHaveValue(
       'New Collection 2'
     );
@@ -22,7 +22,7 @@ test.describe('Collections', () => {
   });
 
   test('search filters collections', async ({ app: page }) => {
-    await page.getByRole('button', { name: 'New', exact: true }).click();
+    await page.getByRole('button', { name: 'New collection', exact: true }).click();
     // Commit the auto-started rename so the name renders as text.
     await page.keyboard.press('Enter');
     await expect(page.getByText('New Collection', { exact: true }).first()).toBeVisible();
@@ -94,11 +94,13 @@ test.describe('Tabs (request tabs)', () => {
 
 test.describe('Sidebar visibility', () => {
   test('sidebar Close panel hides the sidebar; icon rail still visible', async ({ app: page }) => {
-    await expect(page.getByRole('button', { name: 'New', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'New collection', exact: true })).toBeVisible();
 
     await page.getByRole('button', { name: 'Close panel' }).click();
 
-    await expect(page.getByRole('button', { name: 'New', exact: true })).not.toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'New collection', exact: true })
+    ).not.toBeVisible();
     await expect(page.getByRole('banner', { name: 'Application chrome' })).toBeVisible();
   });
 });
