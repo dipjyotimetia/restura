@@ -1,9 +1,15 @@
-# Deep Agent Action — AI coding agent triggered by @agent mentions.
+# Deep Agent Action — AI coding agent triggered by @agent mentions, plus
+# automatic triage of new issues that don't mention the agent.
 #
 # Usage:
 #   - On an issue:        "@agent implement X"   → opens a PR with the change.
 #   - On a pull request:  "@agent review"        → posts an inline code review.
 #   - On a pull request:  "@agent fix Y"         → pushes a commit to the PR branch.
+#   - New issue, no @agent mention → triaged automatically: opens a PR for a
+#     clear bug/feature request, asks for clarification if underspecified,
+#     applies a label (bug/enhancement/question/duplicate/invalid), or does
+#     nothing. Always lands behind the approval gate (draft PR), never lowers
+#     the authorization bar below a manual mention.
 #
 # Uses OpenRouter with DeepSeek V4 Flash (cheap, coding-capable model).
 # Requires a repo secret: OPENROUTER_API_KEY (https://openrouter.ai/keys).
@@ -47,5 +53,7 @@ jobs:
           prompt: ${{ github.event.inputs.prompt }}
           model: "openrouter:deepseek/deepseek-v4-flash"
           allowed_commands: "git,npm"
+          enable_triage: "true"
+          triage_allowed_labels: "bug,enhancement,question,duplicate,invalid"
         env:
           PROVIDER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
