@@ -1,0 +1,51 @@
+# Deep Agent Action — AI coding agent triggered by @agent mentions.
+#
+# Usage:
+#   - On an issue:        "@agent implement X"   → opens a PR with the change.
+#   - On a pull request:  "@agent review"        → posts an inline code review.
+#   - On a pull request:  "@agent fix Y"         → pushes a commit to the PR branch.
+#
+# Uses OpenRouter with DeepSeek V4 Flash (cheap, coding-capable model).
+# Requires a repo secret: OPENROUTER_API_KEY (https://openrouter.ai/keys).
+name: Deep Agent
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "Instruction for the agent"
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+# One agent run per issue/PR thread at a time: simultaneous mentions queue
+# instead of racing the sticky tracking comment (and its memory block).
+concurrency:
+  group: deep-agent-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: dipjyotimetia/deep-agent-action@main
+        with:
+          trigger_phrase: "@agent"
+          prompt: ${{ github.event.inputs.prompt }}
+          model: "openrouter:deepseek/deepseek-v4-flash"
+          allowed_commands: "git,npm"
+        env:
+          PROVIDER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
