@@ -19,6 +19,7 @@ import {
   Settings2,
   Workflow as WorkflowIcon,
   Activity,
+  type LucideIcon,
 } from 'lucide-react';
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
@@ -106,6 +107,25 @@ interface SidebarProps {
 const HISTORY_PAGE_SIZE = 20;
 
 type ExportFormat = 'postman' | 'insomnia' | 'opencollection' | 'bruno';
+
+/** Quiet empty state shared by the collections / history / workflows tabs. */
+function SidebarEmptyState({
+  icon: Icon,
+  title,
+  hint,
+}: {
+  icon: LucideIcon;
+  title: string;
+  hint: string;
+}) {
+  return (
+    <div className="text-center text-xs py-10 px-3">
+      <Icon className="mx-auto mb-2.5 h-5 w-5 text-sp-dim" />
+      <p className="text-muted-foreground">{title}</p>
+      <p className="text-[11px] mt-1 text-sp-dim">{hint}</p>
+    </div>
+  );
+}
 
 function Sidebar({ onClose, activePanel }: SidebarProps) {
   const {
@@ -740,7 +760,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
       >
         {/* Header */}
         <div className="flex items-center justify-between px-3 py-2 border-b border-sp-line shrink-0">
-          <span className="text-[10px] font-mono font-semibold tracking-widest text-muted-foreground uppercase">
+          <span className="sp-label">
             {activeTab === 'collections'
               ? 'Collections'
               : activeTab === 'history'
@@ -762,7 +782,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
 
         {/* Search Input */}
         <Input
-          className="h-7 bg-transparent border-0 border-b border-border rounded-none px-3 text-xs placeholder:text-sp-dim focus-visible:shadow-none focus-visible:border-primary font-mono"
+          className="h-7 bg-transparent border-0 border-b border-border rounded-none px-3 text-xs placeholder:text-sp-dim focus-visible:shadow-none focus-visible:border-primary"
           placeholder="Search..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
@@ -805,26 +825,26 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
 
           <TabsContent value="collections" className="flex-1 overflow-auto p-3 mt-0 min-h-0">
             <div className="flex flex-col gap-2">
-              <div className="flex gap-2">
+              <div className="flex items-center gap-1">
                 <Button
                   onClick={handleNewCollection}
-                  variant="outline"
+                  variant="ghost"
                   size="sm"
-                  className="flex-1 justify-start h-8 text-xs border-border hover:border-primary/50 hover:bg-primary/5 dark:hover:bg-primary/10 transition-all duration-200 shadow-sm hover:shadow"
+                  className="flex-1 justify-start h-7 px-1.5 text-xs text-muted-foreground hover:text-foreground"
                 >
-                  <FolderPlus className="mr-2 h-3.5 w-3.5 text-primary" />
-                  New
+                  <FolderPlus className="mr-1.5 h-3.5 w-3.5" />
+                  New collection
                 </Button>
                 {isElectronEnvironment() && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
                         onClick={handleOpenFromFolder}
-                        variant="outline"
+                        variant="ghost"
                         size="sm"
-                        className="h-8 px-2.5 border-border hover:border-primary/50 hover:bg-primary/5"
+                        className="h-7 px-2 text-muted-foreground hover:text-foreground"
                       >
-                        <FolderOpen className="h-3.5 w-3.5 text-primary" />
+                        <FolderOpen className="h-3.5 w-3.5" />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>
@@ -835,56 +855,49 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
               </div>
 
               {filteredCollections.length === 0 ? (
-                <div className="text-center text-xs py-10 px-3">
-                  <div className="mx-auto mb-3 h-12 w-12 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
-                    <FolderPlus className="h-6 w-6 text-primary/60" />
-                  </div>
-                  <p className="font-medium text-foreground">
-                    {searchQuery ? 'No collections found' : 'No collections yet'}
-                  </p>
-                  <p className="text-xs mt-1 text-muted-foreground">
-                    {searchQuery
+                <SidebarEmptyState
+                  icon={FolderPlus}
+                  title={searchQuery ? 'No collections found' : 'No collections yet'}
+                  hint={
+                    searchQuery
                       ? 'Try a different search term'
-                      : 'Create one to organize your requests'}
-                  </p>
-                </div>
+                      : 'Create one to organize your requests'
+                  }
+                />
               ) : (
-                <Stagger className="space-y-1.5">
+                <Stagger className="flex flex-col">
                   {filteredCollections.map((collection) => (
                     <StaggerItem
                       key={collection.id}
-                      className="group rounded-md bg-muted border border-border hover:border-primary/30 hover:bg-accent transition-all shadow-sm"
+                      className="group border-b border-border/40 pb-1.5 mb-1.5 last:border-b-0 last:mb-0 last:pb-0"
                     >
-                      <div className="flex items-center justify-between gap-2 p-2.5">
+                      <div className="flex items-center gap-2 rounded px-1.5 py-1.5 hover:bg-accent transition-colors">
                         <div className="flex-1 flex items-center gap-2 min-w-0">
-                          <FolderPlus className="h-3.5 w-3.5 text-primary shrink-0" />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
-                              {renamingCollectionId === collection.id ? (
-                                <input
-                                  ref={collectionRenameRef}
-                                  value={collectionRenameValue}
-                                  onChange={(e) => setCollectionRenameValue(e.target.value)}
-                                  onBlur={commitCollectionRename}
-                                  onKeyDown={(e) => {
-                                    e.stopPropagation();
-                                    if (e.key === 'Enter') commitCollectionRename();
-                                    if (e.key === 'Escape') setRenamingCollectionId(null);
-                                  }}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="flex-1 bg-transparent border-b border-primary outline-none text-xs font-medium text-foreground"
-                                  aria-label="Rename collection"
-                                />
-                              ) : (
-                                <span className="text-xs font-medium truncate">
-                                  {collection.name}
-                                </span>
-                              )}
-                              <FileStatusBadge collectionId={collection.id} />
-                            </div>
-                            <span className="text-[10px] text-muted-foreground">
-                              {collection.items.length}{' '}
-                              {collection.items.length === 1 ? 'item' : 'items'}
+                          <Folder className="h-3.5 w-3.5 text-sp-muted shrink-0" />
+                          <div className="min-w-0 flex-1 flex items-center gap-1.5">
+                            {renamingCollectionId === collection.id ? (
+                              <input
+                                ref={collectionRenameRef}
+                                value={collectionRenameValue}
+                                onChange={(e) => setCollectionRenameValue(e.target.value)}
+                                onBlur={commitCollectionRename}
+                                onKeyDown={(e) => {
+                                  e.stopPropagation();
+                                  if (e.key === 'Enter') commitCollectionRename();
+                                  if (e.key === 'Escape') setRenamingCollectionId(null);
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex-1 bg-transparent border-b border-primary outline-none text-xs font-medium text-foreground"
+                                aria-label="Rename collection"
+                              />
+                            ) : (
+                              <span className="text-xs font-medium truncate">
+                                {collection.name}
+                              </span>
+                            )}
+                            <FileStatusBadge collectionId={collection.id} />
+                            <span className="ml-auto shrink-0 text-[10px] tabular-nums text-sp-dim">
+                              {collection.items.length}
                             </span>
                           </div>
                         </div>
@@ -1065,9 +1078,9 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                         role="group"
                         aria-label={`${collection.name} items`}
                         className={cn(
-                          'border-t border-border/60 px-2 py-1.5',
+                          'pl-3 pr-1 py-0.5',
                           dropTargetId === `root:${collection.id}` &&
-                            'bg-primary/5 ring-1 ring-inset ring-primary'
+                            'bg-primary/5 ring-1 ring-inset ring-primary rounded'
                         )}
                         onDragOver={(e) => {
                           if (!dragItemRef.current) return;
@@ -1156,28 +1169,24 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
             )}
 
             {filteredHistory.length === 0 ? (
-              <div className="text-center text-xs py-10 px-3">
-                <div className="mx-auto mb-3 h-12 w-12 rounded-xl bg-gradient-to-br from-muted to-muted/50 flex items-center justify-center">
-                  <History className="h-6 w-6 text-sp-dim" />
-                </div>
-                <p className="font-medium text-foreground">
-                  {searchQuery || methodFilter ? 'No matching requests' : 'No history yet'}
-                </p>
-                <p className="text-xs mt-1 text-muted-foreground">
-                  {searchQuery || methodFilter
+              <SidebarEmptyState
+                icon={History}
+                title={searchQuery || methodFilter ? 'No matching requests' : 'No history yet'}
+                hint={
+                  searchQuery || methodFilter
                     ? 'Try adjusting your filters'
-                    : 'Send a request to see it here'}
-                </p>
-              </div>
+                    : 'Send a request to see it here'
+                }
+              />
             ) : (
-              <Stagger className="space-y-1.5">
+              <Stagger className="flex flex-col gap-0.5">
                 {filteredHistory.map((item) => (
                   <StaggerItem
                     key={item.id}
-                    className="group p-2.5 rounded-md bg-muted border border-border hover:border-primary/30 hover:bg-accent cursor-pointer transition-all shadow-sm"
+                    className="group px-1.5 py-1.5 rounded hover:bg-accent cursor-pointer transition-colors"
                     onClick={() => handleLoadHistoryItem(item.id)}
                   >
-                    <div className="flex items-center gap-1.5 mb-1.5">
+                    <div className="flex items-center gap-1.5 mb-1">
                       <Button
                         variant="ghost"
                         size="icon"
@@ -1242,8 +1251,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                     <p className="text-xs font-mono truncate pl-6 mb-1 text-foreground">
                       {item.request.type === 'grpc' ? item.request.service : item.request.url}
                     </p>
-                    <span className="text-[10px] text-muted-foreground pl-6 flex items-center gap-1">
-                      <History className="h-3 w-3" />
+                    <span className="text-[10px] text-sp-dim pl-6 block">
                       {new Date(item.timestamp).toLocaleString()}
                     </span>
                   </StaggerItem>
@@ -1264,15 +1272,11 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
 
           <TabsContent value="workflows" className="flex-1 overflow-auto p-3 mt-0">
             {filteredCollections.length === 0 ? (
-              <div className="text-center text-xs py-10 px-3">
-                <div className="mx-auto mb-3 h-12 w-12 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 flex items-center justify-center">
-                  <GitBranch className="h-6 w-6 text-primary/60" />
-                </div>
-                <p className="font-medium text-foreground">No collections yet</p>
-                <p className="text-xs mt-1 text-muted-foreground">
-                  Create a collection first to add workflows
-                </p>
-              </div>
+              <SidebarEmptyState
+                icon={GitBranch}
+                title="No collections yet"
+                hint="Create a collection first to add workflows"
+              />
             ) : (
               <div className="space-y-4">
                 {filteredCollections.map((collection) => (

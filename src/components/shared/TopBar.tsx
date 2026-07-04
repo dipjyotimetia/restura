@@ -98,7 +98,7 @@ export function WindowChrome({
         ) : (
           <span className="block w-1" aria-hidden="true" />
         )}
-        <span className="font-mono text-sp-12 text-sp-muted tracking-tight">Restura</span>
+        <span className="text-sp-12 font-medium text-sp-muted tracking-tight">Restura</span>
       </div>
 
       {/* Center: environment pill — absolutely positioned so it stays centered
@@ -114,7 +114,7 @@ export function WindowChrome({
           className={cn(
             'inline-flex items-center gap-2 h-7 px-2.5 rounded-sp-pill',
             'bg-sp-surface-lo border border-sp-line',
-            'font-mono text-sp-11 text-sp-muted',
+            'text-sp-11-5 text-sp-muted',
             'hover:bg-sp-hover hover:text-sp-text transition-colors',
             'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
           )}
@@ -151,7 +151,7 @@ export function WindowChrome({
           className={cn(
             'inline-flex items-center gap-2 h-7 pl-2.5 pr-1.5 rounded-sp-pill',
             'bg-sp-surface-lo border border-sp-line',
-            'font-mono text-sp-11-5 text-sp-muted',
+            'text-sp-11-5 text-sp-muted',
             'hover:bg-sp-hover hover:text-sp-text transition-colors',
             'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
           )}

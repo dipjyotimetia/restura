@@ -253,10 +253,6 @@ function GraphQLRequestBuilder() {
           `GraphQL returned ${graphqlErrors.length} error${graphqlErrors.length > 1 ? 's' : ''}`,
           { description: graphqlErrors[0] }
         );
-      } else {
-        toast.success('Request completed', {
-          description: `${response.status} ${response.statusText}`,
-        });
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Request failed';

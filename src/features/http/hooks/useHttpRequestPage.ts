@@ -422,10 +422,9 @@ export function useHttpRequestPage() {
       addEntry(
         createConsoleEntry(httpRequest, responseData, sentHeaders, scriptLogs, testResult?.tests)
       );
-      toast.success(`Request completed: ${response.status} ${response.statusText}`, {
-        id: 'request',
-        duration: 3000,
-      });
+      // The response panel already shows the outcome — just clear the
+      // in-flight toast rather than stacking a redundant success one.
+      toast.dismiss('request');
     } catch (error: unknown) {
       const endTime = Date.now();
       const axiosError = isAxiosError(error) ? error : null;

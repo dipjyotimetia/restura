@@ -83,7 +83,7 @@ export default function StatusBar({ onOpenCommandPalette }: StatusBarProps = {})
       className={cn(
         'flex items-center justify-between shrink-0 select-none',
         'h-7 border-t border-sp-line',
-        'sp-chrome text-sp-muted font-mono text-sp-11'
+        'sp-chrome text-sp-muted text-sp-11'
       )}
       style={{ padding: '0 16px' }}
     >

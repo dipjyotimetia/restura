@@ -51,7 +51,7 @@ export default function Sidebar({ activePanel, onClose, onOpenImport }: SidebarP
         <Logo size={32} className="shrink-0" />
         <div className="flex flex-col min-w-0 flex-1">
           <span className="text-sp-12-5 font-medium text-sp-text leading-tight">Restura</span>
-          <span className="text-sp-11 text-sp-muted leading-tight font-mono">Personal</span>
+          <span className="text-sp-11 text-sp-muted leading-tight">Personal</span>
         </div>
         {onOpenImport && (
           <TooltipProvider delayDuration={400}>
