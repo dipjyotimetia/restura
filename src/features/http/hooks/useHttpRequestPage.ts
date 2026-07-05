@@ -112,6 +112,10 @@ export function useHttpRequestPage() {
     setLoading(true);
     const startTime = Date.now();
     toast.loading('Sending request...', { id: 'request' });
+    // Hoisted out of the try block, seeded with the raw URL, so the catch
+    // handler can log a resolved URL even if resolution itself throws before
+    // reassigning it below.
+    let resolvedUrl: string = httpRequest.url;
 
     try {
       // Active environment + workspace globals + collection vars (precedence
@@ -194,7 +198,7 @@ export function useHttpRequestPage() {
         return resolveVariables(result);
       };
 
-      const resolvedUrl = resolveLocal(httpRequest.url);
+      resolvedUrl = resolveLocal(httpRequest.url);
       let params: Record<string, string> = {};
       httpRequest.params
         .filter((p) => p.enabled && p.key)
@@ -412,7 +416,11 @@ export function useHttpRequestPage() {
       }
 
       setCurrentResponse(responseData);
-      addHistoryItem(httpRequest, responseData);
+      // `httpRequest.url` (kept as-is) preserves the `{{var}}` template so
+      // reopening/replaying this entry still targets whichever environment is
+      // active; `resolvedUrl` is recorded alongside for accurate history/
+      // console display (see HistoryItem.resolvedUrl / ConsoleEntry.resolvedUrl).
+      addHistoryItem(httpRequest, responseData, resolvedUrl);
       const scriptLogs = [...(preRequestResult?.logs || []), ...(testResult?.logs || [])];
       const sentHeaders = captureSentHeaders(
         response.config?.headers,
@@ -420,7 +428,15 @@ export function useHttpRequestPage() {
         response.config?.url ?? resolvedUrl
       );
       addEntry(
-        createConsoleEntry(httpRequest, responseData, sentHeaders, scriptLogs, testResult?.tests)
+        createConsoleEntry(
+          httpRequest,
+          responseData,
+          sentHeaders,
+          scriptLogs,
+          testResult?.tests,
+          'http',
+          { resolvedUrl }
+        )
       );
       // The response panel already shows the outcome — just clear the
       // in-flight toast rather than stacking a redundant success one.
@@ -444,13 +460,19 @@ export function useHttpRequestPage() {
         timestamp: Date.now(),
       };
       setCurrentResponse(errorResponse);
-      addHistoryItem(httpRequest, errorResponse);
+      // Same as the success path: log the resolved URL alongside the
+      // template-preserving `httpRequest`, not in place of it.
+      addHistoryItem(httpRequest, errorResponse, resolvedUrl);
       const sentHeaders = captureSentHeaders(
         axiosError?.config?.headers,
         {},
-        axiosError?.config?.url ?? httpRequest.url
+        axiosError?.config?.url ?? resolvedUrl
       );
-      addEntry(createConsoleEntry(httpRequest, errorResponse, sentHeaders, [], undefined));
+      addEntry(
+        createConsoleEntry(httpRequest, errorResponse, sentHeaders, [], undefined, 'http', {
+          resolvedUrl,
+        })
+      );
       toast.error(`Request failed: ${errorMessage}`, { id: 'request', duration: 5000 });
     } finally {
       setLoading(false);

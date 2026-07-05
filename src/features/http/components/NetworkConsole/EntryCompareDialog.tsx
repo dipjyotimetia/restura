@@ -132,7 +132,7 @@ export default function EntryCompareDialog({
                   </span>
                 </div>
                 <div className="font-mono break-all bg-muted/40 rounded p-2">
-                  {entry.request.url}
+                  {entry.resolvedUrl ?? entry.request.url}
                 </div>
                 <div className="text-muted-foreground">
                   {entry.response.time}ms · {entry.response.size} B

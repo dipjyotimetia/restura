@@ -81,10 +81,12 @@ export default function RequestEntryItem({
   const updateRequest = useRequestStore((s) => s.updateRequest);
   const activeTab = useActiveTab();
 
-  // Extract pathname from URL for display
-  let displayUrl = request.url;
+  // Extract pathname from URL for display — prefer the resolved URL (falls
+  // back to the raw, possibly templated `request.url` for older entries).
+  const fullUrl = entry.resolvedUrl ?? request.url;
+  let displayUrl = fullUrl;
   try {
-    const url = new URL(request.url);
+    const url = new URL(fullUrl);
     displayUrl = url.pathname + url.search;
     if (displayUrl.length > 40) {
       displayUrl = displayUrl.substring(0, 37) + '...';
@@ -106,7 +108,7 @@ export default function RequestEntryItem({
 
   const handleCopyUrl = async () => {
     try {
-      await navigator.clipboard.writeText(entry.request.url);
+      await navigator.clipboard.writeText(fullUrl);
       toast.success('URL copied');
     } catch {
       toast.error('Failed to copy');

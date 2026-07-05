@@ -41,6 +41,15 @@ export interface ConsoleEntry {
     headers: Record<string, string>;
     body?: string;
   };
+  /**
+   * `request.url` with `{{variables}}` substituted, i.e. what actually went
+   * out on the wire — display/copy (cURL, headers Host) should prefer this.
+   * `request.url` itself is left as the original (possibly templated) value
+   * so "Replay"/"Open in new tab" still target whichever environment is
+   * currently active. Absent for non-HTTP protocols and for entries that
+   * predate this field.
+   */
+  resolvedUrl?: string;
   response: ApiResponse;
   scriptLogs?: ConsoleLog[];
   tests?: ConsoleTest[];
@@ -368,6 +377,8 @@ export interface ConsoleEntryExtra {
   runId?: string;
   runLabel?: string;
   iteration?: number;
+  /** See `ConsoleEntry.resolvedUrl`. */
+  resolvedUrl?: string;
 }
 
 // Helper to create console entry from request/response
@@ -398,6 +409,7 @@ export function createConsoleEntry(
     ...(extra?.runId !== undefined && { runId: extra.runId }),
     ...(extra?.runLabel !== undefined && { runLabel: extra.runLabel }),
     ...(extra?.iteration !== undefined && { iteration: extra.iteration }),
+    ...(extra?.resolvedUrl !== undefined && { resolvedUrl: extra.resolvedUrl }),
   };
 }
 
@@ -501,7 +513,10 @@ function shapeToHttpRequest(
  */
 export function entryToCurl(entry: ConsoleEntry): string {
   const escape = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
-  const parts = [`curl -X ${entry.request.method} ${escape(entry.request.url)}`];
+  // A curl command needs the real URL — `entry.request.url` may still be an
+  // unresolved `{{var}}` template.
+  const url = entry.resolvedUrl ?? entry.request.url;
+  const parts = [`curl -X ${entry.request.method} ${escape(url)}`];
   for (const [key, value] of Object.entries(entry.request.headers)) {
     parts.push(`-H ${escape(`${key}: ${value}`)}`);
   }

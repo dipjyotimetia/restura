@@ -71,7 +71,7 @@ export default function EntryExpandDialog({ open, onOpenChange, entry }: EntryEx
               {displayStatus || 'ERR'} {entry.response.statusText}
             </Badge>
             <span className="font-mono text-xs text-muted-foreground truncate flex-1">
-              {entry.request.url}
+              {entry.resolvedUrl ?? entry.request.url}
             </span>
             <span className="flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
               <Clock className="h-3 w-3" />

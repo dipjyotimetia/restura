@@ -53,6 +53,8 @@ export const ConsoleEntrySchema = z.object({
     headers: z.record(z.string(), z.string()),
     body: z.string().optional(),
   }),
+  // Request URL with `{{variables}}` substituted — see ConsoleEntry.resolvedUrl.
+  resolvedUrl: z.string().optional(),
   response: z.object({
     id: z.string(),
     requestId: z.string(),

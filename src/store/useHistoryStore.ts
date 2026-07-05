@@ -11,7 +11,7 @@ interface HistoryState {
   pageSize: number;
 
   // Actions
-  addHistoryItem: (request: Request, response?: Response) => void;
+  addHistoryItem: (request: Request, response?: Response, resolvedUrl?: string) => void;
   removeHistoryItem: (id: string) => void;
   clearHistory: () => void;
   toggleFavorite: (id: string) => void;
@@ -42,7 +42,7 @@ export const useHistoryStore = create<HistoryState>()(
       favorites: [],
       pageSize: DEFAULT_PAGE_SIZE,
 
-      addHistoryItem: (request, response) =>
+      addHistoryItem: (request, response, resolvedUrl) =>
         set((state) => {
           // Honour user preferences. Cross-store read is intentional — this
           // action is invoked imperatively from request executors, not from
@@ -57,6 +57,7 @@ export const useHistoryStore = create<HistoryState>()(
             id: `history-${Date.now()}`,
             request,
             ...(response !== undefined && { response }),
+            ...(resolvedUrl !== undefined && { resolvedUrl }),
             timestamp: Date.now(),
           };
 
