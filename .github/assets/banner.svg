@@ -6,15 +6,15 @@
     </linearGradient>
     <linearGradient id="word" x1="360" y1="120" x2="980" y2="200" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#FFFFFF"/>
-      <stop offset="1" stop-color="#C7C9FF"/>
+      <stop offset="1" stop-color="#C7DEFF"/>
     </linearGradient>
-    <linearGradient id="mark" x1="0" y1="0" x2="120" y2="120" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#818CF8"/>
-      <stop offset="1" stop-color="#6366F1"/>
+    <linearGradient id="mark" x1="0" y1="0" x2="0" y2="96" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3a7ee0"/>
+      <stop offset="1" stop-color="#184cc0"/>
     </linearGradient>
     <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#6366F1" stop-opacity="0.45"/>
-      <stop offset="1" stop-color="#6366F1" stop-opacity="0"/>
+      <stop offset="0" stop-color="#3a7ee0" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#3a7ee0" stop-opacity="0"/>
     </radialGradient>
   </defs>
 
@@ -23,9 +23,13 @@
   <circle cx="180" cy="320" r="260" fill="url(#glow)" opacity="0.5"/>
 
   <!-- logo mark -->
-  <g transform="translate(96, 86)" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
-    <rect width="96" height="96" rx="22" fill="url(#mark)"/>
-    <text x="48" y="68" text-anchor="middle" font-size="58" font-weight="800" fill="#FFFFFF">R</text>
+  <g transform="translate(96, 86)">
+    <rect width="96" height="96" rx="22.08" fill="url(#mark)"/>
+    <rect x="1" y="1" width="94" height="94" rx="21.08" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1.5"/>
+    <path d="M34 23 V73" fill="none" stroke="#ffffff" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M34 23 H49 a14 14 0 0 1 0 28 H34" fill="none" stroke="#ffffff" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M45 51 L64 73" fill="none" stroke="#ffffff" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="65" cy="74" r="2.6" fill="#ffffff"/>
   </g>
 
   <!-- wordmark + tagline -->
@@ -36,31 +40,31 @@
   <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="19" font-weight="600">
     <g transform="translate(226, 246)">
       <rect width="92"  height="40" rx="20" fill="#1C1B2E" stroke="#34324E"/>
-      <text x="46"  y="26" text-anchor="middle" fill="#C7C9FF">HTTP</text>
+      <text x="46"  y="26" text-anchor="middle" fill="#C7DEFF">HTTP</text>
     </g>
     <g transform="translate(330, 246)">
       <rect width="128" height="40" rx="20" fill="#1C1B2E" stroke="#34324E"/>
-      <text x="64"  y="26" text-anchor="middle" fill="#C7C9FF">GraphQL</text>
+      <text x="64"  y="26" text-anchor="middle" fill="#C7DEFF">GraphQL</text>
     </g>
     <g transform="translate(470, 246)">
       <rect width="86"  height="40" rx="20" fill="#1C1B2E" stroke="#34324E"/>
-      <text x="43"  y="26" text-anchor="middle" fill="#C7C9FF">gRPC</text>
+      <text x="43"  y="26" text-anchor="middle" fill="#C7DEFF">gRPC</text>
     </g>
     <g transform="translate(568, 246)">
       <rect width="148" height="40" rx="20" fill="#1C1B2E" stroke="#34324E"/>
-      <text x="74"  y="26" text-anchor="middle" fill="#C7C9FF">WebSocket</text>
+      <text x="74"  y="26" text-anchor="middle" fill="#C7DEFF">WebSocket</text>
     </g>
     <g transform="translate(728, 246)">
       <rect width="74"  height="40" rx="20" fill="#1C1B2E" stroke="#34324E"/>
-      <text x="37"  y="26" text-anchor="middle" fill="#C7C9FF">SSE</text>
+      <text x="37"  y="26" text-anchor="middle" fill="#C7DEFF">SSE</text>
     </g>
     <g transform="translate(814, 246)">
       <rect width="92"  height="40" rx="20" fill="#1C1B2E" stroke="#34324E"/>
-      <text x="46"  y="26" text-anchor="middle" fill="#C7C9FF">Kafka</text>
+      <text x="46"  y="26" text-anchor="middle" fill="#C7DEFF">Kafka</text>
     </g>
     <g transform="translate(918, 246)">
       <rect width="78"  height="40" rx="20" fill="#1C1B2E" stroke="#34324E"/>
-      <text x="39"  y="26" text-anchor="middle" fill="#C7C9FF">MCP</text>
+      <text x="39"  y="26" text-anchor="middle" fill="#C7DEFF">MCP</text>
     </g>
   </g>
 </svg>
