@@ -133,7 +133,7 @@ Stores of note:
 - Factory: `worker/app.ts` (`createApp(deps)`).
 - Entry: `worker/index.ts` — mounts the app with Cloudflare-specific TCP proxy (`worker/shared/tcp-proxy.ts`) and WebSocketPair handler.
 - Routes: `/api/proxy`, `/api/grpc`, `/api/grpc/reflection`, `/api/mcp`, `/api/telemetry/error`, `/api/feature-flags`, `/api/ws-ticket`, `/api/ws`.
-- Auth/protection: `worker/middleware/proxyAuth.ts` and rate limits.
+- Auth/protection: `proxyAuthMiddleware` in `worker/app.ts` and rate limits.
 
 ### Self-hosted Node / Docker
 
