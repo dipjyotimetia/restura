@@ -90,6 +90,18 @@ export const DEFAULT_REQUEST_NAMES: ReadonlySet<string> = new Set([
   'New MCP Request',
 ]);
 
+// The URL each createDefault* factory (or protocol registry) pre-fills for a
+// given default name — used by TabBar to tell a still-pristine tab (URL
+// untouched) from one the user has actually pointed somewhere, since several
+// request types pre-fill a non-empty echo URL rather than starting blank.
+export const DEFAULT_REQUEST_URLS: ReadonlyMap<string, string> = new Map([
+  ['New Request', ECHO_URLS.http],
+  ['New GraphQL Request', ''],
+  ['New gRPC Request', ECHO_URLS.grpc],
+  ['New SSE Request', ''],
+  ['New MCP Request', ''],
+]);
+
 const createDefaultHttpRequest = (): HttpRequest => ({
   id: uuidv4(),
   name: 'New Request',

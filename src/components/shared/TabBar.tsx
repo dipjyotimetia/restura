@@ -19,7 +19,11 @@ import { saveTabBackToCollection } from '@/features/collections/lib/saveBack';
 import { isElectron } from '@/lib/shared/platform';
 import { useOverflowFade } from '@/lib/shared/useOverflowFade';
 import { cn } from '@/lib/shared/utils';
-import { DEFAULT_REQUEST_NAMES, useRequestStore } from '@/store/useRequestStore';
+import {
+  DEFAULT_REQUEST_NAMES,
+  DEFAULT_REQUEST_URLS,
+  useRequestStore,
+} from '@/store/useRequestStore';
 import { isConnectionMode } from '@/types';
 import type { RequestMode, TabModeOverride } from '@/types';
 
@@ -27,12 +31,16 @@ type NewRequestMode = RequestMode;
 
 // When a tab still carries a default auto-assigned name ("New Request",
 // "New gRPC Request", …), several open tabs become indistinguishable — fall
-// back to the request's host+path instead.
+// back to the request's host+path once the user has actually pointed it
+// somewhere. Several request types pre-fill a non-empty echo URL rather than
+// starting blank, so "has a URL" alone can't signal user intent — compare
+// against that type's own default URL instead, and only swap once it diverges.
 function tabDisplayName(request: { name: string; url?: string }): string {
   const name = request.name.trim();
-  if (name && !DEFAULT_REQUEST_NAMES.has(name)) return name;
-  const url = request.url?.trim();
-  if (url) {
+  if (!name || !DEFAULT_REQUEST_NAMES.has(name)) return name || 'New Request';
+  const url = request.url?.trim() ?? '';
+  const defaultUrl = DEFAULT_REQUEST_URLS.get(name) ?? '';
+  if (url && url !== defaultUrl) {
     try {
       const u = new URL(url);
       return `${u.host}${u.pathname === '/' ? '' : u.pathname}`;
@@ -41,7 +49,7 @@ function tabDisplayName(request: { name: string; url?: string }): string {
       return url;
     }
   }
-  return name || 'New Request';
+  return name;
 }
 
 interface TabStripProps {
