@@ -25,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       prompt:
-        description: "Instruction for the agent"
+        description: 'Instruction for the agent'
         required: true
 
 permissions:
@@ -49,11 +49,11 @@ jobs:
 
       - uses: dipjyotimetia/deep-agent-action@main
         with:
-          trigger_phrase: "@agent"
+          trigger_phrase: '@agent'
           prompt: ${{ github.event.inputs.prompt }}
-          model: "openrouter:deepseek/deepseek-v4-flash"
-          allowed_commands: "git,npm"
-          enable_triage: "true"
-          triage_allowed_labels: "bug,enhancement,question,duplicate,invalid"
+          model: 'openrouter:deepseek/deepseek-v4-flash'
+          allowed_commands: 'git,npm'
+          enable_triage: 'true'
+          triage_allowed_labels: 'bug,enhancement,question,duplicate,invalid'
         env:
           PROVIDER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
