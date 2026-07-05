@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  CountToggle,
   Floater,
   ProtoChip,
   Stat,
@@ -120,6 +121,8 @@ function WebSocketClient() {
   const [message, setMessage] = useState('');
   const [sendFormat, setSendFormat] = useState<SendFormat>('json');
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  // null = auto (open only when something is configured); boolean = user override.
+  const [configOpenOverride, setConfigOpenOverride] = useState<boolean | null>(null);
 
   const { resolveVariables } = useEnvironmentStore();
   const activeTabId = useActiveTabId();
@@ -198,6 +201,8 @@ function WebSocketClient() {
 
   const isConnected = connection.status === 'connected';
   const isConnecting = connection.status === 'connecting' || connection.status === 'reconnecting';
+  const configCount = connection.headers.length + connection.protocols.length;
+  const configOpen = configOpenOverride ?? configCount > 0;
 
   const handleConnect = () => {
     try {
@@ -294,6 +299,9 @@ function WebSocketClient() {
       {/* Connection bar */}
       <Floater radius="pill" className="flex items-center gap-2 px-3 h-12 shrink-0">
         <ProtoChip protocol="WS" />
+        <span className="text-sp-dim font-mono text-sp-13 select-none" aria-hidden="true">
+          ›
+        </span>
         <div className="flex-1 flex items-center gap-2 min-w-0">
           {isConnected || isConnecting ? (
             <span className="font-mono text-sp-13 text-sp-text truncate">
@@ -304,11 +312,19 @@ function WebSocketClient() {
               value={connection.url}
               onChange={(e) => updateConnectionUrl(activeConnectionId, e.target.value)}
               placeholder={ECHO_URLS.websocket}
-              className="h-7 flex-1 bg-transparent border-0 px-1 font-mono text-sp-13 text-sp-text shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              className="h-7 flex-1 bg-transparent border-0 px-1 font-mono text-sp-13 text-sp-text shadow-none placeholder:italic focus-visible:ring-0 focus-visible:ring-offset-0"
               aria-label="WebSocket URL"
             />
           )}
         </div>
+        {!isConnected && !isConnecting && (
+          <CountToggle
+            label="Options"
+            count={configCount}
+            expanded={configOpen}
+            onToggle={() => setConfigOpenOverride(!configOpen)}
+          />
+        )}
         <span
           className={cn(
             'inline-flex items-center gap-1.5 h-6 px-2.5 rounded-sp-pill font-mono font-bold text-sp-10 tracking-wide',
@@ -356,8 +372,10 @@ function WebSocketClient() {
         )}
       </Floater>
 
-      {/* Connection config (handshake headers + subprotocols) — only while disconnected */}
-      {!isConnected && !isConnecting && (
+      {/* Connection config (handshake headers + subprotocols) — only while
+          disconnected, collapsed behind the Options toggle when empty so the
+          message console stays above the fold. */}
+      {configOpen && !isConnected && !isConnecting && (
         <Floater radius="panel" className="flex flex-col gap-3 px-3 py-3 shrink-0">
           <div>
             <label htmlFor="ws-subprotocols" className="text-sp-11 font-medium text-sp-muted">

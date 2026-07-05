@@ -77,6 +77,19 @@ interface RequestState {
   getActiveTab: () => RequestTab | null;
 }
 
+// Every default name assigned to a freshly created request — the four
+// createDefault* factories below plus the feature protocol registries
+// (src/features/*/protocol.ts, e.g. GraphQL). TabBar checks membership to
+// decide when a tab still carries an auto-assigned name and can fall back to
+// displaying the request's host+path. Keep in sync when adding a protocol.
+export const DEFAULT_REQUEST_NAMES: ReadonlySet<string> = new Set([
+  'New Request',
+  'New GraphQL Request',
+  'New gRPC Request',
+  'New SSE Request',
+  'New MCP Request',
+]);
+
 const createDefaultHttpRequest = (): HttpRequest => ({
   id: uuidv4(),
   name: 'New Request',

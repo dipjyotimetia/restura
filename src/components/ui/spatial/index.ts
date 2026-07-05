@@ -13,6 +13,9 @@ export type { StatusPillProps } from './StatusPill';
 export { ConnectionBadge } from './ConnectionBadge';
 export type { ConnectionBadgeProps, ConnectionTone } from './ConnectionBadge';
 
+export { CountToggle } from './CountToggle';
+export type { CountToggleProps } from './CountToggle';
+
 export { Stat } from './Stat';
 export type { StatProps } from './Stat';
 

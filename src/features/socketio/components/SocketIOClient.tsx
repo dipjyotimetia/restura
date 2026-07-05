@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  CountToggle,
   Floater,
   ProtoChip,
   Stat,
@@ -200,6 +201,8 @@ function SocketIOClient() {
   const [emitError, setEmitError] = useState<string | null>(null);
   const [requestAck, setRequestAck] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  // null = auto (open only when something is configured); boolean = user override.
+  const [configOpenOverride, setConfigOpenOverride] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (activeTabId) ensureConnectionForTab(activeTabId);
@@ -253,6 +256,8 @@ function SocketIOClient() {
 
   const isConnected = connection.status === 'connected';
   const isConnecting = connection.status === 'connecting' || connection.status === 'reconnecting';
+  const configCount = connection.auth.length + connection.query.length;
+  const configOpen = configOpenOverride ?? configCount > 0;
 
   const handleConnect = () => {
     const resolvedUrl = resolveVariables(connection.url);
@@ -327,6 +332,9 @@ function SocketIOClient() {
       {/* Connection bar */}
       <Floater radius="pill" className="flex items-center gap-2 px-3 h-12 shrink-0">
         <ProtoChip protocol="SOCKETIO" />
+        <span className="text-sp-dim font-mono text-sp-13 select-none" aria-hidden="true">
+          ›
+        </span>
         <div className="flex-1 flex items-center gap-2 min-w-0">
           {isConnected || isConnecting ? (
             <span className="font-mono text-sp-13 text-sp-text truncate">
@@ -338,7 +346,7 @@ function SocketIOClient() {
                 value={connection.url}
                 onChange={(e) => updateConnectionField(activeConnectionId, 'url', e.target.value)}
                 placeholder="https://your-server.example.com"
-                className="h-7 flex-1 bg-transparent border-0 px-1 font-mono text-sp-13 text-sp-text shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+                className="h-7 flex-1 bg-transparent border-0 px-1 font-mono text-sp-13 text-sp-text shadow-none placeholder:italic focus-visible:ring-0 focus-visible:ring-offset-0"
                 aria-label="Socket.IO server URL"
               />
               <Input
@@ -353,6 +361,14 @@ function SocketIOClient() {
             </>
           )}
         </div>
+        {!isConnected && !isConnecting && (
+          <CountToggle
+            label="Options"
+            count={configCount}
+            expanded={configOpen}
+            onToggle={() => setConfigOpenOverride(!configOpen)}
+          />
+        )}
         <span
           className={cn(
             'inline-flex items-center gap-1.5 h-6 px-2.5 rounded-sp-pill font-mono font-bold text-sp-10 tracking-wide',
@@ -400,8 +416,10 @@ function SocketIOClient() {
         )}
       </Floater>
 
-      {/* Connection config (handshake auth + query) — only while disconnected */}
-      {!isConnected && !isConnecting && (
+      {/* Connection config (handshake auth + query) — only while disconnected,
+          collapsed behind the Options toggle when empty so the events console
+          stays above the fold. */}
+      {configOpen && !isConnected && !isConnecting && (
         <Floater radius="panel" className="flex flex-col gap-3 px-3 py-3 shrink-0">
           <div>
             <span className="text-sp-11 font-medium text-sp-muted">Auth (handshake payload)</span>

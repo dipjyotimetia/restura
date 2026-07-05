@@ -148,6 +148,12 @@ function GrpcRequestBuilder() {
   // and the request store.
   const handleReflectionMethodSelected = useCallback(
     (method: ReflectionMethodInfo) => {
+      // Snapshot the request *before* writing — the same-method check below
+      // must see the previous selection, not the one written just after.
+      const state = useRequestStore.getState();
+      const prevRequest = state.tabs.find((t) => t.id === state.activeTabId)?.request;
+      const prevMethod = prevRequest?.type === 'grpc' ? prevRequest.method : undefined;
+      const prevMessage = prevRequest?.type === 'grpc' ? prevRequest.message.trim() : '';
       updateRequest({ method: method.name });
       validateMethod(method.name);
       let methodType: GrpcMethodType = 'unary';
@@ -160,12 +166,17 @@ function GrpcRequestBuilder() {
       }
       updateRequest({ methodType });
       if (method.inputMessageSchema && method.inputMessageSchema.fields.length > 0) {
-        const template = generateRequestTemplate(method.inputMessageSchema);
-        updateRequest({ message: template });
-        validateMessage(template);
-        toast.info('Request template generated', {
-          description: `Generated template for ${method.inputMessageSchema.name}`,
-        });
+        // Auto-discovery re-selects the current method after every remount
+        // (tab switches included). Only regenerate the template when the
+        // method actually changed or the message is still empty/default —
+        // otherwise we'd clobber a user-edited message.
+        if (prevMethod === method.name && prevMessage && prevMessage !== '{}') {
+          validateMessage(prevMessage);
+        } else {
+          const template = generateRequestTemplate(method.inputMessageSchema);
+          updateRequest({ message: template });
+          validateMessage(template);
+        }
       }
     },
     [updateRequest, validateMethod, validateMessage]
@@ -177,6 +188,10 @@ function GrpcRequestBuilder() {
     autoDiscover: !!currentRequest,
     onServiceSelected: handleReflectionServiceSelected,
     onMethodSelected: handleReflectionMethodSelected,
+    // Let auto-discovery restore this selection instead of resetting to the
+    // first service/method after a remount.
+    ...(currentRequest?.service && { currentServiceName: currentRequest.service }),
+    ...(currentRequest?.method && { currentMethodName: currentRequest.method }),
   });
 
   // Keep a ref so unmount cleanup always sees the current stream without re-running the effect

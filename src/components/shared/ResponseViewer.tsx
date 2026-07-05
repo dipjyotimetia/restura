@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { ImagePreview } from '@/components/shared/ImagePreview';
+import { ResponseEmptyState } from '@/components/shared/ResponseEmptyState';
 import { StreamingResponseViewer } from '@/components/shared/StreamingResponseViewer';
 import { VisualizerFrame } from '@/components/shared/VisualizerFrame';
 import { Scale, Stagger, StaggerItem, AnimatePresence, motion } from '@/components/ui/motion';
@@ -413,23 +414,17 @@ function ResponseViewer() {
             transition={{ duration: 0.15 }}
             className="h-full"
           >
-            <Floater
-              radius="panel"
-              elevation="float-lg"
-              className="h-full flex flex-col items-center justify-center text-sp-dim relative z-20"
-            >
-              <div className="flex flex-col items-center gap-3 animate-sp-panel-in">
-                <div className="flex items-center justify-center size-10 rounded-full bg-sp-surface-lo border border-sp-line">
-                  <Zap className="h-4 w-4 text-sp-muted" />
-                </div>
-                <p className="text-sp-12 text-sp-muted">Send a request to see the response</p>
+            <ResponseEmptyState
+              icon={<Zap className="h-4 w-4 text-sp-muted" />}
+              message="Send a request to see the response"
+              hint={
                 <div className="flex items-center justify-center gap-1.5 text-sp-11 text-sp-dim">
                   <Kbd size="sm">⌘</Kbd>
                   <Kbd size="sm">↵</Kbd>
                   <span className="font-mono">to send</span>
                 </div>
-              </div>
-            </Floater>
+              }
+            />
           </motion.div>
         ) : (
           <motion.div

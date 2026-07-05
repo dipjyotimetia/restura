@@ -19,11 +19,30 @@ import { saveTabBackToCollection } from '@/features/collections/lib/saveBack';
 import { isElectron } from '@/lib/shared/platform';
 import { useOverflowFade } from '@/lib/shared/useOverflowFade';
 import { cn } from '@/lib/shared/utils';
-import { useRequestStore } from '@/store/useRequestStore';
+import { DEFAULT_REQUEST_NAMES, useRequestStore } from '@/store/useRequestStore';
 import { isConnectionMode } from '@/types';
 import type { RequestMode, TabModeOverride } from '@/types';
 
 type NewRequestMode = RequestMode;
+
+// When a tab still carries a default auto-assigned name ("New Request",
+// "New gRPC Request", …), several open tabs become indistinguishable — fall
+// back to the request's host+path instead.
+function tabDisplayName(request: { name: string; url?: string }): string {
+  const name = request.name.trim();
+  if (name && !DEFAULT_REQUEST_NAMES.has(name)) return name;
+  const url = request.url?.trim();
+  if (url) {
+    try {
+      const u = new URL(url);
+      return `${u.host}${u.pathname === '/' ? '' : u.pathname}`;
+    } catch {
+      // Not parseable yet (partial input or {{var}} prefix) — show it raw.
+      return url;
+    }
+  }
+  return name || 'New Request';
+}
 
 interface TabStripProps {
   onSaveToCollection?: (tabId: string) => void;
@@ -153,6 +172,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
           {tabs.map((tab) => {
             const isActive = tab.id === activeTabId;
             const isRenaming = tab.id === renamingTabId;
+            const displayName = tabDisplayName(tab.request);
 
             return (
               <ContextMenu key={tab.id}>
@@ -162,7 +182,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                     type="button"
                     role="tab"
                     aria-selected={isActive}
-                    aria-label={tab.request.name}
+                    aria-label={displayName}
                     tabIndex={isActive ? 0 : -1}
                     onClick={() => switchTab(tab.id)}
                     onKeyDown={(e) => {
@@ -234,8 +254,9 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                           switchTab(tab.id);
                           startRename(tab.id, tab.request.name);
                         }}
+                        title={displayName}
                       >
-                        {tab.request.name}
+                        {displayName}
                       </span>
                     )}
 
@@ -277,7 +298,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
 
                     <span
                       role="button"
-                      aria-label={`close ${tab.request.name}`}
+                      aria-label={`close ${displayName}`}
                       tabIndex={-1}
                       onClick={(e) => {
                         e.stopPropagation();
