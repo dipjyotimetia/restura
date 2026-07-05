@@ -54,6 +54,7 @@ import type {
 } from '@/features/kafka/store/useKafkaStore';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
+import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn } from '@/lib/shared/utils';
 import { useActiveTabId } from '@/store/selectors';
 
@@ -298,6 +299,10 @@ function KafkaClient() {
     if (!connectionMessages || !selectedMessageId) return null;
     return connectionMessages.find((m) => m.id === selectedMessageId) ?? null;
   }, [connectionMessages, selectedMessageId]);
+
+  // Suppresses per-row entry animation while messages arrive faster than ~10/s
+  // (consume mode is batch/high-throughput, so this is usually on).
+  const rapidStream = useRapidAppendFlag(connectionMessages?.length ?? 0);
 
   if (!isDesktop) {
     return <DesktopOnlyPanel />;
@@ -782,7 +787,7 @@ function KafkaClient() {
                 </div>
 
                 <ScrollArea className="flex-1 min-h-0">
-                  <ul className="text-xs">
+                  <ul className="text-xs" data-stream-rapid={rapidStream || undefined}>
                     {visibleMessages.map((m) => {
                       const selected = m.id === selectedMessageId;
                       return (
@@ -799,7 +804,7 @@ function KafkaClient() {
                             }
                           }}
                           className={cn(
-                            'grid items-center gap-2 px-3 py-1.5 cursor-pointer font-mono border-l-2 transition-colors',
+                            'grid items-center gap-2 px-3 py-1.5 cursor-pointer font-mono border-l-2 transition-colors sp-stream-row',
                             selected
                               ? 'bg-sp-active border-l-sp-accent'
                               : 'border-l-transparent hover:bg-sp-hover'

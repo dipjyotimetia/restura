@@ -63,9 +63,9 @@ interface PaletteItem {
   kind: ItemKind;
   name: string;
   path?: string;
-  /** When kind === 'request' */
+  /** When kind === 'request' and the request is HTTP */
   method?: string;
-  /** When kind === 'new' */
+  /** When kind === 'new', or kind === 'request' for non-HTTP protocols */
   proto?: string;
   /** When kind === 'action' | 'setting' */
   icon?: LucideIcon;
@@ -78,11 +78,26 @@ interface PaletteItem {
   onSelect: () => void;
 }
 
+/**
+ * Leading chip for a request row: HTTP requests show their verb (GET/POST/…);
+ * every other protocol shows its ProtoChip — an HTTP MethodChip on a gRPC or
+ * WebSocket entry would be wrong (and used to render a misleading "GET").
+ */
+function chipForRequest(req: { type: RequestType; method?: unknown }): {
+  method?: string;
+  proto?: string;
+} {
+  if (req.type === 'http' && typeof req.method === 'string') {
+    return { method: req.method };
+  }
+  return { proto: req.type };
+}
+
 function flattenCollectionRequests(
   collection: Collection,
-  out: Array<{ method: string; name: string; path: string; id: string }> = [],
+  out: Array<{ method?: string; proto?: string; name: string; path: string; id: string }> = [],
   parentPath: string = ''
-): Array<{ method: string; name: string; path: string; id: string }> {
+): Array<{ method?: string; proto?: string; name: string; path: string; id: string }> {
   const here = parentPath ? `${parentPath} / ${collection.name}` : collection.name;
   const walk = (items: CollectionItem[] | undefined, prefix: string) => {
     if (!items) return;
@@ -90,14 +105,11 @@ function flattenCollectionRequests(
       if (item.type === 'folder') {
         walk(item.items, `${prefix} / ${item.name}`);
       } else if (item.type === 'request' && item.request) {
-        const req = item.request;
-        const method =
-          'method' in req && typeof req.method === 'string' ? req.method : req.type.toUpperCase();
         out.push({
           id: item.id,
           name: item.name,
           path: prefix,
-          method,
+          ...chipForRequest(item.request),
         });
       }
     }
@@ -200,14 +212,13 @@ export default function CommandPalette({
       if (seenRecent.has(h.request.id)) continue;
       seenRecent.add(h.request.id);
       const req = h.request;
-      const method =
-        'method' in req && typeof req.method === 'string' ? req.method : req.type.toUpperCase();
+      const chip = chipForRequest(req);
       items.push({
         id: `recent-${h.id}`,
         kind: 'request',
         group: 'Recent',
-        name: req.name || req.url || method,
-        method,
+        name: req.name || req.url || chip.method || req.type.toUpperCase(),
+        ...chip,
         onSelect: () => openTab(req, { switchTo: true }),
       });
       if (seenRecent.size >= 5) break;
@@ -224,6 +235,7 @@ export default function CommandPalette({
           name: r.name,
           path: r.path,
           method: r.method,
+          proto: r.proto,
           recent: recentRequestIds.has(r.id),
           onSelect: () => {
             // Best-effort tab open: locate the original item with its request payload
@@ -653,10 +665,12 @@ function PaletteRow({ item, index, active, onMouseEnter, onClick }: PaletteRowPr
     >
       {/* Leading visual */}
       <div className="shrink-0 inline-flex items-center justify-center">
-        {item.kind === 'request' && item.method ? (
-          <MethodChip method={item.method} size="sm" />
-        ) : item.kind === 'new' && item.proto ? (
+        {/* proto exists only on 'request' (non-HTTP) and 'new' items; method
+            only on HTTP 'request' items — so a flat chain covers all kinds. */}
+        {item.proto ? (
           <ProtoChip protocol={item.proto} />
+        ) : item.method ? (
+          <MethodChip method={item.method} size="sm" />
         ) : Icon ? (
           <Icon size={15} className="text-sp-muted" />
         ) : null}

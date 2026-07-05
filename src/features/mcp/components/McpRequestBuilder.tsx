@@ -21,6 +21,7 @@ import {
   ProtoChip,
   Segmented,
   SubTabBar,
+  SubTabPanel,
   TextField,
   VariableText,
 } from '@/components/ui/spatial';
@@ -382,7 +383,7 @@ export default function McpRequestBuilder() {
                 </button>
               }
             />
-            <div className="flex-1 min-h-0 overflow-hidden">
+            <SubTabPanel tabKey={tab} className="flex-1 min-h-0 overflow-hidden">
               {tab === 'tools' && (
                 <ToolList
                   tools={tools}
@@ -408,7 +409,7 @@ export default function McpRequestBuilder() {
                 />
               )}
               {tab === 'log' && <LogList log={log} onClear={() => clearLog(active.id)} />}
-            </div>
+            </SubTabPanel>
           </Floater>
         )}
 

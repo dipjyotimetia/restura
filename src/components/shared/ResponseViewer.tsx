@@ -13,6 +13,7 @@ import {
   StatusPill,
   Stat,
   SubTabBar,
+  SubTabPanel,
   Segmented,
   Kbd,
   WaterfallBar,
@@ -417,8 +418,10 @@ function ResponseViewer() {
               elevation="float-lg"
               className="h-full flex flex-col items-center justify-center text-sp-dim relative z-20"
             >
-              <div className="flex flex-col items-center gap-2.5">
-                <Zap className="h-4 w-4 text-sp-dim" />
+              <div className="flex flex-col items-center gap-3 animate-sp-panel-in">
+                <div className="flex items-center justify-center size-10 rounded-full bg-sp-surface-lo border border-sp-line">
+                  <Zap className="h-4 w-4 text-sp-muted" />
+                </div>
                 <p className="text-sp-12 text-sp-muted">Send a request to see the response</p>
                 <div className="flex items-center justify-center gap-1.5 text-sp-11 text-sp-dim">
                   <Kbd size="sm">⌘</Kbd>
@@ -430,11 +433,11 @@ function ResponseViewer() {
           </motion.div>
         ) : (
           <motion.div
-            key={`response-${currentResponse.timestamp}`}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            key={`response-${currentResponse.id}`}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
+            transition={{ duration: 0.18, ease: [0.2, 0.7, 0.1, 1] }}
             className="h-full"
           >
             <Floater
@@ -447,7 +450,18 @@ function ResponseViewer() {
                   out as the PANEL (not the viewport) gets narrow, so the row
                   stays clean at any split width or in stacked layout. */}
               <div className="flex items-center gap-3 px-4 py-3 border-b border-sp-line">
-                <StatusPill status={currentResponse.status} text={currentResponse.statusText} />
+                {/* One-shot arrival cue — replays because the keyed motion.div
+                    above remounts the pill for each new response id. */}
+                <StatusPill
+                  status={currentResponse.status}
+                  text={currentResponse.statusText}
+                  className={cn(
+                    currentResponse.status >= 400 && 'animate-error-shake',
+                    currentResponse.status >= 200 &&
+                      currentResponse.status < 300 &&
+                      'animate-success-pulse'
+                  )}
+                />
                 <Stat label="Time" value={formatTime(currentResponse.time)} />
                 <Stat label="Size" value={formatBytes(currentResponse.size)} />
                 {currentResponse.negotiatedAlpn && (
@@ -535,208 +549,212 @@ function ResponseViewer() {
               />
 
               <div className="flex-1 min-h-0 overflow-hidden">
-                {activeTab === 'body' && (
-                  <div className="relative h-full" style={{ background: 'var(--sp-code)' }}>
-                    {isImage ? (
-                      <ImagePreview
-                        base64={currentResponse.body}
-                        contentType={contentType}
-                        size={currentResponse.size}
-                      />
-                    ) : isBase64 ? (
-                      <div className="flex flex-col items-center justify-center h-full gap-3 text-sp-dim">
-                        <FileDown className="h-7 w-7 opacity-60" />
-                        <p className="text-sp-12 font-mono text-center">
-                          Binary response · {contentType || 'unknown type'}
-                          <br />
-                          {formatBytes(currentResponse.size)}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={handleDownloadBody}
-                          className="px-3 py-1.5 rounded-sp-btn bg-sp-surface-lo border border-sp-line text-sp-12 font-mono text-sp-text hover:bg-sp-hover transition-colors"
-                        >
-                          Download file
-                        </button>
-                      </div>
-                    ) : showJsonPath ? (
-                      <JsonPathQuery
-                        body={currentResponse.body}
-                        onClose={() => setShowJsonPath(false)}
-                      />
-                    ) : bodyFormat === 'table' ? (
-                      <CsvTableViewer body={currentResponse.body} />
-                    ) : formattedBody ? (
-                      <CodeEditor
-                        value={formattedBody}
-                        language={language}
-                        readOnly
-                        height="100%"
-                        showCopyButton={false}
-                        onEditorMount={(editor) => {
-                          responseEditorRef.current = editor;
-                        }}
-                        path={activeTabId ? `tab-${activeTabId}-response` : undefined}
-                      />
-                    ) : (
-                      <div className="flex flex-col items-center justify-center h-full gap-3 text-sp-dim">
-                        <p className="text-sp-12 font-mono">No body content returned</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {activeTab === 'preview' && (
-                  <iframe
-                    srcDoc={currentResponse.body}
-                    // The preview renders an UNTRUSTED upstream response body.
-                    // `allow-scripts` ONLY — combining it with `allow-same-origin`
-                    // defeats the sandbox (scripts would run in the renderer's
-                    // origin, reaching its cookies/storage and the same-origin
-                    // /api proxy). Same load-bearing boundary as VisualizerFrame.
-                    sandbox="allow-scripts"
-                    className="w-full h-full bg-white border-0"
-                    title="HTML Preview"
-                  />
-                )}
-
-                {activeTab === 'headers' && (
-                  <div className="h-full overflow-auto">
-                    {headerEntries.length > 8 && (
-                      <div className="sticky top-0 z-10 px-4 pt-3 pb-2 bg-sp-surface border-b border-sp-line">
-                        <input
-                          value={headerFilter}
-                          onChange={(e) => setHeaderFilter(e.target.value)}
-                          placeholder={`Filter ${headerEntries.length} headers…`}
-                          aria-label="Filter response headers"
-                          className="w-full h-7 px-2 rounded-sp-btn bg-sp-surface-lo border border-sp-line text-sp-12 font-mono outline-none focus:border-sp-line-strong"
+                <SubTabPanel tabKey={activeTab} className="h-full">
+                  {activeTab === 'body' && (
+                    <div className="relative h-full" style={{ background: 'var(--sp-code)' }}>
+                      {isImage ? (
+                        <ImagePreview
+                          base64={currentResponse.body}
+                          contentType={contentType}
+                          size={currentResponse.size}
                         />
-                      </div>
-                    )}
-                    <div className="px-3 py-1">
-                      {filteredHeaderEntries.map(([key, value]) => (
-                        <div
-                          key={key}
-                          className="group grid grid-cols-[200px_1fr_auto] gap-3 py-1.5 border-b border-sp-line items-start"
-                        >
-                          <span className="font-mono text-sp-12 text-sp-muted truncate">{key}</span>
-                          <span className="font-mono text-sp-12 text-sp-text break-all">
-                            {Array.isArray(value) ? value.join(', ') : value}
-                          </span>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <button
-                                type="button"
-                                onClick={() => handleCopyHeader(key, value)}
-                                aria-label={copiedHeader === key ? 'Copied!' : 'Copy header'}
-                                className="size-5 inline-flex items-center justify-center text-sp-dim hover:text-sp-text opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity rounded-sp-chip hover:bg-sp-hover"
-                              >
-                                {copiedHeader === key ? (
-                                  <Check className="h-3 w-3 text-emerald-400" />
-                                ) : (
-                                  <Copy className="h-3 w-3" />
-                                )}
-                              </button>
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              {copiedHeader === key ? 'Copied!' : 'Copy header'}
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {activeTab === 'cookies' && (
-                  <div className="h-full overflow-auto">
-                    {cookies.length === 0 ? (
-                      <div className="flex items-center justify-center h-full">
-                        <p className="text-sp-12 text-sp-dim font-mono">
-                          No cookies set by this response
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="px-3 py-2 space-y-1">
-                        {cookies.map((c, i) => (
-                          <div
-                            key={`${c.name}-${i}`}
-                            className="grid grid-cols-[160px_1fr] gap-3 py-1.5 border-b border-sp-line"
+                      ) : isBase64 ? (
+                        <div className="flex flex-col items-center justify-center h-full gap-3 text-sp-dim">
+                          <FileDown className="h-7 w-7 opacity-60" />
+                          <p className="text-sp-12 font-mono text-center">
+                            Binary response · {contentType || 'unknown type'}
+                            <br />
+                            {formatBytes(currentResponse.size)}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={handleDownloadBody}
+                            className="px-3 py-1.5 rounded-sp-btn bg-sp-surface-lo border border-sp-line text-sp-12 font-mono text-sp-text hover:bg-sp-hover transition-colors"
                           >
-                            <span className="font-mono text-sp-12 text-sp-text truncate">
-                              {c.name}
+                            Download file
+                          </button>
+                        </div>
+                      ) : showJsonPath ? (
+                        <JsonPathQuery
+                          body={currentResponse.body}
+                          onClose={() => setShowJsonPath(false)}
+                        />
+                      ) : bodyFormat === 'table' ? (
+                        <CsvTableViewer body={currentResponse.body} />
+                      ) : formattedBody ? (
+                        <CodeEditor
+                          value={formattedBody}
+                          language={language}
+                          readOnly
+                          height="100%"
+                          showCopyButton={false}
+                          onEditorMount={(editor) => {
+                            responseEditorRef.current = editor;
+                          }}
+                          path={activeTabId ? `tab-${activeTabId}-response` : undefined}
+                        />
+                      ) : (
+                        <div className="flex flex-col items-center justify-center h-full gap-3 text-sp-dim">
+                          <p className="text-sp-12 font-mono">No body content returned</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {activeTab === 'preview' && (
+                    <iframe
+                      srcDoc={currentResponse.body}
+                      // The preview renders an UNTRUSTED upstream response body.
+                      // `allow-scripts` ONLY — combining it with `allow-same-origin`
+                      // defeats the sandbox (scripts would run in the renderer's
+                      // origin, reaching its cookies/storage and the same-origin
+                      // /api proxy). Same load-bearing boundary as VisualizerFrame.
+                      sandbox="allow-scripts"
+                      className="w-full h-full bg-white border-0"
+                      title="HTML Preview"
+                    />
+                  )}
+
+                  {activeTab === 'headers' && (
+                    <div className="h-full overflow-auto">
+                      {headerEntries.length > 8 && (
+                        <div className="sticky top-0 z-10 px-4 pt-3 pb-2 bg-sp-surface border-b border-sp-line">
+                          <input
+                            value={headerFilter}
+                            onChange={(e) => setHeaderFilter(e.target.value)}
+                            placeholder={`Filter ${headerEntries.length} headers…`}
+                            aria-label="Filter response headers"
+                            className="w-full h-7 px-2 rounded-sp-btn bg-sp-surface-lo border border-sp-line text-sp-12 font-mono outline-none focus:border-sp-line-strong"
+                          />
+                        </div>
+                      )}
+                      <div className="px-3 py-1">
+                        {filteredHeaderEntries.map(([key, value]) => (
+                          <div
+                            key={key}
+                            className="group grid grid-cols-[200px_1fr_auto] gap-3 py-1.5 border-b border-sp-line items-start"
+                          >
+                            <span className="font-mono text-sp-12 text-sp-muted truncate">
+                              {key}
                             </span>
-                            <div className="space-y-0.5">
-                              <span className="font-mono text-sp-12 text-sp-muted break-all">
-                                {c.value}
-                              </span>
-                              {c.attrs && (
-                                <div className="text-sp-11 text-sp-dim font-mono">{c.attrs}</div>
-                              )}
-                            </div>
+                            <span className="font-mono text-sp-12 text-sp-text break-all">
+                              {Array.isArray(value) ? value.join(', ') : value}
+                            </span>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyHeader(key, value)}
+                                  aria-label={copiedHeader === key ? 'Copied!' : 'Copy header'}
+                                  className="size-5 inline-flex items-center justify-center text-sp-dim hover:text-sp-text opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity rounded-sp-chip hover:bg-sp-hover"
+                                >
+                                  {copiedHeader === key ? (
+                                    <Check className="h-3 w-3 text-emerald-400" />
+                                  ) : (
+                                    <Copy className="h-3 w-3" />
+                                  )}
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                {copiedHeader === key ? 'Copied!' : 'Copy header'}
+                              </TooltipContent>
+                            </Tooltip>
                           </div>
                         ))}
                       </div>
-                    )}
-                  </div>
-                )}
-
-                {activeTab === 'timeline' && (
-                  <div className="h-full overflow-auto px-4 py-3 space-y-4">
-                    <div>
-                      <div className="sp-label mb-2">Total</div>
-                      <div className="flex items-center gap-3">
-                        <WaterfallBar segments={waterfallSegments} width={320} height={10} />
-                        <span className="font-mono text-sp-12 text-sp-text tabular-nums">
-                          {formatTime(currentResponse.time)}
-                        </span>
-                      </div>
                     </div>
-                    <div>
-                      <div className="sp-label mb-2">Server-Timing</div>
-                      {serverTiming.length === 0 ? (
-                        <Floater radius="btn" elevation="inset" className="p-3">
+                  )}
+
+                  {activeTab === 'cookies' && (
+                    <div className="h-full overflow-auto">
+                      {cookies.length === 0 ? (
+                        <div className="flex items-center justify-center h-full">
                           <p className="text-sp-12 text-sp-dim font-mono">
-                            No Server-Timing headers reported by upstream
+                            No cookies set by this response
                           </p>
-                        </Floater>
+                        </div>
                       ) : (
-                        <Floater radius="btn" elevation="inset" className="p-3 space-y-2">
-                          {serverTiming.map((t, i) => (
+                        <div className="px-3 py-2 space-y-1">
+                          {cookies.map((c, i) => (
                             <div
-                              key={`${t.name}-${i}`}
-                              className="grid grid-cols-[140px_1fr_auto] gap-3 items-center"
+                              key={`${c.name}-${i}`}
+                              className="grid grid-cols-[160px_1fr] gap-3 py-1.5 border-b border-sp-line"
                             >
-                              <span className="font-mono text-sp-12 text-sp-text">{t.name}</span>
-                              <span className="font-mono text-sp-11-5 text-sp-muted truncate">
-                                {t.desc ?? ''}
+                              <span className="font-mono text-sp-12 text-sp-text truncate">
+                                {c.name}
                               </span>
-                              <span className="font-mono text-sp-12 text-sp-muted tabular-nums">
-                                {typeof t.dur === 'number' ? `${t.dur} ms` : '—'}
-                              </span>
+                              <div className="space-y-0.5">
+                                <span className="font-mono text-sp-12 text-sp-muted break-all">
+                                  {c.value}
+                                </span>
+                                {c.attrs && (
+                                  <div className="text-sp-11 text-sp-dim font-mono">{c.attrs}</div>
+                                )}
+                              </div>
                             </div>
                           ))}
-                        </Floater>
+                        </div>
                       )}
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {activeTab === 'tests' && (
-                  <div className="flex items-center justify-center h-full">
-                    <p className="text-sp-12 text-sp-dim font-mono">
-                      No tests recorded for this response
-                    </p>
-                  </div>
-                )}
+                  {activeTab === 'timeline' && (
+                    <div className="h-full overflow-auto px-4 py-3 space-y-4">
+                      <div>
+                        <div className="sp-label mb-2">Total</div>
+                        <div className="flex items-center gap-3">
+                          <WaterfallBar segments={waterfallSegments} width={320} height={10} />
+                          <span className="font-mono text-sp-12 text-sp-text tabular-nums">
+                            {formatTime(currentResponse.time)}
+                          </span>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="sp-label mb-2">Server-Timing</div>
+                        {serverTiming.length === 0 ? (
+                          <Floater radius="btn" elevation="inset" className="p-3">
+                            <p className="text-sp-12 text-sp-dim font-mono">
+                              No Server-Timing headers reported by upstream
+                            </p>
+                          </Floater>
+                        ) : (
+                          <Floater radius="btn" elevation="inset" className="p-3 space-y-2">
+                            {serverTiming.map((t, i) => (
+                              <div
+                                key={`${t.name}-${i}`}
+                                className="grid grid-cols-[140px_1fr_auto] gap-3 items-center"
+                              >
+                                <span className="font-mono text-sp-12 text-sp-text">{t.name}</span>
+                                <span className="font-mono text-sp-11-5 text-sp-muted truncate">
+                                  {t.desc ?? ''}
+                                </span>
+                                <span className="font-mono text-sp-12 text-sp-muted tabular-nums">
+                                  {typeof t.dur === 'number' ? `${t.dur} ms` : '—'}
+                                </span>
+                              </div>
+                            ))}
+                          </Floater>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
-                {activeTab === 'visualize' && visualization && (
-                  <VisualizerFrame
-                    template={visualization.template}
-                    data={visualization.data}
-                    className="h-full"
-                  />
-                )}
+                  {activeTab === 'tests' && (
+                    <div className="flex items-center justify-center h-full">
+                      <p className="text-sp-12 text-sp-dim font-mono">
+                        No tests recorded for this response
+                      </p>
+                    </div>
+                  )}
+
+                  {activeTab === 'visualize' && visualization && (
+                    <VisualizerFrame
+                      template={visualization.template}
+                      data={visualization.data}
+                      className="h-full"
+                    />
+                  )}
+                </SubTabPanel>
               </div>
             </Floater>
           </motion.div>

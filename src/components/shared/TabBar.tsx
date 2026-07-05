@@ -17,6 +17,7 @@ import {
 import { Floater, ProtoChip } from '@/components/ui/spatial';
 import { saveTabBackToCollection } from '@/features/collections/lib/saveBack';
 import { isElectron } from '@/lib/shared/platform';
+import { useOverflowFade } from '@/lib/shared/useOverflowFade';
 import { cn } from '@/lib/shared/utils';
 import { useRequestStore } from '@/store/useRequestStore';
 import { isConnectionMode } from '@/types';
@@ -77,6 +78,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
   const [localSaveDialogTabId, setLocalSaveDialogTabId] = useState<string | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const activeTabRef = useRef<HTMLButtonElement>(null);
+  const stripFadeRef = useOverflowFade<HTMLDivElement>();
 
   const openSaveDialog = onSaveToCollection ?? setLocalSaveDialogTabId;
 
@@ -120,14 +122,15 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
     <>
       <div className="shrink-0">
         <Floater
+          ref={stripFadeRef}
           radius="panel"
           elevation="float"
           className={cn(
             'sp-chrome flex items-center gap-0.5 p-1',
             // Horizontal scroll fallback when many tabs are open. We
             // intentionally hide the scrollbar — overflow is signalled by
-            // the tabs themselves being cropped at the floater edge.
-            'overflow-x-auto overflow-y-hidden no-scrollbar'
+            // the sp-scroll-fade edge masks on the cropped side.
+            'overflow-x-auto overflow-y-hidden no-scrollbar sp-scroll-fade'
           )}
           role="tablist"
           aria-label="Request tabs"
@@ -190,6 +193,9 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                     className={cn(
                       'group inline-flex items-center gap-2 shrink-0',
                       'rounded-sp-btn px-3 py-1.5 transition-colors',
+                      // Mount-only scale-in: plays when a tab is opened (and once
+                      // on strip mount); reorders/renames keep keys so no replay.
+                      'animate-scale-in',
                       'font-mono text-sp-11-5',
                       isActive
                         ? // Active uses a clean raised fill — no glow ring.

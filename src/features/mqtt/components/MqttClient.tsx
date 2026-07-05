@@ -31,6 +31,7 @@ import { useMqttStore, MQTT_SECRET_SENTINEL } from '@/features/mqtt/store/useMqt
 import type { MqttMessage, MqttProtocolVersion, MqttQoS } from '@/features/mqtt/store/useMqttStore';
 import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
+import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn } from '@/lib/shared/utils';
 import { useActiveTabId } from '@/store/selectors';
 
@@ -94,7 +95,7 @@ const MessageRow = memo(function MessageRow({
         }
       }}
       className={cn(
-        'grid items-center gap-2 px-3 py-1.5 cursor-pointer font-mono border-l-2 transition-colors',
+        'grid items-center gap-2 px-3 py-1.5 cursor-pointer font-mono border-l-2 transition-colors sp-stream-row',
         selected ? 'bg-sp-active border-l-sp-accent' : 'border-l-transparent hover:bg-sp-hover'
       )}
       style={{ gridTemplateColumns: '40px 50px 110px 1fr' }}
@@ -270,6 +271,9 @@ function MqttClient() {
 
   // Stable identity so memoized rows don't re-render on every parent update.
   const handleSelectMessage = useCallback((id: string) => setSelectedMessageId(id), []);
+
+  // Suppresses per-row entry animation while messages arrive faster than ~10/s.
+  const rapidStream = useRapidAppendFlag(connectionMessages?.length ?? 0);
 
   if (!isDesktop) {
     return <DesktopOnlyPanel />;
@@ -508,7 +512,7 @@ function MqttClient() {
                 </div>
 
                 <ScrollArea className="flex-1 min-h-0">
-                  <ul className="text-xs">
+                  <ul className="text-xs" data-stream-rapid={rapidStream || undefined}>
                     {visibleMessages.map((m) => (
                       <MessageRow
                         key={m.id}

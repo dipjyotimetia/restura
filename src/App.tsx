@@ -10,6 +10,7 @@ import { CaptureImportListener } from '@/components/shared/CaptureImportListener
 import { ErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { KeychainStatusBanner } from '@/components/shared/KeychainStatusBanner';
 import { UpdateNotification } from '@/components/shared/UpdateNotification';
+import { MotionProvider } from '@/components/ui/motion';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import Home from '@/routes/index';
 import NotFound from '@/routes/not-found';
@@ -108,16 +109,18 @@ export default function App() {
         disableTransitionOnChange
       >
         <ErrorBoundary>
-          <AccentProvider>
-            <AriaLiveAnnouncerProvider>
-              <PlatformProvider>
-                <UpdateNotification />
-                <KeychainStatusBanner />
-                <CaptureImportListener />
-                <RouterProvider router={router} />
-              </PlatformProvider>
-            </AriaLiveAnnouncerProvider>
-          </AccentProvider>
+          <MotionProvider>
+            <AccentProvider>
+              <AriaLiveAnnouncerProvider>
+                <PlatformProvider>
+                  <UpdateNotification />
+                  <KeychainStatusBanner />
+                  <CaptureImportListener />
+                  <RouterProvider router={router} />
+                </PlatformProvider>
+              </AriaLiveAnnouncerProvider>
+            </AccentProvider>
+          </MotionProvider>
         </ErrorBoundary>
         <ThemedToaster />
       </ThemeProvider>

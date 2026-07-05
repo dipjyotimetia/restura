@@ -9,7 +9,7 @@ import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Floater, SubTabBar, type SubTab } from '@/components/ui/spatial';
+import { Floater, SubTabBar, SubTabPanel, type SubTab } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
@@ -479,7 +479,7 @@ function GraphQLRequestBuilder() {
           />
 
           {/* Tab content */}
-          <div className="flex-1 min-h-0 overflow-hidden">
+          <SubTabPanel tabKey={activeTab} className="flex-1 min-h-0 overflow-hidden">
             {activeTab === 'query' && (
               <GraphQLBodyEditor
                 query={query}
@@ -587,7 +587,7 @@ function GraphQLRequestBuilder() {
                 )}
               </div>
             )}
-          </div>
+          </SubTabPanel>
         </Floater>
       </div>
     </div>

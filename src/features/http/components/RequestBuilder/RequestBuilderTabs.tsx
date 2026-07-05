@@ -2,7 +2,14 @@
 
 import { Plus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ComboboxInput, ParamRow, PARAM_GRID, Segmented, SubTabBar } from '@/components/ui/spatial';
+import {
+  ComboboxInput,
+  ParamRow,
+  PARAM_GRID,
+  Segmented,
+  SubTabBar,
+  SubTabPanel,
+} from '@/components/ui/spatial';
 import type { ComboboxSuggestion, ParamRowData, VariableStatus } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
@@ -193,7 +200,7 @@ export function RequestBuilderTabs({
     <div className="flex-1 flex flex-col min-h-0">
       <SubTabBar<SubTabKey> tabs={tabs} value={activeTab} onChange={onTabChange} />
 
-      <div className="flex-1 overflow-auto">
+      <SubTabPanel tabKey={activeTab} className="flex-1 overflow-auto">
         {activeTab === 'params' && (
           <ParamHeaderTable
             rows={request.params.map(toParamRow)}
@@ -371,7 +378,7 @@ export function RequestBuilderTabs({
             />
           </div>
         )}
-      </div>
+      </SubTabPanel>
     </div>
   );
 }

@@ -28,6 +28,7 @@ import {
   type SocketIOEventDirection,
   type SocketIOEventFilter,
 } from '@/features/socketio/store/useSocketIOStore';
+import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn } from '@/lib/shared/utils';
 import { useActiveTabId } from '@/store/selectors';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
@@ -228,6 +229,9 @@ function SocketIOClient() {
     }
     return { sent, received };
   }, [connection]);
+
+  // Suppresses per-row entry animation while events arrive faster than ~10/s.
+  const rapidStream = useRapidAppendFlag(rawEventsLength);
 
   const eventsScrollRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -534,7 +538,11 @@ function SocketIOClient() {
             <span>PREVIEW</span>
           </div>
 
-          <div ref={eventsScrollRef} className="flex-1 min-h-0 overflow-auto font-mono">
+          <div
+            ref={eventsScrollRef}
+            className="flex-1 min-h-0 overflow-auto font-mono"
+            data-stream-rapid={rapidStream || undefined}
+          >
             {filteredEvents.length === 0 ? (
               <div className="py-10 text-center text-sp-dim text-sp-12">
                 {connection.events.length === 0
@@ -551,7 +559,7 @@ function SocketIOClient() {
                     data-testid="socketio-event-row"
                     onClick={() => setSelectedEventId(event.id)}
                     className={cn(
-                      'grid w-full items-center gap-3 px-3 py-1.5 text-left border-l-2 transition-colors',
+                      'grid w-full items-center gap-3 px-3 py-1.5 text-left border-l-2 transition-colors sp-stream-row',
                       selected
                         ? 'bg-sp-active border-sp-accent'
                         : 'border-transparent hover:bg-sp-hover'

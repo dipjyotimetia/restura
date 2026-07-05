@@ -27,6 +27,7 @@ import { websocketManager } from '@/features/websocket/lib/websocketManager';
 import type { WebSocketMessageType } from '@/features/websocket/store/useWebSocketStore';
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
+import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
 import { useActiveTabId } from '@/store/selectors';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
@@ -182,6 +183,10 @@ function WebSocketClient() {
     }
     return { sent, received };
   }, [connection]);
+
+  // Suppresses per-row entry animation while messages arrive faster than ~10/s.
+  // Must sit above the early return below (rules of hooks).
+  const rapidStream = useRapidAppendFlag(connection?.messages.length ?? 0);
 
   if (!connection || !activeConnectionId) {
     return (
@@ -500,7 +505,10 @@ function WebSocketClient() {
           </div>
 
           {/* Rows */}
-          <div className="flex-1 min-h-0 overflow-auto font-mono">
+          <div
+            className="flex-1 min-h-0 overflow-auto font-mono"
+            data-stream-rapid={rapidStream || undefined}
+          >
             {filteredMessages.length === 0 ? (
               <div className="py-10 text-center text-sp-dim text-sp-12">
                 {connection.messages.length === 0
@@ -516,7 +524,7 @@ function WebSocketClient() {
                     type="button"
                     onClick={() => setSelectedMessageId(msg.id)}
                     className={cn(
-                      'grid w-full items-center gap-3 px-3 py-1.5 text-left border-l-2 transition-colors',
+                      'grid w-full items-center gap-3 px-3 py-1.5 text-left border-l-2 transition-colors sp-stream-row',
                       selected
                         ? 'bg-sp-active border-sp-accent'
                         : 'border-transparent hover:bg-sp-hover'
