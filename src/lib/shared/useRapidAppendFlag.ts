@@ -10,10 +10,18 @@ import { useRef } from 'react';
  * list, so this must not schedule extra renders of its own.
  */
 export function useRapidAppendFlag(count: number, thresholdMs = 150): boolean {
-  const ref = useRef({ count, at: 0, rapid: false });
+  // `at: null` until the first change — the first append has no preceding
+  // event, so it must never count as rapid (with 0, a first append landing
+  // within thresholdMs of page load would compare against navigation start).
+  const ref = useRef<{ count: number; at: number | null; rapid: boolean }>({
+    count,
+    at: null,
+    rapid: false,
+  });
   if (count !== ref.current.count) {
     const now = performance.now();
-    ref.current.rapid = count > ref.current.count && now - ref.current.at < thresholdMs;
+    ref.current.rapid =
+      count > ref.current.count && ref.current.at !== null && now - ref.current.at < thresholdMs;
     ref.current.at = now;
     ref.current.count = count;
   }

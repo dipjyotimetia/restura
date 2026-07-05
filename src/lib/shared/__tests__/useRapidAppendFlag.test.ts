@@ -33,6 +33,19 @@ describe('useRapidAppendFlag', () => {
     expect(result.current).toBe(false);
   });
 
+  it('never flags the first append as rapid, even right after page load', () => {
+    let t = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => t);
+
+    const { result, rerender } = renderHook(({ n }) => useRapidAppendFlag(n), {
+      initialProps: { n: 0 },
+    });
+
+    t = 50; // within thresholdMs of navigation start
+    rerender({ n: 1 });
+    expect(result.current).toBe(false);
+  });
+
   it('never flags removals (clear/filter) as rapid', () => {
     let t = 0;
     vi.spyOn(performance, 'now').mockImplementation(() => t);
