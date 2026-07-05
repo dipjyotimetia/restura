@@ -13,6 +13,7 @@ import {
   StatusPill,
   Stat,
   SubTabBar,
+  SubTabPanel,
   Segmented,
   Kbd,
   WaterfallBar,
@@ -455,11 +456,10 @@ function ResponseViewer() {
                   status={currentResponse.status}
                   text={currentResponse.statusText}
                   className={cn(
-                    currentResponse.status >= 400
-                      ? 'animate-error-shake'
-                      : currentResponse.status >= 200 &&
-                          currentResponse.status < 300 &&
-                          'animate-success-pulse'
+                    currentResponse.status >= 400 && 'animate-error-shake',
+                    currentResponse.status >= 200 &&
+                      currentResponse.status < 300 &&
+                      'animate-success-pulse'
                   )}
                 />
                 <Stat label="Time" value={formatTime(currentResponse.time)} />
@@ -549,10 +549,7 @@ function ResponseViewer() {
               />
 
               <div className="flex-1 min-h-0 overflow-hidden">
-                {/* Keyed on activeTab: remounting is already how these panels
-                    switch (each is conditionally rendered), so the wrapper only
-                    adds a 160ms fade+rise — no extra mount cost. */}
-                <div key={activeTab} className="h-full animate-sp-panel-in">
+                <SubTabPanel tabKey={activeTab} className="h-full">
                   {activeTab === 'body' && (
                     <div className="relative h-full" style={{ background: 'var(--sp-code)' }}>
                       {isImage ? (
@@ -757,7 +754,7 @@ function ResponseViewer() {
                       className="h-full"
                     />
                   )}
-                </div>
+                </SubTabPanel>
               </div>
             </Floater>
           </motion.div>

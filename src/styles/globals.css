@@ -547,14 +547,19 @@
     );
   }
 
-  /* Streaming message/event rows (WS, SSE). The container stamps
-     data-stream-rapid while rows arrive faster than ~10/s so a burst doesn't
-     become a wall of animation (and wasted paints). */
+  /* Streaming message/event rows (WS, SSE, Socket.IO, Kafka, MQTT). The
+     container stamps data-stream-rapid while rows arrive faster than ~10/s so
+     a burst doesn't become a wall of animation (and wasted paints).
+     Suppression shrinks the DURATION rather than setting animation: none —
+     swapping the animation itself back on when the flag clears would restart
+     the entry animation on every existing row at once (a style/paint storm on
+     lists capped at 1000 rows), while a duration change never replays an
+     already-finished animation. */
   .sp-stream-row {
     animation: var(--animate-sp-row-in);
   }
   [data-stream-rapid] .sp-stream-row {
-    animation: none;
+    animation-duration: 0.01ms;
   }
 
   .sp-accent-glow {

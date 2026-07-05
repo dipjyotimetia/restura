@@ -13,7 +13,7 @@ import { GrpcStreamingPanel } from './GrpcStreamingPanel';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { Button } from '@/components/ui/button';
-import { Floater, SubTabBar, TextField } from '@/components/ui/spatial';
+import { Floater, SubTabBar, SubTabPanel, TextField } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import { useGrpcReflection } from '@/features/grpc/hooks/useGrpcReflection';
@@ -664,9 +664,7 @@ function GrpcRequestBuilder() {
             {getMethodTypeDescription(grpcRequest.methodType)}
           </div>
 
-          {/* Keyed on activeTab for the 160ms panel fade+rise; panels are
-              conditionally rendered already, so the remount is free. */}
-          <div key={activeTab} className="flex-1 min-h-0 overflow-auto animate-sp-panel-in">
+          <SubTabPanel tabKey={activeTab} className="flex-1 min-h-0 overflow-auto">
             {activeTab === 'message' && (
               <div className="p-3">
                 <GrpcMessageEditor
@@ -753,7 +751,7 @@ function GrpcRequestBuilder() {
                   : {})}
               />
             )}
-          </div>
+          </SubTabPanel>
         </Floater>
       </div>
     </div>

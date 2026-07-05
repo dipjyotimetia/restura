@@ -9,6 +9,25 @@ export interface SubTab<T extends string> {
   badge?: string;
 }
 
+export interface SubTabPanelProps extends React.HTMLAttributes<HTMLDivElement> {
+  /** Current tab value — the panel remounts (replaying the fade) when it changes. */
+  tabKey: string;
+}
+
+/**
+ * Content wrapper for panels under a SubTabBar: 160ms fade+rise on tab switch
+ * via keyed remount. Panels are conditionally rendered by their consumers
+ * already, so the remount adds no mount cost. Consumers keep their own
+ * layout/overflow classes via className.
+ */
+export function SubTabPanel({ tabKey, className, children, ...props }: SubTabPanelProps) {
+  return (
+    <div key={tabKey} className={cn('animate-sp-panel-in', className)} {...props}>
+      {children}
+    </div>
+  );
+}
+
 export interface SubTabBarProps<T extends string> {
   tabs: ReadonlyArray<SubTab<T>>;
   value: T;
@@ -29,12 +48,9 @@ export function SubTabBar<T extends string>({
 
   // Keep the selected tab visible when the row overflows (e.g. "Timeline"
   // cropped behind the body-format controls). `nearest` avoids jumps when the
-  // tab is already fully in view.
+  // tab is already fully in view. Optional call — jsdom lacks scrollIntoView.
   React.useEffect(() => {
-    // scrollIntoView is absent under jsdom.
-    if (typeof selectedRef.current?.scrollIntoView === 'function') {
-      selectedRef.current.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-    }
+    selectedRef.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }, [value]);
 
   return (

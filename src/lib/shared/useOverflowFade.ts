@@ -1,19 +1,16 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, type RefCallback } from 'react';
 
 /**
  * Marks a horizontally scrollable element with `data-overflow-left` /
  * `data-overflow-right` attributes so `.sp-scroll-fade` (globals.css) can fade
  * the cropped edge. Pair with the `sp-scroll-fade` class on the same element.
  *
- * Returns a ref callback. Updates happen directly on the DOM node — scrolling
- * and resizing never trigger React re-renders.
+ * Returns a ref callback (using React 19's cleanup-function return). Updates
+ * happen directly on the DOM node — scrolling and resizing never trigger
+ * React re-renders.
  */
-export function useOverflowFade<T extends HTMLElement>(): (node: T | null) => void {
-  const cleanupRef = useRef<(() => void) | null>(null);
-
+export function useOverflowFade<T extends HTMLElement>(): RefCallback<T> {
   return useCallback((node: T | null) => {
-    cleanupRef.current?.();
-    cleanupRef.current = null;
     if (!node) return;
 
     const update = () => {
@@ -26,7 +23,7 @@ export function useOverflowFade<T extends HTMLElement>(): (node: T | null) => vo
     update();
     node.addEventListener('scroll', update, { passive: true });
     // try/catch — jsdom test setups stub ResizeObserver with a mock that
-    // isn't constructible via `new`.
+    // isn't constructible via `new` (TabStrip tests fail without this).
     let ro: ResizeObserver | null = null;
     try {
       ro = new ResizeObserver(update);
@@ -38,7 +35,7 @@ export function useOverflowFade<T extends HTMLElement>(): (node: T | null) => vo
     const mo = new MutationObserver(update);
     mo.observe(node, { childList: true });
 
-    cleanupRef.current = () => {
+    return () => {
       node.removeEventListener('scroll', update);
       ro?.disconnect();
       mo.disconnect();

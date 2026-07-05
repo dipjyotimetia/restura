@@ -303,4 +303,4 @@ FadeTab.displayName = 'FadeTab';
 // existing `motion.div` call sites keep working — under LazyMotion the `m.*`
 // components are the lightweight versions; importing the full `motion.*` from
 // framer-motion directly would pull the eager runtime back into the bundle.
-export { AnimatePresence, m, m as motion };
+export { AnimatePresence, m as motion };

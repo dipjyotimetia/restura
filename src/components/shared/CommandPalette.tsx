@@ -234,8 +234,8 @@ export default function CommandPalette({
           group: 'Requests',
           name: r.name,
           path: r.path,
-          ...(r.method !== undefined && { method: r.method }),
-          ...(r.proto !== undefined && { proto: r.proto }),
+          method: r.method,
+          proto: r.proto,
           recent: recentRequestIds.has(r.id),
           onSelect: () => {
             // Best-effort tab open: locate the original item with its request payload
@@ -665,12 +665,12 @@ function PaletteRow({ item, index, active, onMouseEnter, onClick }: PaletteRowPr
     >
       {/* Leading visual */}
       <div className="shrink-0 inline-flex items-center justify-center">
-        {item.kind === 'request' && item.proto ? (
+        {/* proto exists only on 'request' (non-HTTP) and 'new' items; method
+            only on HTTP 'request' items — so a flat chain covers all kinds. */}
+        {item.proto ? (
           <ProtoChip protocol={item.proto} />
-        ) : item.kind === 'request' && item.method ? (
+        ) : item.method ? (
           <MethodChip method={item.method} size="sm" />
-        ) : item.kind === 'new' && item.proto ? (
-          <ProtoChip protocol={item.proto} />
         ) : Icon ? (
           <Icon size={15} className="text-sp-muted" />
         ) : null}

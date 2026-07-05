@@ -34,8 +34,8 @@ export type { StepperProps } from './Stepper';
 export { TextField } from './TextField';
 export type { TextFieldProps } from './TextField';
 
-export { SubTabBar } from './SubTabBar';
-export type { SubTabBarProps, SubTab } from './SubTabBar';
+export { SubTabBar, SubTabPanel } from './SubTabBar';
+export type { SubTabBarProps, SubTabPanelProps, SubTab } from './SubTabBar';
 
 export { ParamRow, PARAM_GRID } from './ParamRow';
 export type { ParamRowProps, ParamRowData } from './ParamRow';

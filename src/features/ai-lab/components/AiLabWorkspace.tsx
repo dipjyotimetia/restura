@@ -10,7 +10,7 @@ import { Playground } from './Playground';
 import { ProviderManager } from './ProviderManager';
 import { ReportView } from './ReportView';
 import { Button } from '@/components/ui/button';
-import { Floater, SubTabBar } from '@/components/ui/spatial';
+import { Floater, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
 import { isElectron, getPlatform } from '@/lib/shared/platform';
 
 // CSS-in-JS region tag — Electron-only `WebkitAppRegion`. Mirrors TopBar so the
@@ -155,14 +155,14 @@ export default function AiLabWorkspace() {
           {/* Each tab owns its own full-height layout + scroll: master-detail
               panes fill the window; form/config tabs scroll within a readable
               measure. No outer max-width centering (which left dead margins). */}
-          <div className="min-h-0 flex-1 overflow-hidden">
+          <SubTabPanel tabKey={tab} className="min-h-0 flex-1 overflow-hidden">
             {tab === 'playground' && <Playground />}
             {tab === 'datasets' && <DatasetEditor />}
             {tab === 'evals' && <EvalBuilder />}
             {tab === 'arena' && <Arena />}
             {tab === 'reports' && <ReportView />}
             {tab === 'providers' && <ProviderManager />}
-          </div>
+          </SubTabPanel>
         </div>
       )}
     </div>
