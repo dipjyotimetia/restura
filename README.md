@@ -53,17 +53,17 @@ So I built Restura. One client that speaks all the protocols I actually use, sto
 
 ## Protocols
 
-|        | Protocol               | What works today                                            |
-| :----: | ---------------------- | ----------------------------------------------------------- |
-| `HTTP` | REST / HTTP            | All methods, params, headers, body types, cookies, code gen |
-| `GQL`  | GraphQL                | Query builder, schema introspection, subscriptions          |
-| `RPC`  | gRPC                   | Unary, server streaming, server reflection                  |
-|  `WS`  | WebSocket              | Connect, send/receive, full message history                 |
-|  `IO`  | Socket.IO              | Connect, emit/listen events, acks                           |
-| `SSE`  | Server-Sent Events     | Live event stream viewer with reconnection                  |
-| `KFK`  | Kafka                  | Produce / consume, SASL + TLS · _desktop only_              |
-| `MQT`  | MQTT                   | Publish / subscribe, QoS, TLS · _desktop only_              |
-| `MCP`  | Model Context Protocol | Proxy to any MCP server — and Restura _can be_ one          |
+|        | Protocol               | What works today                                                           |
+| :----: | ---------------------- | -------------------------------------------------------------------------- |
+| `HTTP` | REST / HTTP            | All methods, params, headers, body types, cookies, code gen                |
+| `GQL`  | GraphQL                | Query builder, schema introspection, subscriptions                         |
+| `RPC`  | gRPC                   | Unary, server streaming, reflection · client/bidi streaming _desktop only_ |
+|  `WS`  | WebSocket              | Connect, send/receive, full message history                                |
+|  `IO`  | Socket.IO              | Connect, emit/listen events, acks                                          |
+| `SSE`  | Server-Sent Events     | Live event stream viewer with reconnection                                 |
+| `KFK`  | Kafka                  | Produce / consume, SASL + TLS · _desktop only_                             |
+| `MQT`  | MQTT                   | Publish / subscribe, QoS, TLS · _desktop only_                             |
+| `MCP`  | Model Context Protocol | Proxy to any MCP server — and Restura _can be_ one                         |
 
 ## Highlights
 
@@ -73,8 +73,8 @@ So I built Restura. One client that speaks all the protocols I actually use, sto
 | **Workflows**          | Chain requests, extract variables via JSONPath / regex / headers, set retries with exponential backoff. Runs in the app or in CI.                      |
 | **Import everything**  | Postman v2.1, Insomnia, Bruno, OpenAPI / Swagger, Hoppscotch — drop it in and start testing.                                                           |
 | **Environments**       | Scope variables per environment; swap `{{base_url}}` between staging and prod in one click.                                                            |
-| **Auth built-in**      | Basic, Bearer, API Key, OAuth 2.0, Digest, AWS SigV4, mTLS — per request or inherited from a collection or folder.                                     |
-| **AI assistant**       | Chat with OpenAI, Anthropic, or OpenRouter with the current request and response as context. Secrets are redacted at the wire.                         |
+| **Auth built-in**      | Basic, Bearer, API Key, OAuth 1.0a/2.0, WSSE, AWS SigV4, mTLS — per request or inherited from a collection or folder.                                  |
+| **AI assistant**       | Chat with OpenAI, Anthropic, or OpenRouter with the current request and response as context. Secrets are redacted at the wire. _Desktop only._         |
 | **Private by default** | Everything stored locally. No accounts, no cloud sync, no per-user tracking or behavioural profiling — usage metrics are anonymous and aggregate only. |
 
 ## Security
@@ -187,6 +187,7 @@ src/
 │   ├── collections/   # Sidebar, runner, Postman/Insomnia import
 │   ├── environments/  # Environment variable manager
 │   ├── auth/          # Auth config (shared across protocols)
+│   ├── load-testing/  # Collection load/perf runner
 │   └── scripts/       # Script editor + QuickJS executor
 │
 shared/protocol/       # Backend-agnostic protocol orchestrators
@@ -195,7 +196,7 @@ worker/                # Shared Hono app — Cloudflare Worker + self-hosted Nod
 electron/main/         # Electron main process + IPC handlers
 extension/chrome/      # Browser capture extension (MV3)
 extension/vscode/      # VS Code extension (OpenCollection support)
-cli/                   # @restura/cli — run collections in CI
+cli/                   # restura-cli — run collections in CI
 ```
 
 </details>
@@ -252,6 +253,8 @@ Issues tagged [`good first issue`](https://github.com/dipjyotimetia/restura/labe
 - [**Changelog**](docs/CHANGELOG.md) — what's shipped
 - [**CI/CD & Releases**](docs/CI_CD.md) — pipeline, supply-chain hardening, release runbook
 - [**Security**](SECURITY.md) — how to report vulnerabilities
+- [**Browser extension**](extension/chrome/README.md) — capture HTTP/GraphQL/WebSocket/SSE/gRPC-web traffic from Chrome into a collection
+- [**VS Code extension**](extension/vscode/README.md) — schema validation, Test Explorer, and inline send for OpenCollection files
 
 <br/>
 
