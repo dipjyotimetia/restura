@@ -744,9 +744,12 @@ export default function NetworkTab() {
                         <span className="text-muted-foreground">URL</span>
                         <div className="flex items-center gap-1 ml-4">
                           <span className="font-mono text-foreground truncate max-w-[280px]">
-                            {selectedEntry.request.url}
+                            {selectedEntry.resolvedUrl ?? selectedEntry.request.url}
                           </span>
-                          <CopyButton value={selectedEntry.request.url} label="URL" />
+                          <CopyButton
+                            value={selectedEntry.resolvedUrl ?? selectedEntry.request.url}
+                            label="URL"
+                          />
                         </div>
                       </div>
                       <div className="flex justify-between">

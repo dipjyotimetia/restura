@@ -1440,7 +1440,9 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                         })()}
                     </div>
                     <p className="text-xs font-mono truncate pl-6 mb-1 text-foreground">
-                      {item.request.type === 'grpc' ? item.request.service : item.request.url}
+                      {item.request.type === 'grpc'
+                        ? item.request.service
+                        : (item.resolvedUrl ?? item.request.url)}
                     </p>
                     <span className="text-[10px] text-sp-dim pl-6 block">
                       {new Date(item.timestamp).toLocaleString()}

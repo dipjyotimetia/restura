@@ -196,6 +196,6 @@ test.describe('Environment Manager', () => {
     await expect(dialog(page).getByText(/Built-in helpers expand at send time/)).toBeVisible();
 
     await dialog(page).getByRole('tab', { name: 'Secrets', exact: true }).click();
-    await expect(dialog(page).getByText(/OS keychain/)).toBeVisible();
+    await expect(dialog(page).getByText(/OS-keychain/)).toBeVisible();
   });
 });

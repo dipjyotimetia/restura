@@ -89,6 +89,14 @@ export interface HistoryItem {
   request: Request;
   response?: Response;
   timestamp: number;
+  /**
+   * The request URL with `{{variables}}` substituted, i.e. what actually went
+   * out on the wire. Display-only — `request.url` keeps the original
+   * (possibly templated) value so reopening/replaying this entry still
+   * targets whichever environment is active, rather than the one active when
+   * the request was originally sent. Absent for non-HTTP request types.
+   */
+  resolvedUrl?: string;
 }
 
 /**
