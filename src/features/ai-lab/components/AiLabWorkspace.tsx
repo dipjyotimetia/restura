@@ -62,6 +62,9 @@ export default function AiLabWorkspace() {
   const datasetCount = useAiLabStore((s) => Object.keys(s.datasets).length);
   const providerCount = useAiLabStore((s) => Object.keys(s.providers).length);
   const runCount = useEvalRunStore((s) => Object.keys(s.runs).length);
+  const hasDiscoveredModels = useAiLabStore((s) =>
+    Object.values(s.providers).some((p) => p.models.length > 0)
+  );
 
   const tabs = useMemo(() => {
     const counts: Partial<Record<AiLabTab, number>> = {
@@ -69,11 +72,13 @@ export default function AiLabWorkspace() {
       reports: runCount,
       providers: providerCount,
     };
-    return TAB_ORDER.map((value) => {
+    return TAB_ORDER.map((value, i) => {
       const count = counts[value];
+      // TAB_ORDER's index matches TAB_KEYS' Alt+1..6 digits 1:1.
+      const title = `${TAB_LABELS[value]} (Alt+${i + 1})`;
       return count
-        ? { value, label: TAB_LABELS[value], count }
-        : { value, label: TAB_LABELS[value] };
+        ? { value, label: TAB_LABELS[value], count, title }
+        : { value, label: TAB_LABELS[value], title };
     });
   }, [datasetCount, runCount, providerCount]);
 
@@ -98,8 +103,10 @@ export default function AiLabWorkspace() {
   const showTrafficLights = isElectron() && getPlatform() === 'darwin';
 
   // Brand-new users land on Playground with nothing configured; nudge them to
-  // add a provider first (every tab except Providers itself).
-  const showOnboarding = providerCount === 0 && tab !== 'providers';
+  // add a provider first, then — once a provider exists but nothing's been
+  // discovered yet — to go discover its models. Without the second stage the
+  // "zero → working eval" path stalled silently once a provider was added.
+  const showOnboarding = (providerCount === 0 || !hasDiscoveredModels) && tab !== 'providers';
 
   return (
     <div className="flex h-screen flex-col text-sp-text">
@@ -139,8 +146,9 @@ export default function AiLabWorkspace() {
             >
               <Plug className="h-4 w-4 shrink-0 text-sp-accent" />
               <p className="min-w-0 flex-1 text-sp-12 text-sp-text">
-                No model providers yet. Add Ollama or an OpenAI-compatible endpoint to start running
-                prompts and evals.
+                {providerCount === 0
+                  ? 'No model providers yet. Add Ollama or an OpenAI-compatible endpoint to start running prompts and evals.'
+                  : 'You have a provider but no discovered models yet. Use “Discover models” on it to start running prompts and evals.'}
               </p>
               <Button
                 variant="cta"
@@ -148,7 +156,7 @@ export default function AiLabWorkspace() {
                 onClick={() => setTab('providers')}
                 className="shrink-0"
               >
-                Add a provider
+                {providerCount === 0 ? 'Add a provider' : 'Go to Providers'}
               </Button>
             </Floater>
           )}

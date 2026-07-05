@@ -1,4 +1,4 @@
-import { Play, Plus, Square, X } from 'lucide-react';
+import { AlertTriangle, Play, Plus, Square, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
@@ -19,6 +19,7 @@ import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import {
   Select,
@@ -157,6 +158,15 @@ export function EvalBuilder() {
   const updateScorer = (id: string, patch: Partial<ScorerConfig>) =>
     setScorers((prev) => prev.map((s) => (s.id === id ? ({ ...s, ...patch } as ScorerConfig) : s)));
 
+  // judge/pairwise scorers carry their own judge model — an unset one
+  // (providerConfigId/model both empty, the defaultScorer() fallback) would
+  // otherwise only surface as a per-cell judge-call error mid-run.
+  const unconfiguredJudgeScorer = scorers.find(
+    (s) =>
+      (s.kind === 'judge' || s.kind === 'pairwise') &&
+      (!s.judgeModel.providerConfigId || !s.judgeModel.model)
+  );
+
   const run = () => {
     if (!datasetId) {
       toast.error('Pick a dataset.');
@@ -167,6 +177,12 @@ export function EvalBuilder() {
       .map((m) => ({ providerConfigId: m.cfg.id, model: m.model }));
     if (models.length === 0) {
       toast.error('Select at least one model.');
+      return;
+    }
+    if (unconfiguredJudgeScorer) {
+      toast.error(
+        `Pick a judge model for the ${SCORER_LABEL[unconfiguredJudgeScorer.kind]} scorer.`
+      );
       return;
     }
     const promptId = upsertPrompt({ name: `${name} prompt`, system, user });
@@ -188,12 +204,14 @@ export function EvalBuilder() {
 
   const passCount = progress?.cells.filter((c) => c.passed).length ?? 0;
 
-  const canRun = !!datasetId && selected.size > 0;
+  const canRun = !!datasetId && selected.size > 0 && !unconfiguredJudgeScorer;
   const runDisabledReason = !datasetId
     ? 'Pick a dataset to run.'
     : selected.size === 0
       ? 'Select at least one model.'
-      : null;
+      : unconfiguredJudgeScorer
+        ? `Pick a judge model for the ${SCORER_LABEL[unconfiguredJudgeScorer.kind]} scorer.`
+        : null;
 
   // Ordered model label lookup for the live results grid.
   const labelByModel = useMemo(
@@ -207,21 +225,39 @@ export function EvalBuilder() {
       <div className="flex-1 overflow-auto p-4">
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <span className="sp-label">Eval name</span>
-            <Input value={name} onChange={(e) => setName(e.target.value)} />
+            <Label htmlFor="eval-name" className="sp-label">
+              Eval name
+            </Label>
+            <Input id="eval-name" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <span className="sp-label">System</span>
-            <Textarea value={system} onChange={(e) => setSystem(e.target.value)} rows={2} />
+            <Label htmlFor="eval-system" className="sp-label">
+              System
+            </Label>
+            <Textarea
+              id="eval-system"
+              value={system}
+              onChange={(e) => setSystem(e.target.value)}
+              rows={2}
+            />
           </div>
           <div className="space-y-1.5">
-            <span className="sp-label">User prompt ({'{{var}}'} from dataset)</span>
-            <Textarea value={user} onChange={(e) => setUser(e.target.value)} rows={3} />
+            <Label htmlFor="eval-user" className="sp-label">
+              User prompt ({'{{var}}'} from dataset)
+            </Label>
+            <Textarea
+              id="eval-user"
+              value={user}
+              onChange={(e) => setUser(e.target.value)}
+              rows={3}
+            />
           </div>
           <div className="space-y-1.5">
-            <span className="sp-label">Dataset</span>
+            <Label htmlFor="eval-dataset" className="sp-label">
+              Dataset
+            </Label>
             <Select value={datasetId} onValueChange={setDatasetId}>
-              <SelectTrigger>
+              <SelectTrigger id="eval-dataset">
                 <SelectValue placeholder="Select a dataset" />
               </SelectTrigger>
               <SelectContent>
@@ -253,9 +289,11 @@ export function EvalBuilder() {
             />
           </div>
           <div className="space-y-1.5">
-            <span className="sp-label">Score target</span>
+            <Label htmlFor="eval-score-target" className="sp-label">
+              Score target
+            </Label>
             <Select value={targetMode} onValueChange={(v) => setTargetMode(v as TargetMode)}>
-              <SelectTrigger>
+              <SelectTrigger id="eval-score-target">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -265,11 +303,17 @@ export function EvalBuilder() {
               </SelectContent>
             </Select>
             {targetMode !== 'text' && (
-              <p className="text-sp-11 text-amber-500">
-                ⚠ Each cell sends the model-authored request to the live endpoint (through the same
-                SSRF guard as normal requests) and scores the real upstream response. Only run
-                against endpoints you trust.
-              </p>
+              <div
+                role="alert"
+                className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sp-11 text-amber-800 dark:text-amber-100"
+              >
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />
+                <p>
+                  Each cell sends the model-authored request to the live endpoint (through the same
+                  SSRF guard as normal requests) and scores the real upstream response. Only run
+                  against endpoints you trust.
+                </p>
+              </div>
             )}
           </div>
 
@@ -504,12 +548,14 @@ function ScorerRow({
       )}
       {scorer.kind === 'pairwise' && (
         <div className="space-y-2">
-          <span className="sp-label">Judge model</span>
+          <Label htmlFor={`pairwise-judge-model-${scorer.id}`} className="sp-label">
+            Judge model
+          </Label>
           <Select
             value={modelKey(scorer.judgeModel)}
             onValueChange={(v) => onChange({ judgeModel: parseModelKey(v) })}
           >
-            <SelectTrigger>
+            <SelectTrigger id={`pairwise-judge-model-${scorer.id}`}>
               <SelectValue placeholder="pick a judge model" />
             </SelectTrigger>
             <SelectContent>

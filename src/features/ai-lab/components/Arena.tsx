@@ -10,6 +10,7 @@ import { ModelChecklist } from './ModelChecklist';
 import { StatusChip } from './StatusChip';
 import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -96,9 +97,11 @@ export function Arena() {
       {/* Config pane. */}
       <div className="flex flex-1 flex-col gap-4 overflow-auto p-4">
         <div className="space-y-1.5">
-          <span className="sp-label">Dataset</span>
+          <Label htmlFor="arena-dataset" className="sp-label">
+            Dataset
+          </Label>
           <Select value={datasetId} onValueChange={setDatasetId}>
-            <SelectTrigger>
+            <SelectTrigger id="arena-dataset">
               <SelectValue placeholder="Select a dataset" />
             </SelectTrigger>
             <SelectContent>
@@ -123,9 +126,11 @@ export function Arena() {
           />
         </div>
         <div className="space-y-1.5">
-          <span className="sp-label">Judge model</span>
+          <Label htmlFor="arena-judge" className="sp-label">
+            Judge model
+          </Label>
           <Select value={judgeKey} onValueChange={setJudgeKey}>
-            <SelectTrigger>
+            <SelectTrigger id="arena-judge">
               <SelectValue placeholder="Select a judge" />
             </SelectTrigger>
             <SelectContent>
@@ -138,8 +143,15 @@ export function Arena() {
           </Select>
         </div>
         <div className="space-y-1.5">
-          <span className="sp-label">System prompt (optional)</span>
-          <Textarea value={system} onChange={(e) => setSystem(e.target.value)} rows={2} />
+          <Label htmlFor="arena-system" className="sp-label">
+            System prompt (optional)
+          </Label>
+          <Textarea
+            id="arena-system"
+            value={system}
+            onChange={(e) => setSystem(e.target.value)}
+            rows={2}
+          />
         </div>
         <div className="flex items-center gap-3">
           <span className="sp-label">Concurrency</span>

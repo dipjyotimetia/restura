@@ -51,7 +51,7 @@ An Electron-only LLM evaluation workbench accessible as `/ai-lab` route. It uses
 - `src/features/ai-lab/lib/llmClient.ts` — non-streaming completions + playground streaming.
 - `src/features/ai-lab/lib/scorers.ts` — all scorer implementations.
 - `src/features/ai-lab/lib/concurrencyPool.ts` — parallel cell pool.
-- `src/features/ai-lab/lib/judge/*.ts` — LLM-as-judge helpers.
+- `shared/protocol/ai/judge.ts` — LLM-as-judge engine (shared with the AI assistant; see ADR 0020's "Judge hardening" section).
 - `src/features/ai-lab/lib/openapiTestGen.ts` / `redteamGen.ts` — dataset generation.
 - `src/features/ai-lab/lib/arenaRunner.ts` / `lib/elo.ts` — arena logic.
 - Stores: `src/features/ai-lab/store/useAiLabStore.ts`, `useEvalRunStore.ts`, `useArenaStore.ts`.

@@ -1,6 +1,6 @@
 # Restura — Roadmap
 
-Current version: **v0.7.1**
+Current version: **v1.0.0**
 
 This is an honest picture of what's done, what's being worked on, and what's next. It's not a commitment or a sprint board — things move around based on what surfaces as the most painful problem.
 
@@ -56,7 +56,7 @@ Local mock server for stubbing responses without a real upstream (desktop).
 
 Chat panel with OpenAI, Anthropic, or OpenRouter. Sees the current request and response as context. Secrets and URLs redacted before reaching the model. BYO API key, stored in OS keychain.
 
-AI Lab (desktop) — multi-model playground, datasets, eval runner with LLM-as-judge, OpenAPI-driven test generation.
+AI Lab (desktop) — multi-model playground, datasets, eval runner with LLM-as-judge (incl. pairwise/preference), OpenAPI-driven test generation, an `http-exec` target that executes AI-generated requests through the real request executor, and Arena — round-robin model-vs-model judging with an Elo leaderboard.
 
 ### Contract testing
 
