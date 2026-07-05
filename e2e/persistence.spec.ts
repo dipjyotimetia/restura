@@ -38,10 +38,11 @@ test.describe('Persistence across reload', () => {
     await setUrl(page, marker);
     await expect(page.getByRole('textbox', { name: 'Request URL' })).toHaveValue(marker);
 
-    const tabsBefore = await page
-      .locator('[role="tab"]')
-      .filter({ hasText: /New Request/i })
-      .count();
+    // Scoped to the request tab strip (not text-matched) — once the URL above
+    // diverges from the default echo URL, this tab's label switches from
+    // "New Request" to its host+path.
+    const requestTabs = page.getByRole('tablist', { name: 'Request tabs' }).getByRole('tab');
+    const tabsBefore = await requestTabs.count();
     expect(tabsBefore).toBeGreaterThanOrEqual(2);
 
     // Let the persisted (Dexie/IndexedDB) write flush before reloading — see
@@ -52,10 +53,7 @@ test.describe('Persistence across reload', () => {
     await expect(page.getByRole('main', { name: 'Request workspace' })).toBeVisible();
 
     // Exact tab count is preserved (not merely >= 2)...
-    const tabsAfter = await page
-      .locator('[role="tab"]')
-      .filter({ hasText: /New Request/i })
-      .count();
+    const tabsAfter = await requestTabs.count();
     expect(tabsAfter).toBe(tabsBefore);
     // ...and the active tab's edited URL was rehydrated from Dexie.
     await expect(page.getByRole('textbox', { name: 'Request URL' })).toHaveValue(marker);

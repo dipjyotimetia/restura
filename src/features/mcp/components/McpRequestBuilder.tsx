@@ -222,7 +222,7 @@ export default function McpRequestBuilder() {
               value={active.url}
               onChange={(e) => setUrl(active.id, e.target.value)}
               disabled={isBusy}
-              className="flex-1 min-w-[140px] h-7 bg-transparent border-0 font-mono text-sp-12 text-sp-text px-1 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none placeholder:text-sp-dim"
+              className="flex-1 min-w-[140px] h-7 bg-transparent border-0 font-mono text-sp-12 text-sp-text px-1 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none placeholder:text-sp-dim placeholder:italic"
               aria-label="MCP server URL"
             />
           )}

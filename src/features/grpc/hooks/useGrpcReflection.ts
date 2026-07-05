@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { GrpcReflectionClient } from '@/features/grpc/lib/grpcReflection';
 import { validateGrpcUrl } from '@/features/grpc/lib/grpcValidation';
@@ -29,6 +29,13 @@ export interface UseGrpcReflectionOptions {
    * the request store and call the message validator.
    */
   onMethodSelected?: (method: ReflectionMethodInfo) => void;
+  /**
+   * Selection persisted in the request store. Auto-discovery restores this
+   * selection when it exists in the discovered list (falling back to the
+   * first service/method), so a remount doesn't reset the user's choice.
+   */
+  currentServiceName?: string;
+  currentMethodName?: string;
 }
 
 export interface UseGrpcReflectionResult {
@@ -62,7 +69,8 @@ export interface UseGrpcReflectionResult {
  * template generation) when the user picks something from a discovered list.
  *
  * Behaviour preserved from the original GrpcRequestBuilder inline implementation:
- *  - When discovery succeeds and finds at least one service, the first
+ *  - When discovery succeeds and finds at least one service, the store's
+ *    persisted selection is restored when still present, otherwise the first
  *    service (and its first method) auto-selects to populate the form.
  *  - When discovery fails, a toast surfaces the error unless `silent`.
  *  - When the URL is invalid or empty, auto-discovery is a no-op.
@@ -76,6 +84,8 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
     autoDiscover = true,
     onServiceSelected,
     onMethodSelected,
+    currentServiceName,
+    currentMethodName,
   } = options;
 
   const [result, setResult] = useState<ReflectionResult | null>(null);
@@ -83,6 +93,12 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
   const [selectedMethod, setSelectedMethod] = useState<ReflectionMethodInfo | null>(null);
   const [loading, setLoading] = useState(false);
   const [showSchema, setShowSchema] = useState(false);
+  // Raw URL of the most recent discovery attempt (success or failure). The
+  // auto-discover effect compares against this — not result.serverUrl, which
+  // reports the resolved/normalized URL the client actually contacted and
+  // would mismatch raw URLs containing {{vars}} or a trailing slash, re-firing
+  // discovery every debounce tick.
+  const lastAttemptedUrlRef = useRef<string | null>(null);
 
   const selectService = useCallback(
     (service: ReflectionServiceInfo) => {
@@ -121,6 +137,7 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
         return;
       }
 
+      lastAttemptedUrlRef.current = rawUrl;
       setLoading(true);
       if (!silent) {
         setResult(null);
@@ -150,20 +167,27 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
                 )} method(s)`,
               });
             }
-            const firstService = discoveryResult.services[0];
-            if (firstService) {
-              selectService(firstService);
-              const firstMethod = firstService.methods[0];
-              if (firstMethod) {
-                selectMethod(firstMethod);
+            // Restore the store's persisted selection when the discovered
+            // list still contains it (e.g. re-discovery after a remount);
+            // fall back to the first service/method otherwise.
+            const targetService =
+              discoveryResult.services.find((s) => s.fullName === currentServiceName) ??
+              discoveryResult.services[0];
+            if (targetService) {
+              selectService(targetService);
+              const targetMethod =
+                targetService.methods.find((m) => m.name === currentMethodName) ??
+                targetService.methods[0];
+              if (targetMethod) {
+                selectMethod(targetMethod);
               }
             }
           }
         } else {
           // Record the failure even on the silent auto-discover path so the
           // persistent reflection banner shows *why* (e.g. a TLS / certificate
-          // error) instead of nothing. Recording the URL also stops the
-          // auto-discover effect from re-firing against the same failing URL.
+          // error) instead of nothing. (Re-fire suppression for the same URL
+          // is handled by lastAttemptedUrlRef, set before the attempt.)
           // The toast stays manual-only to avoid spam while the user types.
           setResult({
             success: false,
@@ -194,12 +218,12 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
         setLoading(false);
       }
     },
-    [url, resolveVariables, selectService, selectMethod]
+    [url, resolveVariables, selectService, selectMethod, currentServiceName, currentMethodName]
   );
 
-  // Debounced auto-discovery on URL change. We compare against the previous
-  // result's serverUrl to skip re-running for the same URL when other deps
-  // change (e.g. the parent re-renders).
+  // Debounced auto-discovery on URL change. We compare against the last
+  // attempted URL to skip re-running for the same URL when other deps change
+  // (e.g. the parent re-renders).
   useEffect(() => {
     if (!autoDiscover) return;
     const rawUrl = url ?? '';
@@ -208,13 +232,13 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
     if (!valid) return;
 
     const timer = setTimeout(() => {
-      if (result?.serverUrl !== rawUrl) {
+      if (lastAttemptedUrlRef.current !== rawUrl) {
         void discover(true);
       }
     }, AUTO_DISCOVER_DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  }, [url, autoDiscover, discover, result?.serverUrl]);
+  }, [url, autoDiscover, discover]);
 
   return {
     result,

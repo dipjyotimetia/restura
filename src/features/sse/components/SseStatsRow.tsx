@@ -1,4 +1,3 @@
-import { Square } from 'lucide-react';
 import { Stat } from '@/components/ui/spatial';
 import { cn } from '@/lib/shared/utils';
 
@@ -8,13 +7,12 @@ export interface SseStatsRowProps {
   lastEventId: string | undefined;
   avgGapMs: number | null;
   reconnects: number;
-  onStop: () => void;
-  canStop: boolean;
 }
 
 /**
  * Stats strip below the URL bar. STREAMING (green dot pulses) | EVENTS |
- * LAST-EVENT-ID | AVG GAP | RECONNECT + a destructive Stop button on the right.
+ * LAST-EVENT-ID | AVG GAP | RECONNECT. Stream/Stop control lives in the
+ * URL bar only — no duplicate Stop here.
  */
 export function SseStatsRow({
   status,
@@ -22,8 +20,6 @@ export function SseStatsRow({
   lastEventId,
   avgGapMs,
   reconnects,
-  onStop,
-  canStop,
 }: SseStatsRowProps) {
   const streamingLabel =
     status === 'connected'
@@ -76,24 +72,6 @@ export function SseStatsRow({
         }
       />
       <Stat label="Reconnect" value={reconnects.toString()} />
-
-      <div className="ml-auto">
-        <button
-          type="button"
-          onClick={onStop}
-          disabled={!canStop}
-          aria-label="Stop SSE stream"
-          className={cn(
-            'h-8 px-3 rounded-sp-btn text-sp-12 font-semibold inline-flex items-center gap-1.5',
-            'border border-danger/40 text-danger bg-transparent',
-            'enabled:hover:bg-danger/10 transition-colors',
-            'disabled:opacity-50 disabled:cursor-not-allowed'
-          )}
-        >
-          <Square className="h-3.5 w-3.5" />
-          Stop
-        </button>
-      </div>
     </div>
   );
 }

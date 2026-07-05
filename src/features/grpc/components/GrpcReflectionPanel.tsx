@@ -61,9 +61,6 @@ function GrpcReflectionPanel({
       let message: string | undefined;
       if (method.inputMessageSchema && method.inputMessageSchema.fields.length > 0) {
         message = generateRequestTemplate(method.inputMessageSchema);
-        toast.info('Request template generated', {
-          description: `Generated template for ${method.inputMessageSchema.name}`,
-        });
       }
 
       onMethodSelect(method.name, methodType, message);

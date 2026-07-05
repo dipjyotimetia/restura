@@ -51,7 +51,7 @@ export default function SseClient() {
   // Auto-create a default connection on first mount if none exist
   useEffect(() => {
     if (Object.keys(connections).length === 0) {
-      createConnection('');
+      createConnection();
     }
   }, [connections, createConnection]);
 
@@ -236,6 +236,7 @@ export default function SseClient() {
         onStream={handleConnect}
         onStop={handleDisconnect}
         headerCount={active.headers.length}
+        headersOpen={headersOpen}
         onToggleHeaders={() => setHeadersOpen((s) => !s)}
       />
 
@@ -273,8 +274,6 @@ export default function SseClient() {
         lastEventId={active.lastEventId}
         avgGapMs={derived.avgGapMs}
         reconnects={active.reconnectAttempts}
-        onStop={handleDisconnect}
-        canStop={isStreaming}
       />
 
       <div className="flex-1 min-h-0 grid gap-2.5 p-3" style={{ gridTemplateColumns: '1.4fr 1fr' }}>

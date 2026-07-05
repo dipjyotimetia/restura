@@ -118,8 +118,13 @@ test.describe('SSE flow', () => {
   test('shows event log controls', async ({ app: page }) => {
     await switchMode(page, 'sse');
 
+    // Start is disabled until URL is filled — clear the default echo URL first.
+    await page.getByRole('textbox', { name: 'SSE endpoint URL' }).fill('');
     await expect(page.getByRole('button', { name: 'Start SSE stream' })).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Stop SSE stream' })).toBeDisabled();
+    // No separate Stop button while disconnected — the URL bar swaps between
+    // Start/Stop rather than rendering both (the duplicate Stop control in the
+    // stats row was removed for this reason).
+    await expect(page.getByRole('button', { name: 'Stop SSE stream' })).not.toBeVisible();
     await expect(page.getByText('Event timeline')).toBeVisible();
   });
 });

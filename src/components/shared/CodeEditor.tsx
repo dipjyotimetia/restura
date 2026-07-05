@@ -214,6 +214,11 @@ export default function CodeEditor({
         height={height}
         language={language}
         value={value}
+        loading={
+          <div className="flex h-full w-full items-center justify-center">
+            <span className="text-sp-12 font-mono text-sp-dim animate-pulse">Loading editor…</span>
+          </div>
+        }
         theme={theme === 'dark' ? 'restura-dark' : 'restura-light'}
         onChange={handleChange}
         onMount={handleEditorDidMount}

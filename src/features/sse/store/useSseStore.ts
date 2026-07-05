@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import type { AuthConfig, KeyValue } from '@/types';
@@ -93,7 +94,7 @@ export const useSseStore = create<SseState>()(
       activeConnectionId: null,
       searchQuery: '',
 
-      createConnection: (url = '') => {
+      createConnection: (url = ECHO_URLS.sse) => {
         const id = uuidv4();
         const conn: SseConnection = {
           id,

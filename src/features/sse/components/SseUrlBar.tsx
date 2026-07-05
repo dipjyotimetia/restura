@@ -1,6 +1,6 @@
 import { Play, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { MethodChip, VariableText } from '@/components/ui/spatial';
+import { CountToggle, MethodChip, VariableText } from '@/components/ui/spatial';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { cn } from '@/lib/shared/utils';
 
@@ -12,6 +12,7 @@ export interface SseUrlBarProps {
   onStream: () => void;
   onStop: () => void;
   headerCount: number;
+  headersOpen: boolean;
   onToggleHeaders: () => void;
 }
 
@@ -28,6 +29,7 @@ export function SseUrlBar({
   onStream,
   onStop,
   headerCount,
+  headersOpen,
   onToggleHeaders,
 }: SseUrlBarProps) {
   const showStop = isStreaming || isConnecting;
@@ -48,7 +50,7 @@ export function SseUrlBar({
           placeholder={ECHO_URLS.sse}
           disabled={showStop}
           aria-label="SSE endpoint URL"
-          className="w-full h-8 bg-transparent border-0 outline-none font-mono text-sp-12 text-sp-text placeholder:text-sp-dim px-2 disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full h-8 bg-transparent border-0 outline-none font-mono text-sp-12 text-sp-text placeholder:text-sp-dim placeholder:italic px-2 disabled:cursor-not-allowed disabled:opacity-50"
           style={{ caretColor: 'var(--sp-accent)' }}
         />
         {/* Decorative {{vars}} highlight overlay layered on top of the input.
@@ -64,13 +66,12 @@ export function SseUrlBar({
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={onToggleHeaders}
-        className="h-7 px-2 rounded-sp-btn text-sp-11 text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors shrink-0"
-      >
-        Headers <span className="font-mono tabular-nums">({headerCount})</span>
-      </button>
+      <CountToggle
+        label="Headers"
+        count={headerCount}
+        expanded={headersOpen}
+        onToggle={onToggleHeaders}
+      />
 
       {showStop ? (
         <button
