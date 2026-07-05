@@ -2,6 +2,7 @@ import { CLOUD_PROVIDERS, getProviderModule } from '@shared/protocol/ai/provider
 import { redactBody } from '@shared/protocol/ai/redaction';
 import type { ChatProvider, CloudProvider } from '@shared/protocol/ai/types';
 import { useState } from 'react';
+import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -67,6 +68,21 @@ export function ProviderSettings() {
     anthropic: '',
     openrouter: '',
   });
+  const [removingKey, setRemovingKey] = useState<CloudProvider | null>(null);
+  const { confirm: confirmRemoveKey, DialogComponent: RemoveKeyDialog } = useConfirmDialog({
+    title: 'Remove API key',
+    description: removingKey
+      ? `Remove the ${PROVIDER_LABELS[removingKey]} API key? It will be deleted from the OS keychain and you'll need to re-enter it to use this provider again.`
+      : '',
+    confirmText: 'Remove',
+    variant: 'destructive',
+  });
+  const { confirm: confirmClearAll, DialogComponent: ClearAllDialog } = useConfirmDialog({
+    title: 'Delete all conversations',
+    description: 'This deletes every saved AI chat conversation. This cannot be undone.',
+    confirmText: 'Delete all',
+    variant: 'destructive',
+  });
 
   // Local (openai-compatible) provider draft: base URL + model id, no API key.
   const localCfg = providerConfigs['openai-compatible'];
@@ -111,6 +127,11 @@ export function ProviderSettings() {
     setProviderConfig(provider, null);
   };
 
+  const handleRemoveKeyClick = async (provider: CloudProvider) => {
+    setRemovingKey(provider);
+    if (await confirmRemoveKey()) await clearKey(provider);
+  };
+
   const exportAll = () => {
     const conversations = useAiChatStore.getState().conversations;
     const blob = new Blob(
@@ -132,18 +153,22 @@ export function ProviderSettings() {
   };
 
   const clearAll = () => {
-    if (window.confirm('Delete all conversations? This cannot be undone.')) {
-      const conversations = useAiChatStore.getState().conversations;
-      for (const id of Object.keys(conversations)) deleteConversation(id);
-    }
+    const conversations = useAiChatStore.getState().conversations;
+    for (const id of Object.keys(conversations)) deleteConversation(id);
+  };
+
+  const handleClearAllClick = async () => {
+    if (await confirmClearAll()) clearAll();
   };
 
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <Label className="text-sm">Active provider</Label>
+        <Label htmlFor="ai-active-provider" className="text-sm">
+          Active provider
+        </Label>
         <Select value={activeProvider} onValueChange={(v) => setActiveProvider(v as ChatProvider)}>
-          <SelectTrigger className="w-60">
+          <SelectTrigger id="ai-active-provider" className="w-60">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -164,7 +189,11 @@ export function ProviderSettings() {
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-medium">{PROVIDER_LABELS[provider]}</h3>
               {cfg && (
-                <Button size="sm" variant="ghost" onClick={() => void clearKey(provider)}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void handleRemoveKeyClick(provider)}
+                >
                   Remove key
                 </Button>
               )}
@@ -175,14 +204,16 @@ export function ProviderSettings() {
                   API key configured (handle {cfg.apiKeyRef?.id.slice(0, 8)}…)
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Default model</Label>
+                  <Label htmlFor={`ai-model-${provider}`} className="text-xs">
+                    Default model
+                  </Label>
                   <Select
                     value={cfg.defaultModel}
                     onValueChange={(model) =>
                       setProviderConfig(provider, { ...cfg, defaultModel: model })
                     }
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id={`ai-model-${provider}`}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -197,9 +228,12 @@ export function ProviderSettings() {
               </>
             ) : (
               <div className="space-y-2">
-                <Label className="text-xs">API key</Label>
+                <Label htmlFor={`ai-key-${provider}`} className="text-xs">
+                  API key
+                </Label>
                 <div className="flex gap-2">
                   <Input
+                    id={`ai-key-${provider}`}
                     type="password"
                     value={pendingKeys[provider]}
                     onChange={(e) => setPendingKeys((p) => ({ ...p, [provider]: e.target.value }))}
@@ -228,16 +262,22 @@ export function ProviderSettings() {
       <div className="sp-floater rounded-lg p-3 space-y-3">
         <h3 className="text-sm font-medium">{PROVIDER_LABELS['openai-compatible']}</h3>
         <div className="space-y-1">
-          <Label className="text-xs">Base URL</Label>
+          <Label htmlFor="ai-local-baseurl" className="text-xs">
+            Base URL
+          </Label>
           <Input
+            id="ai-local-baseurl"
             value={localBaseUrl}
             onChange={(e) => setLocalBaseUrl(e.target.value)}
             placeholder="http://localhost:11434"
           />
         </div>
         <div className="space-y-1">
-          <Label className="text-xs">Model</Label>
+          <Label htmlFor="ai-local-model" className="text-xs">
+            Model
+          </Label>
           <Input
+            id="ai-local-model"
             value={localModel}
             onChange={(e) => setLocalModel(e.target.value)}
             placeholder="e.g. llama3.1 (local model id)"
@@ -269,7 +309,7 @@ export function ProviderSettings() {
             <Button size="sm" variant="outline" onClick={exportAll}>
               Export all (JSON)
             </Button>
-            <Button size="sm" variant="destructive" onClick={clearAll}>
+            <Button size="sm" variant="destructive" onClick={() => void handleClearAllClick()}>
               Clear all
             </Button>
           </div>
@@ -279,6 +319,9 @@ export function ProviderSettings() {
       <div className="text-[11px] text-muted-foreground">
         Note: providers may retain prompts up to 30 days. See your provider&apos;s privacy policy.
       </div>
+
+      <RemoveKeyDialog />
+      <ClearAllDialog />
     </div>
   );
 }
