@@ -7,6 +7,8 @@ export interface SubTab<T extends string> {
   label: string;
   count?: number;
   badge?: string;
+  /** Native tooltip, e.g. a keyboard-shortcut hint ("Alt+1"). */
+  title?: string;
 }
 
 export interface SubTabPanelProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -75,6 +77,7 @@ export function SubTabBar<T extends string>({
               role="tab"
               aria-selected={selected}
               type="button"
+              title={t.title}
               onClick={() => onChange(t.value)}
               className={cn(
                 'group relative inline-flex shrink-0 items-center gap-1.5 h-9 px-3 text-sp-13 transition-colors',

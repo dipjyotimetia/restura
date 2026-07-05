@@ -6,9 +6,11 @@ import { listModels, testConnection } from '../lib/llmClient';
 import { useAiLabStore } from '../store/useAiLabStore';
 import type { AiLabProviderConfig } from '../types';
 import { EmptyState } from './EmptyState';
+import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -53,7 +55,16 @@ export function ProviderManager() {
   const [label, setLabel] = useState('');
   const [baseUrl, setBaseUrl] = useState('http://localhost:11434');
   const [apiKey, setApiKey] = useState('');
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busy, setBusy] = useState<{ id: string; action: 'test' | 'discover' } | null>(null);
+  const [removing, setRemoving] = useState<AiLabProviderConfig | null>(null);
+  const { confirm: confirmRemove, DialogComponent: RemoveProviderDialog } = useConfirmDialog({
+    title: 'Remove provider',
+    description: removing
+      ? `Remove "${removing.label}"? Its stored API key is deleted from the OS keychain and any Playground/Eval/Arena config referencing it will need a new provider.`
+      : '',
+    confirmText: 'Remove',
+    variant: 'destructive',
+  });
 
   const opt = PROVIDER_OPTIONS.find((o) => o.value === provider)!;
 
@@ -93,7 +104,7 @@ export function ProviderManager() {
   };
 
   const discover = async (cfg: AiLabProviderConfig) => {
-    setBusy(cfg.id);
+    setBusy({ id: cfg.id, action: 'discover' });
     try {
       const res = await listModels({
         provider: cfg.provider,
@@ -115,7 +126,7 @@ export function ProviderManager() {
   };
 
   const test = async (cfg: AiLabProviderConfig) => {
-    setBusy(cfg.id);
+    setBusy({ id: cfg.id, action: 'test' });
     try {
       const res = await testConnection({
         provider: cfg.provider,
@@ -129,6 +140,18 @@ export function ProviderManager() {
     }
   };
 
+  // Delete the keychain-backed secret handle BEFORE dropping the provider
+  // config — otherwise the handle is orphaned in the secret-handle-store
+  // forever (removeProvider only touches Zustand state).
+  const handleRemoveClick = async (cfg: AiLabProviderConfig) => {
+    setRemoving(cfg);
+    if (!(await confirmRemove())) return;
+    if (cfg.apiKeyHandleId) {
+      await getElectronAPI()?.secrets.delete(cfg.apiKeyHandleId);
+    }
+    removeProvider(cfg.id);
+  };
+
   return (
     <div className="h-full overflow-auto">
       <div className="mx-auto w-full max-w-3xl space-y-4 p-4">
@@ -136,9 +159,11 @@ export function ProviderManager() {
           <h2 className="text-sp-13 font-semibold text-sp-text">Add a provider</h2>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <div className="space-y-1.5">
-              <span className="sp-label">Type</span>
+              <Label htmlFor="ailab-provider-type" className="sp-label">
+                Type
+              </Label>
               <Select value={provider} onValueChange={(v) => onProviderChange(v as Provider)}>
-                <SelectTrigger>
+                <SelectTrigger id="ailab-provider-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -151,8 +176,11 @@ export function ProviderManager() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <span className="sp-label">Name</span>
+              <Label htmlFor="ailab-provider-name" className="sp-label">
+                Name
+              </Label>
               <Input
+                id="ailab-provider-name"
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
                 placeholder="e.g. Local Ollama"
@@ -160,8 +188,11 @@ export function ProviderManager() {
             </div>
             {(opt.needsBaseUrl || isLocalProvider(provider)) && (
               <div className="space-y-1.5">
-                <span className="sp-label">Base URL</span>
+                <Label htmlFor="ailab-provider-baseurl" className="sp-label">
+                  Base URL
+                </Label>
                 <Input
+                  id="ailab-provider-baseurl"
                   value={baseUrl}
                   onChange={(e) => setBaseUrl(e.target.value)}
                   placeholder="http://localhost:11434"
@@ -169,10 +200,11 @@ export function ProviderManager() {
               </div>
             )}
             <div className="space-y-1.5">
-              <span className="sp-label">
+              <Label htmlFor="ailab-provider-apikey" className="sp-label">
                 API key {isLocalProvider(provider) ? '(optional)' : ''}
-              </span>
+              </Label>
               <Input
+                id="ailab-provider-apikey"
                 type="password"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
@@ -220,27 +252,31 @@ export function ProviderManager() {
                   size="icon-sm"
                   aria-label="Test connection"
                   title="Test connection"
-                  disabled={busy === cfg.id}
+                  disabled={busy?.id === cfg.id}
                   onClick={() => void test(cfg)}
                 >
-                  <Wifi className="h-3.5 w-3.5" />
+                  <Wifi
+                    className={`h-3.5 w-3.5 ${busy?.id === cfg.id && busy.action === 'test' ? 'animate-pulse' : ''}`}
+                  />
                 </Button>
                 <Button
                   variant="ghost"
                   size="icon-sm"
                   aria-label="Discover models"
                   title="Discover models"
-                  disabled={busy === cfg.id}
+                  disabled={busy?.id === cfg.id}
                   onClick={() => void discover(cfg)}
                 >
-                  <RefreshCw className={`h-3.5 w-3.5 ${busy === cfg.id ? 'animate-spin' : ''}`} />
+                  <RefreshCw
+                    className={`h-3.5 w-3.5 ${busy?.id === cfg.id && busy.action === 'discover' ? 'animate-spin' : ''}`}
+                  />
                 </Button>
                 <Button
                   variant="ghost"
                   size="icon-sm"
                   aria-label="Remove provider"
                   title="Remove provider"
-                  onClick={() => removeProvider(cfg.id)}
+                  onClick={() => void handleRemoveClick(cfg)}
                 >
                   <Trash2 className="h-3.5 w-3.5 text-destructive" />
                 </Button>
@@ -249,6 +285,8 @@ export function ProviderManager() {
           ))}
         </section>
       </div>
+
+      <RemoveProviderDialog />
     </div>
   );
 }

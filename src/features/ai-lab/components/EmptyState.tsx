@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
+import { Floater } from '@/components/ui/spatial';
 import { cn } from '@/lib/shared/utils';
 
 /**
@@ -28,9 +29,18 @@ export function EmptyState({
         fill ? 'h-full' : 'min-h-[14rem]'
       )}
     >
-      {Icon && <Icon className="h-9 w-9 text-sp-muted/70" />}
-      <p className="max-w-xs text-sp-13 text-sp-muted">{message}</p>
-      {action}
+      {/* A bounded card (not raw text floating in the pane) reads as an
+          intentional placeholder rather than dead space, especially in wide
+          `fill` panes. */}
+      <Floater
+        radius="panel"
+        elevation="inset"
+        className="flex flex-col items-center gap-3 px-8 py-6 text-center"
+      >
+        {Icon && <Icon className="h-9 w-9 text-sp-muted/70" />}
+        <p className="max-w-xs text-sp-13 text-sp-muted">{message}</p>
+        {action}
+      </Floater>
     </div>
   );
 }

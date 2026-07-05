@@ -362,8 +362,13 @@ export async function runEval(
     );
     results.push(result);
     completed += 1;
-    onProgress({ completed, total, cells: [...results], done: completed === total });
+    // No defensive copy here: `results` is only ever appended to (never
+    // reassigned) until the pool finishes, so handing out the live reference
+    // is safe and avoids an O(n) copy on every single cell (O(n²) overall for
+    // a large dataset). Consumers (useEvalRun's onProgress) only read/index
+    // into it synchronously within the same call.
+    onProgress({ completed, total, cells: results, done: completed === total });
   });
-  if (!signal.aborted) onProgress({ completed, total, cells: [...results], done: true });
+  if (!signal.aborted) onProgress({ completed, total, cells: results, done: true });
   return results;
 }

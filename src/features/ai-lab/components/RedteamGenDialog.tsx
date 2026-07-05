@@ -1,5 +1,5 @@
 import { ShieldAlert } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { completeLlm, specFor } from '../lib/llmClient';
 import { buildRedteamMessages, DATASET_TOOL, parseGeneratedCases } from '../lib/redteamGen';
@@ -44,6 +44,12 @@ export function RedteamGenDialog({ onCreated }: { onCreated?: (datasetId: string
   const [count, setCount] = useState(8);
   const [modelKey, setModelKey] = useState('');
   const [busy, setBusy] = useState(false);
+  // completeLlm (the non-streaming IPC call) has no cancellation — closing the
+  // dialog can't stop the in-flight request. This ref suppresses the resulting
+  // toast/dataset-creation/onCreated side effects if the user has already
+  // closed the dialog by the time it resolves, so a "cancelled" generation
+  // doesn't silently reappear afterward.
+  const closedRef = useRef(false);
 
   const modelOptions = useMemo(() => {
     const out: Array<{ key: string; cfgId: string; model: string; label: string }> = [];
@@ -77,6 +83,7 @@ export function RedteamGenDialog({ onCreated }: { onCreated?: (datasetId: string
       const completion = await completeLlm(
         specFor(cfg, chosen.model, messages, { tools: [DATASET_TOOL], maxOutputTokens: 4096 })
       );
+      if (closedRef.current) return;
       if (!completion.ok) {
         toast.error(`Generation failed: ${completion.error?.message ?? 'unknown error'}`);
         return;
@@ -99,7 +106,13 @@ export function RedteamGenDialog({ onCreated }: { onCreated?: (datasetId: string
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        closedRef.current = !next;
+        setOpen(next);
+      }}
+    >
       <DialogTrigger asChild>
         <Button size="sm" variant="outline" className="w-full">
           <ShieldAlert className="mr-2 h-3.5 w-3.5" /> Red-team

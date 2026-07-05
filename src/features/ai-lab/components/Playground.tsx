@@ -10,6 +10,7 @@ import { ModelChecklist } from './ModelChecklist';
 import { StatusChip } from './StatusChip';
 import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
 import { Floater, Stat } from '@/components/ui/spatial';
 import { Textarea } from '@/components/ui/textarea';
 
@@ -193,17 +194,34 @@ export function Playground() {
       <div className="flex-1 overflow-auto p-4">
         <div className="space-y-4">
           <div className="space-y-1.5">
-            <span className="sp-label">System</span>
-            <Textarea value={system} onChange={(e) => setSystem(e.target.value)} rows={3} />
+            <Label htmlFor="playground-system" className="sp-label">
+              System
+            </Label>
+            <Textarea
+              id="playground-system"
+              value={system}
+              onChange={(e) => setSystem(e.target.value)}
+              rows={3}
+            />
           </div>
           <div className="space-y-1.5">
-            <span className="sp-label">User prompt</span>
-            <Textarea value={user} onChange={(e) => setUser(e.target.value)} rows={5} />
+            <Label htmlFor="playground-user" className="sp-label">
+              User prompt
+            </Label>
+            <Textarea
+              id="playground-user"
+              value={user}
+              onChange={(e) => setUser(e.target.value)}
+              rows={5}
+            />
           </div>
           {promptVars.length > 0 && (
             <div className="space-y-1.5">
-              <span className="sp-label">Variables ({promptVars.join(', ')})</span>
+              <Label htmlFor="playground-vars" className="sp-label">
+                Variables ({promptVars.join(', ')})
+              </Label>
               <Textarea
+                id="playground-vars"
                 value={varsText}
                 onChange={(e) => setVarsText(e.target.value)}
                 rows={4}
@@ -264,7 +282,7 @@ export function Playground() {
                       </span>
                       <StatusChip state={cell.status} className="shrink-0" />
                     </div>
-                    <div className="min-h-[6rem] whitespace-pre-wrap text-sp-13 text-sp-text">
+                    <div className="max-h-80 min-h-[6rem] overflow-auto whitespace-pre-wrap text-sp-13 text-sp-text">
                       {cell.error ? (
                         <span className="text-destructive">{cell.error}</span>
                       ) : (

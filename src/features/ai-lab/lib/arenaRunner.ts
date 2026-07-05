@@ -56,6 +56,21 @@ export async function runArena(
   onProgress: (p: ArenaProgress) => void,
   signal: AbortSignal
 ): Promise<ArenaResult> {
+  // Fail loudly instead of silently no-opping a contestant/judge whose provider
+  // was removed after being selected (e.g. deleted in the Providers tab while
+  // this config was still open) — a missing config previously left that
+  // model's outputs as '' with no indication anything was wrong.
+  for (const m of input.models) {
+    if (!input.providers[m.providerConfigId]) {
+      throw new Error(`Provider config for contestant "${modelKeyOf(m)}" no longer exists.`);
+    }
+  }
+  if (!input.providers[input.judgeModel.providerConfigId]) {
+    throw new Error(
+      `Provider config for judge "${modelKeyOf(input.judgeModel)}" no longer exists.`
+    );
+  }
+
   const modelKeys = input.models.map(modelKeyOf);
   // Phase A: generate every contestant's output per case → outputs[caseId][modelKey].
   const outputs: Record<string, Record<string, string>> = {};
