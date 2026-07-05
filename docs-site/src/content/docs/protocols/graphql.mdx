@@ -3,6 +3,8 @@ title: GraphQL
 description: Query builder with schema introspection, variables, subscriptions, and persisted documents.
 ---
 
+import { Aside } from '@astrojs/starlight/components';
+
 GraphQL in Restura is HTTP underneath, but the editor knows the spec: it can introspect the endpoint, hint completions from the schema, and run subscriptions over a `graphql-ws` WebSocket.
 
 ## What works
@@ -13,6 +15,19 @@ GraphQL in Restura is HTTP underneath, but the editor knows the spec: it can int
 - **Persisted queries** — send by hash if the server supports it.
 - **Authentication** — the same auth schemes as HTTP. Most teams ship a Bearer token here.
 - **Subscriptions** — `graphql-ws` over a WebSocket, for servers that support it. Live events stream into the response panel. On desktop the `graphql-ws` socket is tunnelled over the WebSocket IPC bridge (the packaged CSP blocks renderer `ws:`/`wss:`), with header auth carried on the handshake.
+
+## Subscriptions in depth
+
+Query and mutation documents POST through the shared HTTP proxy, same as any other HTTP request. A subscription is different: Restura opens a `graphql-transport-ws` connection instead, derived from the request URL by swapping the scheme (`http(s)://` → `ws(s)://`).
+
+- **Lifecycle** — the response panel steps through **connecting** → **connected** → a stream of **data** messages → **complete** (or **error** if the server rejects the connection or the document). A 30-second connection timeout aborts the attempt if the server never acknowledges.
+- **Web** — uses the browser's native `WebSocket`. Browsers can't set custom handshake headers, so auth rides the `graphql-ws` `connection_init` payload instead (Restura's request headers become `connectionParams`).
+- **Desktop** — the socket is tunnelled over the WebSocket IPC bridge, which *can* set real handshake headers, so auth is sent as actual headers on the WS upgrade request rather than (or in addition to) `connection_init`.
+- **Switching operations** — selecting a different operation in a multi-operation document disconnects the previous subscription before starting the new one.
+
+<Aside type="note">
+Only header-shaped auth applies to a subscription handshake: Bearer, Basic, API Key, and OAuth 2.0 tokens. Sign-at-wire schemes — Digest, OAuth 1.0a, AWS SigV4, NTLM, WSSE — need the full request body or a challenge/response round-trip, which a WebSocket upgrade doesn't have, so they're not applied to subscriptions even if they're configured on the request.
+</Aside>
 
 ## Editor features
 
@@ -26,9 +41,11 @@ GraphQL in Restura is HTTP underneath, but the editor knows the spec: it can int
 - If the server gates introspection in production, paste the schema manually under **Schema** to keep completions working.
 - Subscriptions count as a long-lived response — see also [SSE](/protocols/sse/) and [WebSocket](/protocols/websocket/) for raw transport access.
 - For load-style testing, drive a GraphQL collection through the [CLI](/reference/cli/) — same wire format as HTTP, JUnit / HTML / JSON reporters included.
+- To try GraphQL against a real server locally, `echo-local` serves query/mutation over its HTTP endpoint (`http://localhost:8080/graphql`, POST — already in the generated collection with working auth) and a subscription endpoint over WebSocket (`ws://localhost:8085/graphql`, `subscription { tick(count) { n timestamp } }`) that you drive manually. See [Local test stack](/testing/local-stack/).
 
 ## Related
 
 - [Authentication](/guides/auth/) — Bearer is most common.
+- [Local test stack](/testing/local-stack/) — echo-local's GraphQL query/mutation and subscription endpoints, plus ports and credentials for every other protocol.
 - [Workflows](/guides/workflows/) — chain a mutation and use the result in a query.
 - [Import & export](/guides/import-export/) — move GraphQL requests between Restura, Postman, Insomnia, and OpenCollection.

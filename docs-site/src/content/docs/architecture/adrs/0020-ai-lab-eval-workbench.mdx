@@ -47,8 +47,10 @@ The workbench has since grown, all following the patterns above: **`tool-call`**
 - A new feature surface (six tabs, three stores, an engine) to maintain alongside the assistant.
 - `script` scorers run user code; safety rests entirely on the QuickJS sandbox boundary (ADR 0015), now exercised by a second caller.
 
-## References
+## Related
 
-- Source: [`docs/adr/0020-ai-lab-eval-workbench.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/adr/0020-ai-lab-eval-workbench.md)
-- User guide: [AI Lab](/guides/ai-lab/).
-- Related: [ADR 0010](/architecture/adrs/0010-ai-assistant-architecture/), [ADR 0004](/architecture/adrs/0004-security-hardening/), [ADR 0007](/architecture/adrs/0007-secret-ref-pattern/), [ADR 0015](/architecture/adrs/0015-quickjs-script-sandbox/), [ADR 0012](/architecture/adrs/0012-capability-matrix-source-of-truth/).
+- [Guide: AI Lab](/guides/ai-lab/) — the workbench in context.
+- [ADR 0010 — AI assistant architecture](/architecture/adrs/0010-ai-assistant-architecture/) — the provider core AI Lab reuses.
+- [ADR 0004 — Security Hardening](/architecture/adrs/0004-security-hardening/) — the SSRF guard the localhost carve-out plugs into.
+- [ADR 0007 — SecretRef Pattern](/architecture/adrs/0007-secret-ref-pattern/) — how provider API keys avoid plaintext storage.
+- [ADR 0015 — QuickJS script sandbox](/architecture/adrs/0015-quickjs-script-sandbox/) — the boundary the `script` scorer runs inside.

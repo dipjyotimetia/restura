@@ -1,0 +1,62 @@
+---
+title: Contributing
+description: How to propose changes to Restura — Code of Conduct, branch naming, commit format, and the pull request process.
+---
+
+The full guide lives in [`CONTRIBUTING.md`](https://github.com/dipjyotimetia/restura/blob/main/CONTRIBUTING.md) on GitHub. This page summarizes it.
+
+## Code of Conduct
+
+By participating in the project, you agree to abide by the [Code of Conduct](https://github.com/dipjyotimetia/restura/blob/main/CODE_OF_CONDUCT.md). Read it before contributing.
+
+## Prerequisites
+
+- **Node.js** >= 24.x
+- **npm** >= 10.x
+- **Git**
+
+## Branch naming
+
+- `feature/` — new features
+- `fix/` — bug fixes
+- `docs/` — documentation updates
+- `refactor/` — code refactoring
+- `test/` — test additions or fixes
+- `chore/` — maintenance tasks
+
+Example: `feature/add-graphql-support`
+
+## Commit message format
+
+Restura follows [Conventional Commits](https://www.conventionalcommits.org/): `<type>(<scope>): <description>`, with an optional body and footer.
+
+**Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`.
+
+**Examples**:
+
+```
+feat(auth): add OAuth 2.0 PKCE support
+fix(request): resolve URL encoding issue with special characters
+docs(readme): update installation instructions
+test(store): add unit tests for collection store
+```
+
+## Pull request process
+
+Before submitting, rebase on `main`, then run:
+
+```bash
+npm run validate
+npm run test:run
+npm run type-check
+npm run lint
+```
+
+The PR checklist covers coding standards, tests, documentation, no leftover `console.log` or commented-out code, conventional commit messages, and a clear description (with screenshots for UI changes and breaking changes called out). A PR template captures description, type of change, testing notes, and a self-review checklist.
+
+Review process: submit against `main`, pass automated CI checks, get at least one maintainer approval, resolve all conversations, then squash and merge.
+
+## Related
+
+- [Dev setup](/contributing/dev-setup/)
+- [Testing overview](/testing/overview/)

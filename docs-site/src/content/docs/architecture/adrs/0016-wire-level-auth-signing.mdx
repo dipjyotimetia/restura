@@ -35,8 +35,10 @@ The renderer still applies the schemes that are just static headers (Bearer, Bas
 - Auth logic is split: simple header schemes in the renderer, wire-signing schemes in the backend. Contributors must know which side a new scheme belongs on.
 - The backend must reconstruct enough request context (region/service for SigV4, realm for OAuth1) to sign, so that metadata has to flow through the `RequestSpec`.
 
-## References
+## Related
 
-- Source: [`docs/adr/0016-wire-level-auth-signing.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/adr/0016-wire-level-auth-signing.md)
-- Docs: [Authentication](/guides/auth/).
-- Related: [ADR 0001](/architecture/adrs/0001-shared-protocol-layer/), [ADR 0004](/architecture/adrs/0004-security-hardening/), [ADR 0007](/architecture/adrs/0007-secret-ref-pattern/).
+- [Guide: Authentication](/guides/auth/) — the auth schemes covered here.
+- [ADR 0001 — Shared Protocol Layer](/architecture/adrs/0001-shared-protocol-layer/) — where the signers live so all three backends sign identically.
+- [ADR 0004 — Security Hardening](/architecture/adrs/0004-security-hardening/) — the original SigV4 wire-signing decision this ADR generalizes.
+- [ADR 0007 — SecretRef Pattern](/architecture/adrs/0007-secret-ref-pattern/) — why signing secrets stay off the renderer.
+- [Local stack: auth routes](/testing/local-stack/) — SigV4/OAuth1/WSSE round-trip against real echo-server endpoints.

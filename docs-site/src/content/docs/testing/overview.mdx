@@ -1,0 +1,31 @@
+---
+title: Testing & quality
+description: How Restura's layered test suite — unit, contract, security, and end-to-end — backs its engineering claims.
+---
+
+Restura's quality bar isn't "trust us." It's enforced by a **layered** test suite — unit and integration, then contract, then security, then end-to-end web, then end-to-end desktop — each layer catching a different class of regression, all gated by **one CI run** before anything merges.
+
+## Unit & integration
+
+Colocated Vitest specs cover components, stores, and protocol logic in isolation — the **first line of defense** against regressions in day-to-day changes. See [Unit & integration tests](/testing/unit-integration/) for conventions, setup, and coverage configuration.
+
+## Contract tests
+
+Restura's shared protocol core (`shared/protocol/`) runs identically across the **Cloudflare Worker**, the **Node self-host server**, and **Electron's main process**. Contract tests prove that parity directly: the same request spec is run through two different backend adapters against one real local upstream, and the results must match. See [Contract tests & CI](/testing/contract-and-ci/) for how these fit into the CI gate.
+
+## Security
+
+A dedicated `tests/security/` suite pins the fixes for previously-found classes of vulnerability — **SSRF** (including DNS-rebind and cloud-metadata targeting), **secret redaction** in AI prompts and traffic captures, **iframe sandboxing** for untrusted response content, and safe routing of secrets to encrypted storage instead of plaintext. See [Security tests](/testing/security/) for what's covered and why each guard exists.
+
+## End-to-end
+
+Playwright drives the real web app end-to-end, both against **route-mocked** network calls for fast UI assertions and against **real local mock servers** for genuine socket/TLS/proxy behavior. A separate Electron-native suite (`e2e-electron/`) exercises the packaged **desktop** build. See [End-to-end tests](/testing/end-to-end/) for the split between web and desktop coverage.
+
+## Local dev stack
+
+Desktop end-to-end coverage against **every protocol** Restura supports — including native gRPC, real Kafka and MQTT brokers, mTLS, and a local CA — is only possible because of `echo-local`, a full-protocol local upstream built for exactly this. See [Local dev stack](/testing/local-stack/) for how it's wired up.
+
+## Related
+
+- [Security model](/architecture/security/)
+- [Contributing overview](/contributing/overview/)

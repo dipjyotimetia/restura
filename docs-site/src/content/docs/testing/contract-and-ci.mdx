@@ -1,0 +1,49 @@
+---
+title: Contract tests & CI
+description: How tests/contract/ proves the shared protocol core behaves identically across backends, and where that fits in the single CI gate.
+---
+
+## What a contract test checks
+
+`tests/contract/` verifies **cross-backend parity of the shared protocol core** — not any one backend in isolation. Each test runs the exact same `RequestSpec` through `executeHttpProxy` (or `executeHttpProxyStreaming`) twice, once per `Fetcher` adapter, against one real local upstream, and asserts the two `ExecuteResult`s match.
+
+Two fetchers stand in for the real backends:
+
+- **`workerFetcher`** — uses `globalThis.fetch`, mirroring `worker/handlers/proxy.ts`.
+- **`electronFetcher`** — uses undici, mirroring `electron/main/handlers/http-handler.ts`. It adapts undici's response shape to the shared `FetcherResponse` contract (headers collapsed to `Record<string, string | string[]>`, `statusText` hard-coded to `''` since undici doesn't expose it).
+
+The upstream is a real `node:http` server (`tests/contract/upstream.ts`) with fixture routes — headers echo, JSON roundtrip, redirect chains, chunked transfer-encoding, arbitrary status codes — not a mock of the shared code and not the Cloudflare runtime.
+
+`http-proxy.contract.test.ts` runs buffered fixtures (headers, query params, JSON POST, 404, 500, chunked body, redirect chains) through both fetchers and asserts pairwise equality. `http-proxy-streaming.contract.test.ts` does the same for the streaming path (`executeHttpProxyStreaming`) that SSE/NDJSON/chunked downloads use — asserting identical bytes on both rails, identical rejection of a disallowed method, and identical handling of a non-2xx status. The buffered test never exercises the streaming code path, so the streaming file exists specifically to catch stream-framing/decoding parity breaks that would otherwise only surface in end-to-end tests.
+
+Run it with:
+
+```bash
+npm run test:contract
+```
+
+## Codegen-drift gates
+
+Two more gates catch a different class of bug: generated files that have gone stale relative to their source of truth.
+
+- **`npm run verify:opencollection-types`** — regenerates `src/lib/opencollection/spec-types.ts` from the OpenCollection JSON Schema, then fails if that regeneration produces a diff. If this fails, the schema changed but the generated types weren't regenerated and committed.
+- **`npm run capabilities:check`** — regenerates `docs/CAPABILITY_MATRIX.md` from `src/lib/shared/capabilities.ts` and fails on any diff, for the same reason.
+
+Both are "generated file is out of date" checks, not functional tests — fix them by running the corresponding `gen:*` script and committing the result, not by hand-editing the generated file.
+
+## The single CI gate
+
+`npm run validate` is the type-check, lint, format, codegen-drift, and unit-test slice of the pipeline. It chains `type-check:all` → `lint` → `format:check` → `verify:opencollection-types` → `capabilities:check` → `test:run` → the CLI workspace's own test suite.
+
+Run the whole thing locally before opening a PR:
+
+```bash
+npm run validate
+```
+
+`validate` is one slice of a larger pipeline — build, bundle-size checks, Playwright end-to-end (web and Electron), the docs site build, and PR preview deploy all run alongside it in CI. Rather than duplicate that pipeline here, see [`docs/CI_CD.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/CI_CD.md) on GitHub for the full breakdown of workflows, required status checks, and branch protection.
+
+## Related
+
+- [Testing & Quality overview](/testing/overview/) — where this fits among the other test layers.
+- [Contributing](/contributing/overview/) — how to get a change through this gate.

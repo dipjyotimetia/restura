@@ -1,0 +1,43 @@
+---
+title: Development setup
+description: Install Node 24+, run npm install, and learn the core dev, test, lint, and validate commands — plus the type-check vs type-check:all gotcha.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+**Requirements:** Node.js **24 or later**. The package pins `npm@11.17.0` as its package manager.
+
+```bash
+npm install
+```
+
+## Core commands
+
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Starts the Vite dev server |
+| `npm run build` | Production build |
+| `npm run test` | Vitest, interactive |
+| `npm run test:run` | Vitest, single run |
+| `npm run lint` | ESLint across `src`, `shared`, `electron/main`, `worker`, `echo`, `echo-local`, `cli`, `extension/chrome`, `extension/vscode`, `tests`, `scripts` |
+| `npm run format` | Prettier, write mode |
+| `npm run validate` | The full gate: `type-check:all` + `lint` + `format:check` + OpenCollection type verification + capability-matrix check + `test:run` + the CLI workspace's own tests |
+
+## The type-check vs type-check:all gotcha
+
+`npm run type-check` runs `tsc --noEmit` against the **root** `tsconfig.json` only. That config's `exclude` array is:
+
+```json
+["node_modules", "dist", "out", "worker", "electron/main", "cli", "extension", "docs-site"]
+```
+
+<Aside type="caution">
+A green `npm run type-check` tells you nothing about whether `worker/`, `electron/main/`, `cli/`, `extension/`, or `docs-site/` actually compile — they're all excluded from that command's scope.
+</Aside>
+
+`npm run type-check:all` is the command that actually covers them: it runs the base `type-check`, then chains five more `tsc --noEmit -p <tsconfig>` project builds (`electron/tsconfig.json`, `src/features/http/tsconfig.json`, `worker/tsconfig.json`, `echo/tsconfig.json`, `echo-local/tsconfig.json`), plus the `cli`, `extension` (Chrome), and `restura-vscode` workspace type-checks. `npm run validate` — and CI — use `type-check:all`, not the plain `type-check`.
+
+## Related
+
+- [Testing overview](/testing/overview/)
+- [Contributing overview](/contributing/overview/)

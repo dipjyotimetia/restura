@@ -34,7 +34,7 @@ Two renderer-facing hardening gaps survived the earlier security passes ([ADR 00
 - Any future feature that needs a web permission (e.g. camera/microphone, web notifications) must add it to `ALLOWED_WEB_PERMISSIONS` **and** update the structural test — an explicit, reviewable security decision.
 - The CSP is still maintained in two places (a runtime header and a build-time meta tag); the test reduces but does not remove that duplication.
 
-## References
+## Related
 
-- Source: [`docs/adr/0026-electron-csp-and-permission-hardening.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/adr/0026-electron-csp-and-permission-hardening.md)
-- Related: [ADR 0004](/architecture/adrs/0004-security-hardening/), [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/).
+- [ADR 0004 — Security Hardening](/architecture/adrs/0004-security-hardening/) — the earlier hardening pass this one closes gaps in.
+- [ADR 0006 — Electron Connection Cleanup + Pre-flight DNS Guard](/architecture/adrs/0006-connection-and-dns-hardening/) — the sibling renderer-facing hardening pass.

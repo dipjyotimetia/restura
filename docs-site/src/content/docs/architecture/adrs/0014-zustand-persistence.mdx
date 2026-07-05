@@ -36,7 +36,8 @@ The legacy `localStorage` adapter has been **removed**; new persistence must not
 - Two storage backends to test (Dexie vs electron-store), including migration/rehydration edge cases.
 - Every persisted store needs a maintained Zod schema, extra surface to keep in step with the store shape.
 
-## References
+## Related
 
-- Source: [`docs/adr/0014-zustand-persistence.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/adr/0014-zustand-persistence.md)
-- Related: [ADR 0002](/architecture/adrs/0002-multi-tab-store/), [ADR 0004](/architecture/adrs/0004-security-hardening/), [ADR 0007](/architecture/adrs/0007-secret-ref-pattern/).
+- [ADR 0002 — Multi-Tab Request Store](/architecture/adrs/0002-multi-tab-store/) — the tab model this persistence pattern serializes.
+- [ADR 0004 — Security Hardening](/architecture/adrs/0004-security-hardening/) — the encryption key provider behind desktop's secure-storage adapter.
+- [ADR 0007 — SecretRef Pattern](/architecture/adrs/0007-secret-ref-pattern/) — how secrets in state avoid plaintext persistence.

@@ -78,7 +78,7 @@ flowchart TB
 - **Plugin/extension model first:** Skip the refactor, build a plugin layer over the duplicated handlers. Rejected — plugins built atop diverged handlers inherit the divergence.
 - **Centralise `paths` in `tsconfig.base.json`:** Initially attempted but reverted. TypeScript's `extends` doesn't merge `paths`, so any child tsconfig declaring its own (worker, electron, renderer all need to) overrides the base entirely. Decentralised paths in each child tsconfig is the actually-working model.
 
-## References
+## Related
 
 - Architecture overview: [Shared protocol layer](/architecture/shared-protocol/)
 - Source: [`docs/adr/0001-shared-protocol-layer.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/adr/0001-shared-protocol-layer.md)

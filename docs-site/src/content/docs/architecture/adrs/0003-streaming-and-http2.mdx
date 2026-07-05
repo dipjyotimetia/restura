@@ -64,7 +64,7 @@ flowchart TB
 - **`react-window` for the streaming viewer.** Rejected — the use case is constrained (uniform item height, append-only). The custom 95-LOC `windowedList.tsx` helper is enough and avoids a dep.
 - **Worker-as-tunnel for gRPC streaming.** Rejected — HTTP/2 client streams tunnel through the Worker poorly (CF runtime constraints). Same-origin restrictions only matter for unary; for streaming Connect-Web speaks directly to the upstream. The Worker remains a fallback if CORS blocks the upstream.
 
-## References
+## Related
 
 - Source: [`docs/adr/0003-streaming-and-http2.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/adr/0003-streaming-and-http2.md)
 - Related: [ADR 0001](/architecture/adrs/0001-shared-protocol-layer/), [ADR 0002](/architecture/adrs/0002-multi-tab-store/).

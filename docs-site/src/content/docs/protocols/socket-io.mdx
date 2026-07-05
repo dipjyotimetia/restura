@@ -3,27 +3,60 @@ title: Socket.IO
 description: Connect, emit, listen, and ack — the full Socket.IO client experience.
 ---
 
+import { Aside, Badge } from '@astrojs/starlight/components';
+
 Socket.IO isn't plain WebSocket — it has its own framing, namespacing, ack callbacks, and the option to fall back to long-polling. Restura speaks the protocol natively.
 
 ## What works
 
-- **Connect** to any Socket.IO server, with or without namespacing (`/admin`, etc.).
+- **Connect** to any Socket.IO server, with or without namespacing (`/admin`, etc.) — the namespace is joined onto the URL's origin, matching what `io('http://host/admin')` would do.
+- **Path** — override the engine.io handshake path (default `/socket.io`) for servers mounted elsewhere.
 - **Auth payload + query params** on connect — editable while disconnected; the auth map is sent in the handshake `auth` field, query params on the connection URL.
 - **Emit events** — pick an event name, send a JSON / string / number payload.
-- **Listen** — subscribe to event names; live messages stream into the transcript.
+- **Listen** — subscribe to event names; live messages stream into the transcript. Reserved lifecycle events (`connect`, `disconnect`, `connect_error`, `reconnect*`) never show up as application events — they're rendered as system messages instead.
 - **Acks** — toggle **Ack** in the compose bar to request the callback-based response; the resolved ack args stream back into the transcript with an `ok` or `timeout` status (15s).
-- **Reconnect** — on/off, with backoff settings.
+- **Reconnect** — on/off, with configurable attempt count and delay; attempts, successes, and failures all show up as system events.
+- **Transports** — `websocket`, `polling`, or both (Socket.IO's default upgrade-from-polling negotiation).
+- **Force new** — open a second physical connection to the same URL/namespace instead of reusing one.
+
+## Authentication
+
+Socket.IO authenticates at the handshake, not per event, and Restura exposes every place a server might look for credentials:
+
+- **Auth payload** — arbitrary key/value pairs sent in the handshake's `auth` field (`io(url, { auth: {...} })`). This is the idiomatic spot for a token, checked server-side in an `io.use()` middleware — e.g. `{ token: 'Bearer xyz' }`.
+- **Query parameters** — appended to the connection URL, for servers that read credentials off the query string instead.
+- **Custom headers (`extraHeaders`)** on the initial HTTP handshake request. <Badge text="desktop only" variant="caution" /> in practice: browsers silently drop `extraHeaders` on the WebSocket transport, so the web build only delivers them if you force the **polling** transport. The desktop app applies them on every transport because the handshake runs in the Electron main process, not the browser — see the [WebSocket protocol](/protocols/websocket/) for the same pattern.
+- There's no Socket.IO-specific OAuth/SigV4/mTLS flow — bring a bearer token via the auth payload, matching whatever your server's `io.use()` middleware expects.
+
+<Aside type="caution">
+Set `extraHeaders` and don't see them at the server on web? That's expected — switch to the `polling` transport, or use the desktop app.
+</Aside>
 
 ## Transports
 
-The web build connects **browser-direct** with `socket.io-client`, so emits, listeners, and ack callbacks all work without a proxy. The desktop app runs the same client in the Electron main process — reach for it when you need custom `extraHeaders` on the handshake, which browsers can't set.
+The web build connects **browser-direct** with `socket.io-client`, so emits, listeners, and ack callbacks all work without a proxy. The desktop app runs the same client library inside the Electron main process, and additionally:
 
-## Tips
+- **pins the connection to a pre-validated IP** after the initial SSRF check — the same DNS-rebind mitigation used for [WebSocket](/protocols/websocket/) and gRPC streams (see [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/));
+- **allows loopback and private addresses** by default, since Socket.IO servers routinely run on `localhost` or a LAN dev box during development;
+- **caps concurrency** — 50 open connections and 20 connection attempts per minute, per renderer window, matching the other streaming protocols.
 
-- Acks behave identically on web and desktop: `socket.emit('event', payload, (response) => ...)` resolves into the transcript.
-- Use the **[desktop app](/overview/install/)** when your handshake needs `extraHeaders` the browser won't allow.
+## Gotchas
+
+<Aside type="note">
+Reconnection settings (attempts, delay) only apply if **auto-reconnect** is on. A manual disconnect never reconnects, regardless of that setting.
+</Aside>
+
+- **Namespace is joined onto the origin, not the path.** A base URL with a path component (`https://host/api`) plus namespace `/chat` connects to `https://host/chat` — the `/api` segment is dropped. Keep the base URL to scheme + host when you're using namespaces.
+- **Forcing `polling` to unblock `extraHeaders` also disables the WebSocket upgrade** — expect higher latency on chatty event streams, not just header delivery.
+- **Acks time out at 15s** with no per-request override; a slow handler and a dropped event look identical in the transcript until the timeout fires.
+- **`forceNew`** opens a second physical socket to the same URL/namespace — handy for testing concurrent-session behavior, but easy to leave on and end up debugging two connections instead of one.
+
+## Test it locally
+
+[echo-local](https://github.com/dipjyotimetia/restura/blob/main/echo-local/README.md) runs a Socket.IO server with three namespaces (`/`, `/chat`, `/admin`) on `http://localhost:8086` — no auth required, so it's a fast way to exercise namespaces, acks, and reconnect behavior before pointing at a real backend. Boot it with `npm run echo:local` (or `make echo-local` from the repo root), then connect the web or desktop build straight at it.
 
 ## Related
 
 - [WebSocket](/protocols/websocket/) — when you need raw frames, not Socket.IO's protocol on top.
+- [Authentication](/guides/auth/) — schemes available for the underlying HTTP handshake.
 - [Scripts](/guides/scripts/) — assert on incoming events.

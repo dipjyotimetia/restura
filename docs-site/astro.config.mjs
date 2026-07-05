@@ -237,6 +237,18 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Testing & Quality',
+          collapsed: false,
+          items: [
+            { label: 'Overview', slug: 'testing/overview' },
+            { label: 'Local test stack', slug: 'testing/local-stack' },
+            { label: 'Unit & integration tests', slug: 'testing/unit-integration' },
+            { label: 'End-to-end tests', slug: 'testing/end-to-end' },
+            { label: 'Security tests', slug: 'testing/security' },
+            { label: 'Contract tests & CI', slug: 'testing/contract-and-ci' },
+          ],
+        },
+        {
           label: 'Self-hosting',
           items: [
             { label: 'Docker', slug: 'self-hosting/docker' },
@@ -251,6 +263,14 @@ export default defineConfig({
             { label: 'CLI (@restura/cli)', slug: 'reference/cli' },
             { label: 'OpenCollection', slug: 'reference/opencollection' },
             { label: 'Postman compatibility', slug: 'reference/postman-compat' },
+          ],
+        },
+        {
+          label: 'Contributing',
+          collapsed: false,
+          items: [
+            { label: 'Overview', slug: 'contributing/overview' },
+            { label: 'Development setup', slug: 'contributing/dev-setup' },
           ],
         },
       ],

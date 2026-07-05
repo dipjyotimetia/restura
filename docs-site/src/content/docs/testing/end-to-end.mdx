@@ -1,0 +1,46 @@
+---
+title: End-to-end tests
+description: Two Playwright harnesses — one drives the web app against a live dev server, the other launches the packaged Electron build directly.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Restura ships from one renderer to three targets, but only two of them have a browser to automate — the web app and the desktop app. End-to-end coverage is split into two Playwright harnesses, each scoped to the harness it can actually reach.
+
+## Web e2e (`e2e/`)
+
+Playwright drives the real web app in a browser. The `webServer` config boots `npm run dev` — a single command that starts both the Vite SPA and the Cloudflare Worker via Miniflare — and waits for it to come up before running specs.
+
+Two test styles live side by side:
+
+- **Route-mocked specs** (`http.spec.ts`, `protocols.spec.ts`, `data-management.spec.ts`) intercept network calls at Playwright's request layer. Fast and hermetic — good for UI behavior assertions.
+- **`real-*.spec.ts` specs** (`real-http.spec.ts`, `real-https.spec.ts`, `real-proxy.spec.ts`, `real-grpc.spec.ts`) hit live upstreams — mock HTTP/HTTPS/proxy/gRPC servers spun up as worker-scoped fixtures, exercised through real sockets, real TLS, and real Worker → upstream traversal. These catch issues route mocking can't.
+
+<Aside type="note">
+`workers: 1` and `fullyParallel: false` are deliberate, not an oversight — the mock servers and the single dev-server instance are shared worker-scoped state, and running suites concurrently across workers would corrupt it.
+</Aside>
+
+```bash
+npm run test:e2e            # headless
+npm run test:e2e:headed     # with the browser visible
+npm run test:e2e:ui         # Playwright UI mode
+```
+
+## Desktop e2e (`e2e-electron/`)
+
+The web harness can't cover the desktop app — there's no Vite dev server, no Worker, and IPC replaces HTTP as the transport. `e2e-electron/` launches the compiled, **unpacked** app via Playwright's `_electron` API instead, with its own `playwright.config.ts` kept separate from the web one on purpose.
+
+Two protocols need more than an in-process mock:
+
+- **gRPC** needs a real `@grpc/grpc-js` dev server (`npm run grpc:server`, port 50051) — the echo Worker's Connect endpoint is web-only, so desktop gRPC has no other way to get real HTTP/2 framing and trailers.
+- **Kafka and MQTT** specs use a `brokers` fixture that auto-brings-up the Dockerised Redpanda + EMQX stack from `echo-local/docker-compose.yml` and polls until both containers report healthy. If Docker isn't reachable, those specs skip instead of failing.
+
+```bash
+npm run test:e2e:electron:build   # electron:build:web + electron:compile
+npm run test:e2e:electron
+```
+
+## Related
+
+- [Local dev stack](/testing/local-stack/)
+- [Unit & integration tests](/testing/unit-integration/)
