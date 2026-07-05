@@ -53,8 +53,9 @@ Adopt **ConnectRPC** as the single gRPC stack across every backend, driven by on
 - **Generated `bufbuild` clients.** Rejected — Restura is built on *runtime* proto reflection; codegen breaks the dynamic-descriptor model.
 - **`node:http2` directly.** Rejected — reimplements framing, pooling, and ALPN that `connect-node` already provides.
 
-## References
+## Related
 
-- Source: [`docs/adr/0022-grpc-connectrpc-transport.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/adr/0022-grpc-connectrpc-transport.md)
-- Protocol page: [gRPC](/protocols/grpc/).
-- Related: [ADR 0001](/architecture/adrs/0001-shared-protocol-layer/), [ADR 0003](/architecture/adrs/0003-streaming-and-http2/) (superseded in part), [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/).
+- [gRPC protocol](/protocols/grpc/) — the user-facing feature this transport backs.
+- [ADR 0001 — Shared Protocol Layer](/architecture/adrs/0001-shared-protocol-layer/) — the single-core pattern the descriptor registry follows.
+- [ADR 0003 — Streaming and HTTP/2](/architecture/adrs/0003-streaming-and-http2/) — superseded in part by this ADR.
+- [ADR 0006 — Electron Connection Cleanup + Pre-flight DNS Guard](/architecture/adrs/0006-connection-and-dns-hardening/) — the `lookup`-based SSRF pinning this transport now shares.

@@ -34,7 +34,8 @@ Monaco is deliberately *not* used for streams: re-tokenising a growing buffer on
 - The 5000-event cap means very long streams lose their earliest events from the UI; users who need the full record should capture it another way (e.g. the CLI or a script).
 - Two viewer implementations to maintain, each with its own copy/search behaviour.
 
-## References
+## Related
 
-- Source: [`docs/adr/0019-response-viewer-architecture.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/adr/0019-response-viewer-architecture.md)
-- Related: [ADR 0003](/architecture/adrs/0003-streaming-and-http2/).
+- [ADR 0003 — Streaming and HTTP/2](/architecture/adrs/0003-streaming-and-http2/) — the streaming transports this viewer split is designed around.
+- [SSE protocol](/protocols/sse/) — one of the streaming responses that renders in the incremental viewer.
+- [gRPC protocol](/protocols/grpc/) — server-streaming responses, the other consumer of the capped viewer.

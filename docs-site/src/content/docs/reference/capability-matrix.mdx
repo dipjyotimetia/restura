@@ -49,3 +49,10 @@ The full, auto-generated matrix lives at [`docs/CAPABILITY_MATRIX.md`](https://g
 Self-hosted (Docker) inherits the **web** capability profile — the SPA runs in a browser, just from your own server. Kafka, SOCKS, mTLS, etc. remain desktop-only because they require Node-level networking that the browser doesn't expose.
 
 If you need both self-hosted *and* the desktop-only capabilities, run the desktop app locally and point it at your self-hosted gateway as a normal upstream.
+
+## Related
+
+- [Platforms](/overview/platforms/) — how the three deployment targets differ.
+- [Self-hosting with Docker](/self-hosting/docker/) — the self-hosted capability profile.
+- [ADR 0012 — Capability matrix source of truth](/architecture/adrs/0012-capability-matrix-source-of-truth/) — why this is data-driven.
+- [Contract tests & CI](/testing/contract-and-ci/) — the `capabilities:check` gate that keeps this page honest.

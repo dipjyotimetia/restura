@@ -74,7 +74,7 @@ Build via `tsup` (single 40 KB esm bundle in `dist/index.js`). `tsc` was the ini
 - **Use Postman's collection format instead of Restura's YAML.** Rejected — the file-collection schema is already first-class; importing Postman is a one-time conversion handled in the renderer.
 - **Build with `tsc` instead of `tsup`.** Initially chosen for minimal build deps; rejected after smoke-testing the binary failed because `tsc` doesn't rewrite path aliases. `tsup` adds one devDependency and produces a working single-file bundle.
 
-## References
+## Related
 
 - Source: [`docs/adr/0005-cli-runner.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/adr/0005-cli-runner.md)
 - User guide: [CLI — restura-cli](/reference/cli/).

@@ -44,7 +44,10 @@ Add a **maintenance harness** under `.claude/`, paired with a source-level fix f
 - The harness is prompt/skill content, not executable gates — it guides the assistant but does not block a human running raw `git`/`npm`. The hard gates remain CI.
 - More artifacts to keep current; this ADR and the doc-ownership map are themselves maintenance surface.
 
-## References
+## Related
 
-- Source: [`docs/adr/0021-maintenance-harness.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/adr/0021-maintenance-harness.md)
-- Related: [ADR 0004](/architecture/adrs/0004-security-hardening/), [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/), [ADR 0007](/architecture/adrs/0007-secret-ref-pattern/), [ADR 0012](/architecture/adrs/0012-capability-matrix-source-of-truth/), [ADR 0016](/architecture/adrs/0016-wire-level-auth-signing/).
+- [Contract tests & CI](/testing/contract-and-ci/) — the `validate` gate this harness's source-level fix (`type-check:all`) closes a gap in.
+- [ADR 0004 — Security Hardening](/architecture/adrs/0004-security-hardening/) — the SSRF/security invariants the security-auditor subagent encodes.
+- [ADR 0006 — Electron Connection Cleanup + Pre-flight DNS Guard](/architecture/adrs/0006-connection-and-dns-hardening/) — the DNS-rebind residual window it carries as knowledge.
+- [ADR 0007 — SecretRef Pattern](/architecture/adrs/0007-secret-ref-pattern/) — the isolation invariant it checks for.
+- [ADR 0012 — Capability Matrix Source of Truth](/architecture/adrs/0012-capability-matrix-source-of-truth/) — what the parity checker subagent verifies.

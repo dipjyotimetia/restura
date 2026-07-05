@@ -3,7 +3,7 @@ title: Architecture overview
 description: One React renderer, three deployment targets, a backend-agnostic protocol core.
 ---
 
-import { Card, CardGrid, Aside } from '@astrojs/starlight/components';
+import { Card, CardGrid } from '@astrojs/starlight/components';
 
 Restura ships from a **single React renderer** to web, desktop, and self-hosted targets. The transport layer is the only thing that differs — chosen at runtime by `isElectron()` in `src/lib/shared/platform.ts`.
 
@@ -85,10 +85,11 @@ Secret-bearing fields use the **`SecretRef` handle pattern** — see [ADR 0007](
 - The auto-generated [capability matrix](/reference/capability-matrix/).
 - The CI gate (`npm run capabilities:check`) that fails the build if the doc drifts from the code.
 
-<Aside title="Read more">
-Full architecture writeup:
+See [`docs/ARCHITECTURE.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/ARCHITECTURE.md) on GitHub for the canonical source-of-truth for contributors.
+
+## Related
+
 - [Shared protocol layer](/architecture/shared-protocol/)
 - [Security model](/architecture/security/)
+- [Capability matrix](/reference/capability-matrix/)
 - [Design decisions (ADRs)](/architecture/adrs/)
-- [`docs/ARCHITECTURE.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/ARCHITECTURE.md) on GitHub — the canonical source-of-truth for contributors.
-</Aside>

@@ -1,0 +1,34 @@
+---
+title: Unit & integration tests
+description: Vitest in jsdom with colocated test files, tests/setup.ts, and React Testing Library for component behavior.
+---
+
+Unit and integration tests run on **Vitest** in a **jsdom** environment. Test files sit **colocated** next to the source they test — either right beside it (`TabBar.tsx` / `TabBar.test.tsx`) or in a colocated `__tests__/` subfolder. Both styles exist in the codebase; either is fine for new tests.
+
+## Setup
+
+Every test run loads `tests/setup.ts`, which:
+
+- Mocks `@/lib/shared/dexie-storage` so every Dexie table adapter (collections, environments, history, settings, and more) is an async no-op — jsdom has no IndexedDB, and Zustand's `persist` middleware would otherwise fire real async I/O and throw after teardown.
+- Registers React Testing Library's `cleanup()` in `afterEach`.
+- Imports `@testing-library/jest-dom/vitest` for matcher extensions (`toBeInTheDocument()`, etc.).
+- Installs an in-memory `localStorage` mock and stubs `window.matchMedia` and `global.ResizeObserver`.
+
+## Writing a test
+
+Import `describe`/`it`/`expect` from `vitest` and `render`/`screen`/`fireEvent` from `@testing-library/react`. Pull the component and any Zustand store directly through the `@/` alias, and reset store state in `beforeEach`. Assert with RTL queries (`getByRole`, `queryByLabelText`, and similar) and, where it's simpler, direct store-state assertions.
+
+## Running tests
+
+| Script | What it does |
+| --- | --- |
+| `npm run test` | Vitest interactive mode |
+| `npm run test:run` | Single run, no watch |
+| `npm run test:watch` | Watch mode |
+| `npm run test:ui` | Vitest's browser UI dashboard |
+| `npm run test:coverage` | Coverage report |
+
+## Related
+
+- [End-to-end tests](/testing/end-to-end/)
+- [Contract tests & CI](/testing/contract-and-ci/)

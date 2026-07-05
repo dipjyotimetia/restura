@@ -1,0 +1,105 @@
+---
+title: Local test stack
+description: How echo-local, a full-protocol local upstream with native gRPC, real Kafka/MQTT brokers, and mTLS, lets you exercise a protocol against a real server instead of a mock.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+`echo-local` is a developer-facing local upstream that runs every Restura protocol on stable, documented ports so you can drive the installed or dev desktop client against it and exercise real auth, TLS, mTLS, and broker round-trips. It exists because the web-only `echo/` Cloudflare Worker (used by the web e2e suite) can't host native gRPC, real message brokers, or mTLS — those need a real process and, for Kafka/MQTT, real Docker containers.
+
+It reuses the existing `e2e/mocks/*` servers and the native gRPC dev server in place — the only new pieces are the launcher, a local CA + mTLS listener, and a generated importable collection.
+
+## Quick start
+
+From the repo root, the Makefile wraps the prerequisites:
+
+```bash
+make setup        # check tools (node/openssl/docker), generate TLS certs, start the brokers
+make echo-local    # boot the in-process stack (prints the manifest, stays up)
+make help          # list every target (certs, brokers, brokers-down, clean, …)
+```
+
+Or drive the underlying npm scripts directly:
+
+```bash
+npm run echo:local                                    # boot the in-process protocols, print the manifest, stay up
+docker compose -f echo-local/docker-compose.yml up -d # Kafka + MQTT brokers (both run in Docker)
+```
+
+Once it's up, launch the desktop app (`npm run electron:dev`, or an installed build) and either import the generated collection and click Send, or wire requests up by hand from the printed manifest.
+
+Generated on each run, and git-ignored:
+
+- `echo-local/manifest.json`
+- `echo-local/restura-echo-local.collection.json`
+- `echo-local/certs/`
+
+### Other flags
+
+```bash
+npm run echo:local -- --only http,grpc,ws   # boot a subset of the in-process services
+npm run echo:local -- --no-tls              # skip https/mtls
+npm run echo:local -- --domain echo.local   # use a custom host in cert SANs + the manifest
+npm run echo:local:certs                    # (re)generate the CA + leaf certs, then exit
+npm run echo:local:collection               # write the importable collection, then exit
+npm run echo:local -- manifest              # write + print the manifest, then exit
+```
+
+<Aside type="note">
+`--domain echo.local` requires a hosts entry — `127.0.0.1  echo.local` in `/etc/hosts`. Without it, stick to `localhost` / `127.0.0.1` (the default).
+</Aside>
+
+## Ports
+
+| Service | URL | Notes |
+| --- | --- | --- |
+| HTTP | `http://localhost:8080` | Echo + all OAuth/JWT/SigV4/Digest/API-key routes |
+| HTTPS | `https://localhost:8443` | CA-signed server cert |
+| HTTPS mTLS | `https://localhost:8444` | Requires a client cert; `GET /mtls/whoami` confirms it |
+| HTTP proxy | `http://localhost:8888` | Forward + CONNECT |
+| gRPC | `grpc://localhost:50051` | `echo.v1.EchoService`, reflection on |
+| WebSocket | `ws://localhost:8085/echo` | Also `/chat`, `/graphql`, `/ping`, `/close` |
+| Secure WebSocket | `wss://localhost:8543/echo` | Same paths over TLS (CA-signed); the packaged desktop CSP allows `wss:` only |
+| Socket.IO | `http://localhost:8086` | Namespaces `/`, `/chat`, `/admin` |
+| MCP | `http://localhost:8087/mcp` | Streamable-http |
+| MQTT | `mqtt://localhost:1883` / `mqtts://localhost:8883` | EMQX MQTT 5 (Docker); dashboard on `:18083` (`admin`/`public`) |
+| Kafka | `localhost:9092` | Redpanda (Docker) |
+
+Only MQTT (EMQX) and Kafka (Redpanda) need Docker — start them with `docker compose -f echo-local/docker-compose.yml up -d`. Everything else runs in-process via `npm run echo:local`.
+
+## TLS, mTLS, and a custom CA
+
+`echo-local/certs/` holds a local CA and CA-signed server + client leaves.
+
+- **Custom CA**: import `certs/ca.crt` into Restura's custom-CA setting, and `https://localhost:8443` validates without turning `verifySsl` off.
+- **mTLS**: attach `certs/client.crt` + `certs/client.key` (or `certs/client.p12`, passphrase `restura`) and call `https://localhost:8444/mtls/whoami`. It returns the accepted client-cert subject — proof the mutual handshake worked. The same endpoint on `:8443` returns `mtls:false`.
+
+## Credentials
+
+These are the values echo-local's routes validate (most from `TEST_AUTH_FIXTURES` in `e2e/mocks/authRoutes.ts`; the API-key value is an arbitrary path-encoded example from `echo-local/collection.ts`).
+
+| Scheme | Credentials |
+| --- | --- |
+| OAuth2 client | `restura-client` / `restura-secret` |
+| User (password / basic / digest) | `alice` / `wonderland` |
+| AWS SigV4 | access key `AKIDEXAMPLE`, secret key `wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY`, region `us-east-1`, service `execute-api` |
+| API key | header `X-API-Key: secret123` (or query `?api_key=secret123`) — the `/api-key/header/:key/:value` and `/api-key/query/:key/:value` routes accept any key/value encoded in the URL; `secret123` is just the example baked into the generated collection, not a `TEST_AUTH_FIXTURES` entry |
+
+## The generated collection
+
+`restura-echo-local.collection.json` has one runnable request per protocol the OpenCollection format supports, with auth that round-trips cleanly: HTTP (no-auth, Basic, Bearer, API key header + query, AWS SigV4), GraphQL, gRPC (`UnaryEcho` via reflection), SSE, and MCP. URLs are literal `localhost` ports, so it works without selecting an environment.
+
+## Driven manually
+
+Some protocols and auth schemes are connection-based, or lossy on OpenCollection import, and aren't in the generated collection:
+
+- **WebSocket / Socket.IO / MQTT / Kafka** — connect interactively using the manifest. WebSocket: `ws://localhost:8085/echo`, or for the packaged build `wss://localhost:8543/echo` (import the CA, or turn verify-SSL off). MQTT (EMQX, MQTT 5): subscribe `test/#`, publish `test/echo`; `mqtts://localhost:8883` uses EMQX's self-signed cert (verify-SSL off). Kafka: create topic `echo`, produce, then consume from earliest.
+- **OAuth2** — configure client-credentials manually: token URL `http://localhost:8080/oauth/token`, client `restura-client`/`restura-secret`, scope `read`; call `GET /oauth/protected`. OpenCollection import drops the grant type, so this can't be a click-Send collection entry.
+- **WSSE** — import is lossy, so configure manually (UsernameToken / PasswordDigest). `GET /wsse/protected` verifies the `X-WSSE` digest end-to-end.
+- **OAuth1** — signed at the wire; import is lossy, so configure manually. `GET /oauth1/protected` verifies the signature end-to-end via an independent RFC 5849 verifier (`e2e/mocks/oauth1Verify.ts`) that does not share code with the client signer.
+- **Digest / NTLM** — the desktop client transport doesn't apply these yet; the server supports Digest for reference only.
+
+## Related
+
+- [End-to-end tests](/testing/end-to-end/) — the desktop e2e suite drives this stack directly.
+- [Mock server](/guides/mock-server/) — a different, in-app feature (record-and-replay from a collection), not this local upstream.

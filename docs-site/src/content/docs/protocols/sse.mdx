@@ -3,16 +3,30 @@ title: Server-Sent Events (SSE)
 description: Live event stream viewer with reconnection, event-type filtering, and history.
 ---
 
+import { Aside } from '@astrojs/starlight/components';
+
 A purpose-built viewer for `text/event-stream` endpoints. Connect, watch events flow in, filter by event type, and replay later.
 
 ## What works
 
 - **Connect** to any `text/event-stream` URL.
-- **Automatic reconnection** — uses `Last-Event-ID` to resume where you left off.
+- **Resume with `Last-Event-ID`** — toggle "Reconnect on resume" and reconnecting sends the last-seen `id:` back as the `Last-Event-ID` header, so a well-behaved server can pick up where it left off.
 - **Per-connection event-type filter** — narrow the view to a single event name; each connection keeps its own filter.
 - **Long-running session** — stays open until you disconnect; capped by your platform's connection budget.
 - **JSON pretty-printing** — when the event `data:` is valid JSON.
 - **Custom request headers + structured auth** — Basic, Bearer, API Key, and OAuth 2.0 (API-key-in-query supported) applied at connect. Restura does **not** use the browser `EventSource` API — the stream is proxied through the Worker on web and over IPC on desktop, so custom headers and auth work on **both** platforms. (Sign-at-wire schemes — AWS SigV4 / OAuth 1.0a / WSSE — are not applied to SSE.)
+- **Code generation** — copy the connection as browser `EventSource` (no custom headers), `fetch` + `ReadableStream` (supports headers), or `curl -N`.
+
+## Reconnection behavior
+
+<Aside type="note">
+Reconnection is **manual**, not automatic. If the upstream drops the connection or errors out, Restura surfaces the failure and sets status to disconnected — it does not retry on a timer. Click **Connect** again to reconnect.
+</Aside>
+
+- What *is* automatic is the **resume**, not the retry: when you reconnect, Restura sends `Last-Event-ID: <last id seen>` if "Reconnect on resume" is on (default) and at least one `id:`-bearing event has arrived. A spec-compliant server uses that header to replay only what you missed.
+- The stream parser tracks `id:` per the spec — an id persists across subsequent events until a new one arrives, so `Last-Event-ID` reflects the most recent id even if later events didn't set one.
+- A server-sent `retry:` directive is parsed and shown alongside each event, but it's informational only — it does not schedule an automatic reconnect attempt.
+- Disconnecting explicitly (clicking **Stop**) is distinct from the stream ending on its own — only the latter is what you'd want to reconnect from; a deliberate stop just leaves the connection closed.
 
 ## When SSE vs WebSocket
 
@@ -20,12 +34,25 @@ A purpose-built viewer for `text/event-stream` endpoints. Connect, watch events 
 - **WebSocket** is bidirectional. Use it when the client also needs to send mid-stream.
 - **GraphQL subscriptions** can ride either — see [GraphQL](/protocols/graphql/).
 
+## Gotchas
+
+- **Comment lines (`: ...`) are ignored**, per spec — servers use them as heartbeats to keep intermediaries from timing out the connection. They won't show up as events.
+- **Multi-line `data:` fields are joined with `\n`** before display — a server that splits one logical payload across several `data:` lines is reassembled, not shown as separate events.
+- **`event:` defaults to `message`** when the server omits it — the event-type filter and timeline both use that default name.
+- **Trailing data without a final blank line is dropped**, matching browser `EventSource` behavior — a stream that ends mid-event (no terminating `\n\n`) loses that last partial event.
+- **Sign-at-wire auth schemes don't apply to SSE** — AWS SigV4, OAuth 1.0a, and WSSE are no-ops on this protocol; use header-based auth (Bearer, API key, Basic, OAuth 2.0) instead.
+
 ## Tips
 
 - Many AI providers (OpenAI, Anthropic, OpenRouter) stream completions over SSE. Restura's [AI assistant](/guides/ai-assistant/) does this internally.
 - Use [scripts](/guides/scripts/) to assert on event payloads — `pm.test("got a hello event", () => ...)` style.
 
+## Test it locally
+
+The [local test stack](/testing/local-stack/) serves `/stream/sse` (plus `/stream/sse-named`, `/stream/sse-resume`, and `/stream/sse-comments` for exercising named events, `Last-Event-ID` resume, and comment/multi-line-data parsing) off the same `http://localhost:8080` the rest of the HTTP fixtures use — no auth required. Boot it with `npm run echo:local` (or `make echo-local`), then connect straight at it; the generated importable collection also includes a ready-to-send SSE request.
+
 ## Related
 
 - [WebSocket](/protocols/websocket/)
 - [AI assistant](/guides/ai-assistant/) — uses SSE internally to stream provider responses.
+- [Local test stack](/testing/local-stack/) — echo-local's SSE routes for exercising resume and parsing edge cases.
