@@ -18,6 +18,7 @@
  *   public/icon-maskable.svg               full-bleed maskable PWA icon
  *   public/apple-touch-icon.png            180 iOS home-screen icon
  *   docs-site/public/favicon.svg           docs favicon (== public/icon.svg)
+ *   extension/chrome/public/icons/icon-{16,48,128}.png  Chrome extension icons
  *
  * Requirements: sharp, png-to-ico. macOS .icns needs iconutil (macOS only).
  */
@@ -112,6 +113,17 @@ async function generate() {
   }
   await sharp(masterSvgPath).resize(512, 512).png().toFile(path.join(resourcesDir, 'icon.png'));
   console.log('  created icon.png + icons/*.png');
+
+  // Chrome extension icons: same tile+mark master, just its own size set/dir.
+  const extensionIconsDir = path.join(ROOT, 'extension/chrome/public/icons');
+  fs.mkdirSync(extensionIconsDir, { recursive: true });
+  for (const size of [16, 48, 128]) {
+    await sharp(masterSvgPath)
+      .resize(size, size)
+      .png()
+      .toFile(path.join(extensionIconsDir, `icon-${size}.png`));
+  }
+  console.log('  created extension/chrome/public/icons/icon-*.png');
 
   // apple-touch-icon: full-bleed (iOS rounds it itself), no transparency.
   await sharp(Buffer.from(tileSvg(180, 0)))
