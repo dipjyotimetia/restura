@@ -201,6 +201,8 @@
   --animate-sp-blink: sp-blink 1s steps(2, start) infinite;
   --animate-sp-slide-in-right: sp-slide-in-right 0.25s cubic-bezier(0.2, 0.7, 0.3, 1);
   --animate-sp-fade-in: sp-fade-in 0.18s ease-out;
+  --animate-sp-panel-in: sp-panel-in 0.16s cubic-bezier(0.2, 0.7, 0.1, 1);
+  --animate-sp-row-in: sp-row-in 0.18s cubic-bezier(0.2, 0.7, 0.1, 1);
 
   @keyframes accordion-down {
     from {
@@ -349,6 +351,30 @@
       opacity: 1;
     }
   }
+  /* Sub-tab panel switch — fade + 4px rise. Transform/opacity only, so it
+     stays on the compositor even when the panel hosts Monaco or big tables. */
+  @keyframes sp-panel-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  /* Streaming row arrival (WS/SSE) — gentler than sp-slide-in-right; rows are
+     frequent, so the travel distance stays small. */
+  @keyframes sp-row-in {
+    from {
+      opacity: 0;
+      transform: translateX(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
 }
 
 @layer base {
@@ -491,6 +517,44 @@
   .sp-inset {
     background: var(--sp-surface-lo);
     border: 1px solid var(--sp-line);
+  }
+
+  /* Horizontal-scroll edge fades — signals cropped tabs where the scrollbar is
+     hidden. Driven by data-overflow-left/right attrs from useOverflowFade;
+     scroll handling never re-renders React, it only flips these attributes. */
+  .sp-scroll-fade[data-overflow-right] {
+    mask-image: linear-gradient(to right, black calc(100% - 28px), transparent);
+    -webkit-mask-image: linear-gradient(to right, black calc(100% - 28px), transparent);
+  }
+  .sp-scroll-fade[data-overflow-left] {
+    mask-image: linear-gradient(to right, transparent, black 28px);
+    -webkit-mask-image: linear-gradient(to right, transparent, black 28px);
+  }
+  .sp-scroll-fade[data-overflow-left][data-overflow-right] {
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      black 28px,
+      black calc(100% - 28px),
+      transparent
+    );
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      black 28px,
+      black calc(100% - 28px),
+      transparent
+    );
+  }
+
+  /* Streaming message/event rows (WS, SSE). The container stamps
+     data-stream-rapid while rows arrive faster than ~10/s so a burst doesn't
+     become a wall of animation (and wasted paints). */
+  .sp-stream-row {
+    animation: var(--animate-sp-row-in);
+  }
+  [data-stream-rapid] .sp-stream-row {
+    animation: none;
   }
 
   .sp-accent-glow {

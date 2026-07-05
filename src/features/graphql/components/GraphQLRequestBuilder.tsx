@@ -478,8 +478,9 @@ function GraphQLRequestBuilder() {
             }
           />
 
-          {/* Tab content */}
-          <div className="flex-1 min-h-0 overflow-hidden">
+          {/* Tab content — keyed on activeTab for the 160ms panel fade+rise;
+              panels are conditionally rendered already, so the remount is free. */}
+          <div key={activeTab} className="flex-1 min-h-0 overflow-hidden animate-sp-panel-in">
             {activeTab === 'query' && (
               <GraphQLBodyEditor
                 query={query}

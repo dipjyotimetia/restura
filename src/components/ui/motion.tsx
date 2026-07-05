@@ -1,5 +1,8 @@
 import {
-  motion,
+  m,
+  LazyMotion,
+  domAnimation,
+  MotionConfig,
   type HTMLMotionProps,
   type Variants,
   type Transition,
@@ -8,6 +11,21 @@ import {
 import * as React from 'react';
 
 import { cn } from '@/lib/shared/utils';
+
+/**
+ * App-root motion provider. `m.*` components render nothing animated until
+ * LazyMotion supplies the (code-split) domAnimation feature bundle — this keeps
+ * the full `motion.*` runtime out of the entry chunk. MotionConfig mirrors the
+ * user's OS reduced-motion preference for all framer-driven animation (CSS
+ * animations are already covered by the global media query in globals.css).
+ */
+export function MotionProvider({ children }: { children: React.ReactNode }) {
+  return (
+    <LazyMotion features={domAnimation}>
+      <MotionConfig reducedMotion="user">{children}</MotionConfig>
+    </LazyMotion>
+  );
+}
 
 // Animation variants for common patterns
 export const fadeIn: Variants = {
@@ -84,7 +102,7 @@ interface MotionDivProps extends HTMLMotionProps<'div'> {
 }
 
 export const MotionDiv = React.forwardRef<HTMLDivElement, MotionDivProps>(
-  ({ className, ...props }, ref) => <motion.div ref={ref} className={cn(className)} {...props} />
+  ({ className, ...props }, ref) => <m.div ref={ref} className={cn(className)} {...props} />
 );
 MotionDiv.displayName = 'MotionDiv';
 
@@ -281,5 +299,8 @@ export const FadeTab = React.forwardRef<HTMLDivElement, MotionDivProps>(
 );
 FadeTab.displayName = 'FadeTab';
 
-// Re-export AnimatePresence for convenience
-export { AnimatePresence, motion };
+// Re-export AnimatePresence for convenience. `m` is aliased as `motion` so
+// existing `motion.div` call sites keep working — under LazyMotion the `m.*`
+// components are the lightweight versions; importing the full `motion.*` from
+// framer-motion directly would pull the eager runtime back into the bundle.
+export { AnimatePresence, m, m as motion };

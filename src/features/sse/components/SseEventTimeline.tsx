@@ -2,6 +2,7 @@ import { Search, Trash2 } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { Floater } from '@/components/ui/spatial';
 import type { SseLogEntry } from '@/features/sse/store/useSseStore';
+import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn } from '@/lib/shared/utils';
 
 export interface SseEventTimelineProps {
@@ -90,6 +91,9 @@ export function SseEventTimeline({
   onClearLog,
 }: SseEventTimelineProps) {
   const listRef = useRef<HTMLDivElement>(null);
+  // Suppresses per-row entry animation while events arrive faster than ~10/s
+  // (token streams would otherwise animate every chunk).
+  const rapidStream = useRapidAppendFlag(log.length);
 
   // Auto-scroll to bottom when new entries arrive.
   useEffect(() => {
@@ -150,7 +154,11 @@ export function SseEventTimeline({
       </div>
 
       {/* Timeline body */}
-      <div ref={listRef} className="relative flex-1 overflow-y-auto px-4 py-3">
+      <div
+        ref={listRef}
+        className="relative flex-1 overflow-y-auto px-4 py-3"
+        data-stream-rapid={rapidStream || undefined}
+      >
         {/* 1px vertical rail at x=96 (relative to the inner padding box) */}
         <div
           aria-hidden="true"
@@ -174,7 +182,7 @@ export function SseEventTimeline({
                 return (
                   <li
                     key={entry.id}
-                    className="grid items-start gap-3 text-sp-11"
+                    className="grid items-start gap-3 text-sp-11 sp-stream-row"
                     style={{ gridTemplateColumns: '80px 24px 1fr' }}
                   >
                     <span className="font-mono text-sp-dim text-right tabular-nums">
@@ -201,7 +209,7 @@ export function SseEventTimeline({
               return (
                 <li
                   key={entry.id}
-                  className="grid items-start gap-3"
+                  className="grid items-start gap-3 sp-stream-row"
                   style={{ gridTemplateColumns: '80px 24px 1fr' }}
                 >
                   <span className="font-mono text-sp-dim text-sp-11 text-right tabular-nums pt-[3px]">

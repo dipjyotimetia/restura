@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { useOverflowFade } from '@/lib/shared/useOverflowFade';
 import { cn } from '@/lib/shared/utils';
 
 export interface SubTab<T extends string> {
@@ -23,16 +24,30 @@ export function SubTabBar<T extends string>({
   right,
   className,
 }: SubTabBarProps<T>) {
+  const fadeRef = useOverflowFade<HTMLDivElement>();
+  const selectedRef = React.useRef<HTMLButtonElement | null>(null);
+
+  // Keep the selected tab visible when the row overflows (e.g. "Timeline"
+  // cropped behind the body-format controls). `nearest` avoids jumps when the
+  // tab is already fully in view.
+  React.useEffect(() => {
+    // scrollIntoView is absent under jsdom.
+    if (typeof selectedRef.current?.scrollIntoView === 'function') {
+      selectedRef.current.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+  }, [value]);
+
   return (
     <div className={cn('flex items-center gap-3 border-b border-sp-line px-3', className)}>
       <div
         role="tablist"
+        ref={fadeRef}
         className={cn(
           'flex flex-1 min-w-0 items-stretch gap-0',
           // tabs scroll horizontally when the row overflows; scrollbar hidden —
-          // overflow is signalled by the cropped tab. overflow-y-hidden keeps the
-          // active underline (bottom-0) from spawning a vertical scrollbar.
-          'overflow-x-auto overflow-y-hidden no-scrollbar'
+          // overflow is signalled by the sp-scroll-fade edge masks. overflow-y-hidden
+          // keeps the active underline (bottom-0) from spawning a vertical scrollbar.
+          'overflow-x-auto overflow-y-hidden no-scrollbar sp-scroll-fade'
         )}
       >
         {tabs.map((t) => {
@@ -40,6 +55,7 @@ export function SubTabBar<T extends string>({
           return (
             <button
               key={t.value}
+              ref={selected ? selectedRef : undefined}
               role="tab"
               aria-selected={selected}
               type="button"

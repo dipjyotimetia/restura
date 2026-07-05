@@ -382,7 +382,8 @@ export default function McpRequestBuilder() {
                 </button>
               }
             />
-            <div className="flex-1 min-h-0 overflow-hidden">
+            {/* Keyed on tab for the 160ms panel fade+rise. */}
+            <div key={tab} className="flex-1 min-h-0 overflow-hidden animate-sp-panel-in">
               {tab === 'tools' && (
                 <ToolList
                   tools={tools}

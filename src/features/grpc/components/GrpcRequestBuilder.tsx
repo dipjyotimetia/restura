@@ -664,7 +664,9 @@ function GrpcRequestBuilder() {
             {getMethodTypeDescription(grpcRequest.methodType)}
           </div>
 
-          <div className="flex-1 min-h-0 overflow-auto">
+          {/* Keyed on activeTab for the 160ms panel fade+rise; panels are
+              conditionally rendered already, so the remount is free. */}
+          <div key={activeTab} className="flex-1 min-h-0 overflow-auto animate-sp-panel-in">
             {activeTab === 'message' && (
               <div className="p-3">
                 <GrpcMessageEditor

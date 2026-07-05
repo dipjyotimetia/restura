@@ -193,7 +193,9 @@ export function RequestBuilderTabs({
     <div className="flex-1 flex flex-col min-h-0">
       <SubTabBar<SubTabKey> tabs={tabs} value={activeTab} onChange={onTabChange} />
 
-      <div className="flex-1 overflow-auto">
+      {/* Keyed on activeTab so panel switches get a 160ms fade+rise. The panels
+          below are conditionally rendered already, so the remount is free. */}
+      <div key={activeTab} className="flex-1 overflow-auto animate-sp-panel-in">
         {activeTab === 'params' && (
           <ParamHeaderTable
             rows={request.params.map(toParamRow)}
