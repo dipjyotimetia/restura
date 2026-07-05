@@ -21,9 +21,9 @@ A dedicated `tests/security/` suite pins the fixes for previously-found classes 
 
 Playwright drives the real web app end-to-end, both against **route-mocked** network calls for fast UI assertions and against **real local mock servers** for genuine socket/TLS/proxy behavior. A separate Electron-native suite (`e2e-electron/`) exercises the packaged **desktop** build. See [End-to-end tests](/testing/end-to-end/) for the split between web and desktop coverage.
 
-## Local dev stack
+## Local test stack
 
-Desktop end-to-end coverage against **every protocol** Restura supports — including native gRPC, real Kafka and MQTT brokers, mTLS, and a local CA — is only possible because of `echo-local`, a full-protocol local upstream built for exactly this. See [Local dev stack](/testing/local-stack/) for how it's wired up.
+Desktop end-to-end coverage against **every protocol** Restura supports — including native gRPC, real Kafka and MQTT brokers, mTLS, and a local CA — is only possible because of `echo-local`, a full-protocol local upstream built for exactly this. See [Local test stack](/testing/local-stack/) for how it's wired up.
 
 ## Related
 
