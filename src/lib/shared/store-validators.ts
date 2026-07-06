@@ -287,6 +287,30 @@ const ModelRefSchema = z.object({
   model: z.string(),
 });
 
+const AiLabModelDetailSchema = z
+  .object({
+    label: z.string().optional(),
+    contextLength: z.number().optional(),
+    modality: z.string().optional(),
+    pricing: z
+      .object({
+        promptPerMTokUSD: z.number().optional(),
+        completionPerMTokUSD: z.number().optional(),
+      })
+      .optional(),
+    createdAt: z.string().optional(),
+    vendor: z.string().optional(),
+    family: z.string().optional(),
+    parameterSize: z.string().optional(),
+    quantizationLevel: z.string().optional(),
+    sizeBytes: z.number().optional(),
+    modifiedAt: z.string().optional(),
+  })
+  // Forward-compatible: ignore unknown fields the renderer may add later.
+  // Zod v4 deprecated `.passthrough()` in favor of `.loose()` (same semantics,
+  // new method name) — the type signature is identical (ZodObject<Shape, $loose>).
+  .loose();
+
 const AiLabProviderConfigSchema = z.object({
   id: z.string(),
   provider: AiLabProviderEnumSchema,
@@ -296,6 +320,9 @@ const AiLabProviderConfigSchema = z.object({
   pricingKnown: z.boolean(),
   isLocal: z.boolean(),
   models: z.array(z.string()),
+  // Per-model metadata captured at the most recent discovery (OpenRouter).
+  // Optional so existing persisted state validates without a migration.
+  modelDetails: z.record(z.string(), AiLabModelDetailSchema).optional(),
   createdAt: z.number(),
 });
 

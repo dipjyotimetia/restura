@@ -31,7 +31,55 @@ export interface AiLabProviderConfig {
   isLocal: boolean;
   /** Discovered or hand-entered model ids. */
   models: string[];
+  /**
+   * Per-model metadata captured at the most recent discovery. Only populated
+   * for providers whose discovery endpoint returns rich fields (today:
+   * OpenRouter — name, context length, modality, pricing). Undefined for
+   * providers whose discovery only returns ids; the UI falls back to the id.
+   * Transient in spirit (re-discovered on demand) but persisted so the
+   * Playground / Eval model checklist can show context length + modality
+   * without an extra round trip.
+   */
+  modelDetails?: Record<string, AiLabModelDetail>;
   createdAt: number;
+}
+
+/**
+ * Renderer-side subset of the shared `DiscoveredModel` — just the fields we
+ * surface in the model checklist. Kept in the feature types so the renderer
+ * doesn't depend on the shared/protocol wire shape (the shared type has more
+ * fields reserved for future use).
+ */
+export interface AiLabModelDetail {
+  /** Human-readable name, e.g. "Claude 3.5 Sonnet". */
+  label?: string;
+  /** Short model description, surfaced as a tooltip (OpenRouter). */
+  description?: string;
+  /** Max context window in tokens (OpenRouter). */
+  contextLength?: number;
+  /** Modality string, e.g. "text+image->text" (OpenRouter). */
+  modality?: string;
+  /** Per-million-token USD prices (OpenRouter). */
+  pricing?: {
+    promptPerMTokUSD?: number;
+    completionPerMTokUSD?: number;
+  };
+  /** ISO 8601 created timestamp, normalised at parse time. */
+  createdAt?: string;
+  /**
+   * Provider/owner label. OpenAI's `owned_by` ("openai"), Anthropic hardcoded
+   * to "anthropic", OpenRouter's upstream vendor ("anthropic" / "openai"),
+   * Ollama's `details.family` ("llama" / "qwen2"). Shown as a small subtitle.
+   */
+  vendor?: string;
+  // Ollama-specific.
+  family?: string;
+  parameterSize?: string;
+  quantizationLevel?: string;
+  /** Model file size in bytes (Ollama). */
+  sizeBytes?: number;
+  /** ISO 8601 last-modified timestamp (Ollama). */
+  modifiedAt?: string;
 }
 
 /** A concrete model selection: which provider config + which model id. */
