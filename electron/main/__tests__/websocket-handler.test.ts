@@ -149,6 +149,7 @@ describe('websocket-handler', () => {
     expect(res.success).toBe(true);
     expect(mockResolveSafe).toHaveBeenCalledWith('wss://echo.example.com/socket', {
       allowLocalhost: true,
+      allowPrivateIPs: false,
       allowedSchemes: ['ws:', 'wss:'],
     });
 

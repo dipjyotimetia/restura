@@ -34,6 +34,7 @@ import { readConsentSync, registerTelemetryConsentIPC } from './lifecycle/teleme
 import { registerWindowControlsIPC } from './lifecycle/window-controls';
 import { registerNotificationIPC } from './notifications';
 import { registerKeychainStatusIPC } from './security/keychain-status-handler';
+import { registerNetworkPolicyIPC } from './security/network-policy';
 import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './security/secret-handle-store';
 import { registerBrunoExportHandlerIPC } from './storage/bruno-export-handler';
 import {
@@ -319,6 +320,7 @@ app.whenReady().then(async () => {
   setupPermissionHandlers();
   registerIPCHandlers();
   registerTelemetryConsentIPC();
+  registerNetworkPolicyIPC();
 
   const initialWindow = createMainWindow(isDev);
 

@@ -14,6 +14,12 @@ import {
 export interface DnsGuardOptions {
   allowLocalhost: boolean;
   /**
+   * Permit RFC-1918 / CGNAT / link-local targets (literal or DNS-resolved).
+   * Off by default; sourced from the Settings → Security network policy.
+   * Cloud-metadata endpoints stay blocked regardless.
+   */
+  allowPrivateIPs?: boolean;
+  /**
    * Schemes accepted by the calling transport. Defaults to http/https; the
    * websocket and socket.io handlers override with ws/wss variants so the
    * shared URL policy ({@link validateURL}) doesn't reject their URLs as
@@ -30,6 +36,9 @@ export async function assertHostnameSafe(
     assertResolvedAddressAllowed(hostname, hostname, {
       allowLocalhost: options.allowLocalhost,
       allowPrivateLiteralHost: isPrivateAddress(hostname),
+      // Desktop keeps localhost + private-IP as independent Security toggles, so
+      // loopback is gated on allowLocalhost even when private IPs are allowed.
+      loopbackNeedsLocalhost: true,
     });
     return [{ address: hostname, family: net.isIP(hostname) === 6 ? 6 : 4 }];
   }
@@ -46,7 +55,13 @@ export async function assertHostnameSafe(
   for (const r of records) {
     assertResolvedAddressAllowed(hostname, r.address, {
       allowLocalhost: options.allowLocalhost,
-      allowPrivateLiteralHost: false,
+      // Honour the private-IP opt-in for DNS-resolved addresses too, so a
+      // hostname pointing at an RFC-1918 target is permitted only when the
+      // policy allows it. Cloud-metadata stays blocked inside the assertion.
+      allowPrivateLiteralHost: options.allowPrivateIPs === true,
+      // Loopback stays gated on allowLocalhost — allow-private-IPs must not
+      // re-open a hostname that resolves to 127.0.0.1/::1.
+      loopbackNeedsLocalhost: true,
     });
   }
   return records;
@@ -60,7 +75,7 @@ export async function assertHostnameSafe(
 export async function assertUrlHostnameSafe(url: string, options: DnsGuardOptions): Promise<void> {
   const v = validateURL(url, {
     allowLocalhost: options.allowLocalhost,
-    allowPrivateIPs: false,
+    allowPrivateIPs: options.allowPrivateIPs === true,
     ...(options.allowedSchemes ? { allowedSchemes: options.allowedSchemes } : {}),
   });
   if (!v.valid) {
@@ -79,7 +94,7 @@ export async function resolveUrlHostnameSafe(
 ): Promise<LookupAddress[]> {
   const v = validateURL(url, {
     allowLocalhost: options.allowLocalhost,
-    allowPrivateIPs: false,
+    allowPrivateIPs: options.allowPrivateIPs === true,
     ...(options.allowedSchemes ? { allowedSchemes: options.allowedSchemes } : {}),
   });
   if (!v.valid) {

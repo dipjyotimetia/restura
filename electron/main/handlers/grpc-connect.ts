@@ -30,7 +30,8 @@ import { GrpcStatusCodeName } from '@shared/protocol/grpc-status';
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { resolveUrlHostnameSafe } from '../security/dns-guard';
-import { unwrapSecretValueMain } from '../security/secret-handle-store';
+import { getNetworkPolicy } from '../security/network-policy';
+import { buildTlsClientMaterial } from '../security/tls-material';
 import type { GrpcTlsConfig } from './grpc-credentials';
 
 // gRPC URL schemes the SSRF guard accepts (renderer + reflection emit grpc://).
@@ -51,7 +52,7 @@ export interface PinnedDial {
  */
 export async function resolveGrpcDialAddress(url: string): Promise<PinnedDial> {
   const records = await resolveUrlHostnameSafe(url, {
-    allowLocalhost: true,
+    ...getNetworkPolicy(),
     allowedSchemes: GRPC_ALLOWED_SCHEMES,
   });
   const chosen = records[0];
@@ -109,23 +110,10 @@ function buildNodeTransportBase(
   const nodeOptions: Record<string, unknown> = { lookup: pinnedLookup(dial) };
   if (useTls) {
     nodeOptions.servername = host; // SNI + cert hostname check stay on the hostname
-    if (tls?.caCert?.pem) nodeOptions.ca = tls.caCert.pem;
     if (tls?.verifySsl === false) nodeOptions.rejectUnauthorized = false;
-    const cc = tls?.clientCert;
-    if (cc?.pfx) {
-      // mTLS via PKCS#12 — Node TLS takes the bundle directly (grpc-js could
-      // not; it only warned and dialed without the client cert).
-      nodeOptions.pfx = Buffer.from(cc.pfx, 'base64');
-      const passphrase = unwrapSecretValueMain(cc.passphrase);
-      if (passphrase) nodeOptions.passphrase = passphrase;
-    } else if (cc?.cert && cc.key) {
-      // mTLS — Node TLS accepts an encrypted key + passphrase directly (no need
-      // to pre-decrypt as the grpc-js path did).
-      nodeOptions.cert = cc.cert;
-      nodeOptions.key = cc.key;
-      const passphrase = unwrapSecretValueMain(cc.passphrase);
-      if (passphrase) nodeOptions.passphrase = passphrase;
-    }
+    // mTLS client cert (PKCS#12 or cert+key, with a main-resolved passphrase) +
+    // custom CA. Shared with the HTTP handler so cert/CA handling can't drift.
+    if (tls) Object.assign(nodeOptions, buildTlsClientMaterial(tls));
   }
   return { baseUrl, nodeOptions };
 }

@@ -11,8 +11,10 @@ import {
   Keyboard as KeyboardIcon,
   Network,
   Palette,
+  Plus,
   RefreshCw,
   Send,
+  ShieldAlert,
   ShieldCheck,
   Sliders,
   Sparkles,
@@ -29,7 +31,9 @@ import { CaptureBridgeCard } from '@/components/shared/CaptureBridgeCard';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { Logo } from '@/components/shared/Logo';
+import { Badge } from '@/components/ui/badge';
 import { Floater, Kbd, Segmented, Stepper, TextField, ToggleField } from '@/components/ui/spatial';
+import SecretInput from '@/features/auth/components/SecretInput';
 import { CertificateOverride } from '@/features/http/components/CertificateOverride';
 import { useStorageMonitor } from '@/hooks/useStorageMonitor';
 import {
@@ -40,6 +44,7 @@ import {
 } from '@/lib/shared/dexie-storage';
 import { downloadBlob, readFileAsText } from '@/lib/shared/file-utils';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { looksLikePemCertificate } from '@/lib/shared/pemValidation';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import { withViewTransition } from '@/lib/shared/viewTransition';
@@ -66,6 +71,7 @@ export type SectionId =
   | 'requests'
   | 'proxy'
   | 'certificates'
+  | 'security'
   | 'secrets'
   | 'ai'
   | 'data'
@@ -85,6 +91,7 @@ const SECTIONS: SectionDef[] = [
   { id: 'requests', label: 'Requests', icon: Send },
   { id: 'proxy', label: 'Proxy', icon: Network },
   { id: 'certificates', label: 'Certificates', icon: ShieldCheck },
+  { id: 'security', label: 'Security', icon: ShieldAlert },
   { id: 'secrets', label: 'Secrets', icon: KeyRound },
   { id: 'ai', label: 'AI', icon: Sparkles },
   { id: 'data', label: 'Data', icon: Database },
@@ -271,6 +278,7 @@ export default function SettingsDrawer({
               {activeSection === 'requests' && <RequestsSection />}
               {activeSection === 'proxy' && <ProxySection />}
               {activeSection === 'certificates' && <CertificatesSection />}
+              {activeSection === 'security' && <SecuritySection />}
               {activeSection === 'secrets' && <SecretsSection />}
               {activeSection === 'ai' && isElectron() && (
                 <>
@@ -643,7 +651,12 @@ function RequestsSection() {
           </>
         )}
         <FieldRow
-          label="Verify SSL certificates"
+          label={
+            <span className="inline-flex items-center">
+              Verify SSL certificates
+              <DesktopOnlyBadge title="Browsers and the Worker can't disable TLS verification. This toggle only takes effect in the Restura desktop app." />
+            </span>
+          }
           hint="Disable only for trusted development hosts."
           control={
             <ToggleField
@@ -768,13 +781,32 @@ function ProxySection() {
   const settings = useSettingsStore((s) => s.settings);
   const setProxyEnabled = useSettingsStore((s) => s.setProxyEnabled);
   const updateProxy = useSettingsStore((s) => s.updateProxy);
+  const updateProxyAuth = useSettingsStore((s) => s.updateProxyAuth);
+  const addBypassHost = useSettingsStore((s) => s.addBypassHost);
+  const removeBypassHost = useSettingsStore((s) => s.removeBypassHost);
+
+  const proxy = settings.proxy;
+  const bypassList = proxy.bypassList ?? [];
+  const [newBypass, setNewBypass] = useState('');
+
+  const commitBypass = () => {
+    const host = newBypass.trim();
+    if (!host) return;
+    addBypassHost(host);
+    setNewBypass('');
+  };
 
   return (
     <>
       <SectionHeader
         icon={Network}
         title="Proxy"
-        description="Route outgoing requests through an HTTP(S) or SOCKS proxy."
+        description={
+          <>
+            Route outgoing requests through an HTTP(S) or SOCKS proxy.
+            <DesktopOnlyBadge title="Browsers can't tunnel through an arbitrary proxy. Proxy settings only take effect in the Restura desktop app." />
+          </>
+        }
       />
 
       <FieldGroup label="Outbound proxy">
@@ -833,6 +865,92 @@ function ProxySection() {
           }
         />
       </FieldGroup>
+
+      <FieldGroup label="Authentication">
+        <FieldRow
+          label="Username"
+          hint="Leave blank for an unauthenticated proxy."
+          control={
+            <TextField
+              mono
+              placeholder="proxy-user"
+              value={proxy.auth?.username ?? ''}
+              onChange={(e) => updateProxyAuth({ username: e.target.value })}
+              disabled={!proxy.enabled}
+              className="w-[260px]"
+            />
+          }
+        />
+        <FieldRow
+          label="Password"
+          hint="Stored as a keychain handle on desktop; the renderer never sees the plaintext."
+          control={
+            <div className="w-[260px]">
+              <SecretInput
+                value={proxy.auth?.password}
+                onChange={(password) => updateProxyAuth({ password })}
+                placeholder="Proxy password"
+                storageLabel="Proxy password"
+                disabled={!proxy.enabled}
+              />
+            </div>
+          }
+        />
+      </FieldGroup>
+
+      <section className="mt-5">
+        <SectionLabel>Bypass list</SectionLabel>
+        <Floater radius="panel" elevation="inset" className="p-4 space-y-3">
+          <p className="text-sp-11 text-sp-muted">
+            Hosts that skip the proxy and connect directly. Supports wildcards like{' '}
+            <span className="font-mono">*.example.com</span> and{' '}
+            <span className="font-mono">192.168.*</span>.
+          </p>
+          {bypassList.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {bypassList.map((host) => (
+                <Badge
+                  key={host}
+                  variant="mono"
+                  className="gap-1.5 h-7 pl-2.5 pr-1.5 rounded-sp-pill text-sp-11-5 text-sp-text"
+                >
+                  {host}
+                  <button
+                    type="button"
+                    onClick={() => removeBypassHost(host)}
+                    aria-label={`Remove ${host} from bypass list`}
+                    className={cn(
+                      'inline-flex items-center justify-center w-4 h-4 rounded-full',
+                      'text-sp-muted hover:text-rose-400 transition-colors',
+                      'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
+                    )}
+                  >
+                    <X size={11} />
+                  </button>
+                </Badge>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <TextField
+              mono
+              placeholder="internal.example.com"
+              value={newBypass}
+              onChange={(e) => setNewBypass(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  commitBypass();
+                }
+              }}
+              className="flex-1"
+            />
+            <DataButton icon={Plus} onClick={commitBypass} disabled={!newBypass.trim()}>
+              Add
+            </DataButton>
+          </div>
+        </Floater>
+      </section>
     </>
   );
 }
@@ -1004,6 +1122,11 @@ function CertificatesSection() {
     if (!file) return;
     try {
       const text = await readFileAsText(file);
+      if (!looksLikePemCertificate(text)) {
+        toast.error('That file does not look like a PEM certificate (missing BEGIN CERTIFICATE).');
+        e.target.value = '';
+        return;
+      }
       setCaFileName(file.name);
       setPastedCa('');
       setCaCert({ pem: text });
@@ -1017,8 +1140,13 @@ function CertificatesSection() {
   const handleCaPaste = (value: string) => {
     setPastedCa(value);
     setCaFileName('');
-    if (value.trim()) {
-      setCaCert({ pem: value.trim() });
+    // Only commit valid-looking PEM to the store — consistent with the
+    // file-select path, which rejects non-PEM. The textarea keeps whatever was
+    // typed (with the inline warning below) so a partial/invalid paste never
+    // persists an unusable CA that would fail later at the TLS handshake.
+    const trimmed = value.trim();
+    if (trimmed && looksLikePemCertificate(trimmed)) {
+      setCaCert({ pem: trimmed });
     } else {
       setCaCert(undefined);
     }
@@ -1111,6 +1239,11 @@ function CertificatesSection() {
               'transition-colors resize-y'
             )}
           />
+          {pastedCa.trim() !== '' && !looksLikePemCertificate(pastedCa) && (
+            <p className="text-sp-11 text-amber-500 dark:text-amber-400 mt-1">
+              This doesn&rsquo;t look like a PEM certificate yet (missing BEGIN CERTIFICATE).
+            </p>
+          )}
         </div>
         <p className="text-sp-11 text-amber-500 dark:text-amber-400 flex items-start gap-1.5">
           <Info size={12} className="shrink-0 mt-0.5" aria-hidden="true" />
@@ -1268,7 +1401,9 @@ function PerDomainCertificates() {
       <SectionLabel>Per-domain CA certificates</SectionLabel>
       <Floater radius="panel" elevation="inset" className="p-4 space-y-3">
         <p className="text-sp-11 text-sp-muted">
-          Trust a custom CA only for specific hosts (instead of replacing the whole trust store).
+          Scope a custom CA to specific hosts. For a matched host this CA <em>replaces</em> the
+          default trust store for that request — it is not added to it, so include every root the
+          chain needs.
         </p>
         {caCerts.map((entry) => (
           <div key={entry.id} className="rounded-sp-btn border border-sp-line p-3 space-y-2">
@@ -1334,6 +1469,63 @@ function stripPort<T extends { port?: number }>(entry: T): T {
   const { port: _omit, ...rest } = entry;
   void _omit;
   return rest as T;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Security                                                                   */
+/* -------------------------------------------------------------------------- */
+
+function SecuritySection() {
+  const settings = useSettingsStore((s) => s.settings);
+  const updateSettings = useSettingsStore((s) => s.updateSettings);
+
+  return (
+    <>
+      <SectionHeader
+        icon={ShieldAlert}
+        title="Security"
+        description="Control which hosts Restura is allowed to reach."
+      />
+
+      <FieldGroup label="Outbound targets">
+        <FieldRow
+          label="Allow localhost"
+          hint="Permit requests to localhost, 127.0.0.1, and ::1. Turn off to block loopback targets."
+          control={
+            <ToggleField
+              checked={settings.allowLocalhost ?? true}
+              onChange={(v) => updateSettings({ allowLocalhost: v })}
+              ariaLabel="Allow localhost"
+            />
+          }
+        />
+        <FieldRow
+          label="Allow private / internal IPs"
+          hint="Permit RFC-1918 (10.x, 172.16.x, 192.168.x), CGNAT, and link-local targets. Cloud-metadata endpoints stay blocked. Leave off unless you need to reach internal hosts."
+          control={
+            <ToggleField
+              checked={settings.allowPrivateIPs === true}
+              onChange={(v) => updateSettings({ allowPrivateIPs: v })}
+              ariaLabel="Allow private and internal IP addresses"
+            />
+          }
+        />
+      </FieldGroup>
+
+      <p className="text-sp-11-5 text-sp-muted mt-4 flex items-start gap-1.5">
+        <Info size={13} className="shrink-0 mt-0.5 text-sp-accent" aria-hidden="true" />
+        <span>
+          On the desktop app these govern Restura&rsquo;s HTTP, WebSocket, SSE, Socket.IO, gRPC, and
+          MCP requests. In the browser they gate an in-app pre-check only — the hosted web app and
+          self-host server enforce their own network policy, which always takes precedence.
+          Cloud-metadata endpoints (e.g. <span className="font-mono">169.254.169.254</span>) are
+          blocked on every platform, regardless of these settings. Kafka and MQTT brokers follow
+          protocol-appropriate rules — private/LAN broker addresses stay reachable (cloud-metadata
+          is still blocked) — so these two toggles don&rsquo;t restrict them.
+        </span>
+      </p>
+    </>
+  );
 }
 
 /* -------------------------------------------------------------------------- */

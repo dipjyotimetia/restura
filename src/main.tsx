@@ -5,6 +5,7 @@ import './styles/globals.css';
 // Side-effect import: registers built-in protocol modules with the
 // singleton ProtocolRegistry before any React component mounts.
 import '@/features/registry/bootstrap';
+import { initNetworkPolicySync } from '@/lib/electron-network-policy';
 import { initElectronSentry } from '@/lib/electron-sentry';
 import { fetchFlags } from '@/lib/shared/feature-flags';
 import { registerMigrationLogging } from '@/lib/shared/persistence/registerMigrationLogging';
@@ -19,6 +20,9 @@ registerMigrationLogging();
 // Electron-only: forward renderer crashes/errors to the main-process Sentry SDK
 // over IPC (opt-out; no-op on web). Dynamically imported so the web bundle stays clean.
 void initElectronSentry();
+// Electron-only: push the Settings → Security outbound-network policy to main so
+// every SSRF guard shares one policy (no-op on web).
+initNetworkPolicySync();
 // Kick off the feature-flag fetch immediately. UI uses `useFlag()` which
 // re-renders when this resolves; default is fail-open so nothing is blocked.
 void fetchFlags();

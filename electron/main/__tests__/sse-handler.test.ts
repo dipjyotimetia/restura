@@ -85,6 +85,7 @@ describe('sse-handler (StreamRegistry-backed)', () => {
     expect(res.success).toBe(true);
     expect(mockResolveSafe).toHaveBeenCalledWith('https://example.com/stream', {
       allowLocalhost: true,
+      allowPrivateIPs: false,
     });
     await flush();
     const channels = mockEmitTo.mock.calls.map((c) => c[1]);

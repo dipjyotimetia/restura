@@ -34,7 +34,9 @@ import type { LogEntry } from '../lifecycle/request-logger';
 import { applyNonSignAtWireAuth } from '../security/auth-applier';
 import { smithySigV4Signer } from '../security/aws-sigv4-smithy';
 import { resolveEnvProxy } from '../security/env-proxy';
+import { getNetworkPolicy } from '../security/network-policy';
 import { unwrapSecretValueMain } from '../security/secret-handle-store';
+import { buildTlsClientMaterial } from '../security/tls-material';
 import { interceptorRegistry } from './interceptor-registry';
 
 const log = createLogger('http');
@@ -213,9 +215,13 @@ const CONNECTION_TIMEOUT = 10000;
 
 function createSecureLookup(
   hostname: string,
-  allowLocalhost: boolean
+  allowLocalhost: boolean,
+  allowPrivateIPs: boolean
 ): NonNullable<http.RequestOptions['lookup']> {
-  const allowPrivateLiteralHost = net.isIP(hostname) !== 0 && isPrivateAddress(hostname);
+  // Permit resolved private addresses when the host is itself a literal private
+  // IP the user typed, OR when the Security setting opts into private IPs. Cloud
+  // metadata stays blocked inside assertResolvedAddressAllowed regardless.
+  const allowPrivate = allowPrivateIPs || (net.isIP(hostname) !== 0 && isPrivateAddress(hostname));
   return (lookupHostname, options, callback) => {
     dns.lookup(lookupHostname, options, (error, address, family) => {
       if (error) {
@@ -227,7 +233,10 @@ function createSecureLookup(
         for (const entry of addresses) {
           assertResolvedAddressAllowed(hostname, entry.address, {
             allowLocalhost,
-            allowPrivateLiteralHost,
+            allowPrivateLiteralHost: allowPrivate,
+            // Loopback stays gated on allowLocalhost, independent of the
+            // private-IP opt-in (matches the desktop two-toggle Security model).
+            loopbackNeedsLocalhost: true,
           });
         }
         callback(null, address as never, family as never);
@@ -249,7 +258,10 @@ function openSocksSocket(
     const socket = net.createConnection({
       host: proxy.host,
       port: proxy.port,
-      lookup: createSecureLookup(proxy.host, true),
+      // Connecting to the user-configured proxy host itself. Preserve prior
+      // behaviour: allow a literal private-IP proxy, but don't broaden the
+      // upstream private-IP policy here (that's applied on the target lookup).
+      lookup: createSecureLookup(proxy.host, true, false),
     });
     socket.once('error', reject);
 
@@ -430,35 +442,22 @@ function buildConnectOptions(
   electronConfig: HttpRequestConfig,
   url: URL,
   isHttps: boolean,
-  verifySsl: boolean
+  verifySsl: boolean,
+  // Pre-resolved mTLS/CA material (see buildTlsClientMaterial). Passed in rather
+  // than recomputed here so the SOCKS+HTTPS path — which builds its own
+  // tls.connect from the same material — doesn't resolve the secret handle and
+  // base64-decode the PFX a second time.
+  certMaterial: Record<string, unknown>
 ): Record<string, unknown> {
+  const policy = getNetworkPolicy();
   const connectOpts: Record<string, unknown> = {
     timeout: CONNECTION_TIMEOUT,
-    lookup: createSecureLookup(url.hostname, true),
+    lookup: createSecureLookup(url.hostname, policy.allowLocalhost, policy.allowPrivateIPs),
   };
 
   if (isHttps) {
     connectOpts.rejectUnauthorized = verifySsl;
-    if (electronConfig.clientCert) {
-      // Resolve the passphrase SecretValue to plaintext main-side (ADR-0007);
-      // a handle never crosses back to the renderer.
-      const passphrase = unwrapSecretValueMain(electronConfig.clientCert.passphrase);
-      if (electronConfig.clientCert.pfx) {
-        connectOpts.pfx = Buffer.from(electronConfig.clientCert.pfx, 'base64');
-        if (passphrase) {
-          connectOpts.passphrase = passphrase;
-        }
-      } else if (electronConfig.clientCert.cert && electronConfig.clientCert.key) {
-        connectOpts.cert = electronConfig.clientCert.cert;
-        connectOpts.key = electronConfig.clientCert.key;
-        if (passphrase) {
-          connectOpts.passphrase = passphrase;
-        }
-      }
-    }
-    if (electronConfig.caCert?.pem) {
-      connectOpts.ca = electronConfig.caCert.pem;
-    }
+    Object.assign(connectOpts, certMaterial);
     // Per-request TLS knobs (Insomnia parity). Honour cipher order, custom
     // cipher list, and a minimum protocol floor. Forwarded by undici's
     // connector to `tls.connect`, where these are first-class options.
@@ -493,7 +492,14 @@ function createSocksDispatcher(
   isHttps: boolean,
   verifySsl: boolean,
   allowH2: boolean,
-  tlsKnobs?: SocksTlsKnobs
+  tlsKnobs?: SocksTlsKnobs,
+  /**
+   * mTLS client cert + custom CA material from `buildTlsClientMaterial`. Spread
+   * into the SOCKS TLS handshake so certificates work through a SOCKS proxy
+   * exactly as they do on the direct/HTTP-proxy paths. Omitting this silently
+   * dropped mTLS and custom-CA settings whenever a SOCKS proxy was configured.
+   */
+  certMaterial?: Record<string, unknown>
 ): Agent {
   // undici's connector callback type is strictly [Error, null] | [null, Socket]; assert
   // through unknown so the TLSSocket / Socket variants are accepted.
@@ -505,7 +511,7 @@ function createSocksDispatcher(
         if (isHttps) {
           // Match the per-request TLS knobs honoured by buildConnectOptions so
           // SOCKS-tunneled requests get the same hardening (cipher list, min
-          // protocol, server cipher order).
+          // protocol, server cipher order) plus mTLS client cert + custom CA.
           const tlsSocket = tls.connect({
             socket: socksSocket,
             servername: targetUrl.hostname,
@@ -514,6 +520,7 @@ function createSocksDispatcher(
             ...(tlsKnobs?.serverCipherOrder && { honorCipherOrder: true }),
             ...(tlsKnobs?.cipherSuites && { ciphers: tlsKnobs.cipherSuites }),
             ...(tlsKnobs?.minTlsVersion && { minVersion: tlsKnobs.minTlsVersion }),
+            ...(certMaterial ?? {}),
           });
           tlsSocket.once('secureConnect', () => {
             // Snapshot the negotiated ALPN into the holder attached to the SOCKS socket
@@ -558,7 +565,11 @@ export function buildElectronFetcher(
       log.warn('SSL certificate verification disabled for this request');
     }
 
-    const connectOpts = buildConnectOptions(electronConfig, url, isHttps, verifySsl);
+    // Resolve mTLS/CA material once — reused by both buildConnectOptions (direct
+    // + HTTP-proxy) and the SOCKS dispatcher below. Only meaningful over TLS.
+    const certMaterial = isHttps ? buildTlsClientMaterial(electronConfig) : {};
+
+    const connectOpts = buildConnectOptions(electronConfig, url, isHttps, verifySsl, certMaterial);
 
     // Holder filled in by the wrapped connector after the TLS handshake.
     const alpnHolder: { alpn?: string } = {};
@@ -608,17 +619,26 @@ export function buildElectronFetcher(
           unsubscribeProxyAlpn = subscribeProxyAlpnCapture(url.hostname, upstreamPort, alpnHolder);
         }
       } else if ((proxyType === 'socks4' || proxyType === 'socks5') && socksSocket) {
-        dispatcher = createSocksDispatcher(socksSocket, url, isHttps, verifySsl, allowH2, {
-          ...(electronConfig.serverCipherOrder !== undefined && {
-            serverCipherOrder: electronConfig.serverCipherOrder,
-          }),
-          ...(electronConfig.cipherSuites !== undefined && {
-            cipherSuites: electronConfig.cipherSuites,
-          }),
-          ...(electronConfig.minTlsVersion !== undefined && {
-            minTlsVersion: electronConfig.minTlsVersion,
-          }),
-        });
+        dispatcher = createSocksDispatcher(
+          socksSocket,
+          url,
+          isHttps,
+          verifySsl,
+          allowH2,
+          {
+            ...(electronConfig.serverCipherOrder !== undefined && {
+              serverCipherOrder: electronConfig.serverCipherOrder,
+            }),
+            ...(electronConfig.cipherSuites !== undefined && {
+              cipherSuites: electronConfig.cipherSuites,
+            }),
+            ...(electronConfig.minTlsVersion !== undefined && {
+              minTlsVersion: electronConfig.minTlsVersion,
+            }),
+          },
+          // mTLS client cert + custom CA — previously dropped on the SOCKS path.
+          certMaterial
+        );
         // SOCKS path: TLS happens inside our custom connector — capture ALPN there.
         if (isHttps) {
           (socksSocket as unknown as { __alpnHolder?: { alpn?: string } }).__alpnHolder =
@@ -953,7 +973,10 @@ async function makeHttpRequest(
       },
       fetcher,
       {
-        allowLocalhost: true,
+        // Shared outbound-network policy (Settings → Security), same snapshot
+        // every desktop transport reads. Cloud metadata stays blocked inside
+        // the shared URL guard regardless.
+        ...getNetworkPolicy(),
         resolveSecret: (v) => unwrapSecretValueMain(v) ?? '',
         // Desktop signs AWS SigV4 with the official @smithy/signature-v4; the
         // Worker keeps the built-in Web-Crypto signer.

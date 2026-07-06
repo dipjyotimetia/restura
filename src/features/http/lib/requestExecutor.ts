@@ -181,7 +181,7 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   const resolvedUrl = resolveLocal(request.url);
 
   const urlValidation = validateURL(resolvedUrl, {
-    allowPrivateIPs: false,
+    allowPrivateIPs: globalSettings.allowPrivateIPs === true,
     allowLocalhost: globalSettings.allowLocalhost ?? true,
   });
   if (!urlValidation.valid) {

@@ -183,6 +183,7 @@ describe('socketio-handler', () => {
     expect(res.success).toBe(true);
     expect(mockResolveSafe).toHaveBeenCalledWith('https://echo.example.com', {
       allowLocalhost: true,
+      allowPrivateIPs: false,
       allowedSchemes: ['http:', 'https:', 'ws:', 'wss:'],
     });
 

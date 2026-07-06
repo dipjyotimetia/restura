@@ -174,6 +174,7 @@ describe('mcp-handler (SDK-backed)', () => {
 
     expect(mockResolveSafeAddress).toHaveBeenCalledWith('https://mcp.example.com/mcp', {
       allowLocalhost: true,
+      allowPrivateIPs: false,
     });
     expect(mockCreatePinnedFetch).toHaveBeenCalledWith('mcp.example.com', '93.184.216.34');
 

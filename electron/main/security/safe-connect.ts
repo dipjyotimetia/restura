@@ -73,13 +73,19 @@ export async function resolveSafeAddress(
 
   // Literal IPs short-circuit DNS entirely. Validate per the shared policy
   // (the same call assertHostnameSafe makes internally). The literal-host
-  // carve-out for private addresses applies ONLY when the caller permits
-  // localhost (local AI runtimes, user-typed lab targets) — a cloud caller
-  // passing `allowLocalhost:false` must not reach an RFC1918/loopback literal.
+  // carve-out for private addresses applies when the caller permits localhost
+  // (local AI runtimes, user-typed lab targets) OR opts into private IPs via
+  // the network policy — a cloud caller passing both false must not reach an
+  // RFC1918/loopback literal. Cloud-metadata stays blocked inside the assertion.
   if (net.isIP(host) !== 0) {
     assertResolvedAddressAllowed(host, host, {
       allowLocalhost: options.allowLocalhost,
-      allowPrivateLiteralHost: options.allowLocalhost === true && isPrivateAddress(host),
+      allowPrivateLiteralHost:
+        isPrivateAddress(host) &&
+        (options.allowLocalhost === true || options.allowPrivateIPs === true),
+      // Loopback is gated on allowLocalhost, so enabling "allow private IPs"
+      // can't silently re-open a literal 127.0.0.1/::1 target.
+      loopbackNeedsLocalhost: true,
     });
     return { host, ip: host, port, family: net.isIP(host) === 6 ? 6 : 4 };
   }
