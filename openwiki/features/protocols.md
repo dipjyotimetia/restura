@@ -146,7 +146,7 @@ When adding a capability that differs by platform, update `capabilities.ts`, reg
 | Area              | Key files                                                                                                     |
 | ----------------- | ------------------------------------------------------------------------------------------------------------- |
 | Registry          | `src/features/registry/{types,bootstrap,useRequestRunner}.ts`                                                 |
-| Request types     | `src/types/request.ts`, `src/types/response.ts`                                                               |
+| Request types     | `src/types/request.ts`, `src/types/http.ts`                                                                   |
 | HTTP              | `src/features/http/{protocol.ts,lib/requestExecutor.ts,components/RequestBuilder.tsx}`                        |
 | GraphQL           | `src/features/graphql/protocol.ts`, `src/features/graphql/components/*.tsx`                                   |
 | gRPC              | `src/features/grpc/protocol.ts`, `src/features/grpc/components/GrpcRequestBuilder.tsx`                        |
