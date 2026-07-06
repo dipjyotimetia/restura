@@ -128,6 +128,7 @@ export async function startMockServer(opts: {
         // A user-configured header with invalid characters throws ERR_INVALID_CHAR
         // from writeHead — without this the response hangs open. Surface a 500
         // instead (headers may be partially unsendable, so guard that too).
+        console.error('[mock-server] Invalid mock route response', err);
         if (!res.headersSent) {
           try {
             res.writeHead(500, { 'content-type': 'application/json' });
@@ -138,7 +139,6 @@ export async function startMockServer(opts: {
         res.end(
           JSON.stringify({
             error: 'Invalid mock route response',
-            detail: err instanceof Error ? err.message : String(err),
           })
         );
       }
