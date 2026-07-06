@@ -30,7 +30,7 @@ import {
   canReadHistory,
   type McpServerConsent,
 } from './consent';
-import { redactEnvironmentVariables, redactSecretsDeep } from './redaction';
+import { redactEnvironmentVariables, redactSecretsDeep, redactUrlCredentials } from './redaction';
 import type { Collection, CollectionItem, Environment, HistoryItem, HttpRequest } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -234,7 +234,7 @@ function listRequests(
       path: entry.path,
       type: req?.type ?? 'unknown',
       method: req && req.type === 'http' ? (req as HttpRequest).method : undefined,
-      url: req && 'url' in req ? (req as { url?: string }).url : undefined,
+      url: req && 'url' in req ? redactUrlCredentials((req as { url?: string }).url) : undefined,
       // Auth descriptor type only — not the credentials.
       authType: req && 'auth' in req ? (req as { auth?: { type?: string } }).auth?.type : 'none',
     };
@@ -280,7 +280,7 @@ function getHistory(
         name: entry.request.name,
         type: entry.request.type,
         method,
-        url,
+        url: redactUrlCredentials(url),
         status: entry.response?.status,
         statusText: entry.response?.statusText,
         timestamp: entry.timestamp,
