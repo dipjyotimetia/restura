@@ -1,9 +1,11 @@
-import { X } from 'lucide-react';
+import { AlertTriangle, X } from 'lucide-react';
 import { useRef, useState } from 'react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import SecretInput from '@/features/auth/components/SecretInput';
 import { readFileAsBase64, readFileAsText } from '@/lib/shared/file-utils';
+import { looksLikePemCertificate, looksLikePemPrivateKey } from '@/lib/shared/pemValidation';
 import { unwrapSecret, type SecretValue } from '@/lib/shared/secretRef';
 import type { ClientCert } from '@/types';
 
@@ -23,21 +25,30 @@ export function CertificateOverride({ clientCert, onCertChange }: CertificateOve
 
   const handlePfxSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
     const base64 = await readFileAsBase64(file);
+    if (!base64) {
+      toast.error('That file appears to be empty — choose a valid .p12 / .pfx bundle.');
+      return;
+    }
     setPfxFileName(file.name);
     onCertChange({
       format: 'pfx',
       pfx: base64,
       ...(clientCert?.passphrase !== undefined && { passphrase: clientCert.passphrase }),
     });
-    e.target.value = '';
   };
 
   const handlePemCertSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
     const text = await readFileAsText(file);
+    if (!looksLikePemCertificate(text)) {
+      toast.error('That file does not look like a PEM certificate (missing BEGIN CERTIFICATE).');
+      return;
+    }
     setPemCertFileName(file.name);
     onCertChange({
       format: 'pem',
@@ -45,13 +56,17 @@ export function CertificateOverride({ clientCert, onCertChange }: CertificateOve
       ...(clientCert?.key !== undefined && { key: clientCert.key }),
       ...(clientCert?.passphrase !== undefined && { passphrase: clientCert.passphrase }),
     });
-    e.target.value = '';
   };
 
   const handlePemKeySelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
     const text = await readFileAsText(file);
+    if (!looksLikePemPrivateKey(text)) {
+      toast.error('That file does not look like a PEM private key (missing BEGIN PRIVATE KEY).');
+      return;
+    }
     setPemKeyFileName(file.name);
     onCertChange({
       format: 'pem',
@@ -59,7 +74,6 @@ export function CertificateOverride({ clientCert, onCertChange }: CertificateOve
       ...(clientCert?.cert !== undefined && { cert: clientCert.cert }),
       ...(clientCert?.passphrase !== undefined && { passphrase: clientCert.passphrase }),
     });
-    e.target.value = '';
   };
 
   const handlePassphraseChange = (passphrase: SecretValue) => {
@@ -219,6 +233,16 @@ export function CertificateOverride({ clientCert, onCertChange }: CertificateOve
             />
           </div>
         </div>
+      )}
+
+      {certFormat === 'pem' && Boolean(clientCert?.cert) !== Boolean(clientCert?.key) && (
+        <p className="text-xs text-amber-500 dark:text-amber-400 flex items-start gap-1.5">
+          <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" aria-hidden />
+          <span>
+            mTLS needs both a certificate and its private key. Until both are provided, this
+            certificate won&rsquo;t be applied to requests.
+          </span>
+        </p>
       )}
 
       <Button

@@ -158,6 +158,13 @@ export function buildDesktopTransportConfig(
   const cipherSuites = effectiveSettings.cipherSuites ?? globalSettings.cipherSuites;
   if (cipherSuites !== undefined) out.cipherSuites = cipherSuites;
 
+  // Outbound-network policy (Settings → Security). Only carry non-default
+  // choices so the common case still produces no desktop transport config.
+  // The Electron handler defaults to localhost-allowed / private-blocked when
+  // these are absent; cloud-metadata endpoints stay blocked regardless.
+  if (globalSettings.allowLocalhost === false) out.allowLocalhost = false;
+  if (globalSettings.allowPrivateIPs === true) out.allowPrivateIPs = true;
+
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
@@ -181,7 +188,7 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   const resolvedUrl = resolveLocal(request.url);
 
   const urlValidation = validateURL(resolvedUrl, {
-    allowPrivateIPs: false,
+    allowPrivateIPs: globalSettings.allowPrivateIPs === true,
     allowLocalhost: globalSettings.allowLocalhost ?? true,
   });
   if (!urlValidation.valid) {
