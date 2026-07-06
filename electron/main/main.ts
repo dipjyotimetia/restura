@@ -305,8 +305,26 @@ app.whenReady().then(async () => {
     try {
       const handle = await startStdioMcpServer(() => loadMcpDispatchContext());
       // Tear the server down on quit so the parent process sees a clean EOF.
-      app.on('will-quit', () => {
-        void handle.stop();
+      // `preventDefault` + `app.exit()` after `handle.stop()` resolves
+      // guarantees the stdio transport flushes before process exit — a
+      // fire-and-forget `void` would race the default quit and could cut the
+      // clean-EOF signal off. A timeout backstop bounds a hung transport.
+      const MCP_STOP_TIMEOUT_MS = 3000;
+      let mcpStopped = false;
+      app.on('will-quit', (event) => {
+        if (mcpStopped) return;
+        event.preventDefault();
+        void Promise.race([
+          handle.stop().catch((err) => {
+            log.error('mcp-server stop failed', {
+              message: err instanceof Error ? err.message : String(err),
+            });
+          }),
+          new Promise((resolve) => setTimeout(resolve, MCP_STOP_TIMEOUT_MS)),
+        ]).then(() => {
+          mcpStopped = true;
+          app.exit(0);
+        });
       });
     } catch (err) {
       log.error('mcp-server start failed', {
@@ -357,26 +375,35 @@ app.on('window-all-closed', () => {
 // disposes (Kafka/MQTT awaited broker closes) are awaited behind a
 // preventDefault so graceful close isn't raced by process exit; a timeout
 // backstop keeps a hung broker from blocking quit.
-const QUIT_DISPOSE_TIMEOUT_MS = 3000;
-let quitCleanupDone = false;
-app.on('will-quit', (event) => {
-  if (quitCleanupDone) return;
-  event.preventDefault();
-  const disposals = IPC_MODULES.filter((mod) => mod.dispose).map((mod) =>
-    Promise.resolve()
-      .then(() => mod.dispose!())
-      .catch((err) => {
-        log.error('IPC module dispose failed', {
-          message: err instanceof Error ? err.message : String(err),
-        });
-      })
-  );
-  void Promise.race([
-    Promise.allSettled(disposals),
-    new Promise((resolve) => setTimeout(resolve, QUIT_DISPOSE_TIMEOUT_MS)),
-  ]).then(() => {
-    quitCleanupDone = true;
-    destroyTray();
-    app.exit(0);
+//
+// MCP-server mode is excluded: `registerIPCHandlers()` never ran (the
+// whenReady MCP branch returns early), so `IPC_MODULES` has nothing to
+// dispose, and this handler's `app.exit(0)` would race (and typically
+// pre-empt) the stdio transport teardown the MCP branch registers via
+// `handle.stop()` — cutting off the clean EOF the parent process expects.
+// The MCP branch owns its own `will-quit` shutdown.
+if (!isMcpServerMode) {
+  const QUIT_DISPOSE_TIMEOUT_MS = 3000;
+  let quitCleanupDone = false;
+  app.on('will-quit', (event) => {
+    if (quitCleanupDone) return;
+    event.preventDefault();
+    const disposals = IPC_MODULES.filter((mod) => mod.dispose).map((mod) =>
+      Promise.resolve()
+        .then(() => mod.dispose!())
+        .catch((err) => {
+          log.error('IPC module dispose failed', {
+            message: err instanceof Error ? err.message : String(err),
+          });
+        })
+    );
+    void Promise.race([
+      Promise.allSettled(disposals),
+      new Promise((resolve) => setTimeout(resolve, QUIT_DISPOSE_TIMEOUT_MS)),
+    ]).then(() => {
+      quitCleanupDone = true;
+      destroyTray();
+      app.exit(0);
+    });
   });
-});
+}
