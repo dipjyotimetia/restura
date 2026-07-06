@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { validateURL, assertResolvedAddressAllowed, isPrivateAddress } from './url-validation';
+import {
+  validateURL,
+  assertResolvedAddressAllowed,
+  isPrivateAddress,
+  isLoopbackAddress,
+} from './url-validation';
 
 describe('validateURL', () => {
   it('accepts a public https URL', () => {
@@ -82,6 +87,100 @@ describe('assertResolvedAddressAllowed', () => {
 
   it('without allowPrivateLiteralHost, literal-IP hostname still rejected', () => {
     expect(() => assertResolvedAddressAllowed('192.168.1.1', '192.168.1.1', {})).toThrow(/private/);
+  });
+
+  describe('loopbackNeedsLocalhost (Electron two-toggle gate)', () => {
+    it('blocks loopback via allowPrivateLiteralHost when localhost is disabled', () => {
+      // The bug this closes: enabling "allow private IPs" must not re-open
+      // loopback when "allow localhost" is off.
+      expect(() =>
+        assertResolvedAddressAllowed('internal.example.com', '127.0.0.1', {
+          allowLocalhost: false,
+          allowPrivateLiteralHost: true,
+          loopbackNeedsLocalhost: true,
+        })
+      ).toThrow(/loopback/);
+      expect(() =>
+        assertResolvedAddressAllowed('internal.example.com', '::1', {
+          allowLocalhost: false,
+          allowPrivateLiteralHost: true,
+          loopbackNeedsLocalhost: true,
+        })
+      ).toThrow(/loopback/);
+      // 0.0.0.0 / :: are localhost-equivalent — no bypass of the loopback gate.
+      expect(() =>
+        assertResolvedAddressAllowed('internal.example.com', '0.0.0.0', {
+          allowLocalhost: false,
+          allowPrivateLiteralHost: true,
+          loopbackNeedsLocalhost: true,
+        })
+      ).toThrow(/loopback/);
+    });
+
+    it('permits loopback when allowLocalhost is on', () => {
+      expect(() =>
+        assertResolvedAddressAllowed('internal.example.com', '127.0.0.1', {
+          allowLocalhost: true,
+          allowPrivateLiteralHost: true,
+          loopbackNeedsLocalhost: true,
+        })
+      ).not.toThrow();
+    });
+
+    it('still permits NON-loopback private IPs via the private-IP opt-in', () => {
+      expect(() =>
+        assertResolvedAddressAllowed('internal.example.com', '10.0.0.5', {
+          allowLocalhost: false,
+          allowPrivateLiteralHost: true,
+          loopbackNeedsLocalhost: true,
+        })
+      ).not.toThrow();
+    });
+
+    it('preserves the Worker single-switch model when the flag is absent', () => {
+      // Worker/self-host: allowPrivateIPs (→ allowPrivateLiteralHost) covers loopback.
+      expect(() =>
+        assertResolvedAddressAllowed('internal.example.com', '127.0.0.1', {
+          allowLocalhost: false,
+          allowPrivateLiteralHost: true,
+        })
+      ).not.toThrow();
+    });
+
+    it('never opens cloud metadata even with the flag + allowLocalhost', () => {
+      expect(() =>
+        assertResolvedAddressAllowed('rebind.example.com', '169.254.169.254', {
+          allowLocalhost: true,
+          allowPrivateLiteralHost: true,
+          loopbackNeedsLocalhost: true,
+        })
+      ).toThrow(/metadata/);
+    });
+  });
+
+  describe('isLoopbackAddress', () => {
+    it('identifies loopback (127/8, ::1, v4-mapped)', () => {
+      expect(isLoopbackAddress('127.0.0.1')).toBe(true);
+      expect(isLoopbackAddress('127.1.2.3')).toBe(true);
+      expect(isLoopbackAddress('::1')).toBe(true);
+      expect(isLoopbackAddress('[::1]')).toBe(true);
+      expect(isLoopbackAddress('::ffff:127.0.0.1')).toBe(true);
+      expect(isLoopbackAddress('localhost')).toBe(true);
+    });
+
+    it('identifies the unspecified address (localhost-equivalent on connect)', () => {
+      expect(isLoopbackAddress('0.0.0.0')).toBe(true);
+      expect(isLoopbackAddress('::')).toBe(true);
+      expect(isLoopbackAddress('[::]')).toBe(true);
+    });
+
+    it('rejects non-loopback private and public addresses', () => {
+      expect(isLoopbackAddress('10.0.0.5')).toBe(false);
+      expect(isLoopbackAddress('192.168.1.1')).toBe(false);
+      expect(isLoopbackAddress('169.254.169.254')).toBe(false);
+      expect(isLoopbackAddress('93.184.216.34')).toBe(false);
+      expect(isLoopbackAddress('fc00::1')).toBe(false);
+    });
   });
 
   it('handles upper-case IPv6 resolved addresses (DNS may return uppercase)', () => {

@@ -126,6 +126,36 @@ function isPrivateIPv6Groups(groups: number[]): boolean {
   return false;
 }
 
+/**
+ * True when the address is loopback OR localhost-equivalent: the `127.0.0.0/8`
+ * range, `::1`, the unspecified `0.0.0.0` / `::` (which the kernel routes to the
+ * local host on `connect`), or an IPv4-mapped/6to4/NAT64 form wrapping any of
+ * those. A strict subset of {@link isPrivateAddress}. Used to gate loopback
+ * separately from other private ranges so a caller (Electron) can permit
+ * RFC-1918/LAN targets while still blocking loopback when localhost is disabled
+ * — without a `0.0.0.0`/`::` bypass.
+ */
+export function isLoopbackAddress(hostname: string): boolean {
+  const stripped = stripBrackets(hostname);
+  const v4 = stripV4MappedPrefix(stripped);
+  if (v4 === 'localhost') return true;
+  // 0.0.0.0 is the unspecified address; connecting to it reaches the local host,
+  // so it's localhost-equivalent for SSRF purposes.
+  if (v4 === '0.0.0.0') return true;
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(v4)) return true;
+  if (stripped.includes(':')) {
+    const groups = expandIPv6(stripped);
+    if (groups) {
+      // ::1 (loopback) and :: (unspecified) — both localhost-equivalent.
+      if (groups.slice(0, 7).every((g) => g === 0) && (groups[7] === 0 || groups[7] === 1))
+        return true;
+      const embedded = embeddedV4FromGroups(groups);
+      if (embedded && (/^127\./.test(embedded) || embedded === '0.0.0.0')) return true;
+    }
+  }
+  return false;
+}
+
 export function isPrivateAddress(hostname: string): boolean {
   const stripped = stripBrackets(hostname);
   const v4Normalized = stripV4MappedPrefix(stripped);
@@ -269,6 +299,18 @@ export interface ResolvedAddressOptions {
    * literal RFC1918 / link-local / loopback addresses they typed explicitly.
    */
   allowPrivateLiteralHost?: boolean;
+  /**
+   * When true, loopback addresses (127/8, ::1) are permitted ONLY via
+   * `allowLocalhost` — `allowPrivateLiteralHost` does not open them. Electron
+   * sets this so its two independent Settings → Security toggles ("allow
+   * localhost" vs "allow private IPs") don't bleed into each other: enabling
+   * private IPs must not silently re-open loopback when localhost is disabled.
+   *
+   * Defaults false to preserve the Worker/self-host single-switch model, where
+   * `allowPrivateIPs` intentionally covers loopback too (see dns-guard-node.ts).
+   * Cloud-metadata endpoints stay blocked regardless.
+   */
+  loopbackNeedsLocalhost?: boolean;
 }
 
 export function assertResolvedAddressAllowed(
@@ -291,6 +333,19 @@ export function assertResolvedAddressAllowed(
     options.allowLocalhost && (lower === 'localhost' || lower.endsWith('.localhost'));
 
   if (isAllowedLocalhost) return;
+
+  // Loopback gate (Electron opt-in): when the caller keeps its localhost and
+  // private-IP policies independent, loopback is permitted ONLY by
+  // `allowLocalhost` — the broader `allowPrivateLiteralHost` carve-out must not
+  // re-open it. Without this flag (Worker/self-host), loopback falls through to
+  // the private-literal path below, matching the single-switch model.
+  if (options.loopbackNeedsLocalhost && isLoopbackAddress(address)) {
+    if (options.allowLocalhost) return;
+    throw new Error(
+      `Refusing to connect to loopback address ${address} for ${hostname}: localhost is disabled`
+    );
+  }
+
   if (options.allowPrivateLiteralHost) return;
 
   throw new Error(

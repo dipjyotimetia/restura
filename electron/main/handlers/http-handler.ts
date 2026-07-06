@@ -234,6 +234,9 @@ function createSecureLookup(
           assertResolvedAddressAllowed(hostname, entry.address, {
             allowLocalhost,
             allowPrivateLiteralHost: allowPrivate,
+            // Loopback stays gated on allowLocalhost, independent of the
+            // private-IP opt-in (matches the desktop two-toggle Security model).
+            loopbackNeedsLocalhost: true,
           });
         }
         callback(null, address as never, family as never);
@@ -973,8 +976,7 @@ async function makeHttpRequest(
         // Shared outbound-network policy (Settings → Security), same snapshot
         // every desktop transport reads. Cloud metadata stays blocked inside
         // the shared URL guard regardless.
-        allowLocalhost: getNetworkPolicy().allowLocalhost,
-        allowPrivateIPs: getNetworkPolicy().allowPrivateIPs,
+        ...getNetworkPolicy(),
         resolveSecret: (v) => unwrapSecretValueMain(v) ?? '',
         // Desktop signs AWS SigV4 with the official @smithy/signature-v4; the
         // Worker keeps the built-in Web-Crypto signer.

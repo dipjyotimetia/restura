@@ -31,6 +31,7 @@ import { CaptureBridgeCard } from '@/components/shared/CaptureBridgeCard';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { Logo } from '@/components/shared/Logo';
+import { Badge } from '@/components/ui/badge';
 import { Floater, Kbd, Segmented, Stepper, TextField, ToggleField } from '@/components/ui/spatial';
 import SecretInput from '@/features/auth/components/SecretInput';
 import { CertificateOverride } from '@/features/http/components/CertificateOverride';
@@ -908,9 +909,10 @@ function ProxySection() {
           {bypassList.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {bypassList.map((host) => (
-                <span
+                <Badge
                   key={host}
-                  className="inline-flex items-center gap-1.5 h-7 pl-2.5 pr-1.5 rounded-sp-pill bg-sp-surface border border-sp-line font-mono text-sp-11-5 text-sp-text"
+                  variant="mono"
+                  className="gap-1.5 h-7 pl-2.5 pr-1.5 rounded-sp-pill text-sp-11-5 text-sp-text"
                 >
                   {host}
                   <button
@@ -925,7 +927,7 @@ function ProxySection() {
                   >
                     <X size={11} />
                   </button>
-                </span>
+                </Badge>
               ))}
             </div>
           )}
@@ -1138,8 +1140,13 @@ function CertificatesSection() {
   const handleCaPaste = (value: string) => {
     setPastedCa(value);
     setCaFileName('');
-    if (value.trim()) {
-      setCaCert({ pem: value.trim() });
+    // Only commit valid-looking PEM to the store — consistent with the
+    // file-select path, which rejects non-PEM. The textarea keeps whatever was
+    // typed (with the inline warning below) so a partial/invalid paste never
+    // persists an unusable CA that would fail later at the TLS handshake.
+    const trimmed = value.trim();
+    if (trimmed && looksLikePemCertificate(trimmed)) {
+      setCaCert({ pem: trimmed });
     } else {
       setCaCert(undefined);
     }
@@ -1508,11 +1515,13 @@ function SecuritySection() {
       <p className="text-sp-11-5 text-sp-muted mt-4 flex items-start gap-1.5">
         <Info size={13} className="shrink-0 mt-0.5 text-sp-accent" aria-hidden="true" />
         <span>
-          On the desktop app these govern Restura&rsquo;s own outbound SSRF guard. In the browser
-          they gate an in-app pre-check only — the hosted web app and self-host server enforce their
-          own network policy, which always takes precedence. Cloud-metadata endpoints (e.g.{' '}
-          <span className="font-mono">169.254.169.254</span>) are blocked on every platform,
-          regardless of these settings.
+          On the desktop app these govern Restura&rsquo;s HTTP, WebSocket, SSE, Socket.IO, gRPC, and
+          MCP requests. In the browser they gate an in-app pre-check only — the hosted web app and
+          self-host server enforce their own network policy, which always takes precedence.
+          Cloud-metadata endpoints (e.g. <span className="font-mono">169.254.169.254</span>) are
+          blocked on every platform, regardless of these settings. Kafka and MQTT brokers follow
+          protocol-appropriate rules — private/LAN broker addresses stay reachable (cloud-metadata
+          is still blocked) — so these two toggles don&rsquo;t restrict them.
         </span>
       </p>
     </>

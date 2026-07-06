@@ -9,8 +9,15 @@ import { useSettingsStore } from '@/store/useSettingsStore';
  *
  * The store rehydrates from Dexie asynchronously, so the initial push may carry
  * the defaults (localhost allowed, private blocked); the subscription catches
- * the rehydrated value if it differs. Main defaults to the same safe baseline,
- * so any brief pre-push window fails closed for the private-IP opt-in.
+ * the rehydrated value once it differs. Main defaults to the same baseline, so
+ * the brief pre-push window fails *closed* for a user who enabled private IPs
+ * (they stay blocked until the push lands) but fails *open* for a user who
+ * disabled localhost (loopback is transiently reachable until the push). The
+ * latter is not a regression — before this policy existed these transports
+ * permanently allowed localhost — and HTTP is still covered by the renderer's
+ * own pre-flight validateURL, which reads the setting synchronously. Defaulting
+ * main to localhost-blocked instead would break the common (localhost-allowed)
+ * case on every launch, so the transient is accepted.
  */
 
 let subscribed = false;

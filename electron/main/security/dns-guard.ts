@@ -36,6 +36,9 @@ export async function assertHostnameSafe(
     assertResolvedAddressAllowed(hostname, hostname, {
       allowLocalhost: options.allowLocalhost,
       allowPrivateLiteralHost: isPrivateAddress(hostname),
+      // Desktop keeps localhost + private-IP as independent Security toggles, so
+      // loopback is gated on allowLocalhost even when private IPs are allowed.
+      loopbackNeedsLocalhost: true,
     });
     return [{ address: hostname, family: net.isIP(hostname) === 6 ? 6 : 4 }];
   }
@@ -56,6 +59,9 @@ export async function assertHostnameSafe(
       // hostname pointing at an RFC-1918 target is permitted only when the
       // policy allows it. Cloud-metadata stays blocked inside the assertion.
       allowPrivateLiteralHost: options.allowPrivateIPs === true,
+      // Loopback stays gated on allowLocalhost — allow-private-IPs must not
+      // re-open a hostname that resolves to 127.0.0.1/::1.
+      loopbackNeedsLocalhost: true,
     });
   }
   return records;

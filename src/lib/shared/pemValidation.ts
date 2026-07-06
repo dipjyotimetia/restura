@@ -7,10 +7,14 @@
  * (expired, wrong key, bad chain); a value that fails them is definitely wrong.
  */
 
-const PEM_CERT_RE = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/;
-// Covers PKCS#8 (`PRIVATE KEY`), PKCS#1 RSA, SEC1 EC, and encrypted PKCS#8.
-const PEM_KEY_RE =
-  /-----BEGIN (?:RSA |EC |ENCRYPTED )?PRIVATE KEY-----[\s\S]+?-----END (?:RSA |EC |ENCRYPTED )?PRIVATE KEY-----/;
+// The label is captured and back-referenced on the END line so a mismatched
+// block (e.g. BEGIN RSA … / END EC …) doesn't false-pass.
+const PEM_CERT_RE = /-----BEGIN ((?:TRUSTED )?CERTIFICATE)-----[\s\S]+?-----END \1-----/;
+// Any `<LABEL> PRIVATE KEY` block: PKCS#8 (`PRIVATE KEY`), PKCS#1 RSA, SEC1 EC,
+// DSA, encrypted PKCS#8, and OpenSSH. A shape check — a label Node's TLS can't
+// consume (e.g. OpenSSH) still surfaces at handshake, but an obvious wrong file
+// (a cert, random text) is caught at save time.
+const PEM_KEY_RE = /-----BEGIN ([A-Z0-9 ]*PRIVATE KEY)-----[\s\S]+?-----END \1-----/;
 
 /** True when the text contains at least one PEM certificate block. */
 export function looksLikePemCertificate(text: string): boolean {

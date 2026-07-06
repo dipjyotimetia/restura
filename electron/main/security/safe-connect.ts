@@ -83,6 +83,9 @@ export async function resolveSafeAddress(
       allowPrivateLiteralHost:
         isPrivateAddress(host) &&
         (options.allowLocalhost === true || options.allowPrivateIPs === true),
+      // Loopback is gated on allowLocalhost, so enabling "allow private IPs"
+      // can't silently re-open a literal 127.0.0.1/::1 target.
+      loopbackNeedsLocalhost: true,
     });
     return { host, ip: host, port, family: net.isIP(host) === 6 ? 6 : 4 };
   }
