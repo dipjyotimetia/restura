@@ -16,10 +16,28 @@ export type ProxyHandler = (req: {
   body?: string;
 }) => MockProxyResponse | Promise<MockProxyResponse>;
 
+function appendParamsToUrl(url: string, params?: Record<string, string>): string {
+  if (!params || Object.keys(params).length === 0) return url;
+
+  try {
+    const parsed = new URL(url);
+    for (const [key, value] of Object.entries(params)) {
+      parsed.searchParams.append(key, value);
+    }
+    return parsed.toString();
+  } catch {
+    const joiner = url.includes('?') ? '&' : '?';
+    return `${url}${joiner}${new URLSearchParams(params).toString()}`;
+  }
+}
+
 /**
- * Intercepts both Restura's worker proxy and direct upstream calls so tests
- * see the user-visible response regardless of which path the renderer takes
- * (Worker `/api/proxy` vs. direct axios when CORS proxy is off).
+ * Intercepts the Worker's `/api/proxy` route (and, as a backstop, any direct
+ * upstream call matching `upstreamPattern`) so tests see the user-visible
+ * response regardless of transport. The renderer always POSTs the request spec
+ * to `/api/proxy` on the web build; the spec carries `params` separately from
+ * `url`, so we merge them here to mirror what the real Worker sends upstream
+ * (see `shared/protocol/http-proxy.ts` / `e2e/real-http.spec.ts`).
  */
 export async function mockProxy(
   page: Page,
@@ -31,11 +49,12 @@ export async function mockProxy(
       method?: string;
       url?: string;
       headers?: Record<string, string>;
+      params?: Record<string, string>;
       data?: string;
     };
     const result = await handler({
       method: reqJson.method ?? 'GET',
-      url: reqJson.url ?? '',
+      url: appendParamsToUrl(reqJson.url ?? '', reqJson.params),
       headers: reqJson.headers ?? {},
       body: reqJson.data,
     });
