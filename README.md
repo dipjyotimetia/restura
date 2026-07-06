@@ -67,15 +67,15 @@ So I built Restura. One client that speaks all the protocols I actually use, sto
 
 ## Highlights
 
-|                        |                                                                                                                                                        |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Request scripting**  | Pre-request and test scripts in JavaScript, sandboxed in [QuickJS](https://bellard.org/quickjs/) WASM — no DOM, no network escape.                     |
-| **Workflows**          | Chain requests, extract variables via JSONPath / regex / headers, set retries with exponential backoff. Runs in the app or in CI.                      |
-| **Import everything**  | Postman v2.1, Insomnia, Bruno, OpenAPI / Swagger, Hoppscotch — drop it in and start testing.                                                           |
-| **Environments**       | Scope variables per environment; swap `{{base_url}}` between staging and prod in one click.                                                            |
-| **Auth built-in**      | Basic, Bearer, API Key, OAuth 1.0a/2.0, WSSE, AWS SigV4, mTLS — per request or inherited from a collection or folder.                                  |
-| **AI assistant**       | Chat with OpenAI, Anthropic, or OpenRouter with the current request and response as context. Secrets are redacted at the wire. _Desktop only._         |
-| **Private by default** | Everything stored locally. No accounts, no cloud sync, no per-user tracking or behavioural profiling — usage metrics are anonymous and aggregate only. |
+|                        |                                                                                                                                                                |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Request scripting**  | Pre-request and test scripts in JavaScript, sandboxed in [QuickJS](https://bellard.org/quickjs/) WASM — no DOM, no network escape.                             |
+| **Workflows**          | Chain requests, extract variables via JSONPath / regex / headers, set retries with exponential backoff. Runs in the app or in CI.                              |
+| **Import everything**  | Postman v2.1, Insomnia, Bruno, OpenAPI / Swagger, Hoppscotch — drop it in and start testing.                                                                   |
+| **Environments**       | Scope variables per environment; swap `{{base_url}}` between staging and prod in one click.                                                                    |
+| **Auth built-in**      | Basic, Bearer, API Key, Digest, NTLM, OAuth 1.0a/2.0, WSSE, AWS SigV4 — per request or inherited from a collection or folder. mTLS via the Electron transport. |
+| **AI assistant**       | Chat with OpenAI, Anthropic, or OpenRouter with the current request and response as context. Secrets are redacted at the wire. _Desktop only._                 |
+| **Private by default** | Everything stored locally. No accounts, no cloud sync, no per-user tracking or behavioural profiling — usage metrics are anonymous and aggregate only.         |
 
 ## Security
 
@@ -188,6 +188,9 @@ src/
 │   ├── environments/  # Environment variable manager
 │   ├── auth/          # Auth config (shared across protocols)
 │   ├── load-testing/  # Collection load/perf runner
+│   ├── mcp-server/    # Restura-as-MCP-server
+│   ├── registry/      # Lightweight service registry / request runner
+│   ├── contracts/     # Contract testing (provider / consumer)
 │   └── scripts/       # Script editor + QuickJS executor
 │
 shared/protocol/       # Backend-agnostic protocol orchestrators
