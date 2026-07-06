@@ -173,19 +173,21 @@ const IPC_MODULES: IpcModule[] = [
       registerGitHandlerIPC();
     },
   },
+  { register: () => registerTelemetryConsentIPC() },
+  { register: () => registerNetworkPolicyIPC() },
   { register: () => registerAiHandlers(), dispose: () => unregisterAiHandlers() },
   { register: () => registerAiLabHandlers(), dispose: () => unregisterAiLabHandlers() },
   {
     register: () => registerMockServerIPC(),
-    dispose: () => {
-      void stopMockServer();
+    dispose: async () => {
+      await stopMockServer();
       unregisterMockServerIPC();
     },
   },
   {
     register: () => registerCaptureBridgeIPC(getMainWindow),
-    dispose: () => {
-      void stopCaptureBridge();
+    dispose: async () => {
+      await stopCaptureBridge();
       unregisterCaptureBridgeIPC();
     },
   },
@@ -319,8 +321,6 @@ app.whenReady().then(async () => {
   setupContentSecurityPolicy();
   setupPermissionHandlers();
   registerIPCHandlers();
-  registerTelemetryConsentIPC();
-  registerNetworkPolicyIPC();
 
   const initialWindow = createMainWindow(isDev);
 
@@ -353,17 +353,30 @@ app.on('window-all-closed', () => {
 });
 
 // Cleanup on quit — iterate the same registry the handlers registered from, so
-// teardown can never silently fall out of sync with registration.
-app.on('will-quit', () => {
-  for (const mod of IPC_MODULES) {
-    if (!mod.dispose) continue;
-    try {
-      void mod.dispose();
-    } catch (err) {
-      log.error('IPC module dispose failed', {
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
-  destroyTray();
+// teardown can never silently fall out of sync with registration. Async
+// disposes (Kafka/MQTT awaited broker closes) are awaited behind a
+// preventDefault so graceful close isn't raced by process exit; a timeout
+// backstop keeps a hung broker from blocking quit.
+const QUIT_DISPOSE_TIMEOUT_MS = 3000;
+let quitCleanupDone = false;
+app.on('will-quit', (event) => {
+  if (quitCleanupDone) return;
+  event.preventDefault();
+  const disposals = IPC_MODULES.filter((mod) => mod.dispose).map((mod) =>
+    Promise.resolve()
+      .then(() => mod.dispose!())
+      .catch((err) => {
+        log.error('IPC module dispose failed', {
+          message: err instanceof Error ? err.message : String(err),
+        });
+      })
+  );
+  void Promise.race([
+    Promise.allSettled(disposals),
+    new Promise((resolve) => setTimeout(resolve, QUIT_DISPOSE_TIMEOUT_MS)),
+  ]).then(() => {
+    quitCleanupDone = true;
+    destroyTray();
+    app.exit(0);
+  });
 });

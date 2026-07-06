@@ -21,7 +21,11 @@ vi.mock('electron', () => ({
   },
 }));
 
-import { channelEventBridge } from '../handlers/channel-event-bridge';
+import {
+  addWrappedListener,
+  channelEventBridge,
+  removeWrappedListener,
+} from '../handlers/channel-event-bridge';
 
 const grpc = channelEventBridge('grpc:');
 
@@ -95,5 +99,41 @@ describe('channelEventBridge', () => {
     ws.removeListener('ws:message:7', wsCb);
     ee.emit('ws:message:7', {}, 'bye');
     expect(wsCb).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('addWrappedListener / removeWrappedListener (generic preload bridge)', () => {
+  it('removeWrappedListener detaches the wrapper registered by addWrappedListener', () => {
+    // The preload's generic on/removeListener used to pass the bare callback to
+    // ipcRenderer.removeListener, which never matched the wrapper — unsubscribe
+    // was a permanent no-op (UpdateNotification stacked a listener per remount).
+    const ch = 'app:check-updates';
+    const cb = vi.fn();
+    addWrappedListener(ch, cb);
+    removeWrappedListener(ch, cb);
+    ee.emit(ch, {}, 'tick');
+    expect(cb).not.toHaveBeenCalled();
+    expect(ee.listenerCount(ch)).toBe(0);
+  });
+
+  it('does not stack duplicates across effect remounts (same callback re-subscribed)', () => {
+    const ch = 'menu:settings';
+    const cb = vi.fn();
+    addWrappedListener(ch, cb);
+    addWrappedListener(ch, cb);
+    expect(ee.listenerCount(ch)).toBe(1);
+    ee.emit(ch, {});
+    expect(cb).toHaveBeenCalledTimes(1);
+    removeWrappedListener(ch, cb);
+    expect(ee.listenerCount(ch)).toBe(0);
+  });
+
+  it('strips the IpcRendererEvent argument before invoking the callback', () => {
+    const ch = 'app:event-args';
+    const cb = vi.fn();
+    addWrappedListener(ch, cb);
+    ee.emit(ch, { sender: 'fake-event' }, 'payload', 2);
+    expect(cb).toHaveBeenCalledWith('payload', 2);
+    removeWrappedListener(ch, cb);
   });
 });

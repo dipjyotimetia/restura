@@ -24,6 +24,38 @@ type IpcListener = Parameters<typeof ipcRenderer.on>[1];
 const ipcListenerWrappers = new Map<string, Map<BridgeCallback, IpcListener>>();
 
 /**
+ * Registry-backed ipcRenderer.on: registers one wrapper per (channel, callback)
+ * so removeWrappedListener can always find and remove it. Re-subscribing the
+ * same callback is a no-op. Shared by channelEventBridge and the preload's
+ * generic `on`/`removeListener` (VALID_EVENT_CHANNELS) — the latter used to
+ * pass the bare callback to ipcRenderer.removeListener, which never matched
+ * the wrapper, so unsubscribe was a permanent no-op and listeners stacked.
+ */
+export function addWrappedListener(channel: string, callback: BridgeCallback): void {
+  let perChannel = ipcListenerWrappers.get(channel);
+  if (!perChannel) {
+    perChannel = new Map();
+    ipcListenerWrappers.set(channel, perChannel);
+  }
+  // One wrapper per (channel, callback) so the registry stays a faithful
+  // mirror of what's registered with ipcRenderer and removeListener can
+  // always find its wrapper. Re-subscribing the same callback is a no-op.
+  if (perChannel.has(callback)) return;
+  const wrapper: IpcListener = (_event, ...args) => callback(...args);
+  perChannel.set(callback, wrapper);
+  ipcRenderer.on(channel, wrapper);
+}
+
+export function removeWrappedListener(channel: string, callback: BridgeCallback): void {
+  const perChannel = ipcListenerWrappers.get(channel);
+  const wrapper = perChannel?.get(callback);
+  if (!wrapper) return;
+  ipcRenderer.removeListener(channel, wrapper);
+  perChannel!.delete(callback);
+  if (perChannel!.size === 0) ipcListenerWrappers.delete(channel);
+}
+
+/**
  * Build the `{ on, removeListener, removeAllListeners }` trio every streaming
  * namespace exposes, guarded by a channel-name prefix allowlist. Factored out
  * so the prefix guard — a renderer-isolation boundary — is defined once
@@ -33,27 +65,11 @@ export function channelEventBridge(prefix: string) {
   return {
     on: (channel: string, callback: BridgeCallback) => {
       if (!channel.startsWith(prefix)) return;
-      let perChannel = ipcListenerWrappers.get(channel);
-      if (!perChannel) {
-        perChannel = new Map();
-        ipcListenerWrappers.set(channel, perChannel);
-      }
-      // One wrapper per (channel, callback) so the registry stays a faithful
-      // mirror of what's registered with ipcRenderer and removeListener can
-      // always find its wrapper. Re-subscribing the same callback is a no-op.
-      if (perChannel.has(callback)) return;
-      const wrapper: IpcListener = (_event, ...args) => callback(...args);
-      perChannel.set(callback, wrapper);
-      ipcRenderer.on(channel, wrapper);
+      addWrappedListener(channel, callback);
     },
     removeListener: (channel: string, callback: BridgeCallback) => {
       if (!channel.startsWith(prefix)) return;
-      const perChannel = ipcListenerWrappers.get(channel);
-      const wrapper = perChannel?.get(callback);
-      if (!wrapper) return;
-      ipcRenderer.removeListener(channel, wrapper);
-      perChannel!.delete(callback);
-      if (perChannel!.size === 0) ipcListenerWrappers.delete(channel);
+      removeWrappedListener(channel, callback);
     },
     removeAllListeners: (channel: string) => {
       if (!channel.startsWith(prefix)) return;

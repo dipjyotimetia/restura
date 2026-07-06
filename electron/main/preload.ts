@@ -20,7 +20,11 @@ import type {
   AiLabModelSpec,
   AiLabDiscoverArgs,
 } from '../types/electron-api';
-import { channelEventBridge } from './handlers/channel-event-bridge';
+import {
+  addWrappedListener,
+  channelEventBridge,
+  removeWrappedListener,
+} from './handlers/channel-event-bridge';
 
 const validEventChannels: readonly string[] = VALID_EVENT_CHANNELS;
 
@@ -955,16 +959,17 @@ const electronAPI = {
     }): Promise<{ ok: true }> => ipcRenderer.invoke(IPC.security.setNetworkPolicy, policy),
   },
 
-  // Events
+  // Events — wrapper-registry backed so removeListener actually removes the
+  // wrapper registered by on() (passing the bare callback never matched).
   on: (channel: string, callback: (...args: unknown[]) => void) => {
     if (validEventChannels.includes(channel)) {
-      ipcRenderer.on(channel, (_event, ...args) => callback(...args));
+      addWrappedListener(channel, callback);
     }
   },
 
   removeListener: (channel: string, callback: (...args: unknown[]) => void) => {
     if (validEventChannels.includes(channel)) {
-      ipcRenderer.removeListener(channel, callback);
+      removeWrappedListener(channel, callback);
     }
   },
 } satisfies ElectronAPI;

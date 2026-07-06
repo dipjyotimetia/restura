@@ -140,6 +140,10 @@ export function registerWebSocketHandlerIPC(): void {
       ws.on('close', (code: number, reason: Buffer) => {
         // Only forward unexpected closes; explicit ws:disconnect / teardown sets
         // explicitlyClosed. emitAndRemove keeps the emit-before-remove ordering.
+        // Identity check: a same-id reconnect may have replaced this entry while
+        // the old socket was still finishing its close handshake — don't remove
+        // the successor.
+        if (connections.get(connectionId) !== entry) return;
         if (!explicitlyClosed) {
           connections.emitAndRemove(connectionId, 'close', { code, reason: reason.toString() });
         } else {
@@ -199,10 +203,12 @@ export function registerWebSocketHandlerIPC(): void {
       const entry = connections.get(connectionId);
       if (entry) {
         // Graceful close (1000) for an explicit disconnect — distinct from the
-        // hard terminate() that dispose() uses for teardown.
+        // hard terminate() that dispose() uses for teardown. The entry stays
+        // tracked until the 'close' event removes it, so a peer that stalls the
+        // close handshake is still visible to disposeAll/renderer-destroyed
+        // teardown (ws's ~30s close timer bounds the wait).
         entry.setExplicitlyClosed?.();
         entry.ws.close(1000, 'Client disconnected');
-        connections.remove(connectionId);
       }
       return { success: true };
     })
