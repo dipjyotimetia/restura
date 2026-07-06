@@ -1,6 +1,7 @@
 import { Send, Trash2, Search, Download, X, Filter } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { Button } from '@/components/ui/button';
@@ -400,6 +401,7 @@ function WebSocketClient() {
           </div>
           <div>
             <span className="text-sp-11 font-medium text-sp-muted">Handshake headers</span>
+            <DesktopOnlyBadge title="The browser WebSocket API cannot send handshake headers — headers set here are only sent by the desktop app." />
             <div className="mt-1">
               <KeyValueEditor
                 items={connection.headers}

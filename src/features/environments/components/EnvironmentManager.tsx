@@ -286,7 +286,9 @@ function UsageHints() {
           <>
             Click <KeyRound size={11} className="inline align-text-bottom text-amber-400" /> next to
             a variable to mark it as secret — the value is masked in the UI and in collection
-            exports. This is display-only: the value is still stored as plaintext. For OS-keychain
+            exports. This is display-only: the value is still stored as plaintext, and pre-request /
+            test scripts can read it via{' '}
+            <code className="font-mono text-sp-text">pm.environment</code>. For OS-keychain
             protection, use a request's Auth tab instead, where supported credential fields can be
             stored as a handle via Settings → Secrets.
           </>

@@ -207,8 +207,9 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
 
             <TabsContent value="contract" className="mt-0 space-y-3">
               <p className="text-xs text-muted-foreground">
-                Attach an OpenAPI spec; requests with a contract reference are validated against it
-                at execution time.{!isCollection && ' Overrides the collection-level spec.'}
+                Attach an OpenAPI spec — used to generate mock server routes.
+                {!isCollection && ' Overrides the collection-level spec.'} Execution-time response
+                validation against the spec is not wired up yet.
               </p>
               <Select
                 value={contractSource}

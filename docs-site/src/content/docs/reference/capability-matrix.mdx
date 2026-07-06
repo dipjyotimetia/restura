@@ -27,8 +27,8 @@ Restura's capability matrix is **data-driven**: there's a single source of truth
 
 - **Kafka** — produce / consume / SASL / TLS (needs raw TCP).
 - **MQTT** — publish / subscribe / QoS / TLS / MQTT 5.0 (needs raw TCP).
-- **MCP `http-sse` + `stdio` transports** — `stdio` needs subprocess spawning; `http-sse` is rejected in web mode.
-- **SSE custom headers** — browser `EventSource` doesn't allow them.
+- **MCP `http-sse` transport** — rejected in web mode; use `streamable-http` on web.
+- **WebSocket custom handshake headers** — the browser `WebSocket` API can't set upgrade headers.
 - **mTLS** client certificates.
 - **SOCKS4 / SOCKS5** proxies.
 - **Custom CA bundle**, disable TLS verification.

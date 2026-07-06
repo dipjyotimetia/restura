@@ -9,16 +9,16 @@ Restura's WebSocket client gives you a full session viewer: every frame sent and
 
 - **Connect** to `ws://` and `wss://` URLs.
 - **Subprotocols + handshake headers** — editable while disconnected (e.g. a `Sec-WebSocket-Protocol` such as `graphql-transport-ws`); the negotiated subprotocol is surfaced after the upgrade.
-- **Custom headers** during the upgrade — routed through the Worker on web, sent natively on desktop.
+- **Custom headers** during the upgrade — desktop only (sent natively via the main process); the browser `WebSocket` API can't set upgrade headers.
 - **Send text frames** with the editor; auto-detects JSON for pretty printing.
 - **Send binary frames** — paste hex, upload a file, or use a script.
 - **Auto-reconnect** — backoff with jitter, configurable per session.
-- **Auth on connect** — Bearer, Basic, API Key, OAuth 2.0 (all on the upgrade), and ticket-based auth via the Worker on web.
+- **Auth on connect** — Bearer, Basic, API Key, OAuth 2.0, carried as upgrade headers on desktop.
 - **Ping / pong** — visible in the transcript so you can verify keepalives.
 
 ## Web-specific path
 
-The browser `WebSocket` API can't set custom headers on the upgrade. Restura's web build solves this by minting a short-lived ticket through the Worker (`/api/ws-ticket`) and connecting via the Worker's WebSocket proxy. From your point of view it just works.
+The browser `WebSocket` API can't set custom headers on the upgrade, and the web build currently connects directly with the browser API — so handshake headers configured in the UI are **not sent** on web (a system message in the transcript says so when it happens). A Worker relay (`/api/ws-ticket` → `/api/ws`) exists server-side to lift this limitation but is not wired into the renderer yet. Use the desktop app when the server requires upgrade headers.
 
 ## Desktop-specific path
 
