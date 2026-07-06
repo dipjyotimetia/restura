@@ -12,6 +12,7 @@ import {
   assertTrustedSender,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
+import { getNetworkPolicy } from '../security/network-policy';
 import { resolveSafeAddress, createPinnedFetch } from '../security/safe-connect';
 import { makeFetchFetcher } from './fetch-fetcher';
 import { SseParser, type ParsedSseEvent } from './sse-parser';
@@ -115,7 +116,7 @@ export function registerSseHandlerIPC(): void {
     // keeps SNI + Host header on the original hostname for TLS correctness.
     let pinned: Awaited<ReturnType<typeof resolveSafeAddress>>;
     try {
-      pinned = await resolveSafeAddress(config.url, { allowLocalhost: true });
+      pinned = await resolveSafeAddress(config.url, { ...getNetworkPolicy() });
     } catch (err) {
       return {
         success: false,
@@ -158,9 +159,9 @@ export function registerSseHandlerIPC(): void {
           headers: { Accept: 'text/event-stream', ...(config.headers ?? {}) },
         },
         sseFetcher,
-        // SSE handler is desktop-only; mirror http-handler's permissive localhost
-        // policy (Electron users routinely target local dev servers).
-        { allowLocalhost: true }
+        // Same outbound-network policy as every other desktop transport
+        // (Settings → Security), so localhost/private-IP rules stay consistent.
+        { ...getNetworkPolicy() }
       );
       clearTimeout(timeoutId);
 

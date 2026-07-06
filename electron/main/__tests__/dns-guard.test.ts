@@ -88,6 +88,23 @@ describe('dns-guard', () => {
       ).resolves.toBeDefined();
     });
 
+    it('accepts a DNS-resolved private address when allowPrivateIPs is true (the Security opt-in)', async () => {
+      // Default rejects this (rebind-style, covered above); the opt-in permits
+      // a hostname pointing at an RFC-1918 target for internal-network use.
+      mockLookup.mockResolvedValueOnce([{ address: '10.0.0.5', family: 4 }]);
+      await expect(
+        assertHostnameSafe('internal.example.com', { allowLocalhost: true, allowPrivateIPs: true })
+      ).resolves.toBeDefined();
+    });
+
+    it('STILL rejects a DNS-resolved metadata address even with allowPrivateIPs true', async () => {
+      // The crux invariant: the private-IP opt-in must never open cloud metadata.
+      mockLookup.mockResolvedValueOnce([{ address: '169.254.169.254', family: 4 }]);
+      await expect(
+        assertHostnameSafe('rebind.example.com', { allowLocalhost: true, allowPrivateIPs: true })
+      ).rejects.toThrow(/metadata/);
+    });
+
     it('surfaces DNS lookup failures as an error', async () => {
       mockLookup.mockRejectedValueOnce(new Error('ENOTFOUND nonexistent.example'));
       await expect(

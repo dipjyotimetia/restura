@@ -176,6 +176,9 @@ export const IPC = {
   telemetry: {
     setConsent: 'telemetry:setConsent',
   },
+  security: {
+    setNetworkPolicy: 'security:setNetworkPolicy',
+  },
 } as const;
 
 /** Static main→renderer push channels (not per-connection). */

@@ -946,6 +946,15 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.telemetry.setConsent, enabled),
   },
 
+  // Outbound-network policy — renderer pushes the Settings → Security flags to
+  // main so every SSRF guard (HTTP/WS/SSE/Socket.IO/gRPC/MCP) shares one policy.
+  security: {
+    setNetworkPolicy: (policy: {
+      allowLocalhost: boolean;
+      allowPrivateIPs: boolean;
+    }): Promise<{ ok: true }> => ipcRenderer.invoke(IPC.security.setNetworkPolicy, policy),
+  },
+
   // Events
   on: (channel: string, callback: (...args: unknown[]) => void) => {
     if (validEventChannels.includes(channel)) {

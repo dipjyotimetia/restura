@@ -942,6 +942,14 @@ interface ElectronTelemetryAPI {
   setConsent: (enabled: boolean) => Promise<{ ok: true }>;
 }
 
+interface ElectronSecurityAPI {
+  /** Push the outbound-network policy to main; shared by every SSRF guard. */
+  setNetworkPolicy: (policy: {
+    allowLocalhost: boolean;
+    allowPrivateIPs: boolean;
+  }) => Promise<{ ok: true }>;
+}
+
 interface ElectronAPI {
   platform: NodeJS.Platform;
   isElectron: boolean;
@@ -972,6 +980,7 @@ interface ElectronAPI {
   keychain: ElectronKeychainAPI;
   collections: ElectronCollectionsAPI;
   telemetry: ElectronTelemetryAPI;
+  security: ElectronSecurityAPI;
   // Valid channels are enumerated by VALID_EVENT_CHANNELS in electron/shared/channels.ts:
   // 'menu:import' | 'menu:export' | 'menu:new-request' | 'menu:settings' | 'app:focus'
   // | 'app:check-updates' | 'deep-link'.

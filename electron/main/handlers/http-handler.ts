@@ -34,7 +34,9 @@ import type { LogEntry } from '../lifecycle/request-logger';
 import { applyNonSignAtWireAuth } from '../security/auth-applier';
 import { smithySigV4Signer } from '../security/aws-sigv4-smithy';
 import { resolveEnvProxy } from '../security/env-proxy';
+import { getNetworkPolicy } from '../security/network-policy';
 import { unwrapSecretValueMain } from '../security/secret-handle-store';
+import { buildTlsClientMaterial } from '../security/tls-material';
 import { interceptorRegistry } from './interceptor-registry';
 
 const log = createLogger('http');
@@ -193,12 +195,6 @@ export interface HttpRequestConfig {
   serverCipherOrder?: boolean;
   minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
   cipherSuites?: string;
-  // Outbound-network policy (Settings → Security). Absent → defaults: localhost
-  // permitted, private/RFC-1918 blocked. Cloud-metadata endpoints stay blocked
-  // regardless. Governs both the shared URL guard and the connector's DNS-resolved
-  // address check so a DNS name can't smuggle in a private address.
-  allowLocalhost?: boolean;
-  allowPrivateIPs?: boolean;
 }
 
 export interface HttpResponse {
@@ -436,37 +432,6 @@ function subscribeProxyAlpnCapture(
 }
 
 /**
- * Resolves the mTLS client-certificate material and custom CA into the options
- * `tls.connect` understands. Shared by every TLS path (direct, HTTP-proxy, and
- * SOCKS-proxy) so cert/CA handling can't drift between them — the SOCKS path
- * previously omitted this and silently dropped mTLS + custom CA.
- */
-function buildTlsClientMaterial(electronConfig: HttpRequestConfig): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  if (electronConfig.clientCert) {
-    // Resolve the passphrase SecretValue to plaintext main-side (ADR-0007);
-    // a handle never crosses back to the renderer.
-    const passphrase = unwrapSecretValueMain(electronConfig.clientCert.passphrase);
-    if (electronConfig.clientCert.pfx) {
-      out.pfx = Buffer.from(electronConfig.clientCert.pfx, 'base64');
-      if (passphrase) {
-        out.passphrase = passphrase;
-      }
-    } else if (electronConfig.clientCert.cert && electronConfig.clientCert.key) {
-      out.cert = electronConfig.clientCert.cert;
-      out.key = electronConfig.clientCert.key;
-      if (passphrase) {
-        out.passphrase = passphrase;
-      }
-    }
-  }
-  if (electronConfig.caCert?.pem) {
-    out.ca = electronConfig.caCert.pem;
-  }
-  return out;
-}
-
-/**
  * Builds the connector options shared by every dispatcher we construct
  * (DNS rebind guard, connect timeout, mTLS material, custom CA, SSL verify flag).
  */
@@ -481,13 +446,10 @@ function buildConnectOptions(
   // base64-decode the PFX a second time.
   certMaterial: Record<string, unknown>
 ): Record<string, unknown> {
+  const policy = getNetworkPolicy();
   const connectOpts: Record<string, unknown> = {
     timeout: CONNECTION_TIMEOUT,
-    lookup: createSecureLookup(
-      url.hostname,
-      electronConfig.allowLocalhost !== false,
-      electronConfig.allowPrivateIPs === true
-    ),
+    lookup: createSecureLookup(url.hostname, policy.allowLocalhost, policy.allowPrivateIPs),
   };
 
   if (isHttps) {
@@ -1008,11 +970,11 @@ async function makeHttpRequest(
       },
       fetcher,
       {
-        // Outbound-network policy from Settings → Security. Absent → localhost
-        // permitted, private IPs blocked (prior hardcoded behaviour). Cloud
-        // metadata stays blocked inside the shared URL guard regardless.
-        allowLocalhost: interceptedConfig.allowLocalhost !== false,
-        allowPrivateIPs: interceptedConfig.allowPrivateIPs === true,
+        // Shared outbound-network policy (Settings → Security), same snapshot
+        // every desktop transport reads. Cloud metadata stays blocked inside
+        // the shared URL guard regardless.
+        allowLocalhost: getNetworkPolicy().allowLocalhost,
+        allowPrivateIPs: getNetworkPolicy().allowPrivateIPs,
         resolveSecret: (v) => unwrapSecretValueMain(v) ?? '',
         // Desktop signs AWS SigV4 with the official @smithy/signature-v4; the
         // Worker keeps the built-in Web-Crypto signer.

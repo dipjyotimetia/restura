@@ -45,14 +45,6 @@ export interface DesktopTransportConfig {
   serverCipherOrder?: boolean;
   minTlsVersion?: MinTlsVersion;
   cipherSuites?: string;
-  /**
-   * Outbound-network policy (Settings → Security). Only carried when the user
-   * departs from the defaults (localhost allowed, private IPs blocked), so the
-   * common case still produces no desktop config. Applied by the Electron
-   * handler; cloud-metadata endpoints stay blocked regardless.
-   */
-  allowLocalhost?: boolean;
-  allowPrivateIPs?: boolean;
 }
 
 export class ProxyTransportError extends Error {
@@ -160,8 +152,6 @@ async function executeViaElectronIpc(
   // still absent from the .d.ts, so it's threaded via a typed intersection.
   type IpcConfig = Parameters<typeof api.http.request>[0] & {
     auth?: ProxyRequestBody['auth'];
-    allowLocalhost?: boolean;
-    allowPrivateIPs?: boolean;
   };
   // The IPC proxy type excludes 'none' (the renderer's ProxyConfig allows it
   // as a "disabled" sentinel). Only forward an actually-enabled, real proxy.
@@ -218,10 +208,6 @@ async function executeViaElectronIpc(
       : {}),
     ...(desktop?.minTlsVersion !== undefined ? { minTlsVersion: desktop.minTlsVersion } : {}),
     ...(desktop?.cipherSuites !== undefined ? { cipherSuites: desktop.cipherSuites } : {}),
-    // Outbound-network policy (Settings → Security), only present when the user
-    // departed from the defaults. Ignored on the web path with everything else.
-    ...(desktop?.allowLocalhost !== undefined ? { allowLocalhost: desktop.allowLocalhost } : {}),
-    ...(desktop?.allowPrivateIPs !== undefined ? { allowPrivateIPs: desktop.allowPrivateIPs } : {}),
   };
 
   const result = await api.http.request(config);

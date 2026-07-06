@@ -124,20 +124,4 @@ describe('buildDesktopTransportConfig', () => {
       buildDesktopTransportConfig(settings({ verifySsl: false }), app(), URL_)?.verifySsl
     ).toBe(false);
   });
-
-  it('carries the Security network policy only when it departs from defaults', () => {
-    // Defaults (localhost allowed, private blocked) emit nothing extra.
-    const dflt = buildDesktopTransportConfig(settings(), app(), URL_);
-    expect(dflt?.allowLocalhost).toBeUndefined();
-    expect(dflt?.allowPrivateIPs).toBeUndefined();
-
-    // Non-default choices are threaded through to the desktop transport.
-    const tightened = buildDesktopTransportConfig(
-      settings(),
-      app({ allowLocalhost: false, allowPrivateIPs: true }),
-      URL_
-    );
-    expect(tightened?.allowLocalhost).toBe(false);
-    expect(tightened?.allowPrivateIPs).toBe(true);
-  });
 });
