@@ -113,10 +113,16 @@ export function ProviderManager() {
   // uses a per-config `busy` keyed by id; this one is form-scoped and
   // exists in parallel so adding a provider can race with discovery.
   const [publicFetchBusy, setPublicFetchBusy] = useState(false);
-  const [prefetchedOpenRouter, setPrefetchedOpenRouter] = useState<{
+  // Tagged with the provider it was fetched for so a stale catalog can never
+  // attach to a different provider type — even if a fetch resolves after the
+  // user has already switched the type selector.
+  const [prefetchedCatalog, setPrefetchedCatalog] = useState<{
+    provider: Provider;
     modelIds: string[];
     modelDetails: Record<string, AiLabModelDetail>;
   } | null>(null);
+  const stagedCatalog =
+    prefetchedCatalog && prefetchedCatalog.provider === provider ? prefetchedCatalog : null;
   const [removing, setRemoving] = useState<AiLabProviderConfig | null>(null);
   const { confirm: confirmRemove, DialogComponent: RemoveProviderDialog } = useConfirmDialog({
     title: 'Remove provider',
@@ -132,9 +138,10 @@ export function ProviderManager() {
   const onProviderChange = (v: Provider) => {
     setProvider(v);
     setBaseUrl(DEFAULT_BASE[v]);
-    // Staged catalog is provider-specific (OpenRouter public model list);
-    // switching types makes it meaningless so drop it.
-    if (v !== 'openrouter') setPrefetchedOpenRouter(null);
+    // Staged catalog is provider-specific; switching types makes it
+    // meaningless so drop it (the provider tag guards against races, this
+    // just frees the memory eagerly).
+    setPrefetchedCatalog(null);
   };
 
   const add = async () => {
@@ -156,11 +163,11 @@ export function ProviderManager() {
       }
       apiKeyHandleId = res.id;
     }
-    // Capture the pre-fetched OpenRouter catalog (if any) so it travels with
-    // the provider entry — otherwise the user would have to re-discover
+    // Capture the pre-fetched catalog (if any, and only if it was fetched
+    // for the currently selected provider type) so it travels with the
+    // provider entry — otherwise the user would have to re-discover
     // immediately after adding the provider just to populate the checklist.
-    const prefetched =
-      provider === 'openrouter' && prefetchedOpenRouter ? prefetchedOpenRouter : null;
+    const prefetched = stagedCatalog;
     const id = addProvider({
       provider,
       label: label.trim(),
@@ -176,7 +183,7 @@ export function ProviderManager() {
     }
     setLabel('');
     setApiKey('');
-    setPrefetchedOpenRouter(null);
+    setPrefetchedCatalog(null);
     if (prefetched) {
       toast.success(
         `Added ${label.trim()} with ${prefetched.modelIds.length} pre-fetched model(s)`
@@ -213,7 +220,7 @@ export function ProviderManager() {
         return;
       }
       const { models, modelDetails } = splitDiscoveredModels(res.models);
-      setPrefetchedOpenRouter({ modelIds: models, modelDetails });
+      setPrefetchedCatalog({ provider: 'openrouter', modelIds: models, modelDetails });
       toast.success(`Fetched ${models.length} model(s) from OpenRouter's public API`);
     } finally {
       setPublicFetchBusy(false);
@@ -262,14 +269,18 @@ export function ProviderManager() {
       toast.error(gate.reason ?? 'Missing configuration.');
       return;
     }
+    // Snapshot the selection so the staged result is tagged with the provider
+    // the fetch was actually issued for, even if the user flips the type
+    // selector while the request is in flight.
+    const forProvider = provider;
     setPublicFetchBusy(true);
     try {
       const effectiveBase =
-        (opt.needsBaseUrl || isLocalProvider(provider)) && baseUrl.trim()
+        (opt.needsBaseUrl || isLocalProvider(forProvider)) && baseUrl.trim()
           ? baseUrl.trim()
-          : DEFAULT_BASE[provider];
+          : DEFAULT_BASE[forProvider];
       const res = await listModels({
-        provider,
+        provider: forProvider,
         baseUrl: effectiveBase,
         // The add-form's API key is a plaintext local field, not a handle
         // (we mint a handle in `add()` only if the user commits the form).
@@ -283,11 +294,11 @@ export function ProviderManager() {
         return;
       }
       const { models, modelDetails } = splitDiscoveredModels(res.models);
-      setPrefetchedOpenRouter({ modelIds: models, modelDetails });
+      setPrefetchedCatalog({ provider: forProvider, modelIds: models, modelDetails });
       const detailCount = Object.keys(modelDetails).length;
       const suffix = detailCount > 0 ? ` (${detailCount} with metadata)` : '';
       toast.success(
-        `Fetched ${models.length} model(s) for ${PROVIDER_OPTIONS.find((o) => o.value === provider)?.label ?? provider}${suffix}`
+        `Fetched ${models.length} model(s) for ${PROVIDER_OPTIONS.find((o) => o.value === forProvider)?.label ?? forProvider}${suffix}`
       );
     } finally {
       setPublicFetchBusy(false);
@@ -441,8 +452,8 @@ export function ProviderManager() {
                 >
                   {publicFetchBusy
                     ? 'Fetching…'
-                    : prefetchedOpenRouter
-                      ? `Re-fetch (${prefetchedOpenRouter.modelIds.length} staged)`
+                    : stagedCatalog
+                      ? `Re-fetch (${stagedCatalog.modelIds.length} staged)`
                       : 'Fetch catalog'}
                 </Button>
               </div>
