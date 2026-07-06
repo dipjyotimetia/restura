@@ -1,16 +1,20 @@
 import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type * as platformModule from '@/lib/shared/platform';
 
-vi.mock('@/lib/shared/platform', () => ({ isElectron: () => false }));
+vi.mock('@/lib/shared/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof platformModule>()),
+  isElectron: () => false,
+}));
 
+// The web interactive Send converged on the shared executor, which posts the
+// spec to the Worker `/api/proxy` via `axios.post` (see lib/shared/transport).
+// Mock that wire shape: the Worker responds with a ProxyJsonResponse envelope.
 vi.mock('axios', () => {
-  const mockAxios = vi.fn().mockResolvedValue({
-    status: 200,
-    statusText: 'OK',
-    headers: {},
-    data: { ok: true },
-    config: { headers: {}, url: undefined },
+  const post = vi.fn().mockResolvedValue({
+    data: { status: 200, statusText: 'OK', headers: {}, data: { ok: true } },
   });
+  const mockAxios = Object.assign(vi.fn(), { post });
   return { default: mockAxios, isAxiosError: () => false };
 });
 
@@ -75,7 +79,10 @@ describe('useHttpRequestPage — resolved URL persistence', () => {
 
   it('persists the resolved URL on a failed send too', async () => {
     vi.doMock('axios', () => {
-      const mockAxios = vi.fn().mockRejectedValue(new Error('Network Error'));
+      const post = vi.fn().mockRejectedValue(new Error('Network Error'));
+      const mockAxios = Object.assign(vi.fn().mockRejectedValue(new Error('Network Error')), {
+        post,
+      });
       return { default: mockAxios, isAxiosError: () => false };
     });
 
@@ -132,6 +139,62 @@ describe('useHttpRequestPage — resolved URL persistence', () => {
     // this entry still targets whichever environment is active.
     expect(lastHistoryEntry?.request.url).toBe('{{baseUrl}}/anything');
     expect(lastConsoleEntry?.request.url).toBe('{{baseUrl}}/anything');
+  });
+
+  it('web send goes through the Worker proxy, never direct browser HTTP (shared-executor convergence)', async () => {
+    const axios = (await import('axios')).default as unknown as {
+      (...args: unknown[]): unknown;
+      post: ReturnType<typeof vi.fn>;
+    };
+    axios.post.mockClear();
+
+    const { useEnvironmentStore } = await import('@/store/useEnvironmentStore');
+    const { useRequestStore } = await import('@/store/useRequestStore');
+
+    useEnvironmentStore.setState({
+      environments: [
+        {
+          id: 'env1',
+          name: 'Env',
+          variables: [{ id: 'v1', key: 'baseUrl', value: 'https://example.com', enabled: true }],
+        },
+      ],
+      activeEnvironmentId: 'env1',
+    });
+
+    const httpRequest = {
+      id: 'req-proxy',
+      name: 'Proxy-routed request',
+      type: 'http' as const,
+      method: 'GET' as const,
+      url: '{{baseUrl}}/anything',
+      headers: [],
+      params: [],
+      body: { type: 'none' as const },
+      auth: { type: 'none' as const },
+    };
+
+    useRequestStore.setState({
+      tabs: [{ id: 'tab1', request: httpRequest, isDirty: false }],
+      activeTabId: 'tab1',
+      isLoading: false,
+    });
+
+    const { useHttpRequestPage } = await import('../useHttpRequestPage');
+    const { result } = renderHook(() => useHttpRequestPage());
+
+    await act(async () => {
+      await result.current.handlers.sendRequest();
+    });
+
+    // Regression guard: the web interactive Send used to issue a direct
+    // browser request to the upstream (dropping sign-at-wire auth, structured
+    // bodies, redirect policy, and URL validation). It must POST the spec to
+    // the Worker `/api/proxy` like every other execution path.
+    expect(axios.post).toHaveBeenCalledTimes(1);
+    const [proxyUrl, spec] = axios.post.mock.calls[0]!;
+    expect(String(proxyUrl)).toContain('/api/proxy');
+    expect(spec).toMatchObject({ method: 'GET', url: 'https://example.com/anything' });
   });
 
   it('reopening a console entry still replays the template, not the resolved URL', async () => {
