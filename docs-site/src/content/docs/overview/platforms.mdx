@@ -23,8 +23,8 @@ The browser sandbox can't expose raw TCP, custom CAs, SOCKS, or PAC scripting. R
 
 - **Kafka** (produce / consume — needs raw TCP + SASL).
 - **MQTT** (publish / subscribe — needs raw TCP/TLS).
-- **SSE custom headers** (the browser `EventSource` API doesn't expose headers).
-- **MCP `http-sse` + `stdio` transports** (subprocesses can't run in a browser; `http-sse` is rejected in web mode).
+- **WebSocket custom handshake headers** (the browser `WebSocket` API can't set upgrade headers).
+- **MCP `http-sse` transport** (rejected in web mode; use `streamable-http` on web).
 - **mTLS client certificates** — sign with a client cert.
 - **SOCKS4 / SOCKS5** proxies.
 - **Custom CA bundle** / disable TLS verification.

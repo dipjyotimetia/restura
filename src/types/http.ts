@@ -57,10 +57,12 @@ export interface HttpRequest {
    */
   description?: string;
   /**
-   * Optional link from this request to an OpenAPI operation. Lets the
-   * contracts feature validate response shape at execution time. The
+   * Optional link from this request to an OpenAPI operation. The
    * `operationId` matches an `operationId` in the spec attached at
-   * collection/folder level via `Collection.contractSpec`.
+   * collection/folder level via `Collection.contractSpec`. NOTE: nothing
+   * reads this at execution time yet — the contracts validator
+   * (`src/features/contracts/lib/validator.ts`) is built and tested but not
+   * wired into the request executor.
    */
   contractRef?: {
     operationId: string;

@@ -150,7 +150,7 @@ Beautiful, minimal, designed for HTTP-only workflows. Great defaults, polished U
 A short list of capabilities not currently available in any of the alternatives above:
 
 1. **Restura *as* an MCP server.** No other client exposes its collections / environments / history to AI agents over MCP with consent gating and per-tool secret redaction. (See [MCP server mode](/guides/mcp-server-mode/).)
-2. **MCP *as a protocol* with all three transports.** `streamable-http`, `http-sse`, and `stdio` (desktop). Other clients with MCP support are emerging but limited.
+2. **MCP *as a protocol*.** `streamable-http` on all platforms, plus `http-sse` on desktop. Other clients with MCP support are emerging but limited.
 3. **Wire-level auth signing across protocols.** AWS SigV4, OAuth 1.0a, and WSSE sign at the Worker / Electron main process — not the renderer — so signatures match the exact bytes the upstream receives. Bruno and Insomnia sign at the client; Postman handles this on its cloud proxy.
 4. **`SecretRef` handle pattern.** Secrets stored on desktop are never exposed to the renderer in plaintext — resolved only at wire time in the main process, with `safeStorage` + OS keychain. See [ADR 0007](/architecture/adrs/0007-secret-ref-pattern/).
 5. **One renderer to three backends.** The same React SPA ships to Cloudflare Pages (web), Electron (native desktop), and a Node+Docker container (self-hosted) — see the [architecture overview](/architecture/overview/).

@@ -28,7 +28,6 @@ export type CapabilityName =
   | 'sse.basic'
   | 'sse.customHeaders'
   | 'mcp.basic'
-  | 'mcp.stdioLocalProcess'
   | 'grpc.basic'
   | 'grpc.reflection'
   | 'kafka.basic'
@@ -135,32 +134,39 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
   'websocket.basic': { label: 'WebSocket connect', web: true, desktop: true },
   'websocket.customHeaders': {
     label: 'WebSocket custom request headers',
-    web: true,
+    web: false,
     desktop: true,
     notes:
-      'Web build proxies through /api/ws-ticket → /api/ws since browser WS API forbids headers',
+      'Browser WS API forbids handshake headers; web connects directly and warns when headers would be dropped. The /api/ws-ticket → /api/ws Worker relay exists but is not wired into the renderer yet',
   },
   'websocket.viaWorkerProxy': {
     label: 'WS through Worker (SSRF gate, header policy)',
-    web: true,
+    web: false,
     desktop: false,
-    notes: 'Desktop uses Node ws directly with the same guards',
+    notes:
+      'Worker routes exist (/api/ws-ticket, /api/ws) but the web renderer connects directly via the browser WebSocket API; desktop uses Node ws with the same guards',
   },
   'sse.basic': { label: 'Server-Sent Events', web: true, desktop: true },
   'sse.customHeaders': {
     label: 'SSE with custom headers',
-    web: false,
+    web: true,
     desktop: true,
-    notes: 'EventSource API in browsers has no headers option',
+    notes:
+      'Web streams via the Worker /api/proxy (fetch-based, not EventSource), so custom headers are forwarded',
   },
-  'mcp.basic': { label: 'MCP streamable-http / http-sse', web: true, desktop: true },
-  'mcp.stdioLocalProcess': { label: 'MCP stdio (local subprocess)', web: false, desktop: true },
+  'mcp.basic': {
+    label: 'MCP streamable-http / http-sse',
+    web: true,
+    desktop: true,
+    notes:
+      'http-sse transport is desktop-only; web supports streamable-http and rejects http-sse at connect time',
+  },
   'grpc.basic': {
     label: 'gRPC unary + streaming',
     web: true,
     desktop: true,
     notes:
-      'Web uses Connect transport over HTTP/2; desktop uses native gRPC with automatic Connect-protocol fallback',
+      'Web uses Connect transport (unary via /api/grpc; server-streaming connects directly, CORS permitting) — client/bidi streaming is desktop-only; desktop uses native gRPC with automatic Connect-protocol fallback',
   },
   'grpc.reflection': { label: 'gRPC reflection', web: true, desktop: true },
   'kafka.basic': {

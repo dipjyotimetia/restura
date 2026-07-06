@@ -68,9 +68,11 @@ export interface Collection {
   auth?: AuthConfig;
   variables?: KeyValue[];
   /**
-   * Optional OpenAPI spec attached at collection scope. Requests with a
-   * `contractRef` are validated against this spec at execution time.
-   * Folders can override via their own `contractSpec` on `CollectionItem`.
+   * Optional OpenAPI spec attached at collection scope. Consumed today by
+   * mock-route generation; the contracts validator (`src/features/contracts`)
+   * exists but is NOT yet wired into request execution — `contractRef`
+   * validation at execution time is a planned follow-up. Folders can
+   * override via their own `contractSpec` on `CollectionItem`.
    */
   contractSpec?: ContractSpecSource;
   /**

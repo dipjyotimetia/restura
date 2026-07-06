@@ -76,6 +76,17 @@ class WebSocketManager {
     store.updateConnectionStatus(connectionId, 'connecting');
     store.setReconnectAttempts(connectionId, 0);
 
+    // Browser path: the WebSocket API has no handshake-header support, so any
+    // configured headers are silently unusable here — say so instead of
+    // letting an Authorization header vanish without a trace.
+    if (headers && Object.keys(headers).length > 0) {
+      store.addMessage(
+        connectionId,
+        'system',
+        'Custom handshake headers are not supported by the browser WebSocket API and were NOT sent. Use the desktop app to send handshake headers.'
+      );
+    }
+
     try {
       const ws = protocols?.length ? new WebSocket(url, protocols) : new WebSocket(url);
 

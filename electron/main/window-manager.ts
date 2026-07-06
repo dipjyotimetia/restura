@@ -9,6 +9,7 @@ import { grpcRateLimiter } from './handlers/grpc-handler';
 import { httpRateLimiter } from './handlers/http-handler';
 import { kafkaRateLimiter } from './handlers/kafka-handler';
 import { mcpRateLimiter } from './handlers/mcp-handler';
+import { mqttRateLimiter } from './handlers/mqtt-handler';
 import { socketIoRateLimiter } from './handlers/socketio-handler';
 import { sseRateLimiter } from './handlers/sse-handler';
 import { wsRateLimiter } from './handlers/websocket-handler';
@@ -225,6 +226,7 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
       sseRateLimiter,
       mcpRateLimiter,
       kafkaRateLimiter,
+      mqttRateLimiter,
       gitRateLimiter,
       notificationRateLimiter,
       secretRateLimiter,

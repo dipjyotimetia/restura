@@ -64,18 +64,27 @@ const activeCalls = new StreamRegistry<ActiveCall>({ dispose: (c) => c.cancel() 
 // first client/bidi message or a premature half-close. Buffer those per
 // requestId and flush them in addActiveCall. Bounded (per-id + map size) so a
 // renderer that sends to an id that never registers can't grow this unbounded.
-const pendingStreamMessages = new Map<string, { writes: unknown[]; end: boolean }>();
+const pendingStreamMessages = new Map<
+  string,
+  { writes: unknown[]; end: boolean; createdAt: number }
+>();
 const MAX_PENDING_WRITES = 256;
 const MAX_PENDING_STREAMS = 100;
+// A pending buffer only bridges the start-stream DNS pre-flight (seconds); one
+// that hasn't been flushed within this window belongs to an id that will never
+// register (renderer bug or dead renderer) and is evicted by the stale sweep.
+const PENDING_TTL_MS = 60 * 1000;
 
 // Get (or create, if room) the pending buffer for a not-yet-registered stream.
 // Returns null when the map is at capacity so callers drop the message rather
 // than grow the buffer unbounded for an id that may never register.
-const getOrCreatePending = (id: string): { writes: unknown[]; end: boolean } | null => {
+const getOrCreatePending = (
+  id: string
+): { writes: unknown[]; end: boolean; createdAt: number } | null => {
   let pending = pendingStreamMessages.get(id);
   if (!pending) {
     if (pendingStreamMessages.size >= MAX_PENDING_STREAMS) return null;
-    pending = { writes: [], end: false };
+    pending = { writes: [], end: false, createdAt: Date.now() };
     pendingStreamMessages.set(id, pending);
   }
   return pending;
@@ -135,6 +144,15 @@ const cleanupStaleStreams = () => {
     }
     log.info('cleaned up stale stream', { streamId: id });
   });
+  // Evict pending buffers whose stream never registered — without this they
+  // survive renderer death and park up to MAX_PENDING_STREAMS × MAX_PENDING_WRITES
+  // payloads until quit.
+  for (const [id, pending] of pendingStreamMessages) {
+    if (now - pending.createdAt > PENDING_TTL_MS) {
+      pendingStreamMessages.delete(id);
+      log.info('evicted stale pending stream buffer', { streamId: id });
+    }
+  }
 };
 
 // Run cleanup every minute
@@ -310,7 +328,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
   startStreamCleanup();
 
   ipcMain.handle(
-    'grpc:request',
+    IPC.grpc.request,
     rateLimited(
       grpcRateLimiter,
       createValidatedHandler(
@@ -337,7 +355,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
   );
 
   ipcMain.on(
-    'grpc:start-stream',
+    IPC.grpc.startStream,
     createValidatedListener(
       IPC.grpc.startStream,
       GrpcRequestConfigSchema,
@@ -503,7 +521,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
   );
 
   ipcMain.on(
-    'grpc:send-message',
+    IPC.grpc.sendMessage,
     createValidatedListener(
       IPC.grpc.sendMessage,
       GrpcSendMessageSchema,
@@ -522,7 +540,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
   );
 
   ipcMain.on(
-    'grpc:end-stream',
+    IPC.grpc.endStream,
     createValidatedListener(
       IPC.grpc.endStream,
       GrpcStreamRequestIdSchema,
@@ -540,7 +558,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
   );
 
   ipcMain.on(
-    'grpc:cancel-stream',
+    IPC.grpc.cancelStream,
     createValidatedListener(
       IPC.grpc.cancelStream,
       GrpcStreamRequestIdSchema,

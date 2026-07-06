@@ -42,11 +42,17 @@ e2e/
 ├── http.spec.ts              # HTTP flow with route-level mocking
 ├── protocols.spec.ts         # GraphQL, gRPC, WebSocket, SSE protocol switching
 ├── data-management.spec.ts   # Collections, environments, settings, theme
-├── real-http.spec.ts         # Real network I/O against mock HTTP server
-├── real-https.spec.ts        # Real TLS against mock HTTPS server (self-signed)
+├── real-http.spec.ts         # Real network I/O against mock HTTP server (via Worker)
 ├── real-proxy.spec.ts        # Real proxy CONNECT/forward verification
 └── real-grpc.spec.ts         # Worker-driven gRPC against mock Connect server
 ```
+
+> **Self-signed HTTPS upstreams are a desktop-only scenario.** The web Send
+> routes through the Worker (`/api/proxy`), and workerd cannot trust a
+> self-signed cert (custom-CA / cert import is desktop-only — see
+> `src/lib/shared/capabilities.ts`, `http.customCa`). Real TLS-handshake
+> behaviour (custom CA, mTLS, protocol floors, ciphers) is covered by the
+> **Electron** suite at `e2e-electron/specs/tls.spec.ts`.
 
 ## Two test layers
 
@@ -61,13 +67,13 @@ tunneling, real Worker → upstream traversal. Catches issues that mocks miss.
 ```
 [browser]
    │
-   ├─ direct axios  ───────────────────────────►  [mock HTTP / HTTPS server]
-   │                                                  127.0.0.1:<random>
-   │
    └─ /api/proxy, /api/grpc  ──►  [Worker]  ──►  [mock HTTP / gRPC server]
-                                     │
+                                     │               127.0.0.1:<random>
                                      └─ optional ─►  [mock proxy]  ──► upstream
 ```
+
+All web requests go through the Worker — the renderer never speaks HTTP to a
+user-supplied upstream directly (see `src/lib/shared/transport.ts`).
 
 ## Mock servers
 

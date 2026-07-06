@@ -23,13 +23,12 @@ rather than discover it experimentally.
 | Incremental HTTP response streaming | ✅ | ❌ | Web streams via the Worker proxy; Electron IPC buffers the full response (renderer falls back to the buffered path) |
 | Load / performance testing | ✅ | ✅ | Fidelity differs: web is capped by ~6 browser connections per origin and the Worker proxy rate limit (100 req/min); desktop by the IPC rate budget. Results above those budgets include self-inflicted throttling |
 | WebSocket connect | ✅ | ✅ |  |
-| WebSocket custom request headers | ✅ | ✅ | Web build proxies through /api/ws-ticket → /api/ws since browser WS API forbids headers |
-| WS through Worker (SSRF gate, header policy) | ✅ | ❌ | Desktop uses Node ws directly with the same guards |
+| WebSocket custom request headers | ❌ | ✅ | Browser WS API forbids handshake headers; web connects directly and warns when headers would be dropped. The /api/ws-ticket → /api/ws Worker relay exists but is not wired into the renderer yet |
+| WS through Worker (SSRF gate, header policy) | ❌ | ❌ | Worker routes exist (/api/ws-ticket, /api/ws) but the web renderer connects directly via the browser WebSocket API; desktop uses Node ws with the same guards |
 | Server-Sent Events | ✅ | ✅ |  |
-| SSE with custom headers | ❌ | ✅ | EventSource API in browsers has no headers option |
-| MCP streamable-http / http-sse | ✅ | ✅ |  |
-| MCP stdio (local subprocess) | ❌ | ✅ |  |
-| gRPC unary + streaming | ✅ | ✅ | Web uses Connect transport over HTTP/2; desktop uses native gRPC with automatic Connect-protocol fallback |
+| SSE with custom headers | ✅ | ✅ | Web streams via the Worker /api/proxy (fetch-based, not EventSource), so custom headers are forwarded |
+| MCP streamable-http / http-sse | ✅ | ✅ | http-sse transport is desktop-only; web supports streamable-http and rejects http-sse at connect time |
+| gRPC unary + streaming | ✅ | ✅ | Web uses Connect transport (unary via /api/grpc; server-streaming connects directly, CORS permitting) — client/bidi streaming is desktop-only; desktop uses native gRPC with automatic Connect-protocol fallback |
 | gRPC reflection | ✅ | ✅ |  |
 | Kafka produce / consume | ❌ | ✅ | Native broker protocol; no browser TCP |
 | MQTT publish / subscribe | ❌ | ✅ | Native broker protocol over raw TCP/TLS; no browser TCP |

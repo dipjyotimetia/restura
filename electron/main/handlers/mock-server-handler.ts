@@ -116,12 +116,31 @@ export async function startMockServer(opts: {
       }
       if (route.delayMs && route.delayMs > 0) await delay(route.delayMs);
       const headers = { ...route.headers, 'x-restura-mock': 'true' };
-      res.writeHead(route.status, headers);
-      // Base64 routes carry binary bytes — decode and send raw, never templated.
-      if (route.bodyEncoding === 'base64') {
-        res.end(Buffer.from(route.body, 'base64'));
-      } else {
-        res.end(expandTemplate(route.body));
+      try {
+        res.writeHead(route.status, headers);
+        // Base64 routes carry binary bytes — decode and send raw, never templated.
+        if (route.bodyEncoding === 'base64') {
+          res.end(Buffer.from(route.body, 'base64'));
+        } else {
+          res.end(expandTemplate(route.body));
+        }
+      } catch (err) {
+        // A user-configured header with invalid characters throws ERR_INVALID_CHAR
+        // from writeHead — without this the response hangs open. Surface a 500
+        // instead (headers may be partially unsendable, so guard that too).
+        console.error('[mock-server] Invalid mock route response', err);
+        if (!res.headersSent) {
+          try {
+            res.writeHead(500, { 'content-type': 'application/json' });
+          } catch {
+            /* socket already unusable */
+          }
+        }
+        res.end(
+          JSON.stringify({
+            error: 'Invalid mock route response',
+          })
+        );
       }
     })();
   });

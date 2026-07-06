@@ -194,6 +194,10 @@ const MAX_EXECUTION_TIME_MS_ASYNC = 30000;
 // for a moderate HTML page comfortably exceeds the legacy 10MB ceiling.
 // Per-runtime allocator, freed on dispose().
 const MAX_MEMORY_BYTES = 64 * 1024 * 1024;
+// Native (WASM) stack ceiling for sandboxed recursion — QuickJS's built-in
+// default bounds it, but pin it explicitly so a build/default change can't
+// silently remove the cap. 1MB ≈ a few thousand frames, ample for user scripts.
+const MAX_STACK_BYTES = 1024 * 1024;
 
 class ScriptExecutor {
   private envVars: Record<string, string>;
@@ -356,6 +360,7 @@ class ScriptExecutor {
     const QuickJS = await getQuickJS();
     const runtime = QuickJS.newRuntime();
     runtime.setMemoryLimit(MAX_MEMORY_BYTES);
+    runtime.setMaxStackSize(MAX_STACK_BYTES);
     // The interrupt handler reads instance fields so each `eval()` call can
     // reset the start time without re-registering the handler.
     runtime.setInterruptHandler(() => {

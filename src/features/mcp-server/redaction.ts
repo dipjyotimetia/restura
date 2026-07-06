@@ -9,43 +9,52 @@
  * Until the per-descriptor `SecretRef` migration is complete (see
  * ADR-0007), we redact at the MCP output boundary by walking the object
  * tree and zeroing out any field whose path matches a well-known secret
- * field name. The list below mirrors `AuthConfig`'s secret-bearing fields
- * exactly. Adding a new auth descriptor with a secret? Add its field name
- * here in the SAME PR.
+ * field name. The auth field names are derived from the canonical
+ * `SECRET_FIELDS_BY_AUTH_BLOCK` map so this redactor cannot drift from
+ * the export redactors when a new auth descriptor is added.
  */
 
+import { SECRET_FIELDS_BY_AUTH_BLOCK } from '@/lib/shared/auth-secret-fields';
 import { redactSecret, isSecretHandle } from '@/lib/shared/secretRef';
 
 /**
- * Field names that carry secrets in `AuthConfig`. The redactor wipes any
- * field on any object with one of these names, regardless of nesting depth.
- * Lowercased for case-insensitive matching.
+ * Canonical secret-bearing auth field names, lowercased for case-insensitive
+ * matching. `value` (the apiKey credential) is far too generic to wipe on
+ * every object — env-var listings are `{ key, value }` — so it is only
+ * redacted inside an `auth` subtree (see AUTH_ONLY_SECRET_FIELD_NAMES).
  */
-const SECRET_FIELD_NAMES = new Set([
-  // Basic / digest / NTLM / WSSE
-  'password',
-  // Bearer / OAuth2 access
-  'token',
-  'accesstoken',
-  'refreshtoken',
-  // OAuth2 client
-  'clientsecret',
-  // OAuth1
-  'consumersecret',
-  'accesstokensecret',
-  // AWS SigV4
-  'secretkey',
+const CANONICAL_AUTH_FIELD_NAMES = new Set(
+  Object.values(SECRET_FIELDS_BY_AUTH_BLOCK)
+    .flat()
+    .map((f) => f.toLowerCase())
+);
+
+/** Redacted anywhere in a tool output, regardless of nesting. */
+const GLOBAL_SECRET_FIELD_NAMES = new Set([
+  ...[...CANONICAL_AUTH_FIELD_NAMES].filter((n) => n !== 'value'),
+  // Extra generic / defense-in-depth names beyond the auth blocks.
   'secretaccesskey',
   'sessiontoken',
-  // API key
-  'apikey',
-  // mTLS / cert
   'privatekey',
   'passphrase',
-  // Generic
   'secret',
   'credential',
 ]);
+
+/** Redacted only when the field sits inside an `auth` subtree. */
+const AUTH_ONLY_SECRET_FIELD_NAMES = new Set(
+  [...CANONICAL_AUTH_FIELD_NAMES].filter((n) => !GLOBAL_SECRET_FIELD_NAMES.has(n))
+);
+
+function isSecretFieldName(key: string, inAuth: boolean): boolean {
+  const k = key.toLowerCase();
+  return GLOBAL_SECRET_FIELD_NAMES.has(k) || (inAuth && AUTH_ONLY_SECRET_FIELD_NAMES.has(k));
+}
+
+/** A key that roots an auth descriptor subtree. */
+function isAuthKey(key: string): boolean {
+  return key.toLowerCase() === 'auth';
+}
 
 /**
  * Walk the value, redacting any field whose name matches a secret name.
@@ -54,40 +63,40 @@ const SECRET_FIELD_NAMES = new Set([
  * collection (the common case) skips the rebuild.
  */
 export function redactSecretsDeep<T>(value: T): T {
-  if (!containsSecretField(value, new WeakSet())) return value;
-  return redactInner(value, new WeakSet()) as T;
+  if (!containsSecretField(value, new WeakSet(), false)) return value;
+  return redactInner(value, new WeakSet(), false) as T;
 }
 
 /** Pre-scan for any secret-named key anywhere in the tree. */
-function containsSecretField(value: unknown, seen: WeakSet<object>): boolean {
+function containsSecretField(value: unknown, seen: WeakSet<object>, inAuth: boolean): boolean {
   if (value === null || typeof value !== 'object') return false;
   if (seen.has(value as object)) return false;
   seen.add(value as object);
   if (Array.isArray(value)) {
-    return value.some((v) => containsSecretField(v, seen));
+    return value.some((v) => containsSecretField(v, seen, inAuth));
   }
   for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
-    if (SECRET_FIELD_NAMES.has(key.toLowerCase())) return true;
-    if (containsSecretField(v, seen)) return true;
+    if (isSecretFieldName(key, inAuth)) return true;
+    if (containsSecretField(v, seen, inAuth || isAuthKey(key))) return true;
   }
   return false;
 }
 
-function redactInner(value: unknown, seen: WeakSet<object>): unknown {
+function redactInner(value: unknown, seen: WeakSet<object>, inAuth: boolean): unknown {
   if (value === null || typeof value !== 'object') return value;
   if (seen.has(value as object)) return null; // break cycles
   seen.add(value as object);
 
   if (Array.isArray(value)) {
-    return value.map((v) => redactInner(v, seen));
+    return value.map((v) => redactInner(v, seen, inAuth));
   }
 
   const out: Record<string, unknown> = {};
   for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
-    if (SECRET_FIELD_NAMES.has(key.toLowerCase())) {
+    if (isSecretFieldName(key, inAuth)) {
       out[key] = redactValueAtSecretField(v);
     } else {
-      out[key] = redactInner(v, seen);
+      out[key] = redactInner(v, seen, inAuth || isAuthKey(key));
     }
   }
   return out;
@@ -112,6 +121,35 @@ function redactValueAtSecretField(value: unknown): unknown {
   }
   // Plain string / number / etc. at a secret field — replace with empty.
   return '';
+}
+
+/**
+ * Credential-bearing query parameter names — values are replaced, the
+ * parameter itself stays so the agent can still see it exists.
+ */
+const SECRET_QUERY_PARAM_RE =
+  /^(api[-_]?key|access[-_]?token|token|secret|signature|sig|key|password|auth)$/i;
+
+/**
+ * Strip credential material embedded in a URL before it crosses the MCP
+ * boundary: `user:pass@host` userinfo is dropped and known credential query
+ * params are masked. Non-URL strings pass through unchanged.
+ */
+export function redactUrlCredentials(url: string | undefined): string | undefined {
+  if (!url) return url;
+  try {
+    const u = new URL(url);
+    u.username = '';
+    u.password = '';
+    for (const name of [...u.searchParams.keys()]) {
+      if (SECRET_QUERY_PARAM_RE.test(name)) u.searchParams.set(name, '(secret)');
+    }
+    return u.toString();
+  } catch {
+    // Not an absolute URL (templated {{base}}/path etc.) — leave as-is; the
+    // interesting leak vector is a concrete user:pass@host / ?token= URL.
+    return url;
+  }
 }
 
 /**

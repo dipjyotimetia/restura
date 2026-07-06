@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { redactSecretsDeep, redactEnvironmentVariables } from '../redaction';
+import { SECRET_FIELDS_BY_AUTH_BLOCK } from '@/lib/shared/auth-secret-fields';
 
 describe('redactSecretsDeep — SecretRef shapes (post-migration)', () => {
   it('passes through trees with no secret-named fields', () => {
@@ -44,6 +45,35 @@ describe('redactSecretsDeep — SecretRef shapes (post-migration)', () => {
     expect(out.auth.basic.password).toBe('');
   });
 
+  it('redacts apiKey `value` inside an auth subtree', () => {
+    const input = {
+      auth: { apiKey: { key: 'x-api-key', value: 'super-secret', in: 'header' } },
+    };
+    const out = redactSecretsDeep(input);
+    expect(out.auth.apiKey.value).toBe('');
+    expect(out.auth.apiKey.key).toBe('x-api-key');
+  });
+
+  it('does NOT wipe `value` outside auth subtrees (env-var listings)', () => {
+    const input = {
+      variables: [{ key: 'API_URL', value: 'https://example.com' }],
+    };
+    const out = redactSecretsDeep(input);
+    expect(out.variables[0]?.value).toBe('https://example.com');
+  });
+
+  it('covers every canonical secret field inside an auth block (drift guard)', () => {
+    for (const [block, fields] of Object.entries(SECRET_FIELDS_BY_AUTH_BLOCK)) {
+      for (const field of fields) {
+        const input = { auth: { [block]: { [field]: 'plaintext-secret' } } };
+        const out = redactSecretsDeep(input) as {
+          auth: Record<string, Record<string, unknown>>;
+        };
+        expect(out.auth[block]?.[field], `${block}.${field} must be redacted`).toBe('');
+      }
+    }
+  });
+
   it('walks nested collections', () => {
     const input = {
       collections: [
@@ -62,6 +92,22 @@ describe('redactSecretsDeep — SecretRef shapes (post-migration)', () => {
     const out = redactSecretsDeep(input);
     const token = out.collections[0]?.items[0]?.request.auth.bearer.token;
     expect(token).toEqual({ kind: 'inline', value: '' });
+  });
+});
+
+describe('redactUrlCredentials', () => {
+  // Late import to keep the top of the file focused on the main API.
+  it('strips userinfo and masks credential query params', async () => {
+    const { redactUrlCredentials } = await import('../redaction');
+    expect(redactUrlCredentials('https://user:pass@api.example.com/v1?token=abc&x=1')).toBe(
+      'https://api.example.com/v1?token=%28secret%29&x=1'
+    );
+  });
+
+  it('passes through templated / relative URLs unchanged', async () => {
+    const { redactUrlCredentials } = await import('../redaction');
+    expect(redactUrlCredentials('{{baseUrl}}/users')).toBe('{{baseUrl}}/users');
+    expect(redactUrlCredentials(undefined)).toBeUndefined();
   });
 });
 
