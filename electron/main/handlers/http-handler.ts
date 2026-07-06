@@ -474,7 +474,12 @@ function buildConnectOptions(
   electronConfig: HttpRequestConfig,
   url: URL,
   isHttps: boolean,
-  verifySsl: boolean
+  verifySsl: boolean,
+  // Pre-resolved mTLS/CA material (see buildTlsClientMaterial). Passed in rather
+  // than recomputed here so the SOCKS+HTTPS path — which builds its own
+  // tls.connect from the same material — doesn't resolve the secret handle and
+  // base64-decode the PFX a second time.
+  certMaterial: Record<string, unknown>
 ): Record<string, unknown> {
   const connectOpts: Record<string, unknown> = {
     timeout: CONNECTION_TIMEOUT,
@@ -487,7 +492,7 @@ function buildConnectOptions(
 
   if (isHttps) {
     connectOpts.rejectUnauthorized = verifySsl;
-    Object.assign(connectOpts, buildTlsClientMaterial(electronConfig));
+    Object.assign(connectOpts, certMaterial);
     // Per-request TLS knobs (Insomnia parity). Honour cipher order, custom
     // cipher list, and a minimum protocol floor. Forwarded by undici's
     // connector to `tls.connect`, where these are first-class options.
@@ -595,7 +600,11 @@ export function buildElectronFetcher(
       log.warn('SSL certificate verification disabled for this request');
     }
 
-    const connectOpts = buildConnectOptions(electronConfig, url, isHttps, verifySsl);
+    // Resolve mTLS/CA material once — reused by both buildConnectOptions (direct
+    // + HTTP-proxy) and the SOCKS dispatcher below. Only meaningful over TLS.
+    const certMaterial = isHttps ? buildTlsClientMaterial(electronConfig) : {};
+
+    const connectOpts = buildConnectOptions(electronConfig, url, isHttps, verifySsl, certMaterial);
 
     // Holder filled in by the wrapped connector after the TLS handshake.
     const alpnHolder: { alpn?: string } = {};
@@ -663,7 +672,7 @@ export function buildElectronFetcher(
             }),
           },
           // mTLS client cert + custom CA — previously dropped on the SOCKS path.
-          buildTlsClientMaterial(electronConfig)
+          certMaterial
         );
         // SOCKS path: TLS happens inside our custom connector — capture ALPN there.
         if (isHttps) {

@@ -45,7 +45,6 @@ import { downloadBlob, readFileAsText } from '@/lib/shared/file-utils';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { looksLikePemCertificate } from '@/lib/shared/pemValidation';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
-import { unwrapSecret, type SecretValue } from '@/lib/shared/secretRef';
 import { cn } from '@/lib/shared/utils';
 import { withViewTransition } from '@/lib/shared/viewTransition';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -781,8 +780,7 @@ function ProxySection() {
   const settings = useSettingsStore((s) => s.settings);
   const setProxyEnabled = useSettingsStore((s) => s.setProxyEnabled);
   const updateProxy = useSettingsStore((s) => s.updateProxy);
-  const setProxyAuth = useSettingsStore((s) => s.setProxyAuth);
-  const clearProxyAuth = useSettingsStore((s) => s.clearProxyAuth);
+  const updateProxyAuth = useSettingsStore((s) => s.updateProxyAuth);
   const addBypassHost = useSettingsStore((s) => s.addBypassHost);
   const removeBypassHost = useSettingsStore((s) => s.removeBypassHost);
 
@@ -795,25 +793,6 @@ function ProxySection() {
     if (!host) return;
     addBypassHost(host);
     setNewBypass('');
-  };
-
-  // Username and password are coupled in the store action; edit one while
-  // preserving the other, and clear the whole auth block when both go empty.
-  const setAuthUsername = (username: string) => {
-    const password = proxy.auth?.password ?? '';
-    if (!username && !unwrapSecret(password)) {
-      clearProxyAuth();
-      return;
-    }
-    setProxyAuth(username, password);
-  };
-  const setAuthPassword = (password: SecretValue) => {
-    const username = proxy.auth?.username ?? '';
-    if (!username && !unwrapSecret(password)) {
-      clearProxyAuth();
-      return;
-    }
-    setProxyAuth(username, password);
   };
 
   return (
@@ -895,7 +874,7 @@ function ProxySection() {
               mono
               placeholder="proxy-user"
               value={proxy.auth?.username ?? ''}
-              onChange={(e) => setAuthUsername(e.target.value)}
+              onChange={(e) => updateProxyAuth({ username: e.target.value })}
               disabled={!proxy.enabled}
               className="w-[260px]"
             />
@@ -908,7 +887,7 @@ function ProxySection() {
             <div className="w-[260px]">
               <SecretInput
                 value={proxy.auth?.password}
-                onChange={setAuthPassword}
+                onChange={(password) => updateProxyAuth({ password })}
                 placeholder="Proxy password"
                 storageLabel="Proxy password"
                 disabled={!proxy.enabled}

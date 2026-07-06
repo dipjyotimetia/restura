@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
-import type { SecretValue } from '@/lib/shared/secretRef';
+import { unwrapSecret, type SecretValue } from '@/lib/shared/secretRef';
 import { validatePersistedSettings } from '@/lib/shared/store-validators';
 import type {
   AppSettings,
@@ -23,8 +23,12 @@ interface SettingsState {
   updateProxy: (updates: Partial<ProxyConfig>) => void;
   resetSettings: () => void;
   setProxyEnabled: (enabled: boolean) => void;
-  setProxyAuth: (username: string, password: SecretValue) => void;
-  clearProxyAuth: () => void;
+  /**
+   * Merge into the proxy `auth` block, auto-omitting it once both username and
+   * password resolve empty. Keeps the "no empty auth object" invariant in one
+   * place instead of in every caller. Mirrors `updateProxy`.
+   */
+  updateProxyAuth: (updates: Partial<{ username: string; password: SecretValue }>) => void;
   addBypassHost: (host: string) => void;
   removeBypassHost: (host: string) => void;
   // CORS proxy actions
@@ -114,26 +118,22 @@ export const useSettingsStore = create<SettingsState>()(
           },
         })),
 
-      setProxyAuth: (username, password) =>
-        set((state) => ({
-          settings: {
-            ...state.settings,
-            proxy: {
-              ...state.settings.proxy,
-              auth: { username, password },
-            },
-          },
-        })),
-
-      clearProxyAuth: () =>
+      updateProxyAuth: (updates) =>
         set((state) => {
-          // EOPT: omit `auth` instead of setting it to undefined.
-          const { auth: _omit, ...rest } = state.settings.proxy;
-          void _omit;
+          const current = state.settings.proxy.auth ?? { username: '', password: '' };
+          const next = { ...current, ...updates };
+          // Omit the whole `auth` block once both fields resolve empty (a handle
+          // unwraps to a masked placeholder, so only genuinely-empty inline
+          // values clear it). EOPT: drop the key rather than store undefined.
+          if (!next.username && !unwrapSecret(next.password)) {
+            const { auth: _omit, ...rest } = state.settings.proxy;
+            void _omit;
+            return { settings: { ...state.settings, proxy: rest } };
+          }
           return {
             settings: {
               ...state.settings,
-              proxy: rest,
+              proxy: { ...state.settings.proxy, auth: next },
             },
           };
         }),
