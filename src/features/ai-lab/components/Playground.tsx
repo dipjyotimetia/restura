@@ -1,8 +1,10 @@
 import { Check, Copy, Maximize2, Minimize2, Play, Save, Sparkles, Square } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { useCmdEnterRun } from '../hooks/useCmdEnterRun';
 import { specFor, streamLlm, type StreamHandle } from '../lib/llmClient';
-import { buildModelOptions, plural, toChecklistEntries } from '../lib/modelOptions';
+import { buildModelOptions, toChecklistEntries, toggleKey } from '../lib/modelOptions';
+import { plural } from '../lib/plural';
 import { renderTemplate, extractVars } from '../lib/promptTemplate';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore } from '../store/useAiLabUiStore';
@@ -53,7 +55,18 @@ export function Playground() {
   const handlesRef = useRef<StreamHandle[]>([]);
 
   const modelOptions = useMemo(() => buildModelOptions(providers), [providers]);
+  // Memoized + stable callbacks so the memoized ModelChecklist (300+ rows for
+  // a full catalog) doesn't re-render on every streamed token.
+  const checklistEntries = useMemo(() => toChecklistEntries(modelOptions), [modelOptions]);
   const selected = useMemo(() => new Set(draft.selected), [draft.selected]);
+  const toggle = useCallback(
+    (key: string) => patchDraft({ selected: toggleKey(draft.selected, key) }),
+    [draft.selected, patchDraft]
+  );
+  const setSelected = useCallback(
+    (next: Set<string>) => patchDraft({ selected: [...next] }),
+    [patchDraft]
+  );
 
   const promptVars = useMemo(
     () => extractVars(`${draft.system}\n${draft.user}`),
@@ -90,13 +103,6 @@ export function Playground() {
       handlesRef.current = [];
     };
   }, []);
-
-  const toggle = (key: string) => {
-    const next = new Set(draft.selected);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    patchDraft({ selected: [...next] });
-  };
 
   const stop = () => {
     for (const h of handlesRef.current) h.cancel();
@@ -241,17 +247,8 @@ export function Playground() {
 
   const canRun = selected.size > 0 && activeCount === 0;
 
-  // Cmd/Ctrl+Enter runs from anywhere in the tab, including inside the prompt
-  // textareas (mirrors the HTTP builder's send shortcut).
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && canRun) {
-        e.preventDefault();
-        void run();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+  useCmdEnterRun(() => {
+    if (canRun) void run();
   });
 
   const copyCell = async (key: string, text: string) => {
@@ -335,10 +332,10 @@ export function Playground() {
             <div className="space-y-1.5">
               <span className="sp-label">Models</span>
               <ModelChecklist
-                models={toChecklistEntries(modelOptions)}
+                models={checklistEntries}
                 selected={selected}
                 onToggle={toggle}
-                onChangeSelected={(next) => patchDraft({ selected: [...next] })}
+                onChangeSelected={setSelected}
                 emptyText="No models. Add a provider and discover its models in the Providers tab."
               />
             </div>

@@ -1,8 +1,9 @@
 import { AlertTriangle, Play, Square, Trash2, Trophy } from 'lucide-react';
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useArenaRun } from '../hooks/useArenaRun';
 import { computeElo, winRateMatrix } from '../lib/elo';
-import { buildModelOptions, plural, toChecklistEntries } from '../lib/modelOptions';
+import { buildModelOptions, toChecklistEntries, toggleKey } from '../lib/modelOptions';
+import { plural } from '../lib/plural';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore } from '../store/useAiLabUiStore';
 import { useArenaStore } from '../store/useArenaStore';
@@ -52,14 +53,18 @@ export function Arena() {
   const setArenaRunId = useAiLabUiStore((s) => s.setArenaRunId);
 
   const modelOptions = useMemo(() => buildModelOptions(providers), [providers]);
+  // Memoized + stable callbacks so the memoized ModelChecklist skips the
+  // re-render this component does per completed match while a run streams.
+  const checklistEntries = useMemo(() => toChecklistEntries(modelOptions), [modelOptions]);
   const selected = useMemo(() => new Set(draft.selected), [draft.selected]);
-
-  const toggle = (key: string) => {
-    const next = new Set(draft.selected);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    patchDraft({ selected: [...next] });
-  };
+  const toggle = useCallback(
+    (key: string) => patchDraft({ selected: toggleKey(draft.selected, key) }),
+    [draft.selected, patchDraft]
+  );
+  const setSelected = useCallback(
+    (next: Set<string>) => patchDraft({ selected: [...next] }),
+    [patchDraft]
+  );
 
   const run = () => {
     const chosen = modelOptions.filter((m) => selected.has(m.key));
@@ -149,10 +154,10 @@ export function Arena() {
           <div className="space-y-1.5">
             <span className="sp-label">Contestants (≥ 2)</span>
             <ModelChecklist
-              models={toChecklistEntries(modelOptions)}
+              models={checklistEntries}
               selected={selected}
               onToggle={toggle}
-              onChangeSelected={(next) => patchDraft({ selected: [...next] })}
+              onChangeSelected={setSelected}
               emptyText="Add providers + discover models first."
             />
           </div>

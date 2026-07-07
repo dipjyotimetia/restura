@@ -1,9 +1,17 @@
 import { AlertTriangle, FilePlus2, Play, Plus, Square, Trash2, X } from 'lucide-react';
-import { useEffect, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
+import { useCmdEnterRun } from '../hooks/useCmdEnterRun';
 import { useEvalRun } from '../hooks/useEvalRun';
-import { buildModelOptions, toChecklistEntries, type ModelOption } from '../lib/modelOptions';
+import {
+  buildModelOptions,
+  modelKey,
+  parseModelKey,
+  toChecklistEntries,
+  toggleKey,
+  type ModelOption,
+} from '../lib/modelOptions';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore, type EvalTargetMode } from '../store/useAiLabUiStore';
 import type { EvalConfig, EvalTarget, ModelRef, ScorerConfig, ScorerKind } from '../types';
@@ -132,7 +140,18 @@ export function EvalBuilder() {
   });
 
   const modelOptions = useMemo(() => buildModelOptions(providers), [providers]);
+  // Memoized + stable callbacks so the memoized ModelChecklist skips the
+  // ~10 renders/sec this component does while a run streams progress.
+  const checklistEntries = useMemo(() => toChecklistEntries(modelOptions), [modelOptions]);
   const selected = useMemo(() => new Set(draft.selected), [draft.selected]);
+  const toggle = useCallback(
+    (key: string) => patchDraft({ selected: toggleKey(draft.selected, key) }),
+    [draft.selected, patchDraft]
+  );
+  const setSelected = useCallback(
+    (next: Set<string>) => patchDraft({ selected: [...next] }),
+    [patchDraft]
+  );
   const scorers = draft.scorers;
   const setScorers = (next: ScorerConfig[]) => patchDraft({ scorers: next });
 
@@ -144,13 +163,6 @@ export function EvalBuilder() {
   const firstModelRef = modelOptions[0]
     ? { providerConfigId: modelOptions[0].cfg.id, model: modelOptions[0].model }
     : undefined;
-
-  const toggle = (key: string) => {
-    const next = new Set(draft.selected);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    patchDraft({ selected: [...next] });
-  };
 
   const updateScorer = (id: string, patch: Partial<ScorerConfig>) =>
     setScorers(scorers.map((s) => (s.id === id ? ({ ...s, ...patch } as ScorerConfig) : s)));
@@ -164,7 +176,7 @@ export function EvalBuilder() {
       system: prompt?.system ?? '',
       user: prompt?.user ?? '',
       datasetId: cfg.datasetId,
-      selected: cfg.models.map((m) => `${m.providerConfigId}:${m.model}`),
+      selected: cfg.models.map(modelKey),
       scorers: cfg.scorers,
       concurrency: cfg.concurrency,
       targetMode: targetModeOf(cfg.target),
@@ -226,7 +238,10 @@ export function EvalBuilder() {
     start(config);
   };
 
-  const passCount = progress?.cells.filter((c) => c.passed).length ?? 0;
+  const passCount = useMemo(
+    () => progress?.cells.reduce((n, c) => n + (c.passed ? 1 : 0), 0) ?? 0,
+    [progress]
+  );
 
   const canRun = !!draft.datasetId && selected.size > 0 && !unconfiguredJudgeScorer && !running;
   const runDisabledReason = !draft.datasetId
@@ -237,16 +252,8 @@ export function EvalBuilder() {
         ? `Pick a judge model for the ${SCORER_LABEL[unconfiguredJudgeScorer.kind]} scorer.`
         : null;
 
-  // Cmd/Ctrl+Enter starts the eval (mirrors the HTTP builder's send shortcut).
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && canRun) {
-        e.preventDefault();
-        run();
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+  useCmdEnterRun(() => {
+    if (canRun) run();
   });
 
   // Ordered model label lookup for the live results grid.
@@ -360,10 +367,10 @@ export function EvalBuilder() {
             <div className="space-y-1.5">
               <span className="sp-label">Models</span>
               <ModelChecklist
-                models={toChecklistEntries(modelOptions)}
+                models={checklistEntries}
                 selected={selected}
                 onToggle={toggle}
-                onChangeSelected={(next) => patchDraft({ selected: [...next] })}
+                onChangeSelected={setSelected}
                 emptyText="Add providers + discover models first."
               />
             </div>
@@ -672,21 +679,12 @@ function ScorerRow({
           <Label htmlFor={`pairwise-judge-model-${scorer.id}`} className="sp-label">
             Judge model
           </Label>
-          <Select
-            value={modelKey(scorer.judgeModel)}
-            onValueChange={(v) => onChange({ judgeModel: parseModelKey(v) })}
-          >
-            <SelectTrigger id={`pairwise-judge-model-${scorer.id}`}>
-              <SelectValue placeholder="pick a judge model" />
-            </SelectTrigger>
-            <SelectContent>
-              {modelOptions.map((m) => (
-                <SelectItem key={m.key} value={m.key}>
-                  {m.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <JudgeModelSelect
+            id={`pairwise-judge-model-${scorer.id}`}
+            value={scorer.judgeModel}
+            modelOptions={modelOptions}
+            onChange={(judgeModel) => onChange({ judgeModel })}
+          />
           <label
             htmlFor="eval-scorer-swap-positions"
             className="flex items-center gap-2 text-sp-12 text-sp-text"
@@ -707,13 +705,32 @@ function ScorerRow({
   );
 }
 
-/** `providerConfigId:model` round-trip for the model select. */
-function modelKey(m: ModelRef): string {
-  return `${m.providerConfigId}:${m.model}`;
-}
-function parseModelKey(key: string): ModelRef {
-  const idx = key.indexOf(':');
-  return { providerConfigId: key.slice(0, idx), model: key.slice(idx + 1) };
+/** Judge-model picker shared by the judge and pairwise scorer editors. */
+function JudgeModelSelect({
+  id,
+  value,
+  modelOptions,
+  onChange,
+}: {
+  id?: string;
+  value: ModelRef;
+  modelOptions: ModelOption[];
+  onChange: (judgeModel: ModelRef) => void;
+}) {
+  return (
+    <Select value={modelKey(value)} onValueChange={(v) => onChange(parseModelKey(v))}>
+      <SelectTrigger id={id}>
+        <SelectValue placeholder="Judge model" />
+      </SelectTrigger>
+      <SelectContent>
+        {modelOptions.map((m) => (
+          <SelectItem key={m.key} value={m.key}>
+            {m.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 }
 
 /**
@@ -744,26 +761,11 @@ function JudgeScorerEditor({
 
   return (
     <div className="space-y-3">
-      <Select
-        value={`${scorer.judgeModel.providerConfigId}:${scorer.judgeModel.model}`}
-        onValueChange={(v) => {
-          // Split on the FIRST colon only: the provider id is a UUID (no colons)
-          // but model ids can contain them (Ollama `llama3.2:latest`).
-          const i = v.indexOf(':');
-          onChange({ judgeModel: { providerConfigId: v.slice(0, i), model: v.slice(i + 1) } });
-        }}
-      >
-        <SelectTrigger>
-          <SelectValue placeholder="Judge model" />
-        </SelectTrigger>
-        <SelectContent>
-          {modelOptions.map((m) => (
-            <SelectItem key={m.key} value={m.key}>
-              {m.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <JudgeModelSelect
+        value={scorer.judgeModel}
+        modelOptions={modelOptions}
+        onChange={(judgeModel) => onChange({ judgeModel })}
+      />
 
       <div className="space-y-2.5">
         {criteria.map((c, i) => (

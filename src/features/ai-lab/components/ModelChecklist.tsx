@@ -1,5 +1,5 @@
 import { Search } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState } from 'react';
 import type { AiLabModelDetail } from '../types';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -40,8 +40,12 @@ const FILTER_THRESHOLD = 8;
  *
  * Without this, every model reads as an opaque slash-namespaced slug and the
  * user has to remember which `claude-3-5-sonnet-20241022` is the dated one.
+ *
+ * Memoized: parents re-render per streamed token / progress tick, and this
+ * list (potentially 300+ rows) only needs to re-render when the catalog or
+ * selection changes — callers keep `models`/callbacks referentially stable.
  */
-export function ModelChecklist({
+export const ModelChecklist = memo(function ModelChecklist({
   models,
   selected,
   onToggle,
@@ -178,7 +182,7 @@ export function ModelChecklist({
       </div>
     </div>
   );
-}
+});
 
 /**
  * Compose a one-line subtitle from whatever fields the discovery returned.

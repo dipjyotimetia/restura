@@ -23,6 +23,8 @@ interface EvalRunState extends PersistedEvalRunState {
     modelLabels?: Record<string, string>;
   }) => string;
   addCell: (runId: string, cell: EvalCellResult) => void;
+  /** Append a batch in one update — one array copy + one notification. */
+  addCells: (runId: string, cells: EvalCellResult[]) => void;
   finishRun: (runId: string, status: EvalRunStatus) => void;
   deleteRun: (id: string) => void;
   /** Runs sorted newest-first. */
@@ -69,6 +71,12 @@ export const useEvalRunStore = create<EvalRunState>()(
           const run = s.runs[runId];
           if (!run) return {};
           return { runs: { ...s.runs, [runId]: { ...run, cells: [...run.cells, cell] } } };
+        }),
+      addCells: (runId, cells) =>
+        set((s) => {
+          const run = s.runs[runId];
+          if (!run || cells.length === 0) return {};
+          return { runs: { ...s.runs, [runId]: { ...run, cells: [...run.cells, ...cells] } } };
         }),
       finishRun: (runId, status) =>
         set((s) => {

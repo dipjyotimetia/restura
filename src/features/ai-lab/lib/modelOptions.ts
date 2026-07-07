@@ -1,5 +1,5 @@
 import type { ModelChecklistEntry } from '../components/ModelChecklist';
-import type { AiLabModelDetail, AiLabProviderConfig } from '../types';
+import type { AiLabModelDetail, AiLabProviderConfig, ModelRef } from '../types';
 
 /**
  * One selectable provider+model pair, flattened from the provider configs.
@@ -52,7 +52,21 @@ export function toChecklistEntries(options: ModelOption[]): ModelChecklistEntry[
   }));
 }
 
-/** "1 model" / "3 models" — replaces the lazy "model(s)" copy. */
-export function plural(n: number, singular: string, pluralForm?: string): string {
-  return `${n} ${n === 1 ? singular : (pluralForm ?? `${singular}s`)}`;
+/** `providerConfigId:model` round-trip — the selection key used across the AI Lab. */
+export function modelKey(m: ModelRef): string {
+  return `${m.providerConfigId}:${m.model}`;
+}
+
+/**
+ * Split on the FIRST colon only: the provider id is a UUID (no colons) but
+ * model ids can contain them (Ollama `llama3.2:latest`).
+ */
+export function parseModelKey(key: string): ModelRef {
+  const idx = key.indexOf(':');
+  return { providerConfigId: key.slice(0, idx), model: key.slice(idx + 1) };
+}
+
+/** Toggle a key in a selection list (the drafts store selections as arrays). */
+export function toggleKey(selected: string[], key: string): string[] {
+  return selected.includes(key) ? selected.filter((k) => k !== key) : [...selected, key];
 }

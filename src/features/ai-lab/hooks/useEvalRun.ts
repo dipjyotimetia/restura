@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { runEval, type EvalProgress } from '../lib/evalRunner';
 import { executeExtractedRequest } from '../lib/execCell';
+import { modelKey } from '../lib/modelOptions';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useEvalRunStore } from '../store/useEvalRunStore';
 import type { EvalConfig } from '../types';
@@ -47,9 +48,7 @@ function start(config: EvalConfig): void {
   for (const m of config.models) {
     const cfg = lab.providers[m.providerConfigId];
     const modelLabel = cfg?.modelDetails?.[m.model]?.label ?? m.model;
-    modelLabels[`${m.providerConfigId}:${m.model}`] = cfg
-      ? `${cfg.label} · ${modelLabel}`
-      : m.model;
+    modelLabels[modelKey(m)] = cfg ? `${cfg.label} · ${modelLabel}` : m.model;
   }
 
   const runStore = useEvalRunStore.getState();
@@ -69,10 +68,10 @@ function start(config: EvalConfig): void {
   let lastEmit = 0;
 
   const onProgress = (p: EvalProgress) => {
-    // Persist newly-completed cells (progress.cells is cumulative).
-    for (let i = lastCount; i < p.cells.length; i++) {
-      const cell = p.cells[i];
-      if (cell) useEvalRunStore.getState().addCell(runId, cell);
+    // Persist newly-completed cells (progress.cells is cumulative) as one
+    // batched update — per-cell appends were O(cells²) copying per run.
+    if (p.cells.length > lastCount) {
+      useEvalRunStore.getState().addCells(runId, p.cells.slice(lastCount).filter(Boolean));
     }
     lastCount = p.cells.length;
     // Throttle UI updates to ~10 fps.

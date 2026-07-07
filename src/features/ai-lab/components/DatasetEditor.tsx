@@ -10,10 +10,10 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { casesFromCsv, casesFromJsonl, casesToCsv, casesToJsonl } from '../lib/datasetIo';
-import { plural } from '../lib/modelOptions';
+import { plural } from '../lib/plural';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore } from '../store/useAiLabUiStore';
 import type { DatasetCase } from '../types';
@@ -155,10 +155,12 @@ export function DatasetEditor() {
   });
 
   // Load the active dataset's cases into the editor. The array is canonical;
-  // jsonText is seeded so the JSON tab opens in sync.
+  // jsonText is only materialised when the JSON tab is showing — setMode('json')
+  // re-seeds it anyway, so eagerly pretty-printing every case on each dataset
+  // switch was pure waste in the (default) structured mode.
   const loadCases = (next: EditableCase[]) => {
     setCases(next);
-    setJsonText(serializeCases(next));
+    setJsonText(mode === 'json' ? serializeCases(next) : '[]');
     setJsonError(null);
     // Big datasets start collapsed; small ones open for direct editing.
     setExpandedKeys(
@@ -187,33 +189,34 @@ export function DatasetEditor() {
     setActiveId(id);
   };
 
-  const markDirty = () => setDirty(true);
-
   // Structured edits mutate the canonical array directly — O(1) state updates,
-  // no per-keystroke (re)serialisation of the whole dataset.
-  const updateCase = (key: string, patch: Partial<EditableCase>) => {
+  // no per-keystroke (re)serialisation of the whole dataset. All are stable
+  // (functional updates) so the memoized CaseRow only re-renders for the row
+  // that actually changed.
+  const updateCase = useCallback((key: string, patch: Partial<EditableCase>) => {
     setCases((prev) => prev.map((c) => (c._key === key ? { ...c, ...patch } : c)));
-    markDirty();
-  };
-  const setCaseVars = (key: string, entries: Array<[string, string]>) =>
-    updateCase(key, { vars: Object.fromEntries(entries) });
-  const removeCase = (key: string) => {
+    setDirty(true);
+  }, []);
+  const removeCase = useCallback((key: string) => {
     setCases((prev) => prev.filter((c) => c._key !== key));
-    markDirty();
-  };
+    setDirty(true);
+  }, []);
   const addCase = () => {
     const c: EditableCase = { _key: crypto.randomUUID(), vars: {} };
     setCases((prev) => [...prev, c]);
     setExpandedKeys((prev) => new Set(prev).add(c._key));
-    markDirty();
+    setDirty(true);
   };
-  const toggleExpanded = (key: string) =>
-    setExpandedKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  const toggleExpanded = useCallback(
+    (key: string) =>
+      setExpandedKeys((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      }),
+    []
+  );
 
   // JSON tab edits: validate on the fly and mirror into the canonical array so
   // a Save (or a switch back to structured) always uses the latest valid text.
@@ -235,7 +238,7 @@ export function DatasetEditor() {
 
   const onJsonChange = (text: string) => {
     setJsonText(text);
-    markDirty();
+    setDirty(true);
     clearTimeout(reparseTimer.current);
     reparseTimer.current = setTimeout(() => flushJsonReparse(text), JSON_REPARSE_DEBOUNCE_MS);
   };
@@ -398,7 +401,7 @@ export function DatasetEditor() {
                     value={name}
                     onChange={(e) => {
                       setName(e.target.value);
-                      markDirty();
+                      setDirty(true);
                     }}
                   />
                 </div>
@@ -456,177 +459,17 @@ export function DatasetEditor() {
                         No cases yet — add one below, or switch to JSON mode to paste an array.
                       </Floater>
                     )}
-                    {cases.map((c, ci) => {
-                      const isOpen = expandedKeys.has(c._key);
-                      if (!isOpen) {
-                        return (
-                          <Floater
-                            key={c._key}
-                            radius="panel"
-                            elevation="inset"
-                            className="flex items-center gap-2 px-3 py-2"
-                          >
-                            <button
-                              type="button"
-                              onClick={() => toggleExpanded(c._key)}
-                              className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                              aria-expanded={false}
-                              aria-label={`Expand case ${ci + 1}`}
-                            >
-                              <ChevronRight className="h-3.5 w-3.5 shrink-0 text-sp-muted" />
-                              <span className="shrink-0 text-sp-12 font-semibold text-sp-text">
-                                Case {ci + 1}
-                              </span>
-                              <span className="truncate text-sp-11 text-sp-muted">
-                                {caseSummary(c)}
-                              </span>
-                            </button>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label={`Remove case ${ci + 1}`}
-                              title="Remove case"
-                              onClick={() => removeCase(c._key)}
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </Button>
-                          </Floater>
-                        );
-                      }
-                      const entries = Object.entries(c.vars);
-                      const keyCounts = new Map<string, number>();
-                      for (const [k] of entries) keyCounts.set(k, (keyCounts.get(k) ?? 0) + 1);
-                      const dupKeys = [...keyCounts.entries()]
-                        .filter(([k, n]) => k && n > 1)
-                        .map(([k]) => k);
-                      return (
-                        <Floater
-                          key={c._key}
-                          radius="panel"
-                          elevation="inset"
-                          className="space-y-2.5 p-3"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <button
-                              type="button"
-                              onClick={() => toggleExpanded(c._key)}
-                              className="flex items-center gap-2 text-left"
-                              aria-expanded
-                              aria-label={`Collapse case ${ci + 1}`}
-                            >
-                              <ChevronDown className="h-3.5 w-3.5 text-sp-muted" />
-                              <span className="text-sp-12 font-semibold text-sp-text">
-                                Case {ci + 1}
-                              </span>
-                            </button>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label={`Remove case ${ci + 1}`}
-                              title="Remove case"
-                              onClick={() => removeCase(c._key)}
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </Button>
-                          </div>
-                          <div className="space-y-1.5">
-                            <span className="sp-label">Variables</span>
-                            {entries.length === 0 && (
-                              <p className="text-sp-11 text-sp-muted">No variables yet.</p>
-                            )}
-                            {entries.map(([k, v], vi) => (
-                              <div key={vi} className="flex items-center gap-2">
-                                <Input
-                                  aria-label="Variable name"
-                                  placeholder="key"
-                                  value={k}
-                                  onChange={(e) =>
-                                    setCaseVars(
-                                      c._key,
-                                      entries.map((pair, i) =>
-                                        i === vi ? [e.target.value, pair[1]] : pair
-                                      )
-                                    )
-                                  }
-                                  className="w-1/3 font-mono text-sp-12"
-                                />
-                                <Input
-                                  aria-label="Variable value"
-                                  placeholder="value"
-                                  value={v}
-                                  onChange={(e) =>
-                                    setCaseVars(
-                                      c._key,
-                                      entries.map((pair, i) =>
-                                        i === vi ? [pair[0], e.target.value] : pair
-                                      )
-                                    )
-                                  }
-                                  className="flex-1 font-mono text-sp-12"
-                                />
-                                <Button
-                                  variant="ghost"
-                                  size="icon-sm"
-                                  aria-label="Remove variable"
-                                  title="Remove variable"
-                                  onClick={() =>
-                                    setCaseVars(
-                                      c._key,
-                                      entries.filter((_, i) => i !== vi)
-                                    )
-                                  }
-                                >
-                                  <X className="h-3.5 w-3.5" />
-                                </Button>
-                              </div>
-                            ))}
-                            {dupKeys.length > 0 && (
-                              <p className="text-sp-11 text-amber-500">
-                                Duplicate variable {dupKeys.length === 1 ? 'name' : 'names'} (
-                                {dupKeys.join(', ')}) — only the last value survives.
-                              </p>
-                            )}
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setCaseVars(c._key, [...entries, ['', '']])}
-                            >
-                              <Plus className="mr-1.5 h-3.5 w-3.5" /> Add variable
-                            </Button>
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label htmlFor={`dataset-case-${ci}-expected`} className="sp-label">
-                              Expected (optional)
-                            </Label>
-                            <Input
-                              id={`dataset-case-${ci}-expected`}
-                              value={c.expected ?? ''}
-                              onChange={(e) =>
-                                updateCase(c._key, { expected: e.target.value || undefined })
-                              }
-                            />
-                          </div>
-                          <div className="space-y-1.5">
-                            <Label htmlFor={`dataset-case-${ci}-reference`} className="sp-label">
-                              Reference (optional)
-                            </Label>
-                            <Textarea
-                              id={`dataset-case-${ci}-reference`}
-                              rows={2}
-                              value={c.reference ?? ''}
-                              onChange={(e) =>
-                                updateCase(c._key, { reference: e.target.value || undefined })
-                              }
-                            />
-                          </div>
-                          {c.turns !== undefined && (
-                            <p className="text-sp-11 text-sp-muted">
-                              Multi-turn conversation preserved — edit turns in JSON mode.
-                            </p>
-                          )}
-                        </Floater>
-                      );
-                    })}
+                    {cases.map((c, ci) => (
+                      <CaseRow
+                        key={c._key}
+                        c={c}
+                        index={ci}
+                        isOpen={expandedKeys.has(c._key)}
+                        onUpdate={updateCase}
+                        onRemove={removeCase}
+                        onToggle={toggleExpanded}
+                      />
+                    ))}
                     <Button variant="secondary" size="sm" onClick={addCase}>
                       <Plus className="mr-1.5 h-3.5 w-3.5" /> Add case
                     </Button>
@@ -688,3 +531,152 @@ export function DatasetEditor() {
     </>
   );
 }
+
+/**
+ * One case row (collapsed one-liner or expanded editor). Memoized with stable
+ * parent callbacks so a keystroke in one case (or the dataset name) doesn't
+ * re-render every other row — with "Expand all" on a big import that was
+ * hundreds of rows of derived work (entries, dup-key scan, summary) per
+ * keystroke.
+ */
+const CaseRow = memo(function CaseRow({
+  c,
+  index,
+  isOpen,
+  onUpdate,
+  onRemove,
+  onToggle,
+}: {
+  c: EditableCase;
+  index: number;
+  isOpen: boolean;
+  onUpdate: (key: string, patch: Partial<EditableCase>) => void;
+  onRemove: (key: string) => void;
+  onToggle: (key: string) => void;
+}) {
+  const removeButton = (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      aria-label={`Remove case ${index + 1}`}
+      title="Remove case"
+      onClick={() => onRemove(c._key)}
+    >
+      <X className="h-3.5 w-3.5" />
+    </Button>
+  );
+
+  if (!isOpen) {
+    return (
+      <Floater radius="panel" elevation="inset" className="flex items-center gap-2 px-3 py-2">
+        <button
+          type="button"
+          onClick={() => onToggle(c._key)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          aria-expanded={false}
+          aria-label={`Expand case ${index + 1}`}
+        >
+          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-sp-muted" />
+          <span className="shrink-0 text-sp-12 font-semibold text-sp-text">Case {index + 1}</span>
+          <span className="truncate text-sp-11 text-sp-muted">{caseSummary(c)}</span>
+        </button>
+        {removeButton}
+      </Floater>
+    );
+  }
+
+  const entries = Object.entries(c.vars);
+  const setVars = (nextEntries: Array<[string, string]>) =>
+    onUpdate(c._key, { vars: Object.fromEntries(nextEntries) });
+  const keyCounts = new Map<string, number>();
+  for (const [k] of entries) keyCounts.set(k, (keyCounts.get(k) ?? 0) + 1);
+  const dupKeys = [...keyCounts.entries()].filter(([k, n]) => k && n > 1).map(([k]) => k);
+
+  return (
+    <Floater radius="panel" elevation="inset" className="space-y-2.5 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => onToggle(c._key)}
+          className="flex items-center gap-2 text-left"
+          aria-expanded
+          aria-label={`Collapse case ${index + 1}`}
+        >
+          <ChevronDown className="h-3.5 w-3.5 text-sp-muted" />
+          <span className="text-sp-12 font-semibold text-sp-text">Case {index + 1}</span>
+        </button>
+        {removeButton}
+      </div>
+      <div className="space-y-1.5">
+        <span className="sp-label">Variables</span>
+        {entries.length === 0 && <p className="text-sp-11 text-sp-muted">No variables yet.</p>}
+        {entries.map(([k, v], vi) => (
+          <div key={vi} className="flex items-center gap-2">
+            <Input
+              aria-label="Variable name"
+              placeholder="key"
+              value={k}
+              onChange={(e) =>
+                setVars(entries.map((pair, i) => (i === vi ? [e.target.value, pair[1]] : pair)))
+              }
+              className="w-1/3 font-mono text-sp-12"
+            />
+            <Input
+              aria-label="Variable value"
+              placeholder="value"
+              value={v}
+              onChange={(e) =>
+                setVars(entries.map((pair, i) => (i === vi ? [pair[0], e.target.value] : pair)))
+              }
+              className="flex-1 font-mono text-sp-12"
+            />
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Remove variable"
+              title="Remove variable"
+              onClick={() => setVars(entries.filter((_, i) => i !== vi))}
+            >
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        ))}
+        {dupKeys.length > 0 && (
+          <p className="text-sp-11 text-amber-500">
+            Duplicate variable {dupKeys.length === 1 ? 'name' : 'names'} ({dupKeys.join(', ')}) —
+            only the last value survives.
+          </p>
+        )}
+        <Button variant="ghost" size="sm" onClick={() => setVars([...entries, ['', '']])}>
+          <Plus className="mr-1.5 h-3.5 w-3.5" /> Add variable
+        </Button>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor={`dataset-case-${index}-expected`} className="sp-label">
+          Expected (optional)
+        </Label>
+        <Input
+          id={`dataset-case-${index}-expected`}
+          value={c.expected ?? ''}
+          onChange={(e) => onUpdate(c._key, { expected: e.target.value || undefined })}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor={`dataset-case-${index}-reference`} className="sp-label">
+          Reference (optional)
+        </Label>
+        <Textarea
+          id={`dataset-case-${index}-reference`}
+          rows={2}
+          value={c.reference ?? ''}
+          onChange={(e) => onUpdate(c._key, { reference: e.target.value || undefined })}
+        />
+      </div>
+      {c.turns !== undefined && (
+        <p className="text-sp-11 text-sp-muted">
+          Multi-turn conversation preserved — edit turns in JSON mode.
+        </p>
+      )}
+    </Floater>
+  );
+});

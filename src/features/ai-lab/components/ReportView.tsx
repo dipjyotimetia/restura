@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, BarChart3, Download, Trash2, X } from 'lucide-react';
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { runToCsv, runToJson, runToMarkdown } from '../lib/reportExport';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore } from '../store/useAiLabUiStore';
@@ -134,8 +134,16 @@ export function ReportView() {
     );
   }, [active, sorted]);
 
-  const current = useMemo(() => (active ? statsByModel(active) : []), [active]);
-  const prevStats = useMemo(() => (previous ? statsByModel(previous) : []), [previous]);
+  // One sorted stats list drives both the table rows and the matrix columns
+  // (previously the same sort ran twice, once unmemoized in JSX).
+  const sortedStats = useMemo(
+    () => (active ? statsByModel(active).sort((a, b) => b.passRate - a.passRate) : []),
+    [active]
+  );
+  const prevStatsByKey = useMemo(
+    () => new Map(previous ? statsByModel(previous).map((m) => [m.key, m]) : []),
+    [previous]
+  );
   const judge = useMemo(() => (active ? judgeStats(active) : null), [active]);
 
   // Distinct case ids in the active run, in first-seen order.
@@ -153,14 +161,7 @@ export function ReportView() {
   }, [active]);
 
   // Model keys in stats order (sorted by pass rate, matching the table).
-  const modelKeys = useMemo(
-    () =>
-      current
-        .slice()
-        .sort((a, b) => b.passRate - a.passRate)
-        .map((m) => m.key),
-    [current]
-  );
+  const modelKeys = useMemo(() => sortedStats.map((m) => m.key), [sortedStats]);
 
   // caseId → cell lookup for the matrix.
   const cellByCaseAndModel = useMemo(() => {
@@ -172,23 +173,30 @@ export function ReportView() {
     return map;
   }, [active]);
 
+  // O(1) case lookup for the matrix rows (a linear find per row made the
+  // table O(rows × cases) per render).
+  const caseById = useMemo(() => {
+    const dataset = active?.datasetId ? datasets[active.datasetId] : undefined;
+    return new Map((dataset?.cases ?? []).map((c) => [c.id, c]));
+  }, [active, datasets]);
+
   /**
    * Short human description of a case: its first var values, looked up from
    * the run's dataset. Falls back to the id prefix when the dataset (or case)
    * has since been deleted.
    */
-  const caseLabel = useMemo(() => {
-    const dataset = active?.datasetId ? datasets[active.datasetId] : undefined;
-    return (caseId: string, index: number): string => {
-      const c = dataset?.cases.find((x) => x.id === caseId);
+  const caseLabel = useCallback(
+    (caseId: string, index: number): string => {
+      const c = caseById.get(caseId);
       if (!c) return `Case ${index + 1} (${caseId.slice(0, 8)})`;
       const vars = Object.entries(c.vars)
         .slice(0, 2)
         .map(([k, v]) => `${k}=${v.length > 20 ? `${v.slice(0, 20)}…` : v}`)
         .join(', ');
       return vars ? `Case ${index + 1} — ${vars}` : `Case ${index + 1}`;
-    };
-  }, [active, datasets]);
+    },
+    [caseById]
+  );
 
   const drillCells = useMemo(
     () => (active && drillCaseId ? active.cells.filter((c) => c.caseId === drillCaseId) : []),
@@ -318,49 +326,46 @@ export function ReportView() {
                     </tr>
                   </thead>
                   <tbody className="text-sp-text">
-                    {current
-                      .slice()
-                      .sort((a, b) => b.passRate - a.passRate)
-                      .map((m) => {
-                        const prev = prevStats.find((p) => p.key === m.key);
-                        const delta = prev ? m.passRate - prev.passRate : null;
-                        return (
-                          <tr key={m.key} className="border-b border-sp-line">
-                            <td className="py-2 pr-3 font-medium">{m.label}</td>
-                            <td className="py-2 pr-3 tabular-nums">
-                              {(m.passRate * 100).toFixed(0)}% ({m.passed}/{m.total})
-                            </td>
-                            <td className="py-2 pr-3">
-                              {delta === null || delta === 0 ? (
-                                <span className="text-sp-muted">—</span>
-                              ) : (
-                                <span
-                                  className={cn(
-                                    'inline-flex items-center gap-0.5 tabular-nums',
-                                    delta > 0 ? 'text-emerald-500' : 'text-destructive'
-                                  )}
-                                >
-                                  {delta > 0 ? (
-                                    <ArrowUp className="h-3 w-3" />
-                                  ) : (
-                                    <ArrowDown className="h-3 w-3" />
-                                  )}
-                                  {Math.abs(delta * 100).toFixed(0)}%
-                                </span>
-                              )}
-                            </td>
-                            <td className="py-2 pr-3 tabular-nums">{Math.round(m.p50)}ms</td>
-                            <td className="py-2 pr-3 tabular-nums">{Math.round(m.p95)}ms</td>
-                            <td className="py-2 pr-3 tabular-nums">
-                              {m.cost === null
-                                ? '—'
-                                : m.cost === 0
-                                  ? 'free'
-                                  : `$${m.cost.toFixed(4)}`}
-                            </td>
-                          </tr>
-                        );
-                      })}
+                    {sortedStats.map((m) => {
+                      const prev = prevStatsByKey.get(m.key);
+                      const delta = prev ? m.passRate - prev.passRate : null;
+                      return (
+                        <tr key={m.key} className="border-b border-sp-line">
+                          <td className="py-2 pr-3 font-medium">{m.label}</td>
+                          <td className="py-2 pr-3 tabular-nums">
+                            {(m.passRate * 100).toFixed(0)}% ({m.passed}/{m.total})
+                          </td>
+                          <td className="py-2 pr-3">
+                            {delta === null || delta === 0 ? (
+                              <span className="text-sp-muted">—</span>
+                            ) : (
+                              <span
+                                className={cn(
+                                  'inline-flex items-center gap-0.5 tabular-nums',
+                                  delta > 0 ? 'text-emerald-500' : 'text-destructive'
+                                )}
+                              >
+                                {delta > 0 ? (
+                                  <ArrowUp className="h-3 w-3" />
+                                ) : (
+                                  <ArrowDown className="h-3 w-3" />
+                                )}
+                                {Math.abs(delta * 100).toFixed(0)}%
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2 pr-3 tabular-nums">{Math.round(m.p50)}ms</td>
+                          <td className="py-2 pr-3 tabular-nums">{Math.round(m.p95)}ms</td>
+                          <td className="py-2 pr-3 tabular-nums">
+                            {m.cost === null
+                              ? '—'
+                              : m.cost === 0
+                                ? 'free'
+                                : `$${m.cost.toFixed(4)}`}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

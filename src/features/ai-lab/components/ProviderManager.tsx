@@ -4,7 +4,7 @@ import { Download, KeyRound, Pencil, Server, Trash2, Wifi, RefreshCw } from 'luc
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { listModels, testConnection } from '../lib/llmClient';
-import { plural } from '../lib/modelOptions';
+import { plural } from '../lib/plural';
 import { useAiLabStore } from '../store/useAiLabStore';
 import type { AiLabModelDetail, AiLabProviderConfig } from '../types';
 import { EmptyState } from './EmptyState';
@@ -353,9 +353,7 @@ export function ProviderManager() {
         updateProvider(cfg.id, {
           lastTest: { ok: true, at: Date.now(), modelCount: res.modelCount },
         });
-        toast.success(
-          `Connected — ${res.modelCount} model${res.modelCount === 1 ? '' : 's'} available`
-        );
+        toast.success(`Connected — ${plural(res.modelCount, 'model')} available`);
       } else {
         updateProvider(cfg.id, { lastTest: { ok: false, at: Date.now(), error: res.error } });
         toast.error(`Connection failed: ${res.error}`);
@@ -544,7 +542,6 @@ export function ProviderManager() {
           )}
           {Object.values(providers).map((cfg) => {
             const isEditing = editing?.id === cfg.id;
-            const modelWord = cfg.models.length === 1 ? 'model' : 'models';
             return (
               <Floater key={cfg.id} radius="panel" elevation="inset" className="space-y-3 p-3">
                 <div className="flex items-center justify-between gap-3">
@@ -572,7 +569,7 @@ export function ProviderManager() {
                       )}
                     </div>
                     <div className="mt-0.5 truncate text-sp-12 text-sp-muted">
-                      {effectiveBaseUrl(cfg)} · {cfg.models.length} {modelWord}
+                      {effectiveBaseUrl(cfg)} · {plural(cfg.models.length, 'model')}
                       {cfg.modelDetails &&
                         Object.keys(cfg.modelDetails).length > 0 &&
                         ` · ${Object.keys(cfg.modelDetails).length} with metadata`}
