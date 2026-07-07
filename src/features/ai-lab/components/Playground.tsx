@@ -4,9 +4,9 @@ import { toast } from 'sonner';
 import { specFor, streamLlm, type StreamHandle } from '../lib/llmClient';
 import { renderTemplate, extractVars } from '../lib/promptTemplate';
 import { useAiLabStore } from '../store/useAiLabStore';
-import type { AiLabProviderConfig } from '../types';
+import type { AiLabModelDetail, AiLabProviderConfig } from '../types';
 import { EmptyState } from './EmptyState';
-import { ModelChecklist } from './ModelChecklist';
+import { ModelChecklist, type ModelChecklistEntry } from './ModelChecklist';
 import { StatusChip } from './StatusChip';
 import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,8 @@ interface ModelOption {
   cfg: AiLabProviderConfig;
   model: string;
   label: string;
+  /** Rich OpenRouter metadata (if discovered). Used to surface context length + modality. */
+  detail?: AiLabModelDetail;
 }
 
 interface CellState {
@@ -45,7 +47,19 @@ export function Playground() {
     const out: ModelOption[] = [];
     for (const cfg of Object.values(providers)) {
       for (const model of cfg.models.length ? cfg.models : []) {
-        out.push({ key: `${cfg.id}:${model}`, cfg, model, label: `${cfg.label} · ${model}` });
+        // Prefer the human-readable label from discovery (e.g. "Claude 3.5 Sonnet")
+        // over the slash-namespaced id; the id is still surfaced as a tooltip
+        // and as the "id" field of the entry (so ModelChecklist can show it
+        // when no rich metadata is available).
+        const detail = cfg.modelDetails?.[model];
+        const modelLabel = detail?.label ?? model;
+        out.push({
+          key: `${cfg.id}:${model}`,
+          cfg,
+          model,
+          label: `${cfg.label} · ${modelLabel}`,
+          detail,
+        });
       }
     }
     return out;
@@ -232,7 +246,12 @@ export function Playground() {
           <div className="space-y-1.5">
             <span className="sp-label">Models</span>
             <ModelChecklist
-              models={modelOptions}
+              models={modelOptions.map<ModelChecklistEntry>((m) => ({
+                key: m.key,
+                label: m.label,
+                id: m.model,
+                ...(m.detail ? { detail: m.detail } : {}),
+              }))}
               selected={selected}
               onToggle={toggle}
               emptyText="No models. Add a provider and discover its models in the Providers tab."

@@ -4,9 +4,9 @@ import { useArenaRun } from '../hooks/useArenaRun';
 import { computeElo, winRateMatrix } from '../lib/elo';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useArenaStore } from '../store/useArenaStore';
-import type { AiLabProviderConfig, ModelRef } from '../types';
+import type { AiLabModelDetail, AiLabProviderConfig, ModelRef } from '../types';
 import { EmptyState } from './EmptyState';
-import { ModelChecklist } from './ModelChecklist';
+import { ModelChecklist, type ModelChecklistEntry } from './ModelChecklist';
 import { StatusChip } from './StatusChip';
 import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,7 @@ interface ModelOption {
   cfg: AiLabProviderConfig;
   model: string;
   label: string;
+  detail?: AiLabModelDetail;
 }
 
 export function Arena() {
@@ -42,9 +43,19 @@ export function Arena() {
 
   const modelOptions = useMemo<ModelOption[]>(() => {
     const out: ModelOption[] = [];
-    for (const cfg of Object.values(providers))
-      for (const model of cfg.models)
-        out.push({ key: `${cfg.id}:${model}`, cfg, model, label: `${cfg.label} · ${model}` });
+    for (const cfg of Object.values(providers)) {
+      for (const model of cfg.models.length ? cfg.models : []) {
+        const detail = cfg.modelDetails?.[model];
+        const modelLabel = detail?.label ?? model;
+        out.push({
+          key: `${cfg.id}:${model}`,
+          cfg,
+          model,
+          label: `${cfg.label} · ${modelLabel}`,
+          detail,
+        });
+      }
+    }
     return out;
   }, [providers]);
 
@@ -119,7 +130,12 @@ export function Arena() {
         <div className="space-y-1.5">
           <span className="sp-label">Contestants (≥ 2)</span>
           <ModelChecklist
-            models={modelOptions}
+            models={modelOptions.map<ModelChecklistEntry>((m) => ({
+              key: m.key,
+              label: m.label,
+              id: m.model,
+              ...(m.detail ? { detail: m.detail } : {}),
+            }))}
             selected={selected}
             onToggle={toggle}
             emptyText="Add providers + discover models first."
