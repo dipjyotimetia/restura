@@ -8,6 +8,17 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./tests/setup.ts'],
+    // `node_modules/electron/index.js` runs downloadElectron() at module-load
+    // when `path.txt` is missing (fresh installs, or sandboxes where the binary
+    // download is blocked by egress policy), crashing every suite that
+    // `import 'electron'` even though they all `vi.mock('electron')` and never
+    // touch the real binary. Short-circuit the download to a stub path — the
+    // mock takes over from there. CI sets this at the workflow level; its value
+    // wins when present, and the electron-smoke / e2e-electron jobs (which need
+    // the real binary) don't run vitest, so they're unaffected.
+    env: {
+      ELECTRON_OVERRIDE_DIST_PATH: process.env.ELECTRON_OVERRIDE_DIST_PATH ?? '/tmp',
+    },
     // Inline graphql-ws so vite (with resolve.dedupe below) gives it the SAME
     // graphql copy as our in-process mock schema — otherwise the server-side
     // validate throws "Duplicate graphql modules" on cross-realm schemas.
