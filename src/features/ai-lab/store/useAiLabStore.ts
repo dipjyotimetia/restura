@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type {
+  AiLabModelDetail,
   AiLabProviderConfig,
   Dataset,
   DatasetCase,
@@ -31,7 +32,12 @@ interface AiLabState extends PersistedAiLabState {
   }) => string;
   updateProvider: (id: string, patch: Partial<AiLabProviderConfig>) => void;
   removeProvider: (id: string) => void;
-  setProviderModels: (id: string, models: string[]) => void;
+  setProviderModels: (
+    id: string,
+    models: string[],
+    /** Optional per-model metadata keyed by model id. */
+    modelDetails?: Record<string, AiLabModelDetail>
+  ) => void;
 
   // Prompts
   upsertPrompt: (
@@ -94,11 +100,24 @@ export const useAiLabStore = create<AiLabState>()(
           delete next[id];
           return { providers: next };
         }),
-      setProviderModels: (id, models) =>
+      setProviderModels: (id, models, modelDetails) =>
         set((s) => {
           const existing = s.providers[id];
           if (!existing) return {};
-          return { providers: { ...s.providers, [id]: { ...existing, models } } };
+          // Empty details object is treated as "no details" so a re-discover
+          // with a provider whose endpoint no longer returns rich metadata
+          // doesn't leave a stale (now-incomplete) `modelDetails` around.
+          const hasDetails = modelDetails && Object.keys(modelDetails).length > 0;
+          return {
+            providers: {
+              ...s.providers,
+              [id]: {
+                ...existing,
+                models,
+                ...(hasDetails ? { modelDetails } : { modelDetails: undefined }),
+              },
+            },
+          };
         }),
 
       upsertPrompt: (prompt) => {
