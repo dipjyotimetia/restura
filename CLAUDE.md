@@ -244,6 +244,18 @@ Standalone documentation site (`@restura/docs-site`, deployed to docs.restura.de
 
 The renderer entry is `dist/web/index.html` loaded via `file://` with hash routing. `_worker.js` is excluded from the Electron bundle.
 
+## Agent loop playbook
+
+How to run agentic work in this repo (loop primitives → repo tooling):
+
+- **Verify before declaring done** — for any renderer/UI change, use the `verify-ui-change` skill (dev server + real browser + console check). An edit that compiles is not a verified change.
+- **Goal loops** — `/fix-until-green [attempts]` iterates until `npm run validate` passes with a hard cap (or `/goal make npm run validate pass, stop after 5 tries`). Deterministic exit criteria beat "looks done".
+- **Time loops** — `/babysit-prs` is one idempotent iteration of PR care (CI fixes, review comments); drive it with `/loop 15m /babysit-prs` locally, or `subscribe_pr_activity` in remote sessions (events beat polling).
+- **Proactive loops** — `/triage-maintenance` sweeps dependabot PRs, security-audit findings, and skill metrics in one pass; pilot manually, then `/schedule` it.
+- **Pre-PR gate** — `/ship-check` fans out the review agents (`restura-security-auditor`, `restura-parity-checker`, `restura-docs-steward`) **in parallel** plus a fresh-context `/code-review`.
+- **Parallel sessions** — independent fixes get independent sessions in separate git worktrees (one topic per branch/PR); don't stack unrelated fixes serially on one branch.
+- **When a loop's output misses the bar**: don't just fix the instance — encode the fix (skill, hook, command, CLAUDE.md note) so every future iteration inherits it.
+
 ## Summary instructions (for context compaction)
 
 When this conversation is summarized to free context, **preserve** the following — they are load-bearing for Restura work and expensive to reconstruct:

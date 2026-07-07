@@ -240,6 +240,17 @@ The renderer entry is `dist/web/index.html` loaded via `file://` with hash
 routing. The Electron main process has its own `tsconfig.json` at
 `electron/tsconfig.json`.
 
+## Agent loop playbook
+
+Iteration discipline for agentic work in this repo (the Claude Code command
+wrappers live in `.claude/commands/`; the principles apply to any runtime):
+
+- **Verify before declaring done** — for renderer/UI changes, boot `npm run dev`, drive the change in a real browser, and check the console for new errors (see `.claude/skills/verify-ui-change/SKILL.md`). A compiling edit is not a verified change.
+- **Iterate against a deterministic gate** — `npm run validate` passing is the exit criterion for fix loops, with a hard attempt cap; don't stop at "looks done".
+- **One topic per branch/PR** — independent fixes get independent worktrees/sessions; don't stack unrelated fixes serially on one branch.
+- **Pre-PR review fan-out** — run the security/parity/docs review passes in parallel, plus a fresh-context code review that didn't author the diff.
+- **Encode fixes upward** — when an iteration's output misses the bar, fix the system (skill, hook, doc note), not just the instance.
+
 ## When summarizing this conversation
 
 Preserve: the task objective + which harness(es) are in scope (web Worker /
