@@ -2,8 +2,9 @@ import { Check, Copy, Maximize2, Minimize2, Play, Save, Sparkles, Square } from 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useCmdEnterRun } from '../hooks/useCmdEnterRun';
+import { useModelSelection } from '../hooks/useModelSelection';
 import { specFor, streamLlm, type StreamHandle } from '../lib/llmClient';
-import { buildModelOptions, toChecklistEntries, toggleKey } from '../lib/modelOptions';
+import { toggleSetKey } from '../lib/modelOptions';
 import { plural } from '../lib/plural';
 import { renderTemplate, extractVars } from '../lib/promptTemplate';
 import { useAiLabStore } from '../store/useAiLabStore';
@@ -25,6 +26,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Floater, Stat } from '@/components/ui/spatial';
 import { Textarea } from '@/components/ui/textarea';
+import { formatLongTimestamp } from '@/lib/shared/console-format';
 
 interface CellState {
   text: string;
@@ -53,19 +55,44 @@ export function Playground() {
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveName, setSaveName] = useState('');
   const handlesRef = useRef<StreamHandle[]>([]);
+  // Token deltas are buffered here and flushed on a short timer: each chunk
+  // arrives as its own IPC event (React can't batch across them), so applying
+  // them directly meant a full re-render per token per model. Usage/error/end
+  // events still update state directly — they're rare.
+  const pendingDeltasRef = useRef<Record<string, string>>({});
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const modelOptions = useMemo(() => buildModelOptions(providers), [providers]);
-  // Memoized + stable callbacks so the memoized ModelChecklist (300+ rows for
-  // a full catalog) doesn't re-render on every streamed token.
-  const checklistEntries = useMemo(() => toChecklistEntries(modelOptions), [modelOptions]);
-  const selected = useMemo(() => new Set(draft.selected), [draft.selected]);
-  const toggle = useCallback(
-    (key: string) => patchDraft({ selected: toggleKey(draft.selected, key) }),
-    [draft.selected, patchDraft]
+  const flushDeltas = useCallback(() => {
+    flushTimerRef.current = null;
+    const pending = pendingDeltasRef.current;
+    if (Object.keys(pending).length === 0) return;
+    pendingDeltasRef.current = {};
+    setCells((prev) => {
+      const next = { ...prev };
+      for (const [key, text] of Object.entries(pending)) {
+        const cell = next[key] ?? { text: '', status: 'streaming' as const };
+        next[key] = { ...cell, text: cell.text + text };
+      }
+      return next;
+    });
+  }, []);
+
+  const queueDelta = useCallback(
+    (key: string, text: string) => {
+      pendingDeltasRef.current[key] = (pendingDeltasRef.current[key] ?? '') + text;
+      flushTimerRef.current ??= setTimeout(flushDeltas, 80);
+    },
+    [flushDeltas]
   );
-  const setSelected = useCallback(
-    (next: Set<string>) => patchDraft({ selected: [...next] }),
+
+  const onSelectionChange = useCallback(
+    (sel: string[]) => patchDraft({ selected: sel }),
     [patchDraft]
+  );
+  const { modelOptions, checklistEntries, selectedSet, toggle, setSelected } = useModelSelection(
+    providers,
+    draft.selected,
+    onSelectionChange
   );
 
   const promptVars = useMemo(
@@ -73,21 +100,22 @@ export function Playground() {
     [draft.system, draft.user]
   );
 
-  // Live-validate the vars JSON so a typo doesn't silently render every
-  // {{placeholder}} empty (the old behavior — "tolerated" with no feedback).
-  const varsError = useMemo(() => {
+  // Parse the vars JSON once for both the inline error banner and run/save —
+  // a typo used to silently render every {{placeholder}} empty.
+  const parsedVars = useMemo((): { vars: Record<string, string>; error: string | null } => {
     const text = draft.varsText.trim();
-    if (!text || promptVars.length === 0) return null;
+    if (!text) return { vars: {}, error: null };
     try {
       const parsed = JSON.parse(text) as unknown;
       if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return 'Variables must be a JSON object of string values.';
+        return { vars: {}, error: 'Variables must be a JSON object of string values.' };
       }
-      return null;
+      return { vars: parsed as Record<string, string>, error: null };
     } catch (e) {
-      return e instanceof Error ? e.message : String(e);
+      return { vars: {}, error: e instanceof Error ? e.message : String(e) };
     }
-  }, [draft.varsText, promptVars.length]);
+  }, [draft.varsText]);
+  const varsError = promptVars.length > 0 ? parsedVars.error : null;
 
   const maxTokens = useMemo(() => {
     const n = Number(draft.maxTokensText);
@@ -101,6 +129,7 @@ export function Playground() {
     return () => {
       for (const h of handlesRef.current) h.cancel();
       handlesRef.current = [];
+      if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
     };
   }, []);
 
@@ -110,57 +139,46 @@ export function Playground() {
     setActiveCount(0);
   };
 
-  const parseVars = (): Record<string, string> => {
-    try {
-      return JSON.parse(draft.varsText || '{}') as Record<string, string>;
-    } catch {
-      return {};
-    }
-  };
-
-  const finishedCases = () => {
-    const vars = parseVars();
-    return modelOptions
-      .filter((m) => cells[m.key] && cells[m.key]!.status === 'done' && cells[m.key]!.text)
-      .map((m, i) => ({ id: `${Date.now()}-${i}`, vars, reference: cells[m.key]!.text }));
-  };
+  // Finished outputs as dataset cases. The save dialog gates on this being
+  // non-empty and blocks any state change while open, so saveAsCases can use
+  // it unguarded.
+  const finishedCases = useMemo(
+    () =>
+      modelOptions
+        .filter((m) => cells[m.key] && cells[m.key]!.status === 'done' && cells[m.key]!.text)
+        .map((m, i) => ({
+          id: `${Date.now()}-${i}`,
+          vars: parsedVars.vars,
+          reference: cells[m.key]!.text,
+        })),
+    [modelOptions, cells, parsedVars.vars]
+  );
 
   /** Save the current vars + each finished model output as cases in a new dataset. */
   const saveAsCases = () => {
-    const cases = finishedCases();
-    if (cases.length === 0) {
-      toast.error('No finished outputs to save.');
-      return;
-    }
     const name = saveName.trim() || 'From Playground';
-    const id = upsertDataset({ name, cases });
+    const id = upsertDataset({ name, cases: finishedCases });
     setSaveOpen(false);
-    toast.success(`Saved ${plural(cases.length, 'case')} to “${name}”`, {
+    toast.success(`Saved ${plural(finishedCases.length, 'case')} to “${name}”`, {
       action: { label: 'Open dataset', onClick: () => openDataset(id) },
     });
   };
 
   const openSaveDialog = () => {
-    if (finishedCases().length === 0) {
+    if (finishedCases.length === 0) {
       toast.error('No finished outputs to save.');
       return;
     }
     // Unique-enough default so repeated saves don't pile up identical names.
-    const stamp = new Date().toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-    setSaveName(`Playground ${stamp}`);
+    setSaveName(`Playground ${formatLongTimestamp(Date.now())}`);
     setSaveOpen(true);
   };
 
   const run = async () => {
-    const vars = parseVars();
+    const { vars } = parsedVars;
     const sys = renderTemplate(draft.system, vars).trim();
     const usr = renderTemplate(draft.user, vars);
-    const chosen = modelOptions.filter((m) => selected.has(m.key));
+    const chosen = modelOptions.filter((m) => selectedSet.has(m.key));
     if (chosen.length === 0) return;
 
     setActiveCount(chosen.length);
@@ -184,10 +202,12 @@ export function Playground() {
           specFor(m.cfg, m.model, messages, maxTokens ? { maxOutputTokens: maxTokens } : {}),
           {
             onChunk: (ev) => {
+              if (ev.type === 'delta') {
+                queueDelta(m.key, ev.text);
+                return;
+              }
               setCells((prev) => {
                 const cell = prev[m.key] ?? { text: '', status: 'streaming' as const };
-                if (ev.type === 'delta')
-                  return { ...prev, [m.key]: { ...cell, text: cell.text + ev.text } };
                 if (ev.type === 'usage') {
                   const cost =
                     m.cfg.provider === 'ollama'
@@ -211,6 +231,8 @@ export function Playground() {
               });
             },
             onEnd: (reason) => {
+              // Apply any buffered tail before finalising the cell status.
+              flushDeltas();
               setActiveCount((c) => Math.max(0, c - 1));
               setCells((prev) => {
                 const cell = prev[m.key];
@@ -245,7 +267,7 @@ export function Playground() {
     handlesRef.current = handles;
   };
 
-  const canRun = selected.size > 0 && activeCount === 0;
+  const canRun = selectedSet.size > 0 && activeCount === 0;
 
   useCmdEnterRun(() => {
     if (canRun) void run();
@@ -254,16 +276,11 @@ export function Playground() {
   const copyCell = async (key: string, text: string) => {
     await navigator.clipboard.writeText(text);
     setCopiedKey(key);
-    setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1500);
+    // 2000ms matches the copy-feedback convention elsewhere in the app.
+    setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 2000);
   };
 
-  const toggleExpanded = (key: string) =>
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  const toggleExpanded = (key: string) => setExpanded((prev) => toggleSetKey(prev, key));
 
   const hasResults = Object.keys(cells).length > 0;
 
@@ -333,7 +350,7 @@ export function Playground() {
               <span className="sp-label">Models</span>
               <ModelChecklist
                 models={checklistEntries}
-                selected={selected}
+                selected={selectedSet}
                 onToggle={toggle}
                 onChangeSelected={setSelected}
                 emptyText="No models. Add a provider and discover its models in the Providers tab."
@@ -348,11 +365,11 @@ export function Playground() {
                 variant="cta"
                 size="cta"
                 onClick={() => void run()}
-                disabled={selected.size === 0}
+                disabled={selectedSet.size === 0}
                 className="w-full"
                 title="Cmd/Ctrl+Enter"
               >
-                <Play className="h-3.5 w-3.5" /> Run on {plural(selected.size, 'model')}
+                <Play className="h-3.5 w-3.5" /> Run on {plural(selectedSet.size, 'model')}
               </Button>
             )}
             {hasResults && activeCount === 0 && (

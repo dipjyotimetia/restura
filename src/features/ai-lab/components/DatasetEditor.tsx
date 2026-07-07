@@ -12,7 +12,17 @@ import {
 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import {
+  caseSummary,
+  draftFromDataset,
+  normalizeCase,
+  parseCases,
+  serializeCases,
+  type EditableCase,
+  type EditMode,
+} from '../lib/datasetDraft';
 import { casesFromCsv, casesFromJsonl, casesToCsv, casesToJsonl } from '../lib/datasetIo';
+import { toggleSetKey } from '../lib/modelOptions';
 import { plural } from '../lib/plural';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore } from '../store/useAiLabUiStore';
@@ -40,105 +50,52 @@ const JSON_REPARSE_DEBOUNCE_MS = 300;
 // hundreds of full editing cards at once made big imports unusable.
 const COLLAPSE_THRESHOLD = 20;
 
-type EditMode = 'structured' | 'json';
-
-/** A case as edited in the UI (ids are minted/preserved on save). `turns` is
- *  carried opaquely so multi-turn cases survive structured-mode edits.
- *  `_key` is a UI-only stable identity so React state doesn't get recycled
- *  across row removals (index keys did). */
-interface EditableCase {
-  _key: string;
-  vars: Record<string, string>;
-  expected?: string;
-  reference?: string;
-  turns?: DatasetCase['turns'];
-}
-
-type ParseResult = { ok: true; cases: EditableCase[] } | { ok: false; error: string };
-
-function normalizeCase(c: unknown): EditableCase {
-  const obj = (c ?? {}) as Record<string, unknown>;
-  const vars =
-    obj.vars && typeof obj.vars === 'object' && !Array.isArray(obj.vars)
-      ? (obj.vars as Record<string, string>)
-      : {};
-  return {
-    _key: crypto.randomUUID(),
-    vars,
-    ...(typeof obj.expected === 'string' ? { expected: obj.expected } : {}),
-    ...(typeof obj.reference === 'string' ? { reference: obj.reference } : {}),
-    ...(obj.turns !== undefined ? { turns: obj.turns as DatasetCase['turns'] } : {}),
-  };
-}
-
-function parseCases(text: string): ParseResult {
-  try {
-    const arr = JSON.parse(text) as unknown;
-    if (!Array.isArray(arr)) return { ok: false, error: 'not an array' };
-    return { ok: true, cases: arr.map(normalizeCase) };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
-}
-
-/** Serialize for the JSON tab / persistence — the UI-only `_key` never leaks. */
-const serializeCases = (cs: EditableCase[]) =>
-  JSON.stringify(
-    cs.map(({ _key: _drop, ...rest }) => rest),
-    null,
-    2
-  );
-
-/** One-line summary for a collapsed case row. */
-function caseSummary(c: EditableCase): string {
-  const varPairs = Object.entries(c.vars)
-    .slice(0, 3)
-    .map(([k, v]) => `${k}=${v.length > 24 ? `${v.slice(0, 24)}…` : v}`)
-    .join(', ');
-  const parts: string[] = [];
-  if (varPairs) parts.push(varPairs);
-  else parts.push('no variables');
-  if (c.expected) parts.push('expected ✓');
-  if (c.reference) parts.push('reference ✓');
-  if (c.turns) parts.push(`${plural(c.turns.length, 'turn')}`);
-  return parts.join(' · ');
-}
+const defaultExpandedKeys = (cases: EditableCase[]): Set<string> =>
+  cases.length > COLLAPSE_THRESHOLD ? new Set() : new Set(cases.map((c) => c._key));
 
 /**
  * Cases are edited either as structured rows (vars/expected/reference) or as a
  * raw JSON array of { vars, expected?, reference?, turns? } — the JSON view is
- * the escape hatch for multi-turn / advanced shapes. The `cases` array is the
- * single source of truth (so structured edits don't re-serialise the whole
- * dataset on every keystroke); the JSON tab edits `jsonText` and syncs back
- * into `cases` whenever it parses. Ids are minted/preserved on save.
+ * the escape hatch for multi-turn / advanced shapes. The draft's `cases` array
+ * is the single source of truth (so structured edits don't re-serialise the
+ * whole dataset on every keystroke); the JSON tab edits `jsonText` and syncs
+ * back into `cases` whenever it parses.
  *
- * Edits are local until "Save dataset": a dirty flag drives an unsaved-changes
- * indicator and a confirm before switching datasets (previously edits were
- * silently discarded).
+ * The whole work buffer lives in useAiLabUiStore (see lib/datasetDraft), like
+ * every other tab draft, so neither sub-tab switches nor in-tab dataset
+ * switches can silently discard edits — the latter additionally gate on a
+ * discard confirm while dirty.
  */
 export function DatasetEditor() {
   const datasets = useAiLabStore((s) => s.datasets);
   const upsertDataset = useAiLabStore((s) => s.upsertDataset);
   const removeDataset = useAiLabStore((s) => s.removeDataset);
 
-  // Selection lives in the UI store so it survives tab switches and so other
-  // tabs (Playground save, generator dialogs) can hand a dataset off to us.
   const activeId = useAiLabUiStore((s) => s.datasetId);
   const setActiveId = useAiLabUiStore((s) => s.setDatasetId);
+  const draft = useAiLabUiStore((s) => s.datasetDraft);
+  const setDraft = useAiLabUiStore((s) => s.setDatasetDraft);
+  const patchDraft = useAiLabUiStore((s) => s.patchDatasetDraft);
+  const updateCases = useAiLabUiStore((s) => s.updateDatasetDraftCases);
 
-  const [name, setName] = useState('');
-  const [cases, setCases] = useState<EditableCase[]>([]);
-  const [jsonText, setJsonText] = useState('[]');
+  // View-local ephemera: parse-error banner and row expansion (fine to reset
+  // on unmount, unlike the edit buffer itself).
   const [jsonError, setJsonError] = useState<string | null>(null);
-  const [mode, setModeState] = useState<EditMode>('structured');
-  const [dirty, setDirty] = useState(false);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
   const reparseTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Snapshot of jsonText as seeded on entering JSON mode; if it's unchanged on
+  // exit we keep the existing cases (a reparse would mint fresh `_key`s and
+  // needlessly reassign case ids on save).
+  const jsonSeedRef = useRef<string | null>(null);
 
   useEffect(() => () => clearTimeout(reparseTimer.current), []);
 
   const active = activeId ? datasets[activeId] : undefined;
+  const dirty = draft?.dirty ?? false;
+  const mode = draft?.mode ?? 'structured';
+  const cases = draft?.cases ?? [];
+
   const { confirm: confirmDelete, DialogComponent: DeleteDatasetDialog } = useConfirmDialog({
     title: 'Delete dataset',
     description: active
@@ -149,72 +106,52 @@ export function DatasetEditor() {
   });
   const { confirm: confirmDiscard, DialogComponent: DiscardChangesDialog } = useConfirmDialog({
     title: 'Discard unsaved changes?',
-    description: `"${name || 'This dataset'}" has unsaved edits. Switching now discards them.`,
+    description: `"${draft?.name || 'This dataset'}" has unsaved edits. Switching now discards them.`,
     confirmText: 'Discard',
     variant: 'destructive',
   });
 
-  // Load the active dataset's cases into the editor. The array is canonical;
-  // jsonText is only materialised when the JSON tab is showing — setMode('json')
-  // re-seeds it anyway, so eagerly pretty-printing every case on each dataset
-  // switch was pure waste in the (default) structured mode.
-  const loadCases = (next: EditableCase[]) => {
-    setCases(next);
-    setJsonText(mode === 'json' ? serializeCases(next) : '[]');
-    setJsonError(null);
-    // Big datasets start collapsed; small ones open for direct editing.
-    setExpandedKeys(
-      next.length > COLLAPSE_THRESHOLD ? new Set() : new Set(next.map((c) => c._key))
-    );
-  };
-
+  // (Re)build the work buffer when the selection points at a dataset the
+  // current draft doesn't cover. A save updates the store dataset object but
+  // keeps datasetId === activeId, so in-progress edits are never clobbered.
   useEffect(() => {
-    if (!active) return;
-    // Drop any reparse still pending from the PREVIOUS dataset — otherwise it
-    // fires after loadCases() below and overwrites the newly-loaded cases with
-    // the old dataset's stale JSON.
+    if (!active || draft?.datasetId === active.id) return;
     clearTimeout(reparseTimer.current);
-    setName(active.name);
-    loadCases(active.cases.map(({ id: _id, ...rest }) => ({ ...rest, _key: _id })));
-    setDirty(false);
-    // Reload only when the selected dataset changes — the store object also
-    // changes on save, and reloading then would clobber in-progress edits.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeId]);
+    const next = draftFromDataset(active, draft?.mode ?? 'structured');
+    setDraft(next);
+    setJsonError(null);
+    jsonSeedRef.current = next.mode === 'json' ? next.jsonText : null;
+    setExpandedKeys(defaultExpandedKeys(next.cases));
+  }, [active, draft?.datasetId, draft?.mode, setDraft]);
 
   /** Route every selection change through the dirty guard. */
-  const switchTo = async (id: string | null) => {
-    if (id === activeId) return;
-    if (dirty && !(await confirmDiscard())) return;
-    setActiveId(id);
-  };
+  const switchTo = useCallback(
+    async (id: string | null) => {
+      if (id === useAiLabUiStore.getState().datasetId) return;
+      if (useAiLabUiStore.getState().datasetDraft?.dirty && !(await confirmDiscard())) return;
+      setActiveId(id);
+    },
+    [confirmDiscard, setActiveId]
+  );
 
-  // Structured edits mutate the canonical array directly — O(1) state updates,
-  // no per-keystroke (re)serialisation of the whole dataset. All are stable
-  // (functional updates) so the memoized CaseRow only re-renders for the row
-  // that actually changed.
-  const updateCase = useCallback((key: string, patch: Partial<EditableCase>) => {
-    setCases((prev) => prev.map((c) => (c._key === key ? { ...c, ...patch } : c)));
-    setDirty(true);
-  }, []);
-  const removeCase = useCallback((key: string) => {
-    setCases((prev) => prev.filter((c) => c._key !== key));
-    setDirty(true);
-  }, []);
+  // Case mutations go through the store's functional updater (marks dirty);
+  // all stable so the memoized CaseRow only re-renders the row that changed.
+  const updateCase = useCallback(
+    (key: string, patch: Partial<EditableCase>) =>
+      updateCases((prev) => prev.map((c) => (c._key === key ? { ...c, ...patch } : c))),
+    [updateCases]
+  );
+  const removeCase = useCallback(
+    (key: string) => updateCases((prev) => prev.filter((c) => c._key !== key)),
+    [updateCases]
+  );
   const addCase = () => {
     const c: EditableCase = { _key: crypto.randomUUID(), vars: {} };
-    setCases((prev) => [...prev, c]);
+    updateCases((prev) => [...prev, c]);
     setExpandedKeys((prev) => new Set(prev).add(c._key));
-    setDirty(true);
   };
   const toggleExpanded = useCallback(
-    (key: string) =>
-      setExpandedKeys((prev) => {
-        const next = new Set(prev);
-        if (next.has(key)) next.delete(key);
-        else next.add(key);
-        return next;
-      }),
+    (key: string) => setExpandedKeys((prev) => toggleSetKey(prev, key)),
     []
   );
 
@@ -222,13 +159,13 @@ export function DatasetEditor() {
   // a Save (or a switch back to structured) always uses the latest valid text.
   // The reparse itself is debounced (large pasted arrays are expensive to
   // JSON.parse on every keystroke); flushJsonReparse forces it synchronously
-  // for callers (Save, tab switch) that need `cases`/`jsonError` up to date
-  // with whatever's in the textarea right now.
+  // for callers (Save, tab switch) that need cases/jsonError up to date with
+  // whatever's in the textarea right now.
   const flushJsonReparse = (text: string) => {
     clearTimeout(reparseTimer.current);
     const res = parseCases(text);
     if (res.ok) {
-      setCases(res.cases);
+      updateCases(() => res.cases);
       setJsonError(null);
     } else {
       setJsonError(res.error);
@@ -237,31 +174,35 @@ export function DatasetEditor() {
   };
 
   const onJsonChange = (text: string) => {
-    setJsonText(text);
-    setDirty(true);
+    patchDraft({ jsonText: text, dirty: true });
     clearTimeout(reparseTimer.current);
     reparseTimer.current = setTimeout(() => flushJsonReparse(text), JSON_REPARSE_DEBOUNCE_MS);
   };
 
   const setMode = (next: EditMode) => {
-    if (next === mode) return;
+    if (!draft || next === draft.mode) return;
     if (next === 'json') {
-      // Re-seed the textarea from the canonical array (this is the only place
+      // Seed the textarea from the canonical array (this is the only place
       // structured edits get serialised).
-      setJsonText(serializeCases(cases));
+      const seeded = serializeCases(draft.cases);
+      jsonSeedRef.current = seeded;
+      patchDraft({ mode: 'json', jsonText: seeded });
       setJsonError(null);
-    } else {
-      const res = flushJsonReparse(jsonText);
-      if (!res.ok) {
-        // Don't silently drop invalid JSON when leaving the JSON tab.
-        toast.error(`Invalid cases JSON: ${res.error}`);
-        return;
-      }
-      setExpandedKeys(
-        res.cases.length > COLLAPSE_THRESHOLD ? new Set() : new Set(res.cases.map((c) => c._key))
-      );
+      return;
     }
-    setModeState(next);
+    // Untouched JSON → keep the existing cases (and their identities).
+    if (draft.jsonText === jsonSeedRef.current) {
+      patchDraft({ mode: 'structured' });
+      return;
+    }
+    const res = flushJsonReparse(draft.jsonText);
+    if (!res.ok) {
+      // Don't silently drop invalid JSON when leaving the JSON tab.
+      toast.error(`Invalid cases JSON: ${res.error}`);
+      return;
+    }
+    patchDraft({ mode: 'structured' });
+    setExpandedKeys(defaultExpandedKeys(res.cases));
   };
 
   const createNew = async () => {
@@ -271,12 +212,12 @@ export function DatasetEditor() {
   };
 
   const save = () => {
-    if (!activeId) return;
+    if (!draft || !activeId) return;
     // In JSON mode, force the pending debounced reparse so `cases` reflects
     // whatever is currently in the textarea, not a stale pre-debounce value.
-    let sourceCases = cases;
-    if (mode === 'json') {
-      const res = flushJsonReparse(jsonText);
+    let sourceCases = draft.cases;
+    if (draft.mode === 'json' && draft.jsonText !== jsonSeedRef.current) {
+      const res = flushJsonReparse(draft.jsonText);
       if (!res.ok) {
         toast.error(`Invalid cases JSON: ${res.error}`);
         return;
@@ -284,7 +225,7 @@ export function DatasetEditor() {
       sourceCases = res.cases;
     }
     // `_key` is seeded from the persisted case id on load, so ids survive
-    // removals/reorders (the old index mapping reassigned them).
+    // removals/reorders.
     const out: DatasetCase[] = sourceCases.map((c) => ({
       id: c._key,
       vars: c.vars ?? {},
@@ -292,8 +233,8 @@ export function DatasetEditor() {
       ...(c.reference !== undefined ? { reference: c.reference } : {}),
       ...(c.turns !== undefined ? { turns: c.turns } : {}),
     }));
-    upsertDataset({ id: activeId, name: name.trim() || 'Untitled', cases: out });
-    setDirty(false);
+    upsertDataset({ id: activeId, name: draft.name.trim() || 'Untitled', cases: out });
+    patchDraft({ dirty: false });
     toast.success('Dataset saved');
   };
 
@@ -302,7 +243,7 @@ export function DatasetEditor() {
     if (!(await confirmDelete())) return;
     removeDataset(active.id);
     setActiveId(null);
-    setDirty(false);
+    setDraft(null);
   };
 
   /** Export the active dataset's cases (sans ids) as CSV or JSONL. */
@@ -319,7 +260,7 @@ export function DatasetEditor() {
 
   /** Import cases from a picked .jsonl/.csv file into the active dataset. */
   const onImportFile = async (file: File) => {
-    if (!activeId) return;
+    if (!draft || !activeId) return;
     const text = await file.text();
     try {
       const incoming = file.name.toLowerCase().endsWith('.csv')
@@ -330,13 +271,14 @@ export function DatasetEditor() {
         return;
       }
       const imported: DatasetCase[] = incoming.map((c) => ({ id: crypto.randomUUID(), ...c }));
-      upsertDataset({
-        id: activeId,
-        name: name.trim() || active?.name || 'Untitled',
-        cases: imported,
-      });
-      loadCases(incoming.map(normalizeCase));
-      setDirty(false);
+      const name = draft.name.trim() || active?.name || 'Untitled';
+      upsertDataset({ id: activeId, name, cases: imported });
+      const nextCases = incoming.map(normalizeCase);
+      const jsonText = draft.mode === 'json' ? serializeCases(nextCases) : '[]';
+      jsonSeedRef.current = draft.mode === 'json' ? jsonText : null;
+      setDraft({ ...draft, name, cases: nextCases, jsonText, dirty: false });
+      setJsonError(null);
+      setExpandedKeys(defaultExpandedKeys(nextCases));
       toast.success(`Imported ${plural(imported.length, 'case')}`);
     } catch (e) {
       toast.error(`Import failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -353,9 +295,12 @@ export function DatasetEditor() {
           <Button variant="secondary" size="sm" onClick={() => void createNew()} className="w-full">
             <Plus className="mr-2 h-3.5 w-3.5" /> New dataset
           </Button>
-          <OpenApiGenDialog onCreated={(id) => setActiveId(id)} />
-          <RedteamGenDialog onCreated={(id) => setActiveId(id)} />
-          <ImportFromHistoryDialog onCreated={(id) => setActiveId(id)} />
+          {/* Generated/imported datasets route through switchTo so the dirty
+              guard covers them too — a raw setActiveId would silently reload
+              over unsaved edits. */}
+          <OpenApiGenDialog onCreated={(id) => void switchTo(id)} />
+          <RedteamGenDialog onCreated={(id) => void switchTo(id)} />
+          <ImportFromHistoryDialog onCreated={(id) => void switchTo(id)} />
           {datasetList.map((d) => (
             <button
               key={d.id}
@@ -385,7 +330,7 @@ export function DatasetEditor() {
 
         {/* Editor — detail pane, fills the window. */}
         <div className="flex-1 overflow-auto p-4">
-          {active ? (
+          {active && draft && draft.datasetId === active.id ? (
             <Floater
               radius="panel"
               elevation="float"
@@ -398,11 +343,8 @@ export function DatasetEditor() {
                   </Label>
                   <Input
                     id="dataset-name"
-                    value={name}
-                    onChange={(e) => {
-                      setName(e.target.value);
-                      setDirty(true);
-                    }}
+                    value={draft.name}
+                    onChange={(e) => patchDraft({ name: e.target.value, dirty: true })}
                   />
                 </div>
                 <Button
@@ -477,7 +419,7 @@ export function DatasetEditor() {
                 ) : (
                   <>
                     <Textarea
-                      value={jsonText}
+                      value={draft.jsonText}
                       onChange={(e) => onJsonChange(e.target.value)}
                       className="min-h-[24rem] resize-none font-mono text-sp-13"
                     />

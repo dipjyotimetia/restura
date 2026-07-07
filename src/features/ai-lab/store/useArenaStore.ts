@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { newestFirst } from '../lib/newestFirst';
 import type { ArenaMatch, ArenaRun, EvalRunStatus } from '../types';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { ArenaStateSchema } from '@/lib/shared/store-validators';
@@ -71,7 +72,7 @@ export const useArenaStore = create<ArenaState>()(
           delete next[id];
           return { runs: next };
         }),
-      listRuns: () => Object.values(get().runs).sort((a, b) => b.startedAt - a.startedAt),
+      listRuns: () => newestFirst(get().runs),
     }),
     {
       name: 'arena-runs-store',

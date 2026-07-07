@@ -31,6 +31,12 @@ describe('useAiLabUiStore', () => {
     expect(s.reportDrillCaseId).toBeNull();
   });
 
+  it('changing the report run always clears the drill-down', () => {
+    useAiLabUiStore.getState().setReportDrillCaseId('case-1');
+    useAiLabUiStore.getState().setReportRunId('run-2');
+    expect(useAiLabUiStore.getState().reportDrillCaseId).toBeNull();
+  });
+
   it('openDataset selects the dataset and switches tabs', () => {
     useAiLabUiStore.getState().openDataset('ds-1');
     const s = useAiLabUiStore.getState();

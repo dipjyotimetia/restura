@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { newestFirst } from '../lib/newestFirst';
 import type { EvalCellResult, EvalRun, EvalRunStatus } from '../types';
 import { debouncedStorage } from '@/lib/shared/debouncedStorage';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
@@ -22,6 +23,7 @@ interface EvalRunState extends PersistedEvalRunState {
     datasetName?: string;
     modelLabels?: Record<string, string>;
   }) => string;
+  /** Single-cell convenience over addCells. */
   addCell: (runId: string, cell: EvalCellResult) => void;
   /** Append a batch in one update — one array copy + one notification. */
   addCells: (runId: string, cells: EvalCellResult[]) => void;
@@ -66,12 +68,7 @@ export const useEvalRunStore = create<EvalRunState>()(
         set((s) => ({ runs: prune({ ...s.runs, [id]: run }) }));
         return id;
       },
-      addCell: (runId, cell) =>
-        set((s) => {
-          const run = s.runs[runId];
-          if (!run) return {};
-          return { runs: { ...s.runs, [runId]: { ...run, cells: [...run.cells, cell] } } };
-        }),
+      addCell: (runId, cell) => get().addCells(runId, [cell]),
       addCells: (runId, cells) =>
         set((s) => {
           const run = s.runs[runId];
@@ -92,7 +89,7 @@ export const useEvalRunStore = create<EvalRunState>()(
           delete next[id];
           return { runs: next };
         }),
-      listRuns: () => Object.values(get().runs).sort((a, b) => b.startedAt - a.startedAt),
+      listRuns: () => newestFirst(get().runs),
     }),
     {
       name: 'eval-runs-store',

@@ -1,6 +1,9 @@
 import { ArrowDown, ArrowUp, BarChart3, Download, Trash2, X } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
+import { modelKey, parseModelKey } from '../lib/modelOptions';
+import { newestFirst } from '../lib/newestFirst';
 import { runToCsv, runToJson, runToMarkdown } from '../lib/reportExport';
+import { summarizeVars } from '../lib/summarizeVars';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore } from '../store/useAiLabUiStore';
 import { useEvalRunStore } from '../store/useEvalRunStore';
@@ -31,13 +34,13 @@ interface ModelStats {
 
 /** Friendly label for a model key: run-captured label > raw model id. */
 function labelForModel(run: EvalRun, key: string): string {
-  return run.modelLabels?.[key] ?? key.split(':').slice(1).join(':') ?? key;
+  return run.modelLabels?.[key] ?? (parseModelKey(key).model || key);
 }
 
 function statsByModel(run: EvalRun): ModelStats[] {
   const groups = new Map<string, EvalCellResult[]>();
   for (const cell of run.cells) {
-    const key = `${cell.modelRef.providerConfigId}:${cell.modelRef.model}`;
+    const key = modelKey(cell.modelRef);
     const arr = groups.get(key) ?? [];
     arr.push(cell);
     groups.set(key, arr);
@@ -106,10 +109,7 @@ export function ReportView() {
   const runs = useEvalRunStore((s) => s.runs);
   const deleteRun = useEvalRunStore((s) => s.deleteRun);
   const datasets = useAiLabStore((s) => s.datasets);
-  const sorted = useMemo(
-    () => Object.values(runs).sort((a, b) => b.startedAt - a.startedAt),
-    [runs]
-  );
+  const sorted = useMemo(() => newestFirst(runs), [runs]);
   // Selection lives in the UI store so "View report" in the Evals tab can hand
   // a run off to us, and so the selection survives tab switches.
   const activeId = useAiLabUiStore((s) => s.reportRunId);
@@ -168,7 +168,7 @@ export function ReportView() {
     const map = new Map<string, EvalCellResult>();
     if (!active) return map;
     for (const c of active.cells) {
-      map.set(`${c.caseId}|${c.modelRef.providerConfigId}:${c.modelRef.model}`, c);
+      map.set(`${c.caseId}|${modelKey(c.modelRef)}`, c);
     }
     return map;
   }, [active]);
@@ -189,10 +189,7 @@ export function ReportView() {
     (caseId: string, index: number): string => {
       const c = caseById.get(caseId);
       if (!c) return `Case ${index + 1} (${caseId.slice(0, 8)})`;
-      const vars = Object.entries(c.vars)
-        .slice(0, 2)
-        .map(([k, v]) => `${k}=${v.length > 20 ? `${v.slice(0, 20)}…` : v}`)
-        .join(', ');
+      const vars = summarizeVars(c.vars, 2, 20);
       return vars ? `Case ${index + 1} — ${vars}` : `Case ${index + 1}`;
     },
     [caseById]
@@ -215,8 +212,7 @@ export function ReportView() {
     if (!active) return;
     if (!(await confirmDelete())) return;
     deleteRun(active.id);
-    setActiveId(null);
-    setDrillCaseId(null);
+    setActiveId(null); // also clears the drill-down (store invariant)
   };
 
   if (sorted.length === 0) {
@@ -237,10 +233,7 @@ export function ReportView() {
           {sorted.map((r) => (
             <button
               key={r.id}
-              onClick={() => {
-                setActiveId(r.id);
-                setDrillCaseId(null);
-              }}
+              onClick={() => setActiveId(r.id)}
               className={cn(
                 'w-full rounded-sp-btn border px-3 py-2.5 text-left transition-colors',
                 active?.id === r.id
@@ -481,7 +474,7 @@ export function ReportView() {
                   {drillCells.length > 0 && (
                     <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
                       {drillCells.map((cell) => {
-                        const key = `${cell.modelRef.providerConfigId}:${cell.modelRef.model}`;
+                        const key = modelKey(cell.modelRef);
                         return (
                           <Floater
                             key={`${cell.caseId}:${key}`}

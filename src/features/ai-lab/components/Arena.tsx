@@ -1,8 +1,9 @@
 import { AlertTriangle, Play, Square, Trash2, Trophy } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
 import { useArenaRun } from '../hooks/useArenaRun';
+import { useModelSelection } from '../hooks/useModelSelection';
 import { computeElo, winRateMatrix } from '../lib/elo';
-import { buildModelOptions, toChecklistEntries, toggleKey } from '../lib/modelOptions';
+import { newestFirst } from '../lib/newestFirst';
 import { plural } from '../lib/plural';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore } from '../store/useAiLabUiStore';
@@ -52,22 +53,18 @@ export function Arena() {
   const arenaRunId = useAiLabUiStore((s) => s.arenaRunId);
   const setArenaRunId = useAiLabUiStore((s) => s.setArenaRunId);
 
-  const modelOptions = useMemo(() => buildModelOptions(providers), [providers]);
-  // Memoized + stable callbacks so the memoized ModelChecklist skips the
-  // re-render this component does per completed match while a run streams.
-  const checklistEntries = useMemo(() => toChecklistEntries(modelOptions), [modelOptions]);
-  const selected = useMemo(() => new Set(draft.selected), [draft.selected]);
-  const toggle = useCallback(
-    (key: string) => patchDraft({ selected: toggleKey(draft.selected, key) }),
-    [draft.selected, patchDraft]
-  );
-  const setSelected = useCallback(
-    (next: Set<string>) => patchDraft({ selected: [...next] }),
+  const onSelectionChange = useCallback(
+    (sel: string[]) => patchDraft({ selected: sel }),
     [patchDraft]
+  );
+  const { modelOptions, checklistEntries, selectedSet, toggle, setSelected } = useModelSelection(
+    providers,
+    draft.selected,
+    onSelectionChange
   );
 
   const run = () => {
-    const chosen = modelOptions.filter((m) => selected.has(m.key));
+    const chosen = modelOptions.filter((m) => selectedSet.has(m.key));
     const judge = modelOptions.find((m) => m.key === draft.judgeKey);
     const dataset = datasets[draft.datasetId];
     if (!dataset || chosen.length < 2 || !judge) return;
@@ -85,10 +82,7 @@ export function Arena() {
     });
   };
 
-  const sortedRuns = useMemo(
-    () => Object.values(runs).sort((a, b) => b.startedAt - a.startedAt),
-    [runs]
-  );
+  const sortedRuns = useMemo(() => newestFirst(runs), [runs]);
 
   // Explicit selection wins; otherwise the in-progress/latest run.
   const activeRun = useMemo(() => {
@@ -123,8 +117,8 @@ export function Arena() {
     return winRateMatrix(activeRun.modelKeys, activeRun.matches);
   }, [activeRun]);
 
-  const judgeIsContestant = !!draft.judgeKey && selected.has(draft.judgeKey);
-  const canRun = !!draft.datasetId && selected.size >= 2 && !!draft.judgeKey && !running;
+  const judgeIsContestant = !!draft.judgeKey && selectedSet.has(draft.judgeKey);
+  const canRun = !!draft.datasetId && selectedSet.size >= 2 && !!draft.judgeKey && !running;
 
   return (
     <>
@@ -155,7 +149,7 @@ export function Arena() {
             <span className="sp-label">Contestants (≥ 2)</span>
             <ModelChecklist
               models={checklistEntries}
-              selected={selected}
+              selected={selectedSet}
               onToggle={toggle}
               onChangeSelected={setSelected}
               emptyText="Add providers + discover models first."

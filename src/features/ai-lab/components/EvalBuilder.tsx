@@ -1,20 +1,21 @@
 import { AlertTriangle, FilePlus2, Play, Plus, Square, Trash2, X } from 'lucide-react';
-import { useCallback, useMemo } from 'react';
+import { memo, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import { useCmdEnterRun } from '../hooks/useCmdEnterRun';
 import { useEvalRun } from '../hooks/useEvalRun';
-import {
-  buildModelOptions,
-  modelKey,
-  parseModelKey,
-  toChecklistEntries,
-  toggleKey,
-  type ModelOption,
-} from '../lib/modelOptions';
+import { useModelSelection } from '../hooks/useModelSelection';
+import { modelKey, parseModelKey, type ModelOption } from '../lib/modelOptions';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore, type EvalTargetMode } from '../store/useAiLabUiStore';
-import type { EvalConfig, EvalTarget, ModelRef, ScorerConfig, ScorerKind } from '../types';
+import type {
+  EvalCellResult,
+  EvalConfig,
+  EvalTarget,
+  ModelRef,
+  ScorerConfig,
+  ScorerKind,
+} from '../types';
 import { ModelChecklist } from './ModelChecklist';
 import { StatusChip } from './StatusChip';
 import { VerdictChip } from './VerdictChip';
@@ -132,25 +133,25 @@ export function EvalBuilder() {
   const newDraft = useAiLabUiStore((s) => s.newEvalDraft);
   const openReport = useAiLabUiStore((s) => s.openReport);
 
+  // The saved config this draft points at, if it still exists (drives the
+  // Select value, the delete affordance, and the confirm copy).
+  const savedConfig = evalConfigs[draft.configId];
+
   const { confirm: confirmDeleteConfig, DialogComponent: DeleteConfigDialog } = useConfirmDialog({
     title: 'Delete saved eval',
-    description: `Delete the saved eval "${evalConfigs[draft.configId]?.name ?? draft.name}"? Past runs in Reports are kept.`,
+    description: `Delete the saved eval "${savedConfig?.name ?? draft.name}"? Past runs in Reports are kept.`,
     confirmText: 'Delete',
     variant: 'destructive',
   });
 
-  const modelOptions = useMemo(() => buildModelOptions(providers), [providers]);
-  // Memoized + stable callbacks so the memoized ModelChecklist skips the
-  // ~10 renders/sec this component does while a run streams progress.
-  const checklistEntries = useMemo(() => toChecklistEntries(modelOptions), [modelOptions]);
-  const selected = useMemo(() => new Set(draft.selected), [draft.selected]);
-  const toggle = useCallback(
-    (key: string) => patchDraft({ selected: toggleKey(draft.selected, key) }),
-    [draft.selected, patchDraft]
-  );
-  const setSelected = useCallback(
-    (next: Set<string>) => patchDraft({ selected: [...next] }),
+  const onSelectionChange = useCallback(
+    (sel: string[]) => patchDraft({ selected: sel }),
     [patchDraft]
+  );
+  const { modelOptions, checklistEntries, selectedSet, toggle, setSelected } = useModelSelection(
+    providers,
+    draft.selected,
+    onSelectionChange
   );
   const scorers = draft.scorers;
   const setScorers = (next: ScorerConfig[]) => patchDraft({ scorers: next });
@@ -184,7 +185,7 @@ export function EvalBuilder() {
   };
 
   const deleteConfig = async () => {
-    if (!evalConfigs[draft.configId]) return;
+    if (!savedConfig) return;
     if (!(await confirmDeleteConfig())) return;
     removeEvalConfig(draft.configId);
     newDraft();
@@ -205,7 +206,7 @@ export function EvalBuilder() {
       return;
     }
     const models: ModelRef[] = modelOptions
-      .filter((m) => selected.has(m.key))
+      .filter((m) => selectedSet.has(m.key))
       .map((m) => ({ providerConfigId: m.cfg.id, model: m.model }));
     if (models.length === 0) {
       toast.error('Select at least one model.');
@@ -243,10 +244,10 @@ export function EvalBuilder() {
     [progress]
   );
 
-  const canRun = !!draft.datasetId && selected.size > 0 && !unconfiguredJudgeScorer && !running;
+  const canRun = !!draft.datasetId && selectedSet.size > 0 && !unconfiguredJudgeScorer && !running;
   const runDisabledReason = !draft.datasetId
     ? 'Pick a dataset to run.'
-    : selected.size === 0
+    : selectedSet.size === 0
       ? 'Select at least one model.'
       : unconfiguredJudgeScorer
         ? `Pick a judge model for the ${SCORER_LABEL[unconfiguredJudgeScorer.kind]} scorer.`
@@ -275,7 +276,7 @@ export function EvalBuilder() {
                 </Label>
                 <div className="flex items-center gap-1.5">
                   <Select
-                    value={evalConfigs[draft.configId] ? draft.configId : ''}
+                    value={savedConfig ? draft.configId : ''}
                     onValueChange={(id) => {
                       const cfg = evalConfigs[id];
                       if (cfg) loadConfig(cfg);
@@ -301,7 +302,7 @@ export function EvalBuilder() {
                   >
                     <FilePlus2 className="h-3.5 w-3.5" />
                   </Button>
-                  {evalConfigs[draft.configId] && (
+                  {savedConfig && (
                     <Button
                       variant="ghost"
                       size="icon-sm"
@@ -368,7 +369,7 @@ export function EvalBuilder() {
               <span className="sp-label">Models</span>
               <ModelChecklist
                 models={checklistEntries}
-                selected={selected}
+                selected={selectedSet}
                 onToggle={toggle}
                 onChangeSelected={setSelected}
                 emptyText="Add providers + discover models first."
@@ -519,32 +520,13 @@ export function EvalBuilder() {
               <span className="sp-label">Live results</span>
               <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
                 {progress.cells.map((cell) => {
-                  const modelKeyStr = `${cell.modelRef.providerConfigId}:${cell.modelRef.model}`;
-                  const label = labelByModel[modelKeyStr] ?? cell.modelRef.model;
+                  const key = modelKey(cell.modelRef);
                   return (
-                    <Floater
-                      key={`${cell.caseId}:${modelKeyStr}`}
-                      radius="panel"
-                      elevation="inset"
-                      className="flex flex-col gap-2 p-3"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-sp-12 font-medium text-sp-text">
-                          {label}
-                        </span>
-                        <VerdictChip passed={cell.passed} notEvaluated={cell.notEvaluated} />
-                      </div>
-                      <div className="text-sp-11 text-sp-muted tabular-nums">
-                        {Math.round(cell.latencyMs)}ms
-                      </div>
-                      <div className="max-h-28 overflow-auto whitespace-pre-wrap rounded bg-sp-bg p-2 text-sp-11 text-sp-text">
-                        {cell.error ? (
-                          <span className="text-destructive">{cell.error}</span>
-                        ) : (
-                          cell.output || <span className="text-sp-muted">(empty)</span>
-                        )}
-                      </div>
-                    </Floater>
+                    <LiveCellCard
+                      key={`${cell.caseId}:${key}`}
+                      cell={cell}
+                      label={labelByModel[key] ?? cell.modelRef.model}
+                    />
                   );
                 })}
               </div>
@@ -704,6 +686,37 @@ function ScorerRow({
     </Floater>
   );
 }
+
+/**
+ * One live-result card. Memoized because the grid re-renders every progress
+ * tick with ALL completed cells — without this, C completed cells cost O(C²)
+ * card renders over a run. Cell objects are append-only (the runner never
+ * mutates completed entries), so memo comparison is safe and effective.
+ */
+const LiveCellCard = memo(function LiveCellCard({
+  cell,
+  label,
+}: {
+  cell: EvalCellResult;
+  label: string;
+}) {
+  return (
+    <Floater radius="panel" elevation="inset" className="flex flex-col gap-2 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-sp-12 font-medium text-sp-text">{label}</span>
+        <VerdictChip passed={cell.passed} notEvaluated={cell.notEvaluated} />
+      </div>
+      <div className="text-sp-11 text-sp-muted tabular-nums">{Math.round(cell.latencyMs)}ms</div>
+      <div className="max-h-28 overflow-auto whitespace-pre-wrap rounded bg-sp-bg p-2 text-sp-11 text-sp-text">
+        {cell.error ? (
+          <span className="text-destructive">{cell.error}</span>
+        ) : (
+          cell.output || <span className="text-sp-muted">(empty)</span>
+        )}
+      </div>
+    </Floater>
+  );
+});
 
 /** Judge-model picker shared by the judge and pairwise scorer editors. */
 function JudgeModelSelect({

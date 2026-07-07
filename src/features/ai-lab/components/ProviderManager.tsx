@@ -128,14 +128,16 @@ export function ProviderManager() {
     prefetchedCatalog && prefetchedCatalog.provider === provider ? prefetchedCatalog : null;
   const [removing, setRemoving] = useState<AiLabProviderConfig | null>(null);
   // Inline edit state for an existing provider card (null = not editing).
+  // Only one card edits at a time, so the in-flight flag is a plain boolean
+  // beside it rather than a field threaded through every setEditing call.
   const [editing, setEditing] = useState<{
     id: string;
     label: string;
     baseUrl: string;
     /** New API key; blank = keep the current one. */
     apiKey: string;
-    saving: boolean;
   } | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
   const { confirm: confirmRemove, DialogComponent: RemoveProviderDialog } = useConfirmDialog({
     title: 'Remove provider',
     description: removing
@@ -364,13 +366,7 @@ export function ProviderManager() {
   };
 
   const startEdit = (cfg: AiLabProviderConfig) =>
-    setEditing({
-      id: cfg.id,
-      label: cfg.label,
-      baseUrl: cfg.baseUrl ?? '',
-      apiKey: '',
-      saving: false,
-    });
+    setEditing({ id: cfg.id, label: cfg.label, baseUrl: cfg.baseUrl ?? '', apiKey: '' });
 
   /**
    * Save an inline edit. A non-blank API key rotates the stored secret:
@@ -383,7 +379,7 @@ export function ProviderManager() {
       toast.error('Provider name cannot be empty.');
       return;
     }
-    setEditing({ ...editing, saving: true });
+    setEditSaving(true);
     try {
       const patch: Partial<AiLabProviderConfig> = { label: editing.label.trim() };
       const nextBase = editing.baseUrl.trim();
@@ -409,7 +405,7 @@ export function ProviderManager() {
       setEditing(null);
       toast.success(`Updated ${editing.label.trim()}`);
     } finally {
-      setEditing((e) => (e && e.id === cfg.id ? { ...e, saving: false } : e));
+      setEditSaving(false);
     }
   };
 
@@ -673,12 +669,8 @@ export function ProviderManager() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        disabled={editing.saving}
-                        onClick={() => void saveEdit(cfg)}
-                      >
-                        {editing.saving ? 'Saving…' : 'Save changes'}
+                      <Button size="sm" disabled={editSaving} onClick={() => void saveEdit(cfg)}>
+                        {editSaving ? 'Saving…' : 'Save changes'}
                       </Button>
                       <Button variant="outline" size="sm" onClick={() => setEditing(null)}>
                         Cancel

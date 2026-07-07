@@ -1,10 +1,10 @@
 import { create } from 'zustand';
 import { runEval, type EvalProgress } from '../lib/evalRunner';
 import { executeExtractedRequest } from '../lib/execCell';
-import { modelKey } from '../lib/modelOptions';
+import { modelKey, modelLabelFor } from '../lib/modelOptions';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useEvalRunStore } from '../store/useEvalRunStore';
-import type { EvalConfig } from '../types';
+import type { EvalCellResult, EvalConfig } from '../types';
 
 /**
  * Live eval-run state, held in a module-scoped store (NOT component state) so
@@ -46,9 +46,7 @@ function start(config: EvalConfig): void {
   // even if a provider is renamed/removed later.
   const modelLabels: Record<string, string> = {};
   for (const m of config.models) {
-    const cfg = lab.providers[m.providerConfigId];
-    const modelLabel = cfg?.modelDetails?.[m.model]?.label ?? m.model;
-    modelLabels[modelKey(m)] = cfg ? `${cfg.label} · ${modelLabel}` : m.model;
+    modelLabels[modelKey(m)] = modelLabelFor(lab.providers, m);
   }
 
   const runStore = useEvalRunStore.getState();
@@ -66,18 +64,27 @@ function start(config: EvalConfig): void {
   abortController = ac;
   let lastCount = 0;
   let lastEmit = 0;
+  let pendingCells: EvalCellResult[] = [];
+
+  const flushCells = () => {
+    if (pendingCells.length === 0) return;
+    useEvalRunStore.getState().addCells(runId, pendingCells);
+    pendingCells = [];
+  };
 
   const onProgress = (p: EvalProgress) => {
-    // Persist newly-completed cells (progress.cells is cumulative) as one
-    // batched update — per-cell appends were O(cells²) copying per run.
+    // Accumulate newly-completed cells (progress.cells is cumulative) and
+    // persist them on the same ~10 fps throttle as the UI emit — onProgress
+    // fires per cell, and an unthrottled store write per cell re-rendered any
+    // mounted ReportView per cell.
     if (p.cells.length > lastCount) {
-      useEvalRunStore.getState().addCells(runId, p.cells.slice(lastCount).filter(Boolean));
+      pendingCells.push(...p.cells.slice(lastCount));
+      lastCount = p.cells.length;
     }
-    lastCount = p.cells.length;
-    // Throttle UI updates to ~10 fps.
     const now = performance.now();
     if (p.done || now - lastEmit > 100) {
       lastEmit = now;
+      flushCells();
       useEvalLiveStore.setState({ progress: p });
     }
   };
@@ -101,8 +108,10 @@ function start(config: EvalConfig): void {
         onProgress,
         ac.signal
       );
+      flushCells(); // defensive — the done-flagged progress event normally flushed already
       useEvalRunStore.getState().finishRun(runId, ac.signal.aborted ? 'cancelled' : 'done');
     } catch (e: unknown) {
+      flushCells(); // keep cells completed before a mid-run failure
       useEvalLiveStore.setState({ error: e instanceof Error ? e.message : String(e) });
       useEvalRunStore.getState().finishRun(runId, 'error');
     } finally {

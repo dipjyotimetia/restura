@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
+import type { DatasetDraft, EditableCase } from '../lib/datasetDraft';
 import type { ScorerConfig } from '../types';
 
 /**
@@ -84,7 +85,11 @@ interface AiLabUiState {
   tab: AiLabTab;
   setTab: (tab: AiLabTab) => void;
 
-  /** Report run to show in the Reports tab (null = newest). */
+  /**
+   * Report run to show in the Reports tab (null = newest). Changing the run
+   * always clears the per-case drill-down — a case selection is meaningless
+   * across runs, and call sites kept having to remember to clear it.
+   */
   reportRunId: string | null;
   setReportRunId: (id: string | null) => void;
   /** Case drilled into in the Reports tab (null = none). */
@@ -98,6 +103,17 @@ interface AiLabUiState {
   setDatasetId: (id: string | null) => void;
   /** Select a dataset and jump to the Datasets tab. */
   openDataset: (datasetId: string) => void;
+
+  /**
+   * The Datasets tab's unsaved work buffer (see lib/datasetDraft). Held here
+   * — like every other tab draft — so leaving the sub-tab doesn't discard
+   * dirty edits; null until a dataset is opened.
+   */
+  datasetDraft: DatasetDraft | null;
+  setDatasetDraft: (draft: DatasetDraft | null) => void;
+  patchDatasetDraft: (patch: Partial<DatasetDraft>) => void;
+  /** Functional case update; marks the draft dirty. */
+  updateDatasetDraftCases: (updater: (cases: EditableCase[]) => EditableCase[]) => void;
 
   /** Arena run shown in the results pane (null = latest). */
   arenaRunId: string | null;
@@ -121,7 +137,7 @@ export const useAiLabUiStore = create<AiLabUiState>()((set) => ({
   setTab: (tab) => set({ tab }),
 
   reportRunId: null,
-  setReportRunId: (id) => set({ reportRunId: id }),
+  setReportRunId: (id) => set({ reportRunId: id, reportDrillCaseId: null }),
   reportDrillCaseId: null,
   setReportDrillCaseId: (id) => set({ reportDrillCaseId: id }),
   openReport: (runId) => set({ reportRunId: runId, reportDrillCaseId: null, tab: 'reports' }),
@@ -129,6 +145,17 @@ export const useAiLabUiStore = create<AiLabUiState>()((set) => ({
   datasetId: null,
   setDatasetId: (id) => set({ datasetId: id }),
   openDataset: (datasetId) => set({ datasetId, tab: 'datasets' }),
+
+  datasetDraft: null,
+  setDatasetDraft: (draft) => set({ datasetDraft: draft }),
+  patchDatasetDraft: (patch) =>
+    set((s) => (s.datasetDraft ? { datasetDraft: { ...s.datasetDraft, ...patch } } : {})),
+  updateDatasetDraftCases: (updater) =>
+    set((s) =>
+      s.datasetDraft
+        ? { datasetDraft: { ...s.datasetDraft, cases: updater(s.datasetDraft.cases), dirty: true } }
+        : {}
+    ),
 
   arenaRunId: null,
   setArenaRunId: (id) => set({ arenaRunId: id }),

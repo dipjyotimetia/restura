@@ -19,6 +19,21 @@ export interface ModelOption {
   detail?: AiLabModelDetail;
 }
 
+/**
+ * Canonical "provider · friendly model name" label for a model ref — the same
+ * rule buildModelOptions applies, exported so run snapshots (useEvalRun) can't
+ * drift from what the checklists and reports show. Falls back to the bare
+ * model id when the provider no longer exists.
+ */
+export function modelLabelFor(
+  providers: Record<string, AiLabProviderConfig>,
+  ref: ModelRef
+): string {
+  const cfg = providers[ref.providerConfigId];
+  if (!cfg) return ref.model;
+  return `${cfg.label} · ${cfg.modelDetails?.[ref.model]?.label ?? ref.model}`;
+}
+
 export function buildModelOptions(providers: Record<string, AiLabProviderConfig>): ModelOption[] {
   const out: ModelOption[] = [];
   for (const cfg of Object.values(providers)) {
@@ -69,4 +84,12 @@ export function parseModelKey(key: string): ModelRef {
 /** Toggle a key in a selection list (the drafts store selections as arrays). */
 export function toggleKey(selected: string[], key: string): string[] {
   return selected.includes(key) ? selected.filter((k) => k !== key) : [...selected, key];
+}
+
+/** Set counterpart of toggleKey (expanded-row state and the like). */
+export function toggleSetKey(set: Set<string>, key: string): Set<string> {
+  const next = new Set(set);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  return next;
 }
