@@ -25,7 +25,11 @@ runs. Verify the way a reviewer would:
    toggle): click/type/toggle it and assert the observable result — not just
    that it renders. For a protocol panel, execute a request against a safe
    upstream (the echo server, or `npm run echo:local` for desktop-only
-   protocols) and confirm the response renders.
+   protocols) and confirm the response renders. Gotcha: a **localhost**
+   upstream goes through the Worker proxy's SSRF guard — it is only allowed
+   when `.dev.vars` sets `ENVIRONMENT=development`. If the request fails with
+   a blocked/refused-URL error, check `.dev.vars` before debugging your
+   change.
 4. **Check the browser console** (`browser_console_messages`): zero NEW errors
    or warnings versus a pre-change baseline. Pre-existing noise is not yours;
    anything your change introduced is.

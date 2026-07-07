@@ -14,10 +14,12 @@ streams with nothing actionable.
 1. List open dependabot PRs (`gh pr list --author "app/dependabot"` locally,
    GitHub MCP remotely).
 2. Green + patch/minor: leave for `dependabot-auto-merge`; do nothing.
-3. Red CI: diagnose. If the repo needs a mechanical adaptation (renamed
-   import, changed type), apply it on the dependabot branch and push. If the
-   bump itself is breaking, comment with the diagnosis and label it for a
-   human.
+3. Red CI: diagnose. If the branch is merely stale, comment `@dependabot
+rebase` instead of pushing. If the repo needs a mechanical adaptation
+   (renamed import, changed type), apply it on the dependabot branch and push
+   — knowing that dependabot stops updating a branch once a foreign commit
+   lands on it, so from that point the PR is yours to land. If the bump
+   itself is breaking, comment with the diagnosis and label it for a human.
 4. Major bumps: never merge; summarize the changelog delta and the migration
    surface in a PR comment.
 
@@ -34,10 +36,20 @@ streams with nothing actionable.
 
 ## Stream 3 — Skill metrics (`--skills`)
 
-1. If `.claude/metrics/skill-usage.log` exists and has grown since the last
-   run, run `/skill-report` and apply its low-risk description tweaks
-   directly; queue anything judgment-heavy for the user.
-2. This closes the instrumentation loop — logging usage without ever reading
+**Local-only stream.** `.claude/metrics/skill-usage.log` is written by the
+PreToolUse hook on the machine where sessions run and is never committed — a
+cloud-scheduled routine starts from a fresh clone and will always find it
+missing. Skip silently in that case; run this stream on the machine where the
+metrics accumulate.
+
+1. Check growth against the watermark: compare the log's line count to the
+   count recorded in `.git/restura-skill-report-watermark` (same
+   marker-in-`.git` pattern as the repo's hooks; missing marker = never run).
+   If unchanged, skip.
+2. If grown: run `/skill-report`, apply its low-risk description tweaks
+   directly, queue anything judgment-heavy for the user, then write the new
+   line count to the watermark file.
+3. This closes the instrumentation loop — logging usage without ever reading
    it is dead weight.
 
 ## Discipline
@@ -52,7 +64,8 @@ streams with nothing actionable.
 ## Scheduling
 
 Run weekly (or on demand). To move it to the cloud:
-`/schedule every monday 9am: run /triage-maintenance` — or keep it manual and
-run it at the start of a maintenance session. Pilot it manually at least once
-before scheduling, and set the routine to a cheaper model if stream 1 is the
-bulk of the work.
+`/schedule every monday 9am: run /triage-maintenance --deps --security`
+(stream 3 is local-only — see above) — or keep it manual and run it at the
+start of a maintenance session. Pilot it manually at least once before
+scheduling, and set the routine to a cheaper model if stream 1 is the bulk of
+the work.

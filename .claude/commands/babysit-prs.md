@@ -32,9 +32,9 @@ interval polling — events push, polls burn tokens.
 
 ## Loop discipline
 
-- One consolidated status line per changed PR (e.g. `#456: CI green after
-lint fix, 1 review thread resolved`). No narration for untouched PRs; if
-  nothing changed anywhere, end the turn with no message.
+- One consolidated status line per changed PR, e.g.
+  `#456: CI green after lint fix, 1 review thread resolved`. No narration for
+  untouched PRs; if nothing changed anywhere, end the turn with no message.
 - Never push fixes that touch security boundaries (`shared/protocol/`,
   guards, IPC validators, secret stores) without flagging the diff first.
 - The loop is finished only when every watched PR is merged or closed — say

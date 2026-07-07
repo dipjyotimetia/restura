@@ -21,7 +21,7 @@ Determine the diff under review: `git diff --stat main...HEAD` and `git status -
    - `restura-parity-checker` — if the diff adds/changes a protocol or networked feature.
    - `restura-docs-steward` — always (CI has no content-parity gate). Run `npm run docs:check` alongside it.
    - **Fresh-context code review** — for any non-trivial diff, also run the built-in `/code-review` skill. A reviewer that did not write the code is not influenced by the authoring session's reasoning; the agents above check domain properties, this one checks correctness.
-6. **Builds** (unless `--quick`) — `npm run build` and `npm run electron:compile`. Run these while the agent fan-out is in flight, not after it.
+6. **Builds** (unless `--quick`) — `npm run build` and `npm run electron:compile`. Start these as **background Bash** in the same message as the agent dispatch so they overlap the fan-out — running them afterwards serializes the two slowest gates.
 7. **Bundle size** (only `--full`) — `npm run size`.
 8. **e2e** (only `--full`, or if protocol/transport changed) — `npm run test:e2e`.
 
