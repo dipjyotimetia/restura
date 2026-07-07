@@ -1,6 +1,8 @@
 import { ArrowDown, ArrowUp, BarChart3, Download, Trash2, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { runToCsv, runToJson, runToMarkdown } from '../lib/reportExport';
+import { useAiLabStore } from '../store/useAiLabStore';
+import { useAiLabUiStore } from '../store/useAiLabUiStore';
 import { useEvalRunStore } from '../store/useEvalRunStore';
 import type { EvalCellResult, EvalRun } from '../types';
 import { EmptyState } from './EmptyState';
@@ -9,19 +11,15 @@ import { VerdictChip } from './VerdictChip';
 import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Floater, Stat } from '@/components/ui/spatial';
+import { formatRelativeTime } from '@/lib/shared/console-format';
 import { downloadBlob } from '@/lib/shared/file-utils';
 import { percentile } from '@/lib/shared/loadStats';
 import { cn } from '@/lib/shared/utils';
 
 interface ModelStats {
+  /** `providerConfigId:model` key. */
+  key: string;
   label: string;
   total: number;
   passed: number;
@@ -29,6 +27,11 @@ interface ModelStats {
   p50: number;
   p95: number;
   cost: number | null;
+}
+
+/** Friendly label for a model key: run-captured label > raw model id. */
+function labelForModel(run: EvalRun, key: string): string {
+  return run.modelLabels?.[key] ?? key.split(':').slice(1).join(':') ?? key;
 }
 
 function statsByModel(run: EvalRun): ModelStats[] {
@@ -50,7 +53,8 @@ function statsByModel(run: EvalRun): ModelStats[] {
       ? null
       : costs.reduce<number>((a, c) => a + (c ?? 0), 0);
     return {
-      label: key.split(':').slice(1).join(':') || key,
+      key,
+      label: labelForModel(run, key),
       total: evaluated.length,
       passed,
       passRate: evaluated.length ? passed / evaluated.length : 0,
@@ -101,12 +105,18 @@ export function judgeStats(run: EvalRun): JudgeStats {
 export function ReportView() {
   const runs = useEvalRunStore((s) => s.runs);
   const deleteRun = useEvalRunStore((s) => s.deleteRun);
+  const datasets = useAiLabStore((s) => s.datasets);
   const sorted = useMemo(
     () => Object.values(runs).sort((a, b) => b.startedAt - a.startedAt),
     [runs]
   );
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const active = activeId ? runs[activeId] : sorted[0];
+  // Selection lives in the UI store so "View report" in the Evals tab can hand
+  // a run off to us, and so the selection survives tab switches.
+  const activeId = useAiLabUiStore((s) => s.reportRunId);
+  const setActiveId = useAiLabUiStore((s) => s.setReportRunId);
+  const drillCaseId = useAiLabUiStore((s) => s.reportDrillCaseId);
+  const setDrillCaseId = useAiLabUiStore((s) => s.setReportDrillCaseId);
+  const active = (activeId ? runs[activeId] : undefined) ?? sorted[0];
   const { confirm: confirmDelete, DialogComponent: DeleteRunDialog } = useConfirmDialog({
     title: 'Delete run',
     description: active
@@ -124,10 +134,9 @@ export function ReportView() {
     );
   }, [active, sorted]);
 
-  const current = active ? statsByModel(active) : [];
-  const prevStats = previous ? statsByModel(previous) : [];
+  const current = useMemo(() => (active ? statsByModel(active) : []), [active]);
+  const prevStats = useMemo(() => (previous ? statsByModel(previous) : []), [previous]);
   const judge = useMemo(() => (active ? judgeStats(active) : null), [active]);
-  const [drillCaseId, setDrillCaseId] = useState<string | null>(null);
 
   // Distinct case ids in the active run, in first-seen order.
   const caseIds = useMemo(() => {
@@ -142,6 +151,44 @@ export function ReportView() {
     }
     return seen;
   }, [active]);
+
+  // Model keys in stats order (sorted by pass rate, matching the table).
+  const modelKeys = useMemo(
+    () =>
+      current
+        .slice()
+        .sort((a, b) => b.passRate - a.passRate)
+        .map((m) => m.key),
+    [current]
+  );
+
+  // caseId → cell lookup for the matrix.
+  const cellByCaseAndModel = useMemo(() => {
+    const map = new Map<string, EvalCellResult>();
+    if (!active) return map;
+    for (const c of active.cells) {
+      map.set(`${c.caseId}|${c.modelRef.providerConfigId}:${c.modelRef.model}`, c);
+    }
+    return map;
+  }, [active]);
+
+  /**
+   * Short human description of a case: its first var values, looked up from
+   * the run's dataset. Falls back to the id prefix when the dataset (or case)
+   * has since been deleted.
+   */
+  const caseLabel = useMemo(() => {
+    const dataset = active?.datasetId ? datasets[active.datasetId] : undefined;
+    return (caseId: string, index: number): string => {
+      const c = dataset?.cases.find((x) => x.id === caseId);
+      if (!c) return `Case ${index + 1} (${caseId.slice(0, 8)})`;
+      const vars = Object.entries(c.vars)
+        .slice(0, 2)
+        .map(([k, v]) => `${k}=${v.length > 20 ? `${v.slice(0, 20)}…` : v}`)
+        .join(', ');
+      return vars ? `Case ${index + 1} — ${vars}` : `Case ${index + 1}`;
+    };
+  }, [active, datasets]);
 
   const drillCells = useMemo(
     () => (active && drillCaseId ? active.cells.filter((c) => c.caseId === drillCaseId) : []),
@@ -161,6 +208,7 @@ export function ReportView() {
     if (!(await confirmDelete())) return;
     deleteRun(active.id);
     setActiveId(null);
+    setDrillCaseId(null);
   };
 
   if (sorted.length === 0) {
@@ -181,7 +229,10 @@ export function ReportView() {
           {sorted.map((r) => (
             <button
               key={r.id}
-              onClick={() => setActiveId(r.id)}
+              onClick={() => {
+                setActiveId(r.id);
+                setDrillCaseId(null);
+              }}
               className={cn(
                 'w-full rounded-sp-btn border px-3 py-2.5 text-left transition-colors',
                 active?.id === r.id
@@ -190,6 +241,10 @@ export function ReportView() {
               )}
             >
               <div className="truncate text-sp-13 text-sp-text">{r.configName}</div>
+              <div className="mt-0.5 truncate text-sp-11 text-sp-muted">
+                {formatRelativeTime(r.startedAt)}
+                {r.datasetName ? ` · ${r.datasetName}` : ''}
+              </div>
               <div className="mt-1 flex items-center justify-between">
                 <StatusChip state={r.status} />
                 <span className="text-sp-11 text-sp-muted tabular-nums">
@@ -205,9 +260,15 @@ export function ReportView() {
           {active ? (
             <Floater radius="panel" elevation="float" className="space-y-4 bg-sp-surface p-4">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="truncate text-sp-13 font-semibold text-sp-text">
-                  {active.configName}
-                </h2>
+                <div className="min-w-0">
+                  <h2 className="truncate text-sp-13 font-semibold text-sp-text">
+                    {active.configName}
+                  </h2>
+                  <p className="truncate text-sp-11 text-sp-muted">
+                    {formatRelativeTime(active.startedAt)}
+                    {active.datasetName ? ` · ${active.datasetName}` : ''}
+                  </p>
+                </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <Button
                     variant="outline"
@@ -261,10 +322,10 @@ export function ReportView() {
                       .slice()
                       .sort((a, b) => b.passRate - a.passRate)
                       .map((m) => {
-                        const prev = prevStats.find((p) => p.label === m.label);
+                        const prev = prevStats.find((p) => p.key === m.key);
                         const delta = prev ? m.passRate - prev.passRate : null;
                         return (
-                          <tr key={m.label} className="border-b border-sp-line">
+                          <tr key={m.key} className="border-b border-sp-line">
                             <td className="py-2 pr-3 font-medium">{m.label}</td>
                             <td className="py-2 pr-3 tabular-nums">
                               {(m.passRate * 100).toFixed(0)}% ({m.passed}/{m.total})
@@ -342,92 +403,133 @@ export function ReportView() {
                   </div>
                 </div>
               )}
-              {caseIds.length > 0 && (
+              {caseIds.length > 0 && modelKeys.length > 0 && (
                 <div className="space-y-2 border-t border-sp-line pt-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="sp-label">Per-case drill-down</h3>
-                    <div className="flex items-center gap-1">
-                      <Select
-                        value={drillCaseId ?? ''}
-                        onValueChange={(v) => setDrillCaseId(v || null)}
-                      >
-                        <SelectTrigger className="w-56">
-                          <SelectValue placeholder="Select a case…" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {caseIds.map((id, i) => (
-                            <SelectItem key={id} value={id}>
-                              Case {i + 1} ({id.slice(0, 8)})
-                            </SelectItem>
+                  <h3 className="sp-label">Cases × models</h3>
+                  {/* Failure overview: every case × model verdict at a glance;
+                      clicking a row (or chip) opens that case's drill-down. */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sp-11">
+                      <thead>
+                        <tr className="text-left text-sp-muted">
+                          <th className="py-1.5 pr-3 font-medium">Case</th>
+                          {modelKeys.map((k) => (
+                            <th
+                              key={k}
+                              className="max-w-[9rem] truncate px-1.5 py-1.5 text-center font-medium"
+                              title={labelForModel(active, k)}
+                            >
+                              {labelForModel(active, k)}
+                            </th>
                           ))}
-                        </SelectContent>
-                      </Select>
-                      {drillCaseId && (
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label="Clear case selection"
-                          title="Clear selection"
-                          onClick={() => setDrillCaseId(null)}
-                        >
-                          <X className="h-3.5 w-3.5" />
-                        </Button>
-                      )}
-                    </div>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {caseIds.map((caseId, i) => (
+                          <tr
+                            key={caseId}
+                            className={cn(
+                              'cursor-pointer border-t border-sp-line transition-colors hover:bg-sp-hover',
+                              drillCaseId === caseId && 'bg-[var(--sp-accent-glow-15)]'
+                            )}
+                            onClick={() => setDrillCaseId(drillCaseId === caseId ? null : caseId)}
+                          >
+                            <td className="max-w-[18rem] truncate py-1.5 pr-3 text-sp-text">
+                              {caseLabel(caseId, i)}
+                            </td>
+                            {modelKeys.map((k) => {
+                              const cell = cellByCaseAndModel.get(`${caseId}|${k}`);
+                              return (
+                                <td key={k} className="px-1.5 py-1.5 text-center">
+                                  {cell ? (
+                                    <VerdictChip
+                                      passed={cell.passed}
+                                      notEvaluated={cell.notEvaluated}
+                                    />
+                                  ) : (
+                                    <span className="text-sp-text-dim">·</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
+                  {drillCaseId && (
+                    <div className="flex items-center justify-between gap-2 pt-1">
+                      <h4 className="sp-label">
+                        {caseLabel(drillCaseId, Math.max(0, caseIds.indexOf(drillCaseId)))}
+                      </h4>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="Clear case selection"
+                        title="Clear selection"
+                        onClick={() => setDrillCaseId(null)}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  )}
                   {drillCells.length > 0 && (
                     <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
-                      {drillCells.map((cell) => (
-                        <Floater
-                          key={`${cell.caseId}:${cell.modelRef.providerConfigId}:${cell.modelRef.model}`}
-                          radius="panel"
-                          elevation="inset"
-                          className="flex flex-col gap-2 p-3"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate text-sp-12 font-medium text-sp-text">
-                              {cell.modelRef.model}
-                            </span>
-                            <VerdictChip passed={cell.passed} notEvaluated={cell.notEvaluated} />
-                          </div>
-                          {cell.executed && (
-                            <div className="text-sp-11 text-sp-muted">
-                              HTTP {cell.executed.status} · {Math.round(cell.executed.latencyMs)}ms
+                      {drillCells.map((cell) => {
+                        const key = `${cell.modelRef.providerConfigId}:${cell.modelRef.model}`;
+                        return (
+                          <Floater
+                            key={`${cell.caseId}:${key}`}
+                            radius="panel"
+                            elevation="inset"
+                            className="flex flex-col gap-2 p-3"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate text-sp-12 font-medium text-sp-text">
+                                {labelForModel(active, key)}
+                              </span>
+                              <VerdictChip passed={cell.passed} notEvaluated={cell.notEvaluated} />
                             </div>
-                          )}
-                          <div className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-sp-bg p-2 text-sp-11 text-sp-text">
-                            {cell.error ? (
-                              <span className="text-destructive">{cell.error}</span>
-                            ) : (
-                              cell.output || <span className="text-sp-muted">(empty)</span>
+                            {cell.executed && (
+                              <div className="text-sp-11 text-sp-muted">
+                                HTTP {cell.executed.status} · {Math.round(cell.executed.latencyMs)}
+                                ms
+                              </div>
                             )}
-                          </div>
-                          {cell.scores.length > 0 && (
-                            <div className="space-y-1 border-t border-sp-line pt-1.5">
-                              {cell.scores.map((s, i) => (
-                                <div
-                                  key={i}
-                                  className="flex items-start justify-between gap-2 text-sp-11"
-                                >
-                                  <span className="text-sp-muted">{s.kind}</span>
-                                  <span
-                                    className={cn(
-                                      'text-right',
-                                      s.passed ? 'text-emerald-500' : 'text-destructive'
-                                    )}
-                                  >
-                                    {s.passed ? 'pass' : 'fail'}
-                                    {s.score !== undefined ? ` (${s.score.toFixed(2)})` : ''}
-                                    {s.detail ? (
-                                      <span className="block text-sp-text-dim">{s.detail}</span>
-                                    ) : null}
-                                  </span>
-                                </div>
-                              ))}
+                            <div className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-sp-bg p-2 text-sp-11 text-sp-text">
+                              {cell.error ? (
+                                <span className="text-destructive">{cell.error}</span>
+                              ) : (
+                                cell.output || <span className="text-sp-muted">(empty)</span>
+                              )}
                             </div>
-                          )}
-                        </Floater>
-                      ))}
+                            {cell.scores.length > 0 && (
+                              <div className="space-y-1 border-t border-sp-line pt-1.5">
+                                {cell.scores.map((s, i) => (
+                                  <div
+                                    key={i}
+                                    className="flex items-start justify-between gap-2 text-sp-11"
+                                  >
+                                    <span className="text-sp-muted">{s.kind}</span>
+                                    <span
+                                      className={cn(
+                                        'text-right',
+                                        s.passed ? 'text-emerald-500' : 'text-destructive'
+                                      )}
+                                    >
+                                      {s.passed ? 'pass' : 'fail'}
+                                      {s.score !== undefined ? ` (${s.score.toFixed(2)})` : ''}
+                                      {s.detail ? (
+                                        <span className="block text-sp-text-dim">{s.detail}</span>
+                                      ) : null}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </Floater>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

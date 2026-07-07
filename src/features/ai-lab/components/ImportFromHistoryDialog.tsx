@@ -140,9 +140,14 @@ export function ImportFromHistoryDialog({
             )}
           </div>
         </div>
-        <DialogFooter>
+        <DialogFooter className="gap-2">
+          <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
           <Button size="sm" onClick={create} disabled={picked.size === 0}>
-            Import {picked.size > 0 ? `${picked.size} ` : ''}case(s)
+            {picked.size === 0
+              ? 'Import cases'
+              : `Import ${picked.size} ${picked.size === 1 ? 'case' : 'cases'}`}
           </Button>
         </DialogFooter>
       </DialogContent>

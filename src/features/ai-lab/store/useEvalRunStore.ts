@@ -14,7 +14,14 @@ interface PersistedEvalRunState {
 }
 
 interface EvalRunState extends PersistedEvalRunState {
-  startRun: (init: { evalConfigId: string; configName: string; totalCells: number }) => string;
+  startRun: (init: {
+    evalConfigId: string;
+    configName: string;
+    totalCells: number;
+    datasetId?: string;
+    datasetName?: string;
+    modelLabels?: Record<string, string>;
+  }) => string;
   addCell: (runId: string, cell: EvalCellResult) => void;
   finishRun: (runId: string, status: EvalRunStatus) => void;
   deleteRun: (id: string) => void;
@@ -46,6 +53,9 @@ export const useEvalRunStore = create<EvalRunState>()(
           id,
           evalConfigId: init.evalConfigId,
           configName: init.configName,
+          ...(init.datasetId ? { datasetId: init.datasetId } : {}),
+          ...(init.datasetName ? { datasetName: init.datasetName } : {}),
+          ...(init.modelLabels ? { modelLabels: init.modelLabels } : {}),
           startedAt: Date.now(),
           status: 'running',
           cells: [],

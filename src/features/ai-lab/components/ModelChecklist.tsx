@@ -1,19 +1,33 @@
+import { Search } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import type { AiLabModelDetail } from '../types';
+import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
 import { Floater } from '@/components/ui/spatial';
 
 export interface ModelChecklistEntry {
   key: string;
   label: string;
+  /** Group header this entry renders under (provider label). */
+  group?: string;
   /** Slash-namespaced model id, displayed as a tooltip + dim caption. */
   id?: string;
   /** Optional rich metadata (provider-specific). Drives the small chips. */
   detail?: AiLabModelDetail;
 }
 
+/** Show the filter box + bulk controls once the list stops being trivially scannable. */
+const FILTER_THRESHOLD = 8;
+
 /**
- * Bounded, scrollable multi-select of provider models. Shared by the Playground
- * and the eval builder, which both pick a set of models to run against.
+ * Bounded, scrollable multi-select of provider models. Shared by the
+ * Playground, the eval builder, and the Arena, which all pick a set of models
+ * to run against.
+ *
+ * Scales to large catalogs (a full OpenRouter discovery is 300+ models):
+ * entries are grouped under their provider, a text filter narrows by
+ * label/id, and select-all/clear operate on the currently filtered subset.
  *
  * When an entry carries a `detail` (from any provider's discovery), we render
  * a tiny one-line summary under the model name. The summary is provider-
@@ -31,52 +45,138 @@ export function ModelChecklist({
   models,
   selected,
   onToggle,
+  onChangeSelected,
   emptyText,
 }: {
   models: ModelChecklistEntry[];
   selected: Set<string>;
   onToggle: (key: string) => void;
+  /** Enables the bulk select-all / clear controls when provided. */
+  onChangeSelected?: (next: Set<string>) => void;
   emptyText: string;
 }) {
+  const [filter, setFilter] = useState('');
+
+  const filtered = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return models;
+    return models.filter(
+      (m) =>
+        m.label.toLowerCase().includes(q) ||
+        (m.id ?? '').toLowerCase().includes(q) ||
+        (m.group ?? '').toLowerCase().includes(q)
+    );
+  }, [models, filter]);
+
+  // Group in first-seen order; entries without a group render at the top.
+  const groups = useMemo(() => {
+    const order: string[] = [];
+    const byGroup = new Map<string, ModelChecklistEntry[]>();
+    for (const m of filtered) {
+      const g = m.group ?? '';
+      if (!byGroup.has(g)) {
+        byGroup.set(g, []);
+        order.push(g);
+      }
+      byGroup.get(g)!.push(m);
+    }
+    return order.map((g) => ({ name: g, entries: byGroup.get(g)! }));
+  }, [filtered]);
+
   if (models.length === 0) {
     return <p className="px-2 py-1.5 text-sp-12 text-sp-muted">{emptyText}</p>;
   }
+
+  const showControls = models.length > FILTER_THRESHOLD;
+  const selectAllFiltered = () => {
+    if (!onChangeSelected) return;
+    const next = new Set(selected);
+    for (const m of filtered) next.add(m.key);
+    onChangeSelected(next);
+  };
+  const clearAll = () => onChangeSelected?.(new Set());
+
   return (
-    <Floater radius="btn" elevation="inset" className="max-h-56 space-y-0.5 overflow-auto p-1.5">
-      {models.map((m) => {
-        const summary = summarizeDetail(m.detail);
-        const idSuffix = m.id && m.id !== m.label ? m.id : undefined;
-        return (
-          <label
-            key={m.key}
-            className="flex cursor-pointer items-start gap-2 rounded-sp-btn px-2 py-1.5 text-sp-12 text-sp-text hover:bg-sp-hover"
-          >
-            <Checkbox
-              checked={selected.has(m.key)}
-              onCheckedChange={() => onToggle(m.key)}
-              className="mt-0.5"
-            />
-            <div className="min-w-0 flex-1">
-              <div className="truncate font-medium" title={idSuffix ?? m.label}>
-                {m.label}
+    <div className="space-y-1.5">
+      {showControls && (
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-sp-muted" />
+          <Input
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder={`Filter ${models.length} models…`}
+            aria-label="Filter models"
+            className="pl-8"
+          />
+        </div>
+      )}
+      <Floater radius="btn" elevation="inset" className="max-h-72 space-y-0.5 overflow-auto p-1.5">
+        {filtered.length === 0 && (
+          <p className="px-2 py-3 text-center text-sp-12 text-sp-muted">
+            No models match “{filter.trim()}”.
+          </p>
+        )}
+        {groups.map((group) => (
+          <div key={group.name || '__ungrouped'}>
+            {group.name && (
+              <div className="sticky top-0 z-10 -mx-1.5 bg-sp-surface-2/95 px-3 py-1 text-sp-10 font-semibold uppercase tracking-wide text-sp-muted backdrop-blur-sm">
+                {group.name}
               </div>
-              {summary && (
-                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sp-11 text-sp-muted">
-                  {summary.map((part, i) => (
-                    <span key={i} className="whitespace-nowrap">
-                      {part}
-                    </span>
-                  ))}
-                </div>
-              )}
-              {!summary && idSuffix && (
-                <div className="mt-0.5 truncate font-mono text-sp-10 text-sp-muted">{idSuffix}</div>
-              )}
-            </div>
-          </label>
-        );
-      })}
-    </Floater>
+            )}
+            {group.entries.map((m) => {
+              const summary = summarizeDetail(m.detail);
+              const idSuffix = m.id && m.id !== m.label ? m.id : undefined;
+              return (
+                <label
+                  key={m.key}
+                  className="flex cursor-pointer items-start gap-2 rounded-sp-btn px-2 py-1.5 text-sp-12 text-sp-text hover:bg-sp-hover"
+                >
+                  <Checkbox
+                    checked={selected.has(m.key)}
+                    onCheckedChange={() => onToggle(m.key)}
+                    className="mt-0.5"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium" title={idSuffix ?? m.label}>
+                      {m.label}
+                    </div>
+                    {summary && (
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sp-11 text-sp-muted">
+                        {summary.map((part, i) => (
+                          <span key={i} className="whitespace-nowrap">
+                            {part}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {!summary && idSuffix && (
+                      <div className="mt-0.5 truncate font-mono text-sp-10 text-sp-muted">
+                        {idSuffix}
+                      </div>
+                    )}
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+        ))}
+      </Floater>
+      <div className="flex items-center justify-between gap-2 px-0.5 text-sp-11 text-sp-muted">
+        <span className="tabular-nums">
+          {selected.size} of {models.length} selected
+        </span>
+        {onChangeSelected && showControls && (
+          <span className="flex items-center gap-0.5">
+            <Button variant="ghost" size="sm" onClick={selectAllFiltered}>
+              Select {filter.trim() ? 'matching' : 'all'}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={clearAll} disabled={selected.size === 0}>
+              Clear
+            </Button>
+          </span>
+        )}
+      </div>
+    </div>
   );
 }
 
