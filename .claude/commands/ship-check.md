@@ -16,12 +16,14 @@ Determine the diff under review: `git diff --stat main...HEAD` and `git status -
 2. **Lint** — `npm run lint`.
 3. **Codegen freshness** — `npm run verify:opencollection-types` and `npm run capabilities:check`. On failure, the fix is to regenerate (`gen:opencollection-types` / `capabilities:matrix`), not hand-edit.
 4. **Unit/integration + coverage** — `npm run test:run`.
-5. **Security suite** — if the diff touches `shared/protocol/`, `electron/main/*-guard.ts`, `dns-guard.ts`, `ipc-validators.ts`, secret stores, or sandboxes: confirm the relevant `tests/security/*` passed in step 4, and dispatch the `restura-security-auditor` agent on the diff.
-6. **Parity** — if the diff adds/changes a protocol or networked feature: dispatch the `restura-parity-checker` agent.
-7. **Docs parity** — run `npm run docs:check`, then dispatch the `restura-docs-steward` agent on the diff (CI has no content-parity gate).
-8. **Builds** (unless `--quick`) — `npm run build` and `npm run electron:compile`.
-9. **Bundle size** (only `--full`) — `npm run size`.
-10. **e2e** (only `--full`, or if protocol/transport changed) — `npm run test:e2e`.
+5. **Agent review fan-out** — dispatch every applicable reviewer **in parallel** (one message, multiple Task calls — they are independent; serializing them wastes the wall-clock of every faster agent):
+   - `restura-security-auditor` — if the diff touches `shared/protocol/`, `electron/main/*-guard.ts`, `dns-guard.ts`, `ipc-validators.ts`, secret stores, or sandboxes. Also confirm the relevant `tests/security/*` passed in step 4.
+   - `restura-parity-checker` — if the diff adds/changes a protocol or networked feature.
+   - `restura-docs-steward` — always (CI has no content-parity gate). Run `npm run docs:check` alongside it.
+   - **Fresh-context code review** — for any non-trivial diff, also run the built-in `/code-review` skill. A reviewer that did not write the code is not influenced by the authoring session's reasoning; the agents above check domain properties, this one checks correctness.
+6. **Builds** (unless `--quick`) — `npm run build` and `npm run electron:compile`. Start these as **background Bash** in the same message as the agent dispatch so they overlap the fan-out — running them afterwards serializes the two slowest gates.
+7. **Bundle size** (only `--full`) — `npm run size`.
+8. **e2e** (only `--full`, or if protocol/transport changed) — `npm run test:e2e`.
 
 ## Output
 
@@ -38,6 +40,7 @@ Produce a checklist. For each gate: ✅/❌ and a one-line result. For every fai
 | security audit | … |
 | parity | … |
 | docs parity | … |
+| code review | … |
 | build | … |
 Verdict: READY / NOT READY — <blockers>
 ```
