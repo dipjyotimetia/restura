@@ -1,3 +1,4 @@
+import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import { FormFieldSchema } from '@shared/protocol/proxy-schema';
 import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema';
 import { z } from 'zod';
@@ -1177,6 +1178,17 @@ export const AiChatToolSchema = z.object({
   inputSchema: z.record(z.string(), z.unknown()),
 });
 
+/**
+ * Inference (complete/stream): cloud providers require an API key handle.
+ * Local runtimes (ollama, openai-compatible) may legitimately run keyless. The
+ * provider enum values are all valid `Provider` union members, so the cast is
+ * safe. Without this guard a keyless cloud call would send an empty `Bearer`
+ * header and 401 at the provider wire — a confusing error vs. a clear
+ * validation message. Defense-in-depth alongside the SSRF/host checks.
+ */
+const requireInferenceKey = (v: { provider: string; apiKeyHandleId?: string }) =>
+  isLocalProvider(v.provider as Provider) || !!v.apiKeyHandleId;
+
 export const AiChatRequestSchema = z
   .object({
     streamId: z.uuid(),
@@ -1195,6 +1207,13 @@ export const AiChatRequestSchema = z
   .refine((v) => v.provider !== 'openai-compatible' || !!v.baseUrlOverride, {
     message: 'openai-compatible provider requires a base URL.',
     path: ['baseUrlOverride'],
+  })
+  // Cloud providers (openai / anthropic / openrouter) REQUIRE an API key handle —
+  // without it the call would send an empty `Bearer` header and 401 at the wire.
+  // Local runtimes (openai-compatible) may legitimately run keyless.
+  .refine(requireInferenceKey, {
+    message: 'This provider requires an API key. Add one in AI settings first.',
+    path: ['apiKeyHandleId'],
   });
 
 export const AiChatCancelSchema = z.object({
@@ -1230,32 +1249,59 @@ const AiLabCompleteBase = z.object({
 const requireBaseForCompat = (v: { provider: string; baseUrlOverride?: string }) =>
   v.provider !== 'openai-compatible' || !!v.baseUrlOverride;
 
+/**
+ * Discovery: OpenAI / Anthropic / HuggingFace require a key (the stored handle
+ * OR the pre-add plaintext key). OpenRouter's model catalog is public
+ * (keyless by design — the AI Lab fetches it anonymously); local runtimes
+ * (ollama / openai-compatible) need none. Mirrors the UI gate in
+ * ProviderManager.canFetchForCurrentSelection so a compromised renderer can't
+ * probe a keyless cloud discovery endpoint either.
+ */
+const requireDiscoveryKey = (v: { provider: string; apiKeyHandleId?: string; apiKey?: string }) => {
+  const p = v.provider as Provider;
+  if (p === 'openrouter' || isLocalProvider(p)) return true;
+  return !!v.apiKeyHandleId || !!v.apiKey;
+};
+
 export const AiLabCompleteSchema = AiLabCompleteBase.refine(requireBaseForCompat, {
   message: 'openai-compatible provider requires a base URL.',
   path: ['baseUrlOverride'],
+}).refine(requireInferenceKey, {
+  message: 'This provider requires an API key. Add one in the provider settings.',
+  path: ['apiKeyHandleId'],
 });
 
 export const AiLabStreamSchema = AiLabCompleteBase.extend({
   streamId: z.uuid(),
-}).refine(requireBaseForCompat, {
-  message: 'openai-compatible provider requires a base URL.',
-  path: ['baseUrlOverride'],
-});
+})
+  .refine(requireBaseForCompat, {
+    message: 'openai-compatible provider requires a base URL.',
+    path: ['baseUrlOverride'],
+  })
+  .refine(requireInferenceKey, {
+    message: 'This provider requires an API key. Add one in the provider settings.',
+    path: ['apiKeyHandleId'],
+  });
 
 export const AiLabStreamCancelSchema = z.object({ streamId: z.uuid() });
 
-export const AiLabDiscoverSchema = z.object({
-  provider: AiLabProviderSchema,
-  baseUrl: z.url(),
-  // A key already stored as a SecretRef handle (the typical path for an
-  // already-added provider).
-  apiKeyHandleId: z.uuid().optional(),
-  // Plaintext key for the PRE-ADD discovery path: the user just typed a key in
-  // the add-provider form and clicked "Fetch catalog" before committing. The
-  // key has no handle yet (one is minted only on "Add provider"), so discovery
-  // would otherwise run unauthenticated and 401 for key-required providers.
-  // This is renderer→main IPC within the same Electron trust boundary; the key
-  // is the user's own just-typed value, never a stored secret round-tripped
-  // through the renderer. The handler prefers `apiKeyHandleId` when both are set.
-  apiKey: z.string().max(4096).optional(),
-});
+export const AiLabDiscoverSchema = z
+  .object({
+    provider: AiLabProviderSchema,
+    baseUrl: z.url(),
+    // A key already stored as a SecretRef handle (the typical path for an
+    // already-added provider).
+    apiKeyHandleId: z.uuid().optional(),
+    // Plaintext key for the PRE-ADD discovery path: the user just typed a key in
+    // the add-provider form and clicked "Fetch catalog" before committing. The
+    // key has no handle yet (one is minted only on "Add provider"), so discovery
+    // would otherwise run unauthenticated and 401 for key-required providers.
+    // This is renderer→main IPC within the same Electron trust boundary; the key
+    // is the user's own just-typed value, never a stored secret round-tripped
+    // through the renderer. The handler prefers `apiKeyHandleId` when both are set.
+    apiKey: z.string().max(4096).optional(),
+  })
+  .refine(requireDiscoveryKey, {
+    message: 'This provider requires an API key to discover models.',
+    path: ['apiKey'],
+  });
