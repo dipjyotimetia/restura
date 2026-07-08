@@ -49,23 +49,23 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@clack/prompts": "^1.6.0",
+    "@clack/prompts": "^1.7.0",
     "@faker-js/faker": "^10.5.0",
     "commander": "^15.0.0",
-    "csv-parse": "^6.2.1",
-    "js-yaml": "^5.1.0",
+    "csv-parse": "^7.0.1",
+    "js-yaml": "^5.2.1",
     "log-update": "^8.0.0",
     "quickjs-emscripten": "^0.32.0",
-    "undici": "^8.5.0",
+    "undici": "^8.7.0",
     "uuid": "^14.0.1",
     "ws": "^8.21.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^26.0.0",
+    "@types/node": "^26.1.1",
     "@types/ws": "^8.18.1",
     "tsup": "^8.5.1",
-    "typescript": "^5",
-    "vitest": "^4.1.9"
+    "typescript": "^6",
+    "vitest": "^4.1.10"
   }
 }
