@@ -40,6 +40,22 @@ describe('useAiLabStore — providers', () => {
     expect(useAiLabStore.getState().providers[id]?.pricingKnown).toBe(true);
   });
 
+  it('adds a HuggingFace provider with pricingKnown=false and isLocal=false', () => {
+    // HuggingFace is a cloud gateway but has no static price table — pricing
+    // must default to unknown so the AI Lab shows "cost unknown" rather than a
+    // misleading $0.00 for paid-but-untabled models.
+    const id = useAiLabStore.getState().addProvider({
+      provider: 'huggingface',
+      label: 'HuggingFace',
+      apiKeyHandleId: 'hf-handle',
+    });
+    const cfg = useAiLabStore.getState().providers[id];
+    expect(cfg?.provider).toBe('huggingface');
+    expect(cfg?.isLocal).toBe(false);
+    expect(cfg?.pricingKnown).toBe(false);
+    expect(cfg?.apiKeyHandleId).toBe('hf-handle');
+  });
+
   it('updates, sets models, and removes a provider', () => {
     const s = useAiLabStore.getState();
     const id = s.addProvider({ provider: 'ollama', label: 'L' });

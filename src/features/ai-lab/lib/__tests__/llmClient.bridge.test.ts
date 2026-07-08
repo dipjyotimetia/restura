@@ -105,4 +105,20 @@ describe('llmClient bridge', () => {
       { ok: true, modelCount: 1 }
     );
   });
+
+  it('forwards a plaintext apiKey for pre-add discovery (regression: was silently dropped)', async () => {
+    // The add-provider form types a key but hasn't minted a handle yet —
+    // discovery must carry the plaintext key over IPC or key-required
+    // providers (OpenAI / Anthropic / HuggingFace) would 401.
+    await listModels({
+      provider: 'huggingface',
+      baseUrl: 'https://router.huggingface.co',
+      apiKey: 'hf_plaintext',
+    });
+    expect(aiLab.listModels).toHaveBeenCalledWith({
+      provider: 'huggingface',
+      baseUrl: 'https://router.huggingface.co',
+      apiKey: 'hf_plaintext',
+    });
+  });
 });

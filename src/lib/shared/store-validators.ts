@@ -279,6 +279,7 @@ const AiLabProviderEnumSchema = z.enum([
   'anthropic',
   'openrouter',
   'ollama',
+  'huggingface',
   'openai-compatible',
 ]);
 

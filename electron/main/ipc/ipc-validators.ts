@@ -1212,6 +1212,7 @@ const AiLabProviderSchema = z.enum([
   'anthropic',
   'openrouter',
   'ollama',
+  'huggingface',
   'openai-compatible',
 ]);
 
@@ -1246,5 +1247,15 @@ export const AiLabStreamCancelSchema = z.object({ streamId: z.uuid() });
 export const AiLabDiscoverSchema = z.object({
   provider: AiLabProviderSchema,
   baseUrl: z.url(),
+  // A key already stored as a SecretRef handle (the typical path for an
+  // already-added provider).
   apiKeyHandleId: z.uuid().optional(),
+  // Plaintext key for the PRE-ADD discovery path: the user just typed a key in
+  // the add-provider form and clicked "Fetch catalog" before committing. The
+  // key has no handle yet (one is minted only on "Add provider"), so discovery
+  // would otherwise run unauthenticated and 401 for key-required providers.
+  // This is renderer→main IPC within the same Electron trust boundary; the key
+  // is the user's own just-typed value, never a stored secret round-tripped
+  // through the renderer. The handler prefers `apiKeyHandleId` when both are set.
+  apiKey: z.string().max(4096).optional(),
 });
