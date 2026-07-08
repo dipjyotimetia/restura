@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { newestFirst } from '../lib/newestFirst';
 import type { EvalCellResult, EvalRun, EvalRunStatus } from '../types';
 import { debouncedStorage } from '@/lib/shared/debouncedStorage';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
@@ -14,8 +15,18 @@ interface PersistedEvalRunState {
 }
 
 interface EvalRunState extends PersistedEvalRunState {
-  startRun: (init: { evalConfigId: string; configName: string; totalCells: number }) => string;
+  startRun: (init: {
+    evalConfigId: string;
+    configName: string;
+    totalCells: number;
+    datasetId?: string;
+    datasetName?: string;
+    modelLabels?: Record<string, string>;
+  }) => string;
+  /** Single-cell convenience over addCells. */
   addCell: (runId: string, cell: EvalCellResult) => void;
+  /** Append a batch in one update — one array copy + one notification. */
+  addCells: (runId: string, cells: EvalCellResult[]) => void;
   finishRun: (runId: string, status: EvalRunStatus) => void;
   deleteRun: (id: string) => void;
   /** Runs sorted newest-first. */
@@ -46,6 +57,9 @@ export const useEvalRunStore = create<EvalRunState>()(
           id,
           evalConfigId: init.evalConfigId,
           configName: init.configName,
+          ...(init.datasetId ? { datasetId: init.datasetId } : {}),
+          ...(init.datasetName ? { datasetName: init.datasetName } : {}),
+          ...(init.modelLabels ? { modelLabels: init.modelLabels } : {}),
           startedAt: Date.now(),
           status: 'running',
           cells: [],
@@ -54,11 +68,12 @@ export const useEvalRunStore = create<EvalRunState>()(
         set((s) => ({ runs: prune({ ...s.runs, [id]: run }) }));
         return id;
       },
-      addCell: (runId, cell) =>
+      addCell: (runId, cell) => get().addCells(runId, [cell]),
+      addCells: (runId, cells) =>
         set((s) => {
           const run = s.runs[runId];
-          if (!run) return {};
-          return { runs: { ...s.runs, [runId]: { ...run, cells: [...run.cells, cell] } } };
+          if (!run || cells.length === 0) return {};
+          return { runs: { ...s.runs, [runId]: { ...run, cells: [...run.cells, ...cells] } } };
         }),
       finishRun: (runId, status) =>
         set((s) => {
@@ -74,7 +89,7 @@ export const useEvalRunStore = create<EvalRunState>()(
           delete next[id];
           return { runs: next };
         }),
-      listRuns: () => Object.values(get().runs).sort((a, b) => b.startedAt - a.startedAt),
+      listRuns: () => newestFirst(get().runs),
     }),
     {
       name: 'eval-runs-store',

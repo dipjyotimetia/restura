@@ -41,6 +41,12 @@ export interface AiLabProviderConfig {
    * without an extra round trip.
    */
   modelDetails?: Record<string, AiLabModelDetail>;
+  /**
+   * Outcome of the most recent connection test, persisted so the provider
+   * card can show a durable "tested ✓ 2m ago" instead of only a transient
+   * toast. Absent until the user runs a test.
+   */
+  lastTest?: { ok: boolean; at: number; modelCount?: number; error?: string };
   createdAt: number;
 }
 
@@ -280,6 +286,15 @@ export interface EvalRun {
   id: string;
   evalConfigId: string;
   configName: string;
+  /** Dataset the run executed against (for case-var lookups in reports). */
+  datasetId?: string;
+  datasetName?: string;
+  /**
+   * Human-readable label per `providerConfigId:model` key, captured at run
+   * start so reports keep friendly names even if the provider is later
+   * renamed or removed.
+   */
+  modelLabels?: Record<string, string>;
   startedAt: number;
   finishedAt?: number;
   status: EvalRunStatus;

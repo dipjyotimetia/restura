@@ -2,6 +2,7 @@ import { Import } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { capturedRequestsToCases, type CapturedRequest } from '../lib/datasetFromHistory';
+import { plural } from '../lib/plural';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -95,7 +96,7 @@ export function ImportFromHistoryDialog({
       ...c,
     }));
     const id = upsertDataset({ name: name.trim() || 'Imported dataset', cases });
-    toast.success(`Imported ${cases.length} cases`);
+    toast.success(`Imported ${plural(cases.length, 'case')}`);
     setOpen(false);
     setPicked(new Set());
     onCreated?.(id);
@@ -140,9 +141,12 @@ export function ImportFromHistoryDialog({
             )}
           </div>
         </div>
-        <DialogFooter>
+        <DialogFooter className="gap-2">
+          <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
           <Button size="sm" onClick={create} disabled={picked.size === 0}>
-            Import {picked.size > 0 ? `${picked.size} ` : ''}case(s)
+            {picked.size === 0 ? 'Import cases' : `Import ${plural(picked.size, 'case')}`}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -1,7 +1,8 @@
 import { ArrowLeft, FlaskConical, Plug } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAiLabStore } from '../store/useAiLabStore';
+import { useAiLabUiStore, type AiLabTab } from '../store/useAiLabUiStore';
 import { useEvalRunStore } from '../store/useEvalRunStore';
 import { Arena } from './Arena';
 import { DatasetEditor } from './DatasetEditor';
@@ -17,8 +18,6 @@ import { isElectron, getPlatform } from '@/lib/shared/platform';
 // AI Lab titlebar drags like the main window and interactive bits stay clickable.
 const region = (value: 'drag' | 'no-drag'): React.CSSProperties =>
   ({ WebkitAppRegion: value }) as React.CSSProperties;
-
-type AiLabTab = 'playground' | 'datasets' | 'evals' | 'arena' | 'reports' | 'providers';
 
 const TAB_ORDER: readonly AiLabTab[] = [
   'playground',
@@ -56,7 +55,10 @@ const TAB_LABELS: Record<AiLabTab, string> = {
  */
 export default function AiLabWorkspace() {
   const navigate = useNavigate();
-  const [tab, setTab] = useState<AiLabTab>('playground');
+  // Tab lives in the session-scoped UI store so leaving /ai-lab (or the tab
+  // being changed by a cross-tab handoff like "View report") sticks.
+  const tab = useAiLabUiStore((s) => s.tab);
+  const setTab = useAiLabUiStore((s) => s.setTab);
 
   // Cheap length selectors drive the tab count badges + the first-run nudge.
   const datasetCount = useAiLabStore((s) => Object.keys(s.datasets).length);
@@ -96,7 +98,7 @@ export default function AiLabWorkspace() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [setTab]);
 
   // macOS Electron paints real traffic lights over the top-left at
   // trafficLightPosition (x:15). Reserve space so the back button clears them.

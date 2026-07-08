@@ -323,6 +323,15 @@ const AiLabProviderConfigSchema = z.object({
   // Per-model metadata captured at the most recent discovery (OpenRouter).
   // Optional so existing persisted state validates without a migration.
   modelDetails: z.record(z.string(), AiLabModelDetailSchema).optional(),
+  // Most recent connection-test outcome (optional; no migration needed).
+  lastTest: z
+    .object({
+      ok: z.boolean(),
+      at: z.number(),
+      modelCount: z.number().optional(),
+      error: z.string().optional(),
+    })
+    .optional(),
   createdAt: z.number(),
 });
 
@@ -449,6 +458,10 @@ const EvalRunSchema = z.object({
   id: z.string(),
   evalConfigId: z.string(),
   configName: z.string(),
+  // Run metadata for reports (optional; absent on runs recorded before it).
+  datasetId: z.string().optional(),
+  datasetName: z.string().optional(),
+  modelLabels: z.record(z.string(), z.string()).optional(),
   startedAt: z.number(),
   finishedAt: z.number().optional(),
   status: z.enum(['running', 'done', 'cancelled', 'error']),

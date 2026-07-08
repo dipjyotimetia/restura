@@ -31,9 +31,12 @@ test.describe('Desktop AI Lab (local OpenAI-compatible provider)', () => {
       // Discover the mock's model (GET /v1/models from the main process).
       await page.getByRole('button', { name: 'Discover models' }).click();
 
-      // Playground → select the discovered model → run a completion.
+      // Playground → select the discovered model → run a completion. The model
+      // checklist groups by provider: "Mock LLM" renders as a group header and
+      // "mock-model" as the selectable row, so target the row's <label>
+      // (clicking it toggles the wrapped checkbox).
       await page.getByRole('tab', { name: 'Playground' }).click();
-      await page.getByText('Mock LLM · mock-model').click({ timeout: 15_000 });
+      await page.locator('label', { hasText: 'mock-model' }).click({ timeout: 15_000 });
       await page.getByRole('button', { name: /run on/i }).click();
 
       // The mock streams choices[].delta.content = "echo: hello".

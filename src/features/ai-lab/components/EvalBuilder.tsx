@@ -1,21 +1,25 @@
-import { AlertTriangle, Play, Plus, Square, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { AlertTriangle, FilePlus2, Play, Plus, Square, Trash2, X } from 'lucide-react';
+import { memo, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
+import { useCmdEnterRun } from '../hooks/useCmdEnterRun';
 import { useEvalRun } from '../hooks/useEvalRun';
+import { useModelSelection } from '../hooks/useModelSelection';
+import { modelKey, parseModelKey, type ModelOption } from '../lib/modelOptions';
 import { useAiLabStore } from '../store/useAiLabStore';
+import { useAiLabUiStore, type EvalTargetMode } from '../store/useAiLabUiStore';
 import type {
-  AiLabModelDetail,
-  AiLabProviderConfig,
+  EvalCellResult,
   EvalConfig,
   EvalTarget,
   ModelRef,
   ScorerConfig,
   ScorerKind,
 } from '../types';
-import { ModelChecklist, type ModelChecklistEntry } from './ModelChecklist';
+import { ModelChecklist } from './ModelChecklist';
 import { StatusChip } from './StatusChip';
 import { VerdictChip } from './VerdictChip';
+import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -32,20 +36,14 @@ import {
 import { Floater, Stat, Stepper } from '@/components/ui/spatial';
 import { Textarea } from '@/components/ui/textarea';
 
-/** UI selection for what a cell scores. */
-type TargetMode = 'text' | 'http' | 'graphql';
-
-function targetFor(mode: TargetMode): EvalTarget {
+function targetFor(mode: EvalTargetMode): EvalTarget {
   if (mode === 'text') return { kind: 'text' };
   return { kind: 'http-exec', parseFrom: 'fenced', protocol: mode };
 }
 
-interface ModelOption {
-  key: string;
-  cfg: AiLabProviderConfig;
-  model: string;
-  label: string;
-  detail?: AiLabModelDetail;
+function targetModeOf(target: EvalTarget | undefined): EvalTargetMode {
+  if (target?.kind === 'http-exec') return target.protocol;
+  return 'text';
 }
 
 const SCORER_KINDS: Array<{ kind: ScorerKind; label: string }> = [
@@ -119,59 +117,79 @@ function defaultScorer(kind: ScorerKind, judgeModel: ModelRef | undefined): Scor
 export function EvalBuilder() {
   const providers = useAiLabStore((s) => s.providers);
   const datasets = useAiLabStore((s) => s.datasets);
+  const evalConfigs = useAiLabStore((s) => s.evalConfigs);
+  const prompts = useAiLabStore((s) => s.prompts);
   const upsertPrompt = useAiLabStore((s) => s.upsertPrompt);
   const upsertEvalConfig = useAiLabStore((s) => s.upsertEvalConfig);
-  const { running, progress, error, start, stop } = useEvalRun();
+  const removeEvalConfig = useAiLabStore((s) => s.removeEvalConfig);
+  const { running, progress, error, lastRunId, start, stop } = useEvalRun();
 
-  const [name, setName] = useState('My eval');
-  const [system, setSystem] = useState('You are concise.');
-  const [user, setUser] = useState('Capital of {{country}}?');
-  const [datasetId, setDatasetId] = useState('');
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [scorers, setScorers] = useState<ScorerConfig[]>([]);
-  const [concurrency, setConcurrency] = useState(4);
-  const [targetMode, setTargetMode] = useState<TargetMode>('text');
-  // Stable id for this eval across re-runs: upsertEvalConfig overwrites instead
-  // of accumulating a new config per run (which would also leak unbounded into
-  // the store), and a stable evalConfigId lets ReportView's "Δ vs prev"
-  // regression compare find the previous run of this eval.
-  const [configId] = useState(() => uuidv4());
+  // The whole builder form is a session-scoped draft: sub-tabs unmount on
+  // switch and losing five configured scorers to a glance at Datasets was the
+  // single worst trap in this tab.
+  const draft = useAiLabUiStore((s) => s.evalDraft);
+  const patchDraft = useAiLabUiStore((s) => s.patchEvalDraft);
+  const setDraft = useAiLabUiStore((s) => s.setEvalDraft);
+  const newDraft = useAiLabUiStore((s) => s.newEvalDraft);
+  const openReport = useAiLabUiStore((s) => s.openReport);
 
-  const modelOptions = useMemo<ModelOption[]>(() => {
-    const out: ModelOption[] = [];
-    for (const cfg of Object.values(providers)) {
-      for (const model of cfg.models.length ? cfg.models : []) {
-        // Prefer the human-readable label from discovery (e.g. "Claude 3.5 Sonnet")
-        // over the slash-namespaced id; the id stays in the model key so the
-        // runner still talks to the right endpoint.
-        const detail = cfg.modelDetails?.[model];
-        const modelLabel = detail?.label ?? model;
-        out.push({
-          key: `${cfg.id}:${model}`,
-          cfg,
-          model,
-          label: `${cfg.label} · ${modelLabel}`,
-          detail,
-        });
-      }
-    }
-    return out;
-  }, [providers]);
+  // The saved config this draft points at, if it still exists (drives the
+  // Select value, the delete affordance, and the confirm copy).
+  const savedConfig = evalConfigs[draft.configId];
+
+  const { confirm: confirmDeleteConfig, DialogComponent: DeleteConfigDialog } = useConfirmDialog({
+    title: 'Delete saved eval',
+    description: `Delete the saved eval "${savedConfig?.name ?? draft.name}"? Past runs in Reports are kept.`,
+    confirmText: 'Delete',
+    variant: 'destructive',
+  });
+
+  const onSelectionChange = useCallback(
+    (sel: string[]) => patchDraft({ selected: sel }),
+    [patchDraft]
+  );
+  const { modelOptions, checklistEntries, selectedSet, toggle, setSelected } = useModelSelection(
+    providers,
+    draft.selected,
+    onSelectionChange
+  );
+  const scorers = draft.scorers;
+  const setScorers = (next: ScorerConfig[]) => patchDraft({ scorers: next });
+
+  const savedConfigs = useMemo(
+    () => Object.values(evalConfigs).sort((a, b) => b.updatedAt - a.updatedAt),
+    [evalConfigs]
+  );
 
   const firstModelRef = modelOptions[0]
     ? { providerConfigId: modelOptions[0].cfg.id, model: modelOptions[0].model }
     : undefined;
 
-  const toggle = (key: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-
   const updateScorer = (id: string, patch: Partial<ScorerConfig>) =>
-    setScorers((prev) => prev.map((s) => (s.id === id ? ({ ...s, ...patch } as ScorerConfig) : s)));
+    setScorers(scorers.map((s) => (s.id === id ? ({ ...s, ...patch } as ScorerConfig) : s)));
+
+  /** Populate the draft from a saved eval config (prompt text included). */
+  const loadConfig = (cfg: EvalConfig) => {
+    const prompt = prompts[cfg.promptId];
+    setDraft({
+      configId: cfg.id,
+      name: cfg.name,
+      system: prompt?.system ?? '',
+      user: prompt?.user ?? '',
+      datasetId: cfg.datasetId,
+      selected: cfg.models.map(modelKey),
+      scorers: cfg.scorers,
+      concurrency: cfg.concurrency,
+      targetMode: targetModeOf(cfg.target),
+    });
+  };
+
+  const deleteConfig = async () => {
+    if (!savedConfig) return;
+    if (!(await confirmDeleteConfig())) return;
+    removeEvalConfig(draft.configId);
+    newDraft();
+  };
 
   // judge/pairwise scorers carry their own judge model — an unset one
   // (providerConfigId/model both empty, the defaultScorer() fallback) would
@@ -183,12 +201,12 @@ export function EvalBuilder() {
   );
 
   const run = () => {
-    if (!datasetId) {
+    if (!draft.datasetId) {
       toast.error('Pick a dataset.');
       return;
     }
     const models: ModelRef[] = modelOptions
-      .filter((m) => selected.has(m.key))
+      .filter((m) => selectedSet.has(m.key))
       .map((m) => ({ providerConfigId: m.cfg.id, model: m.model }));
     if (models.length === 0) {
       toast.error('Select at least one model.');
@@ -200,16 +218,20 @@ export function EvalBuilder() {
       );
       return;
     }
-    const promptId = upsertPrompt({ name: `${name} prompt`, system, user });
+    const promptId = upsertPrompt({
+      name: `${draft.name} prompt`,
+      system: draft.system,
+      user: draft.user,
+    });
     const config: EvalConfig = {
-      id: configId,
-      name,
+      id: draft.configId,
+      name: draft.name,
       promptId,
-      datasetId,
+      datasetId: draft.datasetId,
       models,
       scorers,
-      concurrency,
-      target: targetFor(targetMode),
+      concurrency: draft.concurrency,
+      target: targetFor(draft.targetMode),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -217,245 +239,313 @@ export function EvalBuilder() {
     start(config);
   };
 
-  const passCount = progress?.cells.filter((c) => c.passed).length ?? 0;
+  const passCount = useMemo(
+    () => progress?.cells.reduce((n, c) => n + (c.passed ? 1 : 0), 0) ?? 0,
+    [progress]
+  );
 
-  const canRun = !!datasetId && selected.size > 0 && !unconfiguredJudgeScorer;
-  const runDisabledReason = !datasetId
+  const canRun = !!draft.datasetId && selectedSet.size > 0 && !unconfiguredJudgeScorer && !running;
+  const runDisabledReason = !draft.datasetId
     ? 'Pick a dataset to run.'
-    : selected.size === 0
+    : selectedSet.size === 0
       ? 'Select at least one model.'
       : unconfiguredJudgeScorer
         ? `Pick a judge model for the ${SCORER_LABEL[unconfiguredJudgeScorer.kind]} scorer.`
         : null;
 
+  useCmdEnterRun(() => {
+    if (canRun) run();
+  });
+
   // Ordered model label lookup for the live results grid.
   const labelByModel = useMemo(
-    () => Object.fromEntries(modelOptions.map((m) => [`${m.cfg.id}:${m.model}`, m.label])),
+    () => Object.fromEntries(modelOptions.map((m) => [m.key, m.label])),
     [modelOptions]
   );
 
   return (
-    <ResizableLayout defaultSplit={34} minSplit={24} maxSplit={55}>
-      {/* Config pane — readable measure; scrolls independently. */}
-      <div className="flex-1 overflow-auto p-4">
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="eval-name" className="sp-label">
-              Eval name
-            </Label>
-            <Input id="eval-name" value={name} onChange={(e) => setName(e.target.value)} />
+    <>
+      <ResizableLayout defaultSplit={34} minSplit={24} maxSplit={55}>
+        {/* Config pane — readable measure; scrolls independently. */}
+        <div className="flex-1 overflow-auto p-4">
+          <div className="space-y-4">
+            {savedConfigs.length > 0 && (
+              <div className="space-y-1.5">
+                <Label htmlFor="eval-saved" className="sp-label">
+                  Saved evals
+                </Label>
+                <div className="flex items-center gap-1.5">
+                  <Select
+                    value={savedConfig ? draft.configId : ''}
+                    onValueChange={(id) => {
+                      const cfg = evalConfigs[id];
+                      if (cfg) loadConfig(cfg);
+                    }}
+                  >
+                    <SelectTrigger id="eval-saved" className="flex-1">
+                      <SelectValue placeholder="Load a saved eval…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {savedConfigs.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="New eval"
+                    title="Start a new eval"
+                    onClick={newDraft}
+                  >
+                    <FilePlus2 className="h-3.5 w-3.5" />
+                  </Button>
+                  {savedConfig && (
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Delete saved eval"
+                      title="Delete saved eval"
+                      onClick={() => void deleteConfig()}
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="eval-name" className="sp-label">
+                Eval name
+              </Label>
+              <Input
+                id="eval-name"
+                value={draft.name}
+                onChange={(e) => patchDraft({ name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="eval-system" className="sp-label">
+                System
+              </Label>
+              <Textarea
+                id="eval-system"
+                value={draft.system}
+                onChange={(e) => patchDraft({ system: e.target.value })}
+                rows={2}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="eval-user" className="sp-label">
+                User prompt ({'{{var}}'} from dataset)
+              </Label>
+              <Textarea
+                id="eval-user"
+                value={draft.user}
+                onChange={(e) => patchDraft({ user: e.target.value })}
+                rows={3}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="eval-dataset" className="sp-label">
+                Dataset
+              </Label>
+              <Select value={draft.datasetId} onValueChange={(v) => patchDraft({ datasetId: v })}>
+                <SelectTrigger id="eval-dataset">
+                  <SelectValue placeholder="Select a dataset" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.values(datasets).map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.name} ({d.cases.length})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <span className="sp-label">Models</span>
+              <ModelChecklist
+                models={checklistEntries}
+                selected={selectedSet}
+                onToggle={toggle}
+                onChangeSelected={setSelected}
+                emptyText="Add providers + discover models first."
+              />
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center gap-3">
+                <span className="sp-label">Concurrency</span>
+                <Stepper
+                  value={draft.concurrency}
+                  onChange={(v) => patchDraft({ concurrency: v })}
+                  min={1}
+                  max={16}
+                  ariaLabel="Concurrency"
+                />
+              </div>
+              <p className="text-sp-11 text-sp-text-dim">
+                Parallel model calls — lower it if your provider rate-limits.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="eval-score-target" className="sp-label">
+                Score target
+              </Label>
+              <Select
+                value={draft.targetMode}
+                onValueChange={(v) => patchDraft({ targetMode: v as EvalTargetMode })}
+              >
+                <SelectTrigger id="eval-score-target">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="text">Model output (text)</SelectItem>
+                  <SelectItem value="http">Execute as HTTP request</SelectItem>
+                  <SelectItem value="graphql">Execute as GraphQL request</SelectItem>
+                </SelectContent>
+              </Select>
+              {draft.targetMode !== 'text' && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sp-11 text-amber-800 dark:text-amber-100"
+                >
+                  <AlertTriangle
+                    className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500"
+                    aria-hidden
+                  />
+                  <p>
+                    Each cell sends the model-authored request to the live endpoint (through the
+                    same SSRF guard as normal requests) and scores the real upstream response. Only
+                    run against endpoints you trust.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2 border-t border-sp-line pt-4">
+              {running ? (
+                <Button variant="destructive" size="cta" onClick={stop} className="w-full">
+                  <Square className="h-3.5 w-3.5" /> Stop
+                </Button>
+              ) : (
+                <Button
+                  variant="cta"
+                  size="cta"
+                  onClick={run}
+                  disabled={!canRun}
+                  className="w-full"
+                  title="Cmd/Ctrl+Enter"
+                >
+                  <Play className="h-3.5 w-3.5" /> Run eval
+                </Button>
+              )}
+              {!running && runDisabledReason && (
+                <p className="text-sp-11 text-sp-muted">{runDisabledReason}</p>
+              )}
+              {error && <p className="text-sp-12 text-destructive">{error}</p>}
+              {progress && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <StatusChip state={progress.done ? 'done' : 'running'} />
+                    <div className="flex gap-6">
+                      <Stat label="Cells" value={`${progress.completed}/${progress.total}`} />
+                      <Stat label="Passed" value={passCount} />
+                    </div>
+                  </div>
+                  <Progress value={(progress.completed / Math.max(1, progress.total)) * 100} />
+                  {progress.done && lastRunId && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => openReport(lastRunId)}
+                    >
+                      View report
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="eval-system" className="sp-label">
-              System
-            </Label>
-            <Textarea
-              id="eval-system"
-              value={system}
-              onChange={(e) => setSystem(e.target.value)}
-              rows={2}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="eval-user" className="sp-label">
-              User prompt ({'{{var}}'} from dataset)
-            </Label>
-            <Textarea
-              id="eval-user"
-              value={user}
-              onChange={(e) => setUser(e.target.value)}
-              rows={3}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="eval-dataset" className="sp-label">
-              Dataset
-            </Label>
-            <Select value={datasetId} onValueChange={setDatasetId}>
-              <SelectTrigger id="eval-dataset">
-                <SelectValue placeholder="Select a dataset" />
+        </div>
+
+        {/* Scorers + live results — fills the window. */}
+        <div className="flex flex-1 flex-col overflow-auto p-4">
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <span className="sp-label">Scorers</span>
+            <Select
+              value=""
+              onValueChange={(k) =>
+                setScorers([...scorers, defaultScorer(k as ScorerKind, firstModelRef)])
+              }
+            >
+              <SelectTrigger className="w-44">
+                <SelectValue placeholder="Add scorer" />
               </SelectTrigger>
               <SelectContent>
-                {Object.values(datasets).map((d) => (
-                  <SelectItem key={d.id} value={d.id}>
-                    {d.name} ({d.cases.length})
+                {SCORER_KINDS.map((s) => (
+                  <SelectItem key={s.kind} value={s.kind}>
+                    {s.label}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5">
-            <span className="sp-label">Models</span>
-            <ModelChecklist
-              models={modelOptions.map<ModelChecklistEntry>((m) => ({
-                key: m.key,
-                label: m.label,
-                id: m.model,
-                ...(m.detail ? { detail: m.detail } : {}),
-              }))}
-              selected={selected}
-              onToggle={toggle}
-              emptyText="Add providers + discover models first."
-            />
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="sp-label">Concurrency</span>
-            <Stepper
-              value={concurrency}
-              onChange={setConcurrency}
-              min={1}
-              max={16}
-              ariaLabel="Concurrency"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="eval-score-target" className="sp-label">
-              Score target
-            </Label>
-            <Select value={targetMode} onValueChange={(v) => setTargetMode(v as TargetMode)}>
-              <SelectTrigger id="eval-score-target">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="text">Model output (text)</SelectItem>
-                <SelectItem value="http">Execute as HTTP request</SelectItem>
-                <SelectItem value="graphql">Execute as GraphQL request</SelectItem>
-              </SelectContent>
-            </Select>
-            {targetMode !== 'text' && (
-              <div
-                role="alert"
-                className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sp-11 text-amber-800 dark:text-amber-100"
+          <div className="space-y-2">
+            {scorers.map((s) => (
+              <ScorerRow
+                key={s.id}
+                scorer={s}
+                modelOptions={modelOptions}
+                onChange={(patch) => updateScorer(s.id, patch)}
+                onRemove={() => setScorers(scorers.filter((x) => x.id !== s.id))}
+              />
+            ))}
+            {scorers.length === 0 && (
+              <Floater
+                radius="panel"
+                elevation="inset"
+                className="px-3 py-4 text-center text-sp-12 text-sp-muted"
               >
-                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" aria-hidden />
-                <p>
-                  Each cell sends the model-authored request to the live endpoint (through the same
-                  SSRF guard as normal requests) and scores the real upstream response. Only run
-                  against endpoints you trust.
-                </p>
-              </div>
+                No scorers yet — cells will record output only. Add one above.
+              </Floater>
             )}
           </div>
 
-          <div className="space-y-2 border-t border-sp-line pt-4">
-            {running ? (
-              <Button variant="destructive" size="cta" onClick={stop} className="w-full">
-                <Square className="h-3.5 w-3.5" /> Stop
-              </Button>
-            ) : (
-              <Button variant="cta" size="cta" onClick={run} disabled={!canRun} className="w-full">
-                <Play className="h-3.5 w-3.5" /> Run eval
-              </Button>
-            )}
-            {!running && runDisabledReason && (
-              <p className="text-sp-11 text-sp-muted">{runDisabledReason}</p>
-            )}
-            {error && <p className="text-sp-12 text-destructive">{error}</p>}
-            {progress && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <StatusChip state={progress.done ? 'done' : 'running'} />
-                  <div className="flex gap-6">
-                    <Stat label="Cells" value={`${progress.completed}/${progress.total}`} />
-                    <Stat label="Passed" value={passCount} />
-                  </div>
-                </div>
-                <Progress value={(progress.completed / Math.max(1, progress.total)) * 100} />
-                {progress.done && <p className="text-sp-11 text-sp-muted">Done — see Reports.</p>}
+          {progress && progress.cells.length > 0 && (
+            <div className="mt-4 space-y-2 border-t border-sp-line pt-4">
+              <span className="sp-label">Live results</span>
+              <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+                {progress.cells.map((cell) => {
+                  const key = modelKey(cell.modelRef);
+                  return (
+                    <LiveCellCard
+                      key={`${cell.caseId}:${key}`}
+                      cell={cell}
+                      label={labelByModel[key] ?? cell.modelRef.model}
+                    />
+                  );
+                })}
               </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Scorers + live results — fills the window. */}
-      <div className="flex flex-1 flex-col overflow-auto p-4">
-        <div className="mb-3 flex items-center justify-between gap-2">
-          <span className="sp-label">Scorers</span>
-          <Select
-            value=""
-            onValueChange={(k) =>
-              setScorers((p) => [...p, defaultScorer(k as ScorerKind, firstModelRef)])
-            }
-          >
-            <SelectTrigger className="w-44">
-              <SelectValue placeholder="Add scorer" />
-            </SelectTrigger>
-            <SelectContent>
-              {SCORER_KINDS.map((s) => (
-                <SelectItem key={s.kind} value={s.kind}>
-                  {s.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          {scorers.map((s) => (
-            <ScorerRow
-              key={s.id}
-              scorer={s}
-              modelOptions={modelOptions}
-              onChange={(patch) => updateScorer(s.id, patch)}
-              onRemove={() => setScorers((prev) => prev.filter((x) => x.id !== s.id))}
-            />
-          ))}
-          {scorers.length === 0 && (
+            </div>
+          )}
+          {!progress && (
             <Floater
               radius="panel"
               elevation="inset"
-              className="px-3 py-4 text-center text-sp-12 text-sp-muted"
+              className="mt-4 px-3 py-6 text-center text-sp-12 text-sp-muted"
             >
-              No scorers yet — cells will record output only. Add one above.
+              Configure the eval on the left and run it to watch results stream in here.
             </Floater>
           )}
         </div>
+      </ResizableLayout>
 
-        {progress && progress.cells.length > 0 && (
-          <div className="mt-4 space-y-2 border-t border-sp-line pt-4">
-            <span className="sp-label">Live results</span>
-            <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
-              {progress.cells.map((cell) => {
-                const modelKeyStr = `${cell.modelRef.providerConfigId}:${cell.modelRef.model}`;
-                const label = labelByModel[modelKeyStr] ?? cell.modelRef.model;
-                return (
-                  <Floater
-                    key={`${cell.caseId}:${modelKeyStr}`}
-                    radius="panel"
-                    elevation="inset"
-                    className="flex flex-col gap-2 p-3"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sp-12 font-medium text-sp-text">{label}</span>
-                      <VerdictChip passed={cell.passed} notEvaluated={cell.notEvaluated} />
-                    </div>
-                    <div className="text-sp-11 text-sp-muted tabular-nums">
-                      {Math.round(cell.latencyMs)}ms
-                    </div>
-                    <div className="max-h-28 overflow-auto whitespace-pre-wrap rounded bg-sp-bg p-2 text-sp-11 text-sp-text">
-                      {cell.error ? (
-                        <span className="text-destructive">{cell.error}</span>
-                      ) : (
-                        cell.output || <span className="text-sp-muted">(empty)</span>
-                      )}
-                    </div>
-                  </Floater>
-                );
-              })}
-            </div>
-          </div>
-        )}
-        {!progress && (
-          <Floater
-            radius="panel"
-            elevation="inset"
-            className="mt-4 px-3 py-6 text-center text-sp-12 text-sp-muted"
-          >
-            Configure the eval on the left and run it to watch results stream in here.
-          </Floater>
-        )}
-      </div>
-    </ResizableLayout>
+      <DeleteConfigDialog />
+    </>
   );
 }
 
@@ -571,21 +661,12 @@ function ScorerRow({
           <Label htmlFor={`pairwise-judge-model-${scorer.id}`} className="sp-label">
             Judge model
           </Label>
-          <Select
-            value={modelKey(scorer.judgeModel)}
-            onValueChange={(v) => onChange({ judgeModel: parseModelKey(v) })}
-          >
-            <SelectTrigger id={`pairwise-judge-model-${scorer.id}`}>
-              <SelectValue placeholder="pick a judge model" />
-            </SelectTrigger>
-            <SelectContent>
-              {modelOptions.map((m) => (
-                <SelectItem key={m.key} value={m.key}>
-                  {m.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <JudgeModelSelect
+            id={`pairwise-judge-model-${scorer.id}`}
+            value={scorer.judgeModel}
+            modelOptions={modelOptions}
+            onChange={(judgeModel) => onChange({ judgeModel })}
+          />
           <label
             htmlFor="eval-scorer-swap-positions"
             className="flex items-center gap-2 text-sp-12 text-sp-text"
@@ -606,13 +687,63 @@ function ScorerRow({
   );
 }
 
-/** `providerConfigId:model` round-trip for the model select. */
-function modelKey(m: ModelRef): string {
-  return `${m.providerConfigId}:${m.model}`;
-}
-function parseModelKey(key: string): ModelRef {
-  const idx = key.indexOf(':');
-  return { providerConfigId: key.slice(0, idx), model: key.slice(idx + 1) };
+/**
+ * One live-result card. Memoized because the grid re-renders every progress
+ * tick with ALL completed cells — without this, C completed cells cost O(C²)
+ * card renders over a run. Cell objects are append-only (the runner never
+ * mutates completed entries), so memo comparison is safe and effective.
+ */
+const LiveCellCard = memo(function LiveCellCard({
+  cell,
+  label,
+}: {
+  cell: EvalCellResult;
+  label: string;
+}) {
+  return (
+    <Floater radius="panel" elevation="inset" className="flex flex-col gap-2 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-sp-12 font-medium text-sp-text">{label}</span>
+        <VerdictChip passed={cell.passed} notEvaluated={cell.notEvaluated} />
+      </div>
+      <div className="text-sp-11 text-sp-muted tabular-nums">{Math.round(cell.latencyMs)}ms</div>
+      <div className="max-h-28 overflow-auto whitespace-pre-wrap rounded bg-sp-bg p-2 text-sp-11 text-sp-text">
+        {cell.error ? (
+          <span className="text-destructive">{cell.error}</span>
+        ) : (
+          cell.output || <span className="text-sp-muted">(empty)</span>
+        )}
+      </div>
+    </Floater>
+  );
+});
+
+/** Judge-model picker shared by the judge and pairwise scorer editors. */
+function JudgeModelSelect({
+  id,
+  value,
+  modelOptions,
+  onChange,
+}: {
+  id?: string;
+  value: ModelRef;
+  modelOptions: ModelOption[];
+  onChange: (judgeModel: ModelRef) => void;
+}) {
+  return (
+    <Select value={modelKey(value)} onValueChange={(v) => onChange(parseModelKey(v))}>
+      <SelectTrigger id={id}>
+        <SelectValue placeholder="Judge model" />
+      </SelectTrigger>
+      <SelectContent>
+        {modelOptions.map((m) => (
+          <SelectItem key={m.key} value={m.key}>
+            {m.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 }
 
 /**
@@ -643,26 +774,11 @@ function JudgeScorerEditor({
 
   return (
     <div className="space-y-3">
-      <Select
-        value={`${scorer.judgeModel.providerConfigId}:${scorer.judgeModel.model}`}
-        onValueChange={(v) => {
-          // Split on the FIRST colon only: the provider id is a UUID (no colons)
-          // but model ids can contain them (Ollama `llama3.2:latest`).
-          const i = v.indexOf(':');
-          onChange({ judgeModel: { providerConfigId: v.slice(0, i), model: v.slice(i + 1) } });
-        }}
-      >
-        <SelectTrigger>
-          <SelectValue placeholder="Judge model" />
-        </SelectTrigger>
-        <SelectContent>
-          {modelOptions.map((m) => (
-            <SelectItem key={m.key} value={m.key}>
-              {m.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <JudgeModelSelect
+        value={scorer.judgeModel}
+        modelOptions={modelOptions}
+        onChange={(judgeModel) => onChange({ judgeModel })}
+      />
 
       <div className="space-y-2.5">
         {criteria.map((c, i) => (

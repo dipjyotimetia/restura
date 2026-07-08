@@ -1,0 +1,76 @@
+name: 'Disable broken Microsoft apt repos'
+description: >-
+  Workaround for a recurring GitHub-hosted ubuntu-24.04 (noble) runner flake:
+  the image ships two Microsoft apt sources —
+  `packages.microsoft.com/repos/azure-cli` and
+  `packages.microsoft.com/ubuntu/24.04/prod` — that intermittently return a
+  captive-portal "NOSPLIT" body (`Clearsigned file isn't valid`). Because
+  `npx playwright install-deps` / `playwright install --with-deps` runs
+  `sudo apt-get update` over ALL configured repos, a single failing Microsoft
+  source makes apt exit 100 and aborts the job.
+
+  This action comments out / moves aside any apt source referencing
+  `packages.microsoft.com` so `apt-get update` only touches the standard Ubuntu
+  archives — which is all Playwright's browser/Electron system libs
+  (libnss3, libgbm, libatk, GTK, …) ever need. Idempotent and a no-op when the
+  sources are absent or already disabled. Linux-only by design.
+
+runs:
+  using: composite
+  steps:
+    - name: Disable Microsoft apt sources (NOSPLIT flake workaround)
+      shell: bash
+      run: |
+        set -uo pipefail
+
+        # Only run on Linux; harmless no-op elsewhere (these jobs are all
+        # ubuntu-latest, but guard anyway).
+        if [ "$(uname -s)" != "Linux" ]; then
+          echo "Not Linux ($(uname -s)); nothing to do."
+          exit 0
+        fi
+
+        # We need sudo to edit /etc/apt. On GitHub-hosted runners the `runner`
+        # user has passwordless sudo. If sudo is unavailable, warn and continue
+        # — the subsequent `playwright install-deps` will surface the real error.
+        if ! command -v sudo >/dev/null 2>&1; then
+          echo "::warning::sudo not found; cannot disable Microsoft apt sources."
+          exit 0
+        fi
+
+        disabled=0
+
+        # One-line format (.list): comment out the offending deb/deb-src lines.
+        # Match by content (packages.microsoft.com) so this survives renames of
+        # the source files across runner-image revisions. Handles `deb [arch=…]
+        # https://…` option syntax too, since we only anchor on `^deb`.
+        while IFS= read -r -d '' f; do
+          if grep -q 'packages\.microsoft\.com' "$f"; then
+            echo "::group::Disabling Microsoft apt entries in $f"
+            sudo sed -i -E \
+              '/^(deb|deb-src)[[:space:]]/ { /packages\.microsoft\.com/ s@^@# disabled-by-ci: @ }' \
+              "$f"
+            grep -n . "$f" 2>/dev/null | sed -n 's@^@  @p' || true
+            echo "::endgroup::"
+            disabled=1
+          fi
+        done < <(find /etc/apt -type f -name '*.list' -print0 2>/dev/null)
+
+        # Deb822 format (.sources): move the whole file aside if it references
+        # Microsoft. The GitHub image keeps these in dedicated files, so this
+        # never drops an unrelated repo. We move rather than line-edit because
+        # commenting a single `URIs:` line in a deb822 stanza can leave a
+        # malformed block that apt rejects.
+        while IFS= read -r -d '' f; do
+          if grep -q 'packages\.microsoft\.com' "$f"; then
+            echo "Moving deb822 source file aside: $f -> $f.disabled"
+            sudo mv "$f" "$f.disabled"
+            disabled=1
+          fi
+        done < <(find /etc/apt -type f -name '*.sources' -print0 2>/dev/null)
+
+        if [ "$disabled" = "1" ]; then
+          echo "Disabled one or more Microsoft apt sources (NOSPLIT workaround)."
+        else
+          echo "No Microsoft apt sources found; nothing to do."
+        fi

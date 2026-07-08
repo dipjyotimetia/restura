@@ -174,7 +174,15 @@ export function OpenApiGenDialog({ onCreated }: { onCreated?: (datasetId: string
             />
           </div>
         </div>
-        <DialogFooter>
+        <DialogFooter className="items-center gap-2">
+          {busy && (
+            <span className="mr-auto text-sp-11 text-sp-muted">
+              A started generation can&apos;t be cancelled — closing discards its result.
+            </span>
+          )}
+          <Button size="sm" variant="outline" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
           <Button size="sm" onClick={() => void generate()} disabled={busy || !specText.trim()}>
             {busy ? 'Generating…' : 'Generate dataset'}
           </Button>

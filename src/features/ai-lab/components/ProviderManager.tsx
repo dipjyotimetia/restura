@@ -1,9 +1,10 @@
 import type { DiscoveredModel } from '@shared/protocol/ai/model-discovery';
 import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
-import { Download, Server, Trash2, Wifi, RefreshCw } from 'lucide-react';
+import { Download, KeyRound, Pencil, Server, Trash2, Wifi, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { listModels, testConnection } from '../lib/llmClient';
+import { plural } from '../lib/plural';
 import { useAiLabStore } from '../store/useAiLabStore';
 import type { AiLabModelDetail, AiLabProviderConfig } from '../types';
 import { EmptyState } from './EmptyState';
@@ -20,6 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Floater } from '@/components/ui/spatial';
+import { formatRelativeTime } from '@/lib/shared/console-format';
 import { getElectronAPI } from '@/lib/shared/platform';
 
 const PROVIDER_OPTIONS: Array<{ value: Provider; label: string; needsBaseUrl: boolean }> = [
@@ -100,6 +102,7 @@ function splitDiscoveredModels(models: DiscoveredModel[]): {
 export function ProviderManager() {
   const providers = useAiLabStore((s) => s.providers);
   const addProvider = useAiLabStore((s) => s.addProvider);
+  const updateProvider = useAiLabStore((s) => s.updateProvider);
   const removeProvider = useAiLabStore((s) => s.removeProvider);
   const setProviderModels = useAiLabStore((s) => s.setProviderModels);
 
@@ -124,6 +127,17 @@ export function ProviderManager() {
   const stagedCatalog =
     prefetchedCatalog && prefetchedCatalog.provider === provider ? prefetchedCatalog : null;
   const [removing, setRemoving] = useState<AiLabProviderConfig | null>(null);
+  // Inline edit state for an existing provider card (null = not editing).
+  // Only one card edits at a time, so the in-flight flag is a plain boolean
+  // beside it rather than a field threaded through every setEditing call.
+  const [editing, setEditing] = useState<{
+    id: string;
+    label: string;
+    baseUrl: string;
+    /** New API key; blank = keep the current one. */
+    apiKey: string;
+  } | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
   const { confirm: confirmRemove, DialogComponent: RemoveProviderDialog } = useConfirmDialog({
     title: 'Remove provider',
     description: removing
@@ -186,7 +200,7 @@ export function ProviderManager() {
     setPrefetchedCatalog(null);
     if (prefetched) {
       toast.success(
-        `Added ${label.trim()} with ${prefetched.modelIds.length} pre-fetched model(s)`
+        `Added ${label.trim()} with ${plural(prefetched.modelIds.length, 'pre-fetched model')}`
       );
     } else {
       toast.success(`Added ${label.trim()}`);
@@ -221,7 +235,7 @@ export function ProviderManager() {
       }
       const { models, modelDetails } = splitDiscoveredModels(res.models);
       setPrefetchedCatalog({ provider: 'openrouter', modelIds: models, modelDetails });
-      toast.success(`Fetched ${models.length} model(s) from OpenRouter's public API`);
+      toast.success(`Fetched ${plural(models.length, 'model')} from OpenRouter's public API`);
     } finally {
       setPublicFetchBusy(false);
     }
@@ -298,7 +312,7 @@ export function ProviderManager() {
       const detailCount = Object.keys(modelDetails).length;
       const suffix = detailCount > 0 ? ` (${detailCount} with metadata)` : '';
       toast.success(
-        `Fetched ${models.length} model(s) for ${PROVIDER_OPTIONS.find((o) => o.value === forProvider)?.label ?? forProvider}${suffix}`
+        `Fetched ${plural(models.length, 'model')} for ${PROVIDER_OPTIONS.find((o) => o.value === forProvider)?.label ?? forProvider}${suffix}`
       );
     } finally {
       setPublicFetchBusy(false);
@@ -321,7 +335,7 @@ export function ProviderManager() {
       setProviderModels(cfg.id, models, modelDetails);
       const detailCount = Object.keys(modelDetails).length;
       const detailSuffix = detailCount > 0 ? ` (${detailCount} with full metadata)` : '';
-      toast.success(`Found ${models.length} model(s)${detailSuffix}`);
+      toast.success(`Found ${plural(models.length, 'model')}${detailSuffix}`);
     } finally {
       setBusy(null);
     }
@@ -335,10 +349,63 @@ export function ProviderManager() {
         baseUrl: effectiveBaseUrl(cfg),
         ...(cfg.apiKeyHandleId ? { apiKeyHandleId: cfg.apiKeyHandleId } : {}),
       });
-      if (res.ok) toast.success(`Connected — ${res.modelCount} model(s) available`);
-      else toast.error(`Connection failed: ${res.error}`);
+      // Persist the outcome so the card shows a durable "tested ✓ Nm ago"
+      // instead of only a transient toast.
+      if (res.ok) {
+        updateProvider(cfg.id, {
+          lastTest: { ok: true, at: Date.now(), modelCount: res.modelCount },
+        });
+        toast.success(`Connected — ${plural(res.modelCount, 'model')} available`);
+      } else {
+        updateProvider(cfg.id, { lastTest: { ok: false, at: Date.now(), error: res.error } });
+        toast.error(`Connection failed: ${res.error}`);
+      }
     } finally {
       setBusy(null);
+    }
+  };
+
+  const startEdit = (cfg: AiLabProviderConfig) =>
+    setEditing({ id: cfg.id, label: cfg.label, baseUrl: cfg.baseUrl ?? '', apiKey: '' });
+
+  /**
+   * Save an inline edit. A non-blank API key rotates the stored secret:
+   * mint the new keychain handle first, then delete the old one, so a
+   * mid-flight failure can't leave the provider pointing at a dead handle.
+   */
+  const saveEdit = async (cfg: AiLabProviderConfig) => {
+    if (!editing || editing.id !== cfg.id) return;
+    if (!editing.label.trim()) {
+      toast.error('Provider name cannot be empty.');
+      return;
+    }
+    setEditSaving(true);
+    try {
+      const patch: Partial<AiLabProviderConfig> = { label: editing.label.trim() };
+      const nextBase = editing.baseUrl.trim();
+      if (nextBase !== (cfg.baseUrl ?? '')) {
+        // Clearing the field falls back to the provider's default base URL.
+        patch.baseUrl = nextBase || undefined;
+      }
+      if (editing.apiKey.trim()) {
+        const secrets = getElectronAPI()?.secrets;
+        const res = await secrets?.store({
+          scope: 'ai-lab',
+          value: editing.apiKey.trim(),
+          label: `${editing.label.trim()} key`,
+        });
+        if (!res?.ok) {
+          toast.error('Failed to store the new API key — nothing was changed.');
+          return;
+        }
+        if (cfg.apiKeyHandleId) await secrets?.delete(cfg.apiKeyHandleId);
+        patch.apiKeyHandleId = res.id;
+      }
+      updateProvider(cfg.id, patch);
+      setEditing(null);
+      toast.success(`Updated ${editing.label.trim()}`);
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -469,70 +536,151 @@ export function ProviderManager() {
           {Object.values(providers).length === 0 && (
             <EmptyState icon={Server} message="No providers yet. Add one above." />
           )}
-          {Object.values(providers).map((cfg) => (
-            <Floater
-              key={cfg.id}
-              radius="panel"
-              elevation="inset"
-              className="flex items-center justify-between gap-3 p-3"
-            >
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="truncate text-sp-13 font-medium text-sp-text">{cfg.label}</span>
-                  <Badge variant="mono" className="shrink-0">
-                    {cfg.provider}
-                  </Badge>
-                  {cfg.isLocal && (
-                    <Badge variant="success" className="shrink-0">
-                      local
-                    </Badge>
-                  )}
+          {Object.values(providers).map((cfg) => {
+            const isEditing = editing?.id === cfg.id;
+            return (
+              <Floater key={cfg.id} radius="panel" elevation="inset" className="space-y-3 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-sp-13 font-medium text-sp-text">
+                        {cfg.label}
+                      </span>
+                      <Badge variant="mono" className="shrink-0">
+                        {cfg.provider}
+                      </Badge>
+                      {cfg.isLocal && (
+                        <Badge variant="success" className="shrink-0">
+                          local
+                        </Badge>
+                      )}
+                      {cfg.apiKeyHandleId && (
+                        <Badge
+                          variant="mono"
+                          className="shrink-0 gap-1"
+                          title="An API key is stored in the OS keychain for this provider"
+                        >
+                          <KeyRound className="h-2.5 w-2.5" aria-hidden /> key
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="mt-0.5 truncate text-sp-12 text-sp-muted">
+                      {effectiveBaseUrl(cfg)} · {plural(cfg.models.length, 'model')}
+                      {cfg.modelDetails &&
+                        Object.keys(cfg.modelDetails).length > 0 &&
+                        ` · ${Object.keys(cfg.modelDetails).length} with metadata`}
+                      {!cfg.pricingKnown && ' · cost unknown'}
+                    </div>
+                    {cfg.lastTest && (
+                      <div
+                        className={`mt-0.5 truncate text-sp-11 ${
+                          cfg.lastTest.ok ? 'text-emerald-500' : 'text-destructive'
+                        }`}
+                        title={cfg.lastTest.error}
+                      >
+                        {cfg.lastTest.ok
+                          ? `✓ connected ${formatRelativeTime(cfg.lastTest.at)}`
+                          : `✗ connection failed ${formatRelativeTime(cfg.lastTest.at)}`}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Test connection"
+                      title="Test connection"
+                      disabled={busy?.id === cfg.id}
+                      onClick={() => void test(cfg)}
+                    >
+                      <Wifi
+                        className={`h-3.5 w-3.5 ${busy?.id === cfg.id && busy.action === 'test' ? 'animate-pulse' : ''}`}
+                      />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Discover models"
+                      title="Discover models"
+                      disabled={busy?.id === cfg.id}
+                      onClick={() => void discover(cfg)}
+                    >
+                      <RefreshCw
+                        className={`h-3.5 w-3.5 ${busy?.id === cfg.id && busy.action === 'discover' ? 'animate-spin' : ''}`}
+                      />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Edit provider"
+                      title="Edit provider"
+                      onClick={() => (isEditing ? setEditing(null) : startEdit(cfg))}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="Remove provider"
+                      title="Remove provider"
+                      onClick={() => void handleRemoveClick(cfg)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                    </Button>
+                  </div>
                 </div>
-                <div className="mt-0.5 truncate text-sp-12 text-sp-muted">
-                  {effectiveBaseUrl(cfg)} · {cfg.models.length} model(s)
-                  {cfg.modelDetails &&
-                    Object.keys(cfg.modelDetails).length > 0 &&
-                    ` · ${Object.keys(cfg.modelDetails).length} with metadata`}
-                  {!cfg.pricingKnown && ' · cost unknown'}
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Test connection"
-                  title="Test connection"
-                  disabled={busy?.id === cfg.id}
-                  onClick={() => void test(cfg)}
-                >
-                  <Wifi
-                    className={`h-3.5 w-3.5 ${busy?.id === cfg.id && busy.action === 'test' ? 'animate-pulse' : ''}`}
-                  />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Discover models"
-                  title="Discover models"
-                  disabled={busy?.id === cfg.id}
-                  onClick={() => void discover(cfg)}
-                >
-                  <RefreshCw
-                    className={`h-3.5 w-3.5 ${busy?.id === cfg.id && busy.action === 'discover' ? 'animate-spin' : ''}`}
-                  />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="Remove provider"
-                  title="Remove provider"
-                  onClick={() => void handleRemoveClick(cfg)}
-                >
-                  <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                </Button>
-              </div>
-            </Floater>
-          ))}
+                {isEditing && editing && (
+                  <div className="space-y-3 border-t border-sp-line pt-3">
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label htmlFor={`edit-label-${cfg.id}`} className="sp-label">
+                          Name
+                        </Label>
+                        <Input
+                          id={`edit-label-${cfg.id}`}
+                          value={editing.label}
+                          onChange={(e) => setEditing({ ...editing, label: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor={`edit-baseurl-${cfg.id}`} className="sp-label">
+                          Base URL
+                        </Label>
+                        <Input
+                          id={`edit-baseurl-${cfg.id}`}
+                          value={editing.baseUrl}
+                          onChange={(e) => setEditing({ ...editing, baseUrl: e.target.value })}
+                          placeholder={DEFAULT_BASE[cfg.provider] || 'https://…'}
+                        />
+                      </div>
+                      <div className="space-y-1.5 md:col-span-2">
+                        <Label htmlFor={`edit-apikey-${cfg.id}`} className="sp-label">
+                          {cfg.apiKeyHandleId ? 'Replace API key' : 'API key'}
+                        </Label>
+                        <Input
+                          id={`edit-apikey-${cfg.id}`}
+                          type="password"
+                          value={editing.apiKey}
+                          onChange={(e) => setEditing({ ...editing, apiKey: e.target.value })}
+                          placeholder={
+                            cfg.apiKeyHandleId ? 'leave blank to keep the current key' : 'sk-…'
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" disabled={editSaving} onClick={() => void saveEdit(cfg)}>
+                        {editSaving ? 'Saving…' : 'Save changes'}
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => setEditing(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </Floater>
+            );
+          })}
         </section>
       </div>
 
