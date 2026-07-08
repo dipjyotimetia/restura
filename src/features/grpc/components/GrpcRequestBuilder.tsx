@@ -58,13 +58,7 @@ import type {
 } from '@/types';
 
 type GrpcSubTab =
-  | 'message'
-  | 'metadata'
-  | 'auth'
-  | 'settings'
-  | 'scripts'
-  | 'streaming'
-  | 'web-stream';
+  'message' | 'metadata' | 'auth' | 'settings' | 'scripts' | 'streaming' | 'web-stream';
 
 function GrpcRequestBuilder() {
   const currentRequest = useActiveRequest('grpc');

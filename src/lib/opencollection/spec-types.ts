@@ -100,10 +100,7 @@ export type Auth =
  * via the `definition` "AuthOAuth2".
  */
 export type AuthOAuth2 =
-  | OAuth2ClientCredentialsFlow
-  | OAuth2ResourceOwnerPasswordFlow
-  | OAuth2AuthorizationCodeFlow
-  | OAuth2ImplicitFlow;
+  OAuth2ClientCredentialsFlow | OAuth2ResourceOwnerPasswordFlow | OAuth2AuthorizationCodeFlow | OAuth2ImplicitFlow;
 /**
  * Where the token is placed in requests
  *
@@ -901,13 +898,7 @@ export interface AuthOAuth1 {
    * Signature method
    */
   signatureMethod?:
-    | "HMAC-SHA1"
-    | "HMAC-SHA256"
-    | "HMAC-SHA512"
-    | "RSA-SHA1"
-    | "RSA-SHA256"
-    | "RSA-SHA512"
-    | "PLAINTEXT";
+    "HMAC-SHA1" | "HMAC-SHA256" | "HMAC-SHA512" | "RSA-SHA1" | "RSA-SHA256" | "RSA-SHA512" | "PLAINTEXT";
   /**
    * Private key (PEM format, required for RSA-* methods). Use type 'text' for inline key, 'file' for file path.
    */

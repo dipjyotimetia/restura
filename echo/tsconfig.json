@@ -9,9 +9,8 @@
     "noEmit": true,
     "isolatedModules": true,
     "exactOptionalPropertyTypes": false,
-    "baseUrl": "..",
     "paths": {
-      "@shared/*": ["shared/*"]
+      "@shared/*": ["../shared/*"]
     }
   },
   "include": ["**/*.ts", "../shared/**/*.ts"],

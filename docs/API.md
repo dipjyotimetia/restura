@@ -190,12 +190,8 @@ import { useHistoryStore } from '@/store/useHistoryStore';
 const addEntry = useHistoryStore((state) => state.addEntry);
 addEntry({
   id: 'hist-1',
-  request: {
-    /* request data */
-  },
-  response: {
-    /* response data */
-  },
+  request: {/* request data */},
+  response: {/* response data */},
   timestamp: new Date().toISOString(),
   isFavorite: false,
 });

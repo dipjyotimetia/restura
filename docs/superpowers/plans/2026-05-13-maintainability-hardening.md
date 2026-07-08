@@ -2420,9 +2420,7 @@ git commit -m "refactor(http): drive HTTP send through useRequestRunner via regi
 ```typescript
 // src/features/registry/types.ts
 export type RunResultLike =
-  | Response
-  | AsyncIterable<Response>
-  | { response: Response; events: AsyncIterable<unknown> };
+  Response | AsyncIterable<Response> | { response: Response; events: AsyncIterable<unknown> };
 
 export interface ProtocolModule {
   // ... existing

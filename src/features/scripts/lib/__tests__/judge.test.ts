@@ -13,14 +13,12 @@ import type { JudgeRequestInput, JudgeVerdict } from '@shared/protocol/ai/judge'
  */
 
 function passingJudge(verdict: Partial<JudgeVerdict> = {}) {
-  return vi.fn(
-    async (_input: JudgeRequestInput): Promise<JudgeVerdict> => ({
-      pass: true,
-      score: 0.9,
-      reasoning: 'good',
-      ...verdict,
-    })
-  );
+  return vi.fn(async (_input: JudgeRequestInput): Promise<JudgeVerdict> => ({
+    pass: true,
+    score: 0.9,
+    reasoning: 'good',
+    ...verdict,
+  }));
 }
 
 describe('rs.judge — host bridge', () => {

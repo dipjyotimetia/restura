@@ -11,10 +11,9 @@
     "noEmit": false,
     "declaration": false,
     "exactOptionalPropertyTypes": false,
-    "baseUrl": "..",
     "paths": {
-      "@shared/*": ["shared/*"],
-      "@/*": ["src/*"]
+      "@shared/*": ["../shared/*"],
+      "@/*": ["../src/*"]
     }
   },
   "include": [

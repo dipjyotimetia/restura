@@ -198,7 +198,7 @@ export async function runCollection(
     const allVars: Record<string, string> = { ...baseVars, ...rows[iter] };
     let jumps = 0;
 
-    for (let idx = 0; idx < runnables.length; ) {
+    for (let idx = 0; idx < runnables.length;) {
       const runnable = runnables[idx];
       if (!runnable) break;
       if (signal.aborted || bailed) break outer;

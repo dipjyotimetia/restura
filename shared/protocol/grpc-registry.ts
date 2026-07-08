@@ -35,10 +35,7 @@ import descriptorExt from 'protobufjs/ext/descriptor';
 
 /** Restura's call-type discriminator (matches `GrpcRequest.methodType`). */
 export type GrpcCallKind =
-  | 'unary'
-  | 'server-streaming'
-  | 'client-streaming'
-  | 'bidirectional-streaming';
+  'unary' | 'server-streaming' | 'client-streaming' | 'bidirectional-streaming';
 
 /** Minimal protobufjs descriptor shape we walk to fix `json_name` + `type_name`. */
 interface FieldDescriptorLike {

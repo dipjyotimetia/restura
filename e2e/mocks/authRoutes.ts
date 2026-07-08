@@ -643,8 +643,7 @@ const authorizeEndpoint: AuthRoute = {
     const responseType = url.searchParams.get('response_type') ?? '';
     const codeChallenge = url.searchParams.get('code_challenge') ?? '';
     const codeChallengeMethod = (url.searchParams.get('code_challenge_method') ?? 'plain') as
-      | 'S256'
-      | 'plain';
+      'S256' | 'plain';
     const scope = url.searchParams.get('scope') ?? 'read';
     const stateParam = url.searchParams.get('state') ?? '';
 

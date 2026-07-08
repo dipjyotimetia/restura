@@ -33,16 +33,14 @@ function fakeFetcher(
   status = 200,
   textBody = ''
 ): Fetcher {
-  return vi.fn(
-    async (): Promise<FetcherResponse> => ({
-      status,
-      statusText: String(status),
-      headers: new Headers({ 'content-type': 'text/event-stream' }),
-      body,
-      contentLengthHeader: null,
-      text: async () => textBody,
-    })
-  );
+  return vi.fn(async (): Promise<FetcherResponse> => ({
+    status,
+    statusText: String(status),
+    headers: new Headers({ 'content-type': 'text/event-stream' }),
+    body,
+    contentLengthHeader: null,
+    text: async () => textBody,
+  }));
 }
 
 describe('runToCompletion', () => {

@@ -32,16 +32,14 @@ function fixtureStream(filename: string): ReadableStream<Uint8Array> {
 }
 
 function fakeFetcher(body: ReadableStream<Uint8Array>, status = 200, textBody = ''): Fetcher {
-  return vi.fn(
-    async (_req: FetcherRequest): Promise<FetcherResponse> => ({
-      status,
-      statusText: String(status),
-      headers: new Headers({ 'content-type': 'text/event-stream' }),
-      body,
-      contentLengthHeader: null,
-      text: async () => textBody,
-    })
-  );
+  return vi.fn(async (_req: FetcherRequest): Promise<FetcherResponse> => ({
+    status,
+    statusText: String(status),
+    headers: new Headers({ 'content-type': 'text/event-stream' }),
+    body,
+    contentLengthHeader: null,
+    text: async () => textBody,
+  }));
 }
 
 const NO_KEY = Symbol('no-key');

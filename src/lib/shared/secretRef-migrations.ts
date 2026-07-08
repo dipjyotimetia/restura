@@ -63,10 +63,7 @@ export function migrateAuthConfigToSecretRef(auth: unknown): AuthConfig | undefi
       ...(typeof o.grantType === 'string'
         ? {
             grantType: o.grantType as
-              | 'authorization_code'
-              | 'client_credentials'
-              | 'password'
-              | 'device_code',
+              'authorization_code' | 'client_credentials' | 'password' | 'device_code',
           }
         : {}),
       ...pickString(o, 'clientId'),

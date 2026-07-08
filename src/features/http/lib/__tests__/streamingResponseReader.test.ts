@@ -12,7 +12,7 @@ function streamFromChunks(chunks: Uint8Array[]): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     pull(controller) {
       if (i < chunks.length) {
-        controller.enqueue(chunks[i++]);
+        controller.enqueue(chunks[i++]!);
       } else {
         controller.close();
       }

@@ -318,16 +318,15 @@ export function buildFormFields(items?: FormDataItem[]): ProxyFormField[] {
   if (!items) return [];
   return items
     .filter((it) => it.enabled && it.key)
-    .map(
-      (it): ProxyFormField =>
-        it.type === 'file'
-          ? {
-              name: it.key,
-              value: it.value,
-              filename: it.fileName ?? 'file',
-              contentType: it.contentType ?? 'application/octet-stream',
-            }
-          : { name: it.key, value: it.value }
+    .map((it): ProxyFormField =>
+      it.type === 'file'
+        ? {
+            name: it.key,
+            value: it.value,
+            filename: it.fileName ?? 'file',
+            contentType: it.contentType ?? 'application/octet-stream',
+          }
+        : { name: it.key, value: it.value }
     );
 }
 

@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
+import {
+  createServer,
+  request as httpRequest,
+  type Server,
+  type IncomingMessage,
+  type ServerResponse,
+} from 'node:http';
 import { connect as netConnect, type AddressInfo, type Socket } from 'node:net';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,11 +27,28 @@ beforeAll(async () => {
   await new Promise<void>((r) => upstream.listen(0, '127.0.0.1', r));
   upstreamUrl = `http://127.0.0.1:${(upstream.address() as AddressInfo).port}`;
 
-  // undici's ProxyAgent tunnels via HTTP CONNECT (even for http origins), so
-  // the proxy must establish a TCP tunnel rather than forward in absolute-form.
-  proxy = createServer((_req: IncomingMessage, res: ServerResponse) => {
-    res.statusCode = 405;
-    res.end('use CONNECT');
+  // Since undici 8.6, ProxyAgent forwards plain-http origins in absolute-form
+  // (a standard forward proxy) and only tunnels https origins via CONNECT. The
+  // mock proxy therefore handles both shapes: replay absolute-form requests to
+  // the upstream, and establish a TCP tunnel for CONNECT.
+  proxy = createServer((req: IncomingMessage, res: ServerResponse) => {
+    proxyHits++;
+    const target = new URL(req.url ?? '');
+    const upstreamReq = httpRequest(
+      {
+        method: req.method,
+        hostname: target.hostname,
+        port: target.port,
+        path: target.pathname + target.search,
+        headers: req.headers,
+      },
+      (upstreamRes) => {
+        res.writeHead(upstreamRes.statusCode ?? 200, upstreamRes.headers);
+        upstreamRes.pipe(res);
+      }
+    );
+    upstreamReq.on('error', () => res.destroy());
+    req.pipe(upstreamReq);
   });
   proxy.on('connect', (req: IncomingMessage, clientSocket: Socket, head: Buffer) => {
     proxyHits++;

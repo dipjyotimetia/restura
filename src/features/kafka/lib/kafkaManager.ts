@@ -20,10 +20,7 @@ import { isElectron, getElectronAPI } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
 
 export type KafkaSecretField =
-  | 'sasl-password'
-  | 'tls-passphrase'
-  | 'registry-password'
-  | 'registry-token';
+  'sasl-password' | 'tls-passphrase' | 'registry-password' | 'registry-token';
 
 export function kafkaSecretKey(connectionId: string, field: KafkaSecretField): string {
   // Every field name matches a secureStorage sensitive-key pattern

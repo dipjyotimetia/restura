@@ -114,7 +114,7 @@ export async function runCollection(
     const allVars: Record<string, string> = { ...baseVars, ...row };
     let jumps = 0;
 
-    for (let idx = 0; idx < filtered.length; ) {
+    for (let idx = 0; idx < filtered.length;) {
       if (bailed) break iterationLoop;
       const item = filtered[idx];
       if (!item) break;
