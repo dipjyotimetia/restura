@@ -8,8 +8,7 @@
     "types": ["node"],
     "noEmit": true,
     "isolatedModules": true,
-    "exactOptionalPropertyTypes": false,
-    "baseUrl": ".."
+    "exactOptionalPropertyTypes": false
   },
   "include": ["**/*.ts", "../e2e/mocks/**/*.ts", "../e2e/utils/**/*.ts"],
   "exclude": ["node_modules"]

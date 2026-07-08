@@ -8,10 +8,9 @@
     "types": ["node", "vscode"],
     "noEmit": true,
     "exactOptionalPropertyTypes": false,
-    "baseUrl": "../..",
     "paths": {
-      "@shared/*": ["shared/*"],
-      "@/*": ["src/*"]
+      "@shared/*": ["../../shared/*"],
+      "@/*": ["../../src/*"]
     }
   },
   "include": [
