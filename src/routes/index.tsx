@@ -12,7 +12,7 @@ import StatusBar from '@/components/shared/StatusBar';
 import { TabBar } from '@/components/shared/TabBar';
 import TopBar from '@/components/shared/TopBar';
 import WelcomeOnboarding from '@/components/shared/WelcomeOnboarding';
-import { AnimatePresence, motion } from '@/components/ui/motion';
+import { motion } from '@/components/ui/motion';
 import { useAiChatStore } from '@/features/ai/store';
 import { saveTabBackToCollection } from '@/features/collections/lib/saveBack';
 import EnvironmentManager from '@/features/environments/components/EnvironmentManager';
@@ -56,19 +56,8 @@ const McpResultPanel = lazyComponent(() => import('@/features/mcp/components/Mcp
 const KafkaClient = lazyComponent(() => import('@/features/kafka/components/KafkaClient'));
 const MqttClient = lazyComponent(() => import('@/features/mqtt/components/MqttClient'));
 
-// Below this width the fixed-width sidebar leaves too little room for the
-// workspace (URL bar / response status clip), so it auto-collapses. Manual
-// toggling still works between crossings — see the crossing-detection effect.
-const SIDEBAR_AUTO_COLLAPSE_PX = 900;
-
-function isNarrow(): boolean {
-  return typeof window !== 'undefined' && window.innerWidth < SIDEBAR_AUTO_COLLAPSE_PX;
-}
-
 export default function Home() {
-  const [activePanel, setActivePanel] = useState<ActivePanel | null>(() =>
-    isNarrow() ? null : 'collections'
-  );
+  const [activePanel] = useState<ActivePanel>('collections');
   const [envManagerOpen, setEnvManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] = useState<SectionId>('general');
@@ -141,32 +130,6 @@ export default function Home() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Auto-collapse / restore the sidebar on width crossings. Acting only on the
-  // crossing (not on every render) lets the user manually open the sidebar
-  // while narrow without it immediately snapping shut again. We remember
-  // *which* panel was open at the moment of auto-collapse so the restore
-  // respects the user's last choice (History / Workflows / Runs), not just
-  // the default 'collections' tab.
-  const prevWidthRef = useRef(windowWidth);
-  const autoCollapsedRef = useRef(isNarrow());
-  const lastPanelRef = useRef<ActivePanel>(activePanel ?? 'collections');
-  useEffect(() => {
-    const prev = prevWidthRef.current;
-    prevWidthRef.current = windowWidth;
-    if (prev >= SIDEBAR_AUTO_COLLAPSE_PX && windowWidth < SIDEBAR_AUTO_COLLAPSE_PX) {
-      if (activePanel !== null) {
-        lastPanelRef.current = activePanel;
-        autoCollapsedRef.current = true;
-        setActivePanel(null);
-      }
-    } else if (prev < SIDEBAR_AUTO_COLLAPSE_PX && windowWidth >= SIDEBAR_AUTO_COLLAPSE_PX) {
-      if (autoCollapsedRef.current) {
-        autoCollapsedRef.current = false;
-        setActivePanel(lastPanelRef.current);
-      }
-    }
-  }, [windowWidth, activePanel]);
-
   const allLogs = useMemo(
     () => [...(scriptResult?.preRequest?.logs ?? []), ...(scriptResult?.test?.logs ?? [])],
     [scriptResult]
@@ -182,11 +145,6 @@ export default function Home() {
   // user is typing in the URL bar / editors (matching prior behaviour). Cmd+K
   // (command palette) is owned by CommandPalette's own listener.
   useKeybindings([
-    {
-      combo: 'mod+b',
-      allowInInput: true,
-      handler: () => setActivePanel((prev) => (prev !== null ? null : 'collections')),
-    },
     {
       combo: 'mod+,',
       allowInInput: true,
@@ -314,24 +272,15 @@ export default function Home() {
         <ClientHydration
           fallback={<div className="w-67 shrink-0 animate-pulse rounded-sp-panel" />}
         >
-          <AnimatePresence initial={false}>
-            {activePanel !== null && (
-              <motion.div
-                key="sidebar-panel"
-                initial={{ width: 0, opacity: 0 }}
-                animate={{ width: 268, opacity: 1 }}
-                exit={{ width: 0, opacity: 0 }}
-                transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
-                className="shrink-0 overflow-hidden"
-              >
-                <Sidebar
-                  activePanel={activePanel}
-                  onClose={() => setActivePanel(null)}
-                  onOpenImport={() => setImportDialogOpen(true)}
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
+          <motion.div
+            key="sidebar-panel"
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: 268, opacity: 1 }}
+            transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+            className="shrink-0 overflow-hidden"
+          >
+            <Sidebar activePanel={activePanel} onOpenImport={() => setImportDialogOpen(true)} />
+          </motion.div>
         </ClientHydration>
 
         <div className="flex flex-1 flex-col min-w-0 overflow-hidden">

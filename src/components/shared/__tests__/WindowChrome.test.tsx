@@ -21,11 +21,11 @@ beforeEach(() => {
 });
 
 describe('WindowChrome', () => {
-  it('renders the application banner with brand label', () => {
+  it('renders the application banner without a brand label', () => {
     render(<WindowChrome />);
     const banner = screen.getByRole('banner', { name: /application chrome/i });
     expect(banner).toBeInTheDocument();
-    expect(screen.getByText('Restura')).toBeInTheDocument();
+    expect(screen.queryByText('Restura')).not.toBeInTheDocument();
   });
 
   it('Search pill click invokes onOpenCommandPalette', async () => {

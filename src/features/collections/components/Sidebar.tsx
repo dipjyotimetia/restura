@@ -4,7 +4,6 @@ import {
   FolderPlus,
   History,
   Star,
-  X,
   MoreVertical,
   Download,
   Trash2,
@@ -112,7 +111,6 @@ import { useWorkflowStore } from '@/store/useWorkflowStore';
 import type { ActivePanel, Collection, CollectionItem, OpenAPIDocument, Workflow } from '@/types';
 
 interface SidebarProps {
-  onClose: () => void;
   activePanel?: ActivePanel | null;
 }
 
@@ -163,7 +161,7 @@ function SidebarEmptyState({
   );
 }
 
-function Sidebar({ onClose, activePanel }: SidebarProps) {
+function Sidebar({ activePanel }: SidebarProps) {
   const {
     collections,
     createNewCollection,
@@ -906,28 +904,6 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
         aria-label="Collections, history, and workflows"
         className="sp-chrome flex flex-col h-full"
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-3 py-2 border-b border-sp-line shrink-0">
-          <span className="sp-label">
-            {activeTab === 'collections'
-              ? 'Collections'
-              : activeTab === 'history'
-                ? 'History'
-                : activeTab === 'runs'
-                  ? 'Runs'
-                  : 'Workflows'}
-          </span>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={onClose}
-            aria-label="Close panel"
-            className="h-6 w-6 text-muted-foreground"
-          >
-            <X className="h-3 w-3" />
-          </Button>
-        </div>
-
         {/* Search Input */}
         <Input
           className="h-7 bg-transparent border-0 border-b border-border rounded-none px-3 text-xs placeholder:text-sp-dim focus-visible:shadow-none focus-visible:border-primary"

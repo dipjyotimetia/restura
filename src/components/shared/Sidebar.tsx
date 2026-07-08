@@ -9,7 +9,6 @@ import type { ActivePanel } from '@/types';
 interface SidebarProps {
   // Existing — proxied straight through to the collections sidebar.
   activePanel?: ActivePanel | null;
-  onClose: () => void;
   // Optional: open the Import dialog (Postman / Insomnia / OpenCollection).
   onOpenImport?: () => void;
 }
@@ -30,7 +29,7 @@ interface SidebarProps {
  * Doing it this way avoids re-wiring the heavy collection logic just to
  * restyle the frame — and keeps the diff scoped to one file.
  */
-export default function Sidebar({ activePanel, onClose, onOpenImport }: SidebarProps) {
+export default function Sidebar({ activePanel, onOpenImport }: SidebarProps) {
   return (
     <Floater
       radius="panel"
@@ -81,7 +80,7 @@ export default function Sidebar({ activePanel, onClose, onOpenImport }: SidebarP
       {/* Inner sidebar — owns scrolling. `min-h-0` is load-bearing here:
           without it the flex child won't shrink and overflow goes nowhere. */}
       <div className="flex-1 min-h-0 overflow-hidden rounded-sp-btn">
-        <CollectionsSidebar onClose={onClose} {...(activePanel !== undefined && { activePanel })} />
+        <CollectionsSidebar {...(activePanel !== undefined && { activePanel })} />
       </div>
     </Floater>
   );
