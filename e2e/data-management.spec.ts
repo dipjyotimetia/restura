@@ -93,14 +93,16 @@ test.describe('Tabs (request tabs)', () => {
 });
 
 test.describe('Sidebar visibility', () => {
-  test('sidebar Close panel hides the sidebar; icon rail still visible', async ({ app: page }) => {
+  test('sidebar is permanently visible; no Close panel button', async ({ app: page }) => {
+    // The collections rail is always on — there is no longer a close button
+    // that could hide it (issue #464). Assert the entry points stay visible
+    // and the old close affordance is gone.
     await expect(page.getByRole('button', { name: 'New collection', exact: true })).toBeVisible();
 
-    await page.getByRole('button', { name: 'Close panel' }).click();
+    await expect(page.getByRole('button', { name: 'Close panel' })).not.toBeVisible();
 
-    await expect(
-      page.getByRole('button', { name: 'New collection', exact: true })
-    ).not.toBeVisible();
+    // The tab rail (History / Workflows / Runs) stays reachable.
+    await expect(page.getByRole('tab', { name: 'History' })).toBeVisible();
     await expect(page.getByRole('banner', { name: 'Application chrome' })).toBeVisible();
   });
 });

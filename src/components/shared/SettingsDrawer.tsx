@@ -109,7 +109,6 @@ const SHORTCUT_GROUPS: Array<{
     shortcuts: [
       { keys: ['⌘', 'K'], description: 'Open command palette' },
       { keys: ['⌘', '/'], description: 'Show keyboard shortcuts' },
-      { keys: ['⌘', 'B'], description: 'Toggle sidebar' },
       { keys: ['⌘', ','], description: 'Open settings' },
       { keys: ['⌘', 'N'], description: 'New request' },
     ],

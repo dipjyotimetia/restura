@@ -65,7 +65,7 @@ export function WindowChrome({
   const envColor = envColorFor(activeEnv);
 
   // macOS Electron draws real traffic lights over the window; we only reserve
-  // space so the brand label doesn't sit underneath them.
+  // space so nothing sits underneath them.
   const showTrafficLights = isElectron() && getPlatform() === 'darwin';
 
   // Legacy callbacks fall back gracefully — if the orchestrator hasn't
@@ -83,10 +83,11 @@ export function WindowChrome({
         'sp-chrome border-b border-sp-line text-sp-text'
       )}
     >
-      {/* Left: reserved slot for the OS-drawn traffic lights + brand.
-          On macOS Electron (`titleBarStyle: 'hiddenInset'`) the system paints
-          the real window controls at `trafficLightPosition`. We must NOT draw
-          our own — only reserve horizontal space so the brand clears them. */}
+      {/* Left: reserved slot for the OS-drawn traffic lights. On macOS
+          Electron (`titleBarStyle: 'hiddenInset'`) the system paints the real
+          window controls at `trafficLightPosition`; we only reserve space so
+          nothing sits underneath them. The brand label was removed — the
+          sidebar rail and workspace make the app obvious enough. */}
       <div className="flex items-center gap-3">
         {showTrafficLights ? (
           <span
@@ -98,7 +99,6 @@ export function WindowChrome({
         ) : (
           <span className="block w-1" aria-hidden="true" />
         )}
-        <span className="text-sp-12 font-medium text-sp-muted tracking-tight">Restura</span>
       </div>
 
       {/* Center: environment pill — absolutely positioned so it stays centered
