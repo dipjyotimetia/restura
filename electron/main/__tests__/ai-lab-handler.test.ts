@@ -110,6 +110,7 @@ describe('ai-lab-handler', () => {
         ...base,
         provider: 'openai',
         baseUrlOverride: 'http://localhost:8080',
+        apiKeyHandleId: '11111111-1111-4111-8111-111111111111',
       });
       expect(res.ok).toBe(false);
       expect(mockResolveSafe).toHaveBeenCalledWith('http://localhost:8080', {
@@ -137,6 +138,7 @@ describe('ai-lab-handler', () => {
       const res = await handlerFor('ai-lab:list-models')(TRUSTED, {
         provider: 'openai',
         baseUrl: 'http://localhost:1234',
+        apiKeyHandleId: '11111111-1111-4111-8111-111111111111',
       });
       expect(res.ok).toBe(false);
       expect(mockResolveSafe).toHaveBeenCalledWith('http://localhost:1234', {

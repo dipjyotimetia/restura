@@ -27,6 +27,11 @@ const DEFAULT_BASE_URLS: Record<Provider, string> = {
   anthropic: 'https://api.anthropic.com',
   openrouter: 'https://openrouter.ai/api',
   ollama: 'http://localhost:11434',
+  // HuggingFace Inference Providers router — OpenAI-compatible cloud gateway.
+  // The user's HF token (hf_…) is sent as a Bearer header; like the other
+  // cloud providers, localhost/private-host overrides are refused (the SSRF
+  // carve-out is gated by isLocalProvider, which is false for huggingface).
+  huggingface: 'https://router.huggingface.co',
   // No sensible default — the user must supply a base URL for a generic
   // OpenAI-compatible endpoint (enforced by the AI Lab provider form).
   'openai-compatible': '',
@@ -169,5 +174,10 @@ export const PROVIDER_ROUTES: Record<Provider, ProviderRoute> = {
   anthropic: anthropicRoute,
   openrouter: openrouterRoute,
   ollama: openAiCompatibleRoute(),
+  // HuggingFace's router speaks the OpenAI Chat Completions wire format at
+  // ${baseUrl}/v1/chat/completions; auth is a Bearer HF token. Reuses the
+  // openai-compatible route builder (Bearer-when-key-present) so a misconfigured
+  // keyless call fails with the provider's own 401 rather than a synthetic error.
+  huggingface: openAiCompatibleRoute(),
   'openai-compatible': openAiCompatibleRoute(),
 };

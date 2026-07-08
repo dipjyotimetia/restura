@@ -302,6 +302,74 @@ describe('listModels', () => {
       expect(m.pricing).toBeUndefined();
     }
   });
+
+  it('discovers HuggingFace models via GET /v1/models and derives the vendor from the org segment', async () => {
+    const fetcher = jsonFetcher({
+      'https://router.huggingface.co/v1/models': {
+        json: {
+          data: [
+            {
+              id: 'meta-llama/Llama-3.3-70B-Instruct',
+              name: 'Llama 3.3 70B Instruct',
+              context_length: 128000,
+              created: 1735689600,
+            },
+            { id: 'Qwen/Qwen2.5-72B-Instruct' },
+            { id: 'bare-model' },
+          ],
+        },
+      },
+    });
+    const models = await listModels({
+      provider: 'huggingface',
+      baseUrl: 'https://router.huggingface.co',
+      apiKey: 'hf_test',
+      fetcher,
+    });
+    expect(models).toHaveLength(3);
+    const llama = models.find((m) => m.id === 'meta-llama/Llama-3.3-70B-Instruct')!;
+    // `name` is preferred over the id as the human label.
+    expect(llama.label).toBe('Llama 3.3 70B Instruct');
+    expect(llama.contextLength).toBe(128000);
+    // Vendor derived from the first slash segment.
+    expect(llama.vendor).toBe('meta-llama');
+    // `created` (epoch seconds) normalised to ISO.
+    expect(llama.createdAt).toBe(new Date(1735689600 * 1000).toISOString());
+    const qwen = models.find((m) => m.id === 'Qwen/Qwen2.5-72B-Instruct')!;
+    expect(qwen.vendor).toBe('Qwen');
+    // No `name` — label falls back to undefined (UI shows the id).
+    expect(qwen.label).toBeUndefined();
+    // A bare id with no slash segment has no vendor chip.
+    const bare = models.find((m) => m.id === 'bare-model')!;
+    expect(bare.vendor).toBeUndefined();
+    // Sorted by lowercased label-or-id: "bare-model" < "llama 3.3 70b instruct"
+    // < "qwen/qwen2.5-72b-instruct" (the id is the fallback sort key when no label).
+    expect(models.map((m) => m.label ?? m.id)).toEqual([
+      'bare-model',
+      'Llama 3.3 70B Instruct',
+      'Qwen/Qwen2.5-72B-Instruct',
+    ]);
+    // Auth is sent as Bearer (HuggingFace token).
+    const req = (fetcher as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as FetcherRequest;
+    expect((req.headers as Record<string, string>).Authorization).toBe('Bearer hf_test');
+  });
+
+  it('HuggingFace discovery tolerates ISO `created` strings', async () => {
+    const fetcher = jsonFetcher({
+      'https://router.huggingface.co/v1/models': {
+        json: {
+          data: [{ id: 'org/model', created: '2025-01-01T00:00:00Z' }],
+        },
+      },
+    });
+    const models = await listModels({
+      provider: 'huggingface',
+      baseUrl: 'https://router.huggingface.co',
+      apiKey: 'hf_test',
+      fetcher,
+    });
+    expect(models[0]?.createdAt).toBe('2025-01-01T00:00:00Z');
+  });
 });
 
 describe('testConnection', () => {

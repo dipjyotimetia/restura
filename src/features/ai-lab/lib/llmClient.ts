@@ -97,6 +97,8 @@ export async function listModels(args: {
   provider: Provider;
   baseUrl: string;
   apiKeyHandleId?: string;
+  /** Plaintext key for the pre-add discovery path (see AiLabDiscoverSchema). */
+  apiKey?: string;
 }) {
   return api().listModels(args);
 }
@@ -105,6 +107,8 @@ export async function testConnection(args: {
   provider: Provider;
   baseUrl: string;
   apiKeyHandleId?: string;
+  /** Plaintext key for the pre-add discovery path (see AiLabDiscoverSchema). */
+  apiKey?: string;
 }) {
   return api().testConnection(args);
 }

@@ -45,15 +45,18 @@ describe('provider registry', () => {
     expect(getProviderModule('openai').provider).toBe('openai');
     expect(getProviderModule('anthropic').provider).toBe('anthropic');
     expect(getProviderModule('openrouter').provider).toBe('openrouter');
+    expect(getProviderModule('huggingface').provider).toBe('huggingface');
+    expect(getProviderModule('ollama').provider).toBe('ollama');
   });
 
-  it('ALL_PROVIDERS lists the cloud providers followed by the local ones', () => {
+  it('ALL_PROVIDERS lists cloud, then local, then AI-Lab-only cloud providers', () => {
     expect(ALL_PROVIDERS).toEqual([
       'openai',
       'anthropic',
       'openrouter',
       'ollama',
       'openai-compatible',
+      'huggingface',
     ]);
   });
 });

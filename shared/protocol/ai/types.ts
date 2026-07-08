@@ -13,6 +13,17 @@
 export type CloudProvider = 'openai' | 'anthropic' | 'openrouter';
 
 /**
+ * HuggingFace Inference Providers (https://router.huggingface.co) — an
+ * OpenAI-compatible cloud gateway that routes to many hosted model providers.
+ * It has a hardcoded-safe endpoint but NO static price table (billing is per
+ * upstream provider and varies by model), so it is intentionally NOT a
+ * `CloudProvider` (which implies a known pricing table and is surfaced in the
+ * chat panel). AI-Lab-only; cost reads as "unknown" unless a future discovery
+ * enrichment surfaces per-model pricing.
+ */
+export type HfProvider = 'huggingface';
+
+/**
  * Local / self-hosted runtimes that speak the OpenAI wire format at a
  * user-supplied base URL. `ollama` defaults to http://localhost:11434;
  * `openai-compatible` covers LM Studio, vLLM, llama.cpp, Together, Groq, etc.
@@ -21,7 +32,7 @@ export type CloudProvider = 'openai' | 'anthropic' | 'openrouter';
  */
 export type LocalProvider = 'ollama' | 'openai-compatible';
 
-export type Provider = CloudProvider | LocalProvider;
+export type Provider = CloudProvider | LocalProvider | HfProvider;
 
 /**
  * Providers selectable in the AI assistant chat: the cloud set plus
@@ -33,6 +44,16 @@ export type ChatProvider = CloudProvider | 'openai-compatible';
 /** True for providers that may legitimately target localhost / private hosts. */
 export function isLocalProvider(provider: Provider): provider is LocalProvider {
   return provider === 'ollama' || provider === 'openai-compatible';
+}
+
+/**
+ * HuggingFace Inference Providers — a cloud gateway, so it must NEVER get the
+ * localhost SSRF carve-out (mirrors the other cloud providers). Surfaced as a
+ * distinct predicate so the SSRF policy and pricing default can branch on it
+ * without string-matching at every call site.
+ */
+export function isHuggingFaceProvider(provider: Provider): provider is HfProvider {
+  return provider === 'huggingface';
 }
 
 export type ChatRole = 'system' | 'user' | 'assistant';

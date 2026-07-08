@@ -265,7 +265,7 @@ export function registerAiLabHandlers(): void {
     const { provider, baseUrl, apiKeyHandleId } = parsed.data;
     try {
       const fetcher = await buildSafeFetcher(provider, baseUrl);
-      const apiKey = apiKeyHandleId ? await resolveSecretFn(apiKeyHandleId) : undefined;
+      const apiKey = apiKeyHandleId ? await resolveSecretFn(apiKeyHandleId) : parsed.data.apiKey;
       const models = await listModels({
         provider,
         baseUrl,
@@ -295,7 +295,7 @@ export function registerAiLabHandlers(): void {
       return { ok: false as const, error: (e as Error).message };
     }
     try {
-      const apiKey = apiKeyHandleId ? await resolveSecretFn(apiKeyHandleId) : undefined;
+      const apiKey = apiKeyHandleId ? await resolveSecretFn(apiKeyHandleId) : parsed.data.apiKey;
       const result = await testConnection({
         provider,
         baseUrl,

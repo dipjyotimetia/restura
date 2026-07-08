@@ -364,6 +364,11 @@ describe('ai-lab-handler E2E: stream', () => {
     streamId: STREAM_ID,
     messages: [{ role: 'user' as const, content: 'hi' }],
     rawMode: false,
+    // Cloud providers require an API key handle (defense-in-depth refine in
+    // AiLabStreamSchema). The mocked executeAiChat never calls resolveSecretFn,
+    // so mockResolveSecret stays untouched — the key only satisfies the schema
+    // gate so the streaming behaviour under test is actually reached.
+    apiKeyHandleId: HANDLE_1,
   };
 
   it('emits each ChatStreamEvent on the chunk channel and a final "done" end event', async () => {
