@@ -301,6 +301,14 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
 
+      # Disable the Microsoft apt sources that intermittently return a
+      # `NOSPLIT` captive-portal body on the ubuntu-24.04 runner image, which
+      # makes `apt-get update` (run inside `playwright install-deps`/
+      # `--with-deps`) exit 100 and abort the job. See
+      # .github/actions/fix-apt-microsoft-repos/action.yml.
+      - name: Disable broken Microsoft apt repos
+        uses: ./.github/actions/fix-apt-microsoft-repos
+
       - name: Install Playwright Chromium + system deps
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
@@ -360,6 +368,9 @@ jobs:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
 
+      - name: Disable broken Microsoft apt repos
+        uses: ./.github/actions/fix-apt-microsoft-repos
+
       - name: Install Playwright Chromium + system deps
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps chromium
@@ -413,6 +424,9 @@ jobs:
       # (libnss3, libgbm, libatk, GTK, …). `playwright install-deps chromium`
       # installs exactly that set without downloading a browser binary — the
       # `_electron` runner uses the `electron` npm binary, not Playwright's.
+      - name: Disable broken Microsoft apt repos
+        uses: ./.github/actions/fix-apt-microsoft-repos
+
       - name: Install Electron runtime system deps
         run: npx playwright install-deps chromium
 
@@ -471,6 +485,9 @@ jobs:
       # VS Code is Electron/Chromium, so it needs the same shared system libs
       # (libnss3, libgbm, GTK, …) as the Electron e2e job. `playwright
       # install-deps chromium` installs exactly that set without a browser binary.
+      - name: Disable broken Microsoft apt repos
+        uses: ./.github/actions/fix-apt-microsoft-repos
+
       - name: Install VS Code runtime system deps
         run: npx playwright install-deps chromium
 
