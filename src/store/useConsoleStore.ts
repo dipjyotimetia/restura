@@ -7,15 +7,7 @@ import { truncateForPersist as truncate } from '@/lib/shared/utils';
 import type { Response as ApiResponse, HttpMethod, HttpRequest, RequestBody } from '@/types';
 
 export type ConsoleProtocol =
-  | 'http'
-  | 'grpc'
-  | 'graphql'
-  | 'mcp'
-  | 'sse'
-  | 'websocket'
-  | 'kafka'
-  | 'mqtt'
-  | 'socketio';
+  'http' | 'grpc' | 'graphql' | 'mcp' | 'sse' | 'websocket' | 'kafka' | 'mqtt' | 'socketio';
 
 export type ConsoleStatusFilter = 'all' | '2xx' | '3xx' | '4xx' | '5xx' | 'errored';
 

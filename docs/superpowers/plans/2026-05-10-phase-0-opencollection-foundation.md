@@ -2005,9 +2005,7 @@ import {
 } from '@/lib/opencollection';
 
 export type OpenCollectionSource =
-  | { kind: 'file'; path: string }
-  | { kind: 'dir'; path: string }
-  | { kind: 'raw'; content: string };
+  { kind: 'file'; path: string } | { kind: 'dir'; path: string } | { kind: 'raw'; content: string };
 
 export async function importOpenCollection(source: OpenCollectionSource) {
   switch (source.kind) {

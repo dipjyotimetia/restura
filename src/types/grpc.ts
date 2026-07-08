@@ -6,10 +6,7 @@ import type { Response } from './http';
 
 // gRPC Methods
 export type GrpcMethodType =
-  | 'unary'
-  | 'server-streaming'
-  | 'client-streaming'
-  | 'bidirectional-streaming';
+  'unary' | 'server-streaming' | 'client-streaming' | 'bidirectional-streaming';
 
 // gRPC Status Codes — re-exported from @shared/protocol/grpc-status (the single
 // source of truth shared with the Worker/Electron gRPC proxy). Two separate enum

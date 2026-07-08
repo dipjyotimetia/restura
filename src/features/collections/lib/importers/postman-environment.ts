@@ -42,14 +42,12 @@ export function importPostmanEnvironment(data: unknown): Environment {
   return {
     id: uuid(),
     name: env.name,
-    variables: env.values.map(
-      (v): KeyValue => ({
-        id: uuid(),
-        key: v.key,
-        value: v.value ?? '',
-        enabled: v.enabled !== false,
-        ...(v.type === 'secret' ? { secret: true } : {}),
-      })
-    ),
+    variables: env.values.map((v): KeyValue => ({
+      id: uuid(),
+      key: v.key,
+      value: v.value ?? '',
+      enabled: v.enabled !== false,
+      ...(v.type === 'secret' ? { secret: true } : {}),
+    })),
   };
 }

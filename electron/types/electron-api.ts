@@ -94,13 +94,7 @@ interface ElectronShellAPI {
  */
 interface UpdaterStatus {
   state:
-    | 'idle'
-    | 'checking'
-    | 'not-available'
-    | 'available'
-    | 'downloading'
-    | 'downloaded'
-    | 'error';
+    'idle' | 'checking' | 'not-available' | 'available' | 'downloading' | 'downloaded' | 'error';
   /** Present for `available` / `downloaded`. */
   version?: string;
   /** Download completion 0–100, present for `downloading`. */

@@ -27,13 +27,7 @@ import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 
 type ImportType =
-  | 'postman'
-  | 'insomnia'
-  | 'openapi'
-  | 'opencollection'
-  | 'hoppscotch'
-  | 'bruno'
-  | 'http';
+  'postman' | 'insomnia' | 'openapi' | 'opencollection' | 'hoppscotch' | 'bruno' | 'http';
 
 interface FormatMeta {
   id: ImportType;

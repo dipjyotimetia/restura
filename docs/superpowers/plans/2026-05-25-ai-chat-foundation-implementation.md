@@ -1235,17 +1235,15 @@ function fixtureStream(filename: string): ReadableStream<Uint8Array> {
 
 function fakeFetcher(body: ReadableStream<Uint8Array>, status = 200): Fetcher {
   return {
-    fetch: vi.fn(
-      async (): Promise<FetcherResponse> => ({
-        ok: status >= 200 && status < 300,
-        status,
-        statusText: String(status),
-        headers: new Headers({ 'content-type': 'text/event-stream' }),
-        body,
-        arrayBuffer: async () => new ArrayBuffer(0),
-        text: async () => '',
-      })
-    ),
+    fetch: vi.fn(async (): Promise<FetcherResponse> => ({
+      ok: status >= 200 && status < 300,
+      status,
+      statusText: String(status),
+      headers: new Headers({ 'content-type': 'text/event-stream' }),
+      body,
+      arrayBuffer: async () => new ArrayBuffer(0),
+      text: async () => '',
+    })),
   };
 }
 

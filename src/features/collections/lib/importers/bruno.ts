@@ -354,15 +354,15 @@ function bruBodyToInternal(body: unknown): RequestBody {
     return { type: 'graphql', raw: envelope };
   }
   if (Array.isArray(body.formUrlEncoded)) {
-    const formData: FormDataItem[] = body.formUrlEncoded.filter(isRecord).map(
-      (p): FormDataItem => ({
+    const formData: FormDataItem[] = body.formUrlEncoded
+      .filter(isRecord)
+      .map((p): FormDataItem => ({
         id: uuid(),
         key: typeof p.name === 'string' ? p.name : '',
         value: typeof p.value === 'string' ? p.value : '',
         enabled: p.enabled !== false,
         type: 'text',
-      })
-    );
+      }));
     return { type: 'x-www-form-urlencoded', formData };
   }
   if (Array.isArray(body.multipartForm)) {

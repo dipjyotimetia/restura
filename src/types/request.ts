@@ -11,15 +11,7 @@ export type RequestType = 'http' | 'grpc' | 'sse' | 'mcp';
 // the picker still surfaces them in the web build but the page renders a
 // "Desktop only" panel.
 export type RequestMode =
-  | 'http'
-  | 'grpc'
-  | 'websocket'
-  | 'graphql'
-  | 'sse'
-  | 'mcp'
-  | 'kafka'
-  | 'mqtt'
-  | 'socketio';
+  'http' | 'grpc' | 'websocket' | 'graphql' | 'sse' | 'mcp' | 'kafka' | 'mqtt' | 'socketio';
 
 // Union type for any request
 export type Request = HttpRequest | GrpcRequest | SseRequest | McpRequest;

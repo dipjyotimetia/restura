@@ -121,8 +121,7 @@ export type ToolName = keyof typeof TOOLS;
 // ---------------------------------------------------------------------------
 
 export type ToolResult<T = unknown> =
-  | { ok: true; data: T }
-  | { ok: false; error: string; details?: unknown };
+  { ok: true; data: T } | { ok: false; error: string; details?: unknown };
 
 // ---------------------------------------------------------------------------
 // Dispatch — pure function

@@ -1403,13 +1403,7 @@ function Sidebar({ onClose, activePanel }: SidebarProps) {
                         variant={
                           item.request.type === 'http'
                             ? (item.request.method.toLowerCase() as
-                                | 'get'
-                                | 'post'
-                                | 'put'
-                                | 'delete'
-                                | 'patch'
-                                | 'options'
-                                | 'head')
+                                'get' | 'post' | 'put' | 'delete' | 'patch' | 'options' | 'head')
                             : 'mono'
                         }
                         className="text-[9px] h-4 px-1"

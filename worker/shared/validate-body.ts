@@ -10,8 +10,7 @@ import type { z } from 'zod';
  * `c.json(payload, status)` without TypeScript widening the StatusCode union.
  */
 export type ParseResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; status: 400 | 413; error: string };
+  { ok: true; value: T } | { ok: false; status: 400 | 413; error: string };
 
 /** Options for {@link parseJsonBody}. */
 export interface ParseJsonBodyOptions {

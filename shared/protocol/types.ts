@@ -7,8 +7,7 @@ import type { ProxyBodyType, FormField } from './body-builder';
  * lockstep — it's two declarations of the same wire shape.
  */
 export type ProtocolSecretRef =
-  | { kind: 'inline'; value: string }
-  | { kind: 'handle'; id: string; label?: string };
+  { kind: 'inline'; value: string } | { kind: 'handle'; id: string; label?: string };
 
 export type ProtocolSecretValue = string | ProtocolSecretRef;
 

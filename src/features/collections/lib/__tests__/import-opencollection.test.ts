@@ -53,8 +53,7 @@ describe('importOpenCollection', () => {
     };
     const result = importOpenCollection(data);
     const req = result.collection.items[0]?.request as
-      | { preRequestScript?: string; testScript?: string }
-      | undefined;
+      { preRequestScript?: string; testScript?: string } | undefined;
     expect(req?.preRequestScript).toBe('console.log("pre")');
     expect(req?.testScript).toBe('pm.test("ok", () => {})');
     const dropped = result.warnings.filter((w) => w.kind === 'unrecognized-script-type');
