@@ -34,6 +34,11 @@ const PROVIDER_OPTIONS: Array<{ value: Provider; label: string; needsBaseUrl: bo
   { value: 'openai', label: 'OpenAI', needsBaseUrl: false },
   { value: 'anthropic', label: 'Anthropic', needsBaseUrl: false },
   { value: 'openrouter', label: 'OpenRouter', needsBaseUrl: false },
+  {
+    value: 'huggingface',
+    label: 'HuggingFace Inference Providers',
+    needsBaseUrl: false,
+  },
 ];
 
 const DEFAULT_BASE: Record<Provider, string> = {
@@ -41,6 +46,7 @@ const DEFAULT_BASE: Record<Provider, string> = {
   anthropic: 'https://api.anthropic.com',
   openrouter: 'https://openrouter.ai/api',
   ollama: 'http://localhost:11434',
+  huggingface: 'https://router.huggingface.co',
   'openai-compatible': '',
 };
 
@@ -266,6 +272,13 @@ export function ProviderManager() {
         return apiKey.trim()
           ? { ok: true }
           : { ok: false, reason: 'Use “Fetch catalog” above for the public OpenRouter catalog.' };
+      case 'huggingface':
+        return apiKey.trim()
+          ? { ok: true }
+          : {
+              ok: false,
+              reason: 'Enter a HuggingFace token (hf_…) to fetch its model catalog.',
+            };
       case 'ollama':
         return baseUrl.trim()
           ? { ok: true }
@@ -477,7 +490,13 @@ export function ProviderManager() {
                 type="password"
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder={isLocalProvider(provider) ? 'usually not required' : 'sk-…'}
+                placeholder={
+                  isLocalProvider(provider)
+                    ? 'usually not required'
+                    : provider === 'huggingface'
+                      ? 'hf_…'
+                      : 'sk-…'
+                }
               />
             </div>
           </div>

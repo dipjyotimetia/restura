@@ -1,4 +1,4 @@
-import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
+import { isHuggingFaceProvider, isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -79,8 +79,14 @@ export const useAiLabStore = create<AiLabState>()(
           label: init.label,
           ...(init.baseUrl ? { baseUrl: init.baseUrl } : {}),
           ...(init.apiKeyHandleId ? { apiKeyHandleId: init.apiKeyHandleId } : {}),
-          // Cloud providers have known pricing tables; local/compat default to unknown.
-          pricingKnown: init.pricingKnown ?? !isLocalProvider(init.provider),
+          // Cloud providers with a static price table (openai/anthropic/
+          // openrouter) default to pricingKnown=true. Local runtimes (Ollama,
+          // openai-compatible) and HuggingFace (per-upstream pricing with no
+          // static table) default to false — the AI Lab shows "cost unknown"
+          // rather than a misleading $0.00 for paid-but-untabled models.
+          pricingKnown:
+            init.pricingKnown ??
+            (!isLocalProvider(init.provider) && !isHuggingFaceProvider(init.provider)),
           isLocal: isLocalProvider(init.provider),
           models: init.models ?? [],
           createdAt: Date.now(),

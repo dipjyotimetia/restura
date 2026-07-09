@@ -897,6 +897,8 @@ interface AiLabDiscoverArgs {
   provider: import('../../shared/protocol/ai/types').Provider;
   baseUrl: string;
   apiKeyHandleId?: string;
+  /** Plaintext key for the pre-add discovery path (see AiLabDiscoverSchema). */
+  apiKey?: string;
 }
 
 interface ElectronAiLabAPI {
