@@ -24,11 +24,9 @@
 
 <br/>
 
-I kept opening four different tools to debug the same service. Postman for HTTP, a separate gRPC client, something else for WebSocket frames, and a Kafka UI buried in a Docker container. Each one had its own collection format, its own auth setup, and at least one wanted me to create an account before I could do anything useful.
+Restura is one API client that speaks every protocol I actually use — HTTP, GraphQL, gRPC, WebSocket, SSE, Kafka, MQTT, and MCP. It stores everything locally, needs no account, and runs in the browser, as a native desktop app (macOS / Windows / Linux), or self-hosted in Docker behind your firewall. Free — not "free tier with the useful stuff locked," just free.
 
-Then Postman changed its pricing model and Insomnia got acquired and went cloud-first. Suddenly my request history — auth tokens, internal service hostnames, payload bodies — was syncing to someone's server by default. That felt wrong.
-
-So I built Restura. One client that speaks all the protocols I actually use, stores everything locally, and doesn't need an account to work. It runs in the browser or as a native desktop app for macOS, Windows, and Linux. Self-hosts in Docker if you want it behind a firewall. And it's free — not "free tier with the useful stuff locked," just free.
+It started because I was tired of juggling four tools to debug one service, each with its own collection format and auth setup. Then Postman changed its pricing and Insomnia went cloud-first — syncing auth tokens, internal hostnames, and payload bodies to someone's server by default. That felt wrong, so Restura signs auth at the wire and keeps your data on your machine.
 
 <br/>
 
@@ -81,15 +79,11 @@ So I built Restura. One client that speaks all the protocols I actually use, sto
 
 Restura signs auth **at the wire** and guards every outbound request — on both the web Worker and the desktop main process.
 
-- **Desktop (Electron)** — Encryption keys are wrapped by the OS keychain via Electron `safeStorage` (macOS Keychain, Windows Credential Manager, Linux libsecret); data is sealed with AES-256-GCM. mTLS, custom CA certs, SOCKS proxies, PAC resolution, and disabling TLS verification all work through Node's TLS / `net` stack.
-- **Web** — Encryption keys default to ephemeral in-memory (regenerated per session) — strictly better than storing the key beside the ciphertext, though it means encrypted data doesn't survive a reload. mTLS, custom CA, SOCKS, and "Verify SSL = off" aren't exposed by the browser sandbox.
-- **Network** — SSRF guards (RFC 1918, RFC 6598 CGNAT, link-local `169.254/16`, cloud-metadata endpoints, IPv6 unique-local, IPv4-mapped IPv6) on every path. Desktop adds a DNS-rebind guard at lookup time. AWS SigV4 is signed in the Worker / Electron handler — never the renderer — so the signature matches the exact bytes upstream receives.
+- **Desktop (Electron)** — Keys wrapped by the OS keychain via `safeStorage` (macOS Keychain / Windows Credential Manager / libsecret), data sealed with AES-256-GCM. mTLS, custom CA certs, SOCKS proxies, PAC resolution, and TLS-verify-off all run through Node's TLS / `net` stack.
+- **Web** — Keys default to ephemeral in-memory (regenerated per session) so the key never sits beside the ciphertext; encrypted data won't survive a reload. mTLS, custom CA, SOCKS, and TLS-verify-off aren't available in the browser sandbox.
+- **Network** — SSRF guards (RFC 1918, CGNAT, link-local, cloud-metadata, IPv6 ULA, IPv4-mapped IPv6) on every path; desktop adds a DNS-rebind guard at lookup time. AWS SigV4 is signed in the Worker / Electron handler — never the renderer — so the signature matches the exact bytes upstream receives.
 - **Sandbox** — User scripts run in a [QuickJS](https://bellard.org/quickjs/) WASM VM with memory and time limits. No host bridge, no filesystem, no network.
-- **Privacy** — No accounts, no cloud sync. Optional crash & error reporting (opt-out, on by default) can be turned off in **Settings › Privacy**.
-  - **Desktop (Electron):** Errors route to [Sentry](https://sentry.io) via a renderer→main IPC bridge — the renderer never makes a direct network call to Sentry. Captured: error message, stack trace, app version, OS. Never captured: request URLs, headers, response bodies, API keys, file paths, or user identity (`sendDefaultPii: false`; secrets scrubbed via the shared AI redaction core).
-  - **Web:** Errors route to a self-hosted Cloudflare Worker endpoint (`/api/telemetry/error`) — no third-party telemetry service involved. Same scrubbing rules apply.
-  - Both error paths gate on `settings.telemetry.errorsEnabled` and send nothing until that flag is checked.
-- **Usage signal (bare minimum, anonymous)** — On desktop, Sentry **Release Health** contributes anonymous session counts (crash-free rate, version adoption) — enough to gauge active users, gated by the same error-reporting opt-out, with no IP or per-user identifier. For the web app we add **no** instrumentation of our own — request volume is already visible in Cloudflare's built-in dashboard. The **self-hosted** server collects neither. There is deliberately no unique-user identifier, so this is an aggregate volume/adoption signal, not per-user tracking. See [`docs/adr/0027-telemetry-and-privacy-preserving-usage-analytics.md`](docs/adr/0027-telemetry-and-privacy-preserving-usage-analytics.md).
+- **Privacy** — No accounts, no cloud sync. Optional, opt-out error reporting (on by default) can be turned off in **Settings › Privacy**. Desktop routes errors to [Sentry](https://sentry.io) via a renderer→main IPC bridge; web routes them to a self-hosted Cloudflare Worker (`/api/telemetry/error`). Either way: error message, stack, version, OS only — never request URLs, headers, bodies, secrets, or identity (`sendDefaultPii: false`). Both paths gate on `settings.telemetry.errorsEnabled` and send nothing until checked. The only usage signal is anonymous aggregate session counts (desktop Sentry Release Health, gated by the same opt-out); the self-hosted server collects nothing. See [`docs/adr/0027-telemetry-and-privacy-preserving-usage-analytics.md`](docs/adr/0027-telemetry-and-privacy-preserving-usage-analytics.md).
 
 See [`docs/adr/0004-security-hardening.md`](docs/adr/0004-security-hardening.md) for the design rationale.
 
@@ -244,9 +238,7 @@ git commit -m 'fix: my thing'
 # open a PR
 ```
 
-If you're thinking about adding a new protocol or something significant, open an issue first so we can talk through the approach before you invest time on it. For smaller things, just send the PR.
-
-Issues tagged [`good first issue`](https://github.com/dipjyotimetia/restura/labels/good%20first%20issue) are a good place to start if you're new here. Read [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming and commit format. By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
+If you're thinking about adding a new protocol or something significant, open an issue first so we can talk through the approach. For smaller things, just send the PR. [`good first issue`](https://github.com/dipjyotimetia/restura/labels/good%20first%20issue) is a good place to start. See [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming and commit format, and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for the code of conduct.
 
 ## Links
 
