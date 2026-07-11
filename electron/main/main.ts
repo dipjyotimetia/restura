@@ -34,7 +34,7 @@ import { readConsentSync, registerTelemetryConsentIPC } from './lifecycle/teleme
 import { registerWindowControlsIPC } from './lifecycle/window-controls';
 import { registerNotificationIPC } from './notifications';
 import { registerKeychainStatusIPC } from './security/keychain-status-handler';
-import { registerNetworkPolicyIPC } from './security/network-policy';
+import { registerExecutionPolicyIPC } from './security/execution-policy';
 import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './security/secret-handle-store';
 import { registerBrunoExportHandlerIPC } from './storage/bruno-export-handler';
 import {
@@ -174,7 +174,7 @@ const IPC_MODULES: IpcModule[] = [
     },
   },
   { register: () => registerTelemetryConsentIPC() },
-  { register: () => registerNetworkPolicyIPC() },
+  { register: () => registerExecutionPolicyIPC() },
   { register: () => registerAiHandlers(), dispose: () => unregisterAiHandlers() },
   { register: () => registerAiLabHandlers(), dispose: () => unregisterAiLabHandlers() },
   {

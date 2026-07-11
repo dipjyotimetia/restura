@@ -19,7 +19,7 @@ import {
   assertTrustedSender,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
-import { getNetworkPolicy } from '../security/network-policy';
+import { getExecutionPolicy } from '../security/execution-policy';
 import { resolveSafeAddress, createPinnedLookup } from '../security/safe-connect';
 
 const log = createLogger('socketio');
@@ -126,7 +126,7 @@ export function registerSocketIoHandlerIPC(): void {
     let pinned: Awaited<ReturnType<typeof resolveSafeAddress>>;
     try {
       pinned = await resolveSafeAddress(config.url, {
-        ...getNetworkPolicy(),
+        ...getExecutionPolicy().security,
         allowedSchemes: ['http:', 'https:', 'ws:', 'wss:'],
       });
     } catch (err) {

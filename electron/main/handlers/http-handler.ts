@@ -34,7 +34,7 @@ import type { LogEntry } from '../lifecycle/request-logger';
 import { applyNonSignAtWireAuth } from '../security/auth-applier';
 import { smithySigV4Signer } from '../security/aws-sigv4-smithy';
 import { resolveEnvProxy } from '../security/env-proxy';
-import { getNetworkPolicy } from '../security/network-policy';
+import { getExecutionPolicy } from '../security/execution-policy';
 import { unwrapSecretValueMain } from '../security/secret-handle-store';
 import { buildTlsClientMaterial } from '../security/tls-material';
 import { interceptorRegistry } from './interceptor-registry';
@@ -449,7 +449,7 @@ function buildConnectOptions(
   // base64-decode the PFX a second time.
   certMaterial: Record<string, unknown>
 ): Record<string, unknown> {
-  const policy = getNetworkPolicy();
+  const policy = getExecutionPolicy().security;
   const connectOpts: Record<string, unknown> = {
     timeout: CONNECTION_TIMEOUT,
     lookup: createSecureLookup(url.hostname, policy.allowLocalhost, policy.allowPrivateIPs),
@@ -976,7 +976,7 @@ async function makeHttpRequest(
         // Shared outbound-network policy (Settings → Security), same snapshot
         // every desktop transport reads. Cloud metadata stays blocked inside
         // the shared URL guard regardless.
-        ...getNetworkPolicy(),
+        ...getExecutionPolicy().security,
         resolveSecret: (v) => unwrapSecretValueMain(v) ?? '',
         // Desktop signs AWS SigV4 with the official @smithy/signature-v4; the
         // Worker keeps the built-in Web-Crypto signer.

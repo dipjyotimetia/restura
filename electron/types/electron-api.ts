@@ -939,10 +939,47 @@ interface ElectronTelemetryAPI {
 }
 
 interface ElectronSecurityAPI {
-  /** Push the outbound-network policy to main; shared by every SSRF guard. */
-  setNetworkPolicy: (policy: {
-    allowLocalhost: boolean;
-    allowPrivateIPs: boolean;
+  /** Push the hydrated renderer policy to main before execution begins. */
+  setExecutionPolicy: (policy: {
+    security: { allowLocalhost: boolean; allowPrivateIPs: boolean };
+    proxy: {
+      enabled: boolean;
+      type: 'none' | 'http' | 'https' | 'socks4' | 'socks5';
+      host: string;
+      port: number;
+      bypassList: string[];
+      auth?: { username: string; password: ProtocolSecretValue };
+    };
+    timeout: number;
+    tls: {
+      verifySsl: boolean;
+      serverCipherOrder: boolean;
+      minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
+      cipherSuites?: string;
+    };
+    certificates: {
+      clientCert?: {
+        format: 'pfx' | 'pem';
+        pfx?: string;
+        cert?: string;
+        key?: string;
+        passphrase?: ProtocolSecretValue;
+      };
+      caCert?: { pem: string };
+      clientCertificates: Array<{
+        id: string;
+        host: string;
+        port?: number;
+        cert: {
+          format: 'pfx' | 'pem';
+          pfx?: string;
+          cert?: string;
+          key?: string;
+          passphrase?: ProtocolSecretValue;
+        };
+      }>;
+      caCertificates: Array<{ id: string; host: string; port?: number; pem: string }>;
+    };
   }) => Promise<{ ok: true }>;
 }
 

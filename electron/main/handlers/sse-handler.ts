@@ -12,7 +12,7 @@ import {
   assertTrustedSender,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
-import { getNetworkPolicy } from '../security/network-policy';
+import { getExecutionPolicy } from '../security/execution-policy';
 import { resolveSafeAddress, createPinnedFetch } from '../security/safe-connect';
 import { makeFetchFetcher } from './fetch-fetcher';
 import { SseParser, type ParsedSseEvent } from './sse-parser';
@@ -116,7 +116,7 @@ export function registerSseHandlerIPC(): void {
     // keeps SNI + Host header on the original hostname for TLS correctness.
     let pinned: Awaited<ReturnType<typeof resolveSafeAddress>>;
     try {
-      pinned = await resolveSafeAddress(config.url, { ...getNetworkPolicy() });
+      pinned = await resolveSafeAddress(config.url, { ...getExecutionPolicy().security });
     } catch (err) {
       return {
         success: false,
@@ -161,7 +161,7 @@ export function registerSseHandlerIPC(): void {
         sseFetcher,
         // Same outbound-network policy as every other desktop transport
         // (Settings → Security), so localhost/private-IP rules stay consistent.
-        { ...getNetworkPolicy() }
+        { ...getExecutionPolicy().security }
       );
       clearTimeout(timeoutId);
 

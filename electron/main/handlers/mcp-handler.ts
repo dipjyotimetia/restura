@@ -22,7 +22,7 @@ import {
   assertTrustedSender,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
-import { getNetworkPolicy } from '../security/network-policy';
+import { getExecutionPolicy } from '../security/execution-policy';
 import { resolveSafeAddress, createPinnedFetch } from '../security/safe-connect';
 
 const log = createLogger('mcp');
@@ -99,7 +99,7 @@ export function registerMcpHandlerIPC(): void {
     // locally). SNI/Host stay on the original hostname.
     let pinnedFetch: typeof globalThis.fetch;
     try {
-      const pinned = await resolveSafeAddress(config.url, { ...getNetworkPolicy() });
+      const pinned = await resolveSafeAddress(config.url, { ...getExecutionPolicy().security });
       pinnedFetch = createPinnedFetch(pinned.host, pinned.ip);
     } catch (err) {
       return { success: false, error: errorMessage(err) };

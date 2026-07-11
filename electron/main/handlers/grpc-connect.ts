@@ -30,7 +30,7 @@ import { GrpcStatusCodeName } from '@shared/protocol/grpc-status';
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { resolveUrlHostnameSafe } from '../security/dns-guard';
-import { getNetworkPolicy } from '../security/network-policy';
+import { getExecutionPolicy } from '../security/execution-policy';
 import { buildTlsClientMaterial } from '../security/tls-material';
 import type { GrpcTlsConfig } from './grpc-credentials';
 
@@ -52,7 +52,7 @@ export interface PinnedDial {
  */
 export async function resolveGrpcDialAddress(url: string): Promise<PinnedDial> {
   const records = await resolveUrlHostnameSafe(url, {
-    ...getNetworkPolicy(),
+    ...getExecutionPolicy().security,
     allowedSchemes: GRPC_ALLOWED_SCHEMES,
   });
   const chosen = records[0];
