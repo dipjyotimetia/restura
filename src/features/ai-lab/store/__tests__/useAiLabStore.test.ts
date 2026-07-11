@@ -2,7 +2,14 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { useAiLabStore } from '../useAiLabStore';
 
 function reset() {
-  useAiLabStore.setState({ providers: {}, prompts: {}, datasets: {}, evalConfigs: {} });
+  useAiLabStore.setState({
+    providers: {},
+    prompts: {},
+    datasets: {},
+    evalConfigs: {},
+    favoriteModelKeys: [],
+    recentModelKeys: [],
+  });
 }
 
 describe('useAiLabStore — providers', () => {
@@ -40,6 +47,30 @@ describe('useAiLabStore — providers', () => {
     expect(useAiLabStore.getState().providers[id]?.pricingKnown).toBe(true);
   });
 
+  it('adds a ready provider with its discovered catalog and connection state atomically', () => {
+    const discoveredAt = 1_720_000_000_000;
+    const id = useAiLabStore.getState().addProvider({
+      provider: 'openrouter',
+      label: 'OpenRouter',
+      apiKeyHandleId: 'h1',
+      models: ['anthropic/claude-3.5-sonnet'],
+      modelDetails: {
+        'anthropic/claude-3.5-sonnet': { label: 'Claude 3.5 Sonnet', contextLength: 200_000 },
+      },
+      lastTest: { ok: true, at: discoveredAt, modelCount: 1 },
+      lastDiscoveredAt: discoveredAt,
+    });
+
+    expect(useAiLabStore.getState().providers[id]).toMatchObject({
+      models: ['anthropic/claude-3.5-sonnet'],
+      modelDetails: {
+        'anthropic/claude-3.5-sonnet': { label: 'Claude 3.5 Sonnet', contextLength: 200_000 },
+      },
+      lastTest: { ok: true, at: discoveredAt, modelCount: 1 },
+      lastDiscoveredAt: discoveredAt,
+    });
+  });
+
   it('adds a HuggingFace provider with pricingKnown=false and isLocal=false', () => {
     // HuggingFace is a cloud gateway but has no static price table — pricing
     // must default to unknown so the AI Lab shows "cost unknown" rather than a
@@ -70,6 +101,42 @@ describe('useAiLabStore — providers', () => {
   it('updateProvider on an unknown id is a no-op', () => {
     useAiLabStore.getState().updateProvider('nope', { label: 'x' });
     expect(Object.keys(useAiLabStore.getState().providers)).toHaveLength(0);
+  });
+
+  it('favorites models, records recent use in recency order, and caps history at 20', () => {
+    const state = useAiLabStore.getState();
+    state.toggleFavoriteModel('p:m1');
+    state.toggleFavoriteModel('p:m2');
+    state.toggleFavoriteModel('p:m1');
+    expect(useAiLabStore.getState().favoriteModelKeys).toEqual(['p:m2']);
+
+    useAiLabStore
+      .getState()
+      .recordRecentModels(Array.from({ length: 22 }, (_, index) => `p:m${index}`));
+    expect(useAiLabStore.getState().recentModelKeys).toHaveLength(20);
+    expect(useAiLabStore.getState().recentModelKeys.slice(0, 3)).toEqual([
+      'p:m21',
+      'p:m20',
+      'p:m19',
+    ]);
+
+    useAiLabStore.getState().recordRecentModels(['p:m10']);
+    expect(useAiLabStore.getState().recentModelKeys[0]).toBe('p:m10');
+    expect(useAiLabStore.getState().recentModelKeys).toHaveLength(20);
+  });
+
+  it('prunes favorite and recent model references when a provider is removed', () => {
+    const id = useAiLabStore
+      .getState()
+      .addProvider({ provider: 'ollama', label: 'Local', models: ['llama3.2'] });
+    const key = `${id}:llama3.2`;
+    useAiLabStore.getState().toggleFavoriteModel(key);
+    useAiLabStore.getState().recordRecentModels([key, 'another:model']);
+
+    useAiLabStore.getState().removeProvider(id);
+
+    expect(useAiLabStore.getState().favoriteModelKeys).toEqual([]);
+    expect(useAiLabStore.getState().recentModelKeys).toEqual(['another:model']);
   });
 });
 

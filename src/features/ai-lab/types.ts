@@ -47,6 +47,8 @@ export interface AiLabProviderConfig {
    * toast. Absent until the user runs a test.
    */
   lastTest?: { ok: boolean; at: number; modelCount?: number; error?: string };
+  /** Timestamp of the most recent successful model catalog discovery. */
+  lastDiscoveredAt?: number;
   createdAt: number;
 }
 

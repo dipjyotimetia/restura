@@ -18,6 +18,8 @@ interface PersistedAiLabState {
   prompts: Record<string, PromptTemplate>;
   datasets: Record<string, Dataset>;
   evalConfigs: Record<string, EvalConfig>;
+  favoriteModelKeys: string[];
+  recentModelKeys: string[];
 }
 
 interface AiLabState extends PersistedAiLabState {
@@ -29,6 +31,9 @@ interface AiLabState extends PersistedAiLabState {
     apiKeyHandleId?: string;
     pricingKnown?: boolean;
     models?: string[];
+    modelDetails?: Record<string, AiLabModelDetail>;
+    lastTest?: AiLabProviderConfig['lastTest'];
+    lastDiscoveredAt?: number;
   }) => string;
   updateProvider: (id: string, patch: Partial<AiLabProviderConfig>) => void;
   removeProvider: (id: string) => void;
@@ -38,6 +43,8 @@ interface AiLabState extends PersistedAiLabState {
     /** Optional per-model metadata keyed by model id. */
     modelDetails?: Record<string, AiLabModelDetail>
   ) => void;
+  toggleFavoriteModel: (key: string) => void;
+  recordRecentModels: (keys: string[]) => void;
 
   // Prompts
   upsertPrompt: (
@@ -64,7 +71,11 @@ const DEFAULT_STATE: PersistedAiLabState = {
   prompts: {},
   datasets: {},
   evalConfigs: {},
+  favoriteModelKeys: [],
+  recentModelKeys: [],
 };
+
+const RECENT_MODEL_LIMIT = 20;
 
 export const useAiLabStore = create<AiLabState>()(
   persist(
@@ -89,6 +100,9 @@ export const useAiLabStore = create<AiLabState>()(
             (!isLocalProvider(init.provider) && !isHuggingFaceProvider(init.provider)),
           isLocal: isLocalProvider(init.provider),
           models: init.models ?? [],
+          ...(init.modelDetails ? { modelDetails: init.modelDetails } : {}),
+          ...(init.lastTest ? { lastTest: init.lastTest } : {}),
+          ...(init.lastDiscoveredAt ? { lastDiscoveredAt: init.lastDiscoveredAt } : {}),
           createdAt: Date.now(),
         };
         set((s) => ({ providers: { ...s.providers, [id]: config } }));
@@ -104,7 +118,12 @@ export const useAiLabStore = create<AiLabState>()(
         set((s) => {
           const next = { ...s.providers };
           delete next[id];
-          return { providers: next };
+          const prefix = `${id}:`;
+          return {
+            providers: next,
+            favoriteModelKeys: s.favoriteModelKeys.filter((key) => !key.startsWith(prefix)),
+            recentModelKeys: s.recentModelKeys.filter((key) => !key.startsWith(prefix)),
+          };
         }),
       setProviderModels: (id, models, modelDetails) =>
         set((s) => {
@@ -121,9 +140,26 @@ export const useAiLabStore = create<AiLabState>()(
                 ...existing,
                 models,
                 ...(hasDetails ? { modelDetails } : { modelDetails: undefined }),
+                lastDiscoveredAt: Date.now(),
               },
             },
           };
+        }),
+      toggleFavoriteModel: (key) =>
+        set((s) => ({
+          favoriteModelKeys: s.favoriteModelKeys.includes(key)
+            ? s.favoriteModelKeys.filter((candidate) => candidate !== key)
+            : [...s.favoriteModelKeys, key],
+        })),
+      recordRecentModels: (keys) =>
+        set((s) => {
+          const next = [...s.recentModelKeys];
+          for (const key of keys) {
+            const index = next.indexOf(key);
+            if (index >= 0) next.splice(index, 1);
+            next.unshift(key);
+          }
+          return { recentModelKeys: next.slice(0, RECENT_MODEL_LIMIT) };
         }),
 
       upsertPrompt: (prompt) => {
@@ -237,6 +273,8 @@ export const useAiLabStore = create<AiLabState>()(
         prompts: state.prompts,
         datasets: state.datasets,
         evalConfigs: state.evalConfigs,
+        favoriteModelKeys: state.favoriteModelKeys,
+        recentModelKeys: state.recentModelKeys,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;

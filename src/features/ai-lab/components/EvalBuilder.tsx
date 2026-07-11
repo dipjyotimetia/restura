@@ -132,6 +132,7 @@ export function EvalBuilder() {
   const setDraft = useAiLabUiStore((s) => s.setEvalDraft);
   const newDraft = useAiLabUiStore((s) => s.newEvalDraft);
   const openReport = useAiLabUiStore((s) => s.openReport);
+  const setTab = useAiLabUiStore((s) => s.setTab);
 
   // The saved config this draft points at, if it still exists (drives the
   // Select value, the delete affordance, and the confirm copy).
@@ -372,7 +373,12 @@ export function EvalBuilder() {
                 selected={selectedSet}
                 onToggle={toggle}
                 onChangeSelected={setSelected}
-                emptyText="Add providers + discover models first."
+                emptyText="No models are ready for this eval."
+                emptyAction={
+                  <Button variant="outline" size="sm" onClick={() => setTab('providers')}>
+                    Open Models
+                  </Button>
+                }
               />
             </div>
             <div className="space-y-1">

@@ -17,6 +17,19 @@ describe('ModelChecklist', () => {
     expect(screen.getByText('Nothing')).toBeInTheDocument();
   });
 
+  it('renders an actionable empty state when setup can resolve it', () => {
+    render(
+      <ModelChecklist
+        models={[]}
+        selected={new Set()}
+        onToggle={() => {}}
+        emptyText="No models"
+        emptyAction={<button>Open Models</button>}
+      />
+    );
+    expect(screen.getByRole('button', { name: 'Open Models' })).toBeVisible();
+  });
+
   it('groups entries under provider headers', () => {
     render(
       <ModelChecklist models={MODELS} selected={new Set()} onToggle={() => {}} emptyText="" />

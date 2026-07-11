@@ -52,6 +52,7 @@ export function Arena() {
   const patchDraft = useAiLabUiStore((s) => s.patchArenaDraft);
   const arenaRunId = useAiLabUiStore((s) => s.arenaRunId);
   const setArenaRunId = useAiLabUiStore((s) => s.setArenaRunId);
+  const setTab = useAiLabUiStore((s) => s.setTab);
 
   const onSelectionChange = useCallback(
     (sel: string[]) => patchDraft({ selected: sel }),
@@ -119,6 +120,17 @@ export function Arena() {
 
   const judgeIsContestant = !!draft.judgeKey && selectedSet.has(draft.judgeKey);
   const canRun = !!draft.datasetId && selectedSet.size >= 2 && !!draft.judgeKey && !running;
+  const estimatedMatches = (() => {
+    const cases = datasets[draft.datasetId]?.cases.length ?? 0;
+    return cases * ((selectedSet.size * (selectedSet.size - 1)) / 2);
+  })();
+  const runDisabledReason = !draft.datasetId
+    ? 'Pick a dataset.'
+    : selectedSet.size < 2
+      ? 'Select at least two contestant models.'
+      : !draft.judgeKey
+        ? 'Pick a judge model.'
+        : null;
 
   return (
     <>
@@ -152,7 +164,12 @@ export function Arena() {
               selected={selectedSet}
               onToggle={toggle}
               onChangeSelected={setSelected}
-              emptyText="Add providers + discover models first."
+              emptyText="No models are ready to compete."
+              emptyAction={
+                <Button variant="outline" size="sm" onClick={() => setTab('providers')}>
+                  Open Models
+                </Button>
+              }
             />
           </div>
           <div className="space-y-1.5">
@@ -205,6 +222,14 @@ export function Arena() {
               Parallel model calls — lower it if your provider rate-limits.
             </p>
           </div>
+          {estimatedMatches > 0 && (
+            <div className="flex items-center justify-between rounded-sp-btn border border-sp-line bg-sp-surface-lo px-3 py-2 text-sp-11">
+              <span className="text-sp-muted">Planned round robin</span>
+              <span className="font-medium tabular-nums text-sp-text">
+                {plural(estimatedMatches, 'judged match', 'judged matches')}
+              </span>
+            </div>
+          )}
           {running ? (
             <Button variant="destructive" size="cta" onClick={stop} className="w-full">
               <Square className="h-3.5 w-3.5" /> Stop
@@ -213,6 +238,9 @@ export function Arena() {
             <Button variant="cta" size="cta" onClick={run} disabled={!canRun} className="w-full">
               <Play className="h-3.5 w-3.5" /> Run arena
             </Button>
+          )}
+          {!running && runDisabledReason && (
+            <p className="text-sp-11 text-sp-muted">{runDisabledReason}</p>
           )}
           {progress && (
             <div className="flex items-center justify-between gap-2">

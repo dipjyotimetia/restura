@@ -1,13 +1,29 @@
-import type { DiscoveredModel } from '@shared/protocol/ai/model-discovery';
 import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
-import { Download, KeyRound, Pencil, Server, Trash2, Wifi, RefreshCw } from 'lucide-react';
-import { useState } from 'react';
+import {
+  CheckCircle2,
+  ChevronUp,
+  KeyRound,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Server,
+  Trash2,
+  XCircle,
+} from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { listModels, testConnection } from '../lib/llmClient';
+import { buildModelOptions } from '../lib/modelOptions';
 import { plural } from '../lib/plural';
+import {
+  connectAndAddProvider,
+  deleteSecretHandle,
+  replaceSecretHandle,
+  splitDiscoveredModels,
+} from '../lib/providerConnection';
 import { useAiLabStore } from '../store/useAiLabStore';
-import type { AiLabModelDetail, AiLabProviderConfig } from '../types';
-import { EmptyState } from './EmptyState';
+import type { AiLabProviderConfig } from '../types';
+import { ModelCatalog } from './ModelCatalog';
 import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -23,6 +39,7 @@ import {
 import { Floater } from '@/components/ui/spatial';
 import { formatRelativeTime } from '@/lib/shared/console-format';
 import { getElectronAPI } from '@/lib/shared/platform';
+import { cn } from '@/lib/shared/utils';
 
 const PROVIDER_OPTIONS: Array<{ value: Provider; label: string; needsBaseUrl: boolean }> = [
   { value: 'ollama', label: 'Ollama (local)', needsBaseUrl: true },
@@ -54,301 +71,137 @@ function effectiveBaseUrl(cfg: AiLabProviderConfig): string {
   return cfg.baseUrl || DEFAULT_BASE[cfg.provider];
 }
 
-/**
- * Split a discovery response into the plain id list (always persisted) and
- * the optional per-model metadata map (only populated when the discovery
- * endpoint returned rich fields). Reduces a wire shape to the two store
- * fields we own.
- *
- * Only fields that are present (and not the default for that key) are copied
- * forward — avoids storing a `vendor: 'anthropic'` for every Anthropic model
- * when the user might never look at the chip, but more importantly keeps the
- * persisted blob small and forward-compatible.
- */
-function splitDiscoveredModels(models: DiscoveredModel[]): {
-  models: string[];
-  modelDetails: Record<string, AiLabModelDetail>;
-} {
-  const ids: string[] = [];
-  const details: Record<string, AiLabModelDetail> = {};
-  for (const m of models) {
-    if (typeof m.id !== 'string' || m.id.length === 0) continue;
-    ids.push(m.id);
-    const detail: AiLabModelDetail = {};
-    if (m.label) detail.label = m.label;
-    if (m.description) detail.description = m.description;
-    if (typeof m.contextLength === 'number' && m.contextLength > 0) {
-      detail.contextLength = m.contextLength;
-    }
-    if (m.modality) detail.modality = m.modality;
-    if (m.createdAt) detail.createdAt = m.createdAt;
-    if (m.vendor) detail.vendor = m.vendor;
-    if (m.family) detail.family = m.family;
-    if (m.parameterSize) detail.parameterSize = m.parameterSize;
-    if (m.quantizationLevel) detail.quantizationLevel = m.quantizationLevel;
-    if (m.modifiedAt) detail.modifiedAt = m.modifiedAt;
-    if (typeof m.sizeBytes === 'number' && m.sizeBytes >= 0) {
-      detail.sizeBytes = m.sizeBytes;
-    }
-    if (m.pricing) {
-      const p: { promptPerMTokUSD?: number; completionPerMTokUSD?: number } = {};
-      if (typeof m.pricing.promptPerMTokUSD === 'number') {
-        p.promptPerMTokUSD = m.pricing.promptPerMTokUSD;
-      }
-      if (typeof m.pricing.completionPerMTokUSD === 'number') {
-        p.completionPerMTokUSD = m.pricing.completionPerMTokUSD;
-      }
-      if (Object.keys(p).length > 0) detail.pricing = p;
-    }
-    if (Object.keys(detail).length > 0) details[m.id] = detail;
-  }
-  return { models: ids, modelDetails: details };
+function requiresApiKey(provider: Provider): boolean {
+  return (
+    provider === 'openai' ||
+    provider === 'anthropic' ||
+    provider === 'openrouter' ||
+    provider === 'huggingface'
+  );
 }
 
 export function ProviderManager() {
-  const providers = useAiLabStore((s) => s.providers);
-  const addProvider = useAiLabStore((s) => s.addProvider);
-  const updateProvider = useAiLabStore((s) => s.updateProvider);
-  const removeProvider = useAiLabStore((s) => s.removeProvider);
-  const setProviderModels = useAiLabStore((s) => s.setProviderModels);
+  const providers = useAiLabStore((state) => state.providers);
+  const favoriteModelKeys = useAiLabStore((state) => state.favoriteModelKeys);
+  const recentModelKeys = useAiLabStore((state) => state.recentModelKeys);
+  const addProvider = useAiLabStore((state) => state.addProvider);
+  const updateProvider = useAiLabStore((state) => state.updateProvider);
+  const removeProvider = useAiLabStore((state) => state.removeProvider);
+  const setProviderModels = useAiLabStore((state) => state.setProviderModels);
+  const toggleFavoriteModel = useAiLabStore((state) => state.toggleFavoriteModel);
 
+  const providerList = useMemo(() => Object.values(providers), [providers]);
+  const modelOptions = useMemo(
+    () => buildModelOptions(providers, { favoriteModelKeys, recentModelKeys }),
+    [providers, favoriteModelKeys, recentModelKeys]
+  );
+  const favoriteSet = useMemo(() => new Set(favoriteModelKeys), [favoriteModelKeys]);
+
+  const [showAdd, setShowAdd] = useState(providerList.length === 0);
   const [provider, setProvider] = useState<Provider>('ollama');
   const [label, setLabel] = useState('');
-  const [baseUrl, setBaseUrl] = useState('http://localhost:11434');
+  const [baseUrl, setBaseUrl] = useState(DEFAULT_BASE.ollama);
   const [apiKey, setApiKey] = useState('');
+  const [connecting, setConnecting] = useState(false);
   const [busy, setBusy] = useState<{ id: string; action: 'test' | 'discover' } | null>(null);
-  // Tracks "fetching the public OpenRouter catalog" so the add-form's
-  // Download button can show its own spinner. The `discover` action above
-  // uses a per-config `busy` keyed by id; this one is form-scoped and
-  // exists in parallel so adding a provider can race with discovery.
-  const [publicFetchBusy, setPublicFetchBusy] = useState(false);
-  // Tagged with the provider it was fetched for so a stale catalog can never
-  // attach to a different provider type — even if a fetch resolves after the
-  // user has already switched the type selector.
-  const [prefetchedCatalog, setPrefetchedCatalog] = useState<{
-    provider: Provider;
-    modelIds: string[];
-    modelDetails: Record<string, AiLabModelDetail>;
-  } | null>(null);
-  const stagedCatalog =
-    prefetchedCatalog && prefetchedCatalog.provider === provider ? prefetchedCatalog : null;
-  const [removing, setRemoving] = useState<AiLabProviderConfig | null>(null);
-  // Inline edit state for an existing provider card (null = not editing).
-  // Only one card edits at a time, so the in-flight flag is a plain boolean
-  // beside it rather than a field threaded through every setEditing call.
   const [editing, setEditing] = useState<{
     id: string;
     label: string;
     baseUrl: string;
-    /** New API key; blank = keep the current one. */
     apiKey: string;
   } | null>(null);
   const [editSaving, setEditSaving] = useState(false);
+  const [removing, setRemoving] = useState<AiLabProviderConfig | null>(null);
+
   const { confirm: confirmRemove, DialogComponent: RemoveProviderDialog } = useConfirmDialog({
     title: 'Remove provider',
     description: removing
-      ? `Remove "${removing.label}"? Its stored API key is deleted from the OS keychain and any Playground/Eval/Arena config referencing it will need a new provider.`
+      ? `Remove “${removing.label}”? Its keychain secret and model catalog will also be removed.`
       : '',
-    confirmText: 'Remove',
+    confirmText: 'Remove provider',
     variant: 'destructive',
   });
 
-  const opt = PROVIDER_OPTIONS.find((o) => o.value === provider)!;
+  const selectedProvider = PROVIDER_OPTIONS.find((option) => option.value === provider)!;
 
-  const onProviderChange = (v: Provider) => {
-    setProvider(v);
-    setBaseUrl(DEFAULT_BASE[v]);
-    // Staged catalog is provider-specific; switching types makes it
-    // meaningless so drop it (the provider tag guards against races, this
-    // just frees the memory eagerly).
-    setPrefetchedCatalog(null);
-  };
-
-  const add = async () => {
+  const onProviderChange = (next: Provider) => {
+    setProvider(next);
+    setBaseUrl(DEFAULT_BASE[next]);
     if (!label.trim()) {
-      toast.error('Give the provider a name.');
+      setLabel(
+        PROVIDER_OPTIONS.find((option) => option.value === next)?.label.split(' (')[0] ?? ''
+      );
+    }
+  };
+
+  const connect = async () => {
+    const name = label.trim();
+    const resolvedBaseUrl = baseUrl.trim() || DEFAULT_BASE[provider];
+    if (!name) {
+      toast.error('Give this provider a recognizable name.');
       return;
     }
-    let apiKeyHandleId: string | undefined;
-    if (apiKey.trim()) {
-      const secrets = getElectronAPI()?.secrets;
-      const res = await secrets?.store({
-        scope: 'ai-lab',
-        value: apiKey.trim(),
-        label: `${label} key`,
-      });
-      if (!res?.ok) {
-        toast.error('Failed to store API key.');
-        return;
-      }
-      apiKeyHandleId = res.id;
-    }
-    // Capture the pre-fetched catalog (if any, and only if it was fetched
-    // for the currently selected provider type) so it travels with the
-    // provider entry — otherwise the user would have to re-discover
-    // immediately after adding the provider just to populate the checklist.
-    const prefetched = stagedCatalog;
-    const id = addProvider({
-      provider,
-      label: label.trim(),
-      ...(opt.needsBaseUrl || baseUrl ? { baseUrl: baseUrl.trim() } : {}),
-      ...(apiKeyHandleId ? { apiKeyHandleId } : {}),
-      ...(prefetched ? { models: prefetched.modelIds } : {}),
-    });
-    if (prefetched && Object.keys(prefetched.modelDetails).length > 0) {
-      // Apply the rich per-model metadata as a second pass so the store's
-      // narrow add-provider signature stays simple; the catalog is already
-      // associated with the new id.
-      setProviderModels(id, prefetched.modelIds, prefetched.modelDetails);
-    }
-    setLabel('');
-    setApiKey('');
-    setPrefetchedCatalog(null);
-    if (prefetched) {
-      toast.success(
-        `Added ${label.trim()} with ${plural(prefetched.modelIds.length, 'pre-fetched model')}`
-      );
-    } else {
-      toast.success(`Added ${label.trim()}`);
-    }
-  };
-
-  /**
-   * Pull the full OpenRouter model catalog from the public API WITHOUT a key.
-   * The result is staged in component state and consumed by `add()` so the
-   * provider is born with its model list — the user doesn't have to click
-   * "Discover" again. The API key field stays optional; a bare provider
-   * config can still be used once the user pastes their key later (the
-   * subsequent inference calls will go through with auth).
-   *
-   * Also runs for already-added OpenRouter providers — the existing
-   * `discover(cfg)` covers that path with the stored key handle (if any).
-   */
-  const fetchOpenRouterPublicCatalog = async () => {
-    setPublicFetchBusy(true);
-    try {
-      const res = await listModels({
-        provider: 'openrouter',
-        baseUrl: DEFAULT_BASE.openrouter,
-        // Deliberately no apiKeyHandleId — exercises the unauthenticated
-        // public endpoint. OpenRouter rate-limits anonymous callers; for
-        // heavy use the user can still paste a key into the field above and
-        // re-discover through `discover()` after adding.
-      });
-      if (!res.ok) {
-        toast.error(`Public catalog fetch failed: ${res.error}`);
-        return;
-      }
-      const { models, modelDetails } = splitDiscoveredModels(res.models);
-      setPrefetchedCatalog({ provider: 'openrouter', modelIds: models, modelDetails });
-      toast.success(`Fetched ${plural(models.length, 'model')} from OpenRouter's public API`);
-    } finally {
-      setPublicFetchBusy(false);
-    }
-  };
-
-  /**
-   * Pull the model list for the currently selected provider using whatever
-   * credentials/baseUrl the user has entered in the form. Stages the result
-   * in component state so the next `add()` call attaches them. Each provider
-   * has different requirements (keyless vs. key-required) — the button is
-   * only shown when the current input satisfies the requirement, and the
-   * helper message reflects what we still need.
-   */
-  const canFetchForCurrentSelection = (): { ok: boolean; reason?: string } => {
-    switch (provider) {
-      case 'openai':
-        return apiKey.trim()
-          ? { ok: true }
-          : { ok: false, reason: 'Enter an OpenAI API key to fetch its model catalog.' };
-      case 'anthropic':
-        return apiKey.trim()
-          ? { ok: true }
-          : { ok: false, reason: 'Enter an Anthropic API key to fetch its model catalog.' };
-      case 'openrouter':
-        // OpenRouter's public catalog is keyless; the openrouter-only button
-        // above handles the "no key yet" case so the generic affordance can
-        // require a key here.
-        return apiKey.trim()
-          ? { ok: true }
-          : { ok: false, reason: 'Use “Fetch catalog” above for the public OpenRouter catalog.' };
-      case 'huggingface':
-        return apiKey.trim()
-          ? { ok: true }
-          : {
-              ok: false,
-              reason: 'Enter a HuggingFace token (hf_…) to fetch its model catalog.',
-            };
-      case 'ollama':
-        return baseUrl.trim()
-          ? { ok: true }
-          : { ok: false, reason: 'Enter a base URL to fetch Ollama’s model list.' };
-      case 'openai-compatible':
-        return baseUrl.trim()
-          ? { ok: true }
-          : { ok: false, reason: 'Enter a base URL to fetch the gateway’s model list.' };
-    }
-  };
-
-  const fetchCatalogForCurrentSelection = async () => {
-    const gate = canFetchForCurrentSelection();
-    if (!gate.ok) {
-      toast.error(gate.reason ?? 'Missing configuration.');
+    if (!resolvedBaseUrl) {
+      toast.error('Enter the provider base URL.');
       return;
     }
-    // Snapshot the selection so the staged result is tagged with the provider
-    // the fetch was actually issued for, even if the user flips the type
-    // selector while the request is in flight.
-    const forProvider = provider;
-    setPublicFetchBusy(true);
+    if (requiresApiKey(provider) && !apiKey.trim()) {
+      toast.error(`${selectedProvider.label} requires an API key before it can run models.`);
+      return;
+    }
+    const electron = getElectronAPI();
+    if (!electron) {
+      toast.error('Provider setup is only available in the desktop app.');
+      return;
+    }
+
+    setConnecting(true);
     try {
-      const effectiveBase =
-        (opt.needsBaseUrl || isLocalProvider(forProvider)) && baseUrl.trim()
-          ? baseUrl.trim()
-          : DEFAULT_BASE[forProvider];
-      const res = await listModels({
-        provider: forProvider,
-        baseUrl: effectiveBase,
-        // The add-form's API key is a plaintext local field, not a handle
-        // (we mint a handle in `add()` only if the user commits the form).
-        // Discovery can run on this short-lived key — it never touches the
-        // wire in a way the renderer couldn't see itself, and the key is
-        // not persisted to disk until the user clicks "Add provider".
-        ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
-      });
-      if (!res.ok) {
-        toast.error(`Catalog fetch failed: ${res.error}`);
+      const result = await connectAndAddProvider(
+        { provider, label: name, baseUrl: resolvedBaseUrl, apiKey },
+        {
+          storeSecret: electron.secrets.store,
+          deleteSecret: electron.secrets.delete,
+          discoverModels: listModels,
+          addProvider,
+        }
+      );
+      if (!result.ok) {
+        toast.error(`Could not connect: ${result.error}`);
         return;
       }
-      const { models, modelDetails } = splitDiscoveredModels(res.models);
-      setPrefetchedCatalog({ provider: forProvider, modelIds: models, modelDetails });
-      const detailCount = Object.keys(modelDetails).length;
-      const suffix = detailCount > 0 ? ` (${detailCount} with metadata)` : '';
-      toast.success(
-        `Fetched ${plural(models.length, 'model')} for ${PROVIDER_OPTIONS.find((o) => o.value === forProvider)?.label ?? forProvider}${suffix}`
-      );
+      toast.success(`Connected ${name} with ${plural(result.modelCount, 'model')}`);
+      setLabel('');
+      setApiKey('');
+      setShowAdd(false);
     } finally {
-      setPublicFetchBusy(false);
+      setConnecting(false);
     }
   };
 
   const discover = async (cfg: AiLabProviderConfig) => {
     setBusy({ id: cfg.id, action: 'discover' });
     try {
-      const res = await listModels({
+      const result = await listModels({
         provider: cfg.provider,
         baseUrl: effectiveBaseUrl(cfg),
         ...(cfg.apiKeyHandleId ? { apiKeyHandleId: cfg.apiKeyHandleId } : {}),
       });
-      if (!res.ok) {
-        toast.error(`Discovery failed: ${res.error}`);
+      if (!result.ok) {
+        updateProvider(cfg.id, { lastTest: { ok: false, at: Date.now(), error: result.error } });
+        toast.error(`Catalog refresh failed: ${result.error}`);
         return;
       }
-      const { models, modelDetails } = splitDiscoveredModels(res.models);
+      const { models, modelDetails } = splitDiscoveredModels(result.models);
       setProviderModels(cfg.id, models, modelDetails);
-      const detailCount = Object.keys(modelDetails).length;
-      const detailSuffix = detailCount > 0 ? ` (${detailCount} with full metadata)` : '';
-      toast.success(`Found ${plural(models.length, 'model')}${detailSuffix}`);
+      updateProvider(cfg.id, {
+        lastTest: { ok: true, at: Date.now(), modelCount: models.length },
+      });
+      toast.success(`Refreshed ${cfg.label}: ${plural(models.length, 'model')}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      updateProvider(cfg.id, { lastTest: { ok: false, at: Date.now(), error: message } });
+      toast.error(`Catalog refresh failed: ${message}`);
     } finally {
       setBusy(null);
     }
@@ -357,22 +210,24 @@ export function ProviderManager() {
   const test = async (cfg: AiLabProviderConfig) => {
     setBusy({ id: cfg.id, action: 'test' });
     try {
-      const res = await testConnection({
+      const result = await testConnection({
         provider: cfg.provider,
         baseUrl: effectiveBaseUrl(cfg),
         ...(cfg.apiKeyHandleId ? { apiKeyHandleId: cfg.apiKeyHandleId } : {}),
       });
-      // Persist the outcome so the card shows a durable "tested ✓ Nm ago"
-      // instead of only a transient toast.
-      if (res.ok) {
+      if (result.ok) {
         updateProvider(cfg.id, {
-          lastTest: { ok: true, at: Date.now(), modelCount: res.modelCount },
+          lastTest: { ok: true, at: Date.now(), modelCount: result.modelCount },
         });
-        toast.success(`Connected — ${plural(res.modelCount, 'model')} available`);
+        toast.success(`Connected — ${plural(result.modelCount, 'model')} available`);
       } else {
-        updateProvider(cfg.id, { lastTest: { ok: false, at: Date.now(), error: res.error } });
-        toast.error(`Connection failed: ${res.error}`);
+        updateProvider(cfg.id, { lastTest: { ok: false, at: Date.now(), error: result.error } });
+        toast.error(`Connection failed: ${result.error}`);
       }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      updateProvider(cfg.id, { lastTest: { ok: false, at: Date.now(), error: message } });
+      toast.error(`Connection failed: ${message}`);
     } finally {
       setBusy(null);
     }
@@ -381,40 +236,41 @@ export function ProviderManager() {
   const startEdit = (cfg: AiLabProviderConfig) =>
     setEditing({ id: cfg.id, label: cfg.label, baseUrl: cfg.baseUrl ?? '', apiKey: '' });
 
-  /**
-   * Save an inline edit. A non-blank API key rotates the stored secret:
-   * mint the new keychain handle first, then delete the old one, so a
-   * mid-flight failure can't leave the provider pointing at a dead handle.
-   */
   const saveEdit = async (cfg: AiLabProviderConfig) => {
-    if (!editing || editing.id !== cfg.id) return;
-    if (!editing.label.trim()) {
-      toast.error('Provider name cannot be empty.');
-      return;
-    }
+    if (!editing || editing.id !== cfg.id || !editing.label.trim()) return;
     setEditSaving(true);
     try {
-      const patch: Partial<AiLabProviderConfig> = { label: editing.label.trim() };
-      const nextBase = editing.baseUrl.trim();
-      if (nextBase !== (cfg.baseUrl ?? '')) {
-        // Clearing the field falls back to the provider's default base URL.
-        patch.baseUrl = nextBase || undefined;
-      }
+      const patch: Partial<AiLabProviderConfig> = {
+        label: editing.label.trim(),
+        baseUrl: editing.baseUrl.trim() || undefined,
+      };
       if (editing.apiKey.trim()) {
         const secrets = getElectronAPI()?.secrets;
-        const res = await secrets?.store({
-          scope: 'ai-lab',
-          value: editing.apiKey.trim(),
-          label: `${editing.label.trim()} key`,
-        });
-        if (!res?.ok) {
-          toast.error('Failed to store the new API key — nothing was changed.');
+        if (!secrets) {
+          toast.error('API keys can only be updated in the desktop app.');
           return;
         }
-        if (cfg.apiKeyHandleId) await secrets?.delete(cfg.apiKeyHandleId);
-        patch.apiKeyHandleId = res.id;
+        const replacement = await replaceSecretHandle(
+          {
+            value: editing.apiKey.trim(),
+            label: `${editing.label.trim()} key`,
+            ...(cfg.apiKeyHandleId ? { oldHandleId: cfg.apiKeyHandleId } : {}),
+          },
+          {
+            storeSecret: secrets.store,
+            deleteSecret: secrets.delete,
+            commitHandle: (handleId) =>
+              updateProvider(cfg.id, { ...patch, apiKeyHandleId: handleId }),
+          }
+        );
+        if (!replacement.ok) {
+          toast.error(`Could not update the API key: ${replacement.error}`);
+          return;
+        }
+        if (replacement.cleanupWarning) toast.warning(replacement.cleanupWarning);
+      } else {
+        updateProvider(cfg.id, patch);
       }
-      updateProvider(cfg.id, patch);
       setEditing(null);
       toast.success(`Updated ${editing.label.trim()}`);
     } finally {
@@ -422,36 +278,73 @@ export function ProviderManager() {
     }
   };
 
-  // Delete the keychain-backed secret handle BEFORE dropping the provider
-  // config — otherwise the handle is orphaned in the secret-handle-store
-  // forever (removeProvider only touches Zustand state).
-  const handleRemoveClick = async (cfg: AiLabProviderConfig) => {
+  const handleRemove = async (cfg: AiLabProviderConfig) => {
     setRemoving(cfg);
-    if (!(await confirmRemove())) return;
+    if (!(await confirmRemove())) {
+      setRemoving(null);
+      return;
+    }
     if (cfg.apiKeyHandleId) {
-      await getElectronAPI()?.secrets.delete(cfg.apiKeyHandleId);
+      const secrets = getElectronAPI()?.secrets;
+      if (!secrets) {
+        toast.error('The provider key can only be removed in the desktop app.');
+        setRemoving(null);
+        return;
+      }
+      const cleanup = await deleteSecretHandle(secrets.delete, cfg.apiKeyHandleId);
+      if (!cleanup.ok) {
+        toast.error(`Could not remove the provider key: ${cleanup.error}`);
+        setRemoving(null);
+        return;
+      }
     }
     removeProvider(cfg.id);
+    setRemoving(null);
   };
 
   return (
-    <div className="h-full overflow-auto">
-      <div className="mx-auto w-full max-w-3xl space-y-4 p-4">
-        <Floater radius="panel" elevation="float" className="space-y-3 bg-sp-surface p-4">
-          <h2 className="text-sp-13 font-semibold text-sp-text">Add a provider</h2>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+    <div className="grid h-full min-h-0 grid-cols-[minmax(300px,360px)_minmax(0,1fr)] max-[1000px]:grid-cols-[300px_minmax(0,1fr)]">
+      <aside className="min-h-0 overflow-auto border-r border-sp-line bg-sp-surface-lo p-3">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sp-13 font-semibold text-sp-text">Connections</h2>
+            <p className="text-sp-10 text-sp-muted">
+              {plural(providerList.length, 'provider')} · {plural(modelOptions.length, 'model')}
+            </p>
+          </div>
+          <Button
+            variant={showAdd ? 'ghost' : 'outline'}
+            size="sm"
+            onClick={() => setShowAdd(!showAdd)}
+          >
+            {showAdd ? <ChevronUp className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+            {showAdd ? 'Hide' : 'Connect'}
+          </Button>
+        </div>
+
+        {showAdd && (
+          <Floater radius="panel" elevation="float" className="mb-3 space-y-3 bg-sp-surface p-3">
+            <div>
+              <h3 className="text-sp-12 font-semibold text-sp-text">Connect a provider</h3>
+              <p className="mt-0.5 text-sp-10 text-sp-muted">
+                Restura tests the connection and imports its models before saving.
+              </p>
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="ailab-provider-type" className="sp-label">
                 Type
               </Label>
-              <Select value={provider} onValueChange={(v) => onProviderChange(v as Provider)}>
+              <Select
+                value={provider}
+                onValueChange={(value) => onProviderChange(value as Provider)}
+              >
                 <SelectTrigger id="ailab-provider-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {PROVIDER_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
+                  {PROVIDER_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -464,11 +357,11 @@ export function ProviderManager() {
               <Input
                 id="ailab-provider-name"
                 value={label}
-                onChange={(e) => setLabel(e.target.value)}
+                onChange={(event) => setLabel(event.target.value)}
                 placeholder="e.g. Local Ollama"
               />
             </div>
-            {(opt.needsBaseUrl || isLocalProvider(provider)) && (
+            {(selectedProvider.needsBaseUrl || isLocalProvider(provider)) && (
               <div className="space-y-1.5">
                 <Label htmlFor="ailab-provider-baseurl" className="sp-label">
                   Base URL
@@ -476,222 +369,180 @@ export function ProviderManager() {
                 <Input
                   id="ailab-provider-baseurl"
                   value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
+                  onChange={(event) => setBaseUrl(event.target.value)}
                   placeholder="http://localhost:11434"
                 />
               </div>
             )}
             <div className="space-y-1.5">
-              <Label htmlFor="ailab-provider-apikey" className="sp-label">
-                API key {isLocalProvider(provider) ? '(optional)' : ''}
+              <Label htmlFor="ailab-provider-key" className="sp-label">
+                API key {requiresApiKey(provider) ? '' : '(optional)'}
               </Label>
               <Input
-                id="ailab-provider-apikey"
+                id="ailab-provider-key"
                 type="password"
                 value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
+                onChange={(event) => setApiKey(event.target.value)}
                 placeholder={
                   isLocalProvider(provider)
-                    ? 'usually not required'
+                    ? 'Usually not required'
                     : provider === 'huggingface'
                       ? 'hf_…'
-                      : 'sk-…'
+                      : requiresApiKey(provider)
+                        ? 'Required'
+                        : 'sk-…'
                 }
               />
+              <p className="text-sp-10 text-sp-muted">
+                Stored in your OS keychain after connection succeeds.
+              </p>
             </div>
-          </div>
-          {(() => {
-            // The catalog-fetch affordance adapts to the selected provider:
-            //   * OpenRouter — pull from the public (keyless) catalog
-            //   * Ollama / OpenAI-compatible — pull from the user-typed base URL
-            //   * OpenAI / Anthropic — pull with the user-typed key
-            // The same staged-models-on-add UX applies for every variant.
-            const gate = canFetchForCurrentSelection();
-            const supportsPublic = provider === 'openrouter';
-            const supportsKeyed = gate.ok;
-            if (!supportsPublic && !supportsKeyed && !apiKey.trim() && !baseUrl.trim()) {
-              return null;
-            }
-            const description = supportsPublic
-              ? provider === 'openrouter'
-                ? 'Auto-fetch the full OpenRouter catalog from their public API (no key required). Staged models are attached when you add the provider, so it’s ready to run immediately.'
-                : (gate.reason ?? '')
-              : (gate.reason ??
-                `Pull the model list for ${
-                  PROVIDER_OPTIONS.find((o) => o.value === provider)?.label ?? provider
-                } and stage it for this provider.`);
-            return (
-              <div className="flex flex-wrap items-center gap-2 rounded-sp-btn border border-sp-line bg-sp-surface-2 px-3 py-2 text-sp-12 text-sp-muted">
-                <Download
-                  className={`h-3.5 w-3.5 text-sp-accent ${publicFetchBusy ? 'animate-pulse' : ''}`}
-                />
-                <span className="min-w-0 flex-1">{description}</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={publicFetchBusy || (!supportsPublic && !supportsKeyed)}
-                  onClick={() =>
-                    void (supportsPublic && !apiKey.trim()
-                      ? fetchOpenRouterPublicCatalog()
-                      : fetchCatalogForCurrentSelection())
-                  }
-                >
-                  {publicFetchBusy
-                    ? 'Fetching…'
-                    : stagedCatalog
-                      ? `Re-fetch (${stagedCatalog.modelIds.length} staged)`
-                      : 'Fetch catalog'}
-                </Button>
-              </div>
-            );
-          })()}
-          <Button onClick={() => void add()} variant="cta" size="cta">
-            Add provider
-          </Button>
-        </Floater>
+            <Button
+              variant="cta"
+              size="cta"
+              className="w-full"
+              disabled={connecting}
+              onClick={() => void connect()}
+            >
+              {connecting ? (
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Server className="h-3.5 w-3.5" />
+              )}
+              {connecting ? 'Connecting and discovering…' : 'Connect & save'}
+            </Button>
+          </Floater>
+        )}
 
-        <section className="space-y-2">
-          <h2 className="text-sp-13 font-semibold text-sp-text">Providers</h2>
-          {Object.values(providers).length === 0 && (
-            <EmptyState icon={Server} message="No providers yet. Add one above." />
+        <div className="space-y-2">
+          {providerList.length === 0 && !showAdd && (
+            <button
+              className="w-full border border-dashed border-sp-line p-5 text-center hover:bg-sp-hover"
+              onClick={() => setShowAdd(true)}
+            >
+              <Server className="mx-auto h-6 w-6 text-sp-dim" />
+              <span className="mt-2 block text-sp-12 text-sp-text">
+                Connect your first provider
+              </span>
+            </button>
           )}
-          {Object.values(providers).map((cfg) => {
+          {providerList.map((cfg) => {
             const isEditing = editing?.id === cfg.id;
+            const connected = cfg.lastTest?.ok;
             return (
-              <Floater key={cfg.id} radius="panel" elevation="inset" className="space-y-3 p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-sp-13 font-medium text-sp-text">
-                        {cfg.label}
-                      </span>
-                      <Badge variant="mono" className="shrink-0">
-                        {cfg.provider}
-                      </Badge>
-                      {cfg.isLocal && (
-                        <Badge variant="success" className="shrink-0">
-                          local
-                        </Badge>
-                      )}
+              <Floater key={cfg.id} radius="panel" elevation="inset" className="bg-sp-surface p-3">
+                <div className="flex items-start gap-2">
+                  <span
+                    className={cn(
+                      'mt-1.5 h-2 w-2 shrink-0 rounded-full',
+                      connected === true
+                        ? 'bg-emerald-500'
+                        : connected === false
+                          ? 'bg-destructive'
+                          : 'bg-sp-dim'
+                    )}
+                    aria-hidden
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <h3 className="truncate text-sp-12 font-medium text-sp-text">{cfg.label}</h3>
+                      {cfg.isLocal && <Badge variant="success">local</Badge>}
                       {cfg.apiKeyHandleId && (
-                        <Badge
-                          variant="mono"
-                          className="shrink-0 gap-1"
-                          title="An API key is stored in the OS keychain for this provider"
-                        >
-                          <KeyRound className="h-2.5 w-2.5" aria-hidden /> key
-                        </Badge>
+                        <KeyRound className="h-3 w-3 text-sp-muted" aria-label="Key stored" />
                       )}
                     </div>
-                    <div className="mt-0.5 truncate text-sp-12 text-sp-muted">
-                      {effectiveBaseUrl(cfg)} · {plural(cfg.models.length, 'model')}
-                      {cfg.modelDetails &&
-                        Object.keys(cfg.modelDetails).length > 0 &&
-                        ` · ${Object.keys(cfg.modelDetails).length} with metadata`}
-                      {!cfg.pricingKnown && ' · cost unknown'}
+                    <p
+                      className="mt-0.5 truncate text-sp-10 text-sp-muted"
+                      title={effectiveBaseUrl(cfg)}
+                    >
+                      {effectiveBaseUrl(cfg)}
+                    </p>
+                    <div className="mt-1 flex flex-wrap items-center gap-x-2 text-sp-10 text-sp-muted">
+                      <span>{plural(cfg.models.length, 'model')}</span>
+                      {cfg.lastDiscoveredAt && (
+                        <span>updated {formatRelativeTime(cfg.lastDiscoveredAt)}</span>
+                      )}
                     </div>
-                    {cfg.lastTest && (
-                      <div
-                        className={`mt-0.5 truncate text-sp-11 ${
-                          cfg.lastTest.ok ? 'text-emerald-500' : 'text-destructive'
-                        }`}
+                    {cfg.lastTest && !cfg.lastTest.ok && (
+                      <p
+                        className="mt-1 line-clamp-2 text-sp-10 text-destructive"
                         title={cfg.lastTest.error}
                       >
-                        {cfg.lastTest.ok
-                          ? `✓ connected ${formatRelativeTime(cfg.lastTest.at)}`
-                          : `✗ connection failed ${formatRelativeTime(cfg.lastTest.at)}`}
-                      </div>
+                        {cfg.lastTest.error ?? 'Connection failed'}
+                      </p>
                     )}
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Test connection"
-                      title="Test connection"
-                      disabled={busy?.id === cfg.id}
-                      onClick={() => void test(cfg)}
-                    >
-                      <Wifi
-                        className={`h-3.5 w-3.5 ${busy?.id === cfg.id && busy.action === 'test' ? 'animate-pulse' : ''}`}
-                      />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Discover models"
-                      title="Discover models"
-                      disabled={busy?.id === cfg.id}
-                      onClick={() => void discover(cfg)}
-                    >
-                      <RefreshCw
-                        className={`h-3.5 w-3.5 ${busy?.id === cfg.id && busy.action === 'discover' ? 'animate-spin' : ''}`}
-                      />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Edit provider"
-                      title="Edit provider"
-                      onClick={() => (isEditing ? setEditing(null) : startEdit(cfg))}
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      aria-label="Remove provider"
-                      title="Remove provider"
-                      onClick={() => void handleRemoveClick(cfg)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                    </Button>
-                  </div>
                 </div>
+
+                <div className="mt-2 grid grid-cols-2 gap-1 border-t border-sp-line pt-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy?.id === cfg.id}
+                    onClick={() => void test(cfg)}
+                  >
+                    {busy?.id === cfg.id && busy.action === 'test' ? (
+                      <RefreshCw className="h-3 w-3 animate-spin" />
+                    ) : connected ? (
+                      <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+                    ) : (
+                      <XCircle className="h-3 w-3" />
+                    )}
+                    Test
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy?.id === cfg.id}
+                    onClick={() => void discover(cfg)}
+                  >
+                    <RefreshCw
+                      className={cn(
+                        'h-3 w-3',
+                        busy?.id === cfg.id && busy.action === 'discover' && 'animate-spin'
+                      )}
+                    />
+                    Refresh
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => (isEditing ? setEditing(null) : startEdit(cfg))}
+                  >
+                    <Pencil className="h-3 w-3" /> Edit
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => void handleRemove(cfg)}>
+                    <Trash2 className="h-3 w-3 text-destructive" /> Remove
+                  </Button>
+                </div>
+
                 {isEditing && editing && (
-                  <div className="space-y-3 border-t border-sp-line pt-3">
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                      <div className="space-y-1.5">
-                        <Label htmlFor={`edit-label-${cfg.id}`} className="sp-label">
-                          Name
-                        </Label>
-                        <Input
-                          id={`edit-label-${cfg.id}`}
-                          value={editing.label}
-                          onChange={(e) => setEditing({ ...editing, label: e.target.value })}
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label htmlFor={`edit-baseurl-${cfg.id}`} className="sp-label">
-                          Base URL
-                        </Label>
-                        <Input
-                          id={`edit-baseurl-${cfg.id}`}
-                          value={editing.baseUrl}
-                          onChange={(e) => setEditing({ ...editing, baseUrl: e.target.value })}
-                          placeholder={DEFAULT_BASE[cfg.provider] || 'https://…'}
-                        />
-                      </div>
-                      <div className="space-y-1.5 md:col-span-2">
-                        <Label htmlFor={`edit-apikey-${cfg.id}`} className="sp-label">
-                          {cfg.apiKeyHandleId ? 'Replace API key' : 'API key'}
-                        </Label>
-                        <Input
-                          id={`edit-apikey-${cfg.id}`}
-                          type="password"
-                          value={editing.apiKey}
-                          onChange={(e) => setEditing({ ...editing, apiKey: e.target.value })}
-                          placeholder={
-                            cfg.apiKeyHandleId ? 'leave blank to keep the current key' : 'sk-…'
-                          }
-                        />
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
+                  <div className="mt-2 space-y-2 border-t border-sp-line pt-2">
+                    <Input
+                      value={editing.label}
+                      aria-label="Provider name"
+                      onChange={(event) => setEditing({ ...editing, label: event.target.value })}
+                    />
+                    <Input
+                      value={editing.baseUrl}
+                      aria-label="Provider base URL"
+                      placeholder={DEFAULT_BASE[cfg.provider] || 'https://…'}
+                      onChange={(event) => setEditing({ ...editing, baseUrl: event.target.value })}
+                    />
+                    <Input
+                      type="password"
+                      value={editing.apiKey}
+                      aria-label="Replace API key"
+                      placeholder={
+                        cfg.apiKeyHandleId ? 'Leave blank to keep current key' : 'New API key'
+                      }
+                      onChange={(event) => setEditing({ ...editing, apiKey: event.target.value })}
+                    />
+                    <div className="flex gap-1">
                       <Button size="sm" disabled={editSaving} onClick={() => void saveEdit(cfg)}>
                         {editSaving ? 'Saving…' : 'Save changes'}
                       </Button>
-                      <Button variant="outline" size="sm" onClick={() => setEditing(null)}>
+                      <Button variant="ghost" size="sm" onClick={() => setEditing(null)}>
                         Cancel
                       </Button>
                     </div>
@@ -700,9 +551,30 @@ export function ProviderManager() {
               </Floater>
             );
           })}
-        </section>
-      </div>
+        </div>
+      </aside>
 
+      <section className="flex min-h-0 min-w-0 flex-col bg-sp-bg">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-sp-line px-4 py-3">
+          <div>
+            <h2 className="text-sp-13 font-semibold text-sp-text">Model catalog</h2>
+            <p className="mt-0.5 text-sp-10 text-sp-muted">
+              Search every discovered model. Favorites and recent models appear first in run
+              pickers.
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2 text-sp-10 text-sp-muted">
+            <span>{plural(favoriteModelKeys.length, 'favorite')}</span>
+            <span>·</span>
+            <span>{plural(modelOptions.length, 'model')}</span>
+          </div>
+        </div>
+        <ModelCatalog
+          options={modelOptions}
+          favoriteKeys={favoriteSet}
+          onToggleFavorite={toggleFavoriteModel}
+        />
+      </section>
       <RemoveProviderDialog />
     </div>
   );

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { runArena, modelKeyOf, type ArenaProgress } from '../lib/arenaRunner';
+import { modelKey } from '../lib/modelOptions';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useArenaStore } from '../store/useArenaStore';
 import type { ModelRef } from '../types';
@@ -48,6 +49,7 @@ function start(config: ArenaRunConfig): void {
     return;
   }
   useArenaLiveStore.setState({ error: null, progress: null, running: true });
+  lab.recordRecentModels([...config.models.map(modelKey), modelKey(config.judgeModel)]);
 
   const modelKeys = config.models.map(modelKeyOf);
   const runId = useArenaStore.getState().startRun({

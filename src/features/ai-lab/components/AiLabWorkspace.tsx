@@ -1,8 +1,18 @@
-import { ArrowLeft, FlaskConical, Plug } from 'lucide-react';
+import {
+  ArrowLeft,
+  BarChart3,
+  Bot,
+  Database,
+  FlaskConical,
+  Gauge,
+  PlaySquare,
+  Trophy,
+} from 'lucide-react';
 import { useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore, type AiLabTab } from '../store/useAiLabUiStore';
+import { useArenaStore } from '../store/useArenaStore';
 import { useEvalRunStore } from '../store/useEvalRunStore';
 import { Arena } from './Arena';
 import { DatasetEditor } from './DatasetEditor';
@@ -11,24 +21,26 @@ import { Playground } from './Playground';
 import { ProviderManager } from './ProviderManager';
 import { ReportView } from './ReportView';
 import { Button } from '@/components/ui/button';
-import { Floater, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
-import { isElectron, getPlatform } from '@/lib/shared/platform';
+import { getPlatform, isElectron } from '@/lib/shared/platform';
+import { cn } from '@/lib/shared/utils';
 
-// CSS-in-JS region tag — Electron-only `WebkitAppRegion`. Mirrors TopBar so the
-// AI Lab titlebar drags like the main window and interactive bits stay clickable.
 const region = (value: 'drag' | 'no-drag'): React.CSSProperties =>
   ({ WebkitAppRegion: value }) as React.CSSProperties;
 
-const TAB_ORDER: readonly AiLabTab[] = [
-  'playground',
-  'datasets',
-  'evals',
-  'arena',
-  'reports',
-  'providers',
+const NAV_ITEMS: Array<{
+  value: AiLabTab;
+  label: string;
+  description: string;
+  icon: typeof FlaskConical;
+}> = [
+  { value: 'playground', label: 'Playground', description: 'Compare prompts', icon: PlaySquare },
+  { value: 'datasets', label: 'Datasets', description: 'Manage test cases', icon: Database },
+  { value: 'evals', label: 'Evals', description: 'Score model runs', icon: Gauge },
+  { value: 'arena', label: 'Arena', description: 'Rank head to head', icon: Trophy },
+  { value: 'reports', label: 'Reports', description: 'Inspect results', icon: BarChart3 },
+  { value: 'providers', label: 'Models', description: 'Connections & catalog', icon: Bot },
 ];
 
-// Alt+1..6 jump straight to a tab (mirrors the HTTP RequestBuilder shortcut).
 const TAB_KEYS: Record<string, AiLabTab> = {
   '1': 'playground',
   '2': 'datasets',
@@ -38,60 +50,31 @@ const TAB_KEYS: Record<string, AiLabTab> = {
   '6': 'providers',
 };
 
-const TAB_LABELS: Record<AiLabTab, string> = {
-  playground: 'Playground',
-  datasets: 'Datasets',
-  evals: 'Evals',
-  arena: 'Arena',
-  reports: 'Reports',
-  providers: 'Providers',
-};
-
-/**
- * AI Lab — Electron-only workbench for testing prompts/models, running
- * dataset-driven evals (deterministic + script + LLM-as-judge scorers), and
- * comparing local (Ollama) vs cloud models. Reachable at /ai-lab; on web it
- * renders a desktop-only state.
- */
 export default function AiLabWorkspace() {
   const navigate = useNavigate();
-  // Tab lives in the session-scoped UI store so leaving /ai-lab (or the tab
-  // being changed by a cross-tab handoff like "View report") sticks.
-  const tab = useAiLabUiStore((s) => s.tab);
-  const setTab = useAiLabUiStore((s) => s.setTab);
+  const tab = useAiLabUiStore((state) => state.tab);
+  const setTab = useAiLabUiStore((state) => state.setTab);
+  const providers = useAiLabStore((state) => state.providers);
+  const datasetCount = useAiLabStore((state) => Object.keys(state.datasets).length);
+  const evalRuns = useEvalRunStore((state) => state.runs);
+  const arenaRuns = useArenaStore((state) => state.runs);
 
-  // Cheap length selectors drive the tab count badges + the first-run nudge.
-  const datasetCount = useAiLabStore((s) => Object.keys(s.datasets).length);
-  const providerCount = useAiLabStore((s) => Object.keys(s.providers).length);
-  const runCount = useEvalRunStore((s) => Object.keys(s.runs).length);
-  const hasDiscoveredModels = useAiLabStore((s) =>
-    Object.values(s.providers).some((p) => p.models.length > 0)
+  const providerCount = Object.keys(providers).length;
+  const modelCount = useMemo(
+    () => Object.values(providers).reduce((count, provider) => count + provider.models.length, 0),
+    [providers]
   );
+  const runCount = Object.keys(evalRuns).length + Object.keys(arenaRuns).length;
+  const current = NAV_ITEMS.find((item) => item.value === tab) ?? NAV_ITEMS[0]!;
 
-  const tabs = useMemo(() => {
-    const counts: Partial<Record<AiLabTab, number>> = {
-      datasets: datasetCount,
-      reports: runCount,
-      providers: providerCount,
-    };
-    return TAB_ORDER.map((value, i) => {
-      const count = counts[value];
-      // TAB_ORDER's index matches TAB_KEYS' Alt+1..6 digits 1:1.
-      const title = `${TAB_LABELS[value]} (Alt+${i + 1})`;
-      return count
-        ? { value, label: TAB_LABELS[value], count, title }
-        : { value, label: TAB_LABELS[value], title };
-    });
-  }, [datasetCount, runCount, providerCount]);
-
-  // Alt+1..6 sub-tab jump (ignored while typing in an input/textarea).
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (e.altKey && !e.metaKey && !e.ctrlKey) {
-        const next = TAB_KEYS[e.key];
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement)
+        return;
+      if (event.altKey && !event.metaKey && !event.ctrlKey) {
+        const next = TAB_KEYS[event.key];
         if (next) {
-          e.preventDefault();
+          event.preventDefault();
           setTab(next);
         }
       }
@@ -100,25 +83,15 @@ export default function AiLabWorkspace() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [setTab]);
 
-  // macOS Electron paints real traffic lights over the top-left at
-  // trafficLightPosition (x:15). Reserve space so the back button clears them.
   const showTrafficLights = isElectron() && getPlatform() === 'darwin';
 
-  // Brand-new users land on Playground with nothing configured; nudge them to
-  // add a provider first, then — once a provider exists but nothing's been
-  // discovered yet — to go discover its models. Without the second stage the
-  // "zero → working eval" path stalled silently once a provider was added.
-  const showOnboarding = (providerCount === 0 || !hasDiscoveredModels) && tab !== 'providers';
-
   return (
-    <div className="flex h-screen flex-col text-sp-text">
+    <div className="flex h-screen flex-col overflow-hidden bg-sp-bg text-sp-text">
       <header
         style={{ ...region('drag'), height: 44 }}
         className="flex shrink-0 select-none items-center gap-3 border-b border-sp-line bg-sp-surface px-3.5"
       >
-        {showTrafficLights && (
-          <span className="block shrink-0" style={{ width: 56 }} aria-hidden="true" />
-        )}
+        {showTrafficLights && <span className="block w-14 shrink-0" aria-hidden />}
         <Button
           variant="ghost"
           size="sm"
@@ -130,52 +103,144 @@ export default function AiLabWorkspace() {
         </Button>
         <FlaskConical className="h-4 w-4 text-sp-accent" />
         <h1 className="text-sp-14 font-semibold">AI Lab</h1>
-        <span className="text-sp-12 text-sp-muted">
-          Prompt &amp; model testing · evals · LLM-as-judge
+        <span className="hidden text-sp-11 text-sp-muted min-[900px]:inline">
+          Prompt and model evaluation workspace
         </span>
+
+        {isElectron() && (
+          <div className="ml-auto flex items-center gap-1.5" style={region('no-drag')}>
+            <ReadinessButton
+              label={
+                providerCount
+                  ? `${providerCount} ${providerCount === 1 ? 'provider' : 'providers'}`
+                  : 'No providers'
+              }
+              ready={providerCount > 0}
+              onClick={() => setTab('providers')}
+            />
+            <ReadinessButton
+              label={
+                modelCount ? `${modelCount} ${modelCount === 1 ? 'model' : 'models'}` : 'No models'
+              }
+              ready={modelCount > 0}
+              onClick={() => setTab('providers')}
+            />
+            <ReadinessButton
+              label={runCount ? `${runCount} ${runCount === 1 ? 'run' : 'runs'}` : 'No runs'}
+              ready={runCount > 0}
+              onClick={() => setTab('reports')}
+            />
+          </div>
+        )}
       </header>
 
       {!isElectron() ? (
         <DesktopOnly />
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <SubTabBar<AiLabTab> tabs={tabs} value={tab} onChange={setTab} />
-          {showOnboarding && (
-            <Floater
-              radius="panel"
-              elevation="none"
-              className="flex shrink-0 items-center gap-3 border-b border-sp-line bg-[var(--sp-accent-glow-15)] px-4 py-2.5"
-            >
-              <Plug className="h-4 w-4 shrink-0 text-sp-accent" />
-              <p className="min-w-0 flex-1 text-sp-12 text-sp-text">
-                {providerCount === 0
-                  ? 'No model providers yet. Add Ollama or an OpenAI-compatible endpoint to start running prompts and evals.'
-                  : 'You have a provider but no discovered models yet. Use “Discover models” on it to start running prompts and evals.'}
-              </p>
-              <Button
-                variant="cta"
-                size="sm"
-                onClick={() => setTab('providers')}
-                className="shrink-0"
-              >
-                {providerCount === 0 ? 'Add a provider' : 'Go to Providers'}
-              </Button>
-            </Floater>
-          )}
-          {/* Each tab owns its own full-height layout + scroll: master-detail
-              panes fill the window; form/config tabs scroll within a readable
-              measure. No outer max-width centering (which left dead margins). */}
-          <SubTabPanel tabKey={tab} className="min-h-0 flex-1 overflow-hidden">
-            {tab === 'playground' && <Playground />}
-            {tab === 'datasets' && <DatasetEditor />}
-            {tab === 'evals' && <EvalBuilder />}
-            {tab === 'arena' && <Arena />}
-            {tab === 'reports' && <ReportView />}
-            {tab === 'providers' && <ProviderManager />}
-          </SubTabPanel>
+        <div className="flex min-h-0 flex-1">
+          <nav
+            aria-label="AI Lab sections"
+            className="flex w-44 shrink-0 flex-col border-r border-sp-line bg-sp-surface-lo p-2 max-[1000px]:w-14"
+          >
+            <div className="mb-2 px-2 pt-1 text-sp-9 font-semibold uppercase tracking-sp-label text-sp-dim max-[1000px]:sr-only">
+              Workbench
+            </div>
+            <div className="space-y-1">
+              {NAV_ITEMS.map((item, index) => {
+                const Icon = item.icon;
+                const active = item.value === tab;
+                const count =
+                  item.value === 'datasets'
+                    ? datasetCount
+                    : item.value === 'reports'
+                      ? runCount
+                      : item.value === 'providers'
+                        ? modelCount
+                        : 0;
+                return (
+                  <button
+                    key={item.value}
+                    type="button"
+                    aria-label={item.label}
+                    aria-current={active ? 'page' : undefined}
+                    title={`${item.label} · ${item.description} (Alt+${index + 1})`}
+                    onClick={() => setTab(item.value)}
+                    className={cn(
+                      'group relative flex w-full items-center gap-2.5 rounded-sp-btn px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent/50 max-[1000px]:justify-center max-[1000px]:px-2',
+                      active
+                        ? 'bg-sp-active text-sp-text shadow-sp-inset'
+                        : 'text-sp-muted hover:bg-sp-hover hover:text-sp-text'
+                    )}
+                  >
+                    {active && (
+                      <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-sp-accent" />
+                    )}
+                    <Icon className={cn('h-4 w-4 shrink-0', active && 'text-sp-accent')} />
+                    <span className="min-w-0 flex-1 max-[1000px]:hidden">
+                      <span className="block truncate text-sp-12 font-medium">{item.label}</span>
+                      <span className="block truncate text-sp-9 text-sp-dim">
+                        {item.description}
+                      </span>
+                    </span>
+                    {count > 0 && (
+                      <span className="rounded-full bg-sp-surface-hi px-1.5 py-0.5 text-sp-9 tabular-nums text-sp-muted max-[1000px]:hidden">
+                        {count}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mt-auto border-t border-sp-line px-2 pt-2 max-[1000px]:hidden">
+              <div className="text-sp-9 font-semibold uppercase tracking-sp-label text-sp-dim">
+                Now viewing
+              </div>
+              <div className="mt-1 text-sp-11 font-medium text-sp-text">{current.label}</div>
+              <div className="text-sp-9 text-sp-muted">{current.description}</div>
+            </div>
+          </nav>
+
+          <main
+            className="min-h-0 min-w-0 flex-1 overflow-hidden"
+            aria-label={`${current.label} workspace`}
+          >
+            <div key={tab} className="h-full animate-sp-panel-in">
+              {tab === 'playground' && <Playground />}
+              {tab === 'datasets' && <DatasetEditor />}
+              {tab === 'evals' && <EvalBuilder />}
+              {tab === 'arena' && <Arena />}
+              {tab === 'reports' && <ReportView />}
+              {tab === 'providers' && <ProviderManager />}
+            </div>
+          </main>
         </div>
       )}
     </div>
+  );
+}
+
+function ReadinessButton({
+  label,
+  ready,
+  onClick,
+}: {
+  label: string;
+  ready: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1.5 rounded-full border border-sp-line bg-sp-surface-lo px-2 py-1 text-sp-9 text-sp-muted hover:border-sp-line-strong hover:text-sp-text"
+    >
+      <span
+        className={cn('h-1.5 w-1.5 rounded-full', ready ? 'bg-emerald-500' : 'bg-sp-dim')}
+        aria-hidden
+      />
+      {label}
+    </button>
   );
 }
 
@@ -185,8 +250,7 @@ function DesktopOnly() {
       <FlaskConical className="h-10 w-10 text-sp-dim" />
       <h2 className="text-lg font-semibold text-sp-text">AI Lab is a desktop-only feature</h2>
       <p className="max-w-md text-sp-13 text-sp-muted">
-        Testing local LLMs (Ollama) and OpenAI-compatible endpoints requires direct network access
-        the browser can&apos;t provide. Open Restura&apos;s desktop app to use the AI Lab.
+        Testing local LLMs and keychain-backed providers requires Restura&apos;s desktop app.
       </p>
     </div>
   );

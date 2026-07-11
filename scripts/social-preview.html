@@ -4,55 +4,104 @@
     <meta charset="utf-8" />
     <!-- Mirrors .github/assets/banner.svg design tokens exactly, at 1280x640. -->
     <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body { width: 1280px; height: 640px; overflow: hidden; }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
       body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        background: linear-gradient(135deg, #0A0A12 0%, #14121F 100%);
+        width: 1280px;
+        height: 640px;
+        overflow: hidden;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        background: linear-gradient(135deg, #0a0a12 0%, #14121f 100%);
         position: relative;
       }
       .frame {
-        position: absolute; inset: 0;
+        position: absolute;
+        inset: 0;
         border-radius: 20px;
         overflow: hidden;
       }
       .glow-a {
-        position: absolute; right: -260px; top: -260px; width: 680px; height: 680px;
+        position: absolute;
+        right: -260px;
+        top: -260px;
+        width: 680px;
+        height: 680px;
         border-radius: 50%;
-        background: radial-gradient(closest-side, rgba(58,126,224,0.45), rgba(58,126,224,0));
+        background: radial-gradient(closest-side, rgba(58, 126, 224, 0.45), rgba(58, 126, 224, 0));
       }
       .glow-b {
-        position: absolute; left: -130px; bottom: -180px; width: 520px; height: 520px;
+        position: absolute;
+        left: -130px;
+        bottom: -180px;
+        width: 520px;
+        height: 520px;
         border-radius: 50%;
-        background: radial-gradient(closest-side, rgba(58,126,224,0.45), rgba(58,126,224,0));
+        background: radial-gradient(closest-side, rgba(58, 126, 224, 0.45), rgba(58, 126, 224, 0));
         opacity: 0.5;
       }
       .content {
-        position: absolute; inset: 0;
+        position: absolute;
+        inset: 0;
         padding: 124px 96px 96px;
-        display: flex; flex-direction: column;
+        display: flex;
+        flex-direction: column;
       }
-      .brand { display: flex; align-items: center; gap: 32px; }
-      .logo { width: 96px; height: 96px; flex: 0 0 96px; }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 32px;
+      }
+      .logo {
+        width: 96px;
+        height: 96px;
+        flex: 0 0 96px;
+      }
       .wordmark {
-        font-size: 76px; font-weight: 800; letter-spacing: -2px; line-height: 1;
-        background: linear-gradient(90deg, #FFFFFF 0%, #C7DEFF 100%);
-        -webkit-background-clip: text; background-clip: text; color: transparent;
+        font-size: 76px;
+        font-weight: 800;
+        letter-spacing: -2px;
+        line-height: 1;
+        background: linear-gradient(90deg, #ffffff 0%, #c7deff 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
       }
       .tagline {
         margin-top: 24px;
-        font-size: 27px; font-weight: 500; color: #9CA3C4;
+        font-size: 27px;
+        font-weight: 500;
+        color: #9ca3c4;
       }
-      .chips { margin-top: 56px; display: flex; flex-wrap: wrap; gap: 14px; }
+      .chips {
+        margin-top: 56px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+      }
       .chip {
-        display: inline-flex; align-items: center;
-        height: 40px; padding: 0 20px;
-        background: #1C1B2E; border: 1px solid #34324E; border-radius: 20px;
-        font-size: 19px; font-weight: 600; color: #C7DEFF;
+        display: inline-flex;
+        align-items: center;
+        height: 40px;
+        padding: 0 20px;
+        background: #1c1b2e;
+        border: 1px solid #34324e;
+        border-radius: 20px;
+        font-size: 19px;
+        font-weight: 600;
+        color: #c7deff;
       }
       .footer {
         margin-top: auto;
-        font-size: 22px; font-weight: 500; color: #6B6E86;
+        font-size: 22px;
+        font-weight: 500;
+        color: #6b6e86;
       }
     </style>
   </head>
@@ -70,10 +119,40 @@
               </linearGradient>
             </defs>
             <rect width="96" height="96" rx="22.08" fill="url(#mark)" />
-            <rect x="1" y="1" width="94" height="94" rx="21.08" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1.5" />
-            <path d="M34 23 V73" fill="none" stroke="#ffffff" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" />
-            <path d="M34 23 H49 a14 14 0 0 1 0 28 H34" fill="none" stroke="#ffffff" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" />
-            <path d="M45 51 L64 73" fill="none" stroke="#ffffff" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" />
+            <rect
+              x="1"
+              y="1"
+              width="94"
+              height="94"
+              rx="21.08"
+              fill="none"
+              stroke="rgba(255,255,255,0.1)"
+              stroke-width="1.5"
+            />
+            <path
+              d="M34 23 V73"
+              fill="none"
+              stroke="#ffffff"
+              stroke-width="11"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M34 23 H49 a14 14 0 0 1 0 28 H34"
+              fill="none"
+              stroke="#ffffff"
+              stroke-width="11"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M45 51 L64 73"
+              fill="none"
+              stroke="#ffffff"
+              stroke-width="11"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
             <circle cx="65" cy="74" r="2.6" fill="#ffffff" />
           </svg>
           <div class="wordmark">Restura</div>
