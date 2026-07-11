@@ -19,7 +19,7 @@ import {
   assertTrustedSender,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
-import { getNetworkPolicy } from '../security/network-policy';
+import { getNetworkPolicy } from '../security/execution-policy';
 import { resolveSafeAddress, createPinnedLookup } from '../security/safe-connect';
 
 const log = createLogger('socketio');

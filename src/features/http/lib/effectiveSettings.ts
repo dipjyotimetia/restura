@@ -56,5 +56,5 @@ export function resolveEffectiveSettings(
   requestSettings: RequestSettings | undefined,
   globalSettings: AppSettings
 ): RequestSettings {
-  return requestSettings ?? globalSettingsToRequestSettings(globalSettings);
+  return { ...globalSettingsToRequestSettings(globalSettings), ...requestSettings };
 }

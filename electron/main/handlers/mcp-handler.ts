@@ -22,7 +22,7 @@ import {
   assertTrustedSender,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
-import { getNetworkPolicy } from '../security/network-policy';
+import { getNetworkPolicy } from '../security/execution-policy';
 import { resolveSafeAddress, createPinnedFetch } from '../security/safe-connect';
 
 const log = createLogger('mcp');

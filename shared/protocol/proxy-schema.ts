@@ -5,7 +5,7 @@ import { protocolSecretValueSchema, isProtocolSecretHandle } from './secret-valu
  * Zod schema for the JSON body POSTed to `/api/proxy` (HTTP proxy).
  *
  * This is the wire-shape contract between the renderer's
- * `executeViaCorsProxy` / `executeStreamingRequest` and the Worker's
+ * `executeViaWorker` / `executeProxiedStreamingRequest` and the Worker's
  * `proxy` handler. The Worker uses this schema via `parseJsonBody` to
  * validate every incoming body at the boundary — Hono's
  * `c.req.json<T>()` is only a TypeScript cast, so without this we'd

@@ -34,7 +34,7 @@ import type { LogEntry } from '../lifecycle/request-logger';
 import { applyNonSignAtWireAuth } from '../security/auth-applier';
 import { smithySigV4Signer } from '../security/aws-sigv4-smithy';
 import { resolveEnvProxy } from '../security/env-proxy';
-import { getNetworkPolicy } from '../security/network-policy';
+import { getNetworkPolicy } from '../security/execution-policy';
 import { unwrapSecretValueMain } from '../security/secret-handle-store';
 import { buildTlsClientMaterial } from '../security/tls-material';
 import { interceptorRegistry } from './interceptor-registry';

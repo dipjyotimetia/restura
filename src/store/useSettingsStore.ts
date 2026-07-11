@@ -6,7 +6,6 @@ import { validatePersistedSettings } from '@/lib/shared/store-validators';
 import type {
   AppSettings,
   ProxyConfig,
-  CorsProxyConfig,
   ClientCert,
   CaCert,
   HostClientCert,
@@ -31,9 +30,6 @@ interface SettingsState {
   updateProxyAuth: (updates: Partial<{ username: string; password: SecretValue }>) => void;
   addBypassHost: (host: string) => void;
   removeBypassHost: (host: string) => void;
-  // CORS proxy actions
-  updateCorsProxy: (updates: Partial<CorsProxyConfig>) => void;
-  setCorsProxyEnabled: (enabled: boolean) => void;
   // Semantic-assertion judge actions
   updateJudge: (updates: Partial<JudgeSettings>) => void;
   // Certificate actions
@@ -55,11 +51,6 @@ const defaultProxyConfig: ProxyConfig = {
   bypassList: ['localhost', '127.0.0.1', '::1'],
 };
 
-const defaultCorsProxyConfig: CorsProxyConfig = {
-  enabled: true, // Enable by default for browser mode
-  autoDetect: true,
-};
-
 const defaultSettings: AppSettings = {
   proxy: defaultProxyConfig,
   defaultTimeout: 30000, // 30 seconds
@@ -75,8 +66,6 @@ const defaultSettings: AppSettings = {
   // Security settings - allow localhost by default for development convenience
   allowLocalhost: true,
   allowPrivateIPs: false,
-  // CORS proxy settings for web mode
-  corsProxy: defaultCorsProxyConfig,
   // Telemetry defaults to ON (opt-out): error reports are sent to
   // /api/telemetry/error (web) and Sentry (desktop). Users can disable it; the
   // flag is mirrored to the Electron main process to gate Sentry.
@@ -163,22 +152,6 @@ export const useSettingsStore = create<SettingsState>()(
               ...state.settings.proxy,
               bypassList: (state.settings.proxy.bypassList || []).filter((h) => h !== host),
             },
-          },
-        })),
-
-      updateCorsProxy: (updates) =>
-        set((state) => ({
-          settings: {
-            ...state.settings,
-            corsProxy: { ...state.settings.corsProxy, ...updates },
-          },
-        })),
-
-      setCorsProxyEnabled: (enabled) =>
-        set((state) => ({
-          settings: {
-            ...state.settings,
-            corsProxy: { ...state.settings.corsProxy, enabled },
           },
         })),
 

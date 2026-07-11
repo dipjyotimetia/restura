@@ -16,6 +16,7 @@ import {
 } from '../shared/channels';
 import type {
   ElectronAPI,
+  ElectronExecutionPolicy,
   UpdaterStatus,
   AiLabModelSpec,
   AiLabDiscoverArgs,
@@ -957,13 +958,11 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.telemetry.setConsent, enabled),
   },
 
-  // Outbound-network policy — renderer pushes the Settings → Security flags to
-  // main so every SSRF guard (HTTP/WS/SSE/Socket.IO/gRPC/MCP) shares one policy.
+  // Execution policy — renderer mirrors its complete outbound Settings subset
+  // to the main process, where SecretRef handles stay opaque until wire time.
   security: {
-    setNetworkPolicy: (policy: {
-      allowLocalhost: boolean;
-      allowPrivateIPs: boolean;
-    }): Promise<{ ok: true }> => ipcRenderer.invoke(IPC.security.setNetworkPolicy, policy),
+    setExecutionPolicy: (policy: ElectronExecutionPolicy): Promise<{ ok: true }> =>
+      ipcRenderer.invoke(IPC.security.setExecutionPolicy, policy),
   },
 
   // Events — wrapper-registry backed so removeListener actually removes the

@@ -30,7 +30,7 @@ import { GrpcStatusCodeName } from '@shared/protocol/grpc-status';
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { resolveUrlHostnameSafe } from '../security/dns-guard';
-import { getNetworkPolicy } from '../security/network-policy';
+import { getNetworkPolicy } from '../security/execution-policy';
 import { buildTlsClientMaterial } from '../security/tls-material';
 import type { GrpcTlsConfig } from './grpc-credentials';
 

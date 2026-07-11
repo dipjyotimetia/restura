@@ -1,5 +1,14 @@
 import { isElectron } from '@/lib/shared/platform';
 import { useSettingsStore } from '@/store/useSettingsStore';
+import type {
+  AppSettings,
+  CaCert,
+  ClientCert,
+  HostCaCert,
+  HostClientCert,
+  MinTlsVersion,
+  ProxyConfig,
+} from '@/types';
 
 /**
  * Push the Settings → Security outbound-network policy to the Electron main
@@ -21,38 +30,124 @@ import { useSettingsStore } from '@/store/useSettingsStore';
  */
 
 let subscribed = false;
+const POLICY_RETRY_MS = 250;
 
-interface NetworkPolicy {
+interface ExecutionPolicy {
   allowLocalhost: boolean;
   allowPrivateIPs: boolean;
+  proxy: ProxyConfig & { bypassList: string[] };
+  defaultTimeout: number;
+  verifySsl: boolean;
+  clientCert?: ClientCert;
+  caCert?: CaCert;
+  clientCertificates: HostClientCert[];
+  caCertificates: HostCaCert[];
+  serverCipherOrder?: boolean;
+  minTlsVersion?: MinTlsVersion;
+  cipherSuites?: string;
 }
 
-function readPolicy(): NetworkPolicy {
-  const s = useSettingsStore.getState().settings;
-  return { allowLocalhost: s.allowLocalhost ?? true, allowPrivateIPs: s.allowPrivateIPs === true };
+function readPolicy(s: AppSettings = useSettingsStore.getState().settings): ExecutionPolicy {
+  return {
+    allowLocalhost: s.allowLocalhost ?? true,
+    allowPrivateIPs: s.allowPrivateIPs === true,
+    proxy: {
+      enabled: s.proxy?.enabled ?? false,
+      type: s.proxy?.type ?? 'http',
+      host: s.proxy?.host ?? '',
+      port: s.proxy?.port ?? 8080,
+      bypassList: s.proxy?.bypassList ?? [],
+      ...(s.proxy?.auth ? { auth: s.proxy.auth } : {}),
+    },
+    defaultTimeout: s.defaultTimeout ?? 30_000,
+    verifySsl: s.verifySsl ?? true,
+    ...(s.clientCert ? { clientCert: s.clientCert } : {}),
+    ...(s.caCert ? { caCert: s.caCert } : {}),
+    clientCertificates: s.clientCertificates ?? [],
+    caCertificates: s.caCertificates ?? [],
+    ...(s.serverCipherOrder !== undefined ? { serverCipherOrder: s.serverCipherOrder } : {}),
+    ...(s.minTlsVersion ? { minTlsVersion: s.minTlsVersion } : {}),
+    ...(s.cipherSuites ? { cipherSuites: s.cipherSuites } : {}),
+  };
 }
 
-function pushPolicy(policy: NetworkPolicy): void {
-  // Best-effort; a failed push must never break the app (main keeps its last value).
-  void window.electron?.security?.setNetworkPolicy(policy);
+function pushPolicy(policy: ExecutionPolicy): Promise<boolean> {
+  const security = window.electron?.security;
+  if (!security) {
+    console.error('Unable to synchronize the Electron execution policy: IPC is unavailable');
+    return Promise.resolve(false);
+  }
+
+  try {
+    return security.setExecutionPolicy(policy).then(
+      () => true,
+      (error: unknown) => {
+        // Best-effort; a failed push must never break the app. Keeping the
+        // snapshot unsynchronized lets a later identical settings update retry.
+        console.error('Unable to synchronize the Electron execution policy', error);
+        return false;
+      }
+    );
+  } catch (error) {
+    console.error('Unable to synchronize the Electron execution policy', error);
+    return Promise.resolve(false);
+  }
+}
+
+function policyEquals(a: ExecutionPolicy | undefined, b: ExecutionPolicy): boolean {
+  return a !== undefined && JSON.stringify(a) === JSON.stringify(b);
 }
 
 export function initNetworkPolicySync(): void {
   if (!isElectron() || subscribed) return;
   subscribed = true;
-  let last = readPolicy();
-  pushPolicy(last);
-  useSettingsStore.subscribe((state) => {
-    const next: NetworkPolicy = {
-      allowLocalhost: state.settings.allowLocalhost ?? true,
-      allowPrivateIPs: state.settings.allowPrivateIPs === true,
-    };
-    if (
-      next.allowLocalhost !== last.allowLocalhost ||
-      next.allowPrivateIPs !== last.allowPrivateIPs
-    ) {
-      last = next;
-      pushPolicy(next);
+  let acknowledged: ExecutionPolicy | undefined;
+  let desired: ExecutionPolicy | undefined;
+  let pending: ExecutionPolicy | undefined;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const scheduleRetry = () => {
+    if (retryTimer || !desired || policyEquals(acknowledged, desired)) return;
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined;
+      flush();
+    }, POLICY_RETRY_MS);
+  };
+
+  const flush = () => {
+    if (!desired || policyEquals(acknowledged, desired) || policyEquals(pending, desired)) {
+      return;
     }
+
+    const candidate = desired;
+    pending = candidate;
+    void pushPolicy(candidate)
+      .then((wasAcknowledged) => {
+        if (wasAcknowledged) acknowledged = candidate;
+        else scheduleRetry();
+      })
+      .finally(() => {
+        if (policyEquals(pending, candidate)) pending = undefined;
+        // A changed snapshot may have arrived while its predecessor was in flight.
+        if (desired && !policyEquals(candidate, desired)) flush();
+      });
+  };
+
+  const sync = (settings?: AppSettings) => {
+    desired = readPolicy(settings);
+    flush();
+  };
+
+  useSettingsStore.subscribe((state) => {
+    sync(state.settings);
   });
+
+  // State persistence rehydrates asynchronously. Wait for it when available,
+  // otherwise push synchronously for test/non-persisted stores.
+  const persistence = useSettingsStore.persist;
+  if (persistence?.hasHydrated?.() === false && persistence.onFinishHydration) {
+    persistence.onFinishHydration(() => sync());
+  } else {
+    sync();
+  }
 }

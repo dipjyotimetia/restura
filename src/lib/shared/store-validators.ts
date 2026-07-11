@@ -545,10 +545,6 @@ export const appSettingsSchema = z
     requestResponseSplit: z.number().min(0).max(100).optional().catch(undefined),
     allowLocalhost: z.boolean().optional().catch(undefined),
     allowPrivateIPs: z.boolean().optional().catch(undefined),
-    corsProxy: z
-      .object({ enabled: z.boolean().catch(true), autoDetect: z.boolean().catch(true) })
-      .optional()
-      .catch(undefined),
     clientCert: ClientCertCatchSchema.optional().catch(undefined),
     caCert: CaCertCatchSchema.optional().catch(undefined),
     clientCertificates: z
@@ -627,9 +623,11 @@ export function validatePersistedSettings<T extends object>(raw: unknown, defaul
   if (!result.success) return defaults;
   // Strip `undefined` values (a dropped/invalid optional field `.catch`es to
   // undefined) so the spread can't blow away a default with an explicit
-  // undefined — the default must win for those keys.
+  // undefined — the default must win for those keys. `corsProxy` was a
+  // persisted preference before web requests became unconditionally
+  // Worker-proxied; drop it explicitly while preserving other future keys.
   const cleaned = Object.fromEntries(
-    Object.entries(result.data).filter(([, v]) => v !== undefined)
+    Object.entries(result.data).filter(([key, value]) => key !== 'corsProxy' && value !== undefined)
   );
   return { ...defaults, ...(cleaned as Partial<T>) };
 }
