@@ -8,12 +8,6 @@ import type {
   MinTlsVersion,
 } from './security';
 
-// CORS Proxy Configuration (for browser mode)
-export interface CorsProxyConfig {
-  enabled: boolean;
-  autoDetect: boolean; // Auto-enable when CORS error detected
-}
-
 // Global Application Settings
 export interface AppSettings {
   proxy: ProxyConfig;
@@ -33,8 +27,6 @@ export interface AppSettings {
   // Security settings
   allowLocalhost?: boolean;
   allowPrivateIPs?: boolean;
-  // CORS proxy settings (web-only)
-  corsProxy: CorsProxyConfig;
   // Certificate settings (global — applied to every HTTPS request)
   clientCert?: ClientCert;
   caCert?: CaCert;

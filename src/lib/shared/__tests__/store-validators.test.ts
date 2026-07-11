@@ -442,5 +442,20 @@ describe('store-validators', () => {
       expect(result.disableCookieJar).toBe(true);
       expect(result.minTlsVersion).toBe('TLSv1.2');
     });
+
+    it('drops the obsolete CORS-proxy preference while retaining supported settings', () => {
+      const result = validatePersistedSettings(
+        {
+          corsProxy: { enabled: false, autoDetect: false },
+          followRedirects: false,
+          telemetry: { errorsEnabled: false },
+        },
+        DEFAULTS
+      ) as Record<string, unknown>;
+
+      expect(result).not.toHaveProperty('corsProxy');
+      expect(result.followRedirects).toBe(false);
+      expect(result.telemetry).toEqual({ errorsEnabled: false });
+    });
   });
 });

@@ -11,12 +11,7 @@ export {
   generateBoundary,
   parseMultipartMixedBody,
 } from './lib/multipartBuilder';
-export {
-  buildProxyUrl,
-  shouldBypassProxy,
-  shouldUseCorsProxy,
-  isCorsError,
-} from './lib/proxyHelper';
+export { buildProxyUrl, shouldBypassProxy } from './lib/proxyHelper';
 export { sendStreamingRequest, supportsStreamingRequests } from './lib/streamingRequest';
 export { validateURL, sanitizeURL, validateURLWithVariables } from './lib/urlValidator';
 
