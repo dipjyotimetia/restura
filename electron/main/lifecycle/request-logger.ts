@@ -2,15 +2,12 @@ import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { app, ipcMain } from 'electron';
 import { z } from 'zod';
-import { createLogger } from '../../../src/lib/shared/logger';
 import { IPC } from '../../shared/channels';
 import {
   LogHistoryLimitSchema,
   validateIpcInput,
   assertTrustedSender,
 } from '../ipc/ipc-validators';
-
-const log = createLogger('request-logger');
 
 /**
  * Set of protocols the request logger knows how to record. Streaming
@@ -112,38 +109,33 @@ export function logRequest(entry: LogEntry): void {
   });
 }
 
+export async function getRequestLogHistory(limit = 100): Promise<LogEntry[]> {
+  try {
+    const filePath = await getLogFilePath();
+    const content = await fsp.readFile(filePath, 'utf8');
+    const lines = content.trim().split('\n').filter(Boolean);
+    const entries: LogEntry[] = [];
+    for (const line of lines.slice(-limit)) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const result = LogEntrySchema.safeParse(parsed);
+      if (result.success) entries.push(result.data);
+    }
+    return entries;
+  } catch {
+    return [];
+  }
+}
+
 export function registerRequestLoggerIPC(): void {
   ipcMain.handle(IPC.log.getHistory, async (event, rawLimit?: unknown) => {
     assertTrustedSender(IPC.log.getHistory, event);
     const limit = validateIpcInput(LogHistoryLimitSchema, rawLimit, IPC.log.getHistory);
-    try {
-      const filePath = await getLogFilePath();
-      const content = await fsp.readFile(filePath, 'utf8');
-      const lines = content.trim().split('\n').filter(Boolean);
-      const n = limit ?? 100;
-      const entries: LogEntry[] = [];
-      for (const line of lines.slice(-n)) {
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(line);
-        } catch (err) {
-          log.warn('skipping unparseable log line', {
-            error: err instanceof Error ? err.message : String(err),
-          });
-          continue;
-        }
-        const result = LogEntrySchema.safeParse(parsed);
-        if (!result.success) {
-          log.warn('skipping invalid log entry', { issues: result.error.issues });
-          continue;
-        }
-        entries.push(result.data);
-      }
-      return entries;
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
-      return [];
-    }
+    return getRequestLogHistory(limit ?? 100);
   });
 
   ipcMain.handle(IPC.log.clear, async (event) => {

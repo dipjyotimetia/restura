@@ -138,6 +138,11 @@ export const IPC = {
     getHistory: 'log:getHistory',
     clear: 'log:clear',
   },
+  bugReport: {
+    captureScreenshot: 'bug-report:captureScreenshot',
+    getDiagnostics: 'bug-report:getDiagnostics',
+    copyScreenshot: 'bug-report:copyScreenshot',
+  },
   keychain: {
     status: 'keychain:status',
     rotate: 'keychain:rotate',
@@ -276,6 +281,7 @@ export const VALID_EVENT_CHANNELS = [
   'menu:export',
   'menu:new-request',
   'menu:settings',
+  'menu:report-bug',
   'app:focus',
   'app:check-updates',
   'deep-link',
