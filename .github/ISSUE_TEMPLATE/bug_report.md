@@ -1,60 +1,73 @@
 ---
-name: Bug Report
-about: Create a report to help us improve
-title: '[BUG] '
+name: 🐛 Bug Report
+about: Report a bug or unexpected behavior
+title: '🐛 [BUG] '
 labels: 'bug'
 assignees: ''
 ---
 
-## Bug Description
+## 🔍 Description
 
 <!-- A clear and concise description of what the bug is -->
 
-## Steps to Reproduce
+## 📋 Steps to Reproduce
 
 1. Go to '...'
 2. Click on '...'
 3. Scroll down to '...'
 4. See error
 
-## Expected Behavior
+## ✅ Expected Behavior
 
-<!-- A clear and concise description of what you expected to happen -->
+<!-- What should happen instead? -->
 
-## Actual Behavior
+## ❌ Actual Behavior
 
-<!-- A clear and concise description of what actually happened -->
+<!-- What actually happened? -->
 
-## Screenshots
+## 📸 Screenshots
 
 <!-- If applicable, add screenshots to help explain your problem -->
 
-## Environment
+## 🌍 Environment
 
-**Desktop (please complete the following information):**
+**Platform:**
+
+- [ ] 🌐 Web Client (Cloudflare Pages)
+- [ ] 🖥️ Electron Desktop App
+- [ ] 📦 Self-hosted Node/Docker
+
+**System Information:**
 
 - OS: [e.g. macOS 14.0, Windows 11, Ubuntu 22.04]
-- Browser: [e.g. Chrome 120, Firefox 121, Safari 17]
-- Node Version: [e.g. 20.10.0]
-- Restura Version: [e.g. 0.1.0]
+- Browser: [e.g. Chrome 120, Firefox 121, Safari 17] (if applicable)
+- Node Version: [e.g. 24.0.0]
+- Restura Version: [e.g. 1.0.0]
 
-**Application Type:**
+**Protocol (if applicable):**
 
-- [ ] Web Client
-- [ ] Electron Desktop App
+- [ ] 🔗 HTTP/REST
+- [ ] 📊 GraphQL
+- [ ] 🔌 gRPC
+- [ ] 🔌 WebSocket
+- [ ] 📡 SSE
+- [ ] 🎙️ Socket.IO
+- [ ] 📨 MQTT
+- [ ] 📬 Kafka
+- [ ] 🤖 MCP
 
-## Console Errors
+## 🚨 Error Logs
 
-<!-- If applicable, paste any console errors here -->
+<!-- If applicable, paste console errors or logs here -->
 
 ```
 Paste error logs here
 ```
 
-## Additional Context
+## 📝 Additional Context
 
-<!-- Add any other context about the problem here -->
+<!-- Add any other relevant information -->
 
-## Possible Solution
+## 💡 Possible Solution
 
-<!-- If you have suggestions on how to fix the issue, please describe them -->
+<!-- Optional: If you have ideas on how to fix this -->

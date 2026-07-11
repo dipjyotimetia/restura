@@ -1,0 +1,95 @@
+name: 🎯 Issue Triage & Templates
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  welcome-new-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Welcome new issue reporter
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const labels = issue.labels.map(l => l.name);
+
+            let message = '👋 **Thank you for opening an issue!**\n\n';
+            
+            if (labels.includes('bug')) {
+              message += '🐛 We\'ve labeled this as a bug report. ';
+              message += 'A maintainer will triage it soon. ';
+              message += 'In the meantime, you can help by:\n';
+              message += '- Confirming the issue is reproducible\n';
+              message += '- Adding any relevant logs or screenshots\n';
+              message += '- Trying to isolate the root cause\n\n';
+            } else if (labels.includes('enhancement')) {
+              message += '✨ Thanks for the feature suggestion! ';
+              message += 'We\'ll review it and discuss feasibility.\n\n';
+            } else if (labels.includes('documentation')) {
+              message += '📚 Documentation improvements help everyone. ';
+              message += 'Thanks for pointing this out!\n\n';
+            } else if (labels.includes('question')) {
+              message += '❓ It looks like you have a question. ';
+              message += 'Check our [Discussions](https://github.com/dipjyotimetia/restura/discussions) ';
+              message += 'for Q&A and community support.\n\n';
+            }
+
+            message += '**Resources:**\n';
+            message += '- [CONTRIBUTING.md](https://github.com/dipjyotimetia/restura/blob/main/CONTRIBUTING.md) - How to contribute\n';
+            message += '- [Discussions](https://github.com/dipjyotimetia/restura/discussions) - Community Q&A\n';
+            message += '- [OpenWiki Docs](https://github.com/dipjyotimetia/restura/tree/main/openwiki) - Project documentation\n';
+            message += '- [Security Policy](https://github.com/dipjyotimetia/restura/security/policy) - Report security issues safely\n';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: message
+            });
+
+  label-by-template:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label based on issue template
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const body = issue.body || '';
+
+            // Detect which template was used
+            let templateLabels = [];
+
+            if (body.includes('🔍 Description') && body.includes('Steps to Reproduce')) {
+              templateLabels.push('bug');
+            } else if (body.includes('💡 Feature Description') && body.includes('Problem Statement')) {
+              templateLabels.push('enhancement');
+            } else if (body.includes('🎯 Protocol') && body.includes('Upstream Details')) {
+              templateLabels.push('protocol');
+            } else if (body.includes('📖 Documentation Type')) {
+              templateLabels.push('documentation');
+            } else if (body.includes('⚡ Expected Behavior') && body.includes('📊 Metrics')) {
+              templateLabels.push('performance');
+            }
+
+            // Apply labels if detected
+            if (templateLabels.length > 0) {
+              // Get existing labels
+              const existingLabels = issue.labels.map(l => l.name);
+              const labelsToAdd = templateLabels.filter(l => !existingLabels.includes(l));
+              
+              if (labelsToAdd.length > 0) {
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  labels: labelsToAdd
+                });
+              }
+            }

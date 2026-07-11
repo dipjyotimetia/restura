@@ -1,0 +1,65 @@
+name: 🏷️ Auto-Label Issues & PRs
+
+on:
+  issues:
+    types: [opened, edited]
+  pull_request:
+    types: [opened, edited]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  auto-label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Auto-label by content
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue || context.payload.pull_request;
+            if (!issue) return;
+
+            const labels = [];
+            const body = (issue.body || '').toLowerCase();
+            const title = (issue.title || '').toLowerCase();
+            const content = `${title} ${body}`;
+
+            // Protocol detection
+            if (content.includes('http') || content.includes('rest')) labels.push('http');
+            if (content.includes('graphql')) labels.push('graphql');
+            if (content.includes('grpc')) labels.push('grpc');
+            if (content.includes('websocket')) labels.push('websocket');
+            if (content.includes('sse')) labels.push('sse');
+            if (content.includes('socket.io')) labels.push('socketio');
+            if (content.includes('mqtt')) labels.push('mqtt');
+            if (content.includes('kafka')) labels.push('kafka');
+            if (content.includes('mcp')) labels.push('mcp');
+
+            // Platform detection
+            if (content.includes('electron') || content.includes('desktop')) labels.push('desktop');
+            if (content.includes('docker') || content.includes('self-hosted')) labels.push('self-hosted');
+            if (content.includes('web') && !content.includes('website')) labels.push('web');
+
+            // Issue type detection (for issues only)
+            if (context.payload.issue && !context.payload.pull_request) {
+              if (content.includes('performance') || content.includes('slow')) labels.push('performance');
+              if (content.includes('documentation') || content.includes('docs')) labels.push('documentation');
+              if (content.includes('ui') || content.includes('ux')) labels.push('ui');
+              if (content.includes('test')) labels.push('testing');
+            }
+
+            // Add labels if any were detected
+            if (labels.length > 0) {
+              // Remove duplicates
+              const uniqueLabels = [...new Set(labels)];
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                labels: uniqueLabels
+              });
+              console.log(`Added labels: ${uniqueLabels.join(', ')}`);
+            }

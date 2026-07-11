@@ -1,0 +1,61 @@
+name: 🔗 Link Related Issues
+
+on:
+  pull_request:
+    types: [opened, edited]
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  link-issues-in-pr:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request
+    steps:
+      - name: Parse PR body for issue references
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const body = pr.body || '';
+
+            // Extract issue numbers from "Fixes #123" or "Closes #456" patterns
+            const issuePattern = /(?:fixes|closes|resolves|refs?)\s+#(\d+)/gi;
+            const matches = [...body.matchAll(issuePattern)];
+
+            if (matches.length === 0) {
+              // Only warn if PR isn't from dependabot
+              if (pr.user.login !== 'dependabot[bot]') {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  body: '💡 **Tip:** Link related issues using "Fixes #123" or "Closes #456" in your PR description. This auto-closes issues when the PR is merged.'
+                });
+              }
+            }
+
+  validate-issue-links:
+    runs-on: ubuntu-latest
+    if: github.event.issue
+    steps:
+      - name: Check if issue links PRs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            
+            // Check if there are any linked PRs
+            const linkedPRs = await github.rest.issues.listEventsForTimeline({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              event: 'cross-referenced'
+            });
+
+            if (linkedPRs.data && linkedPRs.data.length === 0) {
+              console.log(`Issue #${issue.number} has no linked PRs yet`);
+            }

@@ -1,0 +1,57 @@
+name: 🧹 Stale Issues & PRs
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Weekly on Monday
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close stale issues
+        uses: actions/stale@v9
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          stale-issue-message: |
+            👋 This issue has been inactive for 60 days. 
+            
+            If this is still relevant, please:
+            - Add a comment to keep it open
+            - Update any outdated information
+            - Share recent context or workarounds
+            
+            Otherwise, we'll close it to keep our issue tracker tidy. Thanks!
+          stale-pr-message: |
+            👋 This PR has been inactive for 60 days. Please:
+            - Update it with recent changes
+            - Address any review comments
+            - Rebase with main if needed
+            
+            We'll close inactive PRs to maintain a clean workflow.
+          stale-issue-label: 'stale'
+          stale-pr-label: 'stale'
+          days-before-issue-stale: 60
+          days-before-pr-stale: 60
+          days-before-issue-close: 7
+          days-before-pr-close: 7
+          exempt-issue-labels: 'pinned,blocked,help-wanted'
+          exempt-pr-labels: 'pinned,blocked,wip'
+          delete-branch: false
+          operations-per-run: 100
+
+  close-duplicate-issues:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment on duplicate issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // This is a template for manual workflow
+            // Duplicates should be closed with a link to original
+            console.log('Monitor issues for duplicates and close with proper references');
