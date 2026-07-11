@@ -89,6 +89,7 @@ import {
   stopSocketIoCleanup,
   socketIoRateLimiter,
 } from '../handlers/socketio-handler';
+import { setExecutionPolicy } from '../security/execution-policy';
 
 type IpcHandler = (e: unknown, p: unknown) => Promise<{ success: boolean; error?: string }>;
 
@@ -130,6 +131,13 @@ const validConnect = (connectionId: string) => ({
 
 describe('socketio-handler', () => {
   beforeEach(() => {
+    setExecutionPolicy({
+      security: { allowLocalhost: true, allowPrivateIPs: false },
+      proxy: { enabled: false, type: 'http', host: '', port: 8080, bypassList: [] },
+      timeout: 30_000,
+      tls: { verifySsl: true, serverCipherOrder: false },
+      certificates: { clientCertificates: [], caCertificates: [] },
+    });
     mockHandle.mockClear();
     mockEmitTo.mockClear();
     mockResolveSafe.mockClear();
@@ -297,5 +305,30 @@ describe('socketio-handler', () => {
     for (const socket of sioMock.FakeSocket.instances) {
       expect(socket.disconnect).toHaveBeenCalled();
     }
+  });
+
+  it('fails clearly when execution policy proxy cannot be honored by DNS-pinned lookup', async () => {
+    setExecutionPolicy({
+      security: { allowLocalhost: true, allowPrivateIPs: false },
+      proxy: {
+        enabled: true,
+        type: 'socks5',
+        host: 'proxy.example.test',
+        port: 1080,
+        bypassList: [],
+      },
+      timeout: 30_000,
+      tls: { verifySsl: true, serverCipherOrder: false },
+      certificates: { clientCertificates: [], caCertificates: [] },
+    });
+
+    const { event } = makeEvent();
+    const res = await handlerFor(IPC.socketio.connect)(event, validConnect('policy'));
+    expect(res).toEqual({
+      success: false,
+      error: 'Configured SOCKS5 proxy cannot be honored by this DNS-pinned connection',
+    });
+    expect(mockResolveSafe).not.toHaveBeenCalled();
+    expect(sioMock.io).not.toHaveBeenCalled();
   });
 });

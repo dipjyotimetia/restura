@@ -1,6 +1,6 @@
+import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema';
 import { ipcMain } from 'electron';
 import { z } from 'zod';
-import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema';
 import { IPC } from '../../shared/channels';
 import { createValidatedHandler } from '../ipc/ipc-validators';
 

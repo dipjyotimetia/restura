@@ -955,6 +955,14 @@ const electronAPI = {
     setExecutionPolicy: (policy) => ipcRenderer.invoke(IPC.security.setExecutionPolicy, policy),
   },
 
+  // Bug report flow: capture screenshot + telemetry-safe diagnostics from main.
+  bugReport: {
+    getDiagnostics: () => ipcRenderer.invoke(IPC.bugReport.getDiagnostics),
+    captureScreenshot: () => ipcRenderer.invoke(IPC.bugReport.captureScreenshot),
+    copyScreenshot: (imageDataUrl: string) =>
+      ipcRenderer.invoke(IPC.bugReport.copyScreenshot, imageDataUrl),
+  },
+
   // Events — wrapper-registry backed so removeListener actually removes the
   // wrapper registered by on() (passing the bare callback never matched).
   on: (channel: string, callback: (...args: unknown[]) => void) => {

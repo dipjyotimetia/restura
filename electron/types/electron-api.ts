@@ -983,6 +983,31 @@ interface ElectronSecurityAPI {
   }) => Promise<{ ok: true }>;
 }
 
+interface ElectronBugReportAPI {
+  getDiagnostics: () => Promise<{
+    appVersion: string;
+    platform: 'electron' | 'web';
+    operatingSystem: string;
+    browser: string;
+    route: string;
+    capturedAt: string;
+    runtimeErrors: Array<{ message: string; count: number; stack?: string }>;
+    requestLogs: Array<{
+      timestamp: string;
+      protocol: string;
+      method: string;
+      url: string;
+      status: number;
+      durationMs: number;
+      error?: string;
+    }>;
+  }>;
+  captureScreenshot: () => Promise<{ ok: true; imageDataUrl: string } | { ok: false; error: string }>;
+  copyScreenshot: (
+    imageDataUrl: string
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
+}
+
 interface ElectronAPI {
   platform: NodeJS.Platform;
   isElectron: boolean;
@@ -1012,6 +1037,7 @@ interface ElectronAPI {
   log: ElectronLogAPI;
   keychain: ElectronKeychainAPI;
   collections: ElectronCollectionsAPI;
+  bugReport: ElectronBugReportAPI;
   telemetry: ElectronTelemetryAPI;
   security: ElectronSecurityAPI;
   // Valid channels are enumerated by VALID_EVENT_CHANNELS in electron/shared/channels.ts:

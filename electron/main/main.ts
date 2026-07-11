@@ -2,6 +2,7 @@ import { app, BrowserWindow, session } from 'electron';
 import { createLogger } from '../../src/lib/shared/logger';
 import { registerAiHandlers, unregisterAiHandlers } from './handlers/ai-handler';
 import { registerAiLabHandlers, unregisterAiLabHandlers } from './handlers/ai-lab-handler';
+import { registerBugReportIPC } from './handlers/bug-report-handler';
 import {
   registerCaptureBridgeIPC,
   unregisterCaptureBridgeIPC,
@@ -33,8 +34,8 @@ import { createSystemTray, destroyTray } from './lifecycle/system-tray';
 import { readConsentSync, registerTelemetryConsentIPC } from './lifecycle/telemetry-consent';
 import { registerWindowControlsIPC } from './lifecycle/window-controls';
 import { registerNotificationIPC } from './notifications';
-import { registerKeychainStatusIPC } from './security/keychain-status-handler';
 import { registerExecutionPolicyIPC } from './security/execution-policy';
+import { registerKeychainStatusIPC } from './security/keychain-status-handler';
 import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './security/secret-handle-store';
 import { registerBrunoExportHandlerIPC } from './storage/bruno-export-handler';
 import {
@@ -175,6 +176,7 @@ const IPC_MODULES: IpcModule[] = [
   },
   { register: () => registerTelemetryConsentIPC() },
   { register: () => registerExecutionPolicyIPC() },
+  { register: () => registerBugReportIPC(getMainWindow) },
   { register: () => registerAiHandlers(), dispose: () => unregisterAiHandlers() },
   { register: () => registerAiLabHandlers(), dispose: () => unregisterAiLabHandlers() },
   {
