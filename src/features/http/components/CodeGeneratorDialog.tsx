@@ -11,11 +11,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
 import type { CodeGeneratorType } from '@/lib/shared/codeGenerators';
 import { codeGenerators } from '@/lib/shared/codeGenerators';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import type { HttpRequest, RequestSettings } from '@/types';
+import type { HttpRequest } from '@/types';
 
 interface CodeGeneratorDialogProps {
   open: boolean;
@@ -53,14 +54,7 @@ export default function CodeGeneratorDialog({
         resolvedHeaders[h.key] = resolveVariables(h.value);
       });
 
-    // Get effective settings (request-specific or global)
-    const effectiveSettings: RequestSettings = request.settings || {
-      timeout: globalSettings.defaultTimeout,
-      followRedirects: globalSettings.followRedirects,
-      maxRedirects: globalSettings.maxRedirects,
-      verifySsl: globalSettings.verifySsl,
-      proxy: globalSettings.proxy,
-    };
+    const effectiveSettings = resolveEffectiveSettings(request.settings, globalSettings);
 
     const generator = codeGenerators[activeLanguage];
     return generator.generate({

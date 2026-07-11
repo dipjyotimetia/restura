@@ -82,6 +82,8 @@ export interface RequestExecutorOptions {
 
 interface BuiltSpec {
   spec: ProxyRequestBody;
+  /** The one resolved settings object used for both request and response handling. */
+  effectiveSettings: RequestSettings;
   /** Sent headers post-cookie-merge, returned to callers for the response panel. */
   sentHeaders: Record<string, string>;
   effectiveAuth: HttpRequest['auth'];
@@ -278,7 +280,13 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
 
   const desktop = buildDesktopTransportConfig(effectiveSettings, globalSettings, resolvedUrl);
 
-  return { spec, sentHeaders: headers, effectiveAuth, ...(desktop ? { desktop } : {}) };
+  return {
+    spec,
+    effectiveSettings,
+    sentHeaders: headers,
+    effectiveAuth,
+    ...(desktop ? { desktop } : {}),
+  };
 }
 
 function persistResponseCookies(response: ProxyJsonResponse, resolvedUrl: string): void {
@@ -366,7 +374,7 @@ function normalizeBody(data: unknown): string {
 export async function executeRequest(
   options: RequestExecutorOptions
 ): Promise<RequestExecutionResult> {
-  const { request, envVars, globalSettings, collectionVars, iterationData, location } = options;
+  const { request, envVars, collectionVars, iterationData, location } = options;
   const startTime = Date.now();
   const baseInfo = {
     requestName: options.info?.requestName ?? request.name,
@@ -426,16 +434,13 @@ export async function executeRequest(
     }
   }
 
-  const { spec, sentHeaders, effectiveAuth, desktop } = await buildProxyRequestSpec(options);
-
-  const cookieJarDisabled =
-    request.settings?.disableCookieJar === true ||
-    (request.settings === undefined && globalSettings.disableCookieJar === true);
+  const { spec, effectiveSettings, sentHeaders, effectiveAuth, desktop } =
+    await buildProxyRequestSpec(options);
 
   let responseData: ApiResponse;
   try {
     const proxyResponse = await executeProxiedRequest(spec, {}, desktop);
-    if (!cookieJarDisabled) {
+    if (!effectiveSettings.disableCookieJar) {
       persistResponseCookies(proxyResponse, spec.url);
     }
     const endTime = Date.now();
