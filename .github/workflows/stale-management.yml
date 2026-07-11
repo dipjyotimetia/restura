@@ -20,19 +20,19 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           stale-issue-message: |
             👋 This issue has been inactive for 60 days. 
-            
+
             If this is still relevant, please:
             - Add a comment to keep it open
             - Update any outdated information
             - Share recent context or workarounds
-            
+
             Otherwise, we'll close it to keep our issue tracker tidy. Thanks!
           stale-pr-message: |
             👋 This PR has been inactive for 60 days. Please:
             - Update it with recent changes
             - Address any review comments
             - Rebase with main if needed
-            
+
             We'll close inactive PRs to maintain a clean workflow.
           stale-issue-label: 'stale'
           stale-pr-label: 'stale'

@@ -66,6 +66,10 @@ export function BugReportDialog({
     }
   }, [open, screenshot, diagnostics]);
 
+  useEffect(() => {
+    if (open) setSubmitting(false);
+  }, [open]);
+
   const handleOpenDraft = async () => {
     if (!title.trim() || !description.trim()) {
       setValidationError('A title and description are required before opening the GitHub draft.');

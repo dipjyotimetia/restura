@@ -63,6 +63,35 @@ describe('BugReportDialog', () => {
     });
   });
 
+  it('clears its submitting state when reopened while a draft is still opening', async () => {
+    const user = userEvent.setup();
+    let resolveDraft: (() => void) | undefined;
+    const onOpenGitHubDraft = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveDraft = resolve;
+        })
+    );
+    const props = {
+      onOpenChange: vi.fn(),
+      diagnostics,
+      onOpenGitHubDraft,
+    };
+    const { rerender } = render(<BugReportDialog {...props} open />);
+
+    await user.type(screen.getByLabelText(/^title/i), 'Response crash');
+    await user.type(screen.getByLabelText(/^description/i), 'The response pane crashes.');
+    await user.click(screen.getByRole('button', { name: /open github draft/i }));
+
+    expect(screen.getByRole('button', { name: /open github draft/i })).toBeDisabled();
+
+    rerender(<BugReportDialog {...props} open={false} />);
+    rerender(<BugReportDialog {...props} open />);
+
+    expect(screen.getByRole('button', { name: /open github draft/i })).toBeEnabled();
+    resolveDraft?.();
+  });
+
   it('shows a sanitized diagnostics preview before it is shared', () => {
     render(
       <BugReportDialog

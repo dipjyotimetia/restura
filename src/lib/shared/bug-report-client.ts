@@ -44,6 +44,17 @@ export async function collectBugReportDiagnostics(): Promise<BugReportDiagnostic
   };
 }
 
+async function waitForVideoFrame(video: HTMLVideoElement): Promise<void> {
+  if (typeof video.requestVideoFrameCallback === 'function') {
+    await new Promise<void>((resolve) => video.requestVideoFrameCallback(() => resolve()));
+    return;
+  }
+  if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) return;
+  await new Promise<void>((resolve) =>
+    video.addEventListener('loadeddata', () => resolve(), { once: true })
+  );
+}
+
 async function captureBrowserScreenshot(): Promise<string> {
   if (!navigator.mediaDevices?.getDisplayMedia) {
     throw new Error('Screenshot capture is not supported by this browser.');
@@ -54,6 +65,7 @@ async function captureBrowserScreenshot(): Promise<string> {
     video.srcObject = stream;
     video.muted = true;
     await video.play();
+    await waitForVideoFrame(video);
     const track = stream.getVideoTracks()[0];
     const settings = track?.getSettings();
     const width = settings?.width ?? video.videoWidth;
