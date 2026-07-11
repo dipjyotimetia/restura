@@ -26,7 +26,7 @@ export default defineConfig({
     include: [
       'src/**/*.{test,spec}.{ts,tsx}',
       'tests/**/*.{test,spec}.{ts,tsx}',
-      'electron/main/__tests__/**/*.{test,spec}.ts',
+      'electron/main/**/__tests__/**/*.{test,spec}.ts',
       'worker/**/__tests__/**/*.{test,spec}.ts',
       'echo/**/__tests__/**/*.{test,spec}.ts',
       'shared/**/*.{test,spec}.{ts,tsx}',

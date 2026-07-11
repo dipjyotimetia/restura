@@ -1,5 +1,14 @@
 import { isElectron } from '@/lib/shared/platform';
 import { useSettingsStore } from '@/store/useSettingsStore';
+import type {
+  AppSettings,
+  CaCert,
+  ClientCert,
+  HostCaCert,
+  HostClientCert,
+  MinTlsVersion,
+  ProxyConfig,
+} from '@/types';
 
 /**
  * Push the Settings → Security outbound-network policy to the Electron main
@@ -22,37 +31,76 @@ import { useSettingsStore } from '@/store/useSettingsStore';
 
 let subscribed = false;
 
-interface NetworkPolicy {
+interface ExecutionPolicy {
   allowLocalhost: boolean;
   allowPrivateIPs: boolean;
+  proxy: ProxyConfig & { bypassList: string[] };
+  defaultTimeout: number;
+  verifySsl: boolean;
+  clientCert?: ClientCert;
+  caCert?: CaCert;
+  clientCertificates: HostClientCert[];
+  caCertificates: HostCaCert[];
+  serverCipherOrder?: boolean;
+  minTlsVersion?: MinTlsVersion;
+  cipherSuites?: string;
 }
 
-function readPolicy(): NetworkPolicy {
-  const s = useSettingsStore.getState().settings;
-  return { allowLocalhost: s.allowLocalhost ?? true, allowPrivateIPs: s.allowPrivateIPs === true };
+function readPolicy(s: AppSettings = useSettingsStore.getState().settings): ExecutionPolicy {
+  return {
+    allowLocalhost: s.allowLocalhost ?? true,
+    allowPrivateIPs: s.allowPrivateIPs === true,
+    proxy: {
+      enabled: s.proxy?.enabled ?? false,
+      type: s.proxy?.type ?? 'http',
+      host: s.proxy?.host ?? '',
+      port: s.proxy?.port ?? 8080,
+      bypassList: s.proxy?.bypassList ?? [],
+      ...(s.proxy?.auth ? { auth: s.proxy.auth } : {}),
+    },
+    defaultTimeout: s.defaultTimeout ?? 30_000,
+    verifySsl: s.verifySsl ?? true,
+    ...(s.clientCert ? { clientCert: s.clientCert } : {}),
+    ...(s.caCert ? { caCert: s.caCert } : {}),
+    clientCertificates: s.clientCertificates ?? [],
+    caCertificates: s.caCertificates ?? [],
+    ...(s.serverCipherOrder !== undefined ? { serverCipherOrder: s.serverCipherOrder } : {}),
+    ...(s.minTlsVersion ? { minTlsVersion: s.minTlsVersion } : {}),
+    ...(s.cipherSuites ? { cipherSuites: s.cipherSuites } : {}),
+  };
 }
 
-function pushPolicy(policy: NetworkPolicy): void {
+function pushPolicy(policy: ExecutionPolicy): void {
   // Best-effort; a failed push must never break the app (main keeps its last value).
-  void window.electron?.security?.setNetworkPolicy(policy);
+  void window.electron?.security?.setExecutionPolicy(policy);
+}
+
+function policyEquals(a: ExecutionPolicy | undefined, b: ExecutionPolicy): boolean {
+  return a !== undefined && JSON.stringify(a) === JSON.stringify(b);
 }
 
 export function initNetworkPolicySync(): void {
   if (!isElectron() || subscribed) return;
   subscribed = true;
-  let last = readPolicy();
-  pushPolicy(last);
-  useSettingsStore.subscribe((state) => {
-    const next: NetworkPolicy = {
-      allowLocalhost: state.settings.allowLocalhost ?? true,
-      allowPrivateIPs: state.settings.allowPrivateIPs === true,
-    };
-    if (
-      next.allowLocalhost !== last.allowLocalhost ||
-      next.allowPrivateIPs !== last.allowPrivateIPs
-    ) {
+  let last: ExecutionPolicy | undefined;
+  const sync = (settings?: AppSettings) => {
+    const next = readPolicy(settings);
+    if (!policyEquals(last, next)) {
       last = next;
       pushPolicy(next);
     }
+  };
+
+  useSettingsStore.subscribe((state) => {
+    sync(state.settings);
   });
+
+  // State persistence rehydrates asynchronously. Wait for it when available,
+  // otherwise push synchronously for test/non-persisted stores.
+  const persistence = useSettingsStore.persist;
+  if (persistence?.hasHydrated?.() === false && persistence.onFinishHydration) {
+    persistence.onFinishHydration(() => sync());
+  } else {
+    sync();
+  }
 }

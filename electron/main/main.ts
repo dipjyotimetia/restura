@@ -33,8 +33,8 @@ import { createSystemTray, destroyTray } from './lifecycle/system-tray';
 import { readConsentSync, registerTelemetryConsentIPC } from './lifecycle/telemetry-consent';
 import { registerWindowControlsIPC } from './lifecycle/window-controls';
 import { registerNotificationIPC } from './notifications';
+import { registerExecutionPolicyIPC } from './security/execution-policy';
 import { registerKeychainStatusIPC } from './security/keychain-status-handler';
-import { registerNetworkPolicyIPC } from './security/network-policy';
 import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './security/secret-handle-store';
 import { registerBrunoExportHandlerIPC } from './storage/bruno-export-handler';
 import {
@@ -174,7 +174,7 @@ const IPC_MODULES: IpcModule[] = [
     },
   },
   { register: () => registerTelemetryConsentIPC() },
-  { register: () => registerNetworkPolicyIPC() },
+  { register: () => registerExecutionPolicyIPC() },
   { register: () => registerAiHandlers(), dispose: () => unregisterAiHandlers() },
   { register: () => registerAiLabHandlers(), dispose: () => unregisterAiLabHandlers() },
   {

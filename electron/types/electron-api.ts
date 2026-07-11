@@ -938,12 +938,44 @@ interface ElectronTelemetryAPI {
   setConsent: (enabled: boolean) => Promise<{ ok: true }>;
 }
 
+export interface ElectronExecutionClientCert {
+  format: 'pfx' | 'pem';
+  pfx?: string;
+  cert?: string;
+  key?: string;
+  passphrase?: ProtocolSecretValue;
+}
+
+export interface ElectronExecutionPolicy {
+  allowLocalhost: boolean;
+  allowPrivateIPs: boolean;
+  proxy: {
+    enabled: boolean;
+    type: 'none' | 'http' | 'https' | 'socks4' | 'socks5';
+    host: string;
+    port: number;
+    bypassList: string[];
+    auth?: { username: string; password: ProtocolSecretValue };
+  };
+  defaultTimeout: number;
+  verifySsl: boolean;
+  clientCert?: ElectronExecutionClientCert;
+  caCert?: { pem: string };
+  clientCertificates: Array<{
+    id: string;
+    host: string;
+    port?: number;
+    cert: ElectronExecutionClientCert;
+  }>;
+  caCertificates: Array<{ id: string; host: string; port?: number; pem: string }>;
+  serverCipherOrder?: boolean;
+  minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
+  cipherSuites?: string;
+}
+
 interface ElectronSecurityAPI {
-  /** Push the outbound-network policy to main; shared by every SSRF guard. */
-  setNetworkPolicy: (policy: {
-    allowLocalhost: boolean;
-    allowPrivateIPs: boolean;
-  }) => Promise<{ ok: true }>;
+  /** Push the complete outbound execution policy to main. */
+  setExecutionPolicy: (policy: ElectronExecutionPolicy) => Promise<{ ok: true }>;
 }
 
 interface ElectronAPI {

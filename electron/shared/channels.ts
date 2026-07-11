@@ -177,7 +177,7 @@ export const IPC = {
     setConsent: 'telemetry:setConsent',
   },
   security: {
-    setNetworkPolicy: 'security:setNetworkPolicy',
+    setExecutionPolicy: 'security:setExecutionPolicy',
   },
 } as const;
 

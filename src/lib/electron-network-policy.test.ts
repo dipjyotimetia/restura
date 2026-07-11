@@ -10,14 +10,35 @@ beforeEach(() => {
 interface Settings {
   allowLocalhost?: boolean;
   allowPrivateIPs?: boolean;
+  proxy?: {
+    enabled: boolean;
+    type: 'http' | 'https' | 'socks4' | 'socks5' | 'none';
+    host: string;
+    port: number;
+    bypassList?: string[];
+  };
+  defaultTimeout?: number;
+  verifySsl?: boolean;
+  clientCert?: { format: 'pfx' | 'pem'; pfx?: string; cert?: string; key?: string };
+  caCert?: { pem: string };
+  clientCertificates?: Array<{
+    id: string;
+    host: string;
+    cert: { format: 'pfx' | 'pem'; pfx?: string; cert?: string; key?: string };
+  }>;
+  caCertificates?: Array<{ id: string; host: string; pem: string }>;
+  serverCipherOrder?: boolean;
+  minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
+  cipherSuites?: string;
 }
 
-async function load(isElectronValue: boolean, settings: Settings) {
+async function load(isElectronValue: boolean, settings: Settings, hydrated = true) {
   let subscriber: ((s: { settings: Settings }) => void) | null = null;
+  let finishHydration: (() => void) | null = null;
 
   vi.doMock('@/lib/shared/platform', () => ({ isElectron: () => isElectronValue }));
 
-  const setNetworkPolicyMock = vi.fn().mockResolvedValue({ ok: true });
+  const setExecutionPolicyMock = vi.fn().mockResolvedValue({ ok: true });
   vi.doMock('@/store/useSettingsStore', () => ({
     useSettingsStore: {
       getState: () => ({ settings }),
@@ -25,11 +46,18 @@ async function load(isElectronValue: boolean, settings: Settings) {
         subscriber = cb;
         return () => {};
       },
+      persist: {
+        hasHydrated: () => hydrated,
+        onFinishHydration: (cb: () => void) => {
+          finishHydration = cb;
+          return () => {};
+        },
+      },
     },
   }));
 
   Object.defineProperty(globalThis, 'window', {
-    value: { electron: { security: { setNetworkPolicy: setNetworkPolicyMock } } },
+    value: { electron: { security: { setExecutionPolicy: setExecutionPolicyMock } } },
     writable: true,
     configurable: true,
   });
@@ -37,63 +65,113 @@ async function load(isElectronValue: boolean, settings: Settings) {
   const { initNetworkPolicySync } = await import('./electron-network-policy');
   return {
     initNetworkPolicySync,
-    setNetworkPolicyMock,
+    setExecutionPolicyMock,
     get triggerStoreChange() {
       return subscriber;
+    },
+    get triggerHydration() {
+      return finishHydration;
     },
   };
 }
 
 describe('initNetworkPolicySync', () => {
   it('does nothing on web (isElectron false)', async () => {
-    const { initNetworkPolicySync, setNetworkPolicyMock } = await load(false, {});
+    const { initNetworkPolicySync, setExecutionPolicyMock } = await load(false, {});
     initNetworkPolicySync();
-    expect(setNetworkPolicyMock).not.toHaveBeenCalled();
+    expect(setExecutionPolicyMock).not.toHaveBeenCalled();
   });
 
   it('pushes the safe defaults when the settings are unset', async () => {
-    const { initNetworkPolicySync, setNetworkPolicyMock } = await load(true, {});
+    const { initNetworkPolicySync, setExecutionPolicyMock } = await load(true, {});
     initNetworkPolicySync();
-    expect(setNetworkPolicyMock).toHaveBeenCalledWith({
+    expect(setExecutionPolicyMock).toHaveBeenCalledWith({
       allowLocalhost: true,
       allowPrivateIPs: false,
+      proxy: { enabled: false, type: 'http', host: '', port: 8080, bypassList: [] },
+      defaultTimeout: 30000,
+      verifySsl: true,
+      clientCertificates: [],
+      caCertificates: [],
     });
   });
 
   it('pushes the user policy immediately on Electron', async () => {
-    const { initNetworkPolicySync, setNetworkPolicyMock } = await load(true, {
+    const { initNetworkPolicySync, setExecutionPolicyMock } = await load(true, {
       allowLocalhost: false,
       allowPrivateIPs: true,
+      proxy: { enabled: true, type: 'socks5', host: 'proxy.example.test', port: 1080 },
+      defaultTimeout: 45_000,
+      verifySsl: false,
+      clientCertificates: [
+        { id: 'host-cert', host: 'api.example.test', cert: { format: 'pfx', pfx: 'base64' } },
+      ],
+      caCertificates: [{ id: 'host-ca', host: 'api.example.test', pem: 'pem' }],
     });
     initNetworkPolicySync();
-    expect(setNetworkPolicyMock).toHaveBeenCalledWith({
+    expect(setExecutionPolicyMock).toHaveBeenCalledWith({
       allowLocalhost: false,
       allowPrivateIPs: true,
+      proxy: {
+        enabled: true,
+        type: 'socks5',
+        host: 'proxy.example.test',
+        port: 1080,
+        bypassList: [],
+      },
+      defaultTimeout: 45_000,
+      verifySsl: false,
+      clientCertificates: [
+        { id: 'host-cert', host: 'api.example.test', cert: { format: 'pfx', pfx: 'base64' } },
+      ],
+      caCertificates: [{ id: 'host-ca', host: 'api.example.test', pem: 'pem' }],
+    });
+  });
+
+  it('waits for persisted settings rehydration before its first policy push', async () => {
+    const result = await load(true, { allowLocalhost: false, allowPrivateIPs: true }, false);
+    result.initNetworkPolicySync();
+
+    expect(result.setExecutionPolicyMock).not.toHaveBeenCalled();
+    (result.triggerHydration as () => void)();
+    expect(result.setExecutionPolicyMock).toHaveBeenCalledWith({
+      allowLocalhost: false,
+      allowPrivateIPs: true,
+      proxy: { enabled: false, type: 'http', host: '', port: 8080, bypassList: [] },
+      defaultTimeout: 30000,
+      verifySsl: true,
+      clientCertificates: [],
+      caCertificates: [],
     });
   });
 
   it('pushes the updated policy when the store changes mid-session', async () => {
     const result = await load(true, { allowLocalhost: true, allowPrivateIPs: false });
     result.initNetworkPolicySync();
-    result.setNetworkPolicyMock.mockClear();
+    result.setExecutionPolicyMock.mockClear();
 
     const cb = result.triggerStoreChange as (s: { settings: Settings }) => void;
     cb({ settings: { allowLocalhost: false, allowPrivateIPs: true } });
 
-    expect(result.setNetworkPolicyMock).toHaveBeenCalledWith({
+    expect(result.setExecutionPolicyMock).toHaveBeenCalledWith({
       allowLocalhost: false,
       allowPrivateIPs: true,
+      proxy: { enabled: false, type: 'http', host: '', port: 8080, bypassList: [] },
+      defaultTimeout: 30000,
+      verifySsl: true,
+      clientCertificates: [],
+      caCertificates: [],
     });
   });
 
   it('does not push when neither flag changed', async () => {
     const result = await load(true, { allowLocalhost: true, allowPrivateIPs: false });
     result.initNetworkPolicySync();
-    result.setNetworkPolicyMock.mockClear();
+    result.setExecutionPolicyMock.mockClear();
 
     const cb = result.triggerStoreChange as (s: { settings: Settings }) => void;
     cb({ settings: { allowLocalhost: true, allowPrivateIPs: false } });
 
-    expect(result.setNetworkPolicyMock).not.toHaveBeenCalled();
+    expect(result.setExecutionPolicyMock).not.toHaveBeenCalled();
   });
 });
