@@ -2,6 +2,7 @@ import { app, BrowserWindow, session } from 'electron';
 import { createLogger } from '../../src/lib/shared/logger';
 import { registerAiHandlers, unregisterAiHandlers } from './handlers/ai-handler';
 import { registerAiLabHandlers, unregisterAiLabHandlers } from './handlers/ai-lab-handler';
+import { registerBugReportIPC } from './handlers/bug-report-handler';
 import {
   registerCaptureBridgeIPC,
   unregisterCaptureBridgeIPC,
@@ -153,6 +154,7 @@ const IPC_MODULES: IpcModule[] = [
   { register: () => registerKafkaHandlerIPC(logRequest), dispose: () => stopKafkaCleanup() },
   { register: () => registerMqttHandlerIPC(logRequest), dispose: () => stopMqttCleanup() },
   { register: () => registerRequestLoggerIPC() },
+  { register: () => registerBugReportIPC(getMainWindow) },
   { register: () => registerWindowControlsIPC(getMainWindow) },
   { register: () => registerNewWindowIPC(isDev) },
   { register: () => registerNotificationIPC(getMainWindow, isDev) },

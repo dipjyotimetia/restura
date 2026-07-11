@@ -1,80 +1,205 @@
-import { getAppVersion, getPlatform, openExternalUrl } from './platform';
+const GITHUB_BUG_REPORT_URL = 'https://github.com/dipjyotimetia/restura/issues/new';
+const MAX_RUNTIME_ERRORS = 25;
+const MAX_DIAGNOSTIC_TEXT_LENGTH = 2_000;
 
-function osHint(platform: string): string {
-  if (platform === 'darwin') return 'macOS';
-  if (platform === 'win32') return 'Windows';
-  if (platform === 'linux') return 'Linux';
-  // Web — sniff from UA (best-effort, no library needed)
-  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
-  if (ua.includes('Mac')) return 'macOS';
-  if (ua.includes('Win')) return 'Windows';
-  if (ua.includes('Linux')) return 'Linux';
-  return '';
+export type BugReportPlatform = 'web' | 'electron' | 'self-hosted';
+
+export interface BugReportRuntimeError {
+  message: string;
+  stack?: string;
+  source?: string;
+  timestamp?: string;
 }
 
-export async function openBugReport(): Promise<void> {
-  const version = await getAppVersion();
-  const platform = getPlatform();
-  const electron = platform !== 'web';
-  const os = osHint(platform);
+export interface BugReportRequestLog {
+  timestamp: string;
+  protocol: string;
+  method: string;
+  url: string;
+  status: number;
+  durationMs: number;
+  error?: string;
+}
 
-  // Mirrors .github/ISSUE_TEMPLATE/bug_report.md — pre-fill known fields.
-  const body = [
-    '## Bug Description',
+export interface BugReportDiagnostics {
+  appVersion: string;
+  platform: BugReportPlatform;
+  operatingSystem: string;
+  browser: string;
+  route: string;
+  capturedAt: string;
+  runtimeErrors: BugReportRuntimeError[];
+  requestLogs?: BugReportRequestLog[];
+}
+
+export interface BugReportDraft {
+  title: string;
+  description: string;
+  steps?: string;
+  expected?: string;
+  actual?: string;
+  diagnostics?: BugReportDiagnostics;
+  hasScreenshot?: boolean;
+}
+
+let runtimeErrors: BugReportRuntimeError[] = [];
+
+function trimDiagnosticText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim().slice(0, MAX_DIAGNOSTIC_TEXT_LENGTH);
+}
+
+/** Removes URL query, credentials, and fragment before diagnostics leave the app. */
+export function sanitizeBugReportText(value: string): string {
+  const withSafeUrls = value.replace(/https?:\/\/[^\s)'"`]+/g, (rawUrl) => {
+    try {
+      const url = new URL(rawUrl);
+      url.username = '';
+      url.password = '';
+      url.search = '';
+      url.hash = '';
+      return url.toString();
+    } catch {
+      return rawUrl.replace(/[?#][^\s)'"`]*/, '');
+    }
+  });
+
+  return trimDiagnosticText(withSafeUrls)
+    .replace(
+      /\b(api[_-]?key|token|authorization|password|secret)\s*[=:]\s*[^\s,;]+/gi,
+      '$1=[redacted]'
+    )
+    .slice(0, MAX_DIAGNOSTIC_TEXT_LENGTH);
+}
+
+export function recordRuntimeError(error: BugReportRuntimeError): void {
+  runtimeErrors = [
+    ...runtimeErrors,
+    {
+      message: sanitizeBugReportText(error.message),
+      ...(error.stack ? { stack: sanitizeBugReportText(error.stack) } : {}),
+      ...(error.source ? { source: sanitizeBugReportText(error.source) } : {}),
+      timestamp: error.timestamp ?? new Date().toISOString(),
+    },
+  ].slice(-MAX_RUNTIME_ERRORS);
+}
+
+export function getRuntimeErrors(): BugReportRuntimeError[] {
+  return runtimeErrors.map((error) => ({ ...error }));
+}
+
+/** Test-only reset for the module-level, in-memory diagnostic ring. */
+export function clearRuntimeErrorsForTests(): void {
+  runtimeErrors = [];
+}
+
+/** Installs non-invasive listeners alongside telemetry's global handlers. */
+export function installBugReportErrorCapture(): void {
+  if (typeof window === 'undefined') return;
+  window.addEventListener('error', (event) => {
+    recordRuntimeError({
+      message: event.message || 'Unhandled window error',
+      ...(event.error instanceof Error && event.error.stack ? { stack: event.error.stack } : {}),
+      source: event.filename,
+    });
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason;
+    recordRuntimeError({
+      message: reason instanceof Error ? reason.message : String(reason),
+      ...(reason instanceof Error && reason.stack ? { stack: reason.stack } : {}),
+      source: 'unhandledrejection',
+    });
+  });
+}
+
+function section(title: string, value: string | undefined, placeholder: string): string {
+  return `${title}\n\n${value?.trim() || placeholder}`;
+}
+
+function checkbox(checked: boolean, label: string): string {
+  return `- [${checked ? 'x' : ' '}] ${label}`;
+}
+
+function formatDiagnostics(diagnostics: BugReportDiagnostics): string {
+  const errors = diagnostics.runtimeErrors.map((error) => {
+    const context = [error.source, error.stack].filter(Boolean).join(' — ');
+    return `- ${sanitizeBugReportText(error.message)}${context ? ` (${sanitizeBugReportText(context)})` : ''}`;
+  });
+  const requests = (diagnostics.requestLogs ?? []).map((entry) => {
+    const suffix = entry.error ? ` — ${sanitizeBugReportText(entry.error)}` : '';
+    return `- ${entry.protocol.toUpperCase()} ${entry.method} ${sanitizeBugReportText(entry.url)} → ${entry.status} (${entry.durationMs}ms)${suffix}`;
+  });
+
+  return [
+    '### Diagnostic context',
     '',
-    '<!-- A clear and concise description of what the bug is -->',
-    '',
-    '## Steps to Reproduce',
-    '',
-    "1. Go to '...'",
-    "2. Click on '...'",
-    "3. Scroll down to '...'",
-    '4. See error',
-    '',
-    '## Expected Behavior',
-    '',
-    '<!-- A clear and concise description of what you expected to happen -->',
-    '',
-    '## Actual Behavior',
-    '',
-    '<!-- A clear and concise description of what actually happened -->',
-    '',
-    '## Screenshots',
-    '',
-    '<!-- If applicable, add screenshots to help explain your problem -->',
-    '',
-    '## Environment',
-    '',
-    '**Desktop (please complete the following information):**',
-    '',
-    `- OS: ${os || '[e.g. macOS 14.0, Windows 11, Ubuntu 22.04]'}`,
-    '- Browser: [e.g. Chrome 120, Firefox 121, Safari 17]',
-    '- Node Version: [e.g. 20.10.0]',
-    `- Restura Version: v${version}`,
-    '',
-    '**Application Type:**',
-    '',
-    `- [${electron ? 'x' : ' '}] Electron Desktop App`,
-    `- [${electron ? ' ' : 'x'}] Web Client`,
-    '',
-    '## Console Errors',
-    '',
-    '```',
-    'Paste error logs here',
-    '```',
-    '',
-    '## Additional Context',
-    '',
-    '<!-- Add any other context about the problem here -->',
-    '',
-    '## Possible Solution',
-    '',
-    '<!-- If you have suggestions on how to fix the issue, please describe them -->',
+    `- Captured: ${diagnostics.capturedAt}`,
+    `- Route: ${sanitizeBugReportText(diagnostics.route) || '[unknown]'}`,
+    ...(errors.length ? ['', '#### Recent runtime errors', '', ...errors] : []),
+    ...(requests.length ? ['', '#### Recent request history', '', ...requests] : []),
   ].join('\n');
+}
 
-  const url =
-    'https://github.com/dipjyotimetia/restura/issues/new?' +
-    new URLSearchParams({ labels: 'bug', title: '[BUG] ', body }).toString();
+/** Builds the GitHub issue body in the same order and vocabulary as bug_report.md. */
+export function buildBugReportMarkdown(draft: BugReportDraft): string {
+  const diagnostics = draft.diagnostics;
+  const platform = diagnostics?.platform;
+  const hasDiagnostics = diagnostics !== undefined;
 
-  await openExternalUrl(url);
+  return [
+    section('## 🔍 Description', draft.description, '<!-- Describe the problem -->'),
+    '',
+    section('## 📋 Steps to Reproduce', draft.steps, '<!-- Add reproducible steps -->'),
+    '',
+    section('## ✅ Expected Behavior', draft.expected, '<!-- What should happen instead? -->'),
+    '',
+    section('## ❌ Actual Behavior', draft.actual, '<!-- What actually happened? -->'),
+    '',
+    '## 📸 Screenshots',
+    '',
+    draft.hasScreenshot
+      ? '> A screenshot was copied to your clipboard. Paste it below with Cmd/Ctrl+V.'
+      : '<!-- No screenshot included -->',
+    '',
+    '## 🌍 Environment',
+    '',
+    '**Platform:**',
+    '',
+    checkbox(platform === 'web', '🌐 Web Client (Cloudflare Pages)'),
+    checkbox(platform === 'electron', '🖥️ Electron Desktop App'),
+    checkbox(platform === 'self-hosted', '📦 Self-hosted Node/Docker'),
+    '',
+    '**System Information:**',
+    '',
+    `- OS: ${diagnostics?.operatingSystem || '[not included]'}`,
+    `- Browser: ${diagnostics?.browser || '[not included]'}`,
+    '- Node Version: [not included]',
+    `- Restura Version: ${diagnostics?.appVersion || '[not included]'}`,
+    '',
+    '## 🚨 Error Logs',
+    '',
+    '```',
+    hasDiagnostics ? 'See Diagnostic context below.' : 'No diagnostics included.',
+    '```',
+    ...(diagnostics ? ['', formatDiagnostics(diagnostics)] : []),
+    '',
+    '## 📝 Additional Context',
+    '',
+    '<!-- Add any other relevant information -->',
+    '',
+    '## 💡 Possible Solution',
+    '',
+    '<!-- Optional: If you have ideas on how to fix this -->',
+  ].join('\n');
+}
+
+export function buildGitHubBugReportUrl(draft: BugReportDraft): string {
+  const title = draft.title.trim() || 'Untitled report';
+  const params = new URLSearchParams({
+    template: 'bug_report.md',
+    labels: 'bug',
+    title: `🐛 [BUG] ${title}`,
+    body: buildBugReportMarkdown(draft),
+  });
+  return `${GITHUB_BUG_REPORT_URL}?${params.toString()}`;
 }

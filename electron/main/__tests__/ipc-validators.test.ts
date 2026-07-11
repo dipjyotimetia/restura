@@ -13,6 +13,7 @@ import {
   createValidatedHandler,
   MAX_HTTP_BODY_BYTES,
   MAX_PROTO_CONTENT_BYTES,
+  BugReportScreenshotSchema,
 } from '../ipc/ipc-validators';
 
 // validateIpcInput logs at error level before throwing, which produces JSON
@@ -30,6 +31,26 @@ const trustedEvent = {
 } as unknown as Electron.IpcMainInvokeEvent;
 
 describe('validateIpcInput', () => {
+  it('accepts a bounded PNG data URL for the bug-report clipboard bridge', () => {
+    expect(() =>
+      validateIpcInput(
+        BugReportScreenshotSchema,
+        'data:image/png;base64,iVBORw0KGgo=',
+        'bug-report:copyScreenshot'
+      )
+    ).not.toThrow();
+  });
+
+  it('rejects non-image data URLs for the bug-report clipboard bridge', () => {
+    expect(() =>
+      validateIpcInput(
+        BugReportScreenshotSchema,
+        'data:text/plain;base64,c2VjcmV0',
+        'bug-report:copyScreenshot'
+      )
+    ).toThrow('bug-report:copyScreenshot');
+  });
+
   describe('HttpRequestConfigSchema', () => {
     it('valid HTTP config passes', () => {
       const input = { method: 'GET', url: 'https://example.com' };
