@@ -60,8 +60,8 @@ export function resolveWebsocketExecutionPolicy<T extends PolicyTransportConfig>
   return resolvePolicyTransport(config);
 }
 
-function applyWebSocketPolicyConfig(config: { url: string; timeout?: number }) {
-  const policyConfig = resolveWebsocketExecutionPolicy(config);
+function applyWebSocketPolicyConfig(url: string) {
+  const policyConfig = resolveWebsocketExecutionPolicy({ url });
   assertPinnedFetchCanHonorPolicy(policyConfig);
   return policyConfig;
 }
@@ -74,10 +74,7 @@ export function registerWebSocketHandlerIPC(): void {
     const config = validateIpcInput(WsConnectSchema, rawConfig, IPC.ws.connect);
     let policyConfig: ReturnType<typeof applyWebSocketPolicyConfig>;
     try {
-      policyConfig = applyWebSocketPolicyConfig({
-        url: config.url,
-        timeout: config.timeout,
-      });
+      policyConfig = applyWebSocketPolicyConfig(config.url);
     } catch (err) {
       return {
         success: false,
