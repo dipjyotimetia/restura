@@ -41,6 +41,7 @@ function start(config: EvalConfig): void {
     return;
   }
   useEvalLiveStore.setState({ error: null, progress: null, running: true });
+  lab.recordRecentModels(config.models.map(modelKey));
 
   // Capture friendly labels at run start so the report keeps readable names
   // even if a provider is renamed/removed later.

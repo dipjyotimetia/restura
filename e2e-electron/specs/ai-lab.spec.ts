@@ -19,23 +19,25 @@ test.describe('Desktop AI Lab (local OpenAI-compatible provider)', () => {
       window.location.hash = '#/ai-lab';
     });
     try {
-      // Providers tab → add an openai-compatible provider pointed at the mock.
-      await page.getByRole('tab', { name: 'Providers' }).click();
+      // Models workspace → connect an openai-compatible provider pointed at the mock.
+      // Connect & save validates and discovers in one secure, handle-only flow.
+      await page.getByRole('button', { name: 'Models', exact: true }).click();
       await page.getByRole('combobox').first().click();
       await page.getByRole('option', { name: /OpenAI-compatible/i }).click();
       await page.getByPlaceholder('e.g. Local Ollama').fill('Mock LLM');
       await page.getByPlaceholder('http://localhost:11434').fill(servers.http.url);
       // API key intentionally blank — local provider, no secret/keychain.
-      await page.getByRole('button', { name: 'Add provider' }).click();
+      await page.getByRole('button', { name: 'Connect & save' }).click();
+      await expect(page.getByText('mock-model').first()).toBeVisible({ timeout: 15_000 });
 
-      // Discover the mock's model (GET /v1/models from the main process).
-      await page.getByRole('button', { name: 'Discover models' }).click();
+      // Favorite the discovered model so the catalog curation path is covered.
+      await page.getByRole('button', { name: 'Add mock-model to favorites' }).click();
 
       // Playground → select the discovered model → run a completion. The model
       // checklist groups by provider: "Mock LLM" renders as a group header and
       // "mock-model" as the selectable row, so target the row's <label>
       // (clicking it toggles the wrapped checkbox).
-      await page.getByRole('tab', { name: 'Playground' }).click();
+      await page.getByRole('button', { name: 'Playground', exact: true }).click();
       await page.locator('label', { hasText: 'mock-model' }).click({ timeout: 15_000 });
       await page.getByRole('button', { name: /run on/i }).click();
 

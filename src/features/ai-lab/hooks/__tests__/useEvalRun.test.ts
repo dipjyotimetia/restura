@@ -28,6 +28,8 @@ function seedConfig(): EvalConfig {
       ds: { id: 'ds', name: 'd', cases: [{ id: 'c1', vars: {} }], createdAt: 0, updatedAt: 0 },
     },
     evalConfigs: {},
+    favoriteModelKeys: [],
+    recentModelKeys: [],
   });
   return {
     id: 'cfg',
@@ -67,6 +69,7 @@ describe('useEvalRun', () => {
     expect(runs[0]?.cells).toHaveLength(1);
     expect(result.current.progress?.done).toBe(true);
     expect(result.current.running).toBe(false);
+    expect(useAiLabStore.getState().recentModelKeys).toEqual(['p1:m']);
   });
 
   it('errors when the prompt or dataset is missing', async () => {

@@ -23,6 +23,15 @@
       "@/*": ["../src/*"]
     }
   },
+  "tsc-alias": {
+    // The broad base-url replacer treats the repository's top-level
+    // `electron/` directory as a local target for the Electron runtime package,
+    // turning require("electron") into require("../../electron"). Only the
+    // explicit @/ and @shared/ path mappings should be rewritten.
+    "replacers": {
+      "base-url": { "enabled": false }
+    }
+  },
   "include": ["**/*.ts", "../shared/**/*.ts"],
   "exclude": ["node_modules"]
 }

@@ -17,6 +17,14 @@ export interface ModelOption {
   shortLabel: string;
   /** Rich discovery metadata (if any). */
   detail?: AiLabModelDetail;
+  /** Persisted catalog curation flags used to prioritize large model lists. */
+  isFavorite: boolean;
+  recentRank: number | null;
+}
+
+export interface ModelOptionCuration {
+  favoriteModelKeys?: readonly string[];
+  recentModelKeys?: readonly string[];
 }
 
 /**
@@ -34,7 +42,12 @@ export function modelLabelFor(
   return `${cfg.label} · ${cfg.modelDetails?.[ref.model]?.label ?? ref.model}`;
 }
 
-export function buildModelOptions(providers: Record<string, AiLabProviderConfig>): ModelOption[] {
+export function buildModelOptions(
+  providers: Record<string, AiLabProviderConfig>,
+  curation: ModelOptionCuration = {}
+): ModelOption[] {
+  const favorites = new Set(curation.favoriteModelKeys ?? []);
+  const recentRanks = new Map((curation.recentModelKeys ?? []).map((key, index) => [key, index]));
   const out: ModelOption[] = [];
   for (const cfg of Object.values(providers)) {
     for (const model of cfg.models) {
@@ -43,17 +56,27 @@ export function buildModelOptions(providers: Record<string, AiLabProviderConfig>
       // tooltip / dim caption in the checklist.
       const detail = cfg.modelDetails?.[model];
       const shortLabel = detail?.label ?? model;
+      const key = `${cfg.id}:${model}`;
+      const isFavorite = favorites.has(key);
       out.push({
-        key: `${cfg.id}:${model}`,
+        key,
         cfg,
         model,
         label: `${cfg.label} · ${shortLabel}`,
         shortLabel,
+        isFavorite,
+        recentRank: isFavorite ? null : (recentRanks.get(key) ?? null),
         ...(detail ? { detail } : {}),
       });
     }
   }
-  return out;
+  return out.sort((a, b) => {
+    if (a.isFavorite !== b.isFavorite) return a.isFavorite ? -1 : 1;
+    const aRecent = a.recentRank ?? Number.POSITIVE_INFINITY;
+    const bRecent = b.recentRank ?? Number.POSITIVE_INFINITY;
+    if (aRecent !== bRecent) return aRecent - bRecent;
+    return a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
+  });
 }
 
 /** Map options to checklist entries (grouped under their provider). */

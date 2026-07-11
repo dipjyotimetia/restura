@@ -40,6 +40,7 @@ interface CellState {
 export function Playground() {
   const providers = useAiLabStore((s) => s.providers);
   const upsertDataset = useAiLabStore((s) => s.upsertDataset);
+  const recordRecentModels = useAiLabStore((s) => s.recordRecentModels);
   // Prompt/model config lives in the session UI store so switching sub-tabs
   // (which unmounts this component) doesn't wipe the composition. Streaming
   // results stay component-local: their streams are cancelled on unmount
@@ -47,6 +48,7 @@ export function Playground() {
   const draft = useAiLabUiStore((s) => s.playgroundDraft);
   const patchDraft = useAiLabUiStore((s) => s.patchPlaygroundDraft);
   const openDataset = useAiLabUiStore((s) => s.openDataset);
+  const setTab = useAiLabUiStore((s) => s.setTab);
 
   const [cells, setCells] = useState<Record<string, CellState>>({});
   const [activeCount, setActiveCount] = useState(0);
@@ -180,6 +182,7 @@ export function Playground() {
     const usr = renderTemplate(draft.user, vars);
     const chosen = modelOptions.filter((m) => selectedSet.has(m.key));
     if (chosen.length === 0) return;
+    recordRecentModels(chosen.map((model) => model.key));
 
     setActiveCount(chosen.length);
     setExpanded(new Set());
@@ -353,7 +356,12 @@ export function Playground() {
                 selected={selectedSet}
                 onToggle={toggle}
                 onChangeSelected={setSelected}
-                emptyText="No models. Add a provider and discover its models in the Providers tab."
+                emptyText="No models are ready yet. Connect a provider to populate the catalog."
+                emptyAction={
+                  <Button variant="outline" size="sm" onClick={() => setTab('providers')}>
+                    Open Models
+                  </Button>
+                }
               />
             </div>
             {activeCount > 0 ? (

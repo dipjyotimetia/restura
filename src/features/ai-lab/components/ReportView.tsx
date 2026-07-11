@@ -116,6 +116,7 @@ export function ReportView() {
   const setActiveId = useAiLabUiStore((s) => s.setReportRunId);
   const drillCaseId = useAiLabUiStore((s) => s.reportDrillCaseId);
   const setDrillCaseId = useAiLabUiStore((s) => s.setReportDrillCaseId);
+  const setTab = useAiLabUiStore((s) => s.setTab);
   const active = (activeId ? runs[activeId] : undefined) ?? sorted[0];
   const { confirm: confirmDelete, DialogComponent: DeleteRunDialog } = useConfirmDialog({
     title: 'Delete run',
@@ -220,7 +221,12 @@ export function ReportView() {
       <EmptyState
         fill
         icon={BarChart3}
-        message="No runs yet. Configure an eval and run it first."
+        message="No reports yet. Run an eval to create the first comparison report."
+        action={
+          <Button variant="outline" size="sm" onClick={() => setTab('evals')}>
+            Configure an eval
+          </Button>
+        }
       />
     );
   }

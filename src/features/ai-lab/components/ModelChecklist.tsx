@@ -1,5 +1,6 @@
 import { Search } from 'lucide-react';
 import { memo, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { AiLabModelDetail } from '../types';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -51,6 +52,7 @@ export const ModelChecklist = memo(function ModelChecklist({
   onToggle,
   onChangeSelected,
   emptyText,
+  emptyAction,
 }: {
   models: ModelChecklistEntry[];
   selected: Set<string>;
@@ -58,6 +60,7 @@ export const ModelChecklist = memo(function ModelChecklist({
   /** Enables the bulk select-all / clear controls when provided. */
   onChangeSelected?: (next: Set<string>) => void;
   emptyText: string;
+  emptyAction?: ReactNode;
 }) {
   const [filter, setFilter] = useState('');
 
@@ -88,7 +91,12 @@ export const ModelChecklist = memo(function ModelChecklist({
   }, [filtered]);
 
   if (models.length === 0) {
-    return <p className="px-2 py-1.5 text-sp-12 text-sp-muted">{emptyText}</p>;
+    return (
+      <div className="flex flex-col items-start gap-2 rounded-sp-btn border border-dashed border-sp-line px-3 py-3">
+        <p className="text-sp-12 text-sp-muted">{emptyText}</p>
+        {emptyAction}
+      </div>
+    );
   }
 
   const showControls = models.length > FILTER_THRESHOLD;

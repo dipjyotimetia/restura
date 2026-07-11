@@ -6,6 +6,7 @@ import {
   toggleKey,
   type ModelOption,
 } from '../lib/modelOptions';
+import { useAiLabStore } from '../store/useAiLabStore';
 import type { AiLabProviderConfig } from '../types';
 
 /**
@@ -29,7 +30,12 @@ export function useModelSelection(
   toggle: (key: string) => void;
   setSelected: (next: Set<string>) => void;
 } {
-  const modelOptions = useMemo(() => buildModelOptions(providers), [providers]);
+  const favoriteModelKeys = useAiLabStore((state) => state.favoriteModelKeys);
+  const recentModelKeys = useAiLabStore((state) => state.recentModelKeys);
+  const modelOptions = useMemo(
+    () => buildModelOptions(providers, { favoriteModelKeys, recentModelKeys }),
+    [providers, favoriteModelKeys, recentModelKeys]
+  );
   const checklistEntries = useMemo(() => toChecklistEntries(modelOptions), [modelOptions]);
   const selectedSet = useMemo(() => new Set(selected), [selected]);
   const toggle = useCallback(

@@ -332,6 +332,7 @@ const AiLabProviderConfigSchema = z.object({
       error: z.string().optional(),
     })
     .optional(),
+  lastDiscoveredAt: z.number().optional(),
   createdAt: z.number(),
 });
 
@@ -409,6 +410,8 @@ export const AiLabStateSchema = z.object({
   prompts: z.record(z.string(), PromptTemplateSchema),
   datasets: z.record(z.string(), DatasetSchema),
   evalConfigs: z.record(z.string(), EvalConfigSchema),
+  favoriteModelKeys: z.array(z.string()).default([]),
+  recentModelKeys: z.array(z.string()).max(20).default([]),
 });
 
 export type PersistedAiLabState = z.infer<typeof AiLabStateSchema>;
