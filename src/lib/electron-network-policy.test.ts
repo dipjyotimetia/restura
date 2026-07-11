@@ -179,7 +179,7 @@ describe('initNetworkPolicySync', () => {
     expect(result.setExecutionPolicyMock).not.toHaveBeenCalled();
   });
 
-  it('re-attempts an identical policy after main rejects an earlier async sync', async () => {
+  it('retries an identical policy after main rejects an earlier async sync without a store update', async () => {
     const rejection = new Error('main process unavailable');
     const setExecutionPolicyMock = vi
       .fn()
@@ -194,11 +194,6 @@ describe('initNetworkPolicySync', () => {
     await vi.waitFor(() =>
       expect(reportFailure).toHaveBeenCalledWith(expect.any(String), rejection)
     );
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    const cb = result.triggerStoreChange as (s: { settings: Settings }) => void;
-    cb({ settings });
-
     await vi.waitFor(() => expect(setExecutionPolicyMock).toHaveBeenCalledTimes(2));
     reportFailure.mockRestore();
   });

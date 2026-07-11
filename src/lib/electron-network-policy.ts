@@ -30,6 +30,7 @@ import type {
  */
 
 let subscribed = false;
+const POLICY_RETRY_MS = 250;
 
 interface ExecutionPolicy {
   allowLocalhost: boolean;
@@ -103,6 +104,15 @@ export function initNetworkPolicySync(): void {
   let acknowledged: ExecutionPolicy | undefined;
   let desired: ExecutionPolicy | undefined;
   let pending: ExecutionPolicy | undefined;
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const scheduleRetry = () => {
+    if (retryTimer || !desired || policyEquals(acknowledged, desired)) return;
+    retryTimer = setTimeout(() => {
+      retryTimer = undefined;
+      flush();
+    }, POLICY_RETRY_MS);
+  };
 
   const flush = () => {
     if (!desired || policyEquals(acknowledged, desired) || policyEquals(pending, desired)) {
@@ -114,6 +124,7 @@ export function initNetworkPolicySync(): void {
     void pushPolicy(candidate)
       .then((wasAcknowledged) => {
         if (wasAcknowledged) acknowledged = candidate;
+        else scheduleRetry();
       })
       .finally(() => {
         if (policyEquals(pending, candidate)) pending = undefined;
