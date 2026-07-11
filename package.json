@@ -1,6 +1,6 @@
 {
   "name": "restura",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "private": true,
   "description": "Restura - A modern multi-protocol API client for HTTP and gRPC testing",
   "author": "dipjyotimetia",
