@@ -29,6 +29,7 @@ vi.mock('../ipc/ipc-validators', () => ({
 vi.mock('@shared/protocol/http-proxy', () => ({ executeHttpProxyStreaming: mockStreaming }));
 
 import { registerSseHandlerIPC, stopSseCleanup } from '../handlers/sse-handler';
+import { setExecutionPolicy } from '../security/execution-policy';
 
 function handlerFor(channel: string) {
   const call = mockHandle.mock.calls.find((c) => c[0] === channel);
@@ -64,6 +65,13 @@ const flush = () => new Promise((r) => setTimeout(r, 5));
 
 describe('sse-handler (StreamRegistry-backed)', () => {
   beforeEach(() => {
+    setExecutionPolicy({
+      security: { allowLocalhost: true, allowPrivateIPs: false },
+      proxy: { enabled: false, type: 'http', host: '', port: 8080, bypassList: [] },
+      timeout: 30_000,
+      tls: { verifySsl: true, serverCipherOrder: false },
+      certificates: { clientCertificates: [], caCertificates: [] },
+    });
     mockHandle.mockClear();
     mockEmitTo.mockClear();
     mockResolveSafe.mockClear();
@@ -102,6 +110,32 @@ describe('sse-handler (StreamRegistry-backed)', () => {
     const errCall = mockEmitTo.mock.calls.find((c) => c[1] === 'sse:error:c2');
     expect(errCall?.[2]).toEqual({ message: 'bad upstream' });
     expect(mockEmitTo.mock.calls.some((c) => c[1] === 'sse:close:c2')).toBe(true);
+  });
+
+  it('fails clearly rather than connecting directly when its policy proxy cannot be honored', async () => {
+    setExecutionPolicy({
+      security: { allowLocalhost: true, allowPrivateIPs: false },
+      proxy: {
+        enabled: true,
+        type: 'socks5',
+        host: 'proxy.example.test',
+        port: 1080,
+        bypassList: [],
+      },
+      timeout: 30_000,
+      tls: { verifySsl: true, serverCipherOrder: false },
+      certificates: { clientCertificates: [], caCertificates: [] },
+    });
+    const { event } = makeEvent(7);
+
+    await expect(
+      handlerFor('sse:connect')(event, { connectionId: 'proxy', url: 'https://example.com/stream' })
+    ).resolves.toEqual({
+      success: false,
+      error: 'Configured SOCKS5 proxy cannot be honored by this DNS-pinned connection',
+    });
+    expect(mockResolveSafe).not.toHaveBeenCalled();
+    expect(mockStreaming).not.toHaveBeenCalled();
   });
 
   it('disconnect suppresses the trailing close event (explicitlyClosed)', async () => {

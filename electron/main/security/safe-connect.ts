@@ -154,9 +154,13 @@ export function createPinnedLookup(host: string, ip: string): any {
  * undici dispatcher uses a `lookup` hook that always returns `ip` for `host`.
  * SNI + Host header continue to use `host` (preserves TLS validation).
  */
-export function createPinnedFetch(host: string, ip: string): typeof globalThis.fetch {
+export function createPinnedFetch(
+  host: string,
+  ip: string,
+  connectOptions: Record<string, unknown> = {}
+): typeof globalThis.fetch {
   const agent = new Agent({
-    connect: { lookup: createPinnedLookup(host, ip) },
+    connect: { ...connectOptions, lookup: createPinnedLookup(host, ip) } as Agent.Options['connect'],
   });
   return ((input: RequestInfo | URL, init?: RequestInit) => {
     const undiciInit: UndiciRequestInit = {

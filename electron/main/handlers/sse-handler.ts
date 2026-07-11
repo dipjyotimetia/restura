@@ -13,7 +13,13 @@ import {
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
 import { getExecutionPolicy } from '../security/execution-policy';
-import { resolveSafeAddress, createPinnedFetch } from '../security/safe-connect';
+import {
+  assertPinnedFetchCanHonorPolicy,
+  createPolicyPinnedFetch,
+  resolvePolicyTransport,
+  type PolicyTransportConfig,
+} from '../security/policy-transport';
+import { resolveSafeAddress } from '../security/safe-connect';
 import { makeFetchFetcher } from './fetch-fetcher';
 import { SseParser, type ParsedSseEvent } from './sse-parser';
 
@@ -22,6 +28,11 @@ const log = createLogger('sse');
 export const sseRateLimiter = createKeyedRateLimiter(20, 60_000);
 const MAX_CONCURRENT_SSE_CONNECTIONS = 50;
 const CONNECTION_TIMEOUT_MS = 30_000;
+
+/** Apply acknowledged desktop defaults before establishing an SSE stream. */
+export function resolveSseExecutionPolicy<T extends PolicyTransportConfig>(config: T) {
+  return resolvePolicyTransport(config);
+}
 
 interface ActiveSse {
   connectionId: string;
@@ -100,6 +111,14 @@ export function registerSseHandlerIPC(): void {
     const { connectionId } = config;
     const webContentsId = event.sender.id;
 
+    let policyConfig: ReturnType<typeof resolveSseExecutionPolicy>;
+    try {
+      policyConfig = resolveSseExecutionPolicy(config);
+      assertPinnedFetchCanHonorPolicy(policyConfig);
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Connection policy rejected' };
+    }
+
     if (!sseRateLimiter.check(webContentsId)) {
       return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
     }
@@ -116,7 +135,7 @@ export function registerSseHandlerIPC(): void {
     // keeps SNI + Host header on the original hostname for TLS correctness.
     let pinned: Awaited<ReturnType<typeof resolveSafeAddress>>;
     try {
-      pinned = await resolveSafeAddress(config.url, { ...getExecutionPolicy().security });
+      pinned = await resolveSafeAddress(policyConfig.url, { ...getExecutionPolicy().security });
     } catch (err) {
       return {
         success: false,
@@ -125,7 +144,7 @@ export function registerSseHandlerIPC(): void {
     }
 
     const abortController = new AbortController();
-    const timeoutId = setTimeout(() => abortController.abort(), CONNECTION_TIMEOUT_MS);
+    const timeoutId = setTimeout(() => abortController.abort(), policyConfig.timeout ?? CONNECTION_TIMEOUT_MS);
 
     const entry: ActiveSse = {
       connectionId,
@@ -144,7 +163,7 @@ export function registerSseHandlerIPC(): void {
     // just validated so the connect can't be rebound out from under us.
     const sseFetcher = makeFetchFetcher({
       redirect: 'manual',
-      fetchImpl: createPinnedFetch(pinned.host, pinned.ip),
+      fetchImpl: createPolicyPinnedFetch(policyConfig, pinned),
     });
 
     try {
@@ -155,8 +174,9 @@ export function registerSseHandlerIPC(): void {
       const result = await executeHttpProxyStreaming(
         {
           method: 'GET',
-          url: config.url,
+          url: policyConfig.url,
           headers: { Accept: 'text/event-stream', ...(config.headers ?? {}) },
+          timeout: policyConfig.timeout,
         },
         sseFetcher,
         // Same outbound-network policy as every other desktop transport
