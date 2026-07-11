@@ -1136,6 +1136,12 @@ export const StoreSetSchema = z.tuple([StoreKeySchema, StoreValueSchema]);
 
 export const LogHistoryLimitSchema = z.number().int().positive().max(1000).optional();
 
+/** PNG data URL only; prevents the clipboard bridge accepting arbitrary file/HTML payloads. */
+export const BugReportScreenshotSchema = z
+  .string()
+  .max(12 * 1024 * 1024, 'Screenshot exceeds 12MB')
+  .regex(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/, 'Expected a PNG data URL');
+
 // ===========================
 // Validation Helper
 // ===========================

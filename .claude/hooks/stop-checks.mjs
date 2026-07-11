@@ -148,9 +148,7 @@ try {
   ].filter(Boolean);
 
   if (messages.length) {
-    process.stdout.write(
-      JSON.stringify({ decision: 'block', reason: messages.join('\n\n') })
-    );
+    process.stdout.write(JSON.stringify({ decision: 'block', reason: messages.join('\n\n') }));
   }
 } catch {
   // intentionally empty — a checks hook must never break the session

@@ -47,7 +47,7 @@ jobs:
         with:
           script: |
             const issue = context.payload.issue;
-            
+
             // Check if there are any linked PRs
             const linkedPRs = await github.rest.issues.listEventsForTimeline({
               owner: context.repo.owner,

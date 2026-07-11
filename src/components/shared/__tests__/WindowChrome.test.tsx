@@ -46,6 +46,15 @@ describe('WindowChrome', () => {
     expect(handler).toHaveBeenCalledOnce();
   });
 
+  it('Report a bug button invokes onOpenBugReport', async () => {
+    const user = userEvent.setup();
+    const handler = vi.fn();
+    render(<WindowChrome onOpenBugReport={handler} />);
+
+    await user.click(screen.getByRole('button', { name: /report a bug/i }));
+    expect(handler).toHaveBeenCalledOnce();
+  });
+
   it('Env pill click invokes onOpenEnvSwitcher when provided', async () => {
     const user = userEvent.setup();
     const switcher = vi.fn();
