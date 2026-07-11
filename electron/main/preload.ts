@@ -842,6 +842,13 @@ const electronAPI = {
     clear: (): Promise<void> => ipcRenderer.invoke(IPC.log.clear),
   },
 
+  bugReport: {
+    captureScreenshot: () => ipcRenderer.invoke(IPC.bugReport.captureScreenshot),
+    getDiagnostics: () => ipcRenderer.invoke(IPC.bugReport.getDiagnostics),
+    copyScreenshot: (imageDataUrl: string) =>
+      ipcRenderer.invoke(IPC.bugReport.copyScreenshot, imageDataUrl),
+  },
+
   // Keychain (safeStorage) status — surfaces whether secrets are protected by
   // the OS keychain or held in a plaintext fallback (Linux without libsecret).
   keychain: {

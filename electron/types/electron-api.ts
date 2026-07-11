@@ -763,6 +763,14 @@ interface ElectronLogAPI {
   clear: () => Promise<void>;
 }
 
+interface ElectronBugReportAPI {
+  captureScreenshot: () => Promise<
+    { ok: true; imageDataUrl: string } | { ok: false; error: string }
+  >;
+  getDiagnostics: () => Promise<import('../../src/lib/shared/bug-report').BugReportDiagnostics>;
+  copyScreenshot: (imageDataUrl: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+}
+
 interface KeychainStatus {
   mode: 'safeStorage' | 'plaintext';
   reason?: 'no-keyring' | 'decrypt-failed';
@@ -973,6 +981,7 @@ interface ElectronAPI {
   ai: ElectronAiAPI;
   aiLab: ElectronAiLabAPI;
   log: ElectronLogAPI;
+  bugReport: ElectronBugReportAPI;
   keychain: ElectronKeychainAPI;
   collections: ElectronCollectionsAPI;
   telemetry: ElectronTelemetryAPI;

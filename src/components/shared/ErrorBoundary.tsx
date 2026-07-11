@@ -4,6 +4,7 @@ import { AlertTriangle, RefreshCw } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Component } from 'react';
 import { Button } from '@/components/ui/button';
+import { recordRuntimeError } from '@/lib/shared/bug-report';
 import { isElectron } from '@/lib/shared/platform';
 import { reportError } from '@/lib/shared/telemetry';
 
@@ -31,6 +32,11 @@ export class ErrorBoundary extends Component<Props, State> {
 
   override componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
+    recordRuntimeError({
+      message: error.message,
+      ...(error.stack ? { stack: error.stack } : {}),
+      source: 'error-boundary',
+    });
     this.setState({ errorInfo });
 
     // Call custom error handler if provided
