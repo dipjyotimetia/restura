@@ -9,7 +9,7 @@
 //
 // Each concern keeps its own .git dedup marker so it nags independently and at
 // most once per distinct change. Contract: never throws, always exits 0; output
-// is a single non-blocking Stop decision with a systemMessage (or nothing).
+// is a single blocking Stop decision with a reason (or nothing).
 
 import { execFileSync } from 'node:child_process';
 import { binPath, changedFiles, firstTimeFor, projectDir, readPayload } from './_shared.mjs';
@@ -149,7 +149,7 @@ try {
 
   if (messages.length) {
     process.stdout.write(
-      JSON.stringify({ decision: 'approve', systemMessage: messages.join('\n\n') })
+      JSON.stringify({ decision: 'block', reason: messages.join('\n\n') })
     );
   }
 } catch {

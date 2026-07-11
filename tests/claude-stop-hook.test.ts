@@ -32,8 +32,8 @@ describe('Claude Stop hook', () => {
       encoding: 'utf8',
     });
 
-    const parsed = JSON.parse(output) as { decision?: string; systemMessage?: string };
-    expect(parsed.decision).toBe('approve');
-    expect(parsed.systemMessage).toContain('type-check reminder');
+    const parsed = JSON.parse(output) as { decision?: string; reason?: string };
+    expect(parsed.decision).toBe('block');
+    expect(parsed.reason).toContain('type-check reminder');
   });
 });
