@@ -70,9 +70,27 @@ function readPolicy(s: AppSettings = useSettingsStore.getState().settings): Exec
   };
 }
 
-function pushPolicy(policy: ExecutionPolicy): void {
-  // Best-effort; a failed push must never break the app (main keeps its last value).
-  void window.electron?.security?.setExecutionPolicy(policy);
+function pushPolicy(policy: ExecutionPolicy): Promise<boolean> {
+  const security = window.electron?.security;
+  if (!security) {
+    console.error('Unable to synchronize the Electron execution policy: IPC is unavailable');
+    return Promise.resolve(false);
+  }
+
+  try {
+    return security.setExecutionPolicy(policy).then(
+      () => true,
+      (error: unknown) => {
+        // Best-effort; a failed push must never break the app. Keeping the
+        // snapshot unsynchronized lets a later identical settings update retry.
+        console.error('Unable to synchronize the Electron execution policy', error);
+        return false;
+      }
+    );
+  } catch (error) {
+    console.error('Unable to synchronize the Electron execution policy', error);
+    return Promise.resolve(false);
+  }
 }
 
 function policyEquals(a: ExecutionPolicy | undefined, b: ExecutionPolicy): boolean {
@@ -82,13 +100,31 @@ function policyEquals(a: ExecutionPolicy | undefined, b: ExecutionPolicy): boole
 export function initNetworkPolicySync(): void {
   if (!isElectron() || subscribed) return;
   subscribed = true;
-  let last: ExecutionPolicy | undefined;
-  const sync = (settings?: AppSettings) => {
-    const next = readPolicy(settings);
-    if (!policyEquals(last, next)) {
-      last = next;
-      pushPolicy(next);
+  let acknowledged: ExecutionPolicy | undefined;
+  let desired: ExecutionPolicy | undefined;
+  let pending: ExecutionPolicy | undefined;
+
+  const flush = () => {
+    if (!desired || policyEquals(acknowledged, desired) || policyEquals(pending, desired)) {
+      return;
     }
+
+    const candidate = desired;
+    pending = candidate;
+    void pushPolicy(candidate)
+      .then((wasAcknowledged) => {
+        if (wasAcknowledged) acknowledged = candidate;
+      })
+      .finally(() => {
+        if (policyEquals(pending, candidate)) pending = undefined;
+        // A changed snapshot may have arrived while its predecessor was in flight.
+        if (desired && !policyEquals(candidate, desired)) flush();
+      });
+  };
+
+  const sync = (settings?: AppSettings) => {
+    desired = readPolicy(settings);
+    flush();
   };
 
   useSettingsStore.subscribe((state) => {

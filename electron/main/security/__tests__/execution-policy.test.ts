@@ -78,4 +78,18 @@ describe('execution policy', () => {
       policy.proxy
     );
   });
+
+  it('does not treat regex metacharacters in proxy bypass entries as wildcards', () => {
+    const wildcardIpPolicy = {
+      ...policy,
+      proxy: { ...policy.proxy, bypassList: ['192.168.*'] },
+    };
+
+    expect(
+      resolveExecutionPolicyForUrl('https://192.168.42.1', wildcardIpPolicy).proxy
+    ).toBeUndefined();
+    expect(resolveExecutionPolicyForUrl('https://192a168.evil', wildcardIpPolicy).proxy).toEqual(
+      wildcardIpPolicy.proxy
+    );
+  });
 });

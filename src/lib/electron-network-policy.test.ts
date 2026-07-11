@@ -32,13 +32,17 @@ interface Settings {
   cipherSuites?: string;
 }
 
-async function load(isElectronValue: boolean, settings: Settings, hydrated = true) {
+async function load(
+  isElectronValue: boolean,
+  settings: Settings,
+  hydrated = true,
+  setExecutionPolicyMock = vi.fn().mockResolvedValue({ ok: true })
+) {
   let subscriber: ((s: { settings: Settings }) => void) | null = null;
   let finishHydration: (() => void) | null = null;
 
   vi.doMock('@/lib/shared/platform', () => ({ isElectron: () => isElectronValue }));
 
-  const setExecutionPolicyMock = vi.fn().mockResolvedValue({ ok: true });
   vi.doMock('@/store/useSettingsStore', () => ({
     useSettingsStore: {
       getState: () => ({ settings }),
@@ -173,5 +177,29 @@ describe('initNetworkPolicySync', () => {
     cb({ settings: { allowLocalhost: true, allowPrivateIPs: false } });
 
     expect(result.setExecutionPolicyMock).not.toHaveBeenCalled();
+  });
+
+  it('re-attempts an identical policy after main rejects an earlier async sync', async () => {
+    const rejection = new Error('main process unavailable');
+    const setExecutionPolicyMock = vi
+      .fn()
+      .mockRejectedValueOnce(rejection)
+      .mockResolvedValueOnce({ ok: true });
+    const reportFailure = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const settings = { allowLocalhost: false, allowPrivateIPs: true };
+    const result = await load(true, settings, true, setExecutionPolicyMock);
+
+    result.initNetworkPolicySync();
+    await vi.waitFor(() => expect(setExecutionPolicyMock).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(reportFailure).toHaveBeenCalledWith(expect.any(String), rejection)
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const cb = result.triggerStoreChange as (s: { settings: Settings }) => void;
+    cb({ settings });
+
+    await vi.waitFor(() => expect(setExecutionPolicyMock).toHaveBeenCalledTimes(2));
+    reportFailure.mockRestore();
   });
 });

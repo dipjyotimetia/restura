@@ -111,7 +111,7 @@ function shouldBypassProxy(url: string, bypassList: readonly string[]): boolean 
       }
       if (lower.includes('*')) {
         const expression =
-          '^' + lower.replace(/[.+?^${}()|[\\]\\]/g, '\\$&').replace(/\\*/g, '.*') + '$';
+          '^' + lower.replace(/[-/\\^$+?.()|[\]{}]/g, '\\$&').replace(/\*/g, '.*') + '$';
         return new RegExp(expression).test(hostname);
       }
       return hostname === lower;
