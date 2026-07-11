@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { connectAndAddProvider } from '../providerConnection';
+import { connectAndAddProvider, replaceSecretHandle } from '../providerConnection';
 
 describe('connectAndAddProvider', () => {
   it('stores the key first and discovers models using only its secret handle', async () => {
@@ -103,6 +103,28 @@ describe('connectAndAddProvider', () => {
     expect(deleteSecret).toHaveBeenCalledWith('handle-1');
   });
 
+  it('reports when a failed connection cannot clean up its temporary secret', async () => {
+    const result = await connectAndAddProvider(
+      {
+        provider: 'openai',
+        label: 'OpenAI',
+        baseUrl: 'https://api.openai.com',
+        apiKey: 'sk-secret',
+      },
+      {
+        storeSecret: vi.fn(async () => ({ ok: true as const, id: 'handle-1' })),
+        deleteSecret: vi.fn(async () => ({ ok: false as const, error: 'keychain locked' })),
+        discoverModels: vi.fn(async () => ({ ok: false as const, error: '401 unauthorized' })),
+        addProvider: vi.fn(() => 'provider-1'),
+      }
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: '401 unauthorized Secret cleanup failed: keychain locked',
+    });
+  });
+
   it('connects a keyless local provider without touching secret storage', async () => {
     const storeSecret = vi.fn();
     const result = await connectAndAddProvider(
@@ -123,5 +145,85 @@ describe('connectAndAddProvider', () => {
 
     expect(result).toEqual({ ok: true, providerId: 'local-1', modelCount: 1 });
     expect(storeSecret).not.toHaveBeenCalled();
+  });
+
+  it('returns a structured failure when initial secret storage rejects', async () => {
+    const result = await connectAndAddProvider(
+      {
+        provider: 'openai',
+        label: 'OpenAI',
+        baseUrl: 'https://api.openai.com',
+        apiKey: 'sk-secret',
+      },
+      {
+        storeSecret: vi.fn(async () => {
+          throw new Error('IPC closed');
+        }),
+        deleteSecret: vi.fn(),
+        discoverModels: vi.fn(),
+        addProvider: vi.fn(() => 'provider-1'),
+      }
+    );
+
+    expect(result).toEqual({ ok: false, error: 'IPC closed' });
+  });
+});
+
+describe('replaceSecretHandle', () => {
+  it('commits the new handle before deleting the old secret', async () => {
+    const calls: string[] = [];
+    const result = await replaceSecretHandle(
+      {
+        value: 'sk-new',
+        label: 'OpenAI key',
+        oldHandleId: 'old-handle',
+      },
+      {
+        storeSecret: vi.fn(async () => {
+          calls.push('store');
+          return { ok: true as const, id: 'new-handle' };
+        }),
+        commitHandle: vi.fn(() => calls.push('commit')),
+        deleteSecret: vi.fn(async () => {
+          calls.push('delete');
+          return { ok: true as const };
+        }),
+      }
+    );
+
+    expect(result).toEqual({ ok: true, handleId: 'new-handle' });
+    expect(calls).toEqual(['store', 'commit', 'delete']);
+  });
+
+  it('keeps the new handle active and reports failure to retire the old secret', async () => {
+    const result = await replaceSecretHandle(
+      { value: 'sk-new', label: 'OpenAI key', oldHandleId: 'old-handle' },
+      {
+        storeSecret: vi.fn(async () => ({ ok: true as const, id: 'new-handle' })),
+        commitHandle: vi.fn(),
+        deleteSecret: vi.fn(async () => ({ ok: false as const, error: 'keychain locked' })),
+      }
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      handleId: 'new-handle',
+      cleanupWarning: 'Could not remove the previous API key: keychain locked',
+    });
+  });
+
+  it('returns a structured failure when secret storage rejects', async () => {
+    const result = await replaceSecretHandle(
+      { value: 'sk-new', label: 'OpenAI key' },
+      {
+        storeSecret: vi.fn(async () => {
+          throw new Error('IPC closed');
+        }),
+        commitHandle: vi.fn(),
+        deleteSecret: vi.fn(),
+      }
+    );
+
+    expect(result).toEqual({ ok: false, error: 'IPC closed' });
   });
 });

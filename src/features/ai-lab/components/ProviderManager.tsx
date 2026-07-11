@@ -15,7 +15,12 @@ import { toast } from 'sonner';
 import { listModels, testConnection } from '../lib/llmClient';
 import { buildModelOptions } from '../lib/modelOptions';
 import { plural } from '../lib/plural';
-import { connectAndAddProvider, splitDiscoveredModels } from '../lib/providerConnection';
+import {
+  connectAndAddProvider,
+  deleteSecretHandle,
+  replaceSecretHandle,
+  splitDiscoveredModels,
+} from '../lib/providerConnection';
 import { useAiLabStore } from '../store/useAiLabStore';
 import type { AiLabProviderConfig } from '../types';
 import { ModelCatalog } from './ModelCatalog';
@@ -46,6 +51,11 @@ const PROVIDER_OPTIONS: Array<{ value: Provider; label: string; needsBaseUrl: bo
   { value: 'openai', label: 'OpenAI', needsBaseUrl: false },
   { value: 'anthropic', label: 'Anthropic', needsBaseUrl: false },
   { value: 'openrouter', label: 'OpenRouter', needsBaseUrl: false },
+  {
+    value: 'huggingface',
+    label: 'HuggingFace Inference Providers',
+    needsBaseUrl: false,
+  },
 ];
 
 const DEFAULT_BASE: Record<Provider, string> = {
@@ -53,6 +63,7 @@ const DEFAULT_BASE: Record<Provider, string> = {
   anthropic: 'https://api.anthropic.com',
   openrouter: 'https://openrouter.ai/api',
   ollama: 'http://localhost:11434',
+  huggingface: 'https://router.huggingface.co',
   'openai-compatible': '',
 };
 
@@ -61,7 +72,12 @@ function effectiveBaseUrl(cfg: AiLabProviderConfig): string {
 }
 
 function requiresApiKey(provider: Provider): boolean {
-  return provider === 'openai' || provider === 'anthropic' || provider === 'openrouter';
+  return (
+    provider === 'openai' ||
+    provider === 'anthropic' ||
+    provider === 'openrouter' ||
+    provider === 'huggingface'
+  );
 }
 
 export function ProviderManager() {
@@ -182,6 +198,10 @@ export function ProviderManager() {
         lastTest: { ok: true, at: Date.now(), modelCount: models.length },
       });
       toast.success(`Refreshed ${cfg.label}: ${plural(models.length, 'model')}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      updateProvider(cfg.id, { lastTest: { ok: false, at: Date.now(), error: message } });
+      toast.error(`Catalog refresh failed: ${message}`);
     } finally {
       setBusy(null);
     }
@@ -204,6 +224,10 @@ export function ProviderManager() {
         updateProvider(cfg.id, { lastTest: { ok: false, at: Date.now(), error: result.error } });
         toast.error(`Connection failed: ${result.error}`);
       }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      updateProvider(cfg.id, { lastTest: { ok: false, at: Date.now(), error: message } });
+      toast.error(`Connection failed: ${message}`);
     } finally {
       setBusy(null);
     }
@@ -222,19 +246,31 @@ export function ProviderManager() {
       };
       if (editing.apiKey.trim()) {
         const secrets = getElectronAPI()?.secrets;
-        const stored = await secrets?.store({
-          scope: 'ai-lab',
-          value: editing.apiKey.trim(),
-          label: `${editing.label.trim()} key`,
-        });
-        if (!stored?.ok) {
-          toast.error(stored?.error ?? 'Could not store the new API key.');
+        if (!secrets) {
+          toast.error('API keys can only be updated in the desktop app.');
           return;
         }
-        if (cfg.apiKeyHandleId) await secrets?.delete(cfg.apiKeyHandleId);
-        patch.apiKeyHandleId = stored.id;
+        const replacement = await replaceSecretHandle(
+          {
+            value: editing.apiKey.trim(),
+            label: `${editing.label.trim()} key`,
+            ...(cfg.apiKeyHandleId ? { oldHandleId: cfg.apiKeyHandleId } : {}),
+          },
+          {
+            storeSecret: secrets.store,
+            deleteSecret: secrets.delete,
+            commitHandle: (handleId) =>
+              updateProvider(cfg.id, { ...patch, apiKeyHandleId: handleId }),
+          }
+        );
+        if (!replacement.ok) {
+          toast.error(`Could not update the API key: ${replacement.error}`);
+          return;
+        }
+        if (replacement.cleanupWarning) toast.warning(replacement.cleanupWarning);
+      } else {
+        updateProvider(cfg.id, patch);
       }
-      updateProvider(cfg.id, patch);
       setEditing(null);
       toast.success(`Updated ${editing.label.trim()}`);
     } finally {
@@ -244,8 +280,24 @@ export function ProviderManager() {
 
   const handleRemove = async (cfg: AiLabProviderConfig) => {
     setRemoving(cfg);
-    if (!(await confirmRemove())) return;
-    if (cfg.apiKeyHandleId) await getElectronAPI()?.secrets.delete(cfg.apiKeyHandleId);
+    if (!(await confirmRemove())) {
+      setRemoving(null);
+      return;
+    }
+    if (cfg.apiKeyHandleId) {
+      const secrets = getElectronAPI()?.secrets;
+      if (!secrets) {
+        toast.error('The provider key can only be removed in the desktop app.');
+        setRemoving(null);
+        return;
+      }
+      const cleanup = await deleteSecretHandle(secrets.delete, cfg.apiKeyHandleId);
+      if (!cleanup.ok) {
+        toast.error(`Could not remove the provider key: ${cleanup.error}`);
+        setRemoving(null);
+        return;
+      }
+    }
     removeProvider(cfg.id);
     setRemoving(null);
   };
@@ -331,7 +383,15 @@ export function ProviderManager() {
                 type="password"
                 value={apiKey}
                 onChange={(event) => setApiKey(event.target.value)}
-                placeholder={requiresApiKey(provider) ? 'Required' : 'Usually not required'}
+                placeholder={
+                  isLocalProvider(provider)
+                    ? 'Usually not required'
+                    : provider === 'huggingface'
+                      ? 'hf_…'
+                      : requiresApiKey(provider)
+                        ? 'Required'
+                        : 'sk-…'
+                }
               />
               <p className="text-sp-10 text-sp-muted">
                 Stored in your OS keychain after connection succeeds.

@@ -81,6 +81,9 @@ export async function listModels(args: DiscoverArgs): Promise<DiscoveredModel[]>
   if (args.provider === 'openai') {
     return fetchOpenAiModels(base, args);
   }
+  if (args.provider === 'huggingface') {
+    return fetchHuggingFaceModels(base, args);
+  }
   return fetchOpenAiCompatibleModels(base, args);
 }
 
@@ -238,6 +241,69 @@ async function fetchAnthropicModels(base: string, args: DiscoverArgs): Promise<D
       return detail;
     });
   return dedupeSort(out);
+}
+
+/**
+ * HuggingFace Inference Providers router exposes `GET /v1/models` in the same
+ * `{ data: [...] }` envelope as the OpenAI-compatible schema. Model ids are
+ * slash-namespaced by their hosting org (e.g. `meta-llama/Llama-3.3-70B-Instruct`,
+ * `Qwen/Qwen2.5-72B-Instruct`), so we derive a `vendor` chip from the first path
+ * segment — the same UX role OpenRouter's `canonical_slug` plays. HF's discovery
+ * payload does not include pricing/context/modality, so those stay undefined
+ * and the AI Lab falls back to the bare id + vendor chip.
+ *
+ * Auth: the renderer passes the user's HF token (hf_…) as a Bearer header via
+ * `apiKey`; the router requires it for the catalog endpoint. (A bare keyless
+ * call returns 401, surfaced by the handler as a discovery failure.)
+ */
+async function fetchHuggingFaceModels(
+  base: string,
+  args: DiscoverArgs
+): Promise<DiscoveredModel[]> {
+  const json = (await fetchJson(`${base}/v1/models`, args)) as {
+    data?: Array<HuggingFaceModelWire>;
+  };
+  const out = (json.data ?? [])
+    .filter(
+      (m): m is HuggingFaceModelWire & { id: string } => typeof m.id === 'string' && m.id.length > 0
+    )
+    .map((m) => {
+      const detail: DiscoveredModel = { id: m.id };
+      // Some HF entries carry a human-readable `name`/`label`; prefer it when present.
+      if (typeof m.name === 'string' && m.name.length > 0) {
+        detail.label = m.name;
+      } else if (typeof m.label === 'string' && m.label.length > 0) {
+        detail.label = m.label;
+      }
+      // Derive the vendor chip from the org segment of the slash-namespaced id —
+      // `meta-llama/Llama-…` → "meta-llama". Ids without a slash (a few HF
+      // provider-routed models) leave vendor undefined so the UI shows the chip
+      // only when it's meaningful. `noUncheckedIndexedAccess` makes the array
+      // access `string | undefined`; guard before assigning under EOPT.
+      const head = m.id.split('/')[0];
+      if (typeof head === 'string' && head.length > 0 && head !== m.id) detail.vendor = head;
+      if (typeof m.context_length === 'number' && Number.isFinite(m.context_length)) {
+        detail.contextLength = m.context_length;
+      }
+      if (typeof m.created === 'number' && Number.isFinite(m.created) && m.created > 0) {
+        detail.createdAt = new Date(m.created * 1000).toISOString();
+      } else if (typeof m.created === 'string' && m.created.length > 0) {
+        detail.createdAt = m.created;
+      }
+      return detail;
+    });
+  return dedupeSort(out);
+}
+
+/** HuggingFace `/v1/models` wire shape — only `id` is guaranteed; the rest is opportunistic. */
+interface HuggingFaceModelWire {
+  id?: string;
+  // HF sometimes populates one or the other; we accept both and prefer `name`.
+  name?: string;
+  label?: string;
+  context_length?: number;
+  // Unix epoch seconds (OpenAI-style) OR an ISO string (HF sometimes returns ISO).
+  created?: number | string;
 }
 
 /**

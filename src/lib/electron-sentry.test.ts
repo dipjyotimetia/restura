@@ -8,12 +8,27 @@ beforeEach(() => {
   vi.resetModules();
 });
 
-async function load(isElectronValue: boolean, errorsEnabled: boolean) {
+async function load(
+  isElectronValue: boolean,
+  errorsEnabled: boolean,
+  options: { sentryImportFails?: boolean } = {}
+) {
   let subscriber: ((s: { settings: { telemetry?: { errorsEnabled?: boolean } } }) => void) | null =
     null;
+  const logWarnMock = vi.fn();
 
   vi.doMock('@/lib/shared/platform', () => ({
     isElectron: () => isElectronValue,
+  }));
+
+  vi.doMock('@/lib/shared/logger', () => ({
+    createLogger: () => ({
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: logWarnMock,
+      error: vi.fn(),
+      child: vi.fn(),
+    }),
   }));
 
   const setConsentMock = vi.fn().mockResolvedValue({ ok: true });
@@ -27,7 +42,15 @@ async function load(isElectronValue: boolean, errorsEnabled: boolean) {
     },
   }));
 
-  vi.doMock('@sentry/electron/renderer', () => ({ init: vi.fn() }));
+  if (options.sentryImportFails) {
+    vi.doMock('@sentry/electron/renderer', () => ({
+      init: () => {
+        throw new Error('renderer sdk unavailable');
+      },
+    }));
+  } else {
+    vi.doMock('@sentry/electron/renderer', () => ({ init: vi.fn() }));
+  }
 
   // Expose setConsent on window.electron before import
   Object.defineProperty(globalThis, 'window', {
@@ -44,6 +67,7 @@ async function load(isElectronValue: boolean, errorsEnabled: boolean) {
   return {
     initElectronSentry,
     setConsentMock,
+    logWarnMock,
     get triggerStoreChange() {
       return subscriber;
     },
@@ -96,5 +120,15 @@ describe('initElectronSentry', () => {
     cb({ settings: { telemetry: { errorsEnabled: true } } });
 
     expect(result.setConsentMock).not.toHaveBeenCalled();
+  });
+
+  it('logs renderer SDK init failures without blocking consent sync', async () => {
+    const result = await load(true, true, { sentryImportFails: true });
+    await result.initElectronSentry();
+
+    expect(result.setConsentMock).toHaveBeenCalledWith(true);
+    expect(result.logWarnMock).toHaveBeenCalledTimes(1);
+    expect(result.logWarnMock.mock.calls[0]?.[0]).toBe('failed to initialize renderer Sentry SDK');
+    expect(result.logWarnMock.mock.calls[0]?.[1]).toEqual({ error: 'renderer sdk unavailable' });
   });
 });

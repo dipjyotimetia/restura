@@ -20,8 +20,11 @@
  * read it, so we mirror it to main over IPC on startup and whenever it changes.
  */
 
+import { createLogger } from '@/lib/shared/logger';
 import { isElectron } from '@/lib/shared/platform';
 import { useSettingsStore } from '@/store/useSettingsStore';
+
+const log = createLogger('electron-sentry');
 
 let consentSubscribed = false;
 
@@ -66,7 +69,10 @@ export async function initElectronSentry(): Promise<void> {
       // this must be in the renderer SDK where extension URLs actually originate.
       denyUrls: [/extensions\//i, /^chrome-extension:\/\//, /^moz-extension:\/\//],
     });
-  } catch {
+  } catch (error) {
     // Best-effort: never block startup on telemetry.
+    log.warn('failed to initialize renderer Sentry SDK', {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }

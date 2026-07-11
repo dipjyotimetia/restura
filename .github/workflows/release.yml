@@ -127,10 +127,14 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           WORKER_PROXY_TOKEN: ${{ secrets.WORKER_PROXY_TOKEN }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
         run: |
           set -euo pipefail
           missing=()
-          for name in NPM_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID WORKER_PROXY_TOKEN; do
+          for name in NPM_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID WORKER_PROXY_TOKEN SENTRY_DSN SENTRY_AUTH_TOKEN SENTRY_ORG SENTRY_PROJECT; do
             if [ -z "${!name:-}" ]; then
               missing+=("$name")
             fi
@@ -432,6 +436,12 @@ jobs:
           else
             echo "SENTRY_DSN not set — desktop build ships with Sentry disabled."
           fi
+
+      - name: Smoke test Sentry ingest
+        if: ${{ !inputs.prerelease }}
+        env:
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+        run: npm run sentry:smoke
 
       # electron-builder's rpm target shells out to `rpmbuild`, which isn't on
       # the ubuntu-latest image by default. AppImage/deb need no extra packages.

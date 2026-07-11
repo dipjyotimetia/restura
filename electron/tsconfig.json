@@ -23,15 +23,21 @@
       "@/*": ["../src/*"]
     }
   },
+  "include": ["**/*.ts", "../shared/**/*.ts"],
+  "exclude": ["node_modules"],
   "tsc-alias": {
-    // The broad base-url replacer treats the repository's top-level
-    // `electron/` directory as a local target for the Electron runtime package,
-    // turning require("electron") into require("../../electron"). Only the
-    // explicit @/ and @shared/ path mappings should be rewritten.
+    // tsc-alias >=1.9.0 implies `baseUrl = rootDir` when `baseUrl` is unset but
+    // `paths` are present (helpers/config.js "implicit baseUrl"). That enables
+    // the built-in `base-url` replacer, which rewrites *any* bare specifier
+    // that resolves to a directory under `outDir` to a relative path. Our
+    // `electron/` source dir compiles to `dist/electron/electron/`, so the bare
+    // `import { app } from 'electron'` in the main process gets mangled into
+    // `require("../../electron")` — a path to our own source folder instead of
+    // the Electron runtime — and the packaged app crashes on launch with
+    // "Cannot find module './../electron'". We only need the `default` replacer
+    // (it rewrites the `@/*` and `@shared/*` path aliases); disable `base-url`.
     "replacers": {
       "base-url": { "enabled": false }
     }
-  },
-  "include": ["**/*.ts", "../shared/**/*.ts"],
-  "exclude": ["node_modules"]
+  }
 }

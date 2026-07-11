@@ -1,6 +1,6 @@
 {
   "name": "restura",
-  "version": "1.2.0",
+  "version": "1.3.1",
   "private": true,
   "description": "Restura - A modern multi-protocol API client for HTTP and gRPC testing",
   "author": "dipjyotimetia",
@@ -82,6 +82,7 @@
     "electron:pack": "npm run electron:build:all && electron-builder --dir",
     "electron:icons": "node scripts/generate-icons.js",
     "sentry:sourcemaps": "node scripts/sentry-sourcemaps.mjs",
+    "sentry:smoke": "node scripts/sentry-smoke.mjs",
     "electron:publish": "npm run electron:build:all && npm run sentry:sourcemaps && electron-builder --publish always",
     "electron:publish:prerelease": "npm run electron:build:all && npm run sentry:sourcemaps && electron-builder --publish always --config.publish.releaseType=prerelease",
     "electron:publish:mac": "npm run electron:build:all && electron-builder --mac --publish always",

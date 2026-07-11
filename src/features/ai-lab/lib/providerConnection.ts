@@ -22,12 +22,8 @@ interface ConnectedProviderInput {
 }
 
 interface ProviderConnectionDependencies {
-  storeSecret: (args: {
-    value: string;
-    label?: string;
-    scope?: string;
-  }) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
-  deleteSecret: (id: string) => Promise<unknown>;
+  storeSecret: SecretStorer;
+  deleteSecret: SecretDeleter;
   discoverModels: (args: {
     provider: Provider;
     baseUrl: string;
@@ -35,6 +31,83 @@ interface ProviderConnectionDependencies {
   }) => Promise<{ ok: true; models: DiscoveredModel[] } | { ok: false; error: string }>;
   addProvider: (input: ConnectedProviderInput) => string;
   now?: () => number;
+}
+
+type SecretDeleteResult = { ok: true } | { ok: false; error: string };
+export type SecretStorer = (args: {
+  value: string;
+  label?: string;
+  scope?: string;
+}) => Promise<{ ok: true; id: string } | { ok: false; error: string }>;
+export type SecretDeleter = (id: string) => Promise<SecretDeleteResult>;
+
+async function storeSecretHandle(
+  storeSecret: SecretStorer,
+  args: Parameters<SecretStorer>[0]
+): ReturnType<SecretStorer> {
+  try {
+    return await storeSecret(args);
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function deleteSecretHandle(
+  deleteSecret: SecretDeleter,
+  id: string
+): Promise<SecretDeleteResult> {
+  try {
+    return await deleteSecret(id);
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+export async function replaceSecretHandle(
+  input: { value: string; label: string; oldHandleId?: string },
+  deps: {
+    storeSecret: SecretStorer;
+    commitHandle: (handleId: string) => void;
+    deleteSecret: SecretDeleter;
+  }
+): Promise<{ ok: true; handleId: string; cleanupWarning?: string } | { ok: false; error: string }> {
+  const stored = await storeSecretHandle(deps.storeSecret, {
+    scope: 'ai-lab',
+    value: input.value,
+    label: input.label,
+  });
+  if (!stored.ok) return stored;
+
+  try {
+    deps.commitHandle(stored.id);
+  } catch (error) {
+    const cleanup = await deleteSecretHandle(deps.deleteSecret, stored.id);
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      error: cleanup.ok ? message : `${message} Secret cleanup failed: ${cleanup.error}`,
+    };
+  }
+
+  if (!input.oldHandleId) return { ok: true, handleId: stored.id };
+  const cleanup = await deleteSecretHandle(deps.deleteSecret, input.oldHandleId);
+  return cleanup.ok
+    ? { ok: true, handleId: stored.id }
+    : {
+        ok: true,
+        handleId: stored.id,
+        cleanupWarning: `Could not remove the previous API key: ${cleanup.error}`,
+      };
+}
+
+async function appendCleanupError(
+  error: string,
+  apiKeyHandleId: string | undefined,
+  deleteSecret: SecretDeleter
+): Promise<string> {
+  if (!apiKeyHandleId) return error;
+  const cleanup = await deleteSecretHandle(deleteSecret, apiKeyHandleId);
+  return cleanup.ok ? error : `${error} Secret cleanup failed: ${cleanup.error}`;
 }
 
 export function splitDiscoveredModels(models: DiscoveredModel[]): {
@@ -75,7 +148,7 @@ export async function connectAndAddProvider(
 ): Promise<{ ok: true; providerId: string; modelCount: number } | { ok: false; error: string }> {
   let apiKeyHandleId: string | undefined;
   if (draft.apiKey.trim()) {
-    const stored = await deps.storeSecret({
+    const stored = await storeSecretHandle(deps.storeSecret, {
       scope: 'ai-lab',
       value: draft.apiKey.trim(),
       label: `${draft.label.trim()} key`,
@@ -92,12 +165,17 @@ export async function connectAndAddProvider(
       ...(apiKeyHandleId ? { apiKeyHandleId } : {}),
     });
   } catch (error) {
-    if (apiKeyHandleId) await deps.deleteSecret(apiKeyHandleId);
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      ok: false,
+      error: await appendCleanupError(message, apiKeyHandleId, deps.deleteSecret),
+    };
   }
   if (!discovered.ok) {
-    if (apiKeyHandleId) await deps.deleteSecret(apiKeyHandleId);
-    return { ok: false, error: discovered.error };
+    return {
+      ok: false,
+      error: await appendCleanupError(discovered.error, apiKeyHandleId, deps.deleteSecret),
+    };
   }
 
   const at = (deps.now ?? Date.now)();
