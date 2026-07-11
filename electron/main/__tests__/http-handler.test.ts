@@ -34,6 +34,7 @@ vi.mock('../security/env-proxy', () => ({ resolveEnvProxy: () => undefined }));
 import { IPC } from '../../shared/channels';
 import { registerHttpHandlerIPC, httpRateLimiter } from '../handlers/http-handler';
 import type { LogEntry } from '../lifecycle/request-logger';
+import { setExecutionPolicy } from '../security/execution-policy';
 
 type IpcHandler = (e: unknown, p: unknown) => Promise<unknown>;
 
@@ -66,6 +67,13 @@ const onComplete = vi.fn<(entry: LogEntry) => void>();
 
 describe('http-handler (registration/policy surface)', () => {
   beforeEach(() => {
+    setExecutionPolicy({
+      security: { allowLocalhost: true, allowPrivateIPs: false },
+      proxy: { enabled: false, type: 'http', host: '', port: 8080, bypassList: [] },
+      timeout: 30_000,
+      tls: { verifySsl: true, serverCipherOrder: false },
+      certificates: { clientCertificates: [], caCertificates: [] },
+    });
     mockHandle.mockClear();
     mockUndiciRequest.mockReset();
     mockUndiciRequest.mockRejectedValue(new Error('socket hang up'));

@@ -22,6 +22,7 @@ import type {
 import { assertResolvedAddressAllowed, isPrivateAddress } from '@shared/protocol/url-validation';
 import { ipcMain, session } from 'electron';
 import { request as undiciRequest, Agent, ProxyAgent, buildConnector } from 'undici';
+import { selectCertForUrl } from '../../../src/lib/shared/certMatcher';
 import { createLogger } from '../../../src/lib/shared/logger';
 import { IPC } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
@@ -34,7 +35,11 @@ import type { LogEntry } from '../lifecycle/request-logger';
 import { applyNonSignAtWireAuth } from '../security/auth-applier';
 import { smithySigV4Signer } from '../security/aws-sigv4-smithy';
 import { resolveEnvProxy } from '../security/env-proxy';
-import { getExecutionPolicy } from '../security/execution-policy';
+import {
+  assertExecutionPolicyReady,
+  getExecutionPolicy,
+  type ExecutionPolicy,
+} from '../security/execution-policy';
 import { unwrapSecretValueMain } from '../security/secret-handle-store';
 import { buildTlsClientMaterial } from '../security/tls-material';
 import { interceptorRegistry } from './interceptor-registry';
@@ -208,6 +213,69 @@ export interface HttpResponse {
   bodyEncoding?: 'base64';
   /** Negotiated ALPN protocol (h2 or h1.1) when available — populated by undici's TLS handshake. */
   negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
+}
+
+function isProxyBypassed(url: URL, bypassList: readonly string[]): boolean {
+  const hostname = url.hostname;
+  return bypassList.some((pattern) => {
+    if (pattern.startsWith('*')) {
+      const suffix = pattern.slice(1);
+      return hostname.endsWith(suffix) || hostname === suffix.slice(1);
+    }
+    if (pattern.includes('*')) {
+      return new RegExp('^' + pattern.replace(/\*/g, '.*') + '$').test(hostname);
+    }
+    return hostname === pattern;
+  });
+}
+
+function policyProxyForUrl(url: URL, policy: ExecutionPolicy): ElectronProxyConfig | undefined {
+  const proxy = policy.proxy;
+  const type = proxy.type;
+  if (
+    !proxy.enabled ||
+    type === 'none' ||
+    !proxy.host ||
+    isProxyBypassed(url, proxy.bypassList)
+  ) {
+    return undefined;
+  }
+  return {
+    enabled: proxy.enabled,
+    type,
+    host: proxy.host,
+    port: proxy.port,
+    ...(proxy.auth ? { auth: proxy.auth } : {}),
+  };
+}
+
+/**
+ * Fill the acknowledged desktop execution policy into an HTTP request after
+ * its target URL is known. IPC-provided values are intentional per-request
+ * overrides, so they always win over policy defaults.
+ *
+ * The returned fields are consumed directly by executeHttpProxy, Undici, and
+ * the SOCKS dispatcher; keeping the fold here prevents a renderer bypass from
+ * silently falling back to direct/default transport settings.
+ */
+export function resolveHttpExecutionPolicy(config: HttpRequestConfig): HttpRequestConfig {
+  assertExecutionPolicyReady();
+  const policy = getExecutionPolicy();
+  const url = new URL(config.url);
+  const hostClientCert = selectCertForUrl(url, policy.certificates.clientCertificates);
+  const hostCaCert = selectCertForUrl(url, policy.certificates.caCertificates);
+
+  return {
+    ...config,
+    timeout: config.timeout ?? policy.timeout,
+    proxy: config.proxy ?? policyProxyForUrl(url, policy),
+    verifySsl: config.verifySsl ?? policy.tls.verifySsl,
+    clientCert: config.clientCert ?? hostClientCert?.cert ?? policy.certificates.clientCert,
+    caCert: config.caCert ?? (hostCaCert ? { pem: hostCaCert.pem } : policy.certificates.caCert),
+    serverCipherOrder: config.serverCipherOrder ?? policy.tls.serverCipherOrder,
+    minTlsVersion: config.minTlsVersion ?? policy.tls.minTlsVersion,
+    cipherSuites: config.cipherSuites ?? policy.tls.cipherSuites,
+  };
 }
 
 // Connection timeout (10 seconds) — operates below the shared core's request timeout.
@@ -850,18 +918,24 @@ async function makeHttpRequest(
   config: HttpRequestConfig,
   redirectCount = 0
 ): Promise<HttpResponse> {
+  const policyConfig = resolveHttpExecutionPolicy(config);
+
   // Check body size early, before opening any connection
-  if (config.data && Buffer.byteLength(config.data, 'utf8') > MAX_HTTP_BODY_BYTES) {
+  if (policyConfig.data && Buffer.byteLength(policyConfig.data, 'utf8') > MAX_HTTP_BODY_BYTES) {
     throw new Error(
       `Request body size exceeds maximum limit of ${MAX_HTTP_BODY_BYTES / 1024 / 1024}MB`
     );
   }
 
   // PAC proxy resolution (Electron-specific — uses Electron's session.resolveProxy)
-  let resolvedConfig = config;
-  if (config.proxy?.enabled && config.proxy.type === 'pac' && config.proxy.pacUrl) {
+  let resolvedConfig = policyConfig;
+  if (
+    policyConfig.proxy?.enabled &&
+    policyConfig.proxy.type === 'pac' &&
+    policyConfig.proxy.pacUrl
+  ) {
     try {
-      const proxyResult = await session.defaultSession.resolveProxy(config.url);
+      const proxyResult = await session.defaultSession.resolveProxy(policyConfig.url);
       if (proxyResult.startsWith('PROXY ') || proxyResult.startsWith('HTTPS ')) {
         const proxyAddr = proxyResult.split(' ')[1];
         if (proxyAddr) {
@@ -869,8 +943,8 @@ async function makeHttpRequest(
           const host = colonIdx !== -1 ? proxyAddr.substring(0, colonIdx) : proxyAddr;
           const port = colonIdx !== -1 ? parseInt(proxyAddr.substring(colonIdx + 1), 10) : 8080;
           resolvedConfig = {
-            ...config,
-            proxy: { ...config.proxy, type: 'http', host, port },
+            ...policyConfig,
+            proxy: { ...policyConfig.proxy, type: 'http', host, port },
           };
         }
       } else if (proxyResult.startsWith('SOCKS5 ')) {
@@ -879,7 +953,10 @@ async function makeHttpRequest(
           const colonIdx = proxyAddr.lastIndexOf(':');
           const host = colonIdx !== -1 ? proxyAddr.substring(0, colonIdx) : proxyAddr;
           const port = colonIdx !== -1 ? parseInt(proxyAddr.substring(colonIdx + 1), 10) : 1080;
-          resolvedConfig = { ...config, proxy: { ...config.proxy!, type: 'socks5', host, port } };
+          resolvedConfig = {
+            ...policyConfig,
+            proxy: { ...policyConfig.proxy!, type: 'socks5', host, port },
+          };
         }
       } else if (proxyResult.startsWith('SOCKS ')) {
         const proxyAddr = proxyResult.split(' ')[1];
@@ -887,7 +964,10 @@ async function makeHttpRequest(
           const colonIdx = proxyAddr.lastIndexOf(':');
           const host = colonIdx !== -1 ? proxyAddr.substring(0, colonIdx) : proxyAddr;
           const port = colonIdx !== -1 ? parseInt(proxyAddr.substring(colonIdx + 1), 10) : 1080;
-          resolvedConfig = { ...config, proxy: { ...config.proxy!, type: 'socks4', host, port } };
+          resolvedConfig = {
+            ...policyConfig,
+            proxy: { ...policyConfig.proxy!, type: 'socks4', host, port },
+          };
         }
       }
       // If DIRECT, proceed without proxy
