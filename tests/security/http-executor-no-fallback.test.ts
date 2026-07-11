@@ -2,8 +2,7 @@
  * HTTP executor no-direct-fallback regression.
  *
  * The renderer used to fall back to `axios()` directly to upstream when
- * neither the CORS-proxy branch nor the Electron IPC branch produced a
- * response (e.g. when `corsProxy.enabled === false` in web mode). That
+ * the Electron IPC branch produced a response. That
  * fallback bypassed the Worker's SSRF guard, header policy, auth gate,
  * and rate limiter, and forced the renderer to do sign-at-wire auth
  * (SigV4/OAuth1/WSSE) — which couldn't sign the exact bytes the upstream
@@ -45,18 +44,6 @@ vi.mock('axios', async () => {
   };
 });
 
-// shouldUseCorsProxy → false is the trigger for the legacy Axios fallback.
-// We force it to simulate the "CORS proxy disabled" web-mode setting.
-vi.mock('@/features/http/lib/proxyHelper', async () => {
-  const actual = await vi.importActual<typeof import('@/features/http/lib/proxyHelper')>(
-    '@/features/http/lib/proxyHelper'
-  );
-  return {
-    ...actual,
-    shouldUseCorsProxy: () => false,
-  };
-});
-
 import axios from 'axios';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
 
@@ -88,7 +75,6 @@ function makeSettings(): AppSettings {
     theme: 'system',
     layoutOrientation: 'horizontal',
     allowLocalhost: true,
-    corsProxy: { enabled: false, autoDetect: false },
   } as AppSettings;
 }
 
@@ -111,7 +97,7 @@ describe('HTTP executor no-direct-fallback (security regression)', () => {
     vi.clearAllMocks();
   });
 
-  it('does NOT axios() directly to upstream when CORS proxy is disabled in web mode', async () => {
+  it('does NOT axios() directly to upstream in web mode', async () => {
     const request = makeHttpRequest();
     const settings = makeSettings();
 

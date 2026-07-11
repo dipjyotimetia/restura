@@ -1,5 +1,67 @@
-import { describe, it, expect } from 'vitest';
-import { isStreamingAccept } from '../requestExecutor';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { HttpRequest, RequestSettings } from '@/types';
+import { useCookieStore } from '@/features/http/store/useCookieStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
+
+const executeProxiedRequestMock = vi.fn();
+
+vi.mock('@/lib/shared/transport', () => ({
+  executeProxiedRequest: (...args: unknown[]) => executeProxiedRequestMock(...args),
+  executeProxiedStreamingRequest: vi.fn(),
+  ProxyTransportError: class ProxyTransportError extends Error {},
+}));
+
+import { executeRequest, isStreamingAccept } from '../requestExecutor';
+
+function makeRequest(overrides: Partial<HttpRequest> = {}): HttpRequest {
+  return {
+    id: 'request-id',
+    name: 'Cookie settings regression',
+    type: 'http',
+    method: 'GET',
+    url: 'https://api.example.com/resource',
+    headers: [],
+    params: [],
+    body: { type: 'none' },
+    auth: { type: 'none' },
+    ...overrides,
+  };
+}
+
+describe('executeRequest — cookie settings inheritance', () => {
+  const originalSettings = useSettingsStore.getState().settings;
+
+  beforeEach(() => {
+    useCookieStore.setState({ cookies: [] });
+    executeProxiedRequestMock.mockReset();
+    executeProxiedRequestMock.mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: { 'set-cookie': 'session=secret; Path=/; HttpOnly' },
+      data: '',
+      size: 0,
+    });
+  });
+
+  afterEach(() => {
+    useCookieStore.setState({ cookies: [] });
+    useSettingsStore.setState({ settings: originalSettings });
+  });
+
+  it('does not persist Set-Cookie when a partial request override inherits a disabled global jar', async () => {
+    const globalSettings = { ...originalSettings, disableCookieJar: true };
+    useSettingsStore.setState({ settings: globalSettings });
+
+    await executeRequest({
+      request: makeRequest({ settings: { timeout: 1_000 } as RequestSettings }),
+      envVars: {},
+      globalSettings,
+      resolveVariables: (text) => text,
+    });
+
+    expect(useCookieStore.getState().cookies).toEqual([]);
+  });
+});
 
 describe('isStreamingAccept', () => {
   it('detects text/event-stream', () => {

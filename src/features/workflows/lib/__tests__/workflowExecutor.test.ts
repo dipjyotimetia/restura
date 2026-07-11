@@ -53,7 +53,6 @@ describe('workflowExecutor', () => {
     maxHistoryItems: 100,
     theme: 'system',
     layoutOrientation: 'vertical',
-    corsProxy: { enabled: false, autoDetect: false },
   };
 
   const getRequestById = vi.fn((id: string): Request | undefined => {

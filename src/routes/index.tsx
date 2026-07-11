@@ -1,4 +1,10 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { toast } from 'sonner';
+import {
+  BugReportDialog,
+  type BugReportSubmission,
+  type BugReportScreenshot,
+} from '@/components/shared/BugReportDialog';
 import ClientHydration from '@/components/shared/ClientHydration';
 import CommandPalette from '@/components/shared/CommandPalette';
 import ConsoleDrawer from '@/components/shared/ConsoleDrawer';
@@ -19,9 +25,19 @@ import EnvironmentManager from '@/features/environments/components/EnvironmentMa
 import RequestBuilder from '@/features/http/components/RequestBuilder';
 import { useKeybindings } from '@/hooks/useKeybindings';
 import { useStoreHydration } from '@/hooks/useStoreHydration';
+import {
+  buildBugReportMarkdown,
+  buildGitHubBugReportUrl,
+  type BugReportDiagnostics,
+} from '@/lib/shared/bug-report';
+import {
+  captureBugReportScreenshot,
+  collectBugReportDiagnostics,
+  copyBugReportScreenshot,
+} from '@/lib/shared/bug-report-client';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
-import { isElectron, onMenuEvent } from '@/lib/shared/platform';
+import { isElectron, onMenuEvent, openExternalUrl } from '@/lib/shared/platform';
 import { useActiveTab } from '@/store/selectors';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -64,6 +80,11 @@ export default function Home() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [saveDialogTabId, setSaveDialogTabId] = useState<string | null>(null);
+  const [bugReportOpen, setBugReportOpen] = useState(false);
+  const [bugReportScreenshot, setBugReportScreenshot] = useState<BugReportScreenshot>();
+  const [bugReportDiagnostics, setBugReportDiagnostics] = useState<BugReportDiagnostics>();
+  const [bugReportCaptureError, setBugReportCaptureError] = useState<string>();
+  const [bugReportDiagnosticsError, setBugReportDiagnosticsError] = useState<string>();
   const [windowWidth, setWindowWidth] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth : 1920
   );
@@ -196,6 +217,67 @@ export default function Home() {
     []
   );
 
+  const handleOpenBugReport = useCallback(async () => {
+    setBugReportScreenshot(undefined);
+    setBugReportDiagnostics(undefined);
+    setBugReportCaptureError(undefined);
+    setBugReportDiagnosticsError(undefined);
+    const [capture, diagnostics] = await Promise.allSettled([
+      captureBugReportScreenshot(),
+      collectBugReportDiagnostics(),
+    ]);
+    if (capture.status === 'fulfilled') {
+      setBugReportScreenshot(capture.value.screenshot);
+      setBugReportCaptureError(capture.value.error);
+    } else {
+      setBugReportCaptureError('Screenshot capture failed.');
+    }
+    if (diagnostics.status === 'fulfilled') {
+      setBugReportDiagnostics(diagnostics.value);
+    } else {
+      setBugReportDiagnosticsError('Diagnostics could not be collected.');
+    }
+    setBugReportOpen(true);
+  }, []);
+
+  useEffect(
+    () => onMenuEvent('menu:report-bug', () => void handleOpenBugReport()),
+    [handleOpenBugReport]
+  );
+
+  const handleOpenGitHubDraft = useCallback(async (submission: BugReportSubmission) => {
+    let screenshotCopied = false;
+    if (submission.screenshot) {
+      try {
+        await copyBugReportScreenshot(submission.screenshot.imageDataUrl);
+        screenshotCopied = true;
+      } catch (error) {
+        toast.warning(
+          error instanceof Error
+            ? `${error.message} The issue draft will open without it.`
+            : 'The screenshot could not be copied.'
+        );
+      }
+    }
+    const draft = {
+      title: submission.title,
+      description: submission.description,
+      steps: submission.steps,
+      expected: submission.expected,
+      actual: submission.actual,
+      ...(submission.diagnostics ? { diagnostics: submission.diagnostics } : {}),
+      hasScreenshot: screenshotCopied,
+    };
+    const markdown = buildBugReportMarkdown(draft);
+    try {
+      await navigator.clipboard.writeText(markdown);
+    } catch {
+      toast.warning('The issue text could not be copied, but GitHub will still be prefilled.');
+    }
+    await openExternalUrl(buildGitHubBugReportUrl(draft));
+    setBugReportOpen(false);
+  }, []);
+
   const handleSendRequest = useCallback(() => {
     const event = new KeyboardEvent('keydown', {
       key: 'Enter',
@@ -266,6 +348,7 @@ export default function Home() {
           setSettingsOpen(true);
         }}
         onToggleAi={enableAi ? () => setAiPanelOpen(!aiPanelOpen) : undefined}
+        onOpenBugReport={() => void handleOpenBugReport()}
       />
 
       <div className="flex flex-1 overflow-hidden min-h-0">
@@ -327,6 +410,15 @@ export default function Home() {
       {/* Dialogs */}
       <EnvironmentManager open={envManagerOpen} onOpenChange={setEnvManagerOpen} />
       <ImportDialog open={importDialogOpen} onOpenChange={setImportDialogOpen} />
+      <BugReportDialog
+        open={bugReportOpen}
+        onOpenChange={setBugReportOpen}
+        screenshot={bugReportScreenshot}
+        diagnostics={bugReportDiagnostics}
+        captureError={bugReportCaptureError}
+        diagnosticsError={bugReportDiagnosticsError}
+        onOpenGitHubDraft={handleOpenGitHubDraft}
+      />
       {saveDialogTabId && (
         <SaveToCollectionDialog
           tabId={saveDialogTabId}

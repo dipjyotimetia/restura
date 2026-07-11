@@ -45,6 +45,121 @@ const CaCertSchema = z.object({
   pem: z.string().min(1),
 });
 
+// The renderer mirrors the complete Settings execution subset to the Electron
+// main process. Keep this schema here, at the trusted IPC boundary, so a
+// compromised renderer cannot smuggle an unsupported proxy mode or malformed
+// certificate/secret material into a future protocol adapter.
+const ExecutionProxySchema = z
+  .object({
+    enabled: z.boolean(),
+    type: z.enum(['none', 'http', 'https', 'socks4', 'socks5']),
+    host: z.string().max(253),
+    port: z.number().int().min(1).max(65535),
+    bypassList: z.array(z.string().min(1).max(253)).max(100),
+    auth: z
+      .object({
+        username: z.string().max(256),
+        password: protocolSecretValueSchema,
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .superRefine((proxy, ctx) => {
+    if (proxy.enabled && proxy.type === 'none') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['type'],
+        message: 'Enabled proxy requires a supported type',
+      });
+    }
+    if (proxy.enabled && !proxy.host.trim()) {
+      ctx.addIssue({ code: 'custom', path: ['host'], message: 'Enabled proxy requires a host' });
+    }
+  });
+
+const ExecutionClientCertSchema = z
+  .object({
+    format: z.enum(['pfx', 'pem']),
+    pfx: z
+      .string()
+      .max(1024 * 1024)
+      .optional(),
+    cert: z
+      .string()
+      .max(1024 * 1024)
+      .optional(),
+    key: z
+      .string()
+      .max(1024 * 1024)
+      .optional(),
+    passphrase: protocolSecretValueSchema.optional(),
+  })
+  .strict()
+  .superRefine((cert, ctx) => {
+    if (cert.format === 'pfx' && !cert.pfx) {
+      ctx.addIssue({ code: 'custom', path: ['pfx'], message: 'PFX certificates require pfx data' });
+    }
+    if (cert.format === 'pem' && (!cert.cert || !cert.key)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['cert'],
+        message: 'PEM certificates require cert and key data',
+      });
+    }
+  });
+
+const ExecutionCaCertSchema = z
+  .object({
+    pem: z
+      .string()
+      .min(1)
+      .max(1024 * 1024),
+  })
+  .strict();
+
+const HostClientCertSchema = z
+  .object({
+    id: z.string().min(1).max(128),
+    host: z.string().min(1).max(253),
+    port: z.number().int().min(1).max(65535).optional(),
+    cert: ExecutionClientCertSchema,
+  })
+  .strict();
+
+const HostCaCertSchema = z
+  .object({
+    id: z.string().min(1).max(128),
+    host: z.string().min(1).max(253),
+    port: z.number().int().min(1).max(65535).optional(),
+    pem: z
+      .string()
+      .min(1)
+      .max(1024 * 1024),
+  })
+  .strict();
+
+/** Full renderer settings subset that can affect outbound desktop execution. */
+export const ExecutionPolicySchema = z
+  .object({
+    allowLocalhost: z.boolean(),
+    allowPrivateIPs: z.boolean(),
+    proxy: ExecutionProxySchema,
+    defaultTimeout: z.number().int().min(1).max(600_000),
+    verifySsl: z.boolean(),
+    clientCert: ExecutionClientCertSchema.optional(),
+    caCert: ExecutionCaCertSchema.optional(),
+    clientCertificates: z.array(HostClientCertSchema).max(100),
+    caCertificates: z.array(HostCaCertSchema).max(100),
+    serverCipherOrder: z.boolean().optional(),
+    minTlsVersion: z.enum(['TLSv1', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3']).optional(),
+    cipherSuites: z
+      .string()
+      .max(16 * 1024)
+      .optional(),
+  })
+  .strict();
+
 // TLS material for gRPC over `https://` / `grpcs://`. Mirrors HTTP's
 // verifySsl / clientCert / caCert so a self-signed, private-CA, or mTLS gRPC
 // server can be reached from desktop. Resolved per-host in the renderer from
@@ -1020,6 +1135,12 @@ export const StoreSetSchema = z.tuple([StoreKeySchema, StoreValueSchema]);
 // ===========================
 
 export const LogHistoryLimitSchema = z.number().int().positive().max(1000).optional();
+
+/** PNG data URL only; prevents the clipboard bridge accepting arbitrary file/HTML payloads. */
+export const BugReportScreenshotSchema = z
+  .string()
+  .max(12 * 1024 * 1024, 'Screenshot exceeds 12MB')
+  .regex(/^data:image\/png;base64,[A-Za-z0-9+/=]+$/, 'Expected a PNG data URL');
 
 // ===========================
 // Validation Helper

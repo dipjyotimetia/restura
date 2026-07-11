@@ -3,7 +3,6 @@ import { useShallow } from 'zustand/react/shallow';
 import { Floater, Kbd } from '@/components/ui/spatial';
 import { envColorFor } from '@/features/environments/lib/envColor';
 import { envHostHint } from '@/features/environments/lib/envHint';
-import { openBugReport } from '@/lib/shared/bug-report';
 import { isElectron, getPlatform } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
@@ -30,6 +29,7 @@ interface WindowChromeProps {
   onOpenSettings?: () => void;
   onOpenEnvSwitcher?: () => void;
   onToggleAi?: () => void;
+  onOpenBugReport?: () => void;
 }
 
 /**
@@ -48,6 +48,7 @@ export function WindowChrome({
   onOpenSettings,
   onOpenEnvSwitcher,
   onToggleAi,
+  onOpenBugReport,
   setEnvManagerOpen,
 }: WindowChromeProps) {
   const { environments, activeEnvironmentId } = useEnvironmentStore(
@@ -178,7 +179,7 @@ export function WindowChrome({
         />
         <ChromeIconButton
           label="Report a bug"
-          onClick={() => void openBugReport()}
+          onClick={onOpenBugReport}
           icon={<Bug className="h-3.5 w-3.5" aria-hidden="true" />}
         />
         <ChromeIconButton
