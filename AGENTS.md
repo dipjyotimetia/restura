@@ -5,7 +5,7 @@ It mirrors `CLAUDE.md` for the Codex runtime; `CLAUDE.md` is the fuller,
 actively-maintained reference — when in doubt, read it. Keep the two in sync:
 an architectural change documented in one should be reflected in the other.
 
-Codex MCP context lives in `.codex/config.toml` (chrome-devtools, next-devtools).
+Codex MCP context lives in `.codex/config.toml` (chrome-devtools).
 
 ## OpenWiki
 
