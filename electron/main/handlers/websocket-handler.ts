@@ -12,7 +12,12 @@ import {
   assertTrustedSender,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
-import { getNetworkPolicy } from '../security/execution-policy';
+import { getExecutionPolicy } from '../security/execution-policy';
+import {
+  assertPinnedFetchCanHonorPolicy,
+  resolvePolicyTransport,
+  type PolicyTransportConfig,
+} from '../security/policy-transport';
 import { resolveSafeAddress, createPinnedLookup } from '../security/safe-connect';
 
 const log = createLogger('websocket');
@@ -51,12 +56,31 @@ const connections = new StreamRegistry<ActiveWebSocket>({
 // Maximum message size (1MB)
 const MAX_MESSAGE_SIZE = 1024 * 1024;
 
+export function resolveWebsocketExecutionPolicy<T extends PolicyTransportConfig>(config: T) {
+  return resolvePolicyTransport(config);
+}
+
+function applyWebSocketPolicyConfig(url: string) {
+  const policyConfig = resolveWebsocketExecutionPolicy({ url });
+  assertPinnedFetchCanHonorPolicy(policyConfig);
+  return policyConfig;
+}
+
 export function registerWebSocketHandlerIPC(): void {
   // ws:connect is handled manually (not via createValidatedHandler) so we can capture
   // event.sender.id and target IPC emissions to the originating renderer window.
   ipcMain.handle(IPC.ws.connect, async (event, rawConfig: unknown) => {
     assertTrustedSender(IPC.ws.connect, event);
     const config = validateIpcInput(WsConnectSchema, rawConfig, IPC.ws.connect);
+    let policyConfig: ReturnType<typeof applyWebSocketPolicyConfig>;
+    try {
+      policyConfig = applyWebSocketPolicyConfig(config.url);
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Connection policy rejected',
+      };
+    }
     const connectionId = config.connectionId;
     const webContentsId = event.sender.id;
 
@@ -78,7 +102,7 @@ export function registerWebSocketHandlerIPC(): void {
     let pinned: Awaited<ReturnType<typeof resolveSafeAddress>>;
     try {
       pinned = await resolveSafeAddress(config.url, {
-        ...getNetworkPolicy(),
+        ...getExecutionPolicy().security,
         allowedSchemes: ['ws:', 'wss:'],
       });
     } catch (err) {
@@ -94,13 +118,14 @@ export function registerWebSocketHandlerIPC(): void {
       const ws = new WebSocket(config.url, config.protocols ?? [], {
         headers: config.headers ?? {},
         maxPayload: MAX_MESSAGE_SIZE,
+        rejectUnauthorized: policyConfig.verifySsl,
         // Same-host handshake redirects are followed; a redirect to a DIFFERENT
         // host fails closed — `createPinnedLookup` errors on any hostname other
         // than the validated one (an attacker can't 3xx into an internal/metadata
         // target). Cross-host handshake redirects are rare and not supported by
         // design; the abort surfaces as a normal `ws` 'error' event below.
         followRedirects: true,
-        handshakeTimeout: 30000,
+        handshakeTimeout: policyConfig.timeout,
         lookup: createPinnedLookup(pinned.host, pinned.ip),
       });
 

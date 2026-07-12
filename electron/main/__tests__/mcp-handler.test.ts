@@ -112,6 +112,7 @@ vi.mock('@modelcontextprotocol/sdk/client/sse.js', () => ({
 }));
 
 import { registerMcpHandlerIPC, stopMcpCleanup } from '../handlers/mcp-handler';
+import { setExecutionPolicy } from '../security/execution-policy';
 
 type IpcHandler = (event: unknown, payload: unknown) => Promise<Record<string, unknown>>;
 
@@ -144,6 +145,13 @@ async function connect(
 
 describe('mcp-handler (SDK-backed)', () => {
   beforeEach(() => {
+    setExecutionPolicy({
+      security: { allowLocalhost: true, allowPrivateIPs: false },
+      proxy: { enabled: false, type: 'http', host: '', port: 8080, bypassList: [] },
+      timeout: 30_000,
+      tls: { verifySsl: true, serverCipherOrder: false },
+      certificates: { clientCertificates: [], caCertificates: [] },
+    });
     mockHandle.mockClear();
     mockEmitTo.mockClear();
     mockBindCleanup.mockClear();
@@ -176,7 +184,9 @@ describe('mcp-handler (SDK-backed)', () => {
       allowLocalhost: true,
       allowPrivateIPs: false,
     });
-    expect(mockCreatePinnedFetch).toHaveBeenCalledWith('mcp.example.com', '93.184.216.34');
+    expect(mockCreatePinnedFetch).toHaveBeenCalledWith('mcp.example.com', '93.184.216.34', {
+      rejectUnauthorized: true,
+    });
 
     const transport = sdkState.streamables[0]!;
     expect(transport.url.href).toBe('https://mcp.example.com/mcp');
@@ -199,6 +209,29 @@ describe('mcp-handler (SDK-backed)', () => {
     mockResolveSafeAddress.mockRejectedValueOnce(new Error('Blocked: private address'));
     const res = await connect();
     expect(res).toEqual({ success: false, error: 'Blocked: private address' });
+    expect(sdkState.clients).toHaveLength(0);
+  });
+
+  it('fails clearly rather than connecting directly when its policy proxy cannot be honored', async () => {
+    setExecutionPolicy({
+      security: { allowLocalhost: true, allowPrivateIPs: false },
+      proxy: {
+        enabled: true,
+        type: 'http',
+        host: 'proxy.example.test',
+        port: 3128,
+        bypassList: [],
+      },
+      timeout: 30_000,
+      tls: { verifySsl: true, serverCipherOrder: false },
+      certificates: { clientCertificates: [], caCertificates: [] },
+    });
+
+    await expect(connect()).resolves.toEqual({
+      success: false,
+      error: 'Configured HTTP proxy cannot be honored by this DNS-pinned connection',
+    });
+    expect(mockResolveSafeAddress).not.toHaveBeenCalled();
     expect(sdkState.clients).toHaveLength(0);
   });
 

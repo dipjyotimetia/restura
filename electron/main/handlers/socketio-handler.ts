@@ -19,7 +19,12 @@ import {
   assertTrustedSender,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
-import { getNetworkPolicy } from '../security/execution-policy';
+import { getExecutionPolicy } from '../security/execution-policy';
+import {
+  assertPinnedFetchCanHonorPolicy,
+  resolvePolicyTransport,
+  type PolicyTransportConfig,
+} from '../security/policy-transport';
 import { resolveSafeAddress, createPinnedLookup } from '../security/safe-connect';
 
 const log = createLogger('socketio');
@@ -42,6 +47,10 @@ const getIo = async (): Promise<SocketIoModule['io']> =>
 
 const MAX_CONCURRENT_SOCKETIO_CONNECTIONS = 50;
 const DEFAULT_ACK_TIMEOUT_MS = 15_000;
+
+function resolveSocketIoExecutionPolicy<T extends PolicyTransportConfig>(config: T) {
+  return resolvePolicyTransport(config);
+}
 
 interface ActiveSocketIO {
   socket: Socket;
@@ -105,6 +114,20 @@ export function registerSocketIoHandlerIPC(): void {
     const connectionId = config.connectionId;
     const webContentsId = event.sender.id;
 
+    let policyConfig: ReturnType<typeof resolveSocketIoExecutionPolicy>;
+    try {
+      policyConfig = resolveSocketIoExecutionPolicy({
+        url: config.url,
+        timeout: config.timeout,
+      });
+      assertPinnedFetchCanHonorPolicy(policyConfig);
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Connection policy rejected',
+      };
+    }
+
     if (!socketIoRateLimiter.check(webContentsId)) {
       return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
     }
@@ -126,7 +149,7 @@ export function registerSocketIoHandlerIPC(): void {
     let pinned: Awaited<ReturnType<typeof resolveSafeAddress>>;
     try {
       pinned = await resolveSafeAddress(config.url, {
-        ...getNetworkPolicy(),
+        ...getExecutionPolicy().security,
         allowedSchemes: ['http:', 'https:', 'ws:', 'wss:'],
       });
     } catch (err) {
@@ -151,7 +174,8 @@ export function registerSocketIoHandlerIPC(): void {
         reconnection: config.reconnection ?? true,
         reconnectionAttempts: config.reconnectionAttempts ?? 5,
         reconnectionDelay: config.reconnectionDelay ?? 1_000,
-        timeout: config.timeout ?? 20_000,
+        timeout: policyConfig.timeout,
+        rejectUnauthorized: policyConfig.verifySsl,
         forceNew: config.forceNew ?? false,
         autoConnect: true,
         // engine.io types `agent` as string|boolean for historical reasons, but

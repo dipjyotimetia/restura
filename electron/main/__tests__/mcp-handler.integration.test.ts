@@ -20,6 +20,7 @@ vi.mock('../ipc/ipc-utils', async (importOriginal) => {
 });
 
 import { registerMcpHandlerIPC, stopMcpCleanup } from '../handlers/mcp-handler';
+import { setExecutionPolicy } from '../security/execution-policy';
 import { startMockMcpServer, type MockMcpServerHandle } from '../../../e2e/mocks/mcpServer';
 
 type IpcHandler = (event: unknown, payload: unknown) => Promise<Record<string, unknown>>;
@@ -39,6 +40,13 @@ describe('mcp-handler integration (SDK client ↔ SDK server over real HTTP)', (
   let server: MockMcpServerHandle;
 
   beforeAll(async () => {
+    setExecutionPolicy({
+      security: { allowLocalhost: true, allowPrivateIPs: false },
+      proxy: { enabled: false, type: 'http', host: '', port: 8080, bypassList: [] },
+      timeout: 30_000,
+      tls: { verifySsl: true, serverCipherOrder: false },
+      certificates: { clientCertificates: [], caCertificates: [] },
+    });
     server = await startMockMcpServer();
     registerMcpHandlerIPC();
   });

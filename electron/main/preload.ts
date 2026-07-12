@@ -16,7 +16,6 @@ import {
 } from '../shared/channels';
 import type {
   ElectronAPI,
-  ElectronExecutionPolicy,
   UpdaterStatus,
   AiLabModelSpec,
   AiLabDiscoverArgs,
@@ -843,13 +842,6 @@ const electronAPI = {
     clear: (): Promise<void> => ipcRenderer.invoke(IPC.log.clear),
   },
 
-  bugReport: {
-    captureScreenshot: () => ipcRenderer.invoke(IPC.bugReport.captureScreenshot),
-    getDiagnostics: () => ipcRenderer.invoke(IPC.bugReport.getDiagnostics),
-    copyScreenshot: (imageDataUrl: string) =>
-      ipcRenderer.invoke(IPC.bugReport.copyScreenshot, imageDataUrl),
-  },
-
   // Keychain (safeStorage) status — surfaces whether secrets are protected by
   // the OS keychain or held in a plaintext fallback (Linux without libsecret).
   keychain: {
@@ -958,11 +950,17 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.telemetry.setConsent, enabled),
   },
 
-  // Execution policy — renderer mirrors its complete outbound Settings subset
-  // to the main process, where SecretRef handles stay opaque until wire time.
+  // Execution policy — renderer pushes hydrated outbound settings to main.
   security: {
-    setExecutionPolicy: (policy: ElectronExecutionPolicy): Promise<{ ok: true }> =>
-      ipcRenderer.invoke(IPC.security.setExecutionPolicy, policy),
+    setExecutionPolicy: (policy) => ipcRenderer.invoke(IPC.security.setExecutionPolicy, policy),
+  },
+
+  // Bug report flow: capture screenshot + telemetry-safe diagnostics from main.
+  bugReport: {
+    getDiagnostics: () => ipcRenderer.invoke(IPC.bugReport.getDiagnostics),
+    captureScreenshot: () => ipcRenderer.invoke(IPC.bugReport.captureScreenshot),
+    copyScreenshot: (imageDataUrl: string) =>
+      ipcRenderer.invoke(IPC.bugReport.copyScreenshot, imageDataUrl),
   },
 
   // Events — wrapper-registry backed so removeListener actually removes the

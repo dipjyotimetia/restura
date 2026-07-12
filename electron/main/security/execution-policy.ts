@@ -1,172 +1,178 @@
+import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema';
 import { ipcMain } from 'electron';
-import { selectCertForUrl } from '../../../src/lib/shared/certMatcher';
-import type { SecretValue } from '../../../src/lib/shared/secretRef';
+import { z } from 'zod';
 import { IPC } from '../../shared/channels';
-import { createValidatedHandler, ExecutionPolicySchema } from '../ipc/ipc-validators';
+import { createValidatedHandler } from '../ipc/ipc-validators';
 
-export { ExecutionPolicySchema } from '../ipc/ipc-validators';
+const ClientCertSchema = z
+  .object({
+    format: z.enum(['pfx', 'pem']),
+    pfx: z
+      .string()
+      .min(1)
+      .max(1024 * 1024)
+      .optional(),
+    cert: z
+      .string()
+      .min(1)
+      .max(1024 * 1024)
+      .optional(),
+    key: z
+      .string()
+      .min(1)
+      .max(1024 * 1024)
+      .optional(),
+    passphrase: protocolSecretValueSchema.optional(),
+  })
+  .strict()
+  .superRefine((cert, ctx) => {
+    const hasPfx = cert.pfx !== undefined;
+    const hasPemPair = cert.cert !== undefined && cert.key !== undefined;
+    if ((cert.format === 'pfx' && !hasPfx) || (cert.format === 'pem' && !hasPemPair)) {
+      ctx.addIssue({ code: 'custom', message: 'Certificate material does not match its format' });
+    }
+  });
 
-type ProxyType = 'none' | 'http' | 'https' | 'socks4' | 'socks5';
-type MinTlsVersion = 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
+const CaCertSchema = z
+  .object({
+    pem: z
+      .string()
+      .min(1)
+      .max(1024 * 1024),
+  })
+  .strict();
 
-export interface ExecutionProxy {
-  enabled: boolean;
-  type: ProxyType;
-  host: string;
-  port: number;
-  bypassList: string[];
-  auth?: { username: string; password: SecretValue };
-}
+const ProxySchema = z
+  .object({
+    enabled: z.boolean(),
+    type: z.enum(['none', 'http', 'https', 'socks4', 'socks5']),
+    host: z.string().max(253),
+    port: z.number().int().min(1).max(65535),
+    bypassList: z.array(z.string().min(1).max(253)).max(100),
+    auth: z
+      .object({
+        username: z.string().max(256),
+        password: protocolSecretValueSchema,
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .superRefine((proxy, ctx) => {
+    if (proxy.enabled && proxy.type === 'none') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['type'],
+        message: 'Enabled proxy requires a supported type',
+      });
+    }
+    if (proxy.enabled && !proxy.host.trim()) {
+      ctx.addIssue({ code: 'custom', path: ['host'], message: 'Enabled proxy requires a host' });
+    }
+  });
 
-export interface ExecutionClientCert {
-  format: 'pfx' | 'pem';
-  pfx?: string;
-  cert?: string;
-  key?: string;
-  /** Kept opaque until a transport resolves it at wire time. */
-  passphrase?: SecretValue;
-}
+const HostClientCertSchema = z
+  .object({
+    id: z.string().min(1).max(128),
+    host: z.string().min(1).max(253),
+    port: z.number().int().min(1).max(65535).optional(),
+    cert: ClientCertSchema,
+  })
+  .strict();
 
-export interface ExecutionCaCert {
-  pem: string;
-}
+const HostCaCertSchema = z
+  .object({
+    id: z.string().min(1).max(128),
+    host: z.string().min(1).max(253),
+    port: z.number().int().min(1).max(65535).optional(),
+    pem: z
+      .string()
+      .min(1)
+      .max(1024 * 1024),
+  })
+  .strict();
 
-export interface HostExecutionClientCert {
-  id: string;
-  host: string;
-  port?: number;
-  cert: ExecutionClientCert;
-}
+/** The complete renderer-authored policy that will govern desktop execution. */
+export const ExecutionPolicySchema = z
+  .object({
+    security: z.object({ allowLocalhost: z.boolean(), allowPrivateIPs: z.boolean() }).strict(),
+    proxy: ProxySchema,
+    timeout: z.number().int().min(1).max(600_000),
+    tls: z
+      .object({
+        verifySsl: z.boolean(),
+        serverCipherOrder: z.boolean(),
+        minTlsVersion: z.enum(['TLSv1', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3']).optional(),
+        cipherSuites: z
+          .string()
+          .max(16 * 1024)
+          .optional(),
+      })
+      .strict(),
+    certificates: z
+      .object({
+        clientCert: ClientCertSchema.optional(),
+        caCert: CaCertSchema.optional(),
+        clientCertificates: z.array(HostClientCertSchema).max(100),
+        caCertificates: z.array(HostCaCertSchema).max(100),
+      })
+      .strict(),
+  })
+  .strict();
 
-export interface HostExecutionCaCert {
-  id: string;
-  host: string;
-  port?: number;
-  pem: string;
-}
+export type ExecutionPolicy = z.infer<typeof ExecutionPolicySchema>;
 
-/** Immutable main-process snapshot of every global desktop execution setting. */
-export interface ExecutionPolicy {
-  allowLocalhost: boolean;
-  allowPrivateIPs: boolean;
-  proxy: ExecutionProxy;
-  defaultTimeout: number;
-  verifySsl: boolean;
-  clientCert?: ExecutionClientCert;
-  caCert?: ExecutionCaCert;
-  clientCertificates: HostExecutionClientCert[];
-  caCertificates: HostExecutionCaCert[];
-  serverCipherOrder?: boolean;
-  minTlsVersion?: MinTlsVersion;
-  cipherSuites?: string;
-}
-
-export const DEFAULT_EXECUTION_POLICY: ExecutionPolicy = {
-  // Preserve the existing desktop default until the renderer completes its
-  // first settings rehydration. Private addresses and metadata remain blocked
-  // by the shared URL guard even when localhost is allowed.
-  allowLocalhost: true,
-  allowPrivateIPs: false,
+const safeDefaultPolicy: ExecutionPolicy = {
+  security: { allowLocalhost: true, allowPrivateIPs: false },
   proxy: { enabled: false, type: 'http', host: '', port: 8080, bypassList: [] },
-  defaultTimeout: 30_000,
-  verifySsl: true,
-  clientCertificates: [],
-  caCertificates: [],
+  timeout: 30_000,
+  tls: { verifySsl: true, serverCipherOrder: false },
+  certificates: { clientCertificates: [], caCertificates: [] },
 };
 
-let policy: ExecutionPolicy = clonePolicy(DEFAULT_EXECUTION_POLICY);
+let policy: ExecutionPolicy = safeDefaultPolicy;
+let acknowledged = false;
 
-function clonePolicy(value: ExecutionPolicy): ExecutionPolicy {
-  return structuredClone(value);
+/**
+ * Returns a parsed copy so callers cannot mutate the main-process snapshot.
+ * Adapters will consume this after they opt into execution-policy enforcement.
+ */
+export function getExecutionPolicy(): ExecutionPolicy {
+  return ExecutionPolicySchema.parse(policy);
 }
 
-/** Returns a defensive copy; callers cannot mutate the process-wide policy. */
-export function getExecutionPolicy(): ExecutionPolicy {
-  return clonePolicy(policy);
+/** True only once main has accepted a renderer-provided, validated snapshot. */
+export function isExecutionPolicyReady(): boolean {
+  return acknowledged;
 }
 
 /**
- * Atomically replaces the policy after IPC validation. SecretRef handles are
- * deliberately copied as opaque values; only protocol adapters may resolve
- * them immediately before constructing their native wire options.
+ * Enforcement hook for outbound adapters. It deliberately fails closed before
+ * the renderer's hydrated settings have been accepted by the main process.
  */
-export function setExecutionPolicy(next: ExecutionPolicy): void {
-  policy = clonePolicy(next);
-}
-
-/** Compatibility selector for existing SSRF guards during the adapter rollout. */
-export function getNetworkPolicy(): Pick<ExecutionPolicy, 'allowLocalhost' | 'allowPrivateIPs'> {
-  const { allowLocalhost, allowPrivateIPs } = policy;
-  return { allowLocalhost, allowPrivateIPs };
-}
-
-function shouldBypassProxy(url: string, bypassList: readonly string[]): boolean {
-  try {
-    const hostname = new URL(url).hostname.toLowerCase();
-    return bypassList.some((pattern) => {
-      const lower = pattern.toLowerCase();
-      if (lower.startsWith('*')) {
-        const suffix = lower.slice(1);
-        return hostname.endsWith(suffix) || hostname === suffix.slice(1);
-      }
-      if (lower.includes('*')) {
-        const expression =
-          '^' + lower.replace(/[-/\\^$+?.()|[\]{}]/g, '\\$&').replace(/\*/g, '.*') + '$';
-        return new RegExp(expression).test(hostname);
-      }
-      return hostname === lower;
-    });
-  } catch {
-    return false;
+export function assertExecutionPolicyReady(): void {
+  if (!acknowledged) {
+    throw new Error('Execution policy has not been acknowledged by the renderer');
   }
 }
 
-export interface ResolvedExecutionPolicy extends Omit<
-  ExecutionPolicy,
-  'proxy' | 'clientCert' | 'caCert'
-> {
-  proxy?: ExecutionProxy;
-  clientCert?: ExecutionClientCert;
-  caCert?: ExecutionCaCert;
-}
-
-/**
- * Resolve selection precedence only. This does not resolve SecretValue handles
- * or open a connection; adapters consume this result and resolve handles in
- * the main process at their final wire-time operation.
- */
-export function resolveExecutionPolicyForUrl(
-  url: string,
-  snapshot: ExecutionPolicy = policy
-): ResolvedExecutionPolicy {
-  const hostClientCert = selectCertForUrl(url, snapshot.clientCertificates);
-  const hostCaCert = selectCertForUrl(url, snapshot.caCertificates);
-  const {
-    proxy: configuredProxy,
-    clientCert: globalClientCert,
-    caCert: globalCaCert,
-    ...base
-  } = snapshot;
-
-  return {
-    ...structuredClone(base),
-    proxy:
-      configuredProxy.enabled && !shouldBypassProxy(url, configuredProxy.bypassList)
-        ? structuredClone(configuredProxy)
-        : undefined,
-    clientCert: hostClientCert
-      ? structuredClone(hostClientCert.cert)
-      : structuredClone(globalClientCert),
-    caCert: hostCaCert ? { pem: hostCaCert.pem } : structuredClone(globalCaCert),
-  };
+/** Parse before replacing the policy so rejected IPC can never partially update it. */
+export function setExecutionPolicy(next: unknown): ExecutionPolicy {
+  policy = ExecutionPolicySchema.parse(next);
+  acknowledged = true;
+  return getExecutionPolicy();
 }
 
 export function registerExecutionPolicyIPC(): void {
   ipcMain.handle(
     IPC.security.setExecutionPolicy,
-    createValidatedHandler(IPC.security.setExecutionPolicy, ExecutionPolicySchema, (next) => {
-      setExecutionPolicy(next);
-      return { ok: true };
-    })
+    createValidatedHandler(
+      IPC.security.setExecutionPolicy,
+      ExecutionPolicySchema,
+      (next): { ok: true } => {
+        setExecutionPolicy(next);
+        return { ok: true };
+      }
+    )
   );
 }

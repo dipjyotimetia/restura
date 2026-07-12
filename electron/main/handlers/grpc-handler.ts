@@ -21,7 +21,7 @@ import {
   runConnectStream,
   type PinnedDial,
 } from './grpc-connect';
-import type { GrpcTlsConfig } from './grpc-credentials';
+import { resolveGrpcExecutionPolicy, type GrpcTlsConfig } from './grpc-credentials';
 
 const log = createLogger('grpc');
 
@@ -256,13 +256,26 @@ function toConnectArgs(config: GrpcRequestConfig, dial: PinnedDial) {
 }
 
 async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse> {
+  let policyConfig: GrpcRequestConfig;
+  try {
+    policyConfig = resolveGrpcExecutionPolicy(config);
+  } catch (err) {
+    const detail = sanitizeErrorMessage(err instanceof Error ? err.message : String(err));
+    return {
+      status: 2,
+      statusText: 'Internal Error',
+      headers: {},
+      trailers: {},
+      error: `gRPC setup failed: ${detail}`,
+    };
+  }
   // SSRF pre-flight before any disk I/O or socket open. Failure surfaces as
   // INVALID_ARGUMENT (code 3) with an explicit "[URL policy]" prefix so the
   // renderer can distinguish URL-policy rejections from a gRPC server that
   // legitimately returns INVALID_ARGUMENT for a malformed request body.
   let grpcDial: PinnedDial;
   try {
-    grpcDial = await resolveGrpcDialAddress(config.url);
+    grpcDial = await resolveGrpcDialAddress(policyConfig.url);
   } catch (err) {
     const detail = sanitizeErrorMessage(err instanceof Error ? err.message : String(err));
     return {
@@ -275,7 +288,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
     };
   }
 
-  const shared = toConnectArgs(config, grpcDial);
+  const shared = toConnectArgs(policyConfig, grpcDial);
 
   try {
     if (config.methodType === 'unary') {
@@ -386,12 +399,26 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           return;
         }
 
+        let policyConfig: GrpcRequestConfig;
+        try {
+          policyConfig = resolveGrpcExecutionPolicy(config);
+        } catch (err) {
+          pendingStreamMessages.delete(requestId);
+          safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
+            status: 2,
+            details: `gRPC setup failed: ${sanitizeErrorMessage(
+              err instanceof Error ? err.message : String(err)
+            )}`,
+          });
+          return;
+        }
+
         // SSRF guard before any cleanup binding so a rejected URL doesn't leave a
         // renderer-destroy listener behind. Resolve + validate + pin the address
         // here (closes the rebind window).
         let grpcDial: PinnedDial;
         try {
-          grpcDial = await resolveGrpcDialAddress(config.url);
+          grpcDial = await resolveGrpcDialAddress(policyConfig.url);
         } catch (err) {
           pendingStreamMessages.delete(requestId);
           safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
@@ -452,8 +479,8 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
             if (onComplete) {
               onComplete({
                 ts: streamStartTime,
-                method: `${config.service}/${config.method}`,
-                url: config.url,
+                method: `${policyConfig.service}/${policyConfig.method}`,
+                url: policyConfig.url,
                 status: code,
                 durationMs: Date.now() - streamStartTime,
                 protocol: 'grpc',
@@ -482,7 +509,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           // connect-node streaming (server / client / bidi). Reuses the
           // SSRF-validated dial, the runtime registry, and the finalize /
           // handleData / emit plumbing above.
-          const controls = runConnectStream(toConnectArgs(config, grpcDial), {
+          const controls = runConnectStream(toConnectArgs(policyConfig, grpcDial), {
             onMessage: handleData,
             onHeaders: (h) => Object.assign(capturedHeaders, h),
             onTrailers: (t) => Object.assign(capturedTrailers, t),

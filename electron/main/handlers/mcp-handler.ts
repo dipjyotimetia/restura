@@ -22,8 +22,14 @@ import {
   assertTrustedSender,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
-import { getNetworkPolicy } from '../security/execution-policy';
-import { resolveSafeAddress, createPinnedFetch } from '../security/safe-connect';
+import { getExecutionPolicy } from '../security/execution-policy';
+import {
+  assertPinnedFetchCanHonorPolicy,
+  createPolicyPinnedFetch,
+  resolvePolicyTransport,
+  type PolicyTransportConfig,
+} from '../security/policy-transport';
+import { resolveSafeAddress } from '../security/safe-connect';
 
 const log = createLogger('mcp');
 
@@ -45,6 +51,11 @@ const log = createLogger('mcp');
 export const mcpRateLimiter = createKeyedRateLimiter(60, 60_000);
 const MAX_CONCURRENT_MCP = 20;
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
+
+/** Apply acknowledged desktop defaults before establishing an MCP session. */
+export function resolveMcpExecutionPolicy<T extends PolicyTransportConfig>(config: T) {
+  return resolvePolicyTransport(config);
+}
 
 // Matches the clientInfo the renderer historically sent in its initialize call.
 const CLIENT_INFO = { name: 'restura', version: '1.0.0' };
@@ -83,6 +94,14 @@ export function registerMcpHandlerIPC(): void {
     const config = validateIpcInput(McpConnectSchema, rawConfig, IPC.mcp.connect);
     const webContentsId = event.sender.id;
 
+    let policyConfig: ReturnType<typeof resolveMcpExecutionPolicy>;
+    try {
+      policyConfig = resolveMcpExecutionPolicy(config);
+      assertPinnedFetchCanHonorPolicy(policyConfig);
+    } catch (err) {
+      return { success: false, error: errorMessage(err) };
+    }
+
     if (!mcpRateLimiter.check(webContentsId)) {
       return { success: false, error: 'Rate limit exceeded.' };
     }
@@ -99,8 +118,10 @@ export function registerMcpHandlerIPC(): void {
     // locally). SNI/Host stay on the original hostname.
     let pinnedFetch: typeof globalThis.fetch;
     try {
-      const pinned = await resolveSafeAddress(config.url, { ...getNetworkPolicy() });
-      pinnedFetch = createPinnedFetch(pinned.host, pinned.ip);
+      const pinned = await resolveSafeAddress(policyConfig.url, {
+        ...getExecutionPolicy().security,
+      });
+      pinnedFetch = createPolicyPinnedFetch(policyConfig, pinned);
     } catch (err) {
       return { success: false, error: errorMessage(err) };
     }
@@ -112,7 +133,7 @@ export function registerMcpHandlerIPC(): void {
       fetch: pinnedFetch as (url: string | URL, init?: RequestInit) => Promise<Response>,
       requestInit: { headers: config.headers ?? {} },
     };
-    const url = new URL(config.url);
+    const url = new URL(policyConfig.url);
     const transport =
       config.transport === 'streamable-http'
         ? new StreamableHTTPClientTransport(url, transportOptions)
@@ -121,7 +142,7 @@ export function registerMcpHandlerIPC(): void {
     const client = new Client(CLIENT_INFO, { capabilities: {} });
     const session: McpSession = {
       connectionId: config.connectionId,
-      url: config.url,
+      url: policyConfig.url,
       webContentsId,
       createdAt: Date.now(),
       client,
@@ -161,7 +182,20 @@ export function registerMcpHandlerIPC(): void {
       // Performs the full initialize handshake (and, for streamable-http,
       // opens the optional standalone SSE stream). Auth/connectivity errors
       // surface here rather than on the first request.
-      await client.connect(transport);
+      let connectTimeoutId: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          client.connect(transport),
+          new Promise<never>((_resolve, reject) => {
+            connectTimeoutId = setTimeout(
+              () => reject(new Error(`Connection timeout after ${policyConfig.timeout}ms`)),
+              policyConfig.timeout
+            );
+          }),
+        ]);
+      } finally {
+        if (connectTimeoutId !== undefined) clearTimeout(connectTimeoutId);
+      }
       // Guard the connect-time race: if onclose/onerror fired DURING the
       // handshake, `session.disposed` is already true but the session was not in
       // the registry yet, so onclose's `sessions.get(...) === session` guard

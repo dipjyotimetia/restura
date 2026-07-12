@@ -6,6 +6,7 @@ import {
   type ReflectionIpcConfig,
 } from '../ipc/ipc-validators';
 import { executeConnectReflection, resolveGrpcDialAddress } from './grpc-connect';
+import { resolveGrpcReflectionExecutionPolicy } from './grpc-credentials';
 
 /** The subset of ServerReflectionResponse the renderer consumes. */
 interface RawReflectionResponse {
@@ -25,7 +26,18 @@ export function parseTargetAddress(url: string): { address: string; useTls: bool
 }
 
 async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawReflectionResponse> {
-  const { url, reflectionService, request, timeout = 30000 } = config;
+  let policyConfig: ReflectionIpcConfig & { timeout: number; verifySsl: boolean };
+  try {
+    policyConfig = resolveGrpcReflectionExecutionPolicy(config);
+  } catch (err) {
+    return {
+      errorResponse: {
+        errorCode: 2,
+        errorMessage: `gRPC reflection setup failed: ${err instanceof Error ? err.message : String(err)}`,
+      },
+    };
+  }
+  const { url, reflectionService, request, timeout } = policyConfig;
   const version: 'v1' | 'v1alpha' = reflectionService.includes('v1alpha') ? 'v1alpha' : 'v1';
 
   // Same SSRF resolve+pin (closes the DNS-rebind window) and TLS trust material
@@ -37,7 +49,11 @@ async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawRe
   return executeConnectReflection({
     url: urlWithScheme,
     dial,
-    tls: { verifySsl: config.verifySsl, clientCert: config.clientCert, caCert: config.caCert },
+    tls: {
+      verifySsl: policyConfig.verifySsl,
+      clientCert: policyConfig.clientCert,
+      caCert: policyConfig.caCert,
+    },
     version,
     request: request as Record<string, unknown>,
     timeoutMs: timeout,

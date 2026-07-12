@@ -154,7 +154,6 @@ const IPC_MODULES: IpcModule[] = [
   { register: () => registerKafkaHandlerIPC(logRequest), dispose: () => stopKafkaCleanup() },
   { register: () => registerMqttHandlerIPC(logRequest), dispose: () => stopMqttCleanup() },
   { register: () => registerRequestLoggerIPC() },
-  { register: () => registerBugReportIPC(getMainWindow) },
   { register: () => registerWindowControlsIPC(getMainWindow) },
   { register: () => registerNewWindowIPC(isDev) },
   { register: () => registerNotificationIPC(getMainWindow, isDev) },
@@ -177,6 +176,7 @@ const IPC_MODULES: IpcModule[] = [
   },
   { register: () => registerTelemetryConsentIPC() },
   { register: () => registerExecutionPolicyIPC() },
+  { register: () => registerBugReportIPC(getMainWindow) },
   { register: () => registerAiHandlers(), dispose: () => unregisterAiHandlers() },
   { register: () => registerAiLabHandlers(), dispose: () => unregisterAiLabHandlers() },
   {

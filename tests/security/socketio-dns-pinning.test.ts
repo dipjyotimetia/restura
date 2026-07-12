@@ -53,6 +53,7 @@ vi.mock('../../electron/main/ipc/ipc-validators', () => ({
 
 import { registerSocketIoHandlerIPC } from '../../electron/main/handlers/socketio-handler';
 import { IPC } from '../../electron/shared/channels';
+import { setExecutionPolicy } from '../../electron/main/security/execution-policy';
 
 function makeFakeSocket() {
   return {
@@ -76,6 +77,13 @@ const fakeEvent = { sender: { id: 1, isDestroyed: () => false } };
 
 describe('socketio-handler DNS pinning', () => {
   beforeEach(() => {
+    setExecutionPolicy({
+      security: { allowLocalhost: true, allowPrivateIPs: false },
+      proxy: { enabled: false, type: 'http', host: '', port: 8080, bypassList: [] },
+      timeout: 30_000,
+      tls: { verifySsl: true, serverCipherOrder: false },
+      certificates: { clientCertificates: [], caCertificates: [] },
+    });
     mockHandle.mockClear();
     mockResolveSafe.mockReset();
     mockCreatePinnedLookup.mockClear();

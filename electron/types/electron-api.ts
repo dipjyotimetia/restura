@@ -763,14 +763,6 @@ interface ElectronLogAPI {
   clear: () => Promise<void>;
 }
 
-interface ElectronBugReportAPI {
-  captureScreenshot: () => Promise<
-    { ok: true; imageDataUrl: string } | { ok: false; error: string }
-  >;
-  getDiagnostics: () => Promise<import('../../src/lib/shared/bug-report').BugReportDiagnostics>;
-  copyScreenshot: (imageDataUrl: string) => Promise<{ ok: true } | { ok: false; error: string }>;
-}
-
 interface KeychainStatus {
   mode: 'safeStorage' | 'plaintext';
   reason?: 'no-keyring' | 'decrypt-failed';
@@ -946,44 +938,74 @@ interface ElectronTelemetryAPI {
   setConsent: (enabled: boolean) => Promise<{ ok: true }>;
 }
 
-export interface ElectronExecutionClientCert {
-  format: 'pfx' | 'pem';
-  pfx?: string;
-  cert?: string;
-  key?: string;
-  passphrase?: ProtocolSecretValue;
-}
-
-export interface ElectronExecutionPolicy {
-  allowLocalhost: boolean;
-  allowPrivateIPs: boolean;
-  proxy: {
-    enabled: boolean;
-    type: 'none' | 'http' | 'https' | 'socks4' | 'socks5';
-    host: string;
-    port: number;
-    bypassList: string[];
-    auth?: { username: string; password: ProtocolSecretValue };
-  };
-  defaultTimeout: number;
-  verifySsl: boolean;
-  clientCert?: ElectronExecutionClientCert;
-  caCert?: { pem: string };
-  clientCertificates: Array<{
-    id: string;
-    host: string;
-    port?: number;
-    cert: ElectronExecutionClientCert;
-  }>;
-  caCertificates: Array<{ id: string; host: string; port?: number; pem: string }>;
-  serverCipherOrder?: boolean;
-  minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
-  cipherSuites?: string;
-}
-
 interface ElectronSecurityAPI {
-  /** Push the complete outbound execution policy to main. */
-  setExecutionPolicy: (policy: ElectronExecutionPolicy) => Promise<{ ok: true }>;
+  /** Push the hydrated renderer policy to main before execution begins. */
+  setExecutionPolicy: (policy: {
+    security: { allowLocalhost: boolean; allowPrivateIPs: boolean };
+    proxy: {
+      enabled: boolean;
+      type: 'none' | 'http' | 'https' | 'socks4' | 'socks5';
+      host: string;
+      port: number;
+      bypassList: string[];
+      auth?: { username: string; password: ProtocolSecretValue };
+    };
+    timeout: number;
+    tls: {
+      verifySsl: boolean;
+      serverCipherOrder: boolean;
+      minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
+      cipherSuites?: string;
+    };
+    certificates: {
+      clientCert?: {
+        format: 'pfx' | 'pem';
+        pfx?: string;
+        cert?: string;
+        key?: string;
+        passphrase?: ProtocolSecretValue;
+      };
+      caCert?: { pem: string };
+      clientCertificates: Array<{
+        id: string;
+        host: string;
+        port?: number;
+        cert: {
+          format: 'pfx' | 'pem';
+          pfx?: string;
+          cert?: string;
+          key?: string;
+          passphrase?: ProtocolSecretValue;
+        };
+      }>;
+      caCertificates: Array<{ id: string; host: string; port?: number; pem: string }>;
+    };
+  }) => Promise<{ ok: true }>;
+}
+
+interface ElectronBugReportAPI {
+  getDiagnostics: () => Promise<{
+    appVersion: string;
+    platform: 'electron' | 'web';
+    operatingSystem: string;
+    browser: string;
+    route: string;
+    capturedAt: string;
+    runtimeErrors: Array<{ message: string; count: number; stack?: string }>;
+    requestLogs: Array<{
+      timestamp: string;
+      protocol: string;
+      method: string;
+      url: string;
+      status: number;
+      durationMs: number;
+      error?: string;
+    }>;
+  }>;
+  captureScreenshot: () => Promise<
+    { ok: true; imageDataUrl: string } | { ok: false; error: string }
+  >;
+  copyScreenshot: (imageDataUrl: string) => Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
 interface ElectronAPI {
@@ -1013,9 +1035,9 @@ interface ElectronAPI {
   ai: ElectronAiAPI;
   aiLab: ElectronAiLabAPI;
   log: ElectronLogAPI;
-  bugReport: ElectronBugReportAPI;
   keychain: ElectronKeychainAPI;
   collections: ElectronCollectionsAPI;
+  bugReport: ElectronBugReportAPI;
   telemetry: ElectronTelemetryAPI;
   security: ElectronSecurityAPI;
   // Valid channels are enumerated by VALID_EVENT_CHANNELS in electron/shared/channels.ts:
