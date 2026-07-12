@@ -26,7 +26,17 @@ export function parseTargetAddress(url: string): { address: string; useTls: bool
 }
 
 async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawReflectionResponse> {
-  const policyConfig = resolveGrpcReflectionExecutionPolicy(config);
+  let policyConfig: ReflectionIpcConfig & { timeout: number; verifySsl: boolean };
+  try {
+    policyConfig = resolveGrpcReflectionExecutionPolicy(config);
+  } catch (err) {
+    return {
+      errorResponse: {
+        errorCode: 2,
+        errorMessage: `gRPC reflection setup failed: ${err instanceof Error ? err.message : String(err)}`,
+      },
+    };
+  }
   const { url, reflectionService, request, timeout } = policyConfig;
   const version: 'v1' | 'v1alpha' = reflectionService.includes('v1alpha') ? 'v1alpha' : 'v1';
 

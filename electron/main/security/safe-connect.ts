@@ -160,7 +160,10 @@ export function createPinnedFetch(
   connectOptions: Record<string, unknown> = {}
 ): typeof globalThis.fetch {
   const agent = new Agent({
-    connect: { ...connectOptions, lookup: createPinnedLookup(host, ip) } as Agent.Options['connect'],
+    connect: {
+      ...connectOptions,
+      lookup: createPinnedLookup(host, ip),
+    } as Agent.Options['connect'],
   });
   return ((input: RequestInfo | URL, init?: RequestInit) => {
     const undiciInit: UndiciRequestInit = {

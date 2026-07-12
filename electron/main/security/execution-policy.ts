@@ -7,9 +7,21 @@ import { createValidatedHandler } from '../ipc/ipc-validators';
 const ClientCertSchema = z
   .object({
     format: z.enum(['pfx', 'pem']),
-    pfx: z.string().min(1).max(1024 * 1024).optional(),
-    cert: z.string().min(1).max(1024 * 1024).optional(),
-    key: z.string().min(1).max(1024 * 1024).optional(),
+    pfx: z
+      .string()
+      .min(1)
+      .max(1024 * 1024)
+      .optional(),
+    cert: z
+      .string()
+      .min(1)
+      .max(1024 * 1024)
+      .optional(),
+    key: z
+      .string()
+      .min(1)
+      .max(1024 * 1024)
+      .optional(),
     passphrase: protocolSecretValueSchema.optional(),
   })
   .strict()
@@ -21,7 +33,14 @@ const ClientCertSchema = z
     }
   });
 
-const CaCertSchema = z.object({ pem: z.string().min(1).max(1024 * 1024) }).strict();
+const CaCertSchema = z
+  .object({
+    pem: z
+      .string()
+      .min(1)
+      .max(1024 * 1024),
+  })
+  .strict();
 
 const ProxySchema = z
   .object({
@@ -41,7 +60,11 @@ const ProxySchema = z
   .strict()
   .superRefine((proxy, ctx) => {
     if (proxy.enabled && proxy.type === 'none') {
-      ctx.addIssue({ code: 'custom', path: ['type'], message: 'Enabled proxy requires a supported type' });
+      ctx.addIssue({
+        code: 'custom',
+        path: ['type'],
+        message: 'Enabled proxy requires a supported type',
+      });
     }
     if (proxy.enabled && !proxy.host.trim()) {
       ctx.addIssue({ code: 'custom', path: ['host'], message: 'Enabled proxy requires a host' });
@@ -62,7 +85,10 @@ const HostCaCertSchema = z
     id: z.string().min(1).max(128),
     host: z.string().min(1).max(253),
     port: z.number().int().min(1).max(65535).optional(),
-    pem: z.string().min(1).max(1024 * 1024),
+    pem: z
+      .string()
+      .min(1)
+      .max(1024 * 1024),
   })
   .strict();
 
@@ -77,7 +103,10 @@ export const ExecutionPolicySchema = z
         verifySsl: z.boolean(),
         serverCipherOrder: z.boolean(),
         minTlsVersion: z.enum(['TLSv1', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3']).optional(),
-        cipherSuites: z.string().max(16 * 1024).optional(),
+        cipherSuites: z
+          .string()
+          .max(16 * 1024)
+          .optional(),
       })
       .strict(),
     certificates: z

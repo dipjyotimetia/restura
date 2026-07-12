@@ -118,7 +118,9 @@ export function registerMcpHandlerIPC(): void {
     // locally). SNI/Host stay on the original hostname.
     let pinnedFetch: typeof globalThis.fetch;
     try {
-      const pinned = await resolveSafeAddress(policyConfig.url, { ...getExecutionPolicy().security });
+      const pinned = await resolveSafeAddress(policyConfig.url, {
+        ...getExecutionPolicy().security,
+      });
       pinnedFetch = createPolicyPinnedFetch(policyConfig, pinned);
     } catch (err) {
       return { success: false, error: errorMessage(err) };

@@ -12,10 +12,7 @@ export function isProxyBypassed(hostname: string, bypassList: readonly string[])
 
     if (pattern.startsWith('*')) {
       const suffix = pattern.slice(1);
-      return (
-        normalizedHostname.endsWith(suffix) ||
-        normalizedHostname === suffix.slice(1)
-      );
+      return normalizedHostname.endsWith(suffix) || normalizedHostname === suffix.slice(1);
     }
 
     if (pattern.includes('*')) {

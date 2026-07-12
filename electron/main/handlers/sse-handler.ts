@@ -116,7 +116,10 @@ export function registerSseHandlerIPC(): void {
       policyConfig = resolveSseExecutionPolicy(config);
       assertPinnedFetchCanHonorPolicy(policyConfig);
     } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : 'Connection policy rejected' };
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Connection policy rejected',
+      };
     }
 
     if (!sseRateLimiter.check(webContentsId)) {
@@ -144,7 +147,10 @@ export function registerSseHandlerIPC(): void {
     }
 
     const abortController = new AbortController();
-    const timeoutId = setTimeout(() => abortController.abort(), policyConfig.timeout ?? CONNECTION_TIMEOUT_MS);
+    const timeoutId = setTimeout(
+      () => abortController.abort(),
+      policyConfig.timeout ?? CONNECTION_TIMEOUT_MS
+    );
 
     const entry: ActiveSse = {
       connectionId,

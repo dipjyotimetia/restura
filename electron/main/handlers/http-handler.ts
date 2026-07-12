@@ -905,7 +905,13 @@ async function makeHttpRequest(
   config: HttpRequestConfig,
   redirectCount = 0
 ): Promise<HttpResponse> {
-  const policyConfig = resolveHttpExecutionPolicy(config);
+  let policyConfig: HttpRequestConfig;
+  try {
+    policyConfig = resolveHttpExecutionPolicy(config);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(`Execution policy rejected: ${detail}`);
+  }
 
   // Check body size early, before opening any connection
   if (policyConfig.data && Buffer.byteLength(policyConfig.data, 'utf8') > MAX_HTTP_BODY_BYTES) {

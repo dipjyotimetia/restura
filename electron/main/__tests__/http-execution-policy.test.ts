@@ -25,9 +25,7 @@ beforeEach(() => {
     certificates: {
       clientCert: globalClientCert,
       caCert: { pem: 'GLOBAL-CA' },
-      clientCertificates: [
-        { id: 'host-client', host: '*.example.test', cert: hostClientCert },
-      ],
+      clientCertificates: [{ id: 'host-client', host: '*.example.test', cert: hostClientCert }],
       caCertificates: [{ id: 'host-ca', host: 'api.example.test', pem: 'HOST-CA' }],
     },
   });

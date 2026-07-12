@@ -1002,10 +1002,10 @@ interface ElectronBugReportAPI {
       error?: string;
     }>;
   }>;
-  captureScreenshot: () => Promise<{ ok: true; imageDataUrl: string } | { ok: false; error: string }>;
-  copyScreenshot: (
-    imageDataUrl: string
-  ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  captureScreenshot: () => Promise<
+    { ok: true; imageDataUrl: string } | { ok: false; error: string }
+  >;
+  copyScreenshot: (imageDataUrl: string) => Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
 interface ElectronAPI {

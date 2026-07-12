@@ -33,9 +33,9 @@ type GrpcPolicyTransportConfig = {
  * Request values remain deliberate overrides; absent fields inherit the
  * URL-scoped certificate choice and global timeout/TLS defaults.
  */
-export function resolveGrpcExecutionPolicy<T extends GrpcPolicyTransportConfig & { timeoutMs?: number }>(
-  config: T
-): T & { timeoutMs: number; verifySsl: boolean } {
+export function resolveGrpcExecutionPolicy<
+  T extends GrpcPolicyTransportConfig & { timeoutMs?: number },
+>(config: T): T & { timeoutMs: number; verifySsl: boolean } {
   assertExecutionPolicyReady();
   const policy = getExecutionPolicy();
   const url = new URL(config.url);

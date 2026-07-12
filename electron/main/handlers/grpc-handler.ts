@@ -256,7 +256,19 @@ function toConnectArgs(config: GrpcRequestConfig, dial: PinnedDial) {
 }
 
 async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse> {
-  const policyConfig = resolveGrpcExecutionPolicy(config);
+  let policyConfig: GrpcRequestConfig;
+  try {
+    policyConfig = resolveGrpcExecutionPolicy(config);
+  } catch (err) {
+    const detail = sanitizeErrorMessage(err instanceof Error ? err.message : String(err));
+    return {
+      status: 2,
+      statusText: 'Internal Error',
+      headers: {},
+      trailers: {},
+      error: `gRPC setup failed: ${detail}`,
+    };
+  }
   // SSRF pre-flight before any disk I/O or socket open. Failure surfaces as
   // INVALID_ARGUMENT (code 3) with an explicit "[URL policy]" prefix so the
   // renderer can distinguish URL-policy rejections from a gRPC server that
@@ -387,7 +399,19 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           return;
         }
 
-        const policyConfig = resolveGrpcExecutionPolicy(config);
+        let policyConfig: GrpcRequestConfig;
+        try {
+          policyConfig = resolveGrpcExecutionPolicy(config);
+        } catch (err) {
+          pendingStreamMessages.delete(requestId);
+          safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
+            status: 2,
+            details: `gRPC setup failed: ${sanitizeErrorMessage(
+              err instanceof Error ? err.message : String(err)
+            )}`,
+          });
+          return;
+        }
 
         // SSRF guard before any cleanup binding so a rejected URL doesn't leave a
         // renderer-destroy listener behind. Resolve + validate + pin the address

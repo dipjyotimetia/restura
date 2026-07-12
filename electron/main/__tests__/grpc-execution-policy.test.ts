@@ -17,9 +17,7 @@ beforeEach(() => {
     certificates: {
       clientCert: globalClientCert,
       caCert: { pem: 'GLOBAL-CA' },
-      clientCertificates: [
-        { id: 'host-client', host: '*.example.test', cert: hostClientCert },
-      ],
+      clientCertificates: [{ id: 'host-client', host: '*.example.test', cert: hostClientCert }],
       caCertificates: [{ id: 'host-ca', host: 'api.example.test', pem: 'HOST-CA' }],
     },
   });
@@ -54,9 +52,7 @@ describe('gRPC execution policy', () => {
   });
 
   it('uses the same defaults for reflection while preserving explicit settings', () => {
-    expect(
-      resolveGrpcReflectionExecutionPolicy({ url: 'grpcs://unmatched.test' })
-    ).toMatchObject({
+    expect(resolveGrpcReflectionExecutionPolicy({ url: 'grpcs://unmatched.test' })).toMatchObject({
       timeout: 45_000,
       verifySsl: false,
       clientCert: globalClientCert,
