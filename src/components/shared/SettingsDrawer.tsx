@@ -46,6 +46,12 @@ import { downloadBlob, readFileAsText } from '@/lib/shared/file-utils';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { looksLikePemCertificate } from '@/lib/shared/pemValidation';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
+import {
+  clearReleaseNotesCache,
+  fetchReleaseNotesPage,
+  type ReleaseNote,
+  type ReleaseNotesChannel,
+} from '@/lib/shared/release-notes';
 import { cn } from '@/lib/shared/utils';
 import { withViewTransition } from '@/lib/shared/viewTransition';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -1914,44 +1920,6 @@ function ShortcutsSection() {
 /*  About                                                                      */
 /* -------------------------------------------------------------------------- */
 
-interface AuthorAvatarProps {
-  username: string;
-  initials: string;
-  alt: string;
-}
-
-/**
- * GitHub avatar with graceful fallback. The initials/gradient render as the
- * background, so even before the image loads (or if the fetch fails) the
- * row stays visually anchored. On error we hide the img and let the
- * background show through.
- */
-function AuthorAvatar({ username, initials, alt }: AuthorAvatarProps) {
-  const [failed, setFailed] = useState(false);
-  return (
-    <div
-      className="relative flex items-center justify-center size-10 rounded-full overflow-hidden shrink-0 text-sp-13 font-bold text-white"
-      style={{
-        background: 'linear-gradient(135deg, var(--sp-accent), #a78bfa)',
-        boxShadow: '0 4px 12px var(--sp-accent-glow-55)',
-      }}
-    >
-      <span aria-hidden={!failed}>{initials}</span>
-      {!failed && (
-        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- onError is a load-failure fallback, not a user interaction
-        <img
-          src={`https://github.com/${username}.png?size=80`}
-          alt={alt}
-          loading="lazy"
-          referrerPolicy="no-referrer"
-          onError={() => setFailed(true)}
-          className="absolute inset-0 size-full object-cover"
-        />
-      )}
-    </div>
-  );
-}
-
 function GithubMark({ size = 14 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -1963,6 +1931,179 @@ function GithubMark({ size = 14 }: { size?: number }) {
 /* -------------------------------------------------------------------------- */
 /*  Updates                                                                    */
 /* -------------------------------------------------------------------------- */
+
+function formatReleaseDate(isoDate: string): string {
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(isoDate));
+}
+
+function ReleaseNotesPanel({ channel }: { channel: ReleaseNotesChannel }) {
+  const [releases, setReleases] = useState<ReleaseNote[]>([]);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [nextPage, setNextPage] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadFirstPage = useCallback(
+    async (refresh = false) => {
+      if (refresh) clearReleaseNotesCache();
+      setLoading(true);
+      setError(null);
+      try {
+        const page = await fetchReleaseNotesPage({ channel });
+        setReleases(page.releases);
+        setSelectedId(page.releases[0]?.id ?? null);
+        setNextPage(page.hasNextPage ? 2 : null);
+      } catch (cause) {
+        setReleases([]);
+        setSelectedId(null);
+        setNextPage(null);
+        setError(
+          cause instanceof Error ? cause.message : 'Release notes are unavailable right now.'
+        );
+      } finally {
+        setLoading(false);
+      }
+    },
+    [channel]
+  );
+
+  useEffect(() => {
+    void loadFirstPage();
+  }, [loadFirstPage]);
+
+  const loadMore = useCallback(async () => {
+    if (nextPage == null) return;
+    setLoadingMore(true);
+    try {
+      const page = await fetchReleaseNotesPage({ channel, page: nextPage });
+      setReleases((current) => [...current, ...page.releases]);
+      setNextPage(page.hasNextPage ? nextPage + 1 : null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Release notes are unavailable right now.');
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [channel, nextPage]);
+
+  const selected = releases.find((release) => release.id === selectedId) ?? releases[0];
+
+  return (
+    <section className="mt-6" aria-labelledby="release-notes-heading">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 id="release-notes-heading" className="text-sp-14 font-semibold text-sp-text">
+            Release notes
+          </h3>
+          <p className="mt-1 text-sp-12 text-sp-muted">
+            Published release history from GitHub.{' '}
+            {channel === 'beta' ? 'Beta releases included.' : 'Stable releases only.'}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void loadFirstPage(true)}
+          disabled={loading}
+          className={cn(
+            'inline-flex items-center gap-1.5 h-8 px-3 rounded-sp-btn shrink-0',
+            'bg-sp-surface border border-sp-line text-sp-text text-sp-12 font-medium',
+            'hover:bg-sp-hover hover:border-sp-line-strong transition-colors',
+            'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent',
+            'disabled:opacity-50 disabled:cursor-not-allowed'
+          )}
+        >
+          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} aria-hidden />
+          Refresh
+        </button>
+      </div>
+
+      {loading && <p className="mt-4 text-sp-12 text-sp-muted">Loading release notes…</p>}
+
+      {!loading && error && (
+        <div className="mt-4 rounded-sp-btn border border-red-500/30 bg-red-500/10 p-3 text-sp-12 text-red-200">
+          <p>{error}</p>
+          <button
+            type="button"
+            onClick={() => void loadFirstPage(true)}
+            className="mt-2 font-medium underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+          >
+            Try again
+          </button>
+        </div>
+      )}
+
+      {!loading && !error && releases.length === 0 && (
+        <p className="mt-4 text-sp-12 text-sp-muted">
+          No published release notes are available yet.
+        </p>
+      )}
+
+      {!loading && !error && selected && (
+        <div className="mt-4 grid min-h-56 grid-cols-[10.5rem_minmax(0,1fr)] overflow-hidden rounded-sp-btn border border-sp-line bg-sp-surface-lo">
+          <div className="max-h-80 overflow-y-auto border-r border-sp-line p-1.5">
+            {releases.map((release) => (
+              <button
+                key={release.id}
+                type="button"
+                aria-pressed={release.id === selected.id}
+                onClick={() => setSelectedId(release.id)}
+                className={cn(
+                  'w-full rounded-sp-btn px-2.5 py-2 text-left transition-colors',
+                  'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent',
+                  release.id === selected.id
+                    ? 'bg-sp-active text-sp-text'
+                    : 'text-sp-muted hover:bg-sp-hover hover:text-sp-text'
+                )}
+              >
+                <span className="block text-sp-12 font-semibold">{release.name}</span>
+                <span className="mt-0.5 flex items-center gap-1 text-sp-11 text-sp-dim">
+                  {formatReleaseDate(release.publishedAt)}
+                  {release.isPrerelease && <Badge variant="secondary">Beta</Badge>}
+                </span>
+              </button>
+            ))}
+            {nextPage != null && (
+              <button
+                type="button"
+                onClick={() => void loadMore()}
+                disabled={loadingMore}
+                className="mt-1 w-full rounded-sp-btn px-2.5 py-2 text-sp-11 font-medium text-sp-accent hover:bg-sp-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent disabled:opacity-50"
+              >
+                {loadingMore ? 'Loading…' : 'Load older releases'}
+              </button>
+            )}
+          </div>
+          <article className="max-h-80 overflow-y-auto p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h4 className="text-sp-14 font-semibold text-sp-text">{selected.name}</h4>
+                <p className="mt-0.5 text-sp-11 text-sp-muted">{selected.tag}</p>
+              </div>
+              <a
+                href={selected.url}
+                target="_blank"
+                rel="noreferrer noopener"
+                aria-label={`Open ${selected.tag} on GitHub`}
+                className="text-sp-11 font-medium text-sp-accent underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+              >
+                View on GitHub
+              </a>
+            </div>
+            {selected.body ? (
+              <pre className="mt-4 whitespace-pre-wrap break-words font-sans text-sp-12 leading-5 text-sp-muted">
+                {selected.body}
+              </pre>
+            ) : (
+              <p className="mt-4 text-sp-12 text-sp-muted">
+                No release notes were provided for this release.
+              </p>
+            )}
+          </article>
+        </div>
+      )}
+    </section>
+  );
+}
 
 function UpdatesSection() {
   const version = import.meta.env.VITE_APP_VERSION || '0.0.0';
@@ -2009,6 +2150,7 @@ function UpdatesSection() {
             control={<DesktopOnlyBadge title="Auto-update is an Electron desktop feature." />}
           />
         </FieldGroup>
+        <ReleaseNotesPanel channel="stable" />
       </>
     );
   }
@@ -2076,6 +2218,7 @@ function UpdatesSection() {
           }
         />
       </FieldGroup>
+      <ReleaseNotesPanel channel={autoUpdate.channel} />
     </>
   );
 }
@@ -2085,11 +2228,7 @@ function AboutSection() {
 
   return (
     <>
-      <SectionHeader
-        icon={Info}
-        title="About"
-        description="Build details, author, and project links."
-      />
+      <SectionHeader icon={Info} title="About" description="Build details and project links." />
 
       {/* Hero card — large logo + brand + version pill + tagline. Anchors
           the About page so it doesn't read as a settings list. */}
@@ -2121,30 +2260,6 @@ function AboutSection() {
           </div>
         </div>
       </Floater>
-
-      <FieldGroup label="Author">
-        <div className="grid grid-cols-[auto_1fr_auto] items-center gap-4 py-3">
-          <AuthorAvatar username="dipjyotimetia" initials="DM" alt="Dipjyoti Metia" />
-          <div className="min-w-0">
-            <div className="text-sp-13 font-semibold text-sp-text">Dipjyoti Metia</div>
-            <div className="text-sp-11-5 text-sp-muted">Creator &amp; maintainer</div>
-          </div>
-          <a
-            href="https://github.com/dipjyotimetia"
-            target="_blank"
-            rel="noreferrer noopener"
-            className={cn(
-              'inline-flex items-center gap-1.5 h-8 px-3 rounded-sp-btn shrink-0',
-              'bg-sp-surface border border-sp-line text-sp-text text-sp-12 font-medium',
-              'hover:bg-sp-hover hover:border-sp-line-strong transition-colors',
-              'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
-            )}
-          >
-            <GithubMark size={13} />
-            <span>Follow</span>
-          </a>
-        </div>
-      </FieldGroup>
 
       <section className="mt-5">
         <SectionLabel>Resources</SectionLabel>

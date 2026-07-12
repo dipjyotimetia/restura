@@ -31,6 +31,7 @@ interface UpdateCheckResponse {
 let cancellationToken: CancellationToken | null = null;
 let lastUpdateInfo: UpdateInfo | null = null;
 let recheckInterval: ReturnType<typeof setInterval> | null = null;
+let updaterStatus: UpdaterStatus = { state: 'idle' };
 
 const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
 
@@ -50,9 +51,15 @@ function withWindow(getWindow: () => BrowserWindow | null, fn: (w: BrowserWindow
 
 /** Push a status update to every live renderer (multi-window safe). */
 function broadcast(status: UpdaterStatus): void {
+  updaterStatus = status;
   for (const w of BrowserWindowCtor.getAllWindows()) {
     if (!w.isDestroyed()) w.webContents.send(EVENT.updaterStatus, status);
   }
+}
+
+/** Returns the last known lifecycle state for renderers that subscribe late. */
+export function getUpdaterStatus(): UpdaterStatus {
+  return updaterStatus;
 }
 
 /**
@@ -64,7 +71,11 @@ function broadcast(status: UpdaterStatus): void {
 export function applyUpdaterConfig(config: UpdaterConfig): void {
   autoUpdater.autoDownload = config.autoDownload;
   autoUpdater.allowPrerelease = config.channel === 'beta';
-  autoUpdater.channel = config.channel === 'beta' ? 'beta' : 'latest';
+  // Setting `channel` implicitly enables downgrades in electron-updater. A
+  // stable-channel choice must return to the provider default (latest), and
+  // neither setting should silently install an older signed build.
+  autoUpdater.channel = config.channel === 'beta' ? 'beta' : null;
+  autoUpdater.allowDowngrade = false;
 }
 
 export function setupAutoUpdater(getWindow: () => BrowserWindow | null, isDev: boolean): void {
@@ -189,6 +200,13 @@ export function registerAutoUpdaterIPC(isDev: boolean): void {
   ipcMain.handle(
     IPC.updater.check,
     createValidatedHandler(IPC.updater.check, NoInputSchema, handleCheck)
+  );
+
+  ipcMain.handle(
+    IPC.updater.status,
+    createValidatedHandler(IPC.updater.status, NoInputSchema, async (): Promise<UpdaterStatus> =>
+      getUpdaterStatus()
+    )
   );
 
   ipcMain.handle(
