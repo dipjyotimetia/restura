@@ -92,4 +92,33 @@ describe.each([
       cipherSuites: 'REQUEST-CIPHERS',
     });
   });
+
+  it('does not bypass the policy proxy for hosts that only match regex metacharacters', () => {
+    setExecutionPolicy({
+      security: { allowLocalhost: true, allowPrivateIPs: false },
+      proxy: {
+        enabled: true,
+        type: 'https',
+        host: 'policy-proxy.example.test',
+        port: 8443,
+        bypassList: ['api*.example.com'],
+      },
+      timeout: 45_000,
+      tls: { verifySsl: true, serverCipherOrder: false },
+      certificates: { clientCertificates: [], caCertificates: [] },
+    });
+
+    expect(resolveSseExecutionPolicy({ url: 'https://apiXexampleYcom/events' }).proxy).toEqual({
+      enabled: true,
+      type: 'https',
+      host: 'policy-proxy.example.test',
+      port: 8443,
+    });
+    expect(resolveMcpExecutionPolicy({ url: 'https://apiXexampleYcom/mcp' }).proxy).toEqual({
+      enabled: true,
+      type: 'https',
+      host: 'policy-proxy.example.test',
+      port: 8443,
+    });
+  });
 });

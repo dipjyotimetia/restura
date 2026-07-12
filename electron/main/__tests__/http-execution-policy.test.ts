@@ -97,4 +97,29 @@ describe('HTTP execution policy', () => {
       cipherSuites: 'REQUEST-CIPHERS',
     });
   });
+
+  it('treats wildcard bypass entries as globs, not raw regular expressions', () => {
+    setExecutionPolicy({
+      security: { allowLocalhost: true, allowPrivateIPs: false },
+      proxy: {
+        enabled: true,
+        type: 'http',
+        host: 'policy-proxy.example.test',
+        port: 3128,
+        bypassList: ['api*.example.com'],
+      },
+      timeout: 45_000,
+      tls: { verifySsl: true, serverCipherOrder: false },
+      certificates: { clientCertificates: [], caCertificates: [] },
+    });
+
+    expect(
+      resolveHttpExecutionPolicy({ method: 'GET', url: 'https://apiXexampleYcom/v1' }).proxy
+    ).toEqual({
+      enabled: true,
+      type: 'http',
+      host: 'policy-proxy.example.test',
+      port: 3128,
+    });
+  });
 });

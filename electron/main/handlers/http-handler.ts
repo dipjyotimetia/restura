@@ -40,6 +40,7 @@ import {
   getExecutionPolicy,
   type ExecutionPolicy,
 } from '../security/execution-policy';
+import { isProxyBypassed } from '../security/proxy-bypass';
 import { unwrapSecretValueMain } from '../security/secret-handle-store';
 import { buildTlsClientMaterial } from '../security/tls-material';
 import { interceptorRegistry } from './interceptor-registry';
@@ -215,20 +216,6 @@ export interface HttpResponse {
   negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
 }
 
-function isProxyBypassed(url: URL, bypassList: readonly string[]): boolean {
-  const hostname = url.hostname;
-  return bypassList.some((pattern) => {
-    if (pattern.startsWith('*')) {
-      const suffix = pattern.slice(1);
-      return hostname.endsWith(suffix) || hostname === suffix.slice(1);
-    }
-    if (pattern.includes('*')) {
-      return new RegExp('^' + pattern.replace(/\*/g, '.*') + '$').test(hostname);
-    }
-    return hostname === pattern;
-  });
-}
-
 function policyProxyForUrl(url: URL, policy: ExecutionPolicy): ElectronProxyConfig | undefined {
   const proxy = policy.proxy;
   const type = proxy.type;
@@ -236,7 +223,7 @@ function policyProxyForUrl(url: URL, policy: ExecutionPolicy): ElectronProxyConf
     !proxy.enabled ||
     type === 'none' ||
     !proxy.host ||
-    isProxyBypassed(url, proxy.bypassList)
+    isProxyBypassed(url.hostname, proxy.bypassList)
   ) {
     return undefined;
   }

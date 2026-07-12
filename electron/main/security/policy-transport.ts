@@ -1,4 +1,5 @@
 import { selectCertForUrl } from '../../../src/lib/shared/certMatcher';
+import { isProxyBypassed } from './proxy-bypass';
 import { assertExecutionPolicyReady, getExecutionPolicy } from './execution-policy';
 import { createPinnedFetch, type SafeAddress } from './safe-connect';
 import { buildTlsClientMaterial } from './tls-material';
@@ -25,16 +26,7 @@ export interface PolicyTransportConfig {
 
 function proxyForUrl(url: URL): PolicyTransportProxy | undefined {
   const proxy = getExecutionPolicy().proxy;
-  const bypassed = proxy.bypassList.some((pattern) => {
-    if (pattern.startsWith('*')) {
-      const suffix = pattern.slice(1);
-      return url.hostname.endsWith(suffix) || url.hostname === suffix.slice(1);
-    }
-    if (pattern.includes('*')) {
-      return new RegExp(`^${pattern.replace(/\*/g, '.*')}$`).test(url.hostname);
-    }
-    return url.hostname === pattern;
-  });
+  const bypassed = isProxyBypassed(url.hostname, proxy.bypassList);
   if (!proxy.enabled || proxy.type === 'none' || !proxy.host || bypassed) return undefined;
   return {
     enabled: true,
@@ -51,7 +43,7 @@ function proxyForUrl(url: URL): PolicyTransportProxy | undefined {
  */
 export function resolvePolicyTransport<T extends PolicyTransportConfig>(
   config: T
-): T & Required<Pick<PolicyTransportConfig, 'timeout' | 'verifySsl'>> {
+): T & PolicyTransportConfig & Required<Pick<PolicyTransportConfig, 'timeout' | 'verifySsl'>> {
   assertExecutionPolicyReady();
   const policy = getExecutionPolicy();
   const url = new URL(config.url);

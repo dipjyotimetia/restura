@@ -75,4 +75,16 @@ describe('execution policy', () => {
   it('rejects malformed policy snapshots before acknowledging them', () => {
     expect(() => setExecutionPolicy({ ...policy, timeout: 0 })).toThrow('timeout');
   });
+
+  it('rejects oversized policy collections at the IPC validation boundary', () => {
+    expect(() =>
+      setExecutionPolicy({
+        ...policy,
+        proxy: {
+          ...policy.proxy,
+          bypassList: Array.from({ length: 101 }, (_, index) => `host-${index}.example.test`),
+        },
+      })
+    ).toThrow('bypassList');
+  });
 });

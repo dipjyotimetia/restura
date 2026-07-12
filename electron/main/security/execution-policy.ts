@@ -7,11 +7,12 @@ import { createValidatedHandler } from '../ipc/ipc-validators';
 const ClientCertSchema = z
   .object({
     format: z.enum(['pfx', 'pem']),
-    pfx: z.string().min(1).optional(),
-    cert: z.string().min(1).optional(),
-    key: z.string().min(1).optional(),
+    pfx: z.string().max(1024 * 1024).optional(),
+    cert: z.string().max(1024 * 1024).optional(),
+    key: z.string().max(1024 * 1024).optional(),
     passphrase: protocolSecretValueSchema.optional(),
   })
+  .strict()
   .superRefine((cert, ctx) => {
     const hasPfx = cert.pfx !== undefined;
     const hasPemPair = cert.cert !== undefined && cert.key !== undefined;
@@ -20,49 +21,75 @@ const ClientCertSchema = z
     }
   });
 
-const CaCertSchema = z.object({ pem: z.string().min(1) });
+const CaCertSchema = z.object({ pem: z.string().min(1).max(1024 * 1024) }).strict();
 
-const ProxySchema = z.object({
-  enabled: z.boolean(),
-  type: z.enum(['none', 'http', 'https', 'socks4', 'socks5']),
-  host: z.string(),
-  port: z.number().int().min(1).max(65535),
-  bypassList: z.array(z.string()),
-  auth: z.object({ username: z.string(), password: protocolSecretValueSchema }).optional(),
-});
+const ProxySchema = z
+  .object({
+    enabled: z.boolean(),
+    type: z.enum(['none', 'http', 'https', 'socks4', 'socks5']),
+    host: z.string().max(253),
+    port: z.number().int().min(1).max(65535),
+    bypassList: z.array(z.string().min(1).max(253)).max(100),
+    auth: z
+      .object({
+        username: z.string().max(256),
+        password: protocolSecretValueSchema,
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
+  .superRefine((proxy, ctx) => {
+    if (proxy.enabled && proxy.type === 'none') {
+      ctx.addIssue({ code: 'custom', path: ['type'], message: 'Enabled proxy requires a supported type' });
+    }
+    if (proxy.enabled && !proxy.host.trim()) {
+      ctx.addIssue({ code: 'custom', path: ['host'], message: 'Enabled proxy requires a host' });
+    }
+  });
 
-const HostClientCertSchema = z.object({
-  id: z.string().min(1),
-  host: z.string().min(1),
-  port: z.number().int().min(1).max(65535).optional(),
-  cert: ClientCertSchema,
-});
+const HostClientCertSchema = z
+  .object({
+    id: z.string().min(1).max(128),
+    host: z.string().min(1).max(253),
+    port: z.number().int().min(1).max(65535).optional(),
+    cert: ClientCertSchema,
+  })
+  .strict();
 
-const HostCaCertSchema = z.object({
-  id: z.string().min(1),
-  host: z.string().min(1),
-  port: z.number().int().min(1).max(65535).optional(),
-  pem: z.string().min(1),
-});
+const HostCaCertSchema = z
+  .object({
+    id: z.string().min(1).max(128),
+    host: z.string().min(1).max(253),
+    port: z.number().int().min(1).max(65535).optional(),
+    pem: z.string().min(1).max(1024 * 1024),
+  })
+  .strict();
 
 /** The complete renderer-authored policy that will govern desktop execution. */
-export const ExecutionPolicySchema = z.object({
-  security: z.object({ allowLocalhost: z.boolean(), allowPrivateIPs: z.boolean() }),
-  proxy: ProxySchema,
-  timeout: z.number().int().positive(),
-  tls: z.object({
-    verifySsl: z.boolean(),
-    serverCipherOrder: z.boolean(),
-    minTlsVersion: z.enum(['TLSv1', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3']).optional(),
-    cipherSuites: z.string().min(1).optional(),
-  }),
-  certificates: z.object({
-    clientCert: ClientCertSchema.optional(),
-    caCert: CaCertSchema.optional(),
-    clientCertificates: z.array(HostClientCertSchema),
-    caCertificates: z.array(HostCaCertSchema),
-  }),
-});
+export const ExecutionPolicySchema = z
+  .object({
+    security: z.object({ allowLocalhost: z.boolean(), allowPrivateIPs: z.boolean() }).strict(),
+    proxy: ProxySchema,
+    timeout: z.number().int().min(1).max(600_000),
+    tls: z
+      .object({
+        verifySsl: z.boolean(),
+        serverCipherOrder: z.boolean(),
+        minTlsVersion: z.enum(['TLSv1', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3']).optional(),
+        cipherSuites: z.string().max(16 * 1024).optional(),
+      })
+      .strict(),
+    certificates: z
+      .object({
+        clientCert: ClientCertSchema.optional(),
+        caCert: CaCertSchema.optional(),
+        clientCertificates: z.array(HostClientCertSchema).max(100),
+        caCertificates: z.array(HostCaCertSchema).max(100),
+      })
+      .strict(),
+  })
+  .strict();
 
 export type ExecutionPolicy = z.infer<typeof ExecutionPolicySchema>;
 
