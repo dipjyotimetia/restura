@@ -7,9 +7,9 @@ import { createValidatedHandler } from '../ipc/ipc-validators';
 const ClientCertSchema = z
   .object({
     format: z.enum(['pfx', 'pem']),
-    pfx: z.string().max(1024 * 1024).optional(),
-    cert: z.string().max(1024 * 1024).optional(),
-    key: z.string().max(1024 * 1024).optional(),
+    pfx: z.string().min(1).max(1024 * 1024).optional(),
+    cert: z.string().min(1).max(1024 * 1024).optional(),
+    key: z.string().min(1).max(1024 * 1024).optional(),
     passphrase: protocolSecretValueSchema.optional(),
   })
   .strict()

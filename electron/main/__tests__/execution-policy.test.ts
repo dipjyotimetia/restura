@@ -87,4 +87,16 @@ describe('execution policy', () => {
       })
     ).toThrow('bypassList');
   });
+
+  it('rejects empty certificate material', () => {
+    expect(() =>
+      setExecutionPolicy({
+        ...policy,
+        certificates: {
+          ...policy.certificates,
+          clientCert: { format: 'pfx', pfx: '' },
+        },
+      })
+    ).toThrow('pfx');
+  });
 });
