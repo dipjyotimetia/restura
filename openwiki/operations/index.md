@@ -205,15 +205,15 @@ Important rules:
 
 ## Troubleshooting
 
-| Symptom                              | Likely cause                      | Fix                                                    |
-| ------------------------------------ | --------------------------------- | ------------------------------------------------------ |
-| `type-check` passes but CI fails     | Only type-checked renderer        | Use `npm run type-check:all`                           |
-| Pre-commit passed but CI test fails  | Pre-commit does not run tests     | Run `npm run test:run` before push                     |
-| Capability matrix diff in CI         | Forgot to regenerate              | `npm run capabilities:matrix`                          |
-| OpenCollection types diff in CI      | Schema or generator changed       | `npm run gen:opencollection-types`                     |
-| WebSocket custom headers fail on web | Browser WS API limitation         | Web uses `/api/ws-ticket` flow; desktop native `ws` ok |
-| Encrypted data lost on web reload    | Web uses ephemeral in-memory keys | Expected; back up collections via export               |
-| Electron build huge                  | Worker bundle included            | Check `electron-builder.json` excludes `_worker.js`    |
+| Symptom                              | Likely cause                           | Fix                                                                                  |
+| ------------------------------------ | -------------------------------------- | ------------------------------------------------------------------------------------ |
+| `type-check` passes but CI fails     | Only type-checked renderer             | Use `npm run type-check:all`                                                         |
+| Pre-commit passed but CI test fails  | Pre-commit does not run tests          | Run `npm run test:run` before push                                                   |
+| Capability matrix diff in CI         | Forgot to regenerate                   | `npm run capabilities:matrix`                                                        |
+| OpenCollection types diff in CI      | Schema or generator changed            | `npm run gen:opencollection-types`                                                   |
+| WebSocket custom headers fail on web | Browser WS API limitation              | Web uses `/api/ws-ticket` flow; desktop native `ws` ok                               |
+| Web data is not encrypted at rest    | Web currently uses plaintext IndexedDB | Use Electron for OS-keychain-backed encryption; the web passphrase UI is not shipped |
+| Electron build huge                  | Worker bundle included                 | Check `electron-builder.json` excludes `_worker.js`                                  |
 
 ---
 

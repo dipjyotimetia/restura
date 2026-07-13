@@ -20,7 +20,7 @@ Restura's capability matrix is **data-driven**: there's a single source of truth
 - Socket.IO — emit / listen / ack.
 - Collections, environments, workflows, scripts.
 - Load testing — fire an HTTP request at bounded concurrency (browser caps effective concurrency ~6).
-- Encrypted local storage.
+- Persistent IndexedDB storage (not encrypted at rest).
 - SSRF guard on all upstream requests.
 
 ### Desktop only
@@ -35,6 +35,7 @@ Restura's capability matrix is **data-driven**: there's a single source of truth
 - **Pre-flight DNS guard** against DNS-rebind.
 - **Filesystem-backed collections** + git operations.
 - **OS keychain** storage (via `safeStorage`).
+- **Encrypted local storage** backed by an OS-keychain-wrapped key.
 - **Native shell / notifications / tray**.
 - **Local mock HTTP server**.
 - **AI assistant** — request-aware chat (OpenAI / Anthropic / OpenRouter); Electron-first, streams over IPC. No Worker `/api/ai` route.

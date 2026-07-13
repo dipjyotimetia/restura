@@ -56,6 +56,11 @@ function originAllowedByPattern(origin: string, pattern: string): boolean {
  */
 let warnedMissingAllowedOrigin = false;
 
+// These endpoints carry no proxy authority: feature flags are a read-only
+// public kill switch, and telemetry accepts only a tightly bounded schema.
+// They still pass through CORS, request IDs, and the shared rate limiter.
+const PUBLIC_API_PATHS = new Set(['/api/feature-flags', '/api/telemetry/error']);
+
 function resolveCorsOrigin(origin: string | undefined, env: Env): string {
   if (!origin) return '';
 
@@ -104,7 +109,7 @@ async function proxyAuthMiddleware(
   c: Context<{ Bindings: Env }>,
   next: Next
 ): Promise<Response | void> {
-  if (c.req.method === 'OPTIONS' || isLocalDevBypass(c.env)) {
+  if (c.req.method === 'OPTIONS' || PUBLIC_API_PATHS.has(c.req.path) || isLocalDevBypass(c.env)) {
     return next();
   }
 

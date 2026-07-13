@@ -13,12 +13,12 @@ Restura's security posture is **asymmetric** between platforms by virtue of capa
 
 - Encryption keys are persisted via Electron's `safeStorage`, which wraps them with the **OS keychain** — macOS Keychain, Windows Credential Manager, Linux libsecret.
 - Stored data (collections, history, environments, secrets) is encrypted with **AES-256-GCM** using a key derived from the keychain-wrapped key.
-- Secret-bearing auth fields use the **`SecretRef` handle pattern** (ADR 0007): the plaintext lives in `electron/main/secret-handle-store.ts` and the renderer only ever sees a handle (`{ kind: 'handle', id, label? }`). Plaintext is resolved only at wire-signing time in the main process — never enters the Zustand store, persistence layer, or exported collections.
+- Secret-bearing auth fields use the **`SecretRef` handle pattern** (ADR 0007): the plaintext lives in `electron/main/security/secret-handle-store.ts` and the renderer only ever sees a handle (`{ kind: 'handle', id, label? }`). Plaintext is resolved only at wire-signing time in the main process — never enters the Zustand store, persistence layer, or exported collections.
 
 ### Web
 
-- Default: **in-memory ephemeral** encryption key, regenerated per session — strictly better than persisting the key alongside the ciphertext. Encrypted data does not survive a reload.
-- Future: an opt-in passphrase prompt that derives a stable session key via PBKDF2.
+- Persisted state uses **plaintext IndexedDB** by default and is protected only by the browser's same-origin policy.
+- Future: an opt-in passphrase prompt can derive an encryption key via PBKDF2; that UI has not shipped and is not advertised as an available capability.
 - mTLS, custom CA, SOCKS, and "Verify SSL = off" are **not** available — the browser sandbox doesn't expose them.
 
 ## In transit

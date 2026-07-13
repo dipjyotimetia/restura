@@ -114,6 +114,7 @@ export const IPC = {
     delete: 'secret:delete',
     describe: 'secret:describe',
     list: 'secret:list',
+    clear: 'secret:clear',
   },
   // pm.vault — user-named async key-value secret store, separate from
   // the UUID-keyed handle store above so the two namespaces can't collide.
@@ -123,6 +124,7 @@ export const IPC = {
     get: 'vault:get',
     set: 'vault:set',
     unset: 'vault:unset',
+    clear: 'vault:clear',
   },
   git: {
     init: 'git:init',

@@ -845,12 +845,14 @@ interface ElectronSecretsAPI {
   list: () => Promise<
     { ok: true; handles: ElectronSecretHandleSummary[] } | { ok: false; error: string }
   >;
+  clear: () => Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
 interface ElectronVaultAPI {
   get: (key: string) => Promise<{ value: string | null }>;
   set: (key: string, value: string) => Promise<{ ok: true }>;
   unset: (key: string) => Promise<{ ok: true }>;
+  clear: () => Promise<{ ok: true }>;
 }
 
 interface ElectronAiAPI {

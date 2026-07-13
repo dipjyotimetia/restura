@@ -15,7 +15,7 @@ The architectural review on 2026-05-08 identified four security gaps:
 
 Four coordinated fixes:
 
-1. **`KeyProvider` interface** with three implementations (`EphemeralKeyProvider`, `WebSessionPassphraseProvider`, `ElectronSafeStorageKeyProvider`). The Electron path uses the existing `electronAPI.store` IPC, which is itself `safeStorage`-protected via `electron/main/store-handler.ts`. Net effect: Electron data at rest is encrypted with a key the user's OS keychain holds. Web data at rest is encrypted with an ephemeral key (better than the prior TOFU theatre because the key never persists alongside the ciphertext); a future passphrase-prompt UI swaps to `WebSessionPassphraseProvider` for cross-session persistence.
+1. **`KeyProvider` interface** with `PlaintextKeyProvider`, legacy `EphemeralKeyProvider`, `WebSessionPassphraseProvider`, and `ElectronSafeStorageKeyProvider`. The Electron path uses the existing `electronAPI.store` IPC, which is itself `safeStorage`-protected via `electron/main/store-handler.ts`. Electron data at rest is encrypted with a key the user's OS keychain holds. The former ephemeral web default caused unrecoverable data after reload and was superseded by honest plaintext IndexedDB; a future passphrase-prompt UI can opt into `WebSessionPassphraseProvider` for cross-session persistence.
 
 2. **`updateRequest` hard-fails on validation error.** The action no longer applies invalid updates. Users see a `toast.error` with the validation message; a `console.warn` captures the offending update for debugging.
 
@@ -36,7 +36,7 @@ Four coordinated fixes:
 **Negative**
 
 - Web users with existing encrypted data on first launch after this update may see decryption fail (returns null gracefully — the app stays functional with empty stores) until they re-enter the relevant data. This is a deliberate one-time migration cost; the prior in-metadata key was not actually secure.
-- The session-ephemeral default for web means data does NOT persist across reloads. A passphrase-prompt UI (deferred to a follow-up) restores cross-session persistence with PBKDF2-derived keys.
+- Web persistence remains available across reloads, but it is plaintext IndexedDB protected only by the browser's same-origin policy until the passphrase-prompt UI ships.
 - The `RequestSpec.auth` field crosses the IPC / proxy boundary; the Electron Zod validator now has a recursive `AuthConfigSchema` to validate it.
 
 ## Alternatives considered

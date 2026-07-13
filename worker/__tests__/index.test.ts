@@ -21,6 +21,11 @@ afterEach(() => {
 });
 
 describe('worker api middleware', () => {
+  it('serves public feature flags in production without proxy credentials', async () => {
+    const res = await app.request('/api/feature-flags', {}, { ENVIRONMENT: 'production' });
+    expect(res.status).toBe(200);
+  });
+
   it('fails closed outside development when proxy auth is not configured', async () => {
     const res = await makeApiRequest({}, { ENVIRONMENT: 'production' });
     expect(res.status).toBe(503);

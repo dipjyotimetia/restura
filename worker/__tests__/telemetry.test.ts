@@ -11,8 +11,7 @@ const VALID_PAYLOAD = {
   ts: 1_700_000_000_000,
 };
 
-// ENVIRONMENT=development + DEV_BYPASS_AUTH=true satisfies isLocalDevBypass().
-// All /api/* routes are behind proxyAuthMiddleware; these two vars bypass it.
+// Development defaults remain useful for the validation-focused cases below.
 const DEV_ENV = { ENVIRONMENT: 'development', DEV_BYPASS_AUTH: 'true' };
 
 function post(body: unknown, env: Record<string, string> = DEV_ENV) {
@@ -35,10 +34,9 @@ describe('POST /api/telemetry/error', () => {
     expect(json.ok).toBe(true);
   });
 
-  it('requires auth in production (no bypass, no token)', async () => {
-    // Confirms the route is behind proxyAuthMiddleware when auth is enforced.
+  it('accepts opted-in telemetry in production without proxy credentials', async () => {
     const res = await post(VALID_PAYLOAD, { ENVIRONMENT: 'production' });
-    expect([401, 503]).toContain(res.status);
+    expect(res.status).toBe(202);
   });
 
   it('rejects a payload missing a required field', async () => {

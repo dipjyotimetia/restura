@@ -78,9 +78,12 @@ npm run electron:dist
    ```
 
 3. **Configure GitHub Secrets**
-   - `MACOS_CERTIFICATE`: Base64-encoded .p12 certificate
-   - `MACOS_CERTIFICATE_PASSWORD`: Certificate password
-   - `KEYCHAIN_PASSWORD`: Temporary keychain password (any strong password)
+   - `CSC_LINK`: Base64-encoded `.p12` certificate
+   - `CSC_KEY_PASSWORD`: Password used when exporting the `.p12`
+
+Before exporting, expand the certificate in Keychain Access and confirm its
+private key is nested beneath it. A certificate without the matching private
+key is not a usable signing identity.
 
 ### macOS Notarization
 
@@ -172,15 +175,14 @@ Add these secrets in Repository Settings → Secrets → Actions:
 GITHUB_TOKEN          # Automatically provided
 ```
 
-### macOS Signing (Optional)
+### macOS Signing (Required for Stable Releases)
 
 ```
-MACOS_CERTIFICATE             # Base64 .p12 certificate
-MACOS_CERTIFICATE_PASSWORD    # Certificate password
-KEYCHAIN_PASSWORD             # Temporary keychain password
+CSC_LINK                      # Base64 .p12 certificate
+CSC_KEY_PASSWORD              # .p12 export password
 ```
 
-### macOS Notarization (Optional)
+### macOS Notarization (Required for Stable Releases)
 
 ```
 APPLE_ID                      # Apple ID email
@@ -191,8 +193,8 @@ APPLE_TEAM_ID                 # Team ID
 ### Windows Signing (Optional)
 
 ```
-WINDOWS_CERTIFICATE           # Base64 .pfx certificate
-WINDOWS_CERTIFICATE_PASSWORD  # Certificate password
+WIN_CSC_LINK                  # Base64 .pfx certificate
+WIN_CSC_KEY_PASSWORD          # .pfx password
 ```
 
 ## Auto-Updates
@@ -279,8 +281,20 @@ macOS, and Linux manifests against the tag before the GitHub release is made pub
 
 **"App is damaged and can't be opened"**
 
-- Not properly signed/notarized
-- Solution: Right-click → Open, or `xattr -cr /Applications/Restura.app`
+- Do not bypass Gatekeeper or strip quarantine attributes from a release
+  artifact. Verify the artifact first:
+
+  ```bash
+  codesign --verify --deep --strict --verbose=2 /Applications/Restura.app
+  spctl -a -vvv -t install /Applications/Restura.app
+  ```
+
+- `security find-identity -v -p codesigning` must list a valid `Developer ID
+Application` identity before a local signed build. If it lists zero, recreate
+  the certificate in Xcode or import a `.p12` that includes its matching private
+  key.
+- The build's `afterSign` hook fails closed when a non-ad-hoc signature is
+  invalid, so do not publish an artifact from a failed signing build.
 
 **Notarization Fails**
 

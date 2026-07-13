@@ -47,8 +47,8 @@ rather than discover it experimentally.
 | Git operations on collections | ❌ | ✅ |  |
 | Local mock server | ❌ | ✅ | Binds a localhost HTTP listener; no browser TCP |
 | Browser capture desktop bridge | ❌ | ✅ | Loopback receiver for the Restura capture extension; no browser TCP listener |
-| OS keychain (safeStorage) for secrets | ❌ | ✅ | Web falls back to encrypted IndexedDB |
-| Encrypted local storage | ✅ | ✅ |  |
+| OS keychain (safeStorage) for secrets | ❌ | ✅ | Web has no OS keychain; its default IndexedDB persistence is plaintext |
+| Encrypted local storage | ❌ | ✅ | Desktop persistence uses safeStorage; web currently uses plaintext IndexedDB because the optional session-passphrase UI has not shipped |
 | Native shell.openExternal | ❌ | ✅ |  |
 | Native OS notifications | ❌ | ✅ |  |
 | System tray icon | ❌ | ✅ |  |
