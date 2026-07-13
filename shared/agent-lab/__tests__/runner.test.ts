@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentSuite } from '../types';
-import type { GenerationResponse, ProviderAdapter } from '../provider';
+import type { GenerationRequest, GenerationResponse, ProviderAdapter } from '../provider';
 import { ProviderRegistry } from '../provider';
 import { AgentRunner, type AgentTool } from '../runner';
 
@@ -273,6 +273,131 @@ describe('AgentRunner', () => {
     expect(result.status).toBe('error');
     expect(result.error).toContain('exceeded maxOutputBytes (1024)');
     expect(result.trace.events.map((event) => event.type)).not.toContain('model.completed');
+  });
+
+  it('passes only remaining tokens to later turns', async () => {
+    const configured = suite();
+    configured.agents[0]!.limits.maxTokens = 100;
+    const requests: GenerationRequest[] = [];
+    const adapter = fakeAdapter([
+      {
+        id: 'r1',
+        output: [],
+        toolCalls: [{ id: 'call', name: 'orders.get', arguments: {} }],
+        usage: { inputTokens: 30, outputTokens: 20 },
+      },
+      {
+        id: 'r2',
+        output: [{ type: 'text', text: 'done' }],
+        toolCalls: [],
+        usage: { inputTokens: 10, outputTokens: 10 },
+      },
+    ]);
+    const generate = adapter.generate.bind(adapter);
+    adapter.generate = async (request, context) => {
+      requests.push(request);
+      return generate(request, context);
+    };
+    const runner = new AgentRunner({
+      providers: new ProviderRegistry([adapter]),
+      async resolveCredential() {
+        return undefined;
+      },
+      async resolveTools() {
+        return [lookupTool];
+      },
+    });
+
+    const result = await runner.run({
+      suite: configured,
+      taskId: 'task',
+      agentId: 'agent',
+      trial: 1,
+    });
+
+    expect(result.status).toBe('passed');
+    expect(requests.map((request) => request.maxOutputTokens)).toEqual([100, 50]);
+  });
+
+  it('fails before tools after token overshoot', async () => {
+    const configured = suite();
+    configured.agents[0]!.limits.maxTokens = 100;
+    let executed = false;
+    const runner = new AgentRunner({
+      providers: new ProviderRegistry([
+        fakeAdapter([
+          {
+            id: 'r1',
+            output: [],
+            toolCalls: [{ id: 'call', name: 'orders.get', arguments: {} }],
+            usage: { inputTokens: 90, outputTokens: 20 },
+          },
+        ]),
+      ]),
+      async resolveCredential() {
+        return undefined;
+      },
+      async resolveTools() {
+        return [
+          {
+            ...lookupTool,
+            async execute() {
+              executed = true;
+              return [];
+            },
+          },
+        ];
+      },
+    });
+
+    const result = await runner.run({
+      suite: configured,
+      taskId: 'task',
+      agentId: 'agent',
+      trial: 1,
+    });
+
+    expect(result.error).toContain('exceeded maxTokens (100)');
+    expect(executed).toBe(false);
+    expect(result.trace.events.some((event) => event.type === 'tool.requested')).toBe(false);
+    expect(result.trace.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'model.failed', error: 'agent exceeded maxTokens (100)' }),
+      ])
+    );
+  });
+
+  it('fails closed when usage is absent under a token budget', async () => {
+    const configured = suite();
+    configured.agents[0]!.limits.maxTokens = 100;
+    const runner = new AgentRunner({
+      providers: new ProviderRegistry([
+        fakeAdapter([{ id: 'r1', output: [{ type: 'text', text: 'done' }], toolCalls: [] }]),
+      ]),
+      async resolveCredential() {
+        return undefined;
+      },
+      async resolveTools() {
+        return [];
+      },
+    });
+
+    const result = await runner.run({
+      suite: configured,
+      taskId: 'task',
+      agentId: 'agent',
+      trial: 1,
+    });
+
+    expect(result.error).toContain('provider usage is unknown');
+    expect(result.trace.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'model.failed',
+          error: expect.stringContaining('provider usage is unknown'),
+        }),
+      ])
+    );
   });
 
   it('validates provider tool arguments before approval or execution', async () => {

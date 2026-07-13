@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { AgentSuiteSchema, TraceEventSchema } from '../schema';
+import { AgentLimitsSchema, AgentSuiteSchema, TraceEventSchema } from '../schema';
 
 describe('AgentSuiteSchema', () => {
+  it('documents maxTokens as the total input and output budget for a run', () => {
+    expect(AgentLimitsSchema.shape.maxTokens.description).toContain(
+      'total input and output tokens across the run'
+    );
+  });
+
   it('accepts a versioned suite with environment credential references', () => {
     const parsed = AgentSuiteSchema.parse({
       schemaVersion: 2,

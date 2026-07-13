@@ -196,13 +196,18 @@ export class AgentRunner {
       for (let step = 0; step < agent.limits.maxSteps; step += 1) {
         this.assertWithinLimits(agent, startedAt, toolCallCount, totalTokens, totalCostUSD);
         if (abortController.signal.aborted) throw new Error('agent run cancelled');
+        const remainingTokens =
+          agent.limits.maxTokens === undefined ? undefined : agent.limits.maxTokens - totalTokens;
+        if (remainingTokens !== undefined && remainingTokens <= 0) {
+          throw new Error(`agent exceeded maxTokens (${agent.limits.maxTokens})`);
+        }
 
         const generationRequest = {
           model: agent.model,
           messages,
           tools: tools.map((tool) => tool.definition),
           ...(continuationId ? { continuationId } : {}),
-          ...(agent.limits.maxTokens ? { maxOutputTokens: agent.limits.maxTokens } : {}),
+          ...(remainingTokens === undefined ? {} : { maxOutputTokens: remainingTokens }),
         };
         const requestErrors = validateGenerationRequest(generationRequest, capabilities);
         if (requestErrors.length > 0) throw new Error(requestErrors.join('; '));
@@ -233,6 +238,33 @@ export class AgentRunner {
           throw cause;
         }
         const durationMs = this.now() - modelStartedAt;
+        if (agent.limits.maxTokens !== undefined && response.usage === undefined) {
+          const usageError = 'agent cannot enforce maxTokens because provider usage is unknown';
+          emit({
+            type: 'model.failed',
+            providerId: agent.model.providerId,
+            model: agent.model.model,
+            error: usageError,
+            durationMs,
+          });
+          throw new Error(usageError);
+        }
+        const responseTokens =
+          (response.usage?.inputTokens ?? 0) + (response.usage?.outputTokens ?? 0);
+        if (
+          agent.limits.maxTokens !== undefined &&
+          totalTokens + responseTokens > agent.limits.maxTokens
+        ) {
+          const limitError = `agent exceeded maxTokens (${agent.limits.maxTokens})`;
+          emit({
+            type: 'model.failed',
+            providerId: agent.model.providerId,
+            model: agent.model.model,
+            error: limitError,
+            durationMs,
+          });
+          throw new Error(limitError);
+        }
         // Provider state is retained and replayed on later turns. Count it as well as the
         // normalized output so opaque reasoning/tool state cannot bypass the hard budget.
         const responseBytes =
@@ -265,7 +297,7 @@ export class AgentRunner {
         }
         totalOutputBytes += responseBytes;
         totalCostUSD += response.costUSD ?? 0;
-        totalTokens += (response.usage?.inputTokens ?? 0) + (response.usage?.outputTokens ?? 0);
+        totalTokens += responseTokens;
         emit({
           type: 'model.completed',
           providerId: agent.model.providerId,

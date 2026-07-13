@@ -69,7 +69,12 @@ export const AgentLimitsSchema = z.object({
   maxSteps: z.number().int().min(1).max(1_000),
   maxWallTimeMs: z.number().int().min(100).max(86_400_000),
   maxToolCalls: z.number().int().min(1).max(10_000).optional(),
-  maxTokens: z.number().int().min(1).optional(),
+  maxTokens: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe('Maximum total input and output tokens across the run.'),
   maxCostUSD: z.number().min(0).optional(),
   maxOutputBytes: z.number().int().min(1_024).max(100_000_000).optional(),
 });
