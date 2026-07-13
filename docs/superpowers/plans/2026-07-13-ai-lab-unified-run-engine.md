@@ -267,7 +267,11 @@ git commit -m "feat(ai-lab): cancel desktop model operations"
 
 - Modify: `src/features/http/lib/requestExecutor.ts`
 - Modify: `src/lib/shared/transport.ts`
+- Modify: `electron/shared/channels.ts`
+- Modify: `electron/main/ipc/ipc-validators.ts`
 - Modify: `electron/main/handlers/http-handler.ts`
+- Modify: `electron/main/preload.ts`
+- Modify: `electron/types/electron-api.ts`
 - Modify: `src/features/ai-lab/lib/agentTools.ts`
 - Modify: `src/features/ai-lab/lib/__tests__/agentTools.test.ts`
 - Modify: `src/features/http/lib/__tests__/requestExecutor.test.ts`
@@ -275,6 +279,7 @@ git commit -m "feat(ai-lab): cancel desktop model operations"
 **Interfaces:**
 
 - `RequestExecutorOptions.signal?: AbortSignal` reaches proxy execution.
+- Electron buffered HTTP adds a renderer-generated `requestId` plus sender-owned `http:cancel` IPC because `AbortSignal` itself is not structured-cloneable.
 - Tool execution calls `execute(request, signal)`.
 - Tool resolution uses normal environment/global/collection/auth scopes.
 
@@ -343,6 +348,8 @@ export interface RequestExecutorOptions {
 
 Call `signal?.throwIfAborted()` before scripts, before transport, and before mutation application. Forward the signal through renderer transport and Electron fetch.
 
+For Electron, `executeViaElectronIpc` creates a UUID request ID, invokes `api.http.request({ ...config, requestId })`, and installs an abort listener that calls `api.http.cancel({ requestId })`. Main registers an `AbortController` before beginning the request, verifies sender ownership on cancel, forwards its signal to the HTTP fetcher, and removes the registry entry in `finally`. Invalid, cross-renderer, queued, in-flight, and already-complete cancellation cases mirror Task 2's security and idempotency behavior.
+
 - [ ] **Step 4: Implement safe URL descriptions**
 
 ```ts
@@ -375,7 +382,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add src/features/ai-lab/lib/agentTools.ts src/features/ai-lab/lib/__tests__/agentTools.test.ts src/features/http/lib/requestExecutor.ts src/features/http/lib/__tests__/requestExecutor.test.ts src/lib/shared/transport.ts electron/main/handlers/http-handler.ts
+git add src/features/ai-lab/lib/agentTools.ts src/features/ai-lab/lib/__tests__/agentTools.test.ts src/features/http/lib/requestExecutor.ts src/features/http/lib/__tests__/requestExecutor.test.ts src/lib/shared/transport.ts electron/shared/channels.ts electron/main/ipc/ipc-validators.ts electron/main/handlers/http-handler.ts electron/main/preload.ts electron/types/electron-api.ts
 git commit -m "fix(ai-lab): secure saved request tools"
 ```
 
@@ -390,6 +397,8 @@ git commit -m "fix(ai-lab): secure saved request tools"
 - Create: `src/features/ai-lab/lib/__tests__/agentModelCapabilities.test.ts`
 - Modify: `src/features/ai-lab/lib/agentRuntime.ts`
 - Modify: `src/features/ai-lab/lib/__tests__/agentRuntime.test.ts`
+- Modify: `src/features/ai-lab/components/ProviderManager.tsx`
+- Modify: `src/features/ai-lab/components/__tests__/ProviderManager.test.tsx`
 - Modify: `src/features/ai-lab/store/useAiLabStore.ts`
 - Modify: `src/lib/shared/store-validators.ts`
 
@@ -463,16 +472,22 @@ Only tested discovery metadata or explicit overrides may enable tools/modalities
 
 Use discovered prompt/completion prices with returned usage. Return undefined for arbitrary gateways and unknown models. Classify local zero cost explicitly rather than from missing pricing.
 
-- [ ] **Step 5: Run adapter/store tests**
+- [ ] **Step 5: Add the explicit capability-override UI**
 
-Run: `npx vitest run src/features/ai-lab/lib/__tests__/agentModelCapabilities.test.ts src/features/ai-lab/lib/__tests__/agentRuntime.test.ts src/features/ai-lab/store/__tests__`
+Add an advanced per-model capability editor to `ProviderManager`. It starts from the discovered/conservative profile, requires an explicit “I am asserting this model supports these features” confirmation before saving, labels overrides as user asserted, and provides “Reset to discovered defaults.” It must never enable a capability merely by opening the editor.
+
+Test save, visible assertion labeling, reset, and the no-change close path in `ProviderManager.test.tsx`.
+
+- [ ] **Step 6: Run adapter/store/UI tests**
+
+Run: `npx vitest run src/features/ai-lab/lib/__tests__/agentModelCapabilities.test.ts src/features/ai-lab/lib/__tests__/agentRuntime.test.ts src/features/ai-lab/components/__tests__/ProviderManager.test.tsx src/features/ai-lab/store/__tests__`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/features/ai-lab/types.ts src/features/ai-lab/lib/agentModelCapabilities.ts src/features/ai-lab/lib/__tests__/agentModelCapabilities.test.ts src/features/ai-lab/lib/agentRuntime.ts src/features/ai-lab/lib/__tests__/agentRuntime.test.ts src/features/ai-lab/store src/lib/shared/store-validators.ts
+git add src/features/ai-lab/types.ts src/features/ai-lab/lib/agentModelCapabilities.ts src/features/ai-lab/lib/__tests__/agentModelCapabilities.test.ts src/features/ai-lab/lib/agentRuntime.ts src/features/ai-lab/lib/__tests__/agentRuntime.test.ts src/features/ai-lab/components/ProviderManager.tsx src/features/ai-lab/components/__tests__/ProviderManager.test.tsx src/features/ai-lab/store src/lib/shared/store-validators.ts
 git commit -m "fix(ai-lab): negotiate model capabilities honestly"
 ```
 
