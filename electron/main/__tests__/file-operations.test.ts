@@ -46,7 +46,8 @@ vi.mock('electron', () => {
 });
 
 import { app } from 'electron';
-import { isPathSafe } from '../storage/file-operations';
+import { mkdir, rm, symlink } from 'node:fs/promises';
+import { isPathSafe, isPathRealSafe } from '../storage/file-operations';
 
 describe('isPathSafe', () => {
   it('path inside userData returns true', () => {
@@ -95,6 +96,19 @@ describe('isPathSafe', () => {
 
   it('empty string returns false', () => {
     expect(isPathSafe('')).toBe(false);
+  });
+});
+
+describe('isPathRealSafe', () => {
+  it('rejects a symlinked child that resolves outside the allowed root', async () => {
+    const root = '/tmp/test-documents';
+    const outside = '/tmp/restura-outside';
+    await mkdir(root, { recursive: true });
+    await mkdir(outside, { recursive: true });
+    await rm(path.join(root, 'escaped'), { force: true, recursive: true });
+    await symlink(outside, path.join(root, 'escaped'));
+
+    await expect(isPathRealSafe(path.join(root, 'escaped', 'collection'))).resolves.toBe(false);
   });
 });
 

@@ -17,6 +17,7 @@ type Behavior = {
 const behaviors: Behavior[] = [];
 const seenVariables: Array<Record<string, string>> = [];
 const seenCollectionVars: Array<Record<string, string> | undefined> = [];
+const injectVariablesMock = vi.fn((r: unknown) => r);
 let callIndex = 0;
 
 const runRequestMock = vi.fn(async (_req: unknown, ctx: RunContext): Promise<ApiResponse> => {
@@ -57,7 +58,7 @@ vi.mock('@/features/registry/registry', () => ({
   protocolRegistry: {
     get: (id: string) => {
       if (id === 'http') {
-        return { id: 'http', runRequest: runRequestMock, injectVariables: (r: unknown) => r };
+        return { id: 'http', runRequest: runRequestMock, injectVariables: injectVariablesMock };
       }
       if (id === 'sse') {
         return { id: 'sse', runRequest: runRequestMock };
@@ -98,6 +99,7 @@ beforeEach(() => {
   seenCollectionVars.length = 0;
   callIndex = 0;
   runRequestMock.mockClear();
+  injectVariablesMock.mockClear();
   useCollectionStore.setState({ collections: [collection], activeCollectionId: null });
 });
 
@@ -185,6 +187,7 @@ describe('runCollection', () => {
     );
     expect(result.requests).toHaveLength(1);
     expect(result.requests[0]!.status).toBe('failed');
+    expect(result.outcome).toBe('failed');
     expect(runRequestMock).toHaveBeenCalledTimes(1);
   });
 
@@ -272,10 +275,70 @@ describe('runCollection', () => {
     );
     // Second request in the same run sees the mutation from the first.
     expect(seenCollectionVars[1]).toEqual({ token: 'abc123' });
+    expect(seenVariables[1]).toEqual({ token: 'abc123' });
     // And it's written back to the persisted collection.
     const persisted = useCollectionStore.getState().getCollectionById(collection.id);
     expect(persisted?.variables).toEqual([
       { id: expect.any(String), key: 'token', value: 'abc123', enabled: true },
     ]);
+  });
+
+  it('keeps iteration data above collection mutations for later requests', async () => {
+    behaviors.push({ collectionMutations: { token: 'collection-value' } }, {});
+    await runCollection(
+      {
+        collection,
+        scopeName: 'C',
+        runnables: [runnable('1', 'first'), runnable('2', 'second')],
+        baseVars: {},
+        iterations: 1,
+        dataRows: [{ token: 'row-value' }],
+        delayMs: 0,
+        stopOnFailure: false,
+      },
+      noop,
+      new AbortController().signal
+    );
+    expect(seenVariables[1]?.token).toBe('row-value');
+    expect(seenCollectionVars[1]?.token).toBe('collection-value');
+  });
+
+  it('leaves substitution to the protocol so pre-request scripts run first', async () => {
+    behaviors.push({});
+    await runCollection(
+      {
+        collection,
+        scopeName: 'C',
+        runnables: [runnable('1', 'first')],
+        baseVars: { token: 'before-script' },
+        iterations: 1,
+        dataRows: [],
+        delayMs: 0,
+        stopOnFailure: false,
+      },
+      noop,
+      new AbortController().signal
+    );
+    expect(injectVariablesMock).not.toHaveBeenCalled();
+  });
+
+  it('records an aborted run outcome', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    const result = await runCollection(
+      {
+        collection,
+        scopeName: 'C',
+        runnables: [runnable('1', 'first')],
+        baseVars: {},
+        iterations: 1,
+        dataRows: [],
+        delayMs: 0,
+        stopOnFailure: false,
+      },
+      noop,
+      ac.signal
+    );
+    expect(result.outcome).toBe('aborted');
   });
 });

@@ -91,6 +91,7 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
 
   const [order, setOrder] = useState<string[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const scopeKey = `${scope?.collectionId ?? ''}:${scope?.folderId ?? ''}`;
 
   // Initialise order + selection when the dialog opens on a new scope (i.e.
   // when the runnable set changes). The active environment is read fresh here
@@ -105,7 +106,8 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
     setStopOnFailure(false);
     setDataRows([]);
     setDataFileName(null);
-  }, [allRunnables]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- collection mutations during a run must not reset user configuration
+  }, [scopeKey]);
 
   const scopeName = useMemo(() => {
     if (!collection) return '';

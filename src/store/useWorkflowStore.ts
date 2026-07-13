@@ -27,6 +27,7 @@ interface WorkflowState {
   addWorkflow: (workflow: Workflow) => void;
   updateWorkflow: (id: string, updates: Partial<Workflow>) => void;
   removeWorkflow: (id: string) => void;
+  removeWorkflowsByCollectionId: (collectionId: string) => void;
   getWorkflowById: (id: string) => Workflow | undefined;
   getWorkflowsByCollectionId: (collectionId: string) => Workflow[];
   createNewWorkflow: (name: string, collectionId: string) => Workflow;
@@ -198,6 +199,22 @@ export const useWorkflowStore = create<WorkflowState>()(
             workflows: state.workflows.filter((wf) => wf.id !== id),
             executions: state.executions.filter((ex) => ex.workflowId !== id),
           })),
+
+        removeWorkflowsByCollectionId: (collectionId) =>
+          set((state) => {
+            const removedIds = new Set(
+              state.workflows
+                .filter((workflow) => workflow.collectionId === collectionId)
+                .map((workflow) => workflow.id)
+            );
+            if (removedIds.size === 0) return state;
+            return {
+              workflows: state.workflows.filter((workflow) => !removedIds.has(workflow.id)),
+              executions: state.executions.filter(
+                (execution) => !removedIds.has(execution.workflowId)
+              ),
+            };
+          }),
 
         getWorkflowById: (id) => get().workflows.find((wf) => wf.id === id),
 

@@ -1,6 +1,15 @@
-import { readFile, readdir, stat } from 'node:fs/promises';
-import { join, basename } from 'node:path';
+import { lstat, readFile, readdir } from 'node:fs/promises';
+import { join, basename, relative, sep } from 'node:path';
 import * as yaml from 'js-yaml';
+import {
+  assertBoundedDocument,
+  folderSchema,
+  graphqlRequestSchema,
+  grpcRequestSchema,
+  httpRequestSchema,
+  openCollectionSchema,
+  websocketRequestSchema,
+} from './schemas';
 import type { OpenCollection } from './schemas';
 import { parseOpenCollectionYAML, serializeOpenCollectionYAML } from './serializer';
 
@@ -31,22 +40,37 @@ export async function loadCollectionFromFile(path: string): Promise<OpenCollecti
  * it becomes readable. See `electron/main/storage/file-operations.ts:isPathSafe`.
  */
 export async function loadCollectionFromDir(dir: string): Promise<OpenCollection> {
+  return (await loadCollectionDirectory(dir)).collection;
+}
+
+export interface LoadedCollectionDirectory {
+  collection: OpenCollection;
+  /** Relative files positively identified as OpenCollection-owned content. */
+  managedFiles: string[];
+}
+
+export async function loadCollectionDirectory(dir: string): Promise<LoadedCollectionDirectory> {
   const rootPath = await findRootFile(dir);
   if (!rootPath) {
     throw new Error(`No opencollection.yml or opencollection.yaml in ${dir}`);
   }
   const rootRaw = await readFile(rootPath, 'utf8');
   const root = parseOpenCollectionYAML(rootRaw);
-  const items = await readItems(dir);
-  return { ...root, items, bundled: false };
+  const managedFiles = [relative(dir, rootPath).split(sep).join('/')];
+  const items = await readItems(dir, dir, managedFiles);
+  const collection = { ...root, items, bundled: false };
+  assertBoundedDocument(collection);
+  const validation = openCollectionSchema.safeParse(collection);
+  if (!validation.success) throw new Error('Invalid OpenCollection directory layout');
+  return { collection, managedFiles };
 }
 
 async function findRootFile(dir: string): Promise<string | null> {
   for (const candidate of ROOT_FILES) {
     const p = join(dir, candidate);
     try {
-      await stat(p);
-      return p;
+      const candidateStat = await lstat(p);
+      if (candidateStat.isFile()) return p;
     } catch {
       // not present
     }
@@ -54,7 +78,7 @@ async function findRootFile(dir: string): Promise<string | null> {
   return null;
 }
 
-async function readItems(dir: string): Promise<unknown[]> {
+async function readItems(dir: string, rootDir: string, managedFiles: string[]): Promise<unknown[]> {
   const entries = await readdir(dir, { withFileTypes: true });
   // Track each item alongside the source filename so we can break sort ties
   // deterministically. `readdir` order varies across filesystems; pinning the
@@ -65,8 +89,8 @@ async function readItems(dir: string): Promise<unknown[]> {
     const fullPath = join(dir, entry.name);
 
     if (entry.isDirectory()) {
-      const folder = await readFolder(fullPath);
-      indexed.push({ item: folder, sortName: entry.name });
+      const folder = await readFolder(fullPath, rootDir, managedFiles);
+      if (folder) indexed.push({ item: folder, sortName: entry.name });
       continue;
     }
 
@@ -77,6 +101,8 @@ async function readItems(dir: string): Promise<unknown[]> {
 
     const raw = await readFile(fullPath, 'utf8');
     const parsed = yaml.load(raw, { schema: yaml.JSON_SCHEMA });
+    if (!isOpenCollectionRequestItem(parsed)) continue;
+    managedFiles.push(relative(rootDir, fullPath).split(sep).join('/'));
     indexed.push({ item: parsed, sortName: entry.name });
   }
 
@@ -93,17 +119,42 @@ async function readItems(dir: string): Promise<unknown[]> {
   return indexed.map((entry) => entry.item);
 }
 
-async function readFolder(dir: string): Promise<unknown> {
+async function readFolder(
+  dir: string,
+  rootDir: string,
+  managedFiles: string[]
+): Promise<unknown | null> {
   const metaPath = join(dir, FOLDER_META);
   let meta: unknown = { info: { name: basename(dir) } };
+  let hasMeta = false;
   try {
+    const metaStat = await lstat(metaPath);
+    if (!metaStat.isFile()) throw new Error('Folder metadata must be a regular file');
     const raw = await readFile(metaPath, 'utf8');
     meta = yaml.load(raw, { schema: yaml.JSON_SCHEMA });
+    assertBoundedDocument(meta);
+    if (!folderSchema.safeParse(meta).success) {
+      throw new Error('Invalid OpenCollection folder metadata');
+    }
+    managedFiles.push(relative(rootDir, metaPath).split(sep).join('/'));
+    hasMeta = true;
   } catch {
     // _folder.yaml is optional; fall back to dir basename
   }
-  const items = await readItems(dir);
+  const items = await readItems(dir, rootDir, managedFiles);
+  if (!hasMeta && items.length === 0) return null;
   return { ...(meta as object), items };
+}
+
+function isOpenCollectionRequestItem(value: unknown): boolean {
+  try {
+    assertBoundedDocument(value);
+  } catch {
+    return false;
+  }
+  return [httpRequestSchema, grpcRequestSchema, graphqlRequestSchema, websocketRequestSchema].some(
+    (schema) => schema.safeParse(value).success
+  );
 }
 
 // Re-export for callers that need to write back later

@@ -14,10 +14,13 @@ import { MotionProvider } from '@/components/ui/motion';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import Home from '@/routes/index';
 import NotFound from '@/routes/not-found';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import {
   useFileCollectionStore,
   isElectronEnvironment,
   restoreFileCollectionWatchers,
+  initFileCollectionWatcher,
+  cleanupFileCollectionWatcher,
 } from '@/store/useFileCollectionStore';
 
 // AI Lab is a separate full-screen route (its own workbench), lazy-loaded so its
@@ -79,23 +82,27 @@ export default function App() {
   // a previously-opened collection fails until the user re-opens the folder. Run
   // after the file-collection store hydrates from Dexie.
   //
-  // NOTE: this intentionally does NOT call initFileCollectionWatcher() — that
-  // subscribes the renderer to file-change events and, lacking self-write
-  // suppression, would flag the app's own saves as external conflicts. Restoring
-  // the watchers alone is enough to fix the git allowlist; the conflict-detection
-  // path stays dormant (its prior state) until it's finished separately.
   useEffect(() => {
     if (!isElectronEnvironment()) return;
     let ran = false;
     const run = () => {
-      if (ran) return;
+      if (
+        ran ||
+        !useFileCollectionStore.persist.hasHydrated() ||
+        !useCollectionStore.persist.hasHydrated()
+      )
+        return;
       ran = true;
+      initFileCollectionWatcher();
       void restoreFileCollectionWatchers();
     };
-    const unsub = useFileCollectionStore.persist.onFinishHydration(run);
-    if (useFileCollectionStore.persist.hasHydrated()) run();
+    const unsubFiles = useFileCollectionStore.persist.onFinishHydration(run);
+    const unsubCollections = useCollectionStore.persist.onFinishHydration(run);
+    run();
     return () => {
-      unsub();
+      unsubFiles();
+      unsubCollections();
+      cleanupFileCollectionWatcher();
     };
   }, []);
 

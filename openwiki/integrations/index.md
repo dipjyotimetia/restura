@@ -58,6 +58,8 @@ Restura-specific extensions for SSE and MCP live under `extensions.x-restura-sse
 
 On export, inline secrets render as `{{handle:<label>}}` rather than plaintext. Redaction helpers: `src/lib/shared/collection-secret-redaction.ts`, `src/lib/shared/keyvalue-secret-redaction.ts`, `electron/main/security/collection-export-redactor.ts`.
 
+Directory saves are staged and parsed back before the destination is updated. A hidden managed-file manifest lets Restura remove renamed/deleted request files without deleting unrelated content such as `.git`, README files, or user fixtures.
+
 ---
 
 ## Export formats
@@ -70,6 +72,8 @@ Entry point: `src/features/collections/lib/exporters.ts`.
 - OpenAPI 3.0
 - OpenCollection
 - Console exports: HAR, NDJSON, curl batch (`src/lib/shared/console-export.ts`)
+
+Postman and Insomnia exports surface lossy-format warnings before download. Postman preserves collection variables but represents non-HTTP protocols as marked stubs; Insomnia also omits collection/folder scripts, inherited auth, and collection variables. Attached contracts are collection-scoped and are not execution-time response validators.
 
 ---
 
@@ -91,9 +95,12 @@ See `docs/postman-compat.md` for the full parity matrix and known gaps.
 Desktop supports filesystem-backed YAML collections in addition to in-app IndexedDB collections.
 
 - Store: `src/store/useFileCollectionStore.ts`.
-- Legacy schema: `src/lib/shared/file-collection-schema.ts` (`_collection.yaml`, `_folder.yaml`, `.http.yaml`, `.grpc.yaml`, `.sse.yaml`, `.mcp.yaml`).
-- Sync state, conflicts, and file watchers are Electron-only.
+- OpenCollection directory layout is the only writable desktop format.
+- Legacy `_collection.yaml` directories are unsupported; opening a directory requires `opencollection.yml` or `opencollection.yaml`.
+- Sync state, conflicts, and file watchers are Electron-only. Main suppresses watcher events from its own saves; clean external changes reload in place, while external changes against dirty local state create a conflict.
 - Git operations and history are handled by `electron/main/handlers/git-handler.ts`.
+
+Deleting a file-backed collection first stops its watcher, then removes linked workflows and detaches open saved-request tabs as dirty standalone copies. Collection-run history is retained as historical evidence.
 
 ---
 

@@ -3,6 +3,8 @@ export interface PostmanVariable {
   key: string;
   value: string;
   type?: string;
+  disabled?: boolean;
+  description?: string;
 }
 
 export interface PostmanAuth {

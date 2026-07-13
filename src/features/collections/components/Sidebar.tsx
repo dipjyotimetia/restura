@@ -75,12 +75,14 @@ import { Input } from '@/components/ui/input';
 import { Stagger, StaggerItem } from '@/components/ui/motion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { deleteCollectionWithCleanup } from '@/features/collections/lib/deleteCollection';
 import {
   exportToPostman,
   exportToInsomnia,
   exportToOpenCollection,
   downloadJSON,
   downloadText,
+  getCollectionExportWarnings,
 } from '@/features/collections/lib/exporters';
 import { loadContractSpec } from '@/features/contracts/lib/specLoader';
 import { WorkflowBuilder } from '@/features/workflows/components/WorkflowBuilder';
@@ -166,7 +168,6 @@ function Sidebar({ activePanel }: SidebarProps) {
     collections,
     createNewCollection,
     addCollection,
-    removeCollection,
     updateCollection,
     updateCollectionItem,
     addItemToCollection,
@@ -177,7 +178,6 @@ function Sidebar({ activePanel }: SidebarProps) {
       collections: s.collections,
       createNewCollection: s.createNewCollection,
       addCollection: s.addCollection,
-      removeCollection: s.removeCollection,
       updateCollection: s.updateCollection,
       updateCollectionItem: s.updateCollectionItem,
       addItemToCollection: s.addItemToCollection,
@@ -321,9 +321,6 @@ function Sidebar({ activePanel }: SidebarProps) {
   // File collection state
   const conflicts = useFileCollectionStore((state) => state.conflicts);
   const isFileCollection = useFileCollectionStore((state) => state.isFileCollection);
-  const unregisterFileCollection = useFileCollectionStore(
-    (state) => state.unregisterFileCollection
-  );
   const activeConflict = conflicts.length > 0 ? conflicts[0] : null;
 
   // Get visible history items using selector
@@ -429,6 +426,13 @@ function Sidebar({ activePanel }: SidebarProps) {
 
   const performExport = useCallback(
     async (collection: Collection, format: ExportFormat) => {
+      if (format === 'postman' || format === 'insomnia' || format === 'opencollection') {
+        const warnings = getCollectionExportWarnings(collection, format);
+        if (warnings.length > 0) {
+          const extra = warnings.length > 1 ? ` (+${warnings.length - 1} more)` : '';
+          toast.warning(`${warnings[0]}${extra}`);
+        }
+      }
       if (format === 'postman') {
         const postmanData = exportToPostman(collection);
         downloadJSON(postmanData, `${collection.name}.postman_collection.json`);
@@ -577,17 +581,17 @@ function Sidebar({ activePanel }: SidebarProps) {
     setDeleteDialogOpen(true);
   }, []);
 
-  const handleConfirmDelete = useCallback(() => {
+  const handleConfirmDelete = useCallback(async () => {
     if (collectionToDelete) {
-      // Unregister from file collection store if needed
-      if (isFileCollection(collectionToDelete)) {
-        unregisterFileCollection(collectionToDelete);
+      const result = await deleteCollectionWithCleanup(collectionToDelete);
+      if (!result.success) {
+        toast.error('Collection was not deleted', { description: result.error });
+        return;
       }
-      removeCollection(collectionToDelete);
       setCollectionToDelete(null);
     }
     setDeleteDialogOpen(false);
-  }, [collectionToDelete, removeCollection, isFileCollection, unregisterFileCollection]);
+  }, [collectionToDelete]);
 
   const handleOpenFromFolder = useCallback(() => {
     setDirectoryPickerMode('open');
@@ -606,7 +610,8 @@ function Sidebar({ activePanel }: SidebarProps) {
   }, []);
 
   const handleSyncCollection = useCallback(async (collectionId: string) => {
-    await syncFileCollection(collectionId);
+    const result = await syncFileCollection(collectionId);
+    if (!result.success) toast.error('Collection sync failed', { description: result.error });
   }, []);
 
   const commitCollectionRename = useCallback(() => {

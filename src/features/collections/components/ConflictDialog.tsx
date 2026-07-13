@@ -11,7 +11,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { useCollectionStore } from '@/store/useCollectionStore';
 import type { ConflictState } from '@/store/useFileCollectionStore';
 import {
   useFileCollectionStore,
@@ -28,7 +27,6 @@ export function ConflictDialog({ conflict, onClose }: ConflictDialogProps) {
   const [isLoading, setIsLoading] = useState(false);
   const removeConflict = useFileCollectionStore((state) => state.removeConflict);
   const getFileInfo = useFileCollectionStore((state) => state.getFileInfo);
-  const removeCollection = useCollectionStore((state) => state.removeCollection);
 
   if (!conflict) return null;
 
@@ -49,9 +47,8 @@ export function ConflictDialog({ conflict, onClose }: ConflictDialogProps) {
     try {
       const fileInfo = getFileInfo(conflict.collectionId);
       if (fileInfo) {
-        // Delete current collection
-        removeCollection(conflict.collectionId);
-        // Reload from disk
+        // Reload replaces the existing collection in place, preserving tab and
+        // file-registry identity.
         await loadCollectionFromDirectory(fileInfo.directoryPath);
       }
       removeConflict(conflict.collectionId, conflict.itemId);
