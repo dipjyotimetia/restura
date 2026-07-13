@@ -28,6 +28,7 @@ export interface AgentGradingContext {
   inputText: string;
   reference?: string;
   outputText: string;
+  signal?: AbortSignal;
 }
 
 export interface Trace {

@@ -124,6 +124,138 @@ describe('AgentSuiteRunner', () => {
     expect(report.results[0]?.scores[0]?.passed).toBe(true);
   });
 
+  it('serializes grading blocks canonically without collapsing boundaries or raw media', async () => {
+    const mediaSecret = 'data:image/png;base64,SECRET_BYTES';
+    const structuredSuite = {
+      ...suite,
+      trials: 1,
+      tasks: [
+        {
+          id: 'task',
+          input: [
+            { type: 'text', text: 'first' },
+            { type: 'reasoning-summary', text: 'second' },
+            { type: 'json', value: { z: 1, a: 2 } },
+          ],
+          reference: [{ type: 'image', mimeType: 'image/png', data: mediaSecret, name: 'sample' }],
+        },
+      ],
+      graders: [
+        {
+          id: 'judge',
+          kind: 'judge',
+          judgeModels: [{ providerId: 'judge', model: 'model' }],
+          rubric: 'Correctness',
+          labels: ['pass', 'fail'],
+          minimumAgreement: 0.5,
+          calibrated: false,
+        },
+      ],
+    } as AgentSuite;
+    const runner = new AgentSuiteRunner({
+      async run(request) {
+        const run = result(request.trial, 'ignored');
+        run.output = [
+          { type: 'document', mimeType: 'application/pdf', uri: 'https://secret.example/token' },
+          { type: 'artifact', artifactId: 'report', name: 'Report' },
+          { type: 'json', value: { b: 2, a: 1 } },
+        ];
+        return run;
+      },
+      async judge(_grader, context) {
+        expect(context.inputText).toBe('first\n[reasoning-summary] second\n[json] {"a":2,"z":1}');
+        expect(context.reference).toContain('[image]');
+        expect(context.reference).not.toContain('SECRET_BYTES');
+        expect(context.outputText).toContain('[document]');
+        expect(context.outputText).toContain('[artifact]');
+        expect(context.outputText).toContain('[json] {"a":1,"b":2}');
+        expect(context.outputText).not.toContain('secret.example');
+        expect(context.reference).not.toBe(context.outputText);
+        return { graderId: 'judge', kind: 'judge', passed: true };
+      },
+    });
+
+    const report = await runner.run({ suite: structuredSuite });
+
+    expect(report.results[0]?.scores[0]?.passed).toBe(true);
+  });
+
+  it('fails reference-backed exact and contains graders for unusable serialized references', async () => {
+    const emptyReferenceSuite = {
+      ...suite,
+      trials: 1,
+      tasks: [
+        {
+          id: 'task',
+          input: [{ type: 'text', text: 'question' }],
+          reference: [{ type: 'text', text: '   ' }],
+        },
+      ],
+      graders: [
+        { id: 'exact', kind: 'exact' },
+        { id: 'contains', kind: 'contains' },
+      ],
+    } as unknown as AgentSuite;
+    const runner = new AgentSuiteRunner({
+      async run(request) {
+        return result(request.trial, 'candidate');
+      },
+    });
+
+    const report = await runner.run({ suite: emptyReferenceSuite });
+
+    expect(report.results[0]?.scores).toEqual([
+      expect.objectContaining({ passed: false, detail: 'task reference has no gradable content' }),
+      expect.objectContaining({ passed: false, detail: 'task reference has no gradable content' }),
+    ]);
+  });
+
+  it('cancels grading sequentially and does not start later graders', async () => {
+    const controller = new AbortController();
+    const gradingSuite = {
+      ...suite,
+      trials: 1,
+      graders: [
+        {
+          id: 'judge-1',
+          kind: 'judge',
+          judgeModels: [{ providerId: 'judge', model: 'one' }],
+          rubric: 'Correctness',
+          labels: ['pass', 'fail'],
+          minimumAgreement: 0.5,
+          calibrated: false,
+        },
+        {
+          id: 'judge-2',
+          kind: 'judge',
+          judgeModels: [{ providerId: 'judge', model: 'two' }],
+          rubric: 'Correctness',
+          labels: ['pass', 'fail'],
+          minimumAgreement: 0.5,
+          calibrated: false,
+        },
+      ],
+    } as AgentSuite;
+    const graders: string[] = [];
+    const runner = new AgentSuiteRunner({
+      async run(request) {
+        return result(request.trial, 'candidate');
+      },
+      async judge(grader, context) {
+        graders.push(grader.id);
+        expect(context.signal).toBe(controller.signal);
+        controller.abort();
+        throw new DOMException('cancelled', 'AbortError');
+      },
+    });
+
+    const report = await runner.run({ suite: gradingSuite, signal: controller.signal });
+
+    expect(graders).toEqual(['judge-1']);
+    expect(report.status).toBe('cancelled');
+    expect(report.results[0]?.status).toBe('cancelled');
+  });
+
   it('runs repeated trials and reports reliability separately from errors', async () => {
     const outputs = ['pong', 'nope', 'pong'];
     const runner = new AgentSuiteRunner({

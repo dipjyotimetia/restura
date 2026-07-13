@@ -73,6 +73,20 @@ describe('AgentSuiteSchema', () => {
     ).not.toThrow();
   });
 
+  it('rejects an explicitly empty task reference', () => {
+    const candidate = suiteWithGrader({ id: 'reference', kind: 'exact' });
+    Object.assign(candidate.tasks[0]!, { reference: [] });
+
+    expect(() => AgentSuiteSchema.parse(candidate)).toThrow();
+  });
+
+  it.each([
+    ['zero judge output tokens', judge({ maxOutputTokens: 0 })],
+    ['negative judge panel cost', judge({ maxPanelCostUSD: -0.01 })],
+  ])('rejects %s', (_name, grader) => {
+    expect(() => AgentSuiteSchema.parse(suiteWithGrader(grader))).toThrow();
+  });
+
   it('documents maxTokens as the total input and output budget for a run', () => {
     expect(AgentLimitsSchema.shape.maxTokens.description).toContain(
       'total input and output tokens across the run'

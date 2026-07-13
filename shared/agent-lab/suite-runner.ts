@@ -6,10 +6,12 @@ import type { AgentGradingContext, AgentSuite, ContentBlock, Grader, Trace } fro
 
 export interface JudgeModelVote extends JudgeVote {
   providerId: string;
+  model: string;
 }
 
 export interface JudgeFailure {
   providerId: string;
+  model: string;
   error: string;
 }
 
@@ -22,6 +24,8 @@ export interface GraderScore {
   judgeVotes?: JudgeModelVote[];
   judgeFailures?: JudgeFailure[];
   minimumQuorum?: number;
+  usage?: { inputTokens: number; outputTokens: number };
+  costUSD?: number;
 }
 
 export interface SuiteTrialResult {
@@ -70,15 +74,39 @@ export interface AgentSuiteRunnerDependencies {
   ): Promise<GraderScore>;
 }
 
-function asText(blocks: ContentBlock[]): string {
+function canonicalJson(value: unknown): string {
+  const seen = new WeakSet<object>();
+  return JSON.stringify(value, (_key, candidate: unknown) => {
+    if (typeof candidate !== 'object' || candidate === null || Array.isArray(candidate)) {
+      return candidate;
+    }
+    if (seen.has(candidate)) return '[circular]';
+    seen.add(candidate);
+    return Object.fromEntries(
+      Object.entries(candidate as Record<string, unknown>).sort(([left], [right]) =>
+        left.localeCompare(right)
+      )
+    );
+  });
+}
+
+export function serializeContentBlocks(blocks: ContentBlock[]): string {
   return blocks
     .map((block) => {
-      if (block.type === 'text' || block.type === 'reasoning-summary') return block.text;
-      if (block.type === 'refusal') return block.reason;
-      if (block.type === 'json') return JSON.stringify(block.value);
-      return '';
+      if (block.type === 'text') return block.text;
+      if (block.type === 'reasoning-summary') return `[reasoning-summary] ${block.text}`;
+      if (block.type === 'refusal') return `[refusal] ${block.reason}`;
+      if (block.type === 'json') return `[json] ${canonicalJson(block.value)}`;
+      if (block.type === 'artifact') {
+        return `[artifact] ${canonicalJson({ artifactId: block.artifactId, name: block.name })}`;
+      }
+      return `[${block.type}] ${canonicalJson({
+        mimeType: block.mimeType,
+        name: block.name,
+        source: block.data !== undefined ? 'inline' : 'uri',
+      })}`;
     })
-    .join('');
+    .join('\n');
 }
 
 function score(grader: Grader, passed: boolean, detail?: string): GraderScore {
@@ -96,13 +124,17 @@ async function grade(
       const expected = grader.value ?? context.reference;
       return expected === undefined
         ? score(grader, false, 'task reference unavailable')
-        : score(grader, text.trim() === expected.trim());
+        : grader.value === undefined && expected.trim().length === 0
+          ? score(grader, false, 'task reference has no gradable content')
+          : score(grader, text.trim() === expected.trim());
     }
     case 'contains': {
       const expected = grader.value ?? context.reference;
       return expected === undefined
         ? score(grader, false, 'task reference unavailable')
-        : score(grader, text.includes(expected));
+        : grader.value === undefined && expected.trim().length === 0
+          ? score(grader, false, 'task reference has no gradable content')
+          : score(grader, text.includes(expected));
     }
     case 'regex': {
       try {
@@ -184,28 +216,33 @@ export class AgentSuiteRunner {
           const context: AgentGradingContext = {
             task,
             result: run,
-            inputText: asText(task.input),
-            ...(task.reference ? { reference: asText(task.reference) } : {}),
-            outputText: asText(run.output),
+            inputText: serializeContentBlocks(task.input),
+            ...(task.reference ? { reference: serializeContentBlocks(task.reference) } : {}),
+            outputText: serializeContentBlocks(run.output),
+            ...(input.signal ? { signal: input.signal } : {}),
           };
-          const scores =
-            run.status === 'passed'
-              ? await Promise.all(
-                  input.suite.graders.map(async (grader) => {
-                    try {
-                      return await grade(grader, context, this.dependencies.judge);
-                    } catch (cause) {
-                      return score(
-                        grader,
-                        false,
-                        `grader failed: ${cause instanceof Error ? cause.message : String(cause)}`
-                      );
-                    }
-                  })
-                )
-              : [];
-          const status =
-            run.status === 'passed' && scores.some((item) => !item.passed) ? 'failed' : run.status;
+          const scores: GraderScore[] = [];
+          if (run.status === 'passed') {
+            for (const grader of input.suite.graders) {
+              if (input.signal?.aborted) break;
+              try {
+                scores.push(await grade(grader, context, this.dependencies.judge));
+              } catch (cause) {
+                scores.push(
+                  score(
+                    grader,
+                    false,
+                    `grader failed: ${cause instanceof Error ? cause.message : String(cause)}`
+                  )
+                );
+              }
+            }
+          }
+          const status = input.signal?.aborted
+            ? 'cancelled'
+            : run.status === 'passed' && scores.some((item) => !item.passed)
+              ? 'failed'
+              : run.status;
           results.push({
             taskId: task.id,
             agentId: agent.id,

@@ -91,7 +91,7 @@ export const AgentDefinitionSchema = z.object({
 export const AgentTaskSchema = z.object({
   id: IdentifierSchema,
   input: z.array(ContentBlockSchema).min(1),
-  reference: z.array(ContentBlockSchema).optional(),
+  reference: z.array(ContentBlockSchema).min(1).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -138,6 +138,8 @@ export const GraderSchema = z.discriminatedUnion('kind', [
       .optional(),
     minimumAgreement: z.number().min(0.5).max(1).default(0.5),
     minimumQuorum: z.number().int().min(1).optional(),
+    maxOutputTokens: z.number().int().min(1).max(100_000_000).optional(),
+    maxPanelCostUSD: z.number().min(0).optional(),
     calibrated: z.boolean().default(false),
   }),
 ]);

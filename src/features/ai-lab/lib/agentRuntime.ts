@@ -16,7 +16,12 @@ import { capabilitiesForDesktopModel, knownCostForCompletion } from './agentMode
 import { resolveResturaAgentTools } from './agentTools';
 import { completeLlm, specFor, type LlmCallSpec } from './llmClient';
 
-type Complete = (spec: LlmCallSpec) => Promise<CompletionResult>;
+type Complete = (
+  spec: LlmCallSpec,
+  options?: { signal?: AbortSignal }
+) => Promise<CompletionResult>;
+
+const DEFAULT_JUDGE_MAX_OUTPUT_TOKENS = 512;
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
@@ -68,12 +73,15 @@ export function createDesktopAgentProviders(
               capabilities: capabilitiesForDesktopModel(config, id).capabilities,
             }));
           },
-          async generate(request) {
+          async generate(request, context) {
             const completion = await complete(
               specFor(config, request.model.model, text(request.messages), {
-                ...(request.maxOutputTokens ? { maxOutputTokens: request.maxOutputTokens } : {}),
+                ...(request.maxOutputTokens !== undefined
+                  ? { maxOutputTokens: request.maxOutputTokens }
+                  : {}),
                 ...(request.tools ? { tools: request.tools } : {}),
-              })
+              }),
+              context.signal ? { signal: context.signal } : {}
             );
             if (!completion.ok) throw new Error(completion.error?.message ?? 'model call failed');
             const costUSD = completion.usage
@@ -114,6 +122,7 @@ export async function runDesktopAgentSuite(
   options: {
     requestApproval?: ConstructorParameters<typeof AgentRunner>[0]['requestApproval'];
     complete?: Complete;
+    signal?: AbortSignal;
   } = {}
 ): Promise<AgentSuiteReport> {
   const providers = createDesktopAgentProviders(configs, options.complete ?? completeLlm);
@@ -128,6 +137,11 @@ export async function runDesktopAgentSuite(
   return new AgentSuiteRunner({
     run: (request) => runner.run(request),
     async judge(grader, context) {
+      let attemptedCalls = 0;
+      const successfulCalls: Array<{
+        usage?: { inputTokens: number; outputTokens: number };
+        costUSD?: number;
+      }> = [];
       const responseSchema = {
         type: 'object' as const,
         required: ['label', 'score'],
@@ -146,6 +160,7 @@ export async function runDesktopAgentSuite(
             candidateInput: string,
             candidateReference?: string
           ) => {
+            attemptedCalls += 1;
             const response = await adapter.generate(
               {
                 model,
@@ -173,13 +188,19 @@ export async function runDesktopAgentSuite(
                   },
                 ],
                 structuredOutput: responseSchema,
+                maxOutputTokens: grader.maxOutputTokens ?? DEFAULT_JUDGE_MAX_OUTPUT_TOKENS,
               },
               {
+                ...(context.signal ? { signal: context.signal } : {}),
                 async resolveCredential() {
                   return undefined;
                 },
               }
             );
+            successfulCalls.push({
+              ...(response.usage ? { usage: response.usage } : {}),
+              ...(response.costUSD !== undefined ? { costUSD: response.costUSD } : {}),
+            });
             const text = response.output.find((block) => block.type === 'text');
             if (text?.type !== 'text') throw new Error('judge returned no JSON text');
             const parsed = JSON.parse(text.text) as {
@@ -230,6 +251,7 @@ export async function runDesktopAgentSuite(
           const vote = await invoke(context.outputText, context.inputText, context.reference);
           return {
             providerId: model.providerId,
+            model: model.model,
             ...vote,
             reasoning: `${calibration}${vote.reasoning ?? ''}`,
           };
@@ -243,6 +265,7 @@ export async function runDesktopAgentSuite(
           ? [
               {
                 providerId: grader.judgeModels[index]!.providerId,
+                model: grader.judgeModels[index]!.model,
                 error: errorMessage(entry.reason),
               },
             ]
@@ -250,6 +273,28 @@ export async function runDesktopAgentSuite(
       );
       const quorum = grader.minimumQuorum ?? Math.floor(grader.judgeModels.length / 2) + 1;
       const panelDetail = `${votes.length}/${grader.judgeModels.length} judges succeeded (quorum ${quorum})`;
+      const usageKnown =
+        successfulCalls.length > 0 && successfulCalls.every((call) => call.usage !== undefined);
+      const usage = usageKnown
+        ? successfulCalls.reduce(
+            (total, call) => ({
+              inputTokens: total.inputTokens + call.usage!.inputTokens,
+              outputTokens: total.outputTokens + call.usage!.outputTokens,
+            }),
+            { inputTokens: 0, outputTokens: 0 }
+          )
+        : undefined;
+      const costKnown =
+        attemptedCalls > 0 &&
+        successfulCalls.length === attemptedCalls &&
+        successfulCalls.every((call) => call.costUSD !== undefined);
+      const costUSD = costKnown
+        ? successfulCalls.reduce((total, call) => total + call.costUSD!, 0)
+        : undefined;
+      const resources = {
+        ...(usage ? { usage } : {}),
+        ...(costUSD !== undefined ? { costUSD } : {}),
+      };
       if (votes.length < quorum) {
         return {
           graderId: grader.id,
@@ -259,6 +304,31 @@ export async function runDesktopAgentSuite(
           judgeVotes: votes,
           judgeFailures: failures,
           minimumQuorum: quorum,
+          ...resources,
+        };
+      }
+      if (grader.maxPanelCostUSD !== undefined && costUSD === undefined) {
+        return {
+          graderId: grader.id,
+          kind: grader.kind,
+          passed: false,
+          detail: `judge panel cost unknown; cannot enforce $${grader.maxPanelCostUSD} limit; ${panelDetail}`,
+          judgeVotes: votes,
+          judgeFailures: failures,
+          minimumQuorum: quorum,
+          ...resources,
+        };
+      }
+      if (grader.maxPanelCostUSD !== undefined && costUSD! > grader.maxPanelCostUSD) {
+        return {
+          graderId: grader.id,
+          kind: grader.kind,
+          passed: false,
+          detail: `judge panel cost exceeded: $${costUSD!.toFixed(6)} / $${grader.maxPanelCostUSD}; ${panelDetail}`,
+          judgeVotes: votes,
+          judgeFailures: failures,
+          minimumQuorum: quorum,
+          ...resources,
         };
       }
       let verdict;
@@ -273,6 +343,7 @@ export async function runDesktopAgentSuite(
           judgeVotes: votes,
           judgeFailures: failures,
           minimumQuorum: quorum,
+          ...resources,
         };
       }
       const passing = grader.passingLabels ?? [grader.labels[0]!];
@@ -287,7 +358,8 @@ export async function runDesktopAgentSuite(
         judgeVotes: votes,
         judgeFailures: failures,
         minimumQuorum: quorum,
+        ...resources,
       };
     },
-  }).run({ suite });
+  }).run({ suite, ...(options.signal ? { signal: options.signal } : {}) });
 }
