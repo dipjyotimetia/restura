@@ -92,6 +92,18 @@ describe('mqttManager (Electron path)', () => {
     });
   });
 
+  it('resets state and listeners when the connect IPC rejects', async () => {
+    const { mqtt, handlerCount } = installElectronMock();
+    mqtt.connect.mockRejectedValueOnce(new Error('IPC unavailable'));
+    const id = useMqttStore.getState().createConnection();
+
+    const result = await mqttManager.connect(useMqttStore.getState().connections[id]!);
+
+    expect(result).toEqual({ ok: false, error: 'IPC unavailable' });
+    expect(useMqttStore.getState().connections[id]!.status).toBe('disconnected');
+    expect(handlerCount(`mqtt:close:${id}`)).toBe(0);
+  });
+
   it('coalesces a burst of inbound messages into the store via the flush buffer', async () => {
     const { emit } = installElectronMock();
     const id = useMqttStore.getState().createConnection();

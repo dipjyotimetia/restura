@@ -50,10 +50,8 @@ jobs:
         # `node_modules/electron/index.js`: the module returns a stub path and
         # the test's mock takes over from there. Local dev is unaffected.
         #
-        # `test:ci` runs the full coverage report but disables the threshold
-        # gate. Coverage tracking is a visibility feature here, not a CI gate
-        # — devs who run `npm run test:coverage` locally still get strict
-        # threshold enforcement.
+        # `test:ci` runs the full coverage report and enforces the same
+        # non-regression and protocol-core thresholds as local coverage runs.
         id: tests
         background: true
         env:

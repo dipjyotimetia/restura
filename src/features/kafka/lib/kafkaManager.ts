@@ -29,30 +29,32 @@ export function kafkaSecretKey(connectionId: string, field: KafkaSecretField): s
   return `kafka:${connectionId}:${field}`;
 }
 
-function readSecret(connectionId: string, field: KafkaSecretField): string | null {
-  return secureStorage.get(kafkaSecretKey(connectionId, field));
+function readSecret(connectionId: string, field: KafkaSecretField): Promise<string | null> {
+  return secureStorage.getAsync(kafkaSecretKey(connectionId, field));
 }
 
 /**
  * Resolve the persisted registry config (secret sentinels) into the plaintext
  * IPC shape. Returns undefined when no registry is configured.
  */
-function resolveRegistry(
+async function resolveRegistry(
   connectionId: string,
   registry: KafkaRegistry | undefined
-): KafkaRegistryIpc | undefined {
+): Promise<KafkaRegistryIpc | undefined> {
   if (!registry) return undefined;
   const out: KafkaRegistryIpc = { url: registry.url };
   if (registry.auth) {
     // A sentinel means the real value lives in secureStorage; otherwise it's
     // the inline value (or undefined).
-    const resolve = (value: string | undefined, field: KafkaSecretField): string | null =>
-      value === KAFKA_SECRET_SENTINEL ? readSecret(connectionId, field) : (value ?? null);
+    const resolve = (value: string | undefined, field: KafkaSecretField): Promise<string | null> =>
+      value === KAFKA_SECRET_SENTINEL
+        ? readSecret(connectionId, field)
+        : Promise.resolve(value ?? null);
     const auth: NonNullable<KafkaRegistryIpc['auth']> = {};
     if (registry.auth.username) auth.username = registry.auth.username;
-    const password = resolve(registry.auth.password, 'registry-password');
+    const password = await resolve(registry.auth.password, 'registry-password');
     if (password) auth.password = password;
-    const token = resolve(registry.auth.token, 'registry-token');
+    const token = await resolve(registry.auth.token, 'registry-token');
     if (token) auth.token = token;
     if (Object.keys(auth).length > 0) out.auth = auth;
   }
@@ -107,7 +109,7 @@ async function resolveAuth(connectionId: string, auth: KafkaAuth): Promise<Kafka
       }
     }
     if (auth.tls.passphrase === KAFKA_SECRET_SENTINEL) {
-      const real = readSecret(connectionId, 'tls-passphrase');
+      const real = await readSecret(connectionId, 'tls-passphrase');
       if (real) tlsIpc.passphrase = real;
     } else if (auth.tls.passphrase) {
       tlsIpc.passphrase = auth.tls.passphrase;
@@ -119,10 +121,9 @@ async function resolveAuth(connectionId: string, auth: KafkaAuth): Promise<Kafka
   }
 
   if (!auth.sasl) return null;
-  const saslPassword =
-    auth.sasl.password === KAFKA_SECRET_SENTINEL
-      ? readSecret(connectionId, 'sasl-password')
-      : auth.sasl.password;
+  const saslPassword = await (auth.sasl.password === KAFKA_SECRET_SENTINEL
+    ? readSecret(connectionId, 'sasl-password')
+    : Promise.resolve(auth.sasl.password));
   if (!saslPassword) return null;
 
   const sasl = {
@@ -150,7 +151,15 @@ class KafkaManager {
     const store = useKafkaStore.getState();
     store.updateStatus(connection.id, 'connecting');
 
-    const ipcAuth = await resolveAuth(connection.id, connection.auth);
+    let ipcAuth: KafkaAuthIpc | null;
+    try {
+      ipcAuth = await resolveAuth(connection.id, connection.auth);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to resolve Kafka credentials';
+      store.updateStatus(connection.id, 'disconnected');
+      store.addMessage(connection.id, { direction: 'system', topic: '', value: msg, error: msg });
+      return { ok: false, error: msg };
+    }
     if (!ipcAuth) {
       store.updateStatus(connection.id, 'disconnected');
       const msg = 'Missing SASL password or TLS material — re-enter credentials.';
@@ -158,17 +167,30 @@ class KafkaManager {
       return { ok: false, error: msg };
     }
 
+    // Reconnecting with the same id must replace, not stack, renderer event
+    // handlers. Otherwise every broker event is processed once per prior
+    // connection attempt.
+    this.unbindLifecycleListeners(connection.id);
     this.bindLifecycleListeners(connection.id);
 
-    const registry = resolveRegistry(connection.id, connection.registry);
-    const result = await api.kafka.connect({
-      connectionId: connection.id,
-      clientId: connection.clientId,
-      bootstrapBrokers: connection.bootstrapBrokers,
-      auth: ipcAuth,
-      ...(connection.idempotent ? { idempotent: true } : {}),
-      ...(registry ? { registry } : {}),
-    });
+    const registry = await resolveRegistry(connection.id, connection.registry);
+    let result: Awaited<ReturnType<typeof api.kafka.connect>>;
+    try {
+      result = await api.kafka.connect({
+        connectionId: connection.id,
+        clientId: connection.clientId,
+        bootstrapBrokers: connection.bootstrapBrokers,
+        auth: ipcAuth,
+        ...(connection.idempotent ? { idempotent: true } : {}),
+        ...(registry ? { registry } : {}),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Kafka connect failed';
+      store.updateStatus(connection.id, 'disconnected');
+      store.addMessage(connection.id, { direction: 'system', topic: '', value: msg, error: msg });
+      this.unbindLifecycleListeners(connection.id);
+      return { ok: false, error: msg };
+    }
 
     if (!result.success) {
       store.updateStatus(connection.id, 'disconnected');

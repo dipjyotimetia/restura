@@ -746,6 +746,9 @@ const electronAPI = {
         }
       | { ok: false; error: string }
     > => ipcRenderer.invoke(IPC.secret.list),
+
+    clear: (): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.secret.clear),
   },
 
   // pm.vault — user-named encrypted key-value secret store. Separate from
@@ -757,6 +760,7 @@ const electronAPI = {
     set: (key: string, value: string): Promise<{ ok: true }> =>
       ipcRenderer.invoke(IPC.vault.set, { key, value }),
     unset: (key: string): Promise<{ ok: true }> => ipcRenderer.invoke(IPC.vault.unset, { key }),
+    clear: (): Promise<{ ok: true }> => ipcRenderer.invoke(IPC.vault.clear),
   },
 
   ai: {

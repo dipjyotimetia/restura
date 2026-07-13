@@ -20,7 +20,7 @@
 import { ipcMain } from 'electron';
 import { z } from 'zod';
 import { IPC } from '../../shared/channels';
-import { createValidatedHandler } from '../ipc/ipc-validators';
+import { createValidatedHandler, NoInputSchema } from '../ipc/ipc-validators';
 import { getOrCreateEncryptedKey } from '../security/encrypted-key';
 
 // electron-store v9+ ESM-only; .default is the constructor under Node 22+.
@@ -35,6 +35,7 @@ interface VaultStoreShape {
   get: (key: string) => VaultRecord | undefined;
   set: (key: string, value: VaultRecord) => void;
   delete: (key: string) => void;
+  clear: () => void;
   has: (key: string) => boolean;
   store: Record<string, VaultRecord>;
 }
@@ -93,6 +94,14 @@ export function registerVaultHandlers(): void {
       return { ok: true };
     })
   );
+
+  ipcMain.handle(
+    IPC.vault.clear,
+    createValidatedHandler(IPC.vault.clear, NoInputSchema, async () => {
+      getStore().clear();
+      return { ok: true };
+    })
+  );
 }
 
 export function unregisterVaultHandlers(): void {
@@ -100,5 +109,6 @@ export function unregisterVaultHandlers(): void {
   ipcMain.removeHandler(IPC.vault.get);
   ipcMain.removeHandler(IPC.vault.set);
   ipcMain.removeHandler(IPC.vault.unset);
+  ipcMain.removeHandler(IPC.vault.clear);
   registered = false;
 }

@@ -1,6 +1,6 @@
 import { selectCertForUrl } from '../../../src/lib/shared/certMatcher';
-import { isProxyBypassed } from './proxy-bypass';
 import { assertExecutionPolicyReady, getExecutionPolicy } from './execution-policy';
+import { isProxyBypassed } from './proxy-bypass';
 import { createPinnedFetch, type SafeAddress } from './safe-connect';
 import { buildTlsClientMaterial } from './tls-material';
 

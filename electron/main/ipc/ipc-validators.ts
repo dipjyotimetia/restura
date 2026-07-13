@@ -1216,7 +1216,10 @@ export function validateIpcInput<T>(schema: z.ZodSchema<T>, data: unknown, chann
       log.error('IPC validation error', {
         channel,
         issues: error.issues,
-        receivedData: data,
+        // Never log the rejected payload. IPC inputs routinely contain auth
+        // credentials, request bodies, TLS private keys, and file contents;
+        // the Zod issue paths/types are sufficient to diagnose validation.
+        receivedType: data === null ? 'null' : Array.isArray(data) ? 'array' : typeof data,
       });
 
       throw new Error(`Invalid IPC payload for ${channel}: ${errorMessages}`);

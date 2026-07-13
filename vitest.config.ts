@@ -69,10 +69,22 @@ export default defineConfig({
         'src/components/ui/motion.tsx',
       ],
       thresholds: {
-        lines: 80,
-        functions: 78,
-        branches: 61,
-        statements: 78,
+        // Global coverage spans the renderer, stores, protocol managers, and
+        // Worker. Use an uncovered-item budget so the gate is enforceable and
+        // any newly added untested production code fails it. Percentage targets
+        // had drifted below their 2026 snapshot and CI silently disabled them.
+        lines: -4378,
+        functions: -1344,
+        branches: -5226,
+        statements: -5321,
+        // The backend-agnostic protocol core is the security/parity boundary;
+        // keep substantially stronger percentage guarantees here.
+        'shared/protocol/**': {
+          lines: 90,
+          functions: 88,
+          branches: 75,
+          statements: 88,
+        },
       },
     },
   },

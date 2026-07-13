@@ -131,10 +131,15 @@ jobs:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
           missing=()
-          for name in NPM_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID WORKER_PROXY_TOKEN SENTRY_DSN SENTRY_AUTH_TOKEN SENTRY_ORG SENTRY_PROJECT; do
+          for name in NPM_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID WORKER_PROXY_TOKEN SENTRY_DSN SENTRY_AUTH_TOKEN SENTRY_ORG SENTRY_PROJECT CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
             if [ -z "${!name:-}" ]; then
               missing+=("$name")
             fi
@@ -453,8 +458,10 @@ jobs:
         env:
           # electron-builder uploads to the GitHub release matching the tag.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # ---- Code signing (optional) ----
-          # Set repo secrets to ship signed + notarized builds; absent → unsigned.
+          # ---- Code signing ----
+          # Stable-release preflight requires macOS signing/notarization.
+          # Windows signing remains optional until its certificate is added;
+          # prereleases may omit all signing credentials.
           # Signing is scoped PER OS: a macOS Developer ID cert is not a valid
           # Windows Authenticode cert, so CSC_LINK must NOT leak onto the Windows
           # leg (it would make signtool fail). macOS uses CSC_LINK; Windows uses
