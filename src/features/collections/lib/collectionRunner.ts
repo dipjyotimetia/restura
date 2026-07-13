@@ -56,6 +56,7 @@ export interface CollectionRunResult {
   durationMs: number;
   iterations: number;
   dataRows: number;
+  outcome: 'completed' | 'aborted' | 'failed';
   requests: CollectionRequestResult[];
   summary: { total: number; passed: number; failed: number; skipped: number };
 }
@@ -66,6 +67,9 @@ export interface CollectionRunOptions {
   runnables: RunnableRequest[];
   /** env (enabled) then collection.variables already merged in by the caller. */
   baseVars: Record<string, string>;
+  /** Optional separated scopes used to preserve precedence as scripts mutate them. */
+  globalVars?: Record<string, string>;
+  environmentVars?: Record<string, string>;
   /** Repeat count when no data file; ignored when dataRows is non-empty. */
   iterations: number;
   /** Data-file rows; when non-empty drives one iteration per row (Postman semantics). */
@@ -182,20 +186,40 @@ export async function runCollection(
   // happen, so later requests in the SAME run (and future runs) see them,
   // matching Postman's collection-runner semantics.
   const collectionVars = buildValueMap({ collection: collection.variables });
+  const runGlobals = { ...(options.globalVars ?? {}) };
+  const runEnvironment = {
+    ...(options.globalVars || options.environmentVars ? options.environmentVars : baseVars),
+  };
   // Persist at most once per request (merging both script phases, test wins
   // on conflict) rather than once per phase — `applyCollectionVarMutations`
   // rewrites the entire persisted (encrypted, IndexedDB-backed) collections
   // tree, so halving the call count halves that cost on every request that
   // touches `pm.collectionVariables` in both its pre-request and test script.
-  const persistCollectionMutations = (mutations: Record<string, string | null>) => {
+  const persistCollectionMutations = (
+    mutations: Record<string, string | null>,
+    effectiveVars: Record<string, string>,
+    iterationData: IterationRow,
+    environmentOverrides: Record<string, string>
+  ) => {
     if (Object.keys(mutations).length === 0) return;
     applyVarMutations(collectionVars, mutations);
+    for (const [key, value] of Object.entries(mutations)) {
+      if (key in iterationData || key in environmentOverrides) continue;
+      if (value === null) delete effectiveVars[key];
+      else effectiveVars[key] = value;
+    }
     useCollectionStore.getState().applyCollectionVarMutations(collection.id, mutations);
   };
 
   outer: for (let iter = 0; iter < rows.length; iter++) {
-    // Carry-forward map for this iteration: base + row, mutated by scripts as we go.
-    const allVars: Record<string, string> = { ...baseVars, ...rows[iter] };
+    const environmentOverrides: Record<string, string> = {};
+    // Scope precedence: globals < environment < collection < data < script-local.
+    const allVars: Record<string, string> = {
+      ...runGlobals,
+      ...runEnvironment,
+      ...collectionVars,
+      ...rows[iter],
+    };
     let jumps = 0;
 
     for (let idx = 0; idx < runnables.length;) {
@@ -246,7 +270,6 @@ export async function runCollection(
       // Auth inheritance: nearest ancestor folder's auth (threaded by
       // flattenRunnables), falling back to collection-level auth.
       const authed = withEffectiveAuth(runnable.request, runnable.inheritedAuth ?? collection.auth);
-      const injected = protocol.injectVariables?.(authed, allVars) ?? authed;
 
       let scripts: ProtocolScriptResult | undefined;
       const ctx = {
@@ -261,10 +284,7 @@ export async function runCollection(
           info: { iteration: iter, iterationCount: rows.length },
           location: {
             currentRequestName: runnable.name,
-            // flattenRunnables() doesn't retain per-runnable folder ancestry
-            // today, so pm.execution.location.folderPath is always empty —
-            // collectionName/currentRequestName are still accurate.
-            folderPath: [],
+            folderPath: runnable.folderPath ?? [],
             collectionName: collection.name,
           },
         },
@@ -282,7 +302,8 @@ export async function runCollection(
 
       let response: ApiResponse | undefined;
       try {
-        response = await protocol.runRequest(injected, ctx);
+        const requestStartVars = { ...allVars };
+        response = await protocol.runRequest(authed, ctx);
         result.durationMs = Date.now() - startedReq;
         result.httpStatus = response.status;
         result.sizeBytes = response.size;
@@ -301,16 +322,40 @@ export async function runCollection(
             }
           }
           // Carry-forward pm.variables.set() mutations into the iteration map.
-          if (phase?.variables) Object.assign(allVars, phase.variables);
+          if (phase?.variables) {
+            for (const [key, value] of Object.entries(phase.variables)) {
+              if (requestStartVars[key] !== value) environmentOverrides[key] = value;
+            }
+          }
           // Merge pm.collectionVariables.set/unset mutations from both phases
           // (test wins on conflict) — persisted once below, not per phase.
           if (phase?.collectionMutations)
             Object.assign(collectionMutations, phase.collectionMutations);
+          if (phase?.globalsMutations) applyVarMutations(runGlobals, phase.globalsMutations);
         }
+        // Collection mutations are surfaced in `variables` by the protocol
+        // executor too; keep them in their real scope instead of accidentally
+        // promoting them above iteration data.
+        for (const key of Object.keys(collectionMutations)) delete environmentOverrides[key];
+        Object.assign(runEnvironment, environmentOverrides);
+        Object.keys(allVars).forEach((key) => delete allVars[key]);
+        Object.assign(
+          allVars,
+          runGlobals,
+          runEnvironment,
+          collectionVars,
+          rows[iter],
+          environmentOverrides
+        );
         result.assertions = assertions;
         // Persist merged pm.collectionVariables mutations — later requests
         // in this run (and future runs) see the updated value.
-        persistCollectionMutations(collectionMutations);
+        persistCollectionMutations(
+          collectionMutations,
+          allVars,
+          rows[iter] ?? {},
+          environmentOverrides
+        );
 
         const scriptError = [scripts?.preRequest, scripts?.test]
           .flatMap((p) => p?.errors ?? [])
@@ -332,7 +377,7 @@ export async function runCollection(
       results.push(result);
       onRequestComplete?.({
         result,
-        request: injected,
+        request: authed,
         ...(response ? { response } : {}),
         ...(scripts ? { scripts } : {}),
         runId,
@@ -414,6 +459,7 @@ export async function runCollection(
     durationMs: Date.now() - startedAt,
     iterations: rows.length,
     dataRows: dataRows.length,
+    outcome: signal.aborted ? 'aborted' : bailed ? 'failed' : 'completed',
     requests: results,
     summary,
   };

@@ -1,7 +1,22 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import {
+  copyFile,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  rmdir,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
+import { dirname, join, relative, resolve, sep } from 'node:path';
+import { loadCollectionFromDir } from './fs-reader';
 import type { OpenCollection } from './schemas';
 import { serializeOpenCollectionYAML } from './serializer';
+
+const MANIFEST_FILE = '.restura-managed-files.json';
 
 /**
  * Write a bundled OpenCollection YAML file.
@@ -25,7 +40,21 @@ export async function saveCollectionToFile(oc: OpenCollection, path: string): Pr
  * `electron/main/storage/file-operations.ts:isPathSafe`.
  */
 export async function saveCollectionToDir(oc: OpenCollection, dir: string): Promise<void> {
+  await assertNotSymlink(dir);
   await mkdir(dir, { recursive: true });
+  const staging = await mkdtemp(join(dirname(resolve(dir)), '.restura-stage-'));
+  try {
+    await writeCollectionLayout(oc, staging);
+    // Refuse to touch the destination unless the complete staged document can
+    // be parsed back through the same schema used on load.
+    await loadCollectionFromDir(staging);
+    await reconcileManagedFiles(staging, resolve(dir));
+  } finally {
+    await rm(staging, { recursive: true, force: true });
+  }
+}
+
+async function writeCollectionLayout(oc: OpenCollection, dir: string): Promise<void> {
   const { items, ...rootRest } = oc;
   // Root file holds metadata + config; items live as nested files
   const root = (compact({ ...rootRest, bundled: false }) ?? {}) as Record<string, unknown>;
@@ -35,6 +64,152 @@ export async function saveCollectionToDir(oc: OpenCollection, dir: string): Prom
     'utf8'
   );
   await writeItems((items ?? []) as unknown[], dir);
+}
+
+async function reconcileManagedFiles(staging: string, destination: string): Promise<void> {
+  const nextFiles = (await listFiles(staging)).filter(isManagedCollectionFile);
+  const nextSet = new Set(nextFiles);
+  const manifestFiles = await readManifest(destination);
+  const previousFiles =
+    manifestFiles.length > 0
+      ? manifestFiles.filter(isManagedCollectionFile)
+      : (await listFiles(destination)).filter(isManagedCollectionFile);
+
+  // Remove only paths Restura recorded as managed on the previous successful
+  // save. Unrelated files (README, .git, user fixtures) are never inferred or
+  // deleted.
+  const stale = previousFiles.filter((file) => !nextSet.has(file));
+  const affected = [...new Set([...previousFiles, ...nextFiles, MANIFEST_FILE])];
+  const backup = await mkdtemp(join(dirname(destination), '.restura-backup-'));
+  const backedUp: string[] = [];
+
+  try {
+    // Validate every destination path before mutating anything. This prevents
+    // a forged manifest or an intermediate symlink from escaping the root.
+    for (const file of affected) await assertNoSymlinkPath(destination, file);
+
+    for (const file of affected) {
+      const source = safeManagedPath(destination, file);
+      const target = safeManagedPath(backup, file);
+      if (!source || !target) throw new Error(`Unsafe managed collection path: ${file}`);
+      try {
+        if (!(await lstat(source)).isFile()) continue;
+        await mkdir(dirname(target), { recursive: true });
+        await copyFile(source, target);
+        backedUp.push(file);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+    }
+
+    try {
+      for (const file of stale) {
+        const target = safeManagedPath(destination, file);
+        if (!target) throw new Error(`Unsafe managed collection path: ${file}`);
+        await unlink(target).catch((error: NodeJS.ErrnoException) => {
+          if (error.code !== 'ENOENT') throw error;
+        });
+      }
+
+      for (const file of nextFiles) {
+        const source = safeManagedPath(staging, file);
+        const target = safeManagedPath(destination, file);
+        if (!source || !target) throw new Error(`Unsafe managed collection path: ${file}`);
+        await mkdir(dirname(target), { recursive: true });
+        await copyFile(source, target);
+      }
+
+      const manifestTemp = join(destination, `${MANIFEST_FILE}.tmp`);
+      await assertNoSymlinkPath(destination, `${MANIFEST_FILE}.tmp`);
+      await writeFile(
+        manifestTemp,
+        `${JSON.stringify({ version: 1, files: nextFiles }, null, 2)}\n`
+      );
+      await rename(manifestTemp, join(destination, MANIFEST_FILE));
+    } catch (error) {
+      // Roll back the complete managed set. Unrelated files are never touched.
+      for (const file of affected) {
+        const target = safeManagedPath(destination, file);
+        if (target) await unlink(target).catch(() => undefined);
+      }
+      for (const file of backedUp) {
+        const source = safeManagedPath(backup, file);
+        const target = safeManagedPath(destination, file);
+        if (!source || !target) continue;
+        await mkdir(dirname(target), { recursive: true });
+        await copyFile(source, target);
+      }
+      throw error;
+    }
+  } finally {
+    await rm(backup, { recursive: true, force: true });
+  }
+
+  // Best-effort pruning of directories that became empty after stale files
+  // were removed. rmdir deliberately fails when an unrelated file remains.
+  const staleDirs = [...new Set(stale.map((file) => dirname(file)).filter((p) => p !== '.'))].sort(
+    (a, b) => b.length - a.length
+  );
+  for (const relDir of staleDirs) {
+    const target = safeManagedPath(destination, relDir);
+    if (target) await rmdir(target).catch(() => undefined);
+  }
+}
+
+function isManagedCollectionFile(file: string): boolean {
+  const normalized = file.split(sep).join('/');
+  if (normalized === 'opencollection.yml' || normalized === 'opencollection.yaml') return true;
+  if (normalized.endsWith('/_folder.yml') || normalized.endsWith('/_folder.yaml')) return true;
+  return /\.ya?ml$/i.test(normalized) && !normalized.startsWith('.');
+}
+
+async function listFiles(root: string, current = root): Promise<string[]> {
+  const entries = await readdir(current, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const full = join(current, entry.name);
+    if (entry.isDirectory()) files.push(...(await listFiles(root, full)));
+    else if (entry.isFile()) files.push(relative(root, full));
+  }
+  return files.sort();
+}
+
+async function readManifest(dir: string): Promise<string[]> {
+  try {
+    const parsed = JSON.parse(await readFile(join(dir, MANIFEST_FILE), 'utf8')) as {
+      version?: unknown;
+      files?: unknown;
+    };
+    if (parsed.version !== 1 || !Array.isArray(parsed.files)) return [];
+    return parsed.files.filter((file): file is string => typeof file === 'string');
+  } catch {
+    return [];
+  }
+}
+
+function safeManagedPath(root: string, relativePath: string): string | null {
+  const resolvedRoot = resolve(root);
+  const candidate = resolve(resolvedRoot, relativePath);
+  return candidate.startsWith(`${resolvedRoot}${sep}`) ? candidate : null;
+}
+
+async function assertNotSymlink(target: string): Promise<void> {
+  try {
+    if ((await lstat(target)).isSymbolicLink()) {
+      throw new Error(`Refusing to write collection through symbolic link: ${target}`);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+}
+
+async function assertNoSymlinkPath(root: string, relativePath: string): Promise<void> {
+  let current = resolve(root);
+  await assertNotSymlink(current);
+  for (const segment of relativePath.split(sep).filter(Boolean)) {
+    current = join(current, segment);
+    await assertNotSymlink(current);
+  }
 }
 
 async function writeItems(items: unknown[], dir: string): Promise<void> {

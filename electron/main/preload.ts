@@ -905,6 +905,7 @@ const electronAPI = {
       directoryPath: string
     ): Promise<{
       success: boolean;
+      error?: string;
     }> => ipcRenderer.invoke(IPC.collection.unwatch, directoryPath),
 
     selectDirectory: (): Promise<{
@@ -925,6 +926,7 @@ const electronAPI = {
       exists: boolean;
       lastModified?: number;
       size?: number;
+      error?: string;
     }> => ipcRenderer.invoke(IPC.collection.getFileInfo, filePath),
 
     onFileChanged: (

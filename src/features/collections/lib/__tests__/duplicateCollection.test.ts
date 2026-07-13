@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { duplicateCollection } from '../itemFactory';
+import { internalToOC } from '@/lib/opencollection';
 import type { Collection, CollectionItem, HttpRequest } from '@/types';
 
 const req = (id: string, name: string): CollectionItem => {
@@ -68,5 +69,20 @@ describe('duplicateCollection', () => {
     const dup = duplicateCollection(source, []);
     dup.items[0]!.items![0]!.name = 'MUTATED';
     expect(source.items[0]!.items![0]!.name).toBe('Nested');
+  });
+
+  it('drops OpenCollection passthrough provenance so exports use duplicate metadata', () => {
+    const withProvenance = {
+      ...source,
+      _oc: {
+        opencollection: '1.0.0',
+        info: { name: 'My API' },
+        items: [],
+      },
+    } as Collection & { _oc: unknown };
+
+    const dup = duplicateCollection(withProvenance, []);
+
+    expect(internalToOC(dup).info.name).toBe('My API copy');
   });
 });

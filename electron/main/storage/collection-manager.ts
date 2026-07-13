@@ -11,15 +11,14 @@ import type { FSWatcher } from 'chokidar';
 import chokidar from 'chokidar';
 import { ipcMain, dialog, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
-import * as yaml from 'js-yaml';
 import { z } from 'zod';
-import {
-  fileKeyValueSchema,
-  fileCollectionMetaSchema,
-  fileFolderMetaSchema,
-} from '../../../src/lib/shared/file-collection-schema';
-import { redactSecretKeyValues } from '../../../src/lib/shared/keyvalue-secret-redaction';
+import { internalToOC } from '../../../src/lib/opencollection/from-internal';
+import { loadCollectionFromDir } from '../../../src/lib/opencollection/fs-reader';
+import { saveCollectionToDir } from '../../../src/lib/opencollection/fs-writer';
+import { ocToInternal } from '../../../src/lib/opencollection/to-internal';
+import { redactCollectionSecrets } from '../../../src/lib/shared/collection-secret-redaction';
 import { createLogger } from '../../../src/lib/shared/logger';
+import type { Collection } from '../../../src/types';
 
 const log = createLogger('collections');
 
@@ -54,21 +53,9 @@ function warnIfPlaintextSecretsWillBeDropped(collection: FileCollection): void {
 }
 import { IPC, EVENT } from '../../shared/channels';
 import { createValidatedHandler, FilePathSchema, NoInputSchema } from '../ipc/ipc-validators';
-import {
-  redactAuthForExport,
-  authHasPlaintextSecret,
-  redactSecretVariablesForExport,
-} from '../security/collection-export-redactor';
+import { authHasPlaintextSecret } from '../security/collection-export-redactor';
 import { debounce } from '../util/debounce';
 import { isPathSafe } from './file-operations';
-
-// File extension constants (must match renderer types)
-const FILE_EXTENSIONS = {
-  COLLECTION_META: '_collection.yaml',
-  FOLDER_META: '_folder.yaml',
-  HTTP_REQUEST: '.http.yaml',
-  GRPC_REQUEST: '.grpc.yaml',
-} as const;
 
 interface FileKeyValue {
   id: string;
@@ -106,6 +93,10 @@ interface FileCollection {
 
 // Track active file watchers
 const activeWatchers = new Map<string, FSWatcher>();
+// Saves are staged and then copied into place, which produces several watcher
+// events. Suppress only the saving directory for a short bounded window so the
+// renderer never reports Restura's own write as an external conflict.
+const selfWriteUntil = new Map<string, number>();
 
 /**
  * Canonical key for the active-watcher set. The git handler (and
@@ -151,78 +142,6 @@ function sendFileChange(
   sender(payload);
 }
 
-// Generate unique ID
-function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
-}
-
-// Add ID to key-value items
-function addIdsToKeyValues(items: unknown) {
-  const parsed = z.array(fileKeyValueSchema).safeParse(items);
-  if (!parsed.success) return [];
-  return parsed.data.map((item) => ({
-    id: generateId(),
-    key: item.key,
-    value: item.value,
-    enabled: item.enabled ?? true,
-    description: item.description,
-    ...(item.secret ? { secret: true } : {}),
-  }));
-}
-
-// Strip IDs from key-value items for file storage
-function stripIdsFromKeyValues(
-  items?: Array<{
-    id: string;
-    key: string;
-    value: string;
-    enabled?: boolean;
-    description?: string;
-    secret?: boolean;
-  }>
-) {
-  if (!items) return undefined;
-  return items.map(({ key, value, enabled, description, secret }) => ({
-    key,
-    value,
-    enabled: enabled ?? true,
-    ...(secret ? { secret: true } : {}),
-    ...(description ? { description } : {}),
-  }));
-}
-
-// Get request type from filename
-function getRequestTypeFromFilename(filename: string): 'http' | 'grpc' | null {
-  if (filename.endsWith(FILE_EXTENSIONS.HTTP_REQUEST)) return 'http';
-  if (filename.endsWith(FILE_EXTENSIONS.GRPC_REQUEST)) return 'grpc';
-  return null;
-}
-
-// Generate safe filename from name
-function sanitizeFilename(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
-}
-
-// Load a single YAML file
-async function loadYamlFile(filePath: string): Promise<unknown> {
-  const content = await fsp.readFile(filePath, 'utf-8');
-  return yaml.load(content, { schema: yaml.CORE_SCHEMA });
-}
-
-// Save a YAML file
-async function saveYamlFile(filePath: string, data: unknown): Promise<void> {
-  const content = yaml.dump(data, {
-    indent: 2,
-    lineWidth: 120,
-    noRefs: true,
-    sortKeys: false,
-  });
-  await fsp.writeFile(filePath, content, 'utf-8');
-}
-
 // stat that returns null on ENOENT/EACCES instead of throwing.
 async function statOrNull(
   p: string
@@ -235,129 +154,33 @@ async function statOrNull(
   }
 }
 
-// Load collection from directory
 async function loadCollectionFromDirectory(directoryPath: string): Promise<{
   success: boolean;
   collection?: unknown;
   error?: string;
 }> {
-  try {
-    if (!isPathSafe(directoryPath)) {
-      return { success: false, error: 'Access denied: Path is outside allowed directories' };
-    }
-
-    const dirStat = await statOrNull(directoryPath);
-    if (!dirStat || !dirStat.isDirectory) {
-      return { success: false, error: 'Directory does not exist' };
-    }
-
-    // Load collection metadata
-    const metaPath = path.join(directoryPath, FILE_EXTENSIONS.COLLECTION_META);
-    const metaStat = await statOrNull(metaPath);
-    if (!metaStat) {
-      return { success: false, error: 'No _collection.yaml found in directory' };
-    }
-
-    const metaData = await loadYamlFile(metaPath);
-    const meta = fileCollectionMetaSchema.parse(metaData);
-
-    // Track file mod time
-    fileModTimes.set(metaPath, metaStat.mtimeMs);
-
-    // Recursively load items
-    const items = await loadDirectoryItems(directoryPath);
-
-    const collection = {
-      id: generateId(),
-      name: meta.name,
-      description: meta.description,
-      items,
-      auth: meta.auth,
-      variables: addIdsToKeyValues(meta.variables),
-      _filePath: directoryPath, // Track source directory
-    };
-
-    return { success: true, collection };
-  } catch (error) {
-    return { success: false, error: String(error) };
+  if (!isPathSafe(directoryPath)) {
+    return { success: false, error: 'Access denied: Path is outside allowed directories' };
   }
-}
 
-// Load items from a directory (recursive). Children are loaded concurrently
-// so a large collection on a network share doesn't pay round-trip latency
-// per file/folder.
-async function loadDirectoryItems(directoryPath: string): Promise<unknown[]> {
-  const entries = await fsp.readdir(directoryPath, { withFileTypes: true });
+  const hasOpenCollection =
+    (await statOrNull(path.join(directoryPath, 'opencollection.yml'))) !== null ||
+    (await statOrNull(path.join(directoryPath, 'opencollection.yaml'))) !== null;
+  if (hasOpenCollection) {
+    try {
+      const collection = ocToInternal(await loadCollectionFromDir(directoryPath));
+      (collection as Collection & { _filePath?: string })._filePath = directoryPath;
+      return { success: true, collection };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  }
 
-  const loaded = await Promise.all(
-    entries.map(async (entry) => {
-      const entryPath = path.join(directoryPath, entry.name);
-
-      if (entry.isDirectory()) {
-        const folderMetaPath = path.join(entryPath, FILE_EXTENSIONS.FOLDER_META);
-        let folderName = entry.name;
-        let folderDescription: string | undefined;
-
-        const folderMetaStat = await statOrNull(folderMetaPath);
-        if (folderMetaStat) {
-          try {
-            const folderMeta = fileFolderMetaSchema.parse(await loadYamlFile(folderMetaPath));
-            folderName = folderMeta.name;
-            folderDescription = folderMeta.description;
-            fileModTimes.set(folderMetaPath, folderMetaStat.mtimeMs);
-          } catch {
-            // Use directory name if meta is invalid
-          }
-        }
-
-        const folderItems = await loadDirectoryItems(entryPath);
-
-        return {
-          id: generateId(),
-          name: folderName,
-          type: 'folder',
-          items: folderItems,
-          description: folderDescription,
-          _filePath: entryPath,
-        };
-      }
-
-      if (!entry.isFile()) return null;
-      const requestType = getRequestTypeFromFilename(entry.name);
-      if (!requestType) return null;
-
-      try {
-        const requestData = (await loadYamlFile(entryPath)) as Record<string, unknown>;
-        const fileStat = await statOrNull(entryPath);
-        if (fileStat) fileModTimes.set(entryPath, fileStat.mtimeMs);
-
-        const request = {
-          id: generateId(),
-          type: requestType,
-          ...requestData,
-          headers: addIdsToKeyValues(requestData.headers),
-          params: addIdsToKeyValues(requestData.params),
-          metadata: addIdsToKeyValues(requestData.metadata),
-        };
-
-        return {
-          id: generateId(),
-          name: requestData.name || entry.name,
-          type: 'request',
-          request,
-          _filePath: entryPath,
-        };
-      } catch (error) {
-        log.error('failed to load request file', {
-          path: entryPath,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return null;
-      }
-    })
-  );
-
-  return loaded.filter((item): item is NonNullable<typeof item> => item !== null);
+  return {
+    success: false,
+    error:
+      'Unsupported collection directory: opencollection.yml or opencollection.yaml is required',
+  };
 }
 
 // Save collection to directory
@@ -365,90 +188,22 @@ async function saveCollectionToDirectory(
   collection: FileCollection,
   directoryPath: string
 ): Promise<{ success: boolean; error?: string }> {
+  const dirKey = watcherKey(directoryPath);
   try {
     if (!isPathSafe(directoryPath)) {
       return { success: false, error: 'Access denied: Path is outside allowed directories' };
     }
 
     warnIfPlaintextSecretsWillBeDropped(collection);
-
-    // Create directory if it doesn't exist
-    await fsp.mkdir(directoryPath, { recursive: true });
-
-    // Save collection metadata. Auth is redacted before write so plaintext
-    // secrets never land in the YAML the user shares / commits to git — see
-    // collection-export-redactor.ts.
-    const meta = {
-      name: collection.name,
-      ...(collection.description ? { description: collection.description } : {}),
-      ...(collection.auth ? { auth: redactAuthForExport(collection.auth) } : {}),
-      ...(collection.variables?.length
-        ? { variables: stripIdsFromKeyValues(redactSecretVariablesForExport(collection.variables)) }
-        : {}),
-    };
-
-    await saveYamlFile(path.join(directoryPath, FILE_EXTENSIONS.COLLECTION_META), meta);
-
-    // Save items recursively
-    await saveDirectoryItems(collection.items, directoryPath);
-
+    selfWriteUntil.set(dirKey, Number.POSITIVE_INFINITY);
+    const safeCollection = redactCollectionSecrets(collection as Collection);
+    await saveCollectionToDir(internalToOC(safeCollection), directoryPath);
+    selfWriteUntil.set(dirKey, Date.now() + 1_000);
     return { success: true };
   } catch (error) {
+    selfWriteUntil.set(dirKey, Date.now() + 1_000);
     return { success: false, error: String(error) };
   }
-}
-
-// Save items to directory (recursive). Siblings at each level write
-// concurrently so large collection exports don't serialise per-file I/O.
-async function saveDirectoryItems(
-  items: FileCollectionItem[],
-  directoryPath: string
-): Promise<void> {
-  await Promise.all(
-    items.map(async (item) => {
-      if (item.type === 'folder') {
-        const folderPath = path.join(directoryPath, sanitizeFilename(item.name));
-        await fsp.mkdir(folderPath, { recursive: true });
-
-        const folderMeta = {
-          name: item.name,
-          ...(item.description ? { description: item.description } : {}),
-        };
-        await saveYamlFile(path.join(folderPath, FILE_EXTENSIONS.FOLDER_META), folderMeta);
-
-        if (item.items?.length) {
-          await saveDirectoryItems(item.items, folderPath);
-        }
-        return;
-      }
-
-      if (item.type !== 'request' || !item.request) return;
-      const req = item.request;
-      // Strip id and type before writing to disk; type is used to pick the extension.
-      const { id: _id, type, ...requestData } = req;
-      const extension =
-        type === 'grpc' ? FILE_EXTENSIONS.GRPC_REQUEST : FILE_EXTENSIONS.HTTP_REQUEST;
-      const filename = `${sanitizeFilename(item.name)}${extension}`;
-      const filePath = path.join(directoryPath, filename);
-      const fileData: Record<string, unknown> = {
-        ...requestData,
-        // Blank secret-bearing header/param/metadata values (e.g. an
-        // `Authorization` header or `?api_key=` row) before writing to disk —
-        // the typed-auth redactor below only covers the `auth` block.
-        headers: stripIdsFromKeyValues(redactSecretKeyValues(requestData.headers)),
-        params: stripIdsFromKeyValues(redactSecretKeyValues(requestData.params)),
-        metadata: stripIdsFromKeyValues(redactSecretKeyValues(requestData.metadata)),
-        // Redact secret-bearing auth fields. See collection-export-redactor.ts.
-        ...(requestData.auth ? { auth: redactAuthForExport(requestData.auth) } : {}),
-      };
-
-      Object.keys(fileData).forEach((key) => {
-        if (fileData[key] === undefined) delete fileData[key];
-      });
-
-      await saveYamlFile(filePath, fileData);
-    })
-  );
 }
 
 // Start watching a collection directory
@@ -479,6 +234,7 @@ function watchCollectionDirectory(
 
     watcher
       .on('change', (filePath) => {
+        if ((selfWriteUntil.get(dirKey) ?? 0) >= Date.now()) return;
         // Async stat so a slow filesystem (network share, encrypted volume)
         // can't block the main thread inside the watcher callback.
         void (async () => {
@@ -486,7 +242,7 @@ function watchCollectionDirectory(
           if (!stat) return;
           const lastMod = fileModTimes.get(filePath);
           const currentMod = stat.mtimeMs;
-          if (lastMod && currentMod > lastMod) {
+          if (lastMod === undefined || currentMod > lastMod) {
             sendFileChange(
               {
                 type: 'modified',
@@ -501,9 +257,11 @@ function watchCollectionDirectory(
         })();
       })
       .on('add', (filePath) => {
+        if ((selfWriteUntil.get(dirKey) ?? 0) >= Date.now()) return;
         sendFileChange({ type: 'added', filePath, directoryPath }, getMainWindow);
       })
       .on('unlink', (filePath) => {
+        if ((selfWriteUntil.get(dirKey) ?? 0) >= Date.now()) return;
         sendFileChange({ type: 'deleted', filePath, directoryPath }, getMainWindow);
         fileModTimes.delete(filePath);
       })
@@ -521,25 +279,30 @@ function watchCollectionDirectory(
 }
 
 // Stop watching a collection directory
-function unwatchCollectionDirectory(directoryPath: string): { success: boolean } {
+async function unwatchCollectionDirectory(
+  directoryPath: string
+): Promise<{ success: boolean; error?: string }> {
   const dirKey = watcherKey(directoryPath);
   const watcher = activeWatchers.get(dirKey);
-  if (watcher) {
-    watcher.close();
-    activeWatchers.delete(dirKey);
+  try {
+    if (watcher) {
+      await watcher.close();
+      activeWatchers.delete(dirKey);
+    }
+    selfWriteUntil.delete(dirKey);
+    // Evict this directory's debounced senders and file mtimes so the registries
+    // don't accumulate entries across repeated watch/unwatch cycles.
+    for (const key of debouncedSenders.keys()) {
+      if (key.startsWith(`${directoryPath}::`)) debouncedSenders.delete(key);
+    }
+    const filePrefix = directoryPath + path.sep;
+    for (const key of fileModTimes.keys()) {
+      if (key === directoryPath || key.startsWith(filePrefix)) fileModTimes.delete(key);
+    }
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
   }
-  // Evict this directory's debounced senders and file mtimes so the registries
-  // don't accumulate entries across repeated watch/unwatch cycles. These are
-  // keyed by the raw payload path (what sendFileChange reports), not the
-  // canonical watcher key, so they stay keyed on `directoryPath`.
-  for (const key of debouncedSenders.keys()) {
-    if (key.startsWith(`${directoryPath}::`)) debouncedSenders.delete(key);
-  }
-  const filePrefix = directoryPath + path.sep;
-  for (const key of fileModTimes.keys()) {
-    if (key === directoryPath || key.startsWith(filePrefix)) fileModTimes.delete(key);
-  }
-  return { success: true };
 }
 
 // IPC validation schemas
@@ -550,6 +313,13 @@ const CollectionDataSchema = z.object({
   items: z.array(z.unknown()),
   auth: z.unknown().optional(),
   variables: z.array(z.unknown()).optional(),
+  contractSpec: z.unknown().optional(),
+  preRequestScript: z.string().optional(),
+  testScript: z.string().optional(),
+  // OpenCollection provenance preserves unknown spec fields/extensions across
+  // a load-edit-save cycle. Nested bags survive because items are validated at
+  // the renderer store boundary and remain opaque at IPC transport.
+  _oc: z.unknown().optional(),
 });
 
 const SaveCollectionSchema = z.tuple([CollectionDataSchema, FilePathSchema]);
@@ -642,6 +412,9 @@ export function registerCollectionManagerIPC(getMainWindow: () => BrowserWindow 
   ipcMain.handle(
     IPC.collection.getFileInfo,
     createValidatedHandler(IPC.collection.getFileInfo, FilePathSchema, async (filePath: string) => {
+      if (!isPathWithinRegisteredCollection(filePath)) {
+        return { exists: false, error: 'Access denied' };
+      }
       const stat = await statOrNull(filePath);
       if (!stat) return { exists: false };
       return {
@@ -663,6 +436,14 @@ export function isRegisteredCollectionDirectory(directoryPath: string): boolean 
   return activeWatchers.has(watcherKey(directoryPath));
 }
 
+function isPathWithinRegisteredCollection(filePath: string): boolean {
+  const candidate = path.resolve(filePath);
+  for (const root of activeWatchers.keys()) {
+    if (candidate === root || candidate.startsWith(`${root}${path.sep}`)) return true;
+  }
+  return false;
+}
+
 // Cleanup on app quit
 export function cleanupCollectionWatchers(): void {
   for (const watcher of activeWatchers.values()) {
@@ -671,4 +452,5 @@ export function cleanupCollectionWatchers(): void {
   activeWatchers.clear();
   fileModTimes.clear();
   debouncedSenders.clear();
+  selfWriteUntil.clear();
 }

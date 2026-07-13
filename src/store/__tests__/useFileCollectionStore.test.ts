@@ -57,11 +57,19 @@ describe('restoreFileCollectionWatchers', () => {
     delete (window as unknown as WindowWithElectron).electron;
   });
 
-  it('re-watches every persisted collection and reflects watch success in isWatching', async () => {
+  it('reloads every persisted collection from disk and restores its watcher', async () => {
     const { useFileCollectionStore, restoreFileCollectionWatchers } =
       await import('../useFileCollectionStore');
     const watchDirectory = vi.fn().mockResolvedValue({ success: true });
-    (window as unknown as WindowWithElectron).electron = { collections: { watchDirectory } };
+    const loadFromDirectory = vi.fn((directoryPath: string) =>
+      Promise.resolve({
+        success: true,
+        collection: { id: `disk-${directoryPath}`, name: directoryPath, items: [] },
+      })
+    );
+    (window as unknown as WindowWithElectron).electron = {
+      collections: { watchDirectory, loadFromDirectory },
+    };
 
     const store = useFileCollectionStore.getState();
     store.registerFileCollection('col-a', '/tmp/a');
@@ -71,6 +79,9 @@ describe('restoreFileCollectionWatchers', () => {
 
     await restoreFileCollectionWatchers();
 
+    expect(loadFromDirectory).toHaveBeenCalledTimes(2);
+    expect(loadFromDirectory).toHaveBeenCalledWith('/tmp/a');
+    expect(loadFromDirectory).toHaveBeenCalledWith('/tmp/b');
     expect(watchDirectory).toHaveBeenCalledTimes(2);
     expect(watchDirectory).toHaveBeenCalledWith('/tmp/a');
     expect(watchDirectory).toHaveBeenCalledWith('/tmp/b');
@@ -117,11 +128,14 @@ describe('restoreFileCollectionWatchers', () => {
   it('leaves isWatching false when a directory can no longer be watched', async () => {
     const { useFileCollectionStore, restoreFileCollectionWatchers } =
       await import('../useFileCollectionStore');
-    const watchDirectory = vi
+    const watchDirectory = vi.fn();
+    const loadFromDirectory = vi
       .fn()
-      .mockResolvedValueOnce({ success: false, error: 'gone' }) // col-a: dir unsafe/missing
-      .mockRejectedValueOnce(new Error('boom')); // col-b: IPC rejected
-    (window as unknown as WindowWithElectron).electron = { collections: { watchDirectory } };
+      .mockResolvedValueOnce({ success: false, error: 'gone' })
+      .mockRejectedValueOnce(new Error('boom'));
+    (window as unknown as WindowWithElectron).electron = {
+      collections: { watchDirectory, loadFromDirectory },
+    };
 
     const store = useFileCollectionStore.getState();
     store.registerFileCollection('col-a', '/tmp/a');

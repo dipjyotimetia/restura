@@ -125,3 +125,60 @@ describe('OpenCollection root-level structural staleness — byte-stability (no 
     expect(out.extensions?.['x-restura-socketio']).toBeDefined();
   });
 });
+
+describe('OpenCollection root-level metadata freshness', () => {
+  it('exports edited name, description, and variables instead of the cached root', async () => {
+    const internal = await loadInternal('simple-http.yaml');
+    internal.name = 'Edited API';
+    internal.description = 'Edited summary';
+    internal.variables = [
+      { id: 'edited-var', key: 'baseUrl', value: 'https://edited.example', enabled: true },
+    ];
+
+    const exported: any = internalToOC(internal);
+
+    expect(exported.info.name).toBe('Edited API');
+    expect(exported.info.summary).toBe('Edited summary');
+    expect(exported.config?.environments?.[0]?.variables).toEqual([
+      { name: 'baseUrl', value: 'https://edited.example' },
+    ]);
+  });
+
+  it('maps info.summary and collection contract metadata in both directions', () => {
+    const oc = parseOpenCollectionYAML(`opencollection: 1.0.0
+info:
+  name: Contract API
+  summary: Canonical summary
+extensions:
+  x-restura-contract:
+    source: inline
+    inline: '{"openapi":"3.1.0"}'
+`);
+    const internal = ocToInternal(oc);
+    expect(internal.description).toBe('Canonical summary');
+    expect(internal.contractSpec).toEqual({
+      source: 'inline',
+      inline: '{"openapi":"3.1.0"}',
+    });
+    expect(internalToOC(internal).extensions?.['x-restura-contract']).toEqual(
+      internal.contractSpec
+    );
+  });
+
+  it('exports an edited or removed contract instead of the cached extension', () => {
+    const oc = parseOpenCollectionYAML(`opencollection: 1.0.0
+info: { name: Contract API }
+extensions:
+  x-restura-contract:
+    source: url
+    url: https://old.example/openapi.yaml
+`);
+    const internal = ocToInternal(oc);
+    internal.contractSpec = { source: 'url', url: 'https://new.example/openapi.yaml' };
+    expect(
+      (internalToOC(internal).extensions?.['x-restura-contract'] as { url?: string }).url
+    ).toBe('https://new.example/openapi.yaml');
+    delete internal.contractSpec;
+    expect(internalToOC(internal).extensions?.['x-restura-contract']).toBeUndefined();
+  });
+});

@@ -32,6 +32,15 @@ const fixture: Collection = {
   auth: { type: 'bearer', bearer: { token: 'col-token' } },
   preRequestScript: 'rs.variables.set("from", "collection");',
   testScript: 'rs.test("ok", function() {});',
+  variables: [
+    {
+      id: 'v1',
+      key: 'baseUrl',
+      value: 'https://api.example.com',
+      enabled: false,
+      description: 'API root',
+    },
+  ],
   items: [
     {
       id: 'f1',
@@ -104,6 +113,14 @@ describe('Postman export → import round trip', () => {
     expect(create?.testScript).toContain('rs.test("created"');
     expect(reimported.preRequestScript).toContain('rs.variables.set("from", "collection")');
     expect(folder?.preRequestScript).toContain('rs.variables.set("from", "folder")');
+    expect(reimported.variables).toEqual([
+      expect.objectContaining({
+        key: 'baseUrl',
+        value: 'https://api.example.com',
+        enabled: false,
+        description: 'API root',
+      }),
+    ]);
 
     // Request-level auth survives.
     const list = findRequest(reimported.items, 'List things');

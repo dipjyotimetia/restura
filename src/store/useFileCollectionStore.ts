@@ -361,52 +361,103 @@ export async function exportCollectionToFiles(
 export async function restoreFileCollectionWatchers(): Promise<void> {
   const { fileCollections, setWatching } = useFileCollectionStore.getState();
   await Promise.all(
-    Object.values(fileCollections).map((info) =>
-      // A directory deleted/unmounted since last session rejects — leave
-      // isWatching false so the UI reflects that it isn't git-eligible.
-      startWatching(info.collectionId, info.directoryPath).catch(() =>
-        setWatching(info.collectionId, false)
-      )
-    )
+    Object.values(fileCollections).map(async (info) => {
+      try {
+        // Loading is also reconciliation: disk is authoritative after a
+        // restart, and load registers the watcher after replacing the in-memory
+        // collection under the existing directory identity.
+        const result = await loadCollectionFromDirectory(info.directoryPath);
+        if (!result.success) setWatching(info.collectionId, false);
+      } catch {
+        setWatching(info.collectionId, false);
+      }
+    })
   );
 }
 
 // Initialize file watcher event handler
+let unsubscribeCollectionChanges: (() => void) | null = null;
+const externalReloads = new Map<string, Promise<unknown>>();
+const pendingExternalReloads = new Set<string>();
+
 export function initFileCollectionWatcher(): void {
   const electron = getElectronCollections();
   if (!electron) return;
+
+  unsubscribeCollectionChanges?.();
+  unsubscribeCollectionChanges = useCollectionStore.subscribe((state, previous) => {
+    const fileStore = useFileCollectionStore.getState();
+    for (const info of Object.values(fileStore.fileCollections)) {
+      const current = state.collections.find((collection) => collection.id === info.collectionId);
+      const before = previous.collections.find((collection) => collection.id === info.collectionId);
+      if (current !== before && before && info.syncState === 'synced') {
+        fileStore.updateSyncState(info.collectionId, 'modified');
+      }
+    }
+  });
 
   electron.onFileChanged((event) => {
     const fileStore = useFileCollectionStore.getState();
 
     // Find which collection this file belongs to
     const fileInfo = Object.values(fileStore.fileCollections).find(
-      (info) =>
-        event.directoryPath === info.directoryPath || event.filePath.startsWith(info.directoryPath)
+      (info) => event.directoryPath === info.directoryPath
     );
 
     if (!fileInfo) return;
 
-    if (event.type === 'modified') {
-      // File was modified externally - potential conflict
+    if (fileInfo.syncState === 'modified' || fileInfo.syncState === 'loading') {
       fileStore.addConflict({
         collectionId: fileInfo.collectionId,
         itemName: event.filePath.split('/').pop() || 'Unknown',
         filePath: event.filePath,
         localModified: fileInfo.lastSynced,
         externalModified: event.lastModified || Date.now(),
-        message: 'File was modified externally',
+        message: 'Files changed externally while this collection has unsaved local changes',
       });
       fileStore.updateSyncState(fileInfo.collectionId, 'conflict');
-    } else if (event.type === 'added' || event.type === 'deleted') {
-      // File was added or deleted - need to reload
-      fileStore.updateSyncState(fileInfo.collectionId, 'modified');
+      return;
     }
+
+    // A clean collection can be safely reloaded in place. Coalesce bursts from
+    // multi-file git checkouts into one reload per collection.
+    if (externalReloads.has(fileInfo.collectionId)) {
+      pendingExternalReloads.add(fileInfo.collectionId);
+      return;
+    }
+
+    const scheduleReload = () =>
+      loadCollectionFromDirectory(fileInfo.directoryPath)
+        .then((result) => {
+          if (!result.success) {
+            fileStore.updateSyncState(fileInfo.collectionId, 'error', result.error);
+          }
+        })
+        .catch((error: unknown) => {
+          fileStore.updateSyncState(
+            fileInfo.collectionId,
+            'error',
+            error instanceof Error ? error.message : String(error)
+          );
+        })
+        .finally(() => {
+          externalReloads.delete(fileInfo.collectionId);
+          if (pendingExternalReloads.delete(fileInfo.collectionId)) {
+            const nextReload = scheduleReload();
+            externalReloads.set(fileInfo.collectionId, nextReload);
+          }
+        });
+    const reload = scheduleReload();
+    externalReloads.set(fileInfo.collectionId, reload);
   });
 }
 
 // Cleanup file watcher
 export function cleanupFileCollectionWatcher(): void {
+  unsubscribeCollectionChanges?.();
+  unsubscribeCollectionChanges = null;
+  externalReloads.clear();
+  pendingExternalReloads.clear();
   const electron = getElectronCollections();
   if (electron) {
     electron.removeFileChangedListener();

@@ -68,22 +68,6 @@ function countAuthInlineSecrets(auth: AuthConfig | undefined): number {
 }
 
 /**
- * True when an OpenCollection `_oc` passthrough bag contains an `auth` block
- * anywhere in its tree (item auth, folder request-defaults auth, or any
- * descendant's). Used to decide whether the bag is safe to keep on a
- * redacted export.
- */
-function ocBagHasAuth(node: unknown): boolean {
-  if (!node || typeof node !== 'object') return false;
-  if (Array.isArray(node)) return node.some(ocBagHasAuth);
-  for (const [key, value] of Object.entries(node)) {
-    if (key === 'auth' && value && typeof value === 'object') return true;
-    if (ocBagHasAuth(value)) return true;
-  }
-  return false;
-}
-
-/**
  * OpenCollection auth `type`s whose plaintext IS captured by the typed internal
  * model (and therefore counted via {@link countAuthInlineSecrets}). Any other
  * non-empty type degrades to `type:'none'` on import (OAuth1/NTLM/WSSE/…),
@@ -111,6 +95,50 @@ const TYPED_OC_AUTH_TYPES = new Set([
  * in {@link countOcBagInlineSecrets}.)
  */
 const OC_SECRET_FIELDS = new Set(['password', 'consumerSecret', 'accessTokenSecret']);
+const ALL_OC_AUTH_SECRET_FIELDS = new Set([
+  ...OC_SECRET_FIELDS,
+  'token',
+  'value',
+  'secretAccessKey',
+  'sessionToken',
+  'accessToken',
+  'refreshToken',
+  'clientSecret',
+]);
+
+function redactOcAuthBlock(auth: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...auth };
+  for (const field of ALL_OC_AUTH_SECRET_FIELDS) {
+    if (typeof next[field] === 'string') next[field] = '';
+  }
+  if (next.privateKey && typeof next.privateKey === 'object' && !Array.isArray(next.privateKey)) {
+    const privateKey = next.privateKey as Record<string, unknown>;
+    if (privateKey.type === 'text' && typeof privateKey.value === 'string') {
+      next.privateKey = { ...privateKey, value: '' };
+    }
+  }
+  return next;
+}
+
+/** Preserve unknown OC fields/extensions while blanking credentials in cached bags. */
+function redactOcBag(node: unknown): unknown {
+  if (!node || typeof node !== 'object') return node;
+  if (Array.isArray(node)) return node.map(redactOcBag);
+  const input = node as Record<string, unknown>;
+  const output: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (key === 'auth' && value && typeof value === 'object' && !Array.isArray(value)) {
+      output[key] = redactOcAuthBlock(value as Record<string, unknown>);
+    } else if (key === 'passphrase' && typeof value === 'string') {
+      output[key] = '';
+    } else if (key === 'value' && input.secret === true) {
+      output[key] = '';
+    } else {
+      output[key] = redactOcBag(value);
+    }
+  }
+  return output;
+}
 
 function hasNonEmptyString(obj: Record<string, unknown>, fields: Set<string>): boolean {
   for (const f of fields) {
@@ -176,16 +204,9 @@ function countOcBagInlineSecrets(node: unknown): number {
 
 function redactItem(item: CollectionItem): CollectionItem {
   const next: CollectionItem = { ...item };
-  // The _oc passthrough bag holds the verbatim imported node — including any
-  // plaintext auth from the source document — and the OC exporter prefers
-  // per-item bags verbatim with no auth gate at the request tier. Drop the
-  // bag when it carries an auth block anywhere (the rebuild loses
-  // byte-stability but never leaks). Auth-free bags are kept deliberately:
-  // GraphQL items and WebSocket placeholders survive OC export *only*
-  // through their bag, so dropping those unconditionally would degrade them
-  // to plain-HTTP / empty-folder shapes.
-  if (ocBagHasAuth((next as { _oc?: unknown })._oc)) {
-    delete (next as { _oc?: unknown })._oc;
+  const itemBag = (next as { _oc?: unknown })._oc;
+  if (itemBag !== undefined) {
+    (next as { _oc?: unknown })._oc = redactOcBag(itemBag);
   }
   if (next.auth) next.auth = redactAuthConfigSecrets(next.auth);
   if (next.items) next.items = next.items.map(redactItem);
@@ -210,25 +231,14 @@ function redactItem(item: CollectionItem): CollectionItem {
  * collection-level auth, folder-level auth, and each request's auth.
  * Handle references are preserved. The original is not mutated.
  *
- * OpenCollection `_oc` passthrough bags are dropped on every item whose bag
- * carries an auth block: per-item bags are emitted verbatim by the OC
- * exporter with no auth gate at the request tier, so a surviving
- * auth-bearing bag would leak the original (pre-redaction) plaintext.
- * Auth-free item bags are kept: they carry fidelity that can't be rebuilt
- * (GraphQL/WebSocket shapes).
- *
- * The collection-level `_oc` bag is dropped unconditionally. It holds the
- * entire pre-redaction document, and the exporter's root staleness gate
- * (`authUnchanged`) compares in *internal* space — blind to auth types that
- * degrade to 'none' on import (OAuth1/NTLM/WSSE) and to root config secrets
- * the internal model never sees (proxy passwords, cert passphrases). With
- * the bag gone, the exporter rebuilds the root tier from the redacted model
- * (Strategy 3); per-item bags still apply, so item fidelity is unaffected.
- * Redacted exports trade byte-stability for "never leaks" by design.
+ * OpenCollection `_oc` passthrough bags are recursively sanitised rather than
+ * discarded. That keeps unknown extensions and unmodelled request shapes
+ * round-trip stable while blanking typed and degrade-to-none auth secrets,
+ * proxy passwords, private keys, certificate passphrases, and secret values.
  */
 export function redactCollectionSecrets(collection: Collection): Collection {
   const next = { ...collection } as Collection & { _oc?: unknown };
-  delete next._oc;
+  if (next._oc !== undefined) next._oc = redactOcBag(next._oc);
   return {
     ...next,
     ...(collection.auth ? { auth: redactAuthConfigSecrets(collection.auth) } : {}),

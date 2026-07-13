@@ -14,6 +14,55 @@ import type {
   InsomniaResource,
 } from '@/types';
 
+export type CollectionExportFormat = 'postman' | 'insomnia' | 'opencollection';
+
+/** User-visible advisories for data a target format cannot faithfully carry. */
+export function getCollectionExportWarnings(
+  collection: Collection,
+  format: CollectionExportFormat
+): string[] {
+  const warnings = new Set<string>();
+  const visit = (items: CollectionItem[]) => {
+    for (const item of items) {
+      if (item.type === 'folder') {
+        if (item.contractSpec) warnings.add('Folder contract attachments are not exported');
+        if (format === 'insomnia' && (item.auth || item.preRequestScript || item.testScript)) {
+          warnings.add('Insomnia export omits folder auth and scripts');
+        }
+        visit(item.items ?? []);
+        continue;
+      }
+      if (!item.request) continue;
+      if (item.request.type !== 'http') {
+        if (format !== 'opencollection') {
+          warnings.add(
+            `${item.request.type.toUpperCase()} requests are exported as non-runnable stubs`
+          );
+        }
+      } else if (format === 'postman' && item.request.params.some((param) => !param.enabled)) {
+        warnings.add('Postman export omits disabled query parameters');
+      }
+      if (format === 'insomnia' && (item.request.preRequestScript || item.request.testScript)) {
+        warnings.add('Insomnia export omits request scripts');
+      }
+    }
+  };
+  visit(collection.items);
+  if (format !== 'opencollection' && collection.contractSpec) {
+    warnings.add('Attached contract specs are not exported');
+  }
+  if (
+    format === 'insomnia' &&
+    (collection.auth ||
+      collection.variables?.length ||
+      collection.preRequestScript ||
+      collection.testScript)
+  ) {
+    warnings.add('Insomnia export omits collection auth, variables, and scripts');
+  }
+  return [...warnings];
+}
+
 /**
  * Append a request's enabled params to its URL as a query string. `encode`
  * percent-encodes keys/values (HAR wants encoded URLs); leave it off for
@@ -67,7 +116,12 @@ export function exportToPostman(collection: Collection): PostmanCollection {
     },
     item: collection.items.map(convertToPostmanItem),
     auth: collection.auth ? convertAuthToPostman(collection.auth) : undefined,
-    variable: [],
+    variable: (collection.variables ?? []).map((variable) => ({
+      key: variable.key,
+      value: variable.value,
+      disabled: !variable.enabled,
+      ...(variable.description ? { description: variable.description } : {}),
+    })),
     ...(event ? { event } : {}),
   };
 }
