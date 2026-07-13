@@ -1,11 +1,13 @@
 import type { AgentTool, ToolSource } from '@shared/agent-lab';
-import { resolveEffectiveAuth } from '@/features/auth/lib/authInheritance';
-import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+import {
+  findInheritedAuthWithSource,
+  resolveEffectiveAuth,
+} from '@/features/auth/lib/authInheritance';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
-import { buildActiveRequestValueMap } from '@/lib/shared/activeRequestScopes';
 import { buildValueMap } from '@/lib/shared/variableScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { Collection, CollectionItem, HttpRequest, Response } from '@/types';
 
@@ -22,10 +24,10 @@ export function redactToolUrl(raw: string): string {
     }
     return url.toString();
   } catch {
-    return raw
-      .replace(/#.*$/, '')
-      .replace(/\/\/[^/@\s]+@/g, '//REDACTED@')
-      .replace(/([?&][^=&#\s]+)=([^&#\s]*)/g, '$1=REDACTED');
+    // A malformed/templated URL has no trustworthy authority/query boundary.
+    // Omitting it entirely is safer than regex-redacting only the substrings we
+    // happened to recognise (whitespace and malformed userinfo can evade that).
+    return '[REDACTED INVALID URL]';
   }
 }
 
@@ -94,20 +96,27 @@ export async function resolveResturaAgentTools(sources: ToolSource[]): Promise<A
       createResturaRequestTool(item.request, async (request, signal) => {
         signal?.throwIfAborted();
         const collectionVars = buildValueMap({ collection: collection?.variables });
-        const inherited = resolveInheritedAuthFor(request);
+        const envVars = buildValueMap({
+          globals: useGlobalsStore.getState().vars,
+          env: useEnvironmentStore.getState().getActiveEnvironment()?.variables,
+          collection: collection?.variables,
+        });
+        const inherited = collection
+          ? findInheritedAuthWithSource(collection, request.id)
+          : undefined;
         const effectiveAuth = resolveEffectiveAuth(request.auth, inherited?.auth);
         const requestForExec =
           effectiveAuth === request.auth ? request : { ...request, auth: effectiveAuth };
         const result = await executeRequest({
           request: requestForExec,
-          envVars: { ...buildActiveRequestValueMap(), ...collectionVars },
+          envVars,
           globalSettings: useSettingsStore.getState().settings,
           resolveVariables: (value) => useEnvironmentStore.getState().resolveVariables(value),
           collectionVars,
           ...(signal ? { signal } : {}),
         });
         signal?.throwIfAborted();
-        if (collection && result.collectionVarsMutations) {
+        if (collection && result.transportOk && result.collectionVarsMutations) {
           useCollectionStore
             .getState()
             .applyCollectionVarMutations(collection.id, result.collectionVarsMutations);

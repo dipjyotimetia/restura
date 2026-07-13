@@ -44,6 +44,8 @@ import type {
 
 export interface RequestExecutionResult {
   response: ApiResponse;
+  /** True only when the parent proxy transport returned a response. */
+  transportOk: boolean;
   scriptResult?: {
     preRequest?: ScriptResult;
     test?: ScriptResult;
@@ -411,6 +413,7 @@ export async function executeRequest(
         sendRequest: makeRendererSendRequest({
           variables: envVars,
           inheritedHeaders: inheritedHeadersPre,
+          ...(signal ? { signal } : {}),
         }),
         cookies: (currentUrl) => makeCookieAdapter(currentUrl),
         vault: makeVaultAdapter(),
@@ -443,10 +446,12 @@ export async function executeRequest(
     await buildProxyRequestSpec(options);
 
   let responseData: ApiResponse;
+  let transportOk = false;
   try {
     signal?.throwIfAborted();
     const proxyResponse = await executeProxiedRequest(spec, signal ? { signal } : {}, desktop);
     signal?.throwIfAborted();
+    transportOk = true;
     if (!effectiveSettings.disableCookieJar) {
       persistResponseCookies(proxyResponse, spec.url);
     }
@@ -509,6 +514,7 @@ export async function executeRequest(
         sendRequest: makeRendererSendRequest({
           variables: envVars,
           inheritedHeaders: sentHeaders,
+          ...(signal ? { signal } : {}),
         }),
         cookies: (currentUrl) => makeCookieAdapter(currentUrl),
         vault: makeVaultAdapter(),
@@ -548,6 +554,7 @@ export async function executeRequest(
   signal?.throwIfAborted();
   const result: RequestExecutionResult = {
     response: responseData,
+    transportOk,
     scriptResult: {
       ...(preRequestResult !== undefined && { preRequest: preRequestResult }),
       ...(testResult !== undefined && { test: testResult }),
