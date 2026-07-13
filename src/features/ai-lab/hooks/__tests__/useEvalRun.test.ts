@@ -82,6 +82,37 @@ describe('useEvalRun', () => {
     expect(Object.values(useAiLabStore.getState().runReports)).toHaveLength(1);
   });
 
+  it('refuses a later eval while a failed report save is still pending', async () => {
+    const save = vi.fn().mockRejectedValueOnce(new Error('quota')).mockResolvedValue(undefined);
+    setAiLabReportRepositoryForTests({
+      load: async () => ({}),
+      save,
+    });
+    mockRunEval.mockImplementation(async (_input, onProgress: (p: unknown) => void) => {
+      onProgress({ completed: 1, total: 1, cells: [CELL], done: true });
+      return [CELL];
+    });
+    const config = seedConfig();
+    const { result } = renderHook(() => useEvalRun());
+
+    await act(async () => {
+      result.current.start(config);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const pendingId = result.current.pendingReport?.id;
+
+    act(() => result.current.start(config));
+
+    expect(mockRunEval).toHaveBeenCalledTimes(1);
+    expect(result.current.pendingReport?.id).toBe(pendingId);
+    expect(result.current.persistenceError).toMatch(/retry.*save/i);
+
+    await act(async () => {
+      await result.current.retrySave();
+    });
+  });
+
   it('starts a run, persists cells + a done status, and surfaces progress', async () => {
     mockRunEval.mockImplementation(async (_input, onProgress: (p: unknown) => void) => {
       onProgress({ completed: 1, total: 1, cells: [CELL], done: true });

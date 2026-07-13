@@ -69,7 +69,12 @@ export function startAgentRun(
   providers: Record<string, AiLabProviderConfig>,
   requestApproval?: Approval
 ): boolean {
-  if (useAgentRunLiveStore.getState().running) return false;
+  const live = useAgentRunLiveStore.getState();
+  if (
+    live.running ||
+    (live.completedReport !== null && live.completedReport.id !== live.persistedReportId)
+  )
+    return false;
   const started = engine.start('agent-suite', (context) =>
     runDesktopAgentSuite(suite, providers, {
       signal: context.signal,

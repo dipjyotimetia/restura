@@ -166,6 +166,26 @@ describe('AgentWorkbench runs', () => {
     expect(useAgentRunLiveStore.getState().persistenceError).toMatch(/pending/i);
   });
 
+  it('refuses a new run while a late completion is still pending persistence', async () => {
+    let resolve!: (report: typeof REPORT) => void;
+    runDesktopAgentSuite.mockImplementation(
+      () => new Promise<typeof REPORT>((done) => (resolve = done))
+    );
+    const view = render(<AgentWorkbench />);
+    fireEvent.change(screen.getByLabelText('Agent suite JSON'), {
+      target: { value: JSON.stringify(SUITE) },
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Run' }));
+    view.unmount();
+    await act(async () => resolve(REPORT));
+    const pending = useAgentRunLiveStore.getState().completedReport;
+
+    expect(startAgentRun(SUITE, {})).toBe(false);
+    expect(useAgentRunLiveStore.getState().completedReport).toBe(pending);
+    expect(useAgentRunLiveStore.getState().persistenceError).toMatch(/pending/i);
+    expect(runDesktopAgentSuite).toHaveBeenCalledTimes(1);
+  });
+
   it('retains a completed report after save failure and retries successfully', async () => {
     save.mockRejectedValueOnce(new Error('quota exceeded')).mockResolvedValueOnce(undefined);
     runDesktopAgentSuite.mockResolvedValue(REPORT);

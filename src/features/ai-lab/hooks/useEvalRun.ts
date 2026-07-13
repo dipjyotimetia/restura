@@ -41,6 +41,12 @@ let activeJobId: string | null = null;
 
 function start(config: EvalConfig): void {
   if (activeJobId) return; // a run is already in flight
+  if (useEvalLiveStore.getState().pendingReport) {
+    useEvalLiveStore.setState({
+      persistenceError: 'Retry the pending report save before starting another eval.',
+    });
+    return;
+  }
   const lab = useAiLabStore.getState();
   const prompt = lab.prompts[config.promptId];
   const dataset = lab.datasets[config.datasetId];

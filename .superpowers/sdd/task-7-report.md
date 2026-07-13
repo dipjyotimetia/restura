@@ -127,3 +127,14 @@ Result: 13 files passed, 76 tests passed.
 `npm run type-check:all`, focused ESLint, focused Prettier, and
 `git diff --check -- . ':!cli/**'` passed. CLI source changes owned by Task 8
 were neither modified nor included in this fix.
+
+## Retry-retention follow-up
+
+Starting a new eval or agent suite now refuses to proceed while a completed
+report is still awaiting canonical persistence. This keeps the only live retry
+handle intact instead of silently discarding an unsaved report. Regression
+tests cover both prompt-eval save failure and agent completion after workbench
+unmount.
+
+Focused Task 7 verification passed 13 files / 78 tests, and
+`npm run type-check:all`, focused ESLint/Prettier, and `git diff --check` passed.
