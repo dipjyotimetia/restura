@@ -3,7 +3,6 @@ import {
   AgentSuiteRunner,
   CallbackProviderAdapter,
   ProviderRegistry,
-  STANDARD_PROVIDER_PROFILES,
   type AgentSuite,
   type AgentSuiteReport,
   type GenerationMessage,
@@ -11,22 +10,11 @@ import {
 } from '@shared/agent-lab';
 import type { CompletionResult } from '@shared/protocol/ai/types';
 import type { AiLabProviderConfig } from '../types';
+import { capabilitiesForDesktopModel, knownCostForCompletion } from './agentModelCapabilities';
 import { resolveResturaAgentTools } from './agentTools';
 import { completeLlm, specFor, type LlmCallSpec } from './llmClient';
 
 type Complete = (spec: LlmCallSpec) => Promise<CompletionResult>;
-
-const PROFILE_BY_PROVIDER: Record<
-  AiLabProviderConfig['provider'],
-  keyof typeof STANDARD_PROVIDER_PROFILES
-> = {
-  openai: 'openai.chat',
-  anthropic: 'anthropic.messages',
-  openrouter: 'openrouter',
-  ollama: 'ollama',
-  huggingface: 'huggingface',
-  'openai-compatible': 'openai.compatible',
-};
 
 function text(messages: GenerationMessage[]): Array<{
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -67,10 +55,12 @@ export function createDesktopAgentProviders(
       (config) =>
         new CallbackProviderAdapter({
           id: config.id,
-          capabilities: STANDARD_PROVIDER_PROFILES[PROFILE_BY_PROVIDER[config.provider]],
+          capabilities: async (model) => capabilitiesForDesktopModel(config, model).capabilities,
           async discoverModels() {
-            const capabilities = STANDARD_PROVIDER_PROFILES[PROFILE_BY_PROVIDER[config.provider]];
-            return config.models.map((id) => ({ id, capabilities }));
+            return config.models.map((id) => ({
+              id,
+              capabilities: capabilitiesForDesktopModel(config, id).capabilities,
+            }));
           },
           async generate(request) {
             const completion = await complete(
@@ -80,6 +70,9 @@ export function createDesktopAgentProviders(
               })
             );
             if (!completion.ok) throw new Error(completion.error?.message ?? 'model call failed');
+            const costUSD = completion.usage
+              ? knownCostForCompletion(config, request.model.model, completion.usage)
+              : undefined;
             return {
               id: crypto.randomUUID(),
               output: completion.text ? [{ type: 'text', text: completion.text }] : [],
@@ -98,7 +91,7 @@ export function createDesktopAgentProviders(
                       inputTokens: completion.usage.promptTokens,
                       outputTokens: completion.usage.completionTokens,
                     },
-                    costUSD: completion.usage.estimatedCostUSD,
+                    ...(costUSD !== undefined ? { costUSD } : {}),
                   }
                 : {}),
               stopReason: completion.toolCalls.length ? 'tool-calls' : 'completed',

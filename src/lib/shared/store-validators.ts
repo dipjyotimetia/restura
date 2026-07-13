@@ -289,6 +289,19 @@ const ModelRefSchema = z.object({
   model: z.string(),
 });
 
+const ModelCapabilitiesSchema = z.object({
+  inputModalities: z.array(z.enum(['text', 'image', 'audio', 'document'])),
+  outputModalities: z.array(z.enum(['text', 'image', 'audio', 'document'])),
+  structuredOutput: z.boolean(),
+  toolCalling: z.boolean(),
+  parallelToolCalls: z.boolean(),
+  reasoning: z.boolean(),
+  continuation: z.boolean(),
+  serverTools: z.array(z.string()),
+  maxContextTokens: z.number().optional(),
+  maxOutputTokens: z.number().optional(),
+});
+
 const AiLabModelDetailSchema = z
   .object({
     label: z.string().optional(),
@@ -300,6 +313,7 @@ const AiLabModelDetailSchema = z
         completionPerMTokUSD: z.number().optional(),
       })
       .optional(),
+    agentCapabilities: ModelCapabilitiesSchema.partial().optional(),
     createdAt: z.string().optional(),
     vendor: z.string().optional(),
     family: z.string().optional(),
@@ -325,6 +339,8 @@ const AiLabProviderConfigSchema = z.object({
   // Per-model metadata captured at the most recent discovery (OpenRouter).
   // Optional so existing persisted state validates without a migration.
   modelDetails: z.record(z.string(), AiLabModelDetailSchema).optional(),
+  // Explicit, full per-model user assertions. Optional for additive migration.
+  capabilityOverrides: z.record(z.string(), ModelCapabilitiesSchema).optional(),
   // Most recent connection-test outcome (optional; no migration needed).
   lastTest: z
     .object({

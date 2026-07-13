@@ -1,4 +1,4 @@
-import { AgentSuiteSchema, type AgentSuite } from '@shared/agent-lab';
+import { AgentSuiteSchema, type AgentSuite, type ModelCapabilities } from '@shared/agent-lab';
 import { isHuggingFaceProvider, isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
@@ -34,6 +34,7 @@ interface AiLabState extends PersistedAiLabState {
     pricingKnown?: boolean;
     models?: string[];
     modelDetails?: Record<string, AiLabModelDetail>;
+    capabilityOverrides?: Record<string, ModelCapabilities>;
     lastTest?: AiLabProviderConfig['lastTest'];
     lastDiscoveredAt?: number;
   }) => string;
@@ -108,6 +109,7 @@ export const useAiLabStore = create<AiLabState>()(
           isLocal: isLocalProvider(init.provider),
           models: init.models ?? [],
           ...(init.modelDetails ? { modelDetails: init.modelDetails } : {}),
+          ...(init.capabilityOverrides ? { capabilityOverrides: init.capabilityOverrides } : {}),
           ...(init.lastTest ? { lastTest: init.lastTest } : {}),
           ...(init.lastDiscoveredAt ? { lastDiscoveredAt: init.lastDiscoveredAt } : {}),
           createdAt: Date.now(),

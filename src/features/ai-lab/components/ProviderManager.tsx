@@ -1,3 +1,4 @@
+import type { ModelCapabilities, Modality } from '@shared/agent-lab';
 import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import {
   CheckCircle2,
@@ -7,11 +8,13 @@ import {
   Plus,
   RefreshCw,
   Server,
+  SlidersHorizontal,
   Trash2,
   XCircle,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { capabilitiesForDesktopModel } from '../lib/agentModelCapabilities';
 import { listModels, testConnection } from '../lib/llmClient';
 import { buildModelOptions } from '../lib/modelOptions';
 import { plural } from '../lib/plural';
@@ -27,6 +30,7 @@ import { ModelCatalog } from './ModelCatalog';
 import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -66,6 +70,26 @@ const DEFAULT_BASE: Record<Provider, string> = {
   huggingface: 'https://router.huggingface.co',
   'openai-compatible': '',
 };
+
+const BOOLEAN_CAPABILITIES: Array<{
+  key: keyof Pick<
+    ModelCapabilities,
+    'structuredOutput' | 'toolCalling' | 'parallelToolCalls' | 'reasoning' | 'continuation'
+  >;
+  label: string;
+}> = [
+  { key: 'toolCalling', label: 'Tool calling' },
+  { key: 'parallelToolCalls', label: 'Parallel tool calls' },
+  { key: 'structuredOutput', label: 'Structured output' },
+  { key: 'reasoning', label: 'Reasoning controls' },
+  { key: 'continuation', label: 'Continuation' },
+];
+
+const OPTIONAL_MODALITIES: Array<{ value: Exclude<Modality, 'text'>; label: string }> = [
+  { value: 'image', label: 'Image' },
+  { value: 'audio', label: 'Audio' },
+  { value: 'document', label: 'Document' },
+];
 
 function effectiveBaseUrl(cfg: AiLabProviderConfig): string {
   return cfg.baseUrl || DEFAULT_BASE[cfg.provider];
@@ -112,6 +136,12 @@ export function ProviderManager() {
   } | null>(null);
   const [editSaving, setEditSaving] = useState(false);
   const [removing, setRemoving] = useState<AiLabProviderConfig | null>(null);
+  const [capabilityEditing, setCapabilityEditing] = useState<{
+    providerId: string;
+    model: string;
+    draft: ModelCapabilities;
+    assertionConfirmed: boolean;
+  } | null>(null);
 
   const { confirm: confirmRemove, DialogComponent: RemoveProviderDialog } = useConfirmDialog({
     title: 'Remove provider',
@@ -235,6 +265,81 @@ export function ProviderManager() {
 
   const startEdit = (cfg: AiLabProviderConfig) =>
     setEditing({ id: cfg.id, label: cfg.label, baseUrl: cfg.baseUrl ?? '', apiKey: '' });
+
+  const startCapabilityEdit = (cfg: AiLabProviderConfig, model: string) => {
+    const resolved = capabilitiesForDesktopModel(cfg, model).capabilities;
+    setCapabilityEditing({
+      providerId: cfg.id,
+      model,
+      draft: {
+        ...resolved,
+        inputModalities: [...resolved.inputModalities],
+        outputModalities: [...resolved.outputModalities],
+        serverTools: [...resolved.serverTools],
+      },
+      assertionConfirmed: false,
+    });
+  };
+
+  const saveCapabilityOverride = (cfg: AiLabProviderConfig) => {
+    if (
+      !capabilityEditing ||
+      capabilityEditing.providerId !== cfg.id ||
+      !capabilityEditing.assertionConfirmed
+    )
+      return;
+    updateProvider(cfg.id, {
+      capabilityOverrides: {
+        ...cfg.capabilityOverrides,
+        [capabilityEditing.model]: capabilityEditing.draft,
+      },
+    });
+    setCapabilityEditing(null);
+  };
+
+  const resetCapabilityOverride = (cfg: AiLabProviderConfig, model: string) => {
+    const next = { ...cfg.capabilityOverrides };
+    delete next[model];
+    updateProvider(cfg.id, {
+      capabilityOverrides: Object.keys(next).length ? next : undefined,
+    });
+    setCapabilityEditing(null);
+  };
+
+  const setCapabilityBoolean = (
+    key: (typeof BOOLEAN_CAPABILITIES)[number]['key'],
+    checked: boolean
+  ) =>
+    setCapabilityEditing((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        draft: {
+          ...current.draft,
+          [key]: checked,
+          ...(key === 'toolCalling' && !checked ? { parallelToolCalls: false } : {}),
+        },
+      };
+    });
+
+  const toggleCapabilityModality = (
+    direction: 'inputModalities' | 'outputModalities',
+    modality: Exclude<Modality, 'text'>,
+    checked: boolean
+  ) =>
+    setCapabilityEditing((current) => {
+      if (!current) return current;
+      const modalities = current.draft[direction];
+      return {
+        ...current,
+        draft: {
+          ...current.draft,
+          [direction]: checked
+            ? [...new Set([...modalities, modality])]
+            : modalities.filter((candidate) => candidate !== modality),
+        },
+      };
+    });
 
   const saveEdit = async (cfg: AiLabProviderConfig) => {
     if (!editing || editing.id !== cfg.id || !editing.label.trim()) return;
@@ -515,6 +620,164 @@ export function ProviderManager() {
                     <Trash2 className="h-3 w-3 text-destructive" /> Remove
                   </Button>
                 </div>
+
+                {cfg.models.length > 0 && (
+                  <div className="mt-2 space-y-1.5 border-t border-sp-line pt-2">
+                    <div className="flex items-center gap-1.5 text-sp-10 font-medium text-sp-muted">
+                      <SlidersHorizontal className="h-3 w-3" /> Advanced model capabilities
+                    </div>
+                    {cfg.models.map((model) => {
+                      const asserted = cfg.capabilityOverrides?.[model] !== undefined;
+                      const editorOpen =
+                        capabilityEditing?.providerId === cfg.id &&
+                        capabilityEditing.model === model;
+                      return (
+                        <div key={model} className="rounded border border-sp-line p-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span
+                              className="min-w-0 truncate text-sp-10 text-sp-text"
+                              title={model}
+                            >
+                              {cfg.modelDetails?.[model]?.label ?? model}
+                            </span>
+                            <div className="flex shrink-0 items-center gap-1.5">
+                              {asserted && <Badge variant="warning">user asserted</Badge>}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                aria-label={`Configure ${model} capabilities`}
+                                onClick={() =>
+                                  editorOpen
+                                    ? setCapabilityEditing(null)
+                                    : startCapabilityEdit(cfg, model)
+                                }
+                              >
+                                Configure
+                              </Button>
+                            </div>
+                          </div>
+
+                          {editorOpen && capabilityEditing && (
+                            <div className="mt-2 space-y-3 border-t border-sp-line pt-2">
+                              <p className="text-sp-10 text-sp-muted">
+                                Starts from discovered metadata, or the conservative text-only
+                                default when discovery did not verify a feature.
+                              </p>
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                {BOOLEAN_CAPABILITIES.map(({ key, label }) => {
+                                  const id = `cap-${cfg.id}-${model}-${key}`;
+                                  return (
+                                    <label
+                                      key={key}
+                                      htmlFor={id}
+                                      className="flex items-center gap-2 text-sp-10 text-sp-text"
+                                    >
+                                      <Checkbox
+                                        id={id}
+                                        checked={capabilityEditing.draft[key]}
+                                        disabled={
+                                          key === 'parallelToolCalls' &&
+                                          !capabilityEditing.draft.toolCalling
+                                        }
+                                        onCheckedChange={(value) =>
+                                          setCapabilityBoolean(key, value === true)
+                                        }
+                                      />
+                                      {label}
+                                    </label>
+                                  );
+                                })}
+                              </div>
+                              {(['inputModalities', 'outputModalities'] as const).map(
+                                (direction) => (
+                                  <fieldset key={direction} className="space-y-1.5">
+                                    <legend className="text-sp-10 font-medium text-sp-muted">
+                                      {direction === 'inputModalities'
+                                        ? 'Additional input modalities'
+                                        : 'Additional output modalities'}
+                                    </legend>
+                                    <div className="flex flex-wrap gap-3">
+                                      {OPTIONAL_MODALITIES.map(({ value, label }) => {
+                                        const id = `cap-${cfg.id}-${model}-${direction}-${value}`;
+                                        return (
+                                          <label
+                                            key={value}
+                                            htmlFor={id}
+                                            className="flex items-center gap-2 text-sp-10 text-sp-text"
+                                          >
+                                            <Checkbox
+                                              id={id}
+                                              checked={capabilityEditing.draft[direction].includes(
+                                                value
+                                              )}
+                                              onCheckedChange={(checked) =>
+                                                toggleCapabilityModality(
+                                                  direction,
+                                                  value,
+                                                  checked === true
+                                                )
+                                              }
+                                            />
+                                            {label}
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                  </fieldset>
+                                )
+                              )}
+                              <label
+                                htmlFor={`cap-${cfg.id}-${model}-assertion`}
+                                className="flex items-start gap-2 text-sp-10 text-sp-text"
+                              >
+                                <Checkbox
+                                  id={`cap-${cfg.id}-${model}-assertion`}
+                                  aria-label="I am asserting this model supports these features"
+                                  checked={capabilityEditing.assertionConfirmed}
+                                  onCheckedChange={(checked) =>
+                                    setCapabilityEditing((current) =>
+                                      current
+                                        ? { ...current, assertionConfirmed: checked === true }
+                                        : current
+                                    )
+                                  }
+                                />
+                                <span>I am asserting this model supports these features</span>
+                              </label>
+                              <div className="flex flex-wrap gap-1">
+                                <Button
+                                  size="sm"
+                                  aria-label="Save capability override"
+                                  disabled={!capabilityEditing.assertionConfirmed}
+                                  onClick={() => saveCapabilityOverride(cfg)}
+                                >
+                                  Save override
+                                </Button>
+                                {asserted && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => resetCapabilityOverride(cfg, model)}
+                                  >
+                                    Reset to discovered defaults
+                                  </Button>
+                                )}
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label="Close capability editor"
+                                  onClick={() => setCapabilityEditing(null)}
+                                >
+                                  Close
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
 
                 {isEditing && editing && (
                   <div className="mt-2 space-y-2 border-t border-sp-line pt-2">

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useAiLabStore } from '../useAiLabStore';
+import { AiLabStateSchema } from '@/lib/shared/store-validators';
 
 function reset() {
   useAiLabStore.setState({
@@ -69,6 +70,47 @@ describe('useAiLabStore — providers', () => {
       lastTest: { ok: true, at: discoveredAt, modelCount: 1 },
       lastDiscoveredAt: discoveredAt,
     });
+  });
+
+  it('persists explicit capability overrides while accepting legacy providers additively', () => {
+    const capabilityOverride = {
+      inputModalities: ['text'] as const,
+      outputModalities: ['text'] as const,
+      structuredOutput: false,
+      toolCalling: true,
+      parallelToolCalls: false,
+      reasoning: false,
+      continuation: false,
+      serverTools: [],
+    };
+    const id = useAiLabStore.getState().addProvider({
+      provider: 'openai-compatible',
+      label: 'Gateway',
+      models: ['custom'],
+      capabilityOverrides: { custom: capabilityOverride },
+    });
+
+    expect(useAiLabStore.getState().providers[id]?.capabilityOverrides).toEqual({
+      custom: capabilityOverride,
+    });
+
+    const legacyState = {
+      providers: {
+        legacy: {
+          id: 'legacy',
+          provider: 'ollama',
+          label: 'Legacy local',
+          pricingKnown: false,
+          isLocal: true,
+          models: ['old'],
+          createdAt: 1,
+        },
+      },
+      prompts: {},
+      datasets: {},
+      evalConfigs: {},
+    };
+    expect(AiLabStateSchema.safeParse(legacyState).success).toBe(true);
   });
 
   it('adds a HuggingFace provider with pricingKnown=false and isLocal=false', () => {

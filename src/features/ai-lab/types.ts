@@ -1,6 +1,7 @@
 // AI Lab domain types (Electron-only). The wire/provider types live in
 // shared/protocol/ai; these are the renderer-side workbench models persisted in
 // the aiLab / evalRuns Dexie tables.
+import type { ModelCapabilities } from '@shared/agent-lab';
 import type { CriterionVerdict, JudgeAnchor, JudgeCriterion } from '@shared/protocol/ai/judge';
 import type { AiToolDef, ChatToolCall, Provider } from '@shared/protocol/ai/types';
 
@@ -41,6 +42,8 @@ export interface AiLabProviderConfig {
    * without an extra round trip.
    */
   modelDetails?: Record<string, AiLabModelDetail>;
+  /** Full per-model profiles explicitly asserted by the user. */
+  capabilityOverrides?: Record<string, ModelCapabilities>;
   /**
    * Outcome of the most recent connection test, persisted so the provider
    * card can show a durable "tested ✓ 2m ago" instead of only a transient
@@ -72,6 +75,8 @@ export interface AiLabModelDetail {
     promptPerMTokUSD?: number;
     completionPerMTokUSD?: number;
   };
+  /** Model-specific capabilities returned by a tested discovery adapter. */
+  agentCapabilities?: Partial<ModelCapabilities>;
   /** ISO 8601 created timestamp, normalised at parse time. */
   createdAt?: string;
   /**
