@@ -24,12 +24,15 @@ import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { completeWithRetry } from '@/lib/shared/completeRetry';
 
 /** Injected executor for the `http-exec` target (real one wraps execCell). */
-export type RunRequestFn = (req: {
-  method: string;
-  url: string;
-  headers: Record<string, string>;
-  body: string;
-}) => Promise<ExecResult>;
+export type RunRequestFn = (
+  req: {
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+    body: string;
+  },
+  signal?: AbortSignal
+) => Promise<ExecResult>;
 
 /** Excerpt cap for the stored executed-response summary. */
 const EXEC_EXCERPT_LIMIT = 2000;
@@ -110,7 +113,8 @@ export async function runScriptScorer(args: { code: string; output: string; late
 async function scoreCell(
   scorers: ScorerConfig[],
   ctx: Omit<ScorerContext, 'judge' | 'runScript' | 'pairwise'>,
-  providers: Record<string, AiLabProviderConfig>
+  providers: Record<string, AiLabProviderConfig>,
+  signal: AbortSignal
 ): Promise<EvalCellResult['scores']> {
   const completeFor = (model: ModelRef): JudgeComplete => {
     const cfg = providers[model.providerConfigId];
@@ -118,12 +122,15 @@ async function scoreCell(
     // The judge algorithm (criteria, sampling, aggregation) lives in shared
     // runJudge; we inject only transport — a retry-wrapped completeLlm.
     return (messages, tools) =>
-      completeWithRetry(() =>
-        completeLlm(
-          specFor(cfg, model.model, messages as LlmChatMessage[], {
-            tools: tools as LlmCallSpec['tools'],
-          })
-        )
+      completeWithRetry(
+        () =>
+          completeLlm(
+            specFor(cfg, model.model, messages as LlmChatMessage[], {
+              tools: tools as LlmCallSpec['tools'],
+            }),
+            { signal }
+          ),
+        { signal }
       );
   };
   const judge: ScorerContext['judge'] = async ({ judgeModel, input }) =>
@@ -154,6 +161,7 @@ interface RunCellOptions {
   tools?: AiToolDef[];
   target?: EvalTarget;
   runRequest?: RunRequestFn;
+  signal: AbortSignal;
 }
 
 /** Execute a single (case × model) cell end-to-end. */
@@ -163,7 +171,7 @@ async function runCell(
   modelRef: ModelRef,
   scorers: ScorerConfig[],
   providers: Record<string, AiLabProviderConfig>,
-  opts: RunCellOptions = {}
+  opts: RunCellOptions
 ): Promise<EvalCellResult> {
   const cfg = providers[modelRef.providerConfigId];
   const base: Omit<EvalCellResult, 'scores' | 'passed'> = {
@@ -181,17 +189,21 @@ async function runCell(
   const startedAt = performance.now();
   let completion;
   try {
-    completion = await completeWithRetry(() =>
-      completeLlm(
-        specFor(
-          cfg,
-          modelRef.model,
-          buildMessages(prompt, c),
-          opts.tools ? { tools: opts.tools } : {}
-        )
-      )
+    completion = await completeWithRetry(
+      () =>
+        completeLlm(
+          specFor(
+            cfg,
+            modelRef.model,
+            buildMessages(prompt, c),
+            opts.tools ? { tools: opts.tools } : {}
+          ),
+          { signal: opts.signal }
+        ),
+      { signal: opts.signal }
     );
   } catch (e) {
+    if (opts.signal.aborted) throw opts.signal.reason ?? e;
     return {
       ...base,
       error: e instanceof Error ? e.message : String(e),
@@ -257,7 +269,7 @@ async function runCell(
       };
     }
     try {
-      const exec = await opts.runRequest(extracted.request);
+      const exec = await opts.runRequest(extracted.request, opts.signal);
       scoringOutput = exec.body;
       executed = {
         status: exec.status,
@@ -266,6 +278,7 @@ async function runCell(
         ok: exec.ok,
       };
     } catch (e) {
+      if (opts.signal.aborted) throw opts.signal.reason ?? e;
       return {
         ...base,
         output: completion.text,
@@ -294,7 +307,8 @@ async function runCell(
         toolCalls: completion.toolCalls,
         ...usagePatch,
       },
-      providers
+      providers,
+      opts.signal
     );
   } catch (e) {
     return {
@@ -358,6 +372,7 @@ export async function runEval(
         ...(input.tools ? { tools: input.tools } : {}),
         ...(input.target ? { target: input.target } : {}),
         ...(input.runRequest ? { runRequest: input.runRequest } : {}),
+        signal,
       }
     );
     results.push(result);

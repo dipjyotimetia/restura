@@ -3,6 +3,7 @@ import { isHuggingFaceProvider, isLocalProvider, type Provider } from '@shared/p
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { AiLabReportEnvelope } from '../run-engine/reportEnvelope';
 import type {
   AiLabModelDetail,
   AiLabProviderConfig,
@@ -22,6 +23,7 @@ interface PersistedAiLabState {
   favoriteModelKeys: string[];
   recentModelKeys: string[];
   agentSuites: Record<string, AgentSuite>;
+  runReports: Record<string, AiLabReportEnvelope>;
 }
 
 interface AiLabState extends PersistedAiLabState {
@@ -72,6 +74,8 @@ interface AiLabState extends PersistedAiLabState {
   // Agent workbench
   upsertAgentSuite: (suite: unknown) => string;
   removeAgentSuite: (id: string) => void;
+  saveRunReport: (report: AiLabReportEnvelope) => void;
+  removeRunReport: (id: string) => void;
 }
 
 const DEFAULT_STATE: PersistedAiLabState = {
@@ -82,11 +86,15 @@ const DEFAULT_STATE: PersistedAiLabState = {
   favoriteModelKeys: [],
   recentModelKeys: [],
   agentSuites: {},
+  runReports: {},
 };
 
 const RECENT_MODEL_LIMIT = 20;
 
-export function migrateAiLabState(persisted: unknown): Partial<PersistedAiLabState> {
+export function migrateAiLabState(
+  persisted: unknown,
+  _version?: number
+): Partial<PersistedAiLabState> {
   const previous = persisted as Partial<PersistedAiLabState>;
   return {
     ...previous,
@@ -114,6 +122,7 @@ export function migrateAiLabState(persisted: unknown): Partial<PersistedAiLabSta
       })
     ),
     agentSuites: previous.agentSuites ?? {},
+    runReports: previous.runReports ?? {},
   };
 }
 
@@ -325,11 +334,19 @@ export const useAiLabStore = create<AiLabState>()(
           delete next[id];
           return { agentSuites: next };
         }),
+      saveRunReport: (report) =>
+        set((state) => ({ runReports: { ...state.runReports, [report.id]: report } })),
+      removeRunReport: (id) =>
+        set((state) => {
+          const next = { ...state.runReports };
+          delete next[id];
+          return { runReports: next };
+        }),
     }),
     {
       name: 'ai-lab-store',
       storage: dexieStorageAdapters.aiLab(),
-      version: 3,
+      version: 4,
       migrate: migrateAiLabState,
       partialize: (state) => ({
         providers: state.providers,
@@ -339,6 +356,7 @@ export const useAiLabStore = create<AiLabState>()(
         favoriteModelKeys: state.favoriteModelKeys,
         recentModelKeys: state.recentModelKeys,
         agentSuites: state.agentSuites,
+        runReports: state.runReports,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;

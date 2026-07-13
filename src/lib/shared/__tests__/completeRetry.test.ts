@@ -70,4 +70,17 @@ describe('completeWithRetry', () => {
     await expect(completeWithRetry(call, NO_DELAY)).rejects.toThrow('invalid model id');
     expect(call).toHaveBeenCalledOnce();
   });
+
+  it('does not start another retry after cancellation', async () => {
+    const controller = new AbortController();
+    const call = vi.fn(async () => {
+      controller.abort(new DOMException('cancelled', 'AbortError'));
+      return fail('network', 'timeout');
+    });
+
+    await expect(
+      completeWithRetry(call, { retries: 2, baseMs: 0, signal: controller.signal })
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(call).toHaveBeenCalledOnce();
+  });
 });

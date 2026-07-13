@@ -10,6 +10,7 @@ import {
   proxyTypeSchema,
   minTlsVersionSchema,
 } from './validations';
+import { AiLabReportEnvelopeSchema } from '@/features/ai-lab/run-engine/reportEnvelope';
 import { SPATIAL_ACCENT_PRESETS } from '@/types';
 import type { Request, Environment, Collection, SpatialAccent } from '@/types';
 
@@ -495,6 +496,7 @@ export const AiLabStateSchema = z.object({
   favoriteModelKeys: z.array(z.string()).default([]),
   recentModelKeys: z.array(z.string()).max(20).default([]),
   agentSuites: z.record(z.string(), AgentSuiteSchema).default({}),
+  runReports: z.record(z.string(), AiLabReportEnvelopeSchema).default({}),
 });
 
 export type PersistedAiLabState = z.infer<typeof AiLabStateSchema>;

@@ -13,6 +13,7 @@ export interface RetryOpts {
   retries?: number;
   /** Base backoff in ms; doubles each attempt. Default 300. */
   baseMs?: number;
+  signal?: AbortSignal;
 }
 
 const TRANSIENT_MESSAGE =
@@ -32,7 +33,25 @@ function isTransientThrow(e: unknown): boolean {
   return isTransientMessage(e instanceof Error ? e.message : String(e));
 }
 
-const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException('Operation cancelled', 'AbortError');
+}
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(abortReason(signal));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(done, ms);
+    function done() {
+      signal?.removeEventListener('abort', aborted);
+      resolve();
+    }
+    function aborted() {
+      clearTimeout(timer);
+      reject(abortReason(signal!));
+    }
+    signal?.addEventListener('abort', aborted, { once: true });
+  });
+}
 
 /**
  * Run a completion call with transient-only retry + exponential backoff. Returns
@@ -46,12 +65,15 @@ export async function completeWithRetry(
   const retries = opts.retries ?? 2;
   const baseMs = opts.baseMs ?? 300;
   for (let attempt = 0; ; attempt++) {
+    if (opts.signal?.aborted) throw abortReason(opts.signal);
     try {
       const result = await call();
+      if (opts.signal?.aborted) throw abortReason(opts.signal);
       if (result.ok || attempt >= retries || !isTransientCompletion(result)) return result;
     } catch (e) {
+      if (opts.signal?.aborted) throw abortReason(opts.signal);
       if (attempt >= retries || !isTransientThrow(e)) throw e;
     }
-    if (baseMs > 0) await delay(baseMs * 2 ** attempt);
+    if (baseMs > 0) await delay(baseMs * 2 ** attempt, opts.signal);
   }
 }

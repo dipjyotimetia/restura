@@ -146,6 +146,25 @@ describe('runEval', () => {
     expect(mockComplete).not.toHaveBeenCalled();
   });
 
+  it('forwards the run signal to model completion', async () => {
+    mockComplete.mockResolvedValue(result('anything'));
+    const controller = new AbortController();
+    await runEval(
+      {
+        prompt: PROMPT,
+        dataset: { ...DATASET, cases: [DATASET.cases[0]!] },
+        models: [{ providerConfigId: 'p1', model: 'gpt-4o' }],
+        scorers: [],
+        providers: { p1: PROVIDER },
+        concurrency: 1,
+      },
+      () => {},
+      controller.signal
+    );
+
+    expect(mockComplete).toHaveBeenCalledWith(expect.anything(), { signal: controller.signal });
+  });
+
   it('marks a zero-scorer cell as notEvaluated (not a pass)', async () => {
     mockComplete.mockResolvedValue(result('anything'));
     const cells = await runEval(
@@ -210,6 +229,7 @@ describe('runEval', () => {
       latencyMs: 12,
       ok: true,
     }));
+    const controller = new AbortController();
     const cells = await runEval(
       {
         prompt: PROMPT,
@@ -222,9 +242,9 @@ describe('runEval', () => {
         runRequest,
       },
       () => {},
-      new AbortController().signal
+      controller.signal
     );
-    expect(runRequest).toHaveBeenCalledOnce();
+    expect(runRequest).toHaveBeenCalledWith(expect.anything(), controller.signal);
     expect(cells[0]?.executed?.status).toBe(200);
     expect(cells[0]?.output).toBe('{"ok":true}');
     expect(cells[0]?.passed).toBe(true);

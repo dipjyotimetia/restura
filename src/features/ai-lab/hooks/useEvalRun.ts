@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { runEval, type EvalProgress } from '../lib/evalRunner';
 import { executeExtractedRequest } from '../lib/execCell';
 import { modelKey, modelLabelFor } from '../lib/modelOptions';
+import { adaptEvalRunReport } from '../run-engine/reportEnvelope';
+import { RunEngine } from '../run-engine/runEngine';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useEvalRunStore } from '../store/useEvalRunStore';
 import type { EvalCellResult, EvalConfig } from '../types';
@@ -29,10 +31,11 @@ const useEvalLiveStore = create<EvalLiveState>()(() => ({
 }));
 
 // Module-scoped so Stop keeps working after the Evals tab remounts.
-let abortController: AbortController | null = null;
+const runEngine = new RunEngine<EvalCellResult[]>();
+let activeJobId: string | null = null;
 
 function start(config: EvalConfig): void {
-  if (abortController) return; // a run is already in flight
+  if (activeJobId) return; // a run is already in flight
   const lab = useAiLabStore.getState();
   const prompt = lab.prompts[config.promptId];
   const dataset = lab.datasets[config.datasetId];
@@ -61,8 +64,6 @@ function start(config: EvalConfig): void {
   });
   useEvalLiveStore.setState({ lastRunId: runId });
 
-  const ac = new AbortController();
-  abortController = ac;
   let lastCount = 0;
   let lastEmit = 0;
   let pendingCells: EvalCellResult[] = [];
@@ -73,6 +74,7 @@ function start(config: EvalConfig): void {
     pendingCells = [];
   };
 
+  let reportEngineProgress: ((progress: number) => void) | null = null;
   const onProgress = (p: EvalProgress) => {
     // Accumulate newly-completed cells (progress.cells is cumulative) and
     // persist them on the same ~10 fps throttle as the UI emit — onProgress
@@ -88,42 +90,68 @@ function start(config: EvalConfig): void {
       flushCells();
       useEvalLiveStore.setState({ progress: p });
     }
+    reportEngineProgress?.(p.total ? p.completed / p.total : p.done ? 1 : 0);
   };
+
+  const persistReport = () => {
+    const completed = useEvalRunStore.getState().runs[runId];
+    if (!completed) return;
+    try {
+      useAiLabStore.getState().saveRunReport(adaptEvalRunReport(completed));
+    } catch (cause) {
+      useEvalLiveStore.setState({
+        error: `Report persistence failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+      });
+    }
+  };
+
+  const execution = runEngine.start('eval', async (context) => {
+    reportEngineProgress = context.reportProgress;
+    const target = config.target ?? { kind: 'text' };
+    return runEval(
+      {
+        prompt,
+        dataset,
+        models: config.models,
+        scorers: config.scorers,
+        providers: lab.providers,
+        concurrency: config.concurrency,
+        target,
+        ...(config.tools ? { tools: config.tools } : {}),
+        ...(target.kind === 'http-exec' ? { runRequest: executeExtractedRequest } : {}),
+      },
+      onProgress,
+      context.signal
+    );
+  });
+  activeJobId = execution.jobId;
 
   void (async () => {
     try {
-      const target = config.target ?? { kind: 'text' };
-
-      await runEval(
-        {
-          prompt,
-          dataset,
-          models: config.models,
-          scorers: config.scorers,
-          providers: lab.providers,
-          concurrency: config.concurrency,
-          target,
-          ...(config.tools ? { tools: config.tools } : {}),
-          ...(target.kind === 'http-exec' ? { runRequest: executeExtractedRequest } : {}),
-        },
-        onProgress,
-        ac.signal
-      );
+      await execution.result;
       flushCells(); // defensive — the done-flagged progress event normally flushed already
-      useEvalRunStore.getState().finishRun(runId, ac.signal.aborted ? 'cancelled' : 'done');
+      useEvalRunStore.getState().finishRun(runId, 'done');
+      persistReport();
     } catch (e: unknown) {
       flushCells(); // keep cells completed before a mid-run failure
-      useEvalLiveStore.setState({ error: e instanceof Error ? e.message : String(e) });
-      useEvalRunStore.getState().finishRun(runId, 'error');
+      const snapshot = runEngine.get(execution.jobId);
+      if (snapshot?.status === 'cancelled') {
+        useEvalRunStore.getState().finishRun(runId, 'cancelled');
+      } else {
+        useEvalLiveStore.setState({ error: e instanceof Error ? e.message : String(e) });
+        useEvalRunStore.getState().finishRun(runId, 'error');
+      }
+      persistReport();
     } finally {
-      abortController = null;
+      activeJobId = null;
+      reportEngineProgress = null;
       useEvalLiveStore.setState({ running: false });
     }
   })();
 }
 
 function stop(): void {
-  abortController?.abort();
+  if (activeJobId) runEngine.cancel(activeJobId);
 }
 
 /**

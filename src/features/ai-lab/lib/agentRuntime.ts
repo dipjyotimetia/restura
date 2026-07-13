@@ -123,6 +123,7 @@ export async function runDesktopAgentSuite(
     requestApproval?: ConstructorParameters<typeof AgentRunner>[0]['requestApproval'];
     complete?: Complete;
     signal?: AbortSignal;
+    reportProgress?: (progress: number) => void;
   } = {}
 ): Promise<AgentSuiteReport> {
   const providers = createDesktopAgentProviders(configs, options.complete ?? completeLlm);
@@ -134,8 +135,16 @@ export async function runDesktopAgentSuite(
     resolveTools: resolveResturaAgentTools,
     ...(options.requestApproval ? { requestApproval: options.requestApproval } : {}),
   });
-  return new AgentSuiteRunner({
-    run: (request) => runner.run(request),
+  const totalTrials = suite.agents.length * suite.tasks.length * suite.trials;
+  let completedTrials = 0;
+  options.reportProgress?.(0);
+  const report = await new AgentSuiteRunner({
+    run: async (request) => {
+      const result = await runner.run(request);
+      completedTrials += 1;
+      options.reportProgress?.(totalTrials ? completedTrials / totalTrials : 1);
+      return result;
+    },
     async judge(grader, context) {
       let attemptedCalls = 0;
       const successfulCalls: Array<{
@@ -362,4 +371,6 @@ export async function runDesktopAgentSuite(
       };
     },
   }).run({ suite, ...(options.signal ? { signal: options.signal } : {}) });
+  if (!options.signal?.aborted) options.reportProgress?.(1);
+  return report;
 }

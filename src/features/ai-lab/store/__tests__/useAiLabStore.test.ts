@@ -10,6 +10,8 @@ function reset() {
     evalConfigs: {},
     favoriteModelKeys: [],
     recentModelKeys: [],
+    agentSuites: {},
+    runReports: {},
   });
 }
 
@@ -348,6 +350,34 @@ describe('useAiLabStore — providers', () => {
 
     expect(useAiLabStore.getState().favoriteModelKeys).toEqual([]);
     expect(useAiLabStore.getState().recentModelKeys).toEqual(['another:model']);
+  });
+});
+
+describe('useAiLabStore — report migration', () => {
+  it('migrates legacy eval state without rewriting existing runs', () => {
+    const legacyRun = {
+      id: 'legacy',
+      evalConfigId: 'eval-1',
+      configName: 'Legacy eval',
+      startedAt: 1,
+      status: 'done' as const,
+      cells: [],
+      totalCells: 0,
+    };
+    const legacyState = {
+      providers: {},
+      prompts: {},
+      datasets: {},
+      evalConfigs: {},
+      runs: { legacy: legacyRun },
+    };
+
+    const migrated = migrateAiLabState(legacyState, 2) as typeof legacyState & {
+      runReports: Record<string, unknown>;
+    };
+
+    expect(migrated.runs).toEqual({ legacy: legacyRun });
+    expect(migrated.runReports).toEqual({});
   });
 });
 

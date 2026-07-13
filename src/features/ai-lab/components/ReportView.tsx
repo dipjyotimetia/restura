@@ -1,9 +1,11 @@
+import { serializeContentBlocks } from '@shared/agent-lab';
 import { ArrowDown, ArrowUp, BarChart3, Download, Trash2, X } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
 import { modelKey, parseModelKey } from '../lib/modelOptions';
 import { newestFirst } from '../lib/newestFirst';
 import { runToCsv, runToJson, runToMarkdown } from '../lib/reportExport';
 import { summarizeVars } from '../lib/summarizeVars';
+import { adaptEvalRunReport, type AiLabReportEnvelope } from '../run-engine/reportEnvelope';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore } from '../store/useAiLabUiStore';
 import { useEvalRunStore } from '../store/useEvalRunStore';
@@ -105,11 +107,181 @@ export function judgeStats(run: EvalRun): JudgeStats {
   };
 }
 
+function AgentReportDetail({
+  report,
+  onDelete,
+}: {
+  report: Extract<AiLabReportEnvelope, { kind: 'agent-suite' }>;
+  onDelete: () => void;
+}) {
+  const payload = report.payload;
+  const taskById = new Map(report.suite.tasks.map((task) => [task.id, task]));
+  const resourceUsage = payload.results.reduce(
+    (total, result) => {
+      for (const event of result.trace.events) {
+        if (event.type !== 'model.completed') continue;
+        if (event.usage) {
+          total.inputTokens += event.usage.inputTokens;
+          total.outputTokens += event.usage.outputTokens;
+        }
+        if (event.costUSD !== undefined) total.costUSD += event.costUSD;
+      }
+      for (const score of result.scores) {
+        if (score.usage) {
+          total.inputTokens += score.usage.inputTokens;
+          total.outputTokens += score.usage.outputTokens;
+        }
+        if (score.costUSD !== undefined) total.costUSD += score.costUSD;
+      }
+      return total;
+    },
+    { inputTokens: 0, outputTokens: 0, costUSD: 0 }
+  );
+  const exportJson = () => {
+    const safe = report.name.replace(/[^a-z0-9-_]+/gi, '_') || 'agent-suite';
+    downloadBlob(JSON.stringify(report, null, 2), `${safe}.json`, 'application/json');
+  };
+
+  return (
+    <Floater radius="panel" elevation="float" className="space-y-4 bg-sp-surface p-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <h2 className="truncate text-sp-13 font-semibold text-sp-text">{report.name}</h2>
+          <p className="text-sp-11 text-sp-muted">
+            {payload.summary.passed}/{payload.summary.total} passed ·{' '}
+            {(payload.summary.passRate * 100).toFixed(1)}% pass rate
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button variant="outline" size="sm" onClick={exportJson}>
+            JSON
+          </Button>
+          <Button variant="ghost" size="icon-sm" aria-label="Delete run" onClick={onDelete}>
+            <Trash2 className="h-3.5 w-3.5 text-destructive" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-x-6 gap-y-3 border-t border-sp-line pt-3">
+        <Stat
+          label="95% confidence"
+          value={`${(payload.summary.confidence95.low * 100).toFixed(1)}–${(payload.summary.confidence95.high * 100).toFixed(1)}%`}
+        />
+        <Stat
+          label="Usage"
+          value={`${resourceUsage.inputTokens} in · ${resourceUsage.outputTokens} out`}
+        />
+        <Stat label="Cost" value={`$${resourceUsage.costUSD.toFixed(6)}`} />
+      </div>
+
+      <div className="space-y-3 border-t border-sp-line pt-3">
+        <h3 className="sp-label">Task reliability</h3>
+        {payload.summary.reliabilityByCase.map((reliability) => {
+          const task = taskById.get(reliability.taskId);
+          return (
+            <Floater
+              key={`${reliability.agentId}:${reliability.taskId}`}
+              radius="panel"
+              elevation="inset"
+              className="space-y-2 p-3"
+            >
+              <div className="flex items-center justify-between gap-2 text-sp-12">
+                <span className="font-medium text-sp-text">
+                  {reliability.taskId} · {reliability.agentId}
+                </span>
+                <span className="tabular-nums text-sp-muted">
+                  {(reliability.passRate * 100).toFixed(1)}% ({reliability.passed}/
+                  {reliability.total}) · CI {(reliability.confidence95.low * 100).toFixed(1)}–
+                  {(reliability.confidence95.high * 100).toFixed(1)}%
+                </span>
+              </div>
+              <div className="grid gap-2 text-sp-11 md:grid-cols-2">
+                <div>
+                  <span className="sp-label">Input</span>
+                  <pre className="mt-1 whitespace-pre-wrap text-sp-text">
+                    {task ? serializeContentBlocks(task.input) : '(task unavailable)'}
+                  </pre>
+                </div>
+                <div>
+                  <span className="sp-label">Reference</span>
+                  <pre className="mt-1 whitespace-pre-wrap text-sp-text">
+                    {task?.reference ? serializeContentBlocks(task.reference) : '(none)'}
+                  </pre>
+                </div>
+              </div>
+            </Floater>
+          );
+        })}
+      </div>
+
+      <div className="space-y-3 border-t border-sp-line pt-3">
+        <h3 className="sp-label">Trials, grades and traces</h3>
+        {payload.results.map((result) => (
+          <Floater
+            key={`${result.agentId}:${result.taskId}:${result.trial}`}
+            radius="panel"
+            elevation="inset"
+            className="space-y-2 p-3"
+          >
+            <div className="flex items-center justify-between text-sp-12">
+              <span className="font-medium text-sp-text">
+                {result.taskId} · trial {result.trial}
+              </span>
+              <StatusChip state={result.status} />
+            </div>
+            <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded bg-sp-bg p-2 text-sp-11 text-sp-text">
+              {serializeContentBlocks(result.output) || '(empty output)'}
+            </pre>
+            {result.scores.map((score) => (
+              <div key={score.graderId} className="text-sp-11 text-sp-muted">
+                <span className={score.passed ? 'text-emerald-500' : 'text-destructive'}>
+                  {score.graderId}: {score.passed ? 'pass' : 'fail'}
+                </span>
+                {score.score !== undefined ? ` · ${score.score.toFixed(3)}` : ''}
+                {score.detail ? ` · ${score.detail}` : ''}
+                {score.minimumQuorum !== undefined ? ` · quorum ${score.minimumQuorum}` : ''}
+                {score.judgeVotes?.map((vote) => (
+                  <div key={`${vote.providerId}:${vote.model}`}>
+                    {vote.model}: {vote.label} ({vote.score.toFixed(3)})
+                  </div>
+                ))}
+                {score.judgeFailures?.map((failure) => (
+                  <div key={`${failure.providerId}:${failure.model}`} className="text-destructive">
+                    {failure.model} · {failure.error}
+                  </div>
+                ))}
+              </div>
+            ))}
+            <details>
+              <summary className="cursor-pointer text-sp-11 text-sp-muted">Trace events</summary>
+              <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-sp-bg p-2 text-sp-10 text-sp-text">
+                {result.trace.events
+                  .map((event) => `${event.timestamp} · ${event.type} · ${JSON.stringify(event)}`)
+                  .join('\n')}
+              </pre>
+            </details>
+          </Floater>
+        ))}
+      </div>
+    </Floater>
+  );
+}
+
 export function ReportView() {
   const runs = useEvalRunStore((s) => s.runs);
   const deleteRun = useEvalRunStore((s) => s.deleteRun);
   const datasets = useAiLabStore((s) => s.datasets);
-  const sorted = useMemo(() => newestFirst(runs), [runs]);
+  const runReports = useAiLabStore((s) => s.runReports);
+  const removeRunReport = useAiLabStore((s) => s.removeRunReport);
+  const evalSorted = useMemo(() => newestFirst(runs), [runs]);
+  const sorted = useMemo(() => {
+    const persisted = Object.values(runReports);
+    const persistedIds = new Set(persisted.map((report) => report.id));
+    return [
+      ...persisted,
+      ...evalSorted.filter((run) => !persistedIds.has(run.id)).map(adaptEvalRunReport),
+    ].sort((left, right) => right.startedAt - left.startedAt);
+  }, [evalSorted, runReports]);
   // Selection lives in the UI store so "View report" in the Evals tab can hand
   // a run off to us, and so the selection survives tab switches.
   const activeId = useAiLabUiStore((s) => s.reportRunId);
@@ -117,12 +289,12 @@ export function ReportView() {
   const drillCaseId = useAiLabUiStore((s) => s.reportDrillCaseId);
   const setDrillCaseId = useAiLabUiStore((s) => s.setReportDrillCaseId);
   const setTab = useAiLabUiStore((s) => s.setTab);
-  const active = (activeId ? runs[activeId] : undefined) ?? sorted[0];
+  const selected =
+    (activeId ? sorted.find((report) => report.id === activeId) : undefined) ?? sorted[0];
+  const active = selected?.kind === 'eval' ? selected.payload : undefined;
   const { confirm: confirmDelete, DialogComponent: DeleteRunDialog } = useConfirmDialog({
     title: 'Delete run',
-    description: active
-      ? `Delete the report for "${active.configName}"? This cannot be undone.`
-      : '',
+    description: selected ? `Delete the report for "${selected.name}"? This cannot be undone.` : '',
     confirmText: 'Delete',
     variant: 'destructive',
   });
@@ -130,10 +302,10 @@ export function ReportView() {
   // Previous run of the SAME eval config — enables regression compare.
   const previous = useMemo(() => {
     if (!active) return undefined;
-    return sorted.find(
+    return evalSorted.find(
       (r) => r.evalConfigId === active.evalConfigId && r.startedAt < active.startedAt
     );
-  }, [active, sorted]);
+  }, [active, evalSorted]);
 
   // One sorted stats list drives both the table rows and the matrix columns
   // (previously the same sort ran twice, once unmemoized in JSX).
@@ -210,9 +382,10 @@ export function ReportView() {
   };
 
   const handleDeleteClick = async () => {
-    if (!active) return;
+    if (!selected) return;
     if (!(await confirmDelete())) return;
-    deleteRun(active.id);
+    if (selected.kind === 'eval') deleteRun(selected.id);
+    if (runReports[selected.id]) removeRunReport(selected.id);
     setActiveId(null); // also clears the drill-down (store invariant)
   };
 
@@ -242,20 +415,26 @@ export function ReportView() {
               onClick={() => setActiveId(r.id)}
               className={cn(
                 'w-full rounded-sp-btn border px-3 py-2.5 text-left transition-colors',
-                active?.id === r.id
+                selected?.id === r.id
                   ? 'border-sp-accent bg-[var(--sp-accent-glow-15)]'
                   : 'border-sp-line hover:bg-sp-hover'
               )}
             >
-              <div className="truncate text-sp-13 text-sp-text">{r.configName}</div>
+              <div className="truncate text-sp-13 text-sp-text">{r.name}</div>
               <div className="mt-0.5 truncate text-sp-11 text-sp-muted">
                 {formatRelativeTime(r.startedAt)}
-                {r.datasetName ? ` · ${r.datasetName}` : ''}
+                {r.kind === 'eval' && r.payload.datasetName
+                  ? ` · ${r.payload.datasetName}`
+                  : r.kind === 'agent-suite'
+                    ? ' · Agent suite'
+                    : ''}
               </div>
               <div className="mt-1 flex items-center justify-between">
                 <StatusChip state={r.status} />
                 <span className="text-sp-11 text-sp-muted tabular-nums">
-                  {r.cells.length}/{r.totalCells}
+                  {r.kind === 'eval'
+                    ? `${r.payload.cells.length}/${r.payload.totalCells}`
+                    : `${r.payload.summary.passed}/${r.payload.summary.total}`}
                 </span>
               </div>
             </button>
@@ -264,7 +443,9 @@ export function ReportView() {
 
         {/* Report — detail pane, fills the window. */}
         <div className="flex-1 overflow-auto p-4">
-          {active ? (
+          {selected?.kind === 'agent-suite' ? (
+            <AgentReportDetail report={selected} onDelete={() => void handleDeleteClick()} />
+          ) : active ? (
             <Floater radius="panel" elevation="float" className="space-y-4 bg-sp-surface p-4">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">

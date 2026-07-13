@@ -48,6 +48,7 @@ describe('useEvalRun', () => {
   beforeEach(() => {
     mockRunEval.mockReset();
     useEvalRunStore.setState({ runs: {} });
+    useAiLabStore.setState({ runReports: {} });
   });
 
   it('starts a run, persists cells + a done status, and surfaces progress', async () => {
@@ -70,6 +71,11 @@ describe('useEvalRun', () => {
     expect(result.current.progress?.done).toBe(true);
     expect(result.current.running).toBe(false);
     expect(useAiLabStore.getState().recentModelKeys).toEqual(['p1:m']);
+    expect(useAiLabStore.getState().runReports[runs[0]!.id]).toMatchObject({
+      kind: 'eval',
+      status: 'passed',
+      payload: runs[0],
+    });
   });
 
   it('errors when the prompt or dataset is missing', async () => {
@@ -103,5 +109,27 @@ describe('useEvalRun', () => {
     const runs = Object.values(useEvalRunStore.getState().runs);
     expect(runs[0]?.status).toBe('error');
     expect(result.current.error).toBe('boom');
+  });
+
+  it('cancellation wins over a runner that resolves successfully after stop', async () => {
+    let resolve!: (cells: EvalCellResult[]) => void;
+    mockRunEval.mockImplementation(() => new Promise<EvalCellResult[]>((done) => (resolve = done)));
+    const config = seedConfig();
+    const { result } = renderHook(() => useEvalRun());
+
+    await act(async () => {
+      result.current.start(config);
+      result.current.stop();
+      resolve([CELL]);
+      await Promise.resolve();
+    });
+
+    const run = Object.values(useEvalRunStore.getState().runs)[0]!;
+    expect(run.status).toBe('cancelled');
+    expect(useAiLabStore.getState().runReports[run.id]).toMatchObject({
+      kind: 'eval',
+      status: 'cancelled',
+    });
+    expect(useAiLabStore.getState().runReports[run.id]).not.toMatchObject({ status: 'passed' });
   });
 });

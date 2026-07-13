@@ -1,8 +1,15 @@
 import { AgentSuiteSchema, AGENT_SUITE_SCHEMA_VERSION } from '@shared/agent-lab';
-import { Bot, Download, Loader2, Play, Plus, Save, Trash2, Upload } from 'lucide-react';
+import type { AgentSuiteReport } from '@shared/agent-lab';
+import { Bot, Download, Play, Plus, Save, Square, Trash2, Upload } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { runDesktopAgentSuite } from '../lib/agentRuntime';
+import {
+  createAgentSuiteReportEnvelope,
+  type AiLabReportEnvelope,
+} from '../run-engine/reportEnvelope';
+import { RunEngine } from '../run-engine/runEngine';
 import { useAiLabStore } from '../store/useAiLabStore';
+import { useAiLabUiStore } from '../store/useAiLabUiStore';
 import type { AiLabProviderConfig } from '../types';
 import { Button } from '@/components/ui/button';
 
@@ -36,7 +43,9 @@ export function AgentWorkbench() {
   const suites = useAiLabStore((state) => state.agentSuites);
   const upsert = useAiLabStore((state) => state.upsertAgentSuite);
   const remove = useAiLabStore((state) => state.removeAgentSuite);
+  const saveRunReport = useAiLabStore((state) => state.saveRunReport);
   const providers = useAiLabStore((state) => state.providers);
+  const openReport = useAiLabUiStore((state) => state.openReport);
   const [activeId, setActiveId] = useState<string | null>(Object.keys(suites)[0] ?? null);
   const [draft, setDraft] = useState(() =>
     JSON.stringify(activeId ? suites[activeId] : starterSuite(providers), null, 2)
@@ -45,7 +54,11 @@ export function AgentWorkbench() {
     'Schema v2 · credentials must be env or keychain references'
   );
   const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [_completedReport, setCompletedReport] = useState<AiLabReportEnvelope | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const engineRef = useRef(new RunEngine<AgentSuiteReport>());
+  const activeJobId = useRef<string | null>(null);
 
   const select = (id: string) => {
     setActiveId(id);
@@ -94,23 +107,65 @@ export function AgentWorkbench() {
       const parsed = AgentSuiteSchema.parse(JSON.parse(draft));
       upsert(parsed);
       setRunning(true);
+      setProgress(0);
       setMessage('Running agent trials…');
-      const report = await runDesktopAgentSuite(parsed, providers, {
-        requestApproval: async (request) =>
-          window.confirm(
-            `Allow ${request.permissionClass} tool “${request.toolName}”?\n\n${JSON.stringify(request.arguments, null, 2)}`
-          )
-            ? 'approved'
-            : 'denied',
+      const { jobId, result } = engineRef.current.start('agent-suite', async (context) => {
+        return runDesktopAgentSuite(parsed, providers, {
+          signal: context.signal,
+          reportProgress: (value) => {
+            context.reportProgress(value);
+            setProgress(value);
+          },
+          requestApproval: async (request) =>
+            window.confirm(
+              `Allow ${request.permissionClass} tool “${request.toolName}”?\n\n${JSON.stringify(request.arguments, null, 2)}`
+            )
+              ? 'approved'
+              : 'denied',
+        });
       });
+      activeJobId.current = jobId;
+      const report = await result;
+      const snapshot = engineRef.current.get(jobId);
+      const envelope = createAgentSuiteReportEnvelope(parsed, report, {
+        id: jobId,
+        startedAt: snapshot?.startedAt ?? Date.now(),
+        finishedAt: snapshot?.finishedAt ?? Date.now(),
+      });
+      // Retain the completed result even when the persistence adapter rejects.
+      setCompletedReport(envelope);
+      try {
+        saveRunReport(envelope);
+      } catch (cause) {
+        setMessage(
+          `REPORT COMPLETE · persistence failed: ${cause instanceof Error ? cause.message : String(cause)}`
+        );
+        return;
+      }
       setMessage(
         `${report.status.toUpperCase()} · ${report.summary.passed}/${report.summary.total} passed · 95% CI ${(report.summary.confidence95.low * 100).toFixed(1)}–${(report.summary.confidence95.high * 100).toFixed(1)}%`
       );
+      openReport(envelope.id);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'name' in error &&
+        error.name === 'AbortError'
+      )
+        setMessage('CANCELLED');
+      else setMessage(error instanceof Error ? error.message : String(error));
     } finally {
+      activeJobId.current = null;
       setRunning(false);
     }
+  };
+
+  const cancel = () => {
+    const jobId = activeJobId.current;
+    if (!jobId) return;
+    engineRef.current.cancel(jobId);
+    setMessage('CANCELLING…');
   };
 
   return (
@@ -191,14 +246,17 @@ export function AgentWorkbench() {
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
           )}
-          <Button size="sm" variant="outline" disabled={running} onClick={() => void run()}>
-            {running ? (
-              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-            ) : (
+          {running ? (
+            <Button size="sm" variant="outline" onClick={cancel}>
+              <Square className="mr-1.5 h-3.5 w-3.5" />
+              Cancel
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline" onClick={() => void run()}>
               <Play className="mr-1.5 h-3.5 w-3.5" />
-            )}
-            Run
-          </Button>
+              Run
+            </Button>
+          )}
           <Button size="sm" onClick={save}>
             <Save className="mr-1.5 h-3.5 w-3.5" />
             Save suite
@@ -213,6 +271,7 @@ export function AgentWorkbench() {
         />
         <div className="mt-2 truncate text-sp-10 text-sp-muted" role="status">
           {message}
+          {running && progress > 0 ? ` · ${Math.round(progress * 100)}%` : ''}
         </div>
       </section>
     </div>
