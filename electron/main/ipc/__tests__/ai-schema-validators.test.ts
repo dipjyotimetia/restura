@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   AiChatRequestSchema,
   AiLabCompleteSchema,
+  AiLabCompleteCancelSchema,
   AiLabStreamSchema,
   AiLabDiscoverSchema,
 } from '../ipc-validators';
@@ -102,6 +103,21 @@ describe('AiLabCompleteSchema / AiLabStreamSchema — API-key requirement', () =
     if (!r.success) {
       expect(r.error.issues.some((i) => i.path.includes('apiKeyHandleId'))).toBe(true);
     }
+  });
+});
+
+describe('AiLabCompleteCancelSchema', () => {
+  it('rejects a malformed operation ID', () => {
+    expect(AiLabCompleteCancelSchema.safeParse({ operationId: 'not-a-uuid' }).success).toBe(false);
+  });
+
+  it('rejects unknown fields', () => {
+    expect(
+      AiLabCompleteCancelSchema.safeParse({
+        operationId: crypto.randomUUID(),
+        unexpected: true,
+      }).success
+    ).toBe(false);
   });
 });
 

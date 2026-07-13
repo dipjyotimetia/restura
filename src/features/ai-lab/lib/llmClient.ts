@@ -58,7 +58,7 @@ export async function completeLlm(
 ): Promise<CompletionResult> {
   const operationId = options.operationId ?? crypto.randomUUID();
   const a = api();
-  const cancel = () => void a.cancelComplete({ operationId });
+  const cancel = () => void a.cancelComplete({ operationId }).catch(() => undefined);
   options.signal?.addEventListener('abort', cancel, { once: true });
   try {
     options.signal?.throwIfAborted();

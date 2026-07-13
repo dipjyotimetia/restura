@@ -25,6 +25,7 @@ import type { Fetcher } from '@shared/protocol/types';
 import { ipcMain } from 'electron';
 import { createLogger } from '../../../src/lib/shared/logger';
 import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
+import { bindRendererCleanup } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo } from '../ipc/ipc-utils';
 import {
@@ -96,7 +97,10 @@ interface ActiveAbort {
 const activeStreams = new StreamRegistry<ActiveAbort & { streamId: string }>({
   dispose: (s) => s.abort.abort(),
 });
-const activeCompletes = new StreamRegistry<ActiveAbort>({ dispose: (c) => c.abort.abort() });
+// Cancellation aborts but deliberately keeps this tombstone until the owning
+// handler settles. Otherwise cancel -> same-ID reuse lets the old finally block
+// remove a newer operation with the same ID.
+const activeCompletes = new Map<string, ActiveAbort>();
 
 /**
  * Resolve the provider's base URL and return a DNS-pinned, manual-redirect
@@ -180,14 +184,19 @@ export function registerAiLabHandlers(): void {
     }
     const data = parsed.data;
     const abort = new AbortController();
-    if (
-      !activeCompletes.tryAdd(data.operationId, event.sender, { webContentsId: senderId, abort })
-    ) {
+    const activeComplete = { webContentsId: senderId, abort };
+    if (activeCompletes.has(data.operationId)) {
       return {
         ok: false as const,
         error: 'A completion with this operation ID is already active.',
       };
     }
+    activeCompletes.set(data.operationId, activeComplete);
+    bindRendererCleanup(activeCompletes, event.sender, (deadId) => {
+      for (const active of activeCompletes.values()) {
+        if (active.webContentsId === deadId) active.abort.abort();
+      }
+    });
 
     let slotAcquired = false;
     try {
@@ -208,7 +217,9 @@ export function registerAiLabHandlers(): void {
       return { ok: false as const, error: msg };
     } finally {
       if (slotAcquired) completeSlots.release();
-      activeCompletes.remove(data.operationId);
+      if (activeCompletes.get(data.operationId) === activeComplete) {
+        activeCompletes.delete(data.operationId);
+      }
     }
   });
 
@@ -221,7 +232,7 @@ export function registerAiLabHandlers(): void {
     if (active.webContentsId !== event.sender.id) {
       return { ok: false as const, error: 'Operation does not belong to this renderer.' };
     }
-    activeCompletes.cancel(parsed.data.operationId);
+    active.abort.abort();
     return { ok: true as const };
   });
 
@@ -335,5 +346,6 @@ export function unregisterAiLabHandlers(): void {
   ipcMain.removeHandler(IPC.aiLab.listModels);
   ipcMain.removeHandler(IPC.aiLab.testConnection);
   activeStreams.disposeAll();
-  activeCompletes.disposeAll();
+  for (const active of activeCompletes.values()) active.abort.abort();
+  activeCompletes.clear();
 }

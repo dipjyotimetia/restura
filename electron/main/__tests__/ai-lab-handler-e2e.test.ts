@@ -103,6 +103,10 @@ const TRUSTED = {
   sender: { id: 1, isDestroyed: () => false },
   senderFrame: { url: 'file:///app/dist/web/index.html' },
 };
+const OTHER_SENDER = {
+  sender: { id: 2, isDestroyed: () => false },
+  senderFrame: { url: 'file:///app/dist/web/index.html' },
+};
 
 function handlerFor(channel: string) {
   const call = mockHandle.mock.calls.find((c) => c[0] === channel);
@@ -323,8 +327,7 @@ describe('ai-lab-handler E2E: complete', () => {
     expect(call.apiKeyHandleId).toBe(HANDLE_TEST);
   });
 
-  it('captures the AbortController and aborts it on activeCompletes.disposeAll()', async () => {
-    // Hang runToCompletion forever so we can test cleanup.
+  it('aborts and removes a completion when its renderer is destroyed', async () => {
     let abortObserved = false;
     vi.mocked(runToCompletion).mockImplementation((async ({ signal }: { signal: AbortSignal }) => {
       return new Promise<never>((_resolve, reject) => {
@@ -337,18 +340,18 @@ describe('ai-lab-handler E2E: complete', () => {
       });
     }) as unknown as typeof runToCompletion);
     const resPromise = handlerFor('ai-lab:complete')(TRUSTED, base);
-    // Give the handler a tick to register the AbortController.
-    await new Promise((r) => setTimeout(r, 0));
-    // Simulate the renderer being destroyed — this is what `connection-cleanup`
-    // would trigger in production. The handler's `activeCompletes` registry
-    // already calls `dispose()` on each entry, which aborts the signal.
-    unregisterAiLabHandlers();
-    // The in-flight call now rejects with "aborted".
+    await vi.waitFor(() => expect(runToCompletion).toHaveBeenCalledOnce());
+    const cleanup = mockBindCleanup.mock.calls.at(-1)?.[2] as
+      ((webContentsId: number) => void) | undefined;
+    expect(cleanup).toBeTypeOf('function');
+    cleanup?.(TRUSTED.sender.id);
+
+    expect(abortObserved).toBe(true);
     const res = await resPromise;
     expect(res.ok).toBe(false);
-    // The abort listener observed the signal — proves the AbortController was
-    // wired through the registry, not just left dangling.
-    expect(abortObserved).toBe(true);
+    await expect(
+      handlerFor('ai-lab:complete:cancel')(TRUSTED, { operationId: OPERATION_ID })
+    ).resolves.toEqual({ ok: true, alreadyDone: true });
   });
 
   it('propagates an upstream error from runToCompletion as ok:false with the message', async () => {
@@ -408,6 +411,44 @@ describe('ai-lab-handler E2E: complete', () => {
     await expect(
       handlerFor('ai-lab:complete:cancel')(TRUSTED, { operationId: OPERATION_ID })
     ).resolves.toEqual({ ok: true, alreadyDone: true });
+  });
+
+  it('keeps a cancelled ID reserved until its owning completion settles', async () => {
+    let rejectFirst!: (error: Error) => void;
+    let firstAbortObserved = false;
+    vi.mocked(runToCompletion).mockImplementationOnce(
+      ({ signal }) =>
+        new Promise((_resolve, reject) => {
+          rejectFirst = reject;
+          signal?.addEventListener('abort', () => {
+            firstAbortObserved = true;
+          });
+        })
+    );
+    vi.mocked(runToCompletion).mockResolvedValue({ ok: true, text: 'replacement', toolCalls: [] });
+
+    const first = handlerFor('ai-lab:complete')(TRUSTED, base);
+    await vi.waitFor(() => expect(runToCompletion).toHaveBeenCalledOnce());
+    await expect(
+      handlerFor('ai-lab:complete:cancel')(TRUSTED, { operationId: OPERATION_ID })
+    ).resolves.toEqual({ ok: true });
+    expect(firstAbortObserved).toBe(true);
+
+    await expect(handlerFor('ai-lab:complete')(TRUSTED, base)).resolves.toEqual({
+      ok: false,
+      error: 'A completion with this operation ID is already active.',
+    });
+    await expect(handlerFor('ai-lab:complete')(OTHER_SENDER, base)).resolves.toEqual({
+      ok: false,
+      error: 'A completion with this operation ID is already active.',
+    });
+    expect(runToCompletion).toHaveBeenCalledOnce();
+
+    rejectFirst(new Error('aborted'));
+    await expect(first).resolves.toEqual(expect.objectContaining({ ok: false }));
+    await expect(handlerFor('ai-lab:complete')(OTHER_SENDER, base)).resolves.toEqual(
+      expect.objectContaining({ ok: true })
+    );
   });
 });
 

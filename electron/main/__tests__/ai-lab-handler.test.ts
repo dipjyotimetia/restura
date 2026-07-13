@@ -231,4 +231,32 @@ describe('ai-lab-handler', () => {
     resolveComplete({ ok: true, text: 'done', toolCalls: [] });
     await pending;
   });
+
+  it('rejects a duplicate active completion operation ID', async () => {
+    let resolveComplete!: (value: { ok: true; text: string; toolCalls: never[] }) => void;
+    mockRunToCompletion.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveComplete = resolve;
+        })
+    );
+    const args = {
+      operationId: OPERATION_ID,
+      provider: 'ollama',
+      model: 'm',
+      messages: [{ role: 'user', content: 'hi' }],
+      rawMode: false,
+      baseUrlOverride: 'http://localhost:11434',
+    };
+    const pending = handlerFor('ai-lab:complete')(TRUSTED, args);
+    await vi.waitFor(() => expect(mockRunToCompletion).toHaveBeenCalledOnce());
+
+    await expect(handlerFor('ai-lab:complete')(TRUSTED, args)).resolves.toEqual({
+      ok: false,
+      error: 'A completion with this operation ID is already active.',
+    });
+
+    resolveComplete({ ok: true, text: 'done', toolCalls: [] });
+    await pending;
+  });
 });
