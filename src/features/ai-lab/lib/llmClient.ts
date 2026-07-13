@@ -6,8 +6,10 @@ import type { AiLabProviderConfig } from '../types';
 import { getElectronAPI } from '@/lib/shared/platform';
 
 export interface LlmChatMessage {
-  role: 'system' | 'user' | 'assistant';
+  role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
+  toolCallId?: string;
+  toolCalls?: Array<{ id: string; name: string; input: string }>;
 }
 
 export interface LlmCallSpec {

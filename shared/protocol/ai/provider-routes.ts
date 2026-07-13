@@ -59,6 +59,64 @@ function openaiTools(spec: ChatRequestSpec) {
   }));
 }
 
+function parseToolInput(input: string): unknown {
+  try {
+    return JSON.parse(input);
+  } catch {
+    return input;
+  }
+}
+
+function openaiMessages(spec: ChatRequestSpec) {
+  return spec.messages.map((message) => {
+    if (message.role === 'assistant' && message.toolCalls?.length) {
+      return {
+        role: 'assistant',
+        content: message.content,
+        tool_calls: message.toolCalls.map((call) => ({
+          id: call.id,
+          type: 'function',
+          function: { name: call.name, arguments: call.input },
+        })),
+      };
+    }
+    if (message.role === 'tool') {
+      return { role: 'tool', tool_call_id: message.toolCallId, content: message.content };
+    }
+    return { role: message.role, content: message.content };
+  });
+}
+
+function anthropicMessages(spec: ChatRequestSpec) {
+  return spec.messages
+    .filter((message) => message.role !== 'system')
+    .map((message) => {
+      if (message.role === 'assistant' && message.toolCalls?.length) {
+        return {
+          role: 'assistant',
+          content: [
+            ...(message.content ? [{ type: 'text', text: message.content }] : []),
+            ...message.toolCalls.map((call) => ({
+              type: 'tool_use',
+              id: call.id,
+              name: call.name,
+              input: parseToolInput(call.input),
+            })),
+          ],
+        };
+      }
+      if (message.role === 'tool') {
+        return {
+          role: 'user',
+          content: [
+            { type: 'tool_result', tool_use_id: message.toolCallId, content: message.content },
+          ],
+        };
+      }
+      return { role: message.role, content: message.content };
+    });
+}
+
 const openaiRoute: ProviderRoute = {
   buildRequest(spec, apiKey) {
     const tools = openaiTools(spec);
@@ -70,7 +128,7 @@ const openaiRoute: ProviderRoute = {
       },
       body: JSON.stringify({
         model: spec.model,
-        messages: spec.messages,
+        messages: openaiMessages(spec),
         stream: true,
         // Without this, OpenAI omits the usage block from the stream entirely.
         stream_options: { include_usage: true },
@@ -85,7 +143,7 @@ const anthropicRoute: ProviderRoute = {
   buildRequest(spec, apiKey) {
     // Anthropic's /v1/messages takes system as a top-level field, not a role.
     const systemMessages = spec.messages.filter((m) => m.role === 'system');
-    const turnMessages = spec.messages.filter((m) => m.role !== 'system');
+    const turnMessages = anthropicMessages(spec);
     const systemPrompt = systemMessages.map((m) => m.content).join('\n\n');
     return {
       url: `${baseUrl(spec)}/v1/messages`,
@@ -128,7 +186,7 @@ const openrouterRoute: ProviderRoute = {
       },
       body: JSON.stringify({
         model: spec.model,
-        messages: spec.messages,
+        messages: openaiMessages(spec),
         stream: true,
         // OpenRouter is OpenAI-compatible; opt in to usage in the stream.
         stream_options: { include_usage: true },
@@ -158,7 +216,7 @@ function openAiCompatibleRoute(): ProviderRoute {
         },
         body: JSON.stringify({
           model: spec.model,
-          messages: spec.messages,
+          messages: openaiMessages(spec),
           stream: true,
           stream_options: { include_usage: true },
           max_tokens: spec.maxOutputTokens ?? 2048,

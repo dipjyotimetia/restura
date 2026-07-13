@@ -15,6 +15,16 @@ npm install -g @restura/cli
 
 Requires Node.js 24 or later. The binary is `restura`.
 
+## `restura agent eval`
+
+Run an AI Lab Agent Suite v2 in headless CI:
+
+```bash
+OPENAI_API_KEY=... restura agent eval ./checkout.agent-suite.json --output agent-report.json
+```
+
+The suite model uses `providerId: "openai.responses"` and an environment credential reference such as `{ "source": "env", "name": "OPENAI_API_KEY" }`. The command emits a compact summary, optionally writes the complete typed traces and grader results, and exits `0` only when every trial passes (`1` for evaluated failure, `2` for invalid configuration/runtime setup). For safety, the initial headless adapter refuses custom base URLs, desktop secret handles, and tool sources without a registered CLI adapter.
+
 ## Quick start
 
 A Restura collection is a directory containing a `_collection.yaml` plus one

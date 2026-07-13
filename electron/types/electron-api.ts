@@ -860,7 +860,12 @@ interface ElectronAiAPI {
     streamId: string;
     provider: 'openai' | 'anthropic' | 'openrouter' | 'openai-compatible';
     model: string;
-    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+    messages: Array<{
+      role: 'system' | 'user' | 'assistant' | 'tool';
+      content: string;
+      toolCallId?: string;
+      toolCalls?: Array<{ id: string; name: string; input: string }>;
+    }>;
     apiKeyHandleId?: string;
     baseUrlOverride?: string;
     rawMode: boolean;
@@ -888,7 +893,12 @@ interface ElectronAiAPI {
 interface AiLabModelSpec {
   provider: import('../../shared/protocol/ai/types').Provider;
   model: string;
-  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+  messages: Array<{
+    role: 'system' | 'user' | 'assistant' | 'tool';
+    content: string;
+    toolCallId?: string;
+    toolCalls?: Array<{ id: string; name: string; input: string }>;
+  }>;
   apiKeyHandleId?: string;
   baseUrlOverride?: string;
   rawMode: boolean;

@@ -1,3 +1,4 @@
+import { AgentSuiteSchema } from '@shared/agent-lab';
 import { z } from 'zod';
 import {
   httpRequestSchema,
@@ -413,6 +414,7 @@ export const AiLabStateSchema = z.object({
   evalConfigs: z.record(z.string(), EvalConfigSchema),
   favoriteModelKeys: z.array(z.string()).default([]),
   recentModelKeys: z.array(z.string()).max(20).default([]),
+  agentSuites: z.record(z.string(), AgentSuiteSchema).default({}),
 });
 
 export type PersistedAiLabState = z.infer<typeof AiLabStateSchema>;

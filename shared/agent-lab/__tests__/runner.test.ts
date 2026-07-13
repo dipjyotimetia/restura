@@ -1,0 +1,322 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { AgentSuite } from '../types';
+import type { GenerationResponse, ProviderAdapter } from '../provider';
+import { ProviderRegistry } from '../provider';
+import { AgentRunner, type AgentTool } from '../runner';
+
+const capabilities = {
+  inputModalities: ['text'] as const,
+  outputModalities: ['text'] as const,
+  structuredOutput: false,
+  toolCalling: true,
+  parallelToolCalls: true,
+  reasoning: false,
+  continuation: false,
+  serverTools: [],
+};
+
+function suite(maxSteps = 4): AgentSuite {
+  return {
+    schemaVersion: 2,
+    id: 'suite',
+    name: 'Suite',
+    mode: 'regression',
+    agents: [
+      {
+        id: 'agent',
+        model: { providerId: 'fake', model: 'model' },
+        instructions: 'Use tools.',
+        tools: [{ kind: 'restura-request', requestId: 'request-1' }],
+        limits: { maxSteps, maxWallTimeMs: 10_000 },
+      },
+    ],
+    tasks: [{ id: 'task', input: [{ type: 'text', text: 'Lookup order 42' }] }],
+    graders: [],
+    trials: 1,
+  };
+}
+
+function fakeAdapter(responses: GenerationResponse[]): ProviderAdapter {
+  let index = 0;
+  return {
+    id: 'fake',
+    async discoverModels() {
+      return [];
+    },
+    async getCapabilities() {
+      return capabilities;
+    },
+    async generate() {
+      return responses[index++]!;
+    },
+  };
+}
+
+const lookupTool: AgentTool = {
+  definition: {
+    name: 'orders.get',
+    description: 'Get an order',
+    inputSchema: { type: 'object' },
+  },
+  permissionClass: 'read',
+  async execute(args) {
+    return [{ type: 'json', value: { args, status: 'paid' } }];
+  },
+};
+
+describe('AgentRunner', () => {
+  afterEach(() => vi.useRealTimers());
+  it('executes a tool loop and records a strictly ordered trace', async () => {
+    const registry = new ProviderRegistry([
+      fakeAdapter([
+        {
+          id: 'r1',
+          output: [],
+          toolCalls: [{ id: 'call-1', name: 'orders.get', arguments: { id: 42 } }],
+          stopReason: 'tool-calls',
+        },
+        {
+          id: 'r2',
+          output: [{ type: 'text', text: 'Order 42 is paid.' }],
+          toolCalls: [],
+          stopReason: 'completed',
+        },
+      ]),
+    ]);
+    const runner = new AgentRunner({
+      providers: registry,
+      async resolveTools() {
+        return [lookupTool];
+      },
+      async resolveCredential() {
+        return undefined;
+      },
+    });
+
+    const result = await runner.run({ suite: suite(), taskId: 'task', agentId: 'agent', trial: 1 });
+
+    expect(result.status).toBe('passed');
+    expect(result.output).toEqual([{ type: 'text', text: 'Order 42 is paid.' }]);
+    expect(result.trace.events.map((event) => event.type)).toEqual([
+      'run.started',
+      'model.requested',
+      'model.completed',
+      'tool.requested',
+      'tool.completed',
+      'model.requested',
+      'model.completed',
+      'run.completed',
+    ]);
+    expect(result.trace.events.map((event) => event.sequence)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+  });
+
+  it('denies sensitive tools before execution when approval is refused', async () => {
+    let executed = false;
+    const mutationTool: AgentTool = {
+      ...lookupTool,
+      permissionClass: 'mutation',
+      async execute() {
+        executed = true;
+        return [];
+      },
+    };
+    const runner = new AgentRunner({
+      providers: new ProviderRegistry([
+        fakeAdapter([
+          {
+            id: 'r1',
+            output: [],
+            toolCalls: [{ id: 'call-1', name: 'orders.get', arguments: {} }],
+          },
+        ]),
+      ]),
+      async resolveTools() {
+        return [mutationTool];
+      },
+      async resolveCredential() {
+        return undefined;
+      },
+      async requestApproval() {
+        return 'denied';
+      },
+    });
+
+    const result = await runner.run({ suite: suite(), taskId: 'task', agentId: 'agent', trial: 1 });
+
+    expect(executed).toBe(false);
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('approval denied');
+    expect(result.trace.events.map((event) => event.type)).toContain('approval.resolved');
+  });
+
+  it('stops a non-terminating model at the configured step limit', async () => {
+    const repeated = Array.from({ length: 3 }, (_, index) => ({
+      id: `r${index}`,
+      output: [],
+      toolCalls: [{ id: `call-${index}`, name: 'orders.get', arguments: {} }],
+    }));
+    const runner = new AgentRunner({
+      providers: new ProviderRegistry([fakeAdapter(repeated)]),
+      async resolveTools() {
+        return [lookupTool];
+      },
+      async resolveCredential() {
+        return undefined;
+      },
+    });
+
+    const result = await runner.run({
+      suite: suite(2),
+      taskId: 'task',
+      agentId: 'agent',
+      trial: 1,
+    });
+
+    expect(result.status).toBe('error');
+    expect(result.error).toBe('agent exceeded maxSteps (2)');
+  });
+
+  it('actively aborts a hung provider at the wall-time limit', async () => {
+    vi.useFakeTimers();
+    const adapter = fakeAdapter([]);
+    adapter.generate = async (_request, context) =>
+      new Promise((_resolve, reject) => {
+        context.signal?.addEventListener('abort', () => reject(new Error('aborted')), {
+          once: true,
+        });
+      });
+    const runner = new AgentRunner({
+      providers: new ProviderRegistry([adapter]),
+      async resolveTools() {
+        return [];
+      },
+      async resolveCredential() {
+        return undefined;
+      },
+    });
+    const configured = suite();
+    configured.agents[0]!.limits.maxWallTimeMs = 100;
+    const pending = runner.run({ suite: configured, taskId: 'task', agentId: 'agent', trial: 1 });
+    await vi.advanceTimersByTimeAsync(101);
+    const result = await pending;
+    expect(result.status).toBe('error');
+    expect(result.error).toBe('agent exceeded maxWallTimeMs (100)');
+  });
+
+  it('applies the output byte budget to untrusted tool output', async () => {
+    const configured = suite();
+    configured.agents[0]!.limits.maxOutputBytes = 1024;
+    const runner = new AgentRunner({
+      providers: new ProviderRegistry([
+        fakeAdapter([
+          {
+            id: 'r1',
+            output: [],
+            toolCalls: [{ id: 'call', name: 'large', arguments: {} }],
+          },
+        ]),
+      ]),
+      async resolveCredential() {
+        return undefined;
+      },
+      async resolveTools() {
+        return [
+          {
+            definition: { name: 'large', description: 'large', inputSchema: {} },
+            permissionClass: 'read',
+            async execute() {
+              return [{ type: 'text' as const, text: 'x'.repeat(2_000) }];
+            },
+          },
+        ];
+      },
+    });
+    const result = await runner.run({
+      suite: configured,
+      taskId: 'task',
+      agentId: 'agent',
+      trial: 1,
+    });
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('exceeded maxOutputBytes (1024)');
+  });
+
+  it('applies the output byte budget to opaque provider continuation state', async () => {
+    const configured = suite();
+    configured.agents[0]!.limits.maxOutputBytes = 1024;
+    const runner = new AgentRunner({
+      providers: new ProviderRegistry([
+        fakeAdapter([
+          {
+            id: 'r1',
+            output: [],
+            providerState: [{ type: 'reasoning', encrypted_content: 'x'.repeat(2_000) }],
+            toolCalls: [{ id: 'call', name: 'orders.get', arguments: {} }],
+          },
+        ]),
+      ]),
+      async resolveCredential() {
+        return undefined;
+      },
+      async resolveTools() {
+        return [lookupTool];
+      },
+    });
+
+    const result = await runner.run({
+      suite: configured,
+      taskId: 'task',
+      agentId: 'agent',
+      trial: 1,
+    });
+
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('exceeded maxOutputBytes (1024)');
+    expect(result.trace.events.map((event) => event.type)).not.toContain('model.completed');
+  });
+
+  it('validates provider tool arguments before approval or execution', async () => {
+    let executed = false;
+    const runner = new AgentRunner({
+      providers: new ProviderRegistry([
+        fakeAdapter([
+          {
+            id: 'r1',
+            output: [],
+            toolCalls: [{ id: 'call', name: 'typed', arguments: { id: 'wrong' } }],
+          },
+        ]),
+      ]),
+      async resolveCredential() {
+        return undefined;
+      },
+      async resolveTools() {
+        return [
+          {
+            definition: {
+              name: 'typed',
+              description: 'typed',
+              inputSchema: {
+                type: 'object',
+                required: ['id'],
+                properties: { id: { type: 'number' } },
+              },
+            },
+            permissionClass: 'mutation',
+            async execute() {
+              executed = true;
+              return [];
+            },
+          },
+        ];
+      },
+      async requestApproval() {
+        throw new Error('must not request approval');
+      },
+    });
+    const result = await runner.run({ suite: suite(), taskId: 'task', agentId: 'agent', trial: 1 });
+    expect(executed).toBe(false);
+    expect(result.error).toContain('invalid arguments for tool typed');
+    expect(result.trace.events.map((event) => event.type)).toContain('tool.failed');
+  });
+});

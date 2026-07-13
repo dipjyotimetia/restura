@@ -1291,9 +1291,17 @@ export const NoInputSchema = z.undefined();
 // AI Chat Schemas
 // ===========================
 
+const AiChatToolCallSchema = z.object({
+  id: z.string().min(1).max(200),
+  name: z.string().min(1).max(200),
+  input: z.string().max(200_000),
+});
+
 export const AiChatMessageSchema = z.object({
-  role: z.enum(['system', 'user', 'assistant']),
+  role: z.enum(['system', 'user', 'assistant', 'tool']),
   content: z.string().max(200_000), // ~50k tokens; over this is almost certainly a bug
+  toolCallId: z.string().min(1).max(200).optional(),
+  toolCalls: z.array(AiChatToolCallSchema).max(64).optional(),
 });
 
 export const AiChatToolSchema = z.object({

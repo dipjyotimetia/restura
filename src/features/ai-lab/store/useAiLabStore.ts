@@ -1,3 +1,4 @@
+import { AgentSuiteSchema, type AgentSuite } from '@shared/agent-lab';
 import { isHuggingFaceProvider, isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
@@ -20,6 +21,7 @@ interface PersistedAiLabState {
   evalConfigs: Record<string, EvalConfig>;
   favoriteModelKeys: string[];
   recentModelKeys: string[];
+  agentSuites: Record<string, AgentSuite>;
 }
 
 interface AiLabState extends PersistedAiLabState {
@@ -64,6 +66,10 @@ interface AiLabState extends PersistedAiLabState {
     cfg: Omit<EvalConfig, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
   ) => string;
   removeEvalConfig: (id: string) => void;
+
+  // Agent workbench
+  upsertAgentSuite: (suite: unknown) => string;
+  removeAgentSuite: (id: string) => void;
 }
 
 const DEFAULT_STATE: PersistedAiLabState = {
@@ -73,6 +79,7 @@ const DEFAULT_STATE: PersistedAiLabState = {
   evalConfigs: {},
   favoriteModelKeys: [],
   recentModelKeys: [],
+  agentSuites: {},
 };
 
 const RECENT_MODEL_LIMIT = 20;
@@ -263,11 +270,27 @@ export const useAiLabStore = create<AiLabState>()(
           delete next[id];
           return { evalConfigs: next };
         }),
+
+      upsertAgentSuite: (input) => {
+        const suite = AgentSuiteSchema.parse(input);
+        set((state) => ({ agentSuites: { ...state.agentSuites, [suite.id]: suite } }));
+        return suite.id;
+      },
+      removeAgentSuite: (id) =>
+        set((state) => {
+          const next = { ...state.agentSuites };
+          delete next[id];
+          return { agentSuites: next };
+        }),
     }),
     {
       name: 'ai-lab-store',
       storage: dexieStorageAdapters.aiLab(),
-      version: 1,
+      version: 2,
+      migrate: (persisted) => ({
+        ...(persisted as Partial<PersistedAiLabState>),
+        agentSuites: (persisted as Partial<PersistedAiLabState>).agentSuites ?? {},
+      }),
       partialize: (state) => ({
         providers: state.providers,
         prompts: state.prompts,
@@ -275,6 +298,7 @@ export const useAiLabStore = create<AiLabState>()(
         evalConfigs: state.evalConfigs,
         favoriteModelKeys: state.favoriteModelKeys,
         recentModelKeys: state.recentModelKeys,
+        agentSuites: state.agentSuites,
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;

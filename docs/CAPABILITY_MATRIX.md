@@ -43,6 +43,11 @@ rather than discover it experimentally.
 | AI Lab LLM-as-judge (incl. pairwise/preference) | ❌ | ✅ | Structured-output judge call via the AI Lab complete path; pairwise with position-bias swap |
 | AI Lab http-exec target (execute AI-generated request, score upstream response) | ❌ | ✅ | Model emits an HTTP/GraphQL request; executed via the real request executor (same SSRF guard), upstream response scored. See ADR 0023 |
 | AI Lab Arena (pairwise model-vs-model Elo leaderboard) | ❌ | ✅ | Round-robin pairwise judging → Elo + win-rate matrix; persisted to the arenaRuns table |
+| AI Lab agent suites (multi-step trials, trajectory/outcome evals) | ❌ | ✅ | Versioned portable suite schema; typed traces, hard budgets, repeated-trial reliability, CI JSON reports via `restura agent eval` |
+| AI Lab agent provider transports | ❌ | ✅ | Desktop wires OpenAI Chat, Anthropic Messages, OpenRouter, Ollama, Hugging Face, and generic OpenAI-compatible through keychain-backed IPC. Headless CLI wires OpenAI Responses. Gemini, Azure OpenAI, and Bedrock are adapter profiles only, not shipped transports. |
+| AI Lab agents using saved Restura HTTP requests as tools | ❌ | ✅ | Runs through the normal request executor and security boundary; non-read methods require explicit per-call approval |
+| AI Lab agents using MCP servers as tools | ❌ | ❌ | Shared allowlist and annotation-aware adapter is implemented, but no desktop MCP connection resolver is registered yet |
+| AI Lab pluggable code sandboxes | ❌ | ❌ | Provider contract and registry are implemented; no Docker or hosted sandbox provider ships yet |
 | Filesystem-backed collections | ❌ | ✅ |  |
 | Git operations on collections | ❌ | ✅ |  |
 | Local mock server | ❌ | ✅ | Binds a localhost HTTP listener; no browser TCP |

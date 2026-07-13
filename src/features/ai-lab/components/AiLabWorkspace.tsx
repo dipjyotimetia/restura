@@ -7,6 +7,7 @@ import {
   Gauge,
   PlaySquare,
   Trophy,
+  Workflow,
 } from 'lucide-react';
 import { useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -14,6 +15,7 @@ import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore, type AiLabTab } from '../store/useAiLabUiStore';
 import { useArenaStore } from '../store/useArenaStore';
 import { useEvalRunStore } from '../store/useEvalRunStore';
+import { AgentWorkbench } from './AgentWorkbench';
 import { Arena } from './Arena';
 import { DatasetEditor } from './DatasetEditor';
 import { EvalBuilder } from './EvalBuilder';
@@ -34,6 +36,7 @@ const NAV_ITEMS: Array<{
   icon: typeof FlaskConical;
 }> = [
   { value: 'playground', label: 'Playground', description: 'Compare prompts', icon: PlaySquare },
+  { value: 'agents', label: 'Agents', description: 'Build & evaluate loops', icon: Workflow },
   { value: 'datasets', label: 'Datasets', description: 'Manage test cases', icon: Database },
   { value: 'evals', label: 'Evals', description: 'Score model runs', icon: Gauge },
   { value: 'arena', label: 'Arena', description: 'Rank head to head', icon: Trophy },
@@ -43,11 +46,12 @@ const NAV_ITEMS: Array<{
 
 const TAB_KEYS: Record<string, AiLabTab> = {
   '1': 'playground',
-  '2': 'datasets',
-  '3': 'evals',
-  '4': 'arena',
-  '5': 'reports',
-  '6': 'providers',
+  '2': 'agents',
+  '3': 'datasets',
+  '4': 'evals',
+  '5': 'arena',
+  '6': 'reports',
+  '7': 'providers',
 };
 
 export default function AiLabWorkspace() {
@@ -207,6 +211,7 @@ export default function AiLabWorkspace() {
           >
             <div key={tab} className="h-full animate-sp-panel-in">
               {tab === 'playground' && <Playground />}
+              {tab === 'agents' && <AgentWorkbench />}
               {tab === 'datasets' && <DatasetEditor />}
               {tab === 'evals' && <EvalBuilder />}
               {tab === 'arena' && <Arena />}
