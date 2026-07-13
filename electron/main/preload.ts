@@ -814,7 +814,11 @@ const electronAPI = {
   // for eval cells + LLM-as-judge, and model discovery. See ai-lab-handler.ts.
   // Param/return shapes are enforced by `satisfies ElectronAPI` on this object.
   aiLab: {
-    complete: (spec: AiLabModelSpec) => ipcRenderer.invoke(IPC.aiLab.complete, spec),
+    complete: (spec: AiLabModelSpec & { operationId: string }) =>
+      ipcRenderer.invoke(IPC.aiLab.complete, spec),
+
+    cancelComplete: (args: { operationId: string }) =>
+      ipcRenderer.invoke(IPC.aiLab.completeCancel, args),
 
     stream: (spec: AiLabModelSpec & { streamId: string }) =>
       ipcRenderer.invoke(IPC.aiLab.stream, spec),

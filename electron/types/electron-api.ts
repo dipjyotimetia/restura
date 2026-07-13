@@ -916,11 +916,14 @@ interface AiLabDiscoverArgs {
 
 interface ElectronAiLabAPI {
   complete: (
-    spec: AiLabModelSpec
+    spec: AiLabModelSpec & { operationId: string }
   ) => Promise<
     | { ok: true; result: import('../../shared/protocol/ai/types').CompletionResult }
     | { ok: false; error: string }
   >;
+  cancelComplete: (args: {
+    operationId: string;
+  }) => Promise<{ ok: boolean; alreadyDone?: boolean; error?: string }>;
   stream: (
     spec: AiLabModelSpec & { streamId: string }
   ) => Promise<{ ok: true; streamId: string } | { ok: false; error: string }>;

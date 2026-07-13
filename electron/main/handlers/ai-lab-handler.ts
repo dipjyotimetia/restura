@@ -29,6 +29,7 @@ import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo } from '../ipc/ipc-utils';
 import {
   AiLabCompleteSchema,
+  AiLabCompleteCancelSchema,
   AiLabStreamSchema,
   AiLabStreamCancelSchema,
   AiLabDiscoverSchema,
@@ -178,21 +179,23 @@ export function registerAiLabHandlers(): void {
       return { ok: false as const, error: 'Rate limited. Slow down.' };
     }
     const data = parsed.data;
-    let fetcher: Fetcher;
-    try {
-      fetcher = await buildSafeFetcher(data.provider, data.baseUrlOverride);
-    } catch (e) {
-      return { ok: false as const, error: (e as Error).message };
+    const abort = new AbortController();
+    if (
+      !activeCompletes.tryAdd(data.operationId, event.sender, { webContentsId: senderId, abort })
+    ) {
+      return {
+        ok: false as const,
+        error: 'A completion with this operation ID is already active.',
+      };
     }
 
-    // Collision-free id (a timestamp-based key could collide for two completes
-    // from the same sender in the same tick, leaking an AbortController).
-    const completeId = crypto.randomUUID();
-    const abort = new AbortController();
-    activeCompletes.add(completeId, event.sender, { webContentsId: senderId, abort });
-
-    await completeSlots.acquire();
+    let slotAcquired = false;
     try {
+      const fetcher = await buildSafeFetcher(data.provider, data.baseUrlOverride);
+      if (abort.signal.aborted) return { ok: false as const, error: 'Operation cancelled.' };
+      await completeSlots.acquire();
+      slotAcquired = true;
+      if (abort.signal.aborted) return { ok: false as const, error: 'Operation cancelled.' };
       const result = await runToCompletion(
         { ...buildSpec(data), signal: abort.signal },
         fetcher,
@@ -204,9 +207,22 @@ export function registerAiLabHandlers(): void {
       log.warn('complete failed', { provider: data.provider, model: data.model, error: msg });
       return { ok: false as const, error: msg };
     } finally {
-      completeSlots.release();
-      activeCompletes.remove(completeId);
+      if (slotAcquired) completeSlots.release();
+      activeCompletes.remove(data.operationId);
     }
+  });
+
+  ipcMain.handle(IPC.aiLab.completeCancel, async (event, raw: unknown) => {
+    assertTrustedSender(IPC.aiLab.completeCancel, event);
+    const parsed = AiLabCompleteCancelSchema.safeParse(raw);
+    if (!parsed.success) return { ok: false as const, error: parsed.error.message };
+    const active = activeCompletes.get(parsed.data.operationId);
+    if (!active) return { ok: true as const, alreadyDone: true };
+    if (active.webContentsId !== event.sender.id) {
+      return { ok: false as const, error: 'Operation does not belong to this renderer.' };
+    }
+    activeCompletes.cancel(parsed.data.operationId);
+    return { ok: true as const };
   });
 
   // --- Streaming completion (Playground multi-model compare) -------------
@@ -313,6 +329,7 @@ export function registerAiLabHandlers(): void {
 
 export function unregisterAiLabHandlers(): void {
   ipcMain.removeHandler(IPC.aiLab.complete);
+  ipcMain.removeHandler(IPC.aiLab.completeCancel);
   ipcMain.removeHandler(IPC.aiLab.stream);
   ipcMain.removeHandler(IPC.aiLab.streamCancel);
   ipcMain.removeHandler(IPC.aiLab.listModels);

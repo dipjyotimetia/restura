@@ -64,6 +64,7 @@ export function makeRendererJudge(
     // carve-out still requires baseUrlOverride to be present.
     const runComplete: JudgeComplete = async (messages, tools) => {
       const spec = {
+        operationId: crypto.randomUUID(),
         provider: cfg.provider,
         model: cfg.model,
         messages,

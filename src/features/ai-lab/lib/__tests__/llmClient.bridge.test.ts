@@ -18,6 +18,7 @@ function installBridge() {
   captured = { order: [] };
   aiLab = {
     complete: vi.fn(async () => ({ ok: true, result: { ok: true, text: 'hi', toolCalls: [] } })),
+    cancelComplete: vi.fn(async () => ({ ok: true })),
     stream: vi.fn(async () => {
       captured.order.push('stream');
       return { ok: true, streamId: 'sid' };
@@ -61,6 +62,29 @@ describe('llmClient bridge', () => {
   it('completeLlm throws on an error response', async () => {
     aiLab.complete!.mockResolvedValueOnce({ ok: false, error: 'nope' });
     await expect(completeLlm(SPEC)).rejects.toThrow('nope');
+  });
+
+  it('cancels an in-flight complete when its signal aborts', async () => {
+    const operationId = '66666666-6666-4666-8666-666666666666';
+    const controller = new AbortController();
+    let resolveComplete!: (value: {
+      ok: true;
+      result: { ok: true; text: string; toolCalls: never[] };
+    }) => void;
+    aiLab.complete!.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveComplete = resolve;
+        })
+    );
+
+    const pending = completeLlm(SPEC, { signal: controller.signal, operationId });
+    controller.abort();
+    resolveComplete({ ok: true, result: { ok: true, text: 'late', toolCalls: [] } });
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(aiLab.complete).toHaveBeenCalledWith(expect.objectContaining({ operationId }));
+    expect(aiLab.cancelComplete).toHaveBeenCalledWith({ operationId });
   });
 
   it('streamLlm subscribes to chunk + end BEFORE invoking stream', async () => {

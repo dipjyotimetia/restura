@@ -24,6 +24,7 @@ const HANDLE_2 = '22222222-2222-4222-8222-222222222222';
 const HANDLE_BAD = '33333333-3333-4333-8333-333333333333';
 const HANDLE_TEST = '44444444-4444-4444-8444-444444444444';
 const STREAM_ID = '55555555-5555-4555-8555-555555555555';
+const OPERATION_ID = '66666666-6666-4666-8666-666666666666';
 
 const mockHandle = vi.hoisted(() => vi.fn());
 const mockRemoveHandler = vi.hoisted(() => vi.fn());
@@ -284,6 +285,7 @@ describe('ai-lab-handler E2E: testConnection', () => {
 
 describe('ai-lab-handler E2E: complete', () => {
   const base = {
+    operationId: OPERATION_ID,
     provider: 'ollama' as const,
     model: 'llama3.2',
     messages: [{ role: 'user' as const, content: 'hi' }],
@@ -354,6 +356,58 @@ describe('ai-lab-handler E2E: complete', () => {
     const res = await handlerFor('ai-lab:complete')(TRUSTED, base);
     expect(res.ok).toBe(false);
     expect(res.error).toMatch(/upstream 502/);
+  });
+
+  it('aborts while waiting for a completion slot', async () => {
+    const resolvers: Array<(value: { ok: true; text: string; toolCalls: never[] }) => void> = [];
+    vi.mocked(runToCompletion).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolvers.push(resolve);
+        })
+    );
+
+    const occupying = Array.from({ length: 8 }, (_, index) =>
+      handlerFor('ai-lab:complete')(TRUSTED, {
+        ...base,
+        operationId: `70000000-0000-4000-8000-00000000000${index}`,
+        model: `occupier-${index}`,
+      })
+    );
+    await vi.waitFor(() => expect(runToCompletion).toHaveBeenCalledTimes(8));
+
+    const queued = handlerFor('ai-lab:complete')(TRUSTED, {
+      ...base,
+      operationId: '80000000-0000-4000-8000-000000000000',
+      model: 'queued-model',
+    });
+    await expect(
+      handlerFor('ai-lab:complete:cancel')(TRUSTED, {
+        operationId: '80000000-0000-4000-8000-000000000000',
+      })
+    ).resolves.toEqual({ ok: true });
+
+    resolvers[0]?.({ ok: true, text: 'released', toolCalls: [] });
+    await expect(queued).resolves.toEqual(expect.objectContaining({ ok: false }));
+    expect(runToCompletion).not.toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'queued-model' }),
+      expect.anything(),
+      expect.anything()
+    );
+
+    for (const resolve of resolvers.slice(1)) {
+      resolve({ ok: true, text: 'done', toolCalls: [] });
+    }
+    await Promise.all(occupying);
+  });
+
+  it('treats cancellation after completion as idempotent', async () => {
+    vi.mocked(runToCompletion).mockResolvedValue({ ok: true, text: 'done', toolCalls: [] });
+    await handlerFor('ai-lab:complete')(TRUSTED, base);
+
+    await expect(
+      handlerFor('ai-lab:complete:cancel')(TRUSTED, { operationId: OPERATION_ID })
+    ).resolves.toEqual({ ok: true, alreadyDone: true });
   });
 });
 

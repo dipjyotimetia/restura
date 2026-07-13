@@ -1395,13 +1395,23 @@ const requireDiscoveryKey = (v: { provider: string; apiKeyHandleId?: string; api
   return !!v.apiKeyHandleId || !!v.apiKey;
 };
 
-export const AiLabCompleteSchema = AiLabCompleteBase.refine(requireBaseForCompat, {
-  message: 'openai-compatible provider requires a base URL.',
-  path: ['baseUrlOverride'],
-}).refine(requireInferenceKey, {
-  message: 'This provider requires an API key. Add one in the provider settings.',
-  path: ['apiKeyHandleId'],
-});
+export const AiLabCompleteSchema = AiLabCompleteBase.extend({
+  operationId: z.uuid(),
+})
+  .refine(requireBaseForCompat, {
+    message: 'openai-compatible provider requires a base URL.',
+    path: ['baseUrlOverride'],
+  })
+  .refine(requireInferenceKey, {
+    message: 'This provider requires an API key. Add one in the provider settings.',
+    path: ['apiKeyHandleId'],
+  });
+
+export const AiLabCompleteCancelSchema = z
+  .object({
+    operationId: z.uuid(),
+  })
+  .strict();
 
 export const AiLabStreamSchema = AiLabCompleteBase.extend({
   streamId: z.uuid(),
