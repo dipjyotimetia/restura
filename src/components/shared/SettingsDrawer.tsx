@@ -1953,7 +1953,7 @@ function ReleaseNotesPanel({ channel }: { channel: ReleaseNotesChannel }) {
         const page = await fetchReleaseNotesPage({ channel });
         setReleases(page.releases);
         setSelectedId(page.releases[0]?.id ?? null);
-        setNextPage(page.hasNextPage ? 2 : null);
+        setNextPage(page.nextPage);
       } catch (cause) {
         setReleases([]);
         setSelectedId(null);
@@ -1978,7 +1978,7 @@ function ReleaseNotesPanel({ channel }: { channel: ReleaseNotesChannel }) {
     try {
       const page = await fetchReleaseNotesPage({ channel, page: nextPage });
       setReleases((current) => [...current, ...page.releases]);
-      setNextPage(page.hasNextPage ? nextPage + 1 : null);
+      setNextPage(page.nextPage);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Release notes are unavailable right now.');
     } finally {

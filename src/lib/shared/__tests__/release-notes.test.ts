@@ -61,7 +61,7 @@ describe('fetchReleaseNotesPage', () => {
           isPrerelease: false,
         },
       ],
-      hasNextPage: false,
+      nextPage: null,
     });
   });
 
@@ -82,7 +82,7 @@ describe('fetchReleaseNotesPage', () => {
         expect.objectContaining({ tag: 'v1.3.0-beta.1', isPrerelease: true }),
         expect.objectContaining({ tag: 'v1.2.0', isPrerelease: false }),
       ],
-      hasNextPage: true,
+      nextPage: 2,
     });
     await fetchReleaseNotesPage(options);
 
@@ -91,6 +91,35 @@ describe('fetchReleaseNotesPage', () => {
       'https://api.github.com/repos/dipjyotimetia/restura/releases?per_page=30&page=1',
       expect.objectContaining({ headers: { Accept: 'application/vnd.github+json' } })
     );
+  });
+
+  it('skips source pages without stable releases and returns the following source page', async () => {
+    const prereleaseOnly = [releases[0]];
+    const stableOnly = [releases[1]];
+    const fetchMock = vi.fn(async (input: string) => {
+      const page = new URL(input).searchParams.get('page');
+      if (page === '1') {
+        return new Response(JSON.stringify(prereleaseOnly), {
+          status: 200,
+          headers: {
+            Link: '<https://api.github.com/repos/dipjyotimetia/restura/releases?page=2>; rel="next"',
+          },
+        });
+      }
+      return new Response(JSON.stringify(stableOnly), {
+        status: 200,
+        headers: {
+          Link: '<https://api.github.com/repos/dipjyotimetia/restura/releases?page=3>; rel="next"',
+        },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(fetchReleaseNotesPage({ channel: 'stable' })).resolves.toMatchObject({
+      releases: [expect.objectContaining({ tag: 'v1.2.0' })],
+      nextPage: 3,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('rejects invalid GitHub responses with a user-safe error', async () => {

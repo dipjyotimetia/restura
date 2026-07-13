@@ -30,7 +30,7 @@ export interface ReleaseNote {
 
 export interface ReleaseNotesPage {
   releases: ReleaseNote[];
-  hasNextPage: boolean;
+  nextPage: number | null;
 }
 
 interface FetchReleaseNotesOptions {
@@ -44,45 +44,56 @@ function cacheKey({ channel, page = 1 }: FetchReleaseNotesOptions): string {
   return `${channel}:${page}`;
 }
 
-function hasNextPage(linkHeader: string | null): boolean {
-  return linkHeader?.split(',').some((link) => /rel="next"/.test(link)) ?? false;
+function getNextPage(linkHeader: string | null): number | null {
+  const nextLink = linkHeader?.split(',').find((link) => /rel="next"/.test(link));
+  const url = nextLink?.match(/<([^>]+)>/)?.[1];
+  if (!url) return null;
+
+  try {
+    const page = Number(new URL(url).searchParams.get('page'));
+    return Number.isSafeInteger(page) && page > 0 ? page : null;
+  } catch {
+    return null;
+  }
 }
 
 async function requestReleaseNotes({
   channel,
   page = 1,
 }: FetchReleaseNotesOptions): Promise<ReleaseNotesPage> {
-  const url = new URL(RELEASES_URL);
-  url.searchParams.set('per_page', String(PAGE_SIZE));
-  url.searchParams.set('page', String(page));
+  let currentPage = page;
 
-  let response: Response;
-  try {
-    response = await fetch(url.toString(), {
-      headers: { Accept: 'application/vnd.github+json' },
-    });
-  } catch {
-    throw new Error('Release notes are unavailable right now. Please try again.');
-  }
+  while (true) {
+    const url = new URL(RELEASES_URL);
+    url.searchParams.set('per_page', String(PAGE_SIZE));
+    url.searchParams.set('page', String(currentPage));
 
-  if (!response.ok) {
-    throw new Error('Release notes are unavailable right now. Please try again.');
-  }
+    let response: Response;
+    try {
+      response = await fetch(url.toString(), {
+        headers: { Accept: 'application/vnd.github+json' },
+      });
+    } catch {
+      throw new Error('Release notes are unavailable right now. Please try again.');
+    }
 
-  let payload: unknown;
-  try {
-    payload = await response.json();
-  } catch {
-    throw new Error('Release notes are unavailable right now. Please try again.');
-  }
+    if (!response.ok) {
+      throw new Error('Release notes are unavailable right now. Please try again.');
+    }
 
-  const parsed = GitHubReleasesSchema.safeParse(payload);
-  if (!parsed.success) {
-    throw new Error('Release notes are unavailable right now. Please try again.');
-  }
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      throw new Error('Release notes are unavailable right now. Please try again.');
+    }
 
-  return {
-    releases: parsed.data
+    const parsed = GitHubReleasesSchema.safeParse(payload);
+    if (!parsed.success) {
+      throw new Error('Release notes are unavailable right now. Please try again.');
+    }
+
+    const releases = parsed.data
       .filter((release) => !release.draft && release.published_at != null)
       .filter((release) => channel === 'beta' || !release.prerelease)
       .map((release) => ({
@@ -93,9 +104,19 @@ async function requestReleaseNotes({
         url: release.html_url,
         publishedAt: release.published_at!,
         isPrerelease: release.prerelease,
-      })),
-    hasNextPage: hasNextPage(response.headers.get('Link')),
-  };
+      }));
+    const nextPage = getNextPage(response.headers.get('Link'));
+
+    if (nextPage == null || nextPage <= currentPage) {
+      return { releases, nextPage: null };
+    }
+
+    if (releases.length > 0) {
+      return { releases, nextPage };
+    }
+
+    currentPage = nextPage;
+  }
 }
 
 /**
