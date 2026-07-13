@@ -110,6 +110,7 @@ interface ElectronUpdaterAPI {
     message?: string;
     error?: string;
   }>;
+  getStatus: () => Promise<UpdaterStatus>;
   download: () => Promise<{ ok: boolean; error?: string }>;
   cancel: () => Promise<{ ok: boolean }>;
   restart: () => Promise<void>;

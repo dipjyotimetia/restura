@@ -757,6 +757,31 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Verify updater metadata
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          ACTUAL_TAG: ${{ needs.release.outputs.actual_tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          VERSION="${ACTUAL_TAG#v}"
+          CHANNEL=latest
+          if [ "$PRERELEASE" = "true" ]; then
+            CHANNEL=beta
+          fi
+          mkdir -p updater-metadata
+          gh release download "$ACTUAL_TAG" --repo "$GH_REPO" --dir updater-metadata \
+            --pattern "${CHANNEL}.yml" --pattern "${CHANNEL}-mac.yml" --pattern "${CHANNEL}-linux.yml"
+
+          for metadata in "${CHANNEL}.yml" "${CHANNEL}-mac.yml" "${CHANNEL}-linux.yml"; do
+            path="updater-metadata/$metadata"
+            test -s "$path"
+            grep -Fx "version: $VERSION" "$path"
+            grep -Eq '^path: .+' "$path"
+            grep -Eq '^sha512: .+' "$path"
+          done
+
       - name: Publish draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

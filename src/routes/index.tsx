@@ -217,6 +217,18 @@ export default function Home() {
     []
   );
 
+  // The desktop updater banner uses this renderer-local event so it can take
+  // the user straight to the shared, in-app release history without adding a
+  // second Electron-only settings surface.
+  useEffect(() => {
+    const openReleaseNotes = () => {
+      setSettingsInitialSection('updates');
+      setSettingsOpen(true);
+    };
+    window.addEventListener('restura:open-release-notes', openReleaseNotes);
+    return () => window.removeEventListener('restura:open-release-notes', openReleaseNotes);
+  }, []);
+
   const handleOpenBugReport = useCallback(async () => {
     setBugReportScreenshot(undefined);
     setBugReportDiagnostics(undefined);

@@ -203,7 +203,7 @@ The app includes automatic update functionality via `electron-updater`.
 
 ### How It Works
 
-1. **Startup Check**: App checks GitHub Releases for updates 3 seconds after launch
+1. **Startup Check**: App checks GitHub Releases 3 seconds after launch, then every 6 hours while it remains open
 2. **Download**: New version downloads in background
 3. **Notification**: User is prompted to restart
 4. **Installation**: Update installs on restart
@@ -226,6 +226,17 @@ Updates are served from GitHub Releases. The `publish` configuration in `electro
 ### Manual Update Check
 
 Users can trigger manual update checks via the app menu or by using the IPC channel `app:checkForUpdates`.
+
+### Release notes in the app
+
+Settings → **Updates** includes the published GitHub release history. It is
+loaded only when that section opens, cached for the current app session, and
+can be refreshed manually. Web and self-hosted users see stable releases;
+Electron users on the beta update channel also see prereleases.
+
+Stable releases publish `latest*.yml` updater manifests; beta releases publish
+the matching `beta*.yml` manifests. The release workflow validates all Windows,
+macOS, and Linux manifests against the tag before the GitHub release is made public.
 
 ## Publishing a Release
 

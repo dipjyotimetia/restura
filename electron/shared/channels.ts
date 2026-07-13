@@ -20,6 +20,7 @@ export const IPC = {
   },
   updater: {
     check: 'updater:check',
+    status: 'updater:getStatus',
     download: 'updater:download',
     cancel: 'updater:cancel',
     restart: 'updater:restart',
