@@ -161,6 +161,7 @@ interface ElectronHttpFormField {
 }
 
 interface ElectronHttpRequestConfig {
+  requestId: string;
   method: string;
   url: string;
   headers?: Record<string, string>;
@@ -205,6 +206,9 @@ interface ElectronHttpResponse {
 
 interface ElectronHttpAPI {
   request: (config: ElectronHttpRequestConfig) => Promise<ElectronHttpResponse>;
+  cancel: (args: {
+    requestId: string;
+  }) => Promise<{ ok: true; alreadyDone?: true } | { ok: false; error: string }>;
 }
 
 interface GrpcIpcResult {

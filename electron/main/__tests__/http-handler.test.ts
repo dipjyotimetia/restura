@@ -50,18 +50,23 @@ let nextSenderId = 3000;
  * Fake IpcMainInvokeEvent. Fresh sender id per event so the real (module-level)
  * httpRateLimiter can't leak across tests.
  */
-function makeEvent(frameUrl = TRUSTED_URL) {
-  const id = nextSenderId++;
+function makeEvent(frameUrl = TRUSTED_URL, senderId?: number) {
+  const id = senderId ?? nextSenderId++;
   return {
     senderId: id,
     event: {
-      sender: { id, isDestroyed: () => false },
+      sender: { id, isDestroyed: () => false, once: vi.fn() },
       senderFrame: { url: frameUrl, parent: null },
     },
   };
 }
 
-const validConfig = { method: 'GET', url: 'http://echo.example.com/get' };
+const REQUEST_ID = '11111111-1111-4111-8111-111111111111';
+const validConfig = {
+  requestId: REQUEST_ID,
+  method: 'GET',
+  url: 'http://echo.example.com/get',
+};
 
 const onComplete = vi.fn<(entry: LogEntry) => void>();
 
@@ -137,5 +142,83 @@ describe('http-handler (registration/policy surface)', () => {
         error: expect.stringContaining('socket hang up'),
       })
     );
+  });
+
+  it('rejects a duplicate active request ID', async () => {
+    let rejectFirst!: (reason: Error) => void;
+    mockUndiciRequest
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectFirst = reject;
+          })
+      )
+      .mockRejectedValueOnce(new Error('unexpected second transport'));
+    const { event } = makeEvent();
+    const pending = handlerFor(IPC.http.request)(event, validConfig);
+    await vi.waitFor(() => expect(mockUndiciRequest).toHaveBeenCalledOnce());
+
+    await expect(handlerFor(IPC.http.request)(event, validConfig)).rejects.toThrow(
+      /request ID is already active/i
+    );
+    expect(mockUndiciRequest).toHaveBeenCalledOnce();
+
+    rejectFirst(new Error('test cleanup'));
+    await expect(pending).rejects.toThrow(/test cleanup/);
+  });
+
+  it('refuses cancellation from another renderer', async () => {
+    let rejectFirst!: (reason: Error) => void;
+    mockUndiciRequest.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectFirst = reject;
+        })
+    );
+    const owner = makeEvent();
+    const other = makeEvent();
+    const pending = handlerFor(IPC.http.request)(owner.event, validConfig);
+    await vi.waitFor(() => expect(mockUndiciRequest).toHaveBeenCalledOnce());
+
+    await expect(
+      handlerFor(IPC.http.cancel)(other.event, { requestId: REQUEST_ID })
+    ).resolves.toEqual({ ok: false, error: 'Request does not belong to this renderer.' });
+
+    rejectFirst(new Error('test cleanup'));
+    await expect(pending).rejects.toThrow(/test cleanup/);
+  });
+
+  it('aborts an in-flight request owned by the cancelling renderer', async () => {
+    let upstreamSignal: AbortSignal | undefined;
+    mockUndiciRequest.mockImplementationOnce(
+      (_url: string, options: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          upstreamSignal = options.signal;
+          options.signal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('The operation was aborted', 'AbortError')),
+            { once: true }
+          );
+        })
+    );
+    const owner = makeEvent();
+    const pending = handlerFor(IPC.http.request)(owner.event, validConfig);
+    await vi.waitFor(() => expect(mockUndiciRequest).toHaveBeenCalledOnce());
+
+    await expect(
+      handlerFor(IPC.http.cancel)(owner.event, { requestId: REQUEST_ID })
+    ).resolves.toEqual({ ok: true });
+    expect(upstreamSignal?.aborted).toBe(true);
+    await expect(pending).rejects.toThrow(/abort/i);
+  });
+
+  it('treats cancellation after completion as an idempotent no-op', async () => {
+    const { event } = makeEvent();
+
+    await expect(handlerFor(IPC.http.cancel)(event, { requestId: REQUEST_ID })).resolves.toEqual({
+      ok: true,
+      alreadyDone: true,
+    });
+    expect(mockUndiciRequest).not.toHaveBeenCalled();
   });
 });

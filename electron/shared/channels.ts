@@ -45,6 +45,7 @@ export const IPC = {
   },
   http: {
     request: 'http:request',
+    cancel: 'http:cancel',
   },
   grpc: {
     request: 'grpc:request',

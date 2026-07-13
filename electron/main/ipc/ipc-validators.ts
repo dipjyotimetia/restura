@@ -273,6 +273,7 @@ const AuthConfigSchema = z.object({
 });
 
 export const HttpRequestConfigSchema = z.object({
+  requestId: z.uuid(),
   method: z.string(),
   url: z.url('Invalid URL format'),
   headers: z.record(z.string(), z.string()).optional(),
@@ -304,6 +305,12 @@ export const HttpRequestConfigSchema = z.object({
 });
 
 export type ValidatedHttpRequestConfig = z.infer<typeof HttpRequestConfigSchema>;
+
+export const HttpCancelSchema = z
+  .object({
+    requestId: z.uuid(),
+  })
+  .strict();
 
 // ===========================
 // gRPC Request Schemas
@@ -1246,11 +1253,20 @@ export function createValidatedHandler<TInput, TOutput>(
   schema: z.ZodSchema<TInput>,
   handler: (input: TInput) => Promise<TOutput> | TOutput
 ): (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => Promise<TOutput> {
+  return createValidatedEventHandler(channel, schema, (input) => handler(input));
+}
+
+/** Validated invoke handler variant for ownership-sensitive channels. */
+export function createValidatedEventHandler<TInput, TOutput>(
+  channel: string,
+  schema: z.ZodSchema<TInput>,
+  handler: (input: TInput, event: Electron.IpcMainInvokeEvent) => Promise<TOutput> | TOutput
+): (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => Promise<TOutput> {
   return async (event, ...args) => {
     assertTrustedSender(channel, event);
     const input = args.length === 0 ? undefined : args.length === 1 ? args[0] : args;
     const validated = validateIpcInput(schema, input, channel);
-    return handler(validated as TInput);
+    return handler(validated as TInput, event);
   };
 }
 

@@ -1,10 +1,33 @@
 import type { AgentTool, ToolSource } from '@shared/agent-lab';
+import { resolveEffectiveAuth } from '@/features/auth/lib/authInheritance';
+import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
+import { buildActiveRequestValueMap } from '@/lib/shared/activeRequestScopes';
+import { buildValueMap } from '@/lib/shared/variableScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import type { CollectionItem, HttpRequest, Response } from '@/types';
+import type { Collection, CollectionItem, HttpRequest, Response } from '@/types';
 
-type ExecuteHttp = (request: HttpRequest) => Promise<Response>;
+type ExecuteHttp = (request: HttpRequest, signal?: AbortSignal) => Promise<Response>;
+
+export function redactToolUrl(raw: string): string {
+  try {
+    const url = new URL(raw);
+    url.username = '';
+    url.password = '';
+    url.hash = '';
+    for (const key of [...url.searchParams.keys()]) {
+      url.searchParams.set(key, 'REDACTED');
+    }
+    return url.toString();
+  } catch {
+    return raw
+      .replace(/#.*$/, '')
+      .replace(/\/\/[^/@\s]+@/g, '//REDACTED@')
+      .replace(/([?&][^=&#\s]+)=([^&#\s]*)/g, '$1=REDACTED');
+  }
+}
 
 export function createResturaRequestTool(request: HttpRequest, execute: ExecuteHttp): AgentTool {
   const readOnly =
@@ -12,12 +35,14 @@ export function createResturaRequestTool(request: HttpRequest, execute: ExecuteH
   return {
     definition: {
       name: `restura_request_${request.id.replace(/[^a-zA-Z0-9_-]/g, '_')}`.slice(0, 64),
-      description: `${request.method} ${request.name}: ${request.url}`,
+      description: `${request.method} ${request.name}: ${redactToolUrl(request.url)}`,
       inputSchema: { type: 'object', additionalProperties: false },
     },
     permissionClass: readOnly ? 'read' : 'mutation',
-    async execute() {
-      const response = await execute(request);
+    async execute(_arguments, { signal }) {
+      signal.throwIfAborted();
+      const response = await execute(request, signal);
+      signal.throwIfAborted();
       return [
         {
           type: 'json',
@@ -51,20 +76,42 @@ export async function resolveResturaAgentTools(sources: ToolSource[]): Promise<A
       throw new Error(`${source.kind} tool sources need their runtime adapter configured`);
     }
     const collections = useCollectionStore.getState().collections;
-    const item = collections
-      .map((collection) => findItem(collection.items ?? [], source.requestId))
-      .find((candidate) => candidate !== undefined);
+    let owningCollection: Collection | undefined;
+    let item: CollectionItem | undefined;
+    for (const collection of collections) {
+      const candidate = findItem(collection.items ?? [], source.requestId);
+      if (candidate) {
+        owningCollection = collection;
+        item = candidate;
+        break;
+      }
+    }
     if (!item?.request || item.request.type !== 'http') {
       throw new Error(`HTTP request tool not found: ${source.requestId}`);
     }
+    const collection = owningCollection;
     tools.push(
-      createResturaRequestTool(item.request, async (request) => {
+      createResturaRequestTool(item.request, async (request, signal) => {
+        signal?.throwIfAborted();
+        const collectionVars = buildValueMap({ collection: collection?.variables });
+        const inherited = resolveInheritedAuthFor(request);
+        const effectiveAuth = resolveEffectiveAuth(request.auth, inherited?.auth);
+        const requestForExec =
+          effectiveAuth === request.auth ? request : { ...request, auth: effectiveAuth };
         const result = await executeRequest({
-          request,
-          envVars: {},
+          request: requestForExec,
+          envVars: { ...buildActiveRequestValueMap(), ...collectionVars },
           globalSettings: useSettingsStore.getState().settings,
-          resolveVariables: (value) => value,
+          resolveVariables: (value) => useEnvironmentStore.getState().resolveVariables(value),
+          collectionVars,
+          ...(signal ? { signal } : {}),
         });
+        signal?.throwIfAborted();
+        if (collection && result.collectionVarsMutations) {
+          useCollectionStore
+            .getState()
+            .applyCollectionVarMutations(collection.id, result.collectionVarsMutations);
+        }
         return result.response;
       })
     );

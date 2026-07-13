@@ -114,6 +114,7 @@ const electronAPI = {
   // HTTP operations with proxy support
   http: {
     request: (config: {
+      requestId: string;
       method: string;
       url: string;
       headers?: Record<string, string>;
@@ -148,6 +149,7 @@ const electronAPI = {
       headers: Record<string, string>;
       data: unknown;
     }> => ipcRenderer.invoke(IPC.http.request, config),
+    cancel: (args: { requestId: string }) => ipcRenderer.invoke(IPC.http.cancel, args),
   },
 
   // gRPC operations

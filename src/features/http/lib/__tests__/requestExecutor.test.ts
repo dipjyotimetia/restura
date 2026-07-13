@@ -61,6 +61,41 @@ describe('executeRequest — cookie settings inheritance', () => {
 
     expect(useCookieStore.getState().cookies).toEqual([]);
   });
+
+  it('forwards the caller AbortSignal to the buffered proxy transport', async () => {
+    const controller = new AbortController();
+
+    await executeRequest({
+      request: makeRequest(),
+      envVars: {},
+      globalSettings: originalSettings,
+      resolveVariables: (text) => text,
+      signal: controller.signal,
+    });
+
+    expect(executeProxiedRequestMock).toHaveBeenCalledWith(
+      expect.anything(),
+      { signal: controller.signal },
+      expect.anything()
+    );
+  });
+
+  it('rejects an already-cancelled request before opening the transport', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      executeRequest({
+        request: makeRequest(),
+        envVars: {},
+        globalSettings: originalSettings,
+        resolveVariables: (text) => text,
+        signal: controller.signal,
+      })
+    ).rejects.toThrow(/abort/i);
+
+    expect(executeProxiedRequestMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('isStreamingAccept', () => {

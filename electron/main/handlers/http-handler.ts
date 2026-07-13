@@ -25,11 +25,14 @@ import { request as undiciRequest, Agent, ProxyAgent, buildConnector } from 'und
 import { selectCertForUrl } from '../../../src/lib/shared/certMatcher';
 import { createLogger } from '../../../src/lib/shared/logger';
 import { IPC } from '../../shared/channels';
+import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import {
+  HttpCancelSchema,
   HttpRequestConfigSchema,
-  createValidatedHandler,
+  createValidatedEventHandler,
   MAX_HTTP_BODY_BYTES,
+  type ValidatedHttpRequestConfig,
 } from '../ipc/ipc-validators';
 import type { LogEntry } from '../lifecycle/request-logger';
 import { applyNonSignAtWireAuth } from '../security/auth-applier';
@@ -173,6 +176,8 @@ interface CaCert {
 }
 
 export interface HttpRequestConfig {
+  /** Required at the IPC boundary; optional on internal/test transport configs. */
+  requestId?: string;
   method: string;
   url: string;
   headers?: Record<string, string>;
@@ -201,7 +206,16 @@ export interface HttpRequestConfig {
   serverCipherOrder?: boolean;
   minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
   cipherSuites?: string;
+  /** Main-process-only cancellation signal; never crosses IPC. */
+  signal?: AbortSignal;
 }
+
+interface ActiveHttpRequest {
+  webContentsId: number;
+  abort: AbortController;
+}
+
+const activeRequests = new Map<string, ActiveHttpRequest>();
 
 export interface HttpResponse {
   status: number;
@@ -812,7 +826,9 @@ export function buildElectronFetcher(
           : never,
         headers: outHeaders,
         body: undiciBody,
-        signal: req.signal,
+        signal: electronConfig.signal
+          ? AbortSignal.any([req.signal, electronConfig.signal])
+          : req.signal,
         dispatcher,
         // undici's default is maxRedirections: 0 (no auto-follow); manual redirect handling
         // lives in makeHttpRequest, so we rely on that default.
@@ -1130,17 +1146,34 @@ export function registerHttpHandlerIPC(onComplete?: (entry: LogEntry) => void): 
     IPC.http.request,
     rateLimited(
       httpRateLimiter,
-      createValidatedHandler(
+      createValidatedEventHandler(
         IPC.http.request,
         HttpRequestConfigSchema,
-        async (config: HttpRequestConfig) => {
+        async (config: ValidatedHttpRequestConfig, event) => {
+          const activeRequest: ActiveHttpRequest = {
+            webContentsId: event.sender.id,
+            abort: new AbortController(),
+          };
+          if (activeRequests.has(config.requestId)) {
+            throw new Error('A request with this request ID is already active.');
+          }
+          activeRequests.set(config.requestId, activeRequest);
+          bindRendererCleanup(activeRequests, event.sender, (deadId) => {
+            disposeByOwner(activeRequests, deadId, (entry) => entry.abort.abort());
+          });
           const startTime = Date.now();
           let result: HttpResponse | undefined;
           let thrownError: string | undefined;
           try {
-            result = await makeHttpRequest(config);
+            result = await makeHttpRequest({ ...config, signal: activeRequest.abort.signal });
           } catch (err) {
             thrownError = err instanceof Error ? err.message : String(err);
+          } finally {
+            // Identity check prevents an older completion from deleting a newer
+            // request that legitimately reused the ID after owner cleanup.
+            if (activeRequests.get(config.requestId) === activeRequest) {
+              activeRequests.delete(config.requestId);
+            }
           }
           if (onComplete) {
             onComplete({
@@ -1158,5 +1191,20 @@ export function registerHttpHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         }
       )
     )
+  );
+  ipcMain.handle(
+    IPC.http.cancel,
+    createValidatedEventHandler(IPC.http.cancel, HttpCancelSchema, async ({ requestId }, event) => {
+      const active = activeRequests.get(requestId);
+      if (!active) return { ok: true as const, alreadyDone: true as const };
+      if (active.webContentsId !== event.sender.id) {
+        return { ok: false as const, error: 'Request does not belong to this renderer.' };
+      }
+      // Keep the entry registered until the request handler's finally block.
+      // This makes repeated cancel idempotent and prevents same-ID reuse while
+      // the cancelled transport is still unwinding.
+      active.abort.abort();
+      return { ok: true as const };
+    })
   );
 }
