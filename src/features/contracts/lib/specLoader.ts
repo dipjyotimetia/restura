@@ -116,6 +116,10 @@ async function fetchSpecUrl(url: string): Promise<string> {
   if (res.status < 200 || res.status >= 300) {
     throw new Error(`HTTP ${res.status} fetching spec from ${url}`);
   }
+  if (res.bodyEncoding === 'base64' && typeof res.data === 'string') {
+    const bytes = Uint8Array.from(atob(res.data), (char) => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  }
   return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
 }
 

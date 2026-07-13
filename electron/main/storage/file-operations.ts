@@ -161,6 +161,53 @@ export function isPathSafe(filePath: string): boolean {
   }
 }
 
+/** Return the lexical allowlist root that authorized a path. */
+export function getAllowedRootForPath(filePath: string): string | null {
+  if (!isPathSafe(filePath)) return null;
+  const resolved = path.resolve(filePath);
+  return (
+    [app.getPath('userData'), app.getPath('documents'), app.getPath('home')]
+      .map((root) => path.resolve(root))
+      .find((root) => resolved === root || resolved.startsWith(root + path.sep)) ?? null
+  );
+}
+
+/**
+ * Re-check an allowed path after resolving symlinks. For a path that does not
+ * exist yet, resolve its nearest existing ancestor and append the missing
+ * suffix. This closes the gap where a lexical child points outside its root.
+ */
+export async function isPathRealSafe(filePath: string): Promise<boolean> {
+  const allowedRoot = getAllowedRootForPath(filePath);
+  if (!allowedRoot) return false;
+  try {
+    const [realRoot, realTarget] = await Promise.all([
+      fsp.realpath(allowedRoot),
+      resolveFromExistingAncestor(path.resolve(filePath)),
+    ]);
+    return realTarget === realRoot || realTarget.startsWith(realRoot + path.sep);
+  } catch {
+    return false;
+  }
+}
+
+async function resolveFromExistingAncestor(target: string): Promise<string> {
+  const missing: string[] = [];
+  let current = target;
+  while (true) {
+    try {
+      const real = await fsp.realpath(current);
+      return path.resolve(real, ...missing.reverse());
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      const parent = path.dirname(current);
+      if (parent === current) throw error;
+      missing.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
 export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | null): void {
   // Dialog handlers
   ipcMain.handle(

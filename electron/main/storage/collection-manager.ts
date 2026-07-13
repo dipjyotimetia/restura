@@ -6,6 +6,7 @@
  */
 
 import * as fsp from 'fs/promises';
+import { createHash } from 'node:crypto';
 import * as path from 'path';
 import type { FSWatcher } from 'chokidar';
 import chokidar from 'chokidar';
@@ -13,7 +14,7 @@ import { ipcMain, dialog, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
 import { z } from 'zod';
 import { internalToOC } from '../../../src/lib/opencollection/from-internal';
-import { loadCollectionFromDir } from '../../../src/lib/opencollection/fs-reader';
+import { loadCollectionDirectory } from '../../../src/lib/opencollection/fs-reader';
 import { saveCollectionToDir } from '../../../src/lib/opencollection/fs-writer';
 import { ocToInternal } from '../../../src/lib/opencollection/to-internal';
 import { redactCollectionSecrets } from '../../../src/lib/shared/collection-secret-redaction';
@@ -55,7 +56,7 @@ import { IPC, EVENT } from '../../shared/channels';
 import { createValidatedHandler, FilePathSchema, NoInputSchema } from '../ipc/ipc-validators';
 import { authHasPlaintextSecret } from '../security/collection-export-redactor';
 import { debounce } from '../util/debounce';
-import { isPathSafe } from './file-operations';
+import { getAllowedRootForPath, isPathRealSafe } from './file-operations';
 
 interface FileKeyValue {
   id: string;
@@ -93,10 +94,25 @@ interface FileCollection {
 
 // Track active file watchers
 const activeWatchers = new Map<string, FSWatcher>();
-// Saves are staged and then copied into place, which produces several watcher
-// events. Suppress only the saving directory for a short bounded window so the
-// renderer never reports Restura's own write as an external conflict.
-const selfWriteUntil = new Map<string, number>();
+// Ownership established during a load is used only to bootstrap the first
+// manifest-backed save. Subsequent saves read the durable manifest directly.
+const loadedManagedFiles = new Map<string, string[]>();
+type WatchEventType = 'change' | 'add' | 'unlink';
+interface PendingWatchEvent {
+  type: WatchEventType;
+  filePath: string;
+  /** Content observed when the event arrived, before a later write can replace it. */
+  observedFingerprint?: string | null;
+}
+interface SelfWriteState {
+  active: boolean;
+  /** Expected post-save content hash, or null when Restura deleted the file. */
+  expected: Map<string, string | null>;
+  queued: PendingWatchEvent[];
+}
+// Suppression is content-based: concurrent external edits never disappear just
+// because they happen during a Restura save.
+const selfWriteStates = new Map<string, SelfWriteState>();
 
 /**
  * Canonical key for the active-watcher set. The git handler (and
@@ -154,12 +170,62 @@ async function statOrNull(
   }
 }
 
+async function fileFingerprint(filePath: string): Promise<string | null> {
+  try {
+    return createHash('sha256')
+      .update(await fsp.readFile(filePath))
+      .digest('hex');
+  } catch {
+    return null;
+  }
+}
+
+async function expectedFingerprints(
+  directoryPath: string,
+  managedFiles: string[],
+  removedFiles: string[] = []
+): Promise<Map<string, string | null>> {
+  const expected = new Map<string, string | null>();
+  await Promise.all(
+    managedFiles.map(async (relativePath) => {
+      const filePath = resolveManagedFile(directoryPath, relativePath);
+      if (!filePath) return;
+      expected.set(filePath, await fileFingerprint(filePath));
+    })
+  );
+  for (const relativePath of removedFiles) {
+    const filePath = resolveManagedFile(directoryPath, relativePath);
+    if (filePath) expected.set(filePath, null);
+  }
+  return expected;
+}
+
+function resolveManagedFile(directoryPath: string, relativePath: string): string | null {
+  if (path.isAbsolute(relativePath) || !/\.ya?ml$/i.test(relativePath)) return null;
+  const root = path.resolve(directoryPath);
+  const target = path.resolve(root, relativePath);
+  return target.startsWith(root + path.sep) ? target : null;
+}
+
+async function managedFilesFromManifest(directoryPath: string): Promise<string[]> {
+  try {
+    const parsed = JSON.parse(
+      await fsp.readFile(path.join(directoryPath, '.restura-managed-files.json'), 'utf8')
+    ) as { version?: unknown; files?: unknown };
+    return parsed.version === 1 && Array.isArray(parsed.files)
+      ? parsed.files.filter((file): file is string => typeof file === 'string')
+      : [];
+  } catch {
+    return [];
+  }
+}
+
 async function loadCollectionFromDirectory(directoryPath: string): Promise<{
   success: boolean;
   collection?: unknown;
   error?: string;
 }> {
-  if (!isPathSafe(directoryPath)) {
+  if (!(await isPathRealSafe(directoryPath))) {
     return { success: false, error: 'Access denied: Path is outside allowed directories' };
   }
 
@@ -168,7 +234,9 @@ async function loadCollectionFromDirectory(directoryPath: string): Promise<{
     (await statOrNull(path.join(directoryPath, 'opencollection.yaml'))) !== null;
   if (hasOpenCollection) {
     try {
-      const collection = ocToInternal(await loadCollectionFromDir(directoryPath));
+      const loaded = await loadCollectionDirectory(directoryPath);
+      loadedManagedFiles.set(watcherKey(directoryPath), loaded.managedFiles);
+      const collection = ocToInternal(loaded.collection);
       (collection as Collection & { _filePath?: string })._filePath = directoryPath;
       return { success: true, collection };
     } catch (error) {
@@ -190,29 +258,135 @@ async function saveCollectionToDirectory(
 ): Promise<{ success: boolean; error?: string }> {
   const dirKey = watcherKey(directoryPath);
   try {
-    if (!isPathSafe(directoryPath)) {
+    if (!(await isPathRealSafe(directoryPath))) {
       return { success: false, error: 'Access denied: Path is outside allowed directories' };
     }
 
     warnIfPlaintextSecretsWillBeDropped(collection);
-    selfWriteUntil.set(dirKey, Number.POSITIVE_INFINITY);
+    const previousManagedFiles =
+      loadedManagedFiles.get(dirKey) ?? (await managedFilesFromManifest(directoryPath));
+    const before = await expectedFingerprints(directoryPath, previousManagedFiles);
+    const expectedManifestFingerprint = await fileFingerprint(
+      path.join(directoryPath, '.restura-managed-files.json')
+    );
+    const expectedPreviousFingerprints = Object.fromEntries(
+      [...before].map(([filePath, fingerprint]) => [
+        path.relative(directoryPath, filePath).split(path.sep).join('/'),
+        fingerprint,
+      ])
+    );
+    const writeState: SelfWriteState = { active: true, expected: before, queued: [] };
+    selfWriteStates.set(dirKey, writeState);
     const safeCollection = redactCollectionSecrets(collection as Collection);
-    await saveCollectionToDir(internalToOC(safeCollection), directoryPath);
-    selfWriteUntil.set(dirKey, Date.now() + 1_000);
+    const trustedRoot = getAllowedRootForPath(directoryPath);
+    if (!trustedRoot) {
+      return { success: false, error: 'Access denied: Path is outside allowed directories' };
+    }
+    const saveResult = await saveCollectionToDir(internalToOC(safeCollection), directoryPath, {
+      previousManagedFiles,
+      expectedPreviousFingerprints,
+      expectedManifestFingerprint,
+      trustedRoot,
+    });
+    loadedManagedFiles.delete(dirKey);
+    writeState.expected = new Map(
+      Object.entries(saveResult.fingerprints).map(([relativePath, fingerprint]) => [
+        resolveManagedFile(directoryPath, relativePath)!,
+        fingerprint,
+      ])
+    );
+    for (const relativePath of saveResult.removedFiles) {
+      const filePath = resolveManagedFile(directoryPath, relativePath);
+      if (filePath) writeState.expected.set(filePath, null);
+    }
+    writeState.active = false;
+    await flushQueuedWatchEvents(dirKey, directoryPath, writeState, getMainWindowForWatchers);
     return { success: true };
   } catch (error) {
-    selfWriteUntil.set(dirKey, Date.now() + 1_000);
+    const writeState = selfWriteStates.get(dirKey);
+    if (writeState) {
+      writeState.active = false;
+      await flushQueuedWatchEvents(dirKey, directoryPath, writeState, getMainWindowForWatchers);
+    }
     return { success: false, error: String(error) };
   }
 }
 
+let getMainWindowForWatchers: () => BrowserWindow | null = () => null;
+
+async function flushQueuedWatchEvents(
+  dirKey: string,
+  directoryPath: string,
+  state: SelfWriteState,
+  getMainWindow: () => BrowserWindow | null
+): Promise<void> {
+  const queued = state.queued.splice(0);
+  for (const event of queued) {
+    await handleWatchEvent(dirKey, directoryPath, event, getMainWindow);
+  }
+}
+
+async function handleWatchEvent(
+  dirKey: string,
+  directoryPath: string,
+  event: PendingWatchEvent,
+  getMainWindow: () => BrowserWindow | null
+): Promise<void> {
+  const state = selfWriteStates.get(dirKey);
+  if (state?.active) {
+    const observedFingerprint =
+      event.type === 'unlink' ? null : await fileFingerprint(event.filePath);
+    const observedEvent = { ...event, observedFingerprint };
+    if (state.active) state.queued.push(observedEvent);
+    else await handleWatchEvent(dirKey, directoryPath, observedEvent, getMainWindow);
+    return;
+  }
+  if (state?.expected.has(event.filePath)) {
+    const expected = state.expected.get(event.filePath);
+    const actual =
+      'observedFingerprint' in event
+        ? event.observedFingerprint
+        : event.type === 'unlink'
+          ? null
+          : await fileFingerprint(event.filePath);
+    if (expected === actual) {
+      return;
+    }
+  }
+
+  if (event.type === 'change') {
+    const stat = await statOrNull(event.filePath);
+    if (!stat) return;
+    const lastMod = fileModTimes.get(event.filePath);
+    if (lastMod === undefined || stat.mtimeMs > lastMod) {
+      sendFileChange(
+        {
+          type: 'modified',
+          filePath: event.filePath,
+          directoryPath,
+          lastModified: stat.mtimeMs,
+        },
+        getMainWindow
+      );
+    }
+    fileModTimes.set(event.filePath, stat.mtimeMs);
+    return;
+  }
+  if (event.type === 'add') {
+    sendFileChange({ type: 'added', filePath: event.filePath, directoryPath }, getMainWindow);
+    return;
+  }
+  sendFileChange({ type: 'deleted', filePath: event.filePath, directoryPath }, getMainWindow);
+  fileModTimes.delete(event.filePath);
+}
+
 // Start watching a collection directory
-function watchCollectionDirectory(
+async function watchCollectionDirectory(
   directoryPath: string,
   getMainWindow: () => BrowserWindow | null
-): { success: boolean; error?: string } {
+): Promise<{ success: boolean; error?: string }> {
   try {
-    if (!isPathSafe(directoryPath)) {
+    if (!(await isPathRealSafe(directoryPath))) {
       return { success: false, error: 'Access denied: Path is outside allowed directories' };
     }
 
@@ -226,6 +400,7 @@ function watchCollectionDirectory(
       ignored: /(^|[/\\])\../, // Ignore dotfiles
       persistent: true,
       ignoreInitial: true,
+      followSymlinks: false,
       awaitWriteFinish: {
         stabilityThreshold: 300,
         pollInterval: 100,
@@ -234,36 +409,13 @@ function watchCollectionDirectory(
 
     watcher
       .on('change', (filePath) => {
-        if ((selfWriteUntil.get(dirKey) ?? 0) >= Date.now()) return;
-        // Async stat so a slow filesystem (network share, encrypted volume)
-        // can't block the main thread inside the watcher callback.
-        void (async () => {
-          const stat = await statOrNull(filePath);
-          if (!stat) return;
-          const lastMod = fileModTimes.get(filePath);
-          const currentMod = stat.mtimeMs;
-          if (lastMod === undefined || currentMod > lastMod) {
-            sendFileChange(
-              {
-                type: 'modified',
-                filePath,
-                directoryPath,
-                lastModified: currentMod,
-              },
-              getMainWindow
-            );
-          }
-          fileModTimes.set(filePath, currentMod);
-        })();
+        void handleWatchEvent(dirKey, directoryPath, { type: 'change', filePath }, getMainWindow);
       })
       .on('add', (filePath) => {
-        if ((selfWriteUntil.get(dirKey) ?? 0) >= Date.now()) return;
-        sendFileChange({ type: 'added', filePath, directoryPath }, getMainWindow);
+        void handleWatchEvent(dirKey, directoryPath, { type: 'add', filePath }, getMainWindow);
       })
       .on('unlink', (filePath) => {
-        if ((selfWriteUntil.get(dirKey) ?? 0) >= Date.now()) return;
-        sendFileChange({ type: 'deleted', filePath, directoryPath }, getMainWindow);
-        fileModTimes.delete(filePath);
+        void handleWatchEvent(dirKey, directoryPath, { type: 'unlink', filePath }, getMainWindow);
       })
       .on('error', (error) => {
         log.error('file watcher error', {
@@ -289,7 +441,8 @@ async function unwatchCollectionDirectory(
       await watcher.close();
       activeWatchers.delete(dirKey);
     }
-    selfWriteUntil.delete(dirKey);
+    selfWriteStates.delete(dirKey);
+    loadedManagedFiles.delete(dirKey);
     // Evict this directory's debounced senders and file mtimes so the registries
     // don't accumulate entries across repeated watch/unwatch cycles.
     for (const key of debouncedSenders.keys()) {
@@ -326,6 +479,7 @@ const SaveCollectionSchema = z.tuple([CollectionDataSchema, FilePathSchema]);
 
 // Register IPC handlers
 export function registerCollectionManagerIPC(getMainWindow: () => BrowserWindow | null): void {
+  getMainWindowForWatchers = getMainWindow;
   // Load collection from directory
   ipcMain.handle(
     IPC.collection.loadDirectory,
@@ -452,5 +606,6 @@ export function cleanupCollectionWatchers(): void {
   activeWatchers.clear();
   fileModTimes.clear();
   debouncedSenders.clear();
-  selfWriteUntil.clear();
+  selfWriteStates.clear();
+  loadedManagedFiles.clear();
 }

@@ -125,6 +125,114 @@ describe('restoreFileCollectionWatchers', () => {
     expect(forDir).toHaveLength(1);
   });
 
+  it('preserves item, request, and row ids across disk reloads', async () => {
+    const { reconcileCollectionIds } = await import('../useFileCollectionStore');
+    type Ids = [string, string, string, string, string, string];
+    const request = (ids: Ids) => ({
+      id: ids[1],
+      name: 'List users',
+      type: 'http' as const,
+      method: 'GET' as const,
+      url: 'https://example.test/users',
+      headers: [{ id: ids[2], key: 'accept', value: 'application/json', enabled: true }],
+      params: [],
+      body: { type: 'none' as const },
+      auth: { type: 'none' as const },
+    });
+    const collection = (ids: Ids) => ({
+      id: ids[0],
+      name: 'Demo',
+      variables: [{ id: ids[3], key: 'baseUrl', value: 'example.test', enabled: true }],
+      items: [
+        {
+          id: ids[4],
+          name: 'Users',
+          type: 'folder' as const,
+          items: [
+            { id: ids[5], name: 'List users', type: 'request' as const, request: request(ids) },
+          ],
+        },
+      ],
+    });
+
+    const existing = collection([
+      'collection-old',
+      'request-old',
+      'header-old',
+      'var-old',
+      'folder-old',
+      'item-old',
+    ]);
+    const incoming = collection([
+      'collection-new',
+      'request-new',
+      'header-new',
+      'var-new',
+      'folder-new',
+      'item-new',
+    ]);
+    const reconciled = reconcileCollectionIds(existing, incoming);
+
+    expect(reconciled.id).toBe('collection-old');
+    expect(reconciled.variables?.[0]?.id).toBe('var-old');
+    expect(reconciled.items[0]?.id).toBe('folder-old');
+    expect(reconciled.items[0]?.items?.[0]?.id).toBe('item-old');
+    expect(reconciled.items[0]?.items?.[0]?.request?.id).toBe('request-old');
+    const reconciledRequest = reconciled.items[0]?.items?.[0]?.request;
+    expect(reconciledRequest?.type === 'http' ? reconciledRequest.headers[0]?.id : undefined).toBe(
+      'header-old'
+    );
+  });
+
+  it('does not let inserted siblings or rows steal existing ids', async () => {
+    const { reconcileCollectionIds } = await import('../useFileCollectionStore');
+    const makeRequest = (itemId: string, requestId: string, headerId: string, name: string) => ({
+      id: itemId,
+      name,
+      type: 'request' as const,
+      request: {
+        id: requestId,
+        name,
+        type: 'http' as const,
+        method: 'GET' as const,
+        url: `https://example.test/${name}`,
+        headers: [{ id: headerId, key: 'accept', value: name, enabled: true }],
+        params: [],
+        body: { type: 'none' as const },
+        auth: { type: 'none' as const },
+      },
+    });
+    const existing = {
+      id: 'old-collection',
+      name: 'Demo',
+      items: [makeRequest('old-item', 'old-request', 'old-header', 'existing')],
+    };
+    const inserted = makeRequest('new-item', 'new-request', 'new-header', 'inserted');
+    const unchanged = makeRequest(
+      'generated-item',
+      'generated-request',
+      'generated-header',
+      'existing'
+    );
+    unchanged.request.headers.unshift({
+      id: 'new-extra-header',
+      key: 'x-new',
+      value: '1',
+      enabled: true,
+    });
+    const incoming = { id: 'generated-collection', name: 'Demo', items: [inserted, unchanged] };
+
+    const reconciled = reconcileCollectionIds(existing, incoming);
+
+    expect(reconciled.items[0]?.id).toBe('new-item');
+    expect(reconciled.items[1]?.id).toBe('old-item');
+    const unchangedRequest = reconciled.items[1]?.request;
+    expect(unchangedRequest?.id).toBe('old-request');
+    expect(unchangedRequest?.type === 'http' ? unchangedRequest.headers[1]?.id : undefined).toBe(
+      'old-header'
+    );
+  });
+
   it('leaves isWatching false when a directory can no longer be watched', async () => {
     const { useFileCollectionStore, restoreFileCollectionWatchers } =
       await import('../useFileCollectionStore');

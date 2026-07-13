@@ -181,4 +181,36 @@ extensions:
     delete internal.contractSpec;
     expect(internalToOC(internal).extensions?.['x-restura-contract']).toBeUndefined();
   });
+
+  it('does not resurrect a docs-based description after it is cleared', () => {
+    const oc = parseOpenCollectionYAML(`opencollection: 1.0.0
+info: { name: Docs API }
+docs: Old description
+`);
+    const internal = ocToInternal(oc);
+    delete internal.description;
+    const exported = internalToOC(internal);
+    expect(exported.info.summary).toBeUndefined();
+    expect(exported.docs).toBeUndefined();
+    expect(ocToInternal(exported).description).toBeUndefined();
+  });
+
+  it('preserves typed variable nodes when their normalized values are unchanged', () => {
+    const oc = parseOpenCollectionYAML(`opencollection: 1.0.0
+info: { name: Typed vars }
+config:
+  environments:
+    - name: default
+      variables:
+        - name: retries
+          value: 3
+        - name: choices
+          value:
+            - { name: blue, value: true }
+`);
+    const exported = internalToOC(ocToInternal(oc));
+    expect(exported.config?.environments?.[0]?.variables).toEqual(
+      oc.config?.environments?.[0]?.variables
+    );
+  });
 });

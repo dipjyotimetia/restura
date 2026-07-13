@@ -1,5 +1,5 @@
 import type { OpenCollection } from './schemas';
-import { authToInternal, groupScripts } from './to-internal';
+import { authToInternal, groupScripts, ocVariableToKeyValue } from './to-internal';
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from '@/lib/shared/auth-secret-fields';
 import type { SecretValue } from '@/lib/shared/secretRef';
 import type {
@@ -603,7 +603,9 @@ function variablesFromInternal(variables: KeyValue[] | undefined) {
 function rootMetadataUnchanged(c: WithOC<Collection>): boolean {
   const cached = c._oc as OpenCollection | undefined;
   if (!cached) return true;
-  const cachedVariables = cached.config?.environments?.[0]?.variables ?? [];
+  const cachedVariables = (cached.config?.environments?.[0]?.variables ?? []).map(
+    ocVariableToKeyValue
+  );
   const cachedContract = (cached.extensions as Record<string, unknown> | undefined)?.[
     'x-restura-contract'
   ];
@@ -611,7 +613,8 @@ function rootMetadataUnchanged(c: WithOC<Collection>): boolean {
     cached.info.name === c.name &&
     (cached.info.summary ?? (typeof cached.docs === 'string' ? cached.docs : '')) ===
       (c.description ?? '') &&
-    JSON.stringify(cachedVariables) === JSON.stringify(variablesFromInternal(c.variables)) &&
+    JSON.stringify(comparableVariables(cachedVariables)) ===
+      JSON.stringify(comparableVariables(c.variables ?? [])) &&
     JSON.stringify(cachedContract) === JSON.stringify(c.contractSpec)
   );
 }
@@ -620,6 +623,7 @@ function applyRootMetadata(oc: OpenCollection, c: Collection): void {
   oc.info = { ...oc.info, name: c.name };
   if (c.description) oc.info.summary = c.description;
   else delete oc.info.summary;
+  if (typeof oc.docs === 'string') delete oc.docs;
 
   const variables = variablesFromInternal(c.variables);
   const config = oc.config ? { ...oc.config } : {};
@@ -640,6 +644,16 @@ function applyRootMetadata(oc: OpenCollection, c: Collection): void {
   } else {
     delete oc.config;
   }
+}
+
+function comparableVariables(variables: KeyValue[]) {
+  return variables.map(({ key, value, enabled, description, secret }) => ({
+    key,
+    value,
+    enabled,
+    ...(description ? { description } : {}),
+    ...(secret ? { secret: true } : {}),
+  }));
 }
 
 /**

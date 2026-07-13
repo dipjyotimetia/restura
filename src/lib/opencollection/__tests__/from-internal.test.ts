@@ -128,6 +128,8 @@ describe('internalToOC', () => {
     const internal: any = {
       id: 'c',
       name: 'API',
+      description: 'Long-form docs preserved here',
+      variables: [{ id: 'host', key: 'HOST', value: 'http://localhost:8080', enabled: true }],
       _oc: cachedRoot,
       items: [
         // Modified item: no _oc bag → must be rebuilt
