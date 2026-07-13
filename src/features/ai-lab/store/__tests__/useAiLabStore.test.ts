@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { migrateAiLabState, useAiLabStore } from '../useAiLabStore';
 import { AiLabStateSchema } from '@/lib/shared/store-validators';
 
@@ -12,6 +12,7 @@ function reset() {
     recentModelKeys: [],
     agentSuites: {},
     runReports: {},
+    reportQuarantineCount: 0,
   });
 }
 
@@ -378,6 +379,30 @@ describe('useAiLabStore — report migration', () => {
 
     expect(migrated.runs).toEqual({ legacy: legacyRun });
     expect(migrated.runReports).toEqual({});
+  });
+
+  it('isolates malformed suites and reports while preserving unrelated state', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const migrated = migrateAiLabState(
+      {
+        providers: { keep: { id: 'keep' } },
+        prompts: { keep: { id: 'keep' } },
+        datasets: { keep: { id: 'keep' } },
+        evalConfigs: { keep: { id: 'keep' } },
+        agentSuites: { bad: { schemaVersion: 2, id: 'bad' } },
+        runReports: { bad: { id: 'bad', kind: 'agent-suite', payload: null } },
+        runs: { legacy: { id: 'legacy' } },
+      },
+      4
+    ) as Record<string, unknown>;
+
+    expect(migrated.agentSuites).toEqual({});
+    expect(migrated.runReports).toEqual({});
+    expect(migrated.reportQuarantineCount).toBe(2);
+    expect(migrated.providers).toMatchObject({ keep: { id: 'keep' } });
+    expect(migrated.runs).toEqual({ legacy: { id: 'legacy' } });
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
   });
 });
 

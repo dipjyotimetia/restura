@@ -61,6 +61,7 @@ export default function AiLabWorkspace() {
   const providers = useAiLabStore((state) => state.providers);
   const datasetCount = useAiLabStore((state) => Object.keys(state.datasets).length);
   const evalRuns = useEvalRunStore((state) => state.runs);
+  const runReports = useAiLabStore((state) => state.runReports);
   const arenaRuns = useArenaStore((state) => state.runs);
 
   const providerCount = Object.keys(providers).length;
@@ -68,7 +69,8 @@ export default function AiLabWorkspace() {
     () => Object.values(providers).reduce((count, provider) => count + provider.models.length, 0),
     [providers]
   );
-  const runCount = Object.keys(evalRuns).length + Object.keys(arenaRuns).length;
+  const reportOnlyCount = Object.keys(runReports).filter((id) => !evalRuns[id]).length;
+  const runCount = Object.keys(evalRuns).length + Object.keys(arenaRuns).length + reportOnlyCount;
   const current = NAV_ITEMS.find((item) => item.value === tab) ?? NAV_ITEMS[0]!;
 
   useEffect(() => {

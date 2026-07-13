@@ -5,6 +5,7 @@ import { modelKey, parseModelKey } from '../lib/modelOptions';
 import { newestFirst } from '../lib/newestFirst';
 import { runToCsv, runToJson, runToMarkdown } from '../lib/reportExport';
 import { summarizeVars } from '../lib/summarizeVars';
+import { useAgentRunLiveStore } from '../run-engine/agentRunService';
 import { adaptEvalRunReport, type AiLabReportEnvelope } from '../run-engine/reportEnvelope';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore } from '../store/useAiLabUiStore';
@@ -120,23 +121,35 @@ function AgentReportDetail({
     (total, result) => {
       for (const event of result.trace.events) {
         if (event.type !== 'model.completed') continue;
+        total.calls += 1;
         if (event.usage) {
+          total.usageKnown += 1;
           total.inputTokens += event.usage.inputTokens;
           total.outputTokens += event.usage.outputTokens;
         }
-        if (event.costUSD !== undefined) total.costUSD += event.costUSD;
+        if (event.costUSD !== undefined) {
+          total.costKnown += 1;
+          total.costUSD += event.costUSD;
+        }
       }
       for (const score of result.scores) {
+        if (score.kind === 'judge') total.calls += 1;
         if (score.usage) {
+          total.usageKnown += 1;
           total.inputTokens += score.usage.inputTokens;
           total.outputTokens += score.usage.outputTokens;
         }
-        if (score.costUSD !== undefined) total.costUSD += score.costUSD;
+        if (score.costUSD !== undefined) {
+          total.costKnown += 1;
+          total.costUSD += score.costUSD;
+        }
       }
       return total;
     },
-    { inputTokens: 0, outputTokens: 0, costUSD: 0 }
+    { inputTokens: 0, outputTokens: 0, costUSD: 0, calls: 0, usageKnown: 0, costKnown: 0 }
   );
+  const knowledge = (known: number) =>
+    known === 0 ? 'unknown' : known === resourceUsage.calls ? 'fully known' : 'partially known';
   const exportJson = () => {
     const safe = report.name.replace(/[^a-z0-9-_]+/gi, '_') || 'agent-suite';
     downloadBlob(JSON.stringify(report, null, 2), `${safe}.json`, 'application/json');
@@ -169,9 +182,28 @@ function AgentReportDetail({
         />
         <Stat
           label="Usage"
-          value={`${resourceUsage.inputTokens} in · ${resourceUsage.outputTokens} out`}
+          value={
+            resourceUsage.usageKnown
+              ? `${resourceUsage.inputTokens} in · ${resourceUsage.outputTokens} out · ${knowledge(resourceUsage.usageKnown)}`
+              : 'unknown'
+          }
         />
-        <Stat label="Cost" value={`$${resourceUsage.costUSD.toFixed(6)}`} />
+        <Stat
+          label="Cost"
+          value={
+            resourceUsage.costKnown
+              ? `$${resourceUsage.costUSD.toFixed(6)} · ${knowledge(resourceUsage.costKnown)}`
+              : 'unknown'
+          }
+        />
+        <Stat
+          label="Outcomes"
+          value={`${payload.summary.total} total · ${payload.summary.passed} passed · ${payload.summary.failed} failed · ${payload.summary.errors} errors · ${payload.summary.cancelled} cancelled`}
+        />
+        <Stat
+          label="Reliability"
+          value={`pass@k ${JSON.stringify(payload.summary.passAtK)} · pass^k ${JSON.stringify(payload.summary.passToK)}`}
+        />
       </div>
 
       <div className="space-y-3 border-t border-sp-line pt-3">
@@ -194,6 +226,10 @@ function AgentReportDetail({
                   {reliability.total}) · CI {(reliability.confidence95.low * 100).toFixed(1)}–
                   {(reliability.confidence95.high * 100).toFixed(1)}%
                 </span>
+              </div>
+              <div className="text-sp-11 text-sp-muted">
+                pass@k {JSON.stringify(reliability.passAtK)} · pass^k{' '}
+                {JSON.stringify(reliability.passToK)}
               </div>
               <div className="grid gap-2 text-sp-11 md:grid-cols-2">
                 <div>
@@ -232,6 +268,7 @@ function AgentReportDetail({
             <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded bg-sp-bg p-2 text-sp-11 text-sp-text">
               {serializeContentBlocks(result.output) || '(empty output)'}
             </pre>
+            {result.error && <div className="text-sp-11 text-destructive">{result.error}</div>}
             {result.scores.map((score) => (
               <div key={score.graderId} className="text-sp-11 text-sp-muted">
                 <span className={score.passed ? 'text-emerald-500' : 'text-destructive'}>
@@ -243,6 +280,7 @@ function AgentReportDetail({
                 {score.judgeVotes?.map((vote) => (
                   <div key={`${vote.providerId}:${vote.model}`}>
                     {vote.model}: {vote.label} ({vote.score.toFixed(3)})
+                    {vote.reasoning ? ` · ${vote.reasoning}` : ''}
                   </div>
                 ))}
                 {score.judgeFailures?.map((failure) => (
@@ -272,16 +310,18 @@ export function ReportView() {
   const deleteRun = useEvalRunStore((s) => s.deleteRun);
   const datasets = useAiLabStore((s) => s.datasets);
   const runReports = useAiLabStore((s) => s.runReports);
+  const liveAgentReport = useAgentRunLiveStore((s) => s.completedReport);
   const removeRunReport = useAiLabStore((s) => s.removeRunReport);
   const evalSorted = useMemo(() => newestFirst(runs), [runs]);
   const sorted = useMemo(() => {
     const persisted = Object.values(runReports);
+    if (liveAgentReport && !runReports[liveAgentReport.id]) persisted.push(liveAgentReport);
     const persistedIds = new Set(persisted.map((report) => report.id));
     return [
       ...persisted,
       ...evalSorted.filter((run) => !persistedIds.has(run.id)).map(adaptEvalRunReport),
     ].sort((left, right) => right.startedAt - left.startedAt);
-  }, [evalSorted, runReports]);
+  }, [evalSorted, liveAgentReport, runReports]);
   // Selection lives in the UI store so "View report" in the Evals tab can hand
   // a run off to us, and so the selection survives tab switches.
   const activeId = useAiLabUiStore((s) => s.reportRunId);

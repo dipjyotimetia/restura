@@ -1,9 +1,15 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentWorkbench } from '../AgentWorkbench';
 import { useAiLabStore } from '../../store/useAiLabStore';
 import { useAiLabUiStore } from '../../store/useAiLabUiStore';
+import {
+  resetAgentRunServiceForTests,
+  setAgentRunRepositoryForTests,
+  startAgentRun,
+  useAgentRunLiveStore,
+} from '../../run-engine/agentRunService';
 
 const runDesktopAgentSuite = vi.hoisted(() => vi.fn());
 vi.mock('../../lib/agentRuntime', () => ({ runDesktopAgentSuite }));
@@ -27,7 +33,7 @@ const REPORT = {
 };
 
 const SUITE = {
-  schemaVersion: 2,
+  schemaVersion: 2 as const,
   id: 'suite-1',
   name: 'Cancellation suite',
   mode: 'regression' as const,
@@ -46,8 +52,13 @@ const SUITE = {
 };
 
 describe('AgentWorkbench runs', () => {
+  const save = vi.fn(async () => {});
   beforeEach(() => {
     runDesktopAgentSuite.mockReset();
+    save.mockReset();
+    save.mockResolvedValue(undefined);
+    resetAgentRunServiceForTests();
+    setAgentRunRepositoryForTests({ save });
     useAiLabStore.setState({
       providers: {},
       prompts: {},
@@ -66,7 +77,6 @@ describe('AgentWorkbench runs', () => {
     runDesktopAgentSuite.mockImplementation(
       () => new Promise<typeof REPORT>((done) => (resolve = done))
     );
-    const saveRunReport = vi.spyOn(useAiLabStore.getState(), 'saveRunReport');
     const user = userEvent.setup();
     render(<AgentWorkbench />);
     fireEvent.change(screen.getByLabelText('Agent suite JSON'), {
@@ -78,7 +88,7 @@ describe('AgentWorkbench runs', () => {
     await act(async () => resolve(REPORT));
 
     expect(await screen.findByRole('status')).toHaveTextContent('CANCELLED');
-    expect(saveRunReport).not.toHaveBeenCalledWith(expect.objectContaining({ status: 'passed' }));
+    expect(save).not.toHaveBeenCalled();
   });
 
   it('persists the complete agent report and opens Reports', async () => {
@@ -91,6 +101,7 @@ describe('AgentWorkbench runs', () => {
 
     await user.click(screen.getByRole('button', { name: 'Run' }));
 
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
     const reports = useAiLabStore.getState().runReports;
     const envelope = Object.values(reports)[0];
     expect(envelope).toMatchObject({ kind: 'agent-suite', payload: REPORT, suite: SUITE });
@@ -98,5 +109,70 @@ describe('AgentWorkbench runs', () => {
       tab: 'reports',
       reportRunId: envelope?.id,
     });
+  });
+
+  it('preserves the active run and Cancel across unmount/remount', async () => {
+    let resolve!: (report: typeof REPORT) => void;
+    runDesktopAgentSuite.mockImplementation(
+      () => new Promise<typeof REPORT>((done) => (resolve = done))
+    );
+    const user = userEvent.setup();
+    const first = render(<AgentWorkbench />);
+    fireEvent.change(screen.getByLabelText('Agent suite JSON'), {
+      target: { value: JSON.stringify(SUITE) },
+    });
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    first.unmount();
+
+    render(<AgentWorkbench />);
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    await act(async () => resolve(REPORT));
+    expect(await screen.findByRole('status')).toHaveTextContent('CANCELLED');
+  });
+
+  it('rejects a concurrent start', () => {
+    runDesktopAgentSuite.mockImplementation(() => new Promise(() => {}));
+    expect(startAgentRun(SUITE, {})).toBe(true);
+    expect(startAgentRun(SUITE, {})).toBe(false);
+  });
+
+  it('retains late completion in memory without saving or navigating after unmount', async () => {
+    let resolve!: (report: typeof REPORT) => void;
+    runDesktopAgentSuite.mockImplementation(
+      () => new Promise<typeof REPORT>((done) => (resolve = done))
+    );
+    const user = userEvent.setup();
+    const view = render(<AgentWorkbench />);
+    fireEvent.change(screen.getByLabelText('Agent suite JSON'), {
+      target: { value: JSON.stringify(SUITE) },
+    });
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    view.unmount();
+    await act(async () => resolve(REPORT));
+
+    expect(save).not.toHaveBeenCalled();
+    expect(useAiLabUiStore.getState().tab).toBe('agents');
+    expect(useAgentRunLiveStore.getState().completedReport).toMatchObject({
+      kind: 'agent-suite',
+      status: 'passed',
+    });
+  });
+
+  it('retains a completed report after save failure and retries successfully', async () => {
+    save.mockRejectedValueOnce(new Error('quota exceeded')).mockResolvedValueOnce(undefined);
+    runDesktopAgentSuite.mockResolvedValue(REPORT);
+    const user = userEvent.setup();
+    render(<AgentWorkbench />);
+    fireEvent.change(screen.getByLabelText('Agent suite JSON'), {
+      target: { value: JSON.stringify(SUITE) },
+    });
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent(/persistence failed.*quota/i);
+    expect(screen.getByRole('button', { name: 'View report' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Retry save' }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(Object.values(useAiLabStore.getState().runReports)).toHaveLength(1);
   });
 });

@@ -122,6 +122,26 @@ function createStorageRecord(id: string, encryptedData: string) {
 }
 
 /**
+ * Explicit persistence seam for callers that must surface write failures.
+ * Unlike Zustand's best-effort adapter this deliberately propagates quota,
+ * encryption, and IndexedDB errors to its caller.
+ */
+export async function setDexieStorageItemStrict(
+  tableName: StorageTableName,
+  name: string,
+  value: unknown,
+  encrypt = true
+): Promise<void> {
+  const jsonString = JSON.stringify(value);
+  let dataToStore = jsonString;
+  const provider = activeKeyProvider();
+  if (encrypt && provider?.isEncrypted() !== false) {
+    dataToStore = await encryptValue(jsonString, await getEncryptionKey());
+  }
+  await getTable(tableName).put(createStorageRecord(name, dataToStore));
+}
+
+/**
  * Create a Dexie storage adapter for Zustand persist middleware
  * Stores data in IndexedDB, encrypting only when the active KeyProvider does.
  */

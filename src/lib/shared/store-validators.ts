@@ -497,6 +497,7 @@ export const AiLabStateSchema = z.object({
   recentModelKeys: z.array(z.string()).max(20).default([]),
   agentSuites: z.record(z.string(), AgentSuiteSchema).default({}),
   runReports: z.record(z.string(), AiLabReportEnvelopeSchema).default({}),
+  reportQuarantineCount: z.number().int().nonnegative().default(0),
 });
 
 export type PersistedAiLabState = z.infer<typeof AiLabStateSchema>;

@@ -3,7 +3,8 @@ import { isHuggingFaceProvider, isLocalProvider, type Provider } from '@shared/p
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AiLabReportEnvelope } from '../run-engine/reportEnvelope';
+import { AiLabReportEnvelopeSchema, type AiLabReportEnvelope } from '../run-engine/reportEnvelope';
+import { sanitizeAgentSuiteReportForPersistence } from '../run-engine/reportSanitizer';
 import type {
   AiLabModelDetail,
   AiLabProviderConfig,
@@ -24,6 +25,7 @@ interface PersistedAiLabState {
   recentModelKeys: string[];
   agentSuites: Record<string, AgentSuite>;
   runReports: Record<string, AiLabReportEnvelope>;
+  reportQuarantineCount: number;
 }
 
 interface AiLabState extends PersistedAiLabState {
@@ -87,6 +89,7 @@ const DEFAULT_STATE: PersistedAiLabState = {
   recentModelKeys: [],
   agentSuites: {},
   runReports: {},
+  reportQuarantineCount: 0,
 };
 
 const RECENT_MODEL_LIMIT = 20;
@@ -96,6 +99,44 @@ export function migrateAiLabState(
   _version?: number
 ): Partial<PersistedAiLabState> {
   const previous = persisted as Partial<PersistedAiLabState>;
+  let quarantineCount = previous.reportQuarantineCount ?? 0;
+  const agentSuites = Object.fromEntries(
+    Object.entries((previous.agentSuites ?? {}) as Record<string, unknown>).flatMap(
+      ([id, value]) => {
+        const parsed = AgentSuiteSchema.safeParse(value);
+        if (parsed.success) return [[id, parsed.data]];
+        quarantineCount += 1;
+        console.warn(`[ai-lab] quarantined invalid agent suite "${id}"`);
+        return [];
+      }
+    )
+  );
+  const runReports = Object.fromEntries(
+    Object.entries((previous.runReports ?? {}) as Record<string, unknown>).flatMap(
+      ([id, value]) => {
+        const parsed = AiLabReportEnvelopeSchema.safeParse(value);
+        if (parsed.success) {
+          try {
+            return [
+              [
+                id,
+                parsed.data.kind === 'agent-suite'
+                  ? sanitizeAgentSuiteReportForPersistence(parsed.data)
+                  : parsed.data,
+              ],
+            ];
+          } catch {
+            quarantineCount += 1;
+            console.warn(`[ai-lab] quarantined oversized run report "${id}"`);
+            return [];
+          }
+        }
+        quarantineCount += 1;
+        console.warn(`[ai-lab] quarantined invalid run report "${id}"`);
+        return [];
+      }
+    )
+  );
   return {
     ...previous,
     providers: Object.fromEntries(
@@ -121,8 +162,9 @@ export function migrateAiLabState(
         ];
       })
     ),
-    agentSuites: previous.agentSuites ?? {},
-    runReports: previous.runReports ?? {},
+    agentSuites,
+    runReports,
+    reportQuarantineCount: quarantineCount,
   };
 }
 
@@ -335,7 +377,11 @@ export const useAiLabStore = create<AiLabState>()(
           return { agentSuites: next };
         }),
       saveRunReport: (report) =>
-        set((state) => ({ runReports: { ...state.runReports, [report.id]: report } })),
+        set((state) => {
+          const safe =
+            report.kind === 'agent-suite' ? sanitizeAgentSuiteReportForPersistence(report) : report;
+          return { runReports: { ...state.runReports, [safe.id]: safe } };
+        }),
       removeRunReport: (id) =>
         set((state) => {
           const next = { ...state.runReports };
@@ -357,7 +403,9 @@ export const useAiLabStore = create<AiLabState>()(
         recentModelKeys: state.recentModelKeys,
         agentSuites: state.agentSuites,
         runReports: state.runReports,
+        reportQuarantineCount: state.reportQuarantineCount,
       }),
+      merge: (persisted, current) => ({ ...current, ...migrateAiLabState(persisted) }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
         const parsed = AiLabStateSchema.safeParse(state);

@@ -22,8 +22,58 @@ describe('AiLabWorkspace', () => {
       evalConfigs: {},
       favoriteModelKeys: [],
       recentModelKeys: [],
+      runReports: {},
     });
     useAiLabUiStore.setState({ tab: 'playground' });
+  });
+
+  it('includes agent run reports in run readiness and Reports counts', () => {
+    useAiLabStore.setState({
+      runReports: {
+        agent: {
+          id: 'agent',
+          kind: 'agent-suite',
+          name: 'Agent',
+          startedAt: 1,
+          finishedAt: 2,
+          status: 'passed',
+          suite: {
+            schemaVersion: 2,
+            id: 'suite',
+            name: 'Suite',
+            mode: 'regression',
+            agents: [],
+            tasks: [],
+            graders: [],
+            trials: 1,
+          },
+          payload: {
+            suiteId: 'suite',
+            status: 'passed',
+            results: [],
+            summary: {
+              total: 0,
+              passed: 0,
+              failed: 0,
+              errors: 0,
+              cancelled: 0,
+              passRate: 0,
+              confidence95: { low: 0, high: 0 },
+              passAtK: {},
+              passToK: {},
+              reliabilityByCase: [],
+            },
+          },
+        },
+      },
+    });
+    render(
+      <MemoryRouter>
+        <AiLabWorkspace />
+      </MemoryRouter>
+    );
+    expect(screen.getByText('1 run')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Reports' })).toHaveTextContent('1');
   });
 
   it('uses persistent workspace navigation and exposes readiness at a glance', () => {

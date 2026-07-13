@@ -46,6 +46,7 @@ const REPORT: AiLabReportEnvelope = {
         agentId: 'agent',
         trial: 1,
         status: 'failed',
+        error: 'trial execution failed',
         output: [{ type: 'text', text: 'Could not buy' }],
         trace: {
           id: 'trace-1',
@@ -78,9 +79,20 @@ const REPORT: AiLabReportEnvelope = {
               costUSD: 0.003,
             },
             {
-              id: 'event-3',
+              id: 'event-unknown',
               traceId: 'trace-1',
               sequence: 3,
+              type: 'model.completed',
+              timestamp: 16,
+              providerId: 'provider',
+              model: 'unknown-cost-model',
+              output: [],
+              durationMs: 1,
+            },
+            {
+              id: 'event-3',
+              traceId: 'trace-1',
+              sequence: 4,
               type: 'run.completed',
               timestamp: 20,
               status: 'failed',
@@ -94,7 +106,15 @@ const REPORT: AiLabReportEnvelope = {
             passed: false,
             detail: 'insufficient judge quorum',
             minimumQuorum: 2,
-            judgeVotes: [{ providerId: 'p1', model: 'judge-1', label: 'fail', score: 0.1 }],
+            judgeVotes: [
+              {
+                providerId: 'p1',
+                model: 'judge-1',
+                label: 'fail',
+                score: 0.1,
+                reasoning: 'incorrect outcome',
+              },
+            ],
             judgeFailures: [{ providerId: 'p2', model: 'judge-2', error: 'timeout' }],
           },
         ],
@@ -143,7 +163,29 @@ describe('ReportView agent reports', () => {
     expect(screen.getByText(/judge-2.*timeout/i)).toBeInTheDocument();
     expect(screen.getByText(/12 in · 4 out/i)).toBeInTheDocument();
     expect(screen.getByText(/\$0\.003000/)).toBeInTheDocument();
+    expect(screen.getAllByText(/partially known/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/trial execution failed/i)).toBeInTheDocument();
+    expect(screen.getByText(/incorrect outcome/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 total.*1 failed.*0 errors.*0 cancelled/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/pass@k/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/model\.completed/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'JSON' })).toBeInTheDocument();
+  });
+
+  it('labels usage and cost unknown instead of displaying zero', () => {
+    const unknown = structuredClone(REPORT);
+    if (unknown.kind !== 'agent-suite') throw new Error('expected agent report');
+    for (const event of unknown.payload.results[0]!.trace.events) {
+      if (event.type === 'model.completed') {
+        delete event.usage;
+        delete event.costUSD;
+      }
+    }
+    useAiLabStore.setState({ runReports: { [unknown.id]: unknown } });
+
+    render(<ReportView />);
+
+    expect(screen.getAllByText('unknown')).toHaveLength(2);
+    expect(screen.queryByText('$0.000000')).not.toBeInTheDocument();
   });
 });

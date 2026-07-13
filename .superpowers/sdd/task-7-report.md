@@ -51,6 +51,48 @@ git diff --check
 
 Result: all exited 0 with no reported errors or warnings.
 
+## Blocking-review follow-up
+
+Review identified lifecycle, durable-persistence, validation, report-completeness,
+sanitization/retention, and navigation-count gaps. The follow-up adds:
+
+- a module-scoped agent run service whose state survives tab unmount/remount,
+  rejects concurrent starts, preserves Cancel, suppresses stale owner side
+  effects, and retains the latest sanitized completion in memory;
+- a dedicated awaited strict Dexie report repository, surfaced write errors,
+  live fallback viewing/export, and explicit retry;
+- concrete Zod schemas for eval and agent-suite payloads plus per-entry suite and
+  report quarantine with warnings and a persisted quarantine count;
+- complete agent outcome/reliability/trial/grader/judge/trace rendering with
+  fully-known, partially-known, and unknown resource accounting;
+- recursive secret/header/query/body redaction, explicit content truncation,
+  a 2 MiB per-agent-report ceiling, and deterministic 20-report/20 MiB agent
+  retention; JSON export consumes only sanitized envelopes;
+- agent report inclusion in Reports readiness/counting and empty-state logic.
+
+### Follow-up RED evidence
+
+New tests initially failed because active job state was component-local,
+durable saves were not awaited, malformed report payloads were accepted,
+secrets and oversized content were unbounded, agent-only reports were omitted
+from navigation counts, and the UI treated missing cost as zero.
+
+### Follow-up GREEN evidence
+
+```text
+npx vitest run src/features/ai-lab/run-engine src/features/ai-lab/store/__tests__ src/features/ai-lab/components/__tests__/AgentWorkbench.test.tsx src/features/ai-lab/components/__tests__/ReportView.test.tsx src/features/ai-lab/components/__tests__/AiLabWorkspace.test.tsx src/features/ai-lab/hooks/__tests__/useEvalRun.test.ts src/features/ai-lab/lib/__tests__/agentRuntime.test.ts
+```
+
+Result: 13 files passed, 71 tests passed.
+
+`npm run type-check:all` passed across renderer, Electron, HTTP, Worker, echo,
+CLI, Chrome extension, and VS Code extension projects. `npm run lint` completed
+without errors; the initially reported import-order warnings were fixed.
+Changed files pass focused Prettier and `git diff --check`. Repository-wide
+`npm run format:check` remains blocked only by the eight pre-existing ignored
+`.superpowers/sdd/task-{1..8}-brief.md` files; this follow-up does not rewrite
+task briefs.
+
 ## Scope notes
 
 - Report persistence is additive in `useAiLabStore` version 4; the separate legacy eval-run store is intentionally retained.
