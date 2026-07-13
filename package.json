@@ -84,7 +84,7 @@
     "sentry:sourcemaps": "node scripts/sentry-sourcemaps.mjs",
     "sentry:smoke": "node scripts/sentry-smoke.mjs",
     "electron:publish": "npm run electron:build:all && npm run sentry:sourcemaps && electron-builder --publish always",
-    "electron:publish:prerelease": "npm run electron:build:all && npm run sentry:sourcemaps && electron-builder --publish always --config.publish.releaseType=prerelease",
+    "electron:publish:prerelease": "npm run electron:build:all && npm run sentry:sourcemaps && electron-builder --publish always --config.publish.releaseType=prerelease --config.publish.channel=beta",
     "electron:publish:mac": "npm run electron:build:all && electron-builder --mac --publish always",
     "electron:publish:win": "npm run electron:build:all && electron-builder --win --publish always",
     "electron:publish:linux": "npm run electron:build:all && electron-builder --linux --publish always",

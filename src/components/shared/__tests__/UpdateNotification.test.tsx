@@ -17,6 +17,7 @@ let statusCb: ((s: UpdaterStatus) => void) | null = null;
 
 const updater = {
   check: vi.fn(async () => ({ updateAvailable: false })),
+  getStatus: vi.fn<() => Promise<UpdaterStatus>>(async () => ({ state: 'idle' })),
   download: vi.fn(async () => ({ ok: true })),
   cancel: vi.fn(async () => ({ ok: true })),
   restart: vi.fn(async () => undefined),
@@ -73,6 +74,15 @@ describe('UpdateNotification', () => {
     expect(updater.setConfig).toHaveBeenCalledWith({ autoDownload: true, channel: 'stable' });
   });
 
+  it('renders the last updater state when it subscribes after an update event', async () => {
+    updater.getStatus.mockResolvedValueOnce({ state: 'downloaded', version: '2.1.0' });
+
+    render(<UpdateNotification />);
+
+    expect(await screen.findByText(/update v2\.1\.0 ready/i)).toBeInTheDocument();
+    expect(updater.getStatus).toHaveBeenCalledOnce();
+  });
+
   it('shows a Download button when auto-download is off', async () => {
     useSettingsStore
       .getState()
@@ -84,6 +94,18 @@ describe('UpdateNotification', () => {
     const btn = screen.getByRole('button', { name: /download/i });
     await userEvent.click(btn);
     expect(updater.download).toHaveBeenCalledOnce();
+  });
+
+  it('opens the in-app release history from an available update', async () => {
+    const onOpenReleaseNotes = vi.fn();
+    window.addEventListener('restura:open-release-notes', onOpenReleaseNotes);
+    render(<UpdateNotification />);
+    emit({ state: 'available', version: '2.1.0' });
+
+    await userEvent.click(screen.getByRole('button', { name: /what's new/i }));
+
+    expect(onOpenReleaseNotes).toHaveBeenCalledOnce();
+    window.removeEventListener('restura:open-release-notes', onOpenReleaseNotes);
   });
 
   it('renders a progress bar and Cancel while downloading', async () => {

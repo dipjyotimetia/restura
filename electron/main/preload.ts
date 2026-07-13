@@ -80,6 +80,7 @@ const electronAPI = {
       message?: string;
       error?: string;
     }> => ipcRenderer.invoke(IPC.updater.check),
+    getStatus: (): Promise<UpdaterStatus> => ipcRenderer.invoke(IPC.updater.status),
     download: (): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC.updater.download),
     cancel: (): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.updater.cancel),
