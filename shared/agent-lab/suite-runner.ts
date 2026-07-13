@@ -26,6 +26,9 @@ export interface GraderScore {
   minimumQuorum?: number;
   usage?: { inputTokens: number; outputTokens: number };
   costUSD?: number;
+  /** Resource-call coverage for panels where one score aggregates multiple
+   * judge and calibration calls, including failed calls. */
+  resourceCalls?: { attempted: number; usageKnown: number; costKnown: number };
 }
 
 export interface SuiteTrialResult {

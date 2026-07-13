@@ -1,8 +1,14 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { migrateAiLabState, useAiLabStore } from '../useAiLabStore';
 import { AiLabStateSchema } from '@/lib/shared/store-validators';
+import type { AiLabReportEnvelope } from '../../run-engine/reportEnvelope';
+import {
+  resetAiLabReportRepositoryForTests,
+  setAiLabReportRepositoryForTests,
+} from '../../run-engine/reportRepository';
 
 function reset() {
+  resetAiLabReportRepositoryForTests();
   useAiLabStore.setState({
     providers: {},
     prompts: {},
@@ -15,6 +21,97 @@ function reset() {
     reportQuarantineCount: 0,
   });
 }
+
+function report(
+  id: string,
+  startedAt: number
+): Extract<AiLabReportEnvelope, { kind: 'agent-suite' }> {
+  return {
+    id,
+    kind: 'agent-suite',
+    name: id,
+    startedAt,
+    finishedAt: startedAt + 1,
+    status: 'passed',
+    suite: {
+      schemaVersion: 2,
+      id: 'suite',
+      name: 'suite',
+      mode: 'regression',
+      agents: [
+        {
+          id: 'agent',
+          model: { providerId: 'provider', model: 'model' },
+          instructions: 'safe',
+          tools: [],
+          limits: { maxSteps: 1, maxWallTimeMs: 1_000 },
+        },
+      ],
+      tasks: [{ id: 'task', input: [{ type: 'text', text: 'safe' }] }],
+      graders: [],
+      trials: 1,
+    },
+    payload: {
+      suiteId: 'suite',
+      status: 'passed',
+      results: [],
+      summary: {
+        total: 0,
+        passed: 0,
+        failed: 0,
+        errors: 0,
+        cancelled: 0,
+        passRate: 0,
+        confidence95: { low: 0, high: 0 },
+        passAtK: {},
+        passToK: {},
+        reliabilityByCase: [],
+      },
+    },
+  };
+}
+
+describe('useAiLabStore — canonical reports', () => {
+  beforeEach(reset);
+
+  it('hydrates retained reports from the awaited repository and persists eviction', async () => {
+    const loaded = Object.fromEntries(
+      Array.from({ length: 25 }, (_, index) => {
+        const value = report(`r-${index}`, index);
+        return [value.id, value];
+      })
+    );
+    const save = vi.fn(async () => {});
+    setAiLabReportRepositoryForTests({ load: async () => loaded, save });
+
+    await useAiLabStore.getState().hydrateRunReports();
+
+    expect(Object.keys(useAiLabStore.getState().runReports)).toHaveLength(20);
+    expect(useAiLabStore.getState().runReports['r-24']).toBeDefined();
+    expect(useAiLabStore.getState().runReports['r-0']).toBeUndefined();
+    expect(save).toHaveBeenCalledWith(useAiLabStore.getState().runReports);
+  });
+
+  it('awaits canonical save and deletion before changing live report state', async () => {
+    let persisted: Record<string, AiLabReportEnvelope> = {};
+    const repository = {
+      load: async () => persisted,
+      save: vi.fn(async (next: Record<string, AiLabReportEnvelope>) => {
+        persisted = structuredClone(next);
+      }),
+    };
+    setAiLabReportRepositoryForTests(repository);
+    const value = report('r-1', 1);
+
+    await useAiLabStore.getState().saveRunReport(value);
+    expect(persisted['r-1']).toEqual(value);
+    expect(useAiLabStore.getState().runReports['r-1']).toEqual(value);
+
+    await useAiLabStore.getState().removeRunReport('r-1');
+    expect(persisted).toEqual({});
+    expect(useAiLabStore.getState().runReports).toEqual({});
+  });
+});
 
 describe('useAiLabStore — providers', () => {
   beforeEach(reset);

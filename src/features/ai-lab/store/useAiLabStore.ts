@@ -4,7 +4,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { AiLabReportEnvelopeSchema, type AiLabReportEnvelope } from '../run-engine/reportEnvelope';
-import { sanitizeAgentSuiteReportForPersistence } from '../run-engine/reportSanitizer';
+import { getAiLabReportRepository } from '../run-engine/reportRepository';
+import {
+  retainAgentReports,
+  sanitizeAgentSuiteReportForPersistence,
+} from '../run-engine/reportSanitizer';
 import type {
   AiLabModelDetail,
   AiLabProviderConfig,
@@ -76,8 +80,9 @@ interface AiLabState extends PersistedAiLabState {
   // Agent workbench
   upsertAgentSuite: (suite: unknown) => string;
   removeAgentSuite: (id: string) => void;
-  saveRunReport: (report: AiLabReportEnvelope) => void;
-  removeRunReport: (id: string) => void;
+  hydrateRunReports: () => Promise<void>;
+  saveRunReport: (report: AiLabReportEnvelope) => Promise<void>;
+  removeRunReport: (id: string) => Promise<void>;
 }
 
 const DEFAULT_STATE: PersistedAiLabState = {
@@ -93,6 +98,13 @@ const DEFAULT_STATE: PersistedAiLabState = {
 };
 
 const RECENT_MODEL_LIMIT = 20;
+let reportMutationQueue: Promise<void> = Promise.resolve();
+
+function enqueueReportMutation(operation: () => Promise<void>): Promise<void> {
+  const pending = reportMutationQueue.then(operation, operation);
+  reportMutationQueue = pending.catch(() => undefined);
+  return pending;
+}
 
 export function migrateAiLabState(
   persisted: unknown,
@@ -170,7 +182,7 @@ export function migrateAiLabState(
 
 export const useAiLabStore = create<AiLabState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       ...DEFAULT_STATE,
 
       addProvider: (init) => {
@@ -376,17 +388,37 @@ export const useAiLabStore = create<AiLabState>()(
           delete next[id];
           return { agentSuites: next };
         }),
+      hydrateRunReports: () =>
+        enqueueReportMutation(async () => {
+          const loaded = await getAiLabReportRepository().load();
+          const migrated = migrateAiLabState({ runReports: loaded });
+          const canonical = retainAgentReports({
+            ...get().runReports,
+            ...(migrated.runReports ?? {}),
+          });
+          if (JSON.stringify(canonical) !== JSON.stringify(loaded)) {
+            await getAiLabReportRepository().save(canonical);
+          }
+          set({
+            runReports: canonical,
+            reportQuarantineCount:
+              get().reportQuarantineCount + (migrated.reportQuarantineCount ?? 0),
+          });
+        }),
       saveRunReport: (report) =>
-        set((state) => {
+        enqueueReportMutation(async () => {
           const safe =
             report.kind === 'agent-suite' ? sanitizeAgentSuiteReportForPersistence(report) : report;
-          return { runReports: { ...state.runReports, [safe.id]: safe } };
+          const reports = retainAgentReports({ ...get().runReports, [safe.id]: safe });
+          await getAiLabReportRepository().save(reports);
+          set({ runReports: reports });
         }),
       removeRunReport: (id) =>
-        set((state) => {
-          const next = { ...state.runReports };
+        enqueueReportMutation(async () => {
+          const next = { ...get().runReports };
           delete next[id];
-          return { runReports: next };
+          await getAiLabReportRepository().save(next);
+          set({ runReports: next });
         }),
     }),
     {
@@ -402,7 +434,6 @@ export const useAiLabStore = create<AiLabState>()(
         favoriteModelKeys: state.favoriteModelKeys,
         recentModelKeys: state.recentModelKeys,
         agentSuites: state.agentSuites,
-        runReports: state.runReports,
         reportQuarantineCount: state.reportQuarantineCount,
       }),
       merge: (persisted, current) => ({ ...current, ...migrateAiLabState(persisted) }),
@@ -413,6 +444,9 @@ export const useAiLabStore = create<AiLabState>()(
           // Merge defaults (keep action methods) rather than replace.
           useAiLabStore.setState({ ...DEFAULT_STATE });
         }
+        void state.hydrateRunReports().catch((cause) => {
+          console.warn('[ai-lab] report hydration failed', cause);
+        });
       },
     }
   )

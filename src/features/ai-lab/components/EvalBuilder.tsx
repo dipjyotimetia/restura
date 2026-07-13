@@ -122,7 +122,17 @@ export function EvalBuilder() {
   const upsertPrompt = useAiLabStore((s) => s.upsertPrompt);
   const upsertEvalConfig = useAiLabStore((s) => s.upsertEvalConfig);
   const removeEvalConfig = useAiLabStore((s) => s.removeEvalConfig);
-  const { running, progress, error, lastRunId, start, stop } = useEvalRun();
+  const {
+    running,
+    progress,
+    error,
+    persistenceError,
+    lastRunId,
+    pendingReport,
+    start,
+    stop,
+    retrySave,
+  } = useEvalRun();
 
   // The whole builder form is a session-scoped draft: sub-tabs unmount on
   // switch and losing five configured scorers to a glance at Datasets was the
@@ -452,6 +462,19 @@ export function EvalBuilder() {
                 <p className="text-sp-11 text-sp-muted">{runDisabledReason}</p>
               )}
               {error && <p className="text-sp-12 text-destructive">{error}</p>}
+              {persistenceError && (
+                <p className="text-sp-12 text-destructive">{persistenceError}</p>
+              )}
+              {pendingReport && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => void retrySave()}
+                >
+                  Retry report save
+                </Button>
+              )}
               {progress && (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-3">

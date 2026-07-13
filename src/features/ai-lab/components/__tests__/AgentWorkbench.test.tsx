@@ -53,12 +53,15 @@ const SUITE = {
 
 describe('AgentWorkbench runs', () => {
   const save = vi.fn(async () => {});
+  const load = vi.fn(async () => ({}));
   beforeEach(() => {
     runDesktopAgentSuite.mockReset();
     save.mockReset();
+    load.mockReset();
+    load.mockResolvedValue({});
     save.mockResolvedValue(undefined);
     resetAgentRunServiceForTests();
-    setAgentRunRepositoryForTests({ save });
+    setAgentRunRepositoryForTests({ load, save });
     useAiLabStore.setState({
       providers: {},
       prompts: {},
@@ -157,6 +160,10 @@ describe('AgentWorkbench runs', () => {
       kind: 'agent-suite',
       status: 'passed',
     });
+    expect(useAgentRunLiveStore.getState().persistedReportId).not.toBe(
+      useAgentRunLiveStore.getState().completedReport?.id
+    );
+    expect(useAgentRunLiveStore.getState().persistenceError).toMatch(/pending/i);
   });
 
   it('retains a completed report after save failure and retries successfully', async () => {

@@ -4,8 +4,12 @@ import { runDesktopAgentSuite } from '../lib/agentRuntime';
 import { useAiLabStore } from '../store/useAiLabStore';
 import type { AiLabProviderConfig } from '../types';
 import { createAgentSuiteReportEnvelope, type AiLabReportEnvelope } from './reportEnvelope';
-import { aiLabReportRepository, type AiLabReportRepository } from './reportRepository';
-import { retainAgentReports, sanitizeAgentSuiteReportForPersistence } from './reportSanitizer';
+import {
+  resetAiLabReportRepositoryForTests,
+  setAiLabReportRepositoryForTests,
+  type AiLabReportRepository,
+} from './reportRepository';
+import { sanitizeAgentSuiteReportForPersistence } from './reportSanitizer';
 import { RunEngine } from './runEngine';
 
 type AgentEnvelope = Extract<AiLabReportEnvelope, { kind: 'agent-suite' }>;
@@ -33,7 +37,6 @@ const initialState: AgentRunLiveState = {
 
 export const useAgentRunLiveStore = create<AgentRunLiveState>()(() => initialState);
 const engine = new RunEngine<AgentSuiteReport>();
-let repository: AiLabReportRepository = aiLabReportRepository;
 let ownerSequence = 0;
 let currentOwner: number | null = null;
 const mountedOwners = new Set<number>();
@@ -49,13 +52,13 @@ export function registerAgentRunOwner(): () => void {
 }
 
 export function setAgentRunRepositoryForTests(next: AiLabReportRepository): void {
-  repository = next;
+  setAiLabReportRepositoryForTests(next);
 }
 
 export function resetAgentRunServiceForTests(): void {
   const active = useAgentRunLiveStore.getState().activeJobId;
   if (active) engine.cancel(active);
-  repository = aiLabReportRepository;
+  resetAiLabReportRepositoryForTests();
   mountedOwners.clear();
   currentOwner = null;
   useAgentRunLiveStore.setState(initialState);
@@ -125,7 +128,13 @@ async function finishAgentRun(
       completedReport: sanitized,
       status: report.status.toUpperCase(),
     });
-    if (owner !== null && mountedOwners.has(owner)) await persistReport(sanitized);
+    if (owner !== null && mountedOwners.has(owner)) {
+      await persistReport(sanitized);
+    } else if (useAgentRunLiveStore.getState().persistedReportId !== sanitized.id) {
+      useAgentRunLiveStore.setState({
+        persistenceError: 'persistence pending: report completed after workbench unmounted',
+      });
+    }
   } catch (cause) {
     if (useAgentRunLiveStore.getState().activeJobId !== jobId) return;
     const name = typeof cause === 'object' && cause && 'name' in cause ? cause.name : undefined;
@@ -140,13 +149,8 @@ async function finishAgentRun(
 }
 
 async function persistReport(report: AgentEnvelope): Promise<boolean> {
-  const reports = retainAgentReports({
-    ...useAiLabStore.getState().runReports,
-    [report.id]: report,
-  });
   try {
-    await repository.save(reports);
-    useAiLabStore.setState({ runReports: reports });
+    await useAiLabStore.getState().saveRunReport(report);
     useAgentRunLiveStore.setState({ persistenceError: null, persistedReportId: report.id });
     return true;
   } catch (cause) {

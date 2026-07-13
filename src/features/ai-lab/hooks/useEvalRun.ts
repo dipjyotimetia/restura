@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { runEval, type EvalProgress } from '../lib/evalRunner';
 import { executeExtractedRequest } from '../lib/execCell';
 import { modelKey, modelLabelFor } from '../lib/modelOptions';
-import { adaptEvalRunReport } from '../run-engine/reportEnvelope';
+import { adaptEvalRunReport, type AiLabReportEnvelope } from '../run-engine/reportEnvelope';
 import { RunEngine } from '../run-engine/runEngine';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useEvalRunStore } from '../store/useEvalRunStore';
@@ -19,15 +19,20 @@ interface EvalLiveState {
   running: boolean;
   progress: EvalProgress | null;
   error: string | null;
+  persistenceError: string | null;
   /** Id of the most recently started run (for the "View report" handoff). */
   lastRunId: string | null;
+  /** Sanitized live fallback retained until the canonical repository confirms the write. */
+  pendingReport: Extract<AiLabReportEnvelope, { kind: 'eval' }> | null;
 }
 
 const useEvalLiveStore = create<EvalLiveState>()(() => ({
   running: false,
   progress: null,
   error: null,
+  persistenceError: null,
   lastRunId: null,
+  pendingReport: null,
 }));
 
 // Module-scoped so Stop keeps working after the Evals tab remounts.
@@ -43,7 +48,13 @@ function start(config: EvalConfig): void {
     useEvalLiveStore.setState({ error: 'Eval is missing its prompt or dataset.' });
     return;
   }
-  useEvalLiveStore.setState({ error: null, progress: null, running: true });
+  useEvalLiveStore.setState({
+    error: null,
+    persistenceError: null,
+    progress: null,
+    running: true,
+    pendingReport: null,
+  });
   lab.recordRecentModels(config.models.map(modelKey));
 
   // Capture friendly labels at run start so the report keeps readable names
@@ -93,14 +104,20 @@ function start(config: EvalConfig): void {
     reportEngineProgress?.(p.total ? p.completed / p.total : p.done ? 1 : 0);
   };
 
-  const persistReport = () => {
+  const persistReport = async () => {
     const completed = useEvalRunStore.getState().runs[runId];
     if (!completed) return;
+    const envelope = adaptEvalRunReport(completed) as Extract<
+      AiLabReportEnvelope,
+      { kind: 'eval' }
+    >;
+    useEvalLiveStore.setState({ pendingReport: envelope });
     try {
-      useAiLabStore.getState().saveRunReport(adaptEvalRunReport(completed));
+      await useAiLabStore.getState().saveRunReport(envelope);
+      useEvalLiveStore.setState({ pendingReport: null, persistenceError: null });
     } catch (cause) {
       useEvalLiveStore.setState({
-        error: `Report persistence failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+        persistenceError: `Report persistence failed: ${cause instanceof Error ? cause.message : String(cause)}`,
       });
     }
   };
@@ -131,7 +148,7 @@ function start(config: EvalConfig): void {
       await execution.result;
       flushCells(); // defensive — the done-flagged progress event normally flushed already
       useEvalRunStore.getState().finishRun(runId, 'done');
-      persistReport();
+      await persistReport();
     } catch (e: unknown) {
       flushCells(); // keep cells completed before a mid-run failure
       const snapshot = runEngine.get(execution.jobId);
@@ -141,7 +158,7 @@ function start(config: EvalConfig): void {
         useEvalLiveStore.setState({ error: e instanceof Error ? e.message : String(e) });
         useEvalRunStore.getState().finishRun(runId, 'error');
       }
-      persistReport();
+      await persistReport();
     } finally {
       activeJobId = null;
       reportEngineProgress = null;
@@ -154,6 +171,21 @@ function stop(): void {
   if (activeJobId) runEngine.cancel(activeJobId);
 }
 
+async function retrySave(): Promise<boolean> {
+  const report = useEvalLiveStore.getState().pendingReport;
+  if (!report) return false;
+  try {
+    await useAiLabStore.getState().saveRunReport(report);
+    useEvalLiveStore.setState({ pendingReport: null, persistenceError: null });
+    return true;
+  } catch (cause) {
+    useEvalLiveStore.setState({
+      persistenceError: `Report persistence failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+    });
+    return false;
+  }
+}
+
 /**
  * Drives an eval run: resolves the config's prompt/dataset/providers from the
  * store, streams progress to the UI (throttled ~10 fps), persists the run +
@@ -164,6 +196,18 @@ export function useEvalRun() {
   const running = useEvalLiveStore((s) => s.running);
   const progress = useEvalLiveStore((s) => s.progress);
   const error = useEvalLiveStore((s) => s.error);
+  const persistenceError = useEvalLiveStore((s) => s.persistenceError);
   const lastRunId = useEvalLiveStore((s) => s.lastRunId);
-  return { running, progress, error, lastRunId, start, stop };
+  const pendingReport = useEvalLiveStore((s) => s.pendingReport);
+  return {
+    running,
+    progress,
+    error,
+    persistenceError,
+    lastRunId,
+    pendingReport,
+    start,
+    stop,
+    retrySave,
+  };
 }

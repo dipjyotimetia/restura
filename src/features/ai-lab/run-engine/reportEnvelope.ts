@@ -74,6 +74,13 @@ const GraderScoreSchema = z.object({
   minimumQuorum: z.number().int().nonnegative().optional(),
   usage: UsageSchema.optional(),
   costUSD: z.number().nonnegative().optional(),
+  resourceCalls: z
+    .object({
+      attempted: z.number().int().nonnegative(),
+      usageKnown: z.number().int().nonnegative(),
+      costKnown: z.number().int().nonnegative(),
+    })
+    .optional(),
 });
 const ReliabilitySchema = z.object({
   agentId: z.string(),

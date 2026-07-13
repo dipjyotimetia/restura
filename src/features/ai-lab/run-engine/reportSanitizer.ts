@@ -6,7 +6,20 @@ export const MAX_AGENT_REPORT_COUNT = 20;
 export const MAX_AGENT_REPORT_TOTAL_BYTES = 20 * 1024 * 1024;
 const MAX_CONTENT_CHARS = 64 * 1024;
 const AGGRESSIVE_CONTENT_CHARS = 4 * 1024;
-const SENSITIVE_KEY = /authorization|cookie|token|secret|password|api[-_]?key/i;
+const SENSITIVE_KEY = new Set([
+  'authorization',
+  'cookie',
+  'setcookie',
+  'token',
+  'accesstoken',
+  'refreshtoken',
+  'secret',
+  'clientsecret',
+  'password',
+  'passphrase',
+  'apikey',
+  'xapikey',
+]);
 
 export class AgentReportTooLargeError extends Error {
   constructor() {
@@ -46,7 +59,7 @@ export function retainAgentReports(
 }
 
 function sanitizeValue(value: unknown, maxChars: number, key = ''): unknown {
-  if (SENSITIVE_KEY.test(key)) return '[REDACTED]';
+  if (SENSITIVE_KEY.has(key.replace(/[-_\s]/g, '').toLowerCase())) return '[REDACTED]';
   if (typeof value === 'string') return sanitizeString(value, maxChars);
   if (Array.isArray(value)) return value.map((entry) => sanitizeValue(entry, maxChars));
   if (!value || typeof value !== 'object') return value;

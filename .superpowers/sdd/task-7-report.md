@@ -98,3 +98,32 @@ task briefs.
 - Report persistence is additive in `useAiLabStore` version 4; the separate legacy eval-run store is intentionally retained.
 - Agent report envelopes include a validated suite snapshot so task input/reference remain interpretable even if the saved suite later changes.
 - Full repository validation is left to the controlling session; this task ran the brief's focused suites plus renderer type-check/lint/diff checks.
+
+## Re-review blocker fix
+
+- Report envelopes now have one awaited repository for save, hydration, deletion,
+  and retention. The main Zustand payload no longer writes a divergent report
+  copy; legacy reports are merged into the canonical repository during hydration.
+- Prompt eval completion uses the same awaited repository, retains a live fallback
+  after failure, and exposes an explicit retry action.
+- Secret-key matching is exact after key normalization, preserving resource fields
+  such as `inputTokens`, `outputTokens`, and `maxTokens`; a real report-schema
+  round-trip test protects the persistence boundary.
+- An agent completion after owner unmount is marked pending whenever its id differs
+  from the confirmed persisted id, so remount exposes retry instead of presenting
+  an unsaved completion as durable.
+- Judge scores record attempted, usage-known, and cost-known calls across panel and
+  calibration invocations. Reports also count failed model calls, preventing a
+  failed or multi-call panel from being labelled fully known.
+
+### Re-review fix gates
+
+```text
+npx vitest run src/features/ai-lab/run-engine src/features/ai-lab/store/__tests__ src/features/ai-lab/components/__tests__/AgentWorkbench.test.tsx src/features/ai-lab/components/__tests__/ReportView.test.tsx src/features/ai-lab/components/__tests__/AiLabWorkspace.test.tsx src/features/ai-lab/hooks/__tests__/useEvalRun.test.ts src/features/ai-lab/lib/__tests__/agentRuntime.test.ts
+```
+
+Result: 13 files passed, 76 tests passed.
+
+`npm run type-check:all`, focused ESLint, focused Prettier, and
+`git diff --check -- . ':!cli/**'` passed. CLI source changes owned by Task 8
+were neither modified nor included in this fix.

@@ -141,6 +141,24 @@ export async function setDexieStorageItemStrict(
   await getTable(tableName).put(createStorageRecord(name, dataToStore));
 }
 
+/** Read counterpart to setDexieStorageItemStrict that propagates storage and
+ * decryption failures. Focused repositories use this when a failed hydration
+ * must be observable rather than silently converted to an empty store. */
+export async function getDexieStorageItemStrict<T>(
+  tableName: StorageTableName,
+  name: string,
+  encrypt = true
+): Promise<T | null> {
+  if (typeof window === 'undefined') return null;
+  const record = (await getTable(tableName).get(name)) as { encryptedData?: string } | undefined;
+  if (!record?.encryptedData) return null;
+  let jsonString = record.encryptedData;
+  if (encrypt && isEncrypted(jsonString)) {
+    jsonString = await decryptValue(jsonString, await getEncryptionKey());
+  }
+  return JSON.parse(jsonString) as T;
+}
+
 /**
  * Create a Dexie storage adapter for Zustand persist middleware
  * Stores data in IndexedDB, encrypting only when the active KeyProvider does.

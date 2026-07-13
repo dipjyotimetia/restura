@@ -116,6 +116,7 @@ const REPORT: AiLabReportEnvelope = {
               },
             ],
             judgeFailures: [{ providerId: 'p2', model: 'judge-2', error: 'timeout' }],
+            resourceCalls: { attempted: 2, usageKnown: 0, costKnown: 0 },
           },
         ],
       },
@@ -187,5 +188,20 @@ describe('ReportView agent reports', () => {
 
     expect(screen.getAllByText('unknown')).toHaveLength(2);
     expect(screen.queryByText('$0.000000')).not.toBeInTheDocument();
+  });
+
+  it('counts failed and calibration judge attempts as unknown resource coverage', () => {
+    const report = structuredClone(REPORT);
+    if (report.kind !== 'agent-suite') throw new Error('expected agent report');
+    const score = report.payload.results[0]!.scores[0]!;
+    score.usage = { inputTokens: 9, outputTokens: 3 };
+    score.costUSD = 0.001;
+    score.resourceCalls = { attempted: 4, usageKnown: 2, costKnown: 1 };
+    useAiLabStore.setState({ runReports: { [report.id]: report } });
+
+    render(<ReportView />);
+
+    expect(screen.getByText(/21 in · 7 out · partially known/i)).toBeInTheDocument();
+    expect(screen.getByText(/\$0\.004000 · partially known/i)).toBeInTheDocument();
   });
 });

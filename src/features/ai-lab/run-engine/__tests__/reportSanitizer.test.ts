@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AiLabReportEnvelope } from '../reportEnvelope';
+import { AiLabReportEnvelopeSchema, type AiLabReportEnvelope } from '../reportEnvelope';
 import {
   AgentReportTooLargeError,
   retainAgentReports,
@@ -65,6 +65,47 @@ describe('agent report persistence sanitization', () => {
     expect(serialized).not.toContain('Bearer raw');
     expect(serialized).not.toContain('"password":"raw"');
     expect(serialized).toContain('[REDACTED]');
+  });
+
+  it('preserves resource token counters and round-trips through the report schema', () => {
+    const envelope = agentEnvelope('safe');
+    envelope.payload.results = [
+      {
+        taskId: 'task',
+        agentId: 'agent',
+        trial: 1,
+        status: 'passed',
+        output: [],
+        trace: {
+          id: 'trace',
+          suiteId: 'suite',
+          taskId: 'task',
+          trial: 1,
+          agentId: 'agent',
+          startedAt: 1,
+          events: [],
+        },
+        scores: [
+          {
+            graderId: 'judge',
+            kind: 'judge',
+            passed: true,
+            usage: { inputTokens: 12, outputTokens: 4 },
+            resourceCalls: { attempted: 3, usageKnown: 2, costKnown: 1 },
+          },
+        ],
+      },
+    ];
+    envelope.suite.agents[0]!.limits.maxTokens = 123;
+
+    const sanitized = sanitizeAgentSuiteReportForPersistence(envelope);
+
+    expect(sanitized.payload.results[0]!.scores[0]!.usage).toEqual({
+      inputTokens: 12,
+      outputTokens: 4,
+    });
+    expect(sanitized.suite.agents[0]!.limits.maxTokens).toBe(123);
+    expect(AiLabReportEnvelopeSchema.parse(sanitized)).toEqual(sanitized);
   });
 
   it('truncates large content with an explicit marker and refuses an irreducibly oversized report', () => {

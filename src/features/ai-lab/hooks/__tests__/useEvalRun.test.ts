@@ -8,6 +8,7 @@ vi.mock('@/features/ai-lab/lib/evalRunner', () => ({ runEval: mockRunEval }));
 import { useEvalRun } from '../useEvalRun';
 import { useAiLabStore } from '../../store/useAiLabStore';
 import { useEvalRunStore } from '../../store/useEvalRunStore';
+import { setAiLabReportRepositoryForTests } from '../../run-engine/reportRepository';
 
 const CELL: EvalCellResult = {
   caseId: 'c1',
@@ -49,6 +50,36 @@ describe('useEvalRun', () => {
     mockRunEval.mockReset();
     useEvalRunStore.setState({ runs: {} });
     useAiLabStore.setState({ runReports: {} });
+    setAiLabReportRepositoryForTests({ load: async () => ({}), save: async () => {} });
+  });
+
+  it('keeps a failed report save available and retries it through the awaited repository', async () => {
+    const save = vi.fn().mockRejectedValueOnce(new Error('quota')).mockResolvedValueOnce(undefined);
+    setAiLabReportRepositoryForTests({ load: async () => ({}), save });
+    mockRunEval.mockImplementation(async (_input, onProgress: (p: unknown) => void) => {
+      onProgress({ completed: 1, total: 1, cells: [CELL], done: true });
+      return [CELL];
+    });
+    const config = seedConfig();
+    const { result } = renderHook(() => useEvalRun());
+
+    await act(async () => {
+      result.current.start(config);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.persistenceError).toMatch(/report persistence failed.*quota/i);
+    expect(result.current.pendingReport).toMatchObject({ kind: 'eval', status: 'passed' });
+    expect(useAiLabStore.getState().runReports).toEqual({});
+
+    await act(async () => {
+      await result.current.retrySave();
+    });
+
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(result.current.pendingReport).toBeNull();
+    expect(Object.values(useAiLabStore.getState().runReports)).toHaveLength(1);
   });
 
   it('starts a run, persists cells + a done status, and surfaces progress', async () => {

@@ -120,27 +120,33 @@ function AgentReportDetail({
   const resourceUsage = payload.results.reduce(
     (total, result) => {
       for (const event of result.trace.events) {
-        if (event.type !== 'model.completed') continue;
-        total.calls += 1;
-        if (event.usage) {
-          total.usageKnown += 1;
-          total.inputTokens += event.usage.inputTokens;
-          total.outputTokens += event.usage.outputTokens;
-        }
-        if (event.costUSD !== undefined) {
-          total.costKnown += 1;
-          total.costUSD += event.costUSD;
+        if (event.type === 'model.failed') {
+          total.calls += 1;
+        } else if (event.type === 'model.completed') {
+          total.calls += 1;
+          if (event.usage) {
+            total.usageKnown += 1;
+            total.inputTokens += event.usage.inputTokens;
+            total.outputTokens += event.usage.outputTokens;
+          }
+          if (event.costUSD !== undefined) {
+            total.costKnown += 1;
+            total.costUSD += event.costUSD;
+          }
         }
       }
       for (const score of result.scores) {
-        if (score.kind === 'judge') total.calls += 1;
+        if (score.kind === 'judge') {
+          total.calls += score.resourceCalls?.attempted ?? 1;
+          total.usageKnown += score.resourceCalls?.usageKnown ?? (score.usage ? 1 : 0);
+          total.costKnown +=
+            score.resourceCalls?.costKnown ?? (score.costUSD !== undefined ? 1 : 0);
+        }
         if (score.usage) {
-          total.usageKnown += 1;
           total.inputTokens += score.usage.inputTokens;
           total.outputTokens += score.usage.outputTokens;
         }
         if (score.costUSD !== undefined) {
-          total.costKnown += 1;
           total.costUSD += score.costUSD;
         }
       }
@@ -425,7 +431,7 @@ export function ReportView() {
     if (!selected) return;
     if (!(await confirmDelete())) return;
     if (selected.kind === 'eval') deleteRun(selected.id);
-    if (runReports[selected.id]) removeRunReport(selected.id);
+    if (runReports[selected.id]) await removeRunReport(selected.id);
     setActiveId(null); // also clears the drill-down (store invariant)
   };
 

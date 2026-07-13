@@ -303,6 +303,11 @@ export async function runDesktopAgentSuite(
       const resources = {
         ...(usage ? { usage } : {}),
         ...(costUSD !== undefined ? { costUSD } : {}),
+        resourceCalls: {
+          attempted: attemptedCalls,
+          usageKnown: successfulCalls.filter((call) => call.usage !== undefined).length,
+          costKnown: successfulCalls.filter((call) => call.costUSD !== undefined).length,
+        },
       };
       if (votes.length < quorum) {
         return {

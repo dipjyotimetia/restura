@@ -119,6 +119,7 @@ describe('desktop agent provider bridge', () => {
     expect(report.results[0]?.scores[0]).toMatchObject({
       passed: true,
       detail: expect.stringContaining('2/3 judges succeeded'),
+      resourceCalls: { attempted: 3, usageKnown: 0, costKnown: 0 },
       judgeFailures: [{ providerId: 'judge-2', model: 'judge-2', error: 'timeout' }],
       judgeVotes: expect.arrayContaining([
         expect.objectContaining({ providerId: 'judge-1', model: 'judge-1' }),
