@@ -9,6 +9,7 @@ import {
   type JudgeModelVote,
   type GenerationMessage,
   aggregateJudgeVotes,
+  validateGenerationRequest,
 } from '@shared/agent-lab';
 import type { CompletionResult } from '@shared/protocol/ai/types';
 import type { AiLabProviderConfig } from '../types';
@@ -74,6 +75,12 @@ export function createDesktopAgentProviders(
             }));
           },
           async generate(request, context) {
+            const capabilities = capabilitiesForDesktopModel(
+              config,
+              request.model.model
+            ).capabilities;
+            const unsupported = validateGenerationRequest(request, capabilities);
+            if (unsupported.length > 0) throw new Error(unsupported.join('; '));
             const completion = await complete(
               specFor(config, request.model.model, text(request.messages), {
                 ...(request.maxOutputTokens !== undefined
@@ -196,7 +203,6 @@ export async function runDesktopAgentSuite(
                     ],
                   },
                 ],
-                structuredOutput: responseSchema,
                 maxOutputTokens: grader.maxOutputTokens ?? DEFAULT_JUDGE_MAX_OUTPUT_TOKENS,
               },
               {

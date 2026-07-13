@@ -45,6 +45,66 @@ function provider(
 }
 
 describe('desktop agent provider bridge', () => {
+  it.each([
+    [
+      'media input',
+      {
+        messages: [
+          {
+            role: 'user' as const,
+            content: [{ type: 'image' as const, mimeType: 'image/png', data: 'aGVsbG8=' }],
+          },
+        ],
+      },
+      'image input',
+    ],
+    [
+      'structured output',
+      {
+        messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'go' }] }],
+        structuredOutput: { type: 'object' },
+      },
+      'structured output',
+    ],
+    [
+      'reasoning controls',
+      {
+        messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'go' }] }],
+        reasoning: { effort: 'high' as const },
+      },
+      'reasoning controls',
+    ],
+    [
+      'continuation',
+      {
+        messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'go' }] }],
+        continuationId: 'opaque-state',
+      },
+      'continuation',
+    ],
+  ])(
+    'rejects unsupported %s before calling the Electron completion transport',
+    async (_label, patch, message) => {
+      const registry = createDesktopAgentProviders({ cfg: provider('cfg', 'model') }, completeLlm);
+      const adapter = registry.require('cfg');
+
+      await expect(
+        adapter.generate(
+          {
+            model: { providerId: 'cfg', model: 'model' },
+            ...patch,
+          },
+          {
+            async resolveCredential() {
+              return undefined;
+            },
+          }
+        )
+      ).rejects.toThrow(message);
+      expect(completeLlm).not.toHaveBeenCalled();
+    }
+  );
+
   it('retains successful judge votes, records failures, and includes full task context', async () => {
     const prompts: string[] = [];
     const judgeMaxOutputTokens: Array<number | undefined> = [];

@@ -24,6 +24,40 @@ describe('RunEngine', () => {
     expect(engine.get(run.jobId)?.status).toBe('cancelled');
   });
 
+  it('exposes a transformed cancellation result while keeping cancellation terminal', async () => {
+    let finish!: (value: { status: 'passed' | 'cancelled'; trace: string[] }) => void;
+    const engine = new RunEngine<{ status: 'passed' | 'cancelled'; trace: string[] }>();
+    const run = engine.start('agent-suite', () => new Promise((resolve) => (finish = resolve)), {
+      cancellationResult: (result) => ({ ...result, status: 'cancelled' }),
+      classifyResult: (result) => result.status,
+    });
+
+    engine.cancel(run.jobId);
+    finish({ status: 'passed', trace: ['partial resource'] });
+
+    await expect(run.result).rejects.toMatchObject({
+      name: 'AbortError',
+      result: { status: 'cancelled', trace: ['partial resource'] },
+    });
+    expect(engine.get(run.jobId)).toMatchObject({
+      status: 'cancelled',
+      result: { status: 'cancelled', trace: ['partial resource'] },
+    });
+  });
+
+  it.each(['failed', 'error'] as const)(
+    'classifies a normally resolved %s domain outcome without calling it passed',
+    async (status) => {
+      const engine = new RunEngine<{ status: 'passed' | 'failed' | 'error' }>();
+      const run = engine.start('agent-suite', async () => ({ status }), {
+        classifyResult: (result) => result.status,
+      });
+
+      await expect(run.result).resolves.toEqual({ status });
+      expect(engine.get(run.jobId)?.status).toBe(status);
+    }
+  );
+
   it('bounds progress and preserves structured failures', async () => {
     const engine = new RunEngine<string>();
     const run = engine.start('eval', async ({ reportProgress }) => {

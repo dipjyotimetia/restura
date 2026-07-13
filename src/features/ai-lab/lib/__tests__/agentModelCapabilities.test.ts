@@ -40,7 +40,14 @@ describe('desktop model capability negotiation', () => {
         isLocal: false,
         modelDetails: {
           custom: {
-            agentCapabilities: { toolCalling: true, maxContextTokens: 32_000 },
+            agentCapabilities: {
+              inputModalities: ['text', 'image'],
+              structuredOutput: true,
+              toolCalling: true,
+              reasoning: true,
+              continuation: true,
+              maxContextTokens: 32_000,
+            },
             agentCapabilityProvenance: {
               source: 'discovered',
               adapterId: 'openrouter.models',
@@ -57,6 +64,8 @@ describe('desktop model capability negotiation', () => {
       inputModalities: ['text'],
       toolCalling: true,
       structuredOutput: false,
+      reasoning: false,
+      continuation: false,
       maxContextTokens: 32_000,
     });
   });
@@ -148,6 +157,35 @@ describe('desktop model capability negotiation', () => {
 
     expect(result.assertedByUser).toBe(true);
     expect(result.capabilities.toolCalling).toBe(true);
+  });
+
+  it('intersects user and discovery claims with the text-and-tools desktop transport', () => {
+    const advertised: ModelCapabilities = {
+      inputModalities: ['text', 'image', 'audio', 'document'],
+      outputModalities: ['text', 'image'],
+      structuredOutput: true,
+      toolCalling: true,
+      parallelToolCalls: true,
+      reasoning: true,
+      continuation: true,
+      serverTools: ['web-search'],
+    };
+
+    const result = capabilitiesForDesktopModel(
+      config({ capabilityOverrides: { custom: advertised } }),
+      'custom'
+    );
+
+    expect(result.capabilities).toEqual({
+      inputModalities: ['text'],
+      outputModalities: ['text'],
+      structuredOutput: false,
+      toolCalling: true,
+      parallelToolCalls: true,
+      reasoning: false,
+      continuation: false,
+      serverTools: [],
+    });
   });
 });
 

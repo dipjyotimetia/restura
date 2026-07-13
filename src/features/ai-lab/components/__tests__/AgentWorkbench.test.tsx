@@ -32,6 +32,49 @@ const REPORT = {
   },
 };
 
+const PARTIAL_REPORT = {
+  ...REPORT,
+  results: [
+    {
+      taskId: 'task',
+      agentId: 'agent',
+      trial: 1,
+      status: 'passed' as const,
+      output: [{ type: 'text' as const, text: 'partial output' }],
+      trace: {
+        id: 'trace',
+        suiteId: 'suite-1',
+        taskId: 'task',
+        trial: 1,
+        agentId: 'agent',
+        startedAt: 1,
+        events: [
+          {
+            id: 'event',
+            traceId: 'trace',
+            sequence: 0,
+            timestamp: 1,
+            type: 'model.completed' as const,
+            providerId: 'provider',
+            model: 'model',
+            output: [{ type: 'text' as const, text: 'partial output' }],
+            durationMs: 2,
+            usage: { inputTokens: 3, outputTokens: 4 },
+          },
+        ],
+      },
+      scores: [
+        {
+          graderId: 'judge',
+          kind: 'judge' as const,
+          passed: true,
+          resourceCalls: { attempted: 1, usageKnown: 1, costKnown: 0 },
+        },
+      ],
+    },
+  ],
+};
+
 const SUITE = {
   schemaVersion: 2 as const,
   id: 'suite-1',
@@ -75,10 +118,10 @@ describe('AgentWorkbench runs', () => {
     useAiLabUiStore.setState({ tab: 'agents', reportRunId: null });
   });
 
-  it('cancels the active job and rejects late success', async () => {
-    let resolve!: (report: typeof REPORT) => void;
+  it('persists a sanitized cancelled report from late partial success without navigating', async () => {
+    let resolve!: (report: typeof PARTIAL_REPORT) => void;
     runDesktopAgentSuite.mockImplementation(
-      () => new Promise<typeof REPORT>((done) => (resolve = done))
+      () => new Promise<typeof PARTIAL_REPORT>((done) => (resolve = done))
     );
     const user = userEvent.setup();
     render(<AgentWorkbench />);
@@ -88,10 +131,23 @@ describe('AgentWorkbench runs', () => {
 
     await user.click(screen.getByRole('button', { name: 'Run' }));
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
-    await act(async () => resolve(REPORT));
+    await act(async () => resolve(PARTIAL_REPORT));
 
     expect(await screen.findByRole('status')).toHaveTextContent('CANCELLED');
-    expect(save).not.toHaveBeenCalled();
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    expect(useAgentRunLiveStore.getState().completedReport).toMatchObject({
+      status: 'cancelled',
+      payload: {
+        status: 'cancelled',
+        results: [
+          {
+            trace: { events: [{ usage: { inputTokens: 3, outputTokens: 4 } }] },
+            scores: [{ resourceCalls: { attempted: 1, usageKnown: 1, costKnown: 0 } }],
+          },
+        ],
+      },
+    });
+    expect(useAiLabUiStore.getState()).toMatchObject({ tab: 'agents', reportRunId: null });
   });
 
   it('persists the complete agent report and opens Reports', async () => {

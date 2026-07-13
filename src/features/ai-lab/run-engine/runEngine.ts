@@ -5,17 +5,43 @@ interface InternalJob<Result> extends RunJobSnapshot<Result> {
 }
 
 type RunExecutor<Result> = (context: RunExecutorContext) => Promise<Result>;
+type RunOutcomeStatus = Extract<RunStatus, 'passed' | 'failed' | 'error' | 'cancelled'>;
+
+interface RunOptions<Result> {
+  classifyResult?(result: Result): RunOutcomeStatus;
+  cancellationResult?(result: Result): Result;
+}
+
+export class RunCancelledWithResultError<Result> extends Error {
+  readonly result: Result;
+
+  constructor(result: Result) {
+    super('Run cancelled');
+    this.name = 'AbortError';
+    this.result = result;
+  }
+}
+
+export function isRunCancelledWithResult<Result>(
+  cause: unknown
+): cause is RunCancelledWithResultError<Result> {
+  return cause instanceof RunCancelledWithResultError;
+}
 
 export class RunEngine<Result> {
   private readonly jobs = new Map<string, InternalJob<Result>>();
 
-  start(kind: RunKind, executor: RunExecutor<Result>): { jobId: string; result: Promise<Result> } {
+  start(
+    kind: RunKind,
+    executor: RunExecutor<Result>,
+    options: RunOptions<Result> = {}
+  ): { jobId: string; result: Promise<Result> } {
     const jobId = crypto.randomUUID();
     const controller = new AbortController();
     const job = createInternalJob<Result>(jobId, kind, controller);
     this.jobs.set(jobId, job);
 
-    return { jobId, result: this.execute(job, executor) };
+    return { jobId, result: this.execute(job, executor, options) };
   }
 
   get(jobId: string): RunJobSnapshot<Result> | undefined {
@@ -35,7 +61,11 @@ export class RunEngine<Result> {
     return true;
   }
 
-  private async execute(job: InternalJob<Result>, executor: RunExecutor<Result>): Promise<Result> {
+  private async execute(
+    job: InternalJob<Result>,
+    executor: RunExecutor<Result>,
+    options: RunOptions<Result>
+  ): Promise<Result> {
     job.status = 'running';
 
     try {
@@ -48,16 +78,23 @@ export class RunEngine<Result> {
       });
 
       if (job.controller.signal.aborted) {
+        if (options.cancellationResult) {
+          const cancellationResult = options.cancellationResult(result);
+          job.result = cancellationResult;
+          markCancelled(job);
+          throw new RunCancelledWithResultError(cancellationResult);
+        }
         markCancelled(job);
         throw abortReason(job.controller.signal);
       }
 
-      job.status = 'passed';
+      job.status = options.classifyResult?.(result) ?? 'passed';
       job.progress = 1;
       job.result = result;
       job.finishedAt = Date.now();
       return result;
     } catch (error) {
+      if (isRunCancelledWithResult<Result>(error)) throw error;
       if (job.controller.signal.aborted || isAbortError(error)) {
         markCancelled(job);
         throw job.controller.signal.aborted ? abortReason(job.controller.signal) : error;

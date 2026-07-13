@@ -60,7 +60,9 @@ export function retainAgentReports(
 
 function sanitizeValue(value: unknown, maxChars: number, key = ''): unknown {
   if (SENSITIVE_KEY.has(key.replace(/[-_\s]/g, '').toLowerCase())) return '[REDACTED]';
-  if (typeof value === 'string') return sanitizeString(value, maxChars);
+  if (typeof value === 'string') {
+    return sanitizeString(key.toLowerCase() === 'uri' ? sanitizeUri(value) : value, maxChars);
+  }
   if (Array.isArray(value)) return value.map((entry) => sanitizeValue(entry, maxChars));
   if (!value || typeof value !== 'object') return value;
   const object = value as Record<string, unknown>;
@@ -88,18 +90,47 @@ function sanitizeString(value: string, maxChars: number): string {
 }
 
 function redactUrl(value: string): string {
-  return value.replace(/https?:\/\/[^\s"']+/g, (candidate) => {
+  return value.replace(/https?:\/\/[^\s"']+/gi, (candidate) => {
     try {
-      const url = new URL(candidate);
-      url.username = '';
-      url.password = '';
-      url.hash = '';
-      for (const key of [...url.searchParams.keys()]) url.searchParams.set(key, '[REDACTED]');
-      return url.toString();
+      return redactParsedUrl(new URL(candidate));
     } catch {
       return candidate;
     }
   });
+}
+
+function sanitizeUri(value: string): string {
+  const schemeMatch = /^([a-z][a-z0-9+.-]*):/i.exec(value);
+  if (!schemeMatch) return redactUrl(value);
+  const scheme = schemeMatch[1]!.toLowerCase();
+
+  if (scheme === 'http' || scheme === 'https') {
+    try {
+      return redactParsedUrl(new URL(value));
+    } catch {
+      return `${scheme}:[REDACTED INVALID URI]`;
+    }
+  }
+  if (scheme === 'data') {
+    const metadata = value.slice(value.indexOf(':') + 1, value.indexOf(','));
+    const mediaType = /^[a-z0-9.+-]+\/[a-z0-9.+-]+/i.exec(metadata)?.[0] ?? '';
+    const base64 = /(?:^|;)base64(?:;|$)/i.test(metadata) ? ';base64' : '';
+    return `data:${mediaType}${base64},[REDACTED]`;
+  }
+  if (scheme === 'blob') return '[REDACTED BLOB URI]';
+
+  // Non-web URI schemes may place credentials in an opaque path where URL
+  // parsing cannot distinguish identity from secret material. Preserve only
+  // the scheme so persisted/exported reports remain honest about redaction.
+  return `${scheme}:[REDACTED]`;
+}
+
+function redactParsedUrl(url: URL): string {
+  url.username = '';
+  url.password = '';
+  url.hash = '';
+  url.search = '';
+  return url.toString();
 }
 
 function serializedBytes(value: unknown): number {

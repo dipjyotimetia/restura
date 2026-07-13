@@ -10,7 +10,7 @@ import {
   type AiLabReportRepository,
 } from './reportRepository';
 import { sanitizeAgentSuiteReportForPersistence } from './reportSanitizer';
-import { RunEngine } from './runEngine';
+import { isRunCancelledWithResult, RunEngine } from './runEngine';
 
 type AgentEnvelope = Extract<AiLabReportEnvelope, { kind: 'agent-suite' }>;
 type Approval = NonNullable<Parameters<typeof runDesktopAgentSuite>[2]>['requestApproval'];
@@ -77,16 +77,22 @@ export function startAgentRun(
     (live.completedReport !== null && live.completedReport.id !== live.persistedReportId)
   )
     return false;
-  const started = engine.start('agent-suite', (context) =>
-    runDesktopAgentSuite(suite, providers, {
-      signal: context.signal,
-      reportProgress: (progress) => {
-        context.reportProgress(progress);
-        if (useAgentRunLiveStore.getState().activeJobId === context.jobId)
-          useAgentRunLiveStore.setState({ progress });
-      },
-      ...(requestApproval ? { requestApproval } : {}),
-    })
+  const started = engine.start(
+    'agent-suite',
+    (context) =>
+      runDesktopAgentSuite(suite, providers, {
+        signal: context.signal,
+        reportProgress: (progress) => {
+          context.reportProgress(progress);
+          if (useAgentRunLiveStore.getState().activeJobId === context.jobId)
+            useAgentRunLiveStore.setState({ progress });
+        },
+        ...(requestApproval ? { requestApproval } : {}),
+      }),
+    {
+      classifyResult: (report) => report.status,
+      cancellationResult: (report) => ({ ...report, status: 'cancelled' }),
+    }
   );
   useAgentRunLiveStore.setState({
     running: true,
@@ -128,24 +134,13 @@ async function finishAgentRun(
   try {
     const report = await result;
     if (useAgentRunLiveStore.getState().activeJobId !== jobId) return;
-    const snapshot = engine.get(jobId);
-    const sanitized = sanitizeAgentSuiteReportForPersistence(
-      createAgentSuiteReportEnvelope(suite, report, {
-        id: jobId,
-        startedAt: snapshot?.startedAt ?? Date.now(),
-        finishedAt: snapshot?.finishedAt ?? Date.now(),
-      }) as AgentEnvelope
-    );
-    useAgentRunLiveStore.setState({
-      completedReport: sanitized,
-      status: report.status.toUpperCase(),
-    });
-    const persisted = await persistReport(sanitized);
-    if (persisted && owner !== null && mountedOwners.has(owner)) {
-      useAgentRunLiveStore.setState({ navigationReportId: sanitized.id });
-    }
+    await completeAgentRun(jobId, suite, report, owner, report.status !== 'cancelled');
   } catch (cause) {
     if (useAgentRunLiveStore.getState().activeJobId !== jobId) return;
+    if (isRunCancelledWithResult<AgentSuiteReport>(cause)) {
+      await completeAgentRun(jobId, suite, cause.result, owner, false);
+      return;
+    }
     const name = typeof cause === 'object' && cause && 'name' in cause ? cause.name : undefined;
     useAgentRunLiveStore.setState({
       status: name === 'AbortError' ? 'CANCELLED' : errorMessage(cause),
@@ -154,6 +149,31 @@ async function finishAgentRun(
     if (useAgentRunLiveStore.getState().activeJobId === jobId) {
       useAgentRunLiveStore.setState({ running: false, activeJobId: null });
     }
+  }
+}
+
+async function completeAgentRun(
+  jobId: string,
+  suite: AgentSuite,
+  report: AgentSuiteReport,
+  owner: number | null,
+  navigate: boolean
+): Promise<void> {
+  const snapshot = engine.get(jobId);
+  const sanitized = sanitizeAgentSuiteReportForPersistence(
+    createAgentSuiteReportEnvelope(suite, report, {
+      id: jobId,
+      startedAt: snapshot?.startedAt ?? Date.now(),
+      finishedAt: snapshot?.finishedAt ?? Date.now(),
+    }) as AgentEnvelope
+  );
+  useAgentRunLiveStore.setState({
+    completedReport: sanitized,
+    status: report.status.toUpperCase(),
+  });
+  const persisted = await persistReport(sanitized);
+  if (navigate && persisted && owner !== null && mountedOwners.has(owner)) {
+    useAgentRunLiveStore.setState({ navigationReportId: sanitized.id });
   }
 }
 

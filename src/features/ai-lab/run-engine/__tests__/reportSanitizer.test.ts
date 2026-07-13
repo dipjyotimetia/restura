@@ -81,6 +81,76 @@ describe('agent report persistence sanitization', () => {
     expect(serialized).toContain('https://example.test/path');
   });
 
+  it('redacts uppercase HTTP URLs and every URI-backed content block without leaking opaque payloads', () => {
+    const envelope = agentEnvelope(
+      'HTTPS://upper-user:upper-password@example.test/path?apiKey=upper-secret#upper-fragment'
+    );
+    envelope.suite.tasks[0]!.input = [
+      {
+        type: 'image',
+        mimeType: 'image/png',
+        uri: 'HTTP://media-user:media-password@example.test/image?sig=media-secret#media-fragment',
+      },
+      {
+        type: 'audio',
+        mimeType: 'audio/wav',
+        uri: 'data:audio/wav;base64,opaque-audio-secret',
+      },
+      {
+        type: 'document',
+        mimeType: 'application/pdf',
+        uri: 'blob:https://example.test/opaque-blob-secret',
+      },
+    ];
+    envelope.payload.results = [
+      {
+        taskId: 'task',
+        agentId: 'agent',
+        trial: 1,
+        status: 'passed',
+        output: [
+          {
+            type: 'document',
+            mimeType: 'application/pdf',
+            uri: 'vault:opaque-document-secret',
+          },
+        ],
+        trace: {
+          id: 'trace',
+          suiteId: 'suite',
+          taskId: 'task',
+          trial: 1,
+          agentId: 'agent',
+          startedAt: 1,
+          events: [],
+        },
+        scores: [],
+      },
+    ];
+
+    const serialized = JSON.stringify(sanitizeAgentSuiteReportForPersistence(envelope));
+
+    for (const secret of [
+      'upper-user',
+      'upper-password',
+      'upper-secret',
+      'upper-fragment',
+      'media-user',
+      'media-password',
+      'media-secret',
+      'media-fragment',
+      'opaque-audio-secret',
+      'opaque-blob-secret',
+      'opaque-document-secret',
+    ]) {
+      expect(serialized).not.toContain(secret);
+    }
+    expect(serialized).toContain('https://example.test/path');
+    expect(serialized).toContain('data:audio/wav;base64,[REDACTED]');
+    expect(serialized).toContain('[REDACTED BLOB URI]');
+    expect(serialized).toContain('vault:[REDACTED]');
+  });
+
   it('preserves resource token counters and round-trips through the report schema', () => {
     const envelope = agentEnvelope('safe');
     envelope.payload.results = [

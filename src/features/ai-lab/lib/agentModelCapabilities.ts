@@ -14,8 +14,6 @@ export const CONSERVATIVE_DESKTOP_CAPABILITIES: ModelCapabilities = {
 };
 
 const ALLOWED_MODALITIES = new Set<Modality>(['text', 'image', 'audio', 'document']);
-const MAX_SERVER_TOOLS = 32;
-const MAX_SERVER_TOOL_LENGTH = 64;
 const MAX_TOKEN_LIMIT = 100_000_000;
 
 function normalizedModalities(value: unknown, fallback: readonly Modality[]): Modality[] {
@@ -25,20 +23,6 @@ function normalizedModalities(value: unknown, fallback: readonly Modality[]): Mo
   }
   const normalized = [...new Set(value as Modality[])];
   return normalized.length > 0 ? normalized : [...fallback];
-}
-
-function normalizedServerTools(value: unknown): string[] {
-  if (!Array.isArray(value) || value.length > MAX_SERVER_TOOLS) return [];
-  if (
-    value.some(
-      (candidate) =>
-        typeof candidate !== 'string' ||
-        candidate.trim().length === 0 ||
-        candidate.length > MAX_SERVER_TOOL_LENGTH
-    )
-  )
-    return [];
-  return [...new Set(value)];
 }
 
 export function normalizeDesktopCapabilities(
@@ -60,21 +44,23 @@ export function normalizeDesktopCapabilities(
   const toolCalling = value?.toolCalling === true;
   const maxContextTokens = value?.maxContextTokens;
   const maxOutputTokens = value?.maxOutputTokens;
+  const advertisedInput = normalizedModalities(
+    value?.inputModalities,
+    CONSERVATIVE_DESKTOP_CAPABILITIES.inputModalities
+  );
+  const advertisedOutput = normalizedModalities(
+    value?.outputModalities,
+    CONSERVATIVE_DESKTOP_CAPABILITIES.outputModalities
+  );
   return {
-    inputModalities: normalizedModalities(
-      value?.inputModalities,
-      CONSERVATIVE_DESKTOP_CAPABILITIES.inputModalities
-    ),
-    outputModalities: normalizedModalities(
-      value?.outputModalities,
-      CONSERVATIVE_DESKTOP_CAPABILITIES.outputModalities
-    ),
-    structuredOutput: value?.structuredOutput === true,
+    inputModalities: advertisedInput.filter((modality) => modality === 'text'),
+    outputModalities: advertisedOutput.filter((modality) => modality === 'text'),
+    structuredOutput: false,
     toolCalling,
     parallelToolCalls: toolCalling && value?.parallelToolCalls === true,
-    reasoning: value?.reasoning === true,
-    continuation: value?.continuation === true,
-    serverTools: toolCalling ? normalizedServerTools(value?.serverTools) : [],
+    reasoning: false,
+    continuation: false,
+    serverTools: [],
     ...(typeof maxContextTokens === 'number' &&
     Number.isInteger(maxContextTokens) &&
     maxContextTokens > 0 &&

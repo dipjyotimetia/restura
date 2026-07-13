@@ -10,7 +10,7 @@ import {
 import { useAiLabStore } from '../../store/useAiLabStore';
 
 describe('connectAndAddProvider', () => {
-  it('carries tested adapter capabilities through split, store, and runtime', async () => {
+  it('intersects tested adapter capabilities with the desktop transport through store and runtime', async () => {
     const fetcher: Fetcher = vi.fn(async () => ({
       status: 200,
       statusText: 'OK',
@@ -44,10 +44,10 @@ describe('connectAndAddProvider', () => {
 
     expect(split.modelDetails['vendor/model']).toMatchObject({
       agentCapabilities: {
-        inputModalities: ['text', 'image'],
+        inputModalities: ['text'],
         outputModalities: ['text'],
         toolCalling: true,
-        structuredOutput: true,
+        structuredOutput: false,
       },
       agentCapabilityProvenance: {
         source: 'discovered',
@@ -60,10 +60,10 @@ describe('connectAndAddProvider', () => {
         .require(id)
         .getCapabilities('vendor/model')
     ).resolves.toMatchObject({
-      inputModalities: ['text', 'image'],
+      inputModalities: ['text'],
       outputModalities: ['text'],
       toolCalling: true,
-      structuredOutput: true,
+      structuredOutput: false,
     });
   });
 
