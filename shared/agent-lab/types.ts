@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import type { AgentRunResult } from './runner';
 import type {
   AgentDefinitionSchema,
   AgentSuiteSchema,
@@ -20,6 +21,14 @@ export type AgentTask = z.infer<typeof AgentTaskSchema>;
 export type Grader = z.infer<typeof GraderSchema>;
 export type AgentSuite = z.infer<typeof AgentSuiteSchema>;
 export type TraceEvent = z.infer<typeof TraceEventSchema>;
+
+export interface AgentGradingContext {
+  task: AgentTask;
+  result: AgentRunResult;
+  inputText: string;
+  reference?: string;
+  outputText: string;
+}
 
 export interface Trace {
   id: string;

@@ -5,6 +5,8 @@ import {
   ProviderRegistry,
   type AgentSuite,
   type AgentSuiteReport,
+  type JudgeFailure,
+  type JudgeModelVote,
   type GenerationMessage,
   aggregateJudgeVotes,
 } from '@shared/agent-lab';
@@ -15,6 +17,10 @@ import { resolveResturaAgentTools } from './agentTools';
 import { completeLlm, specFor, type LlmCallSpec } from './llmClient';
 
 type Complete = (spec: LlmCallSpec) => Promise<CompletionResult>;
+
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
+}
 
 function text(messages: GenerationMessage[]): Array<{
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -107,9 +113,10 @@ export async function runDesktopAgentSuite(
   configs: Record<string, AiLabProviderConfig>,
   options: {
     requestApproval?: ConstructorParameters<typeof AgentRunner>[0]['requestApproval'];
+    complete?: Complete;
   } = {}
 ): Promise<AgentSuiteReport> {
-  const providers = createDesktopAgentProviders(configs);
+  const providers = createDesktopAgentProviders(configs, options.complete ?? completeLlm);
   const runner = new AgentRunner({
     providers,
     async resolveCredential() {
@@ -120,14 +127,25 @@ export async function runDesktopAgentSuite(
   });
   return new AgentSuiteRunner({
     run: (request) => runner.run(request),
-    async judge(grader, result) {
-      const output = result.output
-        .map((block) => (block.type === 'text' ? block.text : JSON.stringify(block)))
-        .join('\n');
-      const votes = await Promise.all(
+    async judge(grader, context) {
+      const responseSchema = {
+        type: 'object' as const,
+        required: ['label', 'score'],
+        additionalProperties: false,
+        properties: {
+          label: { type: 'string' as const, enum: grader.labels },
+          score: { type: 'number' as const, minimum: 0, maximum: 1 },
+          reasoning: { type: 'string' as const },
+        },
+      };
+      const settled = await Promise.allSettled(
         grader.judgeModels.map(async (model) => {
           const adapter = providers.require(model.providerId);
-          const invoke = async (candidateOutput: string, candidateInput?: string) => {
+          const invoke = async (
+            candidateOutput: string,
+            candidateInput: string,
+            candidateReference?: string
+          ) => {
             const response = await adapter.generate(
               {
                 model,
@@ -141,8 +159,12 @@ export async function runDesktopAgentSuite(
                           'Act as a strict evaluation judge. Return only JSON with keys label, score, reasoning.',
                           `Allowed labels: ${grader.labels.join(', ')}`,
                           `Rubric: ${grader.rubric}`,
-                          candidateInput ? `Candidate input: ${candidateInput}` : '',
+                          `Task input: ${candidateInput}`,
+                          candidateReference !== undefined
+                            ? `Reference: ${candidateReference}`
+                            : '',
                           `Candidate output: ${candidateOutput}`,
+                          `Response schema: ${JSON.stringify(responseSchema)}`,
                         ]
                           .filter(Boolean)
                           .join('\n\n'),
@@ -150,16 +172,7 @@ export async function runDesktopAgentSuite(
                     ],
                   },
                 ],
-                structuredOutput: {
-                  type: 'object',
-                  required: ['label', 'score'],
-                  additionalProperties: false,
-                  properties: {
-                    label: { type: 'string', enum: grader.labels },
-                    score: { type: 'number', minimum: 0, maximum: 1 },
-                    reasoning: { type: 'string' },
-                  },
-                },
+                structuredOutput: responseSchema,
               },
               {
                 async resolveCredential() {
@@ -214,11 +227,54 @@ export async function runDesktopAgentSuite(
             }
             calibration = `calibration ${(accuracy * 100).toFixed(0)}%, MAE ${meanAbsoluteError.toFixed(3)}; `;
           }
-          const vote = await invoke(output);
-          return { ...vote, reasoning: `${calibration}${vote.reasoning ?? ''}` };
+          const vote = await invoke(context.outputText, context.inputText, context.reference);
+          return {
+            providerId: model.providerId,
+            ...vote,
+            reasoning: `${calibration}${vote.reasoning ?? ''}`,
+          };
         })
       );
-      const verdict = aggregateJudgeVotes(votes);
+      const votes: JudgeModelVote[] = settled.flatMap((entry) =>
+        entry.status === 'fulfilled' ? [entry.value] : []
+      );
+      const failures: JudgeFailure[] = settled.flatMap((entry, index) =>
+        entry.status === 'rejected'
+          ? [
+              {
+                providerId: grader.judgeModels[index]!.providerId,
+                error: errorMessage(entry.reason),
+              },
+            ]
+          : []
+      );
+      const quorum = grader.minimumQuorum ?? Math.floor(grader.judgeModels.length / 2) + 1;
+      const panelDetail = `${votes.length}/${grader.judgeModels.length} judges succeeded (quorum ${quorum})`;
+      if (votes.length < quorum) {
+        return {
+          graderId: grader.id,
+          kind: grader.kind,
+          passed: false,
+          detail: `insufficient judge quorum: ${panelDetail}`,
+          judgeVotes: votes,
+          judgeFailures: failures,
+          minimumQuorum: quorum,
+        };
+      }
+      let verdict;
+      try {
+        verdict = aggregateJudgeVotes(votes);
+      } catch (cause) {
+        return {
+          graderId: grader.id,
+          kind: grader.kind,
+          passed: false,
+          detail: `judge aggregation failed: ${errorMessage(cause)}; ${panelDetail}`,
+          judgeVotes: votes,
+          judgeFailures: failures,
+          minimumQuorum: quorum,
+        };
+      }
       const passing = grader.passingLabels ?? [grader.labels[0]!];
       const passed =
         passing.includes(verdict.label) && verdict.agreement >= grader.minimumAgreement;
@@ -227,7 +283,10 @@ export async function runDesktopAgentSuite(
         kind: grader.kind,
         passed,
         score: verdict.score,
-        detail: `${verdict.label} · ${(verdict.agreement * 100).toFixed(0)}% panel agreement`,
+        detail: `${verdict.label} · ${(verdict.agreement * 100).toFixed(0)}% panel agreement · ${panelDetail}`,
+        judgeVotes: votes,
+        judgeFailures: failures,
+        minimumQuorum: quorum,
       };
     },
   }).run({ suite });

@@ -43,6 +43,87 @@ function result(trial: number, output: string): AgentRunResult {
 }
 
 describe('AgentSuiteRunner', () => {
+  it('grades each task against its own reference while preserving literal graders', async () => {
+    const referenceSuite = {
+      ...suite,
+      trials: 1,
+      tasks: [
+        {
+          id: 'task-a',
+          input: [{ type: 'text', text: 'A' }],
+          reference: [{ type: 'text', text: 'alpha' }],
+        },
+        {
+          id: 'task-b',
+          input: [{ type: 'text', text: 'B' }],
+          reference: [{ type: 'text', text: 'beta' }],
+        },
+      ],
+      graders: [
+        { id: 'reference', kind: 'exact' },
+        { id: 'literal', kind: 'contains', value: 'a' },
+      ],
+    } as unknown as AgentSuite;
+    const outputs = ['alpha', 'beta'];
+    let index = 0;
+    const runner = new AgentSuiteRunner({
+      async run(request) {
+        const run = result(request.trial, outputs[index++]!);
+        run.trace.taskId = request.taskId;
+        return run;
+      },
+    });
+
+    const report = await runner.run({ suite: referenceSuite });
+
+    expect(report.results.map((trial) => trial.scores[0]?.passed)).toEqual([true, true]);
+    expect(report.results.map((trial) => trial.scores[1]?.passed)).toEqual([true, true]);
+  });
+
+  it('passes the current task grading context to judge graders', async () => {
+    const judgeSuite = {
+      ...suite,
+      trials: 1,
+      tasks: [
+        {
+          id: 'task',
+          input: [{ type: 'text', text: 'question' }],
+          reference: [{ type: 'text', text: 'answer' }],
+        },
+      ],
+      graders: [
+        {
+          id: 'judge',
+          kind: 'judge',
+          judgeModels: [{ providerId: 'judge', model: 'model' }],
+          rubric: 'Correctness',
+          labels: ['pass', 'fail'],
+          minimumAgreement: 0.5,
+          calibrated: false,
+        },
+      ],
+    } as AgentSuite;
+    const runner = new AgentSuiteRunner({
+      async run(request) {
+        return result(request.trial, 'candidate');
+      },
+      async judge(_grader, context) {
+        expect(context).toMatchObject({
+          inputText: 'question',
+          reference: 'answer',
+          outputText: 'candidate',
+        });
+        expect(context.task.id).toBe('task');
+        expect(context.result.output).toEqual([{ type: 'text', text: 'candidate' }]);
+        return { graderId: 'judge', kind: 'judge', passed: true };
+      },
+    });
+
+    const report = await runner.run({ suite: judgeSuite });
+
+    expect(report.results[0]?.scores[0]?.passed).toBe(true);
+  });
+
   it('runs repeated trials and reports reliability separately from errors', async () => {
     const outputs = ['pong', 'nope', 'pong'];
     const runner = new AgentSuiteRunner({

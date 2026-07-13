@@ -2,6 +2,77 @@ import { describe, expect, it } from 'vitest';
 import { AgentLimitsSchema, AgentSuiteSchema, TraceEventSchema } from '../schema';
 
 describe('AgentSuiteSchema', () => {
+  const model = { providerId: 'judge', model: 'model' };
+  const suiteWithGrader = (grader: unknown) => ({
+    schemaVersion: 2,
+    id: 'judge-suite',
+    name: 'Judge suite',
+    mode: 'regression',
+    agents: [
+      {
+        id: 'primary',
+        model: { providerId: 'fake', model: 'model' },
+        instructions: 'Run.',
+        tools: [],
+        limits: { maxSteps: 1, maxWallTimeMs: 1_000 },
+      },
+    ],
+    tasks: [{ id: 'case', input: [{ type: 'text', text: 'hello' }] }],
+    graders: [grader],
+    trials: 1,
+  });
+  const judge = (overrides: Record<string, unknown> = {}) => ({
+    id: 'judge',
+    kind: 'judge',
+    judgeModels: [model],
+    rubric: 'Correctness',
+    labels: ['pass', 'fail'],
+    passingLabels: ['pass'],
+    calibrated: false,
+    ...overrides,
+  });
+  const anchor = (label: string, score: number) => ({
+    input: 'input',
+    output: label,
+    label,
+    score,
+  });
+
+  it.each([
+    ['unknown passing label', judge({ passingLabels: ['maybe'] })],
+    [
+      'unknown anchor label',
+      judge({ calibrated: true, anchors: [anchor('pass', 1), anchor('maybe', 0)] }),
+    ],
+    [
+      'single-class anchors',
+      judge({ calibrated: true, anchors: [anchor('pass', 0.9), anchor('pass', 1)] }),
+    ],
+    [
+      'narrow score span',
+      judge({ calibrated: true, anchors: [anchor('pass', 0.8), anchor('fail', 0.4)] }),
+    ],
+    ['duplicate model', judge({ judgeModels: [model, model] })],
+    ['zero quorum', judge({ minimumQuorum: 0 })],
+    ['oversized quorum', judge({ minimumQuorum: 2 })],
+  ])('rejects %s', (_name, grader) => {
+    expect(() => AgentSuiteSchema.parse(suiteWithGrader(grader))).toThrow();
+  });
+
+  it('accepts calibrated judges with diverse anchors and a valid quorum', () => {
+    expect(() =>
+      AgentSuiteSchema.parse(
+        suiteWithGrader(
+          judge({
+            minimumQuorum: 1,
+            calibrated: true,
+            anchors: [anchor('pass', 0.9), anchor('fail', 0.3)],
+          })
+        )
+      )
+    ).not.toThrow();
+  });
+
   it('documents maxTokens as the total input and output budget for a run', () => {
     expect(AgentLimitsSchema.shape.maxTokens.description).toContain(
       'total input and output tokens across the run'

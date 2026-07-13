@@ -97,8 +97,8 @@ export const AgentTaskSchema = z.object({
 
 const GraderBaseSchema = z.object({ id: IdentifierSchema, label: z.string().optional() });
 export const GraderSchema = z.discriminatedUnion('kind', [
-  GraderBaseSchema.extend({ kind: z.literal('exact'), value: z.string() }),
-  GraderBaseSchema.extend({ kind: z.literal('contains'), value: z.string() }),
+  GraderBaseSchema.extend({ kind: z.literal('exact'), value: z.string().optional() }),
+  GraderBaseSchema.extend({ kind: z.literal('contains'), value: z.string().optional() }),
   GraderBaseSchema.extend({
     kind: z.literal('regex'),
     pattern: z.string(),
@@ -137,6 +137,7 @@ export const GraderSchema = z.discriminatedUnion('kind', [
       )
       .optional(),
     minimumAgreement: z.number().min(0.5).max(1).default(0.5),
+    minimumQuorum: z.number().int().min(1).optional(),
     calibrated: z.boolean().default(false),
   }),
 ]);
@@ -189,6 +190,82 @@ export const AgentSuiteSchema = z
             path: ['agents'],
           });
         }
+      }
+    }
+    for (const [graderIndex, grader] of suite.graders.entries()) {
+      if (grader.kind !== 'judge') continue;
+      const graderPath = ['graders', graderIndex] as const;
+      const labels = new Set(grader.labels);
+      const passingLabels = grader.passingLabels ?? [grader.labels[0]!];
+      for (const [labelIndex, label] of passingLabels.entries()) {
+        if (!labels.has(label)) {
+          context.addIssue({
+            code: 'custom',
+            message: `passing label is not an allowed label: ${label}`,
+            path: [...graderPath, 'passingLabels', labelIndex],
+          });
+        }
+      }
+      for (const [anchorIndex, anchor] of (grader.anchors ?? []).entries()) {
+        if (!labels.has(anchor.label)) {
+          context.addIssue({
+            code: 'custom',
+            message: `anchor label is not an allowed label: ${anchor.label}`,
+            path: [...graderPath, 'anchors', anchorIndex, 'label'],
+          });
+        }
+      }
+      const seenModels = new Set<string>();
+      for (const [modelIndex, model] of grader.judgeModels.entries()) {
+        const modelId = `${model.providerId}\u0000${model.model}`;
+        if (seenModels.has(modelId)) {
+          context.addIssue({
+            code: 'custom',
+            message: `duplicate judge model: ${model.providerId}/${model.model}`,
+            path: [...graderPath, 'judgeModels', modelIndex],
+          });
+        }
+        seenModels.add(modelId);
+      }
+      if (grader.minimumQuorum !== undefined && grader.minimumQuorum > grader.judgeModels.length) {
+        context.addIssue({
+          code: 'custom',
+          message: 'minimumQuorum cannot exceed the judge panel size',
+          path: [...graderPath, 'minimumQuorum'],
+        });
+      }
+      if (!grader.calibrated) continue;
+      const anchors = grader.anchors ?? [];
+      if (anchors.length < 2) {
+        context.addIssue({
+          code: 'custom',
+          message: 'calibrated judge requires at least two anchors',
+          path: [...graderPath, 'anchors'],
+        });
+        continue;
+      }
+      const passing = new Set(passingLabels);
+      if (!anchors.some((anchor) => passing.has(anchor.label))) {
+        context.addIssue({
+          code: 'custom',
+          message: 'calibration anchors require a passing-label example',
+          path: [...graderPath, 'anchors'],
+        });
+      }
+      if (!anchors.some((anchor) => labels.has(anchor.label) && !passing.has(anchor.label))) {
+        context.addIssue({
+          code: 'custom',
+          message: 'calibration anchors require a non-passing-label example',
+          path: [...graderPath, 'anchors'],
+        });
+      }
+      const scores = anchors.map((anchor) => anchor.score);
+      if (Math.max(...scores) - Math.min(...scores) < 0.5) {
+        context.addIssue({
+          code: 'custom',
+          message: 'calibration anchor scores must span at least 0.5',
+          path: [...graderPath, 'anchors'],
+        });
       }
     }
   });

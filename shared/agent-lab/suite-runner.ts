@@ -1,7 +1,17 @@
 import Ajv from 'ajv';
 import { passAtK, passToK, scoreTrajectory, wilsonInterval } from './evaluation';
+import type { JudgeVote } from './evaluation';
 import type { AgentRunRequest, AgentRunResult } from './runner';
-import type { AgentSuite, ContentBlock, Grader, Trace } from './types';
+import type { AgentGradingContext, AgentSuite, ContentBlock, Grader, Trace } from './types';
+
+export interface JudgeModelVote extends JudgeVote {
+  providerId: string;
+}
+
+export interface JudgeFailure {
+  providerId: string;
+  error: string;
+}
 
 export interface GraderScore {
   graderId: string;
@@ -9,6 +19,9 @@ export interface GraderScore {
   passed: boolean;
   score?: number;
   detail?: string;
+  judgeVotes?: JudgeModelVote[];
+  judgeFailures?: JudgeFailure[];
+  minimumQuorum?: number;
 }
 
 export interface SuiteTrialResult {
@@ -51,7 +64,10 @@ export interface AgentSuiteReport {
 
 export interface AgentSuiteRunnerDependencies {
   run(request: AgentRunRequest): Promise<AgentRunResult>;
-  judge?(grader: Extract<Grader, { kind: 'judge' }>, result: AgentRunResult): Promise<GraderScore>;
+  judge?(
+    grader: Extract<Grader, { kind: 'judge' }>,
+    context: AgentGradingContext
+  ): Promise<GraderScore>;
 }
 
 function asText(blocks: ContentBlock[]): string {
@@ -71,15 +87,23 @@ function score(grader: Grader, passed: boolean, detail?: string): GraderScore {
 
 async function grade(
   grader: Grader,
-  result: AgentRunResult,
+  context: AgentGradingContext,
   judge: AgentSuiteRunnerDependencies['judge']
 ): Promise<GraderScore> {
-  const text = asText(result.output);
+  const { result, outputText: text } = context;
   switch (grader.kind) {
-    case 'exact':
-      return score(grader, text.trim() === grader.value.trim());
-    case 'contains':
-      return score(grader, text.includes(grader.value));
+    case 'exact': {
+      const expected = grader.value ?? context.reference;
+      return expected === undefined
+        ? score(grader, false, 'task reference unavailable')
+        : score(grader, text.trim() === expected.trim());
+    }
+    case 'contains': {
+      const expected = grader.value ?? context.reference;
+      return expected === undefined
+        ? score(grader, false, 'task reference unavailable')
+        : score(grader, text.includes(expected));
+    }
     case 'regex': {
       try {
         return score(grader, new RegExp(grader.pattern, grader.flags).test(text));
@@ -137,7 +161,7 @@ async function grade(
       return score(grader, cost <= grader.maxUSD, `$${cost.toFixed(6)} / $${grader.maxUSD}`);
     }
     case 'judge':
-      return judge ? judge(grader, result) : score(grader, false, 'judge runner unavailable');
+      return judge ? judge(grader, context) : score(grader, false, 'judge runner unavailable');
   }
 }
 
@@ -157,12 +181,19 @@ export class AgentSuiteRunner {
             trial,
             ...(input.signal ? { signal: input.signal } : {}),
           });
+          const context: AgentGradingContext = {
+            task,
+            result: run,
+            inputText: asText(task.input),
+            ...(task.reference ? { reference: asText(task.reference) } : {}),
+            outputText: asText(run.output),
+          };
           const scores =
             run.status === 'passed'
               ? await Promise.all(
                   input.suite.graders.map(async (grader) => {
                     try {
-                      return await grade(grader, run, this.dependencies.judge);
+                      return await grade(grader, context, this.dependencies.judge);
                     } catch (cause) {
                       return score(
                         grader,
