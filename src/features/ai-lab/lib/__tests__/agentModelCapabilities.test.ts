@@ -30,6 +30,7 @@ describe('desktop model capability negotiation', () => {
     expect(capabilitiesForDesktopModel(config(), 'custom')).toEqual({
       capabilities: CONSERVATIVE_DESKTOP_CAPABILITIES,
       assertedByUser: false,
+      provenance: { source: 'conservative-default', reason: 'no-trusted-capability-data' },
     });
   });
 
@@ -60,6 +61,11 @@ describe('desktop model capability negotiation', () => {
     );
 
     expect(result.assertedByUser).toBe(false);
+    expect(result.provenance).toEqual({
+      source: 'discovered',
+      adapterId: 'openrouter.models',
+      adapterVersion: 1,
+    });
     expect(result.capabilities).toMatchObject({
       inputModalities: ['text'],
       toolCalling: true,
@@ -156,6 +162,7 @@ describe('desktop model capability negotiation', () => {
     );
 
     expect(result.assertedByUser).toBe(true);
+    expect(result.provenance).toEqual({ source: 'user-override' });
     expect(result.capabilities.toolCalling).toBe(true);
   });
 

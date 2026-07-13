@@ -170,6 +170,22 @@ describe('agent report persistence sanitization', () => {
       'http://example.test/path',
     ],
     ['leading controls', '\u0000\u001fvault:control-prefixed-secret', 'vault:[REDACTED]'],
+    [
+      'leading zero-width format control',
+      '\u200bdata:text/plain,format-prefixed-secret',
+      'data:text/plain,[REDACTED]',
+    ],
+    [
+      'leading word-joiner format control',
+      '\u2060blob:https://example.test/format-prefixed-secret',
+      '[REDACTED BLOB URI]',
+    ],
+    [
+      'leading bidi controls',
+      '\u202e\u2066HTTP://user:password@example.test/path?token=bidi-prefixed-secret',
+      'http://example.test/path',
+    ],
+    ['leading bidi mark on opaque URI', '\u200fvault:opaque-prefixed-secret', 'vault:[REDACTED]'],
   ])(
     'classifies %s before URI redaction and keeps the report schema-valid',
     (_label, uri, marker) => {
@@ -189,6 +205,26 @@ describe('agent report persistence sanitization', () => {
 
   it('preserves resource token counters and round-trips through the report schema', () => {
     const envelope = agentEnvelope('safe');
+    envelope.payload.execution = {
+      modelCapabilities: [
+        {
+          providerId: 'p',
+          model: 'm',
+          capabilities: {
+            inputModalities: ['text'],
+            outputModalities: ['text'],
+            structuredOutput: false,
+            toolCalling: true,
+            parallelToolCalls: false,
+            reasoning: false,
+            continuation: false,
+            serverTools: [],
+          },
+          assertedByUser: true,
+          provenance: { source: 'user-override' },
+        },
+      ],
+    };
     envelope.payload.results = [
       {
         taskId: 'task',
@@ -225,7 +261,37 @@ describe('agent report persistence sanitization', () => {
       outputTokens: 4,
     });
     expect(sanitized.suite.agents[0]!.limits.maxTokens).toBe(123);
+    expect(sanitized.payload.execution).toEqual(envelope.payload.execution);
     expect(AiLabReportEnvelopeSchema.parse(sanitized)).toEqual(sanitized);
+  });
+
+  it('rejects unvalidated capability provenance fields that could carry secrets', () => {
+    const envelope = agentEnvelope('safe') as unknown as Record<string, unknown>;
+    const payload = envelope.payload as Record<string, unknown>;
+    payload.execution = {
+      modelCapabilities: [
+        {
+          providerId: 'p',
+          model: 'm',
+          capabilities: {
+            inputModalities: ['text'],
+            outputModalities: ['text'],
+            structuredOutput: false,
+            toolCalling: false,
+            parallelToolCalls: false,
+            reasoning: false,
+            continuation: false,
+            serverTools: [],
+          },
+          assertedByUser: true,
+          provenance: { source: 'user-override', token: 'must-not-round-trip' },
+        },
+      ],
+    };
+
+    const parsed = AiLabReportEnvelopeSchema.parse(envelope);
+
+    expect(JSON.stringify(parsed)).not.toContain('must-not-round-trip');
   });
 
   it('truncates large content with an explicit marker and refuses an irreducibly oversized report', () => {

@@ -47,6 +47,119 @@ function provider(
 describe('desktop agent provider bridge', () => {
   it.each([
     [
+      'credential override',
+      { credential: { source: 'env' as const, name: 'OPENAI_API_KEY' } },
+      /credential overrides.*provider configuration/i,
+    ],
+    ['base URL override', { baseUrl: 'https://gateway.example' }, /baseUrl overrides/i],
+    ['parameter override', { parameters: { temperature: 0.2 } }, /parameter overrides/i],
+  ])('rejects an imported suite with a %s before any paid call', async (_label, model, error) => {
+    const suite: AgentSuite = {
+      schemaVersion: 2,
+      id: 'unsupported-model-ref',
+      name: 'Imported suite',
+      mode: 'regression',
+      agents: [
+        {
+          id: 'agent',
+          model: { providerId: 'cfg', model: 'model', ...model },
+          instructions: 'Answer.',
+          tools: [],
+          limits: { maxSteps: 1, maxWallTimeMs: 1_000 },
+        },
+      ],
+      tasks: [{ id: 'task', input: [{ type: 'text', text: 'input' }] }],
+      graders: [],
+      trials: 1,
+    };
+
+    await expect(
+      runDesktopAgentSuite(suite, { cfg: provider('cfg', 'model') }, { complete: completeLlm })
+    ).rejects.toThrow(error);
+    expect(completeLlm).not.toHaveBeenCalled();
+  });
+
+  it('rejects unsupported judge ModelRef fields before the candidate call', async () => {
+    const suite: AgentSuite = {
+      schemaVersion: 2,
+      id: 'unsupported-judge-ref',
+      name: 'Imported judge suite',
+      mode: 'regression',
+      agents: [
+        {
+          id: 'agent',
+          model: { providerId: 'cfg', model: 'model' },
+          instructions: 'Answer.',
+          tools: [],
+          limits: { maxSteps: 1, maxWallTimeMs: 1_000 },
+        },
+      ],
+      tasks: [{ id: 'task', input: [{ type: 'text', text: 'input' }] }],
+      graders: [
+        {
+          id: 'judge',
+          kind: 'judge',
+          judgeModels: [
+            {
+              providerId: 'cfg',
+              model: 'model',
+              credential: { source: 'secret-handle', id: crypto.randomUUID() },
+            },
+          ],
+          rubric: 'Correctness',
+          labels: ['pass', 'fail'],
+          minimumAgreement: 0.5,
+          calibrated: false,
+        },
+      ],
+      trials: 1,
+    };
+
+    await expect(
+      runDesktopAgentSuite(suite, { cfg: provider('cfg', 'model') }, { complete: completeLlm })
+    ).rejects.toThrow(/credential overrides.*provider configuration/i);
+    expect(completeLlm).not.toHaveBeenCalled();
+  });
+
+  it('records normalized capabilities and user-assertion provenance in the run report', async () => {
+    completeLlm.mockResolvedValue({ ok: true, text: 'done', toolCalls: [] });
+    const suite: AgentSuite = {
+      schemaVersion: 2,
+      id: 'capability-audit',
+      name: 'Capability audit',
+      mode: 'regression',
+      agents: [
+        {
+          id: 'agent',
+          model: { providerId: 'cfg', model: 'model' },
+          instructions: 'Answer.',
+          tools: [],
+          limits: { maxSteps: 1, maxWallTimeMs: 1_000 },
+        },
+      ],
+      tasks: [{ id: 'task', input: [{ type: 'text', text: 'input' }] }],
+      graders: [],
+      trials: 1,
+    };
+
+    const report = await runDesktopAgentSuite(
+      suite,
+      { cfg: provider('cfg', 'model') },
+      { complete: completeLlm }
+    );
+
+    expect(report.execution?.modelCapabilities).toEqual([
+      expect.objectContaining({
+        providerId: 'cfg',
+        model: 'model',
+        assertedByUser: true,
+        provenance: { source: 'user-override' },
+        capabilities: expect.objectContaining({ toolCalling: false }),
+      }),
+    ]);
+  });
+  it.each([
+    [
       'media input',
       {
         messages: [

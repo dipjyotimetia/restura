@@ -13,6 +13,20 @@ export const CONSERVATIVE_DESKTOP_CAPABILITIES: ModelCapabilities = {
   serverTools: [],
 };
 
+export type DesktopCapabilityProvenance =
+  | { source: 'user-override' }
+  | { source: 'discovered'; adapterId: 'openrouter.models'; adapterVersion: 1 }
+  | {
+      source: 'conservative-default';
+      reason: 'model-not-in-provider-catalog' | 'no-trusted-capability-data';
+    };
+
+export interface ResolvedDesktopCapabilities {
+  capabilities: ModelCapabilities;
+  assertedByUser: boolean;
+  provenance: DesktopCapabilityProvenance;
+}
+
 const ALLOWED_MODALITIES = new Set<Modality>(['text', 'image', 'audio', 'document']);
 const MAX_TOKEN_LIMIT = 100_000_000;
 
@@ -88,13 +102,21 @@ export function hasTrustedCapabilityProvenance(detail: AiLabModelDetail): boolea
 export function capabilitiesForDesktopModel(
   config: AiLabProviderConfig,
   model: string
-): { capabilities: ModelCapabilities; assertedByUser: boolean } {
+): ResolvedDesktopCapabilities {
   if (!config.models.includes(model)) {
-    return { capabilities: CONSERVATIVE_DESKTOP_CAPABILITIES, assertedByUser: false };
+    return {
+      capabilities: CONSERVATIVE_DESKTOP_CAPABILITIES,
+      assertedByUser: false,
+      provenance: { source: 'conservative-default', reason: 'model-not-in-provider-catalog' },
+    };
   }
   const override = config.capabilityOverrides?.[model];
   if (override) {
-    return { capabilities: normalizeDesktopCapabilities(override), assertedByUser: true };
+    return {
+      capabilities: normalizeDesktopCapabilities(override),
+      assertedByUser: true,
+      provenance: { source: 'user-override' },
+    };
   }
 
   const detail = config.modelDetails?.[model];
@@ -105,6 +127,13 @@ export function capabilitiesForDesktopModel(
   return {
     capabilities: normalizeDesktopCapabilities(discovered),
     assertedByUser: false,
+    provenance: discovered
+      ? {
+          source: 'discovered',
+          adapterId: 'openrouter.models',
+          adapterVersion: 1,
+        }
+      : { source: 'conservative-default', reason: 'no-trusted-capability-data' },
   };
 }
 

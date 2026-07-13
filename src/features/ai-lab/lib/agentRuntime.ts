@@ -8,6 +8,7 @@ import {
   type JudgeFailure,
   type JudgeModelVote,
   type GenerationMessage,
+  type ModelRef,
   aggregateJudgeVotes,
   validateGenerationRequest,
 } from '@shared/agent-lab';
@@ -23,6 +24,67 @@ type Complete = (
 ) => Promise<CompletionResult>;
 
 const DEFAULT_JUDGE_MAX_OUTPUT_TOKENS = 512;
+
+function suiteModelRefs(suite: AgentSuite): Array<{ ref: ModelRef; path: string }> {
+  return [
+    ...suite.agents.map((agent, index) => ({ ref: agent.model, path: `agents[${index}].model` })),
+    ...suite.graders.flatMap((grader, graderIndex) =>
+      grader.kind === 'judge'
+        ? grader.judgeModels.map((ref, modelIndex) => ({
+            ref,
+            path: `graders[${graderIndex}].judgeModels[${modelIndex}]`,
+          }))
+        : []
+    ),
+  ];
+}
+
+/** The desktop callback adapter intentionally resolves endpoint and credentials
+ * from the selected AI Lab provider config. Reject portable ModelRef fields it
+ * cannot honor so imported suites never silently change execution semantics. */
+export function preflightDesktopAgentSuite(suite: AgentSuite): void {
+  for (const { ref, path } of suiteModelRefs(suite)) {
+    if (ref.credential) {
+      throw new Error(
+        `Desktop agent runs do not support credential overrides at ${path}; configure credentials on the AI Lab provider configuration`
+      );
+    }
+    if (ref.baseUrl) {
+      throw new Error(
+        `Desktop agent runs do not support baseUrl overrides at ${path}; configure the endpoint on the AI Lab provider configuration`
+      );
+    }
+    if (ref.parameters && Object.keys(ref.parameters).length > 0) {
+      throw new Error(
+        `Desktop agent runs do not support ModelRef parameter overrides at ${path}; configure supported run controls in the AI Lab workbench`
+      );
+    }
+  }
+}
+
+function capabilityExecutionMetadata(
+  suite: AgentSuite,
+  configs: Record<string, AiLabProviderConfig>
+): NonNullable<AgentSuiteReport['execution']> {
+  const unique = new Map<string, ModelRef>();
+  for (const { ref } of suiteModelRefs(suite)) {
+    unique.set(`${ref.providerId}\u0000${ref.model}`, ref);
+  }
+  return {
+    modelCapabilities: [...unique.values()].map((ref) => {
+      const config = configs[ref.providerId];
+      if (!config) throw new Error(`unknown provider adapter: ${ref.providerId}`);
+      const resolved = capabilitiesForDesktopModel(config, ref.model);
+      return {
+        providerId: ref.providerId,
+        model: ref.model,
+        capabilities: resolved.capabilities,
+        assertedByUser: resolved.assertedByUser,
+        provenance: resolved.provenance,
+      };
+    }),
+  };
+}
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
@@ -133,6 +195,8 @@ export async function runDesktopAgentSuite(
     reportProgress?: (progress: number) => void;
   } = {}
 ): Promise<AgentSuiteReport> {
+  preflightDesktopAgentSuite(suite);
+  const execution = capabilityExecutionMetadata(suite, configs);
   const providers = createDesktopAgentProviders(configs, options.complete ?? completeLlm);
   const runner = new AgentRunner({
     providers,
@@ -383,5 +447,5 @@ export async function runDesktopAgentSuite(
     },
   }).run({ suite, ...(options.signal ? { signal: options.signal } : {}) });
   if (!options.signal?.aborted) options.reportProgress?.(1);
-  return report;
+  return { ...report, execution };
 }

@@ -212,6 +212,24 @@ function AgentReportDetail({
         />
       </div>
 
+      {payload.execution?.modelCapabilities.length ? (
+        <div className="space-y-2 border-t border-sp-line pt-3">
+          <h3 className="sp-label">Resolved model capabilities</h3>
+          {payload.execution.modelCapabilities.map((resolved) => (
+            <div
+              key={`${resolved.providerId}:${resolved.model}`}
+              className="text-sp-11 text-sp-muted"
+            >
+              <span className="font-medium text-sp-text">
+                {resolved.providerId}/{resolved.model}
+              </span>{' '}
+              · {resolved.assertedByUser ? 'user asserted' : resolved.provenance.source} · tools{' '}
+              {resolved.capabilities.toolCalling ? 'enabled' : 'disabled'}
+            </div>
+          ))}
+        </div>
+      ) : null}
+
       <div className="space-y-3 border-t border-sp-line pt-3">
         <h3 className="sp-label">Task reliability</h3>
         {payload.summary.reliabilityByCase.map((reliability) => {

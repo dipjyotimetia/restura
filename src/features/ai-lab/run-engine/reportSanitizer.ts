@@ -103,7 +103,7 @@ function sanitizeUri(value: string): string {
   // Scheme classification must not be bypassable with JSON-valid whitespace or
   // control prefixes. Strip only the prefix; the classified URI sanitizer then
   // either parses the web URL or discards the opaque payload entirely.
-  const normalized = value.replace(/^[\s\p{Cc}]+/u, '');
+  const normalized = value.replace(/^[\s\p{C}]+/u, '');
   const schemeMatch = /^([a-z][a-z0-9+.-]*):/i.exec(normalized);
   if (!schemeMatch) return redactUrl(normalized);
   const scheme = schemeMatch[1]!.toLowerCase();

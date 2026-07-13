@@ -1,6 +1,7 @@
 import Ajv from 'ajv';
 import { passAtK, passToK, scoreTrajectory, wilsonInterval } from './evaluation';
 import type { JudgeVote } from './evaluation';
+import type { ModelCapabilities } from './provider';
 import type { AgentRunRequest, AgentRunResult } from './runner';
 import type { AgentGradingContext, AgentSuite, ContentBlock, Grader, Trace } from './types';
 
@@ -65,6 +66,23 @@ export interface AgentSuiteReport {
       confidence95: { low: number; high: number };
       passAtK: Record<number, number>;
       passToK: Record<number, number>;
+    }>;
+  };
+  /** Runtime-only evidence for reproducing capability negotiation. Suite files
+   * remain portable; this metadata belongs to the execution report. */
+  execution?: {
+    modelCapabilities: Array<{
+      providerId: string;
+      model: string;
+      capabilities: ModelCapabilities;
+      assertedByUser: boolean;
+      provenance:
+        | { source: 'user-override' }
+        | { source: 'discovered'; adapterId: 'openrouter.models'; adapterVersion: 1 }
+        | {
+            source: 'conservative-default';
+            reason: 'model-not-in-provider-catalog' | 'no-trusted-capability-data';
+          };
     }>;
   };
 }

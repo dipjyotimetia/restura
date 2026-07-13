@@ -92,6 +92,30 @@ const ReliabilitySchema = z.object({
   passAtK: z.record(z.string(), z.number()),
   passToK: z.record(z.string(), z.number()),
 });
+const ModelCapabilitiesSchema = z.object({
+  inputModalities: z.array(z.enum(['text', 'image', 'audio', 'document'])),
+  outputModalities: z.array(z.enum(['text', 'image', 'audio', 'document'])),
+  structuredOutput: z.boolean(),
+  toolCalling: z.boolean(),
+  parallelToolCalls: z.boolean(),
+  reasoning: z.boolean(),
+  continuation: z.boolean(),
+  serverTools: z.array(z.string()),
+  maxContextTokens: z.number().int().positive().optional(),
+  maxOutputTokens: z.number().int().positive().optional(),
+});
+const CapabilityProvenanceSchema = z.discriminatedUnion('source', [
+  z.object({ source: z.literal('user-override') }),
+  z.object({
+    source: z.literal('discovered'),
+    adapterId: z.literal('openrouter.models'),
+    adapterVersion: z.literal(1),
+  }),
+  z.object({
+    source: z.literal('conservative-default'),
+    reason: z.enum(['model-not-in-provider-catalog', 'no-trusted-capability-data']),
+  }),
+]);
 export const AgentSuiteReportSchema = z.object({
   suiteId: z.string(),
   status: z.enum(['passed', 'failed', 'error', 'cancelled']),
@@ -128,6 +152,19 @@ export const AgentSuiteReportSchema = z.object({
     passToK: z.record(z.string(), z.number()),
     reliabilityByCase: z.array(ReliabilitySchema),
   }),
+  execution: z
+    .object({
+      modelCapabilities: z.array(
+        z.object({
+          providerId: z.string(),
+          model: z.string(),
+          capabilities: ModelCapabilitiesSchema,
+          assertedByUser: z.boolean(),
+          provenance: CapabilityProvenanceSchema,
+        })
+      ),
+    })
+    .optional(),
 });
 
 const EvalScoreSchema = z.object({
