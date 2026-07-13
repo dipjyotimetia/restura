@@ -793,9 +793,11 @@ interface FileChangedEvent {
 }
 
 interface ElectronCollectionsAPI {
-  loadFromDirectory: (
-    path: string
-  ) => Promise<{ success: boolean; collection?: unknown; error?: string }>;
+  loadFromDirectory: (path: string) => Promise<{
+    success: boolean;
+    collection?: unknown;
+    error?: string;
+  }>;
   saveToDirectory: (
     collection: unknown,
     path: string
@@ -805,12 +807,12 @@ interface ElectronCollectionsAPI {
     path: string
   ) => Promise<{ success: boolean; error?: string }>;
   watchDirectory: (path: string) => Promise<{ success: boolean; error?: string }>;
-  unwatchDirectory: (path: string) => Promise<{ success: boolean }>;
+  unwatchDirectory: (path: string) => Promise<{ success: boolean; error?: string }>;
   selectDirectory: () => Promise<{ canceled: boolean; filePaths?: string[] }>;
   openInExplorer: (path: string) => Promise<{ success: boolean; error?: string }>;
   getFileInfo: (
     filePath: string
-  ) => Promise<{ exists: boolean; lastModified?: number; size?: number }>;
+  ) => Promise<{ exists: boolean; lastModified?: number; size?: number; error?: string }>;
   onFileChanged: (callback: (event: FileChangedEvent) => void) => void;
   removeFileChangedListener: () => void;
 }

@@ -21,6 +21,7 @@ import { makeRendererSendRequest } from '@/features/scripts/lib/pmSendRequestHos
 import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { selectCertForUrl } from '@/lib/shared/certMatcher';
+import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { makeRendererJudge } from '@/lib/shared/judgeBridge';
 import {
@@ -439,6 +440,10 @@ export async function executeRequest(
     }
     if (preRequestResult.collectionMutations) {
       Object.assign(collectionVarsMutations, preRequestResult.collectionMutations);
+      // The wire request is built after this phase, so collection-variable
+      // writes must participate in substitution for this request as well as
+      // later requests in a collection run.
+      applyVarMutations(envVars, preRequestResult.collectionMutations);
     }
   }
 

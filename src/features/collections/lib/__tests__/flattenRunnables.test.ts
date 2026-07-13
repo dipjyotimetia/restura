@@ -78,6 +78,7 @@ describe('flattenRunnables — effective script combining', () => {
     expect(runnables[0]!.request.preRequestScript).toBe(
       'COLLECTION_PRE\nOUTER_PRE\nINNER_PRE\nREQ_PRE'
     );
+    expect(runnables[0]!.folderPath).toEqual(['Outer', 'Inner']);
   });
 
   it('returns [] for an unknown folder id', () => {

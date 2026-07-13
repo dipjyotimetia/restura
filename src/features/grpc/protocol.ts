@@ -31,6 +31,7 @@ import { makeRendererSendRequest } from '@/features/scripts/lib/pmSendRequestHos
 import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
+import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { makeRendererJudge } from '@/lib/shared/judgeBridge';
 import { isElectron } from '@/lib/shared/platform';
@@ -136,7 +137,6 @@ export const grpcProtocol: ProtocolModule = {
     }
 
     const variables = ctx.variables ?? {};
-    const resolve = (text: string) => defaultResolveVariables(text, variables);
     const opts = readProtocolOptions(ctx.protocolOptions);
     const timeoutMs = opts.timeoutMs ?? 30000;
 
@@ -171,12 +171,16 @@ export const grpcProtocol: ProtocolModule = {
       if (preRequestResult.variables) {
         Object.assign(scriptEnvVars, preRequestResult.variables);
       }
+      if (preRequestResult.collectionMutations) {
+        applyVarMutations(scriptEnvVars, preRequestResult.collectionMutations);
+      }
       if (preRequestResult.globalsMutations) {
         useGlobalsStore.getState().applyMutations(preRequestResult.globalsMutations);
       }
     }
 
     let response: GrpcResponse;
+    const resolve = (text: string) => defaultResolveVariables(text, scriptEnvVars);
     if (isElectron()) {
       const hasDescriptors = !!opts.descriptors && opts.descriptors.length > 0;
       if (!hasDescriptors && (!opts.protoContent || !opts.protoFileName)) {

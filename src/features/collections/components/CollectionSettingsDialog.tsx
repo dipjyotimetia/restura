@@ -1,5 +1,6 @@
 import { SlidersHorizontal } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { Button } from '@/components/ui/button';
@@ -22,6 +23,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import AuthConfigComponent from '@/features/auth/components/AuthConfig';
+import { loadContractSpec } from '@/features/contracts/lib/specLoader';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import type { AuthConfig, Collection, CollectionItem, ContractSpecSource, KeyValue } from '@/types';
@@ -35,7 +37,7 @@ import type { AuthConfig, Collection, CollectionItem, ContractSpecSource, KeyVal
  *
  * Scope differences:
  *  - collection → Auth · Variables · Scripts · Docs · Contract
- *  - folder     → Auth · Scripts · Contract (folders have no variables/description)
+ *  - folder     → Auth · Scripts (contracts are collection-scoped)
  */
 
 export type SettingsTarget =
@@ -61,6 +63,7 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
   const [contractSource, setContractSource] = useState<ContractSource>('none');
   const [contractUrl, setContractUrl] = useState('');
   const [contractInline, setContractInline] = useState('');
+  const [saving, setSaving] = useState(false);
 
   // Re-seed drafts whenever the dialog opens on a new target.
   const targetId = target?.scope === 'collection' ? target.collection.id : target?.item.id;
@@ -94,18 +97,44 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
     return undefined;
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (target.scope === 'collection') {
+      const normalizedKeys = variables.map((variable) => variable.key.trim());
+      if (normalizedKeys.some((key) => key.length === 0)) {
+        toast.error('Collection variables must have a name');
+        return;
+      }
+      if (new Set(normalizedKeys).size !== normalizedKeys.length) {
+        toast.error('Collection variable names must be unique');
+        return;
+      }
+      const contractSpec = buildContractSpec();
+      if (contractSource !== 'none' && !contractSpec) {
+        toast.error('Complete the contract source before saving');
+        return;
+      }
+      if (contractSpec) {
+        setSaving(true);
+        const validation = await loadContractSpec(contractSpec);
+        setSaving(false);
+        if (!validation.ok) {
+          toast.error('Contract could not be loaded', { description: validation.error });
+          return;
+        }
+      }
+    }
+
     // `auth: {type:'none'}` is stored as undefined so it never masks an
     // ancestor's auth in inheritance walks (see isConfiguredAuth).
     const common = {
       auth: auth.type !== 'none' ? auth : undefined,
       preRequestScript: preRequestScript.trim() ? preRequestScript : undefined,
       testScript: testScript.trim() ? testScript : undefined,
-      contractSpec: buildContractSpec(),
     };
     if (target.scope === 'collection') {
       updateCollection(target.collection.id, {
         ...common,
+        contractSpec: buildContractSpec(),
         variables: variables.length > 0 ? variables : undefined,
         description: description.trim() ? description : undefined,
       });
@@ -116,6 +145,15 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
   };
 
   const isCollection = target.scope === 'collection';
+  const legacyFolderContract = target.scope === 'folder' ? target.item.contractSpec : undefined;
+
+  const promoteFolderContract = () => {
+    if (target.scope !== 'folder' || !legacyFolderContract) return;
+    updateCollection(target.collectionId, { contractSpec: legacyFolderContract });
+    updateCollectionItem(target.collectionId, target.item.id, { contractSpec: undefined });
+    toast.success('Folder contract promoted to the collection');
+    onClose();
+  };
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -130,13 +168,25 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
           </DialogDescription>
         </DialogHeader>
 
+        {legacyFolderContract && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+            <p className="text-muted-foreground">
+              This folder contains a legacy contract attachment. Contracts are now configured at
+              collection scope.
+            </p>
+            <Button className="mt-2" size="sm" variant="outline" onClick={promoteFolderContract}>
+              Promote to collection
+            </Button>
+          </div>
+        )}
+
         <Tabs defaultValue="auth" className="flex-1 min-h-0 flex flex-col">
           <TabsList>
             <TabsTrigger value="auth">Auth</TabsTrigger>
             {isCollection && <TabsTrigger value="variables">Variables</TabsTrigger>}
             <TabsTrigger value="scripts">Scripts</TabsTrigger>
             {isCollection && <TabsTrigger value="docs">Docs</TabsTrigger>}
-            <TabsTrigger value="contract">Contract</TabsTrigger>
+            {isCollection && <TabsTrigger value="contract">Contract</TabsTrigger>}
           </TabsList>
 
           <div className="flex-1 min-h-0 overflow-y-auto py-3">
@@ -205,42 +255,43 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
               </TabsContent>
             )}
 
-            <TabsContent value="contract" className="mt-0 space-y-3">
-              <p className="text-xs text-muted-foreground">
-                Attach an OpenAPI spec — used to generate mock server routes.
-                {!isCollection && ' Overrides the collection-level spec.'} Execution-time response
-                validation against the spec is not wired up yet.
-              </p>
-              <Select
-                value={contractSource}
-                onValueChange={(v) => setContractSource(v as ContractSource)}
-              >
-                <SelectTrigger className="w-48">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No contract</SelectItem>
-                  <SelectItem value="url">From URL</SelectItem>
-                  <SelectItem value="inline">Inline (paste)</SelectItem>
-                </SelectContent>
-              </Select>
-              {contractSource === 'url' && (
-                <Input
-                  value={contractUrl}
-                  onChange={(e) => setContractUrl(e.target.value)}
-                  placeholder="https://example.com/openapi.yaml"
-                  className="font-mono text-xs"
-                />
-              )}
-              {contractSource === 'inline' && (
-                <Textarea
-                  value={contractInline}
-                  onChange={(e) => setContractInline(e.target.value)}
-                  placeholder="Paste OpenAPI YAML or JSON…"
-                  className="min-h-[200px] font-mono text-xs"
-                />
-              )}
-            </TabsContent>
+            {isCollection && (
+              <TabsContent value="contract" className="mt-0 space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  Attach an OpenAPI spec — used to generate mock server routes. Execution-time
+                  response validation against the spec is not wired up yet.
+                </p>
+                <Select
+                  value={contractSource}
+                  onValueChange={(v) => setContractSource(v as ContractSource)}
+                >
+                  <SelectTrigger className="w-48">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">No contract</SelectItem>
+                    <SelectItem value="url">From URL</SelectItem>
+                    <SelectItem value="inline">Inline (paste)</SelectItem>
+                  </SelectContent>
+                </Select>
+                {contractSource === 'url' && (
+                  <Input
+                    value={contractUrl}
+                    onChange={(e) => setContractUrl(e.target.value)}
+                    placeholder="https://example.com/openapi.yaml"
+                    className="font-mono text-xs"
+                  />
+                )}
+                {contractSource === 'inline' && (
+                  <Textarea
+                    value={contractInline}
+                    onChange={(e) => setContractInline(e.target.value)}
+                    placeholder="Paste OpenAPI YAML or JSON…"
+                    className="min-h-[200px] font-mono text-xs"
+                  />
+                )}
+              </TabsContent>
+            )}
           </div>
         </Tabs>
 
@@ -248,7 +299,9 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={handleSave}>Save</Button>
+          <Button onClick={() => void handleSave()} disabled={saving}>
+            {saving ? 'Validating…' : 'Save'}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

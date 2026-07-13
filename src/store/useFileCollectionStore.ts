@@ -11,7 +11,7 @@ import type { ElectronAPI } from '../../electron/types/electron-api';
 import { useCollectionStore } from './useCollectionStore';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { isElectron } from '@/lib/shared/platform';
-import type { Collection } from '@/types';
+import type { Collection, CollectionItem, KeyValue, Request } from '@/types';
 
 // Runtime UI sync state (distinct from the persisted file `SyncState` in
 // file-collection-schema.ts, which tracks git file states like 'new'/'deleted').
@@ -196,6 +196,127 @@ function getElectronCollections(): ElectronAPI['collections'] | null {
 export { isElectron as isElectronEnvironment };
 
 /**
+ * OpenCollection ids are runtime metadata rather than serialized fields. Match
+ * a fresh disk parse back to the already-open tree so workflows and request
+ * tabs keep pointing at the same logical objects after an external reload.
+ */
+export function reconcileCollectionIds(existing: Collection, incoming: Collection): Collection {
+  incoming.id = existing.id;
+  incoming.variables = reconcileKeyValues(existing.variables, incoming.variables);
+
+  const pool: CollectionItem[] = [];
+  const collect = (items: CollectionItem[]): void => {
+    for (const item of items) {
+      pool.push(item);
+      if (item.items) collect(item.items);
+    }
+  };
+  collect(existing.items);
+  const used = new Set<CollectionItem>();
+
+  const reconcileItems = (
+    previousSiblings: CollectionItem[],
+    nextSiblings: CollectionItem[]
+  ): CollectionItem[] => {
+    const matches = new Map<CollectionItem, CollectionItem>();
+
+    // Claim every exact logical match before considering positional rename
+    // fallback. This prevents a newly inserted sibling from stealing an id
+    // that belongs to an unchanged item later in the array.
+    for (const next of nextSiblings) {
+      const exact = previousSiblings.find(
+        (item) => !used.has(item) && item.type === next.type && item.name === next.name
+      );
+      if (exact) {
+        used.add(exact);
+        matches.set(next, exact);
+      }
+    }
+    for (const next of nextSiblings) {
+      if (matches.has(next)) continue;
+      const globalExact = pool.filter(
+        (item) => !used.has(item) && item.type === next.type && item.name === next.name
+      );
+      if (globalExact.length === 1 && globalExact[0]) {
+        used.add(globalExact[0]);
+        matches.set(next, globalExact[0]);
+      }
+    }
+
+    const unmatchedNext = nextSiblings.filter((item) => !matches.has(item));
+    const unmatchedPrevious = previousSiblings.filter((item) => !used.has(item));
+    if (unmatchedNext.length === unmatchedPrevious.length) {
+      unmatchedNext.forEach((next, index) => {
+        const previous = unmatchedPrevious[index];
+        if (previous?.type === next.type) {
+          used.add(previous);
+          matches.set(next, previous);
+        }
+      });
+    }
+
+    return nextSiblings.map((next) => {
+      const previous = matches.get(next);
+      if (!previous) return next;
+
+      next.id = previous.id;
+      if (next.request && previous.request) {
+        next.request = reconcileRequestIds(previous.request, next.request);
+      }
+      if (next.items) next.items = reconcileItems(previous.items ?? [], next.items);
+      return next;
+    });
+  };
+
+  incoming.items = reconcileItems(existing.items, incoming.items);
+  return incoming;
+}
+
+function reconcileRequestIds(existing: Request, incoming: Request): Request {
+  incoming.id = existing.id;
+  const oldRecord = existing as unknown as Record<string, unknown>;
+  const newRecord = incoming as unknown as Record<string, unknown>;
+  for (const key of ['headers', 'params', 'metadata']) {
+    newRecord[key] = reconcileKeyValues(
+      oldRecord[key] as KeyValue[] | undefined,
+      newRecord[key] as KeyValue[] | undefined
+    );
+  }
+  return incoming;
+}
+
+function reconcileKeyValues(
+  existing: KeyValue[] | undefined,
+  incoming: KeyValue[] | undefined
+): KeyValue[] | undefined {
+  if (!incoming || !existing) return incoming;
+  const used = new Set<KeyValue>();
+  const matches = new Map<KeyValue, KeyValue>();
+  for (const next of incoming) {
+    const exact = existing.find((item) => !used.has(item) && item.key === next.key);
+    if (exact) {
+      used.add(exact);
+      matches.set(next, exact);
+    }
+  }
+  const unmatchedNext = incoming.filter((item) => !matches.has(item));
+  const unmatchedExisting = existing.filter((item) => !used.has(item));
+  if (unmatchedNext.length === unmatchedExisting.length) {
+    unmatchedNext.forEach((next, index) => {
+      const previous = unmatchedExisting[index];
+      if (previous) matches.set(next, previous);
+    });
+  }
+  return incoming.map((next) => {
+    const previous = matches.get(next);
+    if (previous) {
+      next.id = previous.id;
+    }
+    return next;
+  });
+}
+
+/**
  * Register a main-process file watcher for a collection directory and reflect
  * the result in the store. The active-watcher set IS the git allowlist (see
  * `restoreFileCollectionWatchers`), so `isWatching` tracks whether the watch
@@ -241,7 +362,9 @@ export async function loadCollectionFromDirectory(directoryPath: string): Promis
     // an existing collection rather than append — `addCollection` appends, which
     // would duplicate the collection in the sidebar on every reload.
     const collectionStore = useCollectionStore.getState();
-    if (collectionStore.getCollectionById(collection.id)) {
+    const openCollection = collectionStore.getCollectionById(collection.id);
+    if (openCollection) {
+      reconcileCollectionIds(openCollection, collection);
       collectionStore.updateCollection(collection.id, collection);
     } else {
       collectionStore.addCollection(collection);
@@ -361,52 +484,103 @@ export async function exportCollectionToFiles(
 export async function restoreFileCollectionWatchers(): Promise<void> {
   const { fileCollections, setWatching } = useFileCollectionStore.getState();
   await Promise.all(
-    Object.values(fileCollections).map((info) =>
-      // A directory deleted/unmounted since last session rejects — leave
-      // isWatching false so the UI reflects that it isn't git-eligible.
-      startWatching(info.collectionId, info.directoryPath).catch(() =>
-        setWatching(info.collectionId, false)
-      )
-    )
+    Object.values(fileCollections).map(async (info) => {
+      try {
+        // Loading is also reconciliation: disk is authoritative after a
+        // restart, and load registers the watcher after replacing the in-memory
+        // collection under the existing directory identity.
+        const result = await loadCollectionFromDirectory(info.directoryPath);
+        if (!result.success) setWatching(info.collectionId, false);
+      } catch {
+        setWatching(info.collectionId, false);
+      }
+    })
   );
 }
 
 // Initialize file watcher event handler
+let unsubscribeCollectionChanges: (() => void) | null = null;
+const externalReloads = new Map<string, Promise<unknown>>();
+const pendingExternalReloads = new Set<string>();
+
 export function initFileCollectionWatcher(): void {
   const electron = getElectronCollections();
   if (!electron) return;
+
+  unsubscribeCollectionChanges?.();
+  unsubscribeCollectionChanges = useCollectionStore.subscribe((state, previous) => {
+    const fileStore = useFileCollectionStore.getState();
+    for (const info of Object.values(fileStore.fileCollections)) {
+      const current = state.collections.find((collection) => collection.id === info.collectionId);
+      const before = previous.collections.find((collection) => collection.id === info.collectionId);
+      if (current !== before && before && info.syncState === 'synced') {
+        fileStore.updateSyncState(info.collectionId, 'modified');
+      }
+    }
+  });
 
   electron.onFileChanged((event) => {
     const fileStore = useFileCollectionStore.getState();
 
     // Find which collection this file belongs to
     const fileInfo = Object.values(fileStore.fileCollections).find(
-      (info) =>
-        event.directoryPath === info.directoryPath || event.filePath.startsWith(info.directoryPath)
+      (info) => event.directoryPath === info.directoryPath
     );
 
     if (!fileInfo) return;
 
-    if (event.type === 'modified') {
-      // File was modified externally - potential conflict
+    if (fileInfo.syncState === 'modified' || fileInfo.syncState === 'loading') {
       fileStore.addConflict({
         collectionId: fileInfo.collectionId,
         itemName: event.filePath.split('/').pop() || 'Unknown',
         filePath: event.filePath,
         localModified: fileInfo.lastSynced,
         externalModified: event.lastModified || Date.now(),
-        message: 'File was modified externally',
+        message: 'Files changed externally while this collection has unsaved local changes',
       });
       fileStore.updateSyncState(fileInfo.collectionId, 'conflict');
-    } else if (event.type === 'added' || event.type === 'deleted') {
-      // File was added or deleted - need to reload
-      fileStore.updateSyncState(fileInfo.collectionId, 'modified');
+      return;
     }
+
+    // A clean collection can be safely reloaded in place. Coalesce bursts from
+    // multi-file git checkouts into one reload per collection.
+    if (externalReloads.has(fileInfo.collectionId)) {
+      pendingExternalReloads.add(fileInfo.collectionId);
+      return;
+    }
+
+    const scheduleReload = () =>
+      loadCollectionFromDirectory(fileInfo.directoryPath)
+        .then((result) => {
+          if (!result.success) {
+            fileStore.updateSyncState(fileInfo.collectionId, 'error', result.error);
+          }
+        })
+        .catch((error: unknown) => {
+          fileStore.updateSyncState(
+            fileInfo.collectionId,
+            'error',
+            error instanceof Error ? error.message : String(error)
+          );
+        })
+        .finally(() => {
+          externalReloads.delete(fileInfo.collectionId);
+          if (pendingExternalReloads.delete(fileInfo.collectionId)) {
+            const nextReload = scheduleReload();
+            externalReloads.set(fileInfo.collectionId, nextReload);
+          }
+        });
+    const reload = scheduleReload();
+    externalReloads.set(fileInfo.collectionId, reload);
   });
 }
 
 // Cleanup file watcher
 export function cleanupFileCollectionWatcher(): void {
+  unsubscribeCollectionChanges?.();
+  unsubscribeCollectionChanges = null;
+  externalReloads.clear();
+  pendingExternalReloads.clear();
   const electron = getElectronCollections();
   if (electron) {
     electron.removeFileChangedListener();

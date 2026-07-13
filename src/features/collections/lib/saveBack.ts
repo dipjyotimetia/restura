@@ -14,7 +14,11 @@ import type { Request } from '@/types';
 export function saveTabBackToCollection(request: Request, savedRequestId: string): boolean {
   const store = useCollectionStore.getState();
   const collection = store.getCollectionByItemId(savedRequestId);
-  if (collection && isNameTaken(request.name, siblingNamesOfItem(collection, savedRequestId))) {
+  if (!collection) {
+    toast.error('The saved collection request no longer exists');
+    return false;
+  }
+  if (isNameTaken(request.name, siblingNamesOfItem(collection, savedRequestId))) {
     toast.error(`An item named "${request.name}" already exists at this level`);
     return false;
   }

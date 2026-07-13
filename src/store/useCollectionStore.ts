@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateAuthConfigToSecretRef } from '@/lib/shared/secretRef-migrations';
+import { validateCollection } from '@/lib/shared/store-validators';
 import type { Collection, CollectionItem } from '@/types';
 
 /**
@@ -193,16 +194,22 @@ export const useCollectionStore = create<CollectionState>()(
       collections: [],
       activeCollectionId: null,
 
-      addCollection: (collection) =>
+      addCollection: (collection) => {
+        const migrated = migrateCollectionAuth(collection);
+        validateCollection(migrated);
         set((state) => ({
-          collections: [...state.collections, collection],
-        })),
+          collections: [...state.collections, migrated],
+        }));
+      },
 
       updateCollection: (id, updates) =>
         set((state) => ({
-          collections: state.collections.map((col) =>
-            col.id === id ? { ...col, ...updates } : col
-          ),
+          collections: state.collections.map((col) => {
+            if (col.id !== id) return col;
+            const next = migrateCollectionAuth({ ...col, ...updates });
+            validateCollection(next);
+            return next;
+          }),
         })),
 
       removeCollection: (id) =>

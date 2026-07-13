@@ -54,7 +54,13 @@ export function ocToInternal(oc: OpenCollection): WithOC<Collection> {
     name: oc.info.name,
     items,
   };
-  if (typeof oc.docs === 'string') collection.description = oc.docs;
+  if (typeof oc.info.summary === 'string') collection.description = oc.info.summary;
+  else if (typeof oc.docs === 'string') collection.description = oc.docs;
+  const contractSpec = (oc.extensions as Record<string, unknown> | undefined)?.[
+    'x-restura-contract'
+  ];
+  if (contractSpec !== undefined)
+    collection.contractSpec = contractSpec as Collection['contractSpec'];
   if (variables.length > 0) collection.variables = variables;
   // Collection-level default auth — OC models it as `request.auth` on the
   // document root (RequestDefaults). Only configured auth lands on the

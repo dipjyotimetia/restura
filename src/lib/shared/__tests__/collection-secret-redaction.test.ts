@@ -118,7 +118,7 @@ describe('redactCollectionSecrets', () => {
     expect(collection.items[0]!.items![0]!.request!.auth.basic?.password).toBe('p');
   });
 
-  it('drops auth-bearing OpenCollection _oc bags but keeps auth-free ones', () => {
+  it('sanitises auth-bearing OpenCollection _oc bags and keeps auth-free ones', () => {
     // The _oc bag holds the verbatim imported node — including the
     // pre-redaction plaintext auth — and the OC exporter emits per-item bags
     // verbatim, so a surviving auth-bearing bag would leak the original
@@ -130,7 +130,7 @@ describe('redactCollectionSecrets', () => {
       items: [
         {
           ...collection.items[0]!,
-          // Folder bag carries a child with plaintext auth → must drop.
+          // Folder bag carries a child with plaintext auth → must blank it.
           _oc: { items: [{ http: { auth: { type: 'bearer', token: 'LEAK' } } }] },
           items: [
             { ...collection.items[0]!.items![0]!, _oc: { http: { auth: { token: 'LEAK' } } } },
@@ -141,23 +141,40 @@ describe('redactCollectionSecrets', () => {
       ],
     } as unknown as Collection;
     const out = redactCollectionSecrets(withBags);
-    expect((out.items[0] as { _oc?: unknown })._oc).toBeUndefined();
-    expect((out.items[0]!.items![0] as { _oc?: unknown })._oc).toBeUndefined();
+    expect(JSON.stringify((out.items[0] as { _oc?: unknown })._oc)).not.toContain('LEAK');
+    expect(JSON.stringify((out.items[0]!.items![0] as { _oc?: unknown })._oc)).not.toContain(
+      'LEAK'
+    );
     expect((out.items[1] as { _oc?: unknown })._oc).toEqual(wsBag);
   });
 
-  it('drops the collection-level _oc bag unconditionally', () => {
-    // The root bag holds the entire pre-redaction document. The exporter's
-    // root staleness gate compares in internal space, which is blind to auth
-    // types that degrade to 'none' on import (OAuth1/NTLM/WSSE) and to root
-    // config secrets (proxy passwords, cert passphrases) — so an auth-gate
-    // here would still leak. Deny by default; the root tier rebuilds.
+  it('keeps a safe collection-level _oc bag for round-trip fidelity', () => {
     const withRootBag = {
       ...collection,
       _oc: { opencollection: '1.0.0', info: { name: 'C' }, items: [] },
     } as unknown as Collection;
     const out = redactCollectionSecrets(withRootBag);
-    expect((out as { _oc?: unknown })._oc).toBeUndefined();
+    expect((out as { _oc?: unknown })._oc).toEqual((withRootBag as { _oc?: unknown })._oc);
+  });
+
+  it('redacts AWS session tokens retained only in an OpenCollection bag', () => {
+    const withRootBag = {
+      ...collection,
+      _oc: {
+        request: {
+          auth: {
+            type: 'awsv4',
+            accessKeyId: 'PUBLIC-ID',
+            secretAccessKey: 'AWS-SECRET',
+            sessionToken: 'AWS-SESSION',
+          },
+        },
+      },
+    } as unknown as Collection;
+    const out = redactCollectionSecrets(withRootBag) as Collection & { _oc?: unknown };
+    expect(JSON.stringify(out._oc)).not.toContain('AWS-SECRET');
+    expect(JSON.stringify(out._oc)).not.toContain('AWS-SESSION');
+    expect(JSON.stringify(out._oc)).toContain('PUBLIC-ID');
   });
 });
 
@@ -497,6 +514,18 @@ describe('OpenCollection export — no plaintext _oc secret leak (security regre
     );
     expect(yaml).not.toContain(OAUTH1_SECRET);
     expect(yaml).not.toContain(CERT_PASS);
+    expect(yaml).not.toContain(PROXY_PASS);
+  });
+
+  it('preserves unknown OpenCollection extensions while redacting bag-only secrets', () => {
+    const collection = ocImportedCollectionWithBagSecrets();
+    const root = (collection as Collection & { _oc: Record<string, unknown> })._oc;
+    root.extensions = { 'x-team-metadata': { owner: 'platform' } };
+
+    const yaml = exportToOpenCollection(redactCollectionSecrets(collection));
+
+    expect(yaml).toContain('x-team-metadata');
+    expect(yaml).toContain('platform');
     expect(yaml).not.toContain(PROXY_PASS);
   });
 
