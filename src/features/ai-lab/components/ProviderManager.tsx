@@ -142,6 +142,10 @@ export function ProviderManager() {
     draft: ModelCapabilities;
     assertionConfirmed: boolean;
   } | null>(null);
+  const [costPolicyEditing, setCostPolicyEditing] = useState<{
+    providerId: string;
+    assertionConfirmed: boolean;
+  } | null>(null);
 
   const { confirm: confirmRemove, DialogComponent: RemoveProviderDialog } = useConfirmDialog({
     title: 'Remove provider',
@@ -304,6 +308,17 @@ export function ProviderManager() {
       capabilityOverrides: Object.keys(next).length ? next : undefined,
     });
     setCapabilityEditing(null);
+  };
+
+  const assertLocalZeroCost = (cfg: AiLabProviderConfig) => {
+    if (costPolicyEditing?.providerId !== cfg.id || !costPolicyEditing.assertionConfirmed) return;
+    updateProvider(cfg.id, { costPolicy: 'local-zero' });
+    setCostPolicyEditing(null);
+  };
+
+  const resetCostPolicy = (cfg: AiLabProviderConfig) => {
+    updateProvider(cfg.id, { costPolicy: 'unknown' });
+    setCostPolicyEditing(null);
   };
 
   const setCapabilityBoolean = (
@@ -620,6 +635,86 @@ export function ProviderManager() {
                     <Trash2 className="h-3 w-3 text-destructive" /> Remove
                   </Button>
                 </div>
+
+                {cfg.isLocal && (
+                  <div className="mt-2 space-y-2 border-t border-sp-line pt-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-1.5 text-sp-10 font-medium text-sp-muted">
+                        <SlidersHorizontal className="h-3 w-3" /> Advanced cost classification
+                        {cfg.costPolicy === 'local-zero' && (
+                          <Badge variant="warning">local zero asserted</Badge>
+                        )}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label="Configure cost classification"
+                        onClick={() =>
+                          costPolicyEditing?.providerId === cfg.id
+                            ? setCostPolicyEditing(null)
+                            : setCostPolicyEditing({
+                                providerId: cfg.id,
+                                assertionConfirmed: false,
+                              })
+                        }
+                      >
+                        Configure
+                      </Button>
+                    </div>
+                    {costPolicyEditing?.providerId === cfg.id && (
+                      <div className="space-y-2 rounded border border-sp-line p-2">
+                        <p className="text-sp-10 text-sp-muted">
+                          Cost stays unknown unless you explicitly confirm this endpoint runs
+                          locally without usage charges.
+                        </p>
+                        <label
+                          htmlFor={`cost-${cfg.id}-local-zero`}
+                          className="flex items-start gap-2 text-sp-10 text-sp-text"
+                        >
+                          <Checkbox
+                            id={`cost-${cfg.id}-local-zero`}
+                            aria-label="I assert this provider runs locally at zero cost"
+                            checked={costPolicyEditing.assertionConfirmed}
+                            onCheckedChange={(checked) =>
+                              setCostPolicyEditing((current) =>
+                                current
+                                  ? { ...current, assertionConfirmed: checked === true }
+                                  : current
+                              )
+                            }
+                          />
+                          <span>I assert this provider runs locally at zero cost</span>
+                        </label>
+                        <div className="flex flex-wrap gap-1">
+                          <Button
+                            size="sm"
+                            aria-label="Assert local zero cost"
+                            disabled={!costPolicyEditing.assertionConfirmed}
+                            onClick={() => assertLocalZeroCost(cfg)}
+                          >
+                            Assert local zero
+                          </Button>
+                          {cfg.costPolicy === 'local-zero' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => resetCostPolicy(cfg)}
+                            >
+                              Reset cost to unknown
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setCostPolicyEditing(null)}
+                          >
+                            Close
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {cfg.models.length > 0 && (
                   <div className="mt-2 space-y-1.5 border-t border-sp-line pt-2">

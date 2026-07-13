@@ -289,17 +289,57 @@ const ModelRefSchema = z.object({
   model: z.string(),
 });
 
-const ModelCapabilitiesSchema = z.object({
-  inputModalities: z.array(z.enum(['text', 'image', 'audio', 'document'])),
-  outputModalities: z.array(z.enum(['text', 'image', 'audio', 'document'])),
+const ModelCapabilitiesShapeSchema = z.object({
+  inputModalities: z
+    .array(z.enum(['text', 'image', 'audio', 'document']))
+    .min(1)
+    .max(4),
+  outputModalities: z
+    .array(z.enum(['text', 'image', 'audio', 'document']))
+    .min(1)
+    .max(4),
   structuredOutput: z.boolean(),
   toolCalling: z.boolean(),
   parallelToolCalls: z.boolean(),
   reasoning: z.boolean(),
   continuation: z.boolean(),
-  serverTools: z.array(z.string()),
-  maxContextTokens: z.number().optional(),
-  maxOutputTokens: z.number().optional(),
+  serverTools: z.array(z.string().trim().min(1).max(64)).max(32),
+  maxContextTokens: z.number().int().positive().max(100_000_000).optional(),
+  maxOutputTokens: z.number().int().positive().max(100_000_000).optional(),
+});
+
+function requireCapabilityInvariants(
+  capabilities: {
+    toolCalling?: boolean | undefined;
+    parallelToolCalls?: boolean | undefined;
+    serverTools?: string[] | undefined;
+  },
+  context: z.RefinementCtx
+) {
+  if (capabilities.parallelToolCalls && !capabilities.toolCalling) {
+    context.addIssue({ code: 'custom', message: 'parallel tool calls require tool calling' });
+  }
+  if (capabilities.serverTools?.length && !capabilities.toolCalling) {
+    context.addIssue({ code: 'custom', message: 'server tools require tool calling' });
+  }
+  if (
+    capabilities.serverTools &&
+    new Set(capabilities.serverTools).size !== capabilities.serverTools.length
+  ) {
+    context.addIssue({ code: 'custom', message: 'server tools must be unique' });
+  }
+}
+
+const ModelCapabilitiesSchema = ModelCapabilitiesShapeSchema.superRefine(
+  requireCapabilityInvariants
+);
+const PartialModelCapabilitiesSchema = ModelCapabilitiesShapeSchema.partial().superRefine(
+  requireCapabilityInvariants
+);
+const AgentCapabilityProvenanceSchema = z.object({
+  source: z.literal('discovered'),
+  adapterId: z.literal('openrouter.models'),
+  adapterVersion: z.literal(1),
 });
 
 const AiLabModelDetailSchema = z
@@ -313,7 +353,8 @@ const AiLabModelDetailSchema = z
         completionPerMTokUSD: z.number().optional(),
       })
       .optional(),
-    agentCapabilities: ModelCapabilitiesSchema.partial().optional(),
+    agentCapabilities: PartialModelCapabilitiesSchema.optional(),
+    agentCapabilityProvenance: AgentCapabilityProvenanceSchema.optional(),
     createdAt: z.string().optional(),
     vendor: z.string().optional(),
     family: z.string().optional(),
@@ -325,7 +366,15 @@ const AiLabModelDetailSchema = z
   // Forward-compatible: ignore unknown fields the renderer may add later.
   // Zod v4 deprecated `.passthrough()` in favor of `.loose()` (same semantics,
   // new method name) — the type signature is identical (ZodObject<Shape, $loose>).
-  .loose();
+  .loose()
+  .superRefine((detail, context) => {
+    if (Boolean(detail.agentCapabilities) !== Boolean(detail.agentCapabilityProvenance)) {
+      context.addIssue({
+        code: 'custom',
+        message: 'discovered capabilities require tested adapter provenance',
+      });
+    }
+  });
 
 const AiLabProviderConfigSchema = z.object({
   id: z.string(),
@@ -334,6 +383,7 @@ const AiLabProviderConfigSchema = z.object({
   baseUrl: z.string().optional(),
   apiKeyHandleId: z.string().optional(),
   pricingKnown: z.boolean(),
+  costPolicy: z.enum(['unknown', 'local-zero']).default('unknown'),
   isLocal: z.boolean(),
   models: z.array(z.string()),
   // Per-model metadata captured at the most recent discovery (OpenRouter).

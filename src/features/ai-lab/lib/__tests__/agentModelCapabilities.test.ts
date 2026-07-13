@@ -39,7 +39,14 @@ describe('desktop model capability negotiation', () => {
         provider: 'anthropic',
         isLocal: false,
         modelDetails: {
-          custom: { agentCapabilities: { toolCalling: true, maxContextTokens: 32_000 } },
+          custom: {
+            agentCapabilities: { toolCalling: true, maxContextTokens: 32_000 },
+            agentCapabilityProvenance: {
+              source: 'discovered',
+              adapterId: 'openrouter.models',
+              adapterVersion: 1,
+            },
+          },
         },
       }),
       'custom'
@@ -52,6 +59,60 @@ describe('desktop model capability negotiation', () => {
       structuredOutput: false,
       maxContextTokens: 32_000,
     });
+  });
+
+  it('normalizes inconsistent partial discovery metadata field by field', () => {
+    const result = capabilitiesForDesktopModel(
+      config({
+        modelDetails: {
+          custom: {
+            agentCapabilities: {
+              inputModalities: [],
+              outputModalities: ['video' as never],
+              parallelToolCalls: true,
+              toolCalling: false,
+              serverTools: ['valid', '', ...Array.from({ length: 40 }, (_, i) => `tool-${i}`)],
+            },
+            agentCapabilityProvenance: {
+              source: 'discovered',
+              adapterId: 'openrouter.models',
+              adapterVersion: 1,
+            },
+          },
+        },
+      }),
+      'custom'
+    );
+
+    expect(result.capabilities).toMatchObject({
+      inputModalities: ['text'],
+      outputModalities: ['text'],
+      toolCalling: false,
+      parallelToolCalls: false,
+      structuredOutput: false,
+      reasoning: false,
+      serverTools: [],
+    });
+  });
+
+  it('drops server tools when tool calling is not enabled', () => {
+    const result = capabilitiesForDesktopModel(
+      config({
+        modelDetails: {
+          custom: {
+            agentCapabilities: { toolCalling: false, serverTools: ['web-search'] },
+            agentCapabilityProvenance: {
+              source: 'discovered',
+              adapterId: 'openrouter.models',
+              adapterVersion: 1,
+            },
+          },
+        },
+      }),
+      'custom'
+    );
+
+    expect(result.capabilities.serverTools).toEqual([]);
   });
 
   it('marks explicit capability overrides as user asserted', () => {
@@ -93,10 +154,28 @@ describe('known completion cost', () => {
     ).toBe(8);
   });
 
-  it('classifies the explicitly local Ollama runtime as zero cost', () => {
+  it.each(['http://localhost:11434', 'https://ollama.example.test'])(
+    'keeps Ollama cost unknown by default at %s',
+    (baseUrl) => {
+      expect(
+        knownCostForCompletion(
+          config({ provider: 'ollama', isLocal: true, pricingKnown: false, baseUrl }),
+          'custom',
+          completion
+        )
+      ).toBeUndefined();
+    }
+  );
+
+  it('classifies cost as zero only after an explicit local-zero assertion', () => {
     expect(
       knownCostForCompletion(
-        config({ provider: 'ollama', isLocal: true, pricingKnown: false }),
+        config({
+          provider: 'ollama',
+          isLocal: true,
+          pricingKnown: false,
+          costPolicy: 'local-zero',
+        }),
         'custom',
         completion
       )

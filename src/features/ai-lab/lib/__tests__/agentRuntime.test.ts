@@ -62,6 +62,37 @@ describe('desktop agent provider bridge', () => {
     });
   });
 
+  it('refuses a stale override for a model absent from the provider catalog', async () => {
+    const registry = createDesktopAgentProviders({
+      cfg: {
+        id: 'cfg',
+        provider: 'openai-compatible',
+        label: 'Gateway',
+        pricingKnown: false,
+        isLocal: true,
+        models: [],
+        capabilityOverrides: {
+          custom: {
+            inputModalities: ['text'],
+            outputModalities: ['text'],
+            structuredOutput: false,
+            toolCalling: true,
+            parallelToolCalls: false,
+            reasoning: false,
+            continuation: false,
+            serverTools: [],
+          },
+        },
+        createdAt: 0,
+      },
+    });
+
+    await expect(registry.require('cfg').getCapabilities('custom')).resolves.toMatchObject({
+      toolCalling: false,
+      parallelToolCalls: false,
+    });
+  });
+
   it('omits cost when the selected model has no exact known pricing', async () => {
     const registry = createDesktopAgentProviders(
       {

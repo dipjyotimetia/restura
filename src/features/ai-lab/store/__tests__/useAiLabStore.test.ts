@@ -110,7 +110,78 @@ describe('useAiLabStore — providers', () => {
       datasets: {},
       evalConfigs: {},
     };
-    expect(AiLabStateSchema.safeParse(legacyState).success).toBe(true);
+    const parsedLegacy = AiLabStateSchema.safeParse(legacyState);
+    expect(parsedLegacy.success).toBe(true);
+    if (parsedLegacy.success) {
+      expect(parsedLegacy.data.providers.legacy?.costPolicy).toBe('unknown');
+    }
+  });
+
+  it('rejects unproven or inconsistent persisted discovery capabilities', () => {
+    const base = {
+      providers: {
+        unsafe: {
+          id: 'unsafe',
+          provider: 'openrouter',
+          label: 'Unsafe',
+          pricingKnown: true,
+          isLocal: false,
+          models: ['custom'],
+          createdAt: 1,
+          modelDetails: {
+            custom: {
+              agentCapabilities: {
+                inputModalities: ['text'],
+                outputModalities: ['text'],
+                toolCalling: false,
+                parallelToolCalls: false,
+              },
+            },
+          },
+        },
+      },
+      prompts: {},
+      datasets: {},
+      evalConfigs: {},
+    };
+
+    expect(AiLabStateSchema.safeParse(base).success).toBe(false);
+  });
+
+  it('rejects proven discovery metadata with server tools but no tool calling', () => {
+    const state = {
+      providers: {
+        unsafe: {
+          id: 'unsafe',
+          provider: 'openrouter',
+          label: 'Unsafe',
+          pricingKnown: true,
+          isLocal: false,
+          models: ['custom'],
+          createdAt: 1,
+          modelDetails: {
+            custom: {
+              agentCapabilities: {
+                inputModalities: ['text'],
+                outputModalities: ['text'],
+                toolCalling: false,
+                serverTools: ['web-search'],
+              },
+              agentCapabilityProvenance: {
+                source: 'discovered',
+                adapterId: 'openrouter.models',
+                adapterVersion: 1,
+              },
+            },
+          },
+        },
+      },
+      prompts: {},
+      datasets: {},
+      evalConfigs: {},
+    };
+
+    expect(AiLabStateSchema.safeParse(state).success).toBe(false);
   });
 
   it('adds a HuggingFace provider with pricingKnown=false and isLocal=false', () => {
@@ -138,6 +209,32 @@ describe('useAiLabStore — providers', () => {
     expect(useAiLabStore.getState().providers[id]?.label).toBe('Renamed');
     useAiLabStore.getState().removeProvider(id);
     expect(useAiLabStore.getState().providers[id]).toBeUndefined();
+  });
+
+  it('prunes overrides on rediscovery so removed models cannot resurrect stale assertions', () => {
+    const id = useAiLabStore.getState().addProvider({
+      provider: 'openai-compatible',
+      label: 'Gateway',
+      models: ['keep', 'removed'],
+      capabilityOverrides: {
+        removed: {
+          inputModalities: ['text'],
+          outputModalities: ['text'],
+          structuredOutput: false,
+          toolCalling: true,
+          parallelToolCalls: false,
+          reasoning: false,
+          continuation: false,
+          serverTools: [],
+        },
+      },
+    });
+
+    useAiLabStore.getState().setProviderModels(id, ['keep']);
+    expect(useAiLabStore.getState().providers[id]?.capabilityOverrides).toBeUndefined();
+
+    useAiLabStore.getState().setProviderModels(id, ['keep', 'removed']);
+    expect(useAiLabStore.getState().providers[id]?.capabilityOverrides).toBeUndefined();
   });
 
   it('updateProvider on an unknown id is a no-op', () => {

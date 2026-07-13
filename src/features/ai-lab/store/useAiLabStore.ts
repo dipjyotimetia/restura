@@ -32,6 +32,7 @@ interface AiLabState extends PersistedAiLabState {
     baseUrl?: string;
     apiKeyHandleId?: string;
     pricingKnown?: boolean;
+    costPolicy?: AiLabProviderConfig['costPolicy'];
     models?: string[];
     modelDetails?: Record<string, AiLabModelDetail>;
     capabilityOverrides?: Record<string, ModelCapabilities>;
@@ -106,6 +107,7 @@ export const useAiLabStore = create<AiLabState>()(
           pricingKnown:
             init.pricingKnown ??
             (!isLocalProvider(init.provider) && !isHuggingFaceProvider(init.provider)),
+          costPolicy: init.costPolicy ?? 'unknown',
           isLocal: isLocalProvider(init.provider),
           models: init.models ?? [],
           ...(init.modelDetails ? { modelDetails: init.modelDetails } : {}),
@@ -142,6 +144,12 @@ export const useAiLabStore = create<AiLabState>()(
           // with a provider whose endpoint no longer returns rich metadata
           // doesn't leave a stale (now-incomplete) `modelDetails` around.
           const hasDetails = modelDetails && Object.keys(modelDetails).length > 0;
+          const modelSet = new Set(models);
+          const retainedOverrides = Object.fromEntries(
+            Object.entries(existing.capabilityOverrides ?? {}).filter(([model]) =>
+              modelSet.has(model)
+            )
+          );
           return {
             providers: {
               ...s.providers,
@@ -149,6 +157,8 @@ export const useAiLabStore = create<AiLabState>()(
                 ...existing,
                 models,
                 ...(hasDetails ? { modelDetails } : { modelDetails: undefined }),
+                capabilityOverrides:
+                  Object.keys(retainedOverrides).length > 0 ? retainedOverrides : undefined,
                 lastDiscoveredAt: Date.now(),
               },
             },
@@ -288,11 +298,20 @@ export const useAiLabStore = create<AiLabState>()(
     {
       name: 'ai-lab-store',
       storage: dexieStorageAdapters.aiLab(),
-      version: 2,
-      migrate: (persisted) => ({
-        ...(persisted as Partial<PersistedAiLabState>),
-        agentSuites: (persisted as Partial<PersistedAiLabState>).agentSuites ?? {},
-      }),
+      version: 3,
+      migrate: (persisted) => {
+        const previous = persisted as Partial<PersistedAiLabState>;
+        return {
+          ...previous,
+          providers: Object.fromEntries(
+            Object.entries(previous.providers ?? {}).map(([id, config]) => [
+              id,
+              { ...config, costPolicy: config.costPolicy ?? 'unknown' },
+            ])
+          ),
+          agentSuites: previous.agentSuites ?? {},
+        };
+      },
       partialize: (state) => ({
         providers: state.providers,
         prompts: state.prompts,

@@ -57,6 +57,26 @@ describe('ProviderManager capability overrides', () => {
     expect(useAiLabStore.getState().providers.cfg?.capabilityOverrides).toBeUndefined();
   });
 
+  it('requires confirmation for local-zero cost and resets it to unknown', () => {
+    render(<ProviderManager />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configure cost classification' }));
+    expect(screen.getByRole('button', { name: 'Assert local zero cost' })).toBeDisabled();
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: 'I assert this provider runs locally at zero cost' })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Assert local zero cost' }));
+
+    expect(screen.getByText('local zero asserted')).toBeVisible();
+    expect(useAiLabStore.getState().providers.cfg?.costPolicy).toBe('local-zero');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configure cost classification' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reset cost to unknown' }));
+
+    expect(screen.queryByText('local zero asserted')).not.toBeInTheDocument();
+    expect(useAiLabStore.getState().providers.cfg?.costPolicy).toBe('unknown');
+  });
+
   it('does not persist draft capability changes when the editor is closed', () => {
     render(<ProviderManager />);
 

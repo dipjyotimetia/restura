@@ -24,10 +24,12 @@ export interface AiLabProviderConfig {
   apiKeyHandleId?: string;
   /**
    * Whether per-token pricing is known for this provider's models. False for
-   * Ollama (free/local) and arbitrary OpenAI-compatible gateways — the UI shows
-   * cost as "free"/"unknown" rather than a misleading $0.00.
+   * providers without exact per-model prices. This never implies free usage;
+   * zero cost requires an explicit `local-zero` assertion.
    */
   pricingKnown: boolean;
+  /** User-asserted cost classification. Missing legacy values resolve to unknown. */
+  costPolicy?: 'unknown' | 'local-zero';
   /** Convenience flag mirroring isLocalProvider(provider); drives the SSRF carve-out UX. */
   isLocal: boolean;
   /** Discovered or hand-entered model ids. */
@@ -77,6 +79,12 @@ export interface AiLabModelDetail {
   };
   /** Model-specific capabilities returned by a tested discovery adapter. */
   agentCapabilities?: Partial<ModelCapabilities>;
+  /** Identifies the tested adapter that produced `agentCapabilities`. */
+  agentCapabilityProvenance?: {
+    source: 'discovered';
+    adapterId: 'openrouter.models';
+    adapterVersion: 1;
+  };
   /** ISO 8601 created timestamp, normalised at parse time. */
   createdAt?: string;
   /**
