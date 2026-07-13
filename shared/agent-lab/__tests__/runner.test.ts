@@ -284,7 +284,7 @@ describe('AgentRunner', () => {
         id: 'r1',
         output: [],
         toolCalls: [{ id: 'call', name: 'orders.get', arguments: {} }],
-        usage: { inputTokens: 30, outputTokens: 20 },
+        usage: { inputTokens: 50, outputTokens: 0 },
       },
       {
         id: 'r2',
@@ -360,6 +360,7 @@ describe('AgentRunner', () => {
     expect(result.error).toContain('exceeded maxTokens (100)');
     expect(executed).toBe(false);
     expect(result.trace.events.some((event) => event.type === 'tool.requested')).toBe(false);
+    expect(result.trace.events.some((event) => event.type === 'model.completed')).toBe(false);
     expect(result.trace.events).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ type: 'model.failed', error: 'agent exceeded maxTokens (100)' }),
@@ -398,6 +399,153 @@ describe('AgentRunner', () => {
         }),
       ])
     );
+  });
+
+  it('accepts a terminal response that exactly consumes the token budget', async () => {
+    const configured = suite();
+    configured.agents[0]!.limits.maxTokens = 100;
+    const runner = new AgentRunner({
+      providers: new ProviderRegistry([
+        fakeAdapter([
+          {
+            id: 'r1',
+            output: [{ type: 'text', text: 'done' }],
+            toolCalls: [],
+            usage: { inputTokens: 80, outputTokens: 20 },
+          },
+        ]),
+      ]),
+      async resolveCredential() {
+        return undefined;
+      },
+      async resolveTools() {
+        return [];
+      },
+    });
+
+    const result = await runner.run({
+      suite: configured,
+      taskId: 'task',
+      agentId: 'agent',
+      trial: 1,
+    });
+
+    expect(result.status).toBe('passed');
+    expect(result.output).toEqual([{ type: 'text', text: 'done' }]);
+    expect(result.trace.events.some((event) => event.type === 'model.completed')).toBe(true);
+  });
+
+  it('rejects an exactly exhausted tool response before tools or another provider call', async () => {
+    const configured = suite();
+    configured.agents[0]!.limits.maxTokens = 100;
+    let providerCalls = 0;
+    let executed = false;
+    const adapter = fakeAdapter([
+      {
+        id: 'r1',
+        output: [],
+        toolCalls: [{ id: 'call', name: 'orders.get', arguments: {} }],
+        usage: { inputTokens: 80, outputTokens: 20 },
+      },
+    ]);
+    const generate = adapter.generate.bind(adapter);
+    adapter.generate = async (request, context) => {
+      providerCalls += 1;
+      return generate(request, context);
+    };
+    const runner = new AgentRunner({
+      providers: new ProviderRegistry([adapter]),
+      async resolveCredential() {
+        return undefined;
+      },
+      async resolveTools() {
+        return [
+          {
+            ...lookupTool,
+            async execute() {
+              executed = true;
+              return [];
+            },
+          },
+        ];
+      },
+    });
+
+    const result = await runner.run({
+      suite: configured,
+      taskId: 'task',
+      agentId: 'agent',
+      trial: 1,
+    });
+
+    expect(result.error).toBe('agent exceeded maxTokens (100)');
+    expect(providerCalls).toBe(1);
+    expect(executed).toBe(false);
+    expect(result.trace.events.some((event) => event.type === 'model.completed')).toBe(false);
+    expect(result.trace.events.some((event) => event.type === 'tool.requested')).toBe(false);
+  });
+
+  it.each([
+    ['partial', { inputTokens: 10 }],
+    ['negative', { inputTokens: -1, outputTokens: 1 }],
+    ['fractional', { inputTokens: 1.5, outputTokens: 1 }],
+    ['NaN', { inputTokens: Number.NaN, outputTokens: 1 }],
+    ['Infinity', { inputTokens: Number.POSITIVE_INFINITY, outputTokens: 1 }],
+  ])('rejects %s provider usage before model completion or tools', async (_label, usage) => {
+    const configured = suite();
+    configured.agents[0]!.limits.maxTokens = 100;
+    let approved = false;
+    let executed = false;
+    const invalidResponse = {
+      id: 'r1',
+      output: [],
+      toolCalls: [{ id: 'call', name: 'orders.get', arguments: {} }],
+      usage,
+    } as unknown as GenerationResponse;
+    const runner = new AgentRunner({
+      providers: new ProviderRegistry([fakeAdapter([invalidResponse])]),
+      async resolveCredential() {
+        return undefined;
+      },
+      async resolveTools() {
+        return [
+          {
+            ...lookupTool,
+            permissionClass: 'mutation',
+            async execute() {
+              executed = true;
+              return [];
+            },
+          },
+        ];
+      },
+      async requestApproval() {
+        approved = true;
+        return 'approved';
+      },
+    });
+
+    const result = await runner.run({
+      suite: configured,
+      taskId: 'task',
+      agentId: 'agent',
+      trial: 1,
+    });
+
+    expect(result.error).toBe('agent cannot enforce maxTokens because provider usage is invalid');
+    expect(approved).toBe(false);
+    expect(executed).toBe(false);
+    expect(result.trace.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'model.failed',
+          error: 'agent cannot enforce maxTokens because provider usage is invalid',
+        }),
+      ])
+    );
+    expect(result.trace.events.some((event) => event.type === 'model.completed')).toBe(false);
+    expect(result.trace.events.some((event) => event.type === 'tool.requested')).toBe(false);
+    expect(result.trace.events.some((event) => event.type === 'approval.requested')).toBe(false);
   });
 
   it('validates provider tool arguments before approval or execution', async () => {

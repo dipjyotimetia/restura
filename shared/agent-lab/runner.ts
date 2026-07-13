@@ -81,6 +81,18 @@ function requiresApproval(permissionClass: PermissionClass): boolean {
   return permissionClass !== 'read';
 }
 
+function isValidTokenUsage(usage: unknown): usage is NonNullable<GenerationResponse['usage']> {
+  if (typeof usage !== 'object' || usage === null) return false;
+  const candidate = usage as Record<string, unknown>;
+  return [candidate.inputTokens, candidate.outputTokens].every(
+    (tokens) =>
+      typeof tokens === 'number' &&
+      Number.isFinite(tokens) &&
+      Number.isInteger(tokens) &&
+      tokens >= 0
+  );
+}
+
 export class AgentRunner {
   private readonly now: () => number;
   private readonly id: () => string;
@@ -249,11 +261,24 @@ export class AgentRunner {
           });
           throw new Error(usageError);
         }
+        if (agent.limits.maxTokens !== undefined && !isValidTokenUsage(response.usage)) {
+          const usageError = 'agent cannot enforce maxTokens because provider usage is invalid';
+          emit({
+            type: 'model.failed',
+            providerId: agent.model.providerId,
+            model: agent.model.model,
+            error: usageError,
+            durationMs,
+          });
+          throw new Error(usageError);
+        }
         const responseTokens =
           (response.usage?.inputTokens ?? 0) + (response.usage?.outputTokens ?? 0);
         if (
           agent.limits.maxTokens !== undefined &&
-          totalTokens + responseTokens > agent.limits.maxTokens
+          (totalTokens + responseTokens > agent.limits.maxTokens ||
+            (totalTokens + responseTokens === agent.limits.maxTokens &&
+              response.toolCalls.length > 0))
         ) {
           const limitError = `agent exceeded maxTokens (${agent.limits.maxTokens})`;
           emit({
