@@ -28,7 +28,7 @@ Restura maintains a multi-layer test suite. This page maps the layers and tells 
 - **Flows / workflows**: `src/features/workflows/lib/__tests__/{dagExecutor,flowValidators,validators,workflowExecutor,aiGraphGen}.test.ts`, `src/store/__tests__/useWorkflowStore.saveExecution.test.ts`.
 - **Script sandbox**: `src/features/scripts/lib/__tests__/*.test.ts`, `cli/src/runner/__tests__/scripts.test.ts`.
 - **Shared protocol**: `shared/protocol/__tests__/*`, `worker/__tests__`, `electron/main/__tests__`.
-- **Collections**: `src/features/collections/lib/__tests__/*`.
+- **Collections**: `src/features/collections/lib/__tests__/*`, `src/features/collections/hooks/__tests__/*`, and `src/lib/opencollection/__tests__/*` cover runner scope/outcomes, coordinated deletion, format round-trips, and managed-file reconciliation.
 - **AI Lab**: `src/features/ai-lab/lib/__tests__/*`.
 - **MCP**: `src/features/mcp-server/__tests__/*`, `src/features/mcp/lib/__tests__/*`.
 

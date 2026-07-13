@@ -109,7 +109,10 @@ The collection-level runner (`src/features/collections/lib/collectionRunner.ts`)
 
 - iteration data / CSV-driven runs
 - collection and folder-level scripts
-- environment- and collection-variable mutations via `src/lib/shared/collectionVarMutations.ts`
+- variable precedence `globals < environment < collection < iteration data`
+- same-run environment/local and collection-variable carry-forward via `src/lib/shared/collectionVarMutations.ts`
+- HTTP and unary gRPC execution; streaming/connection protocols are reported as explicit skips
+- folder ancestry in `pm.execution.location.folderPath` and explicit completed/aborted run outcomes
 - protocol options narrowing in `src/features/scripts/lib/pmRunContextOptions.ts`
 
 The CLI runner (`cli/src/runner/runner.ts`) runs the same logic headlessly with multiple reporter targets. See [Operations](../operations/index.md#cli).

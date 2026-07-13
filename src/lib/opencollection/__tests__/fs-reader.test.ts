@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { loadCollectionFromFile, loadCollectionFromDir } from '../fs-reader';
+import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  loadCollectionFromFile,
+  loadCollectionFromDir,
+  loadCollectionDirectory,
+} from '../fs-reader';
 
 const FIXTURES = 'tests/fixtures/opencollection';
 
@@ -21,5 +28,51 @@ describe('fs-reader', () => {
 
   it('throws on directory missing opencollection.yml', async () => {
     await expect(loadCollectionFromDir('/tmp/definitely-not-an-oc-dir-12345')).rejects.toThrow();
+  });
+
+  it('ignores unrelated YAML and does not claim it as managed content', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'oc-reader-'));
+    await writeFile(
+      join(dir, 'opencollection.yml'),
+      'opencollection: 1.0.0\ninfo:\n  name: Demo\n'
+    );
+    await writeFile(join(dir, 'workflow.yaml'), 'name: user workflow\nsteps: []\n');
+    await writeFile(
+      join(dir, 'request-looking.yaml'),
+      'info: { type: http, name: Broken }\nhttp: {}\n'
+    );
+    await mkdir(join(dir, 'unrelated'));
+    await writeFile(join(dir, 'unrelated', 'notes.yaml'), 'notes: keep me\n');
+
+    const loaded = await loadCollectionDirectory(dir);
+
+    expect(loaded.collection.items).toEqual([]);
+    expect(loaded.managedFiles).toEqual(['opencollection.yml']);
+  });
+
+  it('refuses a symlinked collection root file', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'oc-reader-link-'));
+    const outside = join(dir, '..', `${Date.now()}-outside.yaml`);
+    await writeFile(outside, 'opencollection: 1.0.0\ninfo: { name: Outside }\n');
+    await symlink(outside, join(dir, 'opencollection.yml'));
+
+    await expect(loadCollectionFromDir(dir)).rejects.toThrow(/No opencollection/);
+  });
+
+  it('does not follow symlinked folder metadata', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'oc-reader-folder-link-'));
+    await writeFile(
+      join(dir, 'opencollection.yml'),
+      'opencollection: 1.0.0\ninfo: { name: Safe }\n'
+    );
+    await mkdir(join(dir, 'linked-folder'));
+    const outside = join(dir, '..', `${Date.now()}-folder.yaml`);
+    await writeFile(outside, 'info: { name: Outside metadata }\n');
+    await symlink(outside, join(dir, 'linked-folder', '_folder.yaml'));
+
+    const loaded = await loadCollectionDirectory(dir);
+
+    expect(loaded.collection.items).toEqual([]);
+    expect(loaded.managedFiles).toEqual(['opencollection.yml']);
   });
 });

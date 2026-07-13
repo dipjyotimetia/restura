@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import {
   runCollection,
   type CollectionRunResult,
@@ -15,6 +16,7 @@ import {
   type ConsoleTest,
 } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useGlobalsStore } from '@/store/useGlobalsStore';
 import type { Collection, Environment } from '@/types';
 
 export interface StartRunArgs {
@@ -29,9 +31,13 @@ export interface StartRunArgs {
   stopOnFailure: boolean;
 }
 
-/** env (enabled) layered first, then collection.variables override — matches the CLI. */
-function buildBaseVars(env: Environment | null, collection: Collection): Record<string, string> {
-  const vars: Record<string, string> = {};
+/** Globals, enabled environment values, then collection values (highest precedence). */
+export function buildBaseVars(
+  globals: Record<string, string>,
+  env: Environment | null,
+  collection: Collection
+): Record<string, string> {
+  const vars: Record<string, string> = { ...globals };
   if (env) {
     for (const v of env.variables) if (v.enabled) vars[v.key] = v.value;
   }
@@ -101,7 +107,12 @@ export function useCollectionRun() {
 
     const env =
       useEnvironmentStore.getState().environments.find((e) => e.id === args.environmentId) ?? null;
-    const baseVars = buildBaseVars(env, args.collection);
+    const baseVars = buildBaseVars(useGlobalsStore.getState().vars, env, args.collection);
+    const environmentVars = Object.fromEntries(
+      (env?.variables ?? [])
+        .filter((variable) => variable.enabled)
+        .map((variable) => [variable.key, variable.value])
+    );
 
     void runCollection(
       {
@@ -109,6 +120,8 @@ export function useCollectionRun() {
         scopeName: args.scopeName,
         runnables: args.runnables,
         baseVars,
+        globalVars: useGlobalsStore.getState().vars,
+        environmentVars,
         iterations: args.iterations,
         dataRows: args.dataRows,
         delayMs: args.delayMs,
@@ -126,6 +139,11 @@ export function useCollectionRun() {
     )
       .then((result: CollectionRunResult) => {
         useCollectionRunStore.getState().addRun(result);
+      })
+      .catch((error: unknown) => {
+        toast.error('Collection run failed', {
+          description: error instanceof Error ? error.message : String(error),
+        });
       })
       .finally(() => {
         abortRef.current = null;

@@ -1,5 +1,5 @@
 import type { OpenCollection } from './schemas';
-import { authToInternal, groupScripts } from './to-internal';
+import { authToInternal, groupScripts, ocVariableToKeyValue } from './to-internal';
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from '@/lib/shared/auth-secret-fields';
 import type { SecretValue } from '@/lib/shared/secretRef';
 import type {
@@ -76,6 +76,7 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
     c._oc &&
     allItemsHaveOcBag(c.items) &&
     authUnchanged(c._oc, c.auth) &&
+    rootMetadataUnchanged(c) &&
     allFolderAuthsUnchanged(c.items) &&
     rootStructureUnchanged(c) &&
     scriptsUnchanged(c._oc, c.preRequestScript, c.testScript) &&
@@ -121,8 +122,10 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
     const merged: Record<string, unknown> = { ...cachedExt };
     delete merged['x-restura-sse'];
     delete merged['x-restura-mcp'];
+    delete merged['x-restura-contract'];
     if (sseItems.length > 0) merged['x-restura-sse'] = sseItems;
     if (mcpItems.length > 0) merged['x-restura-mcp'] = mcpItems;
+    if (c.contractSpec) merged['x-restura-contract'] = c.contractSpec;
     if (Object.keys(merged).length > 0) oc.extensions = merged;
     else delete oc.extensions;
 
@@ -137,6 +140,7 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
     if (!scriptsUnchanged(cached, c.preRequestScript, c.testScript)) {
       applyRequestDefaultsScripts(oc as Record<string, unknown>, c.preRequestScript, c.testScript);
     }
+    if (!rootMetadataUnchanged(c)) applyRootMetadata(oc, c);
 
     return oc;
   }
@@ -163,6 +167,7 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
   const extensions: Record<string, unknown> = {};
   if (sseItems.length > 0) extensions['x-restura-sse'] = sseItems;
   if (mcpItems.length > 0) extensions['x-restura-mcp'] = mcpItems;
+  if (c.contractSpec) extensions['x-restura-contract'] = c.contractSpec;
   if (Object.keys(extensions).length > 0) oc.extensions = extensions;
 
   if ((c.variables ?? []).length > 0) {
@@ -582,6 +587,73 @@ function rootStructureUnchanged(c: WithOC<Collection>): boolean {
   const cachedSse = (ext['x-restura-sse'] as unknown[] | undefined)?.length ?? 0;
   const cachedMcp = (ext['x-restura-mcp'] as unknown[] | undefined)?.length ?? 0;
   return liveNonStream === (cached.items ?? []).length && liveStream === cachedSse + cachedMcp;
+}
+
+function variablesFromInternal(variables: KeyValue[] | undefined) {
+  return (variables ?? []).map((v) => {
+    const common: { description?: string; disabled?: boolean } = {};
+    if (v.description) common.description = v.description;
+    if (v.enabled === false) common.disabled = true;
+    return v.secret
+      ? { secret: true as const, name: v.key, ...common }
+      : { name: v.key, value: v.value, ...common };
+  });
+}
+
+function rootMetadataUnchanged(c: WithOC<Collection>): boolean {
+  const cached = c._oc as OpenCollection | undefined;
+  if (!cached) return true;
+  const cachedVariables = (cached.config?.environments?.[0]?.variables ?? []).map(
+    ocVariableToKeyValue
+  );
+  const cachedContract = (cached.extensions as Record<string, unknown> | undefined)?.[
+    'x-restura-contract'
+  ];
+  return (
+    cached.info.name === c.name &&
+    (cached.info.summary ?? (typeof cached.docs === 'string' ? cached.docs : '')) ===
+      (c.description ?? '') &&
+    JSON.stringify(comparableVariables(cachedVariables)) ===
+      JSON.stringify(comparableVariables(c.variables ?? [])) &&
+    JSON.stringify(cachedContract) === JSON.stringify(c.contractSpec)
+  );
+}
+
+function applyRootMetadata(oc: OpenCollection, c: Collection): void {
+  oc.info = { ...oc.info, name: c.name };
+  if (c.description) oc.info.summary = c.description;
+  else delete oc.info.summary;
+  if (typeof oc.docs === 'string') delete oc.docs;
+
+  const variables = variablesFromInternal(c.variables);
+  const config = oc.config ? { ...oc.config } : {};
+  const environments = [...(config.environments ?? [])];
+  if (variables.length > 0) {
+    const first = environments[0] ?? { name: 'default' };
+    environments[0] = { ...first, variables };
+  } else if (environments[0]) {
+    const first = { ...environments[0] };
+    delete first.variables;
+    environments[0] = first;
+  }
+  if (environments.length > 0) {
+    config.environments = environments;
+    oc.config = config;
+  } else if (Object.keys(config).length > 0) {
+    oc.config = config;
+  } else {
+    delete oc.config;
+  }
+}
+
+function comparableVariables(variables: KeyValue[]) {
+  return variables.map(({ key, value, enabled, description, secret }) => ({
+    key,
+    value,
+    enabled,
+    ...(description ? { description } : {}),
+    ...(secret ? { secret: true } : {}),
+  }));
 }
 
 /**

@@ -88,7 +88,10 @@ export const httpProtocol: ProtocolModule = {
     const opts = readPmRunContextOptions(ctx.protocolOptions);
     const result = await executeRequest({
       request,
-      envVars: { ...variables },
+      // executeRequest mutates this exact map with pre-request script writes
+      // before it resolves the wire request. Do not pass a detached copy while
+      // the resolver closes over `variables`.
+      envVars: variables,
       globalSettings,
       resolveVariables: (text) => defaultResolveVariables(text, variables),
       ...(opts.collectionVars ? { collectionVars: opts.collectionVars } : {}),

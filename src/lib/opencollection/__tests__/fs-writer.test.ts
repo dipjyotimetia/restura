@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { access, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { saveCollectionToDir, saveCollectionToFile } from '../fs-writer';
@@ -158,5 +159,191 @@ describe('fs-writer', () => {
     const m2 = await readFile(join(tmp, 'users-2', '_folder.yaml'), 'utf8');
     expect(m1).toMatch(/Users/);
     expect(m2).toMatch(/Users/);
+  });
+
+  it('removes stale managed files while preserving unrelated files', async () => {
+    const first: OpenCollection = {
+      opencollection: '1.0.0',
+      info: { name: 'Reconciled' },
+      items: [
+        { info: { type: 'http', name: 'Old request' }, http: { method: 'GET', url: '/old' } },
+      ],
+    };
+    await saveCollectionToDir(first, tmp);
+    await writeFile(join(tmp, 'README.md'), 'keep me', 'utf8');
+
+    const second: OpenCollection = {
+      ...first,
+      items: [
+        { info: { type: 'http', name: 'New request' }, http: { method: 'GET', url: '/new' } },
+      ],
+    };
+    await saveCollectionToDir(second, tmp);
+
+    await expect(access(join(tmp, 'old-request.yaml'))).rejects.toThrow();
+    expect(await readFile(join(tmp, 'new-request.yaml'), 'utf8')).toContain('New request');
+    expect(await readFile(join(tmp, 'README.md'), 'utf8')).toBe('keep me');
+  });
+
+  it('refuses to follow destination symlinks while reconciling managed files', async () => {
+    const outside = join(tmpdir(), `oc-outside-${Date.now()}.yaml`);
+    await writeFile(outside, 'do not overwrite', 'utf8');
+    await symlink(outside, join(tmp, 'escape.yaml'));
+    const oc: OpenCollection = {
+      opencollection: '1.0.0',
+      info: { name: 'Safe' },
+      items: [{ info: { type: 'http', name: 'Escape' }, http: { method: 'GET', url: '/escape' } }],
+    };
+
+    await expect(saveCollectionToDir(oc, tmp)).rejects.toThrow(/symbolic link/i);
+    expect(await readFile(outside, 'utf8')).toBe('do not overwrite');
+    await rm(outside, { force: true });
+  });
+
+  it('ignores non-collection paths injected into the managed manifest', async () => {
+    await writeFile(join(tmp, 'README.md'), 'keep me', 'utf8');
+    await writeFile(
+      join(tmp, '.restura-managed-files.json'),
+      JSON.stringify({ version: 1, files: ['README.md'] }),
+      'utf8'
+    );
+    await saveCollectionToDir({ opencollection: '1.0.0', info: { name: 'Safe' }, items: [] }, tmp);
+    expect(await readFile(join(tmp, 'README.md'), 'utf8')).toBe('keep me');
+  });
+
+  it('refuses a stale managed path routed through an intermediate symlink', async () => {
+    const outsideDir = await mkdtemp(join(tmpdir(), 'oc-outside-dir-'));
+    await writeFile(join(outsideDir, 'victim.yaml'), 'do not delete', 'utf8');
+    await symlink(outsideDir, join(tmp, 'linked'));
+    await writeFile(
+      join(tmp, '.restura-managed-files.json'),
+      JSON.stringify({ version: 1, files: ['linked/victim.yaml'] }),
+      'utf8'
+    );
+
+    await expect(
+      saveCollectionToDir({ opencollection: '1.0.0', info: { name: 'Safe' }, items: [] }, tmp)
+    ).rejects.toThrow(/symbolic link/i);
+    expect(await readFile(join(outsideDir, 'victim.yaml'), 'utf8')).toBe('do not delete');
+    await rm(outsideDir, { recursive: true, force: true });
+  });
+
+  it('preserves unrelated YAML when no managed manifest exists', async () => {
+    await writeFile(
+      join(tmp, 'workflow.yaml'),
+      'name: deploy\non: push\njobs: { build: { runs-on: ubuntu-latest } }\n'
+    );
+    await saveCollectionToDir(
+      { opencollection: '1.0.0', info: { name: 'Current' }, items: [] },
+      tmp
+    );
+    expect(await readFile(join(tmp, 'workflow.yaml'), 'utf8')).toContain('name: deploy');
+  });
+
+  it('removes only caller-confirmed managed files when bootstrapping a manifest', async () => {
+    await writeFile(
+      join(tmp, 'old-request.yaml'),
+      'info: { type: http, name: Old }\nhttp: { method: GET, url: /old }\n'
+    );
+    await writeFile(join(tmp, 'workflow.yaml'), 'name: deploy\non: push\n');
+    await saveCollectionToDir(
+      { opencollection: '1.0.0', info: { name: 'Current' }, items: [] },
+      tmp,
+      { previousManagedFiles: ['old-request.yaml'] }
+    );
+    await expect(access(join(tmp, 'old-request.yaml'))).rejects.toThrow();
+    expect(await readFile(join(tmp, 'workflow.yaml'), 'utf8')).toContain('name: deploy');
+  });
+
+  it('refuses to overwrite an unowned file at a generated request path', async () => {
+    await writeFile(join(tmp, 'list-users.yaml'), 'user-owned: true\n');
+    const collection: OpenCollection = {
+      opencollection: '1.0.0',
+      info: { name: 'Current' },
+      items: [
+        {
+          info: { type: 'http', name: 'List users' },
+          http: { method: 'GET', url: '/users' },
+        },
+      ],
+    };
+
+    await expect(saveCollectionToDir(collection, tmp)).rejects.toThrow(/unowned file/i);
+    expect(await readFile(join(tmp, 'list-users.yaml'), 'utf8')).toBe('user-owned: true\n');
+  });
+
+  it('aborts when a previously managed file changed after the caller snapshot', async () => {
+    const rootPath = join(tmp, 'opencollection.yml');
+    const original = 'opencollection: 1.0.0\ninfo: { name: Original }\n';
+    const external = 'opencollection: 1.0.0\ninfo: { name: External edit }\n';
+    await writeFile(rootPath, original);
+    const fingerprint = createHash('sha256').update(original).digest('hex');
+    await writeFile(rootPath, external);
+
+    await expect(
+      saveCollectionToDir(
+        { opencollection: '1.0.0', info: { name: 'Restura edit' }, items: [] },
+        tmp,
+        {
+          previousManagedFiles: ['opencollection.yml'],
+          expectedPreviousFingerprints: { 'opencollection.yml': fingerprint },
+        }
+      )
+    ).rejects.toThrow(/changed since it was loaded/i);
+    expect(await readFile(rootPath, 'utf8')).toBe(external);
+  });
+
+  it('rolls back only its own mutations and preserves a concurrent unowned file', async () => {
+    const collection: OpenCollection = {
+      opencollection: '1.0.0',
+      info: { name: 'Current' },
+      items: [
+        { info: { type: 'http', name: 'A' }, http: { method: 'GET', url: '/a' } },
+        { info: { type: 'http', name: 'B' }, http: { method: 'GET', url: '/b' } },
+      ],
+    };
+
+    await expect(
+      saveCollectionToDir(collection, tmp, {
+        previousManagedFiles: [],
+        beforeMutation: async (file) => {
+          if (file === 'b.yaml') await writeFile(join(tmp, file), 'external: true\n');
+        },
+      })
+    ).rejects.toThrow(/unowned file/i);
+    await expect(access(join(tmp, 'a.yaml'))).rejects.toThrow();
+    expect(await readFile(join(tmp, 'b.yaml'), 'utf8')).toBe('external: true\n');
+  });
+
+  it('preserves a concurrently created ownership manifest and aborts the save', async () => {
+    let injected = false;
+    const manifestPath = join(tmp, '.restura-managed-files.json');
+    await expect(
+      saveCollectionToDir({ opencollection: '1.0.0', info: { name: 'Current' }, items: [] }, tmp, {
+        previousManagedFiles: [],
+        expectedManifestFingerprint: null,
+        beforeMutation: async () => {
+          if (injected) return;
+          injected = true;
+          await writeFile(manifestPath, '{"external":true}\n');
+        },
+      })
+    ).rejects.toThrow(/changed since it was loaded/i);
+    expect(await readFile(manifestPath, 'utf8')).toBe('{"external":true}\n');
+    await expect(access(join(tmp, 'opencollection.yml'))).rejects.toThrow();
+  });
+
+  it('refuses to create a collection through a symlinked parent directory', async () => {
+    const outsideDir = await mkdtemp(join(tmpdir(), 'oc-parent-outside-'));
+    await symlink(outsideDir, join(tmp, 'linked-parent'));
+    await expect(
+      saveCollectionToDir(
+        { opencollection: '1.0.0', info: { name: 'Safe' }, items: [] },
+        join(tmp, 'linked-parent', 'collection'),
+        { trustedRoot: tmp }
+      )
+    ).rejects.toThrow(/symbolic link/i);
+    await expect(access(join(outsideDir, 'collection'))).rejects.toThrow();
+    await rm(outsideDir, { recursive: true, force: true });
   });
 });

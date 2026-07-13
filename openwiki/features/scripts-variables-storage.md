@@ -68,6 +68,8 @@ globals < environment < collection < dataRow
 
 `src/lib/shared/activeRequestScopes.ts` gathers globals, active environment, and the request’s collection variables into the map used by `useRequestRunner.ts`.
 
+The collection runner adds iteration data at the highest precedence. Protocol executors own final substitution after pre-request scripts, so `pm.variables` and `pm.collectionVariables` writes can affect the current wire request and subsequent requests without an earlier runner-level injection freezing stale values.
+
 ### Dynamic helpers
 
 `src/lib/shared/dynamicVariables.ts` provides ~100 Postman-compatible random/dynamic generators (`$randomUUID`, `$timestamp`, `$randomInt`, etc.). The helper registry `HELPERS` is merged with `POSTMAN_VARIABLES`.
@@ -94,6 +96,7 @@ globals < environment < collection < dataRow
 ### Collection runs
 
 - `useCollectionRunStore.ts` persists run history to Dexie table `collectionRuns`.
+- Deleting a collection does not delete these historical run records.
 - Workflow executions are trimmed: 64 KiB values, 4 KiB log messages, 500 logs.
 
 ---

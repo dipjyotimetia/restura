@@ -20,6 +20,8 @@ import type { AuthConfig, CollectionItem, Request } from '@/types';
 export interface RunnableRequest {
   itemId: string;
   name: string;
+  /** Folder names from the collection root to this request's parent. */
+  folderPath?: string[];
   request: Request;
   inheritedAuth?: AuthConfig;
 }
@@ -60,7 +62,8 @@ function flatten(
   items: CollectionItem[],
   inheritedPre: Array<string | undefined>,
   inheritedTest: Array<string | undefined>,
-  inheritedAuth: AuthConfig | undefined
+  inheritedAuth: AuthConfig | undefined,
+  folderPath: string[]
 ): RunnableRequest[] {
   const out: RunnableRequest[] = [];
   for (const item of items) {
@@ -68,6 +71,7 @@ function flatten(
       out.push({
         itemId: item.id,
         name: item.name,
+        folderPath,
         request: withEffectiveScripts(item.request, inheritedPre, inheritedTest),
         inheritedAuth,
       });
@@ -77,7 +81,8 @@ function flatten(
           item.items,
           [...inheritedPre, item.preRequestScript],
           [...inheritedTest, item.testScript],
-          effectiveFolderAuth(item, inheritedAuth)
+          effectiveFolderAuth(item, inheritedAuth),
+          [...folderPath, item.name]
         )
       );
     }
@@ -130,7 +135,7 @@ export function flattenRunnables(
   const rootPre: Array<string | undefined> = [rootScripts?.preRequestScript];
   const rootTest: Array<string | undefined> = [rootScripts?.testScript];
 
-  if (!folderId) return flatten(items, rootPre, rootTest, rootAuth);
+  if (!folderId) return flatten(items, rootPre, rootTest, rootAuth, []);
 
   const path = findFolderPath(items, folderId);
   if (!path || path.length === 0) return [];
@@ -148,6 +153,7 @@ export function flattenRunnables(
     target.items,
     [...rootPre, ...path.map((f) => f.preRequestScript)],
     [...rootTest, ...path.map((f) => f.testScript)],
-    pathAuth
+    pathAuth,
+    path.map((folder) => folder.name)
   );
 }

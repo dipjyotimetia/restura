@@ -71,6 +71,7 @@ interface RequestState {
   openTabWithMode: (mode: TabModeOverride) => string;
   renameTab: (tabId: string, name: string) => void;
   linkTabToSavedRequest: (tabId: string, savedRequestId: string) => void;
+  detachTabsFromSavedRequests: (savedRequestIds: ReadonlySet<string>) => void;
   clearTabDirty: (tabId: string) => void;
 
   // Selectors
@@ -372,6 +373,20 @@ export const useRequestStore = create<RequestState>()(
             tabs: s.tabs.map((t) =>
               t.id === tabId ? { ...t, savedRequestId, isDirty: false } : t
             ),
+          }));
+        },
+
+        detachTabsFromSavedRequests: (savedRequestIds) => {
+          if (
+            !get().tabs.some((tab) => tab.savedRequestId && savedRequestIds.has(tab.savedRequestId))
+          )
+            return;
+          set((state) => ({
+            tabs: state.tabs.map((tab) => {
+              if (!tab.savedRequestId || !savedRequestIds.has(tab.savedRequestId)) return tab;
+              const { savedRequestId: _savedRequestId, ...detached } = tab;
+              return { ...detached, isDirty: true };
+            }),
           }));
         },
 

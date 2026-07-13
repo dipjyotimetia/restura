@@ -1,7 +1,24 @@
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import {
+  copyFile,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  readdir,
+  rename,
+  rm,
+  rmdir,
+  unlink,
+  writeFile,
+} from 'node:fs/promises';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { loadCollectionFromDir } from './fs-reader';
 import type { OpenCollection } from './schemas';
 import { serializeOpenCollectionYAML } from './serializer';
+
+const MANIFEST_FILE = '.restura-managed-files.json';
 
 /**
  * Write a bundled OpenCollection YAML file.
@@ -24,8 +41,55 @@ export async function saveCollectionToFile(oc: OpenCollection, path: string): Pr
  * function will create subdirectories and files freely under `dir`. See
  * `electron/main/storage/file-operations.ts:isPathSafe`.
  */
-export async function saveCollectionToDir(oc: OpenCollection, dir: string): Promise<void> {
+export interface SaveCollectionDirectoryOptions {
+  /** Files the caller established as belonging to a loaded OpenCollection layout. */
+  previousManagedFiles?: string[];
+  /** Lexical allowlist root whose resolved real path must contain the destination. */
+  trustedRoot?: string;
+  /** Snapshot captured by the caller before staging, used for optimistic concurrency. */
+  expectedPreviousFingerprints?: Record<string, string | null>;
+  /** Snapshot of the ownership manifest itself; null means it did not exist. */
+  expectedManifestFingerprint?: string | null;
+  /** @internal Deterministic coordination hook used by transaction tests. */
+  beforeMutation?: (relativePath: string) => Promise<void>;
+}
+
+export interface SaveCollectionDirectoryResult {
+  managedFiles: string[];
+  removedFiles: string[];
+  /** Hashes of the staged bytes, captured before destination mutation. */
+  fingerprints: Record<string, string>;
+}
+
+export async function saveCollectionToDir(
+  oc: OpenCollection,
+  dir: string,
+  options: SaveCollectionDirectoryOptions = {}
+): Promise<SaveCollectionDirectoryResult> {
+  await assertNotSymlink(dir);
+  if (options.trustedRoot) await assertWithinRealRoot(dir, options.trustedRoot);
   await mkdir(dir, { recursive: true });
+  const staging = await mkdtemp(join(dirname(resolve(dir)), '.restura-stage-'));
+  try {
+    await writeCollectionLayout(oc, staging);
+    // Refuse to touch the destination unless the complete staged document can
+    // be parsed back through the same schema used on load.
+    await loadCollectionFromDir(staging);
+    return await reconcileManagedFiles(
+      staging,
+      resolve(dir),
+      options.previousManagedFiles ?? [],
+      options.previousManagedFiles !== undefined,
+      options.expectedPreviousFingerprints ?? {},
+      options.expectedManifestFingerprint,
+      options.beforeMutation
+    );
+  } finally {
+    await rm(staging, { recursive: true, force: true });
+  }
+}
+
+async function writeCollectionLayout(oc: OpenCollection, dir: string): Promise<void> {
   const { items, ...rootRest } = oc;
   // Root file holds metadata + config; items live as nested files
   const root = (compact({ ...rootRest, bundled: false }) ?? {}) as Record<string, unknown>;
@@ -35,6 +99,277 @@ export async function saveCollectionToDir(oc: OpenCollection, dir: string): Prom
     'utf8'
   );
   await writeItems((items ?? []) as unknown[], dir);
+}
+
+async function reconcileManagedFiles(
+  staging: string,
+  destination: string,
+  callerManagedFiles: string[],
+  callerOwnershipIsAuthoritative: boolean,
+  expectedPreviousFingerprints: Record<string, string | null>,
+  expectedManifestFingerprint: string | null | undefined,
+  beforeMutation: ((relativePath: string) => Promise<void>) | undefined
+): Promise<SaveCollectionDirectoryResult> {
+  const nextFiles = (await listFiles(staging)).filter(isManagedCollectionFile);
+  const fingerprints = Object.fromEntries(
+    await Promise.all(
+      nextFiles.map(async (file) => [
+        file,
+        createHash('sha256')
+          .update(await readFile(safeManagedPath(staging, file)!))
+          .digest('hex'),
+      ])
+    )
+  );
+  const nextSet = new Set(nextFiles);
+  const manifestFiles = callerOwnershipIsAuthoritative ? null : await readManifest(destination);
+  const previousFiles = (
+    callerOwnershipIsAuthoritative ? callerManagedFiles : (manifestFiles ?? [])
+  ).filter(isManagedCollectionFile);
+  const previousSet = new Set(previousFiles);
+
+  // Remove only paths Restura recorded as managed on the previous successful
+  // save. Unrelated files (README, .git, user fixtures) are never inferred or
+  // deleted.
+  const stale = previousFiles.filter((file) => !nextSet.has(file));
+  const affected = [...new Set([...previousFiles, ...nextFiles, MANIFEST_FILE])];
+  const backup = await mkdtemp(join(dirname(destination), '.restura-backup-'));
+  const backedUp: string[] = [];
+  const mutations: Array<{ file: string; writtenFingerprint: string | null }> = [];
+
+  try {
+    // Validate every destination path before mutating anything. This prevents
+    // a forged manifest or an intermediate symlink from escaping the root.
+    for (const file of affected) await assertNoSymlinkPath(destination, file);
+    if (expectedManifestFingerprint !== undefined) {
+      await assertFingerprintUnchanged(destination, MANIFEST_FILE, expectedManifestFingerprint);
+    }
+    for (const file of nextFiles) {
+      if (!previousSet.has(file)) await assertUnownedTargetAbsent(destination, file);
+    }
+    for (const file of previousFiles) {
+      if (Object.hasOwn(expectedPreviousFingerprints, file)) {
+        await assertFingerprintUnchanged(
+          destination,
+          file,
+          expectedPreviousFingerprints[file] ?? null
+        );
+      }
+    }
+
+    for (const file of affected) {
+      const source = safeManagedPath(destination, file);
+      const target = safeManagedPath(backup, file);
+      if (!source || !target) throw new Error(`Unsafe managed collection path: ${file}`);
+      try {
+        if (!(await lstat(source)).isFile()) continue;
+        await mkdir(dirname(target), { recursive: true });
+        await copyFile(source, target);
+        backedUp.push(file);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+    }
+
+    try {
+      for (const file of stale) {
+        await beforeMutation?.(file);
+        if (Object.hasOwn(expectedPreviousFingerprints, file)) {
+          await assertFingerprintUnchanged(
+            destination,
+            file,
+            expectedPreviousFingerprints[file] ?? null
+          );
+        }
+        const target = safeManagedPath(destination, file);
+        if (!target) throw new Error(`Unsafe managed collection path: ${file}`);
+        await unlink(target).catch((error: NodeJS.ErrnoException) => {
+          if (error.code !== 'ENOENT') throw error;
+        });
+        mutations.push({ file, writtenFingerprint: null });
+      }
+
+      for (const file of nextFiles) {
+        await beforeMutation?.(file);
+        if (previousSet.has(file) && Object.hasOwn(expectedPreviousFingerprints, file)) {
+          await assertFingerprintUnchanged(
+            destination,
+            file,
+            expectedPreviousFingerprints[file] ?? null
+          );
+        } else if (!previousSet.has(file)) {
+          await assertUnownedTargetAbsent(destination, file);
+        }
+        const source = safeManagedPath(staging, file);
+        const target = safeManagedPath(destination, file);
+        if (!source || !target) throw new Error(`Unsafe managed collection path: ${file}`);
+        await mkdir(dirname(target), { recursive: true });
+        await copyFile(source, target);
+        mutations.push({ file, writtenFingerprint: fingerprints[file] ?? null });
+      }
+
+      // Build the replacement manifest inside Restura's private backup dir;
+      // a predictable temp name in the destination could collide with an
+      // unrelated user file.
+      const manifestTemp = join(backup, 'next-manifest.json');
+      if (expectedManifestFingerprint !== undefined) {
+        await assertFingerprintUnchanged(destination, MANIFEST_FILE, expectedManifestFingerprint);
+      }
+      await writeFile(
+        manifestTemp,
+        `${JSON.stringify({ version: 1, files: nextFiles }, null, 2)}\n`
+      );
+      await rename(manifestTemp, join(destination, MANIFEST_FILE));
+    } catch (error) {
+      // Roll back only paths Restura actually mutated, and only while their
+      // current bytes still match what Restura wrote. Concurrent external
+      // changes always win and are never replaced with stale backup data.
+      for (const mutation of [...mutations].reverse()) {
+        if (
+          (await fingerprintManagedFile(destination, mutation.file)) !== mutation.writtenFingerprint
+        ) {
+          continue;
+        }
+        const file = mutation.file;
+        const target = safeManagedPath(destination, file);
+        if (target) await unlink(target).catch(() => undefined);
+        if (backedUp.includes(file)) {
+          const source = safeManagedPath(backup, file);
+          if (!source || !target) continue;
+          await mkdir(dirname(target), { recursive: true });
+          await copyFile(source, target);
+        }
+      }
+      throw error;
+    }
+  } finally {
+    await rm(backup, { recursive: true, force: true });
+  }
+
+  // Best-effort pruning of directories that became empty after stale files
+  // were removed. rmdir deliberately fails when an unrelated file remains.
+  const staleDirs = [...new Set(stale.map((file) => dirname(file)).filter((p) => p !== '.'))].sort(
+    (a, b) => b.length - a.length
+  );
+  for (const relDir of staleDirs) {
+    const target = safeManagedPath(destination, relDir);
+    if (target) await rmdir(target).catch(() => undefined);
+  }
+  return { managedFiles: nextFiles, removedFiles: stale, fingerprints };
+}
+
+async function assertUnownedTargetAbsent(root: string, relativePath: string): Promise<void> {
+  const target = safeManagedPath(root, relativePath);
+  if (!target) throw new Error(`Unsafe managed collection path: ${relativePath}`);
+  try {
+    await lstat(target);
+    throw new Error(`Refusing to overwrite unowned file: ${relativePath}`);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+}
+
+async function assertFingerprintUnchanged(
+  root: string,
+  relativePath: string,
+  expected: string | null
+): Promise<void> {
+  const target = safeManagedPath(root, relativePath);
+  if (!target) throw new Error(`Unsafe managed collection path: ${relativePath}`);
+  const actual = await fingerprintManagedFile(root, relativePath);
+  if (actual !== expected) {
+    throw new Error(`Managed collection file changed since it was loaded: ${relativePath}`);
+  }
+}
+
+async function fingerprintManagedFile(root: string, relativePath: string): Promise<string | null> {
+  const target = safeManagedPath(root, relativePath);
+  if (!target) return null;
+  try {
+    return createHash('sha256')
+      .update(await readFile(target))
+      .digest('hex');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    return null;
+  }
+}
+
+function isManagedCollectionFile(file: string): boolean {
+  if (file.length === 0 || isAbsolute(file)) return false;
+  const normalized = file.split(/[\\/]/).join('/');
+  if (normalized.split('/').some((part) => part === '..')) return false;
+  if (normalized === 'opencollection.yml' || normalized === 'opencollection.yaml') return true;
+  if (normalized.endsWith('/_folder.yml') || normalized.endsWith('/_folder.yaml')) return true;
+  return /\.ya?ml$/i.test(normalized) && !normalized.startsWith('.');
+}
+
+async function listFiles(root: string, current = root): Promise<string[]> {
+  const entries = await readdir(current, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const full = join(current, entry.name);
+    if (entry.isDirectory()) files.push(...(await listFiles(root, full)));
+    else if (entry.isFile()) files.push(relative(root, full));
+  }
+  return files.sort();
+}
+
+async function readManifest(dir: string): Promise<string[] | null> {
+  try {
+    const parsed = JSON.parse(await readFile(join(dir, MANIFEST_FILE), 'utf8')) as {
+      version?: unknown;
+      files?: unknown;
+    };
+    if (parsed.version !== 1 || !Array.isArray(parsed.files)) return null;
+    return parsed.files.filter((file): file is string => typeof file === 'string');
+  } catch {
+    return null;
+  }
+}
+
+function safeManagedPath(root: string, relativePath: string): string | null {
+  const resolvedRoot = resolve(root);
+  const candidate = resolve(resolvedRoot, relativePath);
+  return candidate.startsWith(`${resolvedRoot}${sep}`) ? candidate : null;
+}
+
+async function assertNotSymlink(target: string): Promise<void> {
+  try {
+    if ((await lstat(target)).isSymbolicLink()) {
+      throw new Error(`Refusing to write collection through symbolic link: ${target}`);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+}
+
+async function assertWithinRealRoot(target: string, trustedRoot: string): Promise<void> {
+  const realRoot = await realpath(trustedRoot);
+  let existing = resolve(target);
+  for (;;) {
+    try {
+      const realExisting = await realpath(existing);
+      if (realExisting !== realRoot && !realExisting.startsWith(`${realRoot}${sep}`)) {
+        throw new Error(`Refusing to write collection through symbolic link: ${target}`);
+      }
+      return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      const parent = dirname(existing);
+      if (parent === existing) throw error;
+      existing = parent;
+    }
+  }
+}
+
+async function assertNoSymlinkPath(root: string, relativePath: string): Promise<void> {
+  let current = resolve(root);
+  await assertNotSymlink(current);
+  for (const segment of relativePath.split(sep).filter(Boolean)) {
+    current = join(current, segment);
+    await assertNotSymlink(current);
+  }
 }
 
 async function writeItems(items: unknown[], dir: string): Promise<void> {

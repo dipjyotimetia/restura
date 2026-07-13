@@ -22,6 +22,7 @@ import SwaggerParser from '@apidevtools/swagger-parser';
 import * as yaml from 'js-yaml';
 import type { OpenAPIV3, OpenAPIV3_1 } from 'openapi-types';
 import { isElectron } from '@/lib/shared/platform';
+import { executeProxiedRequest } from '@/lib/shared/transport';
 import type { ContractSpecSource } from '@/types';
 
 export type { OpenAPIV3, OpenAPIV3_1 } from 'openapi-types';
@@ -44,9 +45,8 @@ export interface SpecLoadError {
 export type LoadResult = SpecLoadResult | SpecLoadError;
 
 /**
- * Load + parse a spec from its source. The HTTP fetch path is intentionally
- * limited — callers should ensure the URL has been SSRF-validated via
- * `shared/protocol/url-validation` before invoking the URL path.
+ * Load + parse a spec from its source. URL sources use the shared proxy
+ * transport, so the same SSRF and redirect policy applies as normal requests.
  */
 export async function loadContractSpec(source: ContractSpecSource): Promise<LoadResult> {
   let raw: string;
@@ -108,14 +108,19 @@ async function readRawSource(source: ContractSpecSource): Promise<string> {
 }
 
 async function fetchSpecUrl(url: string): Promise<string> {
-  const res = await fetch(url, {
+  const res = await executeProxiedRequest({
     method: 'GET',
     headers: { Accept: 'application/json, application/yaml, text/yaml, */*' },
+    url,
   });
-  if (!res.ok) {
+  if (res.status < 200 || res.status >= 300) {
     throw new Error(`HTTP ${res.status} fetching spec from ${url}`);
   }
-  return res.text();
+  if (res.bodyEncoding === 'base64' && typeof res.data === 'string') {
+    const bytes = Uint8Array.from(atob(res.data), (char) => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  }
+  return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
 }
 
 async function fetchSpecFile(filePath: string): Promise<string> {

@@ -67,11 +67,13 @@ export function duplicateRequestItem(item: CollectionItem, siblingNames: string[
  * revisited — deleting the original would silently break the duplicate's auth.
  */
 export function duplicateCollection(collection: Collection, existingNames: string[]): Collection {
-  const dup = structuredClone(collection);
+  const dup = structuredClone(collection) as Collection & { _oc?: unknown };
+  delete dup._oc;
   dup.id = uuidv4();
   dup.name = uniqueName(`${collection.name} copy`, existingNames);
   const reId = (items: CollectionItem[]) => {
     for (const item of items) {
+      delete (item as CollectionItem & { _oc?: unknown })._oc;
       item.id = uuidv4();
       if (item.request) item.request.id = uuidv4();
       if (item.items) reId(item.items);
