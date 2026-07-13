@@ -217,6 +217,48 @@ describe('useAiLabStore — providers', () => {
     }
   });
 
+  it('normalizes unsupported capability overrides before storing provider changes', () => {
+    const unsupported = {
+      inputModalities: ['text', 'image'] as const,
+      outputModalities: ['text', 'audio'] as const,
+      structuredOutput: true,
+      toolCalling: true,
+      parallelToolCalls: true,
+      reasoning: true,
+      continuation: true,
+      serverTools: ['web-search'],
+    };
+    const id = useAiLabStore.getState().addProvider({
+      provider: 'openai-compatible',
+      label: 'Gateway',
+      models: ['custom'],
+      capabilityOverrides: { custom: unsupported },
+    });
+
+    expect(useAiLabStore.getState().providers[id]?.capabilityOverrides?.custom).toEqual({
+      inputModalities: ['text'],
+      outputModalities: ['text'],
+      structuredOutput: false,
+      toolCalling: true,
+      parallelToolCalls: true,
+      reasoning: false,
+      continuation: false,
+      serverTools: [],
+    });
+
+    useAiLabStore.getState().updateProvider(id, {
+      capabilityOverrides: { custom: { ...unsupported, toolCalling: false } },
+    });
+    expect(useAiLabStore.getState().providers[id]?.capabilityOverrides?.custom).toMatchObject({
+      toolCalling: false,
+      parallelToolCalls: false,
+      structuredOutput: false,
+      reasoning: false,
+      continuation: false,
+      serverTools: [],
+    });
+  });
+
   it('rejects unproven or inconsistent persisted discovery capabilities', () => {
     const base = {
       providers: {
@@ -326,6 +368,18 @@ describe('useAiLabStore — providers', () => {
           isLocal: false,
           models: ['custom'],
           createdAt: 1,
+          capabilityOverrides: {
+            custom: {
+              inputModalities: ['text', 'image'],
+              outputModalities: ['text'],
+              structuredOutput: true,
+              toolCalling: true,
+              parallelToolCalls: true,
+              reasoning: true,
+              continuation: true,
+              serverTools: ['web-search'],
+            },
+          },
           modelDetails: {
             custom: {
               label: 'Custom',
@@ -354,6 +408,15 @@ describe('useAiLabStore — providers', () => {
     expect(
       migrated.providers?.mismatch?.modelDetails?.custom?.agentCapabilityProvenance
     ).toBeUndefined();
+    expect(migrated.providers?.mismatch?.capabilityOverrides?.custom).toMatchObject({
+      inputModalities: ['text'],
+      structuredOutput: false,
+      toolCalling: true,
+      parallelToolCalls: true,
+      reasoning: false,
+      continuation: false,
+      serverTools: [],
+    });
   });
 
   it('adds a HuggingFace provider with pricingKnown=false and isLocal=false', () => {

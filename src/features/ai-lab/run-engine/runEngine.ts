@@ -52,6 +52,17 @@ export class RunEngine<Result> {
     return { ...snapshot };
   }
 
+  get retainedJobCount(): number {
+    return this.jobs.size;
+  }
+
+  /** Release a terminal job after its consumer has read the final snapshot/result. */
+  release(jobId: string): boolean {
+    const job = this.jobs.get(jobId);
+    if (!job || !isTerminal(job.status)) return false;
+    return this.jobs.delete(jobId);
+  }
+
   cancel(jobId: string): boolean {
     const job = this.jobs.get(jobId);
     if (!job || isTerminal(job.status)) return false;

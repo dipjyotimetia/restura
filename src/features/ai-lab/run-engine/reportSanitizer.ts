@@ -100,19 +100,25 @@ function redactUrl(value: string): string {
 }
 
 function sanitizeUri(value: string): string {
-  const schemeMatch = /^([a-z][a-z0-9+.-]*):/i.exec(value);
-  if (!schemeMatch) return redactUrl(value);
+  // Scheme classification must not be bypassable with JSON-valid whitespace or
+  // control prefixes. Strip only the prefix; the classified URI sanitizer then
+  // either parses the web URL or discards the opaque payload entirely.
+  const normalized = value.replace(/^[\s\p{Cc}]+/u, '');
+  const schemeMatch = /^([a-z][a-z0-9+.-]*):/i.exec(normalized);
+  if (!schemeMatch) return redactUrl(normalized);
   const scheme = schemeMatch[1]!.toLowerCase();
 
   if (scheme === 'http' || scheme === 'https') {
     try {
-      return redactParsedUrl(new URL(value));
+      return redactParsedUrl(new URL(normalized));
     } catch {
       return `${scheme}:[REDACTED INVALID URI]`;
     }
   }
   if (scheme === 'data') {
-    const metadata = value.slice(value.indexOf(':') + 1, value.indexOf(','));
+    const comma = normalized.indexOf(',');
+    if (comma < 0) return 'data:[REDACTED INVALID URI]';
+    const metadata = normalized.slice(normalized.indexOf(':') + 1, comma);
     const mediaType = /^[a-z0-9.+-]+\/[a-z0-9.+-]+/i.exec(metadata)?.[0] ?? '';
     const base64 = /(?:^|;)base64(?:;|$)/i.test(metadata) ? ';base64' : '';
     return `data:${mediaType}${base64},[REDACTED]`;

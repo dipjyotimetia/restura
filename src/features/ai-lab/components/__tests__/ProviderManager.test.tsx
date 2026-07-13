@@ -81,9 +81,31 @@ describe('ProviderManager capability overrides', () => {
     render(<ProviderManager />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Configure custom capabilities' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'Structured output' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Tool calling' }));
     fireEvent.click(screen.getByRole('button', { name: 'Close capability editor' }));
 
     expect(useAiLabStore.getState().providers.cfg?.capabilityOverrides).toBeUndefined();
+  });
+
+  it('explains the desktop transport ceiling and does not offer unsupported assertions', () => {
+    render(<ProviderManager />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configure custom capabilities' }));
+
+    expect(
+      screen.getByText(/desktop transport currently supports text and tool calling only/i)
+    ).toBeVisible();
+    for (const unsupported of [
+      'Structured output',
+      'Reasoning controls',
+      'Continuation',
+      'Image',
+      'Audio',
+      'Document',
+    ]) {
+      expect(screen.queryByRole('checkbox', { name: unsupported })).not.toBeInTheDocument();
+    }
+    expect(screen.getByRole('checkbox', { name: 'Tool calling' })).toBeVisible();
+    expect(screen.getByRole('checkbox', { name: 'Parallel tool calls' })).toBeVisible();
   });
 });

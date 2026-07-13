@@ -154,6 +154,7 @@ function start(config: EvalConfig): void {
       await execution.result;
       flushCells(); // defensive — the done-flagged progress event normally flushed already
       useEvalRunStore.getState().finishRun(runId, 'done');
+      runEngine.release(execution.jobId);
       await persistReport();
     } catch (e: unknown) {
       flushCells(); // keep cells completed before a mid-run failure
@@ -164,8 +165,10 @@ function start(config: EvalConfig): void {
         useEvalLiveStore.setState({ error: e instanceof Error ? e.message : String(e) });
         useEvalRunStore.getState().finishRun(runId, 'error');
       }
+      runEngine.release(execution.jobId);
       await persistReport();
     } finally {
+      runEngine.release(execution.jobId);
       activeJobId = null;
       reportEngineProgress = null;
       useEvalLiveStore.setState({ running: false });

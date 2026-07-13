@@ -149,6 +149,7 @@ async function finishAgentRun(
     if (useAgentRunLiveStore.getState().activeJobId === jobId) {
       useAgentRunLiveStore.setState({ running: false, activeJobId: null });
     }
+    engine.release(jobId);
   }
 }
 
@@ -167,6 +168,9 @@ async function completeAgentRun(
       finishedAt: snapshot?.finishedAt ?? Date.now(),
     }) as AgentEnvelope
   );
+  // The sanitized envelope owns everything needed below; release the raw
+  // runner result/controller before an IndexedDB write can stall or fail.
+  engine.release(jobId);
   useAgentRunLiveStore.setState({
     completedReport: sanitized,
     status: report.status.toUpperCase(),

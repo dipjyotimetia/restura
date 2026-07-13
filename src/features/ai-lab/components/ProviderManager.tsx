@@ -1,4 +1,4 @@
-import type { ModelCapabilities, Modality } from '@shared/agent-lab';
+import type { ModelCapabilities } from '@shared/agent-lab';
 import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import {
   CheckCircle2,
@@ -14,7 +14,10 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { capabilitiesForDesktopModel } from '../lib/agentModelCapabilities';
+import {
+  capabilitiesForDesktopModel,
+  normalizeDesktopCapabilities,
+} from '../lib/agentModelCapabilities';
 import { listModels, testConnection } from '../lib/llmClient';
 import { buildModelOptions } from '../lib/modelOptions';
 import { plural } from '../lib/plural';
@@ -72,23 +75,11 @@ const DEFAULT_BASE: Record<Provider, string> = {
 };
 
 const BOOLEAN_CAPABILITIES: Array<{
-  key: keyof Pick<
-    ModelCapabilities,
-    'structuredOutput' | 'toolCalling' | 'parallelToolCalls' | 'reasoning' | 'continuation'
-  >;
+  key: keyof Pick<ModelCapabilities, 'toolCalling' | 'parallelToolCalls'>;
   label: string;
 }> = [
   { key: 'toolCalling', label: 'Tool calling' },
   { key: 'parallelToolCalls', label: 'Parallel tool calls' },
-  { key: 'structuredOutput', label: 'Structured output' },
-  { key: 'reasoning', label: 'Reasoning controls' },
-  { key: 'continuation', label: 'Continuation' },
-];
-
-const OPTIONAL_MODALITIES: Array<{ value: Exclude<Modality, 'text'>; label: string }> = [
-  { value: 'image', label: 'Image' },
-  { value: 'audio', label: 'Audio' },
-  { value: 'document', label: 'Document' },
 ];
 
 function effectiveBaseUrl(cfg: AiLabProviderConfig): string {
@@ -295,7 +286,7 @@ export function ProviderManager() {
     updateProvider(cfg.id, {
       capabilityOverrides: {
         ...cfg.capabilityOverrides,
-        [capabilityEditing.model]: capabilityEditing.draft,
+        [capabilityEditing.model]: normalizeDesktopCapabilities(capabilityEditing.draft),
       },
     });
     setCapabilityEditing(null);
@@ -333,25 +324,6 @@ export function ProviderManager() {
           ...current.draft,
           [key]: checked,
           ...(key === 'toolCalling' && !checked ? { parallelToolCalls: false } : {}),
-        },
-      };
-    });
-
-  const toggleCapabilityModality = (
-    direction: 'inputModalities' | 'outputModalities',
-    modality: Exclude<Modality, 'text'>,
-    checked: boolean
-  ) =>
-    setCapabilityEditing((current) => {
-      if (!current) return current;
-      const modalities = current.draft[direction];
-      return {
-        ...current,
-        draft: {
-          ...current.draft,
-          [direction]: checked
-            ? [...new Set([...modalities, modality])]
-            : modalities.filter((candidate) => candidate !== modality),
         },
       };
     });
@@ -758,6 +730,11 @@ export function ProviderManager() {
                                 Starts from discovered metadata, or the conservative text-only
                                 default when discovery did not verify a feature.
                               </p>
+                              <p className="text-sp-10 text-sp-muted">
+                                The desktop transport currently supports text and tool calling only.
+                                Media input/output, structured output, reasoning controls,
+                                continuation, and server tools cannot be asserted here.
+                              </p>
                               <div className="grid gap-2 sm:grid-cols-2">
                                 {BOOLEAN_CAPABILITIES.map(({ key, label }) => {
                                   const id = `cap-${cfg.id}-${model}-${key}`;
@@ -783,44 +760,6 @@ export function ProviderManager() {
                                   );
                                 })}
                               </div>
-                              {(['inputModalities', 'outputModalities'] as const).map(
-                                (direction) => (
-                                  <fieldset key={direction} className="space-y-1.5">
-                                    <legend className="text-sp-10 font-medium text-sp-muted">
-                                      {direction === 'inputModalities'
-                                        ? 'Additional input modalities'
-                                        : 'Additional output modalities'}
-                                    </legend>
-                                    <div className="flex flex-wrap gap-3">
-                                      {OPTIONAL_MODALITIES.map(({ value, label }) => {
-                                        const id = `cap-${cfg.id}-${model}-${direction}-${value}`;
-                                        return (
-                                          <label
-                                            key={value}
-                                            htmlFor={id}
-                                            className="flex items-center gap-2 text-sp-10 text-sp-text"
-                                          >
-                                            <Checkbox
-                                              id={id}
-                                              checked={capabilityEditing.draft[direction].includes(
-                                                value
-                                              )}
-                                              onCheckedChange={(checked) =>
-                                                toggleCapabilityModality(
-                                                  direction,
-                                                  value,
-                                                  checked === true
-                                                )
-                                              }
-                                            />
-                                            {label}
-                                          </label>
-                                        );
-                                      })}
-                                    </div>
-                                  </fieldset>
-                                )
-                              )}
                               <label
                                 htmlFor={`cap-${cfg.id}-${model}-assertion`}
                                 className="flex items-start gap-2 text-sp-10 text-sp-text"

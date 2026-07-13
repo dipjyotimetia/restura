@@ -3,6 +3,7 @@ import { isHuggingFaceProvider, isLocalProvider, type Provider } from '@shared/p
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { normalizeDesktopCapabilities } from '../lib/agentModelCapabilities';
 import { AiLabReportEnvelopeSchema, type AiLabReportEnvelope } from '../run-engine/reportEnvelope';
 import { getAiLabReportRepository } from '../run-engine/reportRepository';
 import {
@@ -106,6 +107,19 @@ function enqueueReportMutation(operation: () => Promise<void>): Promise<void> {
   return pending;
 }
 
+function normalizeCapabilityOverrides(
+  overrides: Record<string, ModelCapabilities> | undefined
+): Record<string, ModelCapabilities> | undefined {
+  if (!overrides) return undefined;
+  const normalized = Object.fromEntries(
+    Object.entries(overrides).map(([model, capabilities]) => [
+      model,
+      normalizeDesktopCapabilities(capabilities),
+    ])
+  );
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
 export function migrateAiLabState(
   persisted: unknown,
   _version?: number
@@ -170,6 +184,7 @@ export function migrateAiLabState(
             ...config,
             ...(modelDetails ? { modelDetails } : {}),
             costPolicy: config.costPolicy ?? 'unknown',
+            capabilityOverrides: normalizeCapabilityOverrides(config.capabilityOverrides),
           },
         ];
       })
@@ -205,7 +220,9 @@ export const useAiLabStore = create<AiLabState>()(
           isLocal: isLocalProvider(init.provider),
           models: init.models ?? [],
           ...(init.modelDetails ? { modelDetails: init.modelDetails } : {}),
-          ...(init.capabilityOverrides ? { capabilityOverrides: init.capabilityOverrides } : {}),
+          ...(init.capabilityOverrides
+            ? { capabilityOverrides: normalizeCapabilityOverrides(init.capabilityOverrides) }
+            : {}),
           ...(init.lastTest ? { lastTest: init.lastTest } : {}),
           ...(init.lastDiscoveredAt ? { lastDiscoveredAt: init.lastDiscoveredAt } : {}),
           createdAt: Date.now(),
@@ -217,7 +234,16 @@ export const useAiLabStore = create<AiLabState>()(
         set((s) => {
           const existing = s.providers[id];
           if (!existing) return {};
-          return { providers: { ...s.providers, [id]: { ...existing, ...patch } } };
+          const updated = { ...existing, ...patch };
+          return {
+            providers: {
+              ...s.providers,
+              [id]: {
+                ...updated,
+                capabilityOverrides: normalizeCapabilityOverrides(updated.capabilityOverrides),
+              },
+            },
+          };
         }),
       removeProvider: (id) =>
         set((s) => {
@@ -239,9 +265,11 @@ export const useAiLabStore = create<AiLabState>()(
           // doesn't leave a stale (now-incomplete) `modelDetails` around.
           const hasDetails = modelDetails && Object.keys(modelDetails).length > 0;
           const modelSet = new Set(models);
-          const retainedOverrides = Object.fromEntries(
-            Object.entries(existing.capabilityOverrides ?? {}).filter(([model]) =>
-              modelSet.has(model)
+          const retainedOverrides = normalizeCapabilityOverrides(
+            Object.fromEntries(
+              Object.entries(existing.capabilityOverrides ?? {}).filter(([model]) =>
+                modelSet.has(model)
+              )
             )
           );
           return {
@@ -251,8 +279,7 @@ export const useAiLabStore = create<AiLabState>()(
                 ...existing,
                 models,
                 ...(hasDetails ? { modelDetails } : { modelDetails: undefined }),
-                capabilityOverrides:
-                  Object.keys(retainedOverrides).length > 0 ? retainedOverrides : undefined,
+                capabilityOverrides: retainedOverrides,
                 lastDiscoveredAt: Date.now(),
               },
             },

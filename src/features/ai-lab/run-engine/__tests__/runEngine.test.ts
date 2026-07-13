@@ -87,4 +87,41 @@ describe('RunEngine', () => {
     await expect(run.result).resolves.toBe('done');
     expect(observedProgress).toBe(expected);
   });
+
+  it('releases terminal snapshots and their retained results explicitly', async () => {
+    const engine = new RunEngine<{ payload: string }>();
+    const run = engine.start('eval', async () => ({ payload: 'large raw result' }));
+    await run.result;
+
+    expect(engine.get(run.jobId)?.result).toEqual({ payload: 'large raw result' });
+    expect(engine.release(run.jobId)).toBe(true);
+    expect(engine.get(run.jobId)).toBeUndefined();
+    expect(engine.release(run.jobId)).toBe(false);
+  });
+
+  it('does not release active jobs or interfere with active cancellation', async () => {
+    let finish!: () => void;
+    const engine = new RunEngine<void>();
+    const run = engine.start(
+      'agent-suite',
+      () => new Promise<void>((resolve) => (finish = resolve))
+    );
+
+    expect(engine.release(run.jobId)).toBe(false);
+    expect(engine.cancel(run.jobId)).toBe(true);
+    finish();
+    await expect(run.result).rejects.toMatchObject({ name: 'AbortError' });
+    expect(engine.release(run.jobId)).toBe(true);
+  });
+
+  it('keeps repeated completed runs bounded when callers release consumed snapshots', async () => {
+    const engine = new RunEngine<string>();
+    for (let index = 0; index < 100; index += 1) {
+      const run = engine.start('eval', async () => `result-${index}`);
+      await run.result;
+      expect(engine.release(run.jobId)).toBe(true);
+    }
+
+    expect(engine.retainedJobCount).toBe(0);
+  });
 });

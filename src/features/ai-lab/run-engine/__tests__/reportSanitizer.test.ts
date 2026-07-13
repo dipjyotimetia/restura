@@ -151,6 +151,42 @@ describe('agent report persistence sanitization', () => {
     expect(serialized).toContain('vault:[REDACTED]');
   });
 
+  it.each([
+    ['leading spaces', '   data:text/plain,space-prefixed-secret', 'data:text/plain,[REDACTED]'],
+    ['leading tab', '\tblob:https://example.test/tab-prefixed-secret', '[REDACTED BLOB URI]'],
+    [
+      'leading Unicode whitespace',
+      '\u00a0data:text/plain,unicode-prefixed-secret',
+      'data:text/plain,[REDACTED]',
+    ],
+    [
+      'malformed data URI',
+      ' data:text/malformed-secret-without-comma',
+      'data:[REDACTED INVALID URI]',
+    ],
+    [
+      'leading newline',
+      '\nHTTP://user:password@example.test/path?token=newline-secret',
+      'http://example.test/path',
+    ],
+    ['leading controls', '\u0000\u001fvault:control-prefixed-secret', 'vault:[REDACTED]'],
+  ])(
+    'classifies %s before URI redaction and keeps the report schema-valid',
+    (_label, uri, marker) => {
+      const envelope = agentEnvelope('safe');
+      envelope.suite.tasks[0]!.input = [{ type: 'document', mimeType: 'text/plain', uri }];
+
+      const sanitized = sanitizeAgentSuiteReportForPersistence(envelope);
+      const serialized = JSON.stringify(sanitized);
+
+      expect(serialized).not.toContain('prefixed-secret');
+      expect(serialized).not.toContain('newline-secret');
+      expect(serialized).not.toContain('malformed-secret');
+      expect(serialized).toContain(marker);
+      expect(AiLabReportEnvelopeSchema.safeParse(sanitized).success).toBe(true);
+    }
+  );
+
   it('preserves resource token counters and round-trips through the report schema', () => {
     const envelope = agentEnvelope('safe');
     envelope.payload.results = [
