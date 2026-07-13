@@ -257,35 +257,35 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: false,
     desktop: true,
     notes:
-      'Versioned portable suite schema; typed traces, hard budgets, repeated-trial reliability, CI JSON reports via `restura agent eval`',
+      'Electron-only authoring and execution with one cancellable run lifecycle; versioned suites, task-aware grading, hard run-wide budgets, repeated-trial reliability, and sanitized bounded report persistence. Headless OpenAI Responses CI is available via `restura agent eval`',
   },
   'aiLab.agentProviders': {
     label: 'AI Lab agent provider transports',
     web: false,
     desktop: true,
     notes:
-      'Desktop wires OpenAI Chat, Anthropic Messages, OpenRouter, Ollama, Hugging Face, and generic OpenAI-compatible through keychain-backed IPC. Headless CLI wires OpenAI Responses. Gemini, Azure OpenAI, and Bedrock are adapter profiles only, not shipped transports.',
+      'Desktop wires OpenAI Chat, Anthropic Messages, OpenRouter, Ollama, Hugging Face, and generic OpenAI-compatible through cancellable keychain-backed IPC with conservative per-model capabilities and explicit user overrides. Headless CLI wires stateless OpenAI Responses. Gemini, Azure OpenAI, and Bedrock are adapter profiles only, not shipped transports.',
   },
   'aiLab.agentRequestTools': {
     label: 'AI Lab agents using saved Restura HTTP requests as tools',
     web: false,
     desktop: true,
     notes:
-      'Runs through the normal request executor and security boundary; non-read methods require explicit per-call approval',
+      'Runs through the normal request executor and security boundary with run-scoped cancellation; non-read methods require explicit per-call approval',
   },
   'aiLab.agentMcpTools': {
     label: 'AI Lab agents using MCP servers as tools',
     web: false,
     desktop: false,
     notes:
-      'Shared allowlist and annotation-aware adapter is implemented, but no desktop MCP connection resolver is registered yet',
+      'Unsupported: the shared allowlist and annotation-aware adapter is implemented, but no desktop MCP connection resolver is registered yet',
   },
   'aiLab.agentSandboxes': {
     label: 'AI Lab pluggable code sandboxes',
     web: false,
     desktop: false,
     notes:
-      'Provider contract and registry are implemented; no Docker or hosted sandbox provider ships yet',
+      'Unsupported: the provider contract and registry are implemented, but no Docker or hosted sandbox provider ships yet',
   },
   'collections.file': { label: 'Filesystem-backed collections', web: false, desktop: true },
   'collections.git': { label: 'Git operations on collections', web: false, desktop: true },

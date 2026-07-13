@@ -65,6 +65,14 @@ An Electron-only LLM evaluation workbench accessible as `/ai-lab` route. It uses
 
 Agent suites never persist inline credentials. Desktop model calls retain the existing keychain-backed IPC path. The runner fails closed on unavailable providers/tools and sensitive tool calls without approval, and enforces step/time/tool/token/cost/output limits. Saved Restura HTTP requests are wired as desktop tools; non-read methods require per-call approval. The shared MCP allowlist adapter and pluggable sandbox registry are implemented, but the capability matrix marks MCP connection resolution and concrete sandbox providers unsupported until those adapters are registered end to end.
 
+The unified run lifecycle is module-scoped: a run remains visible and cancellable across tab changes, concurrent starts are rejected, and cancellation wins over late provider success. Its signal reaches model completions, judge calibration and voting, and saved-request tools through validated, sender-owned Electron operation IDs. `maxTokens` is a run-wide input-plus-output limit; required usage and cost data fail closed when missing or invalid.
+
+Per-model capabilities are conservative and tied to provider discovery evidence. Advanced overrides require an explicit user assertion, are labelled as such, and can be reset; unknown pricing is never presented as free. Task references feed reference-aware graders. Judge panels enforce distinct models, quorum, agreement, optional calibration, output-token bounds, and optional cost bounds.
+
+Desktop agent reports are validated and sanitized before persistence or export, with secret/header/query/body redaction, explicit truncation, a 2 MiB per-report limit, and retention of at most the newest 20 reports / 20 MiB total. Persistence is awaited; if it fails, the sanitized live report remains viewable/exportable and can be retried. Invalid persisted reports are quarantined independently so they cannot reset unrelated workbench state.
+
+The headless OpenAI Responses adapter uses stateless encrypted reasoning and function-call replay with `store: false`; server-side `previous_response_id` continuation is disabled. `restura agent eval` currently accepts only OpenAI Responses suites with environment credentials. It refuses base-URL overrides, desktop secret handles, judge graders, and all tool sources until trusted CLI adapters are registered.
+
 ### `http-exec` eval target
 
 ADR 0023 introduced an eval target that parses an HTTP/GraphQL request from model output (`lib/requestExtractor.ts`), executes it through the real HTTP executor (`src/features/http/lib/requestExecutor.ts` via `lib/execCell.ts`), and scores the upstream response.
