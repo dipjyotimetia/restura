@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useAiLabStore } from '../useAiLabStore';
+import { migrateAiLabState, useAiLabStore } from '../useAiLabStore';
 import { AiLabStateSchema } from '@/lib/shared/store-validators';
 
 function reset() {
@@ -182,6 +182,78 @@ describe('useAiLabStore — providers', () => {
     };
 
     expect(AiLabStateSchema.safeParse(state).success).toBe(false);
+  });
+
+  it('rejects OpenRouter capability provenance attached to a different provider', () => {
+    const state = {
+      providers: {
+        mismatch: {
+          id: 'mismatch',
+          provider: 'anthropic',
+          label: 'Imported Anthropic',
+          pricingKnown: true,
+          isLocal: false,
+          models: ['custom'],
+          createdAt: 1,
+          modelDetails: {
+            custom: {
+              agentCapabilities: { toolCalling: true },
+              agentCapabilityProvenance: {
+                source: 'discovered',
+                adapterId: 'openrouter.models',
+                adapterVersion: 1,
+              },
+            },
+          },
+        },
+      },
+      prompts: {},
+      datasets: {},
+      evalConfigs: {},
+    };
+
+    expect(AiLabStateSchema.safeParse(state).success).toBe(false);
+  });
+
+  it('migration preserves a mismatched provider while stripping foreign capability evidence', () => {
+    const migrated = migrateAiLabState({
+      providers: {
+        mismatch: {
+          id: 'mismatch',
+          provider: 'anthropic',
+          label: 'Imported Anthropic',
+          pricingKnown: true,
+          isLocal: false,
+          models: ['custom'],
+          createdAt: 1,
+          modelDetails: {
+            custom: {
+              label: 'Custom',
+              agentCapabilities: { toolCalling: true },
+              agentCapabilityProvenance: {
+                source: 'discovered',
+                adapterId: 'openrouter.models',
+                adapterVersion: 1,
+              },
+            },
+          },
+        },
+      },
+      prompts: {},
+      datasets: {},
+      evalConfigs: {},
+    });
+
+    expect(migrated.providers?.mismatch).toMatchObject({
+      id: 'mismatch',
+      provider: 'anthropic',
+      modelDetails: { custom: { label: 'Custom' } },
+      costPolicy: 'unknown',
+    });
+    expect(migrated.providers?.mismatch?.modelDetails?.custom?.agentCapabilities).toBeUndefined();
+    expect(
+      migrated.providers?.mismatch?.modelDetails?.custom?.agentCapabilityProvenance
+    ).toBeUndefined();
   });
 
   it('adds a HuggingFace provider with pricingKnown=false and isLocal=false', () => {

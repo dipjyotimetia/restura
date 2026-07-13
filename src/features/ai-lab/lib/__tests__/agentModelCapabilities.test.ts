@@ -36,7 +36,7 @@ describe('desktop model capability negotiation', () => {
   it('uses only discovered model-specific capability metadata', () => {
     const result = capabilitiesForDesktopModel(
       config({
-        provider: 'anthropic',
+        provider: 'openrouter',
         isLocal: false,
         modelDetails: {
           custom: {
@@ -58,6 +58,31 @@ describe('desktop model capability negotiation', () => {
       toolCalling: true,
       structuredOutput: false,
       maxContextTokens: 32_000,
+    });
+  });
+
+  it('rejects OpenRouter discovery provenance on a different provider config', () => {
+    const result = capabilitiesForDesktopModel(
+      config({
+        provider: 'anthropic',
+        isLocal: false,
+        modelDetails: {
+          custom: {
+            agentCapabilities: { toolCalling: true, structuredOutput: true },
+            agentCapabilityProvenance: {
+              source: 'discovered',
+              adapterId: 'openrouter.models',
+              adapterVersion: 1,
+            },
+          },
+        },
+      }),
+      'custom'
+    );
+
+    expect(result.capabilities).toMatchObject({
+      toolCalling: false,
+      structuredOutput: false,
     });
   });
 

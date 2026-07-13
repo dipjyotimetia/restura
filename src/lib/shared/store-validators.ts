@@ -376,33 +376,47 @@ const AiLabModelDetailSchema = z
     }
   });
 
-const AiLabProviderConfigSchema = z.object({
-  id: z.string(),
-  provider: AiLabProviderEnumSchema,
-  label: z.string(),
-  baseUrl: z.string().optional(),
-  apiKeyHandleId: z.string().optional(),
-  pricingKnown: z.boolean(),
-  costPolicy: z.enum(['unknown', 'local-zero']).default('unknown'),
-  isLocal: z.boolean(),
-  models: z.array(z.string()),
-  // Per-model metadata captured at the most recent discovery (OpenRouter).
-  // Optional so existing persisted state validates without a migration.
-  modelDetails: z.record(z.string(), AiLabModelDetailSchema).optional(),
-  // Explicit, full per-model user assertions. Optional for additive migration.
-  capabilityOverrides: z.record(z.string(), ModelCapabilitiesSchema).optional(),
-  // Most recent connection-test outcome (optional; no migration needed).
-  lastTest: z
-    .object({
-      ok: z.boolean(),
-      at: z.number(),
-      modelCount: z.number().optional(),
-      error: z.string().optional(),
-    })
-    .optional(),
-  lastDiscoveredAt: z.number().optional(),
-  createdAt: z.number(),
-});
+const AiLabProviderConfigSchema = z
+  .object({
+    id: z.string(),
+    provider: AiLabProviderEnumSchema,
+    label: z.string(),
+    baseUrl: z.string().optional(),
+    apiKeyHandleId: z.string().optional(),
+    pricingKnown: z.boolean(),
+    costPolicy: z.enum(['unknown', 'local-zero']).default('unknown'),
+    isLocal: z.boolean(),
+    models: z.array(z.string()),
+    // Per-model metadata captured at the most recent discovery (OpenRouter).
+    // Optional so existing persisted state validates without a migration.
+    modelDetails: z.record(z.string(), AiLabModelDetailSchema).optional(),
+    // Explicit, full per-model user assertions. Optional for additive migration.
+    capabilityOverrides: z.record(z.string(), ModelCapabilitiesSchema).optional(),
+    // Most recent connection-test outcome (optional; no migration needed).
+    lastTest: z
+      .object({
+        ok: z.boolean(),
+        at: z.number(),
+        modelCount: z.number().optional(),
+        error: z.string().optional(),
+      })
+      .optional(),
+    lastDiscoveredAt: z.number().optional(),
+    createdAt: z.number(),
+  })
+  .superRefine((config, context) => {
+    if (
+      config.provider !== 'openrouter' &&
+      Object.values(config.modelDetails ?? {}).some(
+        (detail) => detail.agentCapabilityProvenance?.adapterId === 'openrouter.models'
+      )
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'OpenRouter capability provenance requires an OpenRouter provider',
+      });
+    }
+  });
 
 const PromptTemplateSchema = z.object({
   id: z.string(),

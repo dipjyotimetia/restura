@@ -113,7 +113,9 @@ export function capabilitiesForDesktopModel(
 
   const detail = config.modelDetails?.[model];
   const discovered =
-    detail && hasTrustedCapabilityProvenance(detail) ? detail.agentCapabilities : undefined;
+    config.provider === 'openrouter' && detail && hasTrustedCapabilityProvenance(detail)
+      ? detail.agentCapabilities
+      : undefined;
   return {
     capabilities: normalizeDesktopCapabilities(discovered),
     assertedByUser: false,

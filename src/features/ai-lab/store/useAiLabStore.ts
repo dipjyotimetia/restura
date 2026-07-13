@@ -86,6 +86,37 @@ const DEFAULT_STATE: PersistedAiLabState = {
 
 const RECENT_MODEL_LIMIT = 20;
 
+export function migrateAiLabState(persisted: unknown): Partial<PersistedAiLabState> {
+  const previous = persisted as Partial<PersistedAiLabState>;
+  return {
+    ...previous,
+    providers: Object.fromEntries(
+      Object.entries(previous.providers ?? {}).map(([id, config]) => {
+        const modelDetails = config.modelDetails
+          ? Object.fromEntries(
+              Object.entries(config.modelDetails).map(([model, detail]) => {
+                if (config.provider === 'openrouter') return [model, detail];
+                const safeDetail: AiLabModelDetail = { ...detail };
+                delete safeDetail.agentCapabilities;
+                delete safeDetail.agentCapabilityProvenance;
+                return [model, safeDetail];
+              })
+            )
+          : undefined;
+        return [
+          id,
+          {
+            ...config,
+            ...(modelDetails ? { modelDetails } : {}),
+            costPolicy: config.costPolicy ?? 'unknown',
+          },
+        ];
+      })
+    ),
+    agentSuites: previous.agentSuites ?? {},
+  };
+}
+
 export const useAiLabStore = create<AiLabState>()(
   persist(
     (set) => ({
@@ -299,19 +330,7 @@ export const useAiLabStore = create<AiLabState>()(
       name: 'ai-lab-store',
       storage: dexieStorageAdapters.aiLab(),
       version: 3,
-      migrate: (persisted) => {
-        const previous = persisted as Partial<PersistedAiLabState>;
-        return {
-          ...previous,
-          providers: Object.fromEntries(
-            Object.entries(previous.providers ?? {}).map(([id, config]) => [
-              id,
-              { ...config, costPolicy: config.costPolicy ?? 'unknown' },
-            ])
-          ),
-          agentSuites: previous.agentSuites ?? {},
-        };
-      },
+      migrate: migrateAiLabState,
       partialize: (state) => ({
         providers: state.providers,
         prompts: state.prompts,
