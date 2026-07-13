@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentRunResult } from '../runner';
 import type { AgentSuite } from '../types';
-import { AgentSuiteRunner } from '../suite-runner';
+import { AgentSuiteRunner, serializeContentBlocks } from '../suite-runner';
 
 const suite: AgentSuite = {
   schemaVersion: 2,
@@ -178,6 +178,178 @@ describe('AgentSuiteRunner', () => {
     const report = await runner.run({ suite: structuredSuite });
 
     expect(report.results[0]?.scores[0]?.passed).toBe(true);
+  });
+
+  it('exact grading distinguishes same-metadata images by safe stable payload fingerprint', async () => {
+    const image = (data: string) => ({
+      type: 'image' as const,
+      mimeType: 'image/png',
+      name: 'same.png',
+      data,
+    });
+    const imageSuite = {
+      ...suite,
+      trials: 1,
+      tasks: [
+        { id: 'same', input: [{ type: 'text', text: 'same' }], reference: [image('SECRET_A')] },
+        {
+          id: 'different',
+          input: [{ type: 'text', text: 'different' }],
+          reference: [image('SECRET_A')],
+        },
+      ],
+      graders: [{ id: 'reference', kind: 'exact' }],
+    } as unknown as AgentSuite;
+    const runner = new AgentSuiteRunner({
+      async run(request) {
+        const run = result(request.trial, 'ignored');
+        run.trace.taskId = request.taskId;
+        run.output = [image(request.taskId === 'same' ? 'SECRET_A' : 'SECRET_B')];
+        return run;
+      },
+    });
+
+    const report = await runner.run({ suite: imageSuite });
+
+    expect(report.results.map((trial) => trial.scores[0]?.passed)).toEqual([true, false]);
+  });
+
+  it('contains grading distinguishes same-metadata documents without exposing secret URIs', async () => {
+    const document = (uri: string) => ({
+      type: 'document' as const,
+      mimeType: 'application/pdf',
+      name: 'same.pdf',
+      uri,
+    });
+    const referenceUri = 'https://secret.example/reference?token=REFERENCE_SECRET';
+    const otherUri = 'https://secret.example/other?token=OTHER_SECRET';
+    const documentSuite = {
+      ...suite,
+      trials: 1,
+      tasks: [
+        {
+          id: 'same',
+          input: [{ type: 'text', text: 'same' }],
+          reference: [document(referenceUri)],
+        },
+        {
+          id: 'different',
+          input: [{ type: 'text', text: 'different' }],
+          reference: [document(referenceUri)],
+        },
+      ],
+      graders: [{ id: 'reference', kind: 'contains' }],
+    } as unknown as AgentSuite;
+    const runner = new AgentSuiteRunner({
+      async run(request) {
+        const run = result(request.trial, 'ignored');
+        run.trace.taskId = request.taskId;
+        run.output = [
+          { type: 'text', text: 'prefix' },
+          document(request.taskId === 'same' ? referenceUri : otherUri),
+        ];
+        return run;
+      },
+      async judge() {
+        throw new Error('unreachable');
+      },
+    });
+
+    const report = await runner.run({ suite: documentSuite });
+    const serializedReference = serializeContentBlocks([document(referenceUri)]);
+    const serializedOther = serializeContentBlocks([document(otherUri)]);
+
+    expect(report.results.map((trial) => trial.scores[0]?.passed)).toEqual([true, false]);
+    expect(serializedReference).not.toBe(serializedOther);
+    expect(serializedReference).not.toContain('REFERENCE_SECRET');
+    expect(serializedOther).not.toContain('OTHER_SECRET');
+  });
+
+  it('judge serialization is stable per content and separates same-metadata media identities', async () => {
+    const image = (data: string) => ({
+      type: 'image' as const,
+      mimeType: 'image/png',
+      name: 'same.png',
+      data,
+    });
+    const document = (uri: string) => ({
+      type: 'document' as const,
+      mimeType: 'application/pdf',
+      name: 'same.pdf',
+      uri,
+    });
+    const judgeSuite = {
+      ...suite,
+      trials: 2,
+      tasks: [
+        {
+          id: 'first',
+          input: [image('FIRST_IMAGE_SECRET')],
+          reference: [document('https://secret.example/first?token=FIRST_URI_SECRET')],
+        },
+        {
+          id: 'second',
+          input: [image('SECOND_IMAGE_SECRET')],
+          reference: [document('https://secret.example/second?token=SECOND_URI_SECRET')],
+        },
+      ],
+      graders: [
+        {
+          id: 'judge',
+          kind: 'judge',
+          judgeModels: [{ providerId: 'judge', model: 'model' }],
+          rubric: 'Correctness',
+          labels: ['pass', 'fail'],
+          minimumAgreement: 0.5,
+          calibrated: false,
+        },
+      ],
+    } as AgentSuite;
+    const serialized = new Map<
+      string,
+      Array<{ input: string; reference?: string; output: string }>
+    >();
+    const runner = new AgentSuiteRunner({
+      async run(request) {
+        const run = result(request.trial, 'ignored');
+        run.trace.taskId = request.taskId;
+        run.output = [
+          {
+            type: 'artifact',
+            artifactId:
+              request.taskId === 'first' ? 'FIRST_ARTIFACT_SECRET' : 'SECOND_ARTIFACT_SECRET',
+            name: 'same artifact',
+          },
+        ];
+        return run;
+      },
+      async judge(_grader, context) {
+        serialized.set(context.task.id, [
+          ...(serialized.get(context.task.id) ?? []),
+          { input: context.inputText, reference: context.reference, output: context.outputText },
+        ]);
+        return { graderId: 'judge', kind: 'judge', passed: true };
+      },
+    });
+
+    await runner.run({ suite: judgeSuite });
+
+    const first = serialized.get('first')!;
+    const second = serialized.get('second')!;
+    expect(first[0]).toEqual(first[1]);
+    expect(second[0]).toEqual(second[1]);
+    expect(first[0]!.input).not.toBe(second[0]!.input);
+    expect(first[0]!.reference).not.toBe(second[0]!.reference);
+    expect(first[0]!.output).not.toBe(second[0]!.output);
+    const combined = JSON.stringify([...first, ...second]);
+    expect(first[0]!.input).toMatch(/"fingerprint":"[0-9a-f]{16}"/);
+    expect(first[0]!.input).toContain('"length":');
+    expect(combined).not.toContain('FIRST_IMAGE_SECRET');
+    expect(combined).not.toContain('SECOND_IMAGE_SECRET');
+    expect(combined).not.toContain('FIRST_ARTIFACT_SECRET');
+    expect(combined).not.toContain('SECOND_ARTIFACT_SECRET');
+    expect(combined).not.toContain('secret.example');
+    expect(combined).not.toContain('URI_SECRET');
   });
 
   it('fails reference-backed exact and contains graders for unusable serialized references', async () => {

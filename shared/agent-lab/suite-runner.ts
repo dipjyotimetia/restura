@@ -90,6 +90,18 @@ function canonicalJson(value: unknown): string {
   });
 }
 
+function contentIdentity(type: string, raw: string): { fingerprint: string; length: number } {
+  const encoder = new TextEncoder();
+  const rawBytes = encoder.encode(raw);
+  const identityBytes = encoder.encode(`${type}\u0000${raw}`);
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of identityBytes) {
+    hash ^= BigInt(byte);
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+  }
+  return { fingerprint: hash.toString(16).padStart(16, '0'), length: rawBytes.byteLength };
+}
+
 export function serializeContentBlocks(blocks: ContentBlock[]): string {
   return blocks
     .map((block) => {
@@ -98,9 +110,14 @@ export function serializeContentBlocks(blocks: ContentBlock[]): string {
       if (block.type === 'refusal') return `[refusal] ${block.reason}`;
       if (block.type === 'json') return `[json] ${canonicalJson(block.value)}`;
       if (block.type === 'artifact') {
-        return `[artifact] ${canonicalJson({ artifactId: block.artifactId, name: block.name })}`;
+        return `[artifact] ${canonicalJson({
+          ...contentIdentity(block.type, block.artifactId),
+          name: block.name,
+        })}`;
       }
+      const raw = block.data ?? block.uri ?? '';
       return `[${block.type}] ${canonicalJson({
+        ...contentIdentity(block.type, raw),
         mimeType: block.mimeType,
         name: block.name,
         source: block.data !== undefined ? 'inline' : 'uri',
