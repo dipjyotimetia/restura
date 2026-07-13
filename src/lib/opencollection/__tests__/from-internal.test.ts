@@ -224,6 +224,239 @@ describe('internalToOC', () => {
     expect(item.http.auth.accessToken).toBe('tok');
   });
 
+  it('exports every modeled body, auth, secret, and stream branch', () => {
+    const bodyVariants: any[] = [
+      { type: 'json' },
+      { type: 'xml', raw: '<ok />' },
+      { type: 'text', raw: 'hello' },
+      { type: 'graphql', raw: '{ ping }' },
+      { type: 'form-data' },
+      { type: 'x-www-form-urlencoded', formData: [] },
+      { type: 'binary' },
+      {
+        type: 'binary',
+        binary: new File(['x'], 'payload.bin', { type: 'application/octet-stream' }),
+      },
+    ];
+    const authVariants: any[] = [
+      { type: 'none' },
+      { type: 'basic', basic: { username: 'u', password: 'p' } },
+      { type: 'bearer', bearer: { token: { kind: 'inline', value: 'token' } } },
+      {
+        type: 'api-key',
+        apiKey: { key: 'x-key', value: { kind: 'handle', id: 'h1' }, in: 'query' },
+      },
+      {
+        type: 'aws-signature',
+        awsSignature: {
+          accessKey: 'ak',
+          secretKey: { kind: 'handle', id: 'h2', label: 'aws' },
+          region: 'us-east-1',
+          service: 'execute-api',
+        },
+      },
+      { type: 'digest', digest: { username: 'du', password: 'dp' } },
+      {
+        type: 'oauth2',
+        oauth2: { accessToken: 'access', refreshToken: undefined, tokenUrl: '/token' },
+      },
+    ];
+
+    bodyVariants.forEach((body, index) => {
+      const exported: any = internalToOC({
+        id: `c-body-${index}`,
+        name: 'Bodies',
+        items: [
+          {
+            id: `i-${index}`,
+            name: `Body ${index}`,
+            type: 'request',
+            request: {
+              id: `r-${index}`,
+              name: `Body ${index}`,
+              type: 'http',
+              method: 'POST',
+              url: '/body',
+              headers: [
+                { id: 'h', key: 'x-off', value: '1', enabled: false, description: 'disabled' },
+              ],
+              params: [],
+              body,
+              auth: authVariants[index % authVariants.length],
+              description: 'request docs',
+              preRequestScript: 'console.log(1)',
+              testScript: 'rs.test("ok", () => true)',
+            },
+          },
+        ],
+      });
+      expect(exported.items).toHaveLength(1);
+    });
+
+    authVariants.forEach((auth, index) => {
+      const exported: any = internalToOC({
+        id: `c-auth-${index}`,
+        name: 'Auth',
+        variables: [
+          { id: 'secret', key: 'TOKEN', value: '', enabled: false, secret: true },
+          { id: 'plain', key: 'HOST', value: 'localhost', enabled: true, description: 'host' },
+        ],
+        auth,
+        items: [],
+      });
+      expect(exported.info.name).toBe('Auth');
+    });
+
+    const streams: any = internalToOC({
+      id: 'streams',
+      name: 'Streams',
+      items: [
+        {
+          id: 'folder',
+          name: 'Folder',
+          type: 'folder',
+          items: [
+            { id: 'opaque', name: 'Opaque', type: 'request' },
+            {
+              id: 'sse',
+              name: 'Events',
+              type: 'request',
+              request: {
+                id: 'sse-r',
+                name: 'Events',
+                type: 'sse',
+                url: '/events',
+                headers: [{ id: 'h', key: 'accept', value: 'text/event-stream', enabled: true }],
+                params: [],
+                eventFilter: ['message'],
+                auth: { type: 'bearer', bearer: { token: 't' } },
+              },
+            },
+            {
+              id: 'mcp',
+              name: 'MCP',
+              type: 'request',
+              request: {
+                id: 'mcp-r',
+                name: 'MCP',
+                type: 'mcp',
+                url: '/mcp',
+                transport: 'streamable-http',
+                headers: [],
+                auth: { type: 'none' },
+              },
+            },
+          ],
+        },
+      ],
+    });
+    expect(streams.extensions['x-restura-sse']).toHaveLength(1);
+    expect(streams.extensions['x-restura-mcp']).toHaveLength(1);
+  });
+
+  it('handles sparse/default export shapes without inventing values', () => {
+    expect(
+      internalToOC({ id: 'no-items', name: 'No items', items: undefined } as any).items
+    ).toEqual([]);
+    const sparseBodies = [
+      { type: 'xml' },
+      { type: 'text' },
+      { type: 'graphql' },
+      { type: 'x-www-form-urlencoded' },
+      { type: 'binary', binary: { name: 'portable.bin' } },
+      { type: 'unsupported' },
+    ];
+    for (const [index, body] of sparseBodies.entries()) {
+      internalToOC({
+        id: `sparse-body-${index}`,
+        name: 'Sparse',
+        items: [
+          {
+            id: `i-${index}`,
+            name: 'Sparse request',
+            type: 'request',
+            request: {
+              id: `r-${index}`,
+              name: 'Sparse request',
+              type: 'http',
+              method: 'POST',
+              url: '/sparse',
+              headers: [],
+              params: [],
+              body,
+              auth: { type: 'none' },
+            },
+          },
+        ],
+      } as any);
+    }
+
+    const sparseAuth = [
+      { type: 'basic', basic: {} },
+      { type: 'api-key', apiKey: {} },
+      { type: 'aws-signature', awsSignature: {} },
+      { type: 'digest', digest: {} },
+      { type: 'oauth2' },
+      { type: 'unsupported' },
+    ];
+    for (const [index, auth] of sparseAuth.entries()) {
+      internalToOC({
+        id: `sparse-auth-${index}`,
+        name: 'Sparse auth',
+        auth,
+        items: [],
+      } as any);
+    }
+
+    const exported: any = internalToOC({
+      id: 'mixed',
+      name: 'Mixed',
+      contractSpec: { source: 'inline', inline: '{}' },
+      items: [
+        { id: 'empty', name: 'Empty', type: 'request' },
+        {
+          id: 'grpc-item',
+          name: 'gRPC',
+          type: 'request',
+          request: {
+            id: 'grpc',
+            name: 'gRPC',
+            type: 'grpc',
+            url: 'grpc://localhost',
+            service: 'Demo',
+            method: 'Ping',
+            methodType: 'unary',
+            message: '',
+            metadata: [],
+            auth: { type: 'basic', basic: { username: 'u', password: 'p' } },
+          },
+        },
+        {
+          id: 'mcp-item',
+          name: 'MCP',
+          type: 'request',
+          request: {
+            id: 'mcp',
+            name: 'MCP',
+            type: 'mcp',
+            url: '/mcp',
+            transport: 'streamable-http',
+            headers: [{ id: 'h', key: 'x', value: '1', enabled: true }],
+            auth: { type: 'bearer', bearer: { token: 't' } },
+          },
+        },
+        {
+          id: 'outer',
+          name: 'Outer',
+          type: 'folder',
+          items: [{ id: 'inner', name: 'Inner', type: 'folder' }],
+        },
+      ],
+    } as any);
+    expect(exported.extensions['x-restura-contract']).toBeDefined();
+    expect(exported.extensions['x-restura-mcp']).toHaveLength(1);
+  });
+
   it('emits SSE items into extensions["x-restura-sse"] when collection has SSE requests', () => {
     const internal: any = {
       id: 'c',

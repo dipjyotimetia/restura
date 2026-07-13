@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import type { ElectronAPI } from '../../../electron/types/electron-api';
 
 type WindowWithElectron = {
   electron?: {
@@ -8,6 +9,15 @@ type WindowWithElectron = {
     };
   };
 };
+
+function installElectronCollections(collections: Partial<ElectronAPI['collections']>): void {
+  (window as unknown as { electron: { collections: ElectronAPI['collections'] } }).electron = {
+    collections: {
+      removeFileChangedListener: vi.fn(),
+      ...collections,
+    } as ElectronAPI['collections'],
+  };
+}
 
 describe('useFileCollectionStore persistence', () => {
   beforeEach(() => {
@@ -233,6 +243,39 @@ describe('restoreFileCollectionWatchers', () => {
     );
   });
 
+  it('reconciles moved and renamed leftovers without positional id theft', async () => {
+    const { reconcileCollectionIds } = await import('../useFileCollectionStore');
+    const existing = {
+      id: 'old-collection',
+      name: 'Demo',
+      items: [
+        {
+          id: 'old-folder',
+          name: 'Folder',
+          type: 'folder' as const,
+          items: [{ id: 'old-child', name: 'Moved', type: 'request' as const }],
+        },
+        { id: 'old-rename', name: 'Before', type: 'request' as const },
+      ],
+    };
+    const incoming = {
+      id: 'new-collection',
+      name: 'Demo',
+      items: [
+        { id: 'new-moved', name: 'Moved', type: 'request' as const },
+        { id: 'new-rename', name: 'After', type: 'request' as const },
+        { id: 'new-folder', name: 'Folder', type: 'folder' as const, items: [] },
+      ],
+    };
+
+    const reconciled = reconcileCollectionIds(existing, incoming);
+    expect(reconciled.items.map((item) => item.id)).toEqual([
+      'old-child',
+      'old-rename',
+      'old-folder',
+    ]);
+  });
+
   it('leaves isWatching false when a directory can no longer be watched', async () => {
     const { useFileCollectionStore, restoreFileCollectionWatchers } =
       await import('../useFileCollectionStore');
@@ -254,5 +297,301 @@ describe('restoreFileCollectionWatchers', () => {
     const after = useFileCollectionStore.getState().fileCollections;
     expect(after['col-a']?.isWatching).toBe(false);
     expect(after['col-b']?.isWatching).toBe(false);
+  });
+});
+
+describe('file collection operations', () => {
+  beforeEach(async () => {
+    delete (window as unknown as WindowWithElectron).electron;
+    const { useFileCollectionStore, cleanupFileCollectionWatcher } =
+      await import('../useFileCollectionStore');
+    const { useCollectionStore } = await import('../useCollectionStore');
+    cleanupFileCollectionWatcher();
+    useFileCollectionStore.setState({ fileCollections: {}, conflicts: [], defaultDirectory: null });
+    useCollectionStore.setState({ collections: [] });
+  });
+
+  afterEach(async () => {
+    const { cleanupFileCollectionWatcher } = await import('../useFileCollectionStore');
+    cleanupFileCollectionWatcher();
+    delete (window as unknown as WindowWithElectron).electron;
+  });
+
+  it('covers file metadata, sync-state, and conflict actions', async () => {
+    const { useFileCollectionStore } = await import('../useFileCollectionStore');
+    const store = useFileCollectionStore.getState();
+    store.registerFileCollection('c1', '/tmp/c1');
+    store.updateSyncState('missing', 'error');
+    store.updateSyncState('c1', 'modified', 'dirty');
+    store.setWatching('missing', true);
+    store.setWatching('c1', true);
+    store.addConflict({
+      collectionId: 'c1',
+      itemId: 'i1',
+      itemName: 'one',
+      filePath: '/tmp/c1/one.yaml',
+      localModified: 1,
+      externalModified: 2,
+    });
+    store.addConflict({
+      collectionId: 'c1',
+      itemId: 'i1',
+      itemName: 'replacement',
+      filePath: '/tmp/c1/one.yaml',
+      localModified: 1,
+      externalModified: 3,
+    });
+    store.addConflict({
+      collectionId: 'c1',
+      itemId: 'i2',
+      itemName: 'two',
+      filePath: '/tmp/c1/two.yaml',
+      localModified: 1,
+      externalModified: 3,
+    });
+    store.removeConflict('c1', 'i1');
+    store.clearConflicts('missing');
+    store.setDefaultDirectory('/tmp/default');
+    store.markAsSynced('missing');
+    store.markAsSynced('c1');
+
+    const current = useFileCollectionStore.getState();
+    expect(current.isFileCollection('c1')).toBe(true);
+    expect(current.getFileInfo('c1')).toMatchObject({ syncState: 'synced', isWatching: true });
+    expect(current.conflicts).toHaveLength(1);
+    expect(current.defaultDirectory).toBe('/tmp/default');
+
+    current.removeConflict('c1');
+    current.unregisterFileCollection('c1');
+    expect(useFileCollectionStore.getState().isFileCollection('c1')).toBe(false);
+  });
+
+  it('handles unavailable Electron and missing collection branches', async () => {
+    const {
+      loadCollectionFromDirectory,
+      saveCollectionToDirectory,
+      syncFileCollection,
+      selectCollectionDirectory,
+      exportCollectionToFiles,
+      openCollectionInExplorer,
+      initFileCollectionWatcher,
+    } = await import('../useFileCollectionStore');
+    const collection = { id: 'c1', name: 'Demo', items: [] };
+
+    await expect(loadCollectionFromDirectory('/tmp/demo')).resolves.toMatchObject({
+      success: false,
+    });
+    await expect(saveCollectionToDirectory(collection, '/tmp/demo')).resolves.toMatchObject({
+      success: false,
+    });
+    await expect(syncFileCollection('missing')).resolves.toMatchObject({ success: false });
+    await expect(exportCollectionToFiles('missing', '/tmp/demo')).resolves.toMatchObject({
+      success: false,
+    });
+    await expect(selectCollectionDirectory()).resolves.toBeNull();
+    await expect(openCollectionInExplorer('missing')).resolves.toBeUndefined();
+    expect(initFileCollectionWatcher()).toBeUndefined();
+  });
+
+  it('saves, syncs, exports, selects, and opens Electron file collections', async () => {
+    const {
+      useFileCollectionStore,
+      saveCollectionToDirectory,
+      syncFileCollection,
+      selectCollectionDirectory,
+      exportCollectionToFiles,
+      openCollectionInExplorer,
+    } = await import('../useFileCollectionStore');
+    const { useCollectionStore } = await import('../useCollectionStore');
+    const collection = { id: 'c1', name: 'Demo', items: [] };
+    const saveToDirectory = vi
+      .fn()
+      .mockResolvedValueOnce({ success: false, error: 'disk full' })
+      .mockResolvedValue({ success: true });
+    const watchDirectory = vi.fn().mockResolvedValue({ success: true });
+    const openInExplorer = vi.fn().mockResolvedValue(undefined);
+    installElectronCollections({
+      saveToDirectory,
+      watchDirectory,
+      openInExplorer,
+      selectDirectory: vi
+        .fn()
+        .mockResolvedValueOnce({ canceled: true, filePaths: [] })
+        .mockResolvedValue({ canceled: false, filePaths: ['/tmp/chosen'] }),
+    });
+    useCollectionStore.setState({ collections: [collection] });
+    useFileCollectionStore.getState().registerFileCollection('c1', '/tmp/demo');
+
+    await expect(saveCollectionToDirectory(collection, '/tmp/demo')).resolves.toMatchObject({
+      success: false,
+    });
+    expect(useFileCollectionStore.getState().getFileInfo('c1')?.syncState).toBe('error');
+    await expect(syncFileCollection('c1')).resolves.toMatchObject({ success: true });
+    expect(useFileCollectionStore.getState().getFileInfo('c1')?.syncState).toBe('synced');
+    await expect(selectCollectionDirectory()).resolves.toBeNull();
+    await expect(selectCollectionDirectory()).resolves.toBe('/tmp/chosen');
+    await openCollectionInExplorer('c1');
+    expect(openInExplorer).toHaveBeenCalledWith('/tmp/demo');
+    await expect(exportCollectionToFiles('c1', '/tmp/export')).resolves.toMatchObject({
+      success: true,
+    });
+    expect(watchDirectory).toHaveBeenCalledWith('/tmp/export');
+
+    useCollectionStore.setState({ collections: [] });
+    await expect(syncFileCollection('c1')).resolves.toMatchObject({
+      success: false,
+      error: 'Collection not found',
+    });
+    await expect(exportCollectionToFiles('c1', '/tmp/export')).resolves.toMatchObject({
+      success: false,
+      error: 'Collection not found',
+    });
+  });
+
+  it('marks local edits and external changes as conflicts through the watcher', async () => {
+    const { useFileCollectionStore, initFileCollectionWatcher } =
+      await import('../useFileCollectionStore');
+    const { useCollectionStore } = await import('../useCollectionStore');
+    let onFileChanged:
+      | ((event: {
+          type: 'modified' | 'added' | 'deleted';
+          filePath: string;
+          directoryPath: string;
+          lastModified?: number;
+        }) => void)
+      | undefined;
+    installElectronCollections({
+      onFileChanged: vi.fn((listener) => {
+        onFileChanged = listener;
+      }),
+      removeFileChangedListener: vi.fn(),
+    });
+    useCollectionStore.setState({ collections: [{ id: 'c1', name: 'Demo', items: [] }] });
+    useFileCollectionStore.getState().registerFileCollection('c1', '/tmp/demo');
+    initFileCollectionWatcher();
+
+    useCollectionStore.getState().updateCollection('c1', { name: 'Edited' });
+    expect(useFileCollectionStore.getState().getFileInfo('c1')?.syncState).toBe('modified');
+    onFileChanged?.({
+      type: 'modified',
+      filePath: '/tmp/demo/request.yaml',
+      directoryPath: '/tmp/demo',
+      lastModified: 123,
+    });
+    expect(useFileCollectionStore.getState().getFileInfo('c1')?.syncState).toBe('conflict');
+    expect(useFileCollectionStore.getState().conflicts[0]).toMatchObject({
+      itemName: 'request.yaml',
+      externalModified: 123,
+    });
+    onFileChanged?.({ type: 'added', filePath: '/tmp/other.yaml', directoryPath: '/tmp/other' });
+    expect(useFileCollectionStore.getState().conflicts).toHaveLength(1);
+
+    useFileCollectionStore.getState().updateSyncState('c1', 'loading');
+    onFileChanged?.({ type: 'modified', filePath: '/', directoryPath: '/tmp/demo' });
+    expect(useFileCollectionStore.getState().conflicts.at(-1)?.itemName).toBe('Unknown');
+  });
+
+  it('reloads clean external changes and surfaces load failures', async () => {
+    const { useFileCollectionStore, initFileCollectionWatcher } =
+      await import('../useFileCollectionStore');
+    const { useCollectionStore } = await import('../useCollectionStore');
+    let onFileChanged:
+      | ((event: {
+          type: 'modified' | 'added' | 'deleted';
+          filePath: string;
+          directoryPath: string;
+          lastModified?: number;
+        }) => void)
+      | undefined;
+    const loadFromDirectory = vi
+      .fn()
+      .mockResolvedValueOnce({
+        success: true,
+        collection: { id: 'disk-1', name: 'Reloaded', items: [] },
+      })
+      .mockResolvedValueOnce({ success: false, error: 'invalid disk data' })
+      .mockRejectedValueOnce(new Error('read failed'));
+    installElectronCollections({
+      loadFromDirectory,
+      watchDirectory: vi.fn().mockResolvedValue({ success: true }),
+      onFileChanged: vi.fn((listener) => {
+        onFileChanged = listener;
+      }),
+    });
+    useCollectionStore.setState({ collections: [{ id: 'c1', name: 'Demo', items: [] }] });
+    useFileCollectionStore.getState().registerFileCollection('c1', '/tmp/demo');
+    initFileCollectionWatcher();
+
+    onFileChanged?.({ type: 'modified', filePath: '/tmp/demo/a.yaml', directoryPath: '/tmp/demo' });
+    await vi.waitFor(() =>
+      expect(useCollectionStore.getState().collections[0]?.name).toBe('Reloaded')
+    );
+
+    onFileChanged?.({ type: 'modified', filePath: '/tmp/demo/b.yaml', directoryPath: '/tmp/demo' });
+    await vi.waitFor(() =>
+      expect(useFileCollectionStore.getState().getFileInfo('c1')).toMatchObject({
+        syncState: 'error',
+        error: 'invalid disk data',
+      })
+    );
+
+    useFileCollectionStore.getState().markAsSynced('c1');
+    onFileChanged?.({ type: 'modified', filePath: '/tmp/demo/c.yaml', directoryPath: '/tmp/demo' });
+    await vi.waitFor(() =>
+      expect(useFileCollectionStore.getState().getFileInfo('c1')).toMatchObject({
+        syncState: 'error',
+        error: 'read failed',
+      })
+    );
+  });
+
+  it('coalesces an external change burst into one follow-up reload', async () => {
+    const { useFileCollectionStore, initFileCollectionWatcher } =
+      await import('../useFileCollectionStore');
+    const { useCollectionStore } = await import('../useCollectionStore');
+    let onFileChanged:
+      | ((event: {
+          type: 'modified' | 'added' | 'deleted';
+          filePath: string;
+          directoryPath: string;
+        }) => void)
+      | undefined;
+    let resolveFirst: ((value: unknown) => void) | undefined;
+    const loadFromDirectory = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve;
+          })
+      )
+      .mockResolvedValue({
+        success: true,
+        collection: { id: 'disk-2', name: 'After burst', items: [] },
+      });
+    installElectronCollections({
+      loadFromDirectory,
+      watchDirectory: vi.fn().mockResolvedValue({ success: false }),
+      onFileChanged: vi.fn((listener) => {
+        onFileChanged = listener;
+      }),
+    });
+    useCollectionStore.setState({ collections: [{ id: 'c1', name: 'Demo', items: [] }] });
+    useFileCollectionStore.getState().registerFileCollection('c1', '/tmp/demo');
+    initFileCollectionWatcher();
+
+    onFileChanged?.({ type: 'modified', filePath: '/tmp/demo/a.yaml', directoryPath: '/tmp/demo' });
+    onFileChanged?.({ type: 'modified', filePath: '/tmp/demo/b.yaml', directoryPath: '/tmp/demo' });
+    expect(loadFromDirectory).toHaveBeenCalledTimes(1);
+    resolveFirst?.({
+      success: true,
+      collection: { id: 'disk-1', name: 'First reload', items: [] },
+    });
+
+    await vi.waitFor(() => expect(loadFromDirectory).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(useCollectionStore.getState().collections[0]?.name).toBe('After burst')
+    );
+    expect(useFileCollectionStore.getState().getFileInfo('c1')?.isWatching).toBe(false);
   });
 });
