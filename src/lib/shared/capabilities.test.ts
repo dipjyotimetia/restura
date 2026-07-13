@@ -14,7 +14,7 @@ describe('AI Lab agent capability claims', () => {
     const suites = CAPABILITIES['aiLab.agentSuites'];
     expect(suites.web).toBe(false);
     expect(suites.desktop).toBe(true);
-    expect(suites.notes).toContain('cancellable run lifecycle');
+    expect(suites.notes).toContain('one cancellable lifecycle per run surface');
     expect(suites.notes).toContain('sanitized bounded report persistence');
   });
 
