@@ -31,6 +31,29 @@ const trustedEvent = {
 } as unknown as Electron.IpcMainInvokeEvent;
 
 describe('validateIpcInput', () => {
+  it('logs validation diagnostics without retaining the rejected payload', () => {
+    const records: Array<{ fields: Record<string, unknown> }> = [];
+    setLogSink((record) => records.push(record));
+    const secret = 'must-not-reach-logs';
+    try {
+      expect(() =>
+        validateIpcInput(
+          HttpRequestConfigSchema,
+          { method: 'POST', url: 'not-a-url', data: secret },
+          'http:request'
+        )
+      ).toThrow();
+    } finally {
+      setLogSink(noopSink);
+    }
+
+    expect(records).toHaveLength(1);
+    expect(records[0]!.fields).not.toHaveProperty('receivedData');
+    expect(JSON.stringify(records)).not.toContain(secret);
+    expect(records[0]!.fields).toHaveProperty('channel', 'http:request');
+    expect(records[0]!.fields).toHaveProperty('issues');
+  });
+
   it('accepts a bounded PNG data URL for the bug-report clipboard bridge', () => {
     expect(() =>
       validateIpcInput(

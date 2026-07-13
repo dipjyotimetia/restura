@@ -185,17 +185,17 @@ editing the `update-type` condition in `dependabot-auto-merge.yml`.
 The Release **preflight** job fails fast if a stable release is missing any of
 these. Set them in **Settings → Secrets and variables → Actions**:
 
-| Secret                                                     | Required for                       | Notes                                                  |
-| ---------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------ |
-| `NPM_TOKEN`                                                | npm CLI publish                    | Automation token; publish to public npm.               |
-| `CLOUDFLARE_API_TOKEN`                                     | web deploy                         | Pages + Workers deploy scope.                          |
-| `CLOUDFLARE_ACCOUNT_ID`                                    | web deploy                         |                                                        |
-| `WORKER_PROXY_TOKEN`                                       | web build/deploy                   | Injected into the production build + Worker auth gate. |
-| `CSC_LINK`, `CSC_KEY_PASSWORD`                             | macOS signing (optional)           | base64 `.p12` + password.                              |
-| `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | macOS notarization (optional)      |                                                        |
-| `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`                     | Windows signing (optional)         | base64 `.pfx` + password.                              |
-| `SENTRY_DSN`                                               | desktop crash reporting (optional) | Public ingest id; absent → Sentry disabled.            |
-| `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`        | source-map upload (optional)       | symbolicated crash stacks.                             |
+| Secret                                                     | Required for            | Notes                                                   |
+| ---------------------------------------------------------- | ----------------------- | ------------------------------------------------------- |
+| `NPM_TOKEN`                                                | npm CLI publish         | Automation token; publish to public npm.                |
+| `CLOUDFLARE_API_TOKEN`                                     | web deploy              | Pages + Workers deploy scope.                           |
+| `CLOUDFLARE_ACCOUNT_ID`                                    | web deploy              |                                                         |
+| `WORKER_PROXY_TOKEN`                                       | web build/deploy        | Injected into the production build + Worker auth gate.  |
+| `CSC_LINK`, `CSC_KEY_PASSWORD`                             | macOS signing           | Required for stable releases; base64 `.p12` + password. |
+| `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` | macOS notarization      | Required for stable releases.                           |
+| `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`                     | Windows signing         | Optional until a Windows certificate is available.      |
+| `SENTRY_DSN`                                               | desktop crash reporting | Required for stable releases; public ingest id.         |
+| `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`        | source-map upload       | Required for stable releases; symbolicated stacks.      |
 
 > `GITHUB_TOKEN` is automatic. `GHCR` publish uses it (`packages: write`).
 

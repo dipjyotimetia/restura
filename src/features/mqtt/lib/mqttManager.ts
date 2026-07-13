@@ -24,8 +24,11 @@ export function mqttSecretKey(connectionId: string, field: MqttSecretField): str
   return `mqtt:${connectionId}:${field}`;
 }
 
-function readSecret(connectionId: string, field: 'password' | 'tls-passphrase'): string | null {
-  return secureStorage.get(mqttSecretKey(connectionId, field));
+function readSecret(
+  connectionId: string,
+  field: 'password' | 'tls-passphrase'
+): Promise<string | null> {
+  return secureStorage.getAsync(mqttSecretKey(connectionId, field));
 }
 
 /**
@@ -48,10 +51,9 @@ async function resolveConnect(connection: MqttConnection): Promise<MqttConnectIp
   if (connection.username) ipc.username = connection.username;
 
   if (connection.password) {
-    const real =
-      connection.password === MQTT_SECRET_SENTINEL
-        ? readSecret(connection.id, 'password')
-        : connection.password;
+    const real = await (connection.password === MQTT_SECRET_SENTINEL
+      ? readSecret(connection.id, 'password')
+      : Promise.resolve(connection.password));
     if (!real) return null;
     ipc.password = real;
   }
@@ -98,7 +100,7 @@ async function resolveConnect(connection: MqttConnection): Promise<MqttConnectIp
       }
     }
     if (connection.tls.passphrase === MQTT_SECRET_SENTINEL) {
-      const real = readSecret(connection.id, 'tls-passphrase');
+      const real = await readSecret(connection.id, 'tls-passphrase');
       if (real) tls.passphrase = real;
     } else if (connection.tls.passphrase) {
       tls.passphrase = connection.tls.passphrase;
@@ -124,7 +126,22 @@ class MqttManager {
     const store = useMqttStore.getState();
     store.updateStatus(connection.id, 'connecting');
 
-    const ipc = await resolveConnect(connection);
+    let ipc: MqttConnectIpc | null;
+    try {
+      ipc = await resolveConnect(connection);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to resolve MQTT credentials';
+      store.updateStatus(connection.id, 'disconnected');
+      store.addMessage(connection.id, {
+        direction: 'system',
+        topic: '',
+        payload: msg,
+        qos: 0,
+        retain: false,
+        error: msg,
+      });
+      return { ok: false, error: msg };
+    }
     if (!ipc) {
       store.updateStatus(connection.id, 'disconnected');
       const msg = 'Missing password or TLS material — re-enter credentials.';
@@ -145,7 +162,23 @@ class MqttManager {
     this.unbindListeners(connection.id);
     this.bindListeners(connection.id);
 
-    const result = await api.mqtt.connect(ipc);
+    let result: Awaited<ReturnType<typeof api.mqtt.connect>>;
+    try {
+      result = await api.mqtt.connect(ipc);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'MQTT connect failed';
+      store.updateStatus(connection.id, 'disconnected');
+      store.addMessage(connection.id, {
+        direction: 'system',
+        topic: '',
+        payload: msg,
+        qos: 0,
+        retain: false,
+        error: msg,
+      });
+      this.unbindListeners(connection.id);
+      return { ok: false, error: msg };
+    }
     if (!result.success) {
       store.updateStatus(connection.id, 'disconnected');
       const msg = result.error ?? 'MQTT connect failed';

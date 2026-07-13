@@ -123,8 +123,9 @@ describe('secret-handle-store', () => {
       );
     });
 
-    it('registers all four channels and no others', () => {
+    it('registers all five channels and no others', () => {
       expect([...handlers.keys()].sort()).toEqual([
+        'secret:clear',
         'secret:delete',
         'secret:describe',
         'secret:list',
@@ -155,6 +156,15 @@ describe('secret-handle-store', () => {
       });
 
       expect(await handlers.get('secret:delete')!(event, { id: stored.id })).toEqual({ ok: true });
+      expect(await handlers.get('secret:list')!(event)).toEqual({ ok: true, handles: [] });
+    });
+
+    it('clears every handle without exposing plaintext', async () => {
+      const event = trustedEvent(106);
+      await handlers.get('secret:store')!(event, { value: 'one' });
+      await handlers.get('secret:store')!(event, { value: 'two' });
+
+      expect(await handlers.get('secret:clear')!(event)).toEqual({ ok: true });
       expect(await handlers.get('secret:list')!(event)).toEqual({ ok: true, handles: [] });
     });
 

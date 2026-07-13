@@ -67,12 +67,15 @@ the address we validated:
   `createPinnedLookup` (from `safe-connect.ts`) passed as the `ws` `lookup` option.
 - **SSE** (`sse-handler.ts`) — `createPinnedFetch`, an undici dispatcher whose
   `connect.lookup` returns the validated IP.
+- **MCP** (`mcp-handler.ts`) — `resolveSafeAddress` + a policy-aware pinned
+  fetch supplied to the MCP SDK transport.
+- **gRPC reflection** (`grpc-reflection-handler.ts`) — the same pinned
+  ConnectRPC dial path as unary and streaming gRPC calls.
 
 **Pre-flight only (`electron/main/security/dns-guard.ts`):** Socket.IO
-(`socket.io-client`), MCP, gRPC reflection, Kafka (`assertKafkaBrokersSafe`), and
-MQTT still resolve + validate immediately before connect but cannot pin the
-address, so a TTL=0 rebind between the check and the connect is not mitigated for
-them.
+(`socket.io-client`), Kafka (`assertKafkaBrokersSafe`), and MQTT still resolve +
+validate immediately before connect but cannot pin the address, so a TTL=0
+rebind between the check and the connect is not mitigated for them.
 
 `dns-guard.ts` API (used by the pre-flight tier and by `safe-connect.ts`):
 
@@ -93,9 +96,8 @@ resolve step is skipped and the literal is checked directly. Any
 violation throws synchronously — handlers catch and surface the message
 to the renderer.
 
-> **Residual gap.** Socket.IO, MCP, gRPC reflection, and Kafka remain
-> pre-flight only (plus Kafka's post-connect broker auto-discovery). Bringing
-> them onto connect-time pinning is tracked in
+> **Residual gap.** Socket.IO, Kafka, and MQTT remain pre-flight only (plus
+> Kafka's post-connect broker auto-discovery). Bringing them onto connect-time pinning is tracked in
 > `docs/adr/0006-electron-connection-and-dns-hardening.md`.
 
 > **AI Lab http-exec.** The AI Lab `http-exec` eval target executes an

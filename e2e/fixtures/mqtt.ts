@@ -162,6 +162,7 @@ function installMqttElectronBridge(): void {
     },
     updater: {
       onStatus: () => () => {},
+      getStatus: async () => ({ state: 'idle' as const }),
       check: async () => ({ updateAvailable: false }),
       setConfig: async () => {},
       download: async () => ({ ok: true }),

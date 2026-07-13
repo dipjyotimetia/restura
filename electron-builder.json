@@ -3,6 +3,7 @@
   "appId": "com.dipjyotimetia.restura",
   "productName": "Restura",
   "copyright": "Copyright © 2026 Restura",
+  "afterSign": "./scripts/verify-electron-signature.mjs",
   "directories": {
     "output": "dist/installers",
     "buildResources": "electron/resources"

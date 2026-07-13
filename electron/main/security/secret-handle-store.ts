@@ -238,6 +238,11 @@ export function registerSecretHandleIPC(): void {
   handleSecretChannel(IPC.secret.list, z.undefined(), () => {
     return { ok: true, handles: listSecretHandles() };
   });
+
+  handleSecretChannel(IPC.secret.clear, z.undefined(), () => {
+    getStore().clear();
+    return { ok: true };
+  });
 }
 
 /** Tear down IPC handlers; idempotent. */
@@ -246,6 +251,7 @@ export function unregisterSecretHandleIPC(): void {
   ipcMain.removeHandler('secret:delete');
   ipcMain.removeHandler('secret:describe');
   ipcMain.removeHandler('secret:list');
+  ipcMain.removeHandler('secret:clear');
 }
 
 // ---------------------------------------------------------------------------

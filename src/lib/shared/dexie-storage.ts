@@ -1,12 +1,14 @@
 /**
  * Dexie storage adapter for Zustand persist middleware
- * Provides encrypted IndexedDB storage for offline-first, privacy-focused persistence
+ * Provides IndexedDB storage for offline-first persistence. Electron records
+ * are encrypted; web records are plaintext until the optional passphrase UI ships.
  */
 
 import type { PersistStorage, StorageValue } from 'zustand/middleware';
 import { db } from './database';
 import { encryptValue, decryptValue, isEncrypted } from './encryption';
 import { getKeyProvider, type KeyProvider } from './keyProvider';
+import { getElectronAPI, isElectron } from './platform';
 
 // Singleton encryption key cache
 let cachedEncryptionKey: string | null = null;
@@ -121,7 +123,7 @@ function createStorageRecord(id: string, encryptedData: string) {
 
 /**
  * Create a Dexie storage adapter for Zustand persist middleware
- * Stores data encrypted in IndexedDB for unlimited offline storage
+ * Stores data in IndexedDB, encrypting only when the active KeyProvider does.
  */
 export function createDexieStorage<T = unknown>(config: DexieStorageConfig): PersistStorage<T> {
   const { tableName, encrypt = true } = config;
@@ -379,6 +381,14 @@ export async function checkDexieStorageHealth(): Promise<{
 export async function clearDexieStorage(): Promise<void> {
   await db.clearAllData();
   cachedEncryptionKey = null;
+  if (isElectron()) {
+    const api = getElectronAPI();
+    if (api) {
+      // Dexie must be cleared first: store.clear removes the key used to
+      // decrypt its records. Then wipe every separate desktop secret store.
+      await Promise.all([api.store.clear(), api.secrets.clear(), api.vault.clear()]);
+    }
+  }
 }
 
 /**

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import SettingsDrawer from '../SettingsDrawer';
@@ -28,6 +28,10 @@ function resetSettings() {
 describe('SettingsDrawer', () => {
   beforeEach(() => {
     resetSettings();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('lands on the General section by default', () => {
@@ -89,5 +93,45 @@ describe('SettingsDrawer', () => {
     expect(screen.getByText('Desktop only')).toBeInTheDocument();
     // The old "coming soon" stub must be gone.
     expect(screen.queryByText(/vault overview is coming/i)).not.toBeInTheDocument();
+  });
+
+  it('shows published release notes inside the Updates section', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify([
+            {
+              id: 7,
+              tag_name: 'v1.4.0',
+              name: 'Restura 1.4.0',
+              body: '## Highlights\n\n- In-app release notes',
+              html_url: 'https://github.com/dipjyotimetia/restura/releases/tag/v1.4.0',
+              published_at: '2026-07-12T00:00:00Z',
+              draft: false,
+              prerelease: false,
+            },
+          ])
+        )
+      )
+    );
+
+    render(<SettingsDrawer open onOpenChange={vi.fn()} initialSection="updates" />);
+
+    expect(await screen.findByRole('heading', { name: /release notes/i })).toBeInTheDocument();
+    expect(screen.getAllByText('Restura 1.4.0')).toHaveLength(2);
+    expect(screen.getByText(/in-app release notes/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /open v1\.4\.0 on github/i })).toHaveAttribute(
+      'href',
+      'https://github.com/dipjyotimetia/restura/releases/tag/v1.4.0'
+    );
+  });
+
+  it('does not show a personal author profile in About', () => {
+    render(<SettingsDrawer open onOpenChange={vi.fn()} initialSection="about" />);
+
+    expect(screen.queryByText('Dipjyoti Metia')).not.toBeInTheDocument();
+    expect(screen.queryByText(/creator & maintainer/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /github repository/i })).toBeInTheDocument();
   });
 });

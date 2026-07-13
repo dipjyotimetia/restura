@@ -35,7 +35,7 @@ type SecretValue = string | SecretRef;
   they stay on inline-only.
 - **Handle** is desktop-only. The renderer stores only the `id` and an
   optional human-readable label. The plaintext lives in the main process's
-  secret-handle store (`electron/main/secret-handle-store.ts`), encrypted
+  secret-handle store (`electron/main/security/secret-handle-store.ts`), encrypted
   by `electron-store` with a key wrapped by `safeStorage` (OS keychain).
 
 The renderer never reads plaintext for a handle — that's the entire point.
@@ -48,7 +48,7 @@ auth-signer runs. The preload bridge deliberately exposes only `store`,
 - `src/lib/shared/secretRef.ts` — types, predicates, sync helpers
   (`unwrapSecret`, `describeSecret`, `redactSecret`, constructors,
   `assertSecretValue`)
-- `electron/main/secret-handle-store.ts` — UUID-keyed encrypted store,
+- `electron/main/security/secret-handle-store.ts` — UUID-keyed encrypted store,
   IPC handlers (`secret:store`, `secret:delete`, `secret:describe`),
   main-process-only `resolveSecretHandle` and `unwrapSecretValueMain`
 - `electron/main/preload.ts` — `electronAPI.secrets.{store, delete, describe}`

@@ -73,6 +73,37 @@ export const secureStorage = {
     }
   },
 
+  /** Await a sensitive Electron-store value instead of returning a transient
+   * cache miss on the first read after app restart. */
+  getAsync: async (key: string): Promise<string | null> => {
+    if (!isElectron() || !isSensitiveKey(key)) return secureStorage.get(key);
+    if (sensitiveCache.has(key)) return sensitiveCache.get(key) ?? null;
+
+    let stale: string | null = null;
+    try {
+      stale = typeof window === 'undefined' ? null : localStorage.getItem(key);
+    } catch {
+      stale = null;
+    }
+    if (stale !== null) {
+      sensitiveCache.set(key, stale);
+      await window.electron?.store.set(key, stale);
+      purgePlaintext(key);
+      return stale;
+    }
+
+    try {
+      const value = await window.electron?.store.get(key);
+      if (value !== undefined && value !== null) {
+        sensitiveCache.set(key, value);
+        return value;
+      }
+    } catch {
+      // Missing/unavailable secure store is represented as no value.
+    }
+    return null;
+  },
+
   set: (key: string, value: string): void => {
     if (isElectron() && isSensitiveKey(key)) {
       sensitiveCache.set(key, value);

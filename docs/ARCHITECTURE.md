@@ -490,7 +490,7 @@ Restura's security posture is asymmetric between the Electron desktop client and
 The `KeyProvider` interface (`src/lib/shared/keyProvider.ts`) abstracts where the encryption key for the renderer's Dexie store comes from:
 
 - **Electron**: `ElectronSafeStorageKeyProvider` persists the key via the existing `electronAPI.store` IPC, which is `safeStorage`-protected at the Electron main level (`electron/main/store-handler.ts`). The OS keychain holds the wrapping key — macOS Keychain, Windows Credential Manager, Linux libsecret.
-- **Web**: `EphemeralKeyProvider` by default — a fresh random key per session. The `WebSessionPassphraseProvider` (PBKDF2-derived from a user passphrase) is available but requires a UI passphrase prompt that hasn't shipped yet.
+- **Web**: `PlaintextKeyProvider` by default — IndexedDB is protected only by the browser's same-origin policy. `WebSessionPassphraseProvider` exists, but its passphrase UI has not shipped and is not advertised as an available capability.
 
 ### Auth-at-the-wire
 

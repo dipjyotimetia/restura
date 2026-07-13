@@ -24,7 +24,7 @@ export function UpdateNotification(): ReactElement | null {
     if (!isElectron()) return;
     const api = getElectronAPI();
     if (!api) return;
-    const unsubscribe = api.updater.onStatus((next) => {
+    const applyStatus = (next: UpdaterStatus) => {
       // A failed *automatic* check (offline at startup / on the 6h tick) is
       // noise — stay silent. Only a failure that interrupts an in-progress
       // download the user is watching is worth surfacing; user-initiated
@@ -36,7 +36,21 @@ export function UpdateNotification(): ReactElement | null {
       if (next.state === 'error' && wasDownloading) {
         toast.error('Update download failed', { description: next.message });
       }
+    };
+    let receivedPush = false;
+    const unsubscribe = api.updater.onStatus((next) => {
+      receivedPush = true;
+      applyStatus(next);
     });
+    // Subscribe first, then read the main-process snapshot. This closes the
+    // launch/reload race without allowing an older snapshot to overwrite a
+    // state that arrived over the live event stream.
+    void api.updater
+      .getStatus()
+      .then((next) => {
+        if (!receivedPush) applyStatus(next);
+      })
+      .catch(() => undefined);
     // Tray "Check for Updates" is a user action, so give it transient feedback
     // (Checking… → up-to-date / available) rather than dropping the result.
     const onTrayCheck = () => {
@@ -112,6 +126,13 @@ export function UpdateNotification(): ReactElement | null {
                 Download
               </button>
             )}
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event('restura:open-release-notes'))}
+              className="rounded-md px-2.5 py-1 text-xs font-medium text-sky-200/80 transition hover:bg-sky-400/10"
+            >
+              What's new
+            </button>
           </>
         )}
 

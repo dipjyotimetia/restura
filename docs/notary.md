@@ -27,7 +27,8 @@ Gotchas
 - If Developer ID Application is greyed out / missing in the ＋ menu → your account role isn't Account Holder (only they can create Developer ID certs).
 - If export gives only the cert with no private key under it, you're on a different Mac than the one that generated it — export from the machine where Xcode created it, or you'll need to regenerate.
 
-After that, you have all 5 secrets and merging to main produces a signed + notarized build.
+After that, you have all five macOS secrets. Windows signing remains optional
+until a Windows certificate is available.
 
 ✻ Cooked for 21s
 
@@ -76,7 +77,9 @@ gh secret list # should now show all 5 alongside the Cloudflare ones
 
 Then release
 
-Merge the PR to main → release.yml tags vX.Y.Z, and the macOS leg of the desktop job now picks up CSC*LINK + the APPLE*\* vars to sign and notarize the .dmg/.zip, uploading them (plus latest-mac.yml for auto-update) to the GitHub Release. Windows/Linux still build unsigned (green) until you add WIN_CSC_LINK.
+After merging to main, manually dispatch `release.yml`. The macOS leg uses the
+`CSC_*` and `APPLE_*` secrets to sign and notarize the DMG/ZIP. Windows signing
+remains optional until `WIN_CSC_LINK` and `WIN_CSC_KEY_PASSWORD` are configured.
 
 Confirm the shipped build is valid
 
@@ -121,4 +124,6 @@ So:
 - APPLE_APP_SPECIFIC_PASSWORD = the abcd-efgh-ijkl-mnop string from appleid.apple.com.
 - APPLE_TEAM_ID = the 10-char ID from security find-identity (or Membership page).
 
-Once both are set (plus CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID), gh secret list shows all 5 and the next merge to main produces a signed + notarized build.
+Once both are set (plus `CSC_LINK`, `CSC_KEY_PASSWORD`, and `APPLE_ID`),
+`gh secret list` shows all five macOS secrets. The next manually dispatched
+stable release produces a signed and notarized macOS build.

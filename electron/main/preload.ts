@@ -80,6 +80,7 @@ const electronAPI = {
       message?: string;
       error?: string;
     }> => ipcRenderer.invoke(IPC.updater.check),
+    getStatus: (): Promise<UpdaterStatus> => ipcRenderer.invoke(IPC.updater.status),
     download: (): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC.updater.download),
     cancel: (): Promise<{ ok: boolean }> => ipcRenderer.invoke(IPC.updater.cancel),
@@ -746,6 +747,9 @@ const electronAPI = {
         }
       | { ok: false; error: string }
     > => ipcRenderer.invoke(IPC.secret.list),
+
+    clear: (): Promise<{ ok: true } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(IPC.secret.clear),
   },
 
   // pm.vault — user-named encrypted key-value secret store. Separate from
@@ -757,6 +761,7 @@ const electronAPI = {
     set: (key: string, value: string): Promise<{ ok: true }> =>
       ipcRenderer.invoke(IPC.vault.set, { key, value }),
     unset: (key: string): Promise<{ ok: true }> => ipcRenderer.invoke(IPC.vault.unset, { key }),
+    clear: (): Promise<{ ok: true }> => ipcRenderer.invoke(IPC.vault.clear),
   },
 
   ai: {

@@ -37,7 +37,7 @@ The browser sandbox can't expose raw TCP, custom CAs, SOCKS, or PAC scripting. R
 
 ### Available on both web and desktop
 
-HTTP/REST, GraphQL, gRPC (unary + streaming over the Connect protocol), WebSocket, basic SSE, MCP over streamable-HTTP, Socket.IO emit / listen / ack, collections, environments, workflows, scripts, encrypted local storage, and the SSRF guard.
+HTTP/REST, GraphQL, gRPC (unary + streaming over the Connect protocol), WebSocket, basic SSE, MCP over streamable-HTTP, Socket.IO emit / listen / ack, collections, environments, workflows, scripts, persistent local storage, and the SSRF guard. Web persistence is plaintext IndexedDB; OS-keychain-backed encryption is desktop-only.
 
 <Aside type="note">
 The exact, machine-generated truth lives in [`src/lib/shared/capabilities.ts`](https://github.com/dipjyotimetia/restura/blob/main/src/lib/shared/capabilities.ts) and is published as the [capability matrix](/reference/capability-matrix/).
