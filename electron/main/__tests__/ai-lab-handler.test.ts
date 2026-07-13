@@ -259,4 +259,43 @@ describe('ai-lab-handler', () => {
     resolveComplete({ ok: true, text: 'done', toolCalls: [] });
     await pending;
   });
+
+  it('settles a cancelled queued completion before an occupied slot is released', async () => {
+    const releases: Array<(value: { ok: true; text: string; toolCalls: never[] }) => void> = [];
+    mockRunToCompletion.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releases.push(resolve);
+        })
+    );
+    const complete = handlerFor('ai-lab:complete');
+    const cancel = handlerFor('ai-lab:complete:cancel');
+    const operationIds = Array.from(
+      { length: 9 },
+      (_, index) => `66666666-6666-4666-8666-${String(index).padStart(12, '0')}`
+    );
+    const calls = operationIds.map((operationId) =>
+      complete(TRUSTED, {
+        operationId,
+        provider: 'ollama',
+        model: 'm',
+        messages: [{ role: 'user', content: 'hi' }],
+        rawMode: false,
+        baseUrlOverride: 'http://localhost:11434',
+      })
+    );
+
+    await vi.waitFor(() => expect(mockRunToCompletion).toHaveBeenCalledTimes(8));
+    expect(releases).toHaveLength(8);
+    await cancel(TRUSTED, { operationId: operationIds[8] });
+
+    const queuedResult = await Promise.race([
+      calls[8],
+      new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 25)),
+    ]);
+
+    for (const release of releases) release({ ok: true, text: 'done', toolCalls: [] });
+    await Promise.all(calls);
+    expect(queuedResult).toEqual({ ok: false, error: 'Operation cancelled.' });
+  });
 });

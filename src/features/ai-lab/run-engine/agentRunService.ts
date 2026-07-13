@@ -23,6 +23,7 @@ interface AgentRunLiveState {
   completedReport: AgentEnvelope | null;
   persistenceError: string | null;
   persistedReportId: string | null;
+  navigationReportId: string | null;
 }
 
 const initialState: AgentRunLiveState = {
@@ -33,6 +34,7 @@ const initialState: AgentRunLiveState = {
   completedReport: null,
   persistenceError: null,
   persistedReportId: null,
+  navigationReportId: null,
 };
 
 export const useAgentRunLiveStore = create<AgentRunLiveState>()(() => initialState);
@@ -93,6 +95,7 @@ export function startAgentRun(
     activeJobId: started.jobId,
     completedReport: null,
     persistenceError: null,
+    navigationReportId: null,
   });
   void finishAgentRun(started.jobId, suite, started.result, currentOwner);
   return true;
@@ -109,7 +112,11 @@ export function cancelAgentRun(): boolean {
 export async function retryAgentReportPersistence(): Promise<boolean> {
   const report = useAgentRunLiveStore.getState().completedReport;
   if (!report) return false;
-  return persistReport(report);
+  const persisted = await persistReport(report);
+  if (persisted && currentOwner !== null && mountedOwners.has(currentOwner)) {
+    useAgentRunLiveStore.setState({ navigationReportId: report.id });
+  }
+  return persisted;
 }
 
 async function finishAgentRun(
@@ -133,12 +140,9 @@ async function finishAgentRun(
       completedReport: sanitized,
       status: report.status.toUpperCase(),
     });
-    if (owner !== null && mountedOwners.has(owner)) {
-      await persistReport(sanitized);
-    } else if (useAgentRunLiveStore.getState().persistedReportId !== sanitized.id) {
-      useAgentRunLiveStore.setState({
-        persistenceError: 'persistence pending: report completed after workbench unmounted',
-      });
+    const persisted = await persistReport(sanitized);
+    if (persisted && owner !== null && mountedOwners.has(owner)) {
+      useAgentRunLiveStore.setState({ navigationReportId: sanitized.id });
     }
   } catch (cause) {
     if (useAgentRunLiveStore.getState().activeJobId !== jobId) return;

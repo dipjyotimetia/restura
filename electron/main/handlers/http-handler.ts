@@ -318,12 +318,14 @@ function createSecureLookup(
 
 // Opens a raw TCP tunnel through a SOCKS4 or SOCKS5 proxy.
 // Returns a connected net.Socket pointed at (targetHost, targetPort).
-function openSocksSocket(
+export function openSocksSocket(
   proxy: ElectronProxyConfig,
   targetHost: string,
-  targetPort: number
+  targetPort: number,
+  signal?: AbortSignal
 ): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
+    signal?.throwIfAborted();
     const socket = net.createConnection({
       host: proxy.host,
       port: proxy.port,
@@ -332,10 +334,36 @@ function openSocksSocket(
       // upstream private-IP policy here (that's applied on the target lookup).
       lookup: createSecureLookup(proxy.host, true, false),
     });
-    socket.once('error', reject);
+    let settled = false;
+    let dataListener: ((data: Buffer) => void) | undefined;
+    const cleanup = () => {
+      socket.removeListener('error', onError);
+      socket.removeListener('connect', onConnect);
+      if (dataListener) socket.removeListener('data', dataListener);
+      signal?.removeEventListener('abort', onAbort);
+    };
+    const fail = (cause: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      socket.destroy();
+      reject(cause);
+    };
+    const succeed = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(socket);
+    };
+    const onError = (cause: Error) => fail(cause);
+    const onAbort = () => {
+      const error = new Error('Operation cancelled.');
+      error.name = 'AbortError';
+      fail(error);
+    };
 
-    if (proxy.type === 'socks4') {
-      socket.once('connect', () => {
+    const onConnect = () => {
+      if (proxy.type === 'socks4') {
         // SOCKS4a: send destination IP 0.0.0.1 (non-zero last byte flags the proxy to resolve
         // the hostname itself) followed by a NUL-terminated hostname in the request tail.
         const hostBuf = Buffer.from(targetHost + '\0', 'ascii');
@@ -350,29 +378,26 @@ function openSocksSocket(
           hostBuf,
         ]);
         socket.write(req);
-        socket.once('data', (data: Buffer) => {
+        dataListener = (data: Buffer) => {
           if (data[1] === 0x5a) {
-            socket.removeListener('error', reject);
-            resolve(socket);
+            succeed();
           } else {
-            socket.destroy();
-            reject(new Error(`SOCKS4 proxy rejected connection (code ${data[1]})`));
+            fail(new Error(`SOCKS4 proxy rejected connection (code ${data[1]})`));
           }
-        });
-      });
-    } else {
-      // SOCKS5
-      socket.once('connect', () => {
+        };
+        socket.once('data', dataListener);
+      } else {
+        // SOCKS5
         const hasAuth = !!proxy.auth?.username;
         const greeting = hasAuth
           ? Buffer.from([0x05, 0x02, 0x00, 0x02])
           : Buffer.from([0x05, 0x01, 0x00]);
         socket.write(greeting);
 
-        socket.once('data', (authMethodReply: Buffer) => {
+        dataListener = (authMethodReply: Buffer) => {
           if (authMethodReply[0] !== 0x05) {
-            socket.destroy();
-            return reject(new Error('SOCKS5 invalid server greeting'));
+            fail(new Error('SOCKS5 invalid server greeting'));
+            return;
           }
           const method = authMethodReply[1];
 
@@ -386,14 +411,14 @@ function openSocksSocket(
               portBuf,
             ]);
             socket.write(connectReq);
-            socket.once('data', (connectReply: Buffer) => {
+            dataListener = (connectReply: Buffer) => {
               if (connectReply[1] !== 0x00) {
-                socket.destroy();
-                return reject(new Error(`SOCKS5 connection failed (code ${connectReply[1]})`));
+                fail(new Error(`SOCKS5 connection failed (code ${connectReply[1]})`));
+                return;
               }
-              socket.removeListener('error', reject);
-              resolve(socket);
-            });
+              succeed();
+            };
+            socket.once('data', dataListener);
           };
 
           const socksPassword = unwrapSecretValueMain(proxy.auth?.password);
@@ -409,20 +434,24 @@ function openSocksSocket(
               pass,
             ]);
             socket.write(authReq);
-            socket.once('data', (authReply: Buffer) => {
+            dataListener = (authReply: Buffer) => {
               if (authReply[1] !== 0x00) {
-                socket.destroy();
-                return reject(new Error('SOCKS5 authentication failed'));
+                fail(new Error('SOCKS5 authentication failed'));
+                return;
               }
               sendConnect();
-            });
+            };
+            socket.once('data', dataListener);
           } else {
-            socket.destroy();
-            reject(new Error('SOCKS5 no acceptable auth method'));
+            fail(new Error('SOCKS5 no acceptable auth method'));
           }
-        });
-      });
-    }
+        };
+        socket.once('data', dataListener);
+      }
+    };
+    socket.once('error', onError);
+    socket.once('connect', onConnect);
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
 
@@ -1005,7 +1034,8 @@ async function makeHttpRequest(
     socksSocket = await openSocksSocket(
       interceptedConfig.proxy,
       socksUrl.hostname,
-      socksTargetPort
+      socksTargetPort,
+      interceptedConfig.signal
     );
   }
 

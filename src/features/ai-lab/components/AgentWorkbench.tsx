@@ -57,16 +57,16 @@ export function AgentWorkbench() {
   const runStatus = useAgentRunLiveStore((state) => state.status);
   const completedReport = useAgentRunLiveStore((state) => state.completedReport);
   const persistenceError = useAgentRunLiveStore((state) => state.persistenceError);
-  const persistedReportId = useAgentRunLiveStore((state) => state.persistedReportId);
+  const navigationReportId = useAgentRunLiveStore((state) => state.navigationReportId);
   const fileRef = useRef<HTMLInputElement>(null);
-  const seenPersistedReportId = useRef(persistedReportId);
+  const seenNavigationReportId = useRef(navigationReportId);
 
   useEffect(() => {
-    if (persistedReportId && persistedReportId !== seenPersistedReportId.current) {
-      seenPersistedReportId.current = persistedReportId;
-      openReport(persistedReportId);
+    if (navigationReportId && navigationReportId !== seenNavigationReportId.current) {
+      seenNavigationReportId.current = navigationReportId;
+      openReport(navigationReportId);
     }
-  }, [openReport, persistedReportId]);
+  }, [navigationReportId, openReport]);
 
   useEffect(() => registerAgentRunOwner(), []);
 

@@ -209,7 +209,7 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
       headers[h.key] = resolveLocal(h.value);
     });
 
-  const effectiveAuth = await refreshOAuth2Auth(request.auth);
+  const effectiveAuth = await refreshOAuth2Auth(request.auth, Date.now(), options.signal);
 
   const headersWithAuth = await applyAuthHeaders(
     effectiveAuth,

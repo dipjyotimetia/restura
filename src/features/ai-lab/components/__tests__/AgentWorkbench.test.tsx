@@ -140,7 +140,7 @@ describe('AgentWorkbench runs', () => {
     expect(startAgentRun(SUITE, {})).toBe(false);
   });
 
-  it('retains late completion in memory without saving or navigating after unmount', async () => {
+  it('persists late completion without navigating after unmount', async () => {
     let resolve!: (report: typeof REPORT) => void;
     runDesktopAgentSuite.mockImplementation(
       () => new Promise<typeof REPORT>((done) => (resolve = done))
@@ -154,19 +154,41 @@ describe('AgentWorkbench runs', () => {
     view.unmount();
     await act(async () => resolve(REPORT));
 
-    expect(save).not.toHaveBeenCalled();
+    expect(save).toHaveBeenCalledOnce();
     expect(useAiLabUiStore.getState().tab).toBe('agents');
     expect(useAgentRunLiveStore.getState().completedReport).toMatchObject({
       kind: 'agent-suite',
       status: 'passed',
     });
-    expect(useAgentRunLiveStore.getState().persistedReportId).not.toBe(
+    expect(useAgentRunLiveStore.getState().persistedReportId).toBe(
       useAgentRunLiveStore.getState().completedReport?.id
     );
-    expect(useAgentRunLiveStore.getState().persistenceError).toMatch(/pending/i);
+    expect(useAgentRunLiveStore.getState().persistenceError).toBeNull();
   });
 
-  it('refuses a new run while a late completion is still pending persistence', async () => {
+  it('does not let a remount navigate for the original unmounted owner', async () => {
+    let resolveRun!: (report: typeof REPORT) => void;
+    let resolveSave!: () => void;
+    runDesktopAgentSuite.mockImplementation(
+      () => new Promise<typeof REPORT>((done) => (resolveRun = done))
+    );
+    save.mockImplementationOnce(() => new Promise<void>((done) => (resolveSave = done)));
+    const first = render(<AgentWorkbench />);
+    fireEvent.change(screen.getByLabelText('Agent suite JSON'), {
+      target: { value: JSON.stringify(SUITE) },
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Run' }));
+    first.unmount();
+    await act(async () => resolveRun(REPORT));
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+
+    render(<AgentWorkbench />);
+    await act(async () => resolveSave());
+
+    expect(useAiLabUiStore.getState().tab).toBe('agents');
+  });
+
+  it('allows a new run after an unmounted owner completion was persisted', async () => {
     let resolve!: (report: typeof REPORT) => void;
     runDesktopAgentSuite.mockImplementation(
       () => new Promise<typeof REPORT>((done) => (resolve = done))
@@ -178,12 +200,11 @@ describe('AgentWorkbench runs', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Run' }));
     view.unmount();
     await act(async () => resolve(REPORT));
-    const pending = useAgentRunLiveStore.getState().completedReport;
+    runDesktopAgentSuite.mockImplementationOnce(() => new Promise(() => {}));
 
-    expect(startAgentRun(SUITE, {})).toBe(false);
-    expect(useAgentRunLiveStore.getState().completedReport).toBe(pending);
-    expect(useAgentRunLiveStore.getState().persistenceError).toMatch(/pending/i);
-    expect(runDesktopAgentSuite).toHaveBeenCalledTimes(1);
+    expect(startAgentRun(SUITE, {})).toBe(true);
+    expect(useAgentRunLiveStore.getState().persistenceError).toBeNull();
+    expect(runDesktopAgentSuite).toHaveBeenCalledTimes(2);
   });
 
   it('retains a completed report after save failure and retries successfully', async () => {

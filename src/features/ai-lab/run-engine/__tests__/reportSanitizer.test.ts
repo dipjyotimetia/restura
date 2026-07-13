@@ -67,6 +67,20 @@ describe('agent report persistence sanitization', () => {
     expect(serialized).toContain('[REDACTED]');
   });
 
+  it('removes arbitrary URL credentials and fragments', () => {
+    const envelope = agentEnvelope(
+      'https://arbitrary-user:arbitrary-password@example.test/path?safe=value#private-fragment'
+    );
+
+    const serialized = JSON.stringify(sanitizeAgentSuiteReportForPersistence(envelope));
+
+    expect(serialized).not.toContain('arbitrary-user');
+    expect(serialized).not.toContain('arbitrary-password');
+    expect(serialized).not.toContain('private-fragment');
+    expect(serialized).not.toContain('value');
+    expect(serialized).toContain('https://example.test/path');
+  });
+
   it('preserves resource token counters and round-trips through the report schema', () => {
     const envelope = agentEnvelope('safe');
     envelope.payload.results = [

@@ -91,6 +91,9 @@ function redactUrl(value: string): string {
   return value.replace(/https?:\/\/[^\s"']+/g, (candidate) => {
     try {
       const url = new URL(candidate);
+      url.username = '';
+      url.password = '';
+      url.hash = '';
       for (const key of [...url.searchParams.keys()]) url.searchParams.set(key, '[REDACTED]');
       return url.toString();
     } catch {

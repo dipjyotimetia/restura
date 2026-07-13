@@ -60,23 +60,47 @@ async function resolveSecretFn(handleId: string): Promise<string | undefined> {
   return typeof v === 'string' ? v : undefined;
 }
 
-/** Minimal queueing semaphore — never rejects, just serialises past the cap. */
+/** Queueing semaphore whose pending acquisitions remain cancellable. */
 function makeSemaphore(max: number) {
   let inUse = 0;
-  const waiters: Array<() => void> = [];
-  const acquire = (): Promise<void> =>
-    new Promise((resolve) => {
+  interface Waiter {
+    resolve: () => void;
+    reject: (cause: Error) => void;
+    signal?: AbortSignal;
+    onAbort?: () => void;
+  }
+  const waiters: Waiter[] = [];
+  const abortError = () => {
+    const error = new Error('Operation cancelled.');
+    error.name = 'AbortError';
+    return error;
+  };
+  const acquire = (signal?: AbortSignal): Promise<void> =>
+    new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(abortError());
+        return;
+      }
       if (inUse < max) {
         inUse += 1;
         resolve();
       } else {
-        waiters.push(resolve);
+        const waiter: Waiter = { resolve, reject, ...(signal ? { signal } : {}) };
+        const onAbort = () => {
+          const index = waiters.indexOf(waiter);
+          if (index !== -1) waiters.splice(index, 1);
+          reject(abortError());
+        };
+        waiter.onAbort = onAbort;
+        waiters.push(waiter);
+        signal?.addEventListener('abort', onAbort, { once: true });
       }
     });
   const release = () => {
     const next = waiters.shift();
     if (next) {
-      next();
+      if (next.signal && next.onAbort) next.signal.removeEventListener('abort', next.onAbort);
+      next.resolve();
     } else {
       inUse = Math.max(0, inUse - 1);
     }
@@ -202,7 +226,7 @@ export function registerAiLabHandlers(): void {
     try {
       const fetcher = await buildSafeFetcher(data.provider, data.baseUrlOverride);
       if (abort.signal.aborted) return { ok: false as const, error: 'Operation cancelled.' };
-      await completeSlots.acquire();
+      await completeSlots.acquire(abort.signal);
       slotAcquired = true;
       if (abort.signal.aborted) return { ok: false as const, error: 'Operation cancelled.' };
       const result = await runToCompletion(
