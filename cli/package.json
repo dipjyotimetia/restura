@@ -42,7 +42,7 @@
     "node": ">=24"
   },
   "scripts": {
-    "prebuild": "node ../scripts/build-sandbox-libs.mjs",
+    "prebuild": "node ../scripts/ensure-rollup-native.mjs && node ../scripts/build-sandbox-libs.mjs",
     "build": "tsup src/index.ts --format esm --target node24 --clean --tsconfig tsconfig.json",
     "pretest": "node ../scripts/ensure-sandbox-libs.mjs",
     "test": "vitest run",
