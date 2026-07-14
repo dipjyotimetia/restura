@@ -175,7 +175,7 @@
   },
   "devDependencies": {
     "@bufbuild/protoc-gen-es": "^2.12.1",
-    "@cloudflare/vite-plugin": "^1.43.2",
+    "@cloudflare/vite-plugin": "^1.43.3",
     "@cloudflare/workers-types": "^5.20260708.1",
     "@commitlint/cli": "^21.2.1",
     "@commitlint/config-conventional": "^21.2.0",
