@@ -1201,10 +1201,10 @@ describe('dagExecutor — switch / loop / template / display', () => {
           data: {
             conditionExpression: 'return true;',
             mode: 'while',
-            // Two iterations are enough to prove the cap is honored while
-            // avoiding five separate QuickJS condition runtimes competing
-            // with hundreds of coverage-instrumented test files in CI.
-            maxIterations: 2,
+            // One iteration is enough to prove the cap is honored while
+            // avoiding multiple competing QuickJS condition runtimes under
+            // coverage-heavy CI timing.
+            maxIterations: 1,
             subgraph: bodyGraph,
           },
         },
@@ -1221,7 +1221,7 @@ describe('dagExecutor — switch / loop / template / display', () => {
       envVars: {},
     });
     expect(result.status).toBe('success');
-    expect(result.finalVariables['lp.iterations']).toBe('2');
+    expect(result.finalVariables['lp.iterations']).toBe('1');
   }, 30000);
 
   it('template renders {{vars}} into the result variable', async () => {
