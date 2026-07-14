@@ -115,7 +115,7 @@
     "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.0.0",
     "@vscode/vsce": "^3.9.2",
-    "esbuild": "^0.25.12",
+    "esbuild": "^0.28.1",
     "mocha": "^11.7.6",
     "typescript": "^5.9.0",
     "vitest": "^4.1.9"
