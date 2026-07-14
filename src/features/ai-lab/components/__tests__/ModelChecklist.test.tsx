@@ -68,4 +68,86 @@ describe('ModelChecklist', () => {
     );
     expect(screen.getByText('1 of 12 selected')).toBeInTheDocument();
   });
+
+  it('renders all discovery metadata formats and tolerates invalid values', () => {
+    const models: ModelChecklistEntry[] = [
+      {
+        key: 'rich',
+        label: 'Rich model',
+        id: 'provider/rich-model',
+        detail: {
+          parameterSize: '3.2B',
+          quantizationLevel: 'Q4_K_M',
+          contextLength: 1_500_000,
+          modality: 'text+image→text',
+          vendor: 'vendor',
+          createdAt: '2026-07-13T00:00:00Z',
+        },
+      },
+      { key: 'million', label: 'Million', detail: { contextLength: 2_000_000 } },
+      { key: 'thousand', label: 'Thousand', detail: { contextLength: 32_000 } },
+      { key: 'small', label: 'Small', detail: { contextLength: 512 } },
+      {
+        key: 'invalid',
+        label: 'Invalid',
+        id: 'provider/invalid',
+        detail: { contextLength: Number.NaN, createdAt: 'not-a-date' },
+      },
+    ];
+
+    render(
+      <ModelChecklist models={models} selected={new Set()} onToggle={() => {}} emptyText="" />
+    );
+
+    for (const text of [
+      '3.2B',
+      'Q4_K_M',
+      '1.5M ctx',
+      'text+image→text',
+      'vendor',
+      '2026-07-13',
+      '2M ctx',
+      '32K ctx',
+      '512 ctx',
+    ]) {
+      expect(screen.getByText(text)).toBeInTheDocument();
+    }
+  });
+
+  it('shows no-match state, clears selections, and finds group/id matches', () => {
+    const onChangeSelected = vi.fn();
+    render(
+      <ModelChecklist
+        models={MODELS}
+        selected={new Set(['p1:model-1'])}
+        onToggle={() => {}}
+        onChangeSelected={onChangeSelected}
+        emptyText=""
+      />
+    );
+
+    fireEvent.change(screen.getByLabelText('Filter models'), { target: { value: 'missing' } });
+    expect(screen.getByText('No models match “missing”.')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Filter models'), { target: { value: 'openrouter' } });
+    expect(screen.getByText('Model 11')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }));
+    expect(onChangeSelected).toHaveBeenLastCalledWith(new Set());
+  });
+
+  it('toggles an ungrouped compact entry and safely no-ops bulk selection without a handler', () => {
+    const onToggle = vi.fn();
+    const compact = Array.from({ length: 9 }, (_, index) => ({
+      key: `m-${index}`,
+      label: index === 0 ? 'same-id' : `Model ${index}`,
+      id: index === 0 ? 'same-id' : `provider/model-${index}`,
+    }));
+    render(
+      <ModelChecklist models={compact} selected={new Set()} onToggle={onToggle} emptyText="" />
+    );
+
+    fireEvent.click(screen.getAllByRole('checkbox')[0]!);
+    expect(onToggle).toHaveBeenCalledWith('m-0');
+    expect(screen.queryByText('__ungrouped')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Select all' })).not.toBeInTheDocument();
+  });
 });

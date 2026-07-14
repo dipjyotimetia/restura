@@ -236,3 +236,155 @@ describe('json-schema scorer error handling', () => {
     expect(r.passed).toBe(false);
   });
 });
+
+describe('scorer edge cases', () => {
+  it('covers missing references and case-sensitive deterministic failures', async () => {
+    const noGold: DatasetCase = { id: 'empty', vars: {} };
+    await expect(
+      runScorer(
+        { id: 'exact', kind: 'exact-match', expectedFrom: 'reference' },
+        { ...ctx(), testCase: noGold }
+      )
+    ).resolves.toMatchObject({ passed: false, detail: 'case has no reference value' });
+    await expect(
+      runScorer(
+        { id: 'contains', kind: 'contains', needle: 'PARIS', caseInsensitive: false },
+        ctx()
+      )
+    ).resolves.toMatchObject({ passed: false });
+  });
+
+  it('handles available and unavailable script runners with and without failure details', async () => {
+    const scorer: ScorerConfig = { id: 'script', kind: 'script', code: 'pm.test("x",()=>{})' };
+    await expect(runScorer(scorer, ctx())).resolves.toMatchObject({
+      passed: false,
+      detail: 'script runner unavailable',
+    });
+    await expect(
+      runScorer(
+        scorer,
+        ctx({ runScript: async () => ({ passed: true, failures: [] }) })
+      )
+    ).resolves.toEqual({ scorerId: 'script', kind: 'script', passed: true });
+    await expect(
+      runScorer(
+        scorer,
+        ctx({ runScript: async () => ({ passed: false, failures: ['first', 'second'] }) })
+      )
+    ).resolves.toMatchObject({ passed: false, detail: 'first; second' });
+  });
+
+  it.each([
+    ['B', 0.1, '', 'baseline wins'],
+    ['tie', 0.5, 'same', 'tie — same'],
+  ] as const)('maps pairwise %s verdicts and forwards optional controls', async (winner, score, reasoning, detail) => {
+    const pairwise = vi.fn(async () => ({ winner, score, reasoning }));
+    const scorer: ScorerConfig = {
+      id: 'pair',
+      kind: 'pairwise',
+      judgeModel: { providerConfigId: 'judge', model: 'm' },
+      baseline: 'reference',
+      passThreshold: 0.6,
+      criteria: [{ name: 'quality', rubric: 'good', weight: 1 }],
+      swapPositions: false,
+    };
+
+    await expect(runScorer(scorer, ctx({ pairwise }))).resolves.toMatchObject({
+      passed: false,
+      score,
+      detail,
+    });
+    expect(pairwise).toHaveBeenCalledWith(expect.objectContaining({ swapPositions: false }));
+  });
+
+  it('fails closed when pairwise and judge runners throw non-Error values', async () => {
+    const pairwiseScorer: ScorerConfig = {
+      id: 'pair',
+      kind: 'pairwise',
+      judgeModel: { providerConfigId: 'judge', model: 'm' },
+      baseline: 'reference',
+      passThreshold: 0.5,
+    };
+    await expect(runScorer(pairwiseScorer, ctx())).resolves.toMatchObject({
+      detail: 'pairwise runner unavailable',
+    });
+    await expect(
+      runScorer(pairwiseScorer, ctx({ pairwise: async () => Promise.reject('pair exploded') }))
+    ).resolves.toMatchObject({ detail: 'pairwise failed: pair exploded' });
+
+    const judgeScorer: ScorerConfig = {
+      id: 'judge',
+      kind: 'judge',
+      judgeModel: { providerConfigId: 'judge', model: 'm' },
+      passThreshold: 0.5,
+    };
+    await expect(
+      runScorer(judgeScorer, ctx({ judge: async () => Promise.reject('judge exploded') }))
+    ).resolves.toMatchObject({ detail: 'judge failed: judge exploded' });
+    await expect(
+      runScorer(
+        judgeScorer,
+        ctx({ judge: async () => ({ pass: false, score: 0, reasoning: '' }) })
+      )
+    ).resolves.toEqual({ scorerId: 'judge', kind: 'judge', passed: false, score: 0 });
+  });
+
+  it('fails tool-call parsing, schema, and expected-argument boundaries', async () => {
+    const invalidArgs: ScorerConfig = { id: 'tool', kind: 'tool-call' };
+    await expect(
+      runScorer(invalidArgs, ctx({ toolCalls: [{ id: '1', name: 'first', input: '{' }] }))
+    ).resolves.toMatchObject({ detail: 'tool "first" arguments are not valid JSON' });
+
+    const invalidSchema: ScorerConfig = {
+      id: 'tool',
+      kind: 'tool-call',
+      argsSchema: 'not-json',
+    };
+    await expect(
+      runScorer(invalidSchema, ctx({ toolCalls: [{ id: '1', name: 'first', input: '' }] }))
+    ).resolves.toMatchObject({ detail: 'scorer schema is not valid JSON' });
+
+    const expected: ScorerConfig = {
+      id: 'tool',
+      kind: 'tool-call',
+      expectedArgsFrom: 'expected',
+    };
+    await expect(
+      runScorer(expected, {
+        ...ctx(),
+        testCase: { id: 'missing', vars: {} },
+        toolCalls: [{ id: '1', name: 'first', input: '{}' }],
+      })
+    ).resolves.toMatchObject({ detail: /case has no expected value/ });
+    await expect(
+      runScorer(expected, {
+        ...ctx(),
+        testCase: { id: 'invalid', vars: {}, expected: 'not-json' },
+        toolCalls: [{ id: '1', name: 'first', input: '{}' }],
+      })
+    ).resolves.toMatchObject({ detail: 'case expected is not valid JSON' });
+    await expect(
+      runScorer(expected, {
+        ...ctx(),
+        testCase: { id: 'array', vars: {}, expected: '[1,2]' },
+        toolCalls: [{ id: '1', name: 'first', input: '[1,2]' }],
+      })
+    ).resolves.toMatchObject({ passed: true });
+    await expect(
+      runScorer(expected, {
+        ...ctx(),
+        testCase: { id: 'array', vars: {}, expected: '[1,2,3]' },
+        toolCalls: [{ id: '1', name: 'first', input: '[1,2]' }],
+      })
+    ).resolves.toMatchObject({ passed: false });
+  });
+
+  it('rejects invalid JSON before compiling a JSON schema', async () => {
+    await expect(
+      runScorer(
+        { id: 'schema', kind: 'json-schema', schema: '{"type":"object"}' },
+        ctx({ output: 'not-json' })
+      )
+    ).resolves.toMatchObject({ detail: 'output is not valid JSON' });
+  });
+});

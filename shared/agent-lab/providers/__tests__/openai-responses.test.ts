@@ -240,4 +240,255 @@ describe('OpenAiResponsesAdapter', () => {
     expect(authorization).toBe('Bearer secret');
     expect(models[0]?.id).toBe('gpt-test');
   });
+
+  it('serializes every supported content form and structured-output control', async () => {
+    let sentBody: Record<string, unknown> = {};
+    const adapter = new OpenAiResponsesAdapter({
+      baseUrl: 'https://gateway.example///',
+      fetcher: async (request) => {
+        sentBody = JSON.parse(String(request.body));
+        return {
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: null,
+          contentLengthHeader: null,
+          async text() {
+            return JSON.stringify({
+              id: 'response',
+              status: 'incomplete',
+              output: [
+                {
+                  type: 'message',
+                  content: [
+                    { type: 'refusal', refusal: 'cannot comply' },
+                    { type: 'ignored', text: 'ignored' },
+                  ],
+                },
+                { type: 'function_call', id: 'fallback-id', name: 'invalid', arguments: '{' },
+                { type: 'function_call', name: 'generated-id', arguments: { raw: true } },
+              ],
+              usage: { input_tokens: 'unknown', output_tokens: 4 },
+            });
+          },
+        };
+      },
+    });
+
+    const result = await adapter.generate(
+      {
+        model: {
+          providerId: 'openai.responses',
+          model: 'gpt-5',
+          baseUrl: 'https://override.example/',
+        },
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image', mimeType: 'image/png', uri: 'https://image.example/a.png' },
+              { type: 'image', mimeType: 'image/png', data: 'image-data' },
+              {
+                type: 'document',
+                mimeType: 'application/pdf',
+                uri: 'https://docs.example/a.pdf',
+              },
+              {
+                type: 'document',
+                mimeType: 'application/pdf',
+                data: 'document-data',
+                name: 'brief.pdf',
+              },
+              { type: 'json', value: { value: 1 } },
+              { type: 'artifact', artifactId: 'artifact-1' },
+              { type: 'refusal', reason: 'source refusal' },
+              { type: 'reasoning-summary', text: 'summary' },
+            ],
+          },
+          {
+            role: 'assistant',
+            content: [],
+            toolCalls: [{ id: 'tool', name: 'lookup', arguments: 'raw-arguments' }],
+          },
+          {
+            role: 'tool',
+            toolCallId: 'tool',
+            content: [
+              { type: 'text', text: 'text result' },
+              { type: 'reasoning-summary', text: 'tool summary' },
+              { type: 'artifact', artifactId: 'tool-artifact' },
+            ],
+          },
+        ],
+        structuredOutput: { type: 'object' },
+        reasoning: { effort: 'low', summary: false },
+        maxOutputTokens: 12,
+      },
+      { async resolveCredential() {} }
+    );
+
+    expect(sentBody).toMatchObject({
+      model: 'gpt-5',
+      text: { format: { type: 'json_schema', name: 'response' } },
+      reasoning: { effort: 'low' },
+      max_output_tokens: 12,
+      store: false,
+    });
+    expect(JSON.stringify(sentBody)).toContain('data:image/png;base64,image-data');
+    expect(JSON.stringify(sentBody)).toContain('brief.pdf');
+    expect(result.output).toEqual([{ type: 'refusal', reason: 'cannot comply' }]);
+    expect(result.toolCalls[0]).toEqual({
+      id: 'fallback-id',
+      name: 'invalid',
+      arguments: '{',
+    });
+    expect(result.toolCalls[1]?.id).toMatch(/[0-9a-f-]{36}/i);
+    expect(result.usage).toBeUndefined();
+    expect(result.stopReason).toBe('tool-calls');
+  });
+
+  it.each([
+    [
+      'continuation id',
+      {
+        continuationId: 'server-state',
+        messages: [{ role: 'user' as const, content: [{ type: 'text' as const, text: 'hi' }] }],
+      },
+      /continuation IDs are disabled/,
+    ],
+    [
+      'missing audio data',
+      {
+        messages: [
+          {
+            role: 'user' as const,
+            content: [
+              {
+                type: 'audio' as const,
+                mimeType: 'audio/wav',
+                uri: 'https://audio.example/a.wav',
+              },
+            ],
+          },
+        ],
+      },
+      /requires base64 data/,
+    ],
+    [
+      'unsupported audio format',
+      {
+        messages: [
+          {
+            role: 'user' as const,
+            content: [{ type: 'audio' as const, mimeType: 'audio/ogg', data: 'data' }],
+          },
+        ],
+      },
+      /does not support audio MIME type/,
+    ],
+  ])('rejects %s before transport', async (_label, patch, error) => {
+    const adapter = new OpenAiResponsesAdapter({
+      fetcher: async () => {
+        throw new Error('must not fetch');
+      },
+    });
+    await expect(
+      adapter.generate(
+        {
+          model: { providerId: 'openai.responses', model: 'gpt-5' },
+          ...patch,
+        },
+        { async resolveCredential() {} }
+      )
+    ).rejects.toThrow(error);
+  });
+
+  it('fails closed on discovery auth, status, invalid entries, and invalid responses', async () => {
+    const unresolved = new OpenAiResponsesAdapter({
+      discoveryCredential: { source: 'env', name: 'OPENAI_API_KEY' },
+      fetcher: async () => {
+        throw new Error('must not fetch');
+      },
+    });
+    await expect(unresolved.discoverModels()).rejects.toThrow(/credential could not be resolved/);
+
+    const failedDiscovery = new OpenAiResponsesAdapter({
+      fetcher: async () => ({
+        status: 503,
+        statusText: 'Unavailable',
+        headers: {},
+        body: null,
+        contentLengthHeader: null,
+        async text() {
+          return '{}';
+        },
+      }),
+    });
+    await expect(failedDiscovery.discoverModels()).rejects.toThrow(/status 503/);
+
+    const filteredDiscovery = new OpenAiResponsesAdapter({
+      fetcher: async () => ({
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        body: null,
+        contentLengthHeader: null,
+        async text() {
+          return JSON.stringify({ data: [{ id: 'gpt-5' }, { id: 123 }, {}] });
+        },
+      }),
+    });
+    await expect(filteredDiscovery.discoverModels()).resolves.toHaveLength(1);
+
+    const invalidResponse = new OpenAiResponsesAdapter({
+      fetcher: async () => ({
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        body: null,
+        contentLengthHeader: null,
+        async text() {
+          return JSON.stringify({ id: 123, output: null });
+        },
+      }),
+    });
+    await expect(
+      invalidResponse.generate(
+        {
+          model: { providerId: 'openai.responses', model: 'gpt-5' },
+          messages: [],
+        },
+        { async resolveCredential() {} }
+      )
+    ).rejects.toThrow(/invalid response shape/);
+  });
+
+  it('reports provider error bodies and max-token completion without tool calls', async () => {
+    let fail = true;
+    const adapter = new OpenAiResponsesAdapter({
+      fetcher: async () => ({
+        status: fail ? 429 : 200,
+        statusText: fail ? 'Too Many Requests' : 'OK',
+        headers: {},
+        body: null,
+        contentLengthHeader: null,
+        async text() {
+          return fail
+            ? 'rate limited'
+            : JSON.stringify({ id: 'done', output: [], status: 'incomplete' });
+        },
+      }),
+    });
+    const request = {
+      model: { providerId: 'openai.responses', model: 'gpt-5' },
+      messages: [],
+    };
+    await expect(adapter.generate(request, { async resolveCredential() {} })).rejects.toThrow(
+      /429: rate limited/
+    );
+    fail = false;
+    await expect(
+      adapter.generate(request, { async resolveCredential() {} })
+    ).resolves.toMatchObject({ stopReason: 'max-tokens' });
+  });
 });

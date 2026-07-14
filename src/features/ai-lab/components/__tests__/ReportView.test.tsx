@@ -1,10 +1,14 @@
-import { render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ReportView } from '../ReportView';
 import type { AiLabReportEnvelope } from '../../run-engine/reportEnvelope';
 import { useAiLabStore } from '../../store/useAiLabStore';
 import { useAiLabUiStore } from '../../store/useAiLabUiStore';
 import { useEvalRunStore } from '../../store/useEvalRunStore';
+import type { EvalRun } from '../../types';
+
+const { downloadBlob } = vi.hoisted(() => ({ downloadBlob: vi.fn() }));
+vi.mock('@/lib/shared/file-utils', () => ({ downloadBlob }));
 
 const REPORT: AiLabReportEnvelope = {
   id: 'report-1',
@@ -224,5 +228,160 @@ describe('ReportView agent reports', () => {
 
     expect(screen.getByText(/21 in · 7 out · partially known/i)).toBeInTheDocument();
     expect(screen.getByText(/\$0\.004000 · partially known/i)).toBeInTheDocument();
+  });
+
+  it('renders, drills into, compares, and exports a feature-rich eval report', () => {
+    const previous: EvalRun = {
+      id: 'eval-prev',
+      evalConfigId: 'eval-config',
+      configName: 'Regression / suite',
+      datasetId: 'dataset',
+      datasetName: 'Cases',
+      startedAt: 1,
+      finishedAt: 2,
+      status: 'done',
+      totalCells: 2,
+      cells: [
+        {
+          caseId: 'case-a',
+          modelRef: { providerConfigId: 'p', model: 'alpha' },
+          output: 'old',
+          ok: true,
+          latencyMs: 20,
+          cost: 0,
+          scores: [],
+          passed: false,
+        },
+        {
+          caseId: 'case-a',
+          modelRef: { providerConfigId: 'p', model: 'beta' },
+          output: 'old',
+          ok: true,
+          latencyMs: 25,
+          cost: 0,
+          scores: [],
+          passed: true,
+        },
+      ],
+    };
+    const current: EvalRun = {
+      ...previous,
+      id: 'eval-current',
+      startedAt: 10,
+      finishedAt: 20,
+      totalCells: 4,
+      modelLabels: { 'p:alpha': 'Alpha label' },
+      cells: [
+        {
+          caseId: 'case-a',
+          modelRef: { providerConfigId: 'p', model: 'alpha' },
+          output: 'answer',
+          ok: true,
+          latencyMs: 10.4,
+          cost: 0.002,
+          scores: [
+            {
+              scorerId: 'judge',
+              kind: 'judge',
+              passed: true,
+              score: 0.9,
+              detail: 'strong',
+              variance: 0.02,
+              perCriterion: [
+                { name: 'correctness', score: 1, pass: true, reasoning: 'yes' },
+                { name: 'style', score: 0, pass: false, reasoning: 'no' },
+              ],
+            },
+          ],
+          passed: true,
+          executed: { status: 200, latencyMs: 9.6, bodyExcerpt: 'answer', ok: true },
+        },
+        {
+          caseId: 'case-a',
+          modelRef: { providerConfigId: 'p', model: 'beta' },
+          output: '',
+          error: 'model failed',
+          ok: false,
+          latencyMs: 40.6,
+          cost: null,
+          scores: [{ scorerId: 'exact', kind: 'exact-match', passed: false }],
+          passed: false,
+        },
+        {
+          caseId: 'case-b',
+          modelRef: { providerConfigId: 'p', model: 'alpha' },
+          output: '',
+          ok: true,
+          latencyMs: 15,
+          cost: 0,
+          scores: [],
+          passed: false,
+          notEvaluated: true,
+        },
+        {
+          caseId: 'case-b',
+          modelRef: { providerConfigId: 'p', model: 'gamma' },
+          output: 'free output',
+          ok: true,
+          latencyMs: 12,
+          cost: 0,
+          scores: [],
+          passed: true,
+        },
+      ],
+    };
+    useEvalRunStore.setState({ runs: { [previous.id]: previous, [current.id]: current } });
+    useAiLabStore.setState({
+      runReports: {},
+      datasets: {
+        dataset: {
+          id: 'dataset',
+          name: 'Cases',
+          createdAt: 0,
+          updatedAt: 0,
+          cases: [
+            { id: 'case-a', vars: { prompt: 'A very descriptive prompt', extra: 'value' } },
+            { id: 'case-b', vars: {} },
+          ],
+        },
+      },
+    });
+    useAiLabUiStore.setState({ reportRunId: current.id, reportDrillCaseId: null });
+
+    render(<ReportView />);
+
+    expect(screen.getAllByText('Alpha label').length).toBeGreaterThan(0);
+    expect(screen.getByText(/Avg variance/i)).toBeInTheDocument();
+    expect(screen.getByText(/Δ compares against the previous run/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/100% \(1\/1\)/i).length).toBeGreaterThan(0);
+    expect(screen.getByText('free')).toBeInTheDocument();
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByText(/Case 1 — prompt=A very descriptive/));
+    expect(screen.getByText('model failed')).toBeInTheDocument();
+    expect(screen.getByText(/HTTP 200 · 10ms/i)).toBeInTheDocument();
+    expect(screen.getByText('strong')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear case selection' }));
+
+    fireEvent.click(screen.getByTitle('Export CSV'));
+    fireEvent.click(screen.getByTitle('Export JSON'));
+    fireEvent.click(screen.getByTitle('Export Markdown'));
+    expect(downloadBlob).toHaveBeenCalledTimes(3);
+    expect(downloadBlob.mock.calls.map((call) => call[1])).toEqual([
+      'Regression_suite.csv',
+      'Regression_suite.json',
+      'Regression_suite.md',
+    ]);
+  });
+
+  it('renders the empty report action when no run exists', () => {
+    useEvalRunStore.setState({ runs: {} });
+    useAiLabStore.setState({ runReports: {} });
+    useAiLabUiStore.setState({ reportRunId: null, reportDrillCaseId: null });
+
+    render(<ReportView />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Configure an eval' }));
+    expect(useAiLabUiStore.getState().tab).toBe('evals');
   });
 });

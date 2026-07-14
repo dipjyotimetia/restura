@@ -123,6 +123,7 @@ describe('desktop agent provider bridge', () => {
 
   it('records normalized capabilities and user-assertion provenance in the run report', async () => {
     completeLlm.mockResolvedValue({ ok: true, text: 'done', toolCalls: [] });
+    const reportProgress = vi.fn();
     const suite: AgentSuite = {
       schemaVersion: 2,
       id: 'capability-audit',
@@ -145,7 +146,11 @@ describe('desktop agent provider bridge', () => {
     const report = await runDesktopAgentSuite(
       suite,
       { cfg: provider('cfg', 'model') },
-      { complete: completeLlm }
+      {
+        complete: completeLlm,
+        requestApproval: vi.fn(),
+        reportProgress,
+      }
     );
 
     expect(report.execution?.modelCapabilities).toEqual([
@@ -157,6 +162,33 @@ describe('desktop agent provider bridge', () => {
         capabilities: expect.objectContaining({ toolCalling: false }),
       }),
     ]);
+    expect(reportProgress.mock.calls.map(([progress]) => progress)).toEqual([0, 1, 1]);
+  });
+
+  it('rejects an unknown provider while collecting execution metadata', async () => {
+    const suite: AgentSuite = {
+      schemaVersion: 2,
+      id: 'unknown-provider',
+      name: 'Unknown provider',
+      mode: 'regression',
+      agents: [
+        {
+          id: 'agent',
+          model: { providerId: 'missing', model: 'model' },
+          instructions: 'Answer.',
+          tools: [],
+          limits: { maxSteps: 1, maxWallTimeMs: 1_000 },
+        },
+      ],
+      tasks: [{ id: 'task', input: [{ type: 'text', text: 'input' }] }],
+      graders: [],
+      trials: 1,
+    };
+
+    await expect(runDesktopAgentSuite(suite, {}, { complete: completeLlm })).rejects.toThrow(
+      'unknown provider adapter: missing'
+    );
+    expect(completeLlm).not.toHaveBeenCalled();
   });
   it.each([
     [
@@ -788,5 +820,93 @@ describe('desktop agent provider bridge', () => {
 
     expect(response.usage).toEqual({ inputTokens: 3, outputTokens: 2 });
     expect(response.costUSD).toBeUndefined();
+  });
+
+  it('serializes rich agent messages and preserves invalid provider tool arguments', async () => {
+    const config = provider('cfg', 'model');
+    config.capabilityOverrides!.model = {
+      ...config.capabilityOverrides!.model!,
+      toolCalling: true,
+    };
+    completeLlm.mockResolvedValue({
+      ok: true,
+      text: '',
+      toolCalls: [{ id: 'result-call', name: 'lookup', input: 'not-json' }],
+    });
+    const controller = new AbortController();
+    const registry = createDesktopAgentProviders({ cfg: config }, completeLlm);
+
+    const response = await registry.require('cfg').generate(
+      {
+        model: { providerId: 'cfg', model: 'model' },
+        messages: [
+          {
+            role: 'assistant',
+            content: [
+              { type: 'reasoning-summary', text: 'thought' },
+              { type: 'json', value: { answer: 42 } },
+              { type: 'refusal', reason: 'no' },
+              { type: 'artifact', artifactId: 'artifact-1' },
+            ],
+            toolCallId: 'previous-call',
+            toolCalls: [
+              { id: 'string', name: 'lookup', arguments: '{"id":1}' },
+              { id: 'object', name: 'lookup', arguments: { id: 2 } },
+            ],
+          },
+        ],
+        tools: [{ name: 'lookup', description: 'Lookup', inputSchema: { type: 'object' } }],
+        maxOutputTokens: 25,
+      },
+      {
+        signal: controller.signal,
+        async resolveCredential() {
+          return undefined;
+        },
+      }
+    );
+
+    expect(completeLlm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxOutputTokens: 25,
+        tools: [expect.objectContaining({ name: 'lookup' })],
+        messages: [
+          expect.objectContaining({
+            toolCallId: 'previous-call',
+            content: 'thought\n{"answer":42}\nno\n[artifact]',
+            toolCalls: [
+              expect.objectContaining({ input: '{"id":1}' }),
+              expect.objectContaining({ input: '{"id":2}' }),
+            ],
+          }),
+        ],
+      }),
+      { signal: controller.signal }
+    );
+    expect(response).toMatchObject({
+      output: [],
+      toolCalls: [{ id: 'result-call', name: 'lookup', arguments: 'not-json' }],
+      stopReason: 'tool-calls',
+    });
+    expect(response.usage).toBeUndefined();
+  });
+
+  it('uses a fallback message for a provider failure without details', async () => {
+    completeLlm.mockResolvedValue({ ok: false, text: '', toolCalls: [] });
+    const registry = createDesktopAgentProviders({ cfg: provider('cfg', 'model') }, completeLlm);
+
+    await expect(
+      registry.require('cfg').generate(
+        {
+          model: { providerId: 'cfg', model: 'model' },
+          messages: [{ role: 'user', content: [{ type: 'text', text: 'go' }] }],
+        },
+        {
+          async resolveCredential() {
+            return undefined;
+          },
+        }
+      )
+    ).rejects.toThrow('model call failed');
   });
 });

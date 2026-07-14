@@ -489,4 +489,85 @@ describe('AgentSuiteRunner', () => {
       detail: 'cost unknown for one or more model calls',
     });
   });
+
+  it('grades regex, JSON schema, tool, trajectory, latency, cost, and missing judge paths', async () => {
+    const allGraders = {
+      ...suite,
+      trials: 1,
+      graders: [
+        { id: 'invalid-regex', kind: 'regex', pattern: '(' },
+        {
+          id: 'schema',
+          kind: 'json-schema',
+          schema: { type: 'object', required: ['ok'], properties: { ok: { type: 'boolean' } } },
+        },
+        {
+          id: 'tool',
+          kind: 'tool',
+          toolName: 'lookup',
+          argumentsSchema: { type: 'object', required: ['id'] },
+        },
+        { id: 'trajectory', kind: 'trajectory', mode: 'exact', tools: ['lookup'] },
+        { id: 'latency', kind: 'latency', maxMs: 25 },
+        { id: 'cost', kind: 'cost', maxUSD: 0.01 },
+        {
+          id: 'judge',
+          kind: 'judge',
+          judgeModels: [{ providerId: 'judge', model: 'm' }],
+          rubric: 'correct',
+          labels: ['pass', 'fail'],
+          minimumAgreement: 0.5,
+          calibrated: false,
+        },
+      ],
+    } as AgentSuite;
+    const runner = new AgentSuiteRunner({
+      async run(request) {
+        const run = result(request.trial, '{"ok":true}');
+        run.trace.finishedAt = 50;
+        run.trace.events = [
+          {
+            id: 'tool-event',
+            traceId: run.trace.id,
+            sequence: 1,
+            timestamp: 1,
+            type: 'tool.requested',
+            toolCallId: 'call',
+            toolName: 'lookup',
+            arguments: { id: 1 },
+            permissionClass: 'read',
+          },
+          {
+            id: 'model-event',
+            traceId: run.trace.id,
+            sequence: 2,
+            timestamp: 2,
+            type: 'model.completed',
+            providerId: 'provider',
+            model: 'model',
+            output: [],
+            durationMs: 1,
+            costUSD: 0.005,
+          },
+        ];
+        return run;
+      },
+    });
+
+    const report = await runner.run({ suite: allGraders });
+
+    expect(report.results[0]?.scores).toEqual([
+      expect.objectContaining({ graderId: 'invalid-regex', passed: false }),
+      expect.objectContaining({ graderId: 'schema', passed: true }),
+      expect.objectContaining({ graderId: 'tool', passed: true }),
+      expect.objectContaining({ graderId: 'trajectory', passed: true }),
+      expect.objectContaining({ graderId: 'latency', passed: false, detail: '50ms / 25ms' }),
+      expect.objectContaining({ graderId: 'cost', passed: true }),
+      expect.objectContaining({
+        graderId: 'judge',
+        passed: false,
+        detail: 'judge runner unavailable',
+      }),
+    ]);
+  });
 });
