@@ -193,7 +193,7 @@ jobs:
         # Same-repo only — posts a PR comment, so it 403s on forked PRs (read-only
         # token). The coverage artifact upload below still runs for every PR.
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
-        uses: davelosert/vitest-coverage-report-action@v2.12.0
+        uses: davelosert/vitest-coverage-report-action@v2.12.1
         with:
           json-summary-path: coverage/coverage-summary.json
           json-final-path: coverage/coverage-final.json
