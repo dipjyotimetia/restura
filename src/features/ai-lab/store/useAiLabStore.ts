@@ -1,7 +1,15 @@
+import { AgentSuiteSchema, type AgentSuite, type ModelCapabilities } from '@shared/agent-lab';
 import { isHuggingFaceProvider, isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { normalizeDesktopCapabilities } from '../lib/agentModelCapabilities';
+import { AiLabReportEnvelopeSchema, type AiLabReportEnvelope } from '../run-engine/reportEnvelope';
+import { getAiLabReportRepository } from '../run-engine/reportRepository';
+import {
+  retainAgentReports,
+  sanitizeAgentSuiteReportForPersistence,
+} from '../run-engine/reportSanitizer';
 import type {
   AiLabModelDetail,
   AiLabProviderConfig,
@@ -20,6 +28,9 @@ interface PersistedAiLabState {
   evalConfigs: Record<string, EvalConfig>;
   favoriteModelKeys: string[];
   recentModelKeys: string[];
+  agentSuites: Record<string, AgentSuite>;
+  runReports: Record<string, AiLabReportEnvelope>;
+  reportQuarantineCount: number;
 }
 
 interface AiLabState extends PersistedAiLabState {
@@ -30,8 +41,10 @@ interface AiLabState extends PersistedAiLabState {
     baseUrl?: string;
     apiKeyHandleId?: string;
     pricingKnown?: boolean;
+    costPolicy?: AiLabProviderConfig['costPolicy'];
     models?: string[];
     modelDetails?: Record<string, AiLabModelDetail>;
+    capabilityOverrides?: Record<string, ModelCapabilities>;
     lastTest?: AiLabProviderConfig['lastTest'];
     lastDiscoveredAt?: number;
   }) => string;
@@ -64,6 +77,13 @@ interface AiLabState extends PersistedAiLabState {
     cfg: Omit<EvalConfig, 'id' | 'createdAt' | 'updatedAt'> & { id?: string }
   ) => string;
   removeEvalConfig: (id: string) => void;
+
+  // Agent workbench
+  upsertAgentSuite: (suite: unknown) => string;
+  removeAgentSuite: (id: string) => void;
+  hydrateRunReports: () => Promise<void>;
+  saveRunReport: (report: AiLabReportEnvelope) => Promise<void>;
+  removeRunReport: (id: string) => Promise<void>;
 }
 
 const DEFAULT_STATE: PersistedAiLabState = {
@@ -73,13 +93,111 @@ const DEFAULT_STATE: PersistedAiLabState = {
   evalConfigs: {},
   favoriteModelKeys: [],
   recentModelKeys: [],
+  agentSuites: {},
+  runReports: {},
+  reportQuarantineCount: 0,
 };
 
 const RECENT_MODEL_LIMIT = 20;
+let reportMutationQueue: Promise<void> = Promise.resolve();
+
+function enqueueReportMutation(operation: () => Promise<void>): Promise<void> {
+  const pending = reportMutationQueue.then(operation, operation);
+  reportMutationQueue = pending.catch(() => undefined);
+  return pending;
+}
+
+function normalizeCapabilityOverrides(
+  overrides: Record<string, ModelCapabilities> | undefined
+): Record<string, ModelCapabilities> | undefined {
+  if (!overrides) return undefined;
+  const normalized = Object.fromEntries(
+    Object.entries(overrides).map(([model, capabilities]) => [
+      model,
+      normalizeDesktopCapabilities(capabilities),
+    ])
+  );
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
+export function migrateAiLabState(
+  persisted: unknown,
+  _version?: number
+): Partial<PersistedAiLabState> {
+  const previous = persisted as Partial<PersistedAiLabState>;
+  let quarantineCount = previous.reportQuarantineCount ?? 0;
+  const agentSuites = Object.fromEntries(
+    Object.entries((previous.agentSuites ?? {}) as Record<string, unknown>).flatMap(
+      ([id, value]) => {
+        const parsed = AgentSuiteSchema.safeParse(value);
+        if (parsed.success) return [[id, parsed.data]];
+        quarantineCount += 1;
+        console.warn(`[ai-lab] quarantined invalid agent suite "${id}"`);
+        return [];
+      }
+    )
+  );
+  const runReports = Object.fromEntries(
+    Object.entries((previous.runReports ?? {}) as Record<string, unknown>).flatMap(
+      ([id, value]) => {
+        const parsed = AiLabReportEnvelopeSchema.safeParse(value);
+        if (parsed.success) {
+          try {
+            return [
+              [
+                id,
+                parsed.data.kind === 'agent-suite'
+                  ? sanitizeAgentSuiteReportForPersistence(parsed.data)
+                  : parsed.data,
+              ],
+            ];
+          } catch {
+            quarantineCount += 1;
+            console.warn(`[ai-lab] quarantined oversized run report "${id}"`);
+            return [];
+          }
+        }
+        quarantineCount += 1;
+        console.warn(`[ai-lab] quarantined invalid run report "${id}"`);
+        return [];
+      }
+    )
+  );
+  return {
+    ...previous,
+    providers: Object.fromEntries(
+      Object.entries(previous.providers ?? {}).map(([id, config]) => {
+        const modelDetails = config.modelDetails
+          ? Object.fromEntries(
+              Object.entries(config.modelDetails).map(([model, detail]) => {
+                if (config.provider === 'openrouter') return [model, detail];
+                const safeDetail: AiLabModelDetail = { ...detail };
+                delete safeDetail.agentCapabilities;
+                delete safeDetail.agentCapabilityProvenance;
+                return [model, safeDetail];
+              })
+            )
+          : undefined;
+        return [
+          id,
+          {
+            ...config,
+            ...(modelDetails ? { modelDetails } : {}),
+            costPolicy: config.costPolicy ?? 'unknown',
+            capabilityOverrides: normalizeCapabilityOverrides(config.capabilityOverrides),
+          },
+        ];
+      })
+    ),
+    agentSuites,
+    runReports,
+    reportQuarantineCount: quarantineCount,
+  };
+}
 
 export const useAiLabStore = create<AiLabState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       ...DEFAULT_STATE,
 
       addProvider: (init) => {
@@ -98,9 +216,13 @@ export const useAiLabStore = create<AiLabState>()(
           pricingKnown:
             init.pricingKnown ??
             (!isLocalProvider(init.provider) && !isHuggingFaceProvider(init.provider)),
+          costPolicy: init.costPolicy ?? 'unknown',
           isLocal: isLocalProvider(init.provider),
           models: init.models ?? [],
           ...(init.modelDetails ? { modelDetails: init.modelDetails } : {}),
+          ...(init.capabilityOverrides
+            ? { capabilityOverrides: normalizeCapabilityOverrides(init.capabilityOverrides) }
+            : {}),
           ...(init.lastTest ? { lastTest: init.lastTest } : {}),
           ...(init.lastDiscoveredAt ? { lastDiscoveredAt: init.lastDiscoveredAt } : {}),
           createdAt: Date.now(),
@@ -112,7 +234,16 @@ export const useAiLabStore = create<AiLabState>()(
         set((s) => {
           const existing = s.providers[id];
           if (!existing) return {};
-          return { providers: { ...s.providers, [id]: { ...existing, ...patch } } };
+          const updated = { ...existing, ...patch };
+          return {
+            providers: {
+              ...s.providers,
+              [id]: {
+                ...updated,
+                capabilityOverrides: normalizeCapabilityOverrides(updated.capabilityOverrides),
+              },
+            },
+          };
         }),
       removeProvider: (id) =>
         set((s) => {
@@ -133,6 +264,14 @@ export const useAiLabStore = create<AiLabState>()(
           // with a provider whose endpoint no longer returns rich metadata
           // doesn't leave a stale (now-incomplete) `modelDetails` around.
           const hasDetails = modelDetails && Object.keys(modelDetails).length > 0;
+          const modelSet = new Set(models);
+          const retainedOverrides = normalizeCapabilityOverrides(
+            Object.fromEntries(
+              Object.entries(existing.capabilityOverrides ?? {}).filter(([model]) =>
+                modelSet.has(model)
+              )
+            )
+          );
           return {
             providers: {
               ...s.providers,
@@ -140,6 +279,7 @@ export const useAiLabStore = create<AiLabState>()(
                 ...existing,
                 models,
                 ...(hasDetails ? { modelDetails } : { modelDetails: undefined }),
+                capabilityOverrides: retainedOverrides,
                 lastDiscoveredAt: Date.now(),
               },
             },
@@ -263,11 +403,56 @@ export const useAiLabStore = create<AiLabState>()(
           delete next[id];
           return { evalConfigs: next };
         }),
+
+      upsertAgentSuite: (input) => {
+        const suite = AgentSuiteSchema.parse(input);
+        set((state) => ({ agentSuites: { ...state.agentSuites, [suite.id]: suite } }));
+        return suite.id;
+      },
+      removeAgentSuite: (id) =>
+        set((state) => {
+          const next = { ...state.agentSuites };
+          delete next[id];
+          return { agentSuites: next };
+        }),
+      hydrateRunReports: () =>
+        enqueueReportMutation(async () => {
+          const loaded = await getAiLabReportRepository().load();
+          const migrated = migrateAiLabState({ runReports: loaded });
+          const canonical = retainAgentReports({
+            ...get().runReports,
+            ...(migrated.runReports ?? {}),
+          });
+          if (JSON.stringify(canonical) !== JSON.stringify(loaded)) {
+            await getAiLabReportRepository().save(canonical);
+          }
+          set({
+            runReports: canonical,
+            reportQuarantineCount:
+              get().reportQuarantineCount + (migrated.reportQuarantineCount ?? 0),
+          });
+        }),
+      saveRunReport: (report) =>
+        enqueueReportMutation(async () => {
+          const safe =
+            report.kind === 'agent-suite' ? sanitizeAgentSuiteReportForPersistence(report) : report;
+          const reports = retainAgentReports({ ...get().runReports, [safe.id]: safe });
+          await getAiLabReportRepository().save(reports);
+          set({ runReports: reports });
+        }),
+      removeRunReport: (id) =>
+        enqueueReportMutation(async () => {
+          const next = { ...get().runReports };
+          delete next[id];
+          await getAiLabReportRepository().save(next);
+          set({ runReports: next });
+        }),
     }),
     {
       name: 'ai-lab-store',
       storage: dexieStorageAdapters.aiLab(),
-      version: 1,
+      version: 4,
+      migrate: migrateAiLabState,
       partialize: (state) => ({
         providers: state.providers,
         prompts: state.prompts,
@@ -275,7 +460,10 @@ export const useAiLabStore = create<AiLabState>()(
         evalConfigs: state.evalConfigs,
         favoriteModelKeys: state.favoriteModelKeys,
         recentModelKeys: state.recentModelKeys,
+        agentSuites: state.agentSuites,
+        reportQuarantineCount: state.reportQuarantineCount,
       }),
+      merge: (persisted, current) => ({ ...current, ...migrateAiLabState(persisted) }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
         const parsed = AiLabStateSchema.safeParse(state);
@@ -283,6 +471,9 @@ export const useAiLabStore = create<AiLabState>()(
           // Merge defaults (keep action methods) rather than replace.
           useAiLabStore.setState({ ...DEFAULT_STATE });
         }
+        void state.hydrateRunReports().catch((cause) => {
+          console.warn('[ai-lab] report hydration failed', cause);
+        });
       },
     }
   )

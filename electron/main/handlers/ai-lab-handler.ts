@@ -25,10 +25,12 @@ import type { Fetcher } from '@shared/protocol/types';
 import { ipcMain } from 'electron';
 import { createLogger } from '../../../src/lib/shared/logger';
 import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
+import { bindRendererCleanup } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo } from '../ipc/ipc-utils';
 import {
   AiLabCompleteSchema,
+  AiLabCompleteCancelSchema,
   AiLabStreamSchema,
   AiLabStreamCancelSchema,
   AiLabDiscoverSchema,
@@ -58,23 +60,47 @@ async function resolveSecretFn(handleId: string): Promise<string | undefined> {
   return typeof v === 'string' ? v : undefined;
 }
 
-/** Minimal queueing semaphore — never rejects, just serialises past the cap. */
+/** Queueing semaphore whose pending acquisitions remain cancellable. */
 function makeSemaphore(max: number) {
   let inUse = 0;
-  const waiters: Array<() => void> = [];
-  const acquire = (): Promise<void> =>
-    new Promise((resolve) => {
+  interface Waiter {
+    resolve: () => void;
+    reject: (cause: Error) => void;
+    signal?: AbortSignal;
+    onAbort?: () => void;
+  }
+  const waiters: Waiter[] = [];
+  const abortError = () => {
+    const error = new Error('Operation cancelled.');
+    error.name = 'AbortError';
+    return error;
+  };
+  const acquire = (signal?: AbortSignal): Promise<void> =>
+    new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(abortError());
+        return;
+      }
       if (inUse < max) {
         inUse += 1;
         resolve();
       } else {
-        waiters.push(resolve);
+        const waiter: Waiter = { resolve, reject, ...(signal ? { signal } : {}) };
+        const onAbort = () => {
+          const index = waiters.indexOf(waiter);
+          if (index !== -1) waiters.splice(index, 1);
+          reject(abortError());
+        };
+        waiter.onAbort = onAbort;
+        waiters.push(waiter);
+        signal?.addEventListener('abort', onAbort, { once: true });
       }
     });
   const release = () => {
     const next = waiters.shift();
     if (next) {
-      next();
+      if (next.signal && next.onAbort) next.signal.removeEventListener('abort', next.onAbort);
+      next.resolve();
     } else {
       inUse = Math.max(0, inUse - 1);
     }
@@ -95,7 +121,10 @@ interface ActiveAbort {
 const activeStreams = new StreamRegistry<ActiveAbort & { streamId: string }>({
   dispose: (s) => s.abort.abort(),
 });
-const activeCompletes = new StreamRegistry<ActiveAbort>({ dispose: (c) => c.abort.abort() });
+// Cancellation aborts but deliberately keeps this tombstone until the owning
+// handler settles. Otherwise cancel -> same-ID reuse lets the old finally block
+// remove a newer operation with the same ID.
+const activeCompletes = new Map<string, ActiveAbort>();
 
 /**
  * Resolve the provider's base URL and return a DNS-pinned, manual-redirect
@@ -178,21 +207,28 @@ export function registerAiLabHandlers(): void {
       return { ok: false as const, error: 'Rate limited. Slow down.' };
     }
     const data = parsed.data;
-    let fetcher: Fetcher;
-    try {
-      fetcher = await buildSafeFetcher(data.provider, data.baseUrlOverride);
-    } catch (e) {
-      return { ok: false as const, error: (e as Error).message };
-    }
-
-    // Collision-free id (a timestamp-based key could collide for two completes
-    // from the same sender in the same tick, leaking an AbortController).
-    const completeId = crypto.randomUUID();
     const abort = new AbortController();
-    activeCompletes.add(completeId, event.sender, { webContentsId: senderId, abort });
+    const activeComplete = { webContentsId: senderId, abort };
+    if (activeCompletes.has(data.operationId)) {
+      return {
+        ok: false as const,
+        error: 'A completion with this operation ID is already active.',
+      };
+    }
+    activeCompletes.set(data.operationId, activeComplete);
+    bindRendererCleanup(activeCompletes, event.sender, (deadId) => {
+      for (const active of activeCompletes.values()) {
+        if (active.webContentsId === deadId) active.abort.abort();
+      }
+    });
 
-    await completeSlots.acquire();
+    let slotAcquired = false;
     try {
+      const fetcher = await buildSafeFetcher(data.provider, data.baseUrlOverride);
+      if (abort.signal.aborted) return { ok: false as const, error: 'Operation cancelled.' };
+      await completeSlots.acquire(abort.signal);
+      slotAcquired = true;
+      if (abort.signal.aborted) return { ok: false as const, error: 'Operation cancelled.' };
       const result = await runToCompletion(
         { ...buildSpec(data), signal: abort.signal },
         fetcher,
@@ -204,9 +240,24 @@ export function registerAiLabHandlers(): void {
       log.warn('complete failed', { provider: data.provider, model: data.model, error: msg });
       return { ok: false as const, error: msg };
     } finally {
-      completeSlots.release();
-      activeCompletes.remove(completeId);
+      if (slotAcquired) completeSlots.release();
+      if (activeCompletes.get(data.operationId) === activeComplete) {
+        activeCompletes.delete(data.operationId);
+      }
     }
+  });
+
+  ipcMain.handle(IPC.aiLab.completeCancel, async (event, raw: unknown) => {
+    assertTrustedSender(IPC.aiLab.completeCancel, event);
+    const parsed = AiLabCompleteCancelSchema.safeParse(raw);
+    if (!parsed.success) return { ok: false as const, error: parsed.error.message };
+    const active = activeCompletes.get(parsed.data.operationId);
+    if (!active) return { ok: true as const, alreadyDone: true };
+    if (active.webContentsId !== event.sender.id) {
+      return { ok: false as const, error: 'Operation does not belong to this renderer.' };
+    }
+    active.abort.abort();
+    return { ok: true as const };
   });
 
   // --- Streaming completion (Playground multi-model compare) -------------
@@ -313,10 +364,12 @@ export function registerAiLabHandlers(): void {
 
 export function unregisterAiLabHandlers(): void {
   ipcMain.removeHandler(IPC.aiLab.complete);
+  ipcMain.removeHandler(IPC.aiLab.completeCancel);
   ipcMain.removeHandler(IPC.aiLab.stream);
   ipcMain.removeHandler(IPC.aiLab.streamCancel);
   ipcMain.removeHandler(IPC.aiLab.listModels);
   ipcMain.removeHandler(IPC.aiLab.testConnection);
   activeStreams.disposeAll();
-  activeCompletes.disposeAll();
+  for (const active of activeCompletes.values()) active.abort.abort();
+  activeCompletes.clear();
 }

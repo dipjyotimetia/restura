@@ -273,6 +273,7 @@ const AuthConfigSchema = z.object({
 });
 
 export const HttpRequestConfigSchema = z.object({
+  requestId: z.uuid(),
   method: z.string(),
   url: z.url('Invalid URL format'),
   headers: z.record(z.string(), z.string()).optional(),
@@ -304,6 +305,12 @@ export const HttpRequestConfigSchema = z.object({
 });
 
 export type ValidatedHttpRequestConfig = z.infer<typeof HttpRequestConfigSchema>;
+
+export const HttpCancelSchema = z
+  .object({
+    requestId: z.uuid(),
+  })
+  .strict();
 
 // ===========================
 // gRPC Request Schemas
@@ -1246,11 +1253,20 @@ export function createValidatedHandler<TInput, TOutput>(
   schema: z.ZodSchema<TInput>,
   handler: (input: TInput) => Promise<TOutput> | TOutput
 ): (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => Promise<TOutput> {
+  return createValidatedEventHandler(channel, schema, (input) => handler(input));
+}
+
+/** Validated invoke handler variant for ownership-sensitive channels. */
+export function createValidatedEventHandler<TInput, TOutput>(
+  channel: string,
+  schema: z.ZodSchema<TInput>,
+  handler: (input: TInput, event: Electron.IpcMainInvokeEvent) => Promise<TOutput> | TOutput
+): (event: Electron.IpcMainInvokeEvent, ...args: unknown[]) => Promise<TOutput> {
   return async (event, ...args) => {
     assertTrustedSender(channel, event);
     const input = args.length === 0 ? undefined : args.length === 1 ? args[0] : args;
     const validated = validateIpcInput(schema, input, channel);
-    return handler(validated as TInput);
+    return handler(validated as TInput, event);
   };
 }
 
@@ -1291,9 +1307,17 @@ export const NoInputSchema = z.undefined();
 // AI Chat Schemas
 // ===========================
 
+const AiChatToolCallSchema = z.object({
+  id: z.string().min(1).max(200),
+  name: z.string().min(1).max(200),
+  input: z.string().max(200_000),
+});
+
 export const AiChatMessageSchema = z.object({
-  role: z.enum(['system', 'user', 'assistant']),
+  role: z.enum(['system', 'user', 'assistant', 'tool']),
   content: z.string().max(200_000), // ~50k tokens; over this is almost certainly a bug
+  toolCallId: z.string().min(1).max(200).optional(),
+  toolCalls: z.array(AiChatToolCallSchema).max(64).optional(),
 });
 
 export const AiChatToolSchema = z.object({
@@ -1387,13 +1411,23 @@ const requireDiscoveryKey = (v: { provider: string; apiKeyHandleId?: string; api
   return !!v.apiKeyHandleId || !!v.apiKey;
 };
 
-export const AiLabCompleteSchema = AiLabCompleteBase.refine(requireBaseForCompat, {
-  message: 'openai-compatible provider requires a base URL.',
-  path: ['baseUrlOverride'],
-}).refine(requireInferenceKey, {
-  message: 'This provider requires an API key. Add one in the provider settings.',
-  path: ['apiKeyHandleId'],
-});
+export const AiLabCompleteSchema = AiLabCompleteBase.extend({
+  operationId: z.uuid(),
+})
+  .refine(requireBaseForCompat, {
+    message: 'openai-compatible provider requires a base URL.',
+    path: ['baseUrlOverride'],
+  })
+  .refine(requireInferenceKey, {
+    message: 'This provider requires an API key. Add one in the provider settings.',
+    path: ['apiKeyHandleId'],
+  });
+
+export const AiLabCompleteCancelSchema = z
+  .object({
+    operationId: z.uuid(),
+  })
+  .strict();
 
 export const AiLabStreamSchema = AiLabCompleteBase.extend({
   streamId: z.uuid(),

@@ -44,6 +44,7 @@ An Electron-only LLM evaluation workbench accessible as `/ai-lab` route. It uses
 - **Eval runs** — sweep `(case × model)` cells with bounded concurrency.
 - **Scorers** — exact/contains/regex, JSON-valid/schema, latency, cost, `script` (QuickJS), `tool-call`, `judge` (LLM-as-judge with self-consistency + anchors + gates), and `pairwise` (preference via `runPairwiseJudge`, position-bias swap).
 - **Arena** — round-robin pairwise model-vs-model judging with Elo leaderboard and win-rate matrix (`Arena.tsx`, `lib/elo.ts`, `lib/arenaRunner.ts`, `store/useArenaStore.ts`).
+- **Agent suites** — versioned multi-step agent definitions with model capabilities, tool sources, hard budgets, repeated trials, typed traces, trajectory/outcome graders, reliability statistics, and portable JSON import/export.
 
 ### Key modules
 
@@ -56,6 +57,21 @@ An Electron-only LLM evaluation workbench accessible as `/ai-lab` route. It uses
 - `src/features/ai-lab/lib/arenaRunner.ts` / `lib/elo.ts` — arena logic.
 - Stores: `src/features/ai-lab/store/useAiLabStore.ts`, `useEvalRunStore.ts`, `useArenaStore.ts`.
 - Main process handler: `electron/main/handlers/ai-lab-handler.ts` (kept separate from `ai-handler.ts`).
+- Agent core: `shared/agent-lab/` (suite schema, provider registry, runner, MCP/sandbox contracts, graders, OTLP/OpenInference export).
+- Desktop agent bridge: `src/features/ai-lab/lib/agentRuntime.ts`; saved HTTP request tools use `agentTools.ts` and the normal request executor.
+- Headless CI: `restura agent eval <suite.json> --output report.json`.
+
+### Agent safety and current support
+
+Agent suites never persist inline credentials. Desktop model calls retain the existing keychain-backed IPC path. The runner fails closed on unavailable providers/tools and sensitive tool calls without approval, and enforces step/time/tool/token/cost/output limits. Saved Restura HTTP requests are wired as desktop tools; non-read methods require per-call approval. The shared MCP allowlist adapter and pluggable sandbox registry are implemented, but the capability matrix marks MCP connection resolution and concrete sandbox providers unsupported until those adapters are registered end to end.
+
+Eval and agent runs each have a module-scoped lifecycle: a run remains visible and cancellable across tab changes, another run on the same surface is rejected, and cancellation wins over late provider success. The two surfaces are independent, so an eval and agent suite may run concurrently. Their signals reach model completions, judge calibration and voting, and saved-request tools through validated, sender-owned Electron operation IDs. `maxTokens` is a run-wide input-plus-output limit; required usage and cost data fail closed when missing or unknown.
+
+Per-model capabilities are conservative and tied to provider discovery evidence. Advanced overrides require an explicit user assertion, are labelled as such, and can be reset; unknown pricing is never presented as free. Task references feed reference-aware graders. Judge panels enforce distinct models, quorum, agreement, optional calibration, output-token bounds, and optional cost bounds.
+
+Desktop agent reports are sanitized before persistence or export, with sensitive-key/header/query and recognized secret-shaped body-value redaction, explicit truncation, a 2 MiB per-report limit, and retention of at most the newest 20 reports / 20 MiB total. Opaque sensitive data in model or tool output may not be recognized, so exports still require appropriate access controls. Persistence is awaited; if it fails, the sanitized live report remains viewable/exportable and can be retried. Persisted reports are schema-validated during hydration and migration; invalid entries are quarantined independently so they cannot reset unrelated workbench state.
+
+The headless OpenAI Responses adapter uses stateless encrypted reasoning and function-call replay with `store: false`; server-side `previous_response_id` continuation is disabled. `restura agent eval` currently accepts only OpenAI Responses suites with environment credentials. It refuses base-URL overrides, desktop secret handles, judge graders, and all tool sources until trusted CLI adapters are registered.
 
 ### `http-exec` eval target
 
@@ -101,6 +117,7 @@ Restura can call external MCP servers from the request builder and from workflow
 | AI Lab eval                  | `src/features/ai-lab/lib/evalRunner.ts`, `src/features/ai-lab/lib/scorers.ts`, `src/features/ai-lab/lib/concurrencyPool.ts`                                         |
 | AI Lab playground / datasets | `src/features/ai-lab/lib/llmClient.ts`, `src/features/ai-lab/lib/openapiTestGen.ts`, `src/features/ai-lab/lib/redteamGen.ts`                                        |
 | AI Lab arena                 | `src/features/ai-lab/lib/arenaRunner.ts`, `src/features/ai-lab/lib/elo.ts`, `src/features/ai-lab/store/useArenaStore.ts`                                            |
+| AI Lab agents                | `shared/agent-lab/`, `src/features/ai-lab/lib/agentRuntime.ts`, `src/features/ai-lab/lib/agentTools.ts`, `cli/src/commands/agent.ts`                                |
 | MCP server                   | `src/features/mcp-server/dispatch.ts`, `src/features/mcp-server/consent.ts`, `src/features/mcp-server/redaction.ts`, `electron/main/handlers/mcp-server-handler.ts` |
 | MCP client                   | `src/features/mcp/protocol.ts`, `src/features/mcp/lib/mcpClient.ts`, `src/features/mcp/lib/McpClientPool.ts`                                                        |
 

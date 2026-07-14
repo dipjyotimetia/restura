@@ -17,20 +17,27 @@ export function shouldRefreshOAuth2(auth: AuthConfig, nowMs = Date.now()): boole
   return o.expiresAt - nowMs <= REFRESH_SKEW_MS;
 }
 
-export async function refreshOAuth2Auth(auth: AuthConfig, nowMs = Date.now()): Promise<AuthConfig> {
+export async function refreshOAuth2Auth(
+  auth: AuthConfig,
+  nowMs = Date.now(),
+  signal?: AbortSignal
+): Promise<AuthConfig> {
   if (!shouldRefreshOAuth2(auth, nowMs)) return auth;
   // shouldRefreshOAuth2 validates refreshToken, tokenUrl, clientId and expiresAt presence
   const o = auth.oauth2!;
   const refreshTokenStr = unwrapSecret(o.refreshToken);
   const clientSecretStr = o.clientSecret !== undefined ? unwrapSecret(o.clientSecret) : undefined;
-  const res = await fetchRefreshToken({
-    clientId: o.clientId!,
-    tokenUrl: o.tokenUrl!,
-    refreshToken: refreshTokenStr,
-    ...(clientSecretStr !== undefined &&
-      clientSecretStr !== '' && { clientSecret: clientSecretStr }),
-    ...(o.scope !== undefined && { scope: o.scope }),
-  });
+  const res = await fetchRefreshToken(
+    {
+      clientId: o.clientId!,
+      tokenUrl: o.tokenUrl!,
+      refreshToken: refreshTokenStr,
+      ...(clientSecretStr !== undefined &&
+        clientSecretStr !== '' && { clientSecret: clientSecretStr }),
+      ...(o.scope !== undefined && { scope: o.scope }),
+    },
+    signal
+  );
   const tokenType = res.token_type ?? o.tokenType;
   const refreshToken = res.refresh_token ?? refreshTokenStr;
   const expiresAt = tokenExpiresAt(nowMs, res.expires_in) ?? o.expiresAt;

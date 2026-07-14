@@ -39,13 +39,15 @@ export class OAuth2TokenError extends Error {
 
 async function postToken(
   tokenUrl: string,
-  params: Record<string, string>
+  params: Record<string, string>,
+  signal?: AbortSignal
 ): Promise<OAuth2TokenResponse> {
   const body = new URLSearchParams(params).toString();
   const response = await fetch(tokenUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
     body,
+    ...(signal ? { signal } : {}),
   });
 
   const json = (await response.json()) as OAuth2TokenResponse | OAuth2Error;
@@ -269,7 +271,10 @@ export interface RefreshTokenConfig {
   scope?: string;
 }
 
-export async function fetchRefreshToken(config: RefreshTokenConfig): Promise<OAuth2TokenResponse> {
+export async function fetchRefreshToken(
+  config: RefreshTokenConfig,
+  signal?: AbortSignal
+): Promise<OAuth2TokenResponse> {
   const params: Record<string, string> = {
     grant_type: 'refresh_token',
     client_id: config.clientId,
@@ -277,7 +282,7 @@ export async function fetchRefreshToken(config: RefreshTokenConfig): Promise<OAu
   };
   if (config.clientSecret) params.client_secret = config.clientSecret;
   if (config.scope) params.scope = config.scope;
-  return postToken(config.tokenUrl, params);
+  return postToken(config.tokenUrl, params, signal);
 }
 
 export function tokenExpiresAt(nowMs: number, expiresInSeconds?: number): number | undefined {

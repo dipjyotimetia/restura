@@ -56,11 +56,13 @@ export function isHuggingFaceProvider(provider: Provider): provider is HfProvide
   return provider === 'huggingface';
 }
 
-export type ChatRole = 'system' | 'user' | 'assistant';
+export type ChatRole = 'system' | 'user' | 'assistant' | 'tool';
 
 export interface ChatMessageWire {
   role: ChatRole;
   content: string;
+  toolCallId?: string;
+  toolCalls?: ChatToolCall[];
 }
 
 /**

@@ -14,6 +14,18 @@ export interface DiscoveredModel {
   modality?: string;
   inputModalities?: string[];
   outputModalities?: string[];
+  /** Capability evidence emitted by a tested discovery adapter, never copied from remote JSON. */
+  agentCapabilities?: {
+    source: 'discovered';
+    adapterId: 'openrouter.models';
+    adapterVersion: 1;
+    capabilities: {
+      inputModalities?: string[];
+      outputModalities?: string[];
+      structuredOutput?: boolean;
+      toolCalling?: boolean;
+    };
+  };
   /**
    * Per-million-token USD prices. OpenRouter returns per-token strings; we
    * multiply by 1_000_000 so consumers can show "$3 / 1M" without a unit
@@ -367,6 +379,30 @@ async function fetchOpenRouterModels(base: string, args: DiscoverArgs): Promise<
         m.output_modalities.every((x) => typeof x === 'string')
       )
         detail.outputModalities = m.output_modalities;
+      const supportedParameters = Array.isArray(m.supported_parameters)
+        ? m.supported_parameters.filter((value): value is string => typeof value === 'string')
+        : [];
+      const normalizedInputModalities = normalizeAgentModalities(m.input_modalities);
+      const normalizedOutputModalities = normalizeAgentModalities(m.output_modalities);
+      if (
+        normalizedInputModalities ||
+        normalizedOutputModalities ||
+        supportedParameters.length > 0
+      ) {
+        detail.agentCapabilities = {
+          source: 'discovered',
+          adapterId: 'openrouter.models',
+          adapterVersion: 1,
+          capabilities: {
+            ...(normalizedInputModalities ? { inputModalities: normalizedInputModalities } : {}),
+            ...(normalizedOutputModalities ? { outputModalities: normalizedOutputModalities } : {}),
+            toolCalling: supportedParameters.includes('tools'),
+            structuredOutput:
+              supportedParameters.includes('response_format') ||
+              supportedParameters.includes('structured_outputs'),
+          },
+        };
+      }
       const pricing = parseOpenRouterPricing(m.pricing);
       if (pricing) detail.pricing = pricing;
       if (typeof m.created === 'string' && m.created.length > 0) detail.createdAt = m.created;
@@ -385,6 +421,18 @@ async function fetchOpenRouterModels(base: string, args: DiscoverArgs): Promise<
   return dedupeSort(out);
 }
 
+const AGENT_MODALITIES = new Set(['text', 'image', 'audio', 'document']);
+
+function normalizeAgentModalities(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  if (
+    value.some((candidate) => typeof candidate !== 'string' || !AGENT_MODALITIES.has(candidate))
+  ) {
+    return undefined;
+  }
+  return [...new Set(value)];
+}
+
 /** OpenRouter's wire shape — fields not present are simply absent on the model. */
 interface OpenRouterModelWire {
   id?: string;
@@ -394,6 +442,7 @@ interface OpenRouterModelWire {
   modality?: string;
   input_modalities?: string[];
   output_modalities?: string[];
+  supported_parameters?: string[];
   pricing?: { prompt?: string; completion?: string };
   created?: string;
   /** Slash-prefixed upstream name (e.g. "anthropic/claude-3.5-sonnet"). */

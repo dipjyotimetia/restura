@@ -45,6 +45,8 @@ import type {
 
 export interface RequestExecutionResult {
   response: ApiResponse;
+  /** True only when the parent proxy transport returned a response. */
+  transportOk: boolean;
   scriptResult?: {
     preRequest?: ScriptResult;
     test?: ScriptResult;
@@ -67,6 +69,8 @@ export interface RequestExecutorOptions {
   envVars: Record<string, string>;
   globalSettings: AppSettings;
   resolveVariables: (text: string, vars?: Record<string, string>) => string;
+  /** Cancels scripts and transport work owned by the caller. */
+  signal?: AbortSignal;
   /** Collection-scoped variables, backing `pm.collectionVariables`. */
   collectionVars?: Record<string, string>;
   /** Current iteration's data-row, backing `pm.iterationData` (collection runner). */
@@ -205,7 +209,7 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
       headers[h.key] = resolveLocal(h.value);
     });
 
-  const effectiveAuth = await refreshOAuth2Auth(request.auth);
+  const effectiveAuth = await refreshOAuth2Auth(request.auth, Date.now(), options.signal);
 
   const headersWithAuth = await applyAuthHeaders(
     effectiveAuth,
@@ -375,7 +379,8 @@ function normalizeBody(data: unknown): string {
 export async function executeRequest(
   options: RequestExecutorOptions
 ): Promise<RequestExecutionResult> {
-  const { request, envVars, collectionVars, iterationData, location } = options;
+  const { request, envVars, collectionVars, iterationData, location, signal } = options;
+  signal?.throwIfAborted();
   const startTime = Date.now();
   const baseInfo = {
     requestName: options.info?.requestName ?? request.name,
@@ -389,6 +394,7 @@ export async function executeRequest(
 
   let preRequestResult: ScriptResult | undefined;
   if (request.preRequestScript) {
+    signal?.throwIfAborted();
     const globalVars = useGlobalsStore.getState().vars;
     // Pre-request runs before buildProxyRequestSpec has resolved auth, so
     // the inherited-header set is the user-defined headers only. The test
@@ -408,6 +414,7 @@ export async function executeRequest(
         sendRequest: makeRendererSendRequest({
           variables: envVars,
           inheritedHeaders: inheritedHeadersPre,
+          ...(signal ? { signal } : {}),
         }),
         cookies: (currentUrl) => makeCookieAdapter(currentUrl),
         vault: makeVaultAdapter(),
@@ -424,6 +431,7 @@ export async function executeRequest(
         body: request.body.raw,
       },
     });
+    signal?.throwIfAborted();
     if (preRequestResult.success && preRequestResult.variables) {
       Object.assign(envVars, preRequestResult.variables);
     }
@@ -443,8 +451,12 @@ export async function executeRequest(
     await buildProxyRequestSpec(options);
 
   let responseData: ApiResponse;
+  let transportOk = false;
   try {
-    const proxyResponse = await executeProxiedRequest(spec, {}, desktop);
+    signal?.throwIfAborted();
+    const proxyResponse = await executeProxiedRequest(spec, signal ? { signal } : {}, desktop);
+    signal?.throwIfAborted();
+    transportOk = true;
     if (!effectiveSettings.disableCookieJar) {
       persistResponseCookies(proxyResponse, spec.url);
     }
@@ -468,6 +480,7 @@ export async function executeRequest(
         : {}),
     };
   } catch (err) {
+    signal?.throwIfAborted();
     const endTime = Date.now();
     const isProxyError = err instanceof ProxyTransportError;
     responseData = {
@@ -485,6 +498,7 @@ export async function executeRequest(
 
   let testResult: ScriptResult | undefined;
   if (request.testScript) {
+    signal?.throwIfAborted();
     const globalVars = useGlobalsStore.getState().vars;
     // rs.judge is wired only on the TEST script (a response exists to judge)
     // and only when the user has enabled + configured a judge provider.
@@ -505,6 +519,7 @@ export async function executeRequest(
         sendRequest: makeRendererSendRequest({
           variables: envVars,
           inheritedHeaders: sentHeaders,
+          ...(signal ? { signal } : {}),
         }),
         cookies: (currentUrl) => makeCookieAdapter(currentUrl),
         vault: makeVaultAdapter(),
@@ -530,6 +545,7 @@ export async function executeRequest(
         size: responseData.size,
       },
     });
+    signal?.throwIfAborted();
     if (testResult.globalsMutations) {
       useGlobalsStore.getState().applyMutations(testResult.globalsMutations);
     }
@@ -538,8 +554,12 @@ export async function executeRequest(
     }
   }
 
+  // Do not expose collection-variable mutations to callers after cancellation;
+  // saved-request tools apply them to the owning collection only on success.
+  signal?.throwIfAborted();
   const result: RequestExecutionResult = {
     response: responseData,
+    transportOk,
     scriptResult: {
       ...(preRequestResult !== undefined && { preRequest: preRequestResult }),
       ...(testResult !== undefined && { test: testResult }),
@@ -590,6 +610,7 @@ export interface StreamingExecutionResult {
 export async function executeStreamingRequest(
   options: RequestExecutorOptions
 ): Promise<StreamingExecutionResult> {
+  options.signal?.throwIfAborted();
   const { spec } = await buildProxyRequestSpec(options);
 
   const streamingSpec: ProxyRequestBody = {
@@ -599,7 +620,11 @@ export async function executeStreamingRequest(
     timeout: 0,
   };
 
-  const response = await executeProxiedStreamingRequest(streamingSpec);
+  options.signal?.throwIfAborted();
+  const response = await executeProxiedStreamingRequest(
+    streamingSpec,
+    options.signal ? { signal: options.signal } : {}
+  );
 
   const responseMeta = {
     status: response.status,

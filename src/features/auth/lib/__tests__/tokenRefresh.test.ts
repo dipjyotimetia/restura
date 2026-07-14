@@ -96,4 +96,33 @@ describe('refreshOAuth2Auth', () => {
     const result = await refreshOAuth2Auth(auth);
     expect(result.oauth2?.refreshToken).toBe('refresh-token');
   });
+
+  it('settles an in-flight token refresh when its owner aborts', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init?: RequestInit) => {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('The operation was aborted', 'AbortError')),
+            { once: true }
+          );
+        });
+      })
+    );
+    const controller = new AbortController();
+    const pending = refreshOAuth2Auth(
+      baseOauth2Auth({ expiresAt: Date.now() + 30_000 }),
+      Date.now(),
+      controller.signal
+    );
+
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetch).toHaveBeenCalledWith(
+      'https://auth.example/token',
+      expect.objectContaining({ signal: controller.signal })
+    );
+  });
 });

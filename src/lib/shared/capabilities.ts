@@ -43,6 +43,11 @@ export type CapabilityName =
   | 'aiLab.judge'
   | 'aiLab.httpExec'
   | 'aiLab.arena'
+  | 'aiLab.agentSuites'
+  | 'aiLab.agentProviders'
+  | 'aiLab.agentRequestTools'
+  | 'aiLab.agentMcpTools'
+  | 'aiLab.agentSandboxes'
   | 'collections.file'
   | 'collections.git'
   | 'mock.localServer'
@@ -246,6 +251,41 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: false,
     desktop: true,
     notes: 'Round-robin pairwise judging → Elo + win-rate matrix; persisted to the arenaRuns table',
+  },
+  'aiLab.agentSuites': {
+    label: 'AI Lab agent suites (multi-step trials, trajectory/outcome evals)',
+    web: false,
+    desktop: true,
+    notes:
+      'AI Lab UI authoring and in-app execution are Electron-only, with one cancellable lifecycle per run surface; versioned suites, task-aware grading, hard run-wide budgets, repeated-trial reliability, and sanitized bounded report persistence. A separate headless OpenAI Responses subset is available via `restura agent eval`',
+  },
+  'aiLab.agentProviders': {
+    label: 'AI Lab agent provider transports',
+    web: false,
+    desktop: true,
+    notes:
+      'Desktop wires OpenAI Chat, Anthropic Messages, OpenRouter, Ollama, Hugging Face, and generic OpenAI-compatible through cancellable keychain-backed IPC with conservative per-model capabilities and explicit user overrides. Headless CLI wires stateless OpenAI Responses. Gemini, Azure OpenAI, and Bedrock are adapter profiles only, not shipped transports.',
+  },
+  'aiLab.agentRequestTools': {
+    label: 'AI Lab agents using saved Restura HTTP requests as tools',
+    web: false,
+    desktop: true,
+    notes:
+      'Runs through the normal request executor and security boundary with run-scoped cancellation; non-read methods require explicit per-call approval',
+  },
+  'aiLab.agentMcpTools': {
+    label: 'AI Lab agents using MCP servers as tools',
+    web: false,
+    desktop: false,
+    notes:
+      'Unsupported: the shared allowlist and annotation-aware adapter is implemented, but no desktop MCP connection resolver is registered yet',
+  },
+  'aiLab.agentSandboxes': {
+    label: 'AI Lab pluggable code sandboxes',
+    web: false,
+    desktop: false,
+    notes:
+      'Unsupported: the provider contract and registry are implemented, but no Docker or hosted sandbox provider ships yet',
   },
   'collections.file': { label: 'Filesystem-backed collections', web: false, desktop: true },
   'collections.git': { label: 'Git operations on collections', web: false, desktop: true },

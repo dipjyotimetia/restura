@@ -1,7 +1,72 @@
 import { describe, expect, it, vi } from 'vitest';
-import { connectAndAddProvider, replaceSecretHandle } from '../providerConnection';
+import { listModels } from '@shared/protocol/ai/model-discovery';
+import type { Fetcher } from '@shared/protocol/types';
+import { createDesktopAgentProviders } from '../agentRuntime';
+import {
+  connectAndAddProvider,
+  replaceSecretHandle,
+  splitDiscoveredModels,
+} from '../providerConnection';
+import { useAiLabStore } from '../../store/useAiLabStore';
 
 describe('connectAndAddProvider', () => {
+  it('intersects tested adapter capabilities with the desktop transport through store and runtime', async () => {
+    const fetcher: Fetcher = vi.fn(async () => ({
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      contentLengthHeader: null,
+      text: async () =>
+        JSON.stringify({
+          data: [
+            {
+              id: 'vendor/model',
+              input_modalities: ['text', 'image'],
+              output_modalities: ['text'],
+              supported_parameters: ['tools', 'response_format'],
+            },
+          ],
+        }),
+    }));
+    const discovered = await listModels({
+      provider: 'openrouter',
+      baseUrl: 'https://openrouter.ai/api',
+      fetcher,
+    });
+    const split = splitDiscoveredModels(discovered);
+    useAiLabStore.setState({ providers: {} });
+    const id = useAiLabStore.getState().addProvider({
+      provider: 'openrouter',
+      label: 'OpenRouter',
+      models: split.models,
+      modelDetails: split.modelDetails,
+    });
+
+    expect(split.modelDetails['vendor/model']).toMatchObject({
+      agentCapabilities: {
+        inputModalities: ['text'],
+        outputModalities: ['text'],
+        toolCalling: true,
+        structuredOutput: false,
+      },
+      agentCapabilityProvenance: {
+        source: 'discovered',
+        adapterId: 'openrouter.models',
+        adapterVersion: 1,
+      },
+    });
+    await expect(
+      createDesktopAgentProviders(useAiLabStore.getState().providers)
+        .require(id)
+        .getCapabilities('vendor/model')
+    ).resolves.toMatchObject({
+      inputModalities: ['text'],
+      outputModalities: ['text'],
+      toolCalling: true,
+      structuredOutput: false,
+    });
+  });
+
   it('stores the key first and discovers models using only its secret handle', async () => {
     const calls: string[] = [];
     const storeSecret = vi.fn(async () => {

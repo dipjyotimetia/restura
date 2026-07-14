@@ -61,6 +61,11 @@ const TRUSTED = {
   sender: { id: 1, isDestroyed: () => false },
   senderFrame: { url: 'file:///app/dist/web/index.html' },
 };
+const OTHER_SENDER = {
+  sender: { id: 2, isDestroyed: () => false },
+  senderFrame: { url: 'file:///app/dist/web/index.html' },
+};
+const OPERATION_ID = '66666666-6666-4666-8666-666666666666';
 
 function handlerFor(channel: string) {
   const call = mockHandle.mock.calls.find((c) => c[0] === channel);
@@ -81,11 +86,12 @@ describe('ai-lab-handler', () => {
   });
   afterEach(() => unregisterAiLabHandlers());
 
-  it('registers all five AI Lab channels', () => {
+  it('registers all six AI Lab channels', () => {
     const channels = mockHandle.mock.calls.map((c) => c[0]);
     expect(channels).toEqual(
       expect.arrayContaining([
         'ai-lab:complete',
+        'ai-lab:complete:cancel',
         'ai-lab:stream',
         'ai-lab:stream:cancel',
         'ai-lab:list-models',
@@ -103,7 +109,12 @@ describe('ai-lab-handler', () => {
   });
 
   describe('complete: SSRF carve-out', () => {
-    const base = { model: 'm', messages: [{ role: 'user', content: 'hi' }], rawMode: false };
+    const base = {
+      operationId: OPERATION_ID,
+      model: 'm',
+      messages: [{ role: 'user', content: 'hi' }],
+      rawMode: false,
+    };
 
     it('rejects a cloud provider whose base URL override targets localhost', async () => {
       const res = await handlerFor('ai-lab:complete')(TRUSTED, {
@@ -167,6 +178,7 @@ describe('ai-lab-handler', () => {
 
   describe('rate-limit ceilings', () => {
     const completeArgs = {
+      operationId: OPERATION_ID,
       provider: 'ollama',
       model: 'm',
       messages: [{ role: 'user', content: 'hi' }],
@@ -192,5 +204,98 @@ describe('ai-lab-handler', () => {
       expect(res.error).toMatch(/rate limit/i);
       expect(mockListModels).not.toHaveBeenCalled();
     });
+  });
+
+  it('refuses cancellation from another renderer', async () => {
+    let resolveComplete!: (value: { ok: true; text: string; toolCalls: never[] }) => void;
+    mockRunToCompletion.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveComplete = resolve;
+        })
+    );
+    const pending = handlerFor('ai-lab:complete')(TRUSTED, {
+      operationId: OPERATION_ID,
+      provider: 'ollama',
+      model: 'm',
+      messages: [{ role: 'user', content: 'hi' }],
+      rawMode: false,
+      baseUrlOverride: 'http://localhost:11434',
+    });
+    await vi.waitFor(() => expect(mockRunToCompletion).toHaveBeenCalledOnce());
+
+    await expect(
+      handlerFor('ai-lab:complete:cancel')(OTHER_SENDER, { operationId: OPERATION_ID })
+    ).resolves.toEqual({ ok: false, error: 'Operation does not belong to this renderer.' });
+
+    resolveComplete({ ok: true, text: 'done', toolCalls: [] });
+    await pending;
+  });
+
+  it('rejects a duplicate active completion operation ID', async () => {
+    let resolveComplete!: (value: { ok: true; text: string; toolCalls: never[] }) => void;
+    mockRunToCompletion.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveComplete = resolve;
+        })
+    );
+    const args = {
+      operationId: OPERATION_ID,
+      provider: 'ollama',
+      model: 'm',
+      messages: [{ role: 'user', content: 'hi' }],
+      rawMode: false,
+      baseUrlOverride: 'http://localhost:11434',
+    };
+    const pending = handlerFor('ai-lab:complete')(TRUSTED, args);
+    await vi.waitFor(() => expect(mockRunToCompletion).toHaveBeenCalledOnce());
+
+    await expect(handlerFor('ai-lab:complete')(TRUSTED, args)).resolves.toEqual({
+      ok: false,
+      error: 'A completion with this operation ID is already active.',
+    });
+
+    resolveComplete({ ok: true, text: 'done', toolCalls: [] });
+    await pending;
+  });
+
+  it('settles a cancelled queued completion before an occupied slot is released', async () => {
+    const releases: Array<(value: { ok: true; text: string; toolCalls: never[] }) => void> = [];
+    mockRunToCompletion.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          releases.push(resolve);
+        })
+    );
+    const complete = handlerFor('ai-lab:complete');
+    const cancel = handlerFor('ai-lab:complete:cancel');
+    const operationIds = Array.from(
+      { length: 9 },
+      (_, index) => `66666666-6666-4666-8666-${String(index).padStart(12, '0')}`
+    );
+    const calls = operationIds.map((operationId) =>
+      complete(TRUSTED, {
+        operationId,
+        provider: 'ollama',
+        model: 'm',
+        messages: [{ role: 'user', content: 'hi' }],
+        rawMode: false,
+        baseUrlOverride: 'http://localhost:11434',
+      })
+    );
+
+    await vi.waitFor(() => expect(mockRunToCompletion).toHaveBeenCalledTimes(8));
+    expect(releases).toHaveLength(8);
+    await cancel(TRUSTED, { operationId: operationIds[8] });
+
+    const queuedResult = await Promise.race([
+      calls[8],
+      new Promise<'timed-out'>((resolve) => setTimeout(() => resolve('timed-out'), 25)),
+    ]);
+
+    for (const release of releases) release({ ok: true, text: 'done', toolCalls: [] });
+    await Promise.all(calls);
+    expect(queuedResult).toEqual({ ok: false, error: 'Operation cancelled.' });
   });
 });

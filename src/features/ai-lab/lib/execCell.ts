@@ -62,7 +62,10 @@ export function buildHttpRequest(req: ExtractedRequest): HttpRequest {
  * resolver is identity. Never throws — a transport failure surfaces as the
  * executor's synthetic error response.
  */
-export async function executeExtractedRequest(req: ExtractedRequest): Promise<ExecResult> {
+export async function executeExtractedRequest(
+  req: ExtractedRequest,
+  signal?: AbortSignal
+): Promise<ExecResult> {
   const request = buildHttpRequest(req);
   const globalSettings = useSettingsStore.getState().settings;
   const result = await executeRequest({
@@ -70,6 +73,7 @@ export async function executeExtractedRequest(req: ExtractedRequest): Promise<Ex
     envVars: {},
     globalSettings,
     resolveVariables: (text) => text,
+    ...(signal ? { signal } : {}),
   });
   const r = result.response;
   return {

@@ -1,6 +1,7 @@
 import type { DiscoveredModel } from '@shared/protocol/ai/model-discovery';
 import type { Provider } from '@shared/protocol/ai/types';
 import type { AiLabModelDetail, AiLabProviderConfig } from '../types';
+import { normalizeDesktopCapabilities } from './agentModelCapabilities';
 
 export interface ProviderConnectionDraft {
   provider: Provider;
@@ -125,6 +126,18 @@ export function splitDiscoveredModels(models: DiscoveredModel[]): {
     if (model.contextLength) detail.contextLength = model.contextLength;
     if (model.modality) detail.modality = model.modality;
     if (model.pricing) detail.pricing = model.pricing;
+    if (
+      model.agentCapabilities?.source === 'discovered' &&
+      model.agentCapabilities.adapterId === 'openrouter.models' &&
+      model.agentCapabilities.adapterVersion === 1
+    ) {
+      detail.agentCapabilities = normalizeDesktopCapabilities(model.agentCapabilities.capabilities);
+      detail.agentCapabilityProvenance = {
+        source: 'discovered',
+        adapterId: 'openrouter.models',
+        adapterVersion: 1,
+      };
+    }
     if (model.createdAt) detail.createdAt = model.createdAt;
     if (model.vendor) detail.vendor = model.vendor;
     if (model.family) detail.family = model.family;

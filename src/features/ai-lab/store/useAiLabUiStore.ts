@@ -18,7 +18,8 @@ import type { ScorerConfig } from '../types';
  *     state and evaporated on every tab switch.
  */
 
-export type AiLabTab = 'playground' | 'datasets' | 'evals' | 'arena' | 'reports' | 'providers';
+export type AiLabTab =
+  'playground' | 'agents' | 'datasets' | 'evals' | 'arena' | 'reports' | 'providers';
 
 export type EvalTargetMode = 'text' | 'http' | 'graphql';
 

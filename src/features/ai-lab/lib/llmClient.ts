@@ -6,8 +6,10 @@ import type { AiLabProviderConfig } from '../types';
 import { getElectronAPI } from '@/lib/shared/platform';
 
 export interface LlmChatMessage {
-  role: 'system' | 'user' | 'assistant';
+  role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
+  toolCallId?: string;
+  toolCalls?: Array<{ id: string; name: string; input: string }>;
 }
 
 export interface LlmCallSpec {
@@ -50,10 +52,27 @@ export function specFor(
 }
 
 /** Non-streaming completion (eval cells + LLM-as-judge). */
-export async function completeLlm(spec: LlmCallSpec): Promise<CompletionResult> {
-  const res = await api().complete({ ...spec, rawMode: spec.rawMode ?? true });
-  if (!res.ok) throw new Error(res.error);
-  return res.result;
+export async function completeLlm(
+  spec: LlmCallSpec,
+  options: { signal?: AbortSignal; operationId?: string } = {}
+): Promise<CompletionResult> {
+  const operationId = options.operationId ?? crypto.randomUUID();
+  const a = api();
+  const cancel = () => void a.cancelComplete({ operationId }).catch(() => undefined);
+  options.signal?.addEventListener('abort', cancel, { once: true });
+  try {
+    options.signal?.throwIfAborted();
+    const res = await a.complete({
+      ...spec,
+      operationId,
+      rawMode: spec.rawMode ?? true,
+    });
+    options.signal?.throwIfAborted();
+    if (!res.ok) throw new Error(res.error);
+    return res.result;
+  } finally {
+    options.signal?.removeEventListener('abort', cancel);
+  }
 }
 
 export interface StreamHandle {

@@ -114,6 +114,7 @@ const electronAPI = {
   // HTTP operations with proxy support
   http: {
     request: (config: {
+      requestId: string;
       method: string;
       url: string;
       headers?: Record<string, string>;
@@ -148,6 +149,7 @@ const electronAPI = {
       headers: Record<string, string>;
       data: unknown;
     }> => ipcRenderer.invoke(IPC.http.request, config),
+    cancel: (args: { requestId: string }) => ipcRenderer.invoke(IPC.http.cancel, args),
   },
 
   // gRPC operations
@@ -769,7 +771,12 @@ const electronAPI = {
       streamId: string;
       provider: 'openai' | 'anthropic' | 'openrouter' | 'openai-compatible';
       model: string;
-      messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+      messages: Array<{
+        role: 'system' | 'user' | 'assistant' | 'tool';
+        content: string;
+        toolCallId?: string;
+        toolCalls?: Array<{ id: string; name: string; input: string }>;
+      }>;
       apiKeyHandleId?: string;
       baseUrlOverride?: string;
       rawMode: boolean;
@@ -809,7 +816,11 @@ const electronAPI = {
   // for eval cells + LLM-as-judge, and model discovery. See ai-lab-handler.ts.
   // Param/return shapes are enforced by `satisfies ElectronAPI` on this object.
   aiLab: {
-    complete: (spec: AiLabModelSpec) => ipcRenderer.invoke(IPC.aiLab.complete, spec),
+    complete: (spec: AiLabModelSpec & { operationId: string }) =>
+      ipcRenderer.invoke(IPC.aiLab.complete, spec),
+
+    cancelComplete: (args: { operationId: string }) =>
+      ipcRenderer.invoke(IPC.aiLab.completeCancel, args),
 
     stream: (spec: AiLabModelSpec & { streamId: string }) =>
       ipcRenderer.invoke(IPC.aiLab.stream, spec),

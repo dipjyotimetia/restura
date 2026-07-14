@@ -45,6 +45,7 @@ export const IPC = {
   },
   http: {
     request: 'http:request',
+    cancel: 'http:cancel',
   },
   grpc: {
     request: 'grpc:request',
@@ -166,6 +167,7 @@ export const IPC = {
   },
   aiLab: {
     complete: 'ai-lab:complete',
+    completeCancel: 'ai-lab:complete:cancel',
     stream: 'ai-lab:stream',
     streamCancel: 'ai-lab:stream:cancel',
     listModels: 'ai-lab:list-models',

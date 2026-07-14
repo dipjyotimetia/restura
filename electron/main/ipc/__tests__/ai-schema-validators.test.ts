@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   AiChatRequestSchema,
   AiLabCompleteSchema,
+  AiLabCompleteCancelSchema,
   AiLabStreamSchema,
   AiLabDiscoverSchema,
 } from '../ipc-validators';
@@ -14,6 +15,10 @@ function inferenceSpec(over: Record<string, unknown>): Record<string, unknown> {
     rawMode: true,
     ...over,
   };
+}
+
+function completeSpec(over: Record<string, unknown>): Record<string, unknown> {
+  return inferenceSpec({ operationId: crypto.randomUUID(), ...over });
 }
 
 describe('AiChatRequestSchema — API-key requirement for cloud providers', () => {
@@ -57,7 +62,7 @@ describe('AiLabCompleteSchema / AiLabStreamSchema — API-key requirement', () =
   it.each(['openai', 'anthropic', 'openrouter', 'huggingface'])(
     'rejects a cloud provider (%s) complete WITHOUT an API key handle',
     (provider) => {
-      const r = AiLabCompleteSchema.safeParse(inferenceSpec({ provider }));
+      const r = AiLabCompleteSchema.safeParse(completeSpec({ provider }));
       expect(r.success).toBe(false);
       if (!r.success) {
         expect(r.error.issues.some((i) => i.path.includes('apiKeyHandleId'))).toBe(true);
@@ -69,7 +74,7 @@ describe('AiLabCompleteSchema / AiLabStreamSchema — API-key requirement', () =
     'accepts a cloud provider (%s) complete WITH an API key handle',
     (provider) => {
       const r = AiLabCompleteSchema.safeParse(
-        inferenceSpec({ provider, apiKeyHandleId: crypto.randomUUID() })
+        completeSpec({ provider, apiKeyHandleId: crypto.randomUUID() })
       );
       expect(r.success).toBe(true);
     }
@@ -79,7 +84,7 @@ describe('AiLabCompleteSchema / AiLabStreamSchema — API-key requirement', () =
     'accepts a keyless local provider (%s) for complete',
     (provider) => {
       const r = AiLabCompleteSchema.safeParse(
-        inferenceSpec({
+        completeSpec({
           provider,
           ...(provider === 'openai-compatible'
             ? { baseUrlOverride: 'http://localhost:11434' }
@@ -98,6 +103,21 @@ describe('AiLabCompleteSchema / AiLabStreamSchema — API-key requirement', () =
     if (!r.success) {
       expect(r.error.issues.some((i) => i.path.includes('apiKeyHandleId'))).toBe(true);
     }
+  });
+});
+
+describe('AiLabCompleteCancelSchema', () => {
+  it('rejects a malformed operation ID', () => {
+    expect(AiLabCompleteCancelSchema.safeParse({ operationId: 'not-a-uuid' }).success).toBe(false);
+  });
+
+  it('rejects unknown fields', () => {
+    expect(
+      AiLabCompleteCancelSchema.safeParse({
+        operationId: crypto.randomUUID(),
+        unexpected: true,
+      }).success
+    ).toBe(false);
   });
 });
 

@@ -7,6 +7,7 @@
  */
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import axios, { type AxiosError } from 'axios';
+import { v4 as uuidv4 } from 'uuid';
 import { isElectron, getElectronAPI, workerAuthHeaders, workerBaseUrl } from './platform';
 import type { ProxyConfig, ClientCert, CaCert, MinTlsVersion } from '@/types';
 
@@ -62,7 +63,7 @@ export async function executeProxiedRequest(
   desktop?: DesktopTransportConfig
 ): Promise<ProxyJsonResponse> {
   if (isElectron()) {
-    return executeViaElectronIpc(spec, desktop);
+    return executeViaElectronIpc(spec, options.signal, desktop);
   }
   // Web path: `desktop` (proxy / mTLS / CA / TLS knobs) is intentionally
   // dropped — the Worker has no per-request TLS control and cert material
@@ -141,6 +142,7 @@ function mapAxiosError(err: unknown): ProxyTransportError {
 // until the .d.ts is regenerated.
 async function executeViaElectronIpc(
   spec: ProxyRequestBody,
+  signal?: AbortSignal,
   desktop?: DesktopTransportConfig
 ): Promise<ProxyJsonResponse> {
   const api = getElectronAPI();
@@ -153,6 +155,7 @@ async function executeViaElectronIpc(
   type IpcConfig = Parameters<typeof api.http.request>[0] & {
     auth?: ProxyRequestBody['auth'];
   };
+  const requestId = uuidv4();
   // The IPC proxy type excludes 'none' (the renderer's ProxyConfig allows it
   // as a "disabled" sentinel). Only forward an actually-enabled, real proxy.
   const ipcProxy: IpcConfig['proxy'] | undefined =
@@ -166,6 +169,7 @@ async function executeViaElectronIpc(
         }
       : undefined;
   const config: IpcConfig = {
+    requestId,
     method: spec.method,
     url: spec.url,
     ...(spec.headers ? { headers: spec.headers } : {}),
@@ -210,7 +214,21 @@ async function executeViaElectronIpc(
     ...(desktop?.cipherSuites !== undefined ? { cipherSuites: desktop.cipherSuites } : {}),
   };
 
-  const result = await api.http.request(config);
+  signal?.throwIfAborted();
+  const cancel = () => {
+    void api.http.cancel({ requestId }).catch(() => {
+      // The request may have completed between abort dispatch and cancellation.
+      // The caller still observes its own AbortSignal below.
+    });
+  };
+  signal?.addEventListener('abort', cancel, { once: true });
+  let result: Awaited<ReturnType<typeof api.http.request>>;
+  try {
+    result = await api.http.request(config);
+    signal?.throwIfAborted();
+  } finally {
+    signal?.removeEventListener('abort', cancel);
+  }
 
   return {
     status: result.status,

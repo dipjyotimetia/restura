@@ -76,7 +76,11 @@ describe('validateIpcInput', () => {
 
   describe('HttpRequestConfigSchema', () => {
     it('valid HTTP config passes', () => {
-      const input = { method: 'GET', url: 'https://example.com' };
+      const input = {
+        requestId: '11111111-1111-4111-8111-111111111111',
+        method: 'GET',
+        url: 'https://example.com',
+      };
       expect(() => validateIpcInput(HttpRequestConfigSchema, input, 'http:request')).not.toThrow();
     });
 
@@ -98,6 +102,7 @@ describe('validateIpcInput', () => {
 
     it('accepts the new redirect / URL / TLS fields', () => {
       const input = {
+        requestId: '11111111-1111-4111-8111-111111111111',
         method: 'GET',
         url: 'https://example.com',
         followOriginalMethod: true,

@@ -1,7 +1,14 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { useAiLabStore } from '../useAiLabStore';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { migrateAiLabState, useAiLabStore } from '../useAiLabStore';
+import { AiLabStateSchema } from '@/lib/shared/store-validators';
+import type { AiLabReportEnvelope } from '../../run-engine/reportEnvelope';
+import {
+  resetAiLabReportRepositoryForTests,
+  setAiLabReportRepositoryForTests,
+} from '../../run-engine/reportRepository';
 
 function reset() {
+  resetAiLabReportRepositoryForTests();
   useAiLabStore.setState({
     providers: {},
     prompts: {},
@@ -9,8 +16,102 @@ function reset() {
     evalConfigs: {},
     favoriteModelKeys: [],
     recentModelKeys: [],
+    agentSuites: {},
+    runReports: {},
+    reportQuarantineCount: 0,
   });
 }
+
+function report(
+  id: string,
+  startedAt: number
+): Extract<AiLabReportEnvelope, { kind: 'agent-suite' }> {
+  return {
+    id,
+    kind: 'agent-suite',
+    name: id,
+    startedAt,
+    finishedAt: startedAt + 1,
+    status: 'passed',
+    suite: {
+      schemaVersion: 2,
+      id: 'suite',
+      name: 'suite',
+      mode: 'regression',
+      agents: [
+        {
+          id: 'agent',
+          model: { providerId: 'provider', model: 'model' },
+          instructions: 'safe',
+          tools: [],
+          limits: { maxSteps: 1, maxWallTimeMs: 1_000 },
+        },
+      ],
+      tasks: [{ id: 'task', input: [{ type: 'text', text: 'safe' }] }],
+      graders: [],
+      trials: 1,
+    },
+    payload: {
+      suiteId: 'suite',
+      status: 'passed',
+      results: [],
+      summary: {
+        total: 0,
+        passed: 0,
+        failed: 0,
+        errors: 0,
+        cancelled: 0,
+        passRate: 0,
+        confidence95: { low: 0, high: 0 },
+        passAtK: {},
+        passToK: {},
+        reliabilityByCase: [],
+      },
+    },
+  };
+}
+
+describe('useAiLabStore — canonical reports', () => {
+  beforeEach(reset);
+
+  it('hydrates retained reports from the awaited repository and persists eviction', async () => {
+    const loaded = Object.fromEntries(
+      Array.from({ length: 25 }, (_, index) => {
+        const value = report(`r-${index}`, index);
+        return [value.id, value];
+      })
+    );
+    const save = vi.fn(async () => {});
+    setAiLabReportRepositoryForTests({ load: async () => loaded, save });
+
+    await useAiLabStore.getState().hydrateRunReports();
+
+    expect(Object.keys(useAiLabStore.getState().runReports)).toHaveLength(20);
+    expect(useAiLabStore.getState().runReports['r-24']).toBeDefined();
+    expect(useAiLabStore.getState().runReports['r-0']).toBeUndefined();
+    expect(save).toHaveBeenCalledWith(useAiLabStore.getState().runReports);
+  });
+
+  it('awaits canonical save and deletion before changing live report state', async () => {
+    let persisted: Record<string, AiLabReportEnvelope> = {};
+    const repository = {
+      load: async () => persisted,
+      save: vi.fn(async (next: Record<string, AiLabReportEnvelope>) => {
+        persisted = structuredClone(next);
+      }),
+    };
+    setAiLabReportRepositoryForTests(repository);
+    const value = report('r-1', 1);
+
+    await useAiLabStore.getState().saveRunReport(value);
+    expect(persisted['r-1']).toEqual(value);
+    expect(useAiLabStore.getState().runReports['r-1']).toEqual(value);
+
+    await useAiLabStore.getState().removeRunReport('r-1');
+    expect(persisted).toEqual({});
+    expect(useAiLabStore.getState().runReports).toEqual({});
+  });
+});
 
 describe('useAiLabStore — providers', () => {
   beforeEach(reset);
@@ -71,6 +172,253 @@ describe('useAiLabStore — providers', () => {
     });
   });
 
+  it('persists explicit capability overrides while accepting legacy providers additively', () => {
+    const capabilityOverride = {
+      inputModalities: ['text'] as const,
+      outputModalities: ['text'] as const,
+      structuredOutput: false,
+      toolCalling: true,
+      parallelToolCalls: false,
+      reasoning: false,
+      continuation: false,
+      serverTools: [],
+    };
+    const id = useAiLabStore.getState().addProvider({
+      provider: 'openai-compatible',
+      label: 'Gateway',
+      models: ['custom'],
+      capabilityOverrides: { custom: capabilityOverride },
+    });
+
+    expect(useAiLabStore.getState().providers[id]?.capabilityOverrides).toEqual({
+      custom: capabilityOverride,
+    });
+
+    const legacyState = {
+      providers: {
+        legacy: {
+          id: 'legacy',
+          provider: 'ollama',
+          label: 'Legacy local',
+          pricingKnown: false,
+          isLocal: true,
+          models: ['old'],
+          createdAt: 1,
+        },
+      },
+      prompts: {},
+      datasets: {},
+      evalConfigs: {},
+    };
+    const parsedLegacy = AiLabStateSchema.safeParse(legacyState);
+    expect(parsedLegacy.success).toBe(true);
+    if (parsedLegacy.success) {
+      expect(parsedLegacy.data.providers.legacy?.costPolicy).toBe('unknown');
+    }
+  });
+
+  it('normalizes unsupported capability overrides before storing provider changes', () => {
+    const unsupported = {
+      inputModalities: ['text', 'image'] as const,
+      outputModalities: ['text', 'audio'] as const,
+      structuredOutput: true,
+      toolCalling: true,
+      parallelToolCalls: true,
+      reasoning: true,
+      continuation: true,
+      serverTools: ['web-search'],
+    };
+    const id = useAiLabStore.getState().addProvider({
+      provider: 'openai-compatible',
+      label: 'Gateway',
+      models: ['custom'],
+      capabilityOverrides: { custom: unsupported },
+    });
+
+    expect(useAiLabStore.getState().providers[id]?.capabilityOverrides?.custom).toEqual({
+      inputModalities: ['text'],
+      outputModalities: ['text'],
+      structuredOutput: false,
+      toolCalling: true,
+      parallelToolCalls: true,
+      reasoning: false,
+      continuation: false,
+      serverTools: [],
+    });
+
+    useAiLabStore.getState().updateProvider(id, {
+      capabilityOverrides: { custom: { ...unsupported, toolCalling: false } },
+    });
+    expect(useAiLabStore.getState().providers[id]?.capabilityOverrides?.custom).toMatchObject({
+      toolCalling: false,
+      parallelToolCalls: false,
+      structuredOutput: false,
+      reasoning: false,
+      continuation: false,
+      serverTools: [],
+    });
+  });
+
+  it('rejects unproven or inconsistent persisted discovery capabilities', () => {
+    const base = {
+      providers: {
+        unsafe: {
+          id: 'unsafe',
+          provider: 'openrouter',
+          label: 'Unsafe',
+          pricingKnown: true,
+          isLocal: false,
+          models: ['custom'],
+          createdAt: 1,
+          modelDetails: {
+            custom: {
+              agentCapabilities: {
+                inputModalities: ['text'],
+                outputModalities: ['text'],
+                toolCalling: false,
+                parallelToolCalls: false,
+              },
+            },
+          },
+        },
+      },
+      prompts: {},
+      datasets: {},
+      evalConfigs: {},
+    };
+
+    expect(AiLabStateSchema.safeParse(base).success).toBe(false);
+  });
+
+  it('rejects proven discovery metadata with server tools but no tool calling', () => {
+    const state = {
+      providers: {
+        unsafe: {
+          id: 'unsafe',
+          provider: 'openrouter',
+          label: 'Unsafe',
+          pricingKnown: true,
+          isLocal: false,
+          models: ['custom'],
+          createdAt: 1,
+          modelDetails: {
+            custom: {
+              agentCapabilities: {
+                inputModalities: ['text'],
+                outputModalities: ['text'],
+                toolCalling: false,
+                serverTools: ['web-search'],
+              },
+              agentCapabilityProvenance: {
+                source: 'discovered',
+                adapterId: 'openrouter.models',
+                adapterVersion: 1,
+              },
+            },
+          },
+        },
+      },
+      prompts: {},
+      datasets: {},
+      evalConfigs: {},
+    };
+
+    expect(AiLabStateSchema.safeParse(state).success).toBe(false);
+  });
+
+  it('rejects OpenRouter capability provenance attached to a different provider', () => {
+    const state = {
+      providers: {
+        mismatch: {
+          id: 'mismatch',
+          provider: 'anthropic',
+          label: 'Imported Anthropic',
+          pricingKnown: true,
+          isLocal: false,
+          models: ['custom'],
+          createdAt: 1,
+          modelDetails: {
+            custom: {
+              agentCapabilities: { toolCalling: true },
+              agentCapabilityProvenance: {
+                source: 'discovered',
+                adapterId: 'openrouter.models',
+                adapterVersion: 1,
+              },
+            },
+          },
+        },
+      },
+      prompts: {},
+      datasets: {},
+      evalConfigs: {},
+    };
+
+    expect(AiLabStateSchema.safeParse(state).success).toBe(false);
+  });
+
+  it('migration preserves a mismatched provider while stripping foreign capability evidence', () => {
+    const migrated = migrateAiLabState({
+      providers: {
+        mismatch: {
+          id: 'mismatch',
+          provider: 'anthropic',
+          label: 'Imported Anthropic',
+          pricingKnown: true,
+          isLocal: false,
+          models: ['custom'],
+          createdAt: 1,
+          capabilityOverrides: {
+            custom: {
+              inputModalities: ['text', 'image'],
+              outputModalities: ['text'],
+              structuredOutput: true,
+              toolCalling: true,
+              parallelToolCalls: true,
+              reasoning: true,
+              continuation: true,
+              serverTools: ['web-search'],
+            },
+          },
+          modelDetails: {
+            custom: {
+              label: 'Custom',
+              agentCapabilities: { toolCalling: true },
+              agentCapabilityProvenance: {
+                source: 'discovered',
+                adapterId: 'openrouter.models',
+                adapterVersion: 1,
+              },
+            },
+          },
+        },
+      },
+      prompts: {},
+      datasets: {},
+      evalConfigs: {},
+    });
+
+    expect(migrated.providers?.mismatch).toMatchObject({
+      id: 'mismatch',
+      provider: 'anthropic',
+      modelDetails: { custom: { label: 'Custom' } },
+      costPolicy: 'unknown',
+    });
+    expect(migrated.providers?.mismatch?.modelDetails?.custom?.agentCapabilities).toBeUndefined();
+    expect(
+      migrated.providers?.mismatch?.modelDetails?.custom?.agentCapabilityProvenance
+    ).toBeUndefined();
+    expect(migrated.providers?.mismatch?.capabilityOverrides?.custom).toMatchObject({
+      inputModalities: ['text'],
+      structuredOutput: false,
+      toolCalling: true,
+      parallelToolCalls: true,
+      reasoning: false,
+      continuation: false,
+      serverTools: [],
+    });
+  });
+
   it('adds a HuggingFace provider with pricingKnown=false and isLocal=false', () => {
     // HuggingFace is a cloud gateway but has no static price table — pricing
     // must default to unknown so the AI Lab shows "cost unknown" rather than a
@@ -96,6 +444,32 @@ describe('useAiLabStore — providers', () => {
     expect(useAiLabStore.getState().providers[id]?.label).toBe('Renamed');
     useAiLabStore.getState().removeProvider(id);
     expect(useAiLabStore.getState().providers[id]).toBeUndefined();
+  });
+
+  it('prunes overrides on rediscovery so removed models cannot resurrect stale assertions', () => {
+    const id = useAiLabStore.getState().addProvider({
+      provider: 'openai-compatible',
+      label: 'Gateway',
+      models: ['keep', 'removed'],
+      capabilityOverrides: {
+        removed: {
+          inputModalities: ['text'],
+          outputModalities: ['text'],
+          structuredOutput: false,
+          toolCalling: true,
+          parallelToolCalls: false,
+          reasoning: false,
+          continuation: false,
+          serverTools: [],
+        },
+      },
+    });
+
+    useAiLabStore.getState().setProviderModels(id, ['keep']);
+    expect(useAiLabStore.getState().providers[id]?.capabilityOverrides).toBeUndefined();
+
+    useAiLabStore.getState().setProviderModels(id, ['keep', 'removed']);
+    expect(useAiLabStore.getState().providers[id]?.capabilityOverrides).toBeUndefined();
   });
 
   it('updateProvider on an unknown id is a no-op', () => {
@@ -137,6 +511,58 @@ describe('useAiLabStore — providers', () => {
 
     expect(useAiLabStore.getState().favoriteModelKeys).toEqual([]);
     expect(useAiLabStore.getState().recentModelKeys).toEqual(['another:model']);
+  });
+});
+
+describe('useAiLabStore — report migration', () => {
+  it('migrates legacy eval state without rewriting existing runs', () => {
+    const legacyRun = {
+      id: 'legacy',
+      evalConfigId: 'eval-1',
+      configName: 'Legacy eval',
+      startedAt: 1,
+      status: 'done' as const,
+      cells: [],
+      totalCells: 0,
+    };
+    const legacyState = {
+      providers: {},
+      prompts: {},
+      datasets: {},
+      evalConfigs: {},
+      runs: { legacy: legacyRun },
+    };
+
+    const migrated = migrateAiLabState(legacyState, 2) as typeof legacyState & {
+      runReports: Record<string, unknown>;
+    };
+
+    expect(migrated.runs).toEqual({ legacy: legacyRun });
+    expect(migrated.runReports).toEqual({});
+  });
+
+  it('isolates malformed suites and reports while preserving unrelated state', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const migrated = migrateAiLabState(
+      {
+        providers: { keep: { id: 'keep' } },
+        prompts: { keep: { id: 'keep' } },
+        datasets: { keep: { id: 'keep' } },
+        evalConfigs: { keep: { id: 'keep' } },
+        agentSuites: { bad: { schemaVersion: 2, id: 'bad' } },
+        runReports: { bad: { id: 'bad', kind: 'agent-suite', payload: null } },
+        runs: { legacy: { id: 'legacy' } },
+      },
+      4
+    ) as Record<string, unknown>;
+
+    expect(migrated.agentSuites).toEqual({});
+    expect(migrated.runReports).toEqual({});
+    expect(migrated.reportQuarantineCount).toBe(2);
+    expect(migrated.providers).toMatchObject({ keep: { id: 'keep' } });
+    expect(migrated.runs).toEqual({ legacy: { id: 'legacy' } });
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
   });
 });
 

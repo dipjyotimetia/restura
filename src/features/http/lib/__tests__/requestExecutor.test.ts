@@ -4,11 +4,16 @@ import { useCookieStore } from '@/features/http/store/useCookieStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 
 const executeProxiedRequestMock = vi.fn();
+const makeRendererSendRequestMock = vi.fn((_options: unknown) => vi.fn());
 
 vi.mock('@/lib/shared/transport', () => ({
   executeProxiedRequest: (...args: unknown[]) => executeProxiedRequestMock(...args),
   executeProxiedStreamingRequest: vi.fn(),
   ProxyTransportError: class ProxyTransportError extends Error {},
+}));
+
+vi.mock('@/features/scripts/lib/pmSendRequestHost', () => ({
+  makeRendererSendRequest: (options: unknown) => makeRendererSendRequestMock(options),
 }));
 
 import { executeRequest, isStreamingAccept } from '../requestExecutor';
@@ -34,6 +39,7 @@ describe('executeRequest — cookie settings inheritance', () => {
   beforeEach(() => {
     useCookieStore.setState({ cookies: [] });
     executeProxiedRequestMock.mockReset();
+    makeRendererSendRequestMock.mockClear();
     executeProxiedRequestMock.mockResolvedValue({
       status: 200,
       statusText: 'OK',
@@ -60,6 +66,86 @@ describe('executeRequest — cookie settings inheritance', () => {
     });
 
     expect(useCookieStore.getState().cookies).toEqual([]);
+  });
+
+  it('forwards the caller AbortSignal to the buffered proxy transport', async () => {
+    const controller = new AbortController();
+
+    await executeRequest({
+      request: makeRequest(),
+      envVars: {},
+      globalSettings: originalSettings,
+      resolveVariables: (text) => text,
+      signal: controller.signal,
+    });
+
+    expect(executeProxiedRequestMock).toHaveBeenCalledWith(
+      expect.anything(),
+      { signal: controller.signal },
+      expect.anything()
+    );
+  });
+
+  it('rejects an already-cancelled request before opening the transport', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      executeRequest({
+        request: makeRequest(),
+        envVars: {},
+        globalSettings: originalSettings,
+        resolveVariables: (text) => text,
+        signal: controller.signal,
+      })
+    ).rejects.toThrow(/abort/i);
+
+    expect(executeProxiedRequestMock).not.toHaveBeenCalled();
+  });
+
+  it('reports whether the parent transport completed successfully', async () => {
+    const success = await executeRequest({
+      request: makeRequest(),
+      envVars: {},
+      globalSettings: originalSettings,
+      resolveVariables: (text) => text,
+    });
+    expect(success.transportOk).toBe(true);
+
+    executeProxiedRequestMock.mockRejectedValueOnce(new Error('network down'));
+    const failure = await executeRequest({
+      request: makeRequest(),
+      envVars: {},
+      globalSettings: originalSettings,
+      resolveVariables: (text) => text,
+    });
+    expect(failure.transportOk).toBe(false);
+    expect(failure.response.status).toBe(0);
+  });
+
+  it('passes the parent signal to pre-request and test-script subrequest hosts', async () => {
+    const controller = new AbortController();
+
+    await executeRequest({
+      request: makeRequest({
+        preRequestScript: 'console.log("pre")',
+        testScript: 'console.log("test")',
+      }),
+      envVars: {},
+      globalSettings: originalSettings,
+      resolveVariables: (text) => text,
+      signal: controller.signal,
+    });
+
+    expect(makeRendererSendRequestMock).toHaveBeenCalledTimes(2);
+    expect(makeRendererSendRequestMock).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ signal: controller.signal })
+    );
+    expect(makeRendererSendRequestMock).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ signal: controller.signal })
+    );
   });
 });
 

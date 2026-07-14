@@ -161,6 +161,7 @@ interface ElectronHttpFormField {
 }
 
 interface ElectronHttpRequestConfig {
+  requestId: string;
   method: string;
   url: string;
   headers?: Record<string, string>;
@@ -205,6 +206,9 @@ interface ElectronHttpResponse {
 
 interface ElectronHttpAPI {
   request: (config: ElectronHttpRequestConfig) => Promise<ElectronHttpResponse>;
+  cancel: (args: {
+    requestId: string;
+  }) => Promise<{ ok: true; alreadyDone?: true } | { ok: false; error: string }>;
 }
 
 interface GrpcIpcResult {
@@ -862,7 +866,12 @@ interface ElectronAiAPI {
     streamId: string;
     provider: 'openai' | 'anthropic' | 'openrouter' | 'openai-compatible';
     model: string;
-    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+    messages: Array<{
+      role: 'system' | 'user' | 'assistant' | 'tool';
+      content: string;
+      toolCallId?: string;
+      toolCalls?: Array<{ id: string; name: string; input: string }>;
+    }>;
     apiKeyHandleId?: string;
     baseUrlOverride?: string;
     rawMode: boolean;
@@ -890,7 +899,12 @@ interface ElectronAiAPI {
 interface AiLabModelSpec {
   provider: import('../../shared/protocol/ai/types').Provider;
   model: string;
-  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+  messages: Array<{
+    role: 'system' | 'user' | 'assistant' | 'tool';
+    content: string;
+    toolCallId?: string;
+    toolCalls?: Array<{ id: string; name: string; input: string }>;
+  }>;
   apiKeyHandleId?: string;
   baseUrlOverride?: string;
   rawMode: boolean;
@@ -908,11 +922,14 @@ interface AiLabDiscoverArgs {
 
 interface ElectronAiLabAPI {
   complete: (
-    spec: AiLabModelSpec
+    spec: AiLabModelSpec & { operationId: string }
   ) => Promise<
     | { ok: true; result: import('../../shared/protocol/ai/types').CompletionResult }
     | { ok: false; error: string }
   >;
+  cancelComplete: (args: {
+    operationId: string;
+  }) => Promise<{ ok: boolean; alreadyDone?: boolean; error?: string }>;
   stream: (
     spec: AiLabModelSpec & { streamId: string }
   ) => Promise<{ ok: true; streamId: string } | { ok: false; error: string }>;

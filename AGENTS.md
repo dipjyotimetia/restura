@@ -129,6 +129,8 @@ src/routes/                # React Router route components
 src/lib/shared/            # platform, encryption, storage, validators, capabilities, etc.
 ```
 
+AI Lab agent engineering is shared through `shared/agent-lab/` (versioned suites, conservative per-model capabilities with explicit user-asserted overrides, bounded tool loop and run-wide token budgets, task-aware graders/judge quorum, typed traces, reliability statistics, MCP/sandbox contracts, and OTLP/OpenInference export). Eval and agent surfaces each own a module-scoped cancellable lifecycle across tab changes; they reject same-surface concurrent starts but may run alongside each other, and cancellation must reach model/judge/tool work and win over late success. The Electron bridge is `src/features/ai-lab/lib/{agentRuntime,agentTools}.ts`; saved HTTP tools must continue through the normal request executor and non-read calls require explicit approval. Desktop persistence/export must use sanitized bounded agent report envelopes; opaque sensitive output may still require access controls. The CLI consumes the same core via `restura agent eval`, but currently supports only stateless OpenAI Responses (`store: false`, no server continuation), environment credentials, and no judges, tools, secret handles, or base-URL overrides. Do not mark an MCP or sandbox capability supported until its runtime resolver/provider is wired end to end.
+
 Each protocol feature exports a `protocol.ts` describing its schema, and its
 executor branches on `isElectron()` to pick IPC vs. HTTP transport.
 
