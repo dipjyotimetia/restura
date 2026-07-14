@@ -44,6 +44,20 @@ describe('ProviderRegistry', () => {
       'duplicate provider adapter: same'
     );
   });
+
+  it('throws for unknown provider identifiers', () => {
+    const registry = new ProviderRegistry([adapter('vendor.experimental')]);
+
+    expect(() => registry.require('vendor.unknown')).toThrow(
+      'unknown provider adapter: vendor.unknown'
+    );
+  });
+
+  it('lists adapters in insertion order', () => {
+    const registry = new ProviderRegistry([adapter('vendor.alpha'), adapter('vendor.beta')]);
+
+    expect(registry.list().map((adapter) => adapter.id)).toEqual(['vendor.alpha', 'vendor.beta']);
+  });
 });
 
 describe('validateGenerationRequest', () => {
