@@ -110,7 +110,7 @@
     "@kafkajs/confluent-schema-registry": "^4.1.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@monaco-editor/react": "^4.7.0",
-    "@platformatic/kafka": "2.4.0",
+    "@platformatic/kafka": "2.6.0",
     "@radix-ui/react-alert-dialog": "^1.1.19",
     "@radix-ui/react-checkbox": "^1.3.7",
     "@radix-ui/react-context-menu": "^2.3.3",
