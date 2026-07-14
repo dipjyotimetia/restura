@@ -2,26 +2,26 @@ import { executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
 import { RedirectPolicyError } from '@shared/protocol/redirect-follower';
 import { ipcMain } from 'electron';
 import { createLogger } from '../../../src/lib/shared/logger';
-import { IPC, EVENT_PREFIX } from '../../shared/channels';
+import { EVENT_PREFIX, IPC } from '../../shared/channels';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import {
+  assertTrustedSender,
+  createValidatedHandler,
   SseConnectSchema,
   SseDisconnectSchema,
   validateIpcInput,
-  createValidatedHandler,
-  assertTrustedSender,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
 import { getExecutionPolicy } from '../security/execution-policy';
 import {
   assertPinnedFetchCanHonorPolicy,
   createPolicyPinnedFetch,
-  resolvePolicyTransport,
   type PolicyTransportConfig,
+  resolvePolicyTransport,
 } from '../security/policy-transport';
 import { resolveSafeAddress } from '../security/safe-connect';
 import { makeFetchFetcher } from './fetch-fetcher';
-import { SseParser, type ParsedSseEvent } from './sse-parser';
+import { type ParsedSseEvent, SseParser } from './sse-parser';
 
 const log = createLogger('sse');
 

@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import { startMockWsServer, type MockWsServerHandle } from '../../../../../e2e/mocks/wsServer';
+import { type MockWsServerHandle, startMockWsServer } from '../../../../../e2e/mocks/wsServer';
 import { GraphQLSubscriptionClient, type SubscriptionMessage } from '../subscriptionClient';
 
 // Drives the REAL ElectronGraphQLSocket bridge end-to-end. The Electron WS IPC

@@ -11,15 +11,15 @@
 // A new channel that is added to the registry but wired up on only one side
 // (or neither) fails here, before it can ship as a silent dead channel.
 
-import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
+import { describe, expect, it } from 'vitest';
 import {
-  IPC,
+  ALL_IPC_CHANNELS,
+  CHANNEL_PREFIXES,
   EVENT,
   EVENT_PREFIX,
-  CHANNEL_PREFIXES,
-  ALL_IPC_CHANNELS,
+  IPC,
 } from '../../shared/channels';
 
 // Vitest runs from the repo root; resolve the handler dir from cwd so this

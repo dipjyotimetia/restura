@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { SECRET_FIELDS_BY_AUTH_BLOCK } from '@/lib/shared/auth-secret-fields';
+import type { AuthConfig, Collection, CollectionItem } from '@/types';
+import { internalToOC } from '../from-internal';
 import { parseOpenCollectionYAML, serializeOpenCollectionYAML } from '../serializer';
 import { ocToInternal } from '../to-internal';
-import { internalToOC } from '../from-internal';
-import type { AuthConfig, Collection, CollectionItem } from '@/types';
-import { SECRET_FIELDS_BY_AUTH_BLOCK } from '@/lib/shared/auth-secret-fields';
 
 /**
  * Local stand-in for the store's ADR-0007 SecretRef migration: wraps every

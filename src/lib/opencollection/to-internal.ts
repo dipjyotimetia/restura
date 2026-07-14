@@ -1,19 +1,19 @@
 import { v4 as uuid } from 'uuid';
-import type { OpenCollection } from './schemas';
 import type {
+  AuthConfig,
+  BodyType,
   Collection,
   CollectionItem,
-  HttpRequest,
-  GrpcRequest,
-  SseRequest,
-  McpRequest,
-  KeyValue,
-  AuthConfig,
-  RequestBody,
-  HttpMethod,
   GrpcMethodType,
-  BodyType,
+  GrpcRequest,
+  HttpMethod,
+  HttpRequest,
+  KeyValue,
+  McpRequest,
+  RequestBody,
+  SseRequest,
 } from '@/types';
+import type { OpenCollection } from './schemas';
 
 /**
  * Bridge from OpenCollection (v1.0.0) → Restura's internal `Collection` shape.

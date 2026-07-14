@@ -6,12 +6,9 @@
  */
 'use client';
 
-import { Plus, Trash2, ArrowRight } from 'lucide-react';
+import { ArrowRight, Plus, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { flattenRequests } from '../../lib/collectionHelpers';
-import { selectAtPath } from '../../lib/flowTypes';
-import { VariableExtractorConfig } from '../VariableExtractorConfig';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -27,34 +24,37 @@ import { Textarea } from '@/components/ui/textarea';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import type {
-  Workflow,
-  FlowNode,
-  RequestFlowNode,
+  CompletionPolicy,
   ConditionFlowNode,
-  SwitchFlowNode,
-  SetVariableFlowNode,
   DelayFlowNode,
-  TransformFlowNode,
-  TemplateFlowNode,
   DisplayFlowNode,
   DisplayMode,
-  ParallelFlowNode,
+  FlowNode,
   ForEachFlowNode,
   LoopFlowNode,
   LoopMode,
-  TryCatchFlowNode,
-  SubWorkflowFlowNode,
-  SseSubscribeFlowNode,
-  WsExchangeFlowNode,
   McpCallFlowNode,
-  RequestFailureMode,
-  ParallelWaitMode,
+  ParallelFlowNode,
   ParallelMergeStrategy,
-  CompletionPolicy,
-  WorkflowRequest,
-  VariableExtraction,
+  ParallelWaitMode,
+  RequestFailureMode,
+  RequestFlowNode,
+  SetVariableFlowNode,
+  SseSubscribeFlowNode,
   SubgraphPath,
+  SubWorkflowFlowNode,
+  SwitchFlowNode,
+  TemplateFlowNode,
+  TransformFlowNode,
+  TryCatchFlowNode,
+  VariableExtraction,
+  Workflow,
+  WorkflowRequest,
+  WsExchangeFlowNode,
 } from '@/types';
+import { flattenRequests } from '../../lib/collectionHelpers';
+import { selectAtPath } from '../../lib/flowTypes';
+import { VariableExtractorConfig } from '../VariableExtractorConfig';
 
 interface FlowInspectorProps {
   workflow: Workflow;

@@ -9,11 +9,12 @@
  * not to `RedirectPolicy`, desktop/web user intent silently stops reaching the
  * follower. The compile-time checks below catch per-field drift.
  */
-import { describe, it, expect } from 'vitest';
-import type { RequestSettings } from '@/types';
-import type { RedirectPolicy } from '@shared/protocol/types';
+
 import { RedirectPolicySchema } from '@shared/protocol/proxy-schema';
-import { expectTypeEqual, type Equals } from './helpers/typeEquality';
+import type { RedirectPolicy } from '@shared/protocol/types';
+import { describe, expect, it } from 'vitest';
+import type { RequestSettings } from '@/types';
+import { type Equals, expectTypeEqual } from './helpers/typeEquality';
 
 describe('RedirectPolicy / RequestSettings parity', () => {
   it('each redirect field has a matching type on both sides (compile-time)', () => {

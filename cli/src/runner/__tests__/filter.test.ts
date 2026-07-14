@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { applyFilters } from '../filter';
+import { describe, expect, it } from 'vitest';
 import type { LoadedRequest } from '../collectionLoader';
+import { applyFilters } from '../filter';
 
 function req(name: string, folderPath: string[] = []): LoadedRequest {
   return {

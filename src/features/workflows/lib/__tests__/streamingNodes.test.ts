@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Workflow, WorkflowGraph, SseRequest, CompletionPolicy } from '@/types';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CompletionPolicy, SseRequest, Workflow, WorkflowGraph } from '@/types';
 
 type McpRunContext = {
   signal: AbortSignal;

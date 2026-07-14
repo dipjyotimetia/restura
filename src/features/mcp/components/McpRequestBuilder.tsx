@@ -25,10 +25,10 @@ import {
   TextField,
   VariableText,
 } from '@/components/ui/spatial';
-import { McpClient, generateMcpTemplate, type McpCall } from '@/features/mcp/lib/mcpClient';
-import { useMcpStore, type McpInvocationLog } from '@/features/mcp/store/useMcpStore';
+import { generateMcpTemplate, type McpCall, McpClient } from '@/features/mcp/lib/mcpClient';
+import { type McpInvocationLog, useMcpStore } from '@/features/mcp/store/useMcpStore';
 import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
-import { useConsoleStore, createProtocolConsoleEntry } from '@/store/useConsoleStore';
+import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import type {
   McpJsonSchema,

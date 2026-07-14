@@ -1,9 +1,9 @@
-import { Copy, Square, Server, Gauge, Trash2, RotateCw, ListChecks } from 'lucide-react';
+import { Copy, Gauge, ListChecks, RotateCw, Server, Square, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { CollectionRunDetail } from '@/features/collections/components/CollectionRunDetail';
 import type { CollectionRunResult } from '@/features/collections/lib/collectionRunner';
-import { getMethodColor, formatRelativeTime } from '@/lib/shared/console-format';
+import { formatRelativeTime, getMethodColor } from '@/lib/shared/console-format';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import { useCollectionRunStore } from '@/store/useCollectionRunStore';

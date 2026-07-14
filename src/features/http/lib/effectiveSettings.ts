@@ -1,4 +1,4 @@
-import type { RequestSettings, AppSettings } from '@/types';
+import type { AppSettings, RequestSettings } from '@/types';
 
 /**
  * Project workspace (global) settings into the `RequestSettings` shape a request

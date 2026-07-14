@@ -224,18 +224,18 @@ describe('known completion cost', () => {
     ).toBe(8);
   });
 
-  it.each(['http://localhost:11434', 'https://ollama.example.test'])(
-    'keeps Ollama cost unknown by default at %s',
-    (baseUrl) => {
-      expect(
-        knownCostForCompletion(
-          config({ provider: 'ollama', isLocal: true, pricingKnown: false, baseUrl }),
-          'custom',
-          completion
-        )
-      ).toBeUndefined();
-    }
-  );
+  it.each([
+    'http://localhost:11434',
+    'https://ollama.example.test',
+  ])('keeps Ollama cost unknown by default at %s', (baseUrl) => {
+    expect(
+      knownCostForCompletion(
+        config({ provider: 'ollama', isLocal: true, pricingKnown: false, baseUrl }),
+        'custom',
+        completion
+      )
+    ).toBeUndefined();
+  });
 
   it('classifies cost as zero only after an explicit local-zero assertion', () => {
     expect(

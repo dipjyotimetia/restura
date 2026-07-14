@@ -1,9 +1,9 @@
-import { Bug, Globe, Settings, Sparkles, FlaskConical } from 'lucide-react';
+import { Bug, FlaskConical, Globe, Settings, Sparkles } from 'lucide-react';
 import { useShallow } from 'zustand/react/shallow';
 import { Floater, Kbd } from '@/components/ui/spatial';
 import { envColorFor } from '@/features/environments/lib/envColor';
 import { envHostHint } from '@/features/environments/lib/envHint';
-import { isElectron, getPlatform } from '@/lib/shared/platform';
+import { getPlatform, isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import type { RequestMode } from '@/types';

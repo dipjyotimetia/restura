@@ -1,6 +1,6 @@
 import { v4 as uuid } from 'uuid';
-import { coerceHttpMethod, type ImportResult, type ImportWarning } from './types';
 import type { BodyType, Collection, CollectionItem, HttpRequest, KeyValue } from '@/types';
+import { coerceHttpMethod, type ImportResult, type ImportWarning } from './types';
 
 /**
  * VS Code REST Client and JetBrains HTTP Client share the same base `.http`

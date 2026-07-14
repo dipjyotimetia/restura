@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { NdjsonParser, type NdjsonParseError } from './ndjson-parser';
+import { describe, expect, it } from 'vitest';
+import { type NdjsonParseError, NdjsonParser } from './ndjson-parser';
 
 const enc = (s: string) => new TextEncoder().encode(s);
 const isParseError = (v: unknown): v is NdjsonParseError =>

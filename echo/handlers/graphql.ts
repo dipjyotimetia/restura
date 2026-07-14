@@ -1,4 +1,4 @@
-import { graphql, buildSchema, type GraphQLResolveInfo } from 'graphql';
+import { buildSchema, type GraphQLResolveInfo, graphql } from 'graphql';
 import type { Context } from 'hono';
 import type { EchoEnv } from '../index';
 

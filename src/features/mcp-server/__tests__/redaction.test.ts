@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { redactSecretsDeep, redactEnvironmentVariables } from '../redaction';
+import { describe, expect, it } from 'vitest';
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from '@/lib/shared/auth-secret-fields';
+import { redactEnvironmentVariables, redactSecretsDeep } from '../redaction';
 
 describe('redactSecretsDeep — SecretRef shapes (post-migration)', () => {
   it('passes through trees with no secret-named fields', () => {

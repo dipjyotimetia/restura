@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { createRouterTransport, ConnectError, Code, type Transport } from '@connectrpc/connect';
+import { Code, ConnectError, createRouterTransport, type Transport } from '@connectrpc/connect';
 import { registryFromProtoText } from '@shared/protocol/grpc-registry';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // grpc-connect imports secret-handle-store (which loads electron/electron-store
 // at module init). The executor only needs unwrapSecretValueMain on the TLS
@@ -13,14 +13,14 @@ vi.mock('../security/secret-handle-store', () => ({
 }));
 
 import {
-  executeConnectUnary,
-  runConnectStream,
-  executeConnectServerStreamCollect,
-  executeConnectReflection,
-  reflectionProto,
-  isProtocolRejectionError,
-  resetProtocolFallbackStateForTests,
   type ConnectStreamHandlers,
+  executeConnectReflection,
+  executeConnectServerStreamCollect,
+  executeConnectUnary,
+  isProtocolRejectionError,
+  reflectionProto,
+  resetProtocolFallbackStateForTests,
+  runConnectStream,
 } from '../handlers/grpc-connect';
 
 beforeEach(resetProtocolFallbackStateForTests);
@@ -266,7 +266,6 @@ describe('runConnectStream', () => {
   it('maps a server error to a non-OK close (not a cancel)', async () => {
     const { sink, handlers } = makeSink();
     const transport = echoStreamTransport({
-      // eslint-disable-next-line require-yield
       serverStreamingEcho: async function* () {
         throw new ConnectError('boom', Code.FailedPrecondition);
       },
@@ -536,7 +535,6 @@ describe('Connect fallback: unary', () => {
 
 describe('Connect fallback: reflection', () => {
   function rejectingReflectionTransport(): Transport {
-    // eslint-disable-next-line require-yield
     return reflectionTransport(async function* () {
       throw new ConnectError('HTTP 403', Code.PermissionDenied);
     });
@@ -563,7 +561,6 @@ describe('Connect fallback: reflection', () => {
   });
 
   it('throws the combined message when both attempts fail', async () => {
-    // eslint-disable-next-line require-yield
     const fallbackTransport = reflectionTransport(async function* () {
       throw new ConnectError('connect refused too', Code.Unimplemented);
     });
@@ -584,7 +581,6 @@ describe('Connect fallback: streams', () => {
   it('server-streaming: retries and delivers the fallback stream', async () => {
     const { sink, handlers } = makeSink();
     const transport = echoStreamTransport({
-      // eslint-disable-next-line require-yield
       serverStreamingEcho: async function* () {
         throw new ConnectError('HTTP 403', Code.PermissionDenied);
       },

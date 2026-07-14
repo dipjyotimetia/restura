@@ -8,8 +8,8 @@
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import axios, { type AxiosError } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
-import { isElectron, getElectronAPI, workerAuthHeaders, workerBaseUrl } from './platform';
-import type { ProxyConfig, ClientCert, CaCert, MinTlsVersion } from '@/types';
+import type { CaCert, ClientCert, MinTlsVersion, ProxyConfig } from '@/types';
+import { getElectronAPI, isElectron, workerAuthHeaders, workerBaseUrl } from './platform';
 
 /** Buffered JSON response shape returned by the Worker's `/api/proxy`. */
 export interface ProxyJsonResponse {

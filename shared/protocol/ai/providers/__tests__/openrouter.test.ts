@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { ALL_PROVIDERS, getProviderModule } from '@shared/protocol/ai/providers';
 import { openrouterModule } from '@shared/protocol/ai/providers/openrouter';
-import { getProviderModule, ALL_PROVIDERS } from '@shared/protocol/ai/providers';
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
+import { describe, expect, it } from 'vitest';
 
 describe('openrouter', () => {
   it('is OpenAI-API-compatible — reuses the same decoder shape', () => {

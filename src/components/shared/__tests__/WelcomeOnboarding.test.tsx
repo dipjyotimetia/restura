@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect, afterEach } from 'vitest';
-import WelcomeOnboarding from '../WelcomeOnboarding';
+import { afterEach, describe, expect, it } from 'vitest';
 import { useSettingsStore } from '@/store/useSettingsStore';
+import WelcomeOnboarding from '../WelcomeOnboarding';
 
 // jsdom localStorage is empty, so secureStorage.get(ONBOARDING_KEY) is null and
 // the dialog opens on its own (after a 500ms timer).

@@ -1,6 +1,6 @@
 // @vitest-environment node
 import './setup';
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { parseTargetAddress } from '../handlers/grpc-reflection-handler';
 
 describe('parseTargetAddress', () => {

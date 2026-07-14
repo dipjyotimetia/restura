@@ -7,15 +7,15 @@
 // (Redpanda + EMQX); the CLI prints the one-line `docker compose` hint
 // instead.
 
-import { spawn, type ChildProcess } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 import { startMockHttpServer, startMockHttpsServer } from '../e2e/mocks/httpServer';
-import { startMockWsServer } from '../e2e/mocks/wsServer';
-import { startMockSocketIOServer } from '../e2e/mocks/socketioServer';
 import { startMockMcpServer } from '../e2e/mocks/mcpServer';
 import { startMockProxyServer } from '../e2e/mocks/proxyServer';
-import { PORTS, TLS_SERVICES, type ServiceId } from './ports';
+import { startMockSocketIOServer } from '../e2e/mocks/socketioServer';
+import { startMockWsServer } from '../e2e/mocks/wsServer';
 import type { EchoCerts } from './certs';
+import { PORTS, type ServiceId, TLS_SERVICES } from './ports';
 
 export interface StartedService {
   id: ServiceId;

@@ -7,7 +7,7 @@ import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { registerGraphQLCompletionProvider } from '@/features/graphql/lib/completionProvider';
 import { setupDebouncedDiagnostics } from '@/features/graphql/lib/diagnosticsProvider';
 import { buildSchemaFromIntrospection } from '@/features/graphql/lib/introspection';
-import { parseVariables, generateVariablesTemplate } from '@/features/graphql/lib/queryParser';
+import { generateVariablesTemplate, parseVariables } from '@/features/graphql/lib/queryParser';
 import { validateQuery } from '@/features/graphql/lib/validation';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { useActiveTab } from '@/store/selectors';

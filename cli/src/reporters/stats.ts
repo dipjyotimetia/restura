@@ -1,5 +1,5 @@
-import type { Reporter, RunResult } from './types.js';
 import { computeLoadStats } from '@/lib/shared/loadStats';
+import type { Reporter, RunResult } from './types.js';
 
 /**
  * Count failures. gRPC carries its outcome in `grpcStatus.code` (0 = OK), where

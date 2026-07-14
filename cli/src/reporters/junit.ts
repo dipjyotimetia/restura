@@ -23,7 +23,6 @@ export function renderJUnitXml(result: RunResult): string {
   // and make the document non-well-formed) before entity-escaping.
   const escape = (s: string) =>
     s
-      // eslint-disable-next-line no-control-regex -- intentionally strips XML-1.0-illegal control chars
       .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')

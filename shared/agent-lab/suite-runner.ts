@@ -1,6 +1,6 @@
 import Ajv from 'ajv';
-import { passAtK, passToK, scoreTrajectory, wilsonInterval } from './evaluation';
 import type { JudgeVote } from './evaluation';
+import { passAtK, passToK, scoreTrajectory, wilsonInterval } from './evaluation';
 import type { ModelCapabilities } from './provider';
 import type { AgentRunRequest, AgentRunResult } from './runner';
 import type { AgentGradingContext, AgentSuite, ContentBlock, Grader, Trace } from './types';

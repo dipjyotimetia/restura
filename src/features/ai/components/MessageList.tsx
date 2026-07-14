@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { Message } from './Message';
 import type { ChatMessage } from '@/features/ai/store';
+import { Message } from './Message';
 
 interface Props {
   messages: ChatMessage[];

@@ -1,6 +1,6 @@
 import type { LoadedRequest } from '../runner/collectionLoader.js';
 import { color } from '../ui/colors.js';
-import type { RunResult, RequestRunResult } from './types.js';
+import type { RequestRunResult, RunResult } from './types.js';
 
 /**
  * Shared, pure formatters for the terminal reporters. `LiveReporter` and

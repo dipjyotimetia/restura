@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  type BugReportDiagnostics,
   buildBugReportMarkdown,
   buildGitHubBugReportUrl,
   clearRuntimeErrorsForTests,
   getRuntimeErrors,
   recordRuntimeError,
-  type BugReportDiagnostics,
 } from '../bug-report';
 
 const diagnostics: BugReportDiagnostics = {

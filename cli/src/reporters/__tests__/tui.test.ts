@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { renderFrame, type TuiState, type TuiRow } from '../tui';
+import { describe, expect, it } from 'vitest';
+import { renderFrame, type TuiRow, type TuiState } from '../tui';
 
 // Strip SGR colour codes so width assertions hold whether or not colour is on.
 const ESC = String.fromCharCode(27);

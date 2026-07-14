@@ -1,5 +1,4 @@
 import { v4 as uuidv4 } from 'uuid';
-import { coerceHttpMethod, type ImportWarning } from './types';
 import type {
   AuthConfig,
   Collection,
@@ -14,6 +13,7 @@ import type {
   OpenAPISchema,
   OpenAPISecurityScheme,
 } from '@/types';
+import { coerceHttpMethod, type ImportWarning } from './types';
 
 /**
  * `swagger-parser` references the Node `Buffer` global while dereferencing
@@ -52,7 +52,7 @@ export async function importOpenAPICollection(
 
   let api: OpenAPIDocument;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- swagger-parser accepts any
+    // biome-ignore lint/suspicious/noExplicitAny: swagger-parser accepts any
     api = (await SwaggerParser.dereference(openApiData as any, {
       resolve: { external: false },
     })) as unknown as OpenAPIDocument;

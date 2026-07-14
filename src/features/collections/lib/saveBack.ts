@@ -1,7 +1,7 @@
 import { toast } from 'sonner';
-import { isNameTaken, siblingNamesOfItem } from './names';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import type { Request } from '@/types';
+import { isNameTaken, siblingNamesOfItem } from './names';
 
 /**
  * Save a dirty tab's request back to its saved collection item — the ONE

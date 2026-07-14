@@ -1,4 +1,4 @@
-import { useCallback, type RefCallback } from 'react';
+import { type RefCallback, useCallback } from 'react';
 
 /**
  * Marks a horizontally scrollable element with `data-overflow-left` /

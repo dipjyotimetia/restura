@@ -1,6 +1,6 @@
-import { buildAuthCredential } from './buildAuthCredential';
 import { isElectron } from '@/lib/shared/platform';
 import type { AuthConfig } from '@/types';
+import { buildAuthCredential } from './buildAuthCredential';
 
 /**
  * Apply auth types whose values DO NOT depend on the wire-byte body or the

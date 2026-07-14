@@ -2,7 +2,9 @@
 // over (case × model) cells with progress callbacks and AbortSignal support.
 // Each cell: render prompt → complete → score → emit. Scorers run in the
 // renderer (QuickJS sandbox + Ajv live here); only the model call crosses IPC.
-import { runJudge, runPairwiseJudge, type JudgeComplete } from '@shared/protocol/ai/judge';
+import { type JudgeComplete, runJudge, runPairwiseJudge } from '@shared/protocol/ai/judge';
+import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
+import { completeWithRetry } from '@/lib/shared/completeRetry';
 import type {
   AiLabProviderConfig,
   AiToolDef,
@@ -16,12 +18,10 @@ import type {
 } from '../types';
 import { runPool } from './concurrencyPool';
 import type { ExecResult } from './execCell';
-import { completeLlm, specFor, type LlmChatMessage, type LlmCallSpec } from './llmClient';
+import { completeLlm, type LlmCallSpec, type LlmChatMessage, specFor } from './llmClient';
 import { renderTemplate } from './promptTemplate';
 import { extractGraphqlSpec, extractRequestSpec } from './requestExtractor';
 import { runScorer, type ScorerContext } from './scorers';
-import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
-import { completeWithRetry } from '@/lib/shared/completeRetry';
 
 /** Injected executor for the `http-exec` target (real one wraps execCell). */
 export type RunRequestFn = (

@@ -1,14 +1,14 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import path from 'node:path';
-import { test as electronTest } from './electronApp';
-import { startMockHttpServer, type MockHttpServerHandle } from '../../e2e/mocks/httpServer';
-import { startMockWsServer, type MockWsServerHandle } from '../../e2e/mocks/wsServer';
-import { startMockMcpServer, type MockMcpServerHandle } from '../../e2e/mocks/mcpServer';
+import { type MockHttpServerHandle, startMockHttpServer } from '../../e2e/mocks/httpServer';
+import { type MockMcpServerHandle, startMockMcpServer } from '../../e2e/mocks/mcpServer';
 import {
-  startMockSocketIOServer,
   type MockSocketIOServerHandle,
+  startMockSocketIOServer,
 } from '../../e2e/mocks/socketioServer';
+import { type MockWsServerHandle, startMockWsServer } from '../../e2e/mocks/wsServer';
+import { test as electronTest } from './electronApp';
 
 const ROOT = path.resolve(__dirname, '../..');
 
@@ -89,7 +89,7 @@ interface ServerFixtures {
 /** Worker-scoped upstreams; counters reset per test where the mocks support it. */
 export const test = electronTest.extend<ServerFixtures, { _servers: DesktopMockServers }>({
   _servers: [
-    // eslint-disable-next-line no-empty-pattern
+    // biome-ignore lint/correctness/noEmptyPattern: legacy type boundary
     async ({}, use) => {
       const [http, ws, mcp, socketio, grpc] = await Promise.all([
         startMockHttpServer(),

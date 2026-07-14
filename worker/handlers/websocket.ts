@@ -13,7 +13,7 @@ import { sanitizeRequestHeaders } from '@shared/protocol/header-policy';
 import { validateWsUrl } from '@shared/protocol/websocket-proxy';
 import type { Context } from 'hono';
 import type { Env } from '../env';
-import { allowPrivateIPs as readAllowPrivateIPs, isLocalDevBypass } from '../shared/env';
+import { isLocalDevBypass, allowPrivateIPs as readAllowPrivateIPs } from '../shared/env';
 import { consumeTicket } from './ws-ticket';
 
 const MAX_FRAME_BYTES = 1 * 1024 * 1024; // mirror Electron's MAX_MESSAGE_SIZE
@@ -32,7 +32,7 @@ interface CfWebSocket {
   addEventListener(type: 'close', cb: (ev: { code: number; reason: string }) => void): void;
   addEventListener(type: 'error', cb: (ev: unknown) => void): void;
 }
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
 declare const WebSocketPair: any;
 
 export async function websocketHandler(c: Context<{ Bindings: Env }>): Promise<Response> {

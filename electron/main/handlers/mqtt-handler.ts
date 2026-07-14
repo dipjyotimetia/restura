@@ -1,24 +1,24 @@
-import { ipcMain, webContents } from 'electron';
 import type { WebContents } from 'electron';
-// eslint-disable-next-line import/no-duplicates -- namespace + named type imports from 'mqtt' can't be merged into a single statement
-import type { IClientOptions, MqttClient, IConnackPacket, IPublishPacket } from 'mqtt';
-// eslint-disable-next-line import/no-duplicates -- see above
+import { ipcMain, webContents } from 'electron';
+
 import type * as MqttLib from 'mqtt';
+
+import type { IClientOptions, IConnackPacket, IPublishPacket, MqttClient } from 'mqtt';
 import { createLogger } from '../../../src/lib/shared/logger';
 import { IPC } from '../../shared/channels';
 import { MQTT_CHANNEL, mqttChannel } from '../../shared/mqtt-channels';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import {
+  assertTrustedSender,
+  createValidatedHandler,
+  type MqttConnectConfig,
   MqttConnectSchema,
+  MqttDisconnectSchema,
   MqttPublishSchema,
   MqttSubscribeSchema,
   MqttUnsubscribeSchema,
-  MqttDisconnectSchema,
   validateIpcInput,
-  createValidatedHandler,
-  assertTrustedSender,
-  type MqttConnectConfig,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';

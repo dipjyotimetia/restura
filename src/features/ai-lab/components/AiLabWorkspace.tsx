@@ -11,8 +11,11 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
+import { getPlatform, isElectron } from '@/lib/shared/platform';
+import { cn } from '@/lib/shared/utils';
 import { useAiLabStore } from '../store/useAiLabStore';
-import { useAiLabUiStore, type AiLabTab } from '../store/useAiLabUiStore';
+import { type AiLabTab, useAiLabUiStore } from '../store/useAiLabUiStore';
 import { useArenaStore } from '../store/useArenaStore';
 import { useEvalRunStore } from '../store/useEvalRunStore';
 import { AgentWorkbench } from './AgentWorkbench';
@@ -22,9 +25,6 @@ import { EvalBuilder } from './EvalBuilder';
 import { Playground } from './Playground';
 import { ProviderManager } from './ProviderManager';
 import { ReportView } from './ReportView';
-import { Button } from '@/components/ui/button';
-import { getPlatform, isElectron } from '@/lib/shared/platform';
-import { cn } from '@/lib/shared/utils';
 
 const region = (value: 'drag' | 'no-drag'): React.CSSProperties =>
   ({ WebkitAppRegion: value }) as React.CSSProperties;

@@ -1,11 +1,11 @@
 import { v4 as uuidv4 } from 'uuid';
-import { executeRequest } from './lib/requestExecutor';
 import type { ProtocolModule } from '@/features/registry/types';
 import { readPmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import type { HttpRequest, Request, Response as ApiResponse } from '@/types';
+import type { Response as ApiResponse, HttpRequest, Request } from '@/types';
+import { executeRequest } from './lib/requestExecutor';
 
 function createDefaultHttpRequest(): HttpRequest {
   return {

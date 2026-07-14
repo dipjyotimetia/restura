@@ -14,22 +14,6 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import {
-  capabilitiesForDesktopModel,
-  normalizeDesktopCapabilities,
-} from '../lib/agentModelCapabilities';
-import { listModels, testConnection } from '../lib/llmClient';
-import { buildModelOptions } from '../lib/modelOptions';
-import { plural } from '../lib/plural';
-import {
-  connectAndAddProvider,
-  deleteSecretHandle,
-  replaceSecretHandle,
-  splitDiscoveredModels,
-} from '../lib/providerConnection';
-import { useAiLabStore } from '../store/useAiLabStore';
-import type { AiLabProviderConfig } from '../types';
-import { ModelCatalog } from './ModelCatalog';
 import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -47,6 +31,22 @@ import { Floater } from '@/components/ui/spatial';
 import { formatRelativeTime } from '@/lib/shared/console-format';
 import { getElectronAPI } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
+import {
+  capabilitiesForDesktopModel,
+  normalizeDesktopCapabilities,
+} from '../lib/agentModelCapabilities';
+import { listModels, testConnection } from '../lib/llmClient';
+import { buildModelOptions } from '../lib/modelOptions';
+import { plural } from '../lib/plural';
+import {
+  connectAndAddProvider,
+  deleteSecretHandle,
+  replaceSecretHandle,
+  splitDiscoveredModels,
+} from '../lib/providerConnection';
+import { useAiLabStore } from '../store/useAiLabStore';
+import type { AiLabProviderConfig } from '../types';
+import { ModelCatalog } from './ModelCatalog';
 
 const PROVIDER_OPTIONS: Array<{ value: Provider; label: string; needsBaseUrl: boolean }> = [
   { value: 'ollama', label: 'Ollama (local)', needsBaseUrl: true },

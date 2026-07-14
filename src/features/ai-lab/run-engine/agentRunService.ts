@@ -3,11 +3,11 @@ import { create } from 'zustand';
 import { runDesktopAgentSuite } from '../lib/agentRuntime';
 import { useAiLabStore } from '../store/useAiLabStore';
 import type { AiLabProviderConfig } from '../types';
-import { createAgentSuiteReportEnvelope, type AiLabReportEnvelope } from './reportEnvelope';
+import { type AiLabReportEnvelope, createAgentSuiteReportEnvelope } from './reportEnvelope';
 import {
+  type AiLabReportRepository,
   resetAiLabReportRepositoryForTests,
   setAiLabReportRepositoryForTests,
-  type AiLabReportRepository,
 } from './reportRepository';
 import { sanitizeAgentSuiteReportForPersistence } from './reportSanitizer';
 import { isRunCancelledWithResult, RunEngine } from './runEngine';

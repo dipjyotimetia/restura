@@ -45,18 +45,18 @@ describe('RunEngine', () => {
     });
   });
 
-  it.each(['failed', 'error'] as const)(
-    'classifies a normally resolved %s domain outcome without calling it passed',
-    async (status) => {
-      const engine = new RunEngine<{ status: 'passed' | 'failed' | 'error' }>();
-      const run = engine.start('agent-suite', async () => ({ status }), {
-        classifyResult: (result) => result.status,
-      });
+  it.each([
+    'failed',
+    'error',
+  ] as const)('classifies a normally resolved %s domain outcome without calling it passed', async (status) => {
+    const engine = new RunEngine<{ status: 'passed' | 'failed' | 'error' }>();
+    const run = engine.start('agent-suite', async () => ({ status }), {
+      classifyResult: (result) => result.status,
+    });
 
-      await expect(run.result).resolves.toEqual({ status });
-      expect(engine.get(run.jobId)?.status).toBe(status);
-    }
-  );
+    await expect(run.result).resolves.toEqual({ status });
+    expect(engine.get(run.jobId)?.status).toBe(status);
+  });
 
   it('bounds progress and preserves structured failures', async () => {
     const engine = new RunEngine<string>();

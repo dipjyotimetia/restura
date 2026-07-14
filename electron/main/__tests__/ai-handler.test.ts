@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockHandle = vi.hoisted(() => vi.fn());
 const mockRemoveHandler = vi.hoisted(() => vi.fn());
@@ -22,7 +22,7 @@ vi.mock('../handlers/fetch-fetcher', () => ({ makePinnedFetcher: mockMakePinnedF
 vi.mock('@shared/protocol/ai/provider-routes', () => ({ resolveBaseUrl: mockResolveBaseUrl }));
 vi.mock('@shared/protocol/ai/ai-proxy', () => ({ executeAiChat: vi.fn() }));
 
-import { registerAiHandlers, unregisterAiHandlers, __testing } from '../handlers/ai-handler';
+import { __testing, registerAiHandlers, unregisterAiHandlers } from '../handlers/ai-handler';
 
 describe('ai-handler', () => {
   beforeEach(() => {

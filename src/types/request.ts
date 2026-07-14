@@ -1,7 +1,7 @@
 import type { GrpcRequest } from './grpc';
 import type { HttpRequest, Response } from './http';
 import type { ScriptResult } from './scripts';
-import type { SseRequest, McpRequest, StreamEventLike } from './streaming';
+import type { McpRequest, SseRequest, StreamEventLike } from './streaming';
 
 // Request Types
 export type RequestType = 'http' | 'grpc' | 'sse' | 'mcp';
@@ -11,7 +11,15 @@ export type RequestType = 'http' | 'grpc' | 'sse' | 'mcp';
 // the picker still surfaces them in the web build but the page renders a
 // "Desktop only" panel.
 export type RequestMode =
-  'http' | 'grpc' | 'websocket' | 'graphql' | 'sse' | 'mcp' | 'kafka' | 'mqtt' | 'socketio';
+  | 'http'
+  | 'grpc'
+  | 'websocket'
+  | 'graphql'
+  | 'sse'
+  | 'mcp'
+  | 'kafka'
+  | 'mqtt'
+  | 'socketio';
 
 // Union type for any request
 export type Request = HttpRequest | GrpcRequest | SseRequest | McpRequest;

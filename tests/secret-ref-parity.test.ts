@@ -11,18 +11,18 @@
  * and the maintainer must update both together.
  */
 
-import { describe, it, expect } from 'vitest';
 import {
-  secretValueSchema,
-  type SecretValue,
-  handleSecret,
-  inlineSecret,
-} from '@/lib/shared/secretRef';
-import {
-  protocolSecretValueSchema,
   isProtocolSecretHandle,
+  protocolSecretValueSchema,
 } from '@shared/protocol/secret-value-schema';
 import type { ProtocolSecretValue } from '@shared/protocol/types';
+import { describe, expect, it } from 'vitest';
+import {
+  handleSecret,
+  inlineSecret,
+  type SecretValue,
+  secretValueSchema,
+} from '@/lib/shared/secretRef';
 
 describe('SecretValue / ProtocolSecretValue structural parity', () => {
   it('every renderer-shaped SecretValue parses against the protocol schema', () => {

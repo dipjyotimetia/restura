@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { saveTabBackToCollection } from '../saveBack';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import type { HttpRequest } from '@/types';
+import { saveTabBackToCollection } from '../saveBack';
 
 const request: HttpRequest = {
   id: 'request',

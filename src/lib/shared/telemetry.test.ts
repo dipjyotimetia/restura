@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Worker base must be non-empty so reportError proceeds to send.
 vi.mock('@/lib/shared/platform', () => ({

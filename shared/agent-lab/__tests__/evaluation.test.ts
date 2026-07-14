@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import type { Trace } from '../types';
 import {
   aggregateJudgeVotes,
   passAtK,
@@ -7,6 +6,7 @@ import {
   scoreTrajectory,
   wilsonInterval,
 } from '../evaluation';
+import type { Trace } from '../types';
 
 function trace(tools: string[]): Trace {
   return {

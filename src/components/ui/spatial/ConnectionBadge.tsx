@@ -1,4 +1,4 @@
-import * as React from 'react';
+import type * as React from 'react';
 import { cn } from '@/lib/shared/utils';
 
 /**
@@ -33,10 +33,8 @@ const TONE: Record<ConnectionTone, { color: string; bg: string; glow: string }> 
   },
 };
 
-export interface ConnectionBadgeProps extends Omit<
-  React.HTMLAttributes<HTMLSpanElement>,
-  'children'
-> {
+export interface ConnectionBadgeProps
+  extends Omit<React.HTMLAttributes<HTMLSpanElement>, 'children'> {
   tone: ConnectionTone;
   label: string;
 }

@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeAll } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { ComboboxInput } from '../ComboboxInput';
 
 // Radix Popover uses @floating-ui which calls `new ResizeObserver(...)`. The

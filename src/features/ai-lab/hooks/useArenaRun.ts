@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { runArena, modelKeyOf, type ArenaProgress } from '../lib/arenaRunner';
+import { type ArenaProgress, modelKeyOf, runArena } from '../lib/arenaRunner';
 import { modelKey } from '../lib/modelOptions';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useArenaStore } from '../store/useArenaStore';

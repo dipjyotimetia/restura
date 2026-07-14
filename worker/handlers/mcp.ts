@@ -1,4 +1,4 @@
-import { validateMcpSpec, type McpSpec } from '@shared/protocol/mcp-proxy';
+import { type McpSpec, validateMcpSpec } from '@shared/protocol/mcp-proxy';
 import { McpRequestBodySchema } from '@shared/protocol/mcp-schema';
 import { SseParser } from '@shared/protocol/sse-parser';
 import type { Context } from 'hono';

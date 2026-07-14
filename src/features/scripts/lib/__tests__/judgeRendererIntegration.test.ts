@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import ScriptExecutor from '../scriptExecutor';
-import { makeRendererJudge } from '@/lib/shared/judgeBridge';
 import { JUDGE_TOOL } from '@shared/protocol/ai/judge';
 import type { CompletionResult } from '@shared/protocol/ai/types';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { makeRendererJudge } from '@/lib/shared/judgeBridge';
+import ScriptExecutor from '../scriptExecutor';
 
 /**
  * End-to-end glue test: the REAL `rs.judge` sandbox bridge resolving through

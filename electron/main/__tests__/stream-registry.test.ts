@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockEmitTo = vi.hoisted(() => vi.fn());
 // Mock ipc-utils so the registry's emit is observable AND so its real `electron`
@@ -7,7 +7,7 @@ const mockEmitTo = vi.hoisted(() => vi.fn());
 // wiring against a fake WebContents.
 vi.mock('../ipc/ipc-utils', () => ({ emitTo: mockEmitTo }));
 
-import { StreamRegistry, type StreamEntryBase } from '../ipc/stream-registry';
+import { type StreamEntryBase, StreamRegistry } from '../ipc/stream-registry';
 
 interface FakeWc {
   id: number;

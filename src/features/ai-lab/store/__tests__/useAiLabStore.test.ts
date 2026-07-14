@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { migrateAiLabState, useAiLabStore } from '../useAiLabStore';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AiLabStateSchema } from '@/lib/shared/store-validators';
 import type { AiLabReportEnvelope } from '../../run-engine/reportEnvelope';
 import {
   resetAiLabReportRepositoryForTests,
   setAiLabReportRepositoryForTests,
 } from '../../run-engine/reportRepository';
+import { migrateAiLabState, useAiLabStore } from '../useAiLabStore';
 
 function reset() {
   resetAiLabReportRepositoryForTests();

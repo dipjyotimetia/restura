@@ -1,6 +1,7 @@
-import { lstat, readFile, readdir } from 'node:fs/promises';
-import { join, basename, relative, sep } from 'node:path';
+import { lstat, readdir, readFile } from 'node:fs/promises';
+import { basename, join, relative, sep } from 'node:path';
 import * as yaml from 'js-yaml';
+import type { OpenCollection } from './schemas';
 import {
   assertBoundedDocument,
   folderSchema,
@@ -10,7 +11,6 @@ import {
   openCollectionSchema,
   websocketRequestSchema,
 } from './schemas';
-import type { OpenCollection } from './schemas';
 import { parseOpenCollectionYAML, serializeOpenCollectionYAML } from './serializer';
 
 const ROOT_FILES = ['opencollection.yml', 'opencollection.yaml'];

@@ -1,18 +1,18 @@
 import { AgentSuiteSchema } from '@shared/agent-lab';
 import { z } from 'zod';
-import {
-  httpRequestSchema,
-  grpcRequestSchema,
-  sseRequestSchema,
-  mcpRequestSchema,
-  environmentSchema,
-  collectionSchema,
-  proxyTypeSchema,
-  minTlsVersionSchema,
-} from './validations';
 import { AiLabReportEnvelopeSchema } from '@/features/ai-lab/run-engine/reportEnvelope';
+import type { Collection, Environment, Request, SpatialAccent } from '@/types';
 import { SPATIAL_ACCENT_PRESETS } from '@/types';
-import type { Request, Environment, Collection, SpatialAccent } from '@/types';
+import {
+  collectionSchema,
+  environmentSchema,
+  grpcRequestSchema,
+  httpRequestSchema,
+  mcpRequestSchema,
+  minTlsVersionSchema,
+  proxyTypeSchema,
+  sseRequestSchema,
+} from './validations';
 
 /**
  * Schema for a single persisted console entry. Validated on rehydrate so a

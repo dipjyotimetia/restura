@@ -11,7 +11,7 @@
  */
 import { selectCertForUrl } from '@/lib/shared/certMatcher';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import type { ClientCert, CaCert } from '@/types';
+import type { CaCert, ClientCert } from '@/types';
 
 export interface GrpcTlsOptions {
   verifySsl?: boolean;

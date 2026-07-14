@@ -1,4 +1,4 @@
-import type { ProtocolRegistry, ProtocolModule } from './types';
+import type { ProtocolModule, ProtocolRegistry } from './types';
 
 export function createProtocolRegistry(): ProtocolRegistry {
   const modules = new Map<string, ProtocolModule>();

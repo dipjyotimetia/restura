@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
-import { completeWithRetry } from '../completeRetry';
 import type { CompletionResult } from '@shared/protocol/ai/types';
+import { describe, expect, it, vi } from 'vitest';
+import { completeWithRetry } from '../completeRetry';
 
 const ok = (text = 'ok'): CompletionResult => ({ ok: true, text, toolCalls: [] });
 const fail = (code: 'provider' | 'network' | 'guard', message: string): CompletionResult => ({

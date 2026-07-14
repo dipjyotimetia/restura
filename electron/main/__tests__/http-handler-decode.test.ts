@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
 import { Readable } from 'node:stream';
 import { text as readStreamText } from 'node:stream/consumers';
-import { gzipSync, brotliCompressSync, deflateSync } from 'node:zlib';
+import { brotliCompressSync, deflateSync, gzipSync } from 'node:zlib';
+import { describe, expect, it, vi } from 'vitest';
 
 // http-handler imports `electron` at module load; stub the only surface it touches.
 vi.mock('electron', () => ({
@@ -9,8 +9,8 @@ vi.mock('electron', () => ({
   session: {},
 }));
 
-import { decodeBodyStream } from '../handlers/http-handler';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
+import { decodeBodyStream } from '../handlers/http-handler';
 
 const fromBuffer = (buf: Buffer): Readable => Readable.from([buf]);
 

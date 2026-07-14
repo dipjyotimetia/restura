@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  parseQuery,
-  matchesQuery,
   filterEntries,
+  matchesQuery,
+  parseQuery,
   sortEntries,
   statusClassCounts,
   statusMatchesClass,

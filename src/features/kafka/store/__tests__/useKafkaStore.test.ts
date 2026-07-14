@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { useKafkaStore, KAFKA_SECRET_SENTINEL } from '@/features/kafka/store/useKafkaStore';
+import { KAFKA_SECRET_SENTINEL, useKafkaStore } from '@/features/kafka/store/useKafkaStore';
 
 function resetStore(): void {
   useKafkaStore.setState({

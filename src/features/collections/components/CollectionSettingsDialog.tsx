@@ -8,9 +8,9 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import {
@@ -80,7 +80,6 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
       setVariables(target.collection.variables ?? []);
       setDescription(target.collection.description ?? '');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- re-seed on open/target change only
   }, [targetId]);
 
   if (!target) return null;

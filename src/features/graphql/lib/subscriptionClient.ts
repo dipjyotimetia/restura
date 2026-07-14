@@ -1,6 +1,6 @@
-import { createClient, type Client, type Sink } from 'graphql-ws';
-import { createElectronGraphQLSocketClass } from './electronGraphQLSocket';
+import { type Client, createClient, type Sink } from 'graphql-ws';
 import { isElectron } from '@/lib/shared/platform';
+import { createElectronGraphQLSocketClass } from './electronGraphQLSocket';
 
 export interface SubscriptionMessage {
   id: string;

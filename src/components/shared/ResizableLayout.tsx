@@ -138,7 +138,6 @@ export default function ResizableLayout({
         aria-valuenow={Math.round(splitPosition)}
         aria-valuemin={minSplit}
         aria-valuemax={maxSplit}
-        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- ARIA separator must be focusable for keyboard resize
         tabIndex={0}
       />
       <div

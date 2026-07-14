@@ -1,5 +1,5 @@
-import { escapeJson, type GenerateOptions } from './types';
 import { unwrapSecret } from '@/lib/shared/secretRef';
+import { escapeJson, type GenerateOptions } from './types';
 
 export const generateNodeJS = (options: GenerateOptions): string => {
   const { request, resolvedUrl, resolvedHeaders, resolvedParams, settings } = options;

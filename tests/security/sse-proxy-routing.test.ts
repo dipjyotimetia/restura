@@ -18,7 +18,7 @@
  * RFC1918 checks enforced by `shared/protocol/url-validation`.
  */
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { sseManager } from '@/features/sse/lib/sseManager';
 import { sseProtocol } from '@/features/sse/protocol';
 import { useSseStore } from '@/features/sse/store/useSseStore';

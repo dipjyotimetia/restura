@@ -1,14 +1,14 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
 import { buildSchema, getIntrospectionQuery, introspectionFromSchema, printSchema } from 'graphql';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // introspectSchema routes through the shared proxy transport (never a raw fetch —
 // CSP-blocked on desktop, SSRF/auth-bypassing on web). Mock that boundary.
 const mockExecute = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/shared/transport', () => ({ executeProxiedRequest: mockExecute }));
 
-import { introspectSchema, buildSchemaFromIntrospection } from '../introspection';
-import type { IntrospectionResult } from '../../types';
 import type { AuthConfig } from '@/types';
+import type { IntrospectionResult } from '../../types';
+import { buildSchemaFromIntrospection, introspectSchema } from '../introspection';
 
 const SAMPLE_SDL = /* GraphQL */ `
   type Query {

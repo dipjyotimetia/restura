@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  evalScriptValue,
+  createPooledScriptEvaluator,
   evalScriptBoolean,
   evalScriptForVariables,
-  createPooledScriptEvaluator,
+  evalScriptValue,
 } from '../scriptHelpers';
 
 describe('evalScriptBoolean (precondition bug fix)', () => {

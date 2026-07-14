@@ -1,13 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  parseVariables,
-  generateDefaultValue,
-  generateVariablesTemplate,
-  extractOperationName,
-  extractOperationType,
-  validateGraphQLSyntax,
   buildGraphQLRequestBody,
   extractGraphQLErrors,
+  extractOperationName,
+  extractOperationType,
+  generateDefaultValue,
+  generateVariablesTemplate,
+  parseVariables,
+  validateGraphQLSyntax,
 } from '../queryParser';
 
 describe('parseVariables', () => {

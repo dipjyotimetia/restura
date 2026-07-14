@@ -1,4 +1,4 @@
-import { Plus, Trash2, Paperclip, ListPlus } from 'lucide-react';
+import { ListPlus, Paperclip, Plus, Trash2 } from 'lucide-react';
 import { useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { VariableInput } from '@/components/shared/VariableInput';

@@ -1,26 +1,26 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type { AuthConfig, GrpcRequest } from '@/types';
+import { GrpcStatusCode } from '@/types';
 import {
   buildAuthMetadata,
-  parseProtoFile,
-  validateGrpcUrl,
-  validateServiceName,
-  validateMethodName,
-  prepareGrpcRequest,
+  buildGrpcPath,
   createErrorResponse,
   createSuccessResponse,
-  httpStatusToGrpcStatus,
-  buildGrpcPath,
   formatGrpcStatus,
-  isGrpcError,
-  getSuggestedAction,
+  GrpcClientError,
   getMethodTypeDescription,
+  getSuggestedAction,
+  grpcAuthNeedsMainSideApply,
+  httpStatusToGrpcStatus,
+  isGrpcError,
   makeElectronGrpcRequest,
   makeProxyGrpcRequest,
-  grpcAuthNeedsMainSideApply,
-  GrpcClientError,
+  parseProtoFile,
+  prepareGrpcRequest,
+  validateGrpcUrl,
+  validateMethodName,
+  validateServiceName,
 } from '../grpcClient';
-import type { GrpcRequest, AuthConfig } from '@/types';
-import { GrpcStatusCode } from '@/types';
 
 describe('grpcClient', () => {
   describe('buildAuthMetadata', () => {

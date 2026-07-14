@@ -1,5 +1,5 @@
 import * as yaml from 'js-yaml';
-import { assertBoundedDocument, openCollectionSchema, type OpenCollection } from './schemas';
+import { assertBoundedDocument, type OpenCollection, openCollectionSchema } from './schemas';
 
 export function parseOpenCollectionYAML(raw: string): OpenCollection {
   let doc: unknown;

@@ -4,14 +4,14 @@ import { toast } from 'sonner';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from '@/components/ui/dialog';
 import {
   buildDocModel,
-  docModelToMarkdown,
   docModelToHtml,
+  docModelToMarkdown,
 } from '@/features/collections/lib/docGenerator';
 import { downloadText } from '@/features/collections/lib/exporters';
 import type { Collection } from '@/types';

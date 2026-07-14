@@ -1,6 +1,7 @@
-import { AgentSuiteSchema, AGENT_SUITE_SCHEMA_VERSION } from '@shared/agent-lab';
+import { AGENT_SUITE_SCHEMA_VERSION, AgentSuiteSchema } from '@shared/agent-lab';
 import { Bot, Download, Play, Plus, Save, Square, Trash2, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { Button } from '@/components/ui/button';
 import {
   cancelAgentRun,
   registerAgentRunOwner,
@@ -11,7 +12,6 @@ import {
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore } from '../store/useAiLabUiStore';
 import type { AiLabProviderConfig } from '../types';
-import { Button } from '@/components/ui/button';
 
 function starterSuite(providers: Record<string, AiLabProviderConfig> = {}) {
   const id = crypto.randomUUID();

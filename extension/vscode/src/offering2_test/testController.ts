@@ -5,8 +5,8 @@ import * as vscode from 'vscode';
 import { infoName, ROOT_FILENAMES } from '../util/oc';
 import { getResturaSettings } from '../util/settings';
 import { resolveCliCommand } from '../workspace/cliResolver';
-import { scanCollection, type ScannedRequest } from '../workspace/collectionScanner';
-import { formatAssertion, resultKey, toRelativePath, type CliRequestRunResult } from './cliResult';
+import { type ScannedRequest, scanCollection } from '../workspace/collectionScanner';
+import { type CliRequestRunResult, formatAssertion, resultKey, toRelativePath } from './cliResult';
 import { classifyOutcome } from './outcome';
 import { runViaShell, ShellRunCancelled, ShellRunError } from './shellRunner';
 

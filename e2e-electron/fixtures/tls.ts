@@ -1,7 +1,7 @@
 import path from 'node:path';
+import { type MockHttpServerHandle, startMockHttpsServer } from '../../e2e/mocks/httpServer';
+import { type EchoCerts, ensureCerts } from '../../echo-local/certs';
 import { test as electronTest } from './electronApp';
-import { startMockHttpsServer, type MockHttpServerHandle } from '../../e2e/mocks/httpServer';
-import { ensureCerts, type EchoCerts } from '../../echo-local/certs';
 
 /**
  * Boots TLS upstreams for the desktop-only customCa / mTLS specs, reusing the
@@ -35,7 +35,7 @@ const PINNED_CIPHER = 'ECDHE-RSA-AES128-GCM-SHA256';
 
 export const test = electronTest.extend<{ tls: TlsStack }, { _tls: TlsStack }>({
   _tls: [
-    // eslint-disable-next-line no-empty-pattern
+    // biome-ignore lint/correctness/noEmptyPattern: legacy type boundary
     async ({}, use) => {
       const certs = ensureCerts({ dir: path.join(ROOT, 'echo-local/certs') });
       const [https, mtls, tls12, cipherPinned] = await Promise.all([

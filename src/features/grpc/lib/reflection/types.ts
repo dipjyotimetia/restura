@@ -1,4 +1,4 @@
-import type { FieldType, FieldLabel } from '@/types';
+import type { FieldLabel, FieldType } from '@/types';
 
 export const REFLECTION_SERVICE_V1 = 'grpc.reflection.v1.ServerReflection';
 export const REFLECTION_SERVICE_V1_ALPHA = 'grpc.reflection.v1alpha.ServerReflection';

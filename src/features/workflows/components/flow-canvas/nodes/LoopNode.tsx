@@ -1,8 +1,8 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Handle, type NodeProps, Position } from '@xyflow/react';
 import { RotateCw } from 'lucide-react';
 import { memo } from 'react';
-import { NodeChrome } from './NodeChrome';
 import type { LoopFlowNode } from '@/types';
+import { NodeChrome } from './NodeChrome';
 
 type Data = LoopFlowNode['data'];
 

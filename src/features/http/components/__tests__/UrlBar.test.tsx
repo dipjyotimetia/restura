@@ -1,8 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { UrlBar } from '../UrlBar';
+import { describe, expect, it, vi } from 'vitest';
 import type { HttpMethod } from '@/types';
+import { UrlBar } from '../UrlBar';
 
 function renderUrlBar(
   overrides: Partial<{

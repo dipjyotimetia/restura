@@ -1,5 +1,7 @@
 import {
   Cable,
+  ChevronDown,
+  ChevronUp,
   Download,
   HardDrive,
   Network,
@@ -7,15 +9,10 @@ import {
   Play,
   Terminal,
   Trash2,
-  ChevronDown,
-  ChevronUp,
 } from 'lucide-react';
-import { useEffect, useCallback, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
 import { useShallow } from 'zustand/react/shallow';
-import FramesTab from './FramesTab';
-import NetworkTab from './NetworkTab';
-import ScriptsTab from './ScriptsTab';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -34,8 +31,11 @@ import { filterEntries } from '@/lib/shared/console-filter';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
+import type { ConsoleLog, ConsoleTabId, ConsoleTest } from '@/store/useConsoleStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
-import type { ConsoleLog, ConsoleTest, ConsoleTabId } from '@/store/useConsoleStore';
+import FramesTab from './FramesTab';
+import NetworkTab from './NetworkTab';
+import ScriptsTab from './ScriptsTab';
 
 const CLEAR_LABELS: Record<ConsoleTabId, string> = {
   network: 'network logs',
@@ -243,7 +243,6 @@ export default function NetworkConsole({
         {/* Resize handle — wider hit zone, visible grip. The padding is what
             makes the handle easy to grab; the visible thumb is purely cosmetic. */}
         {isExpanded && (
-          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- focusable window-splitter pattern: separator with aria-valuenow is operable via mouse drag and arrow keys
           <div
             className="absolute -top-2 left-0 right-0 h-4 cursor-row-resize z-20 flex items-center justify-center group focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             onMouseDown={handleResizeStart}
@@ -263,7 +262,6 @@ export default function NetworkConsole({
             aria-valuenow={Math.round(panelHeight)}
             aria-valuemin={CONSOLE_MIN_PX}
             aria-valuemax={Math.round(maxConsoleHeight())}
-            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- splitter must be keyboard-focusable to support arrow-key resize
             tabIndex={0}
           >
             <div className="h-1 w-10 rounded-full bg-sp-line group-hover:bg-sp-accent/60 group-focus-visible:bg-sp-accent/60 transition-colors" />

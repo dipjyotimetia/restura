@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { classifyOcFile } from '../../src/workspace/collectionDetector';
+import { describe, expect, it } from 'vitest';
 import { validateOcDocument } from '../../src/offering1_lang/validate';
+import { classifyOcFile } from '../../src/workspace/collectionDetector';
 
 const ROOT_YAML = `opencollection: "1.0.0"
 info:

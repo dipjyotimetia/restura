@@ -3,9 +3,9 @@
 // assistant uses before any request/response text reaches a model. Pure — the
 // dialog supplies the raw history/collection items.
 import { redactBody, redactHeaders } from '@shared/protocol/ai/redaction';
-import type { DatasetCase } from '../types';
 import type { KeyValue } from '@/types/common';
 import type { HttpRequest, Response as HttpResponse } from '@/types/http';
+import type { DatasetCase } from '../types';
 
 /** A request paired with its (optional) captured response. */
 export interface CapturedRequest {

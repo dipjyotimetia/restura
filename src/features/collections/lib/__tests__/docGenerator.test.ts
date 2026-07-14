@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { buildDocModel, docModelToMarkdown, docModelToHtml, escapeHtml } from '../docGenerator';
+import { describe, expect, it } from 'vitest';
 import type { Collection } from '@/types';
+import { buildDocModel, docModelToHtml, docModelToMarkdown, escapeHtml } from '../docGenerator';
 
 function kv(
   key: string,

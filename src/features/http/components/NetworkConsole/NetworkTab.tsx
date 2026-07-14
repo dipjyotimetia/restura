@@ -1,29 +1,26 @@
 'use client';
 
 import {
-  Network,
-  FileText,
-  Clock,
-  Copy,
   Check,
-  Search,
-  X,
-  RotateCw,
-  ExternalLink,
-  GitCompare,
-  SlidersHorizontal,
-  ListChecks,
-  Maximize2,
+  Clock,
   Code2,
   Cookie as CookieIcon,
+  Copy,
+  ExternalLink,
+  FileText,
+  GitCompare,
   HelpCircle,
+  ListChecks,
+  Maximize2,
+  Network,
+  RotateCw,
+  Search,
+  SlidersHorizontal,
+  X,
 } from 'lucide-react';
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useShallow } from 'zustand/react/shallow';
-import EntryCompareDialog from './EntryCompareDialog';
-import EntryExpandDialog from './EntryExpandDialog';
-import RequestEntryItem from './RequestEntryItem';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -39,7 +36,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { codeGenerators, type CodeGeneratorType } from '@/lib/shared/codeGenerators';
+import { type CodeGeneratorType, codeGenerators } from '@/lib/shared/codeGenerators';
 import { filterEntries, sortEntries, statusClassCounts } from '@/lib/shared/console-filter';
 import {
   detectLanguage,
@@ -53,13 +50,16 @@ import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { cn } from '@/lib/shared/utils';
 import { useActiveTab } from '@/store/selectors';
 import {
+  type ConsoleProtocol,
+  type ConsoleStatusFilter,
   entryToCurl,
   entryToHttpRequest,
   useConsoleStore,
-  type ConsoleProtocol,
-  type ConsoleStatusFilter,
 } from '@/store/useConsoleStore';
 import { useRequestStore } from '@/store/useRequestStore';
+import EntryCompareDialog from './EntryCompareDialog';
+import EntryExpandDialog from './EntryExpandDialog';
+import RequestEntryItem from './RequestEntryItem';
 
 const CodeEditor = lazyComponent(
   () => import('@/components/shared/CodeEditor'),

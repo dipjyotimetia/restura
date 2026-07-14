@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { UpdateNotification } from '../UpdateNotification';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { UpdaterStatus } from '../../../../electron/types/electron-api';
+import { UpdateNotification } from '../UpdateNotification';
 
 // sonner — the App-level <Toaster> isn't mounted here; stub the toast surface
 // the component uses (transient feedback for checks / download failures).

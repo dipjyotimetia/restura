@@ -21,8 +21,8 @@
  * SSRF/validation guarantees to AI-sourced content as human-authored edits.
  */
 import { v4 as uuidv4 } from 'uuid';
+import type { FlowNode, WorkflowGraph } from '@/types';
 import { validateWorkflowGraph } from './flowValidators';
-import type { WorkflowGraph, FlowNode } from '@/types';
 
 /**
  * System prompt that constrains the model to emit a single WorkflowGraph

@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { applyAuthHeaders, applyApiKeyQueryParam } from '../applyAuthHeaders';
+import { describe, expect, it } from 'vitest';
 import type { AuthConfig } from '@/types';
+import { applyApiKeyQueryParam, applyAuthHeaders } from '../applyAuthHeaders';
 
 describe('applyAuthHeaders', () => {
   const base: Record<string, string> = { 'Content-Type': 'application/json' };

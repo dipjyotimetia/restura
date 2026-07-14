@@ -1,10 +1,10 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Handle, type NodeProps, Position } from '@xyflow/react';
 import { Radio } from 'lucide-react';
 import { memo } from 'react';
-import { useFlowRunStore } from '../../../store/useFlowRunStore';
-import { NodeChrome } from './NodeChrome';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import type { SseSubscribeFlowNode } from '@/types';
+import { useFlowRunStore } from '../../../store/useFlowRunStore';
+import { NodeChrome } from './NodeChrome';
 
 type Data = SseSubscribeFlowNode['data'] & { workflowId?: string };
 

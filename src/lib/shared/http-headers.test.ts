@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { STANDARD_HTTP_HEADERS, getHeaderDef } from './http-headers';
+import { describe, expect, it } from 'vitest';
+import { getHeaderDef, STANDARD_HTTP_HEADERS } from './http-headers';
 
 describe('http-headers catalog', () => {
   it('contains the headers shown in the design reference', () => {

@@ -1,11 +1,11 @@
 import type { Provider } from '@shared/protocol/ai/types';
 import type {
-  ProxyConfig,
-  ClientCert,
   CaCert,
-  HostClientCert,
+  ClientCert,
   HostCaCert,
+  HostClientCert,
   MinTlsVersion,
+  ProxyConfig,
 } from './security';
 
 // Global Application Settings

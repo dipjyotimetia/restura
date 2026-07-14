@@ -1,3 +1,13 @@
+import type {
+  KafkaAuth,
+  KafkaCompression,
+  KafkaConnection,
+  KafkaMessageDirection,
+  KafkaRegistry,
+} from '@/features/kafka/store/useKafkaStore';
+import { KAFKA_SECRET_SENTINEL, useKafkaStore } from '@/features/kafka/store/useKafkaStore';
+import { getElectronAPI, isElectron } from '@/lib/shared/platform';
+import { secureStorage } from '@/lib/shared/secure-storage';
 import { KAFKA_CHANNEL, kafkaChannel } from '../../../../electron/shared/kafka-channels';
 import type {
   KafkaAuthIpc,
@@ -8,19 +18,12 @@ import type {
   KafkaRegistryIpc,
   KafkaTopicConfigEntry,
 } from '../../../../electron/types/electron-api';
-import { useKafkaStore, KAFKA_SECRET_SENTINEL } from '@/features/kafka/store/useKafkaStore';
-import type {
-  KafkaAuth,
-  KafkaCompression,
-  KafkaConnection,
-  KafkaMessageDirection,
-  KafkaRegistry,
-} from '@/features/kafka/store/useKafkaStore';
-import { isElectron, getElectronAPI } from '@/lib/shared/platform';
-import { secureStorage } from '@/lib/shared/secure-storage';
 
 export type KafkaSecretField =
-  'sasl-password' | 'tls-passphrase' | 'registry-password' | 'registry-token';
+  | 'sasl-password'
+  | 'tls-passphrase'
+  | 'registry-password'
+  | 'registry-token';
 
 export function kafkaSecretKey(connectionId: string, field: KafkaSecretField): string {
   // Every field name matches a secureStorage sensitive-key pattern

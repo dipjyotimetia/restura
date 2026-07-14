@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { HttpRequest, PostmanCollection } from '@/types';
 import { importPostmanCollection } from '../importers/postman';
-import type { PostmanCollection, HttpRequest } from '@/types';
 
 function asHttp(item: { request?: unknown }): HttpRequest {
   return item.request as HttpRequest;
@@ -34,7 +34,7 @@ describe('importPostmanCollection — OAuth2 full preservation', () => {
                 { key: 'redirect_uri', value: 'https://app.example.com/callback', type: 'string' },
               ],
             },
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- PostmanCollection type is loose
+            // biome-ignore lint/suspicious/noExplicitAny: PostmanCollection type is loose
           } as any,
         },
       ],
@@ -77,7 +77,7 @@ describe('importPostmanCollection — OAuth2 full preservation', () => {
                 { key: 'clientId', value: 'cid', type: 'string' },
               ],
             },
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
           } as any,
         },
       ],
@@ -109,7 +109,7 @@ describe('importPostmanCollection — OAuth2 full preservation', () => {
                 { key: 'password', value: 'sek', type: 'string' },
               ],
             },
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
           } as any,
         },
       ],
@@ -140,7 +140,7 @@ describe('importPostmanCollection — OAuth2 full preservation', () => {
                 { key: 'grant_type', value: 'implicit', type: 'string' },
               ],
             },
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
           } as any,
         },
       ],
@@ -168,7 +168,7 @@ describe('importPostmanCollection — OAuth2 full preservation', () => {
               type: 'oauth2',
               oauth2: [{ key: 'accessToken', value: 'tok', type: 'string' }],
             },
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
           } as any,
         },
       ],

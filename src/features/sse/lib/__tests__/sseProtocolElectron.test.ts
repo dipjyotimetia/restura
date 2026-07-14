@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SseRequest } from '@/types';
 
 // The web-only proxy transport must never be touched on the Electron path —
@@ -16,8 +16,8 @@ vi.mock('@/lib/shared/platform', () => ({
   getElectronAPI: vi.fn(),
 }));
 
-import { sseProtocol } from '../../protocol';
 import { getElectronAPI } from '@/lib/shared/platform';
+import { sseProtocol } from '../../protocol';
 
 type Listener = (payload?: unknown) => void;
 

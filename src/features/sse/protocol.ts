@@ -22,14 +22,14 @@
  * pipeline applies uniformly either way.
  */
 import { v4 as uuidv4 } from 'uuid';
-import { cleanupSseElectronListeners } from './lib/sseManager';
-import { SseParser, type ParsedSseEvent } from './lib/sseParser';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import type { ProtocolModule, ProtocolStreamHandle } from '@/features/registry/types';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
-import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { executeProxiedStreamingRequest } from '@/lib/shared/transport';
 import type { Request, SseRequest } from '@/types';
+import { cleanupSseElectronListeners } from './lib/sseManager';
+import { type ParsedSseEvent, SseParser } from './lib/sseParser';
 
 function createDefaultSseRequest(): SseRequest {
   return {

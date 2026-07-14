@@ -2,9 +2,9 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Sparkles } from 'lucide-react';
 import {
   dispatchInlineAiAction,
-  useAiActionsAvailable,
-  INLINE_ACTIONS,
   INLINE_ACTION_LABELS,
+  INLINE_ACTIONS,
+  useAiActionsAvailable,
 } from '@/features/ai/lib/inlineActions';
 import { cn } from '@/lib/shared/utils';
 

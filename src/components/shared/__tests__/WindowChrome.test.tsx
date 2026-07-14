@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WindowChrome } from '../TopBar';
 
 // platform module is consulted for the traffic-light slot on macOS Electron.
@@ -13,7 +13,7 @@ vi.mock('@/lib/shared/platform', async (orig) => {
   };
 });
 
-import { isElectron, getPlatform } from '@/lib/shared/platform';
+import { getPlatform, isElectron } from '@/lib/shared/platform';
 
 beforeEach(() => {
   vi.mocked(isElectron).mockReturnValue(false);

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { validateMcpSpec, parseJsonRpcError, jsonRpcErrorToMessage } from './mcp-proxy';
+import { describe, expect, it } from 'vitest';
+import { jsonRpcErrorToMessage, parseJsonRpcError, validateMcpSpec } from './mcp-proxy';
 
 describe('validateMcpSpec', () => {
   it('rejects unknown transport', () => {

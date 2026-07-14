@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { Collection, HistoryItem, OpenAPIDocument } from '@/types';
 import {
   buildMockRoutes,
   buildMockRoutesFromSpec,
   extractPath,
   mergeMockRoutes,
 } from '../mockRoutes';
-import type { Collection, HistoryItem, OpenAPIDocument } from '@/types';
 
 describe('extractPath', () => {
   it('returns the pathname of an absolute URL', () => {

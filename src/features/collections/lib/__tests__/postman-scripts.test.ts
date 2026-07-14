@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { importPostmanCollection } from '../importers/postman';
+import { describe, expect, it } from 'vitest';
+import type { Collection, HttpRequest, PostmanCollection } from '@/types';
 import { exportToPostman } from '../exporters';
-import type { PostmanCollection, HttpRequest, Collection } from '@/types';
+import { importPostmanCollection } from '../importers/postman';
 
 function asHttp(item: { request?: unknown }): HttpRequest {
   return item.request as HttpRequest;
@@ -22,7 +22,7 @@ const importData = (overrides: Partial<PostmanCollection>): PostmanCollection =>
     },
     item: [],
     ...overrides,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- PostmanCollection type is loose
+    // biome-ignore lint/suspicious/noExplicitAny: PostmanCollection type is loose
   }) as any;
 
 describe('Postman import — pm.* -> rs.* migration', () => {
@@ -35,9 +35,9 @@ describe('Postman import — pm.* -> rs.* migration', () => {
           event: [
             prereqEvent('pm.variables.set("t", Date.now());'),
             testEvent('pm.test("ok", () => pm.expect(pm.response.code).to.equal(200));'),
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- loose
+            // biome-ignore lint/suspicious/noExplicitAny: loose
           ] as any,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- loose
+          // biome-ignore lint/suspicious/noExplicitAny: loose
         } as any,
       ],
     });
@@ -53,7 +53,7 @@ describe('Postman import — pm.* -> rs.* migration', () => {
     const data = importData({
       event: [prereqEvent('pm.variables.set("base", "v1");'), testEvent('pm.test("c", () => {});')],
       item: [{ name: 'Req', request: { method: 'GET', url: 'https://x', header: [] } }],
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- loose
+      // biome-ignore lint/suspicious/noExplicitAny: loose
     } as any);
     const collection = await importPostmanCollection(data);
     expect(collection.preRequestScript).toBe('rs.variables.set("base", "v1");');
@@ -67,7 +67,7 @@ describe('Postman import — pm.* -> rs.* migration', () => {
           name: 'Folder',
           event: [prereqEvent('pm.environment.set("k", "v");')],
           item: [{ name: 'Req', request: { method: 'GET', url: 'https://x', header: [] } }],
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- loose
+          // biome-ignore lint/suspicious/noExplicitAny: loose
         } as any,
       ],
     });
@@ -139,9 +139,9 @@ describe('Postman round-trip', () => {
         {
           name: 'Req',
           request: { method: 'GET', url: 'https://x', header: [] },
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- loose
+          // biome-ignore lint/suspicious/noExplicitAny: loose
           event: [testEvent(original)] as any,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any -- loose
+          // biome-ignore lint/suspicious/noExplicitAny: loose
         } as any,
       ],
     });

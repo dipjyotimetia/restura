@@ -1,7 +1,7 @@
 import { useTheme } from 'next-themes';
 import { useEffect } from 'react';
 import { createHashRouter, RouterProvider } from 'react-router-dom';
-import { toast, Toaster } from 'sonner';
+import { Toaster, toast } from 'sonner';
 import { AccentProvider } from '@/components/providers/AccentProvider';
 import { PlatformProvider } from '@/components/providers/PlatformProvider';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
@@ -16,11 +16,11 @@ import Home from '@/routes/index';
 import NotFound from '@/routes/not-found';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import {
-  useFileCollectionStore,
+  cleanupFileCollectionWatcher,
+  initFileCollectionWatcher,
   isElectronEnvironment,
   restoreFileCollectionWatchers,
-  initFileCollectionWatcher,
-  cleanupFileCollectionWatcher,
+  useFileCollectionStore,
 } from '@/store/useFileCollectionStore';
 
 // AI Lab is a separate full-screen route (its own workbench), lazy-loaded so its

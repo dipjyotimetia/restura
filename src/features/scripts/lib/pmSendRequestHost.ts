@@ -23,9 +23,9 @@
  * object inside QuickJS.
  */
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
-import type { PmSendRequestInput, PmSubResponse } from './scriptExecutor';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
 import { executeProxiedRequest } from '@/lib/shared/transport';
+import type { PmSendRequestInput, PmSubResponse } from './scriptExecutor';
 
 const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
 

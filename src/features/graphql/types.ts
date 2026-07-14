@@ -15,7 +15,14 @@ export interface GraphQLType {
 }
 
 export type GraphQLTypeKind =
-  'SCALAR' | 'OBJECT' | 'INTERFACE' | 'UNION' | 'ENUM' | 'INPUT_OBJECT' | 'LIST' | 'NON_NULL';
+  | 'SCALAR'
+  | 'OBJECT'
+  | 'INTERFACE'
+  | 'UNION'
+  | 'ENUM'
+  | 'INPUT_OBJECT'
+  | 'LIST'
+  | 'NON_NULL';
 
 export interface GraphQLTypeRef {
   kind: GraphQLTypeKind;

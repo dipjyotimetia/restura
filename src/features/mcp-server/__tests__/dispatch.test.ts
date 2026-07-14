@@ -1,12 +1,12 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { Collection, Environment, HistoryItem, HttpRequest } from '@/types';
-import { dispatchTool, postProcessResult, type McpDispatchContext } from '../dispatch';
 import {
   DEFAULT_CONSENT,
   setCollectionConsent,
   setEnvironmentConsent,
   setHistoryConsent,
 } from '../consent';
+import { dispatchTool, type McpDispatchContext, postProcessResult } from '../dispatch';
 
 // ---------------------------------------------------------------------------
 // Test fixtures

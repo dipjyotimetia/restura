@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import * as yaml from 'js-yaml';
+import { describe, expect, it } from 'vitest';
 import { assertBoundedDocument, openCollectionSchema } from '../schemas';
 
 const FIXTURES = 'tests/fixtures/opencollection';

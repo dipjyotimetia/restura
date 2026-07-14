@@ -2,9 +2,9 @@ import { useCallback, useMemo } from 'react';
 import type { ModelChecklistEntry } from '../components/ModelChecklist';
 import {
   buildModelOptions,
+  type ModelOption,
   toChecklistEntries,
   toggleKey,
-  type ModelOption,
 } from '../lib/modelOptions';
 import { useAiLabStore } from '../store/useAiLabStore';
 import type { AiLabProviderConfig } from '../types';

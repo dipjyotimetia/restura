@@ -12,7 +12,7 @@
 // Linux/CI images). Idempotent: existing material is reused unless `force`.
 
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, existsSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export interface EchoCerts {

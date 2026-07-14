@@ -1,16 +1,15 @@
 'use client';
 
-import { Plus, Trash2, TestTube } from 'lucide-react';
+import { Plus, TestTube, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { testExtraction } from '../lib/variableExtractor';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -21,7 +20,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import type { VariableExtraction, ExtractionMethod } from '@/types';
+import type { ExtractionMethod, VariableExtraction } from '@/types';
+import { testExtraction } from '../lib/variableExtractor';
 
 interface VariableExtractorConfigProps {
   open: boolean;

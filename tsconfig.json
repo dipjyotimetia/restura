@@ -19,13 +19,7 @@
     "allowUnreachableCode": false,
     "exactOptionalPropertyTypes": false
   },
-  "include": [
-    "**/*.ts",
-    "**/*.tsx",
-    "vite.config.mts",
-    "electron/types/**/*.ts",
-    "shared/**/*.ts"
-  ],
+  "include": ["**/*.ts", "**/*.tsx", "vite.config.mts", "electron/types/**/*.ts", "shared/**/*.ts"],
   "exclude": [
     "node_modules",
     "dist",

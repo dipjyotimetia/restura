@@ -1,15 +1,15 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AgentWorkbench } from '../AgentWorkbench';
-import { useAiLabStore } from '../../store/useAiLabStore';
-import { useAiLabUiStore } from '../../store/useAiLabUiStore';
 import {
   resetAgentRunServiceForTests,
   setAgentRunRepositoryForTests,
   startAgentRun,
   useAgentRunLiveStore,
 } from '../../run-engine/agentRunService';
+import { useAiLabStore } from '../../store/useAiLabStore';
+import { useAiLabUiStore } from '../../store/useAiLabUiStore';
+import { AgentWorkbench } from '../AgentWorkbench';
 
 const runDesktopAgentSuite = vi.hoisted(() => vi.fn());
 vi.mock('../../lib/agentRuntime', () => ({ runDesktopAgentSuite }));

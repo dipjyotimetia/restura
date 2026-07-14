@@ -1,6 +1,6 @@
 import * as React from 'react';
-import { BRAND_MARK } from './lib/brandMark';
 import { cn } from '@/lib/shared/utils';
+import { BRAND_MARK } from './lib/brandMark';
 
 interface LogoProps {
   /** Pixel size of the square mark. Defaults to 32. */

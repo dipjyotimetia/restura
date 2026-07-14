@@ -7,10 +7,10 @@ import { ipcMain } from 'electron';
 import { createLogger } from '../../../src/lib/shared/logger';
 import { IPC } from '../../shared/channels';
 import {
+  createValidatedHandler,
+  NoInputSchema,
   StoreKeySchema,
   StoreSetSchema,
-  NoInputSchema,
-  createValidatedHandler,
 } from '../ipc/ipc-validators';
 import { getOrCreateEncryptedKey } from '../security/encrypted-key';
 

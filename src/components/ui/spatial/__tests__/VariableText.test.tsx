@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
 import { render } from '@testing-library/react';
-import { VariableText, type VariableStatus } from '../VariableText';
+import { describe, expect, it } from 'vitest';
+import { type VariableStatus, VariableText } from '../VariableText';
 
 describe('VariableText', () => {
   it('renders plain text without any variable tokens', () => {

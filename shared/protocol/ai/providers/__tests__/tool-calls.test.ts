@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SseParser } from '@shared/protocol/sse-parser';
 import { anthropicModule } from '@shared/protocol/ai/providers/anthropic';
 import { openaiModule } from '@shared/protocol/ai/providers/openai';
-import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 import type { ProviderModule } from '@shared/protocol/ai/providers/types';
+import type { ChatStreamEvent } from '@shared/protocol/ai/types';
+import { SseParser } from '@shared/protocol/sse-parser';
+import { describe, expect, it } from 'vitest';
 
 function load(name: string): Uint8Array {
   return new TextEncoder().encode(

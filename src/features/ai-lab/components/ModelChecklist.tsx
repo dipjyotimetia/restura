@@ -1,11 +1,11 @@
 import { Search } from 'lucide-react';
-import { memo, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { AiLabModelDetail } from '../types';
+import { memo, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Floater } from '@/components/ui/spatial';
+import type { AiLabModelDetail } from '../types';
 
 export interface ModelChecklistEntry {
   key: string;

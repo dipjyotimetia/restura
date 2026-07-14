@@ -1,6 +1,6 @@
 'use client';
 
-import { HardDrive, RefreshCw, Trash2, ExternalLink, RotateCw, Copy } from 'lucide-react';
+import { Copy, ExternalLink, HardDrive, RefreshCw, RotateCw, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';

@@ -6,8 +6,8 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { TEST_AUTH_FIXTURES } from '../e2e/mocks/authRoutes';
-import { PORTS } from './ports';
 import type { EchoCerts } from './certs';
+import { PORTS } from './ports';
 
 export interface Manifest {
   host: string;

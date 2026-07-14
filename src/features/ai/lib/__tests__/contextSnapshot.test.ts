@@ -1,11 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/store/useRequestStore', () => ({ useRequestStore: { getState: vi.fn() } }));
 vi.mock('@/store/useEnvironmentStore', () => ({ useEnvironmentStore: { getState: vi.fn() } }));
 
 import { captureActive } from '@/features/ai/lib/contextSnapshot';
-import { useRequestStore } from '@/store/useRequestStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useRequestStore } from '@/store/useRequestStore';
 
 describe('captureActive', () => {
   beforeEach(() => {

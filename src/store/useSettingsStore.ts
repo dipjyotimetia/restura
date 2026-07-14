@@ -1,16 +1,16 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
-import { unwrapSecret, type SecretValue } from '@/lib/shared/secretRef';
+import { type SecretValue, unwrapSecret } from '@/lib/shared/secretRef';
 import { validatePersistedSettings } from '@/lib/shared/store-validators';
 import type {
   AppSettings,
-  ProxyConfig,
-  ClientCert,
   CaCert,
-  HostClientCert,
+  ClientCert,
   HostCaCert,
+  HostClientCert,
   JudgeSettings,
+  ProxyConfig,
 } from '@/types';
 import { DEFAULT_AUTO_UPDATE_SETTINGS, DEFAULT_JUDGE_SETTINGS } from '@/types';
 

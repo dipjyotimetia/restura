@@ -1,19 +1,19 @@
 import { Gauge, Play, Square } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { useLoadTest } from '../hooks/useLoadTest';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from '@/components/ui/dialog';
 import { computeLoadStats } from '@/lib/shared/loadStats';
 import { isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import { useLoadTestStore } from '@/store/useLoadTestStore';
 import type { HttpRequest } from '@/types';
+import { useLoadTest } from '../hooks/useLoadTest';
 
 interface LoadTestDialogProps {
   request: HttpRequest | null;

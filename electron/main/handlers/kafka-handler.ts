@@ -1,7 +1,7 @@
 import type * as SchemaRegistryLib from '@kafkajs/confluent-schema-registry';
 import type * as KafkaLib from '@platformatic/kafka';
-import { ipcMain, webContents } from 'electron';
 import type { WebContents } from 'electron';
+import { ipcMain, webContents } from 'electron';
 import type { ZodSchema } from 'zod';
 import { createLogger } from '../../../src/lib/shared/logger';
 import { IPC } from '../../shared/channels';
@@ -9,35 +9,35 @@ import { KAFKA_CHANNEL, kafkaChannel } from '../../shared/kafka-channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import {
+  assertTrustedSender,
+  createValidatedHandler,
+  type KafkaConnectConfig,
   KafkaConnectSchema,
+  KafkaCreateTopicSchema,
+  KafkaDeleteGroupSchema,
+  KafkaDeleteTopicSchema,
+  KafkaDisconnectSchema,
+  KafkaInspectGroupSchema,
+  KafkaInspectTopicSchema,
+  KafkaListGroupsSchema,
+  KafkaListTopicsSchema,
+  type KafkaProduceConfig,
   KafkaProduceSchema,
+  KafkaResetGroupOffsetsSchema,
   KafkaSubscribeSchema,
   KafkaUnsubscribeSchema,
-  KafkaDisconnectSchema,
-  KafkaListTopicsSchema,
-  KafkaCreateTopicSchema,
-  KafkaDeleteTopicSchema,
-  KafkaListGroupsSchema,
-  KafkaInspectTopicSchema,
-  KafkaInspectGroupSchema,
-  KafkaResetGroupOffsetsSchema,
-  KafkaDeleteGroupSchema,
   validateIpcInput,
-  createValidatedHandler,
-  assertTrustedSender,
-  type KafkaConnectConfig,
-  type KafkaProduceConfig,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
 import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
 import {
-  encodeSchemaField,
+  computeGroupLag,
   decodeField,
-  topicWatermarks,
+  encodeSchemaField,
   flattenConfigDescriptions,
   flattenGroup,
-  computeGroupLag,
+  topicWatermarks,
 } from './kafka-serde';
 
 const log = createLogger('kafka');

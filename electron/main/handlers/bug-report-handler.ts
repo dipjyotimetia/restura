@@ -1,4 +1,4 @@
-import { app, clipboard, ipcMain, nativeImage, type BrowserWindow } from 'electron';
+import { app, type BrowserWindow, clipboard, ipcMain, nativeImage } from 'electron';
 import { IPC } from '../../shared/channels';
 import {
   BugReportScreenshotSchema,

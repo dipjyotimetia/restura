@@ -1,8 +1,8 @@
 import {
-  redactHeaders,
+  type RedactionMode,
   redactBody,
   redactEnvironment,
-  type RedactionMode,
+  redactHeaders,
 } from '@shared/protocol/ai/redaction';
 import type { ChatMessageWire } from '@shared/protocol/ai/types';
 import type { RawSnapshot } from './contextSnapshot';

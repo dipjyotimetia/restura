@@ -1,6 +1,6 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { shouldRefreshOAuth2, refreshOAuth2Auth } from '../tokenRefresh';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthConfig } from '@/types';
+import { refreshOAuth2Auth, shouldRefreshOAuth2 } from '../tokenRefresh';
 
 const baseOauth2Auth = (
   overrides: Partial<NonNullable<AuthConfig['oauth2']>> = {}

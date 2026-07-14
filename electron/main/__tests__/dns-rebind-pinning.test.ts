@@ -10,7 +10,7 @@
 // The gRPC pinning primitive moved to grpc-connect's connect-node
 // `nodeOptions.lookup` (covered by the TLS + live integration checks).
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { createPinnedLookup } from '../security/safe-connect';
 
 describe('createPinnedLookup', () => {

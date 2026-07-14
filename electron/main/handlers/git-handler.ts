@@ -44,12 +44,12 @@
  * first call.
  */
 
+import type { GitBranch, GitCommit, GitStatus, GitStatusFile } from '@shared/git-types';
 import { execFile } from 'child_process';
+import { ipcMain } from 'electron';
 import { existsSync } from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
-import type { GitStatusFile, GitStatus, GitBranch, GitCommit } from '@shared/git-types';
-import { ipcMain } from 'electron';
 import { z } from 'zod';
 import { createLogger } from '../../../src/lib/shared/logger';
 import { IPC } from '../../shared/channels';
@@ -144,7 +144,7 @@ function sanitiseRefName(name: string): string {
 // Pure parsers — extracted so unit tests can cover them without `git`.
 // ---------------------------------------------------------------------------
 
-export type { GitStatusFile, GitStatus, GitBranch, GitCommit };
+export type { GitBranch, GitCommit, GitStatus, GitStatusFile };
 
 export function parsePorcelainV2(raw: string): GitStatus {
   const files: GitStatusFile[] = [];

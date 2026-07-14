@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { specFor, completeLlm } from '../llmClient';
+import { describe, expect, it } from 'vitest';
 import type { AiLabProviderConfig } from '../../types';
+import { completeLlm, specFor } from '../llmClient';
 
 const CLOUD: AiLabProviderConfig = {
   id: 'p1',

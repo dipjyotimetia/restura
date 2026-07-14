@@ -8,7 +8,7 @@
  * Any drift between importer and exporter shows up here.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { Collection, CollectionItem, Environment } from '@/types';
 import { exportBrunoCollection, exportBrunoRequest } from '../bruno-exporter';
 import { importBrunoCollection } from '../importers/bruno';

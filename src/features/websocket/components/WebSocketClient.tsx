@@ -1,4 +1,4 @@
-import { Send, Trash2, Search, Download, X, Filter } from 'lucide-react';
+import { Download, Filter, Search, Send, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
@@ -14,16 +14,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  CodeEditorFrame,
   CountToggle,
   Floater,
-  ProtoChip,
-  Stat,
   Kbd,
-  ToggleField,
+  ProtoChip,
   Segmented,
+  Stat,
   TextField,
+  ToggleField,
   VariableText,
-  CodeEditorFrame,
 } from '@/components/ui/spatial';
 import { websocketManager } from '@/features/websocket/lib/websocketManager';
 import type { WebSocketMessageType } from '@/features/websocket/store/useWebSocketStore';

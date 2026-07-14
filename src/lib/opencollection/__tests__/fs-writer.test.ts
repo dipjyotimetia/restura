@@ -1,10 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
 import { access, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { saveCollectionToDir, saveCollectionToFile } from '../fs-writer';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { loadCollectionFromDir, loadCollectionFromFile } from '../fs-reader';
+import { saveCollectionToDir, saveCollectionToFile } from '../fs-writer';
 import type { OpenCollection } from '../schemas';
 
 describe('fs-writer', () => {
@@ -100,7 +100,7 @@ describe('fs-writer', () => {
     expect((reloaded.request as { scripts?: Array<{ code: string }> }).scripts?.[0]?.code).toBe(
       'rs.root.pre()'
     );
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Item is folder|request union
+    // biome-ignore lint/suspicious/noExplicitAny: Item is folder|request union
     const folder = (reloaded.items ?? [])[0] as any;
     expect(folder.request.scripts[0].code).toBe('rs.folder.test()');
   });
@@ -139,7 +139,7 @@ describe('fs-writer', () => {
 
     // Reloading preserves all three names (order may vary; just count).
     const reloaded = await loadCollectionFromDir(tmp);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TODO(maintainability): narrow this discriminated-union map (Item is folder|request)
+    // biome-ignore lint/suspicious/noExplicitAny: TODO(maintainability): narrow this discriminated-union map (Item is folder|request)
     const names = (reloaded.items ?? []).map((it: any) => it.info.name);
     expect(names.length).toBe(3);
     expect(names).toEqual(expect.arrayContaining(['User', 'User !', 'User?']));

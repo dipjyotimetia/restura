@@ -1,17 +1,6 @@
 import { Check, Copy, Maximize2, Minimize2, Play, Save, Sparkles, Square } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { useCmdEnterRun } from '../hooks/useCmdEnterRun';
-import { useModelSelection } from '../hooks/useModelSelection';
-import { specFor, streamLlm, type StreamHandle } from '../lib/llmClient';
-import { toggleSetKey } from '../lib/modelOptions';
-import { plural } from '../lib/plural';
-import { renderTemplate, extractVars } from '../lib/promptTemplate';
-import { useAiLabStore } from '../store/useAiLabStore';
-import { useAiLabUiStore } from '../store/useAiLabUiStore';
-import { EmptyState } from './EmptyState';
-import { ModelChecklist } from './ModelChecklist';
-import { StatusChip } from './StatusChip';
 import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
 import {
@@ -27,6 +16,17 @@ import { Label } from '@/components/ui/label';
 import { Floater, Stat } from '@/components/ui/spatial';
 import { Textarea } from '@/components/ui/textarea';
 import { formatLongTimestamp } from '@/lib/shared/console-format';
+import { useCmdEnterRun } from '../hooks/useCmdEnterRun';
+import { useModelSelection } from '../hooks/useModelSelection';
+import { type StreamHandle, specFor, streamLlm } from '../lib/llmClient';
+import { toggleSetKey } from '../lib/modelOptions';
+import { plural } from '../lib/plural';
+import { extractVars, renderTemplate } from '../lib/promptTemplate';
+import { useAiLabStore } from '../store/useAiLabStore';
+import { useAiLabUiStore } from '../store/useAiLabUiStore';
+import { EmptyState } from './EmptyState';
+import { ModelChecklist } from './ModelChecklist';
+import { StatusChip } from './StatusChip';
 
 interface CellState {
   text: string;

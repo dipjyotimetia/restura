@@ -3,11 +3,12 @@
  * into any export path (HAR or OpenCollection). Covers the denied-header,
  * cookie, JWT-body, and prefixed-provider-token classes.
  */
-import { describe, expect, it } from 'vitest';
+
 import { redactExchange } from '@shared/capture/secret-extractor';
 import { sessionToHar } from '@shared/capture/to-har';
 import { sessionToOpenCollection } from '@shared/capture/to-opencollection';
 import type { CaptureSession } from '@shared/capture/types';
+import { describe, expect, it } from 'vitest';
 
 const SECRETS = {
   bearer: 'Bearer abcdEFGH1234567890token',

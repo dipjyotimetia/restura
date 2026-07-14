@@ -10,7 +10,7 @@
 
 import type { FeatureFlags } from '@shared/feature-flags-types';
 import { useEffect, useState } from 'react';
-import { workerBaseUrl, workerAuthHeaders } from '@/lib/shared/platform';
+import { workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platform';
 
 export type { FeatureFlags };
 

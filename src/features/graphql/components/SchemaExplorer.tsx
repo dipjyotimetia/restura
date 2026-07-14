@@ -2,12 +2,12 @@
 
 import { ChevronDown, ChevronRight, Layers, Loader2, RefreshCw, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { getTypesByKind, getRootTypes, getTypeFields } from '../lib/introspection';
-import type { GraphQLSchema, GraphQLTypeKind } from '../types';
-import { formatTypeRef } from '../types';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Floater, TextField } from '@/components/ui/spatial';
+import { getRootTypes, getTypeFields, getTypesByKind } from '../lib/introspection';
+import type { GraphQLSchema, GraphQLTypeKind } from '../types';
+import { formatTypeRef } from '../types';
 
 interface SchemaExplorerProps {
   schema: GraphQLSchema | null;

@@ -1,5 +1,5 @@
 import type { GraphQLSchema } from 'graphql';
-import { parse, validate, GraphQLError } from 'graphql';
+import { GraphQLError, parse, validate } from 'graphql';
 
 export interface GraphQLValidationError {
   message: string;

@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { runLoadTest } from '../loadTestRunner';
-import { executeRequest } from '@/features/http/lib/requestExecutor';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+import { executeRequest } from '@/features/http/lib/requestExecutor';
 import type { AuthConfig, HttpRequest } from '@/types';
+import { runLoadTest } from '../loadTestRunner';
 
 // The runner reuses the real send path + several stores. We only care about its
 // orchestration (concurrency, abort, outcome classification, single summary),

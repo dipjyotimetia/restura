@@ -1,18 +1,14 @@
 import { ShieldAlert } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { completeLlm, specFor } from '../lib/llmClient';
-import { buildRedteamMessages, DATASET_TOOL, parseGeneratedCases } from '../lib/redteamGen';
-import type { RedteamCategory } from '../lib/redteamGen';
-import { useAiLabStore } from '../store/useAiLabStore';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -25,6 +21,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { completeLlm, specFor } from '../lib/llmClient';
+import type { RedteamCategory } from '../lib/redteamGen';
+import { buildRedteamMessages, DATASET_TOOL, parseGeneratedCases } from '../lib/redteamGen';
+import { useAiLabStore } from '../store/useAiLabStore';
 
 const CATEGORIES: Array<{ value: RedteamCategory; label: string }> = [
   { value: 'mixed', label: 'Mixed' },

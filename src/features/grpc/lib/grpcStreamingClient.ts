@@ -13,29 +13,29 @@
  */
 
 import type { DescMethod, DescService } from '@bufbuild/protobuf';
-import { createClient, ConnectError, type Transport } from '@connectrpc/connect';
+import { ConnectError, createClient, type Transport } from '@connectrpc/connect';
 import { createConnectTransport } from '@connectrpc/connect-web';
 import {
-  registryFromDescriptors,
-  registryFromProtoText,
-  resolveMethod,
   callKindOf,
   inputFromJson,
   outputToJson,
+  registryFromDescriptors,
+  registryFromProtoText,
+  resolveMethod,
 } from '@shared/protocol/grpc-registry';
 import { flattenHeaders } from '@shared/protocol/header-utils';
+import { getElectronAPI, isElectron } from '@/lib/shared/platform';
+import type { GrpcRequest } from '@/types';
+import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
 import {
   buildAuthMetadata,
   grpcAuthNeedsMainSideApply,
   prepareGrpcRequest,
   validateGrpcUrl,
-  validateServiceName,
   validateMethodName,
+  validateServiceName,
 } from './grpcClient';
 import { resolveGrpcTls } from './grpcTls';
-import { isElectron, getElectronAPI } from '@/lib/shared/platform';
-import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
-import type { GrpcRequest } from '@/types';
 
 export interface GrpcStreamFinal {
   headers: Record<string, string>;

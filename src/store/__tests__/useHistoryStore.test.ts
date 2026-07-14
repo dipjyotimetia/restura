@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { Response as ApiResponse, HttpRequest } from '@/types';
 import { useHistoryStore } from '../useHistoryStore';
 import { useSettingsStore } from '../useSettingsStore';
-import type { HttpRequest, Response as ApiResponse } from '@/types';
 
 const makeHttp = (overrides: Partial<HttpRequest> = {}): HttpRequest => ({
   id: 'r-' + Math.random().toString(36).slice(2),

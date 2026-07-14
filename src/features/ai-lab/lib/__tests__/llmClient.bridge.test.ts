@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { completeLlm, streamLlm, listModels, testConnection } from '../llmClient';
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { completeLlm, listModels, streamLlm, testConnection } from '../llmClient';
 
 // Exercises the IPC bridge by installing a fake window.electron.aiLab. This is
 // the path llmClient.test.ts can't reach (it tests the no-Electron guard).

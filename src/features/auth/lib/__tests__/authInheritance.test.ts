@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { resolveEffectiveAuth, findInheritedAuth, withEffectiveAuth } from '../authInheritance';
 import type { AuthConfig, Collection, HttpRequest } from '@/types';
+import { findInheritedAuth, resolveEffectiveAuth, withEffectiveAuth } from '../authInheritance';
 
 const noneAuth: AuthConfig = { type: 'none' };
 const bearerAuth: AuthConfig = { type: 'bearer', bearer: { token: 'collection-token' } };

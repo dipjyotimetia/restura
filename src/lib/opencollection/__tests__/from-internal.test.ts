@@ -1,8 +1,8 @@
-/* eslint-disable @typescript-eslint/no-explicit-any -- TODO(maintainability): narrow these test fixture casts (Internal/Collection shapes) */
-import { describe, it, expect } from 'vitest';
+/* biome-ignore-all lint/suspicious/noExplicitAny: TODO(maintainability): narrow these test fixture casts (Internal/Collection shapes) */
+import { describe, expect, it } from 'vitest';
+import { internalToOC } from '../from-internal';
 import { loadCollectionFromFile } from '../fs-reader';
 import { ocToInternal } from '../to-internal';
-import { internalToOC } from '../from-internal';
 
 describe('internalToOC', () => {
   it('roundtrips simple-http via internal model (cached _oc path)', async () => {

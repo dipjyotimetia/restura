@@ -1,10 +1,10 @@
-import { test as electronTest } from './electronApp';
-import { startMockHttpServer, type MockHttpServerHandle } from '../../e2e/mocks/httpServer';
-import { startMockProxyServer, type MockProxyServerHandle } from '../../e2e/mocks/proxyServer';
+import { type MockHttpServerHandle, startMockHttpServer } from '../../e2e/mocks/httpServer';
+import { type MockProxyServerHandle, startMockProxyServer } from '../../e2e/mocks/proxyServer';
 import {
-  startMockSocksProxyServer,
   type MockSocksProxyHandle,
+  startMockSocksProxyServer,
 } from '../../e2e/mocks/socksProxyServer';
+import { test as electronTest } from './electronApp';
 
 /**
  * HTTP forward/CONNECT proxy + an upstream reachable via a NON-bypassed
@@ -28,7 +28,7 @@ export interface ProxyStack {
 
 export const test = electronTest.extend<NonNullable<unknown>, { proxyStack: ProxyStack }>({
   proxyStack: [
-    // eslint-disable-next-line no-empty-pattern
+    // biome-ignore lint/correctness/noEmptyPattern: legacy type boundary
     async ({}, use) => {
       const [proxy, socks, upstream] = await Promise.all([
         startMockProxyServer(),

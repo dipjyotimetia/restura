@@ -61,7 +61,7 @@ app.use('*', async (c, next) => {
   if (c.env) {
     Object.assign(c.env, additions);
   } else {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
     (c as any).env = additions;
   }
   await next();
@@ -102,7 +102,7 @@ createApp(
     // versions; the runtime shape is a Hono middleware, which is what
     // createApp registers.
     websocketHandler: createNodeWebsocketHandler(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
       upgradeWebSocket as any,
       dnsGuardOpts
     ),

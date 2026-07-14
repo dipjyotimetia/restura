@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SseParser } from '@shared/protocol/sse-parser';
 import { openaiModule } from '@shared/protocol/ai/providers/openai';
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
+import { SseParser } from '@shared/protocol/sse-parser';
+import { describe, expect, it } from 'vitest';
 
 function loadFixture(name: string): Uint8Array {
   return new TextEncoder().encode(

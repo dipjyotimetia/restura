@@ -1,24 +1,24 @@
 import { ipcMain } from 'electron';
 import WebSocket from 'ws';
 import { createLogger } from '../../../src/lib/shared/logger';
-import { IPC, EVENT_PREFIX } from '../../shared/channels';
+import { EVENT_PREFIX, IPC } from '../../shared/channels';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import {
-  WsConnectSchema,
-  WsSendSchema,
-  WsDisconnectSchema,
-  validateIpcInput,
-  createValidatedHandler,
   assertTrustedSender,
+  createValidatedHandler,
+  validateIpcInput,
+  WsConnectSchema,
+  WsDisconnectSchema,
+  WsSendSchema,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
 import { getExecutionPolicy } from '../security/execution-policy';
 import {
   assertPinnedFetchCanHonorPolicy,
-  resolvePolicyTransport,
   type PolicyTransportConfig,
+  resolvePolicyTransport,
 } from '../security/policy-transport';
-import { resolveSafeAddress, createPinnedLookup } from '../security/safe-connect';
+import { createPinnedLookup, resolveSafeAddress } from '../security/safe-connect';
 
 const log = createLogger('websocket');
 

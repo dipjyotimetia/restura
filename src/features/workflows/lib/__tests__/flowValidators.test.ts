@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { validateWorkflowGraph } from '../flowValidators';
+import { describe, expect, it } from 'vitest';
 import type { WorkflowGraph } from '@/types';
+import { validateWorkflowGraph } from '../flowValidators';
 
 describe('end-node dangling edges', () => {
   function graphWithEndEdge(): WorkflowGraph {

@@ -2,30 +2,30 @@ import { Agent as HttpAgent } from 'node:http';
 import { Agent as HttpsAgent } from 'node:https';
 import { SOCKETIO_RESERVED_EVENTS, socketioChannels } from '@shared/socketio-constants';
 import { ipcMain } from 'electron';
-// eslint-disable-next-line import/no-duplicates -- namespace + named type imports from 'socket.io-client' can't be merged into a single statement
-import type { Socket } from 'socket.io-client';
-// eslint-disable-next-line import/no-duplicates -- see above
+
 import type * as SocketIoClient from 'socket.io-client';
+
+import type { Socket } from 'socket.io-client';
 import { createLogger } from '../../../src/lib/shared/logger';
 import { IPC } from '../../shared/channels';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo } from '../ipc/ipc-utils';
 import {
-  SocketIoConnectSchema,
-  SocketIoEmitSchema,
-  SocketIoDisconnectSchema,
-  validateIpcInput,
-  createValidatedHandler,
   assertTrustedSender,
+  createValidatedHandler,
+  SocketIoConnectSchema,
+  SocketIoDisconnectSchema,
+  SocketIoEmitSchema,
+  validateIpcInput,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
 import { getExecutionPolicy } from '../security/execution-policy';
 import {
   assertPinnedFetchCanHonorPolicy,
-  resolvePolicyTransport,
   type PolicyTransportConfig,
+  resolvePolicyTransport,
 } from '../security/policy-transport';
-import { resolveSafeAddress, createPinnedLookup } from '../security/safe-connect';
+import { createPinnedLookup, resolveSafeAddress } from '../security/safe-connect';
 
 const log = createLogger('socketio');
 

@@ -1,10 +1,10 @@
-import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { describe, it, expect } from 'vitest';
-import { scanCollection } from '../../src/workspace/collectionScanner';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+import type { CliRequestRunResult } from '../../src/offering2_test/cliResult';
 import { resultKey, toRelativePath } from '../../src/offering2_test/cliResult';
 import { classifyOutcome } from '../../src/offering2_test/outcome';
-import type { CliRequestRunResult } from '../../src/offering2_test/cliResult';
+import { scanCollection } from '../../src/workspace/collectionScanner';
 
 const FIXTURE = join(
   dirname(fileURLToPath(import.meta.url)),

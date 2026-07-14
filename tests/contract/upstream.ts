@@ -16,7 +16,7 @@
  */
 
 import * as http from 'node:http';
-import { AddressInfo } from 'node:net';
+import type { AddressInfo } from 'node:net';
 
 export interface Upstream {
   baseUrl: string;

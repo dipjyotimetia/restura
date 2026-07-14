@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { renderTemplate, extractVars, missingVars } from '../promptTemplate';
+import { describe, expect, it } from 'vitest';
+import { extractVars, missingVars, renderTemplate } from '../promptTemplate';
 
 describe('renderTemplate', () => {
   it('substitutes named placeholders', () => {

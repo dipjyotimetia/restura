@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Collection, HttpRequest, Response as ApiResponse } from '@/types';
-import type { RunContext, ProtocolScriptResult } from '@/features/registry/types';
-import type { RunnableRequest } from '../flattenRunnables';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ProtocolScriptResult, RunContext } from '@/features/registry/types';
 import { useCollectionStore } from '@/store/useCollectionStore';
+import type { Response as ApiResponse, Collection, HttpRequest } from '@/types';
+import type { RunnableRequest } from '../flattenRunnables';
 
 // --- Mock the protocol registry so we control runRequest per request ---------
 type Behavior = {

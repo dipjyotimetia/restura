@@ -1,9 +1,9 @@
 import { X } from 'lucide-react';
-import { ComboboxInput, type ComboboxSuggestion } from './ComboboxInput';
-import { ToggleField } from './ToggleField';
-import { VariableText, hasVariableToken, type VariableStatus } from './VariableText';
 import { VariableInput } from '@/components/shared/VariableInput';
 import { cn } from '@/lib/shared/utils';
+import { ComboboxInput, type ComboboxSuggestion } from './ComboboxInput';
+import { ToggleField } from './ToggleField';
+import { hasVariableToken, type VariableStatus, VariableText } from './VariableText';
 
 export interface ParamRowData {
   id: string;

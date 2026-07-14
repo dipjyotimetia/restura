@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { createTabFromRequest, migrateLegacyStateToTabs, findTabIndex } from './tabs';
-import type { HttpRequest, GrpcRequest } from '@/types';
+import { describe, expect, it } from 'vitest';
+import type { GrpcRequest, HttpRequest } from '@/types';
+import { createTabFromRequest, findTabIndex, migrateLegacyStateToTabs } from './tabs';
 
 const httpReq: HttpRequest = {
   id: 'req-1',

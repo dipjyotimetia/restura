@@ -1,19 +1,19 @@
-import { describe, it, expect } from 'vitest';
 import {
+  aggregateVerdicts,
   buildJudgeMessages,
   buildJudgeTool,
-  parseJudgment,
-  aggregateVerdicts,
-  normalizeCriteria,
-  runJudge,
-  runPairwiseJudge,
   JUDGE_TOOL,
-  PAIRWISE_TOOL,
-  MAX_JUDGE_SAMPLES,
   type JudgeCriterion,
   type JudgeVerdict,
+  MAX_JUDGE_SAMPLES,
+  normalizeCriteria,
+  PAIRWISE_TOOL,
+  parseJudgment,
+  runJudge,
+  runPairwiseJudge,
 } from '@shared/protocol/ai/judge';
 import type { CompletionResult } from '@shared/protocol/ai/types';
+import { describe, expect, it } from 'vitest';
 
 function completion(over: Partial<CompletionResult> = {}): CompletionResult {
   return { ok: true, text: '', toolCalls: [], ...over };

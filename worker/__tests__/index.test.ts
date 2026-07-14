@@ -1,7 +1,7 @@
 // @vitest-environment node
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import app from '../index';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../env';
+import app from '../index';
 
 function makeApiRequest(headers: Record<string, string> = {}, env: Record<string, string> = {}) {
   return app.request(

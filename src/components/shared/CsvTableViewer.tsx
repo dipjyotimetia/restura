@@ -1,7 +1,7 @@
-import { useMemo, useRef, useState, useEffect } from 'react';
-import { WindowedList } from './lib/windowedList';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { parseCsv } from '@/lib/shared/csvParser';
 import { cn } from '@/lib/shared/utils';
+import { WindowedList } from './lib/windowedList';
 
 const ROW_HEIGHT = 28;
 

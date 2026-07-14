@@ -5,11 +5,12 @@
  * which is the authoritative regen path (`npm run build:sandbox-libs`) and
  * is also reused by the CLI's prebuild — same bundling logic everywhere.
  */
-import type { Plugin } from 'vite';
+
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { Plugin } from 'vite';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');

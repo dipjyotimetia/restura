@@ -1,22 +1,22 @@
 import {
   AgentRunner,
-  AgentSuiteRunner,
-  CallbackProviderAdapter,
-  ProviderRegistry,
   type AgentSuite,
   type AgentSuiteReport,
+  AgentSuiteRunner,
+  aggregateJudgeVotes,
+  CallbackProviderAdapter,
+  type GenerationMessage,
   type JudgeFailure,
   type JudgeModelVote,
-  type GenerationMessage,
   type ModelRef,
-  aggregateJudgeVotes,
+  ProviderRegistry,
   validateGenerationRequest,
 } from '@shared/agent-lab';
 import type { CompletionResult } from '@shared/protocol/ai/types';
 import type { AiLabProviderConfig } from '../types';
 import { capabilitiesForDesktopModel, knownCostForCompletion } from './agentModelCapabilities';
 import { resolveResturaAgentTools } from './agentTools';
-import { completeLlm, specFor, type LlmCallSpec } from './llmClient';
+import { completeLlm, type LlmCallSpec, specFor } from './llmClient';
 
 type Complete = (
   spec: LlmCallSpec,

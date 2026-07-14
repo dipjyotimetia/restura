@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { casesFromCsv, casesFromJsonl, casesToCsv, casesToJsonl } from '../datasetIo';
+import { describe, expect, it } from 'vitest';
 import type { DatasetCaseInput } from '../datasetIo';
+import { casesFromCsv, casesFromJsonl, casesToCsv, casesToJsonl } from '../datasetIo';
 
 const CASES: DatasetCaseInput[] = [
   { vars: { country: 'France' }, expected: 'Paris' },

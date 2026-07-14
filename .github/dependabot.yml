@@ -69,7 +69,7 @@ updates:
       build-tools:
         patterns:
           - 'typescript'
-          - 'eslint*'
+          - '@biomejs/*'
           - 'prettier'
           - 'tailwindcss*'
       protobuf:

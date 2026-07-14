@@ -1,10 +1,10 @@
 import { Box, Search, Star } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import type { ModelOption } from '../lib/modelOptions';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/shared/utils';
+import type { ModelOption } from '../lib/modelOptions';
 
 export function ModelCatalog({
   options,

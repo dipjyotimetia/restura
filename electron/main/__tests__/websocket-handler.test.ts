@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockHandle = vi.hoisted(() => vi.fn());
 const mockEmitTo = vi.hoisted(() => vi.fn());

@@ -1,11 +1,11 @@
 import { renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { HttpRequest } from '@/types/http';
-import { useVariableStatus } from '../useVariableStatus';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useRequestStore } from '@/store/useRequestStore';
+import type { HttpRequest } from '@/types/http';
+import { useVariableStatus } from '../useVariableStatus';
 
 function makeRequest(overrides: Partial<HttpRequest> = {}): HttpRequest {
   return {

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { resolveEnvProxy, matchesNoProxy } from '../security/env-proxy';
+import { describe, expect, it } from 'vitest';
+import { matchesNoProxy, resolveEnvProxy } from '../security/env-proxy';
 
 describe('matchesNoProxy', () => {
   it('returns false when NO_PROXY is unset or empty', () => {

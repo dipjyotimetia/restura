@@ -4,7 +4,7 @@
 // untrusted frame, Zod payload validation, rate limiting, and the error shape
 // on a failed upstream. Body/decode/form-data behaviour is already covered by
 // http-handler-{decode,formdata,graphql}.test.ts against the real fetcher.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockHandle = vi.hoisted(() => vi.fn());
 const mockUndiciRequest = vi.hoisted(() => vi.fn());
@@ -32,7 +32,7 @@ vi.mock('undici', () => {
 vi.mock('../security/env-proxy', () => ({ resolveEnvProxy: () => undefined }));
 
 import { IPC } from '../../shared/channels';
-import { registerHttpHandlerIPC, httpRateLimiter } from '../handlers/http-handler';
+import { httpRateLimiter, registerHttpHandlerIPC } from '../handlers/http-handler';
 import type { LogEntry } from '../lifecycle/request-logger';
 import { setExecutionPolicy } from '../security/execution-policy';
 

@@ -227,28 +227,25 @@ describe('desktop agent provider bridge', () => {
       },
       'continuation',
     ],
-  ])(
-    'rejects unsupported %s before calling the Electron completion transport',
-    async (_label, patch, message) => {
-      const registry = createDesktopAgentProviders({ cfg: provider('cfg', 'model') }, completeLlm);
-      const adapter = registry.require('cfg');
+  ])('rejects unsupported %s before calling the Electron completion transport', async (_label, patch, message) => {
+    const registry = createDesktopAgentProviders({ cfg: provider('cfg', 'model') }, completeLlm);
+    const adapter = registry.require('cfg');
 
-      await expect(
-        adapter.generate(
-          {
-            model: { providerId: 'cfg', model: 'model' },
-            ...patch,
+    await expect(
+      adapter.generate(
+        {
+          model: { providerId: 'cfg', model: 'model' },
+          ...patch,
+        },
+        {
+          async resolveCredential() {
+            return undefined;
           },
-          {
-            async resolveCredential() {
-              return undefined;
-            },
-          }
-        )
-      ).rejects.toThrow(message);
-      expect(completeLlm).not.toHaveBeenCalled();
-    }
-  );
+        }
+      )
+    ).rejects.toThrow(message);
+    expect(completeLlm).not.toHaveBeenCalled();
+  });
 
   it('retains successful judge votes, records failures, and includes full task context', async () => {
     const prompts: string[] = [];

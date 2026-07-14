@@ -96,7 +96,7 @@ npm run validate                    # type-check:all -> lint -> fmt -> generated
 **Traps for agents**
 
 - `npm run type-check` only covers the renderer. Use `npm run type-check:all` for the same coverage CI uses.
-- The pre-commit hook runs only `lint-staged` (ESLint + Prettier). It does not run tests or tsc.
+- The pre-commit hook runs only `lint-staged` (Biome lint + format). It does not run tests or tsc.
 - Generated code is CI-gated: `npm run verify:opencollection-types` and `npm run capabilities:check` can fail if source-of-truth files changed but outputs were not regenerated.
 - Adding a protocol? Put backend-agnostic logic in `shared/protocol/` and add a thin `Fetcher` adapter in `worker/handlers/` and `electron/main/handlers/`.
 

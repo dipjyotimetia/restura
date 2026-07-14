@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   calculateJsonDepth,
-  validateGrpcMessage,
-  validateServiceField,
-  validateMethodField,
-  MAX_MESSAGE_JSON_DEPTH,
   INITIAL_VALIDATION_STATE,
+  MAX_MESSAGE_JSON_DEPTH,
+  validateGrpcMessage,
+  validateMethodField,
+  validateServiceField,
 } from '../grpcValidation';
 
 describe('calculateJsonDepth', () => {

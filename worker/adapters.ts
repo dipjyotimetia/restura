@@ -26,7 +26,7 @@ export interface TcpProxyAdapter {
 // `@hono/node-ws#upgradeWebSocket` returns a MiddlewareHandler; the Cloudflare
 // WebSocketPair handler is shaped as a plain handler `(c) => Response`. Both
 // are accepted by Hono's `app.get()` at registration time.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
 export type WebSocketHandler = MiddlewareHandler<any>;
 
 export type NodeHostnameGuard = (

@@ -1,18 +1,18 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  setGitDirectoryAllowlist,
   gitAddFiles,
+  gitBranchList,
+  gitCheckoutBranch,
   gitCommit,
   gitCreateBranch,
-  gitCheckoutBranch,
   gitInit,
-  gitStatus,
   gitLog,
-  gitBranchList,
+  gitStatus,
+  setGitDirectoryAllowlist,
 } from '../handlers/git-handler';
 
 let gitAvailable = true;

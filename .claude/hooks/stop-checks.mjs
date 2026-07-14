@@ -2,9 +2,9 @@
 // Stop hook — all end-of-turn checks, driven by ONE shared git changed-set.
 //
 // Consolidates what were three separate Stop hooks (docs-site reminder,
-// AGENTS.md drift, type-check reminder) plus the per-edit ESLint pass. Computing
+// AGENTS.md drift, type-check reminder) plus the per-edit Biome pass. Computing
 // the branch diff once and linting once per turn — instead of re-running git in
-// three processes and booting ESLint on every edit — removes the duplicated
+// three processes and booting Biome on every edit — removes the duplicated
 // work the old layout paid on every turn.
 //
 // Each concern keeps its own .git dedup marker so it nags independently and at
@@ -73,7 +73,7 @@ function typeCheckMessage(all) {
   );
 }
 
-// --- lint: run ESLint ONCE over the working-tree code files, surface problems ---
+// --- lint: run Biome ONCE over the working-tree code files, surface problems ---
 const LINT_ROOTS = [
   'src/',
   'shared/',
@@ -92,8 +92,8 @@ function lintMessage(working) {
     (f) => CODE_EXT.test(f) && LINT_ROOTS.some((r) => f.startsWith(r)) && existsSync(join(cwd, f))
   );
   if (files.length === 0) return null;
-  const eslint = binPath('eslint', cwd);
-  if (!eslint) return null;
+  const biome = binPath('biome', cwd);
+  if (!biome) return null;
 
   // Skip the (~1s) ESLint boot entirely when no candidate file changed since the
   // last lint. The signature is the file set + their mtimes; if it's unchanged
@@ -112,16 +112,11 @@ function lintMessage(working) {
 
   let out = '';
   try {
-    // Report-only (no --fix): formatting was already applied per-edit by
-    // Prettier, and lint-staged runs --fix at commit. --cache speeds re-runs.
+  // Report-only (no --write): formatting is applied per-edit by Biome, and
+  // lint-staged runs `biome check --write` at commit.
     execFileSync(
-      eslint,
-      [
-        '--cache',
-        '--cache-location',
-        join(cwd, 'node_modules', '.cache', 'eslint-stop-hook'),
-        ...files,
-      ],
+      biome,
+      ['lint', ...files],
       { cwd, stdio: ['ignore', 'pipe', 'pipe'] }
     );
     return null; // clean
@@ -130,7 +125,7 @@ function lintMessage(working) {
   }
   if (!out) return null;
   return (
-    `⚠️ ESLint found problems in changed files (\`npm run lint\` will fail in CI; ` +
+    `⚠️ Biome found problems in changed files (\`npm run lint\` will fail in CI; ` +
     `\`npm run lint:fix\` auto-fixes most):\n${out.slice(0, 2000)}`
   );
 }

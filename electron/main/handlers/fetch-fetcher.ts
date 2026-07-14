@@ -1,5 +1,5 @@
 import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
-import { resolveSafeAddress, createPinnedFetch } from '../security/safe-connect';
+import { createPinnedFetch, resolveSafeAddress } from '../security/safe-connect';
 
 /**
  * Build a Node-`fetch`-backed {@link Fetcher} adapter mapping native `fetch`

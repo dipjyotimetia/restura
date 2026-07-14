@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { SseParser, type SseEvent } from './sse-parser';
+import { describe, expect, it } from 'vitest';
+import { type SseEvent, SseParser } from './sse-parser';
 
 const enc = (s: string) => new TextEncoder().encode(s);
 

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { selectCertForUrl, type HostScopedEntry } from '../certMatcher';
+import { describe, expect, it } from 'vitest';
+import { type HostScopedEntry, selectCertForUrl } from '../certMatcher';
 
 interface Entry extends HostScopedEntry {
   id: string;

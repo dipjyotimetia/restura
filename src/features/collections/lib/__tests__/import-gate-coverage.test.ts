@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { importPostmanCollection } from '../importers/postman';
+import { describe, expect, it } from 'vitest';
+import type { PostmanCollection } from '@/types';
+import { importHoppscotchCollection } from '../importers/hoppscotch';
 import { importInsomniaCollection } from '../importers/insomnia';
 import { importOpenAPICollection } from '../importers/openapi';
-import { importHoppscotchCollection } from '../importers/hoppscotch';
-import { validateImportedCollection } from '../importers/validateImported';
+import { importPostmanCollection } from '../importers/postman';
 import type { ImportWarning } from '../importers/types';
-import type { PostmanCollection } from '@/types';
+import { validateImportedCollection } from '../importers/validateImported';
 
 /**
  * Regression net for the import validation gate: every importer's output must

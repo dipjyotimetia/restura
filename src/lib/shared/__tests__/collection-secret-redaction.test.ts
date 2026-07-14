@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import {
-  redactAuthConfigSecrets,
-  redactCollectionSecrets,
-  countCollectionInlineSecrets,
-} from '../collection-secret-redaction';
+import { describe, expect, it } from 'vitest';
 import { exportToOpenCollection } from '@/features/collections/lib/exporters';
 import type { AuthConfig, Collection, CollectionItem, HttpRequest } from '@/types';
+import {
+  countCollectionInlineSecrets,
+  redactAuthConfigSecrets,
+  redactCollectionSecrets,
+} from '../collection-secret-redaction';
 
 const request = (id: string, auth: AuthConfig): HttpRequest => ({
   id,
@@ -184,8 +184,9 @@ describe('redacted OpenCollection export (end-to-end regression)', () => {
     // node (with plaintext auth) into _oc; without the bag-drop in
     // redactCollectionSecrets, internalToOC emits it verbatim and the
     // "redacted" YAML ships the original token.
-    const { parseOpenCollectionYAML, serializeOpenCollectionYAML } =
-      await import('@/lib/opencollection/serializer');
+    const { parseOpenCollectionYAML, serializeOpenCollectionYAML } = await import(
+      '@/lib/opencollection/serializer'
+    );
     const { ocToInternal } = await import('@/lib/opencollection/to-internal');
     const { internalToOC } = await import('@/lib/opencollection/from-internal');
 
@@ -250,8 +251,9 @@ items:
     // "unchanged" — and (pre-fix) emitted the cached root _oc verbatim,
     // original consumerSecret included. All items keep auth-free bags here so
     // the whole-collection shortcut (Strategy 1) is otherwise viable.
-    const { parseOpenCollectionYAML, serializeOpenCollectionYAML } =
-      await import('@/lib/opencollection/serializer');
+    const { parseOpenCollectionYAML, serializeOpenCollectionYAML } = await import(
+      '@/lib/opencollection/serializer'
+    );
     const { ocToInternal } = await import('@/lib/opencollection/to-internal');
     const { internalToOC } = await import('@/lib/opencollection/from-internal');
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildModelOptions } from '../modelOptions';
 import type { AiLabProviderConfig } from '../../types';
+import { buildModelOptions } from '../modelOptions';
 
 const provider = (id: string, label: string, models: string[]): AiLabProviderConfig => ({
   id,

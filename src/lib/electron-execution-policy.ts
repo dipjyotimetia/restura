@@ -3,7 +3,11 @@ import { useSettingsStore } from '@/store/useSettingsStore';
 import type { AppSettings, ProxyConfig } from '@/types';
 
 export type ExecutionPolicySyncState =
-  'unavailable' | 'waiting-for-hydration' | 'syncing' | 'retrying' | 'acknowledged';
+  | 'unavailable'
+  | 'waiting-for-hydration'
+  | 'syncing'
+  | 'retrying'
+  | 'acknowledged';
 
 interface ExecutionPolicy {
   security: { allowLocalhost: boolean; allowPrivateIPs: boolean };

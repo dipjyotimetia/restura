@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Each test gets a fresh module instance so the module-level `consentSubscribed`
 // flag doesn't bleed between cases. The pattern: resetModules in beforeEach,

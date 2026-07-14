@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { duplicateCollection } from '../itemFactory';
+import { describe, expect, it } from 'vitest';
 import { internalToOC } from '@/lib/opencollection';
 import type { Collection, CollectionItem, HttpRequest } from '@/types';
+import { duplicateCollection } from '../itemFactory';
 
 const req = (id: string, name: string): CollectionItem => {
   const request: HttpRequest = {

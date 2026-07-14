@@ -1,9 +1,9 @@
 import { applyAuth, type SecretResolver, type SigV4Signer } from './auth-signer';
-import { isBinaryContentType, getHeaderCI, bytesToBase64, readStreamToBytes } from './binary';
+import { bytesToBase64, getHeaderCI, isBinaryContentType, readStreamToBytes } from './binary';
 import { buildRequestBody } from './body-builder';
 import { sanitizeRequestHeaders, sanitizeResponseHeaders } from './header-policy';
 import { followRedirects, RedirectPolicyError } from './redirect-follower';
-import type { Fetcher, RequestSpec, ExecuteResult } from './types';
+import type { ExecuteResult, Fetcher, RequestSpec } from './types';
 import { validateURL } from './url-validation';
 
 export const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;

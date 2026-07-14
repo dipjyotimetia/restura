@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { undiciFetcher } from '../undiciFetcher';
 
 let server: Server;
@@ -81,7 +81,7 @@ function makeReq(overrides: {
 describe('undiciFetcher', () => {
   it('performs a GET and returns status + headers + text', async () => {
     const req = makeReq({ url: `${baseUrl}/json` });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
     const res = await undiciFetcher(req as any);
     expect(res.status).toBe(200);
     const text = await res.text();
@@ -97,7 +97,7 @@ describe('undiciFetcher', () => {
       url: `${baseUrl}/headers`,
       headers: { 'x-test': 'restura-cli', accept: 'application/json' },
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
     await undiciFetcher(req as any);
     const last = requestLog[requestLog.length - 1];
     expect(last?.headers['x-test']).toBe('restura-cli');
@@ -111,7 +111,7 @@ describe('undiciFetcher', () => {
       body: JSON.stringify({ ping: true }),
       headers: { 'content-type': 'application/json' },
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
     const res = await undiciFetcher(req as any);
     expect(res.status).toBe(200);
     const parsed = JSON.parse(await res.text());
@@ -121,7 +121,7 @@ describe('undiciFetcher', () => {
   it('sends a Uint8Array body', async () => {
     const bytes = new TextEncoder().encode('binary-payload');
     const req = makeReq({ url: `${baseUrl}/json`, method: 'POST', body: bytes });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
     const res = await undiciFetcher(req as any);
     expect(res.status).toBe(200);
     const parsed = JSON.parse(await res.text());
@@ -130,7 +130,7 @@ describe('undiciFetcher', () => {
 
   it('preserves non-2xx status codes', async () => {
     const req = makeReq({ url: `${baseUrl}/status/418` });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
     const res = await undiciFetcher(req as any);
     expect(res.status).toBe(418);
     expect(await res.text()).toBe("I'm a teapot");
@@ -138,14 +138,14 @@ describe('undiciFetcher', () => {
 
   it('exposes content-length when present', async () => {
     const req = makeReq({ url: `${baseUrl}/binary` });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
     const res = await undiciFetcher(req as any);
     expect(res.contentLengthHeader).toBe('4');
   });
 
   it('exposes a streaming body', async () => {
     const req = makeReq({ url: `${baseUrl}/json` });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
     const res = await undiciFetcher(req as any);
     expect(res.body).toBeDefined();
     // Read via the stream API instead of text() (single-consume)
@@ -170,7 +170,7 @@ describe('undiciFetcher', () => {
 
   it('rejects unsupported HTTP methods', async () => {
     const req = makeReq({ url: `${baseUrl}/json`, method: 'TRACE' });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
     await expect(undiciFetcher(req as any)).rejects.toThrow(/not supported/i);
   });
 
@@ -178,10 +178,10 @@ describe('undiciFetcher', () => {
     const req = makeReq({
       url: `${baseUrl}/json`,
       method: 'POST',
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
       body: new Blob(['x']) as any,
     });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
     await expect(undiciFetcher(req as any)).rejects.toThrow(/string, Uint8Array and FormData/i);
   });
 });

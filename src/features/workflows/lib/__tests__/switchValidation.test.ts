@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { FlowEdge, WorkflowGraph } from '@/types';
 import { validateWorkflowGraph } from '../flowValidators';
-import type { WorkflowGraph, FlowEdge } from '@/types';
 
 /** Top-level graph: start → switch(2 cases) → ...edges..., plus end nodes. */
 function graphWithSwitch(edges: FlowEdge[]): WorkflowGraph {

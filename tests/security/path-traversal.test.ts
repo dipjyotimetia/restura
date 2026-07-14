@@ -32,7 +32,7 @@ vi.mock('electron', () => ({
   BrowserWindow: vi.fn(),
 }));
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { isPathSafe } from '../../electron/main/storage/file-operations';
 
 describe('isPathSafe', () => {

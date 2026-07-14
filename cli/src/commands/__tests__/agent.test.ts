@@ -3,10 +3,10 @@ import type { AgentSuite, AgentSuiteReport } from '@shared/agent-lab';
 import type { Fetcher } from '@shared/protocol/types';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  type AgentEvalDependencies,
   agentEvalExitCode,
   evaluateAgentSuite,
   preflightAgentSuite,
-  type AgentEvalDependencies,
 } from '../agent';
 
 function suite(

@@ -8,9 +8,9 @@
 //      vite.config.mts stay in sync — the two are maintained by hand in two
 //      processes, and nothing else checks their parity.
 
-import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
+import { describe, expect, it } from 'vitest';
 
 const ROOT = path.resolve(process.cwd());
 const mainSrc = fs.readFileSync(path.join(ROOT, 'electron/main/main.ts'), 'utf8');

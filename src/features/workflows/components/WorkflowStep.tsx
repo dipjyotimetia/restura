@@ -2,19 +2,19 @@
 
 import {
   CheckCircle2,
-  XCircle,
   Clock,
-  Loader2,
-  SkipForward,
   GripVertical,
-  Trash2,
+  Loader2,
   Settings,
+  SkipForward,
+  Trash2,
   Variable,
+  XCircle,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/shared/utils';
-import type { WorkflowRequest, WorkflowExecutionStep, HttpMethod } from '@/types';
+import type { HttpMethod, WorkflowExecutionStep, WorkflowRequest } from '@/types';
 
 interface WorkflowStepProps {
   workflowRequest: WorkflowRequest;

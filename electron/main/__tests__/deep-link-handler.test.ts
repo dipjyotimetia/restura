@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { __test_handleDeepLink } from '../lifecycle/deep-link-handler';
 
 type Sent = { host: string; params: Record<string, string> };

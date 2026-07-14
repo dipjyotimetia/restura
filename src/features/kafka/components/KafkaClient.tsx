@@ -1,21 +1,17 @@
 import {
-  Send,
-  Trash2,
-  Plug,
-  PlugZap,
-  RefreshCw,
-  Search,
   Pause,
   Play,
+  Plug,
+  PlugZap,
   Plus,
+  RefreshCw,
+  Search,
+  Send,
+  Trash2,
   Users,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import type { KafkaGroupInfo } from '../../../../electron/types/electron-api';
-import { KafkaGroupInspector } from './KafkaGroupInspector';
-import { KafkaTopicInspector } from './KafkaTopicInspector';
-import { KAFKA_PINK, partitionColor } from './shared';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -30,33 +26,37 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  CodeEditorFrame,
+  ConnectionBadge,
   Floater,
   ProtoChip,
   Segmented,
   Stat,
   VariableText,
-  CodeEditorFrame,
-  ConnectionBadge,
 } from '@/components/ui/spatial';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { kafkaManager, kafkaSecretKey } from '@/features/kafka/lib/kafkaManager';
-import { useKafkaStore, KAFKA_SECRET_SENTINEL } from '@/features/kafka/store/useKafkaStore';
 import type {
-  KafkaAuth,
   KafkaAcks,
+  KafkaAuth,
   KafkaCompression,
-  KafkaSecurityProtocol,
-  KafkaSaslMechanism,
   KafkaMessage,
   KafkaRegistry,
+  KafkaSaslMechanism,
+  KafkaSecurityProtocol,
 } from '@/features/kafka/store/useKafkaStore';
-import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import { KAFKA_SECRET_SENTINEL, useKafkaStore } from '@/features/kafka/store/useKafkaStore';
+import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn } from '@/lib/shared/utils';
 import { useActiveTabId } from '@/store/selectors';
+import type { KafkaGroupInfo } from '../../../../electron/types/electron-api';
+import { KafkaGroupInspector } from './KafkaGroupInspector';
+import { KafkaTopicInspector } from './KafkaTopicInspector';
+import { KAFKA_PINK, partitionColor } from './shared';
 
 const SECURITY_PROTOCOLS: KafkaSecurityProtocol[] = [
   'PLAINTEXT',
@@ -255,7 +255,6 @@ function KafkaClient() {
     () => (connectionId ? getFilteredMessages(connectionId) : []),
     // `getFilteredMessages` selects from the store using the inputs below;
     // re-running on its identity change isn't needed.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [connectionId, connectionMessages, messageFilter, searchQuery]
   );
 
@@ -291,7 +290,6 @@ function KafkaClient() {
     } else {
       setPausedSnapshot(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paused]);
   const visibleMessages = paused && pausedSnapshot ? pausedSnapshot : filteredMessages;
 
@@ -793,7 +791,6 @@ function KafkaClient() {
                       return (
                         <li
                           key={m.id}
-                          // eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- selectable grid row; li carries the grid layout
                           role="button"
                           tabIndex={0}
                           onClick={() => setSelectedMessageId(m.id)}

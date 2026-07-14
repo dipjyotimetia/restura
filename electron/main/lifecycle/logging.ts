@@ -1,9 +1,9 @@
 import log from 'electron-log/main';
 import {
-  setLogSink,
-  setMinLogLevel,
   type LogLevel,
   type LogSink,
+  setLogSink,
+  setMinLogLevel,
 } from '../../../src/lib/shared/logger';
 
 /**

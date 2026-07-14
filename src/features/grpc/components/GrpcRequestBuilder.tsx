@@ -1,15 +1,7 @@
 import { AlertCircle, Loader2, Radio } from 'lucide-react';
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
-import { GrpcInvocationBar } from './GrpcInvocationBar';
-import { GrpcMessageEditor } from './GrpcMessageEditor';
-import { GrpcMethodContext } from './GrpcMethodContext';
-import { GrpcMethodSelector } from './GrpcMethodSelector';
-import GrpcProtoUploader from './GrpcProtoUploader';
-import { GrpcSettingsPanel } from './GrpcSettingsPanel';
-import { GrpcStreamingMessages } from './GrpcStreamingControls';
-import { GrpcStreamingPanel } from './GrpcStreamingPanel';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { Button } from '@/components/ui/button';
@@ -18,35 +10,34 @@ import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import { useGrpcReflection } from '@/features/grpc/hooks/useGrpcReflection';
 import {
-  getMethodTypeDescription,
-  GrpcClientError,
   buildAuthMetadata,
   createErrorResponse,
+  GrpcClientError,
+  getMethodTypeDescription,
 } from '@/features/grpc/lib/grpcClient';
 import {
-  generateRequestTemplate,
   generateProtoFromReflection,
+  generateRequestTemplate,
   validateRequestAgainstSchema,
 } from '@/features/grpc/lib/grpcReflection';
 import { startGrpcStream } from '@/features/grpc/lib/grpcStreamingClient';
 import {
-  validateGrpcUrl,
-  validateServiceField,
-  validateMethodField,
-  validateGrpcMessage,
-  INITIAL_VALIDATION_STATE,
   type GrpcValidationState,
+  INITIAL_VALIDATION_STATE,
+  validateGrpcMessage,
+  validateGrpcUrl,
+  validateMethodField,
+  validateServiceField,
 } from '@/features/grpc/lib/grpcValidation';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { isElectron } from '@/lib/shared/platform';
 import { useActiveRequest, useActiveTab } from '@/store/selectors';
-import { useConsoleStore, createProtocolConsoleEntry } from '@/store/useConsoleStore';
+import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
-import { GrpcStatusCodeName } from '@/types';
 import type {
   AuthConfig as AuthConfigType,
   GrpcMethodType,
@@ -56,9 +47,24 @@ import type {
   ReflectionMethodInfo,
   ReflectionServiceInfo,
 } from '@/types';
+import { GrpcStatusCodeName } from '@/types';
+import { GrpcInvocationBar } from './GrpcInvocationBar';
+import { GrpcMessageEditor } from './GrpcMessageEditor';
+import { GrpcMethodContext } from './GrpcMethodContext';
+import { GrpcMethodSelector } from './GrpcMethodSelector';
+import GrpcProtoUploader from './GrpcProtoUploader';
+import { GrpcSettingsPanel } from './GrpcSettingsPanel';
+import { GrpcStreamingMessages } from './GrpcStreamingControls';
+import { GrpcStreamingPanel } from './GrpcStreamingPanel';
 
 type GrpcSubTab =
-  'message' | 'metadata' | 'auth' | 'settings' | 'scripts' | 'streaming' | 'web-stream';
+  | 'message'
+  | 'metadata'
+  | 'auth'
+  | 'settings'
+  | 'scripts'
+  | 'streaming'
+  | 'web-stream';
 
 function GrpcRequestBuilder() {
   const currentRequest = useActiveRequest('grpc');

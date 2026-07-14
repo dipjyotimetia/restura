@@ -3,10 +3,10 @@ import { io as ioClient, type Socket } from 'socket.io-client';
 import { v4 as uuidv4 } from 'uuid';
 import { buildSocketIOConnectUrl, validateSocketIOUrl } from '@/features/socketio/lib/url-helpers';
 import {
-  useSocketIOStore,
   type SocketIOTransport,
+  useSocketIOStore,
 } from '@/features/socketio/store/useSocketIOStore';
-import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { keyValuePairsToRecord } from '@/lib/shared/utils';
 
 interface ConnectConfig {

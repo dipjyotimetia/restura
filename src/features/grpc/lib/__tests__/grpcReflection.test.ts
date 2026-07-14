@@ -1,15 +1,15 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MessageSchema } from '@/types';
 import {
+  clearReflectionCache,
+  formatMessageSchemaForDisplay,
   GrpcReflectionClient,
   generateRequestTemplate,
-  formatMessageSchemaForDisplay,
-  validateRequestAgainstSchema,
-  getFieldTypeDescription,
-  clearReflectionCache,
-  getCachedMessageSchema,
   getCachedEnumSchema,
+  getCachedMessageSchema,
+  getFieldTypeDescription,
+  validateRequestAgainstSchema,
 } from '../grpcReflection';
-import type { MessageSchema } from '@/types';
 
 // Mock fetch
 const mockFetch = vi.fn();

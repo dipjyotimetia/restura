@@ -5,13 +5,13 @@
  * Handles loading, saving, watching, and conflict detection.
  */
 
-import * as fsp from 'fs/promises';
 import { createHash } from 'node:crypto';
-import * as path from 'path';
 import type { FSWatcher } from 'chokidar';
 import chokidar from 'chokidar';
-import { ipcMain, dialog, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
+import { dialog, ipcMain, shell } from 'electron';
+import * as fsp from 'fs/promises';
+import * as path from 'path';
 import { z } from 'zod';
 import { internalToOC } from '../../../src/lib/opencollection/from-internal';
 import { loadCollectionDirectory } from '../../../src/lib/opencollection/fs-reader';
@@ -52,7 +52,8 @@ function warnIfPlaintextSecretsWillBeDropped(collection: FileCollection): void {
     });
   }
 }
-import { IPC, EVENT } from '../../shared/channels';
+
+import { EVENT, IPC } from '../../shared/channels';
 import { createValidatedHandler, FilePathSchema, NoInputSchema } from '../ipc/ipc-validators';
 import { authHasPlaintextSecret } from '../security/collection-export-redactor';
 import { debounce } from '../util/debounce';

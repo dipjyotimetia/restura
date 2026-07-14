@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { importPostmanEnvironment, isPostmanEnvironment } from '../importers/postman-environment';
 
 describe('isPostmanEnvironment', () => {
@@ -98,7 +98,7 @@ describe('importPostmanEnvironment', () => {
   it('coerces missing value to empty string', () => {
     const env = importPostmanEnvironment({
       name: 'Env',
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- intentionally testing missing value
+      // biome-ignore lint/suspicious/noExplicitAny: intentionally testing missing value
       values: [{ key: 'x' } as any],
       _postman_variable_scope: 'environment',
     });

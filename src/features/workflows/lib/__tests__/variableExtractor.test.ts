@@ -1,13 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { Response, VariableExtraction } from '@/types';
 import {
-  parseJsonSafely,
+  extractByHeader,
   extractByJsonPath,
   extractByRegex,
-  extractByHeader,
   extractVariables,
+  parseJsonSafely,
   testExtraction,
 } from '../variableExtractor';
-import type { VariableExtraction, Response } from '@/types';
 
 describe('variableExtractor', () => {
   describe('parseJsonSafely', () => {

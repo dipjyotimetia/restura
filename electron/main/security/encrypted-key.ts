@@ -9,9 +9,9 @@
  */
 
 import * as crypto from 'crypto';
+import { app, safeStorage } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
-import { app, safeStorage } from 'electron';
 import { createLogger } from '../../../src/lib/shared/logger';
 
 const log = createLogger('keystore');

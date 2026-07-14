@@ -9,7 +9,7 @@
  * is provider-agnostic — it just emits raw SSE bytes downstream.
  */
 
-import type { Provider, ChatRequestSpec } from './types';
+import type { ChatRequestSpec, Provider } from './types';
 
 export interface ProviderRoute {
   buildRequest(

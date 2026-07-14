@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { zipEntries, unzipToEntries } from '../zip-utils';
+import { describe, expect, it } from 'vitest';
+import { unzipToEntries, zipEntries } from '../zip-utils';
 
 async function blobToUint8Array(blob: Blob): Promise<Uint8Array> {
   return new Uint8Array(await blob.arrayBuffer());

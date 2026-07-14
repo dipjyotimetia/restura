@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ElectronAPI } from '../../../electron/types/electron-api';
 
 type WindowWithElectron = {
@@ -68,8 +68,9 @@ describe('restoreFileCollectionWatchers', () => {
   });
 
   it('reloads every persisted collection from disk and restores its watcher', async () => {
-    const { useFileCollectionStore, restoreFileCollectionWatchers } =
-      await import('../useFileCollectionStore');
+    const { useFileCollectionStore, restoreFileCollectionWatchers } = await import(
+      '../useFileCollectionStore'
+    );
     const watchDirectory = vi.fn().mockResolvedValue({ success: true });
     const loadFromDirectory = vi.fn((directoryPath: string) =>
       Promise.resolve({
@@ -101,8 +102,9 @@ describe('restoreFileCollectionWatchers', () => {
   });
 
   it('reloading a directory replaces the open collection instead of duplicating it', async () => {
-    const { useFileCollectionStore, loadCollectionFromDirectory } =
-      await import('../useFileCollectionStore');
+    const { useFileCollectionStore, loadCollectionFromDirectory } = await import(
+      '../useFileCollectionStore'
+    );
     const { useCollectionStore } = await import('../useCollectionStore');
     useCollectionStore.setState({ collections: [] });
 
@@ -277,8 +279,9 @@ describe('restoreFileCollectionWatchers', () => {
   });
 
   it('leaves isWatching false when a directory can no longer be watched', async () => {
-    const { useFileCollectionStore, restoreFileCollectionWatchers } =
-      await import('../useFileCollectionStore');
+    const { useFileCollectionStore, restoreFileCollectionWatchers } = await import(
+      '../useFileCollectionStore'
+    );
     const watchDirectory = vi.fn();
     const loadFromDirectory = vi
       .fn()
@@ -303,8 +306,9 @@ describe('restoreFileCollectionWatchers', () => {
 describe('file collection operations', () => {
   beforeEach(async () => {
     delete (window as unknown as WindowWithElectron).electron;
-    const { useFileCollectionStore, cleanupFileCollectionWatcher } =
-      await import('../useFileCollectionStore');
+    const { useFileCollectionStore, cleanupFileCollectionWatcher } = await import(
+      '../useFileCollectionStore'
+    );
     const { useCollectionStore } = await import('../useCollectionStore');
     cleanupFileCollectionWatcher();
     useFileCollectionStore.setState({ fileCollections: {}, conflicts: [], defaultDirectory: null });
@@ -449,8 +453,9 @@ describe('file collection operations', () => {
   });
 
   it('marks local edits and external changes as conflicts through the watcher', async () => {
-    const { useFileCollectionStore, initFileCollectionWatcher } =
-      await import('../useFileCollectionStore');
+    const { useFileCollectionStore, initFileCollectionWatcher } = await import(
+      '../useFileCollectionStore'
+    );
     const { useCollectionStore } = await import('../useCollectionStore');
     let onFileChanged:
       | ((event: {
@@ -492,8 +497,9 @@ describe('file collection operations', () => {
   });
 
   it('reloads clean external changes and surfaces load failures', async () => {
-    const { useFileCollectionStore, initFileCollectionWatcher } =
-      await import('../useFileCollectionStore');
+    const { useFileCollectionStore, initFileCollectionWatcher } = await import(
+      '../useFileCollectionStore'
+    );
     const { useCollectionStore } = await import('../useCollectionStore');
     let onFileChanged:
       | ((event: {
@@ -546,8 +552,9 @@ describe('file collection operations', () => {
   });
 
   it('coalesces an external change burst into one follow-up reload', async () => {
-    const { useFileCollectionStore, initFileCollectionWatcher } =
-      await import('../useFileCollectionStore');
+    const { useFileCollectionStore, initFileCollectionWatcher } = await import(
+      '../useFileCollectionStore'
+    );
     const { useCollectionStore } = await import('../useCollectionStore');
     let onFileChanged:
       | ((event: {

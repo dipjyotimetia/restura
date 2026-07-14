@@ -1,5 +1,5 @@
-import type { AiLabReportEnvelope } from './reportEnvelope';
 import { getDexieStorageItemStrict, setDexieStorageItemStrict } from '@/lib/shared/dexie-storage';
+import type { AiLabReportEnvelope } from './reportEnvelope';
 
 export interface AiLabReportRepository {
   load(): Promise<Record<string, AiLabReportEnvelope>>;

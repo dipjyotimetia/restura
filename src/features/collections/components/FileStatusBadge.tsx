@@ -1,6 +1,6 @@
 'use client';
 
-import { Check, AlertCircle, RefreshCw, FolderOpen, Loader2 } from 'lucide-react';
+import { AlertCircle, Check, FolderOpen, Loader2, RefreshCw } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/shared/utils';
 import type { FileSyncUiState } from '@/store/useFileCollectionStore';

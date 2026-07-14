@@ -14,7 +14,7 @@
 import { Hono } from 'hono';
 import { upgradeWebSocket } from 'hono/cloudflare-workers';
 import { cors } from 'hono/cors';
-import { handleOpenAiChat, handleAnthropicChat } from './handlers/ai';
+import { handleAnthropicChat, handleOpenAiChat } from './handlers/ai';
 import { connectEcho } from './handlers/connect';
 import { graphqlEcho } from './handlers/graphql';
 import { httpEcho } from './handlers/http';

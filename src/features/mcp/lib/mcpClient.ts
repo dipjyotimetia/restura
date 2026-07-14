@@ -1,7 +1,7 @@
-import { parseJsonRpcError, jsonRpcErrorToMessage } from '@shared/protocol/mcp-proxy';
+import { jsonRpcErrorToMessage, parseJsonRpcError } from '@shared/protocol/mcp-proxy';
 import {
-  isElectron,
   getElectronAPI,
+  isElectron,
   workerAuthHeaders,
   workerBaseUrl,
 } from '@/lib/shared/platform';

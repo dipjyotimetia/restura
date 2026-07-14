@@ -1,17 +1,17 @@
-import { create, toBinary, type MessageInitShape } from '@bufbuild/protobuf';
+import { create, type MessageInitShape, toBinary } from '@bufbuild/protobuf';
 import { FileDescriptorProtoSchema } from '@bufbuild/protobuf/wkt';
 import { createConnectRouter } from '@connectrpc/connect';
 import { bytesToBase64 } from '@shared/protocol/crypto-utils';
 import {
-  EchoService,
   EchoReplySchema,
+  EchoService,
   EchoSummarySchema,
   file_echo,
 } from '../../e2e/mocks/proto/gen/echo_pb';
 import {
   ServerReflection,
-  ServerReflectionResponseSchema,
   type ServerReflectionRequest,
+  ServerReflectionResponseSchema,
 } from '../../e2e/mocks/proto/gen/grpc/reflection/v1/reflection_pb';
 
 const COUNT_MIN = 1;

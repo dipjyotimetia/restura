@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { protocolSecretValueSchema, isProtocolSecretHandle } from './secret-value-schema';
+import { isProtocolSecretHandle, protocolSecretValueSchema } from './secret-value-schema';
 
 /**
  * Zod schema for the JSON body POSTed to `/api/proxy` (HTTP proxy).

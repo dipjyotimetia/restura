@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { buildMessages, SYSTEM_EXPLAIN_PROMPT } from '@/features/ai/lib/promptBuilder';
+import { describe, expect, it } from 'vitest';
 import type { RawSnapshot } from '@/features/ai/lib/contextSnapshot';
+import { buildMessages, SYSTEM_EXPLAIN_PROMPT } from '@/features/ai/lib/promptBuilder';
 
 const snapshot: RawSnapshot = {
   contextRef: { kind: 'response', tabId: 't1', capturedAt: 0 },

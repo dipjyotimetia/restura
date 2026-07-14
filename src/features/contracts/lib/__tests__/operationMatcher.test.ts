@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { AnyOpenAPISpec } from '../operationMatcher';
 import {
   extractPath,
   findOperationById,
   matchOperation,
   matchPathTemplate,
 } from '../operationMatcher';
-import type { AnyOpenAPISpec } from '../operationMatcher';
 
 const minimalSpec: AnyOpenAPISpec = {
   openapi: '3.0.0',

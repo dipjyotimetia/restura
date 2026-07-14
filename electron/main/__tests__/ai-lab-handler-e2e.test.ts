@@ -13,7 +13,7 @@
  * the assertions cover the actual wire shapes the renderer will see, while
  * still letting each test install its own behaviour on the orchestrator.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Pre-allocated UUIDs for the apiKeyHandleId / streamId inputs. The handler
 // validates these against `z.uuid()`; using literal strings keeps the
@@ -93,11 +93,11 @@ vi.mock('@shared/protocol/ai/model-discovery', async (importOriginal) => {
   };
 });
 
-import { registerAiLabHandlers, unregisterAiLabHandlers } from '../handlers/ai-lab-handler';
 import { runToCompletion } from '@shared/protocol/ai/ai-complete';
 import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
 import { listModels, testConnection } from '@shared/protocol/ai/model-discovery';
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
+import { registerAiLabHandlers, unregisterAiLabHandlers } from '../handlers/ai-lab-handler';
 
 const TRUSTED = {
   sender: { id: 1, isDestroyed: () => false },
@@ -342,7 +342,8 @@ describe('ai-lab-handler E2E: complete', () => {
     const resPromise = handlerFor('ai-lab:complete')(TRUSTED, base);
     await vi.waitFor(() => expect(runToCompletion).toHaveBeenCalledOnce());
     const cleanup = mockBindCleanup.mock.calls.at(-1)?.[2] as
-      ((webContentsId: number) => void) | undefined;
+      | ((webContentsId: number) => void)
+      | undefined;
     expect(cleanup).toBeTypeOf('function');
     cleanup?.(TRUSTED.sender.id);
 

@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
-import { TabBar } from './TabBar';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { HttpRequest } from '@/types';
+import { TabBar } from './TabBar';
 
 const makeHttp = (overrides: Partial<HttpRequest> = {}): HttpRequest => ({
   id: 'r-' + Math.random().toString(36).slice(2),

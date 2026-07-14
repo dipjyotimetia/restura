@@ -1,4 +1,4 @@
-/* eslint-disable */
+/* biome-ignore-all lint */
 /**
  * THIS FILE IS AUTO-GENERATED. DO NOT EDIT BY HAND.
  * Source: vendor/opencollection/v1.0.0/schema.json

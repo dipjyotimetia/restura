@@ -5,7 +5,7 @@
  */
 
 import type { PersistStorage, StorageValue } from 'zustand/middleware';
-import { isElectron, getElectronAPI } from './platform';
+import { getElectronAPI, isElectron } from './platform';
 
 /**
  * Electron storage adapter using electron-store via IPC

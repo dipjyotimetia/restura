@@ -5,8 +5,7 @@ import type { ModelCapabilities } from '@shared/agent-lab';
 import type { CriterionVerdict, JudgeAnchor, JudgeCriterion } from '@shared/protocol/ai/judge';
 import type { AiToolDef, ChatToolCall, Provider } from '@shared/protocol/ai/types';
 
-export type { CriterionVerdict, JudgeAnchor, JudgeCriterion };
-export type { AiToolDef, ChatToolCall };
+export type { AiToolDef, ChatToolCall, CriterionVerdict, JudgeAnchor, JudgeCriterion };
 
 /**
  * A user-configured provider instance. One row per endpoint the user adds —

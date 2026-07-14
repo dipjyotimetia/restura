@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { renderHtml } from '../html';
-import type { RunResult, RequestRunResult } from '../types';
+import { describe, expect, it } from 'vitest';
 import type { LoadedRequest } from '../../runner/collectionLoader';
+import { renderHtml } from '../html';
+import type { RequestRunResult, RunResult } from '../types';
 
 const fakeReq = (name: string): LoadedRequest => ({
   filePath: '/x/y.http.yaml',

@@ -1,9 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import SseAssembledOutput, { type SsePhase } from './SseAssembledOutput';
-import SseCounters from './SseCounters';
-import SseEventTimeline from './SseEventTimeline';
-import SseStatsRow from './SseStatsRow';
-import SseUrlBar from './SseUrlBar';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
@@ -13,6 +8,11 @@ import { sseManager } from '@/features/sse/lib/sseManager';
 import { useSseStore } from '@/features/sse/store/useSseStore';
 import { keyValuePairsToRecord } from '@/lib/shared/utils';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import SseAssembledOutput, { type SsePhase } from './SseAssembledOutput';
+import SseCounters from './SseCounters';
+import SseEventTimeline from './SseEventTimeline';
+import SseStatsRow from './SseStatsRow';
+import SseUrlBar from './SseUrlBar';
 
 /**
  * SSE view — Spatial Depth redesign.

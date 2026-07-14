@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { encryptValue, decryptValue, isEncrypted, generateLocalEncryptionKey } from '../encryption';
+import { describe, expect, it } from 'vitest';
+import { decryptValue, encryptValue, generateLocalEncryptionKey, isEncrypted } from '../encryption';
 
 describe('Encryption Utilities', () => {
   const testPassword = 'test-password-123';

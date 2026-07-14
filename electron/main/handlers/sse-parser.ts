@@ -4,6 +4,6 @@
 // `SseParser` name so consumers don't change.
 
 export {
-  SseStreamReader as SseParser,
   type ParsedSseEvent,
+  SseStreamReader as SseParser,
 } from '@shared/protocol/sse-stream-reader';

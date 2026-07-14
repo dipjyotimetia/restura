@@ -9,7 +9,7 @@ import {
   CommandList,
 } from '@/components/ui/command';
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverAnchor } from '@/components/ui/popover';
+import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
 import { POSTMAN_VARIABLES } from '@/lib/shared/dynamicVariables';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 

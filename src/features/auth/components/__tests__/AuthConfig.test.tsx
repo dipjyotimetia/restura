@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthConfig as AuthConfigType } from '@/types';
 
 // Mock the platform helper so we can flip between Electron and web modes.
@@ -19,8 +19,8 @@ vi.mock('@/features/auth/lib/oauth2', () => ({
   pollForDeviceToken: vi.fn(),
 }));
 
-import AuthConfiguration from '../AuthConfig';
 import * as platform from '@/lib/shared/platform';
+import AuthConfiguration from '../AuthConfig';
 
 const noneAuth: AuthConfigType = { type: 'none' };
 

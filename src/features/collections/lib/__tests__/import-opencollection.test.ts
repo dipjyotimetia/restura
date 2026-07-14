@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import * as yaml from 'js-yaml';
+import { describe, expect, it } from 'vitest';
 import { importOpenCollection } from '../importers/opencollection';
 
 const FIXTURES = 'tests/fixtures/opencollection';
@@ -53,7 +53,8 @@ describe('importOpenCollection', () => {
     };
     const result = importOpenCollection(data);
     const req = result.collection.items[0]?.request as
-      { preRequestScript?: string; testScript?: string } | undefined;
+      | { preRequestScript?: string; testScript?: string }
+      | undefined;
     expect(req?.preRequestScript).toBe('console.log("pre")');
     expect(req?.testScript).toBe('pm.test("ok", () => {})');
     const dropped = result.warnings.filter((w) => w.kind === 'unrecognized-script-type');

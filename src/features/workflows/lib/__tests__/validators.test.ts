@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { validateWorkflow } from '../validators';
+import { describe, expect, it } from 'vitest';
 import type { Workflow, WorkflowGraph } from '@/types';
+import { validateWorkflow } from '../validators';
 
 function baseWorkflow(graph?: WorkflowGraph): Workflow {
   return {

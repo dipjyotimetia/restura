@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { validateImportedCollection } from '../importers/validateImported';
+import { describe, expect, it } from 'vitest';
 import type { Collection } from '@/types';
+import { validateImportedCollection } from '../importers/validateImported';
 
 const valid: Collection = {
   id: 'c1',

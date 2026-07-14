@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { runAgentTool, agentToolDefs } from '../tools';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { useRequestStore } from '@/store/useRequestStore';
+import { agentToolDefs, runAgentTool } from '../tools';
 
 beforeEach(() => {
   useRequestStore.setState({ tabs: [], activeTabId: null });

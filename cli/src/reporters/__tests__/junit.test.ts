@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { renderJUnitXml } from '../junit';
-import type { RunResult, RequestRunResult } from '../types';
+import { describe, expect, it } from 'vitest';
 import type { LoadedRequest } from '../../runner/collectionLoader';
+import { renderJUnitXml } from '../junit';
+import type { RequestRunResult, RunResult } from '../types';
 
 const fakeReq = (name: string): LoadedRequest => ({
   filePath: '/x/y.http.yaml',
@@ -178,7 +178,6 @@ describe('renderJUnitXml', () => {
     };
     const xml = renderJUnitXml(result);
     expect(xml).toContain('message="badbytehere"');
-    // eslint-disable-next-line no-control-regex -- asserting control chars were stripped
     expect(xml).not.toMatch(/[\x00-\x08]/);
   });
 

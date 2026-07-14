@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import type { Request, Response, RequestType, ScriptResult } from '@/types';
+import type { Request, RequestType, Response, ScriptResult } from '@/types';
 
 /**
  * Protocols the registry knows about. Superset of `RequestType` because

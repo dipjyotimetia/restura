@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildWsseHeader, buildWsseDigest } from '../wsseHeader';
+import { buildWsseDigest, buildWsseHeader } from '../wsseHeader';
 
 describe('buildWsseHeader (PasswordDigest)', () => {
   it('throws when username is missing', async () => {

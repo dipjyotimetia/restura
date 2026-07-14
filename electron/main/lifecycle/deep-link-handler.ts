@@ -1,7 +1,7 @@
-import * as path from 'path';
 import { validateURL } from '@shared/protocol/url-validation';
 import type { BrowserWindow } from 'electron';
 import { app } from 'electron';
+import * as path from 'path';
 import { createLogger } from '../../../src/lib/shared/logger';
 
 const log = createLogger('deep-link');

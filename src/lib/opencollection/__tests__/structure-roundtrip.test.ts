@@ -1,10 +1,10 @@
-/* eslint-disable @typescript-eslint/no-explicit-any -- test fixtures inspect untyped OC nodes */
-import { describe, it, expect } from 'vitest';
-import { parseOpenCollectionYAML, serializeOpenCollectionYAML } from '../serializer';
-import { loadCollectionFromFile } from '../fs-reader';
-import { ocToInternal } from '../to-internal';
-import { internalToOC } from '../from-internal';
+/* biome-ignore-all lint/suspicious/noExplicitAny: test fixtures inspect untyped OC nodes */
+import { describe, expect, it } from 'vitest';
 import type { Collection } from '@/types';
+import { internalToOC } from '../from-internal';
+import { loadCollectionFromFile } from '../fs-reader';
+import { parseOpenCollectionYAML, serializeOpenCollectionYAML } from '../serializer';
+import { ocToInternal } from '../to-internal';
 
 /**
  * Root-level structural staleness on OpenCollection re-export (GH #278).

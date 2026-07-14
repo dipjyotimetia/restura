@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Force the desktop branch of secureStorage so the routing decision
 // (encrypted electron-store vs. plaintext localStorage) is observable.
@@ -7,9 +7,9 @@ vi.mock('@/lib/shared/platform', () => ({
   getElectronAPI: () => null,
 }));
 
+import { type KafkaSecretField, kafkaSecretKey } from '@/features/kafka/lib/kafkaManager';
+import { type MqttSecretField, mqttSecretKey } from '@/features/mqtt/lib/mqttManager';
 import { secureStorage } from '@/lib/shared/secure-storage';
-import { kafkaSecretKey, type KafkaSecretField } from '@/features/kafka/lib/kafkaManager';
-import { mqttSecretKey, type MqttSecretField } from '@/features/mqtt/lib/mqttManager';
 
 /**
  * On desktop, secureStorage sends "sensitive" keys to the encrypted

@@ -11,7 +11,7 @@ import type { Reporter } from '../reporters/types.js';
 import { loadIterationData } from '../runner/dataLoader.js';
 import { loadEnv } from '../runner/envLoader.js';
 import { parseRetryOn } from '../runner/retry.js';
-import { runCollection, type RunOptions } from '../runner/runner.js';
+import { type RunOptions, runCollection } from '../runner/runner.js';
 import { interactive, showCursor } from '../ui/colors.js';
 import { runWizard } from '../ui/wizard.js';
 

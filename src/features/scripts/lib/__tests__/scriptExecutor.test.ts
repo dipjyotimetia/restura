@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import ScriptExecutor from '../scriptExecutor';
 
 // These tests demonstrate that the QuickJS WASM sandbox is the security

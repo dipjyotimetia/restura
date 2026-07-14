@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { CompletionResult } from '@shared/protocol/ai/types';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AiLabProviderConfig, Dataset, PromptTemplate, ScorerConfig } from '../../types';
 
 const mockComplete = vi.hoisted(() => vi.fn());
@@ -386,29 +386,29 @@ describe('runEval', () => {
     expect(cells[0]?.error).toBe('request executor unavailable');
   });
 
-  it.each([[new Error('request broke')], ['string request failure']])(
-    'records request execution failures',
-    async (failure) => {
-      mockComplete.mockResolvedValue(
-        result('{"method":"POST","url":"https://x.test/graphql","query":"{ ping }"}')
-      );
-      const cells = await runEval(
-        {
-          prompt: PROMPT,
-          dataset: { ...DATASET, cases: [DATASET.cases[0]!] },
-          models: [{ providerConfigId: 'p1', model: 'gpt-4o' }],
-          scorers: [],
-          providers: { p1: PROVIDER },
-          concurrency: 1,
-          target: { kind: 'http-exec', parseFrom: 'json', protocol: 'graphql' },
-          runRequest: vi.fn().mockRejectedValue(failure),
-        },
-        () => {},
-        new AbortController().signal
-      );
-      expect(cells[0]?.error).toContain(failure instanceof Error ? failure.message : failure);
-    }
-  );
+  it.each([
+    [new Error('request broke')],
+    ['string request failure'],
+  ])('records request execution failures', async (failure) => {
+    mockComplete.mockResolvedValue(
+      result('{"method":"POST","url":"https://x.test/graphql","query":"{ ping }"}')
+    );
+    const cells = await runEval(
+      {
+        prompt: PROMPT,
+        dataset: { ...DATASET, cases: [DATASET.cases[0]!] },
+        models: [{ providerConfigId: 'p1', model: 'gpt-4o' }],
+        scorers: [],
+        providers: { p1: PROVIDER },
+        concurrency: 1,
+        target: { kind: 'http-exec', parseFrom: 'json', protocol: 'graphql' },
+        runRequest: vi.fn().mockRejectedValue(failure),
+      },
+      () => {},
+      new AbortController().signal
+    );
+    expect(cells[0]?.error).toContain(failure instanceof Error ? failure.message : failure);
+  });
 
   it('runs a configured structured judge through the provider bridge', async () => {
     mockComplete.mockResolvedValueOnce(result('Paris')).mockResolvedValueOnce({
@@ -450,51 +450,51 @@ describe('runEval', () => {
     expect(cells[0]?.scores[0]).toMatchObject({ kind: 'judge', passed: true, score: 0.9 });
   });
 
-  it.each([[{ name: 'quality', rubric: 'Prefer accuracy', weight: 1 }], [undefined]])(
-    'runs pairwise judging with optional criteria and swapping',
-    async (criterion) => {
-      const comparison = (winner: 'A' | 'B') => ({
-        ok: true,
-        text: '',
-        toolCalls: [
+  it.each([
+    [{ name: 'quality', rubric: 'Prefer accuracy', weight: 1 }],
+    [undefined],
+  ])('runs pairwise judging with optional criteria and swapping', async (criterion) => {
+    const comparison = (winner: 'A' | 'B') => ({
+      ok: true,
+      text: '',
+      toolCalls: [
+        {
+          id: 'pairwise',
+          name: 'submit_comparison',
+          input: JSON.stringify({ winner, reasoning: 'better' }),
+        },
+      ],
+    });
+    mockComplete.mockResolvedValueOnce(result('candidate'));
+    if (criterion) {
+      mockComplete.mockResolvedValueOnce(comparison('A')).mockResolvedValueOnce(comparison('B'));
+    } else {
+      mockComplete.mockResolvedValueOnce(comparison('A'));
+    }
+    const cells = await runEval(
+      {
+        prompt: PROMPT,
+        dataset: {
+          ...DATASET,
+          cases: [{ ...DATASET.cases[0]!, reference: 'baseline' }],
+        },
+        models: [{ providerConfigId: 'p1', model: 'gpt-4o' }],
+        scorers: [
           {
             id: 'pairwise',
-            name: 'submit_comparison',
-            input: JSON.stringify({ winner, reasoning: 'better' }),
+            kind: 'pairwise',
+            judgeModel: { providerConfigId: 'p1', model: 'gpt-4o' },
+            baseline: 'reference',
+            passThreshold: 0.5,
+            ...(criterion ? { criteria: [criterion], swapPositions: true } : {}),
           },
         ],
-      });
-      mockComplete.mockResolvedValueOnce(result('candidate'));
-      if (criterion) {
-        mockComplete.mockResolvedValueOnce(comparison('A')).mockResolvedValueOnce(comparison('B'));
-      } else {
-        mockComplete.mockResolvedValueOnce(comparison('A'));
-      }
-      const cells = await runEval(
-        {
-          prompt: PROMPT,
-          dataset: {
-            ...DATASET,
-            cases: [{ ...DATASET.cases[0]!, reference: 'baseline' }],
-          },
-          models: [{ providerConfigId: 'p1', model: 'gpt-4o' }],
-          scorers: [
-            {
-              id: 'pairwise',
-              kind: 'pairwise',
-              judgeModel: { providerConfigId: 'p1', model: 'gpt-4o' },
-              baseline: 'reference',
-              passThreshold: 0.5,
-              ...(criterion ? { criteria: [criterion], swapPositions: true } : {}),
-            },
-          ],
-          providers: { p1: PROVIDER },
-          concurrency: 1,
-        },
-        () => {},
-        new AbortController().signal
-      );
-      expect(cells[0]?.scores[0]).toMatchObject({ kind: 'pairwise', passed: true });
-    }
-  );
+        providers: { p1: PROVIDER },
+        concurrency: 1,
+      },
+      () => {},
+      new AbortController().signal
+    );
+    expect(cells[0]?.scores[0]).toMatchObject({ kind: 'pairwise', passed: true });
+  });
 });

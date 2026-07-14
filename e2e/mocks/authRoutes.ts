@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomUUID, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { URL } from 'node:url';
 import { bearerToken, writeJson as json } from '../utils/serverHelpers';
@@ -643,7 +643,8 @@ const authorizeEndpoint: AuthRoute = {
     const responseType = url.searchParams.get('response_type') ?? '';
     const codeChallenge = url.searchParams.get('code_challenge') ?? '';
     const codeChallengeMethod = (url.searchParams.get('code_challenge_method') ?? 'plain') as
-      'S256' | 'plain';
+      | 'S256'
+      | 'plain';
     const scope = url.searchParams.get('scope') ?? 'read';
     const stateParam = url.searchParams.get('state') ?? '';
 

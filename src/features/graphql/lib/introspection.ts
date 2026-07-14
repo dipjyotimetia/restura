@@ -1,14 +1,14 @@
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import {
   buildClientSchema,
-  getIntrospectionQuery,
-  printSchema,
   type GraphQLSchema as GQLSchema,
+  getIntrospectionQuery,
   type IntrospectionQuery,
+  printSchema,
 } from 'graphql';
-import type { GraphQLSchema, IntrospectionResult } from '../types';
-import { executeProxiedRequest, type DesktopTransportConfig } from '@/lib/shared/transport';
+import { type DesktopTransportConfig, executeProxiedRequest } from '@/lib/shared/transport';
 import type { AuthConfig } from '@/types';
+import type { GraphQLSchema, IntrospectionResult } from '../types';
 
 // Standard GraphQL introspection query (spec-compliant, from the official `graphql` library)
 const INTROSPECTION_QUERY = getIntrospectionQuery();

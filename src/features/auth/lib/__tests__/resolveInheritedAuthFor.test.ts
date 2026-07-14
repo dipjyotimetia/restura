@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { resolveInheritedAuthFor } from '../resolveInheritedAuthFor';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import type { AuthConfig, Collection, CollectionItem, HttpRequest } from '@/types';
+import { resolveInheritedAuthFor } from '../resolveInheritedAuthFor';
 
 const bearer = (token: string): AuthConfig => ({ type: 'bearer', bearer: { token } });
 

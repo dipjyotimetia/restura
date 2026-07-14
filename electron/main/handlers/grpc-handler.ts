@@ -1,27 +1,27 @@
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { ipcMain } from 'electron';
 import { createLogger } from '../../../src/lib/shared/logger';
-import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
+import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import type { GrpcRequestConfig } from '../ipc/ipc-validators';
 import {
-  GrpcRequestConfigSchema,
-  GrpcStreamRequestIdSchema,
-  GrpcSendMessageSchema,
   createValidatedHandler,
   createValidatedListener,
+  GrpcRequestConfigSchema,
+  GrpcSendMessageSchema,
+  GrpcStreamRequestIdSchema,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
 import { applyNonSignAtWireAuth } from '../security/auth-applier';
 import {
-  resolveGrpcDialAddress,
-  executeConnectUnary,
   executeConnectServerStreamCollect,
-  runConnectStream,
+  executeConnectUnary,
   type PinnedDial,
+  resolveGrpcDialAddress,
+  runConnectStream,
 } from './grpc-connect';
-import { resolveGrpcExecutionPolicy, type GrpcTlsConfig } from './grpc-credentials';
+import { type GrpcTlsConfig, resolveGrpcExecutionPolicy } from './grpc-credentials';
 
 const log = createLogger('grpc');
 

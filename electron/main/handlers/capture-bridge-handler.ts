@@ -14,9 +14,9 @@ import { randomBytes } from 'node:crypto';
 import http from 'node:http';
 import { sessionToOpenCollection } from '@shared/capture/to-opencollection';
 import { type BrowserWindow, ipcMain } from 'electron';
-import { IPC, EVENT } from '../../shared/channels';
+import { EVENT, IPC } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
-import { NoInputSchema, createValidatedHandler } from '../ipc/ipc-validators';
+import { createValidatedHandler, NoInputSchema } from '../ipc/ipc-validators';
 import { bridgePayloadSchema, isAuthorized, isLoopbackRequest } from './capture-bridge-protocol';
 
 /** Hard cap on the request body before we even parse it (matches the Zod bounds). */

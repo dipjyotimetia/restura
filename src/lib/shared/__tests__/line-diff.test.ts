@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { diffLines, MAX_DIFF_LINES } from '@/lib/shared/line-diff';
 
 const ops = (left: string, right: string) => diffLines(left, right).map((e) => `${e.op}:${e.text}`);

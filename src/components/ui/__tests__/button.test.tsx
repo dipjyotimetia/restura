@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Button, buttonVariants } from '../button';
 
 describe('Button', () => {
@@ -21,13 +21,17 @@ describe('Button', () => {
   });
 
   describe('variants', () => {
-    it.each(['default', 'destructive', 'outline', 'secondary', 'ghost', 'link'] as const)(
-      'renders %s variant',
-      (variant) => {
-        render(<Button variant={variant}>Button</Button>);
-        expect(screen.getByRole('button')).toBeInTheDocument();
-      }
-    );
+    it.each([
+      'default',
+      'destructive',
+      'outline',
+      'secondary',
+      'ghost',
+      'link',
+    ] as const)('renders %s variant', (variant) => {
+      render(<Button variant={variant}>Button</Button>);
+      expect(screen.getByRole('button')).toBeInTheDocument();
+    });
   });
 
   describe('sizes', () => {

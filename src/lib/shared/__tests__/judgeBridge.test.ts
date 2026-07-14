@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { makeRendererJudge } from '../judgeBridge';
-import type { JudgeSettings } from '@/types';
 import { JUDGE_TOOL } from '@shared/protocol/ai/judge';
 import type { CompletionResult } from '@shared/protocol/ai/types';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { JudgeSettings } from '@/types';
+import { makeRendererJudge } from '../judgeBridge';
 
 // Installs a fake window.electron.aiLab (mirrors the llmClient bridge test) so
 // the judge closure can exercise the real IPC path without Electron.

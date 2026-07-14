@@ -1,5 +1,5 @@
 import { renderHook } from '@testing-library/react';
-import { describe, it, expect, afterEach, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useRapidAppendFlag } from '../useRapidAppendFlag';
 
 describe('useRapidAppendFlag', () => {

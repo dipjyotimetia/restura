@@ -7,7 +7,7 @@
  */
 
 export {
-  SseStreamReader as SseParser,
-  parseSseStream,
   type ParsedSseEvent,
+  parseSseStream,
+  SseStreamReader as SseParser,
 } from '@shared/protocol/sse-stream-reader';

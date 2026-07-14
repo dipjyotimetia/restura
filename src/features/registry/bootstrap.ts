@@ -7,7 +7,7 @@
  * Keep this file's import graph minimal — anything pulled in here lands in the
  * initial bundle, before React mounts.
  */
-import { protocolRegistry } from './registry';
+
 import { graphqlProtocol } from '@/features/graphql/protocol';
 import { grpcProtocol } from '@/features/grpc/protocol';
 import { httpProtocol } from '@/features/http/protocol';
@@ -17,6 +17,7 @@ import { mqttProtocol } from '@/features/mqtt/protocol';
 import { socketioProtocol } from '@/features/socketio/protocol';
 import { sseProtocol } from '@/features/sse/protocol';
 import { websocketProtocol } from '@/features/websocket/protocol';
+import { protocolRegistry } from './registry';
 
 protocolRegistry.register(httpProtocol);
 protocolRegistry.register(grpcProtocol);

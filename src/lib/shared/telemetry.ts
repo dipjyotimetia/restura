@@ -12,7 +12,7 @@
  */
 
 import { redactBody } from '@shared/protocol/ai/redaction';
-import { isElectron, workerBaseUrl, workerAuthHeaders } from '@/lib/shared/platform';
+import { isElectron, workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platform';
 import { useSettingsStore } from '@/store/useSettingsStore';
 
 interface ErrorPayload {

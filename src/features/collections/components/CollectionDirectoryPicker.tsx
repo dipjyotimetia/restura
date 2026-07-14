@@ -15,10 +15,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import {
-  selectCollectionDirectory,
-  loadCollectionFromDirectory,
   exportCollectionToFiles,
   isElectronEnvironment,
+  loadCollectionFromDirectory,
+  selectCollectionDirectory,
 } from '@/store/useFileCollectionStore';
 
 interface CollectionDirectoryPickerProps {

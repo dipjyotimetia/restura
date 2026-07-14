@@ -1,6 +1,7 @@
 // tests/security/ai-redaction.test.ts
-import { describe, it, expect } from 'vitest';
-import { redactBody, redactHeaders, detectUnredactedSecrets } from '@shared/protocol/ai/redaction';
+
+import { detectUnredactedSecrets, redactBody, redactHeaders } from '@shared/protocol/ai/redaction';
+import { describe, expect, it } from 'vitest';
 
 const JWT_BODY = (s: string) => `{"token":"${s}"}`;
 

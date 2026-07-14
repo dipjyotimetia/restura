@@ -1,7 +1,4 @@
-import { describe, it, expect } from 'vitest';
-import { parseOpenCollectionYAML, serializeOpenCollectionYAML } from '../serializer';
-import { ocToInternal } from '../to-internal';
-import { internalToOC } from '../from-internal';
+import { describe, expect, it } from 'vitest';
 import type {
   Collection,
   CollectionItem,
@@ -12,6 +9,9 @@ import type {
   Request,
   SseRequest,
 } from '@/types';
+import { internalToOC } from '../from-internal';
+import { parseOpenCollectionYAML, serializeOpenCollectionYAML } from '../serializer';
+import { ocToInternal } from '../to-internal';
 
 /**
  * Regression tests for the OpenCollection export/import audit (2026-06-16).

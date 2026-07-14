@@ -1,5 +1,4 @@
 import { v4 as uuidv4 } from 'uuid';
-import { resolveGrpcTls } from './grpcTls';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import {
   getElectronAPI,
@@ -13,10 +12,11 @@ import type {
   GrpcRequest,
   GrpcResponse,
   ProtoFileInfo,
-  ProtoServiceDefinition,
   ProtoMessageDefinition,
+  ProtoServiceDefinition,
 } from '@/types';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
+import { resolveGrpcTls } from './grpcTls';
 
 // gRPC Client Error
 export class GrpcClientError extends Error {

@@ -18,7 +18,13 @@ import type {
 } from './types';
 
 export type PermissionClass =
-  'read' | 'network' | 'mutation' | 'credential' | 'filesystem' | 'process' | 'destructive';
+  | 'read'
+  | 'network'
+  | 'mutation'
+  | 'credential'
+  | 'filesystem'
+  | 'process'
+  | 'destructive';
 
 export interface AgentTool {
   definition: AgentToolDefinition;

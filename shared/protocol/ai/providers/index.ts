@@ -42,12 +42,12 @@ export function getProviderModule(provider: Provider): ProviderModule {
   return REGISTRY[provider];
 }
 
+export type { ModelInfo, ProviderModule, StreamDecoder } from './types';
 export {
-  openaiModule,
   anthropicModule,
-  openrouterModule,
-  ollamaModule,
   huggingfaceModule,
+  ollamaModule,
   openaiCompatibleModule,
+  openaiModule,
+  openrouterModule,
 };
-export type { ProviderModule, StreamDecoder, ModelInfo } from './types';

@@ -5,9 +5,9 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -65,7 +65,6 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
       setNewCollectionName('');
     }
     // collections.length intentionally omitted — only re-run when open changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // Reset folder selection when collection changes
@@ -156,7 +155,6 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
               onChange={(e) => setRequestName(e.target.value)}
               className="h-8 text-sm"
               placeholder="Request name"
-              // eslint-disable-next-line jsx-a11y/no-autofocus -- intentional initial focus on the primary field when the dialog opens
               autoFocus
             />
             {requestNameTaken && (

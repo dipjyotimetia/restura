@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { flattenRunnables } from '../flattenRunnables';
+import { describe, expect, it } from 'vitest';
 import type { AuthConfig, CollectionItem, HttpRequest } from '@/types';
+import { flattenRunnables } from '../flattenRunnables';
 
 function req(id: string, name: string, pre?: string, test?: string): CollectionItem {
   const request: HttpRequest = {

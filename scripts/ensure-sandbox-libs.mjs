@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawnSync } from 'node:child_process';
 /**
  * Lightweight guard chained before tsc / vitest. The real bundle file
  * (`bundle.generated.ts`) is gitignored — Vite's plugin regenerates it
@@ -11,7 +12,6 @@
  * standalone bundler — which is the same script Vite / CLI invoke.
  */
 import { existsSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 

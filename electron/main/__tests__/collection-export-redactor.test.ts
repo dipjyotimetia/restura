@@ -1,8 +1,8 @@
 // @vitest-environment node
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  redactAuthForExport,
   authHasPlaintextSecret,
+  redactAuthForExport,
   redactSecretVariablesForExport,
 } from '../security/collection-export-redactor';
 

@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
 import { listModels, testConnection } from '@shared/protocol/ai/model-discovery';
 import type { Fetcher, FetcherRequest, FetcherResponse } from '@shared/protocol/types';
+import { describe, expect, it, vi } from 'vitest';
 
 function jsonFetcher(byUrl: Record<string, { status?: number; json: unknown }>): Fetcher {
   return vi.fn(async (req: FetcherRequest): Promise<FetcherResponse> => {

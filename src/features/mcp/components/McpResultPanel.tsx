@@ -1,5 +1,5 @@
 import { CodeEditorFrame, Floater, Stat } from '@/components/ui/spatial';
-import { useMcpStore, type McpInvocationLog } from '@/features/mcp/store/useMcpStore';
+import { type McpInvocationLog, useMcpStore } from '@/features/mcp/store/useMcpStore';
 
 function McpResult({ entry }: { entry: McpInvocationLog }) {
   const isError = entry.error !== undefined;

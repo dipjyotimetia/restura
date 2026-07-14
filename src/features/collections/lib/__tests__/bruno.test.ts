@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { importBrunoCollection } from '../importers';
-import type { BrunoSource } from '../importers';
+import { describe, expect, it } from 'vitest';
 import type { CollectionItem, HttpRequest } from '@/types';
+import type { BrunoSource } from '../importers';
+import { importBrunoCollection } from '../importers';
 
 function asHttpRequest(r: unknown): HttpRequest {
   return r as HttpRequest;

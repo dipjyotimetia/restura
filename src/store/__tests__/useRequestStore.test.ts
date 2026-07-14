@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Response as ApiResponse, GrpcRequest, HttpRequest } from '@/types';
 import { useRequestStore } from '../useRequestStore';
-import type { HttpRequest, GrpcRequest, Response as ApiResponse } from '@/types';
 
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn(), info: vi.fn() },

@@ -1,18 +1,15 @@
 'use client';
 
-import { Plus, Play, GitBranch, AlertTriangle } from 'lucide-react';
-import { useState, useMemo } from 'react';
+import { AlertTriangle, GitBranch, Play, Plus } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { useGraphValidation } from '../hooks/useGraphValidation';
-import { VariableExtractorConfig } from './VariableExtractorConfig';
-import { WorkflowStep } from './WorkflowStep';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -30,13 +27,16 @@ import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import type {
+  CollectionItem,
+  HttpRequest,
+  Request,
+  VariableExtraction,
   Workflow,
   WorkflowRequest,
-  Request,
-  HttpRequest,
-  CollectionItem,
-  VariableExtraction,
 } from '@/types';
+import { useGraphValidation } from '../hooks/useGraphValidation';
+import { VariableExtractorConfig } from './VariableExtractorConfig';
+import { WorkflowStep } from './WorkflowStep';
 
 // Lazy-load the entire flow-canvas tree — including @xyflow/react and
 // @dagrejs/dagre — so users who never open the Graph tab don't pay the

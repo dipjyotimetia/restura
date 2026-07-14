@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { GrpcStreamingPanel } from '../GrpcStreamingPanel';
-import * as streamingModule from '../../lib/grpcStreamingClient';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import type { GrpcRequest } from '@/types';
+import * as streamingModule from '../../lib/grpcStreamingClient';
+import { GrpcStreamingPanel } from '../GrpcStreamingPanel';
 
 vi.mock('../../lib/grpcStreamingClient');
 vi.mock('@/store/useEnvironmentStore', () => ({

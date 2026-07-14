@@ -1,7 +1,7 @@
 import {
-  useConsoleStore,
-  createProtocolConsoleEntry,
   type ConsoleProtocol,
+  createProtocolConsoleEntry,
+  useConsoleStore,
 } from '@/store/useConsoleStore';
 import type { Request, Response } from '@/types';
 

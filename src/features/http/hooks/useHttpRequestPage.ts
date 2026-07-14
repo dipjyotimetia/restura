@@ -10,12 +10,12 @@ import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { buildValueMap } from '@/lib/shared/variableScopes';
 import { useActiveRequest } from '@/store/selectors';
 import { useCollectionStore } from '@/store/useCollectionStore';
-import { useConsoleStore, createConsoleEntry } from '@/store/useConsoleStore';
+import { createConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import type { HttpMethod, AuthConfig, RequestSettings, RequestBody, FormDataItem } from '@/types';
+import type { AuthConfig, FormDataItem, HttpMethod, RequestBody, RequestSettings } from '@/types';
 
 /**
  * Capture the headers the request actually went out with for the Console:

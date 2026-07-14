@@ -1,6 +1,6 @@
 import {
-  GrpcReflectionRequestBodySchema,
   type GrpcReflectionRequestBody,
+  GrpcReflectionRequestBodySchema,
 } from '@shared/protocol/grpc-schema';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { validateURL } from '@shared/protocol/url-validation';

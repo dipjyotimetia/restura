@@ -7,8 +7,9 @@ import {
   Database,
   Download,
   Info,
-  KeyRound,
   Keyboard as KeyboardIcon,
+  KeyRound,
+  type LucideIcon,
   Network,
   Palette,
   Plus,
@@ -21,7 +22,6 @@ import {
   Trash2,
   Upload,
   X,
-  type LucideIcon,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import * as React from 'react';
@@ -56,12 +56,12 @@ import { cn } from '@/lib/shared/utils';
 import { withViewTransition } from '@/lib/shared/viewTransition';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import {
+  type ClientCert,
   DEFAULT_AUTO_UPDATE_SETTINGS,
   DEFAULT_JUDGE_SETTINGS,
-  SPATIAL_ACCENT_PRESETS,
-  type ClientCert,
   type MinTlsVersion,
   type ProxyType,
+  SPATIAL_ACCENT_PRESETS,
   type SpatialAccent,
 } from '@/types';
 

@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
 import type { IncomingMessage } from 'node:http';
-import { buildWsseHeader, buildWsseDigest } from '@shared/protocol/wsse-header';
-import { verifyWsse, TEST_AUTH_FIXTURES } from '../../e2e/mocks/authRoutes';
+import { buildWsseDigest, buildWsseHeader } from '@shared/protocol/wsse-header';
+import { describe, expect, it } from 'vitest';
+import { TEST_AUTH_FIXTURES, verifyWsse } from '../../e2e/mocks/authRoutes';
 
 // Proves the echo server's WSSE verifier matches the client signer
 // (shared/protocol/wsse-header.ts) — sign and verify share one definition of

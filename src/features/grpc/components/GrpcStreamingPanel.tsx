@@ -1,12 +1,12 @@
-import { Square, Play, Send, StopCircle, ArrowDown, ArrowUp } from 'lucide-react';
+import { ArrowDown, ArrowUp, Play, Send, Square, StopCircle } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { startGrpcStream, type GrpcStreamingHandle } from '../lib/grpcStreamingClient';
 import { Button } from '@/components/ui/button';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import { GrpcStatusCodeName } from '@/types';
 import type { GrpcRequest, GrpcStatusCode } from '@/types';
+import { GrpcStatusCodeName } from '@/types';
+import { type GrpcStreamingHandle, startGrpcStream } from '../lib/grpcStreamingClient';
 
 export interface GrpcStreamingPanelProps {
   request: GrpcRequest;

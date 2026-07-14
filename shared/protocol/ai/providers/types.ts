@@ -1,5 +1,5 @@
 // shared/protocol/ai/providers/types.ts
-import type { Provider, ChatStreamEvent } from '@shared/protocol/ai/types';
+import type { ChatStreamEvent, Provider } from '@shared/protocol/ai/types';
 
 export interface ModelInfo {
   id: string; // "gpt-4o-mini"

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { McpError, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
+import { LATEST_PROTOCOL_VERSION, McpError } from '@modelcontextprotocol/sdk/types.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as IpcUtils from '../ipc/ipc-utils';
 
 const mockHandle = vi.hoisted(() => vi.fn());

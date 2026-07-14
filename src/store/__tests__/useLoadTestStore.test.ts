@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { useLoadTestStore, type LoadTestRun } from '../useLoadTestStore';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { LoadStats } from '@/lib/shared/loadStats';
+import { type LoadTestRun, useLoadTestStore } from '../useLoadTestStore';
 
 const stats: LoadStats = {
   count: 1,

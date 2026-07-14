@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { useEvalRunStore } from '../useEvalRunStore';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { EvalCellResult, EvalRun } from '../../types';
+import { useEvalRunStore } from '../useEvalRunStore';
 
 function reset() {
   useEvalRunStore.setState({ runs: {} });

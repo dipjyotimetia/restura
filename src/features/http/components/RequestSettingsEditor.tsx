@@ -2,7 +2,6 @@
 
 import { ChevronDown } from 'lucide-react';
 import { useState } from 'react';
-import { CertificateOverride } from './CertificateOverride';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -16,7 +15,8 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
 import { cn } from '@/lib/shared/utils';
-import type { MinTlsVersion, RequestSettings, GlobalSettings } from '@/types';
+import type { GlobalSettings, MinTlsVersion, RequestSettings } from '@/types';
+import { CertificateOverride } from './CertificateOverride';
 
 interface RequestSettingsEditorProps {
   settings: RequestSettings | undefined;

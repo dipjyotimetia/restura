@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // encrypted-key reads `safeStorage` + `app.getPath` from electron at runtime.
 // Mirror the surface it touches (self-contained — __tests__/setup.ts is not
@@ -19,9 +19,9 @@ vi.mock('fs', () => ({
   chmodSync: vi.fn(),
 }));
 
-import * as fs from 'fs';
 import { safeStorage } from 'electron';
-import { getOrCreateEncryptedKey, getKeyStoreStatus } from '../security/encrypted-key';
+import * as fs from 'fs';
+import { getKeyStoreStatus, getOrCreateEncryptedKey } from '../security/encrypted-key';
 
 const enoent = (): NodeJS.ErrnoException => Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
 const HEX64 = /^[0-9a-f]{64}$/;

@@ -1,6 +1,6 @@
+import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
-import { app, BrowserWindow, shell, Menu, ipcMain } from 'electron';
 import { z } from 'zod';
 import { createLogger } from '../../src/lib/shared/logger';
 import { IPC } from '../shared/channels';
@@ -13,7 +13,7 @@ import { mqttRateLimiter } from './handlers/mqtt-handler';
 import { socketIoRateLimiter } from './handlers/socketio-handler';
 import { sseRateLimiter } from './handlers/sse-handler';
 import { wsRateLimiter } from './handlers/websocket-handler';
-import { SAFE_OPEN_PROTOCOLS, createValidatedHandler, NoInputSchema } from './ipc/ipc-validators';
+import { createValidatedHandler, NoInputSchema, SAFE_OPEN_PROTOCOLS } from './ipc/ipc-validators';
 import { bindLimiterToWebContents } from './ipc/rate-limiter-cleanup';
 import { createApplicationMenu } from './lifecycle/menu';
 import { notificationRateLimiter } from './notifications';

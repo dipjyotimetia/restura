@@ -1,10 +1,10 @@
 'use client';
 
-import { Pause, Play, ArrowDown } from 'lucide-react';
-import { useEffect, useRef, useState, useCallback } from 'react';
-import { WindowedList, type WindowedListHandle } from './lib/windowedList';
+import { ArrowDown, Pause, Play } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import type { HttpStreamEvent } from '@/features/http/lib/streamingResponseReader';
+import { WindowedList, type WindowedListHandle } from './lib/windowedList';
 
 export interface StreamingResponseViewerProps {
   events: AsyncIterable<HttpStreamEvent>;

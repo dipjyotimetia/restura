@@ -19,7 +19,13 @@ import type { ScorerConfig } from '../types';
  */
 
 export type AiLabTab =
-  'playground' | 'agents' | 'datasets' | 'evals' | 'arena' | 'reports' | 'providers';
+  | 'playground'
+  | 'agents'
+  | 'datasets'
+  | 'evals'
+  | 'arena'
+  | 'reports'
+  | 'providers';
 
 export type EvalTargetMode = 'text' | 'http' | 'graphql';
 

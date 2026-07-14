@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockHandle = vi.hoisted(() => vi.fn());
 const mockEmitTo = vi.hoisted(() => vi.fn());
@@ -28,10 +28,10 @@ vi.mock('../security/kafka-broker-guard', () => ({
 import type * as KafkaLib from '@platformatic/kafka';
 import { IPC } from '../../shared/channels';
 import {
+  __setKafkaForTests,
+  kafkaRateLimiter,
   registerKafkaHandlerIPC,
   stopKafkaCleanup,
-  kafkaRateLimiter,
-  __setKafkaForTests,
 } from '../handlers/kafka-handler';
 
 // Fake @platformatic/kafka. NOT injectable via vi.mock — the handler loads the

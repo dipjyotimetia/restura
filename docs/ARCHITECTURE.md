@@ -242,7 +242,7 @@ restura/
     ├── tsconfig.json             # Renderer TypeScript config
     ├── tsconfig.base.json        # Shared TS base
     ├── vitest.config.ts          # Test config
-    └── eslint.config.mjs         # ESLint flat config
+    └── biome.json               # Biome config (lint + format)
 ```
 
 ---
