@@ -353,7 +353,7 @@ jobs:
             --output-format XML --output-file restura.cdx.xml
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v3.0.1
         with:
           tag_name: ${{ steps.tag.outputs.actual_tag }}
           name: ${{ steps.tag.outputs.actual_tag }}
