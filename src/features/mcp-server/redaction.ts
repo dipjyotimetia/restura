@@ -15,7 +15,7 @@
  */
 
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from '@/lib/shared/auth-secret-fields';
-import { redactSecret, isSecretHandle } from '@/lib/shared/secretRef';
+import { isSecretHandle, redactSecret } from '@/lib/shared/secretRef';
 
 /**
  * Canonical secret-bearing auth field names, lowercased for case-insensitive

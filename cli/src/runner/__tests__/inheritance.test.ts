@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadCollection, type LoadedRequest } from '../collectionLoader';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { AuthConfig } from '@/types';
+import { type LoadedRequest, loadCollection } from '../collectionLoader';
 
 /**
  * A bundled OpenCollection exercising Postman-style inheritance:

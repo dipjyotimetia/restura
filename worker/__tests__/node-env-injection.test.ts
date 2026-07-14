@@ -1,6 +1,7 @@
 // @vitest-environment node
-import { describe, it, expect } from 'vitest';
+
 import { Hono } from 'hono';
+import { describe, expect, it } from 'vitest';
 
 // Reproduce the env-injection middleware from worker/node-entry.ts inline
 // (its `serve()` side effects make the file unimportable in unit tests).
@@ -9,7 +10,7 @@ import { Hono } from 'hono';
 // reference it passes through; if we reassign, those refs are orphaned and
 // every WebSocket upgrade silently fails.
 function buildEnvInjectionMiddleware() {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
   return async (c: any, next: () => Promise<void>) => {
     const additions = {
       ENVIRONMENT: 'production',
@@ -26,7 +27,7 @@ function buildEnvInjectionMiddleware() {
 
 describe('node-entry env-injection middleware (Fix #1)', () => {
   it('preserves pre-existing c.env properties when adding process.env values', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
     const app = new Hono<any>();
     app.use('*', buildEnvInjectionMiddleware());
     app.get('/echo', (c) => c.json({ env: c.env }));
@@ -39,7 +40,7 @@ describe('node-entry env-injection middleware (Fix #1)', () => {
     };
     const res = await app.request('/echo', { method: 'GET' }, envIn);
     expect(res.status).toBe(200);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
     const body = (await res.json()) as { env: any };
 
     // The pre-existing keys must still be present after the middleware ran
@@ -63,14 +64,14 @@ describe('node-entry env-injection middleware (Fix #1)', () => {
   });
 
   it('initialises c.env when none was provided', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
     const app = new Hono<any>();
     app.use('*', buildEnvInjectionMiddleware());
     app.get('/echo', (c) => c.json({ env: c.env }));
 
     const res = await app.request('/echo', { method: 'GET' });
     expect(res.status).toBe(200);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
     const body = (await res.json()) as { env: any };
     expect(body.env.ENVIRONMENT).toBe('production');
   });

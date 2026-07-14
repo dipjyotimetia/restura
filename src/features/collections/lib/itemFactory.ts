@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
-import { uniqueName } from './names';
 import type { Collection, CollectionItem, HttpRequest, Request } from '@/types';
+import { uniqueName } from './names';
 
 /**
  * Factories for new collection-tree nodes created from the Sidebar UI.

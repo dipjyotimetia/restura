@@ -1,5 +1,6 @@
 import { fromBinary } from '@bufbuild/protobuf';
 import { FileDescriptorProtoSchema } from '@bufbuild/protobuf/wkt';
+import type { EnumSchema, FieldSchema, MessageSchema } from '@/types';
 import {
   type DescriptorProto,
   type FieldDescriptorProto,
@@ -7,7 +8,6 @@ import {
   PROTO_FIELD_LABEL_MAP,
   PROTO_FIELD_TYPE_MAP,
 } from './types';
-import type { EnumSchema, FieldSchema, MessageSchema } from '@/types';
 
 const MAX_FILE_DESCRIPTOR_CACHE = 100;
 const MAX_MESSAGE_SCHEMA_CACHE = 500;

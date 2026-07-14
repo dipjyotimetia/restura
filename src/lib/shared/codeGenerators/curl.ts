@@ -1,5 +1,5 @@
-import { escapeShell, type GenerateOptions } from './types';
 import { unwrapSecret } from '@/lib/shared/secretRef';
+import { escapeShell, type GenerateOptions } from './types';
 
 export const generateCurl = (options: GenerateOptions): string => {
   const { request, resolvedUrl, resolvedHeaders, resolvedParams, settings } = options;

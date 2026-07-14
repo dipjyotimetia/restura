@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { useAiChatStore, type Conversation } from '@/features/ai/store';
+import { type Conversation, useAiChatStore } from '@/features/ai/store';
 import { getElectronAPI } from '@/lib/shared/platform';
 
 // The chat panel talks to the cloud providers plus a local OpenAI-compatible

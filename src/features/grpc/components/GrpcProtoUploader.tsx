@@ -1,10 +1,10 @@
 'use client';
 
-import { Upload, FileText } from 'lucide-react';
+import { FileText, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { parseProtoFile } from '@/features/grpc/lib/grpcClient';
-import type { ProtoFileInfo, GrpcMethodType } from '@/types';
+import type { GrpcMethodType, ProtoFileInfo } from '@/types';
 
 interface GrpcProtoUploaderProps {
   protoFile: File | null;

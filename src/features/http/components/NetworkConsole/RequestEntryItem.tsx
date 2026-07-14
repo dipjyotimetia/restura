@@ -31,10 +31,10 @@ import {
 import { cn } from '@/lib/shared/utils';
 import { useActiveTab } from '@/store/selectors';
 import {
+  type ConsoleEntry,
   entryToCurl,
   entryToHttpRequest,
   useConsoleStore,
-  type ConsoleEntry,
 } from '@/store/useConsoleStore';
 import { useRequestStore } from '@/store/useRequestStore';
 

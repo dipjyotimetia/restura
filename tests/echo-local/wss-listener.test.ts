@@ -1,7 +1,7 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import { startMockWsServer, type MockWsServerHandle } from '../../e2e/mocks/wsServer';
 import { getSelfSignedCert } from '../../e2e/mocks/cert';
+import { type MockWsServerHandle, startMockWsServer } from '../../e2e/mocks/wsServer';
 
 // Proves the wss:// listener echo-local adds actually serves WebSocket over TLS.
 // The packaged desktop CSP allows wss: but not ws:, so this is the only WS the

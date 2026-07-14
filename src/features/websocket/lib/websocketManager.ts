@@ -1,5 +1,5 @@
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
-import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 
 /**
  * Remove all `ws:{open,message,error,close}:<connectionId>` IPC listeners.

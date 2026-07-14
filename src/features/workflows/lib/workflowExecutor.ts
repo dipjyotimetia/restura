@@ -1,21 +1,21 @@
 import { v4 as uuidv4 } from 'uuid';
-import { mirrorStepToConsole } from './consoleMirror';
-import { executeWithRetry } from './retryHelpers';
-import { evalScriptBoolean } from './scriptHelpers';
-import { extractVariables } from './variableExtractor';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
 import { protocolRegistry } from '@/features/registry/registry';
 import type {
-  Workflow,
-  WorkflowRequest,
-  WorkflowExecution,
-  WorkflowExecutionStep,
-  Request,
-  Response,
   AppSettings,
   AuthConfig,
+  Request,
+  Response,
+  Workflow,
+  WorkflowExecution,
+  WorkflowExecutionStep,
+  WorkflowRequest,
 } from '@/types';
+import { mirrorStepToConsole } from './consoleMirror';
+import { executeWithRetry } from './retryHelpers';
+import { evalScriptBoolean } from './scriptHelpers';
+import { extractVariables } from './variableExtractor';
 
 export interface WorkflowExecutorOptions {
   workflow: Workflow;

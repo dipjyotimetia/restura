@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { socketioManager } from '@/features/socketio/lib/socketioManager';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
-import { useConsoleStore, type FrameDirection } from '@/store/useConsoleStore';
+import { type FrameDirection, useConsoleStore } from '@/store/useConsoleStore';
 import type { KeyValue } from '@/types';
 
 export type SocketIOStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';

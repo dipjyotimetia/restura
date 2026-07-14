@@ -6,7 +6,13 @@ export interface FormField {
 }
 
 export type ProxyBodyType =
-  'none' | 'json' | 'text' | 'raw' | 'form-urlencoded' | 'form-data' | 'binary';
+  | 'none'
+  | 'json'
+  | 'text'
+  | 'raw'
+  | 'form-urlencoded'
+  | 'form-data'
+  | 'binary';
 
 export interface BuildRequestBodyArgs {
   bodyType?: ProxyBodyType;

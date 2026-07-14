@@ -6,7 +6,7 @@
 
 import type { PersistStorage, StorageValue } from 'zustand/middleware';
 import { db } from './database';
-import { encryptValue, decryptValue, isEncrypted } from './encryption';
+import { decryptValue, encryptValue, isEncrypted } from './encryption';
 import { getKeyProvider, type KeyProvider } from './keyProvider';
 import { getElectronAPI, isElectron } from './platform';
 

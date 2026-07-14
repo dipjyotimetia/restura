@@ -23,6 +23,7 @@
  */
 
 import { z } from 'zod';
+import type { Collection, CollectionItem, Environment, HistoryItem, HttpRequest } from '@/types';
 import {
   canExecute,
   canRead,
@@ -31,7 +32,6 @@ import {
   type McpServerConsent,
 } from './consent';
 import { redactEnvironmentVariables, redactSecretsDeep, redactUrlCredentials } from './redaction';
-import type { Collection, CollectionItem, Environment, HistoryItem, HttpRequest } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Context — read-only data injected by the host
@@ -121,7 +121,8 @@ export type ToolName = keyof typeof TOOLS;
 // ---------------------------------------------------------------------------
 
 export type ToolResult<T = unknown> =
-  { ok: true; data: T } | { ok: false; error: string; details?: unknown };
+  | { ok: true; data: T }
+  | { ok: false; error: string; details?: unknown };
 
 // ---------------------------------------------------------------------------
 // Dispatch — pure function

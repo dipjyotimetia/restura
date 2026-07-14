@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { useWebSocketStore } from '../useWebSocketStore';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
+import { useWebSocketStore } from '../useWebSocketStore';
 
 describe('useWebSocketStore', () => {
   beforeEach(() => {

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import app from '../index';
 
 const CONNECT_HEADERS = {
@@ -109,21 +109,21 @@ async function connectReflect(request: unknown): Promise<Array<{ flags: number; 
 }
 
 describe('reflection JSON shim (web Worker proxy path)', () => {
-  it.each([REFLECTION_V1_PATH, REFLECTION_V1ALPHA_PATH])(
-    'answers listServices as plain JSON at %s',
-    async (path) => {
-      const res = await app.request(`http://localhost${path}`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ listServices: '' }),
-      });
-      expect(res.status).toBe(200);
-      const data = (await res.json()) as {
-        listServicesResponse: { service: Array<{ name: string }> };
-      };
-      expect(data.listServicesResponse.service).toEqual([{ name: 'echo.v1.EchoService' }]);
-    }
-  );
+  it.each([
+    REFLECTION_V1_PATH,
+    REFLECTION_V1ALPHA_PATH,
+  ])('answers listServices as plain JSON at %s', async (path) => {
+    const res = await app.request(`http://localhost${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ listServices: '' }),
+    });
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as {
+      listServicesResponse: { service: Array<{ name: string }> };
+    };
+    expect(data.listServicesResponse.service).toEqual([{ name: 'echo.v1.EchoService' }]);
+  });
 
   it('answers fileContainingSymbol with base64 descriptor bytes', async () => {
     const res = await app.request(`http://localhost${REFLECTION_V1_PATH}`, {

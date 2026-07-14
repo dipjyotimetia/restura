@@ -12,19 +12,19 @@
 //  - SSRF IP-pinning is a `nodeOptions.lookup` that returns the pre-validated
 //    IP; the authority/SNI stay on the hostname so cert validation is unchanged.
 import type { DescMethod, Registry } from '@bufbuild/protobuf';
-import { createClient, ConnectError, type Transport } from '@connectrpc/connect';
+import { ConnectError, createClient, type Transport } from '@connectrpc/connect';
 import {
-  createGrpcTransport,
-  createConnectTransport,
   compressionGzip,
+  createConnectTransport,
+  createGrpcTransport,
 } from '@connectrpc/connect-node';
 import {
-  registryFromDescriptors,
-  registryFromProtoText,
-  resolveMethod,
   callKindOf,
   inputFromJson,
   outputToJson,
+  registryFromDescriptors,
+  registryFromProtoText,
+  resolveMethod,
 } from '@shared/protocol/grpc-registry';
 import { GrpcStatusCodeName } from '@shared/protocol/grpc-status';
 import { flattenHeaders } from '@shared/protocol/header-utils';

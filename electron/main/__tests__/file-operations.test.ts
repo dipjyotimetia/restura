@@ -45,9 +45,9 @@ vi.mock('electron', () => {
   };
 });
 
-import { app } from 'electron';
 import { mkdir, rm, symlink } from 'node:fs/promises';
-import { isPathSafe, isPathRealSafe } from '../storage/file-operations';
+import { app } from 'electron';
+import { isPathRealSafe, isPathSafe } from '../storage/file-operations';
 
 describe('isPathSafe', () => {
   it('path inside userData returns true', () => {

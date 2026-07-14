@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import app from '../index';
 import { resetRateLimiter } from '../middleware/rateLimiter';
 

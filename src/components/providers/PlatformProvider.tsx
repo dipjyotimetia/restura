@@ -1,6 +1,7 @@
 'use client';
 
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import type React from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { isElectron as checkIsElectron, getPlatform } from '@/lib/shared/platform';
 
 interface PlatformContextType {
@@ -99,6 +100,5 @@ export function usePlatformEffect(
     if (platform === 'web' && !isElectron) {
       return effect();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReady, isElectron, platform, ...deps]);
 }

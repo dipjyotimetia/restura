@@ -1,8 +1,16 @@
-import * as React from 'react';
+import type * as React from 'react';
 import { cn } from '@/lib/shared/utils';
 
 export type ProtocolName =
-  'HTTP' | 'GRPC' | 'WS' | 'GQL' | 'MCP' | 'SSE' | 'KAFKA' | 'MQTT' | 'SOCKETIO';
+  | 'HTTP'
+  | 'GRPC'
+  | 'WS'
+  | 'GQL'
+  | 'MCP'
+  | 'SSE'
+  | 'KAFKA'
+  | 'MQTT'
+  | 'SOCKETIO';
 
 // Each protocol maps to a Spatial Depth color token (defined in globals.css
 // @theme). Single source of truth — the chip never hardcodes a color.

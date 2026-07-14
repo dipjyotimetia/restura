@@ -1,24 +1,24 @@
-import { Copy, Check, Zap, Rows, Columns, Search, Download, Braces, FileDown } from 'lucide-react';
+import { Braces, Check, Columns, Copy, Download, FileDown, Rows, Search, Zap } from 'lucide-react';
 import type * as Monaco from 'monaco-editor';
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { ImagePreview } from '@/components/shared/ImagePreview';
 import { ResponseEmptyState } from '@/components/shared/ResponseEmptyState';
 import { StreamingResponseViewer } from '@/components/shared/StreamingResponseViewer';
 import { VisualizerFrame } from '@/components/shared/VisualizerFrame';
-import { Scale, Stagger, StaggerItem, AnimatePresence, motion } from '@/components/ui/motion';
+import { AnimatePresence, motion, Scale, Stagger, StaggerItem } from '@/components/ui/motion';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   Floater,
-  StatusPill,
+  Kbd,
+  Segmented,
   Stat,
+  StatusPill,
+  type SubTab,
   SubTabBar,
   SubTabPanel,
-  Segmented,
-  Kbd,
   WaterfallBar,
-  type SubTab,
 } from '@/components/ui/spatial';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AiActionsMenu } from '@/features/ai/components/AiActionsMenu';
@@ -216,7 +216,6 @@ function ResponseViewer() {
   useEffect(() => {
     setBodyFormat(isCsv ? 'table' : 'pretty');
     setShowJsonPath(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentResponse?.id]);
 
   // Pretty-printing a large JSON body can stall the main thread, so only

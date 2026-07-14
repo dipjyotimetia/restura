@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { extractRequestSpec, extractGraphqlSpec } from '../requestExtractor';
+import { describe, expect, it } from 'vitest';
+import { extractGraphqlSpec, extractRequestSpec } from '../requestExtractor';
 
 describe('extractRequestSpec', () => {
   it('parses a bare JSON object', () => {

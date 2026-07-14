@@ -3,8 +3,9 @@
  * background service worker. Validated with Zod so a malformed message from a
  * compromised page context can't drive the privileged debugger surface.
  */
-import { z } from 'zod';
+
 import { captureSessionSchema } from '@shared/capture/schema';
+import { z } from 'zod';
 
 export const requestSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('capture:start'), tabId: z.number().int() }),

@@ -1,4 +1,4 @@
-import { Send, Trash2, Plug, PlugZap, RefreshCw, Search, Pause, Play } from 'lucide-react';
+import { Pause, Play, Plug, PlugZap, RefreshCw, Search, Send, Trash2 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
@@ -15,21 +15,21 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  CodeEditorFrame,
+  ConnectionBadge,
+  type ConnectionTone,
   Floater,
   ProtoChip,
   Stat,
   VariableText,
-  CodeEditorFrame,
-  ConnectionBadge,
-  type ConnectionTone,
 } from '@/components/ui/spatial';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { mqttManager, mqttSecretKey } from '@/features/mqtt/lib/mqttManager';
-import { useMqttStore, MQTT_SECRET_SENTINEL } from '@/features/mqtt/store/useMqttStore';
 import type { MqttMessage, MqttProtocolVersion, MqttQoS } from '@/features/mqtt/store/useMqttStore';
-import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import { MQTT_SECRET_SENTINEL, useMqttStore } from '@/features/mqtt/store/useMqttStore';
+import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn } from '@/lib/shared/utils';
@@ -84,7 +84,6 @@ const MessageRow = memo(function MessageRow({
 }) {
   return (
     <li
-      // eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- selectable grid row; li carries the grid layout
       role="button"
       tabIndex={0}
       onClick={() => onSelect(m.id)}
@@ -244,7 +243,6 @@ function MqttClient() {
 
   const filteredMessages = useMemo(
     () => (connectionId ? getFilteredMessages(connectionId) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [connectionId, connectionMessages, messageFilter, searchQuery]
   );
 
@@ -260,7 +258,6 @@ function MqttClient() {
   const [pausedSnapshot, setPausedSnapshot] = useState<MqttMessage[] | null>(null);
   useEffect(() => {
     setPausedSnapshot(paused ? filteredMessages : null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paused]);
   const visibleMessages = paused && pausedSnapshot ? pausedSnapshot : filteredMessages;
 

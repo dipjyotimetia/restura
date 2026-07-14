@@ -1,7 +1,13 @@
 export type RunKind = 'eval' | 'agent-suite';
 
 export type RunStatus =
-  'queued' | 'running' | 'cancelling' | 'passed' | 'failed' | 'error' | 'cancelled';
+  | 'queued'
+  | 'running'
+  | 'cancelling'
+  | 'passed'
+  | 'failed'
+  | 'error'
+  | 'cancelled';
 
 export interface RunFailure {
   message: string;

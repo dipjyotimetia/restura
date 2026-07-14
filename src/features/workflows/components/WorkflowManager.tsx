@@ -1,19 +1,18 @@
 'use client';
 
 import {
-  Plus,
-  MoreVertical,
-  Play,
-  Pencil,
-  Trash2,
   Download,
-  Upload,
   GitBranch,
+  MoreVertical,
+  Pencil,
+  Play,
+  Plus,
+  Trash2,
+  Upload,
   Workflow as WorkflowIcon,
 } from 'lucide-react';
-import { useRef, useState, useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { exportWorkflow, parseWorkflowImport } from '../lib/workflowIO';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,9 +27,9 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from '@/components/ui/dialog';
 import {
   DropdownMenu,
@@ -42,6 +41,7 @@ import { Input } from '@/components/ui/input';
 import { isNameTaken, uniqueName } from '@/features/collections/lib/names';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import type { Workflow } from '@/types';
+import { exportWorkflow, parseWorkflowImport } from '../lib/workflowIO';
 
 interface WorkflowManagerProps {
   collectionId: string;
@@ -303,7 +303,6 @@ export function WorkflowManager({
               value={workflowName}
               onChange={(e) => setWorkflowName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-              // eslint-disable-next-line jsx-a11y/no-autofocus -- intentional initial focus on dialog open
               autoFocus
             />
           </div>
@@ -330,7 +329,6 @@ export function WorkflowManager({
               value={workflowName}
               onChange={(e) => setWorkflowName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleUpdate()}
-              // eslint-disable-next-line jsx-a11y/no-autofocus -- intentional initial focus on dialog open
               autoFocus
             />
           </div>

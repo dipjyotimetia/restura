@@ -1,8 +1,8 @@
-import { afterEach, describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import CodeGeneratorDialog from '../CodeGeneratorDialog';
+import { afterEach, describe, expect, it } from 'vitest';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { HttpRequest, RequestSettings } from '@/types';
+import CodeGeneratorDialog from '../CodeGeneratorDialog';
 
 const originalSettings = useSettingsStore.getState().settings;
 

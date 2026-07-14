@@ -17,11 +17,11 @@
  */
 
 import type { PersistOptions, PersistStorage } from 'zustand/middleware';
+import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { quarantineState } from './quarantine';
 import { runMigrations } from './runMigrations';
 import { migrationTelemetry } from './telemetry';
 import type { MigrationDescriptor } from './types';
-import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 
 export function createPersistedStore<T>(descriptor: MigrationDescriptor<T>): PersistOptions<T> {
   // The adapter is a generic encrypted-blob store typed `PersistStorage<unknown>`;

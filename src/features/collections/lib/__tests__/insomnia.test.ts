@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { importInsomniaCollection, getInsomniaVersion } from '../importers/insomnia';
-import { validateImportedCollection } from '../importers/validateImported';
+import { describe, expect, it } from 'vitest';
 import type { InsomniaCollection, InsomniaV5Document } from '@/types';
+import { getInsomniaVersion, importInsomniaCollection } from '../importers/insomnia';
+import { validateImportedCollection } from '../importers/validateImported';
 
 /**
  * Hand-authored Insomnia v4 fixtures inline. JSON-on-disk fixtures land in a

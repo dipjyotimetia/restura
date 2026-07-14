@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SseRequest } from '@/types';
 
 // The DAG sseSubscribe path opens its stream through the shared proxy transport

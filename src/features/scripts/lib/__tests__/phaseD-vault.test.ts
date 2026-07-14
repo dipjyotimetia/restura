@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
-import ScriptExecutor from '../scriptExecutor';
+import { describe, expect, it, vi } from 'vitest';
 import type { PmVaultAdapter } from '../scriptExecutor';
+import ScriptExecutor from '../scriptExecutor';
 
 /**
  * Phase D — pm.vault binding contract.

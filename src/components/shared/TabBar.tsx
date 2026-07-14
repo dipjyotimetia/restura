@@ -1,6 +1,5 @@
 import { Plus, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { SaveToCollectionDialog } from './SaveToCollectionDialog';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -24,8 +23,9 @@ import {
   DEFAULT_REQUEST_URLS,
   useRequestStore,
 } from '@/store/useRequestStore';
-import { isConnectionMode } from '@/types';
 import type { RequestMode, TabModeOverride } from '@/types';
+import { isConnectionMode } from '@/types';
+import { SaveToCollectionDialog } from './SaveToCollectionDialog';
 
 type NewRequestMode = RequestMode;
 
@@ -253,7 +253,6 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                         aria-label="Rename request"
                       />
                     ) : (
-                      // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- double-click rename shortcut on the label; the tab button is the primary control
                       <span
                         className="truncate font-sans text-sp-12"
                         style={{ maxWidth: 130 }}

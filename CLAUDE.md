@@ -27,10 +27,10 @@ npm run build                  # Production build (SPA + Worker bundle)
 npm run preview                # Preview production build
 npm run type-check             # TypeScript strict mode — renderer only (excludes worker, electron/main, cli)
 npm run type-check:all         # Full type-check across all tsconfigs — what CI runs
-npm run lint                   # ESLint over src/ shared/ electron/main/ worker/ echo/ echo-local/ cli/ tests/ scripts/
-npm run lint:fix               # ESLint --fix
-npm run format                 # Prettier write
-npm run format:check           # Prettier check
+npm run lint                   # Biome lint over src/ shared/ electron/main/ worker/ echo/ echo-local/ cli/ tests/ scripts/
+npm run lint:fix               # Biome lint --write
+npm run format                 # Biome format (write)
+npm run format:check           # Biome format check
 
 # Worker / Node API (shared Hono app — Cloudflare + self-host)
 npx tsc --noEmit -p worker/tsconfig.json    # Type-check Worker independently

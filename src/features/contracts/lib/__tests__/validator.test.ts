@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { pickMediaType, pickResponseKey, validateResponse } from '../validator';
+import { describe, expect, it } from 'vitest';
 import type { AnyOpenAPISpec, OperationMatch } from '../operationMatcher';
+import { pickMediaType, pickResponseKey, validateResponse } from '../validator';
 
 // ---------------------------------------------------------------------------
 // Pure helpers

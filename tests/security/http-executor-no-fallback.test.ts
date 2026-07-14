@@ -15,8 +15,8 @@
  * raw request to the upstream from the browser.
  */
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import type { HttpRequest, AppSettings } from '@/types';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AppSettings, HttpRequest } from '@/types';
 
 vi.mock('axios', async () => {
   const fn = vi.fn(async (_config: unknown) => ({

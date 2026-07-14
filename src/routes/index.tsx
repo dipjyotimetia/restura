@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   BugReportDialog,
-  type BugReportSubmission,
   type BugReportScreenshot,
+  type BugReportSubmission,
 } from '@/components/shared/BugReportDialog';
 import ClientHydration from '@/components/shared/ClientHydration';
 import CommandPalette from '@/components/shared/CommandPalette';
@@ -26,9 +26,9 @@ import RequestBuilder from '@/features/http/components/RequestBuilder';
 import { useKeybindings } from '@/hooks/useKeybindings';
 import { useStoreHydration } from '@/hooks/useStoreHydration';
 import {
+  type BugReportDiagnostics,
   buildBugReportMarkdown,
   buildGitHubBugReportUrl,
-  type BugReportDiagnostics,
 } from '@/lib/shared/bug-report';
 import {
   captureBugReportScreenshot,
@@ -41,7 +41,7 @@ import { isElectron, onMenuEvent, openExternalUrl } from '@/lib/shared/platform'
 import { useActiveTab } from '@/store/selectors';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import type { RequestMode, ActivePanel } from '@/types';
+import type { ActivePanel, RequestMode } from '@/types';
 import { isConnectionMode } from '@/types';
 
 const ChatPanel = lazyComponent(() => import('@/features/ai/components/ChatPanel'));

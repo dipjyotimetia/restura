@@ -1,10 +1,10 @@
-@import '@fontsource-variable/geist/index.css';
-@import '@fontsource/jetbrains-mono/400.css';
-@import '@fontsource/jetbrains-mono/500.css';
-@import '@fontsource/jetbrains-mono/600.css';
-@import '@fontsource/jetbrains-mono/700.css';
+@import "@fontsource-variable/geist/index.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/600.css";
+@import "@fontsource/jetbrains-mono/700.css";
 
-@import 'tailwindcss';
+@import "tailwindcss";
 
 /* Tailwind v4 CSS-first theme (replaces tailwind.config.mts). darkMode:'class'
    is re-expressed as the dark custom variant so next-themes' .dark class works. */
@@ -13,8 +13,8 @@
 @theme {
   /* Fonts */
   --font-sans:
-    'Geist Variable', Geist, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
-  --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, ui-monospace, monospace;
+    "Geist Variable", Geist, -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", Menlo, ui-monospace, monospace;
 
   /* Legacy shadcn color utilities (bg-primary, text-muted-foreground, border-border,
      bg-surface-*, …) now ALIAS the canonical Spatial Depth tokens — single source
@@ -449,17 +449,12 @@
   body {
     background: var(--sp-bg-glow);
     color: var(--sp-text);
-    font-family:
-      'Geist Variable',
-      'Geist',
-      -apple-system,
-      BlinkMacSystemFont,
-      sans-serif;
+    font-family: "Geist Variable", "Geist", -apple-system, BlinkMacSystemFont, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     font-feature-settings:
-      'liga' 1,
-      'calt' 1;
+      "liga" 1,
+      "calt" 1;
   }
 }
 

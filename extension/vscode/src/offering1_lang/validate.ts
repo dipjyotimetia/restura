@@ -1,8 +1,8 @@
 import type { ZodType } from 'zod';
 import {
-  httpRequestSchema,
-  grpcRequestSchema,
   graphqlRequestSchema,
+  grpcRequestSchema,
+  httpRequestSchema,
   websocketRequestSchema,
 } from '../../../../src/lib/opencollection/schemas';
 import { escapeRegExp } from '../../../../src/lib/shared/escapeRegExp';

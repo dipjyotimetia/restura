@@ -1,8 +1,8 @@
 import logUpdate from 'log-update';
 import type { LoadedRequest } from '../runner/collectionLoader.js';
-import { color, interactive, hideCursor, showCursor } from '../ui/colors.js';
-import { methodOf, formatRequestLine, formatSummaryLine } from './format.js';
-import type { Reporter, RunResult, RequestRunResult, RunMeta } from './types.js';
+import { color, hideCursor, interactive, showCursor } from '../ui/colors.js';
+import { formatRequestLine, formatSummaryLine, methodOf } from './format.js';
+import type { Reporter, RequestRunResult, RunMeta, RunResult } from './types.js';
 
 /**
  * Live terminal dashboard for interactive runs — a bordered box that re-renders

@@ -1,12 +1,12 @@
-export { kafkaProtocol } from './protocol';
-export { useKafkaStore } from './store/useKafkaStore';
 export { kafkaManager } from './lib/kafkaManager';
+export { kafkaProtocol } from './protocol';
 export type {
+  KafkaAcks,
   KafkaAuth,
+  KafkaCompression,
   KafkaConnection,
   KafkaMessage,
-  KafkaSecurityProtocol,
   KafkaSaslMechanism,
-  KafkaCompression,
-  KafkaAcks,
+  KafkaSecurityProtocol,
 } from './store/useKafkaStore';
+export { useKafkaStore } from './store/useKafkaStore';

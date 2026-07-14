@@ -1,5 +1,5 @@
 import { httpLikeStatus } from '@/lib/shared/console-format';
-import { entryToCurl, type ConsoleEntry } from '@/store/useConsoleStore';
+import { type ConsoleEntry, entryToCurl } from '@/store/useConsoleStore';
 
 /**
  * Minimal HAR 1.2 shape. We emit just enough for the standard tools

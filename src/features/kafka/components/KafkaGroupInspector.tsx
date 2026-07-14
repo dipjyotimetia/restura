@@ -1,11 +1,5 @@
-import { RefreshCw, X, Trash2 } from 'lucide-react';
+import { RefreshCw, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import type {
-  KafkaGroupDescription,
-  KafkaPartitionLag,
-} from '../../../../electron/types/electron-api';
-import { partitionColor } from './shared';
-import { useInspectorFetch } from './useInspectorFetch';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +13,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
+import type {
+  KafkaGroupDescription,
+  KafkaPartitionLag,
+} from '../../../../electron/types/electron-api';
+import { partitionColor } from './shared';
+import { useInspectorFetch } from './useInspectorFetch';
 
 type ResetTarget = 'earliest' | 'latest' | 'specific';
 

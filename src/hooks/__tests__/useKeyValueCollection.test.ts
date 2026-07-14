@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
-import { createKeyValueItem, useKeyValueCollection } from '../useKeyValueCollection';
+import { act, renderHook } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import type { KeyValue } from '@/types';
+import { createKeyValueItem, useKeyValueCollection } from '../useKeyValueCollection';
 
 describe('createKeyValueItem', () => {
   it('creates an enabled item with a fresh id and empty key/value', () => {

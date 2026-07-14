@@ -21,13 +21,13 @@
 import {
   create,
   createFileRegistry,
-  fromBinary,
-  fromJson,
-  toJson,
   type DescMethod,
   type DescService,
+  fromBinary,
+  fromJson,
   type JsonValue,
   type Registry,
+  toJson,
 } from '@bufbuild/protobuf';
 import { FileDescriptorProtoSchema, FileDescriptorSetSchema } from '@bufbuild/protobuf/wkt';
 import * as protobuf from 'protobufjs';
@@ -35,7 +35,10 @@ import descriptorExt from 'protobufjs/ext/descriptor';
 
 /** Restura's call-type discriminator (matches `GrpcRequest.methodType`). */
 export type GrpcCallKind =
-  'unary' | 'server-streaming' | 'client-streaming' | 'bidirectional-streaming';
+  | 'unary'
+  | 'server-streaming'
+  | 'client-streaming'
+  | 'bidirectional-streaming';
 
 /** Minimal protobufjs descriptor shape we walk to fix `json_name` + `type_name`. */
 interface FieldDescriptorLike {

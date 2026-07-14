@@ -1,14 +1,14 @@
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from '@/lib/shared/auth-secret-fields';
 import {
-  redactSecretKeyValues,
   countSecretKeyValues,
+  redactSecretKeyValues,
   type SecretableRow,
 } from '@/lib/shared/keyvalue-secret-redaction';
 import {
   isSecretHandle,
   redactSecret,
-  unwrapSecret,
   type SecretValue,
+  unwrapSecret,
 } from '@/lib/shared/secretRef';
 import type { AuthConfig, Collection, CollectionItem } from '@/types';
 

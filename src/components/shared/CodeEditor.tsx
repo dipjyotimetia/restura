@@ -3,10 +3,10 @@
 import '@/lib/shared/monaco-setup';
 import type { OnMount } from '@monaco-editor/react';
 import Editor from '@monaco-editor/react';
-import { Copy, Check } from 'lucide-react';
+import { Check, Copy } from 'lucide-react';
 import type * as Monaco from 'monaco-editor';
 import { useTheme } from 'next-themes';
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { registerGraphQLLanguage } from '@/features/graphql/lib/monacoGraphql';

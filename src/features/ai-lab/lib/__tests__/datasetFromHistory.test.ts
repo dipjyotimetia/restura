@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { capturedRequestToCase, type CapturedRequest } from '../datasetFromHistory';
+import { describe, expect, it } from 'vitest';
 import type { HttpRequest, Response as HttpResponse } from '@/types/http';
+import { type CapturedRequest, capturedRequestToCase } from '../datasetFromHistory';
 
 function req(over: Partial<HttpRequest> = {}): HttpRequest {
   return {

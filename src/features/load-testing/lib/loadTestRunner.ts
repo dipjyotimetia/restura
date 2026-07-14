@@ -11,7 +11,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
-import { useConsoleStore, createProtocolConsoleEntry } from '@/store/useConsoleStore';
+import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { HttpRequest } from '@/types';

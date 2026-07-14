@@ -10,11 +10,12 @@ import type {
 } from '@shared/protocol/ai/judge';
 import type { QuickJSContext, QuickJSHandle, QuickJSRuntime } from 'quickjs-emscripten';
 import { getQuickJS } from 'quickjs-emscripten';
-import type { PmCookieAdapter, PmCookieRecord } from './pmCookieAdapter';
-import { PM_EXPECT_BOOTSTRAP } from './pmExpect';
-import { loadSandboxLibraries, buildRequireShimSource } from './sandboxLibraries';
 // ScriptResult is defined once in @/types; re-exported here for existing consumers.
 import type { ScriptResult } from '@/types';
+import type { PmCookieAdapter, PmCookieRecord } from './pmCookieAdapter';
+import { PM_EXPECT_BOOTSTRAP } from './pmExpect';
+import { buildRequireShimSource, loadSandboxLibraries } from './sandboxLibraries';
+
 export type { PmCookieAdapter, PmCookieRecord, ScriptResult };
 
 export interface PmRequestInfo {

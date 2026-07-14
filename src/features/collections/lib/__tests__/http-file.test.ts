@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { importHttpFile } from '../importers/http-file';
+import { describe, expect, it } from 'vitest';
 import type { CollectionItem, HttpRequest } from '@/types';
+import { importHttpFile } from '../importers/http-file';
 
 function asHttpRequest(r: unknown): HttpRequest {
   return r as HttpRequest;

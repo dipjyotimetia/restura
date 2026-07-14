@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { HttpRequest, OpenAPIDocument } from '@/types';
 import { importOpenAPICollection } from '../importers';
-import type { OpenAPIDocument, HttpRequest } from '@/types';
 
 // Helper function to safely cast request to HttpRequest
 function asHttpRequest(request: unknown): HttpRequest {

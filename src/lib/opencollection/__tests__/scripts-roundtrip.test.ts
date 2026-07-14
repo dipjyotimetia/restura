@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { parseOpenCollectionYAML, serializeOpenCollectionYAML } from '../serializer';
-import { ocToInternal, getAndResetUnrecognizedScripts } from '../to-internal';
-import { internalToOC } from '../from-internal';
+import { describe, expect, it } from 'vitest';
 import type { Collection } from '@/types';
+import { internalToOC } from '../from-internal';
+import { parseOpenCollectionYAML, serializeOpenCollectionYAML } from '../serializer';
+import { getAndResetUnrecognizedScripts, ocToInternal } from '../to-internal';
 
 /**
  * Collection-level and folder-level pre-request / test scripts round-trip

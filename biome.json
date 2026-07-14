@@ -1,0 +1,91 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "files": {
+    "includes": [
+      "**",
+      "!node_modules/**",
+      "!.wrangler/**",
+      "!dist/**",
+      "!build/**",
+      "!coverage/**",
+      "!playwright-report/**",
+      "!test-results/**",
+      "!electron/dist/**",
+      "!.next/**",
+      "!.cache/**",
+      "!.turbo/**",
+      "!.husky/_/**",
+      "!.claude/worktrees/**",
+      "!*.tsbuildinfo",
+      "!out/**",
+      "!package-lock.json",
+      "!yarn.lock",
+      "!pnpm-lock.yaml",
+      "!cli/dist/**",
+      "!cli/fixtures/**",
+      "!echo-local/manifest.json",
+      "!echo-local/restura-echo-local.collection.json",
+      "!extension/chrome/dist/**",
+      "!extension/vscode/out/**",
+      "!extension/vscode/*.vsix",
+      "!extension/vscode/.vscode-test/**",
+      "!docs/CAPABILITY_MATRIX.md",
+      "!src/lib/opencollection/spec-types.ts",
+      "!src/features/scripts/lib/sandboxLibraries/bundle.generated.ts",
+      "!scripts/sandbox-shims/**",
+      "!vendor/**",
+      "!tests/fixtures/**",
+      "!extension/vscode/test/fixtures/**",
+      "!*.config.mts",
+      "!.prettierignore",
+      "!.claude/**",
+      "!.astro/**",
+      "!docs-site/.astro/**",
+      "!docs-site/node_modules/**",
+      "!docs-site/dist/**",
+      "!extension/vscode/schemas/**",
+      "!*.mdx",
+      "!*.generated.*"
+    ]
+  },
+  "formatter": {
+    "lineWidth": 100,
+    "indentWidth": 2,
+    "indentStyle": "space",
+    "lineEnding": "lf",
+    "bracketSpacing": true
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "none",
+      "suspicious": {
+        "noExplicitAny": "error",
+        "noControlCharactersInRegex": "off"
+      },
+      "style": {
+        "useImportType": "error"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "semicolons": "always",
+      "trailingCommas": "es5",
+      "arrowParentheses": "always"
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  }
+}

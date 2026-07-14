@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { deleteCollectionWithCleanup } from '../deleteCollection';
 import { useCollectionRunStore } from '@/store/useCollectionRunStore';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useFileCollectionStore } from '@/store/useFileCollectionStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
 import type { Collection, HttpRequest, RequestTab, Workflow } from '@/types';
+import { deleteCollectionWithCleanup } from '../deleteCollection';
 
 const request: HttpRequest = {
   id: 'request',

@@ -3,16 +3,16 @@ import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import { Cookie } from 'tough-cookie';
 import { v4 as uuidv4 } from 'uuid';
 import {
-  applyAuthHeaders,
   applyApiKeyQueryParam,
+  applyAuthHeaders,
   assertHandleSupported,
 } from '@/features/auth/lib/applyAuthHeaders';
 import { refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
 import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
 import { getEffectiveProxy, shouldBypassProxy } from '@/features/http/lib/proxyHelper';
 import {
-  readStreamingResponse,
   type HttpStreamEvent,
+  readStreamingResponse,
 } from '@/features/http/lib/streamingResponseReader';
 import { validateURL } from '@/features/http/lib/urlValidator';
 import { useCookieStore } from '@/features/http/store/useCookieStore';
@@ -25,22 +25,22 @@ import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { makeRendererJudge } from '@/lib/shared/judgeBridge';
 import {
+  type DesktopTransportConfig,
   executeProxiedRequest,
   executeProxiedStreamingRequest,
-  ProxyTransportError,
   type ProxyJsonResponse,
-  type DesktopTransportConfig,
+  ProxyTransportError,
 } from '@/lib/shared/transport';
 import { makeVaultAdapter } from '@/lib/shared/vaultClient';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type {
-  HttpRequest,
   Response as ApiResponse,
-  RequestSettings,
   AppSettings,
-  BodyType as RendererBodyType,
   FormDataItem,
+  HttpRequest,
+  BodyType as RendererBodyType,
+  RequestSettings,
 } from '@/types';
 
 export interface RequestExecutionResult {
@@ -331,15 +331,16 @@ export function buildFormFields(items?: FormDataItem[]): ProxyFormField[] {
   if (!items) return [];
   return items
     .filter((it) => it.enabled && it.key)
-    .map((it): ProxyFormField =>
-      it.type === 'file'
-        ? {
-            name: it.key,
-            value: it.value,
-            filename: it.fileName ?? 'file',
-            contentType: it.contentType ?? 'application/octet-stream',
-          }
-        : { name: it.key, value: it.value }
+    .map(
+      (it): ProxyFormField =>
+        it.type === 'file'
+          ? {
+              name: it.key,
+              value: it.value,
+              filename: it.fileName ?? 'file',
+              contentType: it.contentType ?? 'application/octet-stream',
+            }
+          : { name: it.key, value: it.value }
     );
 }
 

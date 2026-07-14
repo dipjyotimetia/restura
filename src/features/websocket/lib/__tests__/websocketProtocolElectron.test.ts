@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // The web-only native WebSocket path is CSP-blocked (ws:) or SSRF-unguarded
 // (wss:) on Electron — the bug this test guards against regressing.
@@ -12,8 +12,8 @@ vi.mock('@/lib/shared/platform', () => ({
   getElectronAPI: vi.fn(),
 }));
 
-import { websocketProtocol } from '../../protocol';
 import { getElectronAPI } from '@/lib/shared/platform';
+import { websocketProtocol } from '../../protocol';
 
 type Listener = (payload?: unknown) => void;
 

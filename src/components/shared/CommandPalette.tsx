@@ -2,27 +2,27 @@
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
+  Check,
+  Code2,
+  Copy,
+  FileCode2,
+  FolderOpen,
+  Gauge,
+  Globe,
+  Keyboard,
+  type LucideIcon,
+  Moon,
   Search,
   Send,
-  Settings2,
-  Globe,
-  Moon,
-  Sun,
-  Keyboard,
-  Trash2,
-  FolderOpen,
-  Copy,
-  Code2,
-  FileCode2,
-  Gauge,
-  Check,
-  Wifi,
   Server,
-  type LucideIcon,
+  Settings2,
+  Sun,
+  Trash2,
+  Wifi,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
-import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
-import * as React from 'react';
+import type * as React from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Kbd, MethodChip, ProtoChip } from '@/components/ui/spatial';
 import { isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
@@ -34,8 +34,8 @@ import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useUiStore } from '@/store/useUiStore';
-import { isConnectionMode } from '@/types';
 import type { Collection, CollectionItem, RequestType } from '@/types';
+import { isConnectionMode } from '@/types';
 
 interface CommandPaletteProps {
   onOpenEnvironments?: () => void;
@@ -550,7 +550,6 @@ export default function CommandPalette({
           >
             <Search size={15} className="text-sp-dim shrink-0" aria-hidden="true" />
             <input
-              // eslint-disable-next-line jsx-a11y/no-autofocus -- intentional initial focus on palette open
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}

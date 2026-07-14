@@ -1,11 +1,11 @@
-import { compileFromFile } from 'json-schema-to-typescript';
-import { writeFile, mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import { compileFromFile } from 'json-schema-to-typescript';
 
 const SCHEMA = 'vendor/opencollection/v1.0.0/schema.json';
 const OUT = 'src/lib/opencollection/spec-types.ts';
 
-const banner = `/* eslint-disable */
+const banner = `/* biome-ignore-all lint */
 /**
  * THIS FILE IS AUTO-GENERATED. DO NOT EDIT BY HAND.
  * Source: ${SCHEMA}

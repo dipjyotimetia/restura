@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { BugReportDialog } from '../BugReportDialog';
 import type { BugReportDiagnostics } from '@/lib/shared/bug-report';
+import { BugReportDialog } from '../BugReportDialog';
 
 const diagnostics: BugReportDiagnostics = {
   appVersion: '1.4.0',

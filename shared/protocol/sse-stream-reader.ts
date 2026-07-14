@@ -10,7 +10,7 @@
  * frame parser's `feed(Uint8Array): SseEvent[]` API directly, delete this shim.
  */
 
-import { SseParser as SseFrameParser, type SseEvent, type ParsedSseEvent } from './sse-parser';
+import { type ParsedSseEvent, type SseEvent, SseParser as SseFrameParser } from './sse-parser';
 
 export type { ParsedSseEvent };
 

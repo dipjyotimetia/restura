@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { useCookieStore, type CookieItem } from '../useCookieStore';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { type CookieItem, useCookieStore } from '../useCookieStore';
 
 function makeCookie(overrides: Partial<CookieItem> & Pick<CookieItem, 'domain'>): CookieItem {
   return {

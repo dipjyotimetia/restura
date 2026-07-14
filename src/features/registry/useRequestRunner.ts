@@ -16,14 +16,14 @@
  * Protocols that don't have a script pipeline may omit the call entirely.
  */
 import { useCallback, useRef } from 'react';
-import { protocolRegistry } from './registry';
-import type { ProtocolScriptResult } from './types';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { buildActiveRequestValueMap } from '@/lib/shared/activeRequestScopes';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { Request, Response } from '@/types';
+import { protocolRegistry } from './registry';
+import type { ProtocolScriptResult } from './types';
 
 export interface RegistryRunResult {
   response: Response;

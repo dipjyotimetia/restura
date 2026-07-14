@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AgentSuite } from '../types';
 import type { GenerationRequest, GenerationResponse, ProviderAdapter } from '../provider';
 import { ProviderRegistry } from '../provider';
 import { AgentRunner, type AgentTool } from '../runner';
+import type { AgentSuite } from '../types';
 
 const capabilities = {
   inputModalities: ['text'] as const,

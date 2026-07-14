@@ -1,13 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { Collection, Environment, GrpcRequest, HttpRequest } from '@/types';
 import {
+  isValidUrl,
+  validateCollection,
+  validateEnvironment,
+  validatePersistedSettings,
   validateRequest,
   validateRequestUpdate,
-  validateEnvironment,
-  validateCollection,
-  isValidUrl,
-  validatePersistedSettings,
 } from '../store-validators';
-import type { HttpRequest, GrpcRequest, Environment, Collection } from '@/types';
 
 const DEFAULTS = {
   defaultTimeout: 30000,

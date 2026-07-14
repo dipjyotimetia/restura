@@ -10,11 +10,11 @@
  * Static `status` prop overrides the store — useful in tests / Storybook
  * where there's no run state to read.
  */
-import { Loader2, AlertCircle, CheckCircle2, SkipForward } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader2, SkipForward } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useFlowRunStore, type FlowRunNodeStatus } from '../../../store/useFlowRunStore';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/shared/utils';
+import { type FlowRunNodeStatus, useFlowRunStore } from '../../../store/useFlowRunStore';
 
 export type NodeStatus = FlowRunNodeStatus;
 

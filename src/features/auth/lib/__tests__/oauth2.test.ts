@@ -1,11 +1,11 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildAuthorizationUrl,
   exchangeCodeForToken,
-  fetchRefreshToken,
   fetchClientCredentialsToken,
-  tokenExpiresAt,
+  fetchRefreshToken,
   OAuth2TokenError,
+  tokenExpiresAt,
 } from '../oauth2';
 
 const mockTokenResponse = {

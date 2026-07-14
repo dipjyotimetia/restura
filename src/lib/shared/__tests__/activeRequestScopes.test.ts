@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import type { HttpRequest } from '@/types/http';
-import { buildActiveRequestValueMap } from '../activeRequestScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useRequestStore } from '@/store/useRequestStore';
+import type { HttpRequest } from '@/types/http';
+import { buildActiveRequestValueMap } from '../activeRequestScopes';
 
 function makeRequest(overrides: Partial<HttpRequest> = {}): HttpRequest {
   return {

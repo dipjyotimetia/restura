@@ -1,12 +1,12 @@
-import { describe, it, expect } from 'vitest';
-import { buildDesktopTransportConfig } from '../requestExecutor';
+import { describe, expect, it } from 'vitest';
 import type {
-  RequestSettings,
   AppSettings,
-  ProxyConfig,
   ClientCert,
   HostClientCert,
+  ProxyConfig,
+  RequestSettings,
 } from '@/types';
+import { buildDesktopTransportConfig } from '../requestExecutor';
 
 // Minimal fixtures — only the fields buildDesktopTransportConfig reads are set;
 // the rest are cast away (mirrors the partial-object style in proxyHelper.test).

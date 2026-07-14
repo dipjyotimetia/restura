@@ -7,18 +7,18 @@ import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 import type { ProtocolSecretValue } from '@shared/protocol/types';
 import { contextBridge, ipcRenderer } from 'electron';
 import {
-  IPC,
+  CHANNEL_PREFIXES,
   EVENT,
   EVENT_PREFIX,
   eventChannel,
-  CHANNEL_PREFIXES,
+  IPC,
   VALID_EVENT_CHANNELS,
 } from '../shared/channels';
 import type {
+  AiLabDiscoverArgs,
+  AiLabModelSpec,
   ElectronAPI,
   UpdaterStatus,
-  AiLabModelSpec,
-  AiLabDiscoverArgs,
 } from '../types/electron-api';
 import {
   addWrappedListener,

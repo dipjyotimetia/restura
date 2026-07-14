@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 
 describe('createKeyedRateLimiter', () => {

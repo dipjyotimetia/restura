@@ -12,14 +12,23 @@ import {
 } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
+import ResizableLayout from '@/components/shared/ResizableLayout';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Floater, Segmented } from '@/components/ui/spatial';
+import { Textarea } from '@/components/ui/textarea';
+import { downloadBlob } from '@/lib/shared/file-utils';
+import { cn } from '@/lib/shared/utils';
 import {
   caseSummary,
   draftFromDataset,
+  type EditableCase,
+  type EditMode,
   normalizeCase,
   parseCases,
   serializeCases,
-  type EditableCase,
-  type EditMode,
 } from '../lib/datasetDraft';
 import { casesFromCsv, casesFromJsonl, casesToCsv, casesToJsonl } from '../lib/datasetIo';
 import { toggleSetKey } from '../lib/modelOptions';
@@ -31,15 +40,6 @@ import { EmptyState } from './EmptyState';
 import { ImportFromHistoryDialog } from './ImportFromHistoryDialog';
 import { OpenApiGenDialog } from './OpenApiGenDialog';
 import { RedteamGenDialog } from './RedteamGenDialog';
-import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
-import ResizableLayout from '@/components/shared/ResizableLayout';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Floater, Segmented } from '@/components/ui/spatial';
-import { Textarea } from '@/components/ui/textarea';
-import { downloadBlob } from '@/lib/shared/file-utils';
-import { cn } from '@/lib/shared/utils';
 
 // JSON-mode reparse debounce — a keystroke updates the textarea immediately,
 // but re-parsing + resyncing the canonical `cases` array is deferred so a

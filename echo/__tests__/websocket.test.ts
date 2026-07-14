@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { websocketEcho } from '../handlers/websocket';
 
 // Minimal WSContext mock
@@ -32,9 +32,9 @@ function makeArrayBufferEvent(data: ArrayBuffer): MessageEvent {
 describe('websocketEcho', () => {
   it('echoes text messages as JSON', () => {
     const { ws, sent } = makeWsMock();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TODO(maintainability): narrow this test fixture cast (Hono Context)
+    // biome-ignore lint/suspicious/noExplicitAny: TODO(maintainability): narrow this test fixture cast (Hono Context)
     const handler = websocketEcho({} as any);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TODO(maintainability): narrow this test fixture cast (WSContext)
+    // biome-ignore lint/suspicious/noExplicitAny: TODO(maintainability): narrow this test fixture cast (WSContext)
     handler.onMessage!(makeTextEvent('hello world'), ws as any);
     expect(sent).toHaveLength(1);
     const reply = JSON.parse(sent[0] as string);
@@ -47,9 +47,9 @@ describe('websocketEcho', () => {
 
   it('includes parsed field when text is valid JSON', () => {
     const { ws, sent } = makeWsMock();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TODO(maintainability): narrow this test fixture cast (Hono Context)
+    // biome-ignore lint/suspicious/noExplicitAny: TODO(maintainability): narrow this test fixture cast (Hono Context)
     const handler = websocketEcho({} as any);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TODO(maintainability): narrow this test fixture cast (WSContext)
+    // biome-ignore lint/suspicious/noExplicitAny: TODO(maintainability): narrow this test fixture cast (WSContext)
     handler.onMessage!(makeTextEvent('{"key":"value"}'), ws as any);
     const reply = JSON.parse(sent[0] as string);
     expect(reply.parsed).toEqual({ key: 'value' });
@@ -57,10 +57,10 @@ describe('websocketEcho', () => {
 
   it('echoes ArrayBuffer unchanged', () => {
     const { ws, sent } = makeWsMock();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TODO(maintainability): narrow this test fixture cast (Hono Context)
+    // biome-ignore lint/suspicious/noExplicitAny: TODO(maintainability): narrow this test fixture cast (Hono Context)
     const handler = websocketEcho({} as any);
     const buf = new ArrayBuffer(4);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- TODO(maintainability): narrow this test fixture cast (WSContext)
+    // biome-ignore lint/suspicious/noExplicitAny: TODO(maintainability): narrow this test fixture cast (WSContext)
     handler.onMessage!(makeArrayBufferEvent(buf), ws as any);
     expect(sent[0]).toBe(buf);
   });

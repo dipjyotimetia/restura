@@ -10,9 +10,9 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { executeHttpProxy } from '../../shared/protocol/http-proxy';
-import type { RequestSpec, ExecuteResult } from '../../shared/protocol/types';
-import { startUpstream, type Upstream } from './upstream';
+import type { ExecuteResult, RequestSpec } from '../../shared/protocol/types';
 import { FETCHER_TABLE } from './fetchers';
+import { startUpstream, type Upstream } from './upstream';
 
 let upstream: Upstream;
 

@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadCollectionFromFile, loadCollectionFromDir } from '../fs-reader';
-import { saveCollectionToFile, saveCollectionToDir } from '../fs-writer';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { loadCollectionFromDir, loadCollectionFromFile } from '../fs-reader';
+import { saveCollectionToDir, saveCollectionToFile } from '../fs-writer';
 
 describe('OpenCollection roundtrip', () => {
   let tmp: string;

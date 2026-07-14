@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Collection, HttpRequest } from '@/types';
 
 /**
@@ -20,7 +20,7 @@ interface FakeBehavior {
 const ran: string[] = [];
 const behaviors = new Map<string, FakeBehavior>();
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
 const runRequestMock = vi.fn(async (req: HttpRequest, ctx: any) => {
   ran.push(req.name);
   const b = behaviors.get(req.name);

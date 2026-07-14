@@ -1,4 +1,4 @@
-import { domainMatch, pathMatch, getPublicSuffix } from 'tough-cookie';
+import { domainMatch, getPublicSuffix, pathMatch } from 'tough-cookie';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';

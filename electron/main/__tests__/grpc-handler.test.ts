@@ -1,6 +1,6 @@
 // @vitest-environment node
 import './setup';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 // Resolve handle ids deterministically so the gRPC auth merge is testable
 // without the real OS-keychain-backed store.

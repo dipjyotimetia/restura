@@ -1,14 +1,14 @@
 import {
-  Rocket,
-  Send,
-  Globe,
-  Code2,
-  Keyboard,
-  FolderOpen,
   ArrowRight,
   CheckCircle2,
-  ShieldCheck,
+  Code2,
+  FolderOpen,
+  Globe,
+  Keyboard,
   Network,
+  Rocket,
+  Send,
+  ShieldCheck,
   Sparkles,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
@@ -16,10 +16,10 @@ import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from '@/components/ui/dialog';
 import { ToggleField } from '@/components/ui/spatial/ToggleField';
 import { isElectron } from '@/lib/shared/platform';

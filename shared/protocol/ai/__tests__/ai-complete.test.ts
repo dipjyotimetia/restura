@@ -1,9 +1,9 @@
-import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runToCompletion } from '@shared/protocol/ai/ai-complete';
 import type { ChatRequestSpec } from '@shared/protocol/ai/types';
 import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
+import { describe, expect, it, vi } from 'vitest';
 
 function makeSpec(over: Partial<ChatRequestSpec> = {}): ChatRequestSpec {
   return {
@@ -33,14 +33,16 @@ function fakeFetcher(
   status = 200,
   textBody = ''
 ): Fetcher {
-  return vi.fn(async (): Promise<FetcherResponse> => ({
-    status,
-    statusText: String(status),
-    headers: new Headers({ 'content-type': 'text/event-stream' }),
-    body,
-    contentLengthHeader: null,
-    text: async () => textBody,
-  }));
+  return vi.fn(
+    async (): Promise<FetcherResponse> => ({
+      status,
+      statusText: String(status),
+      headers: new Headers({ 'content-type': 'text/event-stream' }),
+      body,
+      contentLengthHeader: null,
+      text: async () => textBody,
+    })
+  );
 }
 
 describe('runToCompletion', () => {

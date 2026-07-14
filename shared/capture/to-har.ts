@@ -4,7 +4,7 @@
  * field (the same convention Chrome DevTools uses).
  */
 import { redactExchange } from './secret-extractor';
-import type { CaptureSession, CapturedExchange, CapturedHeader } from './types';
+import type { CapturedExchange, CapturedHeader, CaptureSession } from './types';
 
 interface HarNameValue {
   name: string;

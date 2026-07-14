@@ -11,7 +11,6 @@ import type {
   Variable,
 } from 'postman-collection';
 import { v4 as uuidv4 } from 'uuid';
-import { coerceHttpMethod, type ImportWarning } from './types';
 import { isConfiguredAuth } from '@/features/auth/lib/authInheritance';
 import { migrateScriptPmToRs } from '@/features/scripts/lib/scriptMigrations';
 import type {
@@ -23,6 +22,7 @@ import type {
   KeyValue,
   PostmanCollection,
 } from '@/types';
+import { coerceHttpMethod, type ImportWarning } from './types';
 
 function getDescriptionContent(
   desc: string | { content?: string } | undefined

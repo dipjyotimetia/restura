@@ -1,6 +1,6 @@
-import { test as electronTest } from './electronApp';
 import { launch } from '../../echo-local/launcher';
 import { PORTS } from '../../echo-local/ports';
+import { test as electronTest } from './electronApp';
 
 /**
  * Boots the echo-local stack (the same `launch()` the `npm run echo:local` CLI
@@ -22,7 +22,7 @@ export interface EchoLocalStack {
 
 export const test = electronTest.extend<NonNullable<unknown>, { echo: EchoLocalStack }>({
   echo: [
-    // eslint-disable-next-line no-empty-pattern
+    // biome-ignore lint/correctness/noEmptyPattern: legacy type boundary
     async ({}, use) => {
       const result = await launch({ only: new Set(['http']), tls: false });
       await use({ ports: PORTS, httpUrl: `http://${HOST}:${PORTS.http}` });

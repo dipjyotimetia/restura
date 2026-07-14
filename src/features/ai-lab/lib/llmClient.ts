@@ -2,8 +2,8 @@
 // the rest of the feature (runner, scorers, Playground) never touches the raw
 // bridge. Electron-only — throws a clear error on web.
 import type { ChatStreamEvent, CompletionResult, Provider } from '@shared/protocol/ai/types';
-import type { AiLabProviderConfig } from '../types';
 import { getElectronAPI } from '@/lib/shared/platform';
+import type { AiLabProviderConfig } from '../types';
 
 export interface LlmChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';

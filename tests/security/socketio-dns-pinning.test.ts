@@ -14,9 +14,9 @@
 //   2. on success the agent is wired with the pinned lookup, and the agent
 //      family (http vs https) follows the URL scheme.
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Agent as HttpAgent } from 'node:http';
 import { Agent as HttpsAgent } from 'node:https';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockHandle = vi.hoisted(() => vi.fn());
 const mockResolveSafe = vi.hoisted(() => vi.fn());
@@ -52,8 +52,8 @@ vi.mock('../../electron/main/ipc/ipc-validators', () => ({
 }));
 
 import { registerSocketIoHandlerIPC } from '../../electron/main/handlers/socketio-handler';
-import { IPC } from '../../electron/shared/channels';
 import { setExecutionPolicy } from '../../electron/main/security/execution-policy';
+import { IPC } from '../../electron/shared/channels';
 
 function makeFakeSocket() {
   return {

@@ -7,11 +7,12 @@
  * (`useVariableStatus`) and execution stay in lockstep. Pre-request-script
  * mutations are layered on top by the caller at send time.
  */
-import { buildValueMap } from './variableScopes';
+
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useRequestStore } from '@/store/useRequestStore';
+import { buildValueMap } from './variableScopes';
 
 export function buildActiveRequestValueMap(): Record<string, string> {
   const env = useEnvironmentStore.getState().getActiveEnvironment()?.variables;

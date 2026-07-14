@@ -8,7 +8,7 @@
  * `redactExchange` so no plaintext secrets land in the export.
  */
 import { redactExchange } from './secret-extractor';
-import type { CaptureSession, CapturedExchange } from './types';
+import type { CapturedExchange, CaptureSession } from './types';
 
 interface OcHeader {
   name: string;

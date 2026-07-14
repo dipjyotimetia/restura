@@ -1,10 +1,11 @@
 // Renders scripts/social-preview.html -> social-preview.png at 1280x640.
 // Uses Chromium (Playwright) for correct color-emoji rendering.
 // Renders at 2x then downsamples to 1280x640 for supersampled crispness.
-import { chromium } from 'playwright';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+
 import { existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { chromium } from 'playwright';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
@@ -27,7 +28,6 @@ const page = await browser.newPage({
 });
 await page.goto(`file://${htmlPath}`, { waitUntil: 'networkidle' });
 // Ensure emoji fonts are fully loaded + laid out.
-// eslint-disable-next-line no-undef -- this callback executes in the browser page context
 await page.evaluate(() => document.fonts.ready);
 await page.waitForTimeout(150);
 

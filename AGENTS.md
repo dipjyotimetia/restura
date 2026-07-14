@@ -37,9 +37,9 @@ npm run build                  # Production build (SPA + Worker bundle)
 npm run preview                # Preview production build
 npm run type-check             # TypeScript strict mode — RENDERER ONLY (excludes worker, electron/main, cli)
 npm run type-check:all         # Full type-check across all tsconfigs — what CI runs
-npm run lint                   # ESLint over src/ shared/ electron/main/ worker/ echo/ echo-local/ cli/ tests/ scripts/
-npm run format                 # Prettier write
-npm run format:check           # Prettier check
+npm run lint                   # Biome lint over src/ shared/ electron/main/ worker/ echo/ echo-local/ cli/ tests/ scripts/
+npm run format                 # Biome format (write)
+npm run format:check           # Biome format check
 
 # Worker / Node API (shared Hono app — Cloudflare + self-host)
 npx tsc --noEmit -p worker/tsconfig.json    # Type-check the Worker independently
@@ -71,7 +71,7 @@ npm run deploy:preview         # Deploy preview
 > **Trap**: plain `npm run type-check` only covers the renderer. The Electron
 > main process, Worker, and CLI are separate `tsc` projects — use
 > `npm run type-check:all` to type-check the way CI does. The pre-commit hook
-> runs only lint-staged (eslint + prettier on staged files); it does **not**
+> runs only lint-staged (Biome lint + format on staged files); it does **not**
 > run tsc or tests.
 
 ## Architecture

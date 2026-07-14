@@ -1,17 +1,17 @@
 'use client';
 
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Send, Code2, Loader2, Link2 } from 'lucide-react';
+import { Code2, Link2, Loader2, Send } from 'lucide-react';
 import { useState } from 'react';
 import { VariableInput } from '@/components/shared/VariableInput';
 import { Button } from '@/components/ui/button';
 import {
   Floater,
+  hasVariableToken,
   Kbd,
   MethodChip,
-  VariableText,
-  hasVariableToken,
   methodLabel,
+  VariableText,
 } from '@/components/ui/spatial';
 import { useVariableStatus } from '@/hooks/useVariableStatus';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';

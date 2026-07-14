@@ -1,7 +1,7 @@
 'use client';
 
-import { Copy, Check } from 'lucide-react';
-import { useState, useMemo } from 'react';
+import { Check, Copy } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,

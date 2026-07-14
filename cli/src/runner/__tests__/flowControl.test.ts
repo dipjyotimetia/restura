@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { mkdtempSync, writeFileSync } from 'node:fs';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runCollection } from '../runner';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Reporter, RunResult } from '../../reporters/types';
+import { runCollection } from '../runner';
 
 let server: Server;
 let baseUrl: string;

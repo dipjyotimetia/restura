@@ -1,9 +1,5 @@
-import { useState, useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { findRequestInItems } from '../lib/collectionHelpers';
-import { executeDag } from '../lib/dagExecutor';
-import { executeWorkflow } from '../lib/workflowExecutor';
-import { useFlowRunStore } from '../store/useFlowRunStore';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { buildValueMap } from '@/lib/shared/variableScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
@@ -11,7 +7,11 @@ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
-import type { Workflow, WorkflowExecution, WorkflowExecutionStep, Request } from '@/types';
+import type { Request, Workflow, WorkflowExecution, WorkflowExecutionStep } from '@/types';
+import { findRequestInItems } from '../lib/collectionHelpers';
+import { executeDag } from '../lib/dagExecutor';
+import { executeWorkflow } from '../lib/workflowExecutor';
+import { useFlowRunStore } from '../store/useFlowRunStore';
 
 interface UseWorkflowExecutionOptions {
   onComplete?: (execution: WorkflowExecution) => void;

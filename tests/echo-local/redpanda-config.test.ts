@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
+import { describe, expect, it } from 'vitest';
 
 // The Redpanda echo broker has several NON-OBVIOUS, load-bearing config settings
 // that nothing else in CI exercises (the broker only runs under Docker). A silent

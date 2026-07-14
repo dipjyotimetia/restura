@@ -3,13 +3,12 @@
 import { CheckCircle, Download, PanelLeft, Plug, PlugZap, Send, Wand2 } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import SchemaExplorer from './SchemaExplorer';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Floater, SubTabBar, SubTabPanel, type SubTab } from '@/components/ui/spatial';
+import { Floater, type SubTab, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
@@ -38,12 +37,13 @@ import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { cn } from '@/lib/shared/utils';
 import { useActiveRequest, useActiveTab } from '@/store/selectors';
-import { useConsoleStore, createProtocolConsoleEntry } from '@/store/useConsoleStore';
+import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import type { HttpRequest, AuthConfig as AuthConfigType } from '@/types';
+import type { AuthConfig as AuthConfigType, HttpRequest } from '@/types';
+import SchemaExplorer from './SchemaExplorer';
 
 const GraphQLBodyEditor = lazyComponent(() => import('./GraphQLBodyEditor'));
 const CodeEditor = lazyComponent(

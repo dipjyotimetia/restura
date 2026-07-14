@@ -11,7 +11,7 @@
  * same `MockRoute` shape and the same matcher in the Electron mock server —
  * one engine, two sources.
  */
-import { generateExampleFromSchema } from './importers/openapi';
+
 import type {
   Collection,
   CollectionItem,
@@ -22,6 +22,7 @@ import type {
   OpenAPIMediaType,
   OpenAPIResponse,
 } from '@/types';
+import { generateExampleFromSchema } from './importers/openapi';
 
 /**
  * Extract a matchable pathname from a request URL. `{{token}}` segments become

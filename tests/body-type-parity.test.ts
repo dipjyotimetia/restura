@@ -8,10 +8,11 @@
  * the type and its schema drift, a body shape the type allows would be
  * rejected at the wire (or vice versa). These checks keep them locked.
  */
-import { describe, it, expect } from 'vitest';
-import type { ProxyBodyType, FormField } from '@shared/protocol/body-builder';
+
+import type { FormField, ProxyBodyType } from '@shared/protocol/body-builder';
 import { BodyTypeSchema, FormFieldSchema } from '@shared/protocol/proxy-schema';
-import { expectTypeEqual, type Equals } from './helpers/typeEquality';
+import { describe, expect, it } from 'vitest';
+import { type Equals, expectTypeEqual } from './helpers/typeEquality';
 
 describe('ProxyBodyType / BodyTypeSchema parity', () => {
   it('the type and its schema enum are identical (compile-time)', () => {

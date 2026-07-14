@@ -1,4 +1,4 @@
-import type { ProxyBodyType, FormField } from './body-builder';
+import type { FormField, ProxyBodyType } from './body-builder';
 
 /**
  * Local mirror of `SecretValue` from `src/lib/shared/secretRef.ts`. Duplicated
@@ -7,7 +7,8 @@ import type { ProxyBodyType, FormField } from './body-builder';
  * lockstep — it's two declarations of the same wire shape.
  */
 export type ProtocolSecretRef =
-  { kind: 'inline'; value: string } | { kind: 'handle'; id: string; label?: string };
+  | { kind: 'inline'; value: string }
+  | { kind: 'handle'; id: string; label?: string };
 
 export type ProtocolSecretValue = string | ProtocolSecretRef;
 

@@ -20,9 +20,8 @@
  * (narrowing the rebind window) but isn't fully pinned. See ADR-0006.
  */
 
-// eslint-disable-next-line import/no-duplicates -- namespace + named type imports from 'node:dns' can't be merged into a single statement
 import type * as dns from 'node:dns';
-// eslint-disable-next-line import/no-duplicates -- see above
+
 import type { LookupAddress } from 'node:dns';
 import * as net from 'node:net';
 import {
@@ -30,7 +29,7 @@ import {
   isCloudMetadataHost,
   isPrivateAddress,
 } from '@shared/protocol/url-validation';
-import { Agent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici';
+import { Agent, type RequestInit as UndiciRequestInit, fetch as undiciFetch } from 'undici';
 import { assertHostnameSafe, type DnsGuardOptions } from './dns-guard';
 
 export interface SafeAddress {
@@ -113,7 +112,7 @@ export async function resolveSafeAddress(
  * TypeScript can't satisfy from a single arrow function body. The runtime
  * contract (hostname, options-or-cb, cb) matches every supported version.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
 export function createPinnedLookup(host: string, ip: string): any {
   const family: 4 | 6 = net.isIP(ip) === 6 ? 6 : 4;
   return (hostname: string, optsOrCb: unknown, maybeCb?: unknown): void => {

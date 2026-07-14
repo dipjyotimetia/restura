@@ -1,10 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/shared/platform', () => ({ getElectronAPI: vi.fn() }));
 
+import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 import { consumeStream } from '@/features/ai/lib/streamConsumer';
 import { getElectronAPI } from '@/lib/shared/platform';
-import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 
 type ChunkCb = (ev: ChatStreamEvent) => void;
 type EndCb = (p: { reason: 'done' | 'cancelled' | 'error' }) => void;

@@ -1,17 +1,5 @@
 import { AlertTriangle, Play, Square, Trash2, Trophy } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
-import { useArenaRun } from '../hooks/useArenaRun';
-import { useModelSelection } from '../hooks/useModelSelection';
-import { computeElo, winRateMatrix } from '../lib/elo';
-import { newestFirst } from '../lib/newestFirst';
-import { plural } from '../lib/plural';
-import { useAiLabStore } from '../store/useAiLabStore';
-import { useAiLabUiStore } from '../store/useAiLabUiStore';
-import { useArenaStore } from '../store/useArenaStore';
-import type { ModelRef } from '../types';
-import { EmptyState } from './EmptyState';
-import { ModelChecklist } from './ModelChecklist';
-import { StatusChip } from './StatusChip';
 import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
@@ -26,6 +14,18 @@ import {
 import { Stepper } from '@/components/ui/spatial';
 import { Textarea } from '@/components/ui/textarea';
 import { formatRelativeTime } from '@/lib/shared/console-format';
+import { useArenaRun } from '../hooks/useArenaRun';
+import { useModelSelection } from '../hooks/useModelSelection';
+import { computeElo, winRateMatrix } from '../lib/elo';
+import { newestFirst } from '../lib/newestFirst';
+import { plural } from '../lib/plural';
+import { useAiLabStore } from '../store/useAiLabStore';
+import { useAiLabUiStore } from '../store/useAiLabUiStore';
+import { useArenaStore } from '../store/useArenaStore';
+import type { ModelRef } from '../types';
+import { EmptyState } from './EmptyState';
+import { ModelChecklist } from './ModelChecklist';
+import { StatusChip } from './StatusChip';
 
 /**
  * Background tint for a win-rate cell: green above 50%, red below, intensity

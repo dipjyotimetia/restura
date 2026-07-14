@@ -1,6 +1,6 @@
-import { isElectron, getElectronAPI } from './platform';
-import { coerceToInlineSecret, isInlineSecretRef } from './secretRef';
 import type { AuthConfig, Collection, CollectionItem, Request } from '@/types';
+import { getElectronAPI, isElectron } from './platform';
+import { coerceToInlineSecret, isInlineSecretRef } from './secretRef';
 
 /** Internal: only include the field if the source had it (preserves optional-undefined shape). */
 function pickSecret<K extends string>(
@@ -63,7 +63,10 @@ export function migrateAuthConfigToSecretRef(auth: unknown): AuthConfig | undefi
       ...(typeof o.grantType === 'string'
         ? {
             grantType: o.grantType as
-              'authorization_code' | 'client_credentials' | 'password' | 'device_code',
+              | 'authorization_code'
+              | 'client_credentials'
+              | 'password'
+              | 'device_code',
           }
         : {}),
       ...pickString(o, 'clientId'),

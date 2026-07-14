@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { executeHttpProxy } from '../http-proxy';
 import type { Fetcher } from '../types';
 

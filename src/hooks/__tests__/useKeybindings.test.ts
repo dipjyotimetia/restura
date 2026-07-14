@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { __test } from '../useKeybindings';
 
 const { comboMatches, isEditableTarget } = __test;

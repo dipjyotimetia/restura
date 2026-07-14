@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
-import { smithySigV4Signer } from '../security/aws-sigv4-smithy';
 import { applyAuth } from '@shared/protocol/auth-signer';
 import type { ProtocolAuthConfig } from '@shared/protocol/types';
+import { describe, expect, it, vi } from 'vitest';
+import { smithySigV4Signer } from '../security/aws-sigv4-smithy';
 
 // The AWS SigV4 example credentials (from the AWS docs test fixtures). These are
 // public, non-secret example values.

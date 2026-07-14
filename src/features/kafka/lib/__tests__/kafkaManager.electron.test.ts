@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { KAFKA_CHANNEL, kafkaChannel } from '../../../../../electron/shared/kafka-channels';
 import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
 import { useKafkaStore } from '@/features/kafka/store/useKafkaStore';
+import { KAFKA_CHANNEL, kafkaChannel } from '../../../../../electron/shared/kafka-channels';
 
 function installElectronMock() {
   const listeners = new Map<string, Array<(...args: unknown[]) => void>>();

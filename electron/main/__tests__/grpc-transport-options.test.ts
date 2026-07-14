@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Capture the options buildConnectTransport hands to connect-node — the TLS /
 // compression / lookup mapping isn't observable through a live call.
@@ -15,8 +15,8 @@ vi.mock('../security/secret-handle-store', () => ({
 }));
 
 import {
-  buildConnectTransport,
   buildConnectFallbackTransport,
+  buildConnectTransport,
   type PinnedDial,
 } from '../handlers/grpc-connect';
 

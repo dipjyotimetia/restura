@@ -1,20 +1,20 @@
-import type { OpenCollection } from './schemas';
-import { authToInternal, groupScripts, ocVariableToKeyValue } from './to-internal';
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from '@/lib/shared/auth-secret-fields';
 import type { SecretValue } from '@/lib/shared/secretRef';
 import type {
+  AuthConfig,
   Collection,
   CollectionItem,
-  Request,
-  HttpRequest,
-  GrpcRequest,
-  SseRequest,
-  McpRequest,
-  AuthConfig,
-  KeyValue,
-  RequestBody,
   GrpcMethodType,
+  GrpcRequest,
+  HttpRequest,
+  KeyValue,
+  McpRequest,
+  Request,
+  RequestBody,
+  SseRequest,
 } from '@/types';
+import type { OpenCollection } from './schemas';
+import { authToInternal, groupScripts, ocVariableToKeyValue } from './to-internal';
 
 /**
  * Bridge from Restura internal `Collection` (and its `_oc` passthrough bags) →

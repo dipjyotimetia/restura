@@ -1,8 +1,8 @@
 import { create } from 'zustand';
-import { runEval, type EvalProgress } from '../lib/evalRunner';
+import { type EvalProgress, runEval } from '../lib/evalRunner';
 import { executeExtractedRequest } from '../lib/execCell';
 import { modelKey, modelLabelFor } from '../lib/modelOptions';
-import { adaptEvalRunReport, type AiLabReportEnvelope } from '../run-engine/reportEnvelope';
+import { type AiLabReportEnvelope, adaptEvalRunReport } from '../run-engine/reportEnvelope';
 import { RunEngine } from '../run-engine/runEngine';
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useEvalRunStore } from '../store/useEvalRunStore';

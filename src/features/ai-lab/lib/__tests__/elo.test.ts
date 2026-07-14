@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { computeElo, winRateMatrix, type PairwiseMatch } from '../elo';
+import { describe, expect, it } from 'vitest';
+import { computeElo, type PairwiseMatch, winRateMatrix } from '../elo';
 
 describe('computeElo', () => {
   it('ranks a consistent winner above the loser', () => {

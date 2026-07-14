@@ -1,6 +1,7 @@
 // @vitest-environment node
-import { describe, it, expect, vi, afterEach } from 'vitest';
+
 import { Hono } from 'hono';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createGrpcReflectionHandler, grpcReflection } from '../grpc-reflection';
 
 const app = new Hono<{ Bindings: { ENVIRONMENT?: string } }>();

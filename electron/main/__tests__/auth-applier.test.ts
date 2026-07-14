@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 // Isolate auth-applier from the secret-handle store (which pulls in electron +
 // electron-store). The real `unwrapSecretValueMain` passes plain strings through

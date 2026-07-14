@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import SecretInput from '@/features/auth/components/SecretInput';
 import { readFileAsBase64, readFileAsText } from '@/lib/shared/file-utils';
 import { looksLikePemCertificate, looksLikePemPrivateKey } from '@/lib/shared/pemValidation';
-import { unwrapSecret, type SecretValue } from '@/lib/shared/secretRef';
+import { type SecretValue, unwrapSecret } from '@/lib/shared/secretRef';
 import type { ClientCert } from '@/types';
 
 interface CertificateOverrideProps {

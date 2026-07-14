@@ -8,13 +8,14 @@
  * `Record`/`unknown` shapes by the gRPC client; that mapping is covered by the
  * grpc client's own tests.)
  */
-import { describe, it, expect } from 'vitest';
+
 import type { GrpcSpec } from '@shared/protocol/grpc-proxy';
 import {
-  GrpcProxyRequestBodySchema,
   type GrpcProxyRequestBody,
+  GrpcProxyRequestBodySchema,
 } from '@shared/protocol/grpc-schema';
-import { expectTypeEqual, type Equals } from './helpers/typeEquality';
+import { describe, expect, it } from 'vitest';
+import { type Equals, expectTypeEqual } from './helpers/typeEquality';
 
 describe('GrpcSpec / GrpcProxyRequestBodySchema parity', () => {
   it('the spec type and the inferred schema type are identical (compile-time)', () => {

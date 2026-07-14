@@ -1,19 +1,6 @@
 import { serializeContentBlocks } from '@shared/agent-lab';
 import { ArrowDown, ArrowUp, BarChart3, Download, Trash2, X } from 'lucide-react';
 import { useCallback, useMemo } from 'react';
-import { modelKey, parseModelKey } from '../lib/modelOptions';
-import { newestFirst } from '../lib/newestFirst';
-import { runToCsv, runToJson, runToMarkdown } from '../lib/reportExport';
-import { summarizeVars } from '../lib/summarizeVars';
-import { useAgentRunLiveStore } from '../run-engine/agentRunService';
-import { adaptEvalRunReport, type AiLabReportEnvelope } from '../run-engine/reportEnvelope';
-import { useAiLabStore } from '../store/useAiLabStore';
-import { useAiLabUiStore } from '../store/useAiLabUiStore';
-import { useEvalRunStore } from '../store/useEvalRunStore';
-import type { EvalCellResult, EvalRun } from '../types';
-import { EmptyState } from './EmptyState';
-import { StatusChip } from './StatusChip';
-import { VerdictChip } from './VerdictChip';
 import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
@@ -22,6 +9,19 @@ import { formatRelativeTime } from '@/lib/shared/console-format';
 import { downloadBlob } from '@/lib/shared/file-utils';
 import { percentile } from '@/lib/shared/loadStats';
 import { cn } from '@/lib/shared/utils';
+import { modelKey, parseModelKey } from '../lib/modelOptions';
+import { newestFirst } from '../lib/newestFirst';
+import { runToCsv, runToJson, runToMarkdown } from '../lib/reportExport';
+import { summarizeVars } from '../lib/summarizeVars';
+import { useAgentRunLiveStore } from '../run-engine/agentRunService';
+import { type AiLabReportEnvelope, adaptEvalRunReport } from '../run-engine/reportEnvelope';
+import { useAiLabStore } from '../store/useAiLabStore';
+import { useAiLabUiStore } from '../store/useAiLabUiStore';
+import { useEvalRunStore } from '../store/useEvalRunStore';
+import type { EvalCellResult, EvalRun } from '../types';
+import { EmptyState } from './EmptyState';
+import { StatusChip } from './StatusChip';
+import { VerdictChip } from './VerdictChip';
 
 interface ModelStats {
   /** `providerConfigId:model` key. */

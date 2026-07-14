@@ -14,14 +14,15 @@
 //
 // @platformatic/kafka is imported lazily (dynamic import in beforeAll) so the
 // default, skipped run pays nothing for evaluating the heavy library.
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import type { Admin } from '@platformatic/kafka';
+
 import type * as KafkaLib from '@platformatic/kafka';
+import type { Admin } from '@platformatic/kafka';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  topicWatermarks,
+  computeGroupLag,
   flattenConfigDescriptions,
   flattenGroup,
-  computeGroupLag,
+  topicWatermarks,
 } from '../handlers/kafka-serde';
 
 const RUN = process.env.KAFKA_E2E === '1';

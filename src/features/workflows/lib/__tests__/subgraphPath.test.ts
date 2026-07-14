@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import type { WorkflowGraph, ForEachFlowNode, TryCatchFlowNode } from '@/types';
-import { selectAtPath, setAtPath, pathSegmentLabel } from '../flowTypes';
+import { describe, expect, it } from 'vitest';
+import type { ForEachFlowNode, TryCatchFlowNode, WorkflowGraph } from '@/types';
+import { pathSegmentLabel, selectAtPath, setAtPath } from '../flowTypes';
 
 const emptySubgraph: WorkflowGraph = {
   version: 1,

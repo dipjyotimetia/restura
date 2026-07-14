@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { withRetry, parseRetryOn } from '../retry';
+import { describe, expect, it } from 'vitest';
 import type { ExecuteOutcome } from '../executors/types';
+import { parseRetryOn, withRetry } from '../retry';
 
 function outcome(status: number, errorMessage?: string, passed = false): ExecuteOutcome {
   return {

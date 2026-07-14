@@ -2,32 +2,32 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {
+  type ClientNotification,
+  type ClientRequest,
+  LATEST_PROTOCOL_VERSION,
   McpError,
   ResultSchema,
-  LATEST_PROTOCOL_VERSION,
-  type ClientRequest,
-  type ClientNotification,
 } from '@modelcontextprotocol/sdk/types.js';
 import { ipcMain } from 'electron';
 import { createLogger } from '../../../src/lib/shared/logger';
-import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
+import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import {
-  McpConnectSchema,
-  McpRequestSchema,
-  McpDisconnectSchema,
-  validateIpcInput,
-  createValidatedHandler,
   assertTrustedSender,
+  createValidatedHandler,
+  McpConnectSchema,
+  McpDisconnectSchema,
+  McpRequestSchema,
+  validateIpcInput,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
 import { getExecutionPolicy } from '../security/execution-policy';
 import {
   assertPinnedFetchCanHonorPolicy,
   createPolicyPinnedFetch,
-  resolvePolicyTransport,
   type PolicyTransportConfig,
+  resolvePolicyTransport,
 } from '../security/policy-transport';
 import { resolveSafeAddress } from '../security/safe-connect';
 

@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { HttpRequest } from '@/types';
 import {
   importHoppscotchCollection,
   importHoppscotchEnvironment,
   isHoppscotchCollection,
   isHoppscotchEnvironment,
 } from '../importers/hoppscotch';
-import type { HttpRequest } from '@/types';
 
 describe('importHoppscotchCollection', () => {
   it('imports a v12 collection with nested folders and inherits collection-level scripts', () => {

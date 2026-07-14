@@ -1,10 +1,12 @@
-import { AgentSuiteSchema, type AgentSuite, type ModelCapabilities } from '@shared/agent-lab';
+import { type AgentSuite, AgentSuiteSchema, type ModelCapabilities } from '@shared/agent-lab';
 import { isHuggingFaceProvider, isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
+import { AiLabStateSchema } from '@/lib/shared/store-validators';
 import { normalizeDesktopCapabilities } from '../lib/agentModelCapabilities';
-import { AiLabReportEnvelopeSchema, type AiLabReportEnvelope } from '../run-engine/reportEnvelope';
+import { type AiLabReportEnvelope, AiLabReportEnvelopeSchema } from '../run-engine/reportEnvelope';
 import { getAiLabReportRepository } from '../run-engine/reportRepository';
 import {
   retainAgentReports,
@@ -18,8 +20,6 @@ import type {
   EvalConfig,
   PromptTemplate,
 } from '../types';
-import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
-import { AiLabStateSchema } from '@/lib/shared/store-validators';
 
 interface PersistedAiLabState {
   providers: Record<string, AiLabProviderConfig>;

@@ -6,29 +6,38 @@
 'use client';
 
 import {
-  ReactFlow,
+  addEdge,
+  applyEdgeChanges,
+  applyNodeChanges,
   Background,
   BackgroundVariant,
-  Controls,
-  MiniMap,
-  useNodesState,
-  useEdgesState,
-  useReactFlow,
-  applyNodeChanges,
-  applyEdgeChanges,
-  addEdge,
-  type Node,
-  type Edge,
-  type NodeTypes,
-  type EdgeTypes,
-  type NodeChange,
-  type EdgeChange,
   type Connection,
+  Controls,
+  type Edge,
+  type EdgeChange,
+  type EdgeTypes,
+  MiniMap,
+  type Node,
+  type NodeChange,
+  type NodeTypes,
+  ReactFlow,
+  useEdgesState,
+  useNodesState,
+  useReactFlow,
 } from '@xyflow/react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import '@xyflow/react/dist/style.css';
 import './flow-canvas.css';
 import { v4 as uuidv4 } from 'uuid';
+import { useWorkflowStore } from '@/store/useWorkflowStore';
+import type {
+  FlowEdge,
+  FlowNode,
+  FlowNodeKind,
+  SubgraphPath,
+  Workflow,
+  WorkflowGraph,
+} from '@/types';
 import { emptyStubGraph } from '../../lib/flowTypes';
 import { useFlowRunStore } from '../../store/useFlowRunStore';
 import { DefaultEdge } from './edges/DefaultEdge';
@@ -51,15 +60,6 @@ import { TemplateNode } from './nodes/TemplateNode';
 import { TransformNode } from './nodes/TransformNode';
 import { TryCatchNode } from './nodes/TryCatchNode';
 import { WsExchangeNode } from './nodes/WsExchangeNode';
-import { useWorkflowStore } from '@/store/useWorkflowStore';
-import type {
-  Workflow,
-  FlowNode,
-  FlowEdge,
-  WorkflowGraph,
-  FlowNodeKind,
-  SubgraphPath,
-} from '@/types';
 
 const nodeTypes: NodeTypes = {
   start: StartNode,
@@ -445,7 +445,6 @@ export default function FlowCanvas({
   );
 
   return (
-    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- drop target for nodes dragged from the sidebar palette
     <div className="restura-flow-canvas" ref={wrapperRef} onDrop={onDrop} onDragOver={onDragOver}>
       <ReactFlow
         nodes={displayedNodes}

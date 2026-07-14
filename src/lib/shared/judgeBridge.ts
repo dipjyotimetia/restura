@@ -10,10 +10,10 @@
 // Depends only on @shared/protocol/ai/* and @/lib/shared/platform — no
 // cross-feature imports (the script-sandbox host owns this glue).
 import {
-  runJudge,
   type JudgeComplete,
   type JudgeRequestInput,
   type JudgeVerdict,
+  runJudge,
 } from '@shared/protocol/ai/judge';
 import { redactBody } from '@shared/protocol/ai/redaction';
 import { isLocalProvider } from '@shared/protocol/ai/types';

@@ -1,5 +1,5 @@
 import { generateLocalEncryptionKey } from './encryption';
-import { isElectron, getElectronAPI } from './platform';
+import { getElectronAPI, isElectron } from './platform';
 
 export interface KeyProvider {
   getKey(): Promise<string>;

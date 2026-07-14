@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
-import { buildCollection } from '../../echo-local/collection';
+import { describe, expect, it } from 'vitest';
 import { importOpenCollection } from '@/features/collections/lib/importers/opencollection';
 import type { CollectionItem, Request } from '@/types';
+import { buildCollection } from '../../echo-local/collection';
 
 // The generated collection must import into the desktop client with ZERO
 // warnings and produce runnable requests for every protocol it claims to cover.

@@ -9,8 +9,8 @@ import type { UpdaterStatus } from '../../types/electron-api';
 import {
   createValidatedHandler,
   NoInputSchema,
-  UpdaterConfigSchema,
   type UpdaterConfig,
+  UpdaterConfigSchema,
 } from '../ipc/ipc-validators';
 import { showNativeNotification } from '../notifications';
 
@@ -204,8 +204,10 @@ export function registerAutoUpdaterIPC(isDev: boolean): void {
 
   ipcMain.handle(
     IPC.updater.status,
-    createValidatedHandler(IPC.updater.status, NoInputSchema, async (): Promise<UpdaterStatus> =>
-      getUpdaterStatus()
+    createValidatedHandler(
+      IPC.updater.status,
+      NoInputSchema,
+      async (): Promise<UpdaterStatus> => getUpdaterStatus()
     )
   );
 

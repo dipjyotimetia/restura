@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // vi.mock is hoisted; we need the lookup fn defined before hoisting too, so
 // wrap it in vi.hoisted (which runs before any import/mock).

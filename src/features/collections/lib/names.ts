@@ -1,5 +1,5 @@
-import { findFolder } from './flattenRunnables';
 import type { Collection, CollectionItem } from '@/types';
+import { findFolder } from './flattenRunnables';
 
 /**
  * Duplicate-name policy for the collection tree:

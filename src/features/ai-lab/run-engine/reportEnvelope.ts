@@ -1,9 +1,9 @@
 import {
+  type AgentSuite,
+  type AgentSuiteReport,
   AgentSuiteSchema,
   ContentBlockSchema,
   TraceEventSchema,
-  type AgentSuite,
-  type AgentSuiteReport,
 } from '@shared/agent-lab';
 import { z } from 'zod';
 import type { EvalRun } from '../types';

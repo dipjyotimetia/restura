@@ -1,11 +1,11 @@
 export {
-  GrpcReflectionClient,
-  generateRequestTemplate,
-  validateRequestAgainstSchema,
-  formatMessageSchemaForDisplay,
-  generateProtoFromReflection,
-  getFieldTypeDescription,
   clearReflectionCache,
-  getCachedMessageSchema,
+  formatMessageSchemaForDisplay,
+  GrpcReflectionClient,
+  generateProtoFromReflection,
+  generateRequestTemplate,
   getCachedEnumSchema,
+  getCachedMessageSchema,
+  getFieldTypeDescription,
+  validateRequestAgainstSchema,
 } from './reflection';

@@ -2,15 +2,15 @@
 
 import { Plus } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { ComboboxSuggestion, ParamRowData, VariableStatus } from '@/components/ui/spatial';
 import {
   ComboboxInput,
-  ParamRow,
   PARAM_GRID,
+  ParamRow,
   Segmented,
   SubTabBar,
   SubTabPanel,
 } from '@/components/ui/spatial';
-import type { ComboboxSuggestion, ParamRowData, VariableStatus } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import RequestBodyEditor, { bodyEditorFills } from '@/features/http/components/RequestBodyEditor';
@@ -18,7 +18,7 @@ import RequestSettingsEditor from '@/features/http/components/RequestSettingsEdi
 import type { useHttpRequestPage } from '@/features/http/hooks/useHttpRequestPage';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useVariableStatus } from '@/hooks/useVariableStatus';
-import { STANDARD_HTTP_HEADERS, getHeaderDef } from '@/lib/shared/http-headers';
+import { getHeaderDef, STANDARD_HTTP_HEADERS } from '@/lib/shared/http-headers';
 import { cn } from '@/lib/shared/utils';
 import { findVariableTokens } from '@/lib/shared/variableTokens';
 import type { AppSettings, AuthType, BodyType, HttpRequest, KeyValue } from '@/types';

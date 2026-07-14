@@ -1,24 +1,24 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import * as yaml from 'js-yaml';
-import { X, Upload, CheckCircle2, AlertCircle, Lock, Download, Check } from 'lucide-react';
-import { useState, type ChangeEvent, type DragEvent } from 'react';
+import { AlertCircle, Check, CheckCircle2, Download, Lock, Upload, X } from 'lucide-react';
+import { type ChangeEvent, type DragEvent, useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Floater } from '@/components/ui/spatial';
 import {
-  importPostmanCollection,
-  importPostmanEnvironment,
-  isPostmanEnvironment,
+  type ImportResult,
+  type ImportWarning,
+  importBrunoCollection,
+  importHoppscotchCollection,
+  importHoppscotchEnvironment,
+  importHttpFile,
   importInsomniaCollection,
   importOpenAPICollection,
   importOpenCollection,
-  importHoppscotchCollection,
-  importHoppscotchEnvironment,
+  importPostmanCollection,
+  importPostmanEnvironment,
   isHoppscotchEnvironment,
-  importBrunoCollection,
-  importHttpFile,
+  isPostmanEnvironment,
   validateImportedCollection,
-  type ImportResult,
-  type ImportWarning,
 } from '@/features/collections/lib/importers';
 import { isElectron } from '@/lib/shared/platform';
 import { convertCollectionSecretsToHandles } from '@/lib/shared/secretRef-migrations';
@@ -27,7 +27,13 @@ import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 
 type ImportType =
-  'postman' | 'insomnia' | 'openapi' | 'opencollection' | 'hoppscotch' | 'bruno' | 'http';
+  | 'postman'
+  | 'insomnia'
+  | 'openapi'
+  | 'opencollection'
+  | 'hoppscotch'
+  | 'bruno'
+  | 'http';
 
 interface FormatMeta {
   id: ImportType;
@@ -163,7 +169,7 @@ const FEATURE_LISTS: Record<ImportType, string[]> = {
 const IMPORTERS: Record<ImportType, (data: unknown) => Promise<ImportResult>> = {
   postman: async (data) => {
     const warnings: ImportWarning[] = [];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
     const collection = await importPostmanCollection(data as any, warnings);
     return { collection, warnings };
   },
@@ -263,7 +269,6 @@ function DropZone({ format, onFileUpload, onDrop }: DropZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
 
   return (
-    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- drop zone for drag-and-drop only; keyboard/pointer access is provided by the file input + label inside
     <div
       onDrop={(e) => {
         setIsDragging(false);

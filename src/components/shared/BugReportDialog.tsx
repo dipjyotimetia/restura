@@ -13,7 +13,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { buildBugReportMarkdown, type BugReportDiagnostics } from '@/lib/shared/bug-report';
+import { type BugReportDiagnostics, buildBugReportMarkdown } from '@/lib/shared/bug-report';
 
 export interface BugReportScreenshot {
   imageDataUrl: string;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AiLabReportEnvelopeSchema, type AiLabReportEnvelope } from '../reportEnvelope';
+import { type AiLabReportEnvelope, AiLabReportEnvelopeSchema } from '../reportEnvelope';
 import {
   AgentReportTooLargeError,
   retainAgentReports,
@@ -186,22 +186,19 @@ describe('agent report persistence sanitization', () => {
       'http://example.test/path',
     ],
     ['leading bidi mark on opaque URI', '\u200fvault:opaque-prefixed-secret', 'vault:[REDACTED]'],
-  ])(
-    'classifies %s before URI redaction and keeps the report schema-valid',
-    (_label, uri, marker) => {
-      const envelope = agentEnvelope('safe');
-      envelope.suite.tasks[0]!.input = [{ type: 'document', mimeType: 'text/plain', uri }];
+  ])('classifies %s before URI redaction and keeps the report schema-valid', (_label, uri, marker) => {
+    const envelope = agentEnvelope('safe');
+    envelope.suite.tasks[0]!.input = [{ type: 'document', mimeType: 'text/plain', uri }];
 
-      const sanitized = sanitizeAgentSuiteReportForPersistence(envelope);
-      const serialized = JSON.stringify(sanitized);
+    const sanitized = sanitizeAgentSuiteReportForPersistence(envelope);
+    const serialized = JSON.stringify(sanitized);
 
-      expect(serialized).not.toContain('prefixed-secret');
-      expect(serialized).not.toContain('newline-secret');
-      expect(serialized).not.toContain('malformed-secret');
-      expect(serialized).toContain(marker);
-      expect(AiLabReportEnvelopeSchema.safeParse(sanitized).success).toBe(true);
-    }
-  );
+    expect(serialized).not.toContain('prefixed-secret');
+    expect(serialized).not.toContain('newline-secret');
+    expect(serialized).not.toContain('malformed-secret');
+    expect(serialized).toContain(marker);
+    expect(AiLabReportEnvelopeSchema.safeParse(sanitized).success).toBe(true);
+  });
 
   it('preserves resource token counters and round-trips through the report schema', () => {
     const envelope = agentEnvelope('safe');

@@ -22,14 +22,13 @@
  * Console panel updates without re-implementing the pipeline.
  */
 import { v4 as uuidv4 } from 'uuid';
-import { makeProxyGrpcRequest, makeElectronGrpcRequest } from './lib/grpcClient';
 import type { ProtocolModule } from '@/features/registry/types';
 import { makeCookieAdapter } from '@/features/scripts/lib/pmCookieAdapter.renderer';
 import type { PmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
 import { readPmRunContextOptions } from '@/features/scripts/lib/pmRunContextOptions';
 import { makeRendererSendRequest } from '@/features/scripts/lib/pmSendRequestHost';
-import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
+import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
 import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
@@ -38,7 +37,8 @@ import { isElectron } from '@/lib/shared/platform';
 import { makeVaultAdapter } from '@/lib/shared/vaultClient';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import type { GrpcRequest, GrpcResponse, Request, Response as ApiResponse } from '@/types';
+import type { Response as ApiResponse, GrpcRequest, GrpcResponse, Request } from '@/types';
+import { makeElectronGrpcRequest, makeProxyGrpcRequest } from './lib/grpcClient';
 
 function createDefaultGrpcRequest(): GrpcRequest {
   return {

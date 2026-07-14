@@ -1,4 +1,4 @@
-import type { ProxyBodyType, FormField } from '../../../../shared/protocol/body-builder';
+import type { FormField, ProxyBodyType } from '../../../../shared/protocol/body-builder';
 import type { ProtocolAuthConfig, RequestSpec } from '../../../../shared/protocol/types';
 import { isRecord } from '../util/oc';
 

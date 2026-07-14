@@ -1,14 +1,14 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { EvalCellResult, EvalConfig } from '../../types';
 
 const mockRunEval = vi.hoisted(() => vi.fn());
 vi.mock('@/features/ai-lab/lib/evalRunner', () => ({ runEval: mockRunEval }));
 
-import { useEvalRun } from '../useEvalRun';
+import { setAiLabReportRepositoryForTests } from '../../run-engine/reportRepository';
 import { useAiLabStore } from '../../store/useAiLabStore';
 import { useEvalRunStore } from '../../store/useEvalRunStore';
-import { setAiLabReportRepositoryForTests } from '../../run-engine/reportRepository';
+import { useEvalRun } from '../useEvalRun';
 
 const CELL: EvalCellResult = {
   caseId: 'c1',

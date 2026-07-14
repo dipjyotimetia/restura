@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
-import { executeHttpProxy } from '../http-proxy';
+import { describe, expect, it, vi } from 'vitest';
 import { bytesToBase64 } from '../binary';
+import { executeHttpProxy } from '../http-proxy';
 import type { Fetcher } from '../types';
 
 function streamOf(bytes: Uint8Array): ReadableStream<Uint8Array> {

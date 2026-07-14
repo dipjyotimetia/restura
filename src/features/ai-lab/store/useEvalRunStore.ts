@@ -1,11 +1,11 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { newestFirst } from '../lib/newestFirst';
-import type { EvalCellResult, EvalRun, EvalRunStatus } from '../types';
 import { debouncedStorage } from '@/lib/shared/debouncedStorage';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { EvalRunStateSchema } from '@/lib/shared/store-validators';
+import { newestFirst } from '../lib/newestFirst';
+import type { EvalCellResult, EvalRun, EvalRunStatus } from '../types';
 
 /** Keep run history bounded — evals can be large and we re-encrypt the lot on write. */
 const MAX_RUNS = 50;

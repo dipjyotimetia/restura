@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockHandle = vi.hoisted(() => vi.fn());
 const mockEmitTo = vi.hoisted(() => vi.fn());
@@ -86,8 +86,8 @@ import { socketioChannels } from '@shared/socketio-constants';
 import { IPC } from '../../shared/channels';
 import {
   registerSocketIoHandlerIPC,
-  stopSocketIoCleanup,
   socketIoRateLimiter,
+  stopSocketIoCleanup,
 } from '../handlers/socketio-handler';
 import { setExecutionPolicy } from '../security/execution-policy';
 

@@ -1,6 +1,7 @@
 // @vitest-environment node
-import { describe, it, expect, vi } from 'vitest';
+
 import type { EventEmitter as EventEmitterType } from 'node:events';
+import { describe, expect, it, vi } from 'vitest';
 
 // Back the mocked ipcRenderer with a real EventEmitter so on/removeListener/emit
 // behave exactly like Electron's (identity-based removal) — that's the property

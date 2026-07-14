@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { looksLikePemCertificate, looksLikePemPrivateKey } from './pemValidation';
 
 const CERT = `-----BEGIN CERTIFICATE-----\nMIIB...abc\n-----END CERTIFICATE-----`;

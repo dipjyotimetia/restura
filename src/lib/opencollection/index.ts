@@ -1,5 +1,5 @@
+export { internalToOC } from './from-internal';
 export {
-  openCollectionSchema,
   assertBoundedDocument,
   authSchema,
   environmentSchema,
@@ -7,14 +7,14 @@ export {
   graphqlRequestSchema,
   grpcRequestSchema,
   httpRequestSchema,
-  websocketRequestSchema,
   type OpenCollection,
+  openCollectionSchema,
+  websocketRequestSchema,
 } from './schemas';
 export { parseOpenCollectionYAML, serializeOpenCollectionYAML } from './serializer';
 export {
-  ocToInternal,
-  ocVariableToKeyValue,
   getAndResetUnrecognizedBodyCount,
   getAndResetUnrecognizedScripts,
+  ocToInternal,
+  ocVariableToKeyValue,
 } from './to-internal';
-export { internalToOC } from './from-internal';

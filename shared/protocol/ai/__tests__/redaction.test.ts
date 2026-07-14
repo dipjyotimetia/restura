@@ -1,10 +1,10 @@
-import { describe, it, expect } from 'vitest';
 import {
-  redactHeaders,
+  detectUnredactedSecrets,
   redactBody,
   redactEnvironment,
-  detectUnredactedSecrets,
+  redactHeaders,
 } from '@shared/protocol/ai/redaction';
+import { describe, expect, it } from 'vitest';
 
 describe('redactHeaders', () => {
   it('strips Authorization, Cookie, Set-Cookie', () => {

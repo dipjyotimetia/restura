@@ -1,5 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 
 const REPO_ROOT = resolve(__dirname, '..');
@@ -78,7 +78,7 @@ function parseDevVars(content: string): Record<string, string> {
 function ensureTlsCert(): void {
   // Lazy import: keeps `bootstrapPrereqs` cheap (no node:crypto / openssl exec
   // before the dev server is even up).
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  //
   const { getSelfSignedCert } = require('./mocks/cert') as typeof import('./mocks/cert');
   try {
     getSelfSignedCert();

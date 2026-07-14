@@ -1,6 +1,7 @@
 // @vitest-environment node
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
 import { Hono } from 'hono';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProxyHandler } from '../proxy';
 
 // The CONNECT-proxy adapter is never exercised by these tests (no

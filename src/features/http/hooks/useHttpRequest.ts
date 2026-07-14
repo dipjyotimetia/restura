@@ -13,7 +13,7 @@ import { useActiveRequest, useActiveResponse } from '@/store/selectors';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import type { HttpRequest, KeyValue, AuthConfig, Response as ApiResponse } from '@/types';
+import type { Response as ApiResponse, AuthConfig, HttpRequest, KeyValue } from '@/types';
 
 interface UseHttpRequestReturn {
   request: HttpRequest | null;

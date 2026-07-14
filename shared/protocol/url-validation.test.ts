@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  validateURL,
   assertResolvedAddressAllowed,
-  isPrivateAddress,
   isLoopbackAddress,
+  isPrivateAddress,
+  validateURL,
 } from './url-validation';
 
 describe('validateURL', () => {

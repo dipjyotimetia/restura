@@ -1,4 +1,4 @@
-import { getRuntimeErrors, type BugReportDiagnostics, type BugReportPlatform } from './bug-report';
+import { type BugReportDiagnostics, type BugReportPlatform, getRuntimeErrors } from './bug-report';
 import { getAppVersion, getElectronAPI, getPlatform } from './platform';
 
 export interface BugReportScreenshotResult {

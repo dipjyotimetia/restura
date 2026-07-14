@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  readStreamingResponse,
   detectStreamFormat,
   type HttpStreamEvent,
+  readStreamingResponse,
 } from '../streamingResponseReader';
 
 const enc = (s: string) => new TextEncoder().encode(s);

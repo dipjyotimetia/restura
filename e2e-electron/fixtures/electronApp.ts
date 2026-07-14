@@ -1,13 +1,13 @@
-import {
-  test as base,
-  expect,
-  _electron,
-  type ElectronApplication,
-  type Page,
-} from '@playwright/test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import {
+  _electron,
+  test as base,
+  type ElectronApplication,
+  expect,
+  type Page,
+} from '@playwright/test';
 
 const ROOT = path.resolve(__dirname, '../..');
 const MAIN_JS = path.join(ROOT, 'dist/electron/electron/main/main.js');
@@ -33,7 +33,7 @@ interface ElectronWorkerFixtures {
  */
 export const test = base.extend<ElectronFixtures, ElectronWorkerFixtures>({
   _electronApp: [
-    // eslint-disable-next-line no-empty-pattern
+    // biome-ignore lint/correctness/noEmptyPattern: legacy type boundary
     async ({}, use) => {
       const userDataDir = mkdtempSync(path.join(tmpdir(), 'restura-e2e-'));
       const electronApp = await _electron.launch({

@@ -1,26 +1,26 @@
-import { readFile, readdir, stat } from 'node:fs/promises';
-import { join, relative, extname } from 'node:path';
+import { readdir, readFile, stat } from 'node:fs/promises';
+import { extname, join, relative } from 'node:path';
 import * as yaml from 'js-yaml';
 import { v4 as uuidv4 } from 'uuid';
-import { resolveEffectiveAuth, isConfiguredAuth } from '@/features/auth/lib/authInheritance';
-import { loadCollectionFromFile, loadCollectionFromDir } from '@/lib/opencollection/fs-reader';
+import { isConfiguredAuth, resolveEffectiveAuth } from '@/features/auth/lib/authInheritance';
+import { loadCollectionFromDir, loadCollectionFromFile } from '@/lib/opencollection/fs-reader';
 import { ocToInternal } from '@/lib/opencollection/to-internal';
 import {
   fileCollectionMetaSchema,
-  fileHttpRequestSchema,
   fileGrpcRequestSchema,
-  fileSseRequestSchema,
+  fileHttpRequestSchema,
   fileMcpRequestSchema,
+  fileSseRequestSchema,
   getRequestTypeFromFilename,
 } from '@/lib/shared/file-collection-schema';
 import type {
-  HttpRequest,
-  GrpcRequest,
-  SseRequest,
-  McpRequest,
   AuthConfig,
   Collection,
   CollectionItem,
+  GrpcRequest,
+  HttpRequest,
+  McpRequest,
+  SseRequest,
 } from '@/types';
 
 export interface LoadedRequest {

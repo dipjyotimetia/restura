@@ -7,11 +7,11 @@
 
 import Dexie, { type Table } from 'dexie';
 import type {
+  AppSettings,
   Collection,
   Environment,
   Request,
   Response,
-  AppSettings,
   Workflow,
   WorkflowExecution,
 } from '@/types';
@@ -361,11 +361,11 @@ export const db = new ResturaDB();
 
 // Re-export types for convenience
 export type {
+  AppSettings,
   Collection,
   Environment,
   Request,
   Response,
-  AppSettings,
   Workflow,
   WorkflowExecution,
 };

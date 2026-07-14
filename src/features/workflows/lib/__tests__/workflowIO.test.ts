@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { Workflow, WorkflowGraph } from '@/types';
 import { exportWorkflow, parseWorkflowImport } from '../workflowIO';
 

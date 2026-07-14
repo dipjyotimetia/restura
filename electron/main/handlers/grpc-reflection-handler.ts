@@ -2,8 +2,8 @@ import { ipcMain } from 'electron';
 import { IPC } from '../../shared/channels';
 import {
   createValidatedHandler,
-  ReflectionIpcConfigSchema,
   type ReflectionIpcConfig,
+  ReflectionIpcConfigSchema,
 } from '../ipc/ipc-validators';
 import { executeConnectReflection, resolveGrpcDialAddress } from './grpc-connect';
 import { resolveGrpcReflectionExecutionPolicy } from './grpc-credentials';

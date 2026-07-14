@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { envHostHint, describeEnv } from '../envHint';
+import { describe, expect, it } from 'vitest';
 import type { Environment, KeyValue } from '@/types';
+import { describeEnv, envHostHint } from '../envHint';
 
 let seq = 0;
 function kv(key: string, value: string, enabled = true): KeyValue {

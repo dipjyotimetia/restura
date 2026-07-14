@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { percentile, computeLoadStats } from '../loadStats';
+import { describe, expect, it } from 'vitest';
+import { computeLoadStats, percentile } from '../loadStats';
 
 describe('percentile', () => {
   it('returns 0 for empty input', () => {

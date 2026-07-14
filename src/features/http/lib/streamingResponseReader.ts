@@ -1,5 +1,5 @@
 import { NdjsonParser, type NdjsonValue } from '@shared/protocol/ndjson-parser';
-import { SseParser, type SseEvent } from '@shared/protocol/sse-parser';
+import { type SseEvent, SseParser } from '@shared/protocol/sse-parser';
 
 export type StreamFormat = 'sse' | 'ndjson' | 'raw';
 

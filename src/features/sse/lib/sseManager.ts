@@ -1,7 +1,7 @@
-import { SseParser, type ParsedSseEvent } from './sseParser';
 import { useSseStore } from '@/features/sse/store/useSseStore';
-import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { executeProxiedStreamingRequest } from '@/lib/shared/transport';
+import { type ParsedSseEvent, SseParser } from './sseParser';
 
 /**
  * Remove all `sse:{open,event,error,close}:<connectionId>` IPC listeners.

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
 /**
  * The AI chat is desktop-only — every entry point is gated behind
@@ -33,14 +33,15 @@ test.describe('AI chat — web build gating', () => {
 // `_electron` API and pointing a provider `baseUrlOverride` at the local echo
 // server (POST /v1/chat/completions, /v1/messages). Not runnable against the
 // web dev server; tracked as a follow-up once an Electron e2e harness exists.
-test.describe.skip('AI chat round-trip (Electron-only — needs _electron harness)', () => {
-  test('streams an echo response end to end', async () => {
-    // 1. _electron.launch() the packaged app.
-    // 2. Settings → AI: store a fake key, set baseUrlOverride to the echo server.
-    // 3. Open the AI panel, send "hello", expect a streamed "echo: hello".
-  });
+test.describe
+  .skip('AI chat round-trip (Electron-only — needs _electron harness)', () => {
+    test('streams an echo response end to end', async () => {
+      // 1. _electron.launch() the packaged app.
+      // 2. Settings → AI: store a fake key, set baseUrlOverride to the echo server.
+      // 3. Open the AI panel, send "hello", expect a streamed "echo: hello".
+    });
 
-  test('Stop button cancels an in-flight stream', async () => {
-    // Send a message, click Stop mid-stream, assert the stream ends as cancelled.
+    test('Stop button cancels an in-flight stream', async () => {
+      // Send a message, click Stop mid-stream, assert the stream ends as cancelled.
+    });
   });
-});

@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { buildAuthCredential } from '../buildAuthCredential';
+import { describe, expect, it } from 'vitest';
 import type { AuthConfig } from '@/types';
+import { buildAuthCredential } from '../buildAuthCredential';
 
 describe('buildAuthCredential', () => {
   describe('none / undefined', () => {
@@ -149,12 +149,15 @@ describe('buildAuthCredential', () => {
   });
 
   describe('sign-at-wire types are not handled here', () => {
-    it.each(['digest', 'oauth1', 'aws-signature', 'ntlm', 'wsse'] as const)(
-      '%s returns empty (caller signs at wire time)',
-      (type) => {
-        const auth = { type } as AuthConfig;
-        expect(buildAuthCredential(auth)).toEqual({ headers: {}, params: {} });
-      }
-    );
+    it.each([
+      'digest',
+      'oauth1',
+      'aws-signature',
+      'ntlm',
+      'wsse',
+    ] as const)('%s returns empty (caller signs at wire time)', (type) => {
+      const auth = { type } as AuthConfig;
+      expect(buildAuthCredential(auth)).toEqual({ headers: {}, params: {} });
+    });
   });
 });

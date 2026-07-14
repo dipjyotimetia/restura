@@ -1,17 +1,17 @@
-import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { create } from '@bufbuild/protobuf';
 import * as protobuf from 'protobufjs';
 import descriptorExt from 'protobufjs/ext/descriptor';
+import { describe, expect, it } from 'vitest';
 import {
-  registryFromProtoText,
-  registryFromDescriptors,
-  resolveMethod,
   callKindOf,
   inputFromJson,
   outputToJson,
+  registryFromDescriptors,
+  registryFromProtoText,
+  resolveMethod,
 } from './grpc-registry';
-import { create } from '@bufbuild/protobuf';
 
 const ECHO_PROTO = readFileSync(resolve(__dirname, '../../e2e/mocks/proto/echo.proto'), 'utf8');
 const SERVICE = 'echo.v1.EchoService';

@@ -1,7 +1,7 @@
 // Flatten an EvalRun into shareable report formats (CSV / JSON / Markdown).
 // Pure — the ReportView wires download buttons to these.
 import Papa from 'papaparse';
-import type { EvalRun, EvalCellResult } from '../types';
+import type { EvalCellResult, EvalRun } from '../types';
 
 function modelLabel(cell: EvalCellResult): string {
   return cell.modelRef.model || `${cell.modelRef.providerConfigId}:${cell.modelRef.model}`;

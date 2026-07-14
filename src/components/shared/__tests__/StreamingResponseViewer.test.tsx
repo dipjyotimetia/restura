@@ -1,8 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, act, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { StreamingResponseViewer } from '../StreamingResponseViewer';
+import { describe, expect, it, vi } from 'vitest';
 import type { HttpStreamEvent } from '@/features/http/lib/streamingResponseReader';
+import { StreamingResponseViewer } from '../StreamingResponseViewer';
 
 void vi;
 

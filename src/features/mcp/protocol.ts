@@ -14,9 +14,9 @@
  * server pays N initialize round-trips. With the pool, one.
  */
 import { v4 as uuidv4 } from 'uuid';
-import { McpClient } from './lib/mcpClient';
 import type { ProtocolModule } from '@/features/registry/types';
 import type { McpRequest, Request } from '@/types';
+import { McpClient } from './lib/mcpClient';
 
 function createDefaultMcpRequest(): McpRequest {
   return {

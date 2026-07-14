@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
-import { validateWorkflowGraph, type ValidationIssue } from '../lib/flowValidators';
 import type { WorkflowGraph } from '@/types';
+import { type ValidationIssue, validateWorkflowGraph } from '../lib/flowValidators';
 
 export interface GraphValidationResult {
   /** Every issue — including non-blocking 'warning' severity (e.g. dead

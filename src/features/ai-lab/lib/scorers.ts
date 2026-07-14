@@ -6,7 +6,7 @@
 // QuickJS sandbox) are injected via ScorerContext rather than imported here, so
 // the deterministic scorers stay pure and unit-testable with no mocks.
 import type { JudgeCriterion, JudgeRequestInput, JudgeVerdict } from '@shared/protocol/ai/judge';
-import type { ChatToolCall, DatasetCase, ModelRef, ScorerConfig, ScoreResult } from '../types';
+import type { ChatToolCall, DatasetCase, ModelRef, ScoreResult, ScorerConfig } from '../types';
 
 export interface ScriptScoreResult {
   passed: boolean;

@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { buildFormFields } from '@/features/http/lib/requestExecutor';
+import { describe, expect, it } from 'vitest';
 import { base64ByteLength, formatBytes } from '@/features/http/lib/fileEncoding';
+import { buildFormFields } from '@/features/http/lib/requestExecutor';
 import type { FormDataItem } from '@/types';
 
 const item = (p: Partial<FormDataItem>): FormDataItem => ({

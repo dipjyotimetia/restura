@@ -1,17 +1,17 @@
 import {
-  GitBranch as GitBranchIcon,
   Check,
-  RefreshCw,
+  GitBranch as GitBranchIcon,
   GitCommit as GitCommitIcon,
+  RefreshCw,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogDescription,
 } from '@/components/ui/dialog';
 import { useGit } from '@/hooks/useGit';
 import { cn } from '@/lib/shared/utils';

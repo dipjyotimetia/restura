@@ -1,6 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  SECRET_HANDLE_PLACEHOLDER,
   assertSecretValue,
   describeSecret,
   handleSecret,
@@ -8,6 +7,7 @@ import {
   isInlineSecretRef,
   isSecretHandle,
   redactSecret,
+  SECRET_HANDLE_PLACEHOLDER,
   secretValueSchema,
   unwrapSecret,
 } from '../secretRef';

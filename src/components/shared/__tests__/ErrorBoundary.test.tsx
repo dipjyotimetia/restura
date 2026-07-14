@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/shared/telemetry', () => ({
   reportError: vi.fn(),
@@ -16,9 +16,9 @@ vi.mock('@sentry/electron/renderer', () => ({
   init: vi.fn(),
 }));
 
+import * as SentryRenderer from '@sentry/electron/renderer';
 import { isElectron } from '@/lib/shared/platform';
 import { reportError } from '@/lib/shared/telemetry';
-import * as SentryRenderer from '@sentry/electron/renderer';
 import { ErrorBoundary } from '../ErrorBoundary';
 
 function Bomb({ shouldThrow }: { shouldThrow: boolean }) {

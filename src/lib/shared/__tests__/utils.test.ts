@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { formatBytes, formatTime, formatDate, keyValuePairsToRecord, debounce } from '../utils';
+import { describe, expect, it, vi } from 'vitest';
+import { debounce, formatBytes, formatDate, formatTime, keyValuePairsToRecord } from '../utils';
 
 describe('formatBytes', () => {
   it('returns "0 Bytes" for 0', () => {

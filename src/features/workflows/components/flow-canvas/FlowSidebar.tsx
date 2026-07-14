@@ -7,33 +7,33 @@
 'use client';
 
 import {
-  GitBranch,
-  Split,
-  Variable,
   Clock,
   Code2,
-  FileText,
   Eye,
+  FileText,
+  GitBranch,
   GitFork,
+  Plug,
+  Radio,
   Repeat,
   RotateCw,
-  ShieldAlert,
-  Workflow as WorkflowIcon,
   Search,
   Send,
-  Radio,
-  Plug,
+  ShieldAlert,
   Sparkles,
+  Split,
+  Variable,
+  Workflow as WorkflowIcon,
 } from 'lucide-react';
-import { useMemo, useState, type DragEvent } from 'react';
-import { flattenRequests, type RequestSummary } from '../../lib/collectionHelpers';
-import { methodBadgeVariant } from '../../lib/methodBadge';
+import { type DragEvent, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/shared/utils';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import type { FlowNodeKind } from '@/types';
+import { flattenRequests, type RequestSummary } from '../../lib/collectionHelpers';
+import { methodBadgeVariant } from '../../lib/methodBadge';
 
 export const FLOW_DRAG_KIND_MIME = 'application/x-restura-flow-kind';
 export const FLOW_DRAG_REQUEST_MIME = 'application/x-restura-flow-request';
@@ -209,7 +209,6 @@ export function FlowSidebar({ collectionId }: FlowSidebarProps) {
             {PALETTE.map((entry) => {
               const Icon = entry.icon;
               return (
-                // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- drag source for the flow canvas; no native equivalent
                 <div
                   key={entry.kind}
                   draggable
@@ -255,7 +254,6 @@ export function FlowSidebar({ collectionId }: FlowSidebarProps) {
               </div>
             ) : (
               filtered.map((req) => (
-                // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- drag source for the flow canvas; no native equivalent
                 <div
                   key={req.id}
                   draggable

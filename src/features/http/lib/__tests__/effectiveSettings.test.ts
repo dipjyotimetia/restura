@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { resolveEffectiveSettings } from '../effectiveSettings';
 import type { AppSettings, RequestSettings } from '@/types';
+import { resolveEffectiveSettings } from '../effectiveSettings';
 
 const globalSettings = {
   proxy: {

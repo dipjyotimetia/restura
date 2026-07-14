@@ -1,15 +1,11 @@
-import * as dns from 'dns';
-import type * as http from 'http';
-import * as net from 'net';
 import * as diagnosticsChannel from 'node:diagnostics_channel';
-import { Readable, Transform, pipeline } from 'node:stream';
+import { pipeline, Readable, Transform } from 'node:stream';
 import {
-  text as readStreamText,
   arrayBuffer as readStreamArrayBuffer,
+  text as readStreamText,
 } from 'node:stream/consumers';
-import { createGunzip, createInflate, createBrotliDecompress } from 'node:zlib';
-import * as tls from 'tls';
-import type { ProxyBodyType, FormField } from '@shared/protocol/body-builder';
+import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib';
+import type { FormField, ProxyBodyType } from '@shared/protocol/body-builder';
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { executeHttpProxy, MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import type {
@@ -20,17 +16,21 @@ import type {
   ProtocolSecretValue as SecretValue,
 } from '@shared/protocol/types';
 import { assertResolvedAddressAllowed, isPrivateAddress } from '@shared/protocol/url-validation';
+import * as dns from 'dns';
 import { ipcMain, session } from 'electron';
-import { request as undiciRequest, Agent, ProxyAgent, buildConnector } from 'undici';
+import type * as http from 'http';
+import * as net from 'net';
+import * as tls from 'tls';
+import { Agent, buildConnector, ProxyAgent, request as undiciRequest } from 'undici';
 import { selectCertForUrl } from '../../../src/lib/shared/certMatcher';
 import { createLogger } from '../../../src/lib/shared/logger';
 import { IPC } from '../../shared/channels';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import {
+  createValidatedEventHandler,
   HttpCancelSchema,
   HttpRequestConfigSchema,
-  createValidatedEventHandler,
   MAX_HTTP_BODY_BYTES,
   type ValidatedHttpRequestConfig,
 } from '../ipc/ipc-validators';
@@ -40,8 +40,8 @@ import { smithySigV4Signer } from '../security/aws-sigv4-smithy';
 import { resolveEnvProxy } from '../security/env-proxy';
 import {
   assertExecutionPolicyReady,
-  getExecutionPolicy,
   type ExecutionPolicy,
+  getExecutionPolicy,
 } from '../security/execution-policy';
 import { isProxyBypassed } from '../security/proxy-bypass';
 import { unwrapSecretValueMain } from '../security/secret-handle-store';

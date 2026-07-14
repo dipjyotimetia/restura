@@ -2,8 +2,8 @@ import { KeyRound } from 'lucide-react';
 import { useMemo } from 'react';
 import {
   findInheritedAuthWithSource,
-  isConfiguredAuth,
   type InheritedAuth,
+  isConfiguredAuth,
 } from '@/features/auth/lib/authInheritance';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import type { AuthConfig, AuthType, Request } from '@/types';

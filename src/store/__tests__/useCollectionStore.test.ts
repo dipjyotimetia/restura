@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { useCollectionStore } from '../useCollectionStore';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { internalToOC } from '@/lib/opencollection/from-internal';
 import type { Collection, CollectionItem } from '@/types';
+import { useCollectionStore } from '../useCollectionStore';
 
 describe('useCollectionStore', () => {
   beforeEach(() => {

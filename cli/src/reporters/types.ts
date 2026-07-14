@@ -21,8 +21,9 @@ export interface AssertionResult {
 }
 
 // Single source of truth lives in the executor layer; re-exported here to avoid drift.
-import type { StreamEvent, GrpcStatusInfo } from '../runner/executors/types.js';
-export type { StreamEvent, GrpcStatusInfo };
+import type { GrpcStatusInfo, StreamEvent } from '../runner/executors/types.js';
+
+export type { GrpcStatusInfo, StreamEvent };
 
 export interface RequestRunResult {
   request: LoadedRequest;

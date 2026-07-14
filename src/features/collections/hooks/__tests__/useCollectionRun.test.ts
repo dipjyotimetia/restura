@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildBaseVars } from '../useCollectionRun';
 import type { Collection, Environment } from '@/types';
+import { buildBaseVars } from '../useCollectionRun';
 
 describe('buildBaseVars', () => {
   it('layers globals, enabled environment values, then collection values', () => {

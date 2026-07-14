@@ -2,7 +2,6 @@ import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { createTabFromRequest, findTabIndex, migrateLegacyStateToTabs } from './lib/tabs';
 import { useKafkaStore } from '@/features/kafka/store/useKafkaStore';
 import { useMqttStore } from '@/features/mqtt/store/useMqttStore';
 import { useSocketIOStore } from '@/features/socketio/store/useSocketIOStore';
@@ -12,18 +11,19 @@ import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { migrateAuthConfigToSecretRef } from '@/lib/shared/secretRef-migrations';
 import { validateRequestUpdate } from '@/lib/shared/store-validators';
 import type {
-  Request,
-  Response,
-  RequestTab,
-  HttpRequest,
   GrpcRequest,
-  SseRequest,
+  HttpRequest,
   McpRequest,
-  ScriptResult,
+  Request,
+  RequestTab,
   RequestType,
+  Response,
+  ScriptResult,
+  SseRequest,
   StreamEventLike,
   TabModeOverride,
 } from '@/types';
+import { createTabFromRequest, findTabIndex, migrateLegacyStateToTabs } from './lib/tabs';
 
 interface ScriptResults {
   preRequest?: ScriptResult;

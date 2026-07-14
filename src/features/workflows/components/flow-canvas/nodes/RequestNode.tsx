@@ -1,12 +1,12 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Handle, type NodeProps, Position } from '@xyflow/react';
 import { memo, useMemo } from 'react';
-import { findRequestInItems } from '../../../lib/collectionHelpers';
-import { methodBadgeVariant } from '../../../lib/methodBadge';
-import { NodeChrome } from './NodeChrome';
 import { Badge } from '@/components/ui/badge';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
-import type { RequestFlowNode, HttpRequest } from '@/types';
+import type { HttpRequest, RequestFlowNode } from '@/types';
+import { findRequestInItems } from '../../../lib/collectionHelpers';
+import { methodBadgeVariant } from '../../../lib/methodBadge';
+import { NodeChrome } from './NodeChrome';
 
 type RequestNodeData = RequestFlowNode['data'] & {
   workflowId?: string;

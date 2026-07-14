@@ -4,8 +4,8 @@ import { useShallow } from 'zustand/react/shallow';
 import NetworkConsole from '@/features/http/components/NetworkConsole';
 import { getStatusTextColor, httpLikeStatus } from '@/lib/shared/console-format';
 import { cn } from '@/lib/shared/utils';
-import { useConsoleStore } from '@/store/useConsoleStore';
 import type { ConsoleLog, ConsoleTest } from '@/store/useConsoleStore';
+import { useConsoleStore } from '@/store/useConsoleStore';
 
 /**
  * Relative time formatter — only used for the "last · Xm ago" hint.

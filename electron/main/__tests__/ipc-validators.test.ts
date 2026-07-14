@@ -1,19 +1,19 @@
 // @vitest-environment node
 import { afterAll, beforeAll, vi } from 'vitest';
 import { z } from 'zod';
-import { setLogSink, noopSink, consoleSink } from '../../../src/lib/shared/logger';
+import { consoleSink, noopSink, setLogSink } from '../../../src/lib/shared/logger';
 import {
-  HttpRequestConfigSchema,
+  BugReportScreenshotSchema,
+  createValidatedHandler,
+  FilePathSchema,
   GrpcRequestConfigSchema,
   GrpcSendMessageSchema,
   GrpcStreamRequestIdSchema,
-  FilePathSchema,
-  ShellUrlSchema,
-  validateIpcInput,
-  createValidatedHandler,
+  HttpRequestConfigSchema,
   MAX_HTTP_BODY_BYTES,
   MAX_PROTO_CONTENT_BYTES,
-  BugReportScreenshotSchema,
+  ShellUrlSchema,
+  validateIpcInput,
 } from '../ipc/ipc-validators';
 
 // validateIpcInput logs at error level before throwing, which produces JSON

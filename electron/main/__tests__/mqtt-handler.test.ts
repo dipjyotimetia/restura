@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockHandle = vi.hoisted(() => vi.fn());
 const mockEmitTo = vi.hoisted(() => vi.fn());
@@ -26,10 +26,10 @@ vi.mock('../security/mqtt-broker-guard', () => ({
 import type * as MqttLib from 'mqtt';
 import { IPC } from '../../shared/channels';
 import {
+  __setMqttForTests,
+  mqttRateLimiter,
   registerMqttHandlerIPC,
   stopMqttCleanup,
-  mqttRateLimiter,
-  __setMqttForTests,
 } from '../handlers/mqtt-handler';
 
 // Fake `mqtt` client: records instances, captures lifecycle listeners so tests

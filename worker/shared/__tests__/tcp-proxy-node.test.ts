@@ -1,6 +1,7 @@
 // @vitest-environment node
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+
 import { EventEmitter } from 'node:events';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Minimal fake socket — `onWrite` lets each test reply to the production
 // code's write() so the response is only emitted AFTER the production code
@@ -55,7 +56,7 @@ vi.mock('node:tls', () => {
   return { connect, default: { connect } };
 });
 
-import { createHttpViaProxy, createHttpsViaConnectProxy } from '../tcp-proxy-node';
+import { createHttpsViaConnectProxy, createHttpViaProxy } from '../tcp-proxy-node';
 
 beforeEach(() => {
   state.nextNetSocket = null;

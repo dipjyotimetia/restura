@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  sanitizeRequestHeaders,
-  sanitizeResponseHeaders,
   REQUEST_DENY,
   RESPONSE_DENY,
+  sanitizeRequestHeaders,
+  sanitizeResponseHeaders,
 } from './header-policy';
 
 describe('sanitizeRequestHeaders', () => {

@@ -1,17 +1,17 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import {
   createServer,
   request as httpRequest,
-  type Server,
   type IncomingMessage,
+  type Server,
   type ServerResponse,
 } from 'node:http';
-import { connect as netConnect, type AddressInfo, type Socket } from 'node:net';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { type AddressInfo, connect as netConnect, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runCollection, type RunOptions } from '../runner';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Reporter } from '../../reporters/types';
+import { type RunOptions, runCollection } from '../runner';
 
 let upstream: Server;
 let proxy: Server;

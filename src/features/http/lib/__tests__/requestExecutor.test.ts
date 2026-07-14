@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { HttpRequest, RequestSettings } from '@/types';
 import { useCookieStore } from '@/features/http/store/useCookieStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
+import type { HttpRequest, RequestSettings } from '@/types';
 
 const executeProxiedRequestMock = vi.fn();
 const makeRendererSendRequestMock = vi.fn((_options: unknown) => vi.fn());

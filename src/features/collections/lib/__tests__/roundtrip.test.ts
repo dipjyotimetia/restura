@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { exportToPostman, exportToInsomnia } from '../exporters';
-import { importPostmanCollection } from '../importers/postman';
-import { importInsomniaCollection } from '../importers/insomnia';
-import { validateImportedCollection } from '../importers/validateImported';
+import { describe, expect, it } from 'vitest';
 import type { Collection, CollectionItem, HttpRequest } from '@/types';
+import { exportToInsomnia, exportToPostman } from '../exporters';
+import { importInsomniaCollection } from '../importers/insomnia';
+import { importPostmanCollection } from '../importers/postman';
+import { validateImportedCollection } from '../importers/validateImported';
 
 /**
  * Export → re-import regression net. The importers and exporters are

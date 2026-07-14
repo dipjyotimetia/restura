@@ -1,9 +1,9 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { useSettingsStore } from './useSettingsStore';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { migrateAuthConfigToSecretRef } from '@/lib/shared/secretRef-migrations';
 import type { HistoryItem, Request, Response } from '@/types';
+import { useSettingsStore } from './useSettingsStore';
 
 interface HistoryState {
   history: HistoryItem[];

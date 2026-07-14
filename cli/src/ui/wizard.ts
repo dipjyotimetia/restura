@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { intro, outro, multiselect, confirm, text, isCancel, cancel } from '@clack/prompts';
+import { cancel, confirm, intro, isCancel, multiselect, outro, text } from '@clack/prompts';
 import type { RunOpts } from '../commands/run.js';
 
 /**

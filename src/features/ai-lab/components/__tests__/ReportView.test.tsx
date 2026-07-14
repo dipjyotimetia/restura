@@ -1,11 +1,11 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ReportView } from '../ReportView';
 import type { AiLabReportEnvelope } from '../../run-engine/reportEnvelope';
 import { useAiLabStore } from '../../store/useAiLabStore';
 import { useAiLabUiStore } from '../../store/useAiLabUiStore';
 import { useEvalRunStore } from '../../store/useEvalRunStore';
 import type { EvalRun } from '../../types';
+import { ReportView } from '../ReportView';
 
 const { downloadBlob } = vi.hoisted(() => ({ downloadBlob: vi.fn() }));
 vi.mock('@/lib/shared/file-utils', () => ({ downloadBlob }));

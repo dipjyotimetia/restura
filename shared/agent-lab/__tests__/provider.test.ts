@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ProviderRegistry,
-  validateGenerationRequest,
   type ModelCapabilities,
   type ProviderAdapter,
+  ProviderRegistry,
+  validateGenerationRequest,
 } from '../provider';
 
 const textOnly: ModelCapabilities = {

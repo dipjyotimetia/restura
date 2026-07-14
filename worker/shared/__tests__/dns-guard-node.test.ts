@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Module-level mock — vi.spyOn on `node:dns/promises` doesn't work under ESM
 // because the namespace is not configurable.
@@ -8,8 +8,8 @@ vi.mock('node:dns/promises', () => {
   return { lookup, default: { lookup } };
 });
 
-import * as dns from 'node:dns/promises';
 import type { LookupAddress } from 'node:dns';
+import * as dns from 'node:dns/promises';
 import { assertNodeHostnameSafe } from '../dns-guard-node';
 
 // `dns.lookup` is overloaded — without `{ all: true }` it resolves to a

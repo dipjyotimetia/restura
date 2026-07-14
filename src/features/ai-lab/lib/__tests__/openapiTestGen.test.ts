@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { summarizeOpenApi, parseGeneratedCases, buildGenMessages } from '../openapiTestGen';
 import type { CompletionResult } from '@shared/protocol/ai/types';
+import { describe, expect, it } from 'vitest';
+import { buildGenMessages, parseGeneratedCases, summarizeOpenApi } from '../openapiTestGen';
 
 const SPEC = {
   info: { title: 'Pet Store' },

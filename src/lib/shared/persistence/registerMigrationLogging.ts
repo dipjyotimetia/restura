@@ -9,9 +9,9 @@
  * a one-off corruption that reset a store to defaults isn't silently forgotten.
  */
 
+import { createLogger, type Logger } from '@/lib/shared/logger';
 import { listQuarantined } from './quarantine';
 import { migrationTelemetry } from './telemetry';
-import { createLogger, type Logger } from '@/lib/shared/logger';
 
 let unsubscribe: (() => void) | null = null;
 

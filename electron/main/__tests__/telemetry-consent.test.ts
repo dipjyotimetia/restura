@@ -1,8 +1,9 @@
 // @vitest-environment node
-import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
+
+import { mkdirSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { rmSync, mkdirSync } from 'node:fs';
+import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { IPC } from '../../shared/channels';
 
 // The consent mirror is a plain JSON file in userData — point userData at a
@@ -17,9 +18,9 @@ vi.mock('electron', () => ({
 // Spy on the Sentry gate without loading the real SDK.
 vi.mock('../lifecycle/sentry', () => ({ setSentryEnabled: vi.fn() }));
 
-import { readConsentSync, registerTelemetryConsentIPC } from '../lifecycle/telemetry-consent';
 import { ipcMain } from 'electron';
 import { setSentryEnabled } from '../lifecycle/sentry';
+import { readConsentSync, registerTelemetryConsentIPC } from '../lifecycle/telemetry-consent';
 
 const handleMock = ipcMain.handle as unknown as Mock;
 const setEnabledMock = setSentryEnabled as unknown as Mock;

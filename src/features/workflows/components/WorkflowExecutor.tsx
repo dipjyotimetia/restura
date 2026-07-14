@@ -1,25 +1,25 @@
 'use client';
 
-import { Play, Square, CheckCircle2, XCircle, Clock, Variable, FileText } from 'lucide-react';
+import { CheckCircle2, Clock, FileText, Play, Square, Variable, XCircle } from 'lucide-react';
 import { useState } from 'react';
-import { useGraphValidation } from '../hooks/useGraphValidation';
-import { useWorkflowExecution } from '../hooks/useWorkflowExecution';
-import { WorkflowStep, statusConfig } from './WorkflowStep';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from '@/components/ui/dialog';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/shared/utils';
 import { useCollectionStore } from '@/store/useCollectionStore';
-import type { Workflow, HttpRequest, CollectionItem, WorkflowExecutionStep } from '@/types';
+import type { CollectionItem, HttpRequest, Workflow, WorkflowExecutionStep } from '@/types';
+import { useGraphValidation } from '../hooks/useGraphValidation';
+import { useWorkflowExecution } from '../hooks/useWorkflowExecution';
+import { statusConfig, WorkflowStep } from './WorkflowStep';
 
 interface WorkflowExecutorProps {
   workflow: Workflow;

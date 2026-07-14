@@ -1,6 +1,6 @@
 /* Geist Variable — the app's typeface (src/styles/globals.css). Ships with the
    site via Starlight's customCss bundle. Must precede all rules below. */
-@import '@fontsource-variable/geist';
+@import "@fontsource-variable/geist";
 
 /* =========================================================================
    Restura Docs — Spatial Depth Design System
@@ -26,8 +26,8 @@
 
   /* Typography — match the app (Geist + JetBrains Mono) */
   --sl-font:
-    'Geist Variable', Geist, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
-  --sl-font-mono: 'JetBrains Mono', ui-monospace, 'Fira Code', Menlo, monospace;
+    "Geist Variable", Geist, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --sl-font-mono: "JetBrains Mono", ui-monospace, "Fira Code", Menlo, monospace;
 
   /* Glass tier variables (light defaults) */
   --glass-1-bg: rgb(255 255 255 / 0.65);
@@ -46,7 +46,7 @@
   --backdrop-orb-2: oklch(55% 0.06 262 / 0.1);
 }
 
-:root[data-theme='light'] {
+:root[data-theme="light"] {
   --sl-color-bg: var(--backdrop-base);
   --sl-color-bg-nav: rgb(255 255 255 / 0.5);
   --sl-color-bg-sidebar: rgb(255 255 255 / 0.5);
@@ -54,7 +54,7 @@
   --sl-color-hairline-light: rgb(15 23 42 / 0.05);
 }
 
-:root[data-theme='dark'] {
+:root[data-theme="dark"] {
   /* Dark glass = app-style translucent dark surfaces (globals.css .glass-1/2/3),
      not white overlays — reads as elevated panels on the lifted backdrop. */
   --glass-1-bg: rgb(26 31 42 / 0.78);
@@ -93,7 +93,7 @@ body {
 
 body::before,
 body::after {
-  content: '';
+  content: "";
   position: fixed;
   inset: 0;
   pointer-events: none;
@@ -137,7 +137,7 @@ body::after {
   opacity: 0.6;
 }
 
-:root[data-theme='dark'] body::after {
+:root[data-theme="dark"] body::after {
   background-image:
     linear-gradient(rgb(255 255 255 / 0.025) 1px, transparent 1px),
     linear-gradient(90deg, rgb(255 255 255 / 0.025) 1px, transparent 1px);
@@ -170,18 +170,18 @@ header.header {
 .sidebar-content a:hover {
   background: var(--glass-1-bg);
 }
-.sidebar-content a[aria-current='page'] {
+.sidebar-content a[aria-current="page"] {
   background: rgb(var(--restura-cobalt) / 0.12);
   color: rgb(var(--restura-cobalt));
   font-weight: 600;
   position: relative;
 }
-:root[data-theme='dark'] .sidebar-content a[aria-current='page'] {
+:root[data-theme="dark"] .sidebar-content a[aria-current="page"] {
   background: rgb(var(--restura-cobalt) / 0.2);
   color: rgb(199 222 255);
 }
-.sidebar-content a[aria-current='page']::before {
-  content: '';
+.sidebar-content a[aria-current="page"]::before {
+  content: "";
   position: absolute;
   inset-inline-start: -0.5rem;
   top: 0.4rem;
@@ -209,7 +209,7 @@ header.header {
   overflow: hidden;
 }
 .hero::before {
-  content: '';
+  content: "";
   position: absolute;
   top: -30%;
   right: -10%;
@@ -220,7 +220,7 @@ header.header {
   pointer-events: none;
 }
 .hero::after {
-  content: '';
+  content: "";
   position: absolute;
   bottom: -40%;
   left: -10%;
@@ -343,7 +343,7 @@ header.header {
 }
 /* Shine highlight */
 .protocol-grid a::after {
-  content: '';
+  content: "";
   position: absolute;
   inset-inline: 1rem;
   top: 0;
@@ -351,12 +351,12 @@ header.header {
   background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.5) 50%, transparent);
   pointer-events: none;
 }
-:root[data-theme='dark'] .protocol-grid a::after {
+:root[data-theme="dark"] .protocol-grid a::after {
   background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.18) 50%, transparent);
 }
 /* Hover glow — a restrained tint, not a neon wash */
 .protocol-grid a::before {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   background: linear-gradient(135deg, rgb(var(--pc) / 0.07), transparent 60%);
@@ -374,28 +374,28 @@ header.header {
 
 /* Per-protocol accent — values match the app's protocol chip colors
    (src/styles/globals.css --color-proto-*). */
-.protocol-grid a[data-color='blue'] {
+.protocol-grid a[data-color="blue"] {
   --pc: 61 143 228; /* HTTP #3d8fe4 */
 }
-.protocol-grid a[data-color='green'] {
+.protocol-grid a[data-color="green"] {
   --pc: 57 178 111; /* gRPC #39b26f */
 }
-.protocol-grid a[data-color='violet'] {
+.protocol-grid a[data-color="violet"] {
   --pc: 152 139 221; /* WS / Socket.IO #988bdd */
 }
-.protocol-grid a[data-color='pink'] {
+.protocol-grid a[data-color="pink"] {
   --pc: 221 122 162; /* GraphQL #dd7aa2 */
 }
-.protocol-grid a[data-color='magenta'] {
+.protocol-grid a[data-color="magenta"] {
   --pc: 220 112 149; /* Kafka #dc7095 */
 }
-.protocol-grid a[data-color='cyan'] {
+.protocol-grid a[data-color="cyan"] {
   --pc: var(--restura-cyan); /* SSE #2ba9c2 */
 }
-.protocol-grid a[data-color='amber'] {
+.protocol-grid a[data-color="amber"] {
   --pc: 216 149 61; /* MCP #d8953d */
 }
-.protocol-grid a[data-color='teal'] {
+.protocol-grid a[data-color="teal"] {
   --pc: 41 169 135; /* MQTT #29a987 */
 }
 
@@ -415,7 +415,7 @@ header.header {
   border: 1px solid rgb(var(--pc) / 0.3);
   text-transform: uppercase;
 }
-:root[data-theme='dark'] .protocol-grid .label {
+:root[data-theme="dark"] .protocol-grid .label {
   background: rgb(var(--pc) / 0.22);
   color: color-mix(in oklab, rgb(var(--pc)) 55%, white);
   border-color: rgb(var(--pc) / 0.45);
@@ -533,7 +533,7 @@ starlight-file-tree {
   background: rgb(15 17 32 / 0.85) !important;
   backdrop-filter: blur(10px);
 }
-:root[data-theme='light'] .expressive-code .frame pre {
+:root[data-theme="light"] .expressive-code .frame pre {
   background: rgb(245 245 250 / 0.85) !important;
 }
 
@@ -546,7 +546,7 @@ starlight-file-tree {
   border-radius: 0.35rem !important;
   font-size: 0.875em !important;
 }
-:root[data-theme='dark'] :not(pre) > code {
+:root[data-theme="dark"] :not(pre) > code {
   color: rgb(199 222 255) !important;
   background: rgb(var(--restura-cobalt) / 0.22) !important;
   border-color: rgb(var(--restura-cobalt) / 0.3);
@@ -701,7 +701,7 @@ site-search button[data-open-modal] {
   padding-inline-end: 1.4rem;
 }
 .protocol-grid a[data-live] .label::after {
-  content: '';
+  content: "";
   position: absolute;
   inset-inline-end: 0.5rem;
   top: 50%;

@@ -1,8 +1,8 @@
-import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import SettingsDrawer from '../SettingsDrawer';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSettingsStore } from '@/store/useSettingsStore';
+import SettingsDrawer from '../SettingsDrawer';
 
 // next-themes hook — return a stable theme without trying to read CSS or storage.
 vi.mock('next-themes', () => ({

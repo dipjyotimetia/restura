@@ -37,7 +37,7 @@ export function bytesToBase64(b: Uint8Array): string {
     for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]!);
     return btoa(s);
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
   return (globalThis as any).Buffer.from(b).toString('base64');
 }
 
@@ -48,7 +48,7 @@ export function base64ToBytes(b64: string): Uint8Array {
     for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
     return out;
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
   const buf = (globalThis as any).Buffer.from(b64, 'base64') as Uint8Array;
   return new Uint8Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
 }

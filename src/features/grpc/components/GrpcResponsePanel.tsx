@@ -7,7 +7,7 @@ import { Floater, Stat, StatusPill, SubTabBar, SubTabPanel } from '@/components/
 import { formatBytes, formatTime } from '@/lib/shared/utils';
 import { useActiveResponse } from '@/store/selectors';
 import { useRequestStore } from '@/store/useRequestStore';
-import { GrpcStatusCodeName, type GrpcResponse, type GrpcStatusCode } from '@/types';
+import { type GrpcResponse, type GrpcStatusCode, GrpcStatusCodeName } from '@/types';
 
 function prettyJson(raw: string): string {
   if (!raw) return '';

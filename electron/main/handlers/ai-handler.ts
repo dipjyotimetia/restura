@@ -15,16 +15,16 @@
 
 import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
 import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
-import { isLocalProvider, type ChatRequestSpec, type Provider } from '@shared/protocol/ai/types';
+import { type ChatRequestSpec, isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import type { Fetcher } from '@shared/protocol/types';
 import { ipcMain } from 'electron';
 import { createLogger } from '../../../src/lib/shared/logger';
-import { IPC, EVENT_PREFIX, eventChannel } from '../../shared/channels';
+import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo } from '../ipc/ipc-utils';
 import {
-  AiChatRequestSchema,
   AiChatCancelSchema,
+  AiChatRequestSchema,
   assertTrustedSender,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';

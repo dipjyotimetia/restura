@@ -78,16 +78,16 @@ docs-build: ## Build the docs site
 	npm run docs:build
 
 ##@ Quality
-lint: ## ESLint over src/ electron/main worker/ echo/ echo-local/ scripts/
+lint: ## Biome lint over the application source trees
 	npm run lint
 
-lint-fix: ## ESLint --fix
+lint-fix: ## Biome lint --write
 	npm run lint:fix
 
-format: ## Prettier --write
+format: ## Biome format --write
 	npm run format
 
-format-check: ## Prettier --check
+format-check: ## Biome format check
 	npm run format:check
 
 type-check: ## TypeScript strict check (renderer only)

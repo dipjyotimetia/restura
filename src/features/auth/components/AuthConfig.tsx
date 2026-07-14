@@ -1,8 +1,7 @@
 'use client';
 
-import { Lock, Loader2, AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Loader2, Lock } from 'lucide-react';
 import { useState } from 'react';
-import SecretInput from './SecretInput';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -14,16 +13,17 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  fetchClientCredentialsToken,
-  fetchPasswordToken,
+  authorizeWithPopup,
   buildAuthorizationUrl,
   exchangeCodeForToken,
-  authorizeWithPopup,
+  fetchClientCredentialsToken,
   fetchDeviceCode,
+  fetchPasswordToken,
   pollForDeviceToken,
 } from '@/features/auth/lib/oauth2';
 import { unwrapSecret } from '@/lib/shared/secretRef';
 import type { AuthConfig } from '@/types';
+import SecretInput from './SecretInput';
 
 interface AuthConfigProps {
   auth: AuthConfig;

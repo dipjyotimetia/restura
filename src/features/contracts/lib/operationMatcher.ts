@@ -56,7 +56,9 @@ export function matchOperation(
   for (const [pathTemplate, pathItem] of Object.entries(spec.paths ?? {})) {
     if (!pathItem) continue;
     const op = (pathItem as Record<string, unknown>)[methodLower] as
-      OpenAPIV3.OperationObject | OpenAPIV3_1.OperationObject | undefined;
+      | OpenAPIV3.OperationObject
+      | OpenAPIV3_1.OperationObject
+      | undefined;
     if (!op) continue;
 
     const match = matchPathTemplate(pathTemplate, requestPath);
@@ -85,7 +87,9 @@ export function findOperationById(
     if (!pathItem) continue;
     for (const m of HTTP_METHODS) {
       const op = (pathItem as Record<string, unknown>)[m] as
-        OpenAPIV3.OperationObject | OpenAPIV3_1.OperationObject | undefined;
+        | OpenAPIV3.OperationObject
+        | OpenAPIV3_1.OperationObject
+        | undefined;
       if (!op) continue;
       const id = op.operationId ?? syntheticId(m, pathTemplate);
       if (id === operationId) {

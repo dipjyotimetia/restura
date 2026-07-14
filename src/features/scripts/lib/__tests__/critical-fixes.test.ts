@@ -1,10 +1,10 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
-  validateRequest,
-  validateEnvironment,
   validateCollection,
+  validateEnvironment,
+  validateRequest,
 } from '@/lib/shared/store-validators';
-import type { HttpRequest, GrpcRequest } from '@/types';
+import type { GrpcRequest, HttpRequest } from '@/types';
 
 describe('Critical Fixes Verification', () => {
   describe('Store Validation - Fix #8', () => {

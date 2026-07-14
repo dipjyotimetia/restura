@@ -1,6 +1,6 @@
-import { describe, it, expect, vi } from 'vitest';
-import { executeHttpProxy, executeHttpProxyStreaming, MAX_RESPONSE_SIZE } from './http-proxy';
+import { describe, expect, it, vi } from 'vitest';
 import { flattenHeaders as asRecord } from './header-utils';
+import { executeHttpProxy, executeHttpProxyStreaming, MAX_RESPONSE_SIZE } from './http-proxy';
 import type { Fetcher } from './types';
 
 function makeFetcher(

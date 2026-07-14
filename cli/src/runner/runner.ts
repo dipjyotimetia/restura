@@ -1,12 +1,12 @@
-import type { Reporter, RunResult, RequestRunResult, RunMeta } from '../reporters/types.js';
+import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
+import type { Reporter, RequestRunResult, RunMeta, RunResult } from '../reporters/types.js';
 import { loadCollection } from './collectionLoader.js';
 import type { CliIterationRow } from './dataLoader.js';
 import { executeRequest } from './executors/dispatch.js';
 import { applyFilters, type FilterOptions } from './filter.js';
-import { withRetry, DEFAULT_RETRY, type RetryOptions } from './retry.js';
-import { runPreRequestScript, runTestScript, type RunScriptResult } from './scriptRunner.js';
+import { DEFAULT_RETRY, type RetryOptions, withRetry } from './retry.js';
+import { type RunScriptResult, runPreRequestScript, runTestScript } from './scriptRunner.js';
 import { buildDispatcher, type TlsOptions } from './undiciFetcher.js';
-import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
 
 export interface RunOptions {
   envVars: Record<string, string>;
@@ -114,7 +114,7 @@ export async function runCollection(
     const allVars: Record<string, string> = { ...baseVars, ...row };
     let jumps = 0;
 
-    for (let idx = 0; idx < filtered.length;) {
+    for (let idx = 0; idx < filtered.length; ) {
       if (bailed) break iterationLoop;
       const item = filtered[idx];
       if (!item) break;

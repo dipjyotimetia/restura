@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { ConsoleEntry } from '@/store/useConsoleStore';
 import {
+  buildExportFile,
+  entriesToCurlBatch,
   entriesToHar,
   entriesToNdjson,
-  entriesToCurlBatch,
-  buildExportFile,
 } from '../console-export';
-import type { ConsoleEntry } from '@/store/useConsoleStore';
 
 const makeEntry = (overrides: Partial<ConsoleEntry> = {}): ConsoleEntry => ({
   id: 'e1',

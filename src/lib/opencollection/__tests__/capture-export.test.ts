@@ -5,10 +5,11 @@
  * renderer side because it bridges `@shared/capture` and `@/lib/opencollection`
  * (shared/ must never import src/).
  */
-import { describe, expect, it } from 'vitest';
+
 import { redactExchange } from '@shared/capture/secret-extractor';
 import { sessionToOpenCollection } from '@shared/capture/to-opencollection';
 import type { CaptureSession } from '@shared/capture/types';
+import { describe, expect, it } from 'vitest';
 import { ocToInternal, openCollectionSchema } from '@/lib/opencollection';
 
 function capturedSession(): CaptureSession {

@@ -1,5 +1,5 @@
 import './setup';
-import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 
 // @sentry/electron/main is mocked so init() records the options object — we then
 // exercise the captured beforeSend directly.
@@ -9,7 +9,7 @@ vi.mock('@sentry/electron/main', () => ({
 }));
 
 import * as Sentry from '@sentry/electron/main';
-import { scrubEvent, initSentry, setSentryEnabled, isSentryEnabled } from '../lifecycle/sentry';
+import { initSentry, isSentryEnabled, scrubEvent, setSentryEnabled } from '../lifecycle/sentry';
 
 const initMock = Sentry.init as unknown as Mock;
 

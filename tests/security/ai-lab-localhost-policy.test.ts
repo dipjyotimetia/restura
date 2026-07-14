@@ -1,7 +1,8 @@
 // @vitest-environment node
-import { describe, it, expect } from 'vitest';
-import { validateURL } from '@shared/protocol/url-validation';
+
 import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
+import { validateURL } from '@shared/protocol/url-validation';
+import { describe, expect, it } from 'vitest';
 import { resolveSafeAddress } from '../../electron/main/security/safe-connect';
 
 /**

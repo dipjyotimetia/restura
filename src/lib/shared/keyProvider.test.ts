@@ -1,12 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  EphemeralKeyProvider,
-  PlaintextKeyProvider,
-  WebSessionPassphraseProvider,
-  ElectronSafeStorageKeyProvider,
-  getKeyProvider,
-  setKeyProvider,
   __resetKeyProviderForTests,
+  ElectronSafeStorageKeyProvider,
+  EphemeralKeyProvider,
+  getKeyProvider,
+  PlaintextKeyProvider,
+  setKeyProvider,
+  WebSessionPassphraseProvider,
 } from './keyProvider';
 
 describe('PlaintextKeyProvider', () => {

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { validateURL, sanitizeURL, isLikelyPrivateHost } from '../urlValidator';
+import { describe, expect, it } from 'vitest';
+import { isLikelyPrivateHost, sanitizeURL, validateURL } from '../urlValidator';
 
 describe('URL Validator', () => {
   describe('validateURL', () => {

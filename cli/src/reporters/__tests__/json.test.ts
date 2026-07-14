@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
 import { JsonReporter } from '../json';
 import type { RunResult } from '../types';
 

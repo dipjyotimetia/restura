@@ -1,20 +1,20 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import type { Collection, Environment, HistoryItem } from '@/types';
 import {
-  selectHistoryPage,
-  selectHistoryCount,
-  selectHistoryTotalPages,
+  selectActiveEnvironment,
+  selectCollectionById,
+  selectCollectionCount,
+  selectCollectionNames,
+  selectEnvironmentCount,
+  selectEnvironmentNames,
   selectFavoriteIds,
   selectFavoriteItems,
-  selectIsFavorite,
   selectHistoryById,
-  selectCollectionNames,
-  selectCollectionCount,
-  selectCollectionById,
-  selectActiveEnvironment,
-  selectEnvironmentNames,
-  selectEnvironmentCount,
+  selectHistoryCount,
+  selectHistoryPage,
+  selectHistoryTotalPages,
+  selectIsFavorite,
 } from '../selectors';
-import type { HistoryItem, Collection, Environment } from '@/types';
 
 // Mock data
 const mockHistoryItems: HistoryItem[] = [
@@ -282,10 +282,10 @@ describe('Environment Selectors', () => {
 // React hook selectors — test via renderHook
 import { renderHook } from '@testing-library/react';
 import {
-  useActiveTab,
   useActiveRequest,
   useActiveResponse,
   useActiveStreamingEvents,
+  useActiveTab,
 } from '../selectors';
 import { useRequestStore } from '../useRequestStore';
 

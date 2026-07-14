@@ -9,11 +9,12 @@
  * they drift, so a maintainer who adds an auth type or a sign-at-wire field
  * to one must update all of them together.
  */
-import { describe, it, expect } from 'vitest';
-import type { AuthType, AuthConfig } from '@/types';
-import type { ProtocolAuthType, ProtocolAuthConfig } from '@shared/protocol/types';
+
 import { ProtocolAuthConfigSchema } from '@shared/protocol/proxy-schema';
-import { expectTypeEqual, type Equals } from './helpers/typeEquality';
+import type { ProtocolAuthConfig, ProtocolAuthType } from '@shared/protocol/types';
+import { describe, expect, it } from 'vitest';
+import type { AuthConfig, AuthType } from '@/types';
+import { type Equals, expectTypeEqual } from './helpers/typeEquality';
 
 describe('AuthType / ProtocolAuthType parity', () => {
   it('the renderer and protocol auth-type unions are identical (compile-time)', () => {

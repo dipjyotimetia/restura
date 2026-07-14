@@ -1,7 +1,7 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { sendToWorker } from '../lib/runtime';
 import { Logo } from '../lib/Logo';
+import { sendToWorker } from '../lib/runtime';
 import '../styles.css';
 
 function Popup(): React.JSX.Element {

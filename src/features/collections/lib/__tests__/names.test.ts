@@ -1,13 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { Collection } from '@/types';
 import {
+  folderPathTo,
   isNameTaken,
-  uniqueName,
+  moveWouldCollide,
+  parentFolderIdOf,
   siblingNamesForParent,
   siblingNamesOfItem,
-  folderPathTo,
-  parentFolderIdOf,
-  moveWouldCollide,
+  uniqueName,
 } from '../names';
 
 const collection: Collection = {

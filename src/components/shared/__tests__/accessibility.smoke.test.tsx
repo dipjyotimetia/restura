@@ -6,14 +6,14 @@
  * Manual ARIA assertions; no jest-axe dep introduced.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { WindowChrome } from '../TopBar';
-import { TabStrip } from '../TabBar';
-import { UrlBar } from '@/features/http/components/UrlBar';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Floater } from '@/components/ui/spatial';
+import { UrlBar } from '@/features/http/components/UrlBar';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { HttpMethod } from '@/types';
+import { TabStrip } from '../TabBar';
+import { WindowChrome } from '../TopBar';
 
 vi.mock('@/lib/shared/platform', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>;

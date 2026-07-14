@@ -3,19 +3,19 @@
  * Use these with shallow equality for optimal re-render performance
  */
 
-import { useRequestStore } from './useRequestStore';
 import type {
-  HistoryItem,
+  Response as ApiResponse,
   Collection,
   Environment,
-  HttpRequest,
   GrpcRequest,
-  SseRequest,
+  HistoryItem,
+  HttpRequest,
   McpRequest,
   RequestTab,
-  Response as ApiResponse,
+  SseRequest,
   StreamEventLike,
 } from '@/types';
+import { useRequestStore } from './useRequestStore';
 
 // History Store Types
 interface HistoryState {

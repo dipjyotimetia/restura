@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { isBinaryContentType, bytesToBase64, getHeaderCI, readStreamToBytes } from '../binary';
+import { describe, expect, it } from 'vitest';
+import { bytesToBase64, getHeaderCI, isBinaryContentType, readStreamToBytes } from '../binary';
 
 describe('isBinaryContentType', () => {
   it('treats text-ish content types as text', () => {

@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { useWorkflowStore } from '../useWorkflowStore';
+import { beforeEach, describe, expect, it } from 'vitest';
 import type { WorkflowExecution } from '@/types';
+import { useWorkflowStore } from '../useWorkflowStore';
 
 function bigString(len: number, char = 'x'): string {
   return char.repeat(len);

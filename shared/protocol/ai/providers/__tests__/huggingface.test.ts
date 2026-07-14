@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
 import { PROVIDER_ROUTES } from '@shared/protocol/ai/provider-routes';
-import { huggingfaceModule, getProviderModule, ALL_PROVIDERS } from '@shared/protocol/ai/providers';
-import { isHuggingFaceProvider, type ChatRequestSpec } from '@shared/protocol/ai/types';
+import { ALL_PROVIDERS, getProviderModule, huggingfaceModule } from '@shared/protocol/ai/providers';
+import { type ChatRequestSpec, isHuggingFaceProvider } from '@shared/protocol/ai/types';
+import { describe, expect, it } from 'vitest';
 
 function spec(over: Partial<ChatRequestSpec> = {}): ChatRequestSpec {
   return {

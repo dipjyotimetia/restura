@@ -5,8 +5,8 @@ import { registerAiLabHandlers, unregisterAiLabHandlers } from './handlers/ai-la
 import { registerBugReportIPC } from './handlers/bug-report-handler';
 import {
   registerCaptureBridgeIPC,
-  unregisterCaptureBridgeIPC,
   stopCaptureBridge,
+  unregisterCaptureBridgeIPC,
 } from './handlers/capture-bridge-handler';
 import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './handlers/git-handler';
 import { registerGrpcHandlerIPC, stopStreamCleanup } from './handlers/grpc-handler';
@@ -18,14 +18,14 @@ import { registerMcpHandlerIPC, stopMcpCleanup } from './handlers/mcp-handler';
 import { startStdioMcpServer } from './handlers/mcp-server-handler';
 import {
   registerMockServerIPC,
-  unregisterMockServerIPC,
   stopMockServer,
+  unregisterMockServerIPC,
 } from './handlers/mock-server-handler';
 import { registerMqttHandlerIPC, stopMqttCleanup } from './handlers/mqtt-handler';
 import { registerSocketIoHandlerIPC, stopSocketIoCleanup } from './handlers/socketio-handler';
 import { registerSseHandlerIPC, stopSseCleanup } from './handlers/sse-handler';
 import { registerWebSocketHandlerIPC, stopWebSocketCleanup } from './handlers/websocket-handler';
-import { setupAutoUpdater, registerAutoUpdaterIPC } from './lifecycle/auto-updater';
+import { registerAutoUpdaterIPC, setupAutoUpdater } from './lifecycle/auto-updater';
 import { registerDeepLinkHandler } from './lifecycle/deep-link-handler';
 import { initLogging } from './lifecycle/logging';
 import { logRequest, registerRequestLoggerIPC } from './lifecycle/request-logger';
@@ -39,9 +39,9 @@ import { registerKeychainStatusIPC } from './security/keychain-status-handler';
 import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './security/secret-handle-store';
 import { registerBrunoExportHandlerIPC } from './storage/bruno-export-handler';
 import {
-  registerCollectionManagerIPC,
   cleanupCollectionWatchers,
   isRegisteredCollectionDirectory,
+  registerCollectionManagerIPC,
 } from './storage/collection-manager';
 import { registerFileOperationsIPC } from './storage/file-operations';
 import { registerStoreHandlerIPC } from './storage/store-handler';

@@ -1,5 +1,5 @@
 import './setup';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock electron-log/main with a controllable scoped logger + transports object.
 // Built via vi.hoisted so the objects exist when the hoisted vi.mock factory runs.
@@ -24,8 +24,8 @@ const { scopedLogger, mockLog } = vi.hoisted(() => {
 });
 vi.mock('electron-log/main', () => ({ default: mockLog }));
 
-import { electronLogSink, initLogging } from '../lifecycle/logging';
 import type { LogRecord } from '../../../src/lib/shared/logger';
+import { electronLogSink, initLogging } from '../lifecycle/logging';
 
 function record(partial: Partial<LogRecord>): LogRecord {
   return {

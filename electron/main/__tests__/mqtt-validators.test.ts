@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   MqttConnectSchema,
+  MqttDisconnectSchema,
   MqttPublishSchema,
   MqttSubscribeSchema,
   MqttUnsubscribeSchema,
-  MqttDisconnectSchema,
 } from '../ipc/ipc-validators';
 
 const baseConnect = {

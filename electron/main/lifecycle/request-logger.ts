@@ -1,12 +1,12 @@
+import { app, ipcMain } from 'electron';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
-import { app, ipcMain } from 'electron';
 import { z } from 'zod';
 import { IPC } from '../../shared/channels';
 import {
+  assertTrustedSender,
   LogHistoryLimitSchema,
   validateIpcInput,
-  assertTrustedSender,
 } from '../ipc/ipc-validators';
 
 /**

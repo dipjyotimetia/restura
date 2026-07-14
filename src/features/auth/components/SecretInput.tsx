@@ -1,4 +1,4 @@
-import { Lock, KeyRound } from 'lucide-react';
+import { KeyRound, Lock } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { describeSecret, isSecretHandle, type SecretValue } from '@/lib/shared/secretRef';
 import { cn } from '@/lib/shared/utils';
 

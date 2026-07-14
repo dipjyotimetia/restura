@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * Phase C follow-up — `makeRendererSendRequest` host bridge.

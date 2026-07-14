@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { createServer as createHttpsServer, type Server } from 'node:https';
-import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { createServer as createHttpsServer, type Server } from 'node:https';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runCollection, type RunOptions } from '../runner';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Reporter } from '../../reporters/types';
+import { type RunOptions, runCollection } from '../runner';
 
 /** Generate a self-signed cert for 127.0.0.1 via openssl. */
 function makeCert(dir: string): { key: string; cert: string } {

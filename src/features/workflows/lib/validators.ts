@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { workflowGraphSchema, validateWorkflowGraph } from './flowValidators';
+import { validateWorkflowGraph, workflowGraphSchema } from './flowValidators';
 
 export const extractionMethodSchema = z.enum(['jsonpath', 'regex', 'header']);
 

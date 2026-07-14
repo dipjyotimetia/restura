@@ -1,11 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
-import ScriptExecutor from '../scriptExecutor';
+import { describe, expect, it, vi } from 'vitest';
 import type {
   PmCookieAdapter,
   PmCookieRecord,
   PmSendRequestInput,
   PmSubResponse,
 } from '../scriptExecutor';
+import ScriptExecutor from '../scriptExecutor';
 
 /**
  * Phase C integration — runner-aware APIs.

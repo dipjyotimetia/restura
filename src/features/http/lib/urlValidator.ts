@@ -4,7 +4,7 @@
  */
 
 // The result/options shapes are the single source of truth in the shared SSRF guard.
-import type { URLValidationResult, URLValidationOptions } from '@shared/protocol/url-validation';
+import type { URLValidationOptions, URLValidationResult } from '@shared/protocol/url-validation';
 
 // Private IP ranges that should be blocked
 const PRIVATE_IP_RANGES = [
@@ -38,7 +38,7 @@ const BLOCKED_HOSTNAMES = [
 // Allowed URL schemes
 const ALLOWED_SCHEMES = ['http:', 'https:'];
 
-export type { URLValidationResult, URLValidationOptions };
+export type { URLValidationOptions, URLValidationResult };
 
 /**
  * Validates a URL for security concerns (SSRF protection)

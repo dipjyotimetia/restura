@@ -3,7 +3,7 @@
 // fetcher's `new Response(fd)` must be the SAME (undici) implementation, exactly as
 // in the real Electron main process. jsdom swaps in its own FormData, which undici's
 // Response can't serialize — a test-env artifact, not a product bug.
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 // http-handler imports `electron` at module load; stub the surface it touches.
 vi.mock('electron', () => ({
@@ -11,9 +11,9 @@ vi.mock('electron', () => ({
   session: { defaultSession: { resolveProxy: vi.fn() } },
 }));
 
-import { buildElectronFetcher, type HttpRequestConfig } from '../handlers/http-handler';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
-import { startMockHttpServer, type MockHttpServerHandle } from '../../../e2e/mocks/httpServer';
+import { type MockHttpServerHandle, startMockHttpServer } from '../../../e2e/mocks/httpServer';
+import { buildElectronFetcher, type HttpRequestConfig } from '../handlers/http-handler';
 
 // Proves the full form-data + binary SEND chain through the REAL Electron undici
 // fetcher: shared body-builder → FormData serialization + boundary'd Content-Type

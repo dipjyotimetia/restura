@@ -27,7 +27,7 @@ import type { WSContext, WSEvents } from 'hono/ws';
 import WebSocket from 'ws';
 import type { Env } from '../env';
 import { assertNodeHostnameSafe, type NodeDnsGuardOptions } from '../shared/dns-guard-node';
-import { allowPrivateIPs as readAllowPrivateIPs, isLocalDevBypass } from '../shared/env';
+import { isLocalDevBypass, allowPrivateIPs as readAllowPrivateIPs } from '../shared/env';
 import { consumeTicket } from './ws-ticket';
 
 const MAX_FRAME_BYTES = 1 * 1024 * 1024;
@@ -38,7 +38,7 @@ const TEXT_ENCODER = new TextEncoder();
 // handler/middleware Hono's router accepts at registration time.
 type UpgradeWebSocketFactory = (
   createEvents: (c: Context<{ Bindings: Env }>) => WSEvents | Promise<WSEvents>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
 ) => MiddlewareHandler<any>;
 
 function sizeOf(data: string | ArrayBufferLike | Uint8Array | Buffer): number {

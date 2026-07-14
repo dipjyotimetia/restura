@@ -1,16 +1,16 @@
+import type { BrowserWindow } from 'electron';
+import { app, dialog, ipcMain, shell } from 'electron';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
-import type { BrowserWindow } from 'electron';
-import { app, ipcMain, dialog, shell } from 'electron';
 import { IPC } from '../../shared/channels';
 import {
+  AppPathNameSchema,
+  createValidatedHandler,
   DialogOptionsSchema,
   FilePathSchema,
-  WriteFileSchema,
-  AppPathNameSchema,
-  ShellUrlSchema,
-  createValidatedHandler,
   NoInputSchema,
+  ShellUrlSchema,
+  WriteFileSchema,
 } from '../ipc/ipc-validators';
 
 // Security: Maximum file size to prevent memory exhaustion

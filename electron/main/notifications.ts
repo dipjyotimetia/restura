@@ -1,16 +1,16 @@
+import type { BrowserWindow } from 'electron';
+import { app, ipcMain, Notification } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
-import type { BrowserWindow } from 'electron';
-import { Notification, ipcMain, app } from 'electron';
 import { IPC } from '../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from './ipc/ipc-rate-limiter';
 import {
+  createValidatedHandler,
+  NoInputSchema,
+  NotificationMessageSchema,
   NotificationOptionsSchema,
   NotificationRequestCompleteSchema,
   NotificationVersionSchema,
-  NotificationMessageSchema,
-  NoInputSchema,
-  createValidatedHandler,
 } from './ipc/ipc-validators';
 
 export const notificationRateLimiter = createKeyedRateLimiter(10, 60_000);

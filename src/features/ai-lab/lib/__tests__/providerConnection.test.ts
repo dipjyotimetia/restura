@@ -1,13 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
 import { listModels } from '@shared/protocol/ai/model-discovery';
 import type { Fetcher } from '@shared/protocol/types';
+import { describe, expect, it, vi } from 'vitest';
+import { useAiLabStore } from '../../store/useAiLabStore';
 import { createDesktopAgentProviders } from '../agentRuntime';
 import {
   connectAndAddProvider,
   replaceSecretHandle,
   splitDiscoveredModels,
 } from '../providerConnection';
-import { useAiLabStore } from '../../store/useAiLabStore';
 
 describe('connectAndAddProvider', () => {
   it('intersects tested adapter capabilities with the desktop transport through store and runtime', async () => {

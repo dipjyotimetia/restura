@@ -1,4 +1,4 @@
-import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AiLabProviderConfig, Dataset } from '../../types';
 
 const mockComplete = vi.hoisted(() => vi.fn());

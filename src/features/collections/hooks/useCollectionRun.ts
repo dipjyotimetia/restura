@@ -1,23 +1,23 @@
 import { useCallback, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import {
-  runCollection,
-  type CollectionRunResult,
-  type RequestCompleteInfo,
-  type RunProgress,
-} from '../lib/collectionRunner';
-import type { IterationRow } from '../lib/dataLoader';
-import type { RunnableRequest } from '../lib/flattenRunnables';
 import { useCollectionRunStore } from '@/store/useCollectionRunStore';
 import {
-  useConsoleStore,
   type ConsoleLog,
   type ConsoleProtocol,
   type ConsoleTest,
+  useConsoleStore,
 } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import type { Collection, Environment } from '@/types';
+import {
+  type CollectionRunResult,
+  type RequestCompleteInfo,
+  type RunProgress,
+  runCollection,
+} from '../lib/collectionRunner';
+import type { IterationRow } from '../lib/dataLoader';
+import type { RunnableRequest } from '../lib/flattenRunnables';
 
 export interface StartRunArgs {
   collection: Collection;

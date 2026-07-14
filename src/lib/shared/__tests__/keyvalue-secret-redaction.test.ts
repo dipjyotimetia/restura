@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
+  countSecretKeyValues,
   isSecretFieldName,
   redactSecretKeyValues,
-  countSecretKeyValues,
 } from '../keyvalue-secret-redaction';
 
 describe('isSecretFieldName', () => {

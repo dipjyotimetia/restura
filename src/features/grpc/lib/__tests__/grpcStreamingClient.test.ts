@@ -1,11 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { createRouterTransport, ConnectError, Code, type Transport } from '@connectrpc/connect';
+import { Code, ConnectError, createRouterTransport, type Transport } from '@connectrpc/connect';
 import { registryFromProtoText } from '@shared/protocol/grpc-registry';
-import { startGrpcStream, createInteractiveGrpcStreamForTest } from '../grpcStreamingClient';
+import { describe, expect, it, vi } from 'vitest';
 import type { GrpcRequest } from '@/types';
 import { GrpcStatusCode } from '@/types';
+import { createInteractiveGrpcStreamForTest, startGrpcStream } from '../grpcStreamingClient';
 
 const ECHO_PROTO = readFileSync(
   resolve(__dirname, '../../../../../e2e/mocks/proto/echo.proto'),
@@ -131,12 +131,9 @@ describe('startGrpcStream — web server-streaming via ConnectRPC', () => {
   });
 
   it('surfaces a non-OK gRPC status via an iterator throw and resolves done with the code', async () => {
-    const transport = echoTransport(
-      // eslint-disable-next-line require-yield
-      async function* () {
-        throw new ConnectError('no', Code.PermissionDenied);
-      }
-    );
+    const transport = echoTransport(async function* () {
+      throw new ConnectError('no', Code.PermissionDenied);
+    });
 
     const handle = await startGrpcStream({
       request: baseRequest,

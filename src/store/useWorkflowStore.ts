@@ -6,17 +6,17 @@ import { selectAtPath, setAtPath } from '@/features/workflows/lib/flowTypes';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { truncateForPersist } from '@/lib/shared/utils';
 import type {
-  Workflow,
-  WorkflowRequest,
-  WorkflowExecution,
-  VariableExtraction,
-  WorkflowGraph,
-  FlowNodePosition,
   FlowNode,
+  FlowNodePosition,
+  McpCallFlowNode,
   RequestFlowNode,
   SseSubscribeFlowNode,
-  McpCallFlowNode,
   SubgraphPath,
+  VariableExtraction,
+  Workflow,
+  WorkflowExecution,
+  WorkflowGraph,
+  WorkflowRequest,
 } from '@/types';
 
 interface WorkflowState {

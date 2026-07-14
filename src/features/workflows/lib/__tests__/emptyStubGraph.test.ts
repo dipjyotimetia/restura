@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import type { WorkflowGraph } from '@/types';
 import { emptyStubGraph } from '../flowTypes';
 import { validateWorkflowGraph } from '../flowValidators';
-import type { WorkflowGraph } from '@/types';
 
 /** A minimal valid top-level graph containing a single forEach node whose body
  *  is `subgraph`. Mirrors what the canvas produces when a forEach is dropped. */

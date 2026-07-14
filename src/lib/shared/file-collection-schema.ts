@@ -22,10 +22,10 @@
 
 import { z } from 'zod';
 import {
-  keyValueSchema,
   authConfigSchema,
-  requestSettingsSchema,
   httpMethodSchema,
+  keyValueSchema,
+  requestSettingsSchema,
 } from './validations';
 
 // File metadata added to track sync state

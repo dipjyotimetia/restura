@@ -1,12 +1,12 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import {
   AgentRunner,
+  type AgentSuite,
+  type AgentSuiteReport,
   AgentSuiteRunner,
   AgentSuiteSchema,
   OpenAiResponsesAdapter,
   ProviderRegistry,
-  type AgentSuite,
-  type AgentSuiteReport,
 } from '@shared/agent-lab';
 import type { Fetcher } from '@shared/protocol/types';
 import type { Command } from 'commander';

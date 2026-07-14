@@ -1,8 +1,8 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { Handle, type NodeProps, Position } from '@xyflow/react';
 import { Clock } from 'lucide-react';
 import { memo } from 'react';
-import { NodeChrome } from './NodeChrome';
 import type { DelayFlowNode } from '@/types';
+import { NodeChrome } from './NodeChrome';
 
 type Data = DelayFlowNode['data'];
 

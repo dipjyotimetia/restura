@@ -1,10 +1,10 @@
-import { FlaskConical, FileText, Wrench } from 'lucide-react';
+import { FileText, FlaskConical, Wrench } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   dispatchInlineAiAction,
-  useAiActionsAvailable,
   INLINE_ACTION_LABELS,
   type InlineAiAction,
+  useAiActionsAvailable,
 } from '@/features/ai/lib/inlineActions';
 
 const ICONS: Record<InlineAiAction, typeof Wrench> = {

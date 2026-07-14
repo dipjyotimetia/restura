@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { SseParser, parseSseStream, type ParsedSseEvent } from '../sseParser';
+import { describe, expect, it } from 'vitest';
+import { type ParsedSseEvent, parseSseStream, SseParser } from '../sseParser';
 
 function feedAll(input: string): ParsedSseEvent[] {
   return parseSseStream(input);

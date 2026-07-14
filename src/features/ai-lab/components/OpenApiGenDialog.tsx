@@ -1,22 +1,14 @@
 import { Sparkles } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { completeLlm, specFor } from '../lib/llmClient';
-import {
-  summarizeOpenApi,
-  buildGenMessages,
-  parseGeneratedCases,
-  DATASET_TOOL,
-} from '../lib/openapiTestGen';
-import { useAiLabStore } from '../store/useAiLabStore';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -29,6 +21,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { completeLlm, specFor } from '../lib/llmClient';
+import {
+  buildGenMessages,
+  DATASET_TOOL,
+  parseGeneratedCases,
+  summarizeOpenApi,
+} from '../lib/openapiTestGen';
+import { useAiLabStore } from '../store/useAiLabStore';
 
 /** Generate an eval dataset from an OpenAPI spec via a model (structured output). */
 export function OpenApiGenDialog({ onCreated }: { onCreated?: (datasetId: string) => void }) {

@@ -22,8 +22,7 @@ const progressVariants = cva('h-full w-full flex-1 transition-all duration-500 e
 });
 
 export interface ProgressProps
-  extends
-    React.ComponentPropsWithoutRef<typeof ProgressPrimitive.Root>,
+  extends React.ComponentPropsWithoutRef<typeof ProgressPrimitive.Root>,
     VariantProps<typeof progressVariants> {}
 
 const Progress = React.forwardRef<React.ComponentRef<typeof ProgressPrimitive.Root>, ProgressProps>(

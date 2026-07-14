@@ -1,11 +1,12 @@
 // Components
-export { default as Sidebar } from './components/Sidebar';
+
 export { CollectionRunnerDialog } from './components/CollectionRunnerDialog';
+export { default as Sidebar } from './components/Sidebar';
 
 // Lib
-export { exportToPostman, exportToInsomnia, downloadJSON } from './lib/exporters';
+export { downloadJSON, exportToInsomnia, exportToPostman } from './lib/exporters';
 export {
-  importPostmanCollection,
   importInsomniaCollection,
   importOpenAPICollection,
+  importPostmanCollection,
 } from './lib/importers';

@@ -2,23 +2,6 @@ import { AlertTriangle, FilePlus2, Play, Plus, Square, Trash2, X } from 'lucide-
 import { memo, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
-import { useCmdEnterRun } from '../hooks/useCmdEnterRun';
-import { useEvalRun } from '../hooks/useEvalRun';
-import { useModelSelection } from '../hooks/useModelSelection';
-import { modelKey, parseModelKey, type ModelOption } from '../lib/modelOptions';
-import { useAiLabStore } from '../store/useAiLabStore';
-import { useAiLabUiStore, type EvalTargetMode } from '../store/useAiLabUiStore';
-import type {
-  EvalCellResult,
-  EvalConfig,
-  EvalTarget,
-  ModelRef,
-  ScorerConfig,
-  ScorerKind,
-} from '../types';
-import { ModelChecklist } from './ModelChecklist';
-import { StatusChip } from './StatusChip';
-import { VerdictChip } from './VerdictChip';
 import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import ResizableLayout from '@/components/shared/ResizableLayout';
 import { Button } from '@/components/ui/button';
@@ -35,6 +18,23 @@ import {
 } from '@/components/ui/select';
 import { Floater, Stat, Stepper } from '@/components/ui/spatial';
 import { Textarea } from '@/components/ui/textarea';
+import { useCmdEnterRun } from '../hooks/useCmdEnterRun';
+import { useEvalRun } from '../hooks/useEvalRun';
+import { useModelSelection } from '../hooks/useModelSelection';
+import { type ModelOption, modelKey, parseModelKey } from '../lib/modelOptions';
+import { useAiLabStore } from '../store/useAiLabStore';
+import { type EvalTargetMode, useAiLabUiStore } from '../store/useAiLabUiStore';
+import type {
+  EvalCellResult,
+  EvalConfig,
+  EvalTarget,
+  ModelRef,
+  ScorerConfig,
+  ScorerKind,
+} from '../types';
+import { ModelChecklist } from './ModelChecklist';
+import { StatusChip } from './StatusChip';
+import { VerdictChip } from './VerdictChip';
 
 function targetFor(mode: EvalTargetMode): EvalTarget {
   if (mode === 'text') return { kind: 'text' };

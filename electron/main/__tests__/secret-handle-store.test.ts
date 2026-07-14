@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // In-memory backing injected through the module's test seam
 // (__setSecretStoreForTests). vi.mock('electron-store') can NOT be used here:
@@ -37,10 +37,10 @@ vi.mock('electron', () => ({
 }));
 
 import {
-  unwrapSecretValueMain,
   __setSecretStoreForTests,
   registerSecretHandleIPC,
   secretRateLimiter,
+  unwrapSecretValueMain,
 } from '../security/secret-handle-store';
 
 describe('secret-handle-store', () => {

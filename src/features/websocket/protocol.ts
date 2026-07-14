@@ -14,9 +14,9 @@
  * inline shape rather than silently dropped.
  */
 import { v4 as uuidv4 } from 'uuid';
-import { cleanupWebSocketElectronListeners } from './lib/websocketManager';
 import type { ProtocolModule, ProtocolStreamHandle } from '@/features/registry/types';
-import { isElectron, getElectronAPI } from '@/lib/shared/platform';
+import { getElectronAPI, isElectron } from '@/lib/shared/platform';
+import { cleanupWebSocketElectronListeners } from './lib/websocketManager';
 
 interface InlineWsRequestShape {
   type: 'websocket';

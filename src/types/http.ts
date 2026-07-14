@@ -1,6 +1,6 @@
 import type { AuthConfig } from './auth';
 import type { KeyValue, MultipartPart } from './common';
-import type { ClientCert, CaCert, ProxyConfig, MinTlsVersion } from './security';
+import type { CaCert, ClientCert, MinTlsVersion, ProxyConfig } from './security';
 
 // HTTP Methods
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' | 'HEAD';

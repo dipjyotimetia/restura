@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
-import { runLoadTest, type LoadProgress, type LoadTestOptions } from '../lib/loadTestRunner';
 import type { HttpRequest } from '@/types';
+import { type LoadProgress, type LoadTestOptions, runLoadTest } from '../lib/loadTestRunner';
 
 /**
  * Drives an in-app load test: starts the runner, throttles progress to the UI

@@ -1,8 +1,8 @@
 import { executeHttpProxy, executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
 import {
-  ProxyRequestBodySchema,
   containsAuthHandle,
   type ProxyRequestBody,
+  ProxyRequestBodySchema,
   type UpstreamProxyConfig,
 } from '@shared/protocol/proxy-schema';
 import type { Fetcher } from '@shared/protocol/types';
@@ -12,7 +12,7 @@ import { stream } from 'hono/streaming';
 import type { StatusCode } from 'hono/utils/http-status';
 import type { NodeHostnameGuard, TcpProxyAdapter } from '../adapters';
 import type { Env } from '../env';
-import { allowPrivateIPs as readAllowPrivateIPs, isLocalDevBypass } from '../shared/env';
+import { isLocalDevBypass, allowPrivateIPs as readAllowPrivateIPs } from '../shared/env';
 import { parseJsonBody } from '../shared/validate-body';
 
 const STREAMING_MEDIA_TYPES = new Set([

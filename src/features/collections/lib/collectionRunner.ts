@@ -1,13 +1,13 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { IterationRow } from './dataLoader';
-import type { RunnableRequest } from './flattenRunnables';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { protocolRegistry } from '@/features/registry/registry';
 import type { ProtocolScriptResult } from '@/features/registry/types';
 import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
 import { buildValueMap } from '@/lib/shared/variableScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
-import type { Collection, Request, Response as ApiResponse } from '@/types';
+import type { Response as ApiResponse, Collection, Request } from '@/types';
+import type { IterationRow } from './dataLoader';
+import type { RunnableRequest } from './flattenRunnables';
 
 /**
  * Postman-style collection / folder runner. Mirrors the CLI's orchestration
@@ -222,7 +222,7 @@ export async function runCollection(
     };
     let jumps = 0;
 
-    for (let idx = 0; idx < runnables.length;) {
+    for (let idx = 0; idx < runnables.length; ) {
       const runnable = runnables[idx];
       if (!runnable) break;
       if (signal.aborted || bailed) break outer;

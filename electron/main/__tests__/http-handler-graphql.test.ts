@@ -3,17 +3,18 @@
 // fetcher: a POST of the official introspection query to the mock /graphql
 // endpoint comes back with a populated __schema. This is the desktop path that
 // introspectSchema() drives via executeProxiedRequest → IPC → executeHttpProxy.
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { getIntrospectionQuery, buildClientSchema, type IntrospectionQuery } from 'graphql';
+
+import { buildClientSchema, getIntrospectionQuery, type IntrospectionQuery } from 'graphql';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 vi.mock('electron', () => ({
   ipcMain: { handle: vi.fn(), removeHandler: vi.fn() },
   session: { defaultSession: { resolveProxy: vi.fn() } },
 }));
 
-import { buildElectronFetcher, type HttpRequestConfig } from '../handlers/http-handler';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
-import { startMockHttpServer, type MockHttpServerHandle } from '../../../e2e/mocks/httpServer';
+import { type MockHttpServerHandle, startMockHttpServer } from '../../../e2e/mocks/httpServer';
+import { buildElectronFetcher, type HttpRequestConfig } from '../handlers/http-handler';
 
 let server: MockHttpServerHandle;
 beforeAll(async () => {

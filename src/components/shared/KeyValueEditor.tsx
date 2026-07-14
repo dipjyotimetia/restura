@@ -1,4 +1,4 @@
-import { Plus, Trash2, ListPlus, Eye, EyeOff, Lock } from 'lucide-react';
+import { Eye, EyeOff, ListPlus, Lock, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { VariableInput } from '@/components/shared/VariableInput';
 import {

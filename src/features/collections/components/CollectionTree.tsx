@@ -1,6 +1,7 @@
 import {
   ChevronDown,
   ChevronRight,
+  Copy,
   FilePlus,
   Folder,
   FolderPlus,
@@ -8,19 +9,18 @@ import {
   Pencil,
   Play,
   Settings2,
-  Copy,
   Trash2,
 } from 'lucide-react';
 import {
-  memo,
-  useMemo,
   type ComponentType,
   type CSSProperties,
   type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
+  memo,
   type ReactNode,
   type RefObject,
+  useMemo,
 } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { Button } from '@/components/ui/button';

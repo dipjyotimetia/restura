@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
 import { ModelChecklist, type ModelChecklistEntry } from '../ModelChecklist';
 
 const MODELS: ModelChecklistEntry[] = Array.from({ length: 12 }, (_, i) => ({

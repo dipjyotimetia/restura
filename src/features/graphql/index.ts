@@ -1,14 +1,14 @@
 // Components
-export { default as GraphQLRequestBuilder } from './components/GraphQLRequestBuilder';
-export { default as GraphQLBodyEditor } from './components/GraphQLBodyEditor';
-export { default as SchemaExplorer } from './components/SchemaExplorer';
 
+export { default as GraphQLBodyEditor } from './components/GraphQLBodyEditor';
+export { default as GraphQLRequestBuilder } from './components/GraphQLRequestBuilder';
+export { default as SchemaExplorer } from './components/SchemaExplorer';
+export { formatQuery, isValidSyntax, minifyQuery } from './lib/formatter';
 // Lib
-export { introspectSchema, getRootTypes, getTypeFields } from './lib/introspection';
-export { formatQuery, minifyQuery, isValidSyntax } from './lib/formatter';
-export { validateQuery, parseQuery, getSyntaxErrors } from './lib/validation';
-export { parseVariables, extractOperationName, extractOperationType } from './lib/queryParser';
-export { registerGraphQLLanguage, defineGraphQLTheme } from './lib/monacoGraphql';
+export { getRootTypes, getTypeFields, introspectSchema } from './lib/introspection';
+export { defineGraphQLTheme, registerGraphQLLanguage } from './lib/monacoGraphql';
+export { extractOperationName, extractOperationType, parseVariables } from './lib/queryParser';
+export { getSyntaxErrors, parseQuery, validateQuery } from './lib/validation';
 
 // Types
 export type * from './types';

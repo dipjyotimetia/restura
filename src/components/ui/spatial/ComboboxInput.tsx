@@ -10,10 +10,8 @@ export interface ComboboxSuggestion {
   description?: string;
 }
 
-export interface ComboboxInputProps extends Omit<
-  React.InputHTMLAttributes<HTMLInputElement>,
-  'onChange' | 'value'
-> {
+export interface ComboboxInputProps
+  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'onChange' | 'value'> {
   value: string;
   onChange: (next: string) => void;
   suggestions: ReadonlyArray<ComboboxSuggestion>;
@@ -172,7 +170,6 @@ export const ComboboxInput = React.forwardRef<HTMLInputElement, ComboboxInputPro
                 <li
                   key={s.value}
                   id={`${optionPrefix}-${idx}`}
-                  // eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role -- ARIA listbox option pattern
                   role="option"
                   aria-selected={active}
                   onMouseDown={(e) => {

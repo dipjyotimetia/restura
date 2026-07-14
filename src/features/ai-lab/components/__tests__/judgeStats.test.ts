@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { judgeStats } from '../ReportView';
+import { describe, expect, it } from 'vitest';
 import type { EvalCellResult, EvalRun, ScoreResult } from '../../types';
+import { judgeStats } from '../ReportView';
 
 function cell(scores: ScoreResult[]): EvalCellResult {
   return {

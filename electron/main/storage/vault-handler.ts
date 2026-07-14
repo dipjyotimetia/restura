@@ -58,7 +58,6 @@ function getStore(): VaultStoreShape {
 // Vault key shape: 1–256 chars, no control characters. Tight enough to
 // prevent silly collisions / log-injection while permitting natural names
 // like `STRIPE_SECRET_KEY` and `my-team.api.token`.
-// eslint-disable-next-line no-control-regex
 const VAULT_KEY_RE = /^[^\x00-\x1F]+$/;
 const vaultKey = z.string().min(1).max(256).regex(VAULT_KEY_RE);
 export const VaultGetSchema = z.object({ key: vaultKey });

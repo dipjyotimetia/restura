@@ -1,13 +1,12 @@
 import { capturedProtocolSchema } from '@shared/capture/schema';
 import type { CapturedProtocol } from '@shared/capture/types';
-import { useEffect, useMemo, useState } from 'react';
-import { StrictMode } from 'react';
+import { StrictMode, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { exportHar, exportOpenCollection } from '../lib/export-actions';
 import { sendToDesktop } from '../lib/bridge-client';
-import { type CaptureState } from '../lib/messages';
-import { sendToWorker } from '../lib/runtime';
+import { exportHar, exportOpenCollection } from '../lib/export-actions';
 import { Logo } from '../lib/Logo';
+import type { CaptureState } from '../lib/messages';
+import { sendToWorker } from '../lib/runtime';
 import { RequestList } from './RequestList';
 import '../styles.css';
 

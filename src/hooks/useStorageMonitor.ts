@@ -2,7 +2,7 @@
  * Hook for monitoring IndexedDB (Dexie) storage usage and providing alerts
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { getDexieStorageStats } from '@/lib/shared/dexie-storage';
 import { useHistoryStore } from '@/store/useHistoryStore';

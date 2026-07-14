@@ -13,11 +13,11 @@
 
 import { createConnection } from 'node:net';
 import { resolve } from 'node:path';
-import { ensureCerts, type EchoCerts } from './certs';
-import { launch } from './launcher';
-import { buildManifest, writeManifest, printManifest } from './manifest';
+import { type EchoCerts, ensureCerts } from './certs';
 import { writeCollection } from './collection';
-import { IN_PROCESS_SERVICES, PORTS, DEFAULT_HOST, type ServiceId } from './ports';
+import { launch } from './launcher';
+import { buildManifest, printManifest, writeManifest } from './manifest';
+import { DEFAULT_HOST, IN_PROCESS_SERVICES, PORTS, type ServiceId } from './ports';
 
 interface Args {
   command: 'up' | 'certs' | 'collection' | 'manifest';

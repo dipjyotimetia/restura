@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { mapHttpElementToSpec, resolveVars } from '../../src/offering3_codelens/ocRequestMapper';
 
 const VARS = { API_BASE: 'https://api.example.com', TOKEN: 'abc123' };

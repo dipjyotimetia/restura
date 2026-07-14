@@ -16,8 +16,8 @@
  *     (when given a `getReferencedWorkflow` resolver)
  */
 import { z } from 'zod';
-import { allSubgraphs, getOutgoingEdges } from './flowTypes';
 import type { FlowEdge, FlowNode, WorkflowGraph } from '@/types';
+import { allSubgraphs, getOutgoingEdges } from './flowTypes';
 
 const flowPositionSchema = z.object({
   x: z.number(),

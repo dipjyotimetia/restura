@@ -4,14 +4,14 @@ import { migrateScriptRsToPm } from '@/features/scripts/lib/scriptMigrations';
 import { internalToOC, serializeOpenCollectionYAML } from '@/lib/opencollection';
 import type { SecretValue } from '@/lib/shared/secretRef';
 import type {
+  AuthConfig,
   Collection,
   CollectionItem,
   HttpRequest,
-  AuthConfig,
+  InsomniaResource,
+  PostmanAuth,
   PostmanCollection,
   PostmanItem,
-  PostmanAuth,
-  InsomniaResource,
 } from '@/types';
 
 export type CollectionExportFormat = 'postman' | 'insomnia' | 'opencollection';

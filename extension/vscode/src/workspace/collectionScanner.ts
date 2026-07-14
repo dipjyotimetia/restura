@@ -1,8 +1,8 @@
-import { readFile, readdir, stat } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import * as yaml from 'js-yaml';
-import { infoName, ROOT_FILENAMES, isRootFilename } from '../util/oc';
-import { classifyOcFile, REQUEST_CAPABILITIES, type OcRequestType } from './collectionDetector';
+import { infoName, isRootFilename, ROOT_FILENAMES } from '../util/oc';
+import { classifyOcFile, type OcRequestType, REQUEST_CAPABILITIES } from './collectionDetector';
 
 /**
  * A runnable request discovered on disk. `folderPath` uses folder *display

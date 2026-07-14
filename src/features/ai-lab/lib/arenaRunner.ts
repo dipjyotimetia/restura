@@ -3,12 +3,12 @@
 // fold into an Elo leaderboard. Mirrors evalRunner's bounded-concurrency +
 // cancellation shape. Model calls cross IPC via completeLlm; the comparison
 // algorithm lives in the shared runPairwiseJudge.
-import { runPairwiseJudge, type JudgeComplete } from '@shared/protocol/ai/judge';
+import { type JudgeComplete, runPairwiseJudge } from '@shared/protocol/ai/judge';
+import { completeWithRetry } from '@/lib/shared/completeRetry';
 import type { AiLabProviderConfig, Dataset, ModelRef } from '../types';
 import { runPool } from './concurrencyPool';
 import type { PairwiseMatch } from './elo';
-import { completeLlm, specFor, type LlmChatMessage, type LlmCallSpec } from './llmClient';
-import { completeWithRetry } from '@/lib/shared/completeRetry';
+import { completeLlm, type LlmCallSpec, type LlmChatMessage, specFor } from './llmClient';
 
 export interface ArenaInput {
   dataset: Dataset;

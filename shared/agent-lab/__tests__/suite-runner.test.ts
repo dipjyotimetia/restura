@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentRunResult } from '../runner';
-import type { AgentSuite } from '../types';
 import { AgentSuiteRunner, serializeContentBlocks } from '../suite-runner';
+import type { AgentSuite } from '../types';
 
 const suite: AgentSuite = {
   schemaVersion: 2,

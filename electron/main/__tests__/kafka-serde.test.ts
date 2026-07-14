@@ -1,15 +1,15 @@
 // @vitest-environment node
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
-  valueToString,
-  parseSchemaJson,
-  isConfluentEncoded,
-  encodeSchemaField,
+  computeGroupLag,
   decodeField,
-  topicWatermarks,
+  encodeSchemaField,
   flattenConfigDescriptions,
   flattenGroup,
-  computeGroupLag,
+  isConfluentEncoded,
+  parseSchemaJson,
+  topicWatermarks,
+  valueToString,
 } from '../handlers/kafka-serde';
 
 describe('valueToString', () => {

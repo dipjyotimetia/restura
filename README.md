@@ -220,8 +220,8 @@ npm run dev              # web dev server (port 5173)
 npm run validate         # type-check + lint + tests (same as CI)
 npm run test:run         # run tests once
 npm run test:coverage    # coverage report
-npm run lint             # ESLint
-npm run format           # Prettier
+npm run lint             # Biome lint
+npm run format           # Biome format
 ```
 
 Every PR runs type-check (renderer + Electron main + Worker), lint, security audit, tests, build, and a Cloudflare Pages preview deploy — the URL is posted to the PR automatically.

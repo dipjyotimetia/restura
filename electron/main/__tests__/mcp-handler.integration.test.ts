@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type * as IpcUtils from '../ipc/ipc-utils';
 
 /**
@@ -19,9 +19,9 @@ vi.mock('../ipc/ipc-utils', async (importOriginal) => {
   return { ...actual, emitTo: mockEmitTo };
 });
 
+import { type MockMcpServerHandle, startMockMcpServer } from '../../../e2e/mocks/mcpServer';
 import { registerMcpHandlerIPC, stopMcpCleanup } from '../handlers/mcp-handler';
 import { setExecutionPolicy } from '../security/execution-policy';
-import { startMockMcpServer, type MockMcpServerHandle } from '../../../e2e/mocks/mcpServer';
 
 type IpcHandler = (event: unknown, payload: unknown) => Promise<Record<string, unknown>>;
 

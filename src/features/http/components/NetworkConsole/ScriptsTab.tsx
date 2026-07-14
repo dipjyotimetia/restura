@@ -1,10 +1,10 @@
 'use client';
 
-import { Terminal, CheckCircle2, XCircle, AlertCircle, Info, History } from 'lucide-react';
+import { AlertCircle, CheckCircle2, History, Info, Terminal, XCircle } from 'lucide-react';
 import { useMemo } from 'react';
 import { Stagger, StaggerItem } from '@/components/ui/motion';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useConsoleStore, type ConsoleLog, type ConsoleTest } from '@/store/useConsoleStore';
+import { type ConsoleLog, type ConsoleTest, useConsoleStore } from '@/store/useConsoleStore';
 
 interface ScriptsTabProps {
   /** Live, per-active-tab logs streamed from the most recent execution. */

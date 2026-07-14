@@ -1,10 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
+  McpConnectSchema,
+  McpDisconnectSchema,
+  McpRequestSchema,
   SseConnectSchema,
   SseDisconnectSchema,
-  McpConnectSchema,
-  McpRequestSchema,
-  McpDisconnectSchema,
 } from '../ipc/ipc-validators';
 
 describe('SseConnectSchema', () => {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useMqttStore, MQTT_SECRET_SENTINEL } from '@/features/mqtt/store/useMqttStore';
+import { MQTT_SECRET_SENTINEL, useMqttStore } from '@/features/mqtt/store/useMqttStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
 
 function resetStore(): void {

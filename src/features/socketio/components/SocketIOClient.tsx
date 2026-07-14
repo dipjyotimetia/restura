@@ -1,4 +1,4 @@
-import { Send, Trash2, Search, Download, X, Filter } from 'lucide-react';
+import { Download, Filter, Search, Send, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
@@ -13,21 +13,21 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  CodeEditorFrame,
   CountToggle,
   Floater,
+  Kbd,
   ProtoChip,
   Stat,
-  Kbd,
-  ToggleField,
   TextField,
+  ToggleField,
   VariableText,
-  CodeEditorFrame,
 } from '@/components/ui/spatial';
 import { socketioManager } from '@/features/socketio/lib/socketioManager';
 import {
-  useSocketIOStore,
   type SocketIOEventDirection,
   type SocketIOEventFilter,
+  useSocketIOStore,
 } from '@/features/socketio/store/useSocketIOStore';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn } from '@/lib/shared/utils';
@@ -218,7 +218,6 @@ function SocketIOClient() {
   const rawEventsLength = connection?.events.length ?? 0;
   const filteredEvents = useMemo(
     () => (activeConnectionId ? getFilteredEvents(activeConnectionId) : []),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- rawEventsLength drives re-memo on append
     [activeConnectionId, getFilteredEvents, rawEventsLength, eventFilter, searchQuery]
   );
 

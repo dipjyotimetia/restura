@@ -1,18 +1,15 @@
 import { Import } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { capturedRequestsToCases, type CapturedRequest } from '../lib/datasetFromHistory';
-import { plural } from '../lib/plural';
-import { useAiLabStore } from '../store/useAiLabStore';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
   DialogDescription,
   DialogFooter,
+  DialogHeader,
+  DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -21,6 +18,9 @@ import { useCollectionStore } from '@/store/useCollectionStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import type { CollectionItem } from '@/types/collection';
 import type { HttpRequest, Response as HttpResponse } from '@/types/http';
+import { type CapturedRequest, capturedRequestsToCases } from '../lib/datasetFromHistory';
+import { plural } from '../lib/plural';
+import { useAiLabStore } from '../store/useAiLabStore';
 
 interface Candidate {
   key: string;

@@ -1,20 +1,17 @@
 import {
-  Play,
-  StopCircle,
   CheckCircle2,
-  XCircle,
-  MinusCircle,
-  Clock,
-  ChevronUp,
   ChevronDown,
-  Upload,
+  ChevronUp,
+  Clock,
+  MinusCircle,
+  Play,
   RotateCcw,
+  StopCircle,
+  Upload,
+  XCircle,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { useCollectionRun } from '../hooks/useCollectionRun';
-import { loadDataFile, type IterationRow } from '../lib/dataLoader';
-import { flattenRunnables, findFolder } from '../lib/flattenRunnables';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -33,6 +30,9 @@ import { METHOD_COLORS, PROTOCOL_COLORS, PROTOCOL_LABELS } from '@/lib/shared/co
 import { cn } from '@/lib/shared/utils';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useCollectionRun } from '../hooks/useCollectionRun';
+import { type IterationRow, loadDataFile } from '../lib/dataLoader';
+import { findFolder, flattenRunnables } from '../lib/flattenRunnables';
 
 export interface RunnerScope {
   collectionId: string;
@@ -106,7 +106,6 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
     setStopOnFailure(false);
     setDataRows([]);
     setDataFileName(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- collection mutations during a run must not reset user configuration
   }, [scopeKey]);
 
   const scopeName = useMemo(() => {

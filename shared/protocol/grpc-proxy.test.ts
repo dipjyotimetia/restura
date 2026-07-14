@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { executeGrpcProxy } from './grpc-proxy';
 import { GrpcStatusCode } from './grpc-status';
 import { flattenHeaders as asRecord } from './header-utils';

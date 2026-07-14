@@ -11,9 +11,9 @@
  * completion on each rail and assert the status + reconstructed bytes match.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Readable } from 'node:stream';
 import { request as undiciRequest } from 'undici';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { executeHttpProxyStreaming } from '../../shared/protocol/http-proxy';
 import type { Fetcher, FetcherRequest, FetcherResponse } from '../../shared/protocol/types';
 import { startUpstream, type Upstream } from './upstream';

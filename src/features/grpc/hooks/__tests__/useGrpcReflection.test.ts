@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReflectionMethodInfo, ReflectionResult, ReflectionServiceInfo } from '@/types';
 
 vi.mock('sonner', () => ({
@@ -16,8 +16,8 @@ vi.mock('@/features/grpc/lib/grpcReflection', () => ({
   generateRequestTemplate: vi.fn(() => '{}'),
 }));
 
-import { useGrpcReflection } from '../useGrpcReflection';
 import { toast } from 'sonner';
+import { useGrpcReflection } from '../useGrpcReflection';
 
 const buildMethod = (overrides: Partial<ReflectionMethodInfo> = {}): ReflectionMethodInfo =>
   ({

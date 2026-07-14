@@ -1,12 +1,12 @@
 import {
-  m,
-  LazyMotion,
-  domAnimation,
-  MotionConfig,
-  type HTMLMotionProps,
-  type Variants,
-  type Transition,
   AnimatePresence,
+  domAnimation,
+  type HTMLMotionProps,
+  LazyMotion,
+  MotionConfig,
+  m,
+  type Transition,
+  type Variants,
 } from 'framer-motion';
 import * as React from 'react';
 

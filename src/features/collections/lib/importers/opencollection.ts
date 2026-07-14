@@ -1,16 +1,16 @@
 import { v4 as uuid } from 'uuid';
-import type { ImportResult, ImportWarning } from './types';
 import {
-  openCollectionSchema,
   assertBoundedDocument,
-  ocToInternal,
-  ocVariableToKeyValue,
   getAndResetUnrecognizedBodyCount,
   getAndResetUnrecognizedScripts,
   type OpenCollection,
+  ocToInternal,
+  ocVariableToKeyValue,
+  openCollectionSchema,
 } from '@/lib/opencollection';
 import { formatZodIssues } from '@/lib/shared/validations';
 import type { Collection, Environment } from '@/types';
+import type { ImportResult, ImportWarning } from './types';
 
 /**
  * @deprecated Maintained for callers using the legacy single-field result.

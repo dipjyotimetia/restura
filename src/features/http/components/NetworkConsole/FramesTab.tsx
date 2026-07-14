@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { formatBytes, formatClockTime } from '@/lib/shared/console-format';
 import { cn } from '@/lib/shared/utils';
-import { useConsoleStore, type ConsoleFrame, type FrameProtocol } from '@/store/useConsoleStore';
+import { type ConsoleFrame, type FrameProtocol, useConsoleStore } from '@/store/useConsoleStore';
 
 const PROTOCOL_FILTERS: Array<{ value: FrameProtocol | 'all'; label: string }> = [
   { value: 'all', label: 'All' },

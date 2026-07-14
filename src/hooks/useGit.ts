@@ -1,9 +1,9 @@
-import type { GitStatusFile, GitStatus, GitBranch, GitCommit } from '@shared/git-types';
+import type { GitBranch, GitCommit, GitStatus, GitStatusFile } from '@shared/git-types';
 import { useCallback, useEffect, useState } from 'react';
 import { getElectronAPI } from '@/lib/shared/platform';
 import { loadCollectionFromDirectory } from '@/store/useFileCollectionStore';
 
-export type { GitStatusFile, GitStatus, GitBranch, GitCommit };
+export type { GitBranch, GitCommit, GitStatus, GitStatusFile };
 
 interface GitState {
   status: GitStatus | null;
