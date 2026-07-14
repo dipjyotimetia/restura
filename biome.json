@@ -44,7 +44,6 @@
       "!tests/fixtures/**",
       "!extension/vscode/test/fixtures/**",
       "!*.config.mts",
-      "!.prettierignore",
       "!.claude/**",
       "!.astro/**",
       "!docs-site/.astro/**",
