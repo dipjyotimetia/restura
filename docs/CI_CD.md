@@ -97,17 +97,16 @@ rules_) for `main`:
   > and a required check that never runs blocks the merge.
 
 - ✅ **Require conversation resolution before merging.**
-- ✅ **Do not allow bypassing the above settings** (or scope an explicit bypass
-  list). Allow the `github-actions[bot]` actor only if you keep the release
-  bump-commit push to `main` (the Release workflow pushes `chore(release): vX.Y.Z`).
+- ✅ **Do not allow bypassing the above settings.** The Release workflow opens a
+  version-bump PR for stable releases, so `github-actions[bot]` does not need
+  permission to push directly to `main`.
 - ✅ **Require signed commits** (optional, recommended).
 - ⛔ Block force-pushes and deletions of `main`.
 
-> The Release workflow's `Commit, tag, push` step pushes the version bump to
-> `main`. If you enable "require PR" / "require signed commits" without a bypass
-> for `github-actions[bot]`, that push will be rejected and stable releases will
-> fail at the push step. Add a ruleset bypass for the Actions bot, or convert the
-> release to open a PR instead of pushing directly.
+> The stable Release workflow creates a dedicated `release/prepare` PR with a
+> GitHub App token. Merge it through the normal protected-branch path after
+> required checks pass, then dispatch the publish step with that PR's merged
+> commit SHA. Do not add a branch-protection bypass for `github-actions[bot]`.
 
 ### 2. Code scanning (CodeQL)
 
@@ -249,29 +248,43 @@ requests` error.
 ## Release runbook
 
 1. Ensure `main` is green and carries everything you want to ship.
-2. **Actions → Release → Run workflow** (on `main`), or:
+   Configure a GitHub App installed only on this repository with **Contents:
+   read/write** and **Pull requests: read/write**, then save its ID and private
+   key as `RELEASE_PR_APP_ID` and `RELEASE_PR_APP_PRIVATE_KEY`. The App creates
+   the version-bump PR so its normal CI runs automatically rather than waiting
+   for a manual workflow approval.
+2. **Actions → Release → Run workflow** (on `main`) to prepare the version-bump
+   PR, or run:
    ```bash
    gh workflow run release.yml --ref main \
      -f release_bump=patch        # patch | minor | major
      # -f prerelease=true -f prerelease_identifier=beta.1   # for a beta
+   ```
+3. For a stable release, review and merge the generated `chore(release): vX.Y.Z`
+   PR only after its required checks pass. Capture its merge commit, then
+   dispatch the workflow again with that exact SHA. This prevents later `main`
+   commits from being included accidentally:
+   ```bash
+   RELEASE_SHA="$(gh pr view <release-pr-number> --json mergeCommit --jq '.mergeCommit.oid')"
+   gh workflow run release.yml --ref main \
+     -f publish_existing_stable=true \
+     -f stable_release_sha="$RELEASE_SHA" \
      # -f publish_docker=true                               # opt in to GHCR
    ```
-3. The run: **preflight** (validate + build surfaces) → **release** (bump, tag,
-   notes, SBOM, draft release) → fan-out (**desktop**, **publish-cli**,
+4. The publish run: **preflight** (validate + build surfaces) → **release**
+   (tag, notes, SBOM, draft release) → fan-out (**desktop**, **publish-cli**,
    **publish-docker**, **deploy-web**) → **publish-release** (flips the draft to
    public once every required downstream job succeeds).
-4. Verify the published artifacts with the `gh attestation verify` commands above.
+5. Verify the published artifacts with the `gh attestation verify` commands above.
 
 ### Recovery after a failed stable run
 
-The bump commit + tag are pushed to `main` **before** the build/publish/deploy
-jobs. If a downstream job fails, the GitHub release stays a **draft** while
-`main` already carries the bump + tag. To retry:
+If a downstream publish job fails, the version-bump commit remains on `main`
+but the GitHub release stays a **draft**. To retry:
 
 ```bash
 gh release delete vX.Y.Z --cleanup-tag --yes   # drop draft + tag
-git revert <bump-commit>                        # only if abandoning the version
-# then re-dispatch the Release workflow
+# then re-dispatch Release with publish_existing_stable=true and stable_release_sha=<merged SHA>
 ```
 
 ---
