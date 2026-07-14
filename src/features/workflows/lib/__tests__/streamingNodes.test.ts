@@ -115,16 +115,18 @@ function newFakeWebsocketStream() {
   return handle;
 }
 
-const runJsonRpc = vi.fn(async (_request: unknown, _ctx: McpRunContext, _callArgs: McpRunArgs): Promise<McpRunResult> => {
-  const value = mcpResponses.shift();
-  if (!value) {
-    return { ok: true, result: {} };
+const runJsonRpc = vi.fn(
+  async (_request: unknown, _ctx: McpRunContext, _callArgs: McpRunArgs): Promise<McpRunResult> => {
+    const value = mcpResponses.shift();
+    if (!value) {
+      return { ok: true, result: {} };
+    }
+    if (value.ok) {
+      return { ok: true, result: value.result };
+    }
+    return { ok: false, error: value.error ?? 'mcp-call-failed' };
   }
-  if (value.ok) {
-    return { ok: true, result: value.result };
-  }
-  return { ok: false, error: value.error ?? 'mcp-call-failed' };
-});
+);
 
 // Mock the protocol registry so dagExecutor.runSseSubscribe sees a
 // fake SSE module under our control.
@@ -531,7 +533,8 @@ describe('sseSubscribe — completion policies', () => {
               matchExpression: 'return true;',
               completion: {
                 kind: 'eventMatch',
-                expression: 'var e = JSON.parse(pm.variables.get("event")); return e.status === "reply";',
+                expression:
+                  'var e = JSON.parse(pm.variables.get("event")); return e.status === "reply";',
               },
               resultVar: 'wsReply',
             },

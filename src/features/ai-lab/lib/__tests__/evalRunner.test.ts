@@ -406,30 +406,24 @@ describe('runEval', () => {
         () => {},
         new AbortController().signal
       );
-      expect(cells[0]?.error).toContain(
-        failure instanceof Error ? failure.message : failure
-      );
+      expect(cells[0]?.error).toContain(failure instanceof Error ? failure.message : failure);
     }
   );
 
   it('runs a configured structured judge through the provider bridge', async () => {
-    mockComplete
-      .mockResolvedValueOnce(result('Paris'))
-      .mockResolvedValueOnce({
-        ok: true,
-        text: '',
-        toolCalls: [
-          {
-            id: 'judge',
-            name: 'submit_judgment',
-            input: JSON.stringify({
-              criteria: [
-                { name: 'overall', score: 0.9, pass: true, reasoning: 'correct' },
-              ],
-            }),
-          },
-        ],
-      });
+    mockComplete.mockResolvedValueOnce(result('Paris')).mockResolvedValueOnce({
+      ok: true,
+      text: '',
+      toolCalls: [
+        {
+          id: 'judge',
+          name: 'submit_judgment',
+          input: JSON.stringify({
+            criteria: [{ name: 'overall', score: 0.9, pass: true, reasoning: 'correct' }],
+          }),
+        },
+      ],
+    });
     const cells = await runEval(
       {
         prompt: PROMPT,
@@ -456,51 +450,51 @@ describe('runEval', () => {
     expect(cells[0]?.scores[0]).toMatchObject({ kind: 'judge', passed: true, score: 0.9 });
   });
 
-  it.each([
-    [{ name: 'quality', rubric: 'Prefer accuracy', weight: 1 }],
-    [undefined],
-  ])('runs pairwise judging with optional criteria and swapping', async (criterion) => {
-    const comparison = (winner: 'A' | 'B') => ({
-      ok: true,
-      text: '',
-      toolCalls: [
-        {
-          id: 'pairwise',
-          name: 'submit_comparison',
-          input: JSON.stringify({ winner, reasoning: 'better' }),
-        },
-      ],
-    });
-    mockComplete.mockResolvedValueOnce(result('candidate'));
-    if (criterion) {
-      mockComplete.mockResolvedValueOnce(comparison('A')).mockResolvedValueOnce(comparison('B'));
-    } else {
-      mockComplete.mockResolvedValueOnce(comparison('A'));
-    }
-    const cells = await runEval(
-      {
-        prompt: PROMPT,
-        dataset: {
-          ...DATASET,
-          cases: [{ ...DATASET.cases[0]!, reference: 'baseline' }],
-        },
-        models: [{ providerConfigId: 'p1', model: 'gpt-4o' }],
-        scorers: [
+  it.each([[{ name: 'quality', rubric: 'Prefer accuracy', weight: 1 }], [undefined]])(
+    'runs pairwise judging with optional criteria and swapping',
+    async (criterion) => {
+      const comparison = (winner: 'A' | 'B') => ({
+        ok: true,
+        text: '',
+        toolCalls: [
           {
             id: 'pairwise',
-            kind: 'pairwise',
-            judgeModel: { providerConfigId: 'p1', model: 'gpt-4o' },
-            baseline: 'reference',
-            passThreshold: 0.5,
-            ...(criterion ? { criteria: [criterion], swapPositions: true } : {}),
+            name: 'submit_comparison',
+            input: JSON.stringify({ winner, reasoning: 'better' }),
           },
         ],
-        providers: { p1: PROVIDER },
-        concurrency: 1,
-      },
-      () => {},
-      new AbortController().signal
-    );
-    expect(cells[0]?.scores[0]).toMatchObject({ kind: 'pairwise', passed: true });
-  });
+      });
+      mockComplete.mockResolvedValueOnce(result('candidate'));
+      if (criterion) {
+        mockComplete.mockResolvedValueOnce(comparison('A')).mockResolvedValueOnce(comparison('B'));
+      } else {
+        mockComplete.mockResolvedValueOnce(comparison('A'));
+      }
+      const cells = await runEval(
+        {
+          prompt: PROMPT,
+          dataset: {
+            ...DATASET,
+            cases: [{ ...DATASET.cases[0]!, reference: 'baseline' }],
+          },
+          models: [{ providerConfigId: 'p1', model: 'gpt-4o' }],
+          scorers: [
+            {
+              id: 'pairwise',
+              kind: 'pairwise',
+              judgeModel: { providerConfigId: 'p1', model: 'gpt-4o' },
+              baseline: 'reference',
+              passThreshold: 0.5,
+              ...(criterion ? { criteria: [criterion], swapPositions: true } : {}),
+            },
+          ],
+          providers: { p1: PROVIDER },
+          concurrency: 1,
+        },
+        () => {},
+        new AbortController().signal
+      );
+      expect(cells[0]?.scores[0]).toMatchObject({ kind: 'pairwise', passed: true });
+    }
+  );
 });

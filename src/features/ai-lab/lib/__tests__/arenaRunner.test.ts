@@ -205,9 +205,7 @@ describe('runArena', () => {
       new AbortController().signal
     );
 
-    expect(result.matches).toEqual([
-      { a: 'p1:gpt-4o', b: 'p2:claude', winner: 'tie' },
-    ]);
+    expect(result.matches).toEqual([{ a: 'p1:gpt-4o', b: 'p2:claude', winner: 'tie' }]);
   });
 
   it('does not call the judge when both contestant generations fail', async () => {
