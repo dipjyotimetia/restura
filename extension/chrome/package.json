@@ -11,6 +11,6 @@
     "gen:store-assets": "node scripts/gen-store-assets.mjs"
   },
   "devDependencies": {
-    "@types/chrome": "^0.2.0"
+    "@types/chrome": "^0.2.2"
   }
 }

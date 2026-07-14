@@ -110,14 +110,14 @@
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^26.0.1",
-    "@types/vscode": "^1.90.0",
+    "@types/node": "^26.1.1",
+    "@types/vscode": "^1.125.0",
     "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.0.0",
     "@vscode/vsce": "^3.9.2",
-    "esbuild": "^0.25.12",
+    "esbuild": "^0.28.1",
     "mocha": "^11.7.6",
-    "typescript": "^5.9.0",
-    "vitest": "^4.1.9"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
   }
 }
