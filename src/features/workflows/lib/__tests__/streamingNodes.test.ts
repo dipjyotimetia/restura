@@ -1,6 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Workflow, WorkflowGraph, SseRequest, CompletionPolicy } from '@/types';
 
+type McpRunContext = {
+  signal: AbortSignal;
+  variables: Record<string, unknown>;
+};
+
+type McpClientPool = {
+  get: (key: string) => unknown;
+  set: (key: string, value: unknown) => void;
+  delete: (key: string) => void;
+};
+
+type McpRunArgs = {
+  method: string;
+  cacheKey: string;
+  clientPool: McpClientPool;
+  params?: unknown;
+};
+
+type McpRunResult = { ok: boolean; result?: unknown; error?: string };
+
 type FakeEvent = { event: string; data: string };
 
 type FakeStream<T> = {
@@ -95,7 +115,7 @@ function newFakeWebsocketStream() {
   return handle;
 }
 
-const runJsonRpc = vi.fn(async () => {
+const runJsonRpc = vi.fn(async (_request: unknown, _ctx: McpRunContext, _callArgs: McpRunArgs): Promise<McpRunResult> => {
   const value = mcpResponses.shift();
   if (!value) {
     return { ok: true, result: {} };
@@ -644,9 +664,9 @@ describe('sseSubscribe — completion policies', () => {
     expect(result.status).toBe('success');
     expect(result.finalVariables.mcpResult).toBe('{"tool":"echo","value":42}');
     expect(runJsonRpc).toHaveBeenCalledTimes(1);
-    const runArgs = runJsonRpc.mock.calls[0];
-    expect(runArgs?.[2]).toMatchObject({ method: 'tools/call' });
-    expect(runArgs?.[2]?.params).toEqual({ tool: 'echo' });
+    const runArgs = runJsonRpc.mock.calls[0]?.[2];
+    expect(runArgs).toMatchObject({ method: 'tools/call' });
+    expect(runArgs?.params).toEqual({ tool: 'echo' });
   });
 
   it('mcpCall reports failure when JSON-RPC result is not ok', async () => {
