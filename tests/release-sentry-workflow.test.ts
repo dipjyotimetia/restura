@@ -5,6 +5,13 @@ import { describe, expect, it } from 'vitest';
 describe('release workflow Sentry guardrails', () => {
   const workflow = readFileSync(resolve(process.cwd(), '.github/workflows/release.yml'), 'utf8');
 
+  it('prepares stable releases through a pull request and never pushes main directly', () => {
+    expect(workflow).toContain('Prepare stable release pull request');
+    expect(workflow).toContain('peter-evans/create-pull-request@v8');
+    expect(workflow).toContain('publish_existing_stable');
+    expect(workflow).not.toContain('git push origin HEAD:main');
+  });
+
   it('requires desktop Sentry secrets before stable releases', () => {
     const preflightBlock = workflow.slice(
       workflow.indexOf('Validate stable release secrets'),

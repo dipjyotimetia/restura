@@ -16,13 +16,11 @@ name: Release
 #                             release, publishes the Docker image to GHCR.
 #
 # Flow (stable):
-#   1. Preflight validates main, inputs, tests, type-checks, and build health.
-#   2. Determine next semver from the selected release_bump input.
-#   3. Bump root + every workspace's package.json to that version.
-#   4. Commit the bump as `chore(release): vX.Y.Z` and push to main.
-#   5. Create + push the `vX.Y.Z` tag (points at the bump commit).
-#   6. Generate structured release notes from conventional commits (git-cliff).
-#   7. Generate a CycloneDX SBOM. Cut a draft GitHub release with notes + SBOM.
+#   1. The first dispatch validates main, computes the next version, and opens
+#      a version-bump PR. It never pushes directly to protected main.
+#   2. Merge that PR only after its required checks pass.
+#   3. Dispatch again with `publish_existing_stable=true` to tag the merged
+#      version, generate notes/SBOM, and publish the release artifacts.
 #
 # Flow (prerelease / beta):
 #   1–2. Same version determination; actual tag = vX.Y.Z-{identifier}.
@@ -37,17 +35,9 @@ name: Release
 #   - `publish-docker` — publish Docker image to GHCR (stable + publish_docker opt-in).
 #   - `deploy-web`   — deploy to Cloudflare (stable only).
 #
-# Note: the bump commit + tag are pushed with the default GITHUB_TOKEN. Because
-# the only trigger is workflow_dispatch, that push can't re-enter this workflow.
-#
-# Recovery after a failed run (stable): the bump commit + tag are pushed to main
-# BEFORE the desktop/publish/deploy jobs run, so if one of those fails the GitHub
-# release stays a draft but main already carries `chore(release): vX.Y.Z` + tag.
-# A plain re-run is then refused by "Validate tag does not exist". To retry:
-#   1. Delete the draft release:  gh release delete vX.Y.Z --cleanup-tag --yes
-#      (or `gh release delete vX.Y.Z --yes` then `git push origin :refs/tags/vX.Y.Z`)
-#   2. Revert the bump commit on main if you do NOT want to keep that version.
-#   3. Re-dispatch the release.
+# Recovery after a failed publish: delete the draft release and tag, then
+# re-dispatch with `publish_existing_stable=true`. The validated version-bump
+# commit remains on main and is never rewritten by this workflow.
 
 on:
   workflow_dispatch:
@@ -70,6 +60,10 @@ on:
         default: 'beta.1'
       publish_docker:
         description: 'Publish the Docker image to GHCR (stable releases only). Off by default — tick to opt in.'
+        type: boolean
+        default: false
+      publish_existing_stable:
+        description: 'Publish the already-merged stable version on main. Leave false to prepare its release PR.'
         type: boolean
         default: false
 
@@ -178,8 +172,81 @@ jobs:
           npm run build -w cli
           npm run electron:compile
 
+  prepare-stable:
+    name: Prepare stable release pull request
+    if: ${{ !inputs.prerelease && !inputs.publish_existing_stable }}
+    needs: [preflight]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Determine next version
+        id: bump
+        uses: anothrNick/github-tag-action@1.75.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEFAULT_BUMP: ${{ inputs.release_bump }}
+          TAG_PREFIX: v
+          RELEASE_BRANCHES: main
+          DRY_RUN: 'true'
+
+      - name: Compute release tag
+        id: tag
+        env:
+          NEW_TAG: ${{ steps.bump.outputs.new_tag }}
+        run: |
+          set -euo pipefail
+          echo "actual_tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Bump root + workspace versions
+        env:
+          ACTUAL_TAG: ${{ steps.tag.outputs.actual_tag }}
+        run: |
+          set -euo pipefail
+          npm version "${ACTUAL_TAG#v}" \
+            --no-git-tag-version \
+            --workspaces \
+            --include-workspace-root \
+            --allow-same-version
+
+      - name: Create stable release pull request
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: release/prepare
+          base: main
+          delete-branch: true
+          add-paths: |
+            package.json
+            package-lock.json
+            cli/package.json
+          commit-message: 'chore(release): ${{ steps.tag.outputs.actual_tag }}'
+          title: 'chore(release): ${{ steps.tag.outputs.actual_tag }}'
+          body: |
+            Prepares `${{ steps.tag.outputs.actual_tag }}` for release.
+
+            This PR is required by main branch protection. After it merges and
+            its required checks pass, dispatch **Release** again with
+            `publish_existing_stable=true` to tag and publish this version.
+
   release:
     name: Tag + release
+    if: ${{ inputs.prerelease || inputs.publish_existing_stable }}
     needs: [preflight]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -216,6 +283,7 @@ jobs:
           # Let *this* workflow do the actual tag push (after the version-bump commit),
           # so we don't end up with a tag that points at the pre-bump commit.
           DRY_RUN: 'true'
+        if: ${{ inputs.prerelease }}
 
       - name: Compute actual tag
         id: tag
@@ -223,13 +291,24 @@ jobs:
           NEW_TAG: ${{ steps.bump.outputs.new_tag }}
           PRERELEASE: ${{ inputs.prerelease }}
           PRERELEASE_IDENTIFIER: ${{ inputs.prerelease_identifier }}
+          PUBLISH_EXISTING_STABLE: ${{ inputs.publish_existing_stable }}
         run: |
-          ACTUAL_TAG="$NEW_TAG"
+          set -euo pipefail
           if [ "$PRERELEASE" = "true" ]; then
             ACTUAL_TAG="${NEW_TAG}-${PRERELEASE_IDENTIFIER}"
+          elif [ "$PUBLISH_EXISTING_STABLE" = "true" ]; then
+            VERSION="$(node -p \"require('./package.json').version\")"
+            if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Stable package version must be semver without a prerelease suffix; got '$VERSION'."
+              exit 1
+            fi
+            ACTUAL_TAG="v$VERSION"
+          else
+            echo 'A release must be a prerelease or publish an already-merged stable version.'
+            exit 1
           fi
           echo "actual_tag=$ACTUAL_TAG" >> "$GITHUB_OUTPUT"
-          echo "Releasing: $ACTUAL_TAG (prerelease=$PRERELEASE)"
+          echo "Releasing: $ACTUAL_TAG (prerelease=$PRERELEASE, existing_stable=$PUBLISH_EXISTING_STABLE)"
 
       - name: Validate tag does not exist
         env:
@@ -258,49 +337,11 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
-      - name: Bump root + workspace versions
-        # Stable only: prerelease builds tag current HEAD without touching main,
-        # so the version bump happens locally on each desktop runner instead.
-        if: ${{ !inputs.prerelease }}
+      - name: Tag and push
         env:
           ACTUAL_TAG: ${{ steps.tag.outputs.actual_tag }}
-        run: |
-          NEW_VERSION="${ACTUAL_TAG#v}"
-          npm version "$NEW_VERSION" \
-            --no-git-tag-version \
-            --workspaces \
-            --include-workspace-root \
-            --allow-same-version
-
-      - name: Commit, tag, push
-        env:
-          ACTUAL_TAG: ${{ steps.tag.outputs.actual_tag }}
-          PRERELEASE: ${{ inputs.prerelease }}
-          # The commit this run was dispatched against — the exact tree preflight
-          # validated and that we checked out. Refuse to push if main has moved off it.
-          BASE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
-          if [ "$PRERELEASE" = "false" ]; then
-            # Stable: commit the version bump back to main before tagging so the
-            # tag points at the bumped package.json.
-            git add package.json package-lock.json cli/package.json
-            if git diff --staged --quiet; then
-              echo "No version changes to commit (already at ${ACTUAL_TAG})."
-            else
-              git commit -m "chore(release): ${ACTUAL_TAG}"
-            fi
-            # Refuse to release unvalidated commits that landed after this run began.
-            git fetch origin main
-            REMOTE_MAIN="$(git rev-parse FETCH_HEAD)"
-            if [ "$REMOTE_MAIN" != "$BASE_SHA" ]; then
-              echo "origin/main moved from ${BASE_SHA} to ${REMOTE_MAIN}; rerun the release."
-              exit 1
-            fi
-            git push origin HEAD:main
-          fi
-          # Both stable and prerelease: push the tag. Prerelease tags point at
-          # the current HEAD (main stays untouched; version is set per-runner).
           git tag -a "${ACTUAL_TAG}" -m "${ACTUAL_TAG}"
           git push origin "${ACTUAL_TAG}"
 
