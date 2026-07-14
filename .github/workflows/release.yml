@@ -19,8 +19,9 @@ name: Release
 #   1. The first dispatch validates main, computes the next version, and opens
 #      a version-bump PR. It never pushes directly to protected main.
 #   2. Merge that PR only after its required checks pass.
-#   3. Dispatch again with `publish_existing_stable=true` to tag the merged
-#      version, generate notes/SBOM, and publish the release artifacts.
+#   3. Dispatch again with `publish_existing_stable=true` and the merged
+#      candidate SHA to tag that exact commit, generate notes/SBOM, and publish
+#      the release artifacts.
 #
 # Flow (prerelease / beta):
 #   1–2. Same version determination; actual tag = vX.Y.Z-{identifier}.
@@ -66,6 +67,10 @@ on:
         description: 'Publish the already-merged stable version on main. Leave false to prepare its release PR.'
         type: boolean
         default: false
+      stable_release_sha:
+        description: 'Exact merged release-candidate commit to tag when publish_existing_stable=true.'
+        type: string
+        default: ''
 
 concurrency:
   # Never cancel an in-flight release — partial state (bumped commit without a
@@ -97,6 +102,8 @@ jobs:
           RELEASE_BUMP: ${{ inputs.release_bump }}
           PRERELEASE: ${{ inputs.prerelease }}
           PRERELEASE_IDENTIFIER: ${{ inputs.prerelease_identifier }}
+          PUBLISH_EXISTING_STABLE: ${{ inputs.publish_existing_stable }}
+          STABLE_RELEASE_SHA: ${{ inputs.stable_release_sha }}
         run: |
           set -euo pipefail
           case "$RELEASE_BUMP" in
@@ -112,6 +119,16 @@ jobs:
               echo "prerelease_identifier must be a dot-separated semver prerelease identifier; got '${PRERELEASE_IDENTIFIER}'."
               exit 1
             fi
+          fi
+
+          if [ "$PRERELEASE" = "true" ] && [ "$PUBLISH_EXISTING_STABLE" = "true" ]; then
+            echo 'A prerelease cannot publish an existing stable release candidate.'
+            exit 1
+          fi
+
+          if [ "$PUBLISH_EXISTING_STABLE" = "true" ] && ! [[ "$STABLE_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo 'stable_release_sha must be the 40-character SHA of the merged release candidate.'
+            exit 1
           fi
 
       - name: Validate stable release secrets
@@ -143,6 +160,24 @@ jobs:
             exit 1
           fi
 
+      - name: Validate release preparation credentials
+        if: ${{ !inputs.prerelease && !inputs.publish_existing_stable }}
+        env:
+          RELEASE_PR_APP_ID: ${{ secrets.RELEASE_PR_APP_ID }}
+          RELEASE_PR_APP_PRIVATE_KEY: ${{ secrets.RELEASE_PR_APP_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in RELEASE_PR_APP_ID RELEASE_PR_APP_PRIVATE_KEY; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing release PR App credential(s): %s\n' "${missing[*]}"
+            exit 1
+          fi
+
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -151,6 +186,29 @@ jobs:
         with:
           node-version-file: '.nvmrc'
           cache: 'npm'
+
+      - name: Validate stable release candidate
+        if: ${{ inputs.publish_existing_stable }}
+        env:
+          STABLE_RELEASE_SHA: ${{ inputs.stable_release_sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git rev-parse --verify "${STABLE_RELEASE_SHA}^{commit}" >/dev/null
+          if ! git merge-base --is-ancestor "$STABLE_RELEASE_SHA" origin/main; then
+            echo "Stable release candidate $STABLE_RELEASE_SHA is not merged into origin/main."
+            exit 1
+          fi
+          ROOT_VERSION="$(git show "${STABLE_RELEASE_SHA}:package.json" | node -e "const fs = require('node:fs'); console.log(JSON.parse(fs.readFileSync(0, 'utf8')).version)")"
+          CLI_VERSION="$(git show "${STABLE_RELEASE_SHA}:cli/package.json" | node -e "const fs = require('node:fs'); console.log(JSON.parse(fs.readFileSync(0, 'utf8')).version)")"
+          if [ "$ROOT_VERSION" != "$CLI_VERSION" ]; then
+            echo "Root package version $ROOT_VERSION does not match CLI package version $CLI_VERSION."
+            exit 1
+          fi
+          if ! [[ "$ROOT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Stable release candidate has invalid version '$ROOT_VERSION'."
+            exit 1
+          fi
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
@@ -182,10 +240,16 @@ jobs:
       contents: write
       pull-requests: write
     steps:
+      - uses: actions/create-github-app-token@v2
+        id: release-pr-token
+        with:
+          app-id: ${{ secrets.RELEASE_PR_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PR_APP_PRIVATE_KEY }}
+
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.release-pr-token.outputs.token }}
 
       - uses: actions/setup-node@v6
         with:
@@ -227,10 +291,11 @@ jobs:
       - name: Create stable release pull request
         uses: peter-evans/create-pull-request@v8
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.release-pr-token.outputs.token }}
           branch: release/prepare
           base: main
           delete-branch: true
+          sign-commits: true
           add-paths: |
             package.json
             package-lock.json
@@ -242,7 +307,8 @@ jobs:
 
             This PR is required by main branch protection. After it merges and
             its required checks pass, dispatch **Release** again with
-            `publish_existing_stable=true` to tag and publish this version.
+            `publish_existing_stable=true` and this PR's merged commit SHA to
+            tag and publish this exact version.
 
   release:
     name: Tag + release
@@ -260,6 +326,7 @@ jobs:
           # full history so the bump action can read every prior tag
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ inputs.publish_existing_stable && inputs.stable_release_sha || github.sha }}
 
       - uses: actions/setup-node@v6
         with:
@@ -298,8 +365,13 @@ jobs:
             ACTUAL_TAG="${NEW_TAG}-${PRERELEASE_IDENTIFIER}"
           elif [ "$PUBLISH_EXISTING_STABLE" = "true" ]; then
             VERSION="$(node -p \"require('./package.json').version\")"
+            CLI_VERSION="$(node -p \"require('./cli/package.json').version\")"
             if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "Stable package version must be semver without a prerelease suffix; got '$VERSION'."
+              exit 1
+            fi
+            if [ "$VERSION" != "$CLI_VERSION" ]; then
+              echo "Root package version $VERSION does not match CLI package version $CLI_VERSION."
               exit 1
             fi
             ACTUAL_TAG="v$VERSION"
