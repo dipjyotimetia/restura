@@ -20,8 +20,8 @@ name: Release
 # Flow (stable):
 #   1. The dispatch validates main, computes the next version, and opens a
 #      version-bump PR. It never pushes directly to protected main.
-#   2. CI validates the candidate. On CI success, restura-bot directly merges
-#      only that PR through its approval-only branch-protection bypass.
+#   2. restura-bot immediately merges only that version-only PR through its
+#      approval-only branch-protection bypass; it does not wait for candidate CI.
 #   3. The merged release-bot PR triggers this workflow again to tag that exact
 #      merge commit and publish the release artifacts.
 #
@@ -72,9 +72,6 @@ on:
   pull_request:
     branches: [main]
     types: [closed]
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
 
 concurrency:
   # Never cancel an in-flight release — partial state (bumped commit without a
@@ -86,40 +83,6 @@ permissions:
   contents: write
 
 jobs:
-  merge-release-candidate:
-    name: Merge validated release candidate
-    if: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'release/prepare' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write
-      pull-requests: write
-    steps:
-      - name: Create release-bot token
-        id: release-pr-token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ secrets.RELEASE_PR_APP_ID }}
-          private-key: ${{ secrets.RELEASE_PR_APP_PRIVATE_KEY }}
-
-      - name: Merge validated release candidate
-        env:
-          GH_TOKEN: ${{ steps.release-pr-token.outputs.token }}
-          GH_REPO: ${{ github.repository }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          set -euo pipefail
-          PR_URL="$(gh pr list --repo "$GH_REPO" --state open --base main --head release/prepare \
-            --json url,author,headRefOid \
-            --jq '.[] | select(.author.login == "restura-bot[bot]" and .headRefOid == env.HEAD_SHA) | .url')"
-
-          if [ -z "$PR_URL" ]; then
-            echo 'No open release-bot candidate matches this CI run; nothing to merge.'
-            exit 0
-          fi
-
-          gh pr merge --squash --admin "$PR_URL"
-
   preflight:
     name: Release preflight
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'release/prepare' && github.event.pull_request.user.login == 'restura-bot[bot]') }}
@@ -344,11 +307,20 @@ jobs:
           body: |
             Prepares `${{ steps.tag.outputs.actual_tag }}` for release.
 
-            CI must pass the required `validate` check. Then restura-bot merges
-            this exact candidate and the merged PR automatically tags and
+            restura-bot immediately merges this exact version-only candidate
+            through its App-only bypass. The merged PR automatically tags and
             publishes this version.
 
             <!-- restura:publish_docker=${{ inputs.publish_docker }} -->
+
+      - name: Merge release candidate through bot bypass
+        if: ${{ steps.create-release-pr.outputs.pull-request-url != '' }}
+        env:
+          GH_TOKEN: ${{ steps.release-pr-token.outputs.token }}
+          PR_URL: ${{ steps.create-release-pr.outputs.pull-request-url }}
+        run: |
+          set -euo pipefail
+          gh pr merge --squash --admin "$PR_URL"
 
   release:
     name: Tag + release
