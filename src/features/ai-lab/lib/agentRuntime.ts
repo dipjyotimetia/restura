@@ -1,8 +1,13 @@
 import {
   AgentRunner,
+  applyAgentBundleBaseline,
+  createAgentToolResolver,
+  createFixtureToolSourceAdapter,
+  type AgentBundle,
   type AgentSuite,
   type AgentSuiteReport,
   AgentSuiteRunner,
+  type AgentToolResolver,
   aggregateJudgeVotes,
   CallbackProviderAdapter,
   type GenerationMessage,
@@ -10,12 +15,13 @@ import {
   type JudgeModelVote,
   type ModelRef,
   ProviderRegistry,
+  evaluateAgentBundleBaseline,
   validateGenerationRequest,
 } from '@shared/agent-lab';
 import type { CompletionResult } from '@shared/protocol/ai/types';
 import type { AiLabProviderConfig } from '../types';
 import { capabilitiesForDesktopModel, knownCostForCompletion } from './agentModelCapabilities';
-import { resolveResturaAgentTools } from './agentTools';
+import { createResturaRequestToolSourceAdapter } from './agentTools';
 import { completeLlm, type LlmCallSpec, specFor } from './llmClient';
 
 type Complete = (
@@ -193,9 +199,13 @@ export async function runDesktopAgentSuite(
     complete?: Complete;
     signal?: AbortSignal;
     reportProgress?: (progress: number) => void;
+    toolResolver?: AgentToolResolver;
   } = {}
 ): Promise<AgentSuiteReport> {
   preflightDesktopAgentSuite(suite);
+  const toolResolver =
+    options.toolResolver ?? createAgentToolResolver([createResturaRequestToolSourceAdapter()]);
+  for (const agent of suite.agents) toolResolver.assertSupported(agent.tools);
   const execution = capabilityExecutionMetadata(suite, configs);
   const providers = createDesktopAgentProviders(configs, options.complete ?? completeLlm);
   const runner = new AgentRunner({
@@ -203,7 +213,7 @@ export async function runDesktopAgentSuite(
     async resolveCredential() {
       return undefined;
     },
-    resolveTools: resolveResturaAgentTools,
+    resolveTools: toolResolver.resolve,
     ...(options.requestApproval ? { requestApproval: options.requestApproval } : {}),
   });
   const totalTrials = suite.agents.length * suite.tasks.length * suite.trials;
@@ -448,4 +458,21 @@ export async function runDesktopAgentSuite(
   }).run({ suite, ...(options.signal ? { signal: options.signal } : {}) });
   if (!options.signal?.aborted) options.reportProgress?.(1);
   return { ...report, execution };
+}
+
+export async function runDesktopAgentBundle(
+  bundle: AgentBundle,
+  configs: Record<string, AiLabProviderConfig>,
+  options: Omit<Parameters<typeof runDesktopAgentSuite>[2], 'toolResolver'> = {}
+): Promise<{ report: AgentSuiteReport; gates: ReturnType<typeof evaluateAgentBundleBaseline> }> {
+  const toolResolver = createAgentToolResolver([
+    createFixtureToolSourceAdapter(bundle.fixtures),
+    createResturaRequestToolSourceAdapter(),
+  ]);
+  const report = await runDesktopAgentSuite(bundle.suite, configs, {
+    ...options,
+    toolResolver,
+  });
+  const gates = evaluateAgentBundleBaseline(bundle, report);
+  return { report: applyAgentBundleBaseline(report, gates), gates };
 }

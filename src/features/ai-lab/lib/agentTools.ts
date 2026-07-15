@@ -1,4 +1,4 @@
-import type { AgentTool, ToolSource } from '@shared/agent-lab';
+import type { AgentTool, AgentToolSourceAdapter, ToolSource } from '@shared/agent-lab';
 import {
   findInheritedAuthWithSource,
   resolveEffectiveAuth,
@@ -126,4 +126,16 @@ export async function resolveResturaAgentTools(sources: ToolSource[]): Promise<A
     );
   }
   return tools;
+}
+
+export function createResturaRequestToolSourceAdapter(): AgentToolSourceAdapter {
+  return {
+    kind: 'restura-request',
+    async resolve(source) {
+      if (source.kind !== 'restura-request') {
+        throw new Error(`Restura request adapter cannot resolve ${source.kind} tools`);
+      }
+      return resolveResturaAgentTools([source]);
+    },
+  };
 }

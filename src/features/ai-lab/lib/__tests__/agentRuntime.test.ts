@@ -1,7 +1,16 @@
-import type { AgentSuite } from '@shared/agent-lab';
+import {
+  createAgentToolResolver,
+  createFixtureToolSourceAdapter,
+  type AgentBundle,
+  type AgentSuite,
+} from '@shared/agent-lab';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AiLabProviderConfig } from '../../types';
-import { createDesktopAgentProviders, runDesktopAgentSuite } from '../agentRuntime';
+import {
+  createDesktopAgentProviders,
+  runDesktopAgentBundle,
+  runDesktopAgentSuite,
+} from '../agentRuntime';
 
 const completeLlm = vi.fn();
 
@@ -45,6 +54,150 @@ function provider(
 }
 
 describe('desktop agent provider bridge', () => {
+  it('rejects an unsupported later-agent tool source before any model call', async () => {
+    completeLlm.mockResolvedValue({ ok: true, text: 'hello', toolCalls: [] });
+    const suite: AgentSuite = {
+      schemaVersion: 2,
+      id: 'unsupported-later-agent',
+      name: 'Unsupported later agent',
+      mode: 'regression',
+      agents: [
+        {
+          id: 'supported-agent',
+          model: { providerId: 'cfg', model: 'model' },
+          instructions: 'Answer.',
+          tools: [],
+          limits: { maxSteps: 1, maxWallTimeMs: 1_000 },
+        },
+        {
+          id: 'unsupported-agent',
+          model: { providerId: 'cfg', model: 'model' },
+          instructions: 'Answer.',
+          tools: [{ kind: 'mcp', connectionId: 'connection-1' }],
+          limits: { maxSteps: 1, maxWallTimeMs: 1_000 },
+        },
+      ],
+      tasks: [{ id: 'task', input: [{ type: 'text', text: 'input' }] }],
+      graders: [],
+      trials: 1,
+    };
+
+    await expect(
+      runDesktopAgentSuite(suite, { cfg: provider('cfg', 'model') }, { complete: completeLlm })
+    ).rejects.toThrow(/mcp tool sources need their runtime adapter/i);
+    expect(completeLlm).not.toHaveBeenCalled();
+  });
+
+  it('uses the supplied shared resolver port for direct suite runs', async () => {
+    const config = provider('cfg', 'model');
+    config.capabilityOverrides = {
+      model: { ...config.capabilityOverrides!.model!, toolCalling: true },
+    };
+    completeLlm
+      .mockResolvedValueOnce({
+        ok: true,
+        text: '',
+        toolCalls: [{ id: 'call-1', name: 'get_greeting', input: '{}' }],
+      })
+      .mockResolvedValueOnce({ ok: true, text: 'hello', toolCalls: [] });
+    const suite: AgentSuite = {
+      schemaVersion: 2,
+      id: 'direct-fixture-suite',
+      name: 'Direct fixture suite',
+      mode: 'regression',
+      agents: [
+        {
+          id: 'agent',
+          model: { providerId: 'cfg', model: 'model' },
+          instructions: 'Call the greeting tool.',
+          tools: [{ kind: 'fixture', fixtureId: 'greeting' }],
+          limits: { maxSteps: 2, maxWallTimeMs: 1_000 },
+        },
+      ],
+      tasks: [{ id: 'task', input: [{ type: 'text', text: 'Say hello' }] }],
+      graders: [{ id: 'answer', kind: 'exact', value: 'hello' }],
+      trials: 1,
+    };
+    const toolResolver = createAgentToolResolver([
+      createFixtureToolSourceAdapter([
+        {
+          id: 'greeting',
+          tool: {
+            name: 'get_greeting',
+            description: 'Return a greeting.',
+            inputSchema: { type: 'object', additionalProperties: false },
+          },
+          output: [{ type: 'text', text: 'hello' }],
+        },
+      ]),
+    ]);
+
+    const report = await runDesktopAgentSuite(
+      suite,
+      { cfg: config },
+      {
+        complete: completeLlm,
+        toolResolver,
+      }
+    );
+
+    expect(report.status).toBe('passed');
+  });
+
+  it('runs portable fixture bundles through the same desktop provider bridge', async () => {
+    const config = provider('cfg', 'model');
+    config.capabilityOverrides = {
+      model: { ...config.capabilityOverrides!.model!, toolCalling: true },
+    };
+    completeLlm
+      .mockResolvedValueOnce({
+        ok: true,
+        text: '',
+        toolCalls: [{ id: 'call-1', name: 'get_greeting', input: '{}' }],
+      })
+      .mockResolvedValueOnce({ ok: true, text: 'hello', toolCalls: [] });
+    const bundle: AgentBundle = {
+      schemaVersion: 1,
+      id: 'desktop-fixture',
+      name: 'Desktop fixture',
+      suite: {
+        schemaVersion: 2,
+        id: 'desktop-fixture-suite',
+        name: 'Desktop fixture suite',
+        mode: 'regression',
+        agents: [
+          {
+            id: 'agent',
+            model: { providerId: 'cfg', model: 'model' },
+            instructions: 'Call the greeting tool.',
+            tools: [{ kind: 'fixture', fixtureId: 'greeting' }],
+            limits: { maxSteps: 2, maxWallTimeMs: 1_000 },
+          },
+        ],
+        tasks: [{ id: 'task', input: [{ type: 'text', text: 'Say hello' }] }],
+        graders: [{ id: 'answer', kind: 'exact', value: 'hello' }],
+        trials: 1,
+      },
+      fixtures: [
+        {
+          id: 'greeting',
+          tool: {
+            name: 'get_greeting',
+            description: 'Return a greeting.',
+            inputSchema: { type: 'object', additionalProperties: false },
+          },
+          output: [{ type: 'text', text: 'hello' }],
+        },
+      ],
+      baseline: { minPassRate: 1 },
+    };
+
+    const result = await runDesktopAgentBundle(bundle, { cfg: config }, { complete: completeLlm });
+
+    expect(result.report.status).toBe('passed');
+    expect(result.gates).toEqual([{ metric: 'passRate', expected: 1, actual: 1, passed: true }]);
+  });
+
   it.each([
     [
       'credential override',

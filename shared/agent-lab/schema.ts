@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const AGENT_SUITE_SCHEMA_VERSION = 2 as const;
 
-const IdentifierSchema = z
+export const IdentifierSchema = z
   .string()
   .min(1)
   .max(200)
@@ -56,6 +56,7 @@ export const ModelRefSchema = z.object({
 
 export const ToolSourceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('restura-request'), requestId: IdentifierSchema }),
+  z.object({ kind: z.literal('fixture'), fixtureId: IdentifierSchema }),
   z.object({
     kind: z.literal('mcp'),
     connectionId: IdentifierSchema,

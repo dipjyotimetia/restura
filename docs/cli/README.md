@@ -17,7 +17,7 @@ Requires Node.js 24 or later. The binary is `restura`.
 
 ## `restura agent eval`
 
-Run an AI Lab Agent Suite v2 in headless CI:
+Run an AI Lab Agent Suite v2 or Git-native Agent Bundle v1 in headless CI:
 
 ```bash
 OPENAI_API_KEY=... restura agent eval ./checkout.agent-suite.json --output agent-report.json
@@ -25,7 +25,7 @@ OPENAI_API_KEY=... restura agent eval ./checkout.agent-suite.json --output agent
 
 The suite model uses `providerId: "openai.responses"` and an environment credential reference such as `{ "source": "env", "name": "OPENAI_API_KEY" }`. The adapter performs stateless encrypted reasoning and function-call replay with `store: false`; server-side `previous_response_id` continuation is disabled. The command emits a compact summary, optionally writes the complete typed traces and grader results, and exits `0` only when every trial passes (`1` for an evaluated failed, error, or cancelled report, including provider/runtime trial errors; `2` for invalid input, unsupported configuration, or command/I/O failure).
 
-Current headless limits are deliberate and fail closed: only `openai.responses` is registered; suite base-URL overrides and desktop secret handles are refused; judge graders and all tool sources require trusted CLI adapters that do not ship yet. Agent step/time/tool/token/cost/output budgets still apply, and `maxTokens` covers total input plus output tokens across a trial. `--output` writes the complete local trace report, which can include task inputs and model/tool outputs; protect and expire that CI artifact according to your data policy.
+Current headless limits are deliberate and fail closed: only `openai.responses` is registered; suite base-URL overrides and desktop secret handles are refused; judge graders, saved Restura requests, MCP, sandboxes, and A2A sources require trusted CLI adapters that do not ship yet. A Bundle may use deterministic, read-only fixture tools, and its baseline gates turn a regressed report into a failing CI result. Agent step/time/tool/token/cost/output budgets still apply, and `maxTokens` covers total input plus output tokens across a trial. `--output` writes the complete local trace report, which can include task inputs and model/tool outputs; protect and expire that CI artifact according to your data policy.
 
 ## Quick start
 
