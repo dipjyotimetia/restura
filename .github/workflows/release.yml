@@ -14,14 +14,16 @@ name: Release
 #                             Increment for successive betas (beta.2, beta.3…).
 #   publish_docker          — opt-in (default false). When true on a stable
 #                             release, publishes the Docker image to GHCR.
+#   recover_stable_release_sha — one-time recovery of an already-merged stable
+#                             candidate when its PR-closed event has passed.
 #
 # Flow (stable):
-#   1. The first dispatch validates main, computes the next version, and opens
-#      a version-bump PR. It never pushes directly to protected main.
-#   2. Merge that PR only after its required checks pass.
-#   3. Dispatch again with `publish_existing_stable=true` and the merged
-#      candidate SHA to tag that exact commit, generate notes/SBOM, and publish
-#      the release artifacts.
+#   1. The dispatch validates main, computes the next version, and opens a
+#      version-bump PR. It never pushes directly to protected main.
+#   2. restura-bot immediately merges only that version-only PR through its
+#      approval-only branch-protection bypass; it does not wait for candidate CI.
+#   3. The merged release-bot PR triggers this workflow again to tag that exact
+#      merge commit and publish the release artifacts.
 #
 # Flow (prerelease / beta):
 #   1–2. Same version determination; actual tag = vX.Y.Z-{identifier}.
@@ -37,8 +39,8 @@ name: Release
 #   - `deploy-web`   — deploy to Cloudflare (stable only).
 #
 # Recovery after a failed publish: delete the draft release and tag, then
-# re-dispatch with `publish_existing_stable=true`. The validated version-bump
-# commit remains on main and is never rewritten by this workflow.
+# dispatch with `recover_stable_release_sha` for the validated merge commit.
+# The version-bump commit remains on main and is never rewritten by this workflow.
 
 on:
   workflow_dispatch:
@@ -63,14 +65,13 @@ on:
         description: 'Publish the Docker image to GHCR (stable releases only). Off by default — tick to opt in.'
         type: boolean
         default: false
-      publish_existing_stable:
-        description: 'Publish the already-merged stable version on main. Leave false to prepare its release PR.'
-        type: boolean
-        default: false
-      stable_release_sha:
-        description: 'Exact merged release-candidate commit to tag when publish_existing_stable=true.'
+      recover_stable_release_sha:
+        description: 'One-time recovery: exact merged stable candidate SHA to publish. Leave empty for normal releases.'
         type: string
         default: ''
+  pull_request:
+    branches: [main]
+    types: [closed]
 
 concurrency:
   # Never cancel an in-flight release — partial state (bumped commit without a
@@ -84,6 +85,7 @@ permissions:
 jobs:
   preflight:
     name: Release preflight
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'release/prepare' && github.event.pull_request.user.login == 'restura-bot[bot]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
@@ -92,18 +94,18 @@ jobs:
       - name: Require main branch
         run: |
           set -euo pipefail
-          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+          if [ "${GITHUB_REF}" != "refs/heads/main" ] && [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
             echo "Release must be dispatched from main; got ${GITHUB_REF}."
             exit 1
           fi
 
       - name: Validate release inputs
+        if: ${{ github.event_name == 'workflow_dispatch' }}
         env:
           RELEASE_BUMP: ${{ inputs.release_bump }}
           PRERELEASE: ${{ inputs.prerelease }}
           PRERELEASE_IDENTIFIER: ${{ inputs.prerelease_identifier }}
-          PUBLISH_EXISTING_STABLE: ${{ inputs.publish_existing_stable }}
-          STABLE_RELEASE_SHA: ${{ inputs.stable_release_sha }}
+          RECOVER_STABLE_RELEASE_SHA: ${{ inputs.recover_stable_release_sha }}
         run: |
           set -euo pipefail
           case "$RELEASE_BUMP" in
@@ -121,18 +123,15 @@ jobs:
             fi
           fi
 
-          if [ "$PRERELEASE" = "true" ] && [ "$PUBLISH_EXISTING_STABLE" = "true" ]; then
-            echo 'A prerelease cannot publish an existing stable release candidate.'
-            exit 1
-          fi
-
-          if [ "$PUBLISH_EXISTING_STABLE" = "true" ] && ! [[ "$STABLE_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo 'stable_release_sha must be the 40-character SHA of the merged release candidate.'
-            exit 1
+          if [ -n "$RECOVER_STABLE_RELEASE_SHA" ]; then
+            if [ "$PRERELEASE" = "true" ] || ! [[ "$RECOVER_STABLE_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo 'recover_stable_release_sha must be a 40-character SHA for a stable release.'
+              exit 1
+            fi
           fi
 
       - name: Validate stable release secrets
-        if: ${{ !inputs.prerelease }}
+        if: ${{ github.event_name == 'pull_request' || !inputs.prerelease }}
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -161,7 +160,7 @@ jobs:
           fi
 
       - name: Validate release preparation credentials
-        if: ${{ !inputs.prerelease && !inputs.publish_existing_stable }}
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.prerelease && inputs.recover_stable_release_sha == '' }}
         env:
           RELEASE_PR_APP_ID: ${{ secrets.RELEASE_PR_APP_ID }}
           RELEASE_PR_APP_PRIVATE_KEY: ${{ secrets.RELEASE_PR_APP_PRIVATE_KEY }}
@@ -188,9 +187,9 @@ jobs:
           cache: 'npm'
 
       - name: Validate stable release candidate
-        if: ${{ inputs.publish_existing_stable }}
+        if: ${{ github.event_name == 'pull_request' || inputs.recover_stable_release_sha != '' }}
         env:
-          STABLE_RELEASE_SHA: ${{ inputs.stable_release_sha }}
+          STABLE_RELEASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || inputs.recover_stable_release_sha }}
         run: |
           set -euo pipefail
           git fetch origin main
@@ -232,7 +231,7 @@ jobs:
 
   prepare-stable:
     name: Prepare stable release pull request
-    if: ${{ !inputs.prerelease && !inputs.publish_existing_stable }}
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.prerelease && inputs.recover_stable_release_sha == '' }}
     needs: [preflight]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -289,6 +288,7 @@ jobs:
             --allow-same-version
 
       - name: Create stable release pull request
+        id: create-release-pr
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ steps.release-pr-token.outputs.token }}
@@ -300,19 +300,31 @@ jobs:
             package.json
             package-lock.json
             cli/package.json
+            extension/chrome/package.json
+            extension/vscode/package.json
           commit-message: 'chore(release): ${{ steps.tag.outputs.actual_tag }}'
           title: 'chore(release): ${{ steps.tag.outputs.actual_tag }}'
           body: |
             Prepares `${{ steps.tag.outputs.actual_tag }}` for release.
 
-            This PR is required by main branch protection. After it merges and
-            its required checks pass, dispatch **Release** again with
-            `publish_existing_stable=true` and this PR's merged commit SHA to
-            tag and publish this exact version.
+            restura-bot immediately merges this exact version-only candidate
+            through its App-only bypass. The merged PR automatically tags and
+            publishes this version.
+
+            <!-- restura:publish_docker=${{ inputs.publish_docker }} -->
+
+      - name: Merge release candidate through bot bypass
+        if: ${{ steps.create-release-pr.outputs.pull-request-url != '' }}
+        env:
+          GH_TOKEN: ${{ steps.release-pr-token.outputs.token }}
+          PR_URL: ${{ steps.create-release-pr.outputs.pull-request-url }}
+        run: |
+          set -euo pipefail
+          gh pr merge --squash --admin "$PR_URL"
 
   release:
     name: Tag + release
-    if: ${{ inputs.prerelease || inputs.publish_existing_stable }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && (inputs.prerelease || inputs.recover_stable_release_sha != '')) || (github.event_name == 'pull_request' && github.event.pull_request.merged && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'release/prepare' && github.event.pull_request.user.login == 'restura-bot[bot]') }}
     needs: [preflight]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -320,13 +332,37 @@ jobs:
       # The actual published tag — includes prerelease suffix when applicable.
       # Consumed by downstream jobs so they check out the right commit.
       actual_tag: ${{ steps.tag.outputs.actual_tag }}
+      is_prerelease: ${{ steps.context.outputs.is_prerelease }}
+      publish_docker: ${{ steps.context.outputs.publish_docker }}
     steps:
+      - name: Resolve release context
+        id: context
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_PRERELEASE: ${{ inputs.prerelease }}
+          DISPATCH_PUBLISH_DOCKER: ${{ inputs.publish_docker }}
+          RECOVER_STABLE_RELEASE_SHA: ${{ inputs.recover_stable_release_sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            echo 'is_prerelease=false' >> "$GITHUB_OUTPUT"
+            if printf '%s' "$PR_BODY" | grep -Fq '<!-- restura:publish_docker=true -->'; then
+              echo 'publish_docker=true' >> "$GITHUB_OUTPUT"
+            else
+              echo 'publish_docker=false' >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "is_prerelease=$DISPATCH_PRERELEASE" >> "$GITHUB_OUTPUT"
+            echo "publish_docker=$DISPATCH_PUBLISH_DOCKER" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v7
         with:
           # full history so the bump action can read every prior tag
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-          ref: ${{ inputs.publish_existing_stable && inputs.stable_release_sha || github.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || inputs.recover_stable_release_sha || github.sha }}
 
       - uses: actions/setup-node@v6
         with:
@@ -350,22 +386,21 @@ jobs:
           # Let *this* workflow do the actual tag push (after the version-bump commit),
           # so we don't end up with a tag that points at the pre-bump commit.
           DRY_RUN: 'true'
-        if: ${{ inputs.prerelease }}
+        if: ${{ steps.context.outputs.is_prerelease == 'true' }}
 
       - name: Compute actual tag
         id: tag
         env:
           NEW_TAG: ${{ steps.bump.outputs.new_tag }}
-          PRERELEASE: ${{ inputs.prerelease }}
+          PRERELEASE: ${{ steps.context.outputs.is_prerelease }}
           PRERELEASE_IDENTIFIER: ${{ inputs.prerelease_identifier }}
-          PUBLISH_EXISTING_STABLE: ${{ inputs.publish_existing_stable }}
         run: |
           set -euo pipefail
           if [ "$PRERELEASE" = "true" ]; then
             ACTUAL_TAG="${NEW_TAG}-${PRERELEASE_IDENTIFIER}"
-          elif [ "$PUBLISH_EXISTING_STABLE" = "true" ]; then
-            VERSION="$(node -p \"require('./package.json').version\")"
-            CLI_VERSION="$(node -p \"require('./cli/package.json').version\")"
+          else
+            VERSION="$(node -p "require('./package.json').version")"
+            CLI_VERSION="$(node -p "require('./cli/package.json').version")"
             if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "Stable package version must be semver without a prerelease suffix; got '$VERSION'."
               exit 1
@@ -375,12 +410,9 @@ jobs:
               exit 1
             fi
             ACTUAL_TAG="v$VERSION"
-          else
-            echo 'A release must be a prerelease or publish an already-merged stable version.'
-            exit 1
           fi
           echo "actual_tag=$ACTUAL_TAG" >> "$GITHUB_OUTPUT"
-          echo "Releasing: $ACTUAL_TAG (prerelease=$PRERELEASE, existing_stable=$PUBLISH_EXISTING_STABLE)"
+          echo "Releasing: $ACTUAL_TAG (prerelease=$PRERELEASE)"
 
       - name: Validate tag does not exist
         env:
@@ -422,7 +454,7 @@ jobs:
         shell: bash
         env:
           ACTUAL_TAG: ${{ steps.tag.outputs.actual_tag }}
-          PRERELEASE: ${{ inputs.prerelease }}
+          PRERELEASE: ${{ steps.context.outputs.is_prerelease }}
         run: |
           BASE_ARGS="--strip header"
           if [ "$PRERELEASE" = "true" ]; then
@@ -471,7 +503,7 @@ jobs:
           tag_name: ${{ steps.tag.outputs.actual_tag }}
           name: ${{ steps.tag.outputs.actual_tag }}
           draft: true
-          prerelease: ${{ inputs.prerelease }}
+          prerelease: ${{ steps.context.outputs.is_prerelease }}
           # Release notes generated by git-cliff from conventional commits.
           # Replaces GitHub's auto-generated "What's Changed" (noisy, no categorization).
           generate_release_notes: false
@@ -527,7 +559,7 @@ jobs:
       # package.json on main. Set the version locally here so the packaged app
       # reports the correct version (About page, app.getVersion(), updater).
       - name: Set prerelease version locally
-        if: ${{ inputs.prerelease }}
+        if: ${{ needs.release.outputs.is_prerelease == 'true' }}
         env:
           ACTUAL_TAG: ${{ needs.release.outputs.actual_tag }}
         shell: bash
@@ -556,7 +588,7 @@ jobs:
           fi
 
       - name: Smoke test Sentry ingest
-        if: ${{ !inputs.prerelease }}
+        if: ${{ needs.release.outputs.is_prerelease == 'false' }}
         env:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
         run: npm run sentry:smoke
@@ -591,7 +623,7 @@ jobs:
           WIN_CSC_LINK: ${{ runner.os == 'Windows' && secrets.WIN_CSC_LINK || '' }}
           WIN_CSC_KEY_PASSWORD: ${{ runner.os == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ (runner.os == 'macOS' && secrets.CSC_LINK != '') || (runner.os == 'Windows' && secrets.WIN_CSC_LINK != '') }}
-          PRERELEASE: ${{ inputs.prerelease }}
+          PRERELEASE: ${{ needs.release.outputs.is_prerelease }}
           # Sentry source-map upload (optional). electron:publish injects debug IDs
           # into the exact bundles it ships — the only way crash stacks symbolicate.
           # Runs on every desktop OS leg; debug IDs are content-derived so re-uploads
@@ -627,7 +659,7 @@ jobs:
     name: Publish restura-cli to npm
     needs: [release]
     # Stable releases only — beta installers don't warrant a CLI npm publish.
-    if: ${{ !inputs.prerelease }}
+    if: ${{ needs.release.outputs.is_prerelease == 'false' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -681,7 +713,7 @@ jobs:
     name: Publish Docker image to GHCR
     needs: [release]
     # Stable releases only, and only when opted in at dispatch (publish_docker).
-    if: ${{ !inputs.prerelease && inputs.publish_docker }}
+    if: ${{ needs.release.outputs.is_prerelease == 'false' && needs.release.outputs.publish_docker == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -762,7 +794,7 @@ jobs:
     name: Deploy web to production (Cloudflare)
     needs: [release]
     # Stable releases only — web/Cloudflare deploys do not ship beta builds.
-    if: ${{ !inputs.prerelease }}
+    if: ${{ needs.release.outputs.is_prerelease == 'false' }}
     # Production Cloudflare deploy (Worker + SPA + docs). Lives here, not in CI,
     # so it ships ONLY as part of a manually-dispatched release — never on a
     # bare merge to main. Deploys the freshly-tagged release commit.
@@ -864,7 +896,7 @@ jobs:
     needs: [release, desktop, publish-cli, publish-docker, deploy-web]
     # publish-docker is opt-in (publish_docker input), so 'skipped' is an acceptable
     # outcome here — only a hard 'failure'/'cancelled' should block publishing.
-    if: ${{ always() && needs.release.result == 'success' && needs.desktop.result == 'success' && (inputs.prerelease || (needs.publish-cli.result == 'success' && (needs.publish-docker.result == 'success' || needs.publish-docker.result == 'skipped') && needs.deploy-web.result == 'success')) }}
+    if: ${{ always() && needs.release.result == 'success' && needs.desktop.result == 'success' && (needs.release.outputs.is_prerelease == 'true' || (needs.publish-cli.result == 'success' && (needs.publish-docker.result == 'success' || needs.publish-docker.result == 'skipped') && needs.deploy-web.result == 'success')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -875,7 +907,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           ACTUAL_TAG: ${{ needs.release.outputs.actual_tag }}
-          PRERELEASE: ${{ inputs.prerelease }}
+          PRERELEASE: ${{ needs.release.outputs.is_prerelease }}
         run: |
           set -euo pipefail
           VERSION="${ACTUAL_TAG#v}"
