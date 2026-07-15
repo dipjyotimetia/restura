@@ -26,6 +26,8 @@ import {
 import { useTheme } from 'next-themes';
 import * as React from 'react';
 import { useCallback, useEffect, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { toast } from 'sonner';
 import { CaptureBridgeCard } from '@/components/shared/CaptureBridgeCard';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
@@ -49,6 +51,7 @@ import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import {
   clearReleaseNotesCache,
   fetchReleaseNotesPage,
+  parseReleaseNoteContent,
   type ReleaseNote,
   type ReleaseNotesChannel,
 } from '@/lib/shared/release-notes';
@@ -1936,6 +1939,35 @@ function formatReleaseDate(isoDate: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(isoDate));
 }
 
+function ReleaseNoteMarkdown({ children }: { children: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        a: ({ children: linkChildren, href }) => (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer noopener"
+            className="text-sp-accent underline underline-offset-2"
+          >
+            {linkChildren}
+          </a>
+        ),
+        code: ({ children: codeChildren }) => (
+          <code className="rounded bg-sp-hover px-1 py-0.5 font-mono text-sp-11 text-sp-text">
+            {codeChildren}
+          </code>
+        ),
+        img: () => null,
+        p: ({ children: paragraphChildren }) => <>{paragraphChildren}</>,
+      }}
+    >
+      {children}
+    </ReactMarkdown>
+  );
+}
+
 function ReleaseNotesPanel({ channel }: { channel: ReleaseNotesChannel }) {
   const [releases, setReleases] = useState<ReleaseNote[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -1943,6 +1975,7 @@ function ReleaseNotesPanel({ channel }: { channel: ReleaseNotesChannel }) {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => new Set());
 
   const loadFirstPage = useCallback(
     async (refresh = false) => {
@@ -1987,6 +2020,7 @@ function ReleaseNotesPanel({ channel }: { channel: ReleaseNotesChannel }) {
   }, [channel, nextPage]);
 
   const selected = releases.find((release) => release.id === selectedId) ?? releases[0];
+  const content = selected ? parseReleaseNoteContent(selected.body) : null;
 
   return (
     <section className="mt-6" aria-labelledby="release-notes-heading">
@@ -2090,9 +2124,99 @@ function ReleaseNotesPanel({ channel }: { channel: ReleaseNotesChannel }) {
               </a>
             </div>
             {selected.body ? (
-              <pre className="mt-4 whitespace-pre-wrap break-words font-sans text-sp-12 leading-5 text-sp-muted">
-                {selected.body}
-              </pre>
+              <div className="mt-4 space-y-4 text-sp-12 leading-5 text-sp-muted">
+                {content?.preamble ? (
+                  <div className="space-y-2 break-words [&_h1]:text-sp-14 [&_h1]:font-semibold [&_h2]:text-sp-13 [&_h2]:font-semibold [&_h3]:text-sp-12 [&_h3]:font-semibold [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5">
+                    <ReleaseNoteMarkdown>{content.preamble}</ReleaseNoteMarkdown>
+                  </div>
+                ) : null}
+
+                {content?.highlights ? (
+                  <section
+                    aria-labelledby="release-highlights-heading"
+                    className="rounded-sp-btn border border-sp-accent/25 bg-sp-accent/8 p-3"
+                  >
+                    <h5
+                      id="release-highlights-heading"
+                      className="text-sp-12 font-semibold text-sp-text"
+                    >
+                      Highlights
+                    </h5>
+                    <div className="mt-2 [&_ul]:space-y-1.5 [&_ul]:pl-4 [&_ul]:marker:text-sp-accent [&_ul]:list-disc">
+                      <ReleaseNoteMarkdown>{content.highlights}</ReleaseNoteMarkdown>
+                    </div>
+                  </section>
+                ) : null}
+
+                {content?.upgradeNotes ? (
+                  <section
+                    aria-labelledby="release-upgrade-notes-heading"
+                    className="rounded-sp-btn border border-amber-500/25 bg-amber-500/8 p-3"
+                  >
+                    <h5
+                      id="release-upgrade-notes-heading"
+                      className="text-sp-12 font-semibold text-sp-text"
+                    >
+                      Upgrade notes
+                    </h5>
+                    <div className="mt-2 [&_ul]:space-y-1.5 [&_ul]:pl-4 [&_ul]:list-disc">
+                      <ReleaseNoteMarkdown>{content.upgradeNotes}</ReleaseNoteMarkdown>
+                    </div>
+                  </section>
+                ) : null}
+
+                {content?.sections.map((section) => {
+                  const expanded = expandedSections.has(section.title);
+                  return (
+                    <section key={section.title} className="rounded-sp-btn border border-sp-line">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedSections((current) => {
+                            const next = new Set(current);
+                            if (next.has(section.title)) next.delete(section.title);
+                            else next.add(section.title);
+                            return next;
+                          })
+                        }
+                        aria-expanded={expanded}
+                        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sp-12 font-semibold text-sp-text hover:bg-sp-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+                      >
+                        <span>{section.title}</span>
+                        <span className="text-sp-11 font-medium text-sp-muted">
+                          {section.itemCount} {section.itemCount === 1 ? 'change' : 'changes'}
+                        </span>
+                      </button>
+                      {expanded ? (
+                        <div className="border-t border-sp-line px-6 py-2.5 [&_ul]:space-y-1.5 [&_ul]:list-disc">
+                          <ReleaseNoteMarkdown>{section.body}</ReleaseNoteMarkdown>
+                        </div>
+                      ) : null}
+                    </section>
+                  );
+                })}
+
+                {content?.contributors ? (
+                  <p className="text-sp-11 text-sp-dim">
+                    <ReleaseNoteMarkdown>{content.contributors}</ReleaseNoteMarkdown>
+                  </p>
+                ) : null}
+
+                {content?.extraSections.map((section) => (
+                  <section key={section.title} className="rounded-sp-btn border border-sp-line p-3">
+                    <h5 className="text-sp-12 font-semibold text-sp-text">{section.title}</h5>
+                    <div className="mt-2 [&_ul]:space-y-1.5 [&_ul]:pl-4 [&_ul]:list-disc">
+                      <ReleaseNoteMarkdown>{section.body}</ReleaseNoteMarkdown>
+                    </div>
+                  </section>
+                ))}
+
+                {content?.fallbackBody ? (
+                  <div className="space-y-2 break-words [&_h1]:text-sp-14 [&_h1]:font-semibold [&_h2]:text-sp-13 [&_h2]:font-semibold [&_h3]:text-sp-12 [&_h3]:font-semibold [&_ul]:list-disc [&_ul]:space-y-1 [&_ul]:pl-5">
+                    <ReleaseNoteMarkdown>{content.fallbackBody}</ReleaseNoteMarkdown>
+                  </div>
+                ) : null}
+              </div>
             ) : (
               <p className="mt-4 text-sp-12 text-sp-muted">
                 No release notes were provided for this release.

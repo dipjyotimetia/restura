@@ -96,6 +96,7 @@ describe('SettingsDrawer', () => {
   });
 
   it('shows published release notes inside the Updates section', async () => {
+    const user = userEvent.setup();
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(
@@ -105,7 +106,18 @@ describe('SettingsDrawer', () => {
               id: 7,
               tag_name: 'v1.4.0',
               name: 'Restura 1.4.0',
-              body: '## Highlights\n\n- In-app release notes',
+              body: `## Highlights
+
+- **MCP:** In-app release notes
+
+## Upgrade notes
+
+- No action required.
+
+## Fixed
+
+- **HTTP:** Fixed redirect handling.
+- ![tracker](https://tracker.example/pixel.png)`,
               html_url: 'https://github.com/dipjyotimetia/restura/releases/tag/v1.4.0',
               published_at: '2026-07-12T00:00:00Z',
               draft: false,
@@ -121,6 +133,14 @@ describe('SettingsDrawer', () => {
     expect(await screen.findByRole('heading', { name: /release notes/i })).toBeInTheDocument();
     expect(screen.getAllByText('Restura 1.4.0')).toHaveLength(2);
     expect(screen.getByText(/in-app release notes/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^highlights$/i })).toBeInTheDocument();
+    expect(screen.getByText(/no action required/i)).toBeInTheDocument();
+    const fixedSection = screen.getByRole('button', { name: /fixed\s*2\s*changes/i });
+    expect(fixedSection).toHaveAttribute('aria-expanded', 'false');
+    await user.click(fixedSection);
+    expect(fixedSection).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText(/fixed redirect handling/i)).toBeInTheDocument();
+    expect(screen.queryByAltText('tracker')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /open v1\.4\.0 on github/i })).toHaveAttribute(
       'href',
       'https://github.com/dipjyotimetia/restura/releases/tag/v1.4.0'

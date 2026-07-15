@@ -268,7 +268,11 @@ macOS, and Linux manifests against the tag before the GitHub release is made pub
 4. **Review Draft Release**
    - Go to GitHub Releases
    - Verify all artifacts are present
-   - Edit release notes if needed
+   - Replace the generated Highlights and Upgrade notes comments using
+     [`RELEASE_NOTES_TEMPLATE.md`](./RELEASE_NOTES_TEMPLATE.md)
+   - Keep only non-empty categorized sections and verify any migration guidance
+   - Confirm links, inline code, and commit references render correctly in the
+     in-app Settings → Updates reader
    - Publish release
 
 5. **Verify Updates**
