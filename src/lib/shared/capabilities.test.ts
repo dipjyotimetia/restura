@@ -18,8 +18,8 @@ describe('AI Lab agent capability claims', () => {
     expect(suites.notes).toContain('sanitized bounded report persistence');
   });
 
-  it('does not advertise unwired MCP or sandbox runtimes', () => {
-    expect(CAPABILITIES['aiLab.agentMcpTools']).toMatchObject({ web: false, desktop: false });
+  it('advertises wired MCP tools only on desktop and keeps sandboxes unsupported', () => {
+    expect(CAPABILITIES['aiLab.agentMcpTools']).toMatchObject({ web: false, desktop: true });
     expect(CAPABILITIES['aiLab.agentSandboxes']).toMatchObject({ web: false, desktop: false });
   });
 });
