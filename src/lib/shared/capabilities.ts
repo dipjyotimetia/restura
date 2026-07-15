@@ -257,7 +257,7 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: false,
     desktop: true,
     notes:
-      'AI Lab UI authoring and in-app execution are Electron-only, with one cancellable lifecycle per run surface; versioned suites, task-aware grading, hard run-wide budgets, repeated-trial reliability, and sanitized bounded report persistence. A separate headless OpenAI Responses subset is available via `restura agent eval`',
+      'AI Lab UI authoring and in-app execution are Electron-only, with one cancellable lifecycle per run surface; versioned suites, task-aware grading, hard run-wide budgets, repeated-trial reliability, and sanitized bounded report persistence. `restura agent eval` runs the headless OpenAI Responses subset and Git-native fixture bundles with fail-closed baseline gates.',
   },
   'aiLab.agentProviders': {
     label: 'AI Lab agent provider transports',

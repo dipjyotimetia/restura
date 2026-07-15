@@ -1,10 +1,17 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import {
   AgentRunner,
+  applyAgentBundleBaseline,
+  createAgentToolResolver,
+  createFixtureToolSourceAdapter,
+  type AgentBundle,
+  AgentBundleSchema,
   type AgentSuite,
   type AgentSuiteReport,
   AgentSuiteRunner,
+  type AgentToolResolver,
   AgentSuiteSchema,
+  evaluateAgentBundleBaseline,
   OpenAiResponsesAdapter,
   ProviderRegistry,
 } from '@shared/agent-lab';
@@ -32,7 +39,10 @@ const defaultDependencies: AgentEvalDependencies = {
   environment: process.env,
 };
 
-export function preflightAgentSuite(suite: AgentSuite): void {
+export function preflightAgentSuite(
+  suite: AgentSuite,
+  toolResolver: AgentToolResolver = createAgentToolResolver()
+): void {
   for (const agent of suite.agents) {
     if (agent.model.providerId !== 'openai.responses') {
       throw new Error(`headless provider adapter not registered: ${agent.model.providerId}`);
@@ -54,9 +64,7 @@ export function preflightAgentSuite(suite: AgentSuite): void {
     throw new Error('secret-handle credentials require the desktop keychain');
   }
 
-  if (suite.agents.some((agent) => agent.tools.length > 0)) {
-    throw new Error('headless tool sources require a registered CLI tool adapter');
-  }
+  for (const agent of suite.agents) toolResolver.assertSupported(agent.tools);
   if (suite.graders.some((grader) => grader.kind === 'judge')) {
     throw new Error('headless judge graders require a registered CLI judge adapter');
   }
@@ -67,13 +75,21 @@ export function agentEvalExitCode(value: AgentSuiteReport | Error): 0 | 1 | 2 {
   return value.status === 'passed' ? 0 : 1;
 }
 
-export async function evaluateAgentSuite(
-  suitePath: string,
-  options: AgentEvalOptions = {},
-  dependencies: AgentEvalDependencies = defaultDependencies
+export interface AgentBundleEvaluation {
+  report: AgentSuiteReport;
+  gates: ReturnType<typeof evaluateAgentBundleBaseline>;
+}
+
+export function agentBundleExitCode(value: AgentBundleEvaluation | Error): 0 | 1 | 2 {
+  if (value instanceof Error) return 2;
+  return value.gates.some((gate) => !gate.passed) ? 1 : agentEvalExitCode(value.report);
+}
+
+async function runAgentSuite(
+  suite: AgentSuite,
+  dependencies: AgentEvalDependencies,
+  toolResolver: AgentToolResolver
 ): Promise<AgentSuiteReport> {
-  const suite = AgentSuiteSchema.parse(JSON.parse(await dependencies.readText(suitePath)));
-  preflightAgentSuite(suite);
   const providers = new ProviderRegistry([
     new OpenAiResponsesAdapter({ fetcher: dependencies.fetcher }),
   ]);
@@ -85,19 +101,41 @@ export async function evaluateAgentSuite(
         throw new Error('secret-handle credentials require the desktop keychain');
       return dependencies.environment[ref.name];
     },
-    async resolveTools(sources) {
-      if (sources.length > 0) {
-        throw new Error('headless tool sources require a registered CLI tool adapter');
-      }
-      return [];
-    },
+    resolveTools: (sources) => toolResolver.resolve(sources),
   });
-  const report = await new AgentSuiteRunner({ run: (request) => runner.run(request) }).run({
-    suite,
-  });
+  return new AgentSuiteRunner({ run: (request) => runner.run(request) }).run({ suite });
+}
+
+export async function evaluateAgentSuite(
+  suitePath: string,
+  options: AgentEvalOptions = {},
+  dependencies: AgentEvalDependencies = defaultDependencies
+): Promise<AgentSuiteReport> {
+  const suite = AgentSuiteSchema.parse(JSON.parse(await dependencies.readText(suitePath)));
+  const toolResolver = createAgentToolResolver();
+  preflightAgentSuite(suite, toolResolver);
+  const report = await runAgentSuite(suite, dependencies, toolResolver);
   if (options.output)
     await dependencies.writeText(options.output, `${JSON.stringify(report, null, 2)}\n`);
   return report;
+}
+
+export async function evaluateAgentBundle(
+  bundlePath: string,
+  options: AgentEvalOptions = {},
+  dependencies: AgentEvalDependencies = defaultDependencies
+): Promise<AgentBundleEvaluation> {
+  const bundle: AgentBundle = AgentBundleSchema.parse(
+    JSON.parse(await dependencies.readText(bundlePath))
+  );
+  const toolResolver = createAgentToolResolver([createFixtureToolSourceAdapter(bundle.fixtures)]);
+  preflightAgentSuite(bundle.suite, toolResolver);
+  const report = await runAgentSuite(bundle.suite, dependencies, toolResolver);
+  const gates = evaluateAgentBundleBaseline(bundle, report);
+  const result = { report: applyAgentBundleBaseline(report, gates), gates };
+  if (options.output)
+    await dependencies.writeText(options.output, `${JSON.stringify(result, null, 2)}\n`);
+  return result;
 }
 
 export function registerAgentCommand(program: Command): void {
@@ -105,13 +143,25 @@ export function registerAgentCommand(program: Command): void {
     .command('agent')
     .description('Run versioned agent suites in CI')
     .command('eval')
-    .argument('<suite>', 'Path to an Agent Suite v2 JSON file')
+    .argument('<suite>', 'Path to an Agent Suite v2 or Agent Bundle v1 JSON file')
     .option('--output <file>', 'Write the full JSON trace report to a file')
     .action(async (suitePath: string, options: AgentEvalOptions) => {
       try {
-        const report = await evaluateAgentSuite(suitePath, options);
-        process.stdout.write(`${JSON.stringify(report.summary)}\n`);
-        process.exitCode = agentEvalExitCode(report);
+        const input = JSON.parse(await defaultDependencies.readText(suitePath)) as Record<
+          string,
+          unknown
+        >;
+        if ('suite' in input && 'fixtures' in input) {
+          const result = await evaluateAgentBundle(suitePath, options);
+          process.stdout.write(
+            `${JSON.stringify({ ...result.report.summary, gates: result.gates })}\n`
+          );
+          process.exitCode = agentBundleExitCode(result);
+        } else {
+          const report = await evaluateAgentSuite(suitePath, options);
+          process.stdout.write(`${JSON.stringify(report.summary)}\n`);
+          process.exitCode = agentEvalExitCode(report);
+        }
       } catch (error) {
         console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);
         process.exitCode = agentEvalExitCode(

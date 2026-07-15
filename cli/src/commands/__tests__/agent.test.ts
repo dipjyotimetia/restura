@@ -1,10 +1,18 @@
 import { Server } from 'node:net';
-import type { AgentSuite, AgentSuiteReport } from '@shared/agent-lab';
+import {
+  createAgentToolResolver,
+  createFixtureToolSourceAdapter,
+  type AgentBundle,
+  type AgentSuite,
+  type AgentSuiteReport,
+} from '@shared/agent-lab';
 import type { Fetcher } from '@shared/protocol/types';
 import { describe, expect, it, vi } from 'vitest';
 import {
   type AgentEvalDependencies,
   agentEvalExitCode,
+  agentBundleExitCode,
+  evaluateAgentBundle,
   evaluateAgentSuite,
   preflightAgentSuite,
 } from '../agent';
@@ -90,7 +98,7 @@ describe('preflightAgentSuite', () => {
     [
       'tool',
       suite({ tools: [{ kind: 'restura-request', requestId: 'request-1' }] }),
-      /tool adapter/,
+      /runtime adapter configured/,
     ],
     [
       'judge',
@@ -134,6 +142,14 @@ describe('preflightAgentSuite', () => {
     expect(() => preflightAgentSuite(suite({ providerId: 'ollama' }))).toThrow(
       /adapter not registered/
     );
+  });
+
+  it('uses the supplied resolver port to admit fixture tools', () => {
+    const resolver = createAgentToolResolver([createFixtureToolSourceAdapter([])]);
+
+    expect(() =>
+      preflightAgentSuite(suite({ tools: [{ kind: 'fixture', fixtureId: 'fixture-1' }] }), resolver)
+    ).not.toThrow();
   });
 });
 
@@ -183,6 +199,47 @@ describe('evaluateAgentSuite', () => {
       nativeFetch.mockRestore();
       listen.mockRestore();
     }
+  });
+});
+
+describe('evaluateAgentBundle', () => {
+  it('runs deterministic fixture tools in CI and fails a regressed baseline', async () => {
+    const input: AgentBundle = {
+      schemaVersion: 1,
+      id: 'cli-bundle',
+      name: 'CLI bundle',
+      suite: suite({ tools: [{ kind: 'fixture', fixtureId: 'greeting' }] }),
+      fixtures: [
+        {
+          id: 'greeting',
+          tool: {
+            name: 'get_greeting',
+            description: 'Return the configured greeting.',
+            inputSchema: { type: 'object', additionalProperties: false },
+          },
+          output: [{ type: 'text', text: 'hello' }],
+        },
+      ],
+      baseline: { minPassRate: 1 },
+    };
+    const responseBody = JSON.stringify({
+      id: 'response-1',
+      status: 'completed',
+      output: [{ type: 'message', content: [{ type: 'output_text', text: 'not hello' }] }],
+      usage: { input_tokens: 4, output_tokens: 1 },
+    });
+    const fetcher = vi.fn<Fetcher>().mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      contentLengthHeader: null,
+      text: async () => responseBody,
+    });
+
+    const result = await evaluateAgentBundle('/bundle.json', {}, dependencies(input, fetcher));
+
+    expect(result.gates).toEqual([{ metric: 'passRate', expected: 1, actual: 0, passed: false }]);
+    expect(agentBundleExitCode(result)).toBe(1);
   });
 });
 
