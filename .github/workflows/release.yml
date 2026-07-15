@@ -16,6 +16,8 @@ name: Release
 #                             release, publishes the Docker image to GHCR.
 #   recover_stable_release_sha — one-time recovery of an already-merged stable
 #                             candidate when its PR-closed event has passed.
+#   repair_release_tag       — rebuild desktop installers for an existing draft
+#                             release without republishing other surfaces.
 #
 # Flow (stable):
 #   1. The dispatch validates main, computes the next version, and opens a
@@ -46,7 +48,7 @@ on:
   workflow_dispatch:
     inputs:
       release_bump:
-        description: 'Semver bump to release'
+        description: "Semver bump to release"
         type: choice
         options:
           - patch
@@ -54,21 +56,25 @@ on:
           - major
         default: patch
       prerelease:
-        description: 'Publish as a prerelease (beta)'
+        description: "Publish as a prerelease (beta)"
         type: boolean
         default: false
       prerelease_identifier:
-        description: 'Pre-release identifier appended to the next stable version (e.g. beta.1, beta.2). Only used when prerelease=true.'
+        description: "Pre-release identifier appended to the next stable version (e.g. beta.1, beta.2). Only used when prerelease=true."
         type: string
-        default: 'beta.1'
+        default: "beta.1"
       publish_docker:
-        description: 'Publish the Docker image to GHCR (stable releases only). Off by default — tick to opt in.'
+        description: "Publish the Docker image to GHCR (stable releases only). Off by default — tick to opt in."
         type: boolean
         default: false
       recover_stable_release_sha:
-        description: 'One-time recovery: exact merged stable candidate SHA to publish. Leave empty for normal releases.'
+        description: "One-time recovery: exact merged stable candidate SHA to publish. Leave empty for normal releases."
         type: string
-        default: ''
+        default: ""
+      repair_release_tag:
+        description: "Repair an existing draft stable release by rebuilding desktop installers only. Must be an existing vX.Y.Z tag."
+        type: string
+        default: ""
   pull_request:
     branches: [main]
     types: [closed]
@@ -106,6 +112,7 @@ jobs:
           PRERELEASE: ${{ inputs.prerelease }}
           PRERELEASE_IDENTIFIER: ${{ inputs.prerelease_identifier }}
           RECOVER_STABLE_RELEASE_SHA: ${{ inputs.recover_stable_release_sha }}
+          REPAIR_RELEASE_TAG: ${{ inputs.repair_release_tag }}
         run: |
           set -euo pipefail
           case "$RELEASE_BUMP" in
@@ -126,6 +133,13 @@ jobs:
           if [ -n "$RECOVER_STABLE_RELEASE_SHA" ]; then
             if [ "$PRERELEASE" = "true" ] || ! [[ "$RECOVER_STABLE_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
               echo 'recover_stable_release_sha must be a 40-character SHA for a stable release.'
+              exit 1
+            fi
+          fi
+
+          if [ -n "$REPAIR_RELEASE_TAG" ]; then
+            if [ "$PRERELEASE" = "true" ] || [ -n "$RECOVER_STABLE_RELEASE_SHA" ] || ! [[ "$REPAIR_RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo 'repair_release_tag must be an existing stable vX.Y.Z tag and cannot be combined with prerelease or recovery.'
               exit 1
             fi
           fi
@@ -160,7 +174,7 @@ jobs:
           fi
 
       - name: Validate release preparation credentials
-        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.prerelease && inputs.recover_stable_release_sha == '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.prerelease && inputs.recover_stable_release_sha == '' && inputs.repair_release_tag == '' }}
         env:
           RELEASE_PR_APP_ID: ${{ secrets.RELEASE_PR_APP_ID }}
           RELEASE_PR_APP_PRIVATE_KEY: ${{ secrets.RELEASE_PR_APP_PRIVATE_KEY }}
@@ -183,19 +197,19 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version-file: '.nvmrc'
-          cache: 'npm'
+          node-version-file: ".nvmrc"
+          cache: "npm"
 
       - name: Validate stable release candidate
-        if: ${{ github.event_name == 'pull_request' || inputs.recover_stable_release_sha != '' }}
+        if: ${{ github.event_name == 'pull_request' || inputs.recover_stable_release_sha != '' || inputs.repair_release_tag != '' }}
         env:
-          STABLE_RELEASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || inputs.recover_stable_release_sha }}
+          STABLE_RELEASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || inputs.recover_stable_release_sha || inputs.repair_release_tag }}
         run: |
           set -euo pipefail
-          git fetch origin main
-          git rev-parse --verify "${STABLE_RELEASE_SHA}^{commit}" >/dev/null
+          git fetch origin main --tags
+          STABLE_RELEASE_SHA="$(git rev-parse --verify "${STABLE_RELEASE_REF}^{commit}")"
           if ! git merge-base --is-ancestor "$STABLE_RELEASE_SHA" origin/main; then
-            echo "Stable release candidate $STABLE_RELEASE_SHA is not merged into origin/main."
+            echo "Stable release candidate $STABLE_RELEASE_REF is not merged into origin/main."
             exit 1
           fi
           ROOT_VERSION="$(git show "${STABLE_RELEASE_SHA}:package.json" | node -e "const fs = require('node:fs'); console.log(JSON.parse(fs.readFileSync(0, 'utf8')).version)")"
@@ -231,7 +245,7 @@ jobs:
 
   prepare-stable:
     name: Prepare stable release pull request
-    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.prerelease && inputs.recover_stable_release_sha == '' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && !inputs.prerelease && inputs.recover_stable_release_sha == '' && inputs.repair_release_tag == '' }}
     needs: [preflight]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -252,8 +266,8 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version-file: '.nvmrc'
-          cache: 'npm'
+          node-version-file: ".nvmrc"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
@@ -266,7 +280,7 @@ jobs:
           DEFAULT_BUMP: ${{ inputs.release_bump }}
           TAG_PREFIX: v
           RELEASE_BRANCHES: main
-          DRY_RUN: 'true'
+          DRY_RUN: "true"
 
       - name: Compute release tag
         id: tag
@@ -302,8 +316,8 @@ jobs:
             cli/package.json
             extension/chrome/package.json
             extension/vscode/package.json
-          commit-message: 'chore(release): ${{ steps.tag.outputs.actual_tag }}'
-          title: 'chore(release): ${{ steps.tag.outputs.actual_tag }}'
+          commit-message: "chore(release): ${{ steps.tag.outputs.actual_tag }}"
+          title: "chore(release): ${{ steps.tag.outputs.actual_tag }}"
           body: |
             Prepares `${{ steps.tag.outputs.actual_tag }}` for release.
 
@@ -324,7 +338,7 @@ jobs:
 
   release:
     name: Tag + release
-    if: ${{ (github.event_name == 'workflow_dispatch' && (inputs.prerelease || inputs.recover_stable_release_sha != '')) || (github.event_name == 'pull_request' && github.event.pull_request.merged && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'release/prepare' && github.event.pull_request.user.login == 'restura-bot[bot]') }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && (inputs.prerelease || inputs.recover_stable_release_sha != '' || inputs.repair_release_tag != '')) || (github.event_name == 'pull_request' && github.event.pull_request.merged && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'release/prepare' && github.event.pull_request.user.login == 'restura-bot[bot]') }}
     needs: [preflight]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -333,6 +347,7 @@ jobs:
       # Consumed by downstream jobs so they check out the right commit.
       actual_tag: ${{ steps.tag.outputs.actual_tag }}
       is_prerelease: ${{ steps.context.outputs.is_prerelease }}
+      is_repair: ${{ steps.context.outputs.is_repair }}
       publish_docker: ${{ steps.context.outputs.publish_docker }}
     steps:
       - name: Resolve release context
@@ -342,11 +357,17 @@ jobs:
           DISPATCH_PRERELEASE: ${{ inputs.prerelease }}
           DISPATCH_PUBLISH_DOCKER: ${{ inputs.publish_docker }}
           RECOVER_STABLE_RELEASE_SHA: ${{ inputs.recover_stable_release_sha }}
+          REPAIR_RELEASE_TAG: ${{ inputs.repair_release_tag }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = "pull_request" ]; then
+          if [ -n "$REPAIR_RELEASE_TAG" ]; then
             echo 'is_prerelease=false' >> "$GITHUB_OUTPUT"
+            echo 'is_repair=true' >> "$GITHUB_OUTPUT"
+            echo 'publish_docker=false' >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT_NAME" = "pull_request" ]; then
+            echo 'is_prerelease=false' >> "$GITHUB_OUTPUT"
+            echo 'is_repair=false' >> "$GITHUB_OUTPUT"
             if printf '%s' "$PR_BODY" | grep -Fq '<!-- restura:publish_docker=true -->'; then
               echo 'publish_docker=true' >> "$GITHUB_OUTPUT"
             else
@@ -354,6 +375,7 @@ jobs:
             fi
           else
             echo "is_prerelease=$DISPATCH_PRERELEASE" >> "$GITHUB_OUTPUT"
+            echo 'is_repair=false' >> "$GITHUB_OUTPUT"
             echo "publish_docker=$DISPATCH_PUBLISH_DOCKER" >> "$GITHUB_OUTPUT"
           fi
 
@@ -362,12 +384,12 @@ jobs:
           # full history so the bump action can read every prior tag
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || inputs.recover_stable_release_sha || github.sha }}
+          ref: ${{ inputs.repair_release_tag || github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || inputs.recover_stable_release_sha || github.sha }}
 
       - uses: actions/setup-node@v6
         with:
-          node-version-file: '.nvmrc'
-          cache: 'npm'
+          node-version-file: ".nvmrc"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
@@ -385,7 +407,7 @@ jobs:
           RELEASE_BRANCHES: main
           # Let *this* workflow do the actual tag push (after the version-bump commit),
           # so we don't end up with a tag that points at the pre-bump commit.
-          DRY_RUN: 'true'
+          DRY_RUN: "true"
         if: ${{ steps.context.outputs.is_prerelease == 'true' }}
 
       - name: Compute actual tag
@@ -394,9 +416,12 @@ jobs:
           NEW_TAG: ${{ steps.bump.outputs.new_tag }}
           PRERELEASE: ${{ steps.context.outputs.is_prerelease }}
           PRERELEASE_IDENTIFIER: ${{ inputs.prerelease_identifier }}
+          REPAIR_RELEASE_TAG: ${{ inputs.repair_release_tag }}
         run: |
           set -euo pipefail
-          if [ "$PRERELEASE" = "true" ]; then
+          if [ -n "$REPAIR_RELEASE_TAG" ]; then
+            ACTUAL_TAG="$REPAIR_RELEASE_TAG"
+          elif [ "$PRERELEASE" = "true" ]; then
             ACTUAL_TAG="${NEW_TAG}-${PRERELEASE_IDENTIFIER}"
           else
             VERSION="$(node -p "require('./package.json').version")"
@@ -415,6 +440,7 @@ jobs:
           echo "Releasing: $ACTUAL_TAG (prerelease=$PRERELEASE)"
 
       - name: Validate tag does not exist
+        if: ${{ steps.context.outputs.is_repair != 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ACTUAL_TAG: ${{ steps.tag.outputs.actual_tag }}
@@ -436,12 +462,26 @@ jobs:
             exit 1
           fi
 
+      - name: Verify repair target is a draft release
+        if: ${{ steps.context.outputs.is_repair == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTUAL_TAG: ${{ steps.tag.outputs.actual_tag }}
+        run: |
+          set -euo pipefail
+          if [ "$(gh release view "$ACTUAL_TAG" --json isDraft --jq .isDraft)" != 'true' ]; then
+            echo "Repair target $ACTUAL_TAG must be an existing draft GitHub release."
+            exit 1
+          fi
+
       - name: Configure git author
+        if: ${{ steps.context.outputs.is_repair != 'true' }}
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
       - name: Tag and push
+        if: ${{ steps.context.outputs.is_repair != 'true' }}
         env:
           ACTUAL_TAG: ${{ steps.tag.outputs.actual_tag }}
         run: |
@@ -450,6 +490,7 @@ jobs:
           git push origin "${ACTUAL_TAG}"
 
       - name: Compute changelog range
+        if: ${{ steps.context.outputs.is_repair != 'true' }}
         id: range
         shell: bash
         env:
@@ -476,6 +517,7 @@ jobs:
           fi
 
       - name: Generate release notes
+        if: ${{ steps.context.outputs.is_repair != 'true' }}
         id: cliff
         uses: orhun/git-cliff-action@v4
         with:
@@ -485,6 +527,7 @@ jobs:
           OUTPUT: CHANGELOG.md
 
       - name: Generate CycloneDX SBOM
+        if: ${{ steps.context.outputs.is_repair != 'true' }}
         run: |
           # --package-lock-only: read the dep graph from package-lock.json
           # instead of node_modules, so no separate prod-only install is
@@ -498,6 +541,7 @@ jobs:
             --output-format XML --output-file restura.cdx.xml
 
       - name: Create GitHub release
+        if: ${{ steps.context.outputs.is_repair != 'true' }}
         uses: softprops/action-gh-release@v3.0.1
         with:
           tag_name: ${{ steps.tag.outputs.actual_tag }}
@@ -549,8 +593,8 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version-file: '.nvmrc'
-          cache: 'npm'
+          node-version-file: ".nvmrc"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
@@ -603,6 +647,10 @@ jobs:
         env:
           # electron-builder uploads to the GitHub release matching the tag.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Electron Builder intentionally skips all PR events. This workflow
+          # reaches here from a PR only after the bot-owned version-only PR is
+          # merged into main and passed the job-level release authorization.
+          PUBLISH_FOR_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.merged && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'release/prepare' && github.event.pull_request.user.login == 'restura-bot[bot]' }}
           # ---- Code signing ----
           # Stable-release preflight requires macOS signing/notarization.
           # Windows signing remains optional until its certificate is added;
@@ -659,7 +707,7 @@ jobs:
     name: Publish restura-cli to npm
     needs: [release]
     # Stable releases only — beta installers don't warrant a CLI npm publish.
-    if: ${{ needs.release.outputs.is_prerelease == 'false' }}
+    if: ${{ needs.release.outputs.is_prerelease == 'false' && needs.release.outputs.is_repair != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -677,10 +725,10 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version-file: '.nvmrc'
-          cache: 'npm'
+          node-version-file: ".nvmrc"
+          cache: "npm"
           # Writes an .npmrc that reads the token from NODE_AUTH_TOKEN at publish.
-          registry-url: 'https://registry.npmjs.org'
+          registry-url: "https://registry.npmjs.org"
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
@@ -713,7 +761,7 @@ jobs:
     name: Publish Docker image to GHCR
     needs: [release]
     # Stable releases only, and only when opted in at dispatch (publish_docker).
-    if: ${{ needs.release.outputs.is_prerelease == 'false' && needs.release.outputs.publish_docker == 'true' }}
+    if: ${{ needs.release.outputs.is_prerelease == 'false' && needs.release.outputs.is_repair != 'true' && needs.release.outputs.publish_docker == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -773,7 +821,7 @@ jobs:
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-          exit-code: '0'
+          exit-code: "0"
 
       - name: Upload Trivy scan to code scanning
         uses: github/codeql-action/upload-sarif@v4
@@ -794,7 +842,7 @@ jobs:
     name: Deploy web to production (Cloudflare)
     needs: [release]
     # Stable releases only — web/Cloudflare deploys do not ship beta builds.
-    if: ${{ needs.release.outputs.is_prerelease == 'false' }}
+    if: ${{ needs.release.outputs.is_prerelease == 'false' && needs.release.outputs.is_repair != 'true' }}
     # Production Cloudflare deploy (Worker + SPA + docs). Lives here, not in CI,
     # so it ships ONLY as part of a manually-dispatched release — never on a
     # bare merge to main. Deploys the freshly-tagged release commit.
@@ -812,8 +860,8 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version-file: '.nvmrc'
-          cache: 'npm'
+          node-version-file: ".nvmrc"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
@@ -896,7 +944,7 @@ jobs:
     needs: [release, desktop, publish-cli, publish-docker, deploy-web]
     # publish-docker is opt-in (publish_docker input), so 'skipped' is an acceptable
     # outcome here — only a hard 'failure'/'cancelled' should block publishing.
-    if: ${{ always() && needs.release.result == 'success' && needs.desktop.result == 'success' && (needs.release.outputs.is_prerelease == 'true' || (needs.publish-cli.result == 'success' && (needs.publish-docker.result == 'success' || needs.publish-docker.result == 'skipped') && needs.deploy-web.result == 'success')) }}
+    if: ${{ always() && needs.release.result == 'success' && needs.desktop.result == 'success' && (needs.release.outputs.is_prerelease == 'true' || needs.release.outputs.is_repair == 'true' || (needs.publish-cli.result == 'success' && (needs.publish-docker.result == 'success' || needs.publish-docker.result == 'skipped') && needs.deploy-web.result == 'success')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

@@ -29,7 +29,7 @@ describe('release workflow Sentry guardrails', () => {
     expect(workflow).toContain("github.event.pull_request.head.ref == 'release/prepare'");
     expect(workflow).toContain('github.event.pull_request.merge_commit_sha');
     expect(workflow).toContain(
-      "ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || inputs.recover_stable_release_sha || github.sha }}"
+      "ref: ${{ inputs.repair_release_tag || github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || inputs.recover_stable_release_sha || github.sha }}"
     );
     expect(workflow).toContain('CLI_VERSION');
     expect(workflow).toContain('Root package version');
@@ -61,5 +61,30 @@ describe('release workflow Sentry guardrails', () => {
     expect(smokeBlock).toContain("if: ${{ needs.release.outputs.is_prerelease == 'false' }}");
     expect(smokeBlock).toContain('SENTRY_DSN: ${{ secrets.SENTRY_DSN }}');
     expect(smokeBlock).toContain('npm run sentry:smoke');
+  });
+
+  it('permits Electron publishing only for the trusted merged release candidate', () => {
+    const desktopPublishBlock = workflow.slice(
+      workflow.indexOf('- name: Build + publish installers'),
+      workflow.indexOf('- name: Attest installer provenance')
+    );
+
+    expect(desktopPublishBlock).toContain('PUBLISH_FOR_PULL_REQUEST:');
+    expect(desktopPublishBlock).toContain("github.event_name == 'pull_request'");
+    expect(desktopPublishBlock).toContain('github.event.pull_request.merged');
+    expect(desktopPublishBlock).toContain("github.event.pull_request.base.ref == 'main'");
+    expect(desktopPublishBlock).toContain(
+      "github.event.pull_request.head.ref == 'release/prepare'"
+    );
+    expect(desktopPublishBlock).toContain(
+      "github.event.pull_request.user.login == 'restura-bot[bot]'"
+    );
+  });
+
+  it('repairs existing draft releases without republishing other distribution surfaces', () => {
+    expect(workflow).toContain('repair_release_tag:');
+    expect(workflow).toContain('is_repair: ${{ steps.context.outputs.is_repair }}');
+    expect(workflow).toContain("needs.release.outputs.is_repair != 'true'");
+    expect(workflow).toContain("needs.release.outputs.is_repair == 'true'");
   });
 });
