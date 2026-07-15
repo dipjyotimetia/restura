@@ -84,7 +84,7 @@ describe('desktop agent provider bridge', () => {
 
     await expect(
       runDesktopAgentSuite(suite, { cfg: provider('cfg', 'model') }, { complete: completeLlm })
-    ).rejects.toThrow(/mcp tool sources need their runtime adapter/i);
+    ).rejects.toThrow(/MCP connection profile not found/i);
     expect(completeLlm).not.toHaveBeenCalled();
   });
 

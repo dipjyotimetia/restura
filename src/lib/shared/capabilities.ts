@@ -276,9 +276,9 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
   'aiLab.agentMcpTools': {
     label: 'AI Lab agents using MCP servers as tools',
     web: false,
-    desktop: false,
+    desktop: true,
     notes:
-      'Unsupported: the shared allowlist and annotation-aware adapter is implemented, but no desktop MCP connection resolver is registered yet',
+      'Uses saved encrypted MCP profiles with fresh desktop-owned sessions, existing SSRF/DNS pinning and execution policy, allowlists, cancellation, and per-call approval',
   },
   'aiLab.agentSandboxes': {
     label: 'AI Lab pluggable code sandboxes',

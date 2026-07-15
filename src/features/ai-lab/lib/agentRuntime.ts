@@ -22,6 +22,7 @@ import type { CompletionResult } from '@shared/protocol/ai/types';
 import type { AiLabProviderConfig } from '../types';
 import { capabilitiesForDesktopModel, knownCostForCompletion } from './agentModelCapabilities';
 import { createResturaRequestToolSourceAdapter } from './agentTools';
+import { createMcpAgentToolSourceAdapter } from './agentMcpTools';
 import { completeLlm, type LlmCallSpec, specFor } from './llmClient';
 
 type Complete = (
@@ -204,7 +205,11 @@ export async function runDesktopAgentSuite(
 ): Promise<AgentSuiteReport> {
   preflightDesktopAgentSuite(suite);
   const toolResolver =
-    options.toolResolver ?? createAgentToolResolver([createResturaRequestToolSourceAdapter()]);
+    options.toolResolver ??
+    createAgentToolResolver([
+      createResturaRequestToolSourceAdapter(),
+      createMcpAgentToolSourceAdapter(),
+    ]);
   for (const agent of suite.agents) toolResolver.assertSupported(agent.tools);
   const execution = capabilityExecutionMetadata(suite, configs);
   const providers = createDesktopAgentProviders(configs, options.complete ?? completeLlm);
@@ -468,6 +473,7 @@ export async function runDesktopAgentBundle(
   const toolResolver = createAgentToolResolver([
     createFixtureToolSourceAdapter(bundle.fixtures),
     createResturaRequestToolSourceAdapter(),
+    createMcpAgentToolSourceAdapter(),
   ]);
   const report = await runDesktopAgentSuite(bundle.suite, configs, {
     ...options,
