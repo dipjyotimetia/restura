@@ -279,13 +279,23 @@ requests` error.
 
 ### Recovery after a failed stable run
 
-If a downstream publish job fails, the version-bump commit remains on `main`
-but the GitHub release stays a **draft**. To retry:
+If a release fails before any external surface is published, the version-bump
+commit remains on `main` but the GitHub release stays a **draft**. Delete the
+draft and tag, then restart from the merged candidate:
 
 ```bash
 gh release delete vX.Y.Z --cleanup-tag --yes   # drop draft + tag
 gh workflow run release.yml --ref main \
   -f recover_stable_release_sha=<merged-release-candidate-sha>
+```
+
+If npm, Docker, or the web deployment already published and only the desktop
+installers/updater metadata are missing, preserve that state and repair the
+existing draft instead. This rebuilds desktop assets, validates the manifests,
+and publishes the draft without republishing the other distribution surfaces:
+
+```bash
+gh workflow run release.yml --ref main -f repair_release_tag=vX.Y.Z
 ```
 
 ---
