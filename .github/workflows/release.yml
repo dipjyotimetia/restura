@@ -300,6 +300,8 @@ jobs:
             package.json
             package-lock.json
             cli/package.json
+            extension/chrome/package.json
+            extension/vscode/package.json
           commit-message: 'chore(release): ${{ steps.tag.outputs.actual_tag }}'
           title: 'chore(release): ${{ steps.tag.outputs.actual_tag }}'
           body: |

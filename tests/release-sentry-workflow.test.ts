@@ -13,6 +13,7 @@ describe('release workflow Sentry guardrails', () => {
     expect(workflow).toContain('RELEASE_PR_APP_PRIVATE_KEY');
     expect(workflow).toContain('token: ${{ steps.release-pr-token.outputs.token }}');
     expect(workflow).toContain('sign-commits: true');
+    expect(workflow).toContain('add-paths: |\n            package.json\n            package-lock.json\n            cli/package.json\n            extension/chrome/package.json\n            extension/vscode/package.json');
     expect(workflow).toContain('Enable release-bot auto-merge');
     expect(workflow).toContain('gh pr merge --auto --squash "$PR_URL"');
     expect(workflow).toContain("github.event.pull_request.user.login == 'restura-bot[bot]'");
