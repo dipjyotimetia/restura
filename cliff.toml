@@ -1,13 +1,21 @@
 [changelog]
 header = ""
 body = """
+## Highlights
+
+<!-- Before publishing, replace this comment with 2–5 concise bullets that explain the most important developer-facing changes. -->
+
+## Upgrade notes
+
+<!-- Before publishing, replace this comment with migration, compatibility, or \"No action required.\" guidance. -->
+
 {% if version %}\
 ## {{ version | trim_start_matches(pat="v") }} — {{ timestamp | date(format="%Y-%m-%d") }}
 {% else %}\
 ## Unreleased
 {% endif %}\
 {% for group, commits in commits | group_by(attribute="group") %}
-### {{ group | upper_first }}
+## {{ group | upper_first }}
 {% for commit in commits %}
 - {% if commit.breaking %}**BREAKING** {% endif %}{{ commit.message | upper_first }} ([`{{ commit.id | truncate(length=7, end="") }}`](https://github.com/dipjyotimetia/restura/commit/{{ commit.id }}))
 {% endfor %}
@@ -20,11 +28,11 @@ conventional_commits = true
 filter_unconventional = true
 split_commits = false
 commit_parsers = [
-  { message = "^feat", group = "Features" },
-  { message = "^fix", group = "Bug Fixes" },
-  { message = "^perf", group = "Performance" },
-  { message = "^refactor", group = "Refactoring" },
-  { message = "^doc|^docs", group = "Documentation" },
+  { message = "^feat", group = "Added" },
+  { message = "^fix", group = "Fixed" },
+  { message = "^perf", group = "Changed" },
+  { message = "^refactor", group = "Changed" },
+  { message = "^doc|^docs", group = "Changed" },
   { message = "^test", skip = true },
   { message = "^chore\\(release\\)", skip = true },
   { message = "^chore\\(deps\\)", skip = true },
