@@ -3,6 +3,7 @@ import type { ToolSource } from './types';
 
 export interface AgentToolSourceAdapter {
   readonly kind: ToolSource['kind'];
+  assertSource?(source: ToolSource): void;
   resolve(source: ToolSource): Promise<AgentTool[]>;
 }
 
@@ -23,9 +24,12 @@ export function createAgentToolResolver(
   }
 
   const assertSupported = (sources: ToolSource[]): void => {
-    const unsupported = sources.find((source) => !adaptersByKind.has(source.kind));
-    if (unsupported) {
-      throw new Error(`${unsupported.kind} tool sources need their runtime adapter configured`);
+    for (const source of sources) {
+      const adapter = adaptersByKind.get(source.kind);
+      if (!adapter) {
+        throw new Error(`${source.kind} tool sources need their runtime adapter configured`);
+      }
+      adapter.assertSource?.(source);
     }
   };
 

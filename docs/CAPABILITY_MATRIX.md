@@ -46,7 +46,7 @@ rather than discover it experimentally.
 | AI Lab agent suites (multi-step trials, trajectory/outcome evals) | ❌ | ✅ | AI Lab UI authoring and in-app execution are Electron-only, with one cancellable lifecycle per run surface; versioned suites, task-aware grading, hard run-wide budgets, repeated-trial reliability, and sanitized bounded report persistence. `restura agent eval` runs the headless OpenAI Responses subset and Git-native fixture bundles with fail-closed baseline gates. |
 | AI Lab agent provider transports | ❌ | ✅ | Desktop wires OpenAI Chat, Anthropic Messages, OpenRouter, Ollama, Hugging Face, and generic OpenAI-compatible through cancellable keychain-backed IPC with conservative per-model capabilities and explicit user overrides. Headless CLI wires stateless OpenAI Responses. Gemini, Azure OpenAI, and Bedrock are adapter profiles only, not shipped transports. |
 | AI Lab agents using saved Restura HTTP requests as tools | ❌ | ✅ | Runs through the normal request executor and security boundary with run-scoped cancellation; non-read methods require explicit per-call approval |
-| AI Lab agents using MCP servers as tools | ❌ | ❌ | Unsupported: the shared allowlist and annotation-aware adapter is implemented, but no desktop MCP connection resolver is registered yet |
+| AI Lab agents using MCP servers as tools | ❌ | ✅ | Uses saved encrypted MCP profiles with fresh desktop-owned sessions, existing SSRF/DNS pinning and execution policy, allowlists, cancellation, and per-call approval |
 | AI Lab pluggable code sandboxes | ❌ | ❌ | Unsupported: the provider contract and registry are implemented, but no Docker or hosted sandbox provider ships yet |
 | Filesystem-backed collections | ❌ | ✅ |  |
 | Git operations on collections | ❌ | ✅ |  |
