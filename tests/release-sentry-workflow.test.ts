@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 describe('release workflow Sentry guardrails', () => {
   const workflow = readFileSync(resolve(process.cwd(), '.github/workflows/release.yml'), 'utf8');
 
-  it('prepares stable releases through an App-authenticated auto-merge pull request and never pushes main directly', () => {
+  it('merges release candidates directly through the App bypass without waiting for candidate CI', () => {
     expect(workflow).toContain('Prepare stable release pull request');
     expect(workflow).toContain('peter-evans/create-pull-request@v8');
     expect(workflow).toContain('actions/create-github-app-token@v2');
@@ -16,8 +16,10 @@ describe('release workflow Sentry guardrails', () => {
     expect(workflow).toContain(
       'add-paths: |\n            package.json\n            package-lock.json\n            cli/package.json\n            extension/chrome/package.json\n            extension/vscode/package.json'
     );
-    expect(workflow).toContain('Enable release-bot auto-merge');
-    expect(workflow).toContain('gh pr merge --auto --squash "$PR_URL"');
+    expect(workflow).toContain('Merge release candidate through bot bypass');
+    expect(workflow).toContain('gh pr merge --squash --admin "$PR_URL"');
+    expect(workflow).not.toContain('workflow_run:');
+    expect(workflow).not.toContain('gh pr merge --auto');
     expect(workflow).toContain("github.event.pull_request.user.login == 'restura-bot[bot]'");
     expect(workflow).not.toContain('git push origin HEAD:main');
   });

@@ -20,8 +20,8 @@ name: Release
 # Flow (stable):
 #   1. The dispatch validates main, computes the next version, and opens a
 #      version-bump PR. It never pushes directly to protected main.
-#   2. restura-bot enables auto-merge. GitHub waits for required checks, then
-#      merges only through the bot's approval-only branch-protection bypass.
+#   2. restura-bot immediately merges only that version-only PR through its
+#      approval-only branch-protection bypass; it does not wait for candidate CI.
 #   3. The merged release-bot PR triggers this workflow again to tag that exact
 #      merge commit and publish the release artifacts.
 #
@@ -307,20 +307,20 @@ jobs:
           body: |
             Prepares `${{ steps.tag.outputs.actual_tag }}` for release.
 
-            restura-bot queues this PR for auto-merge. GitHub waits for the
-            required `validate` check, then the merged PR automatically tags
-            and publishes this exact version.
+            restura-bot immediately merges this exact version-only candidate
+            through its App-only bypass. The merged PR automatically tags and
+            publishes this version.
 
             <!-- restura:publish_docker=${{ inputs.publish_docker }} -->
 
-      - name: Enable release-bot auto-merge
+      - name: Merge release candidate through bot bypass
         if: ${{ steps.create-release-pr.outputs.pull-request-url != '' }}
         env:
           GH_TOKEN: ${{ steps.release-pr-token.outputs.token }}
           PR_URL: ${{ steps.create-release-pr.outputs.pull-request-url }}
         run: |
           set -euo pipefail
-          gh pr merge --auto --squash "$PR_URL"
+          gh pr merge --squash --admin "$PR_URL"
 
   release:
     name: Tag + release

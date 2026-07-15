@@ -105,10 +105,13 @@ rules_) for `main`:
 - ✅ **Require signed commits** (optional, recommended).
 - ⛔ Block force-pushes and deletions of `main`.
 
-> The stable Release workflow creates a dedicated `release/prepare` PR with the
-> `restura-bot` GitHub App token and enables auto-merge. GitHub waits for the
-> normal required checks, then only that App's pull-request bypass may satisfy
-> the review rule. The merged PR triggers publication of its exact merge commit.
+> The stable Release workflow validates `main`, then creates a dedicated
+> version-only `release/prepare` PR with the `restura-bot` GitHub App token and
+> immediately merges it through the App's pull-request bypass. It does not wait
+> for candidate-PR CI, because the candidate contains only the validated version
+> manifests. This avoids GitHub's generic auto-merge executor, which cannot use
+> an App's review bypass. The merged PR triggers publication of its exact merge
+> commit.
 > Do not add a bypass for `github-actions[bot]`.
 
 ### 2. Code scanning (CodeQL)
@@ -263,10 +266,11 @@ requests` error.
      -f release_bump=patch        # patch | minor | major
      # -f prerelease=true -f prerelease_identifier=beta.1   # for a beta
    ```
-3. For a stable release, the generated `chore(release): vX.Y.Z` PR is queued
-   for auto-merge by `restura-bot`. GitHub waits for the required `validate`
-   check, then the merged PR automatically starts publication. The workflow
-   uses that exact merge commit, so later `main` commits are excluded.
+3. For a stable release, the generated `chore(release): vX.Y.Z` version-only
+   PR is immediately merged by `restura-bot` through its App-only bypass; it
+   does not wait for candidate-PR CI. The merged PR automatically starts
+   publication. The workflow uses that exact merge commit, so later `main`
+   commits are excluded.
 4. The publish run: **preflight** (validate + build surfaces) → **release**
    (tag, notes, SBOM, draft release) → fan-out (**desktop**, **publish-cli**,
    **publish-docker**, **deploy-web**) → **publish-release** (flips the draft to
