@@ -97,16 +97,19 @@ rules_) for `main`:
   > and a required check that never runs blocks the merge.
 
 - ✅ **Require conversation resolution before merging.**
-- ✅ **Do not allow bypassing the above settings.** The Release workflow opens a
-  version-bump PR for stable releases, so `github-actions[bot]` does not need
-  permission to push directly to `main`.
+- ✅ Configure the **Main protection with release-bot bypass** repository
+  ruleset: it requires the `validate` check and one approval, with a
+  pull-request-only bypass for the `restura-bot` GitHub App. Do not recreate a
+  legacy branch-protection rule for `main`: personal repositories cannot scope
+  that rule's review bypass to an App.
 - ✅ **Require signed commits** (optional, recommended).
 - ⛔ Block force-pushes and deletions of `main`.
 
-> The stable Release workflow creates a dedicated `release/prepare` PR with a
-> GitHub App token. Merge it through the normal protected-branch path after
-> required checks pass, then dispatch the publish step with that PR's merged
-> commit SHA. Do not add a branch-protection bypass for `github-actions[bot]`.
+> The stable Release workflow creates a dedicated `release/prepare` PR with the
+> `restura-bot` GitHub App token and enables auto-merge. GitHub waits for the
+> normal required checks, then only that App's pull-request bypass may satisfy
+> the review rule. The merged PR triggers publication of its exact merge commit.
+> Do not add a bypass for `github-actions[bot]`.
 
 ### 2. Code scanning (CodeQL)
 
@@ -260,17 +263,10 @@ requests` error.
      -f release_bump=patch        # patch | minor | major
      # -f prerelease=true -f prerelease_identifier=beta.1   # for a beta
    ```
-3. For a stable release, review and merge the generated `chore(release): vX.Y.Z`
-   PR only after its required checks pass. Capture its merge commit, then
-   dispatch the workflow again with that exact SHA. This prevents later `main`
-   commits from being included accidentally:
-   ```bash
-   RELEASE_SHA="$(gh pr view <release-pr-number> --json mergeCommit --jq '.mergeCommit.oid')"
-   gh workflow run release.yml --ref main \
-     -f publish_existing_stable=true \
-     -f stable_release_sha="$RELEASE_SHA" \
-     # -f publish_docker=true                               # opt in to GHCR
-   ```
+3. For a stable release, the generated `chore(release): vX.Y.Z` PR is queued
+   for auto-merge by `restura-bot`. GitHub waits for the required `validate`
+   check, then the merged PR automatically starts publication. The workflow
+   uses that exact merge commit, so later `main` commits are excluded.
 4. The publish run: **preflight** (validate + build surfaces) → **release**
    (tag, notes, SBOM, draft release) → fan-out (**desktop**, **publish-cli**,
    **publish-docker**, **deploy-web**) → **publish-release** (flips the draft to
@@ -284,7 +280,8 @@ but the GitHub release stays a **draft**. To retry:
 
 ```bash
 gh release delete vX.Y.Z --cleanup-tag --yes   # drop draft + tag
-# then re-dispatch Release with publish_existing_stable=true and stable_release_sha=<merged SHA>
+gh workflow run release.yml --ref main \
+  -f recover_stable_release_sha=<merged-release-candidate-sha>
 ```
 
 ---
