@@ -1,14 +1,6 @@
 [changelog]
 header = ""
 body = """
-## Highlights
-
-<!-- Before publishing, replace this comment with 2–5 concise bullets that explain the most important developer-facing changes. -->
-
-## Upgrade notes
-
-<!-- Before publishing, replace this comment with migration, compatibility, or \"No action required.\" guidance. -->
-
 {% if version %}\
 ## {{ version | trim_start_matches(pat="v") }} — {{ timestamp | date(format="%Y-%m-%d") }}
 {% else %}\
