@@ -166,6 +166,20 @@ describe('auto-updater configuration', () => {
     expect(updaterMock.autoUpdater.quitAndInstall).toHaveBeenCalledWith(false, true);
   });
 
+  it('consumes install readiness so rapid restart requests cannot install twice', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin');
+    setupAutoUpdater(() => null, false);
+    registerAutoUpdaterIPC(false);
+
+    updaterMock.listeners.get('update-downloaded')?.({ version: '1.1.0' });
+    electronMock.nativeListeners.get('update-downloaded')?.();
+    const restart = electronMock.ipcHandlers.get('updater:restart');
+
+    await restart?.();
+    await expect(restart?.()).rejects.toThrow('Update is not ready to install');
+    expect(updaterMock.autoUpdater.quitAndInstall).toHaveBeenCalledOnce();
+  });
+
   it('uses electron-updater readiness directly on non-macOS platforms', () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('linux');
     setupAutoUpdater(() => null, false);

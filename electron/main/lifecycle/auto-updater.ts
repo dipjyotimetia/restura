@@ -349,6 +349,7 @@ export function registerAutoUpdaterIPC(isDev: boolean): void {
       if (!updateReadyToInstall) {
         throw new Error('Update is not ready to install');
       }
+      updateReadyToInstall = false;
       broadcast({ state: 'installing', version: lastUpdateInfo?.version });
       autoUpdater.quitAndInstall(false, true);
     })

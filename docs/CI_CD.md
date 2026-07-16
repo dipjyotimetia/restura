@@ -284,9 +284,10 @@ requests` error.
 
 The merged release PR is still a `pull_request` event. Electron-builder skips
 both publishing and signing in that context unless explicitly authorized, so
-`PUBLISH_FOR_PULL_REQUEST` and `CSC_FOR_PULL_REQUEST` intentionally use the
-same same-repository, merged `restura-bot` predicate. Never loosen or update one
-without the other; `tests/release-sentry-workflow.test.ts` enforces parity.
+`PUBLISH_FOR_PULL_REQUEST` and `CSC_FOR_PULL_REQUEST` intentionally share one
+predicate restricted to a same-repository PR merged from `restura-bot`. Never
+loosen or update one without the other;
+`tests/release-sentry-workflow.test.ts` enforces parity.
 
 ### Recovery after a failed stable run
 
