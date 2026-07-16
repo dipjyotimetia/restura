@@ -275,7 +275,19 @@ requests` error.
    (tag, notes, SBOM, draft release) → fan-out (**desktop**, **publish-cli**,
    **publish-docker**, **deploy-web**) → **publish-release** (flips the draft to
    public once every required downstream job succeeds).
-5. Verify the published artifacts with the `gh attestation verify` commands above.
+5. The stable macOS desktop leg fails closed unless the app is Developer ID
+   signed for `APPLE_TEAM_ID`, uses the configured bundle identifier and
+   hardened runtime, passes strict `codesign` verification, and retains a
+   valid notarization ticket after the updater ZIP is created. The desktop
+   matrix must succeed before the draft can become public.
+6. Verify the published artifacts with the `gh attestation verify` commands above.
+
+The merged release PR is still a `pull_request` event. Electron-builder skips
+both publishing and signing in that context unless explicitly authorized, so
+`PUBLISH_FOR_PULL_REQUEST` and `CSC_FOR_PULL_REQUEST` intentionally share one
+predicate restricted to a same-repository PR merged from `restura-bot`. Never
+loosen or update one without the other;
+`tests/release-sentry-workflow.test.ts` enforces parity.
 
 ### Recovery after a failed stable run
 
@@ -297,6 +309,12 @@ and publishes the draft without republishing the other distribution surfaces:
 ```bash
 gh workflow run release.yml --ref main -f repair_release_tag=vX.Y.Z
 ```
+
+Once a release is public, its updater assets are immutable. Do not replace a
+ZIP, installer, blockmap, or `latest*.yml` file under the same version: clients
+may already have cached the original metadata or payload. Fix the release path,
+publish a new patch version, and verify an N-1 installation can download,
+validate, install, and relaunch into that patch.
 
 ---
 
