@@ -75,6 +75,12 @@ Before any prompt goes to a provider, `shared/protocol/ai/redaction.ts` scrubs s
 - Absolute URLs (host replaced with `[REDACTED_HOST]`; path retained).
 - Inline secret values where they're identifiable.
 
+## Telemetry and privacy
+
+Error reporting is **on by default and can be disabled in Settings → Privacy**. Desktop errors and native crashes go to Sentry only while that preference is enabled; tracing is disabled, `sendDefaultPii` is false, and the scrubber removes request context, hostnames, users, breadcrumb data, stack-frame locals, secrets, and file paths. The same opt-out also controls Sentry Release Health's anonymous desktop session counts (crash-free rate and version adoption); Restura does not create a per-user or device identifier.
+
+For the hosted web app, `/api/telemetry/error` is a redacted, rate-limited, allowlist-only log sink and is never stored or forwarded to a third party. Self-hosted deployments collect no server-side usage telemetry. See [ADR 0027 — Telemetry and privacy-preserving usage signal](/architecture/adrs/0027-telemetry-and-privacy-preserving-usage-analytics/) for the full decision.
+
 ## MCP server mode
 
 When Restura acts as an MCP server, every tool response is run through a redactor (`electron/main/collection-export-redactor.ts`) that strips secrets by name. `SecretRef` handles are never resolved for the MCP surface — agents see metadata, not plaintext.
@@ -93,6 +99,7 @@ Local dev bypasses auth only when Miniflare is detected or `DEV_BYPASS_AUTH=true
 - [ADR 0004 — Security hardening](/architecture/adrs/)
 - [ADR 0006 — Electron connection + DNS hardening](/architecture/adrs/)
 - [ADR 0007 — SecretRef pattern](/architecture/adrs/)
+- [ADR 0027 — Telemetry and privacy-preserving usage signal](/architecture/adrs/0027-telemetry-and-privacy-preserving-usage-analytics/)
 </Aside>
 
 ## Reporting

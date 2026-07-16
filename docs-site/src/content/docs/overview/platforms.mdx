@@ -5,7 +5,7 @@ description: One UI, three deployment targets — web, desktop, self-hosted — 
 
 import { Aside } from '@astrojs/starlight/components';
 
-Restura ships from a **single React renderer** to three targets. The user experience is identical; what differs is the network and storage capabilities the platform exposes.
+Restura ships from a **single React renderer** to three targets. The workspace and request model are shared; network, storage, and native capabilities differ where the platform requires it.
 
 ## The three targets
 
@@ -17,7 +17,7 @@ Restura ships from a **single React renderer** to three targets. The user experi
 
 ## Web vs desktop — the asymmetry
 
-The browser sandbox can't expose raw TCP, custom CAs, SOCKS, or PAC scripting. Restura surfaces this as **"Desktop only" badges** on UI fields whose underlying capability isn't available on the platform you're using.
+The browser sandbox can't expose raw TCP, custom CAs, or SOCKS. Restura surfaces this as **"Desktop only" badges** on UI fields whose underlying capability isn't available on the platform you're using. PAC proxy scripts are not yet wired end to end on either target.
 
 ### Desktop-only features
 
@@ -33,7 +33,7 @@ The browser sandbox can't expose raw TCP, custom CAs, SOCKS, or PAC scripting. R
 - **OS keychain** storage for encryption keys (via `safeStorage`).
 - **Local mock HTTP server**, system tray, native notifications.
 - **AI assistant** — request-aware chat (Electron-first, streams over IPC; no Worker `/api/ai` route).
-- **AI Lab** — prompt/model testing workbench with dataset evals and LLM-as-judge, against local and cloud models.
+- **AI Lab** — prompt/model testing workbench with dataset evals, agent suites, and LLM-as-judge, against local and cloud models.
 
 ### Available on both web and desktop
 

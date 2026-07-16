@@ -73,13 +73,14 @@ It started because I was tired of juggling four tools to debug one service, each
 | **Environments**       | Scope variables per environment; swap `{{base_url}}` between staging and prod in one click.                                                                    |
 | **Auth built-in**      | Basic, Bearer, API Key, Digest, NTLM, OAuth 1.0a/2.0, WSSE, AWS SigV4 — per request or inherited from a collection or folder. mTLS via the Electron transport. |
 | **AI assistant**       | Chat with OpenAI, Anthropic, or OpenRouter with the current request and response as context. Secrets are redacted at the wire. _Desktop only._                 |
+| **AI Lab**             | Compare models, run dataset evals, and test versioned agent suites with bounded tools, approvals, and sanitized reports. _Desktop only._                         |
 | **Private by default** | Everything stored locally. No accounts, no cloud sync, no per-user tracking or behavioural profiling — usage metrics are anonymous and aggregate only.         |
 
 ## Security
 
 Restura signs auth **at the wire** and guards every outbound request — on both the web Worker and the desktop main process.
 
-- **Desktop (Electron)** — Keys wrapped by the OS keychain via `safeStorage` (macOS Keychain / Windows Credential Manager / libsecret), data sealed with AES-256-GCM. mTLS, custom CA certs, SOCKS proxies, PAC resolution, and TLS-verify-off all run through Node's TLS / `net` stack.
+- **Desktop (Electron)** — Keys wrapped by the OS keychain via `safeStorage` (macOS Keychain / Windows Credential Manager / libsecret), data sealed with AES-256-GCM. mTLS, custom CA certs, SOCKS proxies, and TLS-verify-off use Node's TLS / `net` stack. PAC proxy scripts are not currently wired on any target.
 - **Web** — Keys default to ephemeral in-memory (regenerated per session) so the key never sits beside the ciphertext; encrypted data won't survive a reload. mTLS, custom CA, SOCKS, and TLS-verify-off aren't available in the browser sandbox.
 - **Network** — SSRF guards (RFC 1918, CGNAT, link-local, cloud-metadata, IPv6 ULA, IPv4-mapped IPv6) on every path; desktop adds a DNS-rebind guard at lookup time. AWS SigV4 is signed in the Worker / Electron handler — never the renderer — so the signature matches the exact bytes upstream receives.
 - **Sandbox** — User scripts run in a [QuickJS](https://bellard.org/quickjs/) WASM VM with memory and time limits. No host bridge, no filesystem, no network.
@@ -243,6 +244,7 @@ If you're thinking about adding a new protocol or something significant, open an
 ## Links
 
 - <a href="https://docs.restura.dev/" target="_blank" rel="noopener noreferrer"><b>Documentation</b></a> — guides, references, and how-tos
+- [**AI Lab**](https://docs.restura.dev/guides/ai-lab/) — desktop model evaluation and agent-suite testing
 - [**Architecture**](docs/ARCHITECTURE.md) — system design, security model, IPC internals
 - [**Roadmap**](docs/ROADMAP.md) — what's planned
 - [**Changelog**](docs/CHANGELOG.md) — what's shipped

@@ -121,6 +121,25 @@ Each run can be **exported** as CSV, JSON, or Markdown. A **per-case drill-down*
 
 The **Arena** ranks models head-to-head. Pick a dataset and **two or more contestant models** plus a **judge model**; the Arena runs every model pair against every case as a **round-robin pairwise** comparison (with position-bias swap) and folds the results into an **Elo leaderboard** and a **win-rate matrix**. It's the model-vs-model counterpart to the per-cell `pairwise` scorer, and the right tool when you want a ranking across many models rather than a pass/fail per cell. Runs are bounded-concurrency and cancellable, and persist to their own history (the `arenaRuns` store).
 
+## Agent suites
+
+An **agent suite** evaluates a multi-step agent against repeatable tasks rather than a single completion. It records the trajectory and outcome for each trial, applies task-aware grading, and can repeat trials to show reliability rather than treating one run as conclusive. Suites have run-wide step, time, tool, token, cost, and output budgets; cancelling a suite stops provider, grader, and tool work, and late results cannot overwrite a cancelled run.
+
+### Providers and capabilities
+
+Desktop suites use OpenAI Chat, Anthropic Messages, OpenRouter, Ollama, Hugging Face, and generic OpenAI-compatible providers through the encrypted Electron bridge. Model capabilities start conservative; Restura uses trusted catalog data where available and otherwise requires an explicit user assertion before it enables a capability such as tool calling. Gemini, Azure OpenAI, and Bedrock profiles are not shipped agent transports.
+
+### Tools, grounding, and approval
+
+- **Saved HTTP requests** run through Restura's normal request executor and its SSRF, auth, and cancellation boundaries. Only unscripted `GET`, `HEAD`, and `OPTIONS` requests are read-only; all other requests, and any request with executable scripts, require explicit per-call approval.
+- **MCP tools** reuse a saved MCP profile with fresh desktop-owned sessions, existing SSRF/DNS protections, tool allowlists, cancellation, and approval.
+- **Grounding** is selected explicitly and recorded with provenance in the trace. Saved reports are bounded and sanitized before persistence or export.
+- The sandbox contract is present for future providers, but **no Docker or hosted sandbox provider ships today**.
+
+### CI boundary
+
+`restura agent eval` runs versioned suites and portable Agent Bundles in CI. It supports stateless OpenAI Responses and Anthropic Messages, environment credentials, deterministic fixture tools, and fail-closed baseline gates. Live tools must be explicitly listed in a runtime manifest; HTTP is limited to manifest-listed `GET` / `HEAD` / `OPTIONS` requests and MCP sources must be declared read-only with a tool allowlist. The CLI refuses desktop secret handles, suite base-URL overrides, judge graders, and sandbox providers. See [CLI — Agent eval](/reference/cli/#agent-eval) for the command contract.
+
 ## Security & SSRF
 
 Every outbound model call goes through the Electron AI Lab handler, which applies the **same shared SSRF guard** as the rest of Restura, with one provider-kind-aware twist: `allowLocalhost` is enabled **only** for local providers (Ollama, OpenAI-compatible).
