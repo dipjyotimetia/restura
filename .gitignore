@@ -71,6 +71,8 @@ yarn-error.log*
 .claude/scheduled_tasks.lock
 # Claude Code skill-usage metrics (runtime data written by the measurement hook)
 .claude/metrics/
+# Codex MCP cache (root-resolved by .codex/run-chrome-devtools-mcp.mjs)
+.codex/cache/
 
 # IDE
 .idea/

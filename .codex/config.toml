@@ -1,3 +1,10 @@
+[agents]
+max_threads = 4
+max_depth = 1
+
 [mcp_servers.chrome-devtools]
-args = ["chrome-devtools-mcp@latest"]
-command = "npx"
+command = "node"
+args = [".codex/run-chrome-devtools-mcp.mjs"]
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+default_tools_approval_mode = "prompt"
