@@ -270,4 +270,39 @@ enabled: true
       fallbackBody: null,
     });
   });
+
+  it('keeps headings hidden until a fenced block closes with the matching marker', () => {
+    expect(
+      parseReleaseNoteContent(`## Fixed
+
+~~~md
+## Hidden heading
+\`\`\`
+## Still hidden
+~~~
+
+## Added
+
+- Visible item.`)
+    ).toEqual({
+      highlights: null,
+      upgradeNotes: null,
+      sections: [
+        {
+          title: 'Added',
+          body: '- Visible item.',
+          itemCount: 1,
+        },
+        {
+          title: 'Fixed',
+          body: '~~~md\n## Hidden heading\n```\n## Still hidden\n~~~',
+          itemCount: 0,
+        },
+      ],
+      contributors: null,
+      extraSections: [],
+      preamble: null,
+      fallbackBody: null,
+    });
+  });
 });
