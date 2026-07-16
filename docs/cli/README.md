@@ -17,7 +17,7 @@ Requires Node.js 24 or later. The binary is `restura`.
 
 ## `restura agent eval`
 
-Run an AI Lab Agent Suite v2 or v3 in headless CI:
+Run an AI Lab Agent Suite v2/v3 or Git-native Agent Bundle v1 in headless CI:
 
 ```bash
 OPENAI_API_KEY=... restura agent eval ./checkout.agent-suite.json --output agent-report.json
@@ -48,6 +48,8 @@ Example runtime manifest:
 ```
 
 Run it with `restura agent eval ./checkout.agent-suite.json --runtime ./agent-runtime.json --env ./ci-env.json`. `--allow-localhost` remains off by default.
+
+A Bundle may also use deterministic, read-only fixture tools; its baseline gates turn a regressed report into a failing CI result.
 
 ## Quick start
 

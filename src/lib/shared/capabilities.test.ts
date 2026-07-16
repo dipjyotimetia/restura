@@ -20,7 +20,7 @@ describe('AI Lab agent capability claims', () => {
 
   it('advertises the wired desktop MCP runtime but not sandboxes', () => {
     expect(CAPABILITIES['aiLab.agentMcpTools']).toMatchObject({ web: false, desktop: true });
-    expect(CAPABILITIES['aiLab.agentMcpTools'].notes).toContain('fresh validated MCP session');
+    expect(CAPABILITIES['aiLab.agentMcpTools'].notes).toContain('fresh desktop-owned sessions');
     expect(CAPABILITIES['aiLab.agentSandboxes']).toMatchObject({ web: false, desktop: false });
   });
 });

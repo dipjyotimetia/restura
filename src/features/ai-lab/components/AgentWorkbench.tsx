@@ -1,4 +1,9 @@
-import { AGENT_SUITE_SCHEMA_VERSION, AgentSuiteSchema, migrateAgentSuite } from '@shared/agent-lab';
+import {
+  AGENT_SUITE_SCHEMA_VERSION,
+  AgentBundleSchema,
+  AgentSuiteSchema,
+  migrateAgentSuite,
+} from '@shared/agent-lab';
 import { Bot, Download, Play, Plus, Save, Square, Trash2, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -83,24 +88,34 @@ export function AgentWorkbench() {
   const parseDraft = () => migrateAgentSuite(AgentSuiteSchema.parse(JSON.parse(draft)));
   const save = () => {
     try {
-      const parsed = parseDraft();
-      upsert(parsed);
-      setActiveId(parsed.id);
-      setDraft(JSON.stringify(parsed, null, 2));
-      setMessage('Saved and schema-validated');
+      const raw = JSON.parse(draft);
+      const bundle = AgentBundleSchema.safeParse(raw);
+      if (bundle.success) {
+        setActiveId(null);
+        setDraft(JSON.stringify(bundle.data, null, 2));
+        setMessage('Bundle schema-validated; export it to commit with your project');
+      } else {
+        const parsed = migrateAgentSuite(AgentSuiteSchema.parse(raw));
+        upsert(parsed);
+        setActiveId(parsed.id);
+        setDraft(JSON.stringify(parsed, null, 2));
+        setMessage('Saved and schema-validated');
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     }
   };
   const exportSuite = () => {
     try {
-      const parsed = parseDraft();
+      const raw = JSON.parse(draft);
+      const bundle = AgentBundleSchema.safeParse(raw);
+      const parsed = bundle.success ? bundle.data : parseDraft();
       const url = URL.createObjectURL(
         new Blob([JSON.stringify(parsed, null, 2)], { type: 'application/json' })
       );
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${parsed.id}.agent-suite.json`;
+      link.download = `${parsed.id}.${bundle.success ? 'agent-bundle' : 'agent-suite'}.json`;
       link.click();
       URL.revokeObjectURL(url);
     } catch (error) {
@@ -109,19 +124,29 @@ export function AgentWorkbench() {
   };
   const importSuite = async (file: File) => {
     try {
-      const parsed = migrateAgentSuite(AgentSuiteSchema.parse(JSON.parse(await file.text())));
-      upsert(parsed);
-      setActiveId(parsed.id);
-      setDraft(JSON.stringify(parsed, null, 2));
-      setMessage('Imported and schema-validated');
+      const raw = JSON.parse(await file.text());
+      const bundle = AgentBundleSchema.safeParse(raw);
+      if (bundle.success) {
+        setActiveId(null);
+        setDraft(JSON.stringify(bundle.data, null, 2));
+        setMessage('Bundle imported and schema-validated');
+      } else {
+        const parsed = migrateAgentSuite(AgentSuiteSchema.parse(raw));
+        upsert(parsed);
+        setActiveId(parsed.id);
+        setDraft(JSON.stringify(parsed, null, 2));
+        setMessage('Imported and schema-validated');
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     }
   };
   const run = () => {
     try {
-      const parsed = parseDraft();
-      upsert(parsed);
+      const raw = JSON.parse(draft);
+      const bundle = AgentBundleSchema.safeParse(raw);
+      const parsed = bundle.success ? bundle.data : parseDraft();
+      if (!bundle.success) upsert(parsed);
       const started = startAgentRun(parsed, providers, async (request) =>
         window.confirm(
           `Allow ${request.permissionClass} tool “${request.toolName}”?\n\n${JSON.stringify(request.arguments, null, 2)}`
@@ -131,6 +156,7 @@ export function AgentWorkbench() {
       );
       if (!started)
         setMessage('An agent run is already active. Cancel it before starting another.');
+      else if (bundle.success) setMessage('Running deterministic fixture bundle');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     }

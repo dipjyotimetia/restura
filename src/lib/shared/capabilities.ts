@@ -257,7 +257,7 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: false,
     desktop: true,
     notes:
-      'AI Lab UI authoring and in-app execution are Electron-only, with one cancellable lifecycle per run surface; v3 suites add explicit selected grounding with provenance traces, task-aware grading, hard run-wide budgets, repeated-trial reliability, and sanitized bounded report persistence. A separate headless OpenAI Responses and Anthropic Messages subset is available via `restura agent eval`',
+      'AI Lab UI authoring and in-app execution are Electron-only, with one cancellable lifecycle per run surface; v3 suites add explicit selected grounding with provenance traces, task-aware grading, hard run-wide budgets, repeated-trial reliability, and sanitized bounded report persistence. `restura agent eval` supports OpenAI Responses, Anthropic Messages, and Git-native fixture bundles with fail-closed baseline gates.',
   },
   'aiLab.agentProviders': {
     label: 'AI Lab agent provider transports',
@@ -278,7 +278,7 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: false,
     desktop: true,
     notes:
-      'Desktop opens a fresh validated MCP session per run, applies the suite allowlist, and always requires approval because remote annotations do not grant local authority. CLI supports manifest-listed MCP tools only when CI explicitly asserts readOnly:true',
+      'Uses saved encrypted MCP profiles with fresh desktop-owned sessions, existing SSRF/DNS pinning and execution policy, allowlists, cancellation, and per-call approval. CLI supports manifest-listed read-only MCP tools when CI explicitly asserts readOnly:true.',
   },
   'aiLab.agentSandboxes': {
     label: 'AI Lab pluggable code sandboxes',

@@ -12,7 +12,8 @@ import { useAiLabUiStore } from '../../store/useAiLabUiStore';
 import { AgentWorkbench } from '../AgentWorkbench';
 
 const runDesktopAgentSuite = vi.hoisted(() => vi.fn());
-vi.mock('../../lib/agentRuntime', () => ({ runDesktopAgentSuite }));
+const runDesktopAgentBundle = vi.hoisted(() => vi.fn());
+vi.mock('../../lib/agentRuntime', () => ({ runDesktopAgentBundle, runDesktopAgentSuite }));
 
 const REPORT = {
   suiteId: 'suite-1',
@@ -99,6 +100,7 @@ describe('AgentWorkbench runs', () => {
   const load = vi.fn(async () => ({}));
   beforeEach(() => {
     runDesktopAgentSuite.mockReset();
+    runDesktopAgentBundle.mockReset();
     save.mockReset();
     load.mockReset();
     load.mockResolvedValue({});
@@ -172,6 +174,68 @@ describe('AgentWorkbench runs', () => {
       tab: 'reports',
       reportRunId: envelope?.id,
     });
+  });
+
+  it('runs a fixture bundle through the desktop bundle runtime', async () => {
+    runDesktopAgentBundle.mockResolvedValue({
+      report: REPORT,
+      gates: [{ metric: 'passRate', expected: 1, actual: 1, passed: true }],
+    });
+    const bundle = {
+      schemaVersion: 1,
+      id: 'fixture-bundle',
+      name: 'Fixture bundle',
+      suite: {
+        ...SUITE,
+        agents: [{ ...SUITE.agents[0]!, tools: [{ kind: 'fixture', fixtureId: 'hello' }] }],
+      },
+      fixtures: [
+        {
+          id: 'hello',
+          tool: {
+            name: 'hello_tool',
+            description: 'Return hello.',
+            inputSchema: { type: 'object', additionalProperties: false },
+          },
+          output: [{ type: 'text', text: 'hello' }],
+        },
+      ],
+      baseline: { minPassRate: 1 },
+    };
+    const user = userEvent.setup();
+    render(<AgentWorkbench />);
+    fireEvent.change(screen.getByLabelText('Agent suite JSON'), {
+      target: { value: JSON.stringify(bundle) },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+
+    await waitFor(() => expect(runDesktopAgentBundle).toHaveBeenCalledOnce());
+  });
+
+  it('marks a desktop bundle report failed when its committed baseline regresses', async () => {
+    runDesktopAgentBundle.mockResolvedValue({
+      report: { ...REPORT, status: 'failed' },
+      gates: [{ metric: 'passRate', expected: 1, actual: 0, passed: false }],
+    });
+    const bundle = {
+      schemaVersion: 1,
+      id: 'regressed-bundle',
+      name: 'Regressed bundle',
+      suite: { ...SUITE },
+      fixtures: [],
+      baseline: { minPassRate: 1 },
+    };
+    const user = userEvent.setup();
+    render(<AgentWorkbench />);
+    fireEvent.change(screen.getByLabelText('Agent suite JSON'), {
+      target: { value: JSON.stringify(bundle) },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('FAILED');
+    expect(useAgentRunLiveStore.getState().completedReport?.payload.status).toBe('failed');
   });
 
   it('preserves the active run and Cancel across unmount/remount', async () => {

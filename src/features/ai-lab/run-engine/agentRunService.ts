@@ -1,6 +1,6 @@
-import type { AgentSuite, AgentSuiteReport } from '@shared/agent-lab';
+import type { AgentBundle, AgentSuite, AgentSuiteReport } from '@shared/agent-lab';
 import { create } from 'zustand';
-import { runDesktopAgentSuite } from '../lib/agentRuntime';
+import { runDesktopAgentBundle, runDesktopAgentSuite } from '../lib/agentRuntime';
 import { useAiLabStore } from '../store/useAiLabStore';
 import type { AiLabProviderConfig } from '../types';
 import { type AiLabReportEnvelope, createAgentSuiteReportEnvelope } from './reportEnvelope';
@@ -67,10 +67,11 @@ export function resetAgentRunServiceForTests(): void {
 }
 
 export function startAgentRun(
-  suite: AgentSuite,
+  input: AgentSuite | AgentBundle,
   providers: Record<string, AiLabProviderConfig>,
   requestApproval?: Approval
 ): boolean {
+  const suite = 'suite' in input ? input.suite : input;
   const live = useAgentRunLiveStore.getState();
   if (
     live.running ||
@@ -80,15 +81,25 @@ export function startAgentRun(
   const started = engine.start(
     'agent-suite',
     (context) =>
-      runDesktopAgentSuite(suite, providers, {
-        signal: context.signal,
-        reportProgress: (progress) => {
-          context.reportProgress(progress);
-          if (useAgentRunLiveStore.getState().activeJobId === context.jobId)
-            useAgentRunLiveStore.setState({ progress });
-        },
-        ...(requestApproval ? { requestApproval } : {}),
-      }),
+      'suite' in input
+        ? runDesktopAgentBundle(input, providers, {
+            signal: context.signal,
+            reportProgress: (progress: number) => {
+              context.reportProgress(progress);
+              if (useAgentRunLiveStore.getState().activeJobId === context.jobId)
+                useAgentRunLiveStore.setState({ progress });
+            },
+            ...(requestApproval ? { requestApproval } : {}),
+          }).then((result) => result.report)
+        : runDesktopAgentSuite(suite, providers, {
+            signal: context.signal,
+            reportProgress: (progress: number) => {
+              context.reportProgress(progress);
+              if (useAgentRunLiveStore.getState().activeJobId === context.jobId)
+                useAgentRunLiveStore.setState({ progress });
+            },
+            ...(requestApproval ? { requestApproval } : {}),
+          }),
     {
       classifyResult: (report) => report.status,
       cancellationResult: (report) => ({ ...report, status: 'cancelled' }),

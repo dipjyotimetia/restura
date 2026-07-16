@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { clearReleaseNotesCache, fetchReleaseNotesPage } from '../release-notes';
+import {
+  clearReleaseNotesCache,
+  fetchReleaseNotesPage,
+  parseReleaseNoteContent,
+} from '../release-notes';
 
 const releases = [
   {
@@ -131,5 +135,139 @@ describe('fetchReleaseNotesPage', () => {
     await expect(fetchReleaseNotesPage({ channel: 'stable' })).rejects.toThrow(
       'Release notes are unavailable right now. Please try again.'
     );
+  });
+});
+
+describe('parseReleaseNoteContent', () => {
+  it('extracts the curated sections from the release-note template', () => {
+    expect(
+      parseReleaseNoteContent(`## Highlights
+
+- **MCP:** Reconnects preserve in-flight tool state.
+- **Desktop:** DNS validation now runs before native connections.
+
+## Upgrade notes
+
+- No action required.
+
+## Added
+
+- **AI Lab:** Added task-aware graders.
+
+## Fixed
+
+- **HTTP:** Fixed redirect handling.
+
+## Contributors
+
+Thanks to @octocat.`)
+    ).toEqual({
+      highlights:
+        '- **MCP:** Reconnects preserve in-flight tool state.\n- **Desktop:** DNS validation now runs before native connections.',
+      upgradeNotes: '- No action required.',
+      sections: [
+        {
+          title: 'Added',
+          body: '- **AI Lab:** Added task-aware graders.',
+          itemCount: 1,
+        },
+        {
+          title: 'Fixed',
+          body: '- **HTTP:** Fixed redirect handling.',
+          itemCount: 1,
+        },
+      ],
+      contributors: 'Thanks to @octocat.',
+      extraSections: [],
+      preamble: null,
+      fallbackBody: null,
+    });
+  });
+
+  it('keeps legacy release bodies available as a fallback', () => {
+    expect(parseReleaseNoteContent('A free-form legacy release body.')).toEqual({
+      highlights: null,
+      upgradeNotes: null,
+      sections: [],
+      contributors: null,
+      extraSections: [],
+      preamble: null,
+      fallbackBody: 'A free-form legacy release body.',
+    });
+  });
+
+  it('retains prose and unrecognized sections from structured release bodies', () => {
+    expect(
+      parseReleaseNoteContent(`## Highlights
+
+An overview before the list.
+
+- First item
+  - Nested detail
+
+## Known issues
+
+Read [the issue tracker](https://example.com/issues) before upgrading.`)
+    ).toEqual({
+      highlights: 'An overview before the list.\n\n- First item\n  - Nested detail',
+      upgradeNotes: null,
+      sections: [],
+      contributors: null,
+      extraSections: [
+        {
+          title: 'Known issues',
+          body: 'Read [the issue tracker](https://example.com/issues) before upgrading.',
+        },
+      ],
+      preamble: null,
+      fallbackBody: null,
+    });
+  });
+
+  it('retains Markdown before the first structured heading', () => {
+    expect(
+      parseReleaseNoteContent(`# v1.2.0
+
+Upgrade your agent configuration before installing this release.
+
+## Fixed
+
+- Restored request history.`)
+    ).toEqual({
+      highlights: null,
+      upgradeNotes: null,
+      sections: [{ title: 'Fixed', body: '- Restored request history.', itemCount: 1 }],
+      contributors: null,
+      extraSections: [],
+      preamble: '# v1.2.0\n\nUpgrade your agent configuration before installing this release.',
+      fallbackBody: null,
+    });
+  });
+
+  it('does not split sections on headings inside fenced code blocks', () => {
+    expect(
+      parseReleaseNoteContent(`## Fixed
+
+Use this configuration:
+
+\`\`\`md
+## Configure
+enabled: true
+\`\`\``)
+    ).toEqual({
+      highlights: null,
+      upgradeNotes: null,
+      sections: [
+        {
+          title: 'Fixed',
+          body: 'Use this configuration:\n\n```md\n## Configure\nenabled: true\n```',
+          itemCount: 0,
+        },
+      ],
+      contributors: null,
+      extraSections: [],
+      preamble: null,
+      fallbackBody: null,
+    });
   });
 });

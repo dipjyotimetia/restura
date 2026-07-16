@@ -1,17 +1,24 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import {
   AgentRunner,
+  applyAgentBundleBaseline,
+  createAgentToolResolver,
+  createFixtureToolSourceAdapter,
+  type AgentBundle,
+  AgentBundleSchema,
   type AgentSuite,
   type AgentSuiteReport,
   AgentSuiteRunner,
+  type AgentToolResolver,
   AgentSuiteSchema,
   AnthropicMessagesAdapter,
   migrateAgentSuite,
+  evaluateAgentBundleBaseline,
   OpenAiResponsesAdapter,
   ProviderRegistry,
 } from '@shared/agent-lab';
 import type { Fetcher } from '@shared/protocol/types';
-import type commander from 'commander';
+import type { Command } from 'commander';
 import { loadEnv } from '../runner/envLoader.js';
 import { executeHttp } from '../runner/executors/http.js';
 import { loadCollection } from '../runner/collectionLoader.js';
@@ -50,7 +57,11 @@ const defaultDependencies: AgentEvalDependencies = {
   executeHttp,
 };
 
-export function preflightAgentSuite(suite: AgentSuite, runtime?: AgentRuntimeManifest): void {
+export function preflightAgentSuite(
+  suite: AgentSuite,
+  toolResolver: AgentToolResolver = createAgentToolResolver(),
+  runtime?: AgentRuntimeManifest
+): void {
   for (const agent of suite.agents) {
     if (!['openai.responses', 'anthropic.messages'].includes(agent.model.providerId)) {
       throw new Error(`headless provider adapter not registered: ${agent.model.providerId}`);
@@ -72,9 +83,6 @@ export function preflightAgentSuite(suite: AgentSuite, runtime?: AgentRuntimeMan
     throw new Error('secret-handle credentials require the desktop keychain');
   }
 
-  if (suite.agents.some((agent) => agent.tools.length > 0) && !runtime) {
-    throw new Error('headless tool sources require a runtime manifest');
-  }
   for (const agent of suite.agents) {
     for (const source of agent.tools) {
       if (source.kind === 'restura-request') {
@@ -101,9 +109,7 @@ export function preflightAgentSuite(suite: AgentSuite, runtime?: AgentRuntimeMan
             `MCP tool source exceeds the runtime manifest allowlist: ${source.connectionId}`
           );
         }
-      } else {
-        throw new Error('headless tool sources require a registered CLI tool adapter');
-      }
+      } else toolResolver.assertSupported([source]);
     }
   }
   if (suite.graders.some((grader) => grader.kind === 'judge')) {
@@ -116,18 +122,23 @@ export function agentEvalExitCode(value: AgentSuiteReport | Error): 0 | 1 | 2 {
   return value.status === 'passed' ? 0 : 1;
 }
 
-export async function evaluateAgentSuite(
-  suitePath: string,
-  options: AgentEvalOptions = {},
-  dependencies: AgentEvalDependencies = defaultDependencies
+export interface AgentBundleEvaluation {
+  report: AgentSuiteReport;
+  gates: ReturnType<typeof evaluateAgentBundleBaseline>;
+}
+
+export function agentBundleExitCode(value: AgentBundleEvaluation | Error): 0 | 1 | 2 {
+  if (value instanceof Error) return 2;
+  return value.gates.some((gate) => !gate.passed) ? 1 : agentEvalExitCode(value.report);
+}
+
+async function runAgentSuite(
+  suite: AgentSuite,
+  dependencies: AgentEvalDependencies,
+  toolResolver: AgentToolResolver,
+  runtime: AgentRuntimeManifest | undefined,
+  options: AgentEvalOptions
 ): Promise<AgentSuiteReport> {
-  const suite = migrateAgentSuite(
-    AgentSuiteSchema.parse(JSON.parse(await dependencies.readText(suitePath)))
-  );
-  const runtime = options.runtime
-    ? AgentRuntimeManifestSchema.parse(JSON.parse(await dependencies.readText(options.runtime)))
-    : undefined;
-  preflightAgentSuite(suite, runtime);
   const variables = options.env ? await dependencies.loadEnvironment(options.env) : {};
   const timeoutMs = numericFlag('--timeout', options.timeout ?? '30000');
   const providers = new ProviderRegistry([
@@ -143,10 +154,17 @@ export async function evaluateAgentSuite(
       return dependencies.environment[ref.name];
     },
     async resolveTools(sources, signal) {
-      if (sources.length === 0) return [];
+      const runtimeSources = sources.filter(
+        (source) => source.kind === 'restura-request' || source.kind === 'mcp'
+      );
+      const adapterSources = sources.filter(
+        (source) => source.kind !== 'restura-request' && source.kind !== 'mcp'
+      );
+      const adapterTools = await toolResolver.resolve(adapterSources);
+      if (runtimeSources.length === 0) return adapterTools;
       if (!runtime) throw new Error('headless tool sources require a runtime manifest');
-      return resolveCliAgentTools(
-        sources,
+      const resolved = await resolveCliAgentTools(
+        runtimeSources,
         runtime,
         {
           variables,
@@ -155,11 +173,12 @@ export async function evaluateAgentSuite(
           allowLocalhost: Boolean(options.allowLocalhost),
           ...(signal ? { signal } : {}),
         },
-        {
-          loadCollection: dependencies.loadCollection,
-          executeHttp: dependencies.executeHttp,
-        }
+        { loadCollection: dependencies.loadCollection, executeHttp: dependencies.executeHttp }
       );
+      return {
+        tools: [...adapterTools, ...resolved.tools],
+        dispose: resolved.dispose,
+      };
     },
     async resolveGrounding(selection, signal) {
       if (!runtime) throw new Error('headless grounding requires a runtime manifest');
@@ -176,20 +195,56 @@ export async function evaluateAgentSuite(
       );
     },
   });
-  const report = await new AgentSuiteRunner({ run: (request) => runner.run(request) }).run({
-    suite,
-  });
+  return new AgentSuiteRunner({ run: (request) => runner.run(request) }).run({ suite });
+}
+
+export async function evaluateAgentSuite(
+  suitePath: string,
+  options: AgentEvalOptions = {},
+  dependencies: AgentEvalDependencies = defaultDependencies
+): Promise<AgentSuiteReport> {
+  const suite = migrateAgentSuite(
+    AgentSuiteSchema.parse(JSON.parse(await dependencies.readText(suitePath)))
+  );
+  const runtime = options.runtime
+    ? AgentRuntimeManifestSchema.parse(JSON.parse(await dependencies.readText(options.runtime)))
+    : undefined;
+  const toolResolver = createAgentToolResolver();
+  preflightAgentSuite(suite, toolResolver, runtime);
+  const report = await runAgentSuite(suite, dependencies, toolResolver, runtime, options);
   if (options.output)
     await dependencies.writeText(options.output, `${JSON.stringify(report, null, 2)}\n`);
   return report;
 }
 
-export function registerAgentCommand(program: commander.Command): void {
+export async function evaluateAgentBundle(
+  bundlePath: string,
+  options: AgentEvalOptions = {},
+  dependencies: AgentEvalDependencies = defaultDependencies
+): Promise<AgentBundleEvaluation> {
+  const bundle: AgentBundle = AgentBundleSchema.parse(
+    JSON.parse(await dependencies.readText(bundlePath))
+  );
+  const suite = migrateAgentSuite(bundle.suite);
+  const runtime = options.runtime
+    ? AgentRuntimeManifestSchema.parse(JSON.parse(await dependencies.readText(options.runtime)))
+    : undefined;
+  const toolResolver = createAgentToolResolver([createFixtureToolSourceAdapter(bundle.fixtures)]);
+  preflightAgentSuite(suite, toolResolver, runtime);
+  const report = await runAgentSuite(suite, dependencies, toolResolver, runtime, options);
+  const gates = evaluateAgentBundleBaseline(bundle, report);
+  const result = { report: applyAgentBundleBaseline(report, gates), gates };
+  if (options.output)
+    await dependencies.writeText(options.output, `${JSON.stringify(result, null, 2)}\n`);
+  return result;
+}
+
+export function registerAgentCommand(program: Command): void {
   program
     .command('agent')
     .description('Run versioned agent suites in CI')
     .command('eval')
-    .argument('<suite>', 'Path to an Agent Suite v2 or v3 JSON file')
+    .argument('<suite>', 'Path to an Agent Suite v2/v3 or Agent Bundle v1 JSON file')
     .option('--output <file>', 'Write the full JSON trace report to a file')
     .option('--runtime <file>', 'Runtime manifest binding selected saved HTTP and MCP sources')
     .option('--env <file>', 'Path to env file (json or yaml) used by saved requests')
@@ -197,9 +252,21 @@ export function registerAgentCommand(program: commander.Command): void {
     .option('--allow-localhost', 'Permit localhost saved request targets (off by default)', false)
     .action(async (suitePath: string, options: AgentEvalOptions) => {
       try {
-        const report = await evaluateAgentSuite(suitePath, options);
-        process.stdout.write(`${JSON.stringify(report.summary)}\n`);
-        process.exitCode = agentEvalExitCode(report);
+        const input = JSON.parse(await defaultDependencies.readText(suitePath)) as Record<
+          string,
+          unknown
+        >;
+        if ('suite' in input && 'fixtures' in input) {
+          const result = await evaluateAgentBundle(suitePath, options);
+          process.stdout.write(
+            `${JSON.stringify({ ...result.report.summary, gates: result.gates })}\n`
+          );
+          process.exitCode = agentBundleExitCode(result);
+        } else {
+          const report = await evaluateAgentSuite(suitePath, options);
+          process.stdout.write(`${JSON.stringify(report.summary)}\n`);
+          process.exitCode = agentEvalExitCode(report);
+        }
       } catch (error) {
         console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);
         process.exitCode = agentEvalExitCode(

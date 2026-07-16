@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import type commander from 'commander';
+import type { Command } from 'commander';
 import { CompositeReporter } from '../reporters/composite.js';
 import { HtmlReporter } from '../reporters/html.js';
 import { JsonReporter } from '../reporters/json.js';
@@ -64,7 +64,7 @@ function buildTls(opts: RunOpts): RunOptions['tls'] | undefined {
  *   1 — one or more requests failed or errored (or the collection was empty)
  *   2 — internal error (missing collection in CI, bad reporter name, IO failure, …)
  */
-export function registerRunCommand(program: commander.Command): void {
+export function registerRunCommand(program: Command): void {
   program
     .command('run')
     .description(

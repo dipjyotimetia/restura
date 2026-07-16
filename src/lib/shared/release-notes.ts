@@ -33,12 +33,133 @@ export interface ReleaseNotesPage {
   nextPage: number | null;
 }
 
+const CHANGELOG_SECTION_TITLES = [
+  'Added',
+  'Changed',
+  'Deprecated',
+  'Removed',
+  'Fixed',
+  'Security',
+] as const;
+
+type ChangelogSectionTitle = (typeof CHANGELOG_SECTION_TITLES)[number];
+
+export interface ReleaseNoteSection {
+  title: ChangelogSectionTitle;
+  body: string;
+  itemCount: number;
+}
+
+export interface ReleaseNoteExtraSection {
+  title: string;
+  body: string;
+}
+
+export interface ReleaseNoteContent {
+  highlights: string | null;
+  upgradeNotes: string | null;
+  sections: ReleaseNoteSection[];
+  contributors: string | null;
+  extraSections: ReleaseNoteExtraSection[];
+  preamble: string | null;
+  fallbackBody: string | null;
+}
+
 interface FetchReleaseNotesOptions {
   channel: ReleaseNotesChannel;
   page?: number;
 }
 
 const pageCache = new Map<string, Promise<ReleaseNotesPage>>();
+
+function topLevelListItemCount(markdown: string): number {
+  return markdown.split('\n').filter((line) => /^(?:[-*+] |\d+\. )/.test(line)).length;
+}
+
+interface MarkdownSection {
+  title: string;
+  body: string;
+}
+
+interface ParsedMarkdownSections {
+  preamble: string | null;
+  sections: MarkdownSection[];
+}
+
+function markdownSections(markdown: string): ParsedMarkdownSections {
+  const preambleLines: string[] = [];
+  const sections: MarkdownSection[] = [];
+  let activeFence: '`' | '~' | null = null;
+  let title: string | null = null;
+  let bodyLines: string[] = [];
+
+  for (const line of markdown.split('\n')) {
+    if (activeFence == null) {
+      const heading = line.match(/^##\s+(.+?)\s*$/);
+      if (heading) {
+        if (title != null) sections.push({ title, body: bodyLines.join('\n').trim() });
+        title = heading[1]!.trim();
+        bodyLines = [];
+        continue;
+      }
+    }
+
+    if (title == null) preambleLines.push(line);
+    else bodyLines.push(line);
+
+    const fence = line.match(/^ {0,3}(`{3,}|~{3,})/)?.[1];
+    if (!fence) continue;
+
+    const marker = fence[0] as '`' | '~';
+    if (activeFence == null) activeFence = marker;
+    else if (activeFence === marker) activeFence = null;
+  }
+
+  if (title != null) sections.push({ title, body: bodyLines.join('\n').trim() });
+
+  return { preamble: preambleLines.join('\n').trim() || null, sections };
+}
+
+/**
+ * Converts the documented release-body template into display sections while
+ * retaining unstructured historical releases as Markdown fallback content.
+ */
+export function parseReleaseNoteContent(body: string): ReleaseNoteContent {
+  const parsed = markdownSections(body);
+  const { preamble, sections: parsedSections } = parsed;
+  const sectionByTitle = new Map(
+    parsedSections.map((section) => [section.title.toLowerCase(), section])
+  );
+  const highlights = sectionByTitle.get('highlights')?.body || null;
+  const upgradeNotes = sectionByTitle.get('upgrade notes')?.body || null;
+  const sections = CHANGELOG_SECTION_TITLES.flatMap((title) => {
+    const section = sectionByTitle.get(title.toLowerCase());
+    return section?.body
+      ? [{ title, body: section.body, itemCount: topLevelListItemCount(section.body) }]
+      : [];
+  });
+  const contributors = sectionByTitle.get('contributors')?.body || null;
+  const recognizedTitles = new Set([
+    'highlights',
+    'upgrade notes',
+    'contributors',
+    ...CHANGELOG_SECTION_TITLES.map((title) => title.toLowerCase()),
+  ]);
+  const extraSections = parsedSections.filter(
+    (section) => !recognizedTitles.has(section.title.toLowerCase())
+  );
+  const isStructured = parsedSections.length > 0;
+
+  return {
+    highlights,
+    upgradeNotes,
+    sections,
+    contributors,
+    extraSections,
+    preamble: isStructured ? preamble : null,
+    fallbackBody: isStructured ? null : body.trim() || null,
+  };
+}
 
 function cacheKey({ channel, page = 1 }: FetchReleaseNotesOptions): string {
   return `${channel}:${page}`;
