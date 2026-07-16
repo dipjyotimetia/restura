@@ -92,6 +92,8 @@ interface ElectronShellAPI {
  * Auto-updater state pushed main→renderer over EVENT.updaterStatus. Single
  * discriminated shape keyed on `state` — maps to one renderer state machine.
  */
+type UpdaterErrorPhase = 'check' | 'download' | 'validation' | 'install';
+
 interface UpdaterStatus {
   state:
     | 'idle'
@@ -99,14 +101,18 @@ interface UpdaterStatus {
     | 'not-available'
     | 'available'
     | 'downloading'
+    | 'validating'
     | 'downloaded'
+    | 'installing'
     | 'error';
-  /** Present for `available` / `downloaded`. */
+  /** Present while an update version is known. */
   version?: string;
   /** Download completion 0–100, present for `downloading`. */
   percent?: number;
   /** Human-readable detail for `error` / `not-available`. */
   message?: string;
+  /** Safe lifecycle classification for `error`. */
+  phase?: UpdaterErrorPhase;
 }
 
 interface ElectronUpdaterAPI {
@@ -1133,5 +1139,6 @@ export type {
   MqttPublishIpc,
   MqttQoS,
   MqttTlsIpc,
+  UpdaterErrorPhase,
   UpdaterStatus,
 };

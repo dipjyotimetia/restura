@@ -690,7 +690,11 @@ jobs:
           # Electron Builder intentionally skips all PR events. This workflow
           # reaches here from a PR only after the bot-owned version-only PR is
           # merged into main and passed the job-level release authorization.
-          PUBLISH_FOR_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.merged && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'release/prepare' && github.event.pull_request.user.login == 'restura-bot[bot]' }}
+          PUBLISH_FOR_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.merged && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'release/prepare' && github.event.pull_request.user.login == 'restura-bot[bot]' && github.event.pull_request.head.repo.full_name == github.repository }}
+          # electron-builder also disables code signing for pull-request events.
+          # Use the identical trusted-candidate predicate so a merged release PR
+          # can publish only the signed artifacts that stable updates require.
+          CSC_FOR_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.merged && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'release/prepare' && github.event.pull_request.user.login == 'restura-bot[bot]' && github.event.pull_request.head.repo.full_name == github.repository }}
           # ---- Code signing ----
           # Stable-release preflight requires macOS signing/notarization.
           # Windows signing remains optional until its certificate is added;
@@ -708,6 +712,7 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          RESTURA_REQUIRE_SIGNED_MAC: ${{ runner.os == 'macOS' && needs.release.outputs.is_prerelease == 'false' }}
           WIN_CSC_LINK: ${{ runner.os == 'Windows' && secrets.WIN_CSC_LINK || '' }}
           WIN_CSC_KEY_PASSWORD: ${{ runner.os == 'Windows' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ (runner.os == 'macOS' && secrets.CSC_LINK != '') || (runner.os == 'Windows' && secrets.WIN_CSC_LINK != '') }}
@@ -726,6 +731,34 @@ jobs:
           else
             npm run electron:publish
           fi
+
+      # Verify the exact updater ZIP that electron-builder uploaded, not only
+      # the unpacked build directory checked by afterSign. macOS Squirrel
+      # installs this ZIP, so its embedded app must retain the expected
+      # Developer ID signature and notarization ticket before promotion.
+      - name: Verify signed macOS release artifacts
+        if: ${{ runner.os == 'macOS' && needs.release.outputs.is_prerelease == 'false' }}
+        env:
+          ACTUAL_TAG: ${{ needs.release.outputs.actual_tag }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${ACTUAL_TAG#v}"
+          ZIP="dist/installers/Restura-${VERSION}-arm64-mac.zip"
+          DMG="dist/installers/Restura-${VERSION}-arm64.dmg"
+          test -n "${APPLE_TEAM_ID:-}"
+          test -s "$ZIP"
+          test -s "$DMG"
+          WORK_DIR="$(mktemp -d)"
+          trap 'rm -rf "$WORK_DIR"' EXIT
+          ditto -x -k "$ZIP" "$WORK_DIR"
+          node scripts/verify-electron-signature.mjs \
+            "$WORK_DIR/Restura.app" \
+            --require-developer-id \
+            --team-id "$APPLE_TEAM_ID" \
+            --bundle-id "com.dipjyotimetia.restura"
+          xcrun stapler validate "$WORK_DIR/Restura.app"
 
       # Generate a signed SLSA build-provenance attestation for every installer
       # this runner produced, so consumers can verify the binaries came from

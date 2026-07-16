@@ -2,6 +2,12 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+function workflowExpressionFor(source: string, key: string): string {
+  const match = source.match(new RegExp(`^\\s*${key}:\\s*\\$\\{\\{([^\\n]+)\\}\\}`, 'm'));
+  expect(match, `${key} must be defined`).not.toBeNull();
+  return match?.[1]?.replace(/\\s+/g, ' ').trim() ?? '';
+}
+
 describe('release workflow Sentry guardrails', () => {
   const workflow = readFileSync(resolve(process.cwd(), '.github/workflows/release.yml'), 'utf8');
 
@@ -79,6 +85,60 @@ describe('release workflow Sentry guardrails', () => {
     expect(desktopPublishBlock).toContain(
       "github.event.pull_request.user.login == 'restura-bot[bot]'"
     );
+  });
+
+  it('uses the same trusted merged release candidate predicate for signing and publishing', () => {
+    const publishPredicate = workflowExpressionFor(workflow, 'PUBLISH_FOR_PULL_REQUEST');
+    const signingPredicate = workflowExpressionFor(workflow, 'CSC_FOR_PULL_REQUEST');
+
+    expect(signingPredicate).toBe(publishPredicate);
+    expect(publishPredicate).toContain("github.event_name == 'pull_request'");
+    expect(publishPredicate).toContain('github.event.pull_request.merged');
+    expect(publishPredicate).toContain("github.event.pull_request.base.ref == 'main'");
+    expect(publishPredicate).toContain("github.event.pull_request.head.ref == 'release/prepare'");
+    expect(publishPredicate).toContain(
+      "github.event.pull_request.user.login == 'restura-bot[bot]'"
+    );
+    expect(publishPredicate).toContain(
+      'github.event.pull_request.head.repo.full_name == github.repository'
+    );
+  });
+
+  it('requires Developer ID signing for stable macOS installers', () => {
+    const desktopPublishBlock = workflow.slice(
+      workflow.indexOf('- name: Build + publish installers'),
+      workflow.indexOf('- name: Attest installer provenance')
+    );
+
+    expect(desktopPublishBlock).toContain(
+      "RESTURA_REQUIRE_SIGNED_MAC: ${{ runner.os == 'macOS' && needs.release.outputs.is_prerelease == 'false' }}"
+    );
+  });
+
+  it('verifies the packaged stable macOS updater artifact before attestation', () => {
+    const buildIndex = workflow.indexOf('- name: Build + publish installers');
+    const verifyIndex = workflow.indexOf('- name: Verify signed macOS release artifacts');
+    const attestIndex = workflow.indexOf('- name: Attest installer provenance');
+
+    expect(buildIndex).toBeGreaterThan(-1);
+    expect(verifyIndex).toBeGreaterThan(buildIndex);
+    expect(attestIndex).toBeGreaterThan(verifyIndex);
+
+    const verificationBlock = workflow.slice(verifyIndex, attestIndex);
+    expect(verificationBlock).toContain(
+      "if: ${{ runner.os == 'macOS' && needs.release.outputs.is_prerelease == 'false' }}"
+    );
+    expect(verificationBlock).toContain('set -euo pipefail');
+    expect(verificationBlock).toContain('test -s "$ZIP"');
+    expect(verificationBlock).toContain('test -s "$DMG"');
+    expect(verificationBlock).toContain('ditto -x -k "$ZIP" "$WORK_DIR"');
+    expect(verificationBlock).toContain('node scripts/verify-electron-signature.mjs');
+    expect(verificationBlock).toContain('--require-developer-id');
+    expect(verificationBlock).toContain('--team-id "$APPLE_TEAM_ID"');
+    expect(verificationBlock).toContain('--bundle-id "com.dipjyotimetia.restura"');
+    expect(verificationBlock).toContain('xcrun stapler validate "$WORK_DIR/Restura.app"');
+
+    expect(workflow).toContain("needs.desktop.result == 'success'");
   });
 
   it('repairs existing draft releases without republishing other distribution surfaces', () => {

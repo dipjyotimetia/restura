@@ -22,6 +22,7 @@
       "!.cache/**",
       "!.turbo/**",
       "!.husky/_/**",
+      "!.worktrees/**",
       "!.claude/worktrees/**",
       "!*.tsbuildinfo",
       "!out/**",

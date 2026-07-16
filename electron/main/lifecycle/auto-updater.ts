@@ -1,11 +1,16 @@
 import type { BrowserWindow } from 'electron';
-import { app, BrowserWindow as BrowserWindowCtor, ipcMain } from 'electron';
+import {
+  app,
+  BrowserWindow as BrowserWindowCtor,
+  ipcMain,
+  autoUpdater as nativeAutoUpdater,
+} from 'electron';
 import electronLog from 'electron-log/main';
 import type { UpdateCheckResult, UpdateInfo } from 'electron-updater';
 import { autoUpdater, CancellationToken } from 'electron-updater';
 import { createLogger } from '../../../src/lib/shared/logger';
 import { EVENT, IPC } from '../../shared/channels';
-import type { UpdaterStatus } from '../../types/electron-api';
+import type { UpdaterErrorPhase, UpdaterStatus } from '../../types/electron-api';
 import {
   createValidatedHandler,
   NoInputSchema,
@@ -32,6 +37,8 @@ let cancellationToken: CancellationToken | null = null;
 let lastUpdateInfo: UpdateInfo | null = null;
 let recheckInterval: ReturnType<typeof setInterval> | null = null;
 let updaterStatus: UpdaterStatus = { state: 'idle' };
+let updateReadyToInstall = false;
+let updaterListenersCleanup: (() => void) | null = null;
 
 const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
 
@@ -57,6 +64,42 @@ function broadcast(status: UpdaterStatus): void {
   }
 }
 
+function errorPhaseFor(status: UpdaterStatus): UpdaterErrorPhase {
+  switch (status.state) {
+    case 'available':
+    case 'downloading':
+      return 'download';
+    case 'validating':
+      return 'validation';
+    case 'downloaded':
+    case 'installing':
+      return 'install';
+    default:
+      return 'check';
+  }
+}
+
+function safeErrorMessage(phase: UpdaterErrorPhase): string {
+  switch (phase) {
+    case 'download':
+      return 'The update could not be downloaded. Try again or download it manually.';
+    case 'validation':
+      return 'The update could not be verified. Try again or download it manually.';
+    case 'install':
+      return 'The update could not be installed. Try again or download it manually.';
+    default:
+      return 'Unable to check for updates. Try again later.';
+  }
+}
+
+function markUpdateReady(): void {
+  updateReadyToInstall = true;
+  broadcast({
+    state: 'downloaded',
+    version: lastUpdateInfo?.version,
+  });
+}
+
 /** Returns the last known lifecycle state for renderers that subscribe late. */
 export function getUpdaterStatus(): UpdaterStatus {
   return updaterStatus;
@@ -79,6 +122,10 @@ export function applyUpdaterConfig(config: UpdaterConfig): void {
 }
 
 export function setupAutoUpdater(getWindow: () => BrowserWindow | null, isDev: boolean): void {
+  updaterListenersCleanup?.();
+  updaterListenersCleanup = null;
+  updateReadyToInstall = false;
+
   // Enterprise opt-out / dev: skip all update-check side effects. Distinct
   // from one another but both mean "never ping GitHub releases".
   if (updatesDisabled(isDev)) {
@@ -95,11 +142,12 @@ export function setupAutoUpdater(getWindow: () => BrowserWindow | null, isDev: b
   // error) to the log file — the canonical electron-updater integration.
   autoUpdater.logger = electronLog;
 
-  autoUpdater.on('checking-for-update', () => {
+  const onCheckingForUpdate = () => {
     broadcast({ state: 'checking' });
-  });
+  };
 
-  autoUpdater.on('update-available', (info) => {
+  const onUpdateAvailable = (info: UpdateInfo) => {
+    updateReadyToInstall = false;
     lastUpdateInfo = info;
     broadcast({
       state: 'available',
@@ -122,30 +170,65 @@ export function setupAutoUpdater(getWindow: () => BrowserWindow | null, isDev: b
         isDev
       );
     }
-  });
+  };
 
-  autoUpdater.on('update-not-available', () => {
+  const onUpdateNotAvailable = () => {
+    updateReadyToInstall = false;
+    lastUpdateInfo = null;
     broadcast({ state: 'not-available' });
-  });
+  };
 
-  autoUpdater.on('download-progress', (progress) => {
+  const onDownloadProgress = (progress: { percent: number }) => {
     broadcast({ state: 'downloading', percent: progress.percent });
     withWindow(getWindow, (w) => w.setProgressBar(progress.percent / 100));
-  });
+  };
 
-  autoUpdater.on('update-downloaded', (info) => {
+  const onUpdateDownloaded = (info: UpdateInfo) => {
     lastUpdateInfo = info;
     withWindow(getWindow, (w) => w.setProgressBar(-1));
-    broadcast({
-      state: 'downloaded',
-      version: info.version,
-    });
-  });
+    if (process.platform === 'darwin') {
+      broadcast({ state: 'validating', version: info.version });
+    } else {
+      markUpdateReady();
+    }
+  };
 
-  autoUpdater.on('error', (err) => {
+  const onError = (err: Error) => {
     withWindow(getWindow, (w) => w.setProgressBar(-1));
-    broadcast({ state: 'error', message: String(err) });
-  });
+    const phase = errorPhaseFor(updaterStatus);
+    log.error('auto-updater lifecycle failed', {
+      phase,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    updateReadyToInstall = false;
+    broadcast({ state: 'error', phase, message: safeErrorMessage(phase) });
+  };
+
+  const onNativeUpdateDownloaded = () => {
+    markUpdateReady();
+  };
+
+  autoUpdater.on('checking-for-update', onCheckingForUpdate);
+  autoUpdater.on('update-available', onUpdateAvailable);
+  autoUpdater.on('update-not-available', onUpdateNotAvailable);
+  autoUpdater.on('download-progress', onDownloadProgress);
+  autoUpdater.on('update-downloaded', onUpdateDownloaded);
+  autoUpdater.on('error', onError);
+  if (process.platform === 'darwin') {
+    nativeAutoUpdater.on('update-downloaded', onNativeUpdateDownloaded);
+  }
+
+  updaterListenersCleanup = () => {
+    autoUpdater.off('checking-for-update', onCheckingForUpdate);
+    autoUpdater.off('update-available', onUpdateAvailable);
+    autoUpdater.off('update-not-available', onUpdateNotAvailable);
+    autoUpdater.off('download-progress', onDownloadProgress);
+    autoUpdater.off('update-downloaded', onUpdateDownloaded);
+    autoUpdater.off('error', onError);
+    if (process.platform === 'darwin') {
+      nativeAutoUpdater.off('update-downloaded', onNativeUpdateDownloaded);
+    }
+  };
 
   // First check shortly after launch, then poll every 6h so a long-running
   // desktop session still discovers releases without a restart.
@@ -185,7 +268,10 @@ export function registerAutoUpdaterIPC(isDev: boolean): void {
         version: latestVersion,
       };
     } catch (error) {
-      return { updateAvailable: false, error: String(error) };
+      log.error('renderer update check failed', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { updateAvailable: false, error: safeErrorMessage('check') };
     }
   };
 
@@ -235,7 +321,10 @@ export function registerAutoUpdaterIPC(isDev: boolean): void {
             }
             return { ok: false, error: 'cancelled' };
           }
-          return { ok: false, error: String(error) };
+          log.error('renderer update download failed', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return { ok: false, error: safeErrorMessage('download') };
         }
       }
     )
@@ -257,6 +346,11 @@ export function registerAutoUpdaterIPC(isDev: boolean): void {
     IPC.updater.restart,
     createValidatedHandler(IPC.updater.restart, NoInputSchema, async (): Promise<void> => {
       if (updatesDisabled(isDev)) return;
+      if (!updateReadyToInstall) {
+        throw new Error('Update is not ready to install');
+      }
+      updateReadyToInstall = false;
+      broadcast({ state: 'installing', version: lastUpdateInfo?.version });
       autoUpdater.quitAndInstall(false, true);
     })
   );

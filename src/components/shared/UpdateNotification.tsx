@@ -1,10 +1,25 @@
-import { Download, RefreshCw, RotateCw } from 'lucide-react';
-import { type ReactElement, useEffect, useRef, useState } from 'react';
+import { AlertTriangle, Download, ExternalLink, RefreshCw, RotateCw } from 'lucide-react';
+import { type ReactElement, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { DEFAULT_AUTO_UPDATE_SETTINGS } from '@/types';
 import type { UpdaterStatus } from '../../../electron/types/electron-api';
+
+const MANUAL_DOWNLOAD_URL = 'https://github.com/dipjyotimetia/restura/releases/latest';
+
+function updaterErrorTitle(status: UpdaterStatus): string {
+  switch (status.phase) {
+    case 'download':
+      return 'Update download failed';
+    case 'validation':
+      return 'Update verification failed';
+    case 'install':
+      return 'Update installation failed';
+    default:
+      return 'Update failed';
+  }
+}
 
 /**
  * In-app auto-updater UI for the Electron desktop app. Subscribes to the
@@ -16,7 +31,6 @@ import type { UpdaterStatus } from '../../../electron/types/electron-api';
 export function UpdateNotification(): ReactElement | null {
   const [status, setStatus] = useState<UpdaterStatus>({ state: 'idle' });
   const [dismissed, setDismissed] = useState(false);
-  const prevState = useRef<UpdaterStatus['state']>('idle');
   const autoUpdate = useSettingsStore((s) => s.settings.autoUpdate) ?? DEFAULT_AUTO_UPDATE_SETTINGS;
 
   // Subscribe to status pushes + wire the tray menu's check action.
@@ -25,16 +39,12 @@ export function UpdateNotification(): ReactElement | null {
     const api = getElectronAPI();
     if (!api) return;
     const applyStatus = (next: UpdaterStatus) => {
-      // A failed *automatic* check (offline at startup / on the 6h tick) is
-      // noise — stay silent. Only a failure that interrupts an in-progress
-      // download the user is watching is worth surfacing; user-initiated
-      // checks get their own feedback via the tray toast below.
-      const wasDownloading = prevState.current === 'downloading';
-      prevState.current = next.state;
       setStatus(next);
       setDismissed(false); // a fresh push is worth showing again
-      if (next.state === 'error' && wasDownloading) {
-        toast.error('Update download failed', { description: next.message });
+      // Automatic background checks remain quiet. Failures after an update is
+      // discovered are active operations and stay visible until recovery.
+      if (next.state === 'error' && next.phase && next.phase !== 'check') {
+        toast.error(updaterErrorTitle(next), { description: next.message });
       }
     };
     let receivedPush = false;
@@ -85,13 +95,18 @@ export function UpdateNotification(): ReactElement | null {
   const api = getElectronAPI();
   if (!api) return null;
 
-  // Only the actionable positive states get a persistent banner. checking /
-  // not-available are transient and silent; errors surface as toasts (above),
-  // never a sticky bar the user must dismiss every background check.
+  const visibleError = status.state === 'error' && status.phase && status.phase !== 'check';
+
+  // Background checks remain transient and silent. Download, validation, and
+  // installation failures stay visible because the user must be able to
+  // recover without finding the main-process log.
   if (
     status.state !== 'available' &&
     status.state !== 'downloading' &&
-    status.state !== 'downloaded'
+    status.state !== 'validating' &&
+    status.state !== 'downloaded' &&
+    status.state !== 'installing' &&
+    !visibleError
   ) {
     return null;
   }
@@ -101,9 +116,13 @@ export function UpdateNotification(): ReactElement | null {
   // explicit Download action.
   return (
     <div
-      role="status"
+      role={visibleError ? 'alert' : 'status'}
       aria-live="polite"
-      className="sticky top-0 z-50 border-b border-sky-500/40 bg-sky-500/10 px-4 py-2 text-sm text-sky-800 dark:bg-sky-950/40 dark:text-sky-100"
+      className={`sticky top-0 z-50 border-b px-4 py-2 text-sm ${
+        visibleError
+          ? 'border-red-500/40 bg-red-500/10 text-red-800 dark:bg-red-950/40 dark:text-red-100'
+          : 'border-sky-500/40 bg-sky-500/10 text-sky-800 dark:bg-sky-950/40 dark:text-sky-100'
+      }`}
     >
       <div className="mx-auto flex max-w-7xl items-center gap-3">
         {status.state === 'available' && (
@@ -165,6 +184,18 @@ export function UpdateNotification(): ReactElement | null {
           </>
         )}
 
+        {status.state === 'validating' && (
+          <>
+            <RefreshCw className="h-4 w-4 shrink-0 animate-spin text-sky-400" aria-hidden />
+            <div className="flex-1 min-w-0">
+              <span className="font-medium">Verifying update…</span>
+              <span className="ml-2 text-xs text-sky-200/70">
+                Checking the downloaded app before restart.
+              </span>
+            </div>
+          </>
+        )}
+
         {status.state === 'downloaded' && (
           <>
             <RotateCw className="h-4 w-4 shrink-0 text-emerald-400" aria-hidden />
@@ -188,6 +219,42 @@ export function UpdateNotification(): ReactElement | null {
             >
               <RotateCw className="h-3 w-3" aria-hidden />
               Restart now
+            </button>
+          </>
+        )}
+
+        {status.state === 'installing' && (
+          <>
+            <RotateCw className="h-4 w-4 shrink-0 animate-spin text-emerald-400" aria-hidden />
+            <div className="flex-1 min-w-0">
+              <span className="font-medium">Restarting to install…</span>
+              <span className="ml-2 text-xs text-sky-200/70">Restura will reopen shortly.</span>
+            </div>
+          </>
+        )}
+
+        {visibleError && status.state === 'error' && (
+          <>
+            <AlertTriangle className="h-4 w-4 shrink-0 text-red-400" aria-hidden />
+            <div className="flex-1 min-w-0">
+              <div className="font-medium">{updaterErrorTitle(status)}</div>
+              <div className="text-xs text-red-700/80 dark:text-red-200/80">{status.message}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void api.updater.check()}
+              className="inline-flex items-center gap-1.5 rounded-md border border-red-400/40 px-2.5 py-1 text-xs font-medium transition hover:bg-red-400/10"
+            >
+              <RefreshCw className="h-3 w-3" aria-hidden />
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={() => void api.shell.openExternal(MANUAL_DOWNLOAD_URL)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-red-400/40 px-2.5 py-1 text-xs font-medium transition hover:bg-red-400/10"
+            >
+              <ExternalLink className="h-3 w-3" aria-hidden />
+              Manual download
             </button>
           </>
         )}
