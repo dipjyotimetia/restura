@@ -66,8 +66,8 @@ npm run electron:dist:{mac,win,linux}
 npm run build:docker
 npm run start                       # node dist/server/index.mjs
 
-# Full CI gate
-npm run validate                    # type-check:all + lint + format + codegen verify + tests + CLI test
+# Coverage-aware local shipping gate
+npm run validate                    # type-check:all + lint + format + codegen verify + coverage + CLI test
 ```
 
 > **Trap:** plain `npm run type-check` only covers the renderer. Use `npm run type-check:all`; pre-commit hooks run only `lint-staged`, not tsc or tests.
@@ -148,17 +148,21 @@ vitest run -t "test name pattern"
 
 ### CI gates
 
-The `validate` script matches the full CI gate:
+The coverage-aware local `validate` gate runs:
 
 1. `type-check:all`
 2. `lint`
 3. `format:check`
 4. `verify:opencollection-types` — regenerates OpenCollection types and fails on diff.
 5. `capabilities:check` — regenerates capability matrix and fails on diff.
-6. `test:run`
+6. `test:ci` — the full Vitest suite with global uncovered-item budgets and
+   stronger `shared/protocol/**` percentage thresholds.
 7. CLI workspace test.
 
-There are also codegen ownership checks and bundle-size limits (`size-limit`).
+The GitHub `merge-gate` is the full CI verdict. It additionally aggregates docs,
+browser and Electron E2E, browser and VS Code extension E2E, and cross-OS
+Electron packaging. There are also codegen ownership checks and bundle-size
+limits (`size-limit`).
 
 ---
 
@@ -196,6 +200,11 @@ Source of truth for workflows is `.github/workflows/`. Key documents:
 
 Important rules:
 
+- `npm run validate` is the deterministic local gate; the GitHub `merge-gate`
+  is the complete shipping verdict across docs, web/Electron E2E, extensions,
+  and cross-OS packaging.
+- Release preflight requires that `merge-gate` succeeded for the exact release
+  candidate commit before any publication job starts.
 - Releases are not auto-cut on merge. Manual `workflow_dispatch` runs the Release workflow.
 - CLI provenance is published via `npm publish --provenance`.
 - Desktop and image provenance use `actions/attest-build-provenance` and can be verified with `gh attestation verify`.

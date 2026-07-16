@@ -9,6 +9,8 @@ import { Badge } from '@astrojs/starlight/components';
 
 <Badge text="Accepted · 2026-06-10" variant="success" />
 
+Expanded by [ADR 0028 — Codex agentic harness and shipping gates](/architecture/adrs/0028-codex-agentic-harness-and-shipping-gates/).
+
 ## Context
 
 Restura ships one React renderer to three backends (Cloudflare Worker, Node/Docker, Electron) over a security-critical [shared protocol core](/architecture/adrs/0001-shared-protocol-layer/), with six independent TypeScript projects, two codegen drift gates, a [capability matrix](/architecture/adrs/0012-capability-matrix-source-of-truth/), a large documentation surface, and a desktop-only feature set. Keeping all of that consistent is the bulk of the maintenance cost, and several gaps were only known as folklore:

@@ -53,8 +53,8 @@ vitest run path/to/file.test.ts                  # Run a single Vitest file
 vitest run -t "test name pattern"                # Filter by test name
 npx playwright test e2e/real-http.spec.ts        # Run a single e2e spec
 
-# Full validation (matches CI)
-npm run validate               # type-check:all + lint + format:check + verify:opencollection-types + capabilities:check + test:run + cli test
+# Coverage-aware local shipping validation — not the entire matrixed CI pipeline
+npm run validate               # type-check:all + lint + format:check + codegen/capability checks + test:ci (coverage) + cli test
 
 # Generated code
 npm run proto:gen                       # buf generate (regenerates protobuf TS)
@@ -250,11 +250,16 @@ The renderer entry is `dist/web/index.html` loaded via `file://` with hash routi
 
 How to run agentic work in this repo (loop primitives → repo tooling):
 
+Codex uses the matching skills in `.agents/skills/`, read-only review agents in
+`.codex/agents/`, and lifecycle hooks documented in `.codex/README.md`.
+
 - **Verify before declaring done** — for any renderer/UI change, use the `verify-ui-change` skill (dev server + real browser + console check). An edit that compiles is not a verified change.
-- **Goal loops** — `/fix-until-green [attempts]` iterates until `npm run validate` passes with a hard cap (or `/goal make npm run validate pass, stop after 5 tries`). Deterministic exit criteria beat "looks done".
+- **Goal loops** — `/fix-until-green [attempts]` iterates until the coverage-aware local gate `npm run validate` passes with a hard cap (or `/goal make npm run validate pass, stop after 5 tries`). Deterministic exit criteria beat "looks done".
 - **Time loops** — `/babysit-prs` is one idempotent iteration of PR care (CI fixes, review comments); drive it with `/loop 15m /babysit-prs` locally, or `subscribe_pr_activity` in remote sessions (events beat polling).
 - **Proactive loops** — `/triage-maintenance` sweeps dependabot PRs, security-audit findings, and skill metrics in one pass; pilot manually, then `/schedule` it.
 - **Pre-PR gate** — `/ship-check` fans out the review agents (`restura-security-auditor`, `restura-parity-checker`, `restura-docs-steward`) **in parallel** plus a fresh-context `/code-review`.
+- **Complete CI verdict** — the `merge-gate` job aggregates validation, docs, browser and Electron E2E, both extensions, and cross-OS Electron packaging. Local `validate` is necessary but does not replace it.
+- **Release proof** — release preflight waits for a successful `merge-gate` on the exact candidate SHA before publishing.
 - **Parallel sessions** — independent fixes get independent sessions in separate git worktrees (one topic per branch/PR); don't stack unrelated fixes serially on one branch.
 - **When a loop's output misses the bar**: don't just fix the instance — encode the fix (skill, hook, command, CLAUDE.md note) so every future iteration inherits it.
 

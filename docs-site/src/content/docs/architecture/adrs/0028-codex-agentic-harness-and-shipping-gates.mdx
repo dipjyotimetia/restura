@@ -1,0 +1,49 @@
+---
+title: ADR 0028 — Codex agentic harness and shipping gates
+description: Codex-native discovery and hooks, coverage-aware clean-checkout validation, one complete CI verdict, and exact-commit release proof.
+sidebar:
+  order: 28
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+<Badge text="Accepted · 2026-07-16" variant="success" />
+
+## Context
+
+[ADR 0021](/architecture/adrs/0021-maintenance-harness/) introduced a Claude
+Code maintenance harness and complete local type checking. Codex still lacked
+equivalent repository discovery and lifecycle hooks; local validation did not
+enforce coverage from a clean checkout; CI had no single complete verdict; and
+release automation did not require successful CI evidence attached to the exact
+commit being published.
+
+## Decision
+
+- Publish Codex workflows in `.agents/skills/`, read-only Restura reviewers in
+  `.codex/agents/`, bounded worktree-aware hooks in `.codex/hooks.json`, and a
+  pinned repository-cached Chrome DevTools MCP launcher.
+- Make `npm run validate` coverage-aware. Coverage commands generate ignored
+  sandbox libraries first, then enforce global uncovered-item budgets plus
+  stronger percentages for the shared protocol security boundary.
+- Add one fail-closed `merge-gate` that aggregates validation, documentation,
+  browser and Electron E2E, both extension surfaces, and cross-OS packaging.
+- Run the required matrix on `main` and require release preflight to observe a
+  successful `merge-gate` check attached to the exact candidate SHA.
+- Record live ruleset state separately from the recommendation to require the
+  new gate. Repository automation does not mutate that external administration.
+
+## Consequences
+
+- Codex and Claude Code carry equivalent Restura-specific engineering context.
+- Clean checkouts reproduce the local coverage policy.
+- One check context represents the complete cross-platform shipping verdict.
+- Releases fail closed without exact-commit CI evidence.
+- Local validation and pushes to `main` consume more compute, and the added
+  skill, hook, and reviewer surfaces require maintenance.
+
+## Related
+
+- [ADR 0021 — Maintenance harness](/architecture/adrs/0021-maintenance-harness/)
+- [Contract tests & CI](/testing/contract-and-ci/)
+- [Capability matrix](/reference/capability-matrix/)

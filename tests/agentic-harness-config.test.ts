@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -140,5 +141,71 @@ describe('complete CI merge gate', () => {
     expect(workflowJob(ci, 'merge-gate')).toContain(
       "github.event_name == 'pull_request' && github.actor == 'dependabot[bot]' && 'electron-smoke,e2e-electron,vscode-extension-e2e'"
     );
+  });
+});
+
+describe('agentic harness documentation truth', () => {
+  const agents = readFileSync(resolve(process.cwd(), 'AGENTS.md'), 'utf8');
+  const claude = readFileSync(resolve(process.cwd(), 'CLAUDE.md'), 'utf8');
+  const ciDocs = readFileSync(resolve(process.cwd(), 'docs/CI_CD.md'), 'utf8');
+  const testing = readFileSync(resolve(process.cwd(), 'openwiki/testing/index.md'), 'utf8');
+  const operations = readFileSync(resolve(process.cwd(), 'openwiki/operations/index.md'), 'utf8');
+
+  it('documents local coverage validation, the full CI gate, and exact-SHA release proof', () => {
+    for (const text of [agents, claude, ciDocs, testing, operations]) {
+      expect(text).toContain('npm run validate');
+      expect(text).toContain('merge-gate');
+    }
+    for (const text of [agents, claude, ciDocs]) {
+      expect(text).toContain('exact candidate SHA');
+    }
+  });
+
+  it('documents the current uncovered-item coverage budget accurately', () => {
+    expect(testing).toContain('5,226');
+    expect(testing).toContain('4,378');
+    expect(testing).not.toContain('lines: 80');
+    expect(testing).not.toContain('zeroes all thresholds');
+  });
+
+  it('separates observed live rules from the deferred administrative recommendation', () => {
+    expect(ciDocs).toContain('Currently observed live rules');
+    expect(ciDocs).toContain('Deferred administrative follow-up');
+    expect(ciDocs).toContain('require `merge-gate`');
+  });
+
+  it('provides a Codex harness reference', () => {
+    const codexReadme = readFileSync(resolve(process.cwd(), '.codex/README.md'), 'utf8');
+    expect(codexReadme).toContain('.agents/skills');
+    expect(codexReadme).toContain('.codex/agents');
+    expect(codexReadme).toContain('/hooks');
+    expect(codexReadme).toContain('/mcp');
+    expect(codexReadme).toContain('merge-gate');
+  });
+
+  it('records and publishes the architecture decision', () => {
+    const adr = readFileSync(
+      resolve(process.cwd(), 'docs/adr/0028-codex-agentic-harness-and-shipping-gates.md'),
+      'utf8'
+    );
+    const siteIndex = readFileSync(
+      resolve(process.cwd(), 'docs-site/src/content/docs/architecture/adrs.mdx'),
+      'utf8'
+    );
+    const siteConfig = readFileSync(resolve(process.cwd(), 'docs-site/astro.config.mjs'), 'utf8');
+
+    expect(adr).toContain('Codex agentic harness and shipping gates');
+    expect(adr).toContain('Exact-commit release proof');
+    expect(siteIndex).toContain('0028 — Codex agentic harness and shipping gates');
+    expect(siteConfig).toContain('0028-codex-agentic-harness-and-shipping-gates');
+  });
+
+  it('does not track machine-local Claude settings', () => {
+    const result = spawnSync(
+      'git',
+      ['ls-files', '--error-unmatch', '.claude/settings.local.json'],
+      { cwd: process.cwd(), stdio: 'ignore' }
+    );
+    expect(result.status).not.toBe(0);
   });
 });

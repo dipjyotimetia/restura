@@ -2,6 +2,8 @@
 
 **Status:** Accepted, 2026-06-10
 
+**Expanded by:** [ADR 0028 (Codex agentic harness and shipping gates)](./0028-codex-agentic-harness-and-shipping-gates.md)
+
 ## Context
 
 Restura ships one React renderer to three backends (Cloudflare Worker, Node/Docker, Electron) with a security-critical protocol core, six independent TypeScript projects, two codegen drift gates, a capability matrix, a large documentation surface, and a desktop-only feature set. Keeping all of that consistent is the bulk of the maintenance cost, and several gaps were only known as folklore:
@@ -45,4 +47,4 @@ Add a **maintenance harness** under `.claude/`, paired with a source-level fix f
 
 - Code: `package.json` (`type-check:all`, `validate`), `.claude/skills/restura-production-checks/`, `.claude/agents/restura-{security-auditor,parity-checker,docs-steward}.md`, `.claude/commands/{ship-check,new-protocol,docs-sync}.md`, `.claude/hooks/log-skill-usage.mjs`, `.claude/settings.json`
 - Companion: `.claude/skills/restura-feature-dev/` (the build-side skill)
-- Related: [ADR 0004 (security hardening)](./0004-security-hardening.md), [ADR 0006 (connection + DNS hardening)](./0006-electron-connection-and-dns-hardening.md), [ADR 0007 (SecretRef)](./0007-secret-ref-pattern.md), [ADR 0012 (capability matrix)](./0012-capability-matrix-source-of-truth.md), [ADR 0016 (wire-level auth signing)](./0016-wire-level-auth-signing.md)
+- Related: [ADR 0004 (security hardening)](./0004-security-hardening.md), [ADR 0006 (connection + DNS hardening)](./0006-electron-connection-and-dns-hardening.md), [ADR 0007 (SecretRef)](./0007-secret-ref-pattern.md), [ADR 0012 (capability matrix)](./0012-capability-matrix-source-of-truth.md), [ADR 0016 (wire-level auth signing)](./0016-wire-level-auth-signing.md), [ADR 0028 (Codex agentic harness and shipping gates)](./0028-codex-agentic-harness-and-shipping-gates.md)

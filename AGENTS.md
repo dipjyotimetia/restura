@@ -50,8 +50,8 @@ npm run test:run               # Single test run
 npm run test:coverage          # Coverage report
 npm run test:e2e               # Playwright (boots dev server; needs .dev.vars)
 
-# Full validation (matches CI) — NOT just type-check+lint+test
-npm run validate               # type-check:all → lint → format:check → verify:opencollection-types → capabilities:check → test:run → cli test
+# Coverage-aware local shipping validation — NOT the entire matrixed CI pipeline
+npm run validate               # type-check:all → lint → format:check → codegen/capability checks → test:ci (coverage) → cli test
 
 # Self-hosted Node / Docker server (single process: SPA + /api/* on one port)
 npm run build:docker           # SPA → dist/web + esbuild Worker → dist/server/index.mjs
@@ -244,11 +244,14 @@ routing. The Electron main process has its own `tsconfig.json` at
 
 ## Agent loop playbook
 
-Iteration discipline for agentic work in this repo (the Claude Code command
-wrappers live in `.claude/commands/`; the principles apply to any runtime):
+Iteration discipline for agentic work in this repo. Claude Code wrappers live
+in `.claude/commands/`; Codex skills live in `.agents/skills/`, read-only review
+agents in `.codex/agents/`, and lifecycle details in `.codex/README.md`:
 
 - **Verify before declaring done** — for renderer/UI changes, boot `npm run dev`, drive the change in a real browser, and check the console for new errors (see `.claude/skills/verify-ui-change/SKILL.md`). A compiling edit is not a verified change.
-- **Iterate against a deterministic gate** — `npm run validate` passing is the exit criterion for fix loops, with a hard attempt cap; don't stop at "looks done".
+- **Iterate against a deterministic local gate** — `npm run validate` passing is the coverage-aware exit criterion for fix loops, with a hard attempt cap; don't stop at "looks done".
+- **Treat CI as the complete shipping verdict** — the `merge-gate` job aggregates local validation, docs, browser and Electron E2E, both extensions, and cross-OS Electron packaging. A local `validate` pass does not replace it.
+- **Release only proven commits** — release preflight waits for a successful `merge-gate` attached to the exact candidate SHA before any publish surface can start.
 - **One topic per branch/PR** — independent fixes get independent worktrees/sessions; don't stack unrelated fixes serially on one branch.
 - **Pre-PR review fan-out** — run the security/parity/docs review passes in parallel, plus a fresh-context code review that didn't author the diff.
 - **Encode fixes upward** — when an iteration's output misses the bar, fix the system (skill, hook, doc note), not just the instance.

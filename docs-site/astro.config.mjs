@@ -232,6 +232,10 @@ export default defineConfig({
                   label: '0026 — Electron CSP + permission hardening',
                   slug: 'architecture/adrs/0026-electron-csp-and-permission-hardening',
                 },
+                {
+                  label: '0028 — Codex agentic harness + shipping gates',
+                  slug: 'architecture/adrs/0028-codex-agentic-harness-and-shipping-gates',
+                },
               ],
             },
           ],

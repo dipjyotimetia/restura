@@ -68,50 +68,44 @@ These cannot be committed to the repo — enable them in the GitHub UI / CLI.
 
 ### 1. Branch protection on `main`
 
-**Settings → Branches → Add branch ruleset** (or classic _Branch protection
-rules_) for `main`:
+#### Currently observed live rules
 
-- ✅ **Require a pull request before merging** (≥ 1 approval; _Require review
-  from Code Owners_ — `CODEOWNERS` already routes to `@dipjyotimetia`).
-- ✅ **Require status checks to pass before merging** + **Require branches to be
-  up to date**. Select these checks (names must match exactly — these are the
-  job `name:` values that run on **pull requests**):
+The repository ruleset was inspected on 2026-07-16. The live `main` rule
+requires the `validate` status check and one approving review, dismisses stale
+reviews, and blocks force-pushes and deletions. Conversation resolution, Code
+Owner review, and approval of the most recent push were not enabled. This is an
+observed-state record, not evidence that the settings are enforced by files in
+this repository.
 
-  | Required check                          | From              |
-  | --------------------------------------- | ----------------- |
-  | `Type-check, lint, test, build`         | CI / `validate`   |
-  | `Docs site (type-check + build)`        | CI / `docs`       |
-  | `Review dependency changes`             | Dependency Review |
-  | `CodeQL` (the default-setup check name) | Code scanning     |
+#### Deferred administrative follow-up
 
-  Recommended-but-heavier (enable once you're comfortable with their runtime /
-  flakiness budget):
+After this branch lands and GitHub has created the new check context, update the
+repository ruleset to require `merge-gate` (replacing the narrower `validate`
+requirement), keep branches up to date, and enable conversation resolution.
+Consider Code Owner review, last-push approval, and signed commits according to
+the maintainer policy. This repository change deliberately does not mutate live
+GitHub administration.
 
-  | Optional check                                          | From                  |
-  | ------------------------------------------------------- | --------------------- |
-  | `Playwright E2E (shard 1/2)` + `2/2`                    | CI / `e2e`            |
-  | `Electron desktop E2E`                                  | CI / `e2e-electron`   |
-  | `Electron pack smoke (ubuntu-latest)` (+ macos/windows) | CI / `electron-smoke` |
+`npm run validate` is the coverage-aware local shipping gate. `merge-gate` is
+the single complete CI verdict: it fails unless `validate`, the docs build, web
+and Electron E2E, browser and VS Code extension E2E, and every cross-OS Electron
+packaging smoke job succeed. The only permitted skips are the documented native
+jobs on Dependabot pull requests. Do **not** require `Deploy preview`, which is
+intentionally absent for forked pull requests.
 
-  > Do **not** require `Deploy preview` — it is skipped on forked PRs by design,
-  > and a required check that never runs blocks the merge.
-
-- ✅ **Require conversation resolution before merging.**
-- ✅ Configure the **Main protection with release-bot bypass** repository
-  ruleset: it requires the `validate` check and one approval, with a
-  pull-request-only bypass for the `restura-bot` GitHub App. Do not recreate a
-  legacy branch-protection rule for `main`: personal repositories cannot scope
-  that rule's review bypass to an App.
-- ✅ **Require signed commits** (optional, recommended).
-- ⛔ Block force-pushes and deletions of `main`.
+Keep the **Main protection with release-bot bypass** ruleset's pull-request-only
+bypass restricted to the `restura-bot` GitHub App. Do not recreate a legacy
+branch-protection rule for `main`: personal repositories cannot scope that
+rule's review bypass to an App, and `github-actions[bot]` must not receive a
+bypass.
 
 > The stable Release workflow validates `main`, then creates a dedicated
 > version-only `release/prepare` PR with the `restura-bot` GitHub App token and
 > immediately merges it through the App's pull-request bypass. It does not wait
 > for candidate-PR CI, because the candidate contains only the validated version
 > manifests. This avoids GitHub's generic auto-merge executor, which cannot use
-> an App's review bypass. The merged PR triggers publication of its exact merge
-> commit.
+> an App's review bypass. Publication still waits for a successful `merge-gate`
+> check run attached to the exact candidate SHA produced by that merge.
 > Do not add a bypass for `github-actions[bot]`.
 
 ### 2. Code scanning (CodeQL)
@@ -165,10 +159,11 @@ How Dependabot runs are hardened (in `ci.yml`):
 - **`--ignore-scripts`** on every `npm ci` — the updated package's lifecycle
   scripts never execute in the merge-gating jobs. (Dependabot runs also get a
   read-only token and no secrets by default.)
-- **`electron-smoke` and `e2e-electron` are skipped** — they need the
+- **Native Electron jobs are skipped on Dependabot pull requests** — they need the
   `electron-builder install-app-deps` postinstall that `--ignore-scripts`
-  suppresses. They aren't required checks, so skipping never blocks the merge;
-  Electron dep bumps still get desktop coverage at release preflight.
+  suppresses. The `merge-gate` evaluator permits only this explicit skip set;
+  any other skipped, missing, cancelled, or failed dependency fails the gate.
+  Electron dependency bumps still get desktop coverage at release preflight.
 - **`deploy-preview` is skipped** — Dependabot has no Cloudflare secrets and a
   preview of a dep bump has no value.
 - **PR test-result / coverage comments are skipped** — the read-only Dependabot
@@ -268,10 +263,10 @@ requests` error.
    ```
 3. For a stable release, the generated `chore(release): vX.Y.Z` version-only
    PR is immediately merged by `restura-bot` through its App-only bypass; it
-   does not wait for candidate-PR CI. The merged PR automatically starts
-   publication. The workflow uses that exact merge commit, so later `main`
-   commits are excluded.
-4. The publish run: **preflight** (validate + build surfaces) → **release**
+   does not wait for candidate-PR CI. The merged PR starts a publish workflow,
+   but preflight waits for `merge-gate` success on the exact candidate SHA. The
+   workflow uses that exact merge commit, so later `main` commits are excluded.
+4. The publish run: **preflight** (exact-SHA CI proof + build surfaces) → **release**
    (tag, notes, SBOM, draft release) → fan-out (**desktop**, **publish-cli**,
    **publish-docker**, **deploy-web**) → **publish-release** (flips the draft to
    public once every required downstream job succeeds).

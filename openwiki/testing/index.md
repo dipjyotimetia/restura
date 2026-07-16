@@ -94,14 +94,19 @@ Run them after touching `shared/protocol/url-validation.ts`, `redirect-follower.
 
 ## CI coverage thresholds
 
-`vitest.config.ts` thresholds:
+`vitest.config.ts` uses uncovered-item budgets for the global suite. The build
+fails if newly added untested production code pushes any budget above:
 
-- lines: 80%
-- functions: 78%
-- branches: 61%
-- statements: 78%
+- lines: 4,378 uncovered
+- functions: 1,344 uncovered
+- branches: 5,226 uncovered
+- statements: 5,321 uncovered
 
-`npm run test:ci` zeroes thresholds for stable CI reporting but still collects coverage.
+The security-critical `shared/protocol/**` core keeps percentage thresholds of
+90% lines, 88% functions, 75% branches, and 88% statements. `npm run test:ci`
+enforces both layers, and `npm run validate` includes that coverage-aware run.
+The GitHub `merge-gate` is the broader shipping verdict because it also
+aggregates docs, browser/Electron E2E, extensions, and cross-OS packaging.
 
 ---
 
