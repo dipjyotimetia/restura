@@ -6,7 +6,7 @@ import { sendToDesktop } from '../lib/bridge-client';
 import { exportHar, exportOpenCollection } from '../lib/export-actions';
 import { Logo } from '../lib/Logo';
 import type { CaptureState } from '../lib/messages';
-import { sendToWorker } from '../lib/runtime';
+import { sendToWorker, subscribeToCaptureState } from '../lib/runtime';
 import { RequestList } from './RequestList';
 import '../styles.css';
 
@@ -20,12 +20,9 @@ function App(): React.JSX.Element {
   const [note, setNote] = useState('');
   const [noteError, setNoteError] = useState(false);
 
-  const refresh = async (): Promise<void> => setState(await sendToWorker({ type: 'capture:get' }));
-
   useEffect(() => {
-    void refresh();
-    const timer = setInterval(() => void refresh(), 1000);
-    return () => clearInterval(timer);
+    void sendToWorker({ type: 'capture:get' }).then(setState);
+    return subscribeToCaptureState(setState);
   }, []);
 
   const exchanges = state?.session?.exchanges ?? [];
@@ -140,7 +137,7 @@ function App(): React.JSX.Element {
           disabled={!session}
           onClick={run('Cleared', async () => {
             await sendToWorker({ type: 'capture:clear' });
-            await refresh();
+            setState(await sendToWorker({ type: 'capture:get' }));
           })}
         >
           Clear

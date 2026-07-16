@@ -11,7 +11,6 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { useShallow } from 'zustand/react/shallow';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,6 +25,7 @@ import {
   TextField,
   VariableText,
 } from '@/components/ui/spatial';
+import { useMcpConnectionActions } from '@/features/mcp/hooks/useMcpConnectionActions';
 import { generateMcpTemplate, type McpCall, McpClient } from '@/features/mcp/lib/mcpClient';
 import { type McpInvocationLog, useMcpStore } from '@/features/mcp/store/useMcpStore';
 import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
@@ -58,29 +58,13 @@ export default function McpRequestBuilder() {
     setCapabilities,
     appendLog,
     clearLog,
-  } = useMcpStore(
-    useShallow((s) => ({
-      createConnection: s.createConnection,
-      setUrl: s.setUrl,
-      setTransport: s.setTransport,
-      addHeader: s.addHeader,
-      updateHeader: s.updateHeader,
-      removeHeader: s.removeHeader,
-      setStatus: s.setStatus,
-      setCapabilities: s.setCapabilities,
-      appendLog: s.appendLog,
-      clearLog: s.clearLog,
-    }))
-  );
+  } = useMcpConnectionActions();
   const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
 
   useEffect(() => {
     if (!hasConnections) createConnection('');
   }, [hasConnections, createConnection]);
 
-  // The MCP client owns the session id and the IPC subscription, so we hold it in a
-  // ref across renders. The cleanup runs on unmount (mode switch) — pin the
-  // connectionId so we always tear down the right session even if clientRef is null.
   const clientRef = useRef<McpClient | null>(null);
   const activeIdForCleanup = active?.id;
   useEffect(() => {

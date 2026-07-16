@@ -97,11 +97,7 @@ const MessageRow = memo(function MessageRow({
         'grid items-center gap-2 px-3 py-1.5 cursor-pointer font-mono border-l-2 transition-colors sp-stream-row',
         selected ? 'bg-sp-active border-l-sp-accent' : 'border-l-transparent hover:bg-sp-hover'
       )}
-      style={{
-        gridTemplateColumns: '40px 50px 110px 1fr',
-        contentVisibility: 'auto',
-        containIntrinsicSize: 'auto 32px',
-      }}
+      style={{ gridTemplateColumns: '40px 50px 110px 1fr' }}
     >
       <div>
         <QosPill qos={m.qos} />

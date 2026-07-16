@@ -23,3 +23,10 @@ export const captureStateSchema = z.object({
 });
 
 export type CaptureState = z.infer<typeof captureStateSchema>;
+
+export const captureStateUpdateSchema = z.object({
+  type: z.literal('capture:state'),
+  state: captureStateSchema,
+});
+
+export type CaptureStateUpdate = z.infer<typeof captureStateUpdateSchema>;

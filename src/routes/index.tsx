@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type { BugReportScreenshot, BugReportSubmission } from '@/components/shared/BugReportDialog';
 import ClientHydration from '@/components/shared/ClientHydration';
-import CommandPalette from '@/components/shared/CommandPalette';
 import ConsoleDrawer from '@/components/shared/ConsoleDrawer';
 import ResizableLayout from '@/components/shared/ResizableLayout';
 import ResponseViewer from '@/components/shared/ResponseViewer';
@@ -40,6 +39,7 @@ import type { ActivePanel, RequestMode } from '@/types';
 import { isConnectionMode } from '@/types';
 
 const ChatPanel = lazyComponent(() => import('@/features/ai/components/ChatPanel'));
+const CommandPalette = lazyComponent(() => import('@/components/shared/CommandPalette'));
 const SettingsDrawer = lazyComponent(() => import('@/components/shared/SettingsDrawer'));
 const EnvironmentManager = lazyComponent(
   () => import('@/features/environments/components/EnvironmentManager')
@@ -106,6 +106,17 @@ export default function Home() {
   const aiPanelOpen = useAiChatStore((s) => s.panelOpen);
   const setAiPanelOpen = useAiChatStore((s) => s.setPanelOpen);
   const enableAi = isElectron();
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'k' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   // Ref keeps Cmd+S handler current without listener churn.
   const activeTabRef = useRef(activeTab);
@@ -397,15 +408,17 @@ export default function Home() {
 
       <StatusBar />
 
-      <CommandPalette
-        open={paletteOpen}
-        onOpenChange={setPaletteOpen}
-        onOpenEnvironments={openEnvironmentManager}
-        onOpenSettings={() => openSettings('general')}
-        onOpenImport={openImportDialog}
-        onSendRequest={handleSendRequest}
-        onChangeMode={handleRequestModeChange}
-      />
+      {paletteOpen && (
+        <CommandPalette
+          open
+          onOpenChange={setPaletteOpen}
+          onOpenEnvironments={openEnvironmentManager}
+          onOpenSettings={() => openSettings('general')}
+          onOpenImport={openImportDialog}
+          onSendRequest={handleSendRequest}
+          onChangeMode={handleRequestModeChange}
+        />
+      )}
       {settingsLoaded && (
         <SettingsDrawer
           open={settingsOpen}

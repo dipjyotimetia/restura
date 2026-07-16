@@ -34,6 +34,20 @@ interface ActiveCapture {
 
 let activeCapture: ActiveCapture | null = null;
 
+async function publishCaptureState(session?: CaptureSession | null): Promise<void> {
+  const currentSession = session === undefined ? await loadSession() : session;
+  await chrome.runtime
+    .sendMessage({
+      type: 'capture:state',
+      state: {
+        capturing: activeCapture !== null,
+        tabId: activeCapture?.tabId ?? null,
+        session: currentSession,
+      },
+    })
+    .catch(() => undefined);
+}
+
 function newSessionId(): string {
   // crypto.randomUUID avoids Date.now() determinism concerns and gives a stable id.
   return `cap_${crypto.randomUUID()}`;
@@ -58,7 +72,10 @@ function scheduleSync(): void {
   if (!capture || capture.flushTimer) return;
   capture.flushTimer = setTimeout(() => {
     capture.flushTimer = null;
-    if (activeCapture === capture) void saveSession(buildSession(capture));
+    if (activeCapture === capture) {
+      const session = buildSession(capture);
+      void saveSession(session).then(() => publishCaptureState(session));
+    }
   }, SYNC_DEBOUNCE_MS);
 }
 
@@ -69,8 +86,10 @@ function scheduleSync(): void {
  */
 async function finalizeCapture(capture: ActiveCapture): Promise<void> {
   if (capture.flushTimer) clearTimeout(capture.flushTimer);
-  await saveSession(buildSession(capture));
+  const session = buildSession(capture);
+  await saveSession(session);
   await clearMeta();
+  await publishCaptureState(session);
 }
 
 function onDebuggerEvent(source: chrome.debugger.Debuggee, method: string, params?: object): void {
@@ -116,7 +135,9 @@ async function startCapture(tabId: number): Promise<void> {
     flushTimer: null,
   };
   await saveMeta({ tabId, sessionId, createdAt });
-  await saveSession(buildSession(activeCapture));
+  const session = buildSession(activeCapture);
+  await saveSession(session);
+  await publishCaptureState(session);
 }
 
 async function stopCapture(): Promise<void> {
@@ -198,6 +219,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       case 'capture:clear':
         await saveSession(null);
         await clearMeta();
+        await publishCaptureState(null);
         break;
       case 'capture:get':
         break;

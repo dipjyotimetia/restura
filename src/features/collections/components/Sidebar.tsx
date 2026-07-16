@@ -12,7 +12,6 @@ import {
   GitBranch,
   HardDrive,
   History,
-  type LucideIcon,
   MoreVertical,
   Pencil,
   Play,
@@ -61,7 +60,6 @@ import {
 import { httpLikeStatus } from '@/lib/shared/console-format';
 import { METHOD_COLORS, PROTOCOL_LABELS } from '@/lib/shared/constants';
 import { downloadBlob } from '@/lib/shared/file-utils';
-import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { getElectronAPI } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import { selectFavoriteIds, selectHistoryCount } from '@/store/selectors';
@@ -106,39 +104,23 @@ import {
 } from './CollectionTree';
 import { ConflictDialog } from './ConflictDialog';
 import { FileStatusBadge } from './FileStatusBadge';
+import { SidebarEmptyState } from './SidebarEmptyState';
+import {
+  CollectionRunnerDialog,
+  CollectionSettingsDialog,
+  DocsViewer,
+  ExportSecretsDialog,
+  GitDialog,
+  WorkflowBuilder,
+  WorkflowExecutor,
+  WorkflowManager,
+} from './sidebarLazyDialogs';
 
 interface SidebarProps {
   activePanel?: ActivePanel | null;
 }
 
 const HISTORY_PAGE_SIZE = 20;
-
-const GitDialog = lazyComponent(() => import('@/components/shared/GitDialog'));
-const WorkflowBuilder = lazyComponent(async () => {
-  const module = await import('@/features/workflows/components/WorkflowBuilder');
-  return { default: module.WorkflowBuilder };
-});
-const WorkflowExecutor = lazyComponent(async () => {
-  const module = await import('@/features/workflows/components/WorkflowExecutor');
-  return { default: module.WorkflowExecutor };
-});
-const WorkflowManager = lazyComponent(async () => {
-  const module = await import('@/features/workflows/components/WorkflowManager');
-  return { default: module.WorkflowManager };
-});
-const CollectionRunnerDialog = lazyComponent(async () => {
-  const module = await import('./CollectionRunnerDialog');
-  return { default: module.CollectionRunnerDialog };
-});
-const CollectionSettingsDialog = lazyComponent(async () => {
-  const module = await import('./CollectionSettingsDialog');
-  return { default: module.CollectionSettingsDialog };
-});
-const ExportSecretsDialog = lazyComponent(async () => {
-  const module = await import('./ExportSecretsDialog');
-  return { default: module.ExportSecretsDialog };
-});
-const DocsViewer = lazyComponent(() => import('./DocsViewer'));
 
 /** Stable "nothing collapsed" set used while a search is active. */
 const EMPTY_COLLAPSED: Set<string> = new Set();
@@ -165,25 +147,6 @@ const siblingNames = (collectionId: string, parentId?: string) => {
 };
 
 type ExportFormat = 'postman' | 'insomnia' | 'opencollection' | 'bruno';
-
-/** Quiet empty state shared by the collections / history / workflows tabs. */
-function SidebarEmptyState({
-  icon: Icon,
-  title,
-  hint,
-}: {
-  icon: LucideIcon;
-  title: string;
-  hint: string;
-}) {
-  return (
-    <div className="text-center text-xs py-10 px-3">
-      <Icon className="mx-auto mb-2.5 h-5 w-5 text-sp-dim" />
-      <p className="text-muted-foreground">{title}</p>
-      <p className="text-[11px] mt-1 text-sp-dim">{hint}</p>
-    </div>
-  );
-}
 
 function Sidebar({ activePanel }: SidebarProps) {
   const {

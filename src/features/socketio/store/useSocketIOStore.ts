@@ -4,6 +4,7 @@ import { persist } from 'zustand/middleware';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { type FrameDirection, useConsoleStore } from '@/store/useConsoleStore';
 import type { KeyValue } from '@/types';
+import { filterSocketIOEvents } from '../lib/eventFilter';
 
 export type SocketIOStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 export type SocketIOEventDirection = 'sent' | 'received' | 'system' | 'ack';
@@ -382,22 +383,7 @@ export const useSocketIOStore = create<SocketIOState>()(
         const { connections, eventFilter, searchQuery } = get();
         const c = connections[connectionId];
         if (!c) return [];
-        let events = c.events;
-        if (eventFilter !== 'all') {
-          events = events.filter((e) => e.direction === eventFilter);
-        }
-        if (searchQuery.trim()) {
-          const q = searchQuery.toLowerCase();
-          events = events.filter((e) => {
-            if (e.eventName.toLowerCase().includes(q)) return true;
-            try {
-              return JSON.stringify(e.args).toLowerCase().includes(q);
-            } catch {
-              return false;
-            }
-          });
-        }
-        return events;
+        return filterSocketIOEvents(c.events, eventFilter, searchQuery);
       },
     }),
     createPersistedStore<SocketIOState>({
