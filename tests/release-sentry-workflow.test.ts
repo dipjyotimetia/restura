@@ -2,6 +2,12 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+function workflowExpressionFor(source: string, key: string): string {
+  const match = source.match(new RegExp(`^\\s*${key}:\\s*\\$\\{\\{([^\\n]+)\\}\\}`, 'm'));
+  expect(match, `${key} must be defined`).not.toBeNull();
+  return match?.[1]?.replace(/\\s+/g, ' ').trim() ?? '';
+}
+
 describe('release workflow Sentry guardrails', () => {
   const workflow = readFileSync(resolve(process.cwd(), '.github/workflows/release.yml'), 'utf8');
 
@@ -78,6 +84,34 @@ describe('release workflow Sentry guardrails', () => {
     );
     expect(desktopPublishBlock).toContain(
       "github.event.pull_request.user.login == 'restura-bot[bot]'"
+    );
+  });
+
+  it('uses the same trusted merged release candidate predicate for signing and publishing', () => {
+    const publishPredicate = workflowExpressionFor(workflow, 'PUBLISH_FOR_PULL_REQUEST');
+    const signingPredicate = workflowExpressionFor(workflow, 'CSC_FOR_PULL_REQUEST');
+
+    expect(signingPredicate).toBe(publishPredicate);
+    expect(publishPredicate).toContain("github.event_name == 'pull_request'");
+    expect(publishPredicate).toContain('github.event.pull_request.merged');
+    expect(publishPredicate).toContain("github.event.pull_request.base.ref == 'main'");
+    expect(publishPredicate).toContain("github.event.pull_request.head.ref == 'release/prepare'");
+    expect(publishPredicate).toContain(
+      "github.event.pull_request.user.login == 'restura-bot[bot]'"
+    );
+    expect(publishPredicate).toContain(
+      'github.event.pull_request.head.repo.full_name == github.repository'
+    );
+  });
+
+  it('requires Developer ID signing for stable macOS installers', () => {
+    const desktopPublishBlock = workflow.slice(
+      workflow.indexOf('- name: Build + publish installers'),
+      workflow.indexOf('- name: Attest installer provenance')
+    );
+
+    expect(desktopPublishBlock).toContain(
+      "RESTURA_REQUIRE_SIGNED_MAC: ${{ runner.os == 'macOS' && needs.release.outputs.is_prerelease == 'false' }}"
     );
   });
 
