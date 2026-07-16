@@ -117,6 +117,28 @@ describe('Kafka IPC validators', () => {
       expect(result.success).toBe(false);
     });
 
+    it('accepts only broker ports in the 1-65535 range', () => {
+      const base = {
+        connectionId: 'abc',
+        clientId: 'r',
+        auth: { securityProtocol: 'PLAINTEXT' as const },
+      };
+
+      expect(
+        KafkaConnectSchema.safeParse({ ...base, bootstrapBrokers: ['broker.example:65535'] })
+          .success
+      ).toBe(true);
+      for (const broker of ['broker.example:0', 'broker.example:65536', 'broker.example:99999']) {
+        const result = KafkaConnectSchema.safeParse({ ...base, bootstrapBrokers: [broker] });
+        expect(result.success).toBe(false);
+        if (!result.success) {
+          expect(result.error.issues).toContainEqual(
+            expect.objectContaining({ message: 'Broker port must be between 1 and 65535' })
+          );
+        }
+      }
+    });
+
     it('rejects more than 32 brokers', () => {
       const result = KafkaConnectSchema.safeParse({
         connectionId: 'abc',

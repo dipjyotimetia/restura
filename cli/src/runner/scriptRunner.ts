@@ -1,6 +1,5 @@
-import type { ScriptResult } from '@/features/scripts/lib/scriptExecutor';
-import ScriptExecutor from '@/features/scripts/lib/scriptExecutor';
-import type { HttpRequest } from '@/types';
+import ScriptExecutor, { type ScriptResult } from '@shared/scripts/script-executor';
+import type { HttpRequest } from '@shared/types';
 import type { LoadedRequest } from './collectionLoader.js';
 import type { ExecuteOutcome } from './executors/types.js';
 

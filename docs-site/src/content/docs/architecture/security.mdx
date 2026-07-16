@@ -57,7 +57,7 @@ The Electron renderer is sandboxed (`sandbox: true`, `contextIsolation: true`, `
 
 ## Scripts
 
-Pre-request and test scripts run in a **QuickJS WASM sandbox** (`src/features/scripts/lib/scriptExecutor.ts`):
+Pre-request and test scripts run in a **QuickJS WASM sandbox** (`shared/scripts/script-executor.ts`):
 
 - No DOM.
 - No filesystem.

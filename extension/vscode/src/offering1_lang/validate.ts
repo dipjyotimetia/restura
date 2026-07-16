@@ -4,8 +4,8 @@ import {
   grpcRequestSchema,
   httpRequestSchema,
   websocketRequestSchema,
-} from '../../../../src/lib/opencollection/schemas';
-import { escapeRegExp } from '../../../../src/lib/shared/escapeRegExp';
+} from '@shared/opencollection/schemas';
+import { escapeRegExp } from '@shared/text/escape-reg-exp';
 import { classifyOcFile, type OcRequestType } from '../workspace/collectionDetector';
 
 /** A single schema violation, located against the source text (0-based line). */

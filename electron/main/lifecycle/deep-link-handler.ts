@@ -2,7 +2,7 @@ import { validateURL } from '@shared/protocol/url-validation';
 import type { BrowserWindow } from 'electron';
 import { app } from 'electron';
 import * as path from 'path';
-import { createLogger } from '../../../src/lib/shared/logger';
+import { createLogger } from '@shared/runtime/logger';
 
 const log = createLogger('deep-link');
 

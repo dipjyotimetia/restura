@@ -15,7 +15,7 @@ Pre-request and test scripts are user-authored JavaScript that also travels insi
 
 ## Decision
 
-Execute all user scripts inside a **QuickJS WASM sandbox** (`src/features/scripts/lib/scriptExecutor.ts`). The VM has no DOM, no filesystem, and no ambient network — capabilities are granted only through an explicit host API (`rs.*`, with a Postman-compatible `pm.*` alias), and the VM is memory- and execution-time-capped. Anything the script can reach (e.g. `rs.sendRequest`, itself SSRF-guarded; `rs.vault`, desktop-only) is a deliberately exposed, audited capability rather than an ambient one.
+Execute all user scripts inside a **QuickJS WASM sandbox** (`shared/scripts/script-executor.ts`; the renderer path is a compatibility re-export). The VM has no DOM, no filesystem, and no ambient network — capabilities are granted only through an explicit host API (`rs.*`, with a Postman-compatible `pm.*` alias), and the VM is memory- and execution-time-capped. Anything the script can reach (e.g. `rs.sendRequest`, itself SSRF-guarded; `rs.vault`, desktop-only) is a deliberately exposed, audited capability rather than an ambient one.
 
 The sandbox — not source inspection — is the security boundary.
 

@@ -55,7 +55,7 @@ export default defineConfig({
         // Browser WebSocket API — untestable in jsdom without real browser
         'src/features/websocket/lib/websocketManager.ts',
         // Script execution sandbox (QuickJS) — integration-only
-        'src/features/scripts/lib/scriptExecutor.ts',
+        'shared/scripts/script-executor.ts',
         // HTTP executor — complex Axios/Electron async, covered by e2e
         'src/features/http/lib/requestExecutor.ts',
         // Cookie store — tough-cookie integration, covered by e2e

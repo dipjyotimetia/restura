@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
-const target = path.join(repoRoot, 'src/features/scripts/lib/sandboxLibraries/bundle.generated.ts');
+const target = path.join(repoRoot, 'shared/scripts/sandbox-libraries/bundle.generated.ts');
 
 if (existsSync(target)) {
   // Fast path: already generated.

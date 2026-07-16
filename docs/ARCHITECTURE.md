@@ -411,7 +411,8 @@ main.ts (entry — owns the IPC_MODULES register/dispose registry)
   ├── window-manager.ts          # Creates BrowserWindow
   │     ├── dev:  http://localhost:5173
   │     └── prod: dist/web/index.html (file://)
-  ├── preload.ts                 # contextBridge — exposes window.electron to renderer
+  ├── preload.ts                 # contextBridge entry; composes domain APIs from preload/
+  ├── preload/                   # platform, protocol, and integration bridge modules
   ├── handlers/                  # One handler per protocol/concern
   │     ├── http-handler.ts      # IPC: native HTTP via undici
   │     ├── grpc-handler.ts      # IPC: native gRPC via @connectrpc/connect-node
@@ -429,7 +430,8 @@ main.ts (entry — owns the IPC_MODULES register/dispose registry)
   │     ├── git-handler.ts
   │     └── capture-bridge-handler.ts  # 127.0.0.1 capture receiver (ADR 0024)
   ├── ipc/                       # IPC boundary
-  │     ├── ipc-validators.ts    # Zod validation for all IPC payloads
+  │     ├── ipc-validators.ts    # stable compatibility barrel
+  │     ├── validators/          # domain-owned Zod schemas + trusted-sender boundary
   │     ├── ipc-rate-limiter.ts  # Rate limiting for IPC calls
   │     ├── stream-registry.ts   # Shared streaming-connection bookkeeping
   │     └── connection-cleanup.ts# Idempotent renderer-destroyed cleanup
@@ -441,7 +443,7 @@ main.ts (entry — owns the IPC_MODULES register/dispose registry)
 ### IPC Security
 
 - Context isolation is enabled; the renderer cannot access Node.js APIs directly
-- All IPC inputs are validated with Zod schemas in `ipc/ipc-validators.ts` before processing
+- All IPC inputs are validated with Zod schemas in `ipc/validators/` before processing; `ipc/ipc-validators.ts` preserves the existing handler import contract
 - IPC calls are rate-limited in `ipc/ipc-rate-limiter.ts`
 - `preload.ts` exposes only the explicitly declared `window.electron` surface via `contextBridge`
 
@@ -475,9 +477,9 @@ main.ts (entry — owns the IPC_MODULES register/dispose registry)
 
 ## Collection format
 
-Restura speaks **OpenCollection v1.0.0** natively (the format Bruno 3.1+ uses). Implementation lives at [`src/lib/opencollection/`](../src/lib/opencollection/) — vendored JSON Schema, generated TS types, Zod runtime validators, YAML serializer, fs reader/writer, and bidirectional bridges to the internal `Collection` model. SSE and MCP requests live under the spec's `extensions` field as `x-restura-sse` / `x-restura-mcp` (round-trip stable).
+Restura speaks **OpenCollection v1.0.0** natively (the format Bruno 3.1+ uses). The runtime-neutral implementation lives at [`shared/opencollection/`](../shared/opencollection/) — vendored JSON Schema, generated TS types, Zod runtime validators, YAML serializer, Node fs adapters, and bidirectional bridges to the internal `Collection` model. Renderer paths under `src/lib/opencollection/` are compatibility re-exports. SSE and MCP requests live under the spec's `extensions` field as `x-restura-sse` / `x-restura-mcp` (round-trip stable).
 
-A legacy `.http.yaml`/`.grpc.yaml`/`.sse.yaml`/`.mcp.yaml` per-request format also exists at `src/lib/shared/file-collection-schema.ts` and is still used by the CLI runner and the existing Electron file watcher; it's marked `@deprecated` and migration to OpenCollection is tracked in the Phase 1/3 roadmap. See [`docs/opencollection.md`](./opencollection.md) for the user-facing format guide.
+A legacy `.http.yaml`/`.grpc.yaml`/`.sse.yaml`/`.mcp.yaml` per-request format also exists at `shared/collections/legacy-file-schema.ts` (with a renderer compatibility re-export) and is still used by the CLI runner and the existing Electron file watcher; it's marked `@deprecated` and migration to OpenCollection is tracked in the Phase 1/3 roadmap. See [`docs/opencollection.md`](./opencollection.md) for the user-facing format guide.
 
 ---
 
@@ -498,7 +500,7 @@ Auth that requires byte-for-byte signature fidelity (currently AWS SigV4) signs 
 
 ### Sandbox
 
-User pre-request/test scripts run in a QuickJS WASM sandbox (`src/features/scripts/lib/scriptExecutor.ts`) with a 64 MB memory limit and a 5 s execution-time limit for sync-only scripts (30 s when a host bridge — `pm.sendRequest`/`pm.vault`/`pm.cookies`/`rs.judge` — is in use, since a sub-request or keychain unwrap legitimately takes longer). No capability is ambient; each is an explicit, audited host bridge (no filesystem, no raw network). The previous source-level regex blocklist (`dangerousPatterns`) was deleted in Plan 3 — it provided no security (the sandbox is the boundary) but broke legitimate user code.
+User pre-request/test scripts run in a QuickJS WASM sandbox (`shared/scripts/script-executor.ts`) with a 64 MB memory limit and a 5 s execution-time limit for sync-only scripts (30 s when a host bridge — `pm.sendRequest`/`pm.vault`/`pm.cookies`/`rs.judge` — is in use, since a sub-request or keychain unwrap legitimately takes longer). No capability is ambient; each is an explicit, audited host bridge (no filesystem, no raw network). The renderer path is a compatibility re-export. The previous source-level regex blocklist (`dangerousPatterns`) was deleted in Plan 3 — it provided no security (the sandbox is the boundary) but broke legitimate user code.
 
 ### Network — SSRF prevention
 
@@ -536,7 +538,7 @@ The `@restura/cli` package (`cli/` directory) is the third backend consuming `sh
 
 Components:
 
-- `cli/src/runner/collectionLoader.ts` — walks a directory and parses every `_collection.yaml` + `*.{http,grpc,sse,mcp}.yaml` using the file-collection schema from `src/lib/shared/file-collection-schema.ts`
+- `cli/src/runner/collectionLoader.ts` — walks a directory and parses every `_collection.yaml` + `*.{http,grpc,sse,mcp}.yaml` using `shared/collections/legacy-file-schema.ts`
 - `cli/src/runner/envLoader.ts` — loads env vars from JSON or YAML, with `${VAR}` expansion from `process.env`
 - `cli/src/runner/runner.ts` — orchestrator: per-request, builds `RequestSpec` (resolving `{{KEY}}` against env + collection vars), calls `executeHttpProxy(spec, undiciFetcher, options)`, tallies results
 - `cli/src/reporters/{json,junit,html,live}.ts` — implementations of the `Reporter` interface
@@ -556,19 +558,22 @@ Tests are colocated with source files as `*.test.ts` / `*.test.tsx`. Vitest runs
 
 ### Type-Check Coverage
 
-CI type-checks several independent TypeScript projects — the root `tsconfig.json` excludes `worker`, `electron/main`, and the subprojects, so each needs its own invocation:
+CI type-checks several independent TypeScript projects — the root `tsconfig.json` covers renderer TypeScript only, so each runtime and tooling surface needs its own invocation:
 
 1. Renderer — `tsc --noEmit` (uses `tsconfig.json`)
-2. Electron main — `tsc --noEmit -p electron/tsconfig.json`
-3. HTTP feature — `tsc --noEmit -p src/features/http/tsconfig.json`
-4. Worker — `tsc --noEmit -p worker/tsconfig.json`
-5. Echo — `tsc --noEmit -p echo/tsconfig.json`
-6. Echo-local — `tsc --noEmit -p echo-local/tsconfig.json`
-7. CLI — `npm run --workspace cli type-check`
-8. Chrome extension — `npm run --workspace @restura/extension type-check`
-9. VS Code extension — `npm run --workspace restura-vscode type-check`
+2. TypeScript tooling and checked legacy JS — `npm run type-check:tooling`
+3. Electron main — `tsc --noEmit -p electron/tsconfig.json`
+4. HTTP feature — `tsc --noEmit -p src/features/http/tsconfig.json`
+5. Worker — `tsc --noEmit -p worker/tsconfig.json`
+6. Echo — `tsc --noEmit -p echo/tsconfig.json`
+7. Echo-local — `tsc --noEmit -p echo-local/tsconfig.json`
+8. CLI — `npm run --workspace cli type-check`
+9. Chrome extension — `npm run --workspace @restura/extension type-check`
+10. VS Code extension — `npm run --workspace restura-vscode type-check`
 
 Run them all at once with `npm run type-check:all` (which `npm run validate` calls). Plain `npm run type-check` covers only the renderer.
+
+`npm run architecture:check` complements TypeScript with repository-level policy: runtime-neutral `shared/` cannot depend on an application, backend programs cannot depend on renderer-owned `src/`, runtime imports must be acyclic, new production files are capped at 800 lines, and legacy oversized files have exact non-growing caps. See ADR 0028.
 
 ---
 
@@ -594,9 +599,10 @@ Run them all at once with `npm run type-check:all` (which `npm run validate` cal
 
 ## Development Principles
 
-1. **Type safety**: Strict TypeScript across renderer, Worker, and Electron main process — three separate `tsconfig.json` files, all strict
+1. **Type safety**: Strict TypeScript across every runtime plus explicit tooling/legacy-JS ratchets
 2. **Feature co-location**: Each feature owns its components, hooks, stores, and tests in `src/features/<name>/`
 3. **No server-side rendering**: Pure SPA with hash routing for portability across `https://` and `file://`
 4. **Zero Worker in desktop**: The Electron build excludes `_worker.js` entirely; no Cloudflare runtime in the desktop app
 5. **Zod at boundaries**: All external inputs (persisted-store hydration, IPC payloads, API responses) are validated with Zod schemas
 6. **Sandbox scripts**: User-provided scripts never run in the browser's JavaScript context
+7. **Checked architecture**: Dependency direction, runtime cycles, and module-size debt are executable CI policy (ADR 0028)

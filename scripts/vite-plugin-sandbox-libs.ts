@@ -15,10 +15,7 @@ import type { Plugin } from 'vite';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
 const scriptPath = path.join(repoRoot, 'scripts/build-sandbox-libs.mjs');
-const outFile = path.join(
-  repoRoot,
-  'src/features/scripts/lib/sandboxLibraries/bundle.generated.ts'
-);
+const outFile = path.join(repoRoot, 'shared/scripts/sandbox-libraries/bundle.generated.ts');
 
 function runBuild(reason: string): void {
   if (!existsSync(scriptPath)) {

@@ -5,7 +5,7 @@ import {
   type ResolvedAgentTools,
   type ToolSource,
 } from '@shared/agent-lab';
-import type { HttpRequest } from '@/types';
+import type { HttpRequest } from '@shared/types';
 import type { LoadedRequest } from './collectionLoader.js';
 import type { ExecuteOptions, ExecuteOutcome } from './executors/types.js';
 import type { AgentRuntimeManifest } from '../commands/agentRuntime.js';

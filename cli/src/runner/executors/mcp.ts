@@ -1,7 +1,7 @@
 import { validateMcpSpec } from '@shared/protocol/mcp-proxy';
 import { request as undiciRequest } from 'undici';
 import { v4 as uuidv4 } from 'uuid';
-import type { McpRequest } from '@/types';
+import type { McpRequest } from '@shared/types';
 import type { LoadedRequest } from '../collectionLoader';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, resolveOAuth2Token } from './auth';

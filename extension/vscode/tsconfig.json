@@ -9,15 +9,15 @@
     "noEmit": true,
     "exactOptionalPropertyTypes": false,
     "paths": {
-      "@shared/*": ["../../shared/*"],
-      "@/*": ["../../src/*"]
+      "@shared/*": ["../../shared/*"]
     }
   },
   "include": [
     "src/**/*.ts",
     "../../shared/protocol/**/*.ts",
-    "../../src/lib/opencollection/schemas.ts",
-    "../../src/lib/opencollection/serializer.ts"
+    "../../shared/opencollection/schemas.ts",
+    "../../shared/opencollection/serializer.ts",
+    "../../shared/text/**/*.ts"
   ],
   "exclude": ["node_modules", "out", "**/*.test.ts"]
 }

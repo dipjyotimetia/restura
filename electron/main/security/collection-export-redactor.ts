@@ -19,8 +19,8 @@
  * warning when this happens.
  */
 
-import { SECRET_FIELDS_BY_AUTH_BLOCK } from '../../../src/lib/shared/auth-secret-fields';
-import type { SecretValue } from '../../../src/lib/shared/secretRef';
+import { SECRET_FIELDS_BY_AUTH_BLOCK } from '@shared/secrets/auth-fields';
+import type { SecretValue } from '@shared/secrets/secret-ref';
 
 // Single source of truth shared with the renderer-side export redactor
 // (`src/lib/shared/collection-secret-redaction.ts`) — a field added there is

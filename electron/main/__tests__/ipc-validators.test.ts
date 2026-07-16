@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { afterAll, beforeAll, vi } from 'vitest';
 import { z } from 'zod';
-import { consoleSink, noopSink, setLogSink } from '../../../src/lib/shared/logger';
+import { consoleSink, noopSink, setLogSink } from '@shared/runtime/logger';
 import {
   BugReportScreenshotSchema,
   createValidatedHandler,

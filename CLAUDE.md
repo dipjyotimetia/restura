@@ -27,6 +27,7 @@ npm run build                  # Production build (SPA + Worker bundle)
 npm run preview                # Preview production build
 npm run type-check             # TypeScript strict mode — renderer only (excludes worker, electron/main, cli)
 npm run type-check:all         # Full type-check across all tsconfigs — what CI runs
+npm run architecture:check     # Enforce runtime boundaries, acyclic imports, file-size ratchets
 npm run lint                   # Biome lint over src/ shared/ electron/main/ worker/ echo/ echo-local/ cli/ tests/ scripts/
 npm run lint:fix               # Biome lint --write
 npm run format                 # Biome format (write)
@@ -53,8 +54,9 @@ vitest run path/to/file.test.ts                  # Run a single Vitest file
 vitest run -t "test name pattern"                # Filter by test name
 npx playwright test e2e/real-http.spec.ts        # Run a single e2e spec
 
-# Full validation (matches CI)
-npm run validate               # type-check:all + lint + format:check + verify:opencollection-types + capabilities:check + test:run + cli test
+# Core product validation
+npm run validate               # Static policy + root/workspace tests + web, Docker, Electron, extension builds + size
+# Docs, E2E, packaging smoke, and deploy checks are separate CI jobs; see docs/CI_CD.md.
 
 # Generated code
 npm run proto:gen                       # buf generate (regenerates protobuf TS)
@@ -146,7 +148,7 @@ src/features/{collections,environments,workflows,scripts,auth,registry,contracts
 src/components/{ui,shared,providers}
 src/routes/                                          # React Router route components
 src/lib/shared/                                      # platform, encryption, storage, validators, capabilities, etc.
-src/lib/opencollection/                              # OpenCollection spec import/export (generated types)
+shared/opencollection/                               # OpenCollection spec import/export (generated types)
 ```
 
 > **Capability parity is data-driven.** `src/lib/shared/capabilities.ts` is the single source of truth for which features work on web vs. desktop (e.g. Kafka and SOCKS/PAC/mTLS are desktop-only — no browser TCP). It is codegen'd into `docs/CAPABILITY_MATRIX.md` and gated by `npm run capabilities:check`. Update `capabilities.ts` (not the doc) when you add a feature that differs across platforms.
@@ -170,12 +172,12 @@ The main process is organised into purpose-based subfolders. Files that compute 
 - **Root (`electron/main/`)** — the `__dirname`-sensitive entry points:
   - `main.ts` — entry / orchestrator. Owns the `IPC_MODULES` registry that couples each handler's `register` to its `dispose`, so teardown can't drift out of sync with registration.
   - `window-manager.ts` — loads `http://localhost:5173` in dev, `dist/web/index.html` in prod; resolves resource/icon paths.
-  - `preload.ts` — context-isolated IPC bridge (`window.electron`); bundled by esbuild (`electron:bundle-preload`) so the sandboxed preload is self-contained. Channel names come from `electron/shared/channels.ts`; the exposed surface is type-checked against `electron/types/electron-api.ts` via `satisfies ElectronAPI`.
+  - `preload.ts` — context-isolated IPC entry that composes domain APIs from `preload/`; bundled by esbuild (`electron:bundle-preload`) so the sandboxed preload is self-contained. Channel names come from `electron/shared/channels.ts`; the exposed surface is type-checked against the modules under `electron/types/api/` via `satisfies ElectronAPI`.
   - `notifications.ts` — native notifications + its rate limiter.
 
 - **`handlers/`** — one handler per protocol/concern: `http-handler.ts`, `grpc-handler.ts`, `grpc-reflection-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`, `sse-handler.ts`, `mcp-handler.ts`, `kafka-handler.ts`, `mqtt-handler.ts`, `ai-handler.ts`, `ai-lab-handler.ts`, `mcp-server-handler.ts` (+ `mcp-context-loader.ts`), `mock-server-handler.ts`, `git-handler.ts`, plus shared helpers `interceptor-registry.ts`, `channel-event-bridge.ts`, `fetch-fetcher.ts`, `grpc-connect.ts`, `grpc-credentials.ts`, `kafka-serde.ts`, `sse-parser.ts`.
 
-- **`ipc/`** — the IPC boundary: `ipc-validators.ts` + `ipc-rate-limiter.ts` (input validation and rate limits; legacy rate-limiter API deprecated, see ADR-0006), `ipc-utils.ts`, `rate-limiter-cleanup.ts`, and `connection-cleanup.ts` — idempotent renderer-`destroyed` listener dedupe (`bindRendererCleanup`) + walk-and-dispose helper (`disposeByOwner`). These are composed by `stream-registry.ts` (`StreamRegistry`) — the shared connection bookkeeping every streaming handler (SSE, WebSocket, Socket.IO, Kafka, MQTT, gRPC streams, MCP) builds on: the connection map, same-id replace (`add`) / reject-on-duplicate (`tryAdd`), renderer-destroyed cleanup, templated per-connection `emit`, and `disposeAll`. Protocol policy (rate limits, caps, transport, per-protocol teardown) stays in each handler; `dispose(entry)` is the seam a handler plugs its teardown into.
+- **`ipc/`** — the IPC boundary: domain-owned Zod modules live under `ipc/validators/`; `ipc-validators.ts` is the stable compatibility barrel. Rate limiting, stream ownership, and cleanup remain in `ipc-rate-limiter.ts`, `stream-registry.ts`, and `connection-cleanup.ts`. The shared registry owns connection maps, replace/reject behavior, renderer-destroyed cleanup, templated events, and `disposeAll`; per-protocol policy stays in each handler.
 
 - **`security/`** — outbound-safety and secret handling:
   - `dns-guard.ts` — pre-flight SSRF guard. `assertHostnameSafe` / `assertUrlHostnameSafe` resolve the hostname and call `assertResolvedAddressAllowed` from `shared/protocol/url-validation` against every record. Pre-flight only — does NOT mitigate true DNS-rebind (TTL=0 swap during connect).
@@ -221,14 +223,15 @@ Standalone documentation site (`@restura/docs-site`, deployed to docs.restura.de
 ## Key Technical Patterns
 
 - **Path alias** `@/` → `./src/` (configured in `tsconfig.json` and `vitest.config.ts`).
+- **Architecture boundaries** — `shared/` is the runtime-neutral dependency floor; Worker, Electron main, and CLI must not import renderer-owned `src/`. `scripts/architecture.config.mts` checks direction, runtime cycles, and exact file-size ratchets (ADR 0028).
 - **Build tool**: Vite 8 + `@vitejs/plugin-react` + `@cloudflare/vite-plugin`. The Cloudflare plugin boots Miniflare during `vite dev` so one command runs both SPA and Worker. Config is `vite.config.mts` (must be ESM — the Cloudflare plugin is ESM-only).
 - **Tailwind v4** via `@tailwindcss/vite` (no separate PostCSS config).
 - **Lazy components**: `src/lib/shared/lazyComponent.tsx` wraps `React.lazy` + `Suspense` (mirrors `next/dynamic` ergonomics — `next/dynamic` was removed).
 - **Strict TS**: `noUnusedLocals`, `noUnusedParameters`, `noImplicitReturns`, `noUncheckedIndexedAccess`. `exactOptionalPropertyTypes` is **off** intentionally.
 - **UI** — Radix UI primitives + Tailwind, shadcn/ui patterns in `src/components/ui/`.
-- **Script sandbox** — pre-request and test scripts run in QuickJS WASM (`src/features/scripts/lib/scriptExecutor.ts`). No DOM, no filesystem, no network escape; memory + execution-time capped.
-- **Collection import/export** — Postman v2.1, Insomnia, and OpenCollection (`src/lib/opencollection/`, with codegen — `spec-types.ts` is generated, validated by `verify:opencollection-types`).
-- **Multiple tsconfigs** — `tsconfig.json` (renderer), `electron/tsconfig.json` (main), `worker/tsconfig.json` (Worker), `echo/tsconfig.json` (echo), `cli/tsconfig.json` (CLI), plus `src/features/http/tsconfig.json`. `tsconfig.base.json` holds shared compiler options. **`npm run type-check` only covers the renderer** — the root `tsconfig.json` excludes `worker`, `electron/main`, and `cli`, so a green `type-check` does _not_ mean those projects compile. Use **`npm run type-check:all`** (chained into `npm run validate`) to type-check every project the way CI does. `npm run lint` does cover all of them.
+- **Script sandbox** — pre-request and test scripts run in QuickJS WASM (`shared/scripts/script-executor.ts`; the renderer path is a compatibility re-export). No DOM, no filesystem, no network escape; memory + execution-time capped.
+- **Collection import/export** — Postman v2.1, Insomnia, and OpenCollection (`shared/opencollection/`, with codegen — `spec-types.ts` is generated, validated by `verify:opencollection-types`).
+- **Multiple tsconfigs** — `tsconfig.json` (renderer), `tsconfig.tooling.json` / `tsconfig.tooling-js.json` (tooling ratchets), `electron/tsconfig.json` (main), `worker/tsconfig.json` (Worker), `echo/tsconfig.json` (echo), `cli/tsconfig.json` (CLI), plus `src/features/http/tsconfig.json`. `tsconfig.base.json` holds shared compiler options. **`npm run type-check` only covers the renderer** — use **`npm run type-check:all`** for every checked project. `npm run validate` also runs architecture, tests, builds, Electron runtime-import verification, and size limits.
 
 ## Testing
 

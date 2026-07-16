@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { z } from 'zod';
-import { createLogger } from '../../src/lib/shared/logger';
+import { createLogger } from '@shared/runtime/logger';
 import { IPC } from '../shared/channels';
 import { gitRateLimiter } from './handlers/git-handler';
 import { grpcRateLimiter } from './handlers/grpc-handler';

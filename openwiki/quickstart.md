@@ -28,7 +28,7 @@ The repo also maintains `/CLAUDE.md` (Claude Code) and `/AGENTS.md` (Codex) as c
 ```
 /                          # root monorepo with npm workspaces (cli, chrome + vscode extensions)
 ├─ src/                    # React SPA renderer shared by web, self-hosted, and Electron
-├─ shared/                 # Backend-agnostic protocol orchestrators and capture helpers
+├─ shared/                 # Runtime-neutral domain, protocol, schema, and tooling core
 ├─ worker/                 # Cloudflare Worker + self-hosted Node backend (Hono app factory)
 ├─ electron/               # Desktop shell: main process, preload, IPC handlers, storage
 ├─ cli/                    # CI `restura` CLI (npm workspace)
@@ -63,7 +63,8 @@ npm run preview                     # Preview production build
 
 # Type-check / lint / format
 npm run type-check                  # renderer-only (not Worker/Electron/CLI)
-npm run type-check:all              # all tsconfig projects (CI)
+npm run type-check:all              # all runtime, extension, and tooling tsconfigs
+npm run architecture:check          # dependency directions, cycles, file-size ratchets
 npm run lint
 npm run format
 
@@ -90,7 +91,7 @@ npm run start                       # node dist/server/index.mjs
 npm run --workspace cli test
 
 # Full validation (matches CI)
-npm run validate                    # type-check:all -> lint -> fmt -> generated code checks -> tests
+npm run validate                    # static policy -> all tests/workspaces -> production builds/size
 ```
 
 **Traps for agents**
@@ -98,6 +99,7 @@ npm run validate                    # type-check:all -> lint -> fmt -> generated
 - `npm run type-check` only covers the renderer. Use `npm run type-check:all` for the same coverage CI uses.
 - The pre-commit hook runs only `lint-staged` (Biome lint + format). It does not run tests or tsc.
 - Generated code is CI-gated: `npm run verify:opencollection-types` and `npm run capabilities:check` can fail if source-of-truth files changed but outputs were not regenerated.
+- Runtime-neutral code belongs in `shared/`; Worker, Electron main, and CLI must not import renderer-owned `src/` modules. `npm run architecture:check` enforces this and rejects new runtime cycles.
 - Adding a protocol? Put backend-agnostic logic in `shared/protocol/` and add a thin `Fetcher` adapter in `worker/handlers/` and `electron/main/handlers/`.
 
 ---

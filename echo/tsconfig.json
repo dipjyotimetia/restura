@@ -18,6 +18,7 @@
     "node_modules",
     "../shared/**/*.test.ts",
     "../shared/**/*.spec.ts",
-    "../shared/**/__tests__/**"
+    "../shared/**/__tests__/**",
+    "../shared/opencollection/node/**"
   ]
 }

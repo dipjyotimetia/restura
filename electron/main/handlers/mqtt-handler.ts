@@ -4,7 +4,7 @@ import { ipcMain, webContents } from 'electron';
 import type * as MqttLib from 'mqtt';
 
 import type { IClientOptions, IConnackPacket, IPublishPacket, MqttClient } from 'mqtt';
-import { createLogger } from '../../../src/lib/shared/logger';
+import { createLogger } from '@shared/runtime/logger';
 import { IPC } from '../../shared/channels';
 import { MQTT_CHANNEL, mqttChannel } from '../../shared/mqtt-channels';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';

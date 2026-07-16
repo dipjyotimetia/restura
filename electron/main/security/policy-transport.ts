@@ -1,4 +1,4 @@
-import { selectCertForUrl } from '../../../src/lib/shared/certMatcher';
+import { selectCertForUrl } from '@shared/protocol/cert-matcher';
 import { assertExecutionPolicyReady, getExecutionPolicy } from './execution-policy';
 import { isProxyBypassed } from './proxy-bypass';
 import { createPinnedFetch, type SafeAddress } from './safe-connect';

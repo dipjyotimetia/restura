@@ -149,7 +149,7 @@ function main() {
   const proto = grpc.loadPackageDefinition(packageDefinition);
 
   const server = new grpc.Server();
-  server.addService(proto.echo.v1.EchoService.service, impl);
+  server.addService(/** @type {any} */ (proto).echo.v1.EchoService.service, impl);
 
   // Native gRPC server reflection (v1 + v1alpha) — drives the app's "Discover".
   new ReflectionService(packageDefinition).addToServer(server);

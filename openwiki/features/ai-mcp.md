@@ -87,9 +87,9 @@ AI Lab allows `allowLocalhost` only for local runtimes (Ollama, OpenAI-compatibl
 
 Restura can expose its own collections, environments, and history as tools to an external MCP client.
 
-- `src/features/mcp-server/dispatch.ts` — read-only tools: `list_collections`, `list_requests`, `get_history`, `get_environment`, `list_environments`.
-- `src/features/mcp-server/consent.ts` — per-resource consent levels (`hidden/read-only/full` for collections; `hidden/read-only` for environments/history). Defaults are hidden.
-- `src/features/mcp-server/redaction.ts` — strips secret environment variables and redacts request/response bodies recursively before exposing them to MCP clients.
+- `shared/mcp-server/dispatch.ts` — read-only tools: `list_collections`, `list_requests`, `get_history`, `get_environment`, `list_environments`.
+- `shared/mcp-server/consent.ts` — per-resource consent levels (`hidden/read-only/full` for collections; `hidden/read-only` for environments/history). Defaults are hidden.
+- `shared/mcp-server/redaction.ts` — strips secret environment variables and redacts request/response bodies recursively before exposing them to MCP clients.
 - `execute_request` is declared but disabled in v1.
 - Electron handler: `electron/main/handlers/mcp-server-handler.ts`.
 
@@ -118,7 +118,7 @@ Restura can call external MCP servers from the request builder and from workflow
 | AI Lab playground / datasets | `src/features/ai-lab/lib/llmClient.ts`, `src/features/ai-lab/lib/openapiTestGen.ts`, `src/features/ai-lab/lib/redteamGen.ts`                                        |
 | AI Lab arena                 | `src/features/ai-lab/lib/arenaRunner.ts`, `src/features/ai-lab/lib/elo.ts`, `src/features/ai-lab/store/useArenaStore.ts`                                            |
 | AI Lab agents                | `shared/agent-lab/`, `src/features/ai-lab/lib/agentRuntime.ts`, `src/features/ai-lab/lib/agentTools.ts`, `cli/src/commands/agent.ts`                                |
-| MCP server                   | `src/features/mcp-server/dispatch.ts`, `src/features/mcp-server/consent.ts`, `src/features/mcp-server/redaction.ts`, `electron/main/handlers/mcp-server-handler.ts` |
+| MCP server                   | `shared/mcp-server/dispatch.ts`, `shared/mcp-server/consent.ts`, `shared/mcp-server/redaction.ts`, `electron/main/handlers/mcp-server-handler.ts`                   |
 | MCP client                   | `src/features/mcp/protocol.ts`, `src/features/mcp/lib/mcpClient.ts`, `src/features/mcp/lib/McpClientPool.ts`                                                        |
 
 ---

@@ -6,7 +6,7 @@ import { ipcMain } from 'electron';
 import type * as SocketIoClient from 'socket.io-client';
 
 import type { Socket } from 'socket.io-client';
-import { createLogger } from '../../../src/lib/shared/logger';
+import { createLogger } from '@shared/runtime/logger';
 import { IPC } from '../../shared/channels';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo } from '../ipc/ipc-utils';

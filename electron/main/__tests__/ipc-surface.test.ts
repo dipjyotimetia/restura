@@ -26,14 +26,15 @@ import {
 // file type-checks under the electron program's CJS output (no import.meta).
 const MAIN_DIR = path.resolve(process.cwd(), 'electron/main');
 
-/** Read every electron/main TypeScript source recursively (excluding tests). */
-function readMainSources(exclude: string[] = []): string {
+/** Read TypeScript sources recursively under one explicit ownership root. */
+function readTypeScriptSources(directory: string, exclude: string[] = []): string {
   const walk = (dir: string): string[] => {
     const out: string[] = [];
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       if (entry.name === '__tests__') continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
+        if (exclude.includes(entry.name)) continue;
         out.push(...walk(full));
       } else if (entry.name.endsWith('.ts') && !exclude.includes(entry.name)) {
         out.push(fs.readFileSync(full, 'utf8'));
@@ -41,12 +42,15 @@ function readMainSources(exclude: string[] = []): string {
     }
     return out;
   };
-  return walk(MAIN_DIR).join('\n');
+  return walk(directory).join('\n');
 }
 
-const preloadSrc = fs.readFileSync(path.join(MAIN_DIR, 'preload.ts'), 'utf8');
+const preloadSrc = [
+  fs.readFileSync(path.join(MAIN_DIR, 'preload.ts'), 'utf8'),
+  readTypeScriptSources(path.join(MAIN_DIR, 'preload')),
+].join('\n');
 // Handler corpus = all main sources except the preload bridge itself.
-const handlerSrc = readMainSources(['preload.ts']);
+const handlerSrc = readTypeScriptSources(MAIN_DIR, ['preload.ts', 'preload']);
 
 // Flatten IPC into { ref: 'IPC.group.name', value: 'group:name' } rows.
 const ipcEntries = Object.entries(IPC).flatMap(([group, channels]) =>

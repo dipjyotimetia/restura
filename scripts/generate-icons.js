@@ -147,7 +147,9 @@ async function generate() {
   console.log('Generating Windows ICO...');
   try {
     const pngToIcoMod = require('png-to-ico');
-    const pngToIco = pngToIcoMod.default || pngToIcoMod;
+    const pngToIco = /** @type {(filepath: string | Buffer | unknown[]) => Promise<Buffer>} */ (
+      pngToIcoMod.default || pngToIcoMod
+    );
     const pngSizes = [16, 32, 48, 256].map((s) => path.join(iconsDir, `${s}x${s}.png`));
     fs.writeFileSync(path.join(resourcesDir, 'icon.ico'), await pngToIco(pngSizes));
     console.log('  created icon.ico');

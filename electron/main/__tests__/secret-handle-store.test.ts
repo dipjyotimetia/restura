@@ -94,9 +94,15 @@ describe('secret-handle-store', () => {
     });
 
     it('does not expose resolveSecretHandle through the preload bridge', async () => {
-      const { readFileSync } = await import('node:fs');
+      const { readFileSync, readdirSync } = await import('node:fs');
       const { join } = await import('node:path');
-      const preload = readFileSync(join(__dirname, '..', 'preload.ts'), 'utf8');
+      const preloadDir = join(__dirname, '..', 'preload');
+      const preload = [
+        readFileSync(join(__dirname, '..', 'preload.ts'), 'utf8'),
+        ...readdirSync(preloadDir)
+          .filter((entry) => entry.endsWith('.ts'))
+          .map((entry) => readFileSync(join(preloadDir, entry), 'utf8')),
+      ].join('\n');
       // The preload should NOT mention resolveSecretHandle. If it does, the
       // renderer can read plaintext, defeating the entire pattern.
       expect(preload).not.toMatch(/resolveSecretHandle/);

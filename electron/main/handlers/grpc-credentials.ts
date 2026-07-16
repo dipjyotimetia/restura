@@ -1,4 +1,4 @@
-import { selectCertForUrl } from '../../../src/lib/shared/certMatcher';
+import { selectCertForUrl } from '@shared/protocol/cert-matcher';
 import { assertExecutionPolicyReady, getExecutionPolicy } from '../security/execution-policy';
 
 /**

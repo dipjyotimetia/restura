@@ -1,5 +1,5 @@
 import { app, BrowserWindow, session } from 'electron';
-import { createLogger } from '../../src/lib/shared/logger';
+import { createLogger } from '@shared/runtime/logger';
 import { registerAiHandlers, unregisterAiHandlers } from './handlers/ai-handler';
 import { registerAiLabHandlers, unregisterAiLabHandlers } from './handlers/ai-lab-handler';
 import { registerBugReportIPC } from './handlers/bug-report-handler';

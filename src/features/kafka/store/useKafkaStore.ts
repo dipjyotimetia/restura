@@ -1,7 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
 import { capMessages } from '@/lib/shared/message-cap';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
@@ -216,11 +215,6 @@ export const useKafkaStore = create<KafkaState>()(
       cleanupConnectionForTab: (tabId) => {
         const connectionId = get().connectionByTabId[tabId];
         if (!connectionId) return;
-        try {
-          void kafkaManager.disconnect(connectionId);
-        } catch {
-          /* ignore — manager handles missing/already-closed connections */
-        }
         set((state) => {
           const { [connectionId]: _drop, ...restConns } = state.connections;
           const { [tabId]: _dropTab, ...restMap } = state.connectionByTabId;

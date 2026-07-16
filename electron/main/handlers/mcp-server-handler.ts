@@ -37,7 +37,7 @@ import {
   postProcessResult,
   TOOLS,
   type ToolResult,
-} from '../../../src/features/mcp-server/dispatch';
+} from '@shared/mcp-server/dispatch';
 
 export interface McpServerHandle {
   /** Stop the server and free the transport. Idempotent. */
