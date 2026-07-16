@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { GrpcMethodType, GrpcRequest } from '@/types';
+import type { GrpcMethodType, GrpcRequest } from '@shared/types';
 import type { LoadedRequest } from '../collectionLoader';
 import { executeGrpc } from '../executors/grpc';
 import type { ExecuteOptions } from '../executors/types';

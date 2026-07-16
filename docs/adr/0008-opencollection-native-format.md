@@ -10,7 +10,7 @@ We also need the in-memory TypeScript types for that format to stay in lock-step
 
 ## Decision
 
-Adopt **OpenCollection** as Restura's native read/write format, implemented in `src/lib/opencollection/`. Two on-disk layouts are supported: a single bundled YAML document and a directory layout (`fs-reader.ts` / `fs-writer.ts`).
+Adopt **OpenCollection** as Restura's native read/write format, implemented in runtime-neutral `shared/opencollection/`. Two on-disk layouts are supported: a single bundled YAML document and a directory layout through the Node adapters (`node/fs-reader.ts` / `node/fs-writer.ts`).
 
 - The spec's TypeScript types (`spec-types.ts`) are **generated** from the vendored JSON Schema, not hand-written. `npm run gen:opencollection-types` regenerates them and `npm run verify:opencollection-types` is a CI gate that fails the build if the committed types drift from the schema.
 - Protocols map as follows: HTTP, GraphQL (an HTTP item with a `graphql` body), gRPC, and WebSocket are first-class OpenCollection items. Socket.IO, SSE, and MCP ride along in `extensions` as `x-restura-socketio` / `x-restura-sse` / `x-restura-mcp`, preserved verbatim across import/export.
@@ -34,6 +34,6 @@ Adopt **OpenCollection** as Restura's native read/write format, implemented in `
 ## References
 
 - User guide: `docs/opencollection.md`, docs-site `/reference/opencollection/`
-- Code: `src/lib/opencollection/` (`spec-types.ts`, `to-internal.ts`, `from-internal.ts`, `fs-reader.ts`, `fs-writer.ts`, `schemas.ts`)
+- Code: `shared/opencollection/` (`spec-types.ts`, `to-internal.ts`, `from-internal.ts`, `node/fs-reader.ts`, `node/fs-writer.ts`, `schemas.ts`)
 - Codegen: `npm run gen:opencollection-types`, `npm run verify:opencollection-types`
 - Related: [ADR 0005 (CLI runner)](./0005-cli-runner.md), [ADR 0007 (SecretRef)](./0007-secret-ref-pattern.md) for secret redaction on export

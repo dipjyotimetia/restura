@@ -67,7 +67,7 @@ npm run build:docker
 npm run start                       # node dist/server/index.mjs
 
 # Full CI gate
-npm run validate                    # type-check:all + lint + format + codegen verify + tests + CLI test
+npm run validate                    # static policy + root/workspace tests + all production builds/size
 ```
 
 > **Trap:** plain `npm run type-check` only covers the renderer. Use `npm run type-check:all`; pre-commit hooks run only `lint-staged`, not tsc or tests.
@@ -148,15 +148,16 @@ vitest run -t "test name pattern"
 
 ### CI gates
 
-The `validate` script matches the full CI gate:
+The `validate` script is the canonical full repository gate:
 
 1. `type-check:all`
 2. `lint`
 3. `format:check`
 4. `verify:opencollection-types` — regenerates OpenCollection types and fails on diff.
 5. `capabilities:check` — regenerates capability matrix and fails on diff.
-6. `test:run`
-7. CLI workspace test.
+6. `architecture:check` — validates source-zone directions, runtime cycles, and file-size ratchets.
+7. Root tests with coverage plus CLI and VS Code workspace tests.
+8. Web/Worker, CLI, and extension production builds, Electron compile/runtime-import verification, and bundle-size limits.
 
 There are also codegen ownership checks and bundle-size limits (`size-limit`).
 
@@ -165,7 +166,7 @@ There are also codegen ownership checks and bundle-size limits (`size-limit`).
 ## Builds and generated files
 
 - `npm run proto:gen` — `buf generate`; regenerates TypeScript protobuf code.
-- `npm run gen:opencollection-types` — generates `src/lib/opencollection/spec-types.ts` from the vendored schema.
+- `npm run gen:opencollection-types` — generates `shared/opencollection/spec-types.ts` from the vendored schema.
 - `npm run capabilities:matrix` — generates `docs/CAPABILITY_MATRIX.md` from `src/lib/shared/capabilities.ts`.
 - `npm run build:sandbox-libs` — rebuilds QuickJS sandbox libraries.
 

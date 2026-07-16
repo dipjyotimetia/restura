@@ -19,7 +19,7 @@ Supported formats:
 - Bruno Collection
 - HTTP file (`importHttpFile`)
 
-Types: `src/types/import-export.ts`.
+Types: `shared/types/import-export.ts` (with a renderer compatibility re-export at `src/types/import-export.ts`).
 
 ### Import behaviour
 
@@ -34,9 +34,8 @@ Types: `src/types/import-export.ts`.
 Restura's native disk format is [OpenCollection v1.0.0](https://spec.opencollection.com/). See `docs/opencollection.md` for the full spec.
 
 - Vendored schema: `vendor/opencollection/v1.0.0/schema.json`.
-- Generated types: `src/lib/opencollection/spec-types.ts`.
-- Parser: `src/lib/opencollection/parser.ts`.
-- Validator: `src/lib/opencollection/validator.ts`.
+- Generated types: `shared/opencollection/spec-types.ts`.
+- Parser/serializer and runtime schemas: `shared/opencollection/`.
 
 Regenerate types with `npm run gen:opencollection-types`; CI verifies no drift with `npm run verify:opencollection-types`.
 
@@ -56,7 +55,7 @@ my-api/
 
 Restura-specific extensions for SSE and MCP live under `extensions.x-restura-sse` and `extensions.x-restura-mcp`. They are roundtrip-stable: other tools can ignore them and Restura re-emits them verbatim.
 
-On export, inline secrets render as `{{handle:<label>}}` rather than plaintext. Redaction helpers: `src/lib/shared/collection-secret-redaction.ts`, `src/lib/shared/keyvalue-secret-redaction.ts`, `electron/main/security/collection-export-redactor.ts`.
+On export, inline secrets render as `{{handle:<label>}}` rather than plaintext. Redaction helpers: `shared/secrets/collection-redaction.ts`, `shared/secrets/key-value-redaction.ts`, `electron/main/security/collection-export-redactor.ts`.
 
 Directory saves are staged and parsed back before the destination is updated. A hidden managed-file manifest lets Restura remove renamed/deleted request files without deleting unrelated content such as `.git`, README files, or user fixtures.
 
@@ -153,9 +152,9 @@ Restura can act as an MCP client/proxy and as an MCP server.
 | Importers                   | `src/features/collections/lib/importers.ts`, `src/features/collections/lib/importers/*.ts`, `src/types/import-export.ts` |
 | Exporters                   | `src/features/collections/lib/exporters.ts`                                                                              |
 | Console exports             | `src/lib/shared/console-export.ts`                                                                                       |
-| OpenCollection parser/types | `src/lib/opencollection/`, `vendor/opencollection/v1.0.0/schema.json`, `docs/opencollection.md`                          |
+| OpenCollection parser/types | `shared/opencollection/`, `vendor/opencollection/v1.0.0/schema.json`, `docs/opencollection.md`                         |
 | Postman compat              | `docs/postman-compat.md`, `src/features/scripts/lib/pmExpect.ts`, `src/features/scripts/lib/scriptApiTypes.ts`           |
-| File collections            | `src/store/useFileCollectionStore.ts`, `src/lib/shared/file-collection-schema.ts`                                        |
+| File collections            | `src/store/useFileCollectionStore.ts`, `shared/collections/legacy-file-schema.ts`                                        |
 | Git handler                 | `electron/main/handlers/git-handler.ts`                                                                                  |
 | Capture pipeline            | `shared/capture/`, `extension/chrome/`, `electron/main/handlers/capture-bridge-handler.ts`                               |
 | CLI runner                  | `cli/src/runner/runner.ts`, `cli/src/runner/collectionLoader.ts`, `cli/src/reporters/`                                   |

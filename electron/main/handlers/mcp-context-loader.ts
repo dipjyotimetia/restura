@@ -21,8 +21,8 @@
  *   3. Replace the empty defaults below with `JSON.parse(snapshotFile)`.
  */
 
-import { DEFAULT_CONSENT } from '../../../src/features/mcp-server/consent';
-import type { McpDispatchContext } from '../../../src/features/mcp-server/dispatch';
+import { DEFAULT_CONSENT } from '@shared/mcp-server/consent';
+import type { McpDispatchContext } from '@shared/mcp-server/dispatch';
 
 /**
  * Load (or synthesize) the dispatch context. The headless MCP server calls

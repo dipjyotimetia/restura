@@ -12,23 +12,9 @@
     "declaration": false,
     "exactOptionalPropertyTypes": false,
     "paths": {
-      "@shared/*": ["../shared/*"],
-      "@/*": ["../src/*"]
+      "@shared/*": ["../shared/*"]
     }
   },
-  "include": [
-    "src/**/*.ts",
-    "../shared/**/*.ts",
-    "../src/lib/shared/file-collection-schema.ts",
-    "../src/lib/shared/validations.ts",
-    "../src/lib/shared/dynamicVariables.ts",
-    "../src/lib/opencollection/**/*.ts",
-    "../src/features/scripts/lib/scriptExecutor.ts",
-    "../src/features/scripts/lib/pmExpect.ts",
-    "../src/features/scripts/lib/pmCookieAdapter.ts",
-    "../src/features/scripts/lib/sandboxLibraries/index.ts",
-    "../src/features/scripts/lib/sandboxLibraries/bundle.generated.ts",
-    "../src/types/index.ts"
-  ],
+  "include": ["src/**/*.ts", "../shared/**/*.ts"],
   "exclude": ["node_modules", "dist", "fixtures", "**/*.test.ts"]
 }

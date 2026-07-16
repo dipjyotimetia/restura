@@ -51,7 +51,7 @@ import { existsSync } from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
 import { z } from 'zod';
-import { createLogger } from '../../../src/lib/shared/logger';
+import { createLogger } from '@shared/runtime/logger';
 import { IPC } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { assertTrustedSender } from '../ipc/ipc-validators';

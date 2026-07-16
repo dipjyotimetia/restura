@@ -18,7 +18,7 @@ import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
 import { type ChatRequestSpec, isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import type { Fetcher } from '@shared/protocol/types';
 import { ipcMain } from 'electron';
-import { createLogger } from '../../../src/lib/shared/logger';
+import { createLogger } from '@shared/runtime/logger';
 import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo } from '../ipc/ipc-utils';

@@ -19,12 +19,11 @@
     "allowSyntheticDefaultImports": true,
     "types": ["node", "vitest/globals"],
     "paths": {
-      "@shared/*": ["../shared/*"],
-      "@/*": ["../src/*"]
+      "@shared/*": ["../shared/*"]
     }
   },
   "include": ["**/*.ts", "../shared/**/*.ts"],
-  "exclude": ["node_modules"],
+  "exclude": ["node_modules", "../shared/scripts/**"],
   "tsc-alias": {
     // tsc-alias >=1.9.0 implies `baseUrl = rootDir` when `baseUrl` is unset but
     // `paths` are present (helpers/config.js "implicit baseUrl"). That enables

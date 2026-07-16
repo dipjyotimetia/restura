@@ -38,8 +38,8 @@
       "!extension/vscode/*.vsix",
       "!extension/vscode/.vscode-test/**",
       "!docs/CAPABILITY_MATRIX.md",
-      "!src/lib/opencollection/spec-types.ts",
-      "!src/features/scripts/lib/sandboxLibraries/bundle.generated.ts",
+      "!shared/opencollection/spec-types.ts",
+      "!shared/scripts/sandbox-libraries/bundle.generated.ts",
       "!scripts/sandbox-shims/**",
       "!vendor/**",
       "!tests/fixtures/**",
@@ -68,6 +68,7 @@
       "preset": "none",
       "suspicious": {
         "noExplicitAny": "error",
+        "noImportCycles": "error",
         "noControlCharactersInRegex": "off"
       },
       "style": {

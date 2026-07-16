@@ -13,13 +13,13 @@ import { dialog, ipcMain, shell } from 'electron';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { z } from 'zod';
-import { internalToOC } from '../../../src/lib/opencollection/from-internal';
-import { loadCollectionDirectory } from '../../../src/lib/opencollection/fs-reader';
-import { saveCollectionToDir } from '../../../src/lib/opencollection/fs-writer';
-import { ocToInternal } from '../../../src/lib/opencollection/to-internal';
-import { redactCollectionSecrets } from '../../../src/lib/shared/collection-secret-redaction';
-import { createLogger } from '../../../src/lib/shared/logger';
-import type { Collection } from '../../../src/types';
+import { internalToOC } from '@shared/opencollection/from-internal';
+import { loadCollectionDirectory } from '@shared/opencollection/node/fs-reader';
+import { saveCollectionToDir } from '@shared/opencollection/node/fs-writer';
+import { ocToInternal } from '@shared/opencollection/to-internal';
+import { redactCollectionSecrets } from '@shared/secrets/collection-redaction';
+import { createLogger } from '@shared/runtime/logger';
+import type { Collection } from '@shared/types';
 
 const log = createLogger('collections');
 

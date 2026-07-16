@@ -8,7 +8,7 @@ import {
 import electronLog from 'electron-log/main';
 import type { UpdateCheckResult, UpdateInfo } from 'electron-updater';
 import { autoUpdater, CancellationToken } from 'electron-updater';
-import { createLogger } from '../../../src/lib/shared/logger';
+import { createLogger } from '@shared/runtime/logger';
 import { EVENT, IPC } from '../../shared/channels';
 import type { UpdaterErrorPhase, UpdaterStatus } from '../../types/electron-api';
 import {

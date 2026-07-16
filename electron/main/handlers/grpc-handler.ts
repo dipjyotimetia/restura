@@ -1,6 +1,6 @@
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { ipcMain } from 'electron';
-import { createLogger } from '../../../src/lib/shared/logger';
+import { createLogger } from '@shared/runtime/logger';
 import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import type { GrpcRequestConfig } from '../ipc/ipc-validators';

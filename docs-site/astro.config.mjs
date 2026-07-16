@@ -232,6 +232,10 @@ export default defineConfig({
                   label: '0026 — Electron CSP + permission hardening',
                   slug: 'architecture/adrs/0026-electron-csp-and-permission-hardening',
                 },
+                {
+                  label: '0027 — Telemetry + privacy-preserving usage',
+                  slug: 'architecture/adrs/0027-telemetry-and-privacy-preserving-usage-analytics',
+                },
               ],
             },
           ],

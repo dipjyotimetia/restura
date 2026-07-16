@@ -45,7 +45,7 @@ I got tired of opening a different tool for every protocol. Postman for HTTP, a 
 
 <CardGrid stagger>
   <Card title="Web, desktop, or self-hosted" icon="laptop">
-    Runs as a web app on Cloudflare, a native desktop app for macOS / Windows / Linux, or a Docker container behind your own firewall. All three use the same UI — one codebase — so features don't lag between platforms.
+    Runs as a web app on Cloudflare, a native desktop app for macOS / Windows / Linux, or a Docker container behind your own firewall. They share one renderer and protocol core; native networking features remain intentionally desktop-only.
   </Card>
   <Card title="Nothing leaves your machine" icon="seti:lock">
     No account to create. Collections, history, environments, and secrets live in your browser's IndexedDB or your OS keychain on desktop. The only thing that can leave is opt-out crash reports, which are scrubbed of request content before they go anywhere. You can turn that off in Settings too.

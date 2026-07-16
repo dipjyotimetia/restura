@@ -14,7 +14,7 @@ if (!asarPath) {
 
 // listPackage returns OS-separator paths — backslashes on Windows — so
 // normalize to forward slashes before matching (the check was Windows-broken).
-const files = asar.listPackage(asarPath).map((f) => f.replace(/\\/g, '/'));
+const files = asar.listPackage(asarPath, { isPack: false }).map((f) => f.replace(/\\/g, '/'));
 
 if (!files.includes('/dist/web/index.html')) {
   console.error('::error::renderer (dist/web/index.html) missing from app.asar');

@@ -1,7 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { socketioManager } from '@/features/socketio/lib/socketioManager';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { type FrameDirection, useConsoleStore } from '@/store/useConsoleStore';
 import type { KeyValue } from '@/types';
@@ -186,11 +185,6 @@ export const useSocketIOStore = create<SocketIOState>()(
       cleanupConnectionForTab: (tabId) => {
         const connectionId = get().connectionByTabId[tabId];
         if (!connectionId) return;
-        try {
-          socketioManager.disconnect(connectionId);
-        } catch {
-          /* ignore — manager handles missing/already-closed sockets */
-        }
         set((state) => {
           const { [connectionId]: _drop, ...restConns } = state.connections;
           const { [tabId]: _dropTab, ...restMap } = state.connectionByTabId;

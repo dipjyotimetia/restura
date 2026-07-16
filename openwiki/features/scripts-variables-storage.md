@@ -16,20 +16,20 @@ User-written pre-request and test scripts run inside a QuickJS WASM VM (`quickjs
 
 ### Postman-compatible API
 
-`src/features/scripts/lib/scriptExecutor.ts` exposes an `pm`-style object:
+`shared/scripts/script-executor.ts` exposes a `pm`-style object; the renderer path is a compatibility re-export:
 
 - `pm.variables.get/set`
 - `pm.environment.get/set`
 - `pm.globals.get/set`
 - `pm.collectionVariables.get/set`
-- `pm.test(name, fn)` and `pm.expect(value)` (`src/features/scripts/lib/pmExpect.ts`)
+- `pm.test(name, fn)` and `pm.expect(value)` (`shared/scripts/expect-bootstrap.ts`, re-exported by the renderer compatibility path)
 - `pm.response.*`
 - `pm.sendRequest(spec, callback)`
 - `pm.cookies.*`
 - `pm.vault.*` (desktop secret handles)
 - `rs.judge(...)` (AI judge bridge)
 
-The result shape (`ScriptResult`) is in `src/types/scripts.ts` and includes:
+The result shape (`ScriptResult`) is in `shared/types/scripts.ts` and includes:
 
 - logs, errors, tests
 - `variables` (environment mutations)
@@ -72,7 +72,7 @@ The collection runner adds iteration data at the highest precedence. Protocol ex
 
 ### Dynamic helpers
 
-`src/lib/shared/dynamicVariables.ts` provides ~100 Postman-compatible random/dynamic generators (`$randomUUID`, `$timestamp`, `$randomInt`, etc.). The helper registry `HELPERS` is merged with `POSTMAN_VARIABLES`.
+`shared/variables/dynamic.ts` provides ~100 Postman-compatible random/dynamic generators (`$randomUUID`, `$timestamp`, `$randomInt`, etc.). The helper registry `HELPERS` is merged with `POSTMAN_VARIABLES`.
 
 ### Pure injector
 
@@ -107,7 +107,7 @@ Restura is migrating secret-bearing auth fields from plaintext strings to `Secre
 
 ### `SecretRef`
 
-`src/lib/shared/secretRef.ts`:
+`shared/secrets/secret-ref.ts`:
 
 - `inline` — still a plaintext value, but typed.
 - `handle` — `{ kind: 'handle'; id; label? }`. The renderer never sees the plaintext.
@@ -126,8 +126,8 @@ Handles keep secrets out of:
 
 ### Export redaction
 
-- `src/lib/shared/collection-secret-redaction.ts`
-- `src/lib/shared/keyvalue-secret-redaction.ts`
+- `shared/secrets/collection-redaction.ts`
+- `shared/secrets/key-value-redaction.ts`
 - `electron/main/security/collection-export-redactor.ts`
 - Inline secrets render as `{{handle:<label>}}` on export.
 
@@ -141,16 +141,16 @@ Handles keep secrets out of:
 
 | Area                | Key files                                                                                               |
 | ------------------- | ------------------------------------------------------------------------------------------------------- |
-| Script executor     | `src/features/scripts/lib/scriptExecutor.ts`                                                            |
+| Script executor     | `shared/scripts/script-executor.ts`                                                                      |
 | `pm.*` APIs         | `src/features/scripts/lib/pmExpect.ts`, `src/features/scripts/lib/scriptApiTypes.ts`                    |
 | Context options     | `src/features/scripts/lib/pmRunContextOptions.ts`                                                       |
 | Script migrations   | `src/features/scripts/lib/scriptMigrations.ts`                                                          |
 | Variable tokens     | `src/lib/shared/variableTokens.ts`                                                                      |
 | Variable scopes     | `src/lib/shared/variableScopes.ts`, `src/lib/shared/activeRequestScopes.ts`                             |
-| Dynamic helpers     | `src/lib/shared/dynamicVariables.ts`                                                                    |
+| Dynamic helpers     | `shared/variables/dynamic.ts`                                                                           |
 | Variable injector   | `src/features/workflows/lib/variableHelpers.ts`                                                         |
 | Web persistence     | `src/lib/shared/dexie-storage.ts`, `src/lib/shared/database.ts`                                         |
 | Desktop persistence | `src/lib/shared/secure-storage.ts`                                                                      |
-| Secret refs         | `src/lib/shared/secretRef.ts`, `src/lib/shared/secretRef-migrations.ts`                                 |
+| Secret refs         | `shared/secrets/secret-ref.ts`, `src/lib/shared/secretRef-migrations.ts`                                |
 | Secret handle store | `electron/main/security/secret-handle-store.ts`, `electron/main/security/auth-applier.ts`               |
-| Export redaction    | `electron/main/security/collection-export-redactor.ts`, `src/lib/shared/collection-secret-redaction.ts` |
+| Export redaction    | `electron/main/security/collection-export-redactor.ts`, `shared/secrets/collection-redaction.ts`        |

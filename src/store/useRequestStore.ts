@@ -2,10 +2,10 @@ import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { useKafkaStore } from '@/features/kafka/store/useKafkaStore';
-import { useMqttStore } from '@/features/mqtt/store/useMqttStore';
-import { useSocketIOStore } from '@/features/socketio/store/useSocketIOStore';
-import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
+import { cleanupKafkaConnectionForTab } from '@/features/kafka/lib/connectionLifecycle';
+import { cleanupMqttConnectionForTab } from '@/features/mqtt/lib/connectionLifecycle';
+import { cleanupSocketIOConnectionForTab } from '@/features/socketio/lib/connectionLifecycle';
+import { cleanupWebSocketConnectionForTab } from '@/features/websocket/lib/connectionLifecycle';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { migrateAuthConfigToSecretRef } from '@/lib/shared/secretRef-migrations';
@@ -171,22 +171,16 @@ function patchActiveTab(
 }
 
 /**
- * Dispatches per-tab connection cleanup to the WS/Socket.IO/Kafka stores when
- * one or more tabs are closed. None of those stores import useRequestStore,
- * so top-level imports are safe — and they avoid async tasks that outlive
- * the test environment's teardown.
+ * Dispatches per-tab connection cleanup through explicit lifecycle
+ * coordinators. Stores stay pure while managers retain runtime ownership.
  */
 function dispatchTabCleanup(closedTabIds: string[]): void {
   if (closedTabIds.length === 0) return;
-  const ws = useWebSocketStore.getState();
-  const sio = useSocketIOStore.getState();
-  const kafka = useKafkaStore.getState();
-  const mqtt = useMqttStore.getState();
   for (const id of closedTabIds) {
-    ws.cleanupConnectionForTab(id);
-    sio.cleanupConnectionForTab(id);
-    kafka.cleanupConnectionForTab(id);
-    mqtt.cleanupConnectionForTab(id);
+    cleanupWebSocketConnectionForTab(id);
+    cleanupSocketIOConnectionForTab(id);
+    cleanupKafkaConnectionForTab(id);
+    cleanupMqttConnectionForTab(id);
   }
 }
 

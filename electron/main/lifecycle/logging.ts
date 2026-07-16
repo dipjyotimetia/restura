@@ -1,10 +1,5 @@
 import log from 'electron-log/main';
-import {
-  type LogLevel,
-  type LogSink,
-  setLogSink,
-  setMinLogLevel,
-} from '../../../src/lib/shared/logger';
+import { type LogLevel, type LogSink, setLogSink, setMinLogLevel } from '@shared/runtime/logger';
 
 /**
  * Electron-main logging foundation.

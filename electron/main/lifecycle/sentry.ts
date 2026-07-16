@@ -27,7 +27,7 @@ import { join } from 'node:path';
 import * as Sentry from '@sentry/electron/main';
 import { redactBody } from '@shared/protocol/ai/redaction';
 import { app } from 'electron';
-import { createLogger } from '../../../src/lib/shared/logger';
+import { createLogger } from '@shared/runtime/logger';
 
 const log = createLogger('sentry');
 
