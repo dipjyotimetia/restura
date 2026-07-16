@@ -1,4 +1,4 @@
-import { type AgentSuite, AgentSuiteSchema, type ModelCapabilities } from '@shared/agent-lab';
+import { type AgentSuite, migrateAgentSuite, type ModelCapabilities } from '@shared/agent-lab';
 import { isHuggingFaceProvider, isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
@@ -129,8 +129,11 @@ export function migrateAiLabState(
   const agentSuites = Object.fromEntries(
     Object.entries((previous.agentSuites ?? {}) as Record<string, unknown>).flatMap(
       ([id, value]) => {
-        const parsed = AgentSuiteSchema.safeParse(value);
-        if (parsed.success) return [[id, parsed.data]];
+        try {
+          return [[id, migrateAgentSuite(value)]];
+        } catch {
+          // Quarantine the one malformed suite while preserving the rest.
+        }
         quarantineCount += 1;
         console.warn(`[ai-lab] quarantined invalid agent suite "${id}"`);
         return [];
@@ -405,7 +408,7 @@ export const useAiLabStore = create<AiLabState>()(
         }),
 
       upsertAgentSuite: (input) => {
-        const suite = AgentSuiteSchema.parse(input);
+        const suite = migrateAgentSuite(input);
         set((state) => ({ agentSuites: { ...state.agentSuites, [suite.id]: suite } }));
         return suite.id;
       },

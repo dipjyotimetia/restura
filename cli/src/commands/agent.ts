@@ -11,16 +11,28 @@ import {
   AgentSuiteRunner,
   type AgentToolResolver,
   AgentSuiteSchema,
+  AnthropicMessagesAdapter,
+  migrateAgentSuite,
   evaluateAgentBundleBaseline,
   OpenAiResponsesAdapter,
   ProviderRegistry,
 } from '@shared/agent-lab';
 import type { Fetcher } from '@shared/protocol/types';
 import type { Command } from 'commander';
+import { loadEnv } from '../runner/envLoader.js';
+import { executeHttp } from '../runner/executors/http.js';
+import { loadCollection } from '../runner/collectionLoader.js';
+import { resolveCliAgentTools } from '../runner/agentTools.js';
+import { resolveCliGrounding } from '../runner/agentGrounding.js';
 import { undiciFetcher } from '../runner/undiciFetcher.js';
+import { AgentRuntimeManifestSchema, type AgentRuntimeManifest } from './agentRuntime.js';
 
 export interface AgentEvalOptions {
   output?: string;
+  runtime?: string;
+  env?: string;
+  timeout?: string;
+  allowLocalhost?: boolean;
 }
 
 export interface AgentEvalDependencies {
@@ -28,6 +40,9 @@ export interface AgentEvalDependencies {
   writeText(path: string, content: string): Promise<void>;
   fetcher: Fetcher;
   environment: Readonly<Record<string, string | undefined>>;
+  loadEnvironment(path: string): Promise<Record<string, string>>;
+  loadCollection: typeof loadCollection;
+  executeHttp: typeof executeHttp;
 }
 
 const defaultDependencies: AgentEvalDependencies = {
@@ -37,14 +52,18 @@ const defaultDependencies: AgentEvalDependencies = {
   },
   fetcher: undiciFetcher,
   environment: process.env,
+  loadEnvironment: (path) => loadEnv(path, { expandEnvVars: true }),
+  loadCollection,
+  executeHttp,
 };
 
 export function preflightAgentSuite(
   suite: AgentSuite,
-  toolResolver: AgentToolResolver = createAgentToolResolver()
+  toolResolver: AgentToolResolver = createAgentToolResolver(),
+  runtime?: AgentRuntimeManifest
 ): void {
   for (const agent of suite.agents) {
-    if (agent.model.providerId !== 'openai.responses') {
+    if (!['openai.responses', 'anthropic.messages'].includes(agent.model.providerId)) {
       throw new Error(`headless provider adapter not registered: ${agent.model.providerId}`);
     }
     if (agent.model.baseUrl) {
@@ -64,7 +83,35 @@ export function preflightAgentSuite(
     throw new Error('secret-handle credentials require the desktop keychain');
   }
 
-  for (const agent of suite.agents) toolResolver.assertSupported(agent.tools);
+  for (const agent of suite.agents) {
+    for (const source of agent.tools) {
+      if (source.kind === 'restura-request') {
+        const allowed = runtime?.sources.some(
+          (candidate) =>
+            candidate.kind === 'collection' && candidate.requestIds.includes(source.requestId)
+        );
+        if (!allowed) {
+          throw new Error(
+            `request tool is not listed in the runtime manifest: ${source.requestId}`
+          );
+        }
+      } else if (source.kind === 'mcp') {
+        const mcp = runtime?.sources.find(
+          (candidate) => candidate.kind === 'mcp' && candidate.id === source.connectionId
+        );
+        if (!mcp || mcp.kind !== 'mcp') {
+          throw new Error(
+            `MCP tool source is not listed in the runtime manifest: ${source.connectionId}`
+          );
+        }
+        if (source.allowedTools?.some((tool) => !mcp.allowedTools.includes(tool))) {
+          throw new Error(
+            `MCP tool source exceeds the runtime manifest allowlist: ${source.connectionId}`
+          );
+        }
+      } else toolResolver.assertSupported([source]);
+    }
+  }
   if (suite.graders.some((grader) => grader.kind === 'judge')) {
     throw new Error('headless judge graders require a registered CLI judge adapter');
   }
@@ -88,10 +135,15 @@ export function agentBundleExitCode(value: AgentBundleEvaluation | Error): 0 | 1
 async function runAgentSuite(
   suite: AgentSuite,
   dependencies: AgentEvalDependencies,
-  toolResolver: AgentToolResolver
+  toolResolver: AgentToolResolver,
+  runtime: AgentRuntimeManifest | undefined,
+  options: AgentEvalOptions
 ): Promise<AgentSuiteReport> {
+  const variables = options.env ? await dependencies.loadEnvironment(options.env) : {};
+  const timeoutMs = numericFlag('--timeout', options.timeout ?? '30000');
   const providers = new ProviderRegistry([
     new OpenAiResponsesAdapter({ fetcher: dependencies.fetcher }),
+    new AnthropicMessagesAdapter({ fetcher: dependencies.fetcher }),
   ]);
   const runner = new AgentRunner({
     providers,
@@ -101,7 +153,47 @@ async function runAgentSuite(
         throw new Error('secret-handle credentials require the desktop keychain');
       return dependencies.environment[ref.name];
     },
-    resolveTools: (sources) => toolResolver.resolve(sources),
+    async resolveTools(sources, signal) {
+      const runtimeSources = sources.filter(
+        (source) => source.kind === 'restura-request' || source.kind === 'mcp'
+      );
+      const adapterSources = sources.filter(
+        (source) => source.kind !== 'restura-request' && source.kind !== 'mcp'
+      );
+      const adapterTools = await toolResolver.resolve(adapterSources, signal);
+      if (runtimeSources.length === 0) return adapterTools;
+      if (!runtime) throw new Error('headless tool sources require a runtime manifest');
+      const resolved = await resolveCliAgentTools(
+        runtimeSources,
+        runtime,
+        {
+          variables,
+          environment: dependencies.environment,
+          timeoutMs,
+          allowLocalhost: Boolean(options.allowLocalhost),
+          ...(signal ? { signal } : {}),
+        },
+        { loadCollection: dependencies.loadCollection, executeHttp: dependencies.executeHttp }
+      );
+      return {
+        tools: [...adapterTools, ...resolved.tools],
+        dispose: resolved.dispose,
+      };
+    },
+    async resolveGrounding(selection, signal) {
+      if (!runtime) throw new Error('headless grounding requires a runtime manifest');
+      return resolveCliGrounding(
+        selection,
+        runtime,
+        {
+          environment: dependencies.environment,
+          allowLocalhost: Boolean(options.allowLocalhost),
+          timeoutMs,
+          ...(signal ? { signal } : {}),
+        },
+        { loadCollection: dependencies.loadCollection }
+      );
+    },
   });
   return new AgentSuiteRunner({ run: (request) => runner.run(request) }).run({ suite });
 }
@@ -111,10 +203,15 @@ export async function evaluateAgentSuite(
   options: AgentEvalOptions = {},
   dependencies: AgentEvalDependencies = defaultDependencies
 ): Promise<AgentSuiteReport> {
-  const suite = AgentSuiteSchema.parse(JSON.parse(await dependencies.readText(suitePath)));
+  const suite = migrateAgentSuite(
+    AgentSuiteSchema.parse(JSON.parse(await dependencies.readText(suitePath)))
+  );
+  const runtime = options.runtime
+    ? AgentRuntimeManifestSchema.parse(JSON.parse(await dependencies.readText(options.runtime)))
+    : undefined;
   const toolResolver = createAgentToolResolver();
-  preflightAgentSuite(suite, toolResolver);
-  const report = await runAgentSuite(suite, dependencies, toolResolver);
+  preflightAgentSuite(suite, toolResolver, runtime);
+  const report = await runAgentSuite(suite, dependencies, toolResolver, runtime, options);
   if (options.output)
     await dependencies.writeText(options.output, `${JSON.stringify(report, null, 2)}\n`);
   return report;
@@ -128,9 +225,13 @@ export async function evaluateAgentBundle(
   const bundle: AgentBundle = AgentBundleSchema.parse(
     JSON.parse(await dependencies.readText(bundlePath))
   );
+  const suite = migrateAgentSuite(bundle.suite);
+  const runtime = options.runtime
+    ? AgentRuntimeManifestSchema.parse(JSON.parse(await dependencies.readText(options.runtime)))
+    : undefined;
   const toolResolver = createAgentToolResolver([createFixtureToolSourceAdapter(bundle.fixtures)]);
-  preflightAgentSuite(bundle.suite, toolResolver);
-  const report = await runAgentSuite(bundle.suite, dependencies, toolResolver);
+  preflightAgentSuite(suite, toolResolver, runtime);
+  const report = await runAgentSuite(suite, dependencies, toolResolver, runtime, options);
   const gates = evaluateAgentBundleBaseline(bundle, report);
   const result = { report: applyAgentBundleBaseline(report, gates), gates };
   if (options.output)
@@ -143,8 +244,12 @@ export function registerAgentCommand(program: Command): void {
     .command('agent')
     .description('Run versioned agent suites in CI')
     .command('eval')
-    .argument('<suite>', 'Path to an Agent Suite v2 or Agent Bundle v1 JSON file')
+    .argument('<suite>', 'Path to an Agent Suite v2/v3 or Agent Bundle v1 JSON file')
     .option('--output <file>', 'Write the full JSON trace report to a file')
+    .option('--runtime <file>', 'Runtime manifest binding selected saved HTTP and MCP sources')
+    .option('--env <file>', 'Path to env file (json or yaml) used by saved requests')
+    .option('--timeout <ms>', 'Per saved HTTP request timeout', '30000')
+    .option('--allow-localhost', 'Permit localhost saved request targets (off by default)', false)
     .action(async (suitePath: string, options: AgentEvalOptions) => {
       try {
         const input = JSON.parse(await defaultDependencies.readText(suitePath)) as Record<
@@ -169,4 +274,12 @@ export function registerAgentCommand(program: Command): void {
         );
       }
     });
+}
+
+function numericFlag(name: string, value: string): number {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 1) {
+    throw new Error(`${name} expects a positive number, got: ${value}`);
+  }
+  return number;
 }

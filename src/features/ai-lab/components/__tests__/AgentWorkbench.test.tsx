@@ -9,6 +9,8 @@ import {
 } from '../../run-engine/agentRunService';
 import { useAiLabStore } from '../../store/useAiLabStore';
 import { useAiLabUiStore } from '../../store/useAiLabUiStore';
+import { useCollectionStore } from '@/store/useCollectionStore';
+import { useMcpStore } from '@/features/mcp/store/useMcpStore';
 import { AgentWorkbench } from '../AgentWorkbench';
 
 const runDesktopAgentSuite = vi.hoisted(() => vi.fn());
@@ -118,6 +120,8 @@ describe('AgentWorkbench runs', () => {
       runReports: {},
     });
     useAiLabUiStore.setState({ tab: 'agents', reportRunId: null });
+    useCollectionStore.setState({ collections: [], activeCollectionId: null });
+    useMcpStore.setState({ connections: {}, activeConnectionId: null });
   });
 
   it('persists a sanitized cancelled report from late partial success without navigating', async () => {
@@ -165,7 +169,11 @@ describe('AgentWorkbench runs', () => {
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
     const reports = useAiLabStore.getState().runReports;
     const envelope = Object.values(reports)[0];
-    expect(envelope).toMatchObject({ kind: 'agent-suite', payload: REPORT, suite: SUITE });
+    expect(envelope).toMatchObject({
+      kind: 'agent-suite',
+      payload: REPORT,
+      suite: { ...SUITE, schemaVersion: 3, grounding: { sourceIds: [], maxBytes: 16_384 } },
+    });
     expect(useAiLabUiStore.getState()).toMatchObject({
       tab: 'reports',
       reportRunId: envelope?.id,
@@ -207,6 +215,270 @@ describe('AgentWorkbench runs', () => {
     await user.click(screen.getByRole('button', { name: 'Run' }));
 
     await waitFor(() => expect(runDesktopAgentBundle).toHaveBeenCalledOnce());
+    expect(runDesktopAgentBundle).toHaveBeenCalledWith(
+      expect.objectContaining({ suite: expect.objectContaining({ schemaVersion: 3 }) }),
+      expect.anything(),
+      expect.anything()
+    );
+  });
+
+  it('edits grounding on the nested suite when a v2 bundle is loaded', async () => {
+    useCollectionStore.setState({
+      collections: [{ id: 'orders', name: 'Orders', items: [] }],
+      activeCollectionId: 'orders',
+    });
+    const bundle = {
+      schemaVersion: 1,
+      id: 'grounded-bundle',
+      name: 'Grounded bundle',
+      suite: { ...SUITE },
+      fixtures: [],
+    };
+    const user = userEvent.setup();
+    render(<AgentWorkbench />);
+    fireEvent.change(screen.getByLabelText('Agent suite JSON'), {
+      target: { value: JSON.stringify(bundle) },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Collection · Orders' }));
+
+    const parsed = JSON.parse(
+      (screen.getByLabelText('Agent suite JSON') as HTMLTextAreaElement).value
+    );
+    expect(parsed.suite).toMatchObject({
+      schemaVersion: 3,
+      grounding: { sourceIds: ['orders'], maxBytes: 16_384 },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Collection · Orders' }));
+    expect(
+      JSON.parse((screen.getByLabelText('Agent suite JSON') as HTMLTextAreaElement).value).suite
+        .grounding.sourceIds
+    ).toEqual([]);
+  });
+
+  it('edits grounding directly on a standalone suite', async () => {
+    useCollectionStore.setState({
+      collections: [{ id: 'orders', name: 'Orders', items: [] }],
+      activeCollectionId: 'orders',
+    });
+    const user = userEvent.setup();
+    render(<AgentWorkbench />);
+    fireEvent.change(screen.getByLabelText('Agent suite JSON'), {
+      target: { value: JSON.stringify(SUITE) },
+    });
+    await user.click(screen.getByRole('button', { name: 'Collection · Orders' }));
+    expect(
+      JSON.parse((screen.getByLabelText('Agent suite JSON') as HTMLTextAreaElement).value)
+    ).toMatchObject({
+      schemaVersion: 3,
+      grounding: { sourceIds: ['orders'], maxBytes: 16_384 },
+    });
+  });
+
+  it('saves normalized suites and validates bundles without adding them to desktop storage', async () => {
+    const user = userEvent.setup();
+    render(<AgentWorkbench />);
+    fireEvent.change(screen.getByLabelText('Agent suite JSON'), {
+      target: { value: JSON.stringify(SUITE) },
+    });
+    await user.click(screen.getByRole('button', { name: 'Save suite' }));
+    expect(useAiLabStore.getState().agentSuites['suite-1']).toMatchObject({
+      schemaVersion: 3,
+      grounding: { sourceIds: [], maxBytes: 16_384 },
+    });
+
+    fireEvent.change(screen.getByLabelText('Agent suite JSON'), {
+      target: {
+        value: JSON.stringify({
+          schemaVersion: 1,
+          id: 'bundle',
+          name: 'Bundle',
+          suite: SUITE,
+          fixtures: [],
+        }),
+      },
+    });
+    await user.click(screen.getByRole('button', { name: 'Save suite' }));
+    expect(useAiLabStore.getState().agentSuites.bundle).toBeUndefined();
+    expect(screen.getByRole('status')).toHaveTextContent('Bundle schema-validated');
+  });
+
+  it('exports both normalized suites and bundles', async () => {
+    const user = userEvent.setup();
+    const createObjectURL = vi.fn(() => 'blob:test');
+    const revokeObjectURL = vi.fn();
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL });
+    render(<AgentWorkbench />);
+    fireEvent.change(screen.getByLabelText('Agent suite JSON'), {
+      target: { value: JSON.stringify(SUITE) },
+    });
+    await user.click(screen.getByRole('button', { name: 'Export' }));
+
+    fireEvent.change(screen.getByLabelText('Agent suite JSON'), {
+      target: {
+        value: JSON.stringify({
+          schemaVersion: 1,
+          id: 'bundle',
+          name: 'Bundle',
+          suite: SUITE,
+          fixtures: [],
+        }),
+      },
+    });
+    await user.click(screen.getByRole('button', { name: 'Export' }));
+    expect(createObjectURL).toHaveBeenCalledTimes(2);
+    expect(revokeObjectURL).toHaveBeenCalledTimes(2);
+    expect(click).toHaveBeenCalledTimes(2);
+    vi.unstubAllGlobals();
+  });
+
+  it('imports standalone suites and bundles and leaves invalid JSON editable', async () => {
+    const user = userEvent.setup();
+    render(<AgentWorkbench />);
+    const input = screen.getByLabelText('Import agent suite');
+    await user.upload(input, new File([JSON.stringify(SUITE)], 'suite.json'));
+    await waitFor(() => expect(useAiLabStore.getState().agentSuites['suite-1']).toBeDefined());
+
+    const bundle = { schemaVersion: 1, id: 'bundle', name: 'Bundle', suite: SUITE, fixtures: [] };
+    await user.upload(input, new File([JSON.stringify(bundle)], 'bundle.json'));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Bundle imported'));
+
+    await user.upload(input, new File(['not json'], 'invalid.json'));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/unexpected token/i));
+  });
+
+  it('reports malformed draft errors from save, export, run, and grounding controls', async () => {
+    useCollectionStore.setState({
+      collections: [{ id: 'orders', name: 'Orders', items: [] }],
+      activeCollectionId: 'orders',
+    });
+    const user = userEvent.setup();
+    render(<AgentWorkbench />);
+    fireEvent.change(screen.getByLabelText('Agent suite JSON'), { target: { value: '{' } });
+
+    await user.click(screen.getByRole('button', { name: 'Save suite' }));
+    expect(screen.getByRole('status')).toHaveTextContent(/expected property name/i);
+    await user.click(screen.getByRole('button', { name: 'Export' }));
+    expect(screen.getByRole('status')).toHaveTextContent(/expected property name/i);
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    expect(screen.getByRole('status')).toHaveTextContent(/expected property name/i);
+    await user.click(screen.getByRole('button', { name: 'Collection · Orders' }));
+    expect(screen.getByRole('status')).toHaveTextContent(/fix suite json/i);
+  });
+
+  it('selects and removes saved suites and renders MCP grounding choices', async () => {
+    useAiLabStore.setState({
+      agentSuites: {
+        'suite-1': { ...SUITE, schemaVersion: 3, grounding: { sourceIds: [], maxBytes: 1 } },
+      },
+    });
+    useMcpStore.setState({
+      connections: {
+        profile: {
+          id: 'profile',
+          url: 'https://mcp.example.test',
+          transport: 'streamable-http',
+          headers: [],
+          status: 'disconnected',
+          capabilities: {
+            serverName: 'Catalog',
+            serverVersion: '1',
+            tools: [],
+            resources: [],
+            prompts: [],
+          },
+          log: [],
+          createdAt: 0,
+        },
+      },
+      activeConnectionId: null,
+    });
+    const user = userEvent.setup();
+    render(<AgentWorkbench />);
+    await user.click(screen.getByRole('button', { name: /Cancellation suite/ }));
+    expect((screen.getByLabelText('Agent suite JSON') as HTMLTextAreaElement).value).toContain(
+      'suite-1'
+    );
+    expect(screen.getByRole('button', { name: 'MCP · Catalog' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Delete suite' }));
+    expect(useAiLabStore.getState().agentSuites['suite-1']).toBeUndefined();
+  });
+
+  it('handles empty imports, MCP fallback labels, and persisted-run status controls', async () => {
+    useMcpStore.setState({
+      connections: {
+        profile: {
+          id: 'profile',
+          url: '',
+          transport: 'streamable-http',
+          headers: [],
+          status: 'disconnected',
+          capabilities: null,
+          log: [],
+          createdAt: 0,
+        },
+      },
+      activeConnectionId: null,
+    });
+    useAgentRunLiveStore.setState({
+      running: false,
+      status: 'PERSISTENCE ERROR',
+      persistenceError: 'quota',
+      completedReport: { id: 'report-1' } as never,
+    });
+    const user = userEvent.setup();
+    render(<AgentWorkbench />);
+    fireEvent.change(screen.getByLabelText('Import agent suite'), { target: { files: [] } });
+    expect(screen.getByRole('button', { name: 'MCP · profile' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'MCP · profile' }));
+    expect((screen.getByLabelText('Agent suite JSON') as HTMLTextAreaElement).value).toContain(
+      '"profile"'
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('PERSISTENCE ERROR · quota');
+    expect(screen.getByRole('button', { name: 'Retry save' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'View report' })).toBeVisible();
+  });
+
+  it.each([
+    [true, 'approved'],
+    [false, 'denied'],
+  ])('forwards %s approval decisions from the workbench', async (confirmed, decision) => {
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(confirmed);
+    confirm.mockClear();
+    runDesktopAgentSuite.mockImplementationOnce(
+      async (
+        _suite: unknown,
+        _providers: unknown,
+        options: {
+          requestApproval?: (request: {
+            approvalId: string;
+            toolCallId: string;
+            toolName: string;
+            arguments: unknown;
+            permissionClass: 'mutation';
+          }) => Promise<'approved' | 'denied'>;
+        }
+      ) => {
+        const approval = await options.requestApproval?.({
+          approvalId: 'approval',
+          toolCallId: 'call',
+          toolName: 'write',
+          arguments: { id: '1' },
+          permissionClass: 'mutation',
+        });
+        expect(approval).toBe(decision);
+        return REPORT;
+      }
+    );
+    const user = userEvent.setup();
+    render(<AgentWorkbench />);
+    fireEvent.change(screen.getByLabelText('Agent suite JSON'), {
+      target: { value: JSON.stringify(SUITE) },
+    });
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
   });
 
   it('marks a desktop bundle report failed when its committed baseline regresses', async () => {

@@ -13,6 +13,11 @@ export interface AgentMcpClient {
   callTool(name: string, arguments_: unknown, signal?: AbortSignal): Promise<ContentBlock[]>;
 }
 
+export interface CreateMcpToolsOptions {
+  /** Namespacing prevents collisions between independent local MCP sessions. */
+  nameForTool?(remoteName: string): string;
+}
+
 function permissionForMcpTool(tool: McpToolDescriptor): PermissionClass {
   if (tool.annotations?.destructiveHint) return 'destructive';
   if (tool.annotations?.openWorldHint) return 'network';
@@ -24,15 +29,22 @@ function permissionForMcpTool(tool: McpToolDescriptor): PermissionClass {
 export async function createMcpTools(
   source: Extract<ToolSource, { kind: 'mcp' }>,
   client: AgentMcpClient,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options: CreateMcpToolsOptions = {}
 ): Promise<AgentTool[]> {
   const allowed = source.allowedTools ? new Set(source.allowedTools) : undefined;
   const descriptors = await client.listTools(signal);
+  if (allowed) {
+    const available = new Set(descriptors.map((tool) => tool.name));
+    const missing = [...allowed].filter((name) => !available.has(name));
+    if (missing.length > 0)
+      throw new Error(`MCP server did not expose allowed tools: ${missing.join(', ')}`);
+  }
   return descriptors
     .filter((tool) => !allowed || allowed.has(tool.name))
     .map((tool) => ({
       definition: {
-        name: tool.name,
+        name: options.nameForTool?.(tool.name) ?? tool.name,
         description: tool.description ?? tool.name,
         inputSchema: tool.inputSchema,
       },

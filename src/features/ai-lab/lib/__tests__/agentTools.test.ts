@@ -12,7 +12,12 @@ vi.mock('@/features/http/lib/requestExecutor', () => ({
   executeRequest: executeRequestMock,
 }));
 
-import { createResturaRequestTool, redactToolUrl, resolveResturaAgentTools } from '../agentTools';
+import {
+  createResturaRequestTool,
+  createResturaRequestToolSourceAdapter,
+  redactToolUrl,
+  resolveResturaAgentTools,
+} from '../agentTools';
 
 function request(overrides: Partial<HttpRequest> = {}): HttpRequest {
   return {
@@ -77,6 +82,16 @@ describe('Restura request agent tools', () => {
     ]);
   });
 
+  it.each(['HEAD', 'OPTIONS'] as const)('classifies %s as a read-only request', (method) => {
+    expect(createResturaRequestTool(request({ method }), vi.fn()).permissionClass).toBe('read');
+  });
+
+  it('classifies a non-read method as a mutation', () => {
+    expect(createResturaRequestTool(request({ method: 'POST' }), vi.fn()).permissionClass).toBe(
+      'mutation'
+    );
+  });
+
   it('redacts credentials, fragments, and query values from tool descriptions', () => {
     const tool = createResturaRequestTool(
       request({
@@ -122,7 +137,7 @@ describe('Restura request agent tools', () => {
     expect(execute).toHaveBeenCalledWith(expect.anything(), controller.signal);
   });
 
-  it('uses normal active scopes and persists successful collection mutations', async () => {
+  it('uses normal active scopes but never persists mutations from a read tool', async () => {
     useGlobalsStore.setState({ vars: { GLOBAL_TOKEN: 'global' } });
     useEnvironmentStore.setState({
       environments: [
@@ -190,8 +205,91 @@ describe('Restura request agent tools', () => {
         signal,
       })
     );
-    expect(applyCollectionVarMutations).toHaveBeenCalledWith('c1', { ORDER_ID: '43' });
-    expect(useCollectionStore.getState().collections[0]?.variables?.[0]?.value).toBe('43');
+    expect(tool?.permissionClass).toBe('read');
+    expect(applyCollectionVarMutations).not.toHaveBeenCalled();
+    expect(useCollectionStore.getState().collections[0]?.variables?.[0]?.value).toBe('42');
+  });
+
+  it('requires approval classification and permits write-back for a scripted GET request', async () => {
+    useCollectionStore.setState({
+      collections: [
+        {
+          id: 'c1',
+          name: 'Orders',
+          items: [
+            {
+              id: 'item-1',
+              name: 'Get orders',
+              type: 'request',
+              request: request({
+                preRequestScript: "rs.collectionVariables.set('cursor', 'next')",
+              }),
+            },
+          ],
+        },
+      ],
+      activeCollectionId: 'c1',
+    });
+    executeRequestMock.mockResolvedValue({
+      response: response(),
+      sentHeaders: {},
+      transportOk: true,
+      collectionVarsMutations: { cursor: 'next' },
+    });
+    const applyCollectionVarMutations = vi.spyOn(
+      useCollectionStore.getState(),
+      'applyCollectionVarMutations'
+    );
+    applyCollectionVarMutations.mockClear();
+
+    const [tool] = await resolveResturaAgentTools([
+      { kind: 'restura-request', requestId: 'request-1' },
+    ]);
+    expect(tool?.permissionClass).toBe('mutation');
+    await tool!.execute({}, { signal: new AbortController().signal });
+    expect(applyCollectionVarMutations).toHaveBeenCalledWith('c1', { cursor: 'next' });
+  });
+
+  it('treats folder scripts as approval-required for descendant read requests', async () => {
+    useCollectionStore.setState({
+      collections: [
+        {
+          id: 'c1',
+          name: 'Orders',
+          items: [
+            {
+              id: 'folder',
+              name: 'Folder',
+              type: 'folder',
+              preRequestScript: 'rs.sendRequest("https://example.test/audit")',
+              items: [{ id: 'item-1', name: 'Get', type: 'request', request: request() }],
+            },
+          ],
+        },
+      ],
+      activeCollectionId: 'c1',
+    });
+
+    const [tool] = await resolveResturaAgentTools([
+      { kind: 'restura-request', requestId: 'request-1' },
+    ]);
+    expect(tool?.permissionClass).toBe('mutation');
+  });
+
+  it('rejects unsupported tool sources at the desktop adapter boundary', async () => {
+    const adapter = createResturaRequestToolSourceAdapter();
+    await expect(adapter.resolve({ kind: 'mcp', connectionId: 'profile' })).rejects.toThrow(
+      'Restura request adapter cannot resolve mcp tools'
+    );
+  });
+
+  it('rejects missing and non-request sources before a desktop request can execute', async () => {
+    await expect(
+      resolveResturaAgentTools([{ kind: 'mcp', connectionId: 'profile' }])
+    ).rejects.toThrow('mcp tool sources need their runtime adapter configured');
+    await expect(
+      resolveResturaAgentTools([{ kind: 'restura-request', requestId: 'missing' }])
+    ).rejects.toThrow('HTTP request tool not found: missing');
   });
 
   it('uses globals, active environment, and only the owning collection scope', async () => {

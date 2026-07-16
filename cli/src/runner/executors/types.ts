@@ -1,4 +1,5 @@
 import type { Dispatcher } from 'undici';
+import type { Fetcher } from '@shared/protocol/types';
 import type { LoadedRequest } from '../collectionLoader';
 
 /** Streaming event captured from SSE or WebSocket runs. */
@@ -35,6 +36,8 @@ export interface ExecuteOptions {
   vars: Record<string, string>;
   timeoutMs: number;
   allowLocalhost: boolean;
+  /** Propagates agent cancellation to the shared HTTP fetch controller. */
+  signal?: AbortSignal;
   /** SSE: max time to keep the stream open (ms). Default 5000. */
   sseDurationMs?: number;
   /** SSE: stop early after this many events. Default unbounded within duration. */
@@ -45,6 +48,10 @@ export interface ExecuteOptions {
   wsMaxMessages?: number;
   /** undici dispatcher carrying TLS options (custom CA / mTLS / insecure). Built once per run. */
   dispatcher?: Dispatcher;
+  /** Per-run fetcher for security-sensitive agent request tools. */
+  fetcher?: Fetcher;
+  /** DNS-pinned fetch for OAuth token exchange in security-sensitive agent tools. */
+  oauthFetch?: typeof globalThis.fetch;
 }
 
 export type Executor = (req: LoadedRequest, opts: ExecuteOptions) => Promise<ExecuteOutcome>;

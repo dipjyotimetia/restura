@@ -257,14 +257,14 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: false,
     desktop: true,
     notes:
-      'AI Lab UI authoring and in-app execution are Electron-only, with one cancellable lifecycle per run surface; versioned suites, task-aware grading, hard run-wide budgets, repeated-trial reliability, and sanitized bounded report persistence. `restura agent eval` runs the headless OpenAI Responses subset and Git-native fixture bundles with fail-closed baseline gates.',
+      'AI Lab UI authoring and in-app execution are Electron-only, with one cancellable lifecycle per run surface; v3 suites add explicit selected grounding with provenance traces, task-aware grading, hard run-wide budgets, repeated-trial reliability, and sanitized bounded report persistence. `restura agent eval` supports OpenAI Responses, Anthropic Messages, and Git-native fixture bundles with fail-closed baseline gates.',
   },
   'aiLab.agentProviders': {
     label: 'AI Lab agent provider transports',
     web: false,
     desktop: true,
     notes:
-      'Desktop wires OpenAI Chat, Anthropic Messages, OpenRouter, Ollama, Hugging Face, and generic OpenAI-compatible through cancellable keychain-backed IPC with conservative per-model capabilities and explicit user overrides. Headless CLI wires stateless OpenAI Responses. Gemini, Azure OpenAI, and Bedrock are adapter profiles only, not shipped transports.',
+      'Desktop wires OpenAI Chat, Anthropic Messages, OpenRouter, Ollama, Hugging Face, and generic OpenAI-compatible through cancellable keychain-backed IPC with conservative per-model capabilities and explicit user overrides. Headless CLI wires stateless OpenAI Responses and native Anthropic Messages. Gemini, Azure OpenAI, and Bedrock are adapter profiles only, not shipped transports.',
   },
   'aiLab.agentRequestTools': {
     label: 'AI Lab agents using saved Restura HTTP requests as tools',
@@ -278,7 +278,7 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: false,
     desktop: true,
     notes:
-      'Uses saved encrypted MCP profiles with fresh desktop-owned sessions, existing SSRF/DNS pinning and execution policy, allowlists, cancellation, and per-call approval',
+      'Uses saved encrypted MCP profiles with fresh desktop-owned sessions, existing SSRF/DNS pinning and execution policy, allowlists, cancellation, and per-call approval. CLI supports manifest-listed read-only MCP tools when CI explicitly asserts readOnly:true.',
   },
   'aiLab.agentSandboxes': {
     label: 'AI Lab pluggable code sandboxes',

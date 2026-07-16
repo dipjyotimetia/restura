@@ -17,15 +17,39 @@ Requires Node.js 24 or later. The binary is `restura`.
 
 ## `restura agent eval`
 
-Run an AI Lab Agent Suite v2 or Git-native Agent Bundle v1 in headless CI:
+Run an AI Lab Agent Suite v2/v3 or Git-native Agent Bundle v1 in headless CI:
 
 ```bash
 OPENAI_API_KEY=... restura agent eval ./checkout.agent-suite.json --output agent-report.json
 ```
 
-The suite model uses `providerId: "openai.responses"` and an environment credential reference such as `{ "source": "env", "name": "OPENAI_API_KEY" }`. The adapter performs stateless encrypted reasoning and function-call replay with `store: false`; server-side `previous_response_id` continuation is disabled. The command emits a compact summary, optionally writes the complete typed traces and grader results, and exits `0` only when every trial passes (`1` for an evaluated failed, error, or cancelled report, including provider/runtime trial errors; `2` for invalid input, unsupported configuration, or command/I/O failure).
+The suite model uses either `providerId: "openai.responses"` or `providerId: "anthropic.messages"`, with an environment credential reference such as `{ "source": "env", "name": "OPENAI_API_KEY" }`. The OpenAI adapter performs stateless encrypted reasoning and function-call replay with `store: false`; server-side `previous_response_id` continuation is disabled. The command emits a compact summary, optionally writes the complete typed traces and grader results, and exits `0` only when every trial passes (`1` for an evaluated failed, error, or cancelled report, including provider/runtime trial errors; `2` for invalid input, unsupported configuration, or command/I/O failure).
 
-Current headless limits are deliberate and fail closed: only `openai.responses` is registered; suite base-URL overrides and desktop secret handles are refused; judge graders, saved Restura requests, MCP, sandboxes, and A2A sources require trusted CLI adapters that do not ship yet. A Bundle may use deterministic, read-only fixture tools, and its baseline gates turn a regressed report into a failing CI result. Agent step/time/tool/token/cost/output budgets still apply, and `maxTokens` covers total input plus output tokens across a trial. `--output` writes the complete local trace report, which can include task inputs and model/tool outputs; protect and expire that CI artifact according to your data policy.
+Current headless limits are deliberate and fail closed: suite base-URL overrides, desktop secret handles, judge graders, sandboxes, and A2A sources are refused. Read-only saved HTTP and MCP tools require an explicit `--runtime` manifest. HTTP is limited to manifest-listed GET/HEAD/OPTIONS requests; MCP headers name environment variables rather than storing values and require `readOnly: true` plus a tool allowlist. Selected v3 grounding sources must also be listed in that manifest. Agent step/time/tool/token/cost/output budgets still apply, and `maxTokens` covers total input plus output tokens across a trial. `--output` writes the complete local trace report, which can include task inputs and model/tool outputs; protect and expire that CI artifact according to your data policy.
+
+Example runtime manifest:
+
+```json
+{
+  "schemaVersion": 1,
+  "sources": [
+    { "id": "orders", "kind": "collection", "path": "./collections/orders", "requestIds": ["get-orders"] },
+    {
+      "id": "docs",
+      "kind": "mcp",
+      "url": "https://mcp.example.test/mcp",
+      "transport": "streamable-http",
+      "readOnly": true,
+      "headers": [{ "name": "Authorization", "env": "DOCS_MCP_TOKEN" }],
+      "allowedTools": ["search_docs"]
+    }
+  ]
+}
+```
+
+Run it with `restura agent eval ./checkout.agent-suite.json --runtime ./agent-runtime.json --env ./ci-env.json`. `--allow-localhost` remains off by default.
+
+A Bundle may also use deterministic, read-only fixture tools; its baseline gates turn a regressed report into a failing CI result.
 
 ## Quick start
 
