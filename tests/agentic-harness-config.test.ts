@@ -45,6 +45,12 @@ describe('agentic harness package scripts', () => {
     expect(packageJson.scripts.validate).toContain('npm run test:ci');
     expect(packageJson.scripts.validate).not.toContain('npm run test:run');
   });
+
+  it('keeps agent and CI control-plane tooling outside the product coverage budget', () => {
+    const config = readFileSync(resolve(process.cwd(), 'vitest.config.ts'), 'utf8');
+    expect(config).toContain("'.codex/'");
+    expect(config).toContain("'scripts/ci/'");
+  });
 });
 
 describe('Codex repository discovery', () => {

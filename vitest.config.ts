@@ -38,7 +38,11 @@ export default defineConfig({
       exclude: [
         'node_modules/',
         'tests/',
-        // Dev/test tooling, not production code: e2e mocks + the local echo stack.
+        // Dev/test control-plane tooling, not shipped production code. These
+        // paths have focused behavior tests but must not consume the renderer /
+        // Worker / Node / Electron / CLI coverage budget merely when imported.
+        '.codex/',
+        'scripts/ci/',
         'e2e/',
         'echo-local/',
         '**/*.d.ts',
