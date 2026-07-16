@@ -1,11 +1,52 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
 
 async function run(command, args) {
   return execFileAsync(command, args, { encoding: 'utf8' });
+}
+
+export function parseCliPolicy(args) {
+  const [appPath, ...options] = args;
+  if (!appPath || appPath.startsWith('--')) {
+    throw new Error('A macOS app path is required');
+  }
+
+  const policy = {
+    requireDeveloperId: false,
+    expectedTeamIdentifier: undefined,
+    expectedBundleIdentifier: undefined,
+  };
+
+  for (let index = 0; index < options.length; index += 1) {
+    const option = options[index];
+    switch (option) {
+      case '--require-developer-id':
+        policy.requireDeveloperId = true;
+        break;
+      case '--team-id':
+        index += 1;
+        policy.expectedTeamIdentifier = options[index];
+        if (!policy.expectedTeamIdentifier) throw new Error('--team-id requires a value');
+        break;
+      case '--bundle-id':
+        index += 1;
+        policy.expectedBundleIdentifier = options[index];
+        if (!policy.expectedBundleIdentifier) throw new Error('--bundle-id requires a value');
+        break;
+      default:
+        throw new Error(`Unknown argument: ${option}`);
+    }
+  }
+
+  if (policy.requireDeveloperId && !policy.expectedTeamIdentifier) {
+    throw new Error('--team-id is required with --require-developer-id');
+  }
+
+  return { appPath, policy };
 }
 
 function metadataValue(metadata, key) {
@@ -101,6 +142,20 @@ export async function afterSign(context) {
   } else {
     console.log(`[electron-signature] verified ${appName}`);
   }
+}
+
+async function main() {
+  const { appPath, policy } = parseCliPolicy(process.argv.slice(2));
+  const result = await verifySignedMacApp(appPath, policy);
+  console.log(`[electron-signature] ${result.status}`);
+}
+
+const entryPath = process.argv[1] ? path.resolve(process.argv[1]) : '';
+if (entryPath === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(`[electron-signature] ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  });
 }
 
 export default afterSign;

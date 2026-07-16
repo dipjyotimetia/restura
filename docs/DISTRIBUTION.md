@@ -6,7 +6,7 @@ This guide explains how to build, sign, and distribute the Restura Electron app.
 
 The app supports distribution on:
 
-- **macOS**: DMG installer and ZIP archive (x64 and arm64)
+- **macOS**: DMG installer and ZIP updater archive (arm64)
 - **Windows**: NSIS installer and portable executable (x64 and ia32)
 - **Linux**: AppImage, DEB, and RPM packages (x64)
 
@@ -123,28 +123,22 @@ Apple requires notarization for apps distributed outside the App Store.
 
 ### Automated Releases
 
-The GitHub Actions workflow (`.github/workflows/electron-release.yml`) automates:
-
-1. **Building** on all platforms (macOS x64/arm64, Windows, Linux)
-2. **Signing** with configured certificates
-3. **Notarizing** macOS builds
-4. **Publishing** to GitHub Releases
+The GitHub Actions workflow (`.github/workflows/release.yml`) prepares a
+version-only release PR, merges it through the release App's constrained
+bypass, creates a draft, and builds the macOS, Windows, and Linux packages from
+that exact merged candidate. A stable release becomes public only after every
+required downstream job succeeds.
 
 ### Triggering a Release
 
-**Option 1: Git Tag (Recommended)**
+Run **Actions → Release → Run workflow** on `main`, or:
 
 ```bash
-# Update version and create tag
-npm version patch  # or minor, major
-git push && git push --tags
+gh workflow run release.yml --ref main -f release_bump=patch
 ```
 
-**Option 2: Manual Workflow**
-
-- Go to Actions → Build and Release Electron App
-- Click "Run workflow"
-- Optionally specify version
+Do not create or push the stable tag manually; the workflow owns versioning,
+tag creation, draft creation, package publication, and final promotion.
 
 ### Release Workflow Steps
 
@@ -154,16 +148,19 @@ git push && git push --tags
 
 2. **Code Signing**
    - Imports certificates from secrets
-   - Signs executables automatically
+   - Requires the stable macOS app to match the configured Developer ID team,
+     bundle identifier, and hardened-runtime policy
 
 3. **Artifact Upload**
    - Uploads installers, manifests, and blockmaps
    - Preserves for release creation
 
-4. **Release Creation**
-   - Creates draft release
-   - Attaches all artifacts
-   - Generates release notes
+4. **Packaged Artifact Verification**
+   - Re-extracts the exact macOS updater ZIP
+   - Re-verifies its signature and notarization ticket
+5. **Release Creation**
+   - Keeps the release in draft until package, metadata, and downstream gates pass
+   - Attaches all artifacts and generated release notes
 
 ## GitHub Secrets Configuration
 
@@ -204,9 +201,13 @@ The app includes automatic update functionality via `electron-updater`.
 ### How It Works
 
 1. **Startup Check**: App checks GitHub Releases 3 seconds after launch, then every 6 hours while it remains open
-2. **Download**: New version downloads in background
-3. **Notification**: User is prompted to restart
-4. **Installation**: Update installs on restart
+2. **Download**: New version downloads in the background
+3. **Validation**: macOS native Squirrel verifies the downloaded app signature
+4. **Ready**: `Restart now` appears only after native validation succeeds
+5. **Installation**: The app restarts, installs the update, and relaunches
+
+Download, validation, and installation failures remain visible with **Retry**
+and **Manual download** actions. Automatic background check failures stay quiet.
 
 ### Update Server
 
@@ -242,42 +243,18 @@ macOS, and Linux manifests against the tag before the GitHub release is made pub
 
 ### Step-by-Step
 
-1. **Update Version**
+1. Confirm `main` and required CI gates are green.
+2. Dispatch `.github/workflows/release.yml` with the intended version bump.
+3. Monitor the preparation run, merged release candidate, and publication run.
+4. Confirm the macOS log shows Developer ID signing and packaged ZIP
+   verification rather than a signing skip.
+5. Verify public `latest*.yml` filenames, versions, sizes, and SHA-512 values
+   against the downloaded public assets.
+6. Install the previous desktop version and verify download → validation →
+   restart → install → relaunch into the new version.
 
-   ```bash
-   # Patch release (0.1.0 → 0.1.1)
-   npm version patch
-
-   # Minor release (0.1.0 → 0.2.0)
-   npm version minor
-
-   # Major release (0.1.0 → 1.0.0)
-   npm version major
-   ```
-
-2. **Push Tags**
-
-   ```bash
-   git push origin main --tags
-   ```
-
-3. **Monitor Build**
-   - Check GitHub Actions for build progress
-   - Review any failures
-
-4. **Review Draft Release**
-   - Go to GitHub Releases
-   - Verify all artifacts are present
-   - Replace the generated Highlights and Upgrade notes comments using
-     [`RELEASE_NOTES_TEMPLATE.md`](./RELEASE_NOTES_TEMPLATE.md)
-   - Keep only non-empty categorized sections and verify any migration guidance
-   - Confirm links, inline code, and commit references render correctly in the
-     in-app Settings → Updates reader
-   - Publish release
-
-5. **Verify Updates**
-   - Install old version
-   - Confirm update notification appears
+Published updater assets are immutable. If a public build is broken, do not
+replace assets or manifests under that version; ship and verify a new patch.
 
 ## Troubleshooting
 
@@ -297,8 +274,10 @@ macOS, and Linux manifests against the tag before the GitHub release is made pub
 Application` identity before a local signed build. If it lists zero, recreate
   the certificate in Xcode or import a `.p12` that includes its matching private
   key.
-- The build's `afterSign` hook fails closed when a non-ad-hoc signature is
-  invalid, so do not publish an artifact from a failed signing build.
+- Stable builds fail closed unless the app is signed by the expected Developer
+  ID team with the expected bundle identifier and hardened runtime. The release
+  job repeats that check against the exact updater ZIP and validates the app's
+  notarization ticket before the draft can become public.
 
 **Notarization Fails**
 

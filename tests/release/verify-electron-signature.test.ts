@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { verifySignedMacApp } from '../../scripts/verify-electron-signature.mjs';
+import { parseCliPolicy, verifySignedMacApp } from '../../scripts/verify-electron-signature.mjs';
 
 const requiredPolicy = {
   requireDeveloperId: true,
@@ -111,6 +111,42 @@ describe('verifySignedMacApp', () => {
 
     await expect(verifySignedMacApp('/tmp/Restura.app', requiredPolicy, execute)).rejects.toThrow(
       /invalid signature/
+    );
+  });
+});
+
+describe('parseCliPolicy', () => {
+  it('parses a required Developer ID artifact policy', () => {
+    expect(
+      parseCliPolicy([
+        '/tmp/Restura.app',
+        '--require-developer-id',
+        '--team-id',
+        'S7NSMM7XB2',
+        '--bundle-id',
+        'com.dipjyotimetia.restura',
+      ])
+    ).toEqual({
+      appPath: '/tmp/Restura.app',
+      policy: {
+        requireDeveloperId: true,
+        expectedTeamIdentifier: 'S7NSMM7XB2',
+        expectedBundleIdentifier: 'com.dipjyotimetia.restura',
+      },
+    });
+  });
+
+  it('rejects a missing app path', () => {
+    expect(() => parseCliPolicy([])).toThrow(/app path/i);
+  });
+
+  it('rejects a required Developer ID policy without a team', () => {
+    expect(() => parseCliPolicy(['/tmp/Restura.app', '--require-developer-id'])).toThrow(/team/i);
+  });
+
+  it('rejects unknown arguments', () => {
+    expect(() => parseCliPolicy(['/tmp/Restura.app', '--unsafe-skip-verification'])).toThrow(
+      /unknown argument/i
     );
   });
 });

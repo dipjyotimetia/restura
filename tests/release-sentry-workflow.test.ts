@@ -115,6 +115,32 @@ describe('release workflow Sentry guardrails', () => {
     );
   });
 
+  it('verifies the packaged stable macOS updater artifact before attestation', () => {
+    const buildIndex = workflow.indexOf('- name: Build + publish installers');
+    const verifyIndex = workflow.indexOf('- name: Verify signed macOS release artifacts');
+    const attestIndex = workflow.indexOf('- name: Attest installer provenance');
+
+    expect(buildIndex).toBeGreaterThan(-1);
+    expect(verifyIndex).toBeGreaterThan(buildIndex);
+    expect(attestIndex).toBeGreaterThan(verifyIndex);
+
+    const verificationBlock = workflow.slice(verifyIndex, attestIndex);
+    expect(verificationBlock).toContain(
+      "if: ${{ runner.os == 'macOS' && needs.release.outputs.is_prerelease == 'false' }}"
+    );
+    expect(verificationBlock).toContain('set -euo pipefail');
+    expect(verificationBlock).toContain('test -s "$ZIP"');
+    expect(verificationBlock).toContain('test -s "$DMG"');
+    expect(verificationBlock).toContain('ditto -x -k "$ZIP" "$WORK_DIR"');
+    expect(verificationBlock).toContain('node scripts/verify-electron-signature.mjs');
+    expect(verificationBlock).toContain('--require-developer-id');
+    expect(verificationBlock).toContain('--team-id "$APPLE_TEAM_ID"');
+    expect(verificationBlock).toContain('--bundle-id "com.dipjyotimetia.restura"');
+    expect(verificationBlock).toContain('xcrun stapler validate "$WORK_DIR/Restura.app"');
+
+    expect(workflow).toContain("needs.desktop.result == 'success'");
+  });
+
   it('repairs existing draft releases without republishing other distribution surfaces', () => {
     expect(workflow).toContain('repair_release_tag:');
     expect(workflow).toContain('is_repair: ${{ steps.context.outputs.is_repair }}');

@@ -329,7 +329,7 @@ git commit -m "fix(desktop): surface updater validation failures"
   - occurs before provenance/attestation and public release promotion;
   - invokes the verifier against an app extracted from the release ZIP;
   - passes the expected team;
-  - validates the shipped DMG with `xcrun stapler validate`;
+  - validates the notarization ticket on the app extracted from the shipped ZIP;
   - uses `set -euo pipefail` and checks files are non-empty.
 
 ### 5.2 Prove the tests fail
@@ -374,7 +374,7 @@ Expected: no verifier CLI or packaged-artifact gate exists yet.
       --require-developer-id \
       --team-id "$APPLE_TEAM_ID" \
       --bundle-id "com.dipjyotimetia.restura"
-    xcrun stapler validate "$DMG"
+    xcrun stapler validate "$WORK_DIR/Restura.app"
 ```
 
 - [ ] Confirm the step runs against the exact ZIP/DMG names referenced by `latest-mac.yml` and the GitHub release.
@@ -384,7 +384,7 @@ Expected: no verifier CLI or packaged-artifact gate exists yet.
 
 - [ ] In `docs/CI_CD.md`, document the shared trusted-PR signing/publishing predicate, stable signing requirement, packaged artifact gate, and public-promotion dependency.
 - [ ] In `docs/DISTRIBUTION.md`, document the user-visible updater sequence and the immutable recovery rule: publish a new patch release; never replace updater assets for an existing public version.
-- [ ] Include an operator check for Developer ID team, bundle identifier, hardened runtime, ZIP hash/size, and DMG stapling.
+- [ ] Include an operator check for Developer ID team, bundle identifier, hardened runtime, ZIP hash/size, and the extracted app's notarization ticket.
 
 ### 5.6 Prove focused tests pass
 
@@ -481,7 +481,7 @@ node scripts/verify-electron-signature.mjs \
   --require-developer-id \
   --team-id S7NSMM7XB2 \
   --bundle-id com.dipjyotimetia.restura
-xcrun stapler validate /tmp/restura-v1.6.1-audit/Restura-1.6.1-arm64.dmg
+xcrun stapler validate /tmp/restura-v1.6.1-audit/extracted/Restura.app
 ```
 
 - [ ] Verify the public release is non-draft, non-prerelease, tagged from the intended merged candidate SHA, and has no duplicate or stale v1.6.1 assets.
@@ -511,5 +511,5 @@ xcrun stapler validate /tmp/restura-v1.6.1-audit/Restura-1.6.1-arm64.dmg
 - [ ] `npm run electron:compile` and `npm run validate` pass from the final tree.
 - [ ] The merged repair commit is the source of the v1.6.1 release.
 - [ ] Public v1.6.1 manifests match public assets.
-- [ ] Public macOS ZIP is Developer ID signed for team `S7NSMM7XB2`, has bundle ID `com.dipjyotimetia.restura`, hardened runtime, and a valid signature; the DMG has a valid staple.
+- [ ] Public macOS ZIP is Developer ID signed for team `S7NSMM7XB2`, has bundle ID `com.dipjyotimetia.restura`, hardened runtime, a valid signature, and a valid notarization ticket on the extracted app.
 - [ ] A real v1.5.0 macOS installation updates, installs, and relaunches as v1.6.1.

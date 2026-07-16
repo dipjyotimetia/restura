@@ -692,6 +692,34 @@ jobs:
             npm run electron:publish
           fi
 
+      # Verify the exact updater ZIP that electron-builder uploaded, not only
+      # the unpacked build directory checked by afterSign. macOS Squirrel
+      # installs this ZIP, so its embedded app must retain the expected
+      # Developer ID signature and notarization ticket before promotion.
+      - name: Verify signed macOS release artifacts
+        if: ${{ runner.os == 'macOS' && needs.release.outputs.is_prerelease == 'false' }}
+        env:
+          ACTUAL_TAG: ${{ needs.release.outputs.actual_tag }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${ACTUAL_TAG#v}"
+          ZIP="dist/installers/Restura-${VERSION}-arm64-mac.zip"
+          DMG="dist/installers/Restura-${VERSION}-arm64.dmg"
+          test -n "${APPLE_TEAM_ID:-}"
+          test -s "$ZIP"
+          test -s "$DMG"
+          WORK_DIR="$(mktemp -d)"
+          trap 'rm -rf "$WORK_DIR"' EXIT
+          ditto -x -k "$ZIP" "$WORK_DIR"
+          node scripts/verify-electron-signature.mjs \
+            "$WORK_DIR/Restura.app" \
+            --require-developer-id \
+            --team-id "$APPLE_TEAM_ID" \
+            --bundle-id "com.dipjyotimetia.restura"
+          xcrun stapler validate "$WORK_DIR/Restura.app"
+
       # Generate a signed SLSA build-provenance attestation for every installer
       # this runner produced, so consumers can verify the binaries came from
       # this workflow at this commit (`gh attestation verify <file>`). Globs
