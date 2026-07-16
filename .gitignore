@@ -65,6 +65,9 @@ yarn-error.log*
 # git worktrees
 .worktrees/
 
+# Superpowers transient SDD reports
+.superpowers/sdd/
+
 # Claude Code local settings (machine-specific)
 .claude/settings.local.json
 # Claude Code transient runtime lock (session id + pid; not source)
