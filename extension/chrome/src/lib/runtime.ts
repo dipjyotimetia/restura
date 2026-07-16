@@ -7,6 +7,7 @@ import {
   captureStateSchema,
   captureStateUpdateSchema,
 } from './messages';
+import { CAPTURE_SESSION_KEY } from '../background/session-store';
 
 interface WorkerResponse {
   ok: boolean;
@@ -27,5 +28,17 @@ export function subscribeToCaptureState(listener: (state: CaptureState) => void)
     if (parsed.success) listener(parsed.data.state);
   };
   chrome.runtime.onMessage.addListener(onMessage);
-  return () => chrome.runtime.onMessage.removeListener(onMessage);
+  const onStorageChanged = (
+    _changes: Record<string, chrome.storage.StorageChange>,
+    area: string
+  ) => {
+    if (area === 'session' && CAPTURE_SESSION_KEY in _changes) {
+      void sendToWorker({ type: 'capture:get' }).then((state) => state && listener(state));
+    }
+  };
+  chrome.storage.onChanged.addListener(onStorageChanged);
+  return () => {
+    chrome.runtime.onMessage.removeListener(onMessage);
+    chrome.storage.onChanged.removeListener(onStorageChanged);
+  };
 }
