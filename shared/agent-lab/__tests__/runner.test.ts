@@ -110,6 +110,81 @@ describe('AgentRunner', () => {
     expect(result.trace.events.map((event) => event.sequence)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
   });
 
+  it('disposes platform tool resources after the run settles', async () => {
+    const dispose = vi.fn(async () => undefined);
+    const runner = new AgentRunner({
+      providers: new ProviderRegistry([
+        fakeAdapter([
+          {
+            id: 'r1',
+            output: [{ type: 'text', text: 'done' }],
+            toolCalls: [],
+            stopReason: 'completed',
+          },
+        ]),
+      ]),
+      async resolveTools() {
+        return { tools: [lookupTool], dispose };
+      },
+      async resolveCredential() {
+        return undefined;
+      },
+    });
+
+    await runner.run({ suite: suite(), taskId: 'task', agentId: 'agent', trial: 1 });
+
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it('injects selected grounding as evidence and records its provenance', async () => {
+    const generate = vi.fn(async (_request: GenerationRequest) => ({
+      id: 'r1',
+      output: [{ type: 'text' as const, text: 'done' }],
+      toolCalls: [],
+      stopReason: 'completed' as const,
+    }));
+    const adapter = fakeAdapter([]);
+    adapter.generate = generate;
+    const configured = suite();
+    configured.grounding = { sourceIds: ['orders-schema'], maxBytes: 1024 };
+    const runner = new AgentRunner({
+      providers: new ProviderRegistry([adapter]),
+      async resolveTools() {
+        return [];
+      },
+      async resolveCredential() {
+        return undefined;
+      },
+      async resolveGrounding() {
+        return [
+          {
+            sourceId: 'orders-schema',
+            kind: 'openapi',
+            label: 'Orders API',
+            version: 'v1',
+            content: 'GET /orders/{id}',
+            truncated: false,
+          },
+        ];
+      },
+    });
+
+    const result = await runner.run({
+      suite: configured,
+      taskId: 'task',
+      agentId: 'agent',
+      trial: 1,
+    });
+
+    expect(generate.mock.calls[0]?.[0].messages[0]?.content).toContainEqual({
+      type: 'text',
+      text: expect.stringContaining('GET /orders/{id}'),
+    });
+    expect(result.trace.events).toContainEqual(
+      expect.objectContaining({ type: 'context.retrieved', sourceId: 'orders-schema' })
+    );
+  });
+
   it('denies sensitive tools before execution when approval is refused', async () => {
     let executed = false;
     const mutationTool: AgentTool = {
@@ -147,6 +222,13 @@ describe('AgentRunner', () => {
     expect(result.status).toBe('error');
     expect(result.error).toContain('approval denied');
     expect(result.trace.events.map((event) => event.type)).toContain('approval.resolved');
+    expect(result.trace.events).toContainEqual(
+      expect.objectContaining({
+        type: 'policy.decision',
+        decision: 'denied',
+        subject: 'orders.get',
+      })
+    );
   });
 
   it('stops a non-terminating model at the configured step limit', async () => {

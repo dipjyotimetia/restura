@@ -7,12 +7,33 @@ import { useSettingsStore } from '@/store/useSettingsStore';
 import type { HttpRequest, Response } from '@/types';
 
 const executeRequestMock = vi.hoisted(() => vi.fn());
+const mcpMocks = vi.hoisted(() => ({
+  connect: vi.fn(),
+  disconnect: vi.fn(),
+  discoverCapabilities: vi.fn(),
+  callTool: vi.fn(),
+}));
 
 vi.mock('@/features/http/lib/requestExecutor', () => ({
   executeRequest: executeRequestMock,
 }));
 
-import { createResturaRequestTool, redactToolUrl, resolveResturaAgentTools } from '../agentTools';
+vi.mock('@/features/mcp/lib/mcpClient', () => ({
+  McpClient: class {
+    connect = mcpMocks.connect;
+    disconnect = mcpMocks.disconnect;
+    discoverCapabilities = mcpMocks.discoverCapabilities;
+    callTool = mcpMocks.callTool;
+  },
+}));
+
+import {
+  createResturaRequestTool,
+  redactToolUrl,
+  resolveDesktopAgentTools,
+  resolveResturaAgentTools,
+} from '../agentTools';
+import { useMcpStore } from '@/features/mcp/store/useMcpStore';
 
 function request(overrides: Partial<HttpRequest> = {}): HttpRequest {
   return {
@@ -50,11 +71,13 @@ describe('Restura request agent tools', () => {
 
   beforeEach(() => {
     executeRequestMock.mockReset();
+    Object.values(mcpMocks).forEach((mock) => mock.mockReset());
     useCollectionStore.setState({ collections: [], activeCollectionId: null });
     useEnvironmentStore.setState({ environments: [], activeEnvironmentId: null });
     useGlobalsStore.setState({ vars: {} });
     useRequestStore.setState({ tabs: [], activeTabId: null });
     useSettingsStore.setState({ settings: originalSettings });
+    useMcpStore.setState({ connections: {}, activeConnectionId: null });
   });
 
   afterEach(() => {
@@ -67,6 +90,7 @@ describe('Restura request agent tools', () => {
       activeTabId: originalRequestState.activeTabId,
     });
     useSettingsStore.setState({ settings: originalSettings });
+    useMcpStore.setState({ connections: {}, activeConnectionId: null });
   });
 
   it('classifies reads and returns a structured response', async () => {
@@ -120,6 +144,40 @@ describe('Restura request agent tools', () => {
     await tool.execute({}, { signal: controller.signal });
 
     expect(execute).toHaveBeenCalledWith(expect.anything(), controller.signal);
+  });
+
+  it('closes the dedicated MCP session when the agent run is aborted', async () => {
+    useMcpStore.setState({
+      connections: {
+        docs: {
+          id: 'docs',
+          url: 'https://mcp.example.test',
+          transport: 'streamable-http',
+          headers: [],
+          status: 'connected',
+          capabilities: null,
+          log: [],
+          createdAt: 0,
+        },
+      },
+      activeConnectionId: 'docs',
+    });
+    mcpMocks.connect.mockResolvedValue({ ok: true });
+    mcpMocks.discoverCapabilities.mockResolvedValue({
+      tools: [{ name: 'search', inputSchema: { type: 'object' } }],
+      resources: [],
+      prompts: [],
+    });
+    const controller = new AbortController();
+    const resolved = await resolveDesktopAgentTools(
+      [{ kind: 'mcp', connectionId: 'docs', allowedTools: ['search'] }],
+      controller.signal
+    );
+
+    controller.abort();
+
+    expect(mcpMocks.disconnect).toHaveBeenCalledTimes(1);
+    await resolved.dispose?.();
   });
 
   it('uses normal active scopes and persists successful collection mutations', async () => {

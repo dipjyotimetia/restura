@@ -1,4 +1,9 @@
-import type { AgentTool, ToolSource } from '@shared/agent-lab';
+import {
+  createMcpTools,
+  type AgentTool,
+  type ResolvedAgentTools,
+  type ToolSource,
+} from '@shared/agent-lab';
 import {
   findInheritedAuthWithSource,
   resolveEffectiveAuth,
@@ -10,6 +15,8 @@ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { Collection, CollectionItem, HttpRequest, Response } from '@/types';
+import { McpClient } from '@/features/mcp/lib/mcpClient';
+import { useMcpStore } from '@/features/mcp/store/useMcpStore';
 
 type ExecuteHttp = (request: HttpRequest, signal?: AbortSignal) => Promise<Response>;
 
@@ -126,4 +133,107 @@ export async function resolveResturaAgentTools(sources: ToolSource[]): Promise<A
     );
   }
   return tools;
+}
+
+/**
+ * Resolve desktop MCP sources through the established MCP client. Each agent
+ * run receives a fresh session and always disconnects it in the runner's
+ * finally path; it never reuses (or disrupts) the workbench's interactive
+ * session. MCP annotations are not treated as local authorization, so the
+ * shared tool adapter retains approval-required permissions.
+ */
+export async function resolveDesktopAgentTools(
+  sources: ToolSource[],
+  signal?: AbortSignal
+): Promise<ResolvedAgentTools> {
+  const resturaSources = sources.filter((source) => source.kind === 'restura-request');
+  const mcpSources = sources.filter(
+    (source): source is Extract<ToolSource, { kind: 'mcp' }> => source.kind === 'mcp'
+  );
+  if (sources.length !== resturaSources.length + mcpSources.length) {
+    const unsupported = sources.find(
+      (source) => source.kind !== 'restura-request' && source.kind !== 'mcp'
+    );
+    throw new Error(
+      `${unsupported?.kind ?? 'unknown'} tool sources need their runtime adapter configured`
+    );
+  }
+
+  const tools = await resolveResturaAgentTools(resturaSources);
+  const clients: McpClient[] = [];
+  const abortListeners: Array<() => void> = [];
+  try {
+    for (const source of mcpSources) {
+      const connection = useMcpStore.getState().connections[source.connectionId];
+      if (!connection || !connection.url) {
+        throw new Error(`MCP connection not found: ${source.connectionId}`);
+      }
+      const client = new McpClient({
+        url: connection.url,
+        transport: connection.transport,
+        headers: Object.fromEntries(
+          connection.headers
+            .filter((header) => header.enabled && header.key)
+            .map((header) => [header.key, header.value])
+        ),
+        connectionId: `agent-${crypto.randomUUID()}`,
+      });
+      // McpClient's IPC calls do not accept an AbortSignal. Closing this
+      // dedicated session on cancellation is the only safe way to interrupt a
+      // pending discovery/tool request without touching interactive sessions.
+      const disconnectOnAbort = () => {
+        void client.disconnect();
+      };
+      signal?.addEventListener('abort', disconnectOnAbort, { once: true });
+      abortListeners.push(() => signal?.removeEventListener('abort', disconnectOnAbort));
+      signal?.throwIfAborted();
+      const connected = await client.connect();
+      signal?.throwIfAborted();
+      if (!connected.ok) throw new Error(`MCP connection failed: ${connected.error}`);
+      clients.push(client);
+      const mcpTools = await createMcpTools(
+        source,
+        {
+          async listTools(listSignal) {
+            const activeSignal = listSignal ?? signal;
+            activeSignal?.throwIfAborted();
+            const capabilities = await client.discoverCapabilities();
+            activeSignal?.throwIfAborted();
+            if ('error' in capabilities) throw new Error(capabilities.error);
+            return capabilities.tools.map((tool) => ({
+              name: tool.name,
+              ...(tool.description ? { description: tool.description } : {}),
+              inputSchema: (tool.inputSchema ?? { type: 'object' }) as Record<string, unknown>,
+            }));
+          },
+          async callTool(name, arguments_, callSignal) {
+            const activeSignal = callSignal ?? signal;
+            activeSignal?.throwIfAborted();
+            const result = await client.callTool(name, arguments_);
+            activeSignal?.throwIfAborted();
+            if (!result.ok) throw new Error(result.error);
+            return [{ type: 'json', value: result.result }];
+          },
+        },
+        signal,
+        {
+          nameForTool: (name) =>
+            `mcp_${source.connectionId}_${name}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 64),
+        }
+      );
+      tools.push(...mcpTools);
+    }
+  } catch (error) {
+    abortListeners.splice(0).forEach((remove) => remove());
+    await Promise.allSettled(clients.map((client) => client.disconnect()));
+    throw error;
+  }
+
+  return {
+    tools,
+    async dispose() {
+      abortListeners.splice(0).forEach((remove) => remove());
+      await Promise.allSettled(clients.map((client) => client.disconnect()));
+    },
+  };
 }

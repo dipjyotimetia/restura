@@ -8,6 +8,7 @@ import {
   evaluateAgentSuite,
   preflightAgentSuite,
 } from '../agent';
+import { AgentRuntimeManifestSchema } from '../agentRuntime';
 
 function suite(
   overrides: {
@@ -80,17 +81,20 @@ function dependencies(
     writeText,
     fetcher,
     environment: {},
+    loadEnvironment: vi.fn().mockResolvedValue({}),
+    loadCollection: vi.fn(),
+    executeHttp: vi.fn(),
   };
 }
 
 describe('preflightAgentSuite', () => {
   it.each([
-    ['provider', suite({ providerId: 'anthropic' }), /adapter not registered/],
+    ['provider', suite({ providerId: 'unsupported' }), /adapter not registered/],
     ['base URL', suite({ baseUrl: 'https://gateway.example' }), /baseUrl overrides/],
     [
       'tool',
       suite({ tools: [{ kind: 'restura-request', requestId: 'request-1' }] }),
-      /tool adapter/,
+      /runtime manifest/,
     ],
     [
       'judge',
@@ -131,9 +135,37 @@ describe('preflightAgentSuite', () => {
 
   it('is a pure validation boundary', () => {
     expect(() => preflightAgentSuite(suite())).not.toThrow();
+    expect(() => preflightAgentSuite(suite({ providerId: 'anthropic.messages' }))).not.toThrow();
     expect(() => preflightAgentSuite(suite({ providerId: 'ollama' }))).toThrow(
       /adapter not registered/
     );
+  });
+
+  it('permits a saved request tool only when the runtime manifest explicitly owns it', () => {
+    const runtime = AgentRuntimeManifestSchema.parse({
+      schemaVersion: 1,
+      sources: [
+        {
+          id: 'orders',
+          kind: 'collection',
+          path: './orders',
+          requestIds: ['request-1'],
+        },
+      ],
+    });
+
+    expect(() =>
+      preflightAgentSuite(
+        suite({ tools: [{ kind: 'restura-request', requestId: 'request-1' }] }),
+        runtime
+      )
+    ).not.toThrow();
+    expect(() =>
+      preflightAgentSuite(
+        suite({ tools: [{ kind: 'restura-request', requestId: 'request-2' }] }),
+        runtime
+      )
+    ).toThrow('not listed in the runtime manifest');
   });
 });
 

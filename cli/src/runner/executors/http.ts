@@ -89,7 +89,10 @@ export async function executeHttp(
           : {}),
       },
       fetcher,
-      { allowLocalhost: opts.allowLocalhost }
+      {
+        allowLocalhost: opts.allowLocalhost,
+        ...(opts.signal ? { signal: opts.signal } : {}),
+      }
     );
     const durationMs = Date.now() - start;
 

@@ -35,6 +35,8 @@ export interface ExecuteOptions {
   vars: Record<string, string>;
   timeoutMs: number;
   allowLocalhost: boolean;
+  /** Propagates agent cancellation to the shared HTTP fetch controller. */
+  signal?: AbortSignal;
   /** SSE: max time to keep the stream open (ms). Default 5000. */
   sseDurationMs?: number;
   /** SSE: stop early after this many events. Default unbounded within duration. */

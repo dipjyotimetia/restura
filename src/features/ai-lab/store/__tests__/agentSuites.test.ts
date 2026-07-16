@@ -24,7 +24,11 @@ describe('AI Lab agent suites', () => {
       trials: 1,
     };
     useAiLabStore.getState().upsertAgentSuite(suite);
-    expect(useAiLabStore.getState().agentSuites.suite).toEqual(suite);
+    expect(useAiLabStore.getState().agentSuites.suite).toMatchObject({
+      ...suite,
+      schemaVersion: 3,
+      grounding: { sourceIds: [], maxBytes: 16_384 },
+    });
     useAiLabStore.getState().removeAgentSuite('suite');
     expect(useAiLabStore.getState().agentSuites.suite).toBeUndefined();
   });

@@ -1,4 +1,4 @@
-import { AGENT_SUITE_SCHEMA_VERSION, AgentSuiteSchema } from '@shared/agent-lab';
+import { AGENT_SUITE_SCHEMA_VERSION, AgentSuiteSchema, migrateAgentSuite } from '@shared/agent-lab';
 import { Bot, Download, Play, Plus, Save, Square, Trash2, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,8 @@ import {
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore } from '../store/useAiLabUiStore';
 import type { AiLabProviderConfig } from '../types';
+import { useMcpStore } from '@/features/mcp/store/useMcpStore';
+import { useCollectionStore } from '@/store/useCollectionStore';
 
 function starterSuite(providers: Record<string, AiLabProviderConfig> = {}) {
   const id = crypto.randomUUID();
@@ -36,6 +38,7 @@ function starterSuite(providers: Record<string, AiLabProviderConfig> = {}) {
     tasks: [{ id: 'case-1', input: [{ type: 'text' as const, text: 'Describe the task.' }] }],
     graders: [],
     trials: 3,
+    grounding: { sourceIds: [], maxBytes: 16_384 },
   };
 }
 
@@ -44,13 +47,15 @@ export function AgentWorkbench() {
   const upsert = useAiLabStore((state) => state.upsertAgentSuite);
   const remove = useAiLabStore((state) => state.removeAgentSuite);
   const providers = useAiLabStore((state) => state.providers);
+  const collections = useCollectionStore((state) => state.collections);
+  const mcpConnections = useMcpStore((state) => state.connections);
   const openReport = useAiLabUiStore((state) => state.openReport);
   const [activeId, setActiveId] = useState<string | null>(Object.keys(suites)[0] ?? null);
   const [draft, setDraft] = useState(() =>
     JSON.stringify(activeId ? suites[activeId] : starterSuite(providers), null, 2)
   );
   const [message, setMessage] = useState(
-    'Schema v2 · credentials must be env or keychain references'
+    'Schema v3 · selected grounding is sanitized before it reaches a model'
   );
   const running = useAgentRunLiveStore((state) => state.running);
   const progress = useAgentRunLiveStore((state) => state.progress);
@@ -75,9 +80,10 @@ export function AgentWorkbench() {
     setDraft(JSON.stringify(suites[id], null, 2));
     setMessage('Suite loaded');
   };
+  const parseDraft = () => migrateAgentSuite(AgentSuiteSchema.parse(JSON.parse(draft)));
   const save = () => {
     try {
-      const parsed = AgentSuiteSchema.parse(JSON.parse(draft));
+      const parsed = parseDraft();
       upsert(parsed);
       setActiveId(parsed.id);
       setDraft(JSON.stringify(parsed, null, 2));
@@ -88,7 +94,7 @@ export function AgentWorkbench() {
   };
   const exportSuite = () => {
     try {
-      const parsed = AgentSuiteSchema.parse(JSON.parse(draft));
+      const parsed = parseDraft();
       const url = URL.createObjectURL(
         new Blob([JSON.stringify(parsed, null, 2)], { type: 'application/json' })
       );
@@ -103,7 +109,7 @@ export function AgentWorkbench() {
   };
   const importSuite = async (file: File) => {
     try {
-      const parsed = AgentSuiteSchema.parse(JSON.parse(await file.text()));
+      const parsed = migrateAgentSuite(AgentSuiteSchema.parse(JSON.parse(await file.text())));
       upsert(parsed);
       setActiveId(parsed.id);
       setDraft(JSON.stringify(parsed, null, 2));
@@ -114,7 +120,7 @@ export function AgentWorkbench() {
   };
   const run = () => {
     try {
-      const parsed = AgentSuiteSchema.parse(JSON.parse(draft));
+      const parsed = parseDraft();
       upsert(parsed);
       const started = startAgentRun(parsed, providers, async (request) =>
         window.confirm(
@@ -129,6 +135,27 @@ export function AgentWorkbench() {
       setMessage(error instanceof Error ? error.message : String(error));
     }
   };
+  const toggleGrounding = (sourceId: string) => {
+    try {
+      const parsed = parseDraft();
+      const selected = new Set(parsed.grounding.sourceIds);
+      if (selected.has(sourceId)) selected.delete(sourceId);
+      else selected.add(sourceId);
+      const next = { ...parsed, grounding: { ...parsed.grounding, sourceIds: [...selected] } };
+      setDraft(JSON.stringify(next, null, 2));
+      setMessage(`Grounding ${selected.has(sourceId) ? 'enabled' : 'disabled'} for ${sourceId}`);
+    } catch (error) {
+      setMessage(
+        `Fix suite JSON before selecting grounding: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  };
+  let selectedGrounding = new Set<string>();
+  try {
+    selectedGrounding = new Set(parseDraft().grounding.sourceIds);
+  } catch {
+    // Keep the raw JSON editable; source buttons become inactive until valid.
+  }
 
   return (
     <div className="grid h-full grid-cols-[220px_minmax(0,1fr)] bg-sp-bg">
@@ -231,6 +258,45 @@ export function AgentWorkbench() {
           spellCheck={false}
           className="min-h-0 flex-1 resize-none rounded-sp-card border border-sp-line bg-sp-surface-lo p-4 font-mono text-sp-11 leading-5 text-sp-text outline-none focus:border-sp-accent"
         />
+        <div className="mt-3 rounded-sp-card border border-sp-line bg-sp-surface-lo p-3">
+          <div className="mb-2 flex items-baseline justify-between gap-3">
+            <div>
+              <h3 className="text-sp-11 font-semibold">Selected grounding</h3>
+              <p className="text-sp-9 text-sp-muted">
+                Only these sanitized collection summaries or MCP catalogs are added as model
+                evidence.
+              </p>
+            </div>
+            <span className="text-sp-9 text-sp-muted">{selectedGrounding.size} selected</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {collections.map((collection) => (
+              <Button
+                key={collection.id}
+                size="sm"
+                variant={selectedGrounding.has(collection.id) ? 'default' : 'outline'}
+                onClick={() => toggleGrounding(collection.id)}
+              >
+                Collection · {collection.name}
+              </Button>
+            ))}
+            {Object.values(mcpConnections).map((connection) => (
+              <Button
+                key={connection.id}
+                size="sm"
+                variant={selectedGrounding.has(connection.id) ? 'default' : 'outline'}
+                onClick={() => toggleGrounding(connection.id)}
+              >
+                MCP · {(connection.capabilities?.serverName ?? connection.url) || connection.id}
+              </Button>
+            ))}
+            {collections.length === 0 && Object.keys(mcpConnections).length === 0 && (
+              <span className="text-sp-9 text-sp-muted">
+                Create a collection or MCP connection to make it available for grounding.
+              </span>
+            )}
+          </div>
+        </div>
         <div className="mt-2 truncate text-sp-10 text-sp-muted" role="status">
           {running || completedReport || runStatus !== 'Ready' ? runStatus : message}
           {persistenceError ? ` · ${persistenceError}` : ''}

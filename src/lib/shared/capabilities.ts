@@ -257,14 +257,14 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: false,
     desktop: true,
     notes:
-      'AI Lab UI authoring and in-app execution are Electron-only, with one cancellable lifecycle per run surface; versioned suites, task-aware grading, hard run-wide budgets, repeated-trial reliability, and sanitized bounded report persistence. A separate headless OpenAI Responses subset is available via `restura agent eval`',
+      'AI Lab UI authoring and in-app execution are Electron-only, with one cancellable lifecycle per run surface; v3 suites add explicit selected grounding with provenance traces, task-aware grading, hard run-wide budgets, repeated-trial reliability, and sanitized bounded report persistence. A separate headless OpenAI Responses and Anthropic Messages subset is available via `restura agent eval`',
   },
   'aiLab.agentProviders': {
     label: 'AI Lab agent provider transports',
     web: false,
     desktop: true,
     notes:
-      'Desktop wires OpenAI Chat, Anthropic Messages, OpenRouter, Ollama, Hugging Face, and generic OpenAI-compatible through cancellable keychain-backed IPC with conservative per-model capabilities and explicit user overrides. Headless CLI wires stateless OpenAI Responses. Gemini, Azure OpenAI, and Bedrock are adapter profiles only, not shipped transports.',
+      'Desktop wires OpenAI Chat, Anthropic Messages, OpenRouter, Ollama, Hugging Face, and generic OpenAI-compatible through cancellable keychain-backed IPC with conservative per-model capabilities and explicit user overrides. Headless CLI wires stateless OpenAI Responses and native Anthropic Messages. Gemini, Azure OpenAI, and Bedrock are adapter profiles only, not shipped transports.',
   },
   'aiLab.agentRequestTools': {
     label: 'AI Lab agents using saved Restura HTTP requests as tools',
@@ -276,9 +276,9 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
   'aiLab.agentMcpTools': {
     label: 'AI Lab agents using MCP servers as tools',
     web: false,
-    desktop: false,
+    desktop: true,
     notes:
-      'Unsupported: the shared allowlist and annotation-aware adapter is implemented, but no desktop MCP connection resolver is registered yet',
+      'Desktop opens a fresh validated MCP session per run, applies the suite allowlist, and always requires approval because remote annotations do not grant local authority. CLI supports manifest-listed MCP tools only when CI explicitly asserts readOnly:true',
   },
   'aiLab.agentSandboxes': {
     label: 'AI Lab pluggable code sandboxes',

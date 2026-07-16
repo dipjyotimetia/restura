@@ -15,7 +15,8 @@ import {
 import type { CompletionResult } from '@shared/protocol/ai/types';
 import type { AiLabProviderConfig } from '../types';
 import { capabilitiesForDesktopModel, knownCostForCompletion } from './agentModelCapabilities';
-import { resolveResturaAgentTools } from './agentTools';
+import { resolveDesktopAgentTools } from './agentTools';
+import { resolveDesktopGrounding } from './agentGrounding';
 import { completeLlm, type LlmCallSpec, specFor } from './llmClient';
 
 type Complete = (
@@ -203,7 +204,8 @@ export async function runDesktopAgentSuite(
     async resolveCredential() {
       return undefined;
     },
-    resolveTools: resolveResturaAgentTools,
+    resolveTools: resolveDesktopAgentTools,
+    resolveGrounding: resolveDesktopGrounding,
     ...(options.requestApproval ? { requestApproval: options.requestApproval } : {}),
   });
   const totalTrials = suite.agents.length * suite.tasks.length * suite.trials;

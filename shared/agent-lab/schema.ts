@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
-export const AGENT_SUITE_SCHEMA_VERSION = 2 as const;
+export const AGENT_SUITE_SCHEMA_VERSION = 3 as const;
+export const DEFAULT_GROUNDING_MAX_BYTES = 16_384;
 
 const IdentifierSchema = z
   .string()
@@ -95,6 +96,26 @@ export const AgentTaskSchema = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
+/** Portable references to platform-resolved, sanitized evidence sources. */
+export const GroundingConfigSchema = z
+  .object({
+    sourceIds: z.array(IdentifierSchema).max(100),
+    maxBytes: z.number().int().min(1).max(1_000_000).default(DEFAULT_GROUNDING_MAX_BYTES),
+  })
+  .superRefine((grounding, context) => {
+    const seen = new Set<string>();
+    for (const [index, sourceId] of grounding.sourceIds.entries()) {
+      if (seen.has(sourceId)) {
+        context.addIssue({
+          code: 'custom',
+          message: `duplicate grounding source id: ${sourceId}`,
+          path: ['sourceIds', index],
+        });
+      }
+      seen.add(sourceId);
+    }
+  });
+
 const GraderBaseSchema = z.object({ id: IdentifierSchema, label: z.string().optional() });
 export const GraderSchema = z.discriminatedUnion('kind', [
   GraderBaseSchema.extend({ kind: z.literal('exact'), value: z.string().optional() }),
@@ -146,7 +167,9 @@ export const GraderSchema = z.discriminatedUnion('kind', [
 
 export const AgentSuiteSchema = z
   .object({
-    schemaVersion: z.literal(AGENT_SUITE_SCHEMA_VERSION),
+    // v2 remains readable so persisted suites can be normalized at the store
+    // and CLI boundaries without a destructive migration.
+    schemaVersion: z.union([z.literal(2), z.literal(AGENT_SUITE_SCHEMA_VERSION)]),
     id: IdentifierSchema,
     name: z.string().min(1).max(500),
     mode: z.enum(['capability', 'regression']),
@@ -154,6 +177,7 @@ export const AgentSuiteSchema = z
     tasks: z.array(AgentTaskSchema).min(1),
     graders: z.array(GraderSchema),
     trials: z.number().int().min(1).max(100),
+    grounding: GroundingConfigSchema.optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
   })
   .superRefine((suite, context) => {
@@ -272,6 +296,16 @@ export const AgentSuiteSchema = z
     }
   });
 
+/** Normalize legacy v2 input to the v3 portable representation. */
+export function migrateAgentSuite(input: unknown) {
+  const suite = AgentSuiteSchema.parse(input);
+  return {
+    ...suite,
+    schemaVersion: AGENT_SUITE_SCHEMA_VERSION,
+    grounding: suite.grounding ?? { sourceIds: [], maxBytes: DEFAULT_GROUNDING_MAX_BYTES },
+  };
+}
+
 const TraceEventBaseSchema = z.object({
   id: IdentifierSchema,
   traceId: IdentifierSchema,
@@ -284,6 +318,19 @@ export const TraceEventSchema = z.discriminatedUnion('type', [
   TraceEventBaseSchema.extend({
     type: z.literal('run.completed'),
     status: z.enum(['passed', 'failed', 'error', 'cancelled']),
+  }),
+  TraceEventBaseSchema.extend({
+    type: z.literal('context.retrieved'),
+    sourceId: IdentifierSchema,
+    kind: z.enum(['collection', 'openapi', 'graphql', 'proto', 'history', 'mcp-catalog']),
+    bytes: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+  }),
+  TraceEventBaseSchema.extend({
+    type: z.literal('policy.decision'),
+    subject: z.string().min(1),
+    decision: z.enum(['allowed', 'denied']),
+    reason: z.string().min(1),
   }),
   TraceEventBaseSchema.extend({
     type: z.literal('model.requested'),

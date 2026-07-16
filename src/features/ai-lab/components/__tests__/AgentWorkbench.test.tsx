@@ -163,7 +163,11 @@ describe('AgentWorkbench runs', () => {
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
     const reports = useAiLabStore.getState().runReports;
     const envelope = Object.values(reports)[0];
-    expect(envelope).toMatchObject({ kind: 'agent-suite', payload: REPORT, suite: SUITE });
+    expect(envelope).toMatchObject({
+      kind: 'agent-suite',
+      payload: REPORT,
+      suite: { ...SUITE, schemaVersion: 3, grounding: { sourceIds: [], maxBytes: 16_384 } },
+    });
     expect(useAiLabUiStore.getState()).toMatchObject({
       tab: 'reports',
       reportRunId: envelope?.id,
