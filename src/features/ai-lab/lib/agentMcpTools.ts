@@ -46,6 +46,19 @@ function contentBlocks(result: unknown) {
   return [{ type: 'json' as const, value: result }];
 }
 
+function awaitWithAbort<Result>(
+  promise: Promise<Result>,
+  signal: AbortSignal | undefined
+): Promise<Result> {
+  if (!signal) return promise;
+  signal.throwIfAborted();
+  return new Promise<Result>((resolve, reject) => {
+    const abort = () => reject(signal.reason ?? new DOMException('aborted', 'AbortError'));
+    signal.addEventListener('abort', abort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
+}
+
 export function createMcpAgentToolSourceAdapter(
   factory: McpAgentClientFactory = (config) => new McpClient(config)
 ): AgentToolSourceAdapter {
@@ -69,15 +82,27 @@ export function createMcpAgentToolSourceAdapter(
     });
     const abort = () => void client.disconnect();
     signal?.addEventListener('abort', abort, { once: true });
+    let connectSettled = false;
+    const connect = client.connect().finally(() => {
+      connectSettled = true;
+    });
     try {
       signal?.throwIfAborted();
-      const connected = await client.connect();
+      const connected = await awaitWithAbort(connect, signal);
       if (!connected.ok) throw new Error(`MCP connection failed: ${connected.error}`);
       signal?.throwIfAborted();
-      return await operation(client);
+      return await awaitWithAbort(operation(client), signal);
     } finally {
       signal?.removeEventListener('abort', abort);
       await client.disconnect();
+      // An abort can win before the transport's asynchronous connect handler
+      // registers its session. Close once more after that pending connect
+      // settles so a late successful registration cannot become orphaned.
+      if (!connectSettled && signal?.aborted)
+        void connect.then(
+          () => client.disconnect(),
+          () => {}
+        );
     }
   };
 
@@ -87,27 +112,31 @@ export function createMcpAgentToolSourceAdapter(
       if (source.kind !== 'mcp') throw new Error(`MCP adapter cannot resolve ${source.kind} tools`);
       sourceProfile(source);
     },
-    async resolve(source) {
+    async resolve(source, signal) {
       if (source.kind !== 'mcp') throw new Error(`MCP adapter cannot resolve ${source.kind} tools`);
-      const tools = await createMcpTools(source, {
-        listTools: async (signal) =>
-          withClient(source, signal, async (client) => {
-            const capabilities = await client.discoverCapabilities();
-            if ('error' in capabilities)
-              throw new Error(`MCP discovery failed: ${capabilities.error}`);
-            return capabilities.tools.map((tool) => ({
-              name: tool.name,
-              ...(tool.description ? { description: tool.description } : {}),
-              inputSchema: (tool.inputSchema ?? {}) as Record<string, unknown>,
-            }));
-          }),
-        callTool: async (name, arguments_, signal) =>
-          withClient(source, signal, async (client) => {
-            const response = await client.callTool(name, arguments_);
-            if (!response.ok) throw new Error(`MCP tool ${name} failed: ${response.error}`);
-            return contentBlocks(response.result);
-          }),
-      });
+      const tools = await createMcpTools(
+        source,
+        {
+          listTools: async (signal) =>
+            withClient(source, signal, async (client) => {
+              const capabilities = await client.discoverCapabilities();
+              if ('error' in capabilities)
+                throw new Error(`MCP discovery failed: ${capabilities.error}`);
+              return capabilities.tools.map((tool) => ({
+                name: tool.name,
+                ...(tool.description ? { description: tool.description } : {}),
+                inputSchema: (tool.inputSchema ?? {}) as Record<string, unknown>,
+              }));
+            }),
+          callTool: async (name, arguments_, signal) =>
+            withClient(source, signal, async (client) => {
+              const response = await client.callTool(name, arguments_);
+              if (!response.ok) throw new Error(`MCP tool ${name} failed: ${response.error}`);
+              return contentBlocks(response.result);
+            }),
+        },
+        signal
+      );
       return tools.map((tool) => ({
         ...tool,
         definition: {

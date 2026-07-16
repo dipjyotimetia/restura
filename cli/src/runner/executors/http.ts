@@ -39,6 +39,8 @@ export async function executeHttp(
 
   const start = Date.now();
   try {
+    const fetcher =
+      opts.fetcher ?? (opts.dispatcher ? createUndiciFetcher(opts.dispatcher) : undiciFetcher);
     // Auth that the renderer normally applies before hitting the proxy. Bearer
     // / Basic / API-key / OAuth2 are header-only; AWS SigV4 / OAuth1 / WSSE are
     // signed at the wire by executeHttpProxy. Resolved here (inside the try) so
@@ -48,6 +50,8 @@ export async function executeHttp(
     // every other auth type.
     const resolvedAuth = await resolveOAuth2Token(req.auth, opts.vars, {
       allowLocalhost: opts.allowLocalhost,
+      ...(opts.oauthFetch ? { fetch: opts.oauthFetch } : {}),
+      ...(opts.signal ? { signal: opts.signal } : {}),
     });
     applyAuthHeaders(resolvedAuth, headers, params);
     const proxyAuth = toProtocolAuth(resolvedAuth);
@@ -70,7 +74,6 @@ export async function executeHttp(
       redirectPolicy.maxRedirects = settings.maxRedirects;
     }
 
-    const fetcher = opts.dispatcher ? createUndiciFetcher(opts.dispatcher) : undiciFetcher;
     const result = await executeHttpProxy(
       {
         method: req.method,
@@ -89,7 +92,10 @@ export async function executeHttp(
           : {}),
       },
       fetcher,
-      { allowLocalhost: opts.allowLocalhost }
+      {
+        allowLocalhost: opts.allowLocalhost,
+        ...(opts.signal ? { signal: opts.signal } : {}),
+      }
     );
     const durationMs = Date.now() - start;
 

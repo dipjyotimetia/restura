@@ -26,6 +26,14 @@ export interface OAuth2Error {
   error_description?: string;
 }
 
+/** Optional transport controls for a token request. Platform callers normally
+ * use the global fetch implementation; security-sensitive callers can inject
+ * a fetch that pins DNS and rejects redirects. */
+export interface OAuth2TokenRequestOptions {
+  fetch?: typeof globalThis.fetch;
+  signal?: AbortSignal;
+}
+
 /** Carries the machine-readable RFC 6749 error code alongside the human-readable message. */
 export class OAuth2TokenError extends Error {
   constructor(
@@ -40,14 +48,14 @@ export class OAuth2TokenError extends Error {
 async function postToken(
   tokenUrl: string,
   params: Record<string, string>,
-  signal?: AbortSignal
+  options: OAuth2TokenRequestOptions = {}
 ): Promise<OAuth2TokenResponse> {
   const body = new URLSearchParams(params).toString();
-  const response = await fetch(tokenUrl, {
+  const response = await (options.fetch ?? globalThis.fetch)(tokenUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
     body,
-    ...(signal ? { signal } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
   });
 
   const json = (await response.json()) as OAuth2TokenResponse | OAuth2Error;
@@ -64,7 +72,8 @@ async function postToken(
 }
 
 export async function fetchClientCredentialsToken(
-  config: OAuth2FlowConfig
+  config: OAuth2FlowConfig,
+  options?: OAuth2TokenRequestOptions
 ): Promise<OAuth2TokenResponse> {
   const params: Record<string, string> = {
     grant_type: 'client_credentials',
@@ -73,7 +82,7 @@ export async function fetchClientCredentialsToken(
   if (config.clientSecret) params.client_secret = config.clientSecret;
   if (config.scope) params.scope = config.scope;
 
-  return postToken(config.tokenUrl, params);
+  return postToken(config.tokenUrl, params, options);
 }
 
 export async function fetchPasswordToken(config: OAuth2FlowConfig): Promise<OAuth2TokenResponse> {
@@ -282,7 +291,7 @@ export async function fetchRefreshToken(
   };
   if (config.clientSecret) params.client_secret = config.clientSecret;
   if (config.scope) params.scope = config.scope;
-  return postToken(config.tokenUrl, params, signal);
+  return postToken(config.tokenUrl, params, signal ? { signal } : {});
 }
 
 export function tokenExpiresAt(nowMs: number, expiresInSeconds?: number): number | undefined {

@@ -18,8 +18,9 @@ describe('AI Lab agent capability claims', () => {
     expect(suites.notes).toContain('sanitized bounded report persistence');
   });
 
-  it('advertises wired MCP tools only on desktop and keeps sandboxes unsupported', () => {
+  it('advertises the wired desktop MCP runtime but not sandboxes', () => {
     expect(CAPABILITIES['aiLab.agentMcpTools']).toMatchObject({ web: false, desktop: true });
+    expect(CAPABILITIES['aiLab.agentMcpTools'].notes).toContain('fresh desktop-owned sessions');
     expect(CAPABILITIES['aiLab.agentSandboxes']).toMatchObject({ web: false, desktop: false });
   });
 });

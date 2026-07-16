@@ -44,6 +44,8 @@ function buildTargetUrl(spec: RequestSpec): string {
 
 export interface ExecuteHttpProxyOptions {
   allowLocalhost: boolean;
+  /** Optional caller cancellation, composed with the per-request timeout. */
+  signal?: AbortSignal;
   /**
    * Allow targeting RFC 1918 / link-local / CGNAT addresses. Off by default;
    * self-hosted enterprise deployments may opt in via `ALLOW_PRIVATE_IPS=true`.
@@ -90,6 +92,9 @@ export async function executeHttpProxy(
 
   const timeout = spec.timeout ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  if (options.signal?.aborted) controller.abort();
+  else options.signal?.addEventListener('abort', abortFromCaller, { once: true });
   const timer = timeout > 0 ? setTimeout(() => controller.abort(), timeout) : null;
 
   try {
@@ -229,6 +234,7 @@ export async function executeHttpProxy(
     return { ok: false, status: 502, payload: { error: `Proxy request failed: ${message}` } };
   } finally {
     if (timer !== null) clearTimeout(timer);
+    options.signal?.removeEventListener('abort', abortFromCaller);
   }
 }
 

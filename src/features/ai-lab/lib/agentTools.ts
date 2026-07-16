@@ -31,7 +31,11 @@ export function redactToolUrl(raw: string): string {
   }
 }
 
-export function createResturaRequestTool(request: HttpRequest, execute: ExecuteHttp): AgentTool {
+export function createResturaRequestTool(
+  request: HttpRequest,
+  execute: ExecuteHttp,
+  hasExecutableScripts = false
+): AgentTool {
   const readOnly =
     request.method === 'GET' || request.method === 'HEAD' || request.method === 'OPTIONS';
   return {
@@ -40,7 +44,10 @@ export function createResturaRequestTool(request: HttpRequest, execute: ExecuteH
       description: `${request.method} ${request.name}: ${redactToolUrl(request.url)}`,
       inputSchema: { type: 'object', additionalProperties: false },
     },
-    permissionClass: readOnly ? 'read' : 'mutation',
+    // A GET is not read-only when a request or inherited script can send
+    // follow-up traffic or mutate variables. The runner asks for approval
+    // before executing every scripted request.
+    permissionClass: readOnly && !hasExecutableScripts ? 'read' : 'mutation',
     async execute(_arguments, { signal }) {
       signal.throwIfAborted();
       const response = await execute(request, signal);
@@ -60,6 +67,20 @@ export function createResturaRequestTool(request: HttpRequest, execute: ExecuteH
       ];
     },
   };
+}
+
+function itemHasScripts(items: CollectionItem[], requestId: string, inherited = false): boolean {
+  for (const item of items) {
+    const scripted = inherited || Boolean(item.preRequestScript?.trim() || item.testScript?.trim());
+    if ((item.id === requestId || item.request?.id === requestId) && item.request) {
+      return (
+        scripted ||
+        Boolean(item.request.preRequestScript?.trim() || item.request.testScript?.trim())
+      );
+    }
+    if (item.items && itemHasScripts(item.items, requestId, scripted)) return true;
+  }
+  return false;
 }
 
 function findItem(items: CollectionItem[], id: string): CollectionItem | undefined {
@@ -92,37 +113,51 @@ export async function resolveResturaAgentTools(sources: ToolSource[]): Promise<A
       throw new Error(`HTTP request tool not found: ${source.requestId}`);
     }
     const collection = owningCollection;
+    const hasExecutableScripts = Boolean(
+      collection?.preRequestScript?.trim() ||
+        collection?.testScript?.trim() ||
+        itemHasScripts(collection?.items ?? [], item.request.id)
+    );
     tools.push(
-      createResturaRequestTool(item.request, async (request, signal) => {
-        signal?.throwIfAborted();
-        const collectionVars = buildValueMap({ collection: collection?.variables });
-        const envVars = buildValueMap({
-          globals: useGlobalsStore.getState().vars,
-          env: useEnvironmentStore.getState().getActiveEnvironment()?.variables,
-          collection: collection?.variables,
-        });
-        const inherited = collection
-          ? findInheritedAuthWithSource(collection, request.id)
-          : undefined;
-        const effectiveAuth = resolveEffectiveAuth(request.auth, inherited?.auth);
-        const requestForExec =
-          effectiveAuth === request.auth ? request : { ...request, auth: effectiveAuth };
-        const result = await executeRequest({
-          request: requestForExec,
-          envVars,
-          globalSettings: useSettingsStore.getState().settings,
-          resolveVariables: (value) => useEnvironmentStore.getState().resolveVariables(value),
-          collectionVars,
-          ...(signal ? { signal } : {}),
-        });
-        signal?.throwIfAborted();
-        if (collection && result.transportOk && result.collectionVarsMutations) {
-          useCollectionStore
-            .getState()
-            .applyCollectionVarMutations(collection.id, result.collectionVarsMutations);
-        }
-        return result.response;
-      })
+      createResturaRequestTool(
+        item.request,
+        async (request, signal) => {
+          signal?.throwIfAborted();
+          const collectionVars = buildValueMap({ collection: collection?.variables });
+          const envVars = buildValueMap({
+            globals: useGlobalsStore.getState().vars,
+            env: useEnvironmentStore.getState().getActiveEnvironment()?.variables,
+            collection: collection?.variables,
+          });
+          const inherited = collection
+            ? findInheritedAuthWithSource(collection, request.id)
+            : undefined;
+          const effectiveAuth = resolveEffectiveAuth(request.auth, inherited?.auth);
+          const requestForExec =
+            effectiveAuth === request.auth ? request : { ...request, auth: effectiveAuth };
+          const result = await executeRequest({
+            request: requestForExec,
+            envVars,
+            globalSettings: useSettingsStore.getState().settings,
+            resolveVariables: (value) => useEnvironmentStore.getState().resolveVariables(value),
+            collectionVars,
+            ...(signal ? { signal } : {}),
+          });
+          signal?.throwIfAborted();
+          if (
+            hasExecutableScripts &&
+            collection &&
+            result.transportOk &&
+            result.collectionVarsMutations
+          ) {
+            useCollectionStore
+              .getState()
+              .applyCollectionVarMutations(collection.id, result.collectionVarsMutations);
+          }
+          return result.response;
+        },
+        hasExecutableScripts
+      )
     );
   }
   return tools;

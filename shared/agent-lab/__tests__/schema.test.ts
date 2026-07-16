@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { AgentLimitsSchema, AgentSuiteSchema, TraceEventSchema } from '../schema';
+import {
+  AGENT_SUITE_SCHEMA_VERSION,
+  AgentLimitsSchema,
+  AgentSuiteSchema,
+  migrateAgentSuite,
+  TraceEventSchema,
+} from '../schema';
 
 describe('AgentSuiteSchema', () => {
   const model = { providerId: 'judge', model: 'model' };
@@ -136,6 +142,55 @@ describe('AgentSuiteSchema', () => {
     ).toThrow();
   });
 
+  it('migrates a v2 suite to v3 with explicit empty grounding', () => {
+    const migrated = migrateAgentSuite({
+      schemaVersion: 2,
+      id: 'legacy',
+      name: 'Legacy',
+      mode: 'regression',
+      agents: [
+        {
+          id: 'primary',
+          model: { providerId: 'fake', model: 'model' },
+          instructions: 'Run.',
+          tools: [],
+          limits: { maxSteps: 1, maxWallTimeMs: 1_000 },
+        },
+      ],
+      tasks: [{ id: 'case', input: [{ type: 'text', text: 'hello' }] }],
+      graders: [],
+      trials: 1,
+    });
+
+    expect(migrated.schemaVersion).toBe(AGENT_SUITE_SCHEMA_VERSION);
+    expect(migrated.grounding).toEqual({ sourceIds: [], maxBytes: 16_384 });
+  });
+
+  it('rejects duplicate grounding source ids', () => {
+    const result = AgentSuiteSchema.safeParse({
+      schemaVersion: 3,
+      id: 'grounded',
+      name: 'Grounded',
+      mode: 'regression',
+      agents: [
+        {
+          id: 'primary',
+          model: { providerId: 'fake', model: 'model' },
+          instructions: 'Run.',
+          tools: [],
+          limits: { maxSteps: 1, maxWallTimeMs: 1_000 },
+        },
+      ],
+      tasks: [{ id: 'case', input: [{ type: 'text', text: 'hello' }] }],
+      graders: [],
+      trials: 1,
+      grounding: { sourceIds: ['orders', 'orders'], maxBytes: 1_024 },
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.message).toContain('duplicate grounding source id');
+  });
+
   it('rejects inline credential values', () => {
     const result = AgentSuiteSchema.safeParse({
       schemaVersion: 2,
@@ -209,5 +264,33 @@ describe('TraceEventSchema', () => {
     });
 
     expect(event.type).toBe('tool.completed');
+  });
+
+  it('parses evidence retrieval and policy decision events', () => {
+    expect(
+      TraceEventSchema.parse({
+        id: 'event-2',
+        traceId: 'trace-1',
+        sequence: 3,
+        timestamp: 11,
+        type: 'context.retrieved',
+        sourceId: 'orders-schema',
+        kind: 'openapi',
+        bytes: 128,
+        truncated: false,
+      })
+    ).toMatchObject({ type: 'context.retrieved', sourceId: 'orders-schema' });
+    expect(
+      TraceEventSchema.parse({
+        id: 'event-3',
+        traceId: 'trace-1',
+        sequence: 4,
+        timestamp: 12,
+        type: 'policy.decision',
+        subject: 'orders.get',
+        decision: 'allowed',
+        reason: 'manifest read-only allowlist',
+      })
+    ).toMatchObject({ type: 'policy.decision', decision: 'allowed' });
   });
 });

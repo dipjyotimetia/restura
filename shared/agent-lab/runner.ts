@@ -7,6 +7,7 @@ import {
   validateGenerationRequest,
 } from './provider';
 import { TraceEventSchema } from './schema';
+import { renderContextPacket, type ContextPacket, type GroundingSelection } from './grounding';
 import type {
   AgentDefinition,
   AgentSuite,
@@ -32,6 +33,13 @@ export interface AgentTool {
   execute(arguments_: unknown, context: { signal: AbortSignal }): Promise<ContentBlock[]>;
 }
 
+/** Platform adapters can own sessions (for example MCP) that must be closed
+ * after every run, including cancellation and model failures. */
+export interface ResolvedAgentTools {
+  tools: AgentTool[];
+  dispose?(): Promise<void> | void;
+}
+
 export interface ApprovalRequest {
   approvalId: string;
   toolCallId: string;
@@ -42,7 +50,11 @@ export interface ApprovalRequest {
 
 export interface AgentRunnerDependencies {
   providers: ProviderRegistry;
-  resolveTools(sources: ToolSource[]): Promise<AgentTool[]>;
+  resolveTools(
+    sources: ToolSource[],
+    signal?: AbortSignal
+  ): Promise<AgentTool[] | ResolvedAgentTools>;
+  resolveGrounding?(selection: GroundingSelection, signal?: AbortSignal): Promise<ContextPacket[]>;
   resolveCredential(ref: CredentialRef | undefined): Promise<string | undefined>;
   requestApproval?(request: ApprovalRequest): Promise<'approved' | 'denied'>;
   now?(): number;
@@ -143,7 +155,14 @@ export class AgentRunner {
     let error: string | undefined;
 
     try {
-      const result = await this.executeAgent(agent, task.input, request.signal, startedAt, emit);
+      const result = await this.executeAgent(
+        agent,
+        task.input,
+        suite.grounding,
+        request.signal,
+        startedAt,
+        emit
+      );
       output = result;
       status = 'passed';
     } catch (cause) {
@@ -159,6 +178,7 @@ export class AgentRunner {
   private async executeAgent(
     agent: AgentDefinition,
     input: ContentBlock[],
+    grounding: GroundingSelection | undefined,
     externalSignal: AbortSignal | undefined,
     startedAt: number,
     emit: (event: TraceEventInput) => void
@@ -167,6 +187,7 @@ export class AgentRunner {
     const abort = (): void => abortController.abort(externalSignal?.reason);
     externalSignal?.addEventListener('abort', abort, { once: true });
     if (externalSignal?.aborted) abort();
+    let disposeTools: (() => Promise<void> | void) | undefined;
     let wallTimer: ReturnType<typeof setTimeout>;
     const wallTimeout = new Promise<never>((_resolve, reject) => {
       wallTimer = setTimeout(() => {
@@ -177,7 +198,11 @@ export class AgentRunner {
     try {
       const withinWallTime = <Value>(operation: Promise<Value>): Promise<Value> =>
         Promise.race([operation, wallTimeout]);
-      const tools = await withinWallTime(this.dependencies.resolveTools(agent.tools));
+      const resolvedTools = await withinWallTime(
+        this.dependencies.resolveTools(agent.tools, abortController.signal)
+      );
+      const tools = Array.isArray(resolvedTools) ? resolvedTools : resolvedTools.tools;
+      disposeTools = Array.isArray(resolvedTools) ? undefined : resolvedTools.dispose;
       const duplicateToolNames = tools
         .map((tool) => tool.definition.name)
         .filter((name, index, names) => names.indexOf(name) !== index);
@@ -201,8 +226,36 @@ export class AgentRunner {
       }
       const provider = this.dependencies.providers.require(agent.model.providerId);
       const capabilities = await withinWallTime(provider.getCapabilities(agent.model.model));
+      const contextPackets =
+        grounding?.sourceIds.length === 0
+          ? []
+          : grounding
+            ? this.dependencies.resolveGrounding
+              ? await withinWallTime(
+                  this.dependencies.resolveGrounding(grounding, abortController.signal)
+                )
+              : (() => {
+                  throw new Error('agent suite requires a grounding resolver');
+                })()
+            : [];
+      for (const packet of contextPackets) {
+        emit({
+          type: 'context.retrieved',
+          sourceId: packet.sourceId,
+          kind: packet.kind,
+          bytes: new TextEncoder().encode(renderContextPacket(packet)).byteLength,
+          truncated: packet.truncated,
+        });
+      }
+      const evidence = contextPackets.map(renderContextPacket).join('\n\n');
       const messages: GenerationMessage[] = [
-        { role: 'system', content: [{ type: 'text', text: agent.instructions }] },
+        {
+          role: 'system',
+          content: [
+            { type: 'text', text: agent.instructions },
+            ...(evidence ? [{ type: 'text' as const, text: evidence }] : []),
+          ],
+        },
         { role: 'user', content: input },
       ];
       let toolCallCount = 0;
@@ -394,6 +447,12 @@ export class AgentRunner {
                 )
               : 'denied';
             emit({ type: 'approval.resolved', approvalId, decision });
+            emit({
+              type: 'policy.decision',
+              subject: toolCall.name,
+              decision: decision === 'approved' ? 'allowed' : 'denied',
+              reason: `explicit approval required for ${tool.permissionClass} tool`,
+            });
             if (decision === 'denied')
               throw new Error(`approval denied for tool: ${toolCall.name}`);
           }
@@ -430,6 +489,7 @@ export class AgentRunner {
       }
       throw new Error(`agent exceeded maxSteps (${agent.limits.maxSteps})`);
     } finally {
+      await disposeTools?.();
       clearTimeout(wallTimer!);
       externalSignal?.removeEventListener('abort', abort);
     }

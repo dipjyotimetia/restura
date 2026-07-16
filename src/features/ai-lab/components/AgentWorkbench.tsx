@@ -1,4 +1,10 @@
-import { AGENT_SUITE_SCHEMA_VERSION, AgentBundleSchema, AgentSuiteSchema } from '@shared/agent-lab';
+import {
+  AGENT_SUITE_SCHEMA_VERSION,
+  AgentBundleSchema,
+  AgentSuiteSchema,
+  migrateAgentSuite,
+  type AgentBundle,
+} from '@shared/agent-lab';
 import { Bot, Download, Play, Plus, Save, Square, Trash2, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -12,6 +18,14 @@ import {
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore } from '../store/useAiLabUiStore';
 import type { AiLabProviderConfig } from '../types';
+import { useMcpStore } from '@/features/mcp/store/useMcpStore';
+import { useCollectionStore } from '@/store/useCollectionStore';
+
+type NormalizedAgentSuite = ReturnType<typeof migrateAgentSuite>;
+type NormalizedAgentBundle = AgentBundle & { suite: NormalizedAgentSuite };
+type DraftPayload =
+  | { bundle: false; value: NormalizedAgentSuite }
+  | { bundle: true; value: NormalizedAgentBundle };
 
 function starterSuite(providers: Record<string, AiLabProviderConfig> = {}) {
   const id = crypto.randomUUID();
@@ -36,6 +50,7 @@ function starterSuite(providers: Record<string, AiLabProviderConfig> = {}) {
     tasks: [{ id: 'case-1', input: [{ type: 'text' as const, text: 'Describe the task.' }] }],
     graders: [],
     trials: 3,
+    grounding: { sourceIds: [], maxBytes: 16_384 },
   };
 }
 
@@ -44,13 +59,15 @@ export function AgentWorkbench() {
   const upsert = useAiLabStore((state) => state.upsertAgentSuite);
   const remove = useAiLabStore((state) => state.removeAgentSuite);
   const providers = useAiLabStore((state) => state.providers);
+  const collections = useCollectionStore((state) => state.collections);
+  const mcpConnections = useMcpStore((state) => state.connections);
   const openReport = useAiLabUiStore((state) => state.openReport);
   const [activeId, setActiveId] = useState<string | null>(Object.keys(suites)[0] ?? null);
   const [draft, setDraft] = useState(() =>
     JSON.stringify(activeId ? suites[activeId] : starterSuite(providers), null, 2)
   );
   const [message, setMessage] = useState(
-    'Schema v2 · credentials must be env or keychain references'
+    'Schema v3 · selected grounding is sanitized before it reaches a model'
   );
   const running = useAgentRunLiveStore((state) => state.running);
   const progress = useAgentRunLiveStore((state) => state.progress);
@@ -75,19 +92,28 @@ export function AgentWorkbench() {
     setDraft(JSON.stringify(suites[id], null, 2));
     setMessage('Suite loaded');
   };
+  const parseDraftPayload = (): DraftPayload => {
+    const raw = JSON.parse(draft);
+    const bundle = AgentBundleSchema.safeParse(raw);
+    if (!bundle.success)
+      return { bundle: false, value: migrateAgentSuite(AgentSuiteSchema.parse(raw)) };
+    return {
+      bundle: true,
+      value: { ...bundle.data, suite: migrateAgentSuite(bundle.data.suite) },
+    };
+  };
   const save = () => {
     try {
-      const raw = JSON.parse(draft);
-      const bundle = AgentBundleSchema.safeParse(raw);
-      if (bundle.success) {
+      const parsed = parseDraftPayload();
+      if (parsed.bundle) {
         setActiveId(null);
-        setDraft(JSON.stringify(bundle.data, null, 2));
+        setDraft(JSON.stringify(parsed.value, null, 2));
         setMessage('Bundle schema-validated; export it to commit with your project');
       } else {
-        const parsed = AgentSuiteSchema.parse(raw);
-        upsert(parsed);
-        setActiveId(parsed.id);
-        setDraft(JSON.stringify(parsed, null, 2));
+        const suite = parsed.value;
+        upsert(suite);
+        setActiveId(suite.id);
+        setDraft(JSON.stringify(suite, null, 2));
         setMessage('Saved and schema-validated');
       }
     } catch (error) {
@@ -96,15 +122,13 @@ export function AgentWorkbench() {
   };
   const exportSuite = () => {
     try {
-      const raw = JSON.parse(draft);
-      const bundle = AgentBundleSchema.safeParse(raw);
-      const parsed = bundle.success ? bundle.data : AgentSuiteSchema.parse(raw);
+      const parsed = parseDraftPayload();
       const url = URL.createObjectURL(
-        new Blob([JSON.stringify(parsed, null, 2)], { type: 'application/json' })
+        new Blob([JSON.stringify(parsed.value, null, 2)], { type: 'application/json' })
       );
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${parsed.id}.${bundle.success ? 'agent-bundle' : 'agent-suite'}.json`;
+      link.download = `${parsed.value.id}.${parsed.bundle ? 'agent-bundle' : 'agent-suite'}.json`;
       link.click();
       URL.revokeObjectURL(url);
     } catch (error) {
@@ -116,11 +140,12 @@ export function AgentWorkbench() {
       const raw = JSON.parse(await file.text());
       const bundle = AgentBundleSchema.safeParse(raw);
       if (bundle.success) {
+        const parsed = { ...bundle.data, suite: migrateAgentSuite(bundle.data.suite) };
         setActiveId(null);
-        setDraft(JSON.stringify(bundle.data, null, 2));
+        setDraft(JSON.stringify(parsed, null, 2));
         setMessage('Bundle imported and schema-validated');
       } else {
-        const parsed = AgentSuiteSchema.parse(raw);
+        const parsed = migrateAgentSuite(AgentSuiteSchema.parse(raw));
         upsert(parsed);
         setActiveId(parsed.id);
         setDraft(JSON.stringify(parsed, null, 2));
@@ -132,11 +157,9 @@ export function AgentWorkbench() {
   };
   const run = () => {
     try {
-      const raw = JSON.parse(draft);
-      const bundle = AgentBundleSchema.safeParse(raw);
-      const parsed = bundle.success ? bundle.data : AgentSuiteSchema.parse(raw);
-      if (!bundle.success) upsert(parsed);
-      const started = startAgentRun(parsed, providers, async (request) =>
+      const parsed = parseDraftPayload();
+      if (!parsed.bundle) upsert(parsed.value);
+      const started = startAgentRun(parsed.value, providers, async (request) =>
         window.confirm(
           `Allow ${request.permissionClass} tool “${request.toolName}”?\n\n${JSON.stringify(request.arguments, null, 2)}`
         )
@@ -145,11 +168,37 @@ export function AgentWorkbench() {
       );
       if (!started)
         setMessage('An agent run is already active. Cancel it before starting another.');
-      else if (bundle.success) setMessage('Running deterministic fixture bundle');
+      else if (parsed.bundle) setMessage('Running deterministic fixture bundle');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     }
   };
+  const toggleGrounding = (sourceId: string) => {
+    try {
+      const parsed = parseDraftPayload();
+      const suite = parsed.bundle ? parsed.value.suite : parsed.value;
+      const grounding = suite.grounding;
+      const selected = new Set(grounding.sourceIds);
+      if (selected.has(sourceId)) selected.delete(sourceId);
+      else selected.add(sourceId);
+      const nextSuite = { ...suite, grounding: { ...grounding, sourceIds: [...selected] } };
+      const next = parsed.bundle ? { ...parsed.value, suite: nextSuite } : nextSuite;
+      setDraft(JSON.stringify(next, null, 2));
+      setMessage(`Grounding ${selected.has(sourceId) ? 'enabled' : 'disabled'} for ${sourceId}`);
+    } catch (error) {
+      setMessage(
+        `Fix suite JSON before selecting grounding: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  };
+  let selectedGrounding = new Set<string>();
+  try {
+    const parsed = parseDraftPayload();
+    const suite = parsed.bundle ? parsed.value.suite : parsed.value;
+    selectedGrounding = new Set(suite.grounding.sourceIds);
+  } catch {
+    // Keep the raw JSON editable; source buttons become inactive until valid.
+  }
 
   return (
     <div className="grid h-full grid-cols-[220px_minmax(0,1fr)] bg-sp-bg">
@@ -221,6 +270,7 @@ export function AgentWorkbench() {
             <Button
               size="sm"
               variant="ghost"
+              aria-label="Delete suite"
               onClick={() => {
                 remove(activeId);
                 setActiveId(null);
@@ -252,6 +302,45 @@ export function AgentWorkbench() {
           spellCheck={false}
           className="min-h-0 flex-1 resize-none rounded-sp-card border border-sp-line bg-sp-surface-lo p-4 font-mono text-sp-11 leading-5 text-sp-text outline-none focus:border-sp-accent"
         />
+        <div className="mt-3 rounded-sp-card border border-sp-line bg-sp-surface-lo p-3">
+          <div className="mb-2 flex items-baseline justify-between gap-3">
+            <div>
+              <h3 className="text-sp-11 font-semibold">Selected grounding</h3>
+              <p className="text-sp-9 text-sp-muted">
+                Only these sanitized collection summaries or MCP catalogs are added as model
+                evidence.
+              </p>
+            </div>
+            <span className="text-sp-9 text-sp-muted">{selectedGrounding.size} selected</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {collections.map((collection) => (
+              <Button
+                key={collection.id}
+                size="sm"
+                variant={selectedGrounding.has(collection.id) ? 'default' : 'outline'}
+                onClick={() => toggleGrounding(collection.id)}
+              >
+                Collection · {collection.name}
+              </Button>
+            ))}
+            {Object.values(mcpConnections).map((connection) => (
+              <Button
+                key={connection.id}
+                size="sm"
+                variant={selectedGrounding.has(connection.id) ? 'default' : 'outline'}
+                onClick={() => toggleGrounding(connection.id)}
+              >
+                MCP · {(connection.capabilities?.serverName ?? connection.url) || connection.id}
+              </Button>
+            ))}
+            {collections.length === 0 && Object.keys(mcpConnections).length === 0 && (
+              <span className="text-sp-9 text-sp-muted">
+                Create a collection or MCP connection to make it available for grounding.
+              </span>
+            )}
+          </div>
+        </div>
         <div className="mt-2 truncate text-sp-10 text-sp-muted" role="status">
           {running || completedReport || runStatus !== 'Ready' ? runStatus : message}
           {persistenceError ? ` · ${persistenceError}` : ''}

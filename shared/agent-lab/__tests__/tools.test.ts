@@ -30,6 +30,22 @@ describe('MCP agent tools', () => {
     expect(tools.map((tool) => tool.definition.name)).toEqual(['read']);
     expect(tools[0]?.permissionClass).toBe('mutation');
   });
+
+  it('fails closed when an explicitly allowed remote tool is unavailable', async () => {
+    await expect(
+      createMcpTools(
+        { kind: 'mcp', connectionId: 'server', allowedTools: ['read'] },
+        {
+          async listTools() {
+            return [];
+          },
+          async callTool() {
+            return [];
+          },
+        }
+      )
+    ).rejects.toThrow('did not expose allowed tools: read');
+  });
 });
 
 describe('sandbox registry', () => {
