@@ -6,65 +6,86 @@
     <meta name="theme-color" content="#2e91ff" />
     <meta name="color-scheme" content="dark light" />
     <link rel="canonical" href="https://restura.dev/" />
-    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg?v=20260716" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=20260716" />
     <link rel="manifest" href="/manifest.json" />
     <meta name="application-name" content="Restura" />
     <meta name="creator" content="Restura" />
     <meta name="publisher" content="Restura" />
+    <meta name="robots" content="index, follow" />
     <meta
       name="description"
-      content="A modern API client for testing HTTP, GraphQL, gRPC, and WebSocket endpoints. Features include collections, environments, pre-request scripts, and code generation."
+      content="Privacy-first API client for HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MQTT, and MCP. Use it on the web, self-hosted, or desktop."
     />
     <meta
       name="keywords"
-      content="API testing, HTTP client, GraphQL, gRPC, WebSocket, REST API, API development, gRPC client, GraphQL client"
+      content="API client, API testing, HTTP client, REST API, GraphQL client, gRPC client, WebSocket client, Socket.IO client, SSE client, Kafka client, MQTT client, MCP client"
     />
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://restura.dev/" />
     <meta property="og:locale" content="en_US" />
     <meta property="og:site_name" content="Restura" />
-    <meta property="og:title" content="Restura - Multi-Protocol API Testing Tool" />
+    <meta property="og:title" content="Restura — Privacy-First Multi-Protocol API Client" />
     <meta
       property="og:description"
-      content="A modern API client for testing HTTP, GraphQL, gRPC, and WebSocket endpoints. Features collections, environments, pre-request scripts, and code generation."
+      content="Test HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MQTT, and MCP APIs on the web, self-hosted, or desktop."
     />
     <meta property="og:image" content="https://restura.dev/og-image.png" />
+    <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Restura - Multi-Protocol API Testing Tool" />
+    <meta property="og:image:alt" content="Restura — Privacy-First Multi-Protocol API Client" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@restura_dev" />
-    <meta name="twitter:title" content="Restura - Multi-Protocol API Testing Tool" />
+    <meta name="twitter:title" content="Restura — Privacy-First Multi-Protocol API Client" />
     <meta
       name="twitter:description"
-      content="A modern API client for testing HTTP, GraphQL, gRPC, and WebSocket endpoints."
+      content="Test HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MQTT, and MCP APIs."
     />
     <meta name="twitter:image" content="https://restura.dev/og-image.png" />
-    <title>Restura - Multi-Protocol API Testing Tool</title>
+    <meta name="twitter:image:alt" content="Restura — Privacy-First Multi-Protocol API Client" />
+    <title>Restura — Privacy-First Multi-Protocol API Client</title>
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "SoftwareApplication",
-        "name": "Restura",
-        "applicationCategory": "DeveloperApplication",
-        "operatingSystem": "Web, Windows, macOS, Linux",
-        "url": "https://restura.dev",
-        "description": "A modern multi-protocol API client for testing HTTP, GraphQL, gRPC, and WebSocket endpoints.",
-        "offers": {
-          "@type": "Offer",
-          "price": "0",
-          "priceCurrency": "USD"
-        },
-        "featureList": [
-          "HTTP/REST API testing",
-          "GraphQL client",
-          "gRPC client",
-          "WebSocket testing",
-          "Request collections",
-          "Environment variables",
-          "Pre-request scripts",
-          "Code generation"
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://restura.dev/#organization",
+            "name": "Restura",
+            "url": "https://restura.dev/",
+            "logo": "https://restura.dev/icon.svg",
+            "sameAs": ["https://github.com/dipjyotimetia/restura"]
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://restura.dev/#software",
+            "name": "Restura",
+            "applicationCategory": "DeveloperApplication",
+            "applicationSubCategory": "API Client",
+            "operatingSystem": "Web, Windows, macOS, Linux",
+            "url": "https://restura.dev/",
+            "image": "https://restura.dev/og-image.png",
+            "screenshot": "https://restura.dev/og-image.png",
+            "description": "Privacy-first API client for HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MQTT, and MCP.",
+            "author": { "@id": "https://restura.dev/#organization" },
+            "offers": {
+              "@type": "Offer",
+              "price": "0",
+              "priceCurrency": "USD"
+            },
+            "featureList": [
+              "HTTP/REST API testing",
+              "GraphQL client",
+              "gRPC client",
+              "WebSocket and Socket.IO testing",
+              "Server-Sent Events client",
+              "Kafka and MQTT clients",
+              "Model Context Protocol client and server",
+              "Request collections and environments",
+              "Pre-request scripts and code generation"
+            ]
+          }
         ]
       }
     </script>
