@@ -90,4 +90,32 @@ describe('buildContextPackets', () => {
       )
     ).toThrow('too small for selected source evidence framing');
   });
+
+  it('backs up past a split UTF-8 code point before rendering evidence', () => {
+    const source = {
+      id: 'utf8',
+      kind: 'history' as const,
+      label: '',
+      version: '',
+      content: 'a🙂',
+    };
+    const [emptyPacket] = buildContextPackets([{ ...source, content: '' }], {
+      sourceIds: ['utf8'],
+      maxBytes: 1_000,
+    });
+    const framingBytes = new TextEncoder().encode(renderContextPacket(emptyPacket!)).byteLength;
+
+    const [packet] = buildContextPackets([source], {
+      sourceIds: ['utf8'],
+      // The initial three-byte slice includes only part of the emoji. Decoding
+      // it produces U+FFFD (three bytes), so truncation must retry and retain
+      // only the preceding ASCII character.
+      maxBytes: framingBytes + 3,
+    });
+
+    expect(packet?.content).toBe('a');
+    expect(new TextEncoder().encode(renderContextPacket(packet!)).byteLength).toBeLessThanOrEqual(
+      framingBytes + 3
+    );
+  });
 });
