@@ -32,6 +32,9 @@ const updater = {
 
 const api = {
   updater,
+  shell: {
+    openExternal: vi.fn(async () => undefined),
+  },
   on: vi.fn(),
   removeListener: vi.fn(),
 };
@@ -126,6 +129,18 @@ describe('UpdateNotification', () => {
     expect(updater.restart).toHaveBeenCalledOnce();
   });
 
+  it('shows native validation and installation progress without offering restart', () => {
+    render(<UpdateNotification />);
+
+    emit({ state: 'validating', version: '2.1.0' });
+    expect(screen.getByText(/verifying update/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /restart now/i })).toBeNull();
+
+    emit({ state: 'installing', version: '2.1.0' });
+    expect(screen.getByText(/restarting to install/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /restart now/i })).toBeNull();
+  });
+
   it('Later dismisses the downloaded banner', async () => {
     render(<UpdateNotification />);
     emit({ state: 'downloaded', version: '2.1.0' });
@@ -135,21 +150,44 @@ describe('UpdateNotification', () => {
 
   it('stays silent (no banner, no toast) on an automatic background check failure', () => {
     render(<UpdateNotification />);
-    emit({ state: 'error', message: 'network down' });
+    emit({ state: 'error', phase: 'check', message: 'Unable to check for updates.' });
     expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
     expect(toastMock.error).not.toHaveBeenCalled();
   });
 
-  it('toasts only when a failure interrupts an in-progress download', () => {
+  it('keeps a download failure visible instead of relying only on a toast', () => {
     render(<UpdateNotification />);
-    emit({ state: 'downloading', version: '2.1.0', percent: 50 });
-    emit({ state: 'error', message: 'connection reset' });
+    emit({
+      state: 'error',
+      phase: 'download',
+      message: 'The update could not be downloaded. Try again or download it manually.',
+    });
     expect(toastMock.error).toHaveBeenCalledWith(
       'Update download failed',
-      expect.objectContaining({ description: 'connection reset' })
+      expect.objectContaining({ description: expect.stringContaining('could not be downloaded') })
     );
-    // and no sticky error banner remains
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.getByRole('alert')).toHaveTextContent(/update download failed/i);
+  });
+
+  it('shows a validation failure with retry and manual download recovery', async () => {
+    render(<UpdateNotification />);
+    emit({
+      state: 'error',
+      phase: 'validation',
+      message: 'The update could not be verified. Try again or download it manually.',
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/update verification failed/i);
+    expect(screen.queryByRole('button', { name: /restart now/i })).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: /retry/i }));
+    expect(updater.check).toHaveBeenCalledOnce();
+
+    await userEvent.click(screen.getByRole('button', { name: /manual download/i }));
+    expect(api.shell.openExternal).toHaveBeenCalledWith(
+      'https://github.com/dipjyotimetia/restura/releases/latest'
+    );
   });
 
   it('gives the tray "Check for Updates" action transient toast feedback', () => {
