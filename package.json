@@ -251,7 +251,7 @@
     "*.{ts,tsx,js,mjs,cjs}": [
       "biome check --write"
     ],
-    "*.{json,md,css}": [
+    "*.{json,css}": [
       "biome format --write"
     ]
   },
