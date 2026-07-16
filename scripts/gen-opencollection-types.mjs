@@ -3,7 +3,7 @@ import { dirname } from 'node:path';
 import { compileFromFile } from 'json-schema-to-typescript';
 
 const SCHEMA = 'vendor/opencollection/v1.0.0/schema.json';
-const OUT = 'src/lib/opencollection/spec-types.ts';
+const OUT = 'shared/opencollection/spec-types.ts';
 
 const banner = `/* biome-ignore-all lint */
 /**
@@ -21,7 +21,7 @@ let ts = await compileFromFile(SCHEMA, {
 });
 
 // Prefix the generated type names that collide with hand-written app-domain
-// types in `src/types` (the OpenCollection wire spec vs. the app's domain
+// types in `shared/types` (the OpenCollection wire spec vs. the app's domain
 // model). This module is self-contained and currently unimported, so the
 // prefix is local to this file; it keeps the generated names from shadowing
 // the domain model in duplicate-type audits. Word-boundaried so declarations

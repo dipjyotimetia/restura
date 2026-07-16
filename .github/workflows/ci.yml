@@ -61,51 +61,29 @@ jobs:
         # next step can summarize results on the PR.
         run: npm run test:ci -- --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml
 
-      - name: Type-check (all projects)
-        # Single source of truth for the project set — same six tsc projects
-        # `npm run validate` runs locally. Keep this in sync via type-check:all only.
-        run: npm run type-check:all
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Format check
-        run: npm run format:check
-
-      - name: Verify generated opencollection types are up-to-date
-        run: npm run verify:opencollection-types
-
-      - name: Verify capability matrix is up-to-date
-        run: npm run capabilities:check
+      - name: Static validation
+        # Shared with local `npm run validate`: all product/tooling tsconfigs,
+        # Biome, formatting, generated artifacts, capabilities, and architecture.
+        run: npm run validate:static
 
       # Dependency auditing moved to the scheduled, non-blocking security-audit
       # workflow. A newly-disclosed transitive critical advisory used to fail
       # `validate` on every unrelated PR (blocking all merges until patched);
       # dependabot security PRs remain the remediation path.
 
-      - name: Build renderer
-        run: npm run build
-
-      - name: Build Electron main
-        run: npm run electron:compile
-
-      - name: Check bundle size
-        run: npm run size
+      - name: Production build validation
+        # Renderer/Worker, self-host Node/Docker, CLI, browser/VS Code extension
+        # bundles, Electron main/preload compilation, and renderer bundle budgets.
+        run: npm run validate:build
 
       # The cli workspace has its own vitest suite that root `test:ci` does not
       # cover (root vitest `include` omits cli/**). Gate it here so a published
       # `restura-cli` regression can't slip through. `pretest` regenerates the
       # sandbox bundle on a clean checkout.
-      - name: Run CLI tests
-        run: npm run --workspace cli test
-
-      # The vscode-extension workspace has its own vitest suite that root
-      # `test:ci` does not cover (root vitest `include` omits the workspace).
-      # It bundles shared/protocol + opencollection, so running it on every PR
-      # (not only when extension/vscode/** changes) also catches breakage that a
-      # shared-code change would introduce. Fast + wasm-free, no prebuild needed.
-      - name: Run VS Code extension unit tests
-        run: npm run --workspace restura-vscode test:unit
+      - name: Run workspace tests
+        # CLI and VS Code suites are outside root Vitest coverage. The extension
+        # also exercises shared protocol and OpenCollection modules.
+        run: npm run test:workspaces
 
       # Block until the background test step (kicked off right after install)
       # finishes. The job fails here if the suite failed; the test-result

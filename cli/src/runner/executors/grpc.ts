@@ -1,5 +1,5 @@
 import { executeGrpcProxy } from '@shared/protocol/grpc-proxy';
-import type { GrpcRequest } from '@/types';
+import type { GrpcRequest } from '@shared/types';
 import type { LoadedRequest } from '../collectionLoader';
 import { createUndiciFetcher, undiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';

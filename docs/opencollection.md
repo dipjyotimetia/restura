@@ -2,7 +2,7 @@
 
 Restura speaks the [OpenCollection v1.0.0](https://spec.opencollection.com/) specification natively. Any tool that emits OpenCollection-compliant YAML — most notably **Bruno 3.1 and later** — produces files that Restura can open, edit, and write back without lossy conversion.
 
-The OpenCollection JSON Schema is vendored at `vendor/opencollection/v1.0.0/schema.json` (pinned to a specific upstream commit), and TypeScript types are auto-generated from it. The runtime parser uses Zod schemas and validates every loaded file. See [`src/lib/opencollection/`](../src/lib/opencollection/) for the implementation.
+The OpenCollection JSON Schema is vendored at `vendor/opencollection/v1.0.0/schema.json` (pinned to a specific upstream commit), and TypeScript types are auto-generated from it. The runtime parser uses Zod schemas and validates every loaded file. See [`shared/opencollection/`](../shared/opencollection/) for the implementation.
 
 ## Layout
 
@@ -78,7 +78,7 @@ Request-level pre-request/test scripts round-trip through OC's `runtime.scripts`
 - **Import:** Click the import-collection button in the toolbar, choose the **OpenCollection** tab, then drop a bundled YAML file or click to browse.
 - **Export:** Right-click a collection in the sidebar → **Export → OpenCollection (YAML)**. The download is a single bundled YAML file.
 
-Directory-layout import/export through a native folder picker lands in **Phase 1** alongside the broader git-workspace work. The unit and filesystem-layer tests in [`src/lib/opencollection/__tests__/`](../src/lib/opencollection/__tests__/) already exercise the directory format end-to-end.
+Directory-layout import/export through a native folder picker lands in **Phase 1** alongside the broader git-workspace work. The unit and filesystem-layer tests exercise the shared parser and its Node fs adapters end-to-end.
 
 ## Stable roundtrip
 
@@ -96,7 +96,7 @@ The vendored schema can be re-pinned to a newer upstream commit. Re-pin instruct
 
 ```bash
 npm run gen:opencollection-types  # regenerate TS types
-npm run validate                  # type-check + lint + verify-types + tests
+npm run validate                  # static policy + tests/coverage + all production builds/size
 ```
 
 The `verify:opencollection-types` step (part of `npm run validate`) ensures the committed `spec-types.ts` matches what the generator produces from the vendored schema — type drift gets caught in CI.
@@ -104,6 +104,6 @@ The `verify:opencollection-types` step (part of `npm run validate`) ensures the 
 ## Related
 
 - Vendored schema: [`vendor/opencollection/v1.0.0/`](../vendor/opencollection/v1.0.0/)
-- Implementation: [`src/lib/opencollection/`](../src/lib/opencollection/)
+- Implementation: [`shared/opencollection/`](../shared/opencollection/)
 - Phase 0 plan: [`docs/superpowers/plans/2026-05-10-phase-0-opencollection-foundation.md`](./superpowers/plans/2026-05-10-phase-0-opencollection-foundation.md)
 - Roadmap: [`docs/superpowers/plans/2026-05-10-restura-roadmap.md`](./superpowers/plans/2026-05-10-restura-roadmap.md)

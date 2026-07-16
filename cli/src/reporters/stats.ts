@@ -1,4 +1,4 @@
-import { computeLoadStats } from '@/lib/shared/loadStats';
+import { computeLoadStats } from '@shared/load/stats';
 import type { Reporter, RunResult } from './types.js';
 
 /**

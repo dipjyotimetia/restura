@@ -1,4 +1,4 @@
-import { applyDynamicVariables } from '@/lib/shared/dynamicVariables';
+import { applyDynamicVariables } from '@shared/variables/dynamic';
 
 /**
  * Replace `{{KEY}}` placeholders against the provided variable map, then

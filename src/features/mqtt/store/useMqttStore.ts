@@ -1,7 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { mqttManager } from '@/features/mqtt/lib/mqttManager';
 import { capMessages, MAX_MESSAGES_PER_CONNECTION } from '@/lib/shared/message-cap';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
@@ -217,11 +216,6 @@ export const useMqttStore = create<MqttState>()(
       cleanupConnectionForTab: (tabId) => {
         const connectionId = get().connectionByTabId[tabId];
         if (!connectionId) return;
-        try {
-          void mqttManager.disconnect(connectionId);
-        } catch {
-          /* ignore — manager handles missing/already-closed connections */
-        }
         set((state) => {
           const { [connectionId]: _drop, ...restConns } = state.connections;
           const { [tabId]: _dropTab, ...restMap } = state.connectionByTabId;

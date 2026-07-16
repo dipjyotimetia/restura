@@ -3,7 +3,7 @@ import type * as KafkaLib from '@platformatic/kafka';
 import type { WebContents } from 'electron';
 import { ipcMain, webContents } from 'electron';
 import type { ZodSchema } from 'zod';
-import { createLogger } from '../../../src/lib/shared/logger';
+import { createLogger } from '@shared/runtime/logger';
 import { IPC } from '../../shared/channels';
 import { KAFKA_CHANNEL, kafkaChannel } from '../../shared/kafka-channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';

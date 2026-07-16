@@ -94,32 +94,4 @@ export function debounce<T extends (...args: never[]) => unknown>(
   };
 }
 
-export function generateTraceparent(): string {
-  // W3C Trace Context format: 00-{trace-id}-{parent-id}-{trace-flags}
-  // trace-id: 32 hex chars (16 bytes)
-  // parent-id: 16 hex chars (8 bytes)
-  // trace-flags: 01 for sampled
-
-  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-    const bytes = new Uint8Array(24);
-    crypto.getRandomValues(bytes);
-    let hex = '';
-    for (let i = 0; i < 24; i++) {
-      hex += bytes[i]!.toString(16).padStart(2, '0');
-    }
-    const traceId = hex.substring(0, 32);
-    const spanId = hex.substring(32, 48);
-    return `00-${traceId}-${spanId}-01`;
-  }
-
-  // Fallback if Web Crypto API is unavailable
-  const randomHex = (len: number) => {
-    let result = '';
-    for (let i = 0; i < len; i++) {
-      result += Math.floor(Math.random() * 16).toString(16);
-    }
-    return result;
-  };
-
-  return `00-${randomHex(32)}-${randomHex(16)}-01`;
-}
+export { generateTraceparent } from '@shared/runtime/trace-context';

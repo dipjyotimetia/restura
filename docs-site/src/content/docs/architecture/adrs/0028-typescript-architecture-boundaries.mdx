@@ -1,0 +1,31 @@
+---
+title: ADR 0028 — TypeScript Architecture Boundaries
+description: Executable dependency directions, runtime-cycle detection, module-size ratchets, and a complete validation contract for Restura's TypeScript programs.
+sidebar:
+  order: 28
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+<Badge text="Accepted · 2026-07-16" variant="success" />
+
+## Context
+
+Restura compiles one repository into independent renderer, Worker/Node, Electron, CLI, and extension programs. TypeScript catches local type errors, but it does not prevent an application from importing in the wrong direction, adding a runtime cycle, or growing another monolithic module.
+
+## Decision
+
+`shared/` is the runtime-neutral dependency floor. It cannot depend on an application, and Worker, Electron main, and CLI cannot depend on renderer-owned `src/` modules. Renderer compatibility barrels may re-export shared owners while callers migrate.
+
+`npm run architecture:check` parses TypeScript and enforces source-zone directions, an acyclic runtime import graph, an 800-line ceiling for new production modules, and exact non-growing caps for legacy oversized files. Type-only imports do not create runtime cycles.
+
+The Electron preload, IPC validators, and renderer API declaration are composed from domain modules while their existing top-level entry paths remain stable. Tooling has dedicated TypeScript configs, and `npm run validate` is the complete static, test, build, Electron, and bundle-size contract used by CI.
+
+## Consequences
+
+- Architecture drift fails deterministically before review.
+- Cross-runtime code has a single neutral owner.
+- Existing oversized modules cannot grow and lose their exception when split.
+- Changes to source zones, aliases, or generated-code conventions require policy tests.
+
+The executable policy lives in `scripts/architecture.config.mts`; its behavior is covered by `tests/architecture-policy.test.ts`.

@@ -146,7 +146,7 @@ Stores of note:
 
 - Entry/orchestrator: `electron/main/main.ts`.
 - `IPC_MODULES` registry couples each handler's `register` with its `dispose`; teardown cannot drift out of sync with registration.
-- Preload: `electron/main/preload.ts` exposes a typed `window.electron` API through `contextBridge`. Channel names come from `electron/shared/channels.ts`; the surface is validated against `electron/types/electron-api.ts` via `satisfies ElectronAPI`.
+- Preload: `electron/main/preload.ts` composes domain APIs from `electron/main/preload/` and exposes a typed `window.electron` API through `contextBridge`. Channel names come from `electron/shared/channels.ts`; the surface is validated against the composed modules under `electron/types/api/` via `satisfies ElectronAPI`.
 - Window manager: `electron/main/window-manager.ts` loads `localhost:5173` in dev and `dist/web/index.html` in prod.
 - Handlers: per-protocol IPC handlers in `electron/main/handlers/*.ts`. Heavy files include `http-handler.ts`, `grpc-handler.ts`, `grpc-connect.ts`, `kafka-handler.ts`, `mqtt-handler.ts`.
 - Security: `electron/main/security/` contains DNS pinning, secret handle store, auth applier, collection export redaction.
@@ -221,6 +221,7 @@ Key stores:
 - `electron/main/window-manager.ts` — window creation, deep-link handlers.
 - `electron/main/handlers/*-handler.ts` — IPC handlers per protocol.
 - `electron/main/preload.ts` — context-isolated bridge exposed as `window.electron`.
+- `electron/main/ipc/validators/` — domain-owned Zod schemas plus the trusted-sender handler boundary; `ipc-validators.ts` is the stable compatibility barrel.
 - `electron/main/storage/` — encrypted JSON files backed by `safeStorage`.
 - `electron/main/security/` — CSP, navigation guards, certificate handling.
 
@@ -255,13 +256,15 @@ Examples of capability-only features:
 | Desktop storage / encryption | `electron/main/storage/*.ts`, `src/lib/shared/encryption.ts`                                        |
 | Capability matrix            | `src/lib/shared/capabilities.ts`, `docs/CAPABILITY_MATRIX.md`                                       |
 | Platform detection           | `src/lib/shared/platform.ts`                                                                        |
+| Architecture policy          | `scripts/architecture.config.mts`, `scripts/check-architecture.mts`                                 |
 
 ---
 
 ## What to watch out for when changing architecture
 
-- Do **not** move imports between `shared/protocol/` and `src/` — the core intentionally avoids a compile-time dependency on the renderer type tree (see `shared/protocol/types.ts` comments). This keeps the Worker and Electron bundles self-contained.
+- `shared/` is the dependency floor: it must not import a runtime app, and Worker, Electron main, and CLI must not import renderer-owned `src/`. Renderer compatibility barrels may re-export shared owners. The checked rules live in `scripts/architecture.config.mts` (ADR 0028).
 - SSRF guards belong in `shared/protocol/url-validation.ts`. Do not reimplement private-network checks in individual handlers.
 - The Worker is not bundled into the desktop app. Any protocol feature that works on Electron must have a handler under `electron/main/handlers/`.
 - `npm run type-check:all` is required; plain `type-check` skips the Worker, Electron main, CLI, and extensions.
+- Run `npm run architecture:check` after moving modules or changing imports; it rejects forbidden directions, runtime cycles, and growth beyond the file-size ratchets.
 - The Node backend mutates `c.env` in-place (`Object.assign`) because `@hono/node-ws` expects that exact reference. See `worker/node-entry.ts`.

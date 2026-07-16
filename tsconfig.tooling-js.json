@@ -1,0 +1,29 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "noImplicitReturns": false,
+    "noImplicitOverride": false,
+    "noUncheckedIndexedAccess": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "types": ["node", "mocha"]
+  },
+  "include": [
+    "scripts/*.js",
+    "scripts/*.mjs",
+    ".claude/hooks/*.mjs",
+    "*.config.mjs",
+    "extension/chrome/scripts/*.mjs",
+    "extension/vscode/*.mjs",
+    "extension/vscode/test/integration/*.mjs"
+  ],
+  "exclude": ["node_modules", "dist", "coverage", "scripts/sandbox-shims"]
+}

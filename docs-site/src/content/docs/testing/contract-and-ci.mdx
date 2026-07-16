@@ -22,18 +22,23 @@ Run it with:
 npm run test:contract
 ```
 
-## Codegen-drift gates
+## Static architecture and generated-artifact gates
 
-Two more gates catch a different class of bug: generated files that have gone stale relative to their source of truth.
+These gates catch generated drift and repository-level architecture violations:
 
-- **`npm run verify:opencollection-types`** — regenerates `src/lib/opencollection/spec-types.ts` from the OpenCollection JSON Schema, then fails if that regeneration produces a diff. If this fails, the schema changed but the generated types weren't regenerated and committed.
+- **`npm run verify:opencollection-types`** — regenerates `shared/opencollection/spec-types.ts` from the OpenCollection JSON Schema, then fails if that regeneration produces a diff. If this fails, the schema changed but the generated types weren't regenerated and committed.
+- **`npm run architecture:check`** — enforces runtime dependency directions, rejects runtime import cycles, and prevents new or grandfathered production modules from exceeding their size cap.
 - **`npm run capabilities:check`** — regenerates `docs/CAPABILITY_MATRIX.md` from `src/lib/shared/capabilities.ts` and fails on any diff, for the same reason.
 
-Both are "generated file is out of date" checks, not functional tests — fix them by running the corresponding `gen:*` script and committing the result, not by hand-editing the generated file.
+The two generated-artifact checks are fixed by running their corresponding generator and committing the result, not by hand-editing generated files. Architecture violations must be fixed at the dependency, cycle, or module-ownership boundary.
 
 ## The single CI gate
 
-`npm run validate` is the type-check, lint, format, codegen-drift, and unit-test slice of the pipeline. It chains `type-check:all` → `lint` → `format:check` → `verify:opencollection-types` → `capabilities:check` → `test:run` → the CLI workspace's own test suite.
+`npm run validate` is the canonical local and required-CI gate. It runs three explicit stages:
+
+1. `validate:static` — every product/tooling TypeScript config, Biome lint/format, generated OpenCollection types, the capability matrix, and `architecture:check`.
+2. `validate:test` — root Vitest with coverage plus CLI and VS Code workspace unit tests.
+3. `validate:build` — web/Worker and self-host Node/Docker builds, CLI and extension bundles, Electron main/preload compilation with runtime-import verification, and renderer bundle-size budgets.
 
 Run the whole thing locally before opening a PR:
 
@@ -41,7 +46,7 @@ Run the whole thing locally before opening a PR:
 npm run validate
 ```
 
-`validate` is one slice of a larger pipeline — build, bundle-size checks, Playwright end-to-end (web and Electron), the docs site build, and PR preview deploy all run alongside it in CI. Rather than duplicate that pipeline here, see [`docs/CI_CD.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/CI_CD.md) on GitHub for the full breakdown of workflows, required status checks, and branch protection.
+Playwright end-to-end jobs (web, Electron, and extensions), packaging smoke, the docs site, and PR preview deployment remain separate environment-specific jobs. See [`docs/CI_CD.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/CI_CD.md) for the full workflow and branch-protection breakdown.
 
 ## Related
 

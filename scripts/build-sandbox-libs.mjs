@@ -24,14 +24,14 @@ import { fileURLToPath } from 'node:url';
  *     dev-server start and at `vite build`.
  *   - The CLI's prebuild step (`cli/package.json#scripts.prebuild`).
  *
- * Output: `src/features/scripts/lib/sandboxLibraries/bundle.generated.ts`
+ * Output: `shared/scripts/sandbox-libraries/bundle.generated.ts`
  * is gitignored — it's a build artifact regenerated on every build.
  */
 import esbuild from 'esbuild';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..');
-const outDir = path.join(repoRoot, 'src/features/scripts/lib/sandboxLibraries');
+const outDir = path.join(repoRoot, 'shared/scripts/sandbox-libraries');
 const outFile = path.join(outDir, 'bundle.generated.ts');
 
 /**

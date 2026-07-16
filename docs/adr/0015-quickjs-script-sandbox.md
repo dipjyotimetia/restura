@@ -8,7 +8,7 @@ Pre-request and test scripts are user-authored JavaScript that also travels insi
 
 ## Decision
 
-Execute all user scripts inside a **QuickJS WASM sandbox** (`src/features/scripts/lib/scriptExecutor.ts`). The VM has no DOM, no filesystem, and no ambient network — capabilities are granted only through an explicit host API (`rs.*`, with a Postman-compatible `pm.*` alias), and the VM is memory- and execution-time-capped. Anything the script can reach (e.g. `rs.sendRequest`, which is itself SSRF-guarded; `rs.vault`, desktop-only) is a deliberately exposed, audited capability rather than an ambient one.
+Execute all user scripts inside a **QuickJS WASM sandbox** (`shared/scripts/script-executor.ts`; the renderer path is a compatibility re-export). The VM has no DOM, no filesystem, and no ambient network — capabilities are granted only through an explicit host API (`rs.*`, with a Postman-compatible `pm.*` alias), and the VM is memory- and execution-time-capped. Anything the script can reach (e.g. `rs.sendRequest`, which is itself SSRF-guarded; `rs.vault`, desktop-only) is a deliberately exposed, audited capability rather than an ambient one.
 
 The sandbox — not source inspection — is the security boundary.
 
@@ -28,6 +28,6 @@ The sandbox — not source inspection — is the security boundary.
 
 ## References
 
-- Code: `src/features/scripts/lib/scriptExecutor.ts`
+- Code: `shared/scripts/script-executor.ts`
 - Docs: docs-site `/guides/scripts/`, `/reference/postman-compat/`
 - Related: [ADR 0004 (security hardening)](./0004-security-hardening.md), [ADR 0005 (CLI runner)](./0005-cli-runner.md)

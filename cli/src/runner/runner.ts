@@ -1,4 +1,4 @@
-import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
+import { applyVarMutations } from '@shared/collections/variable-mutations';
 import type { Reporter, RequestRunResult, RunMeta, RunResult } from '../reporters/types.js';
 import { loadCollection } from './collectionLoader.js';
 import type { CliIterationRow } from './dataLoader.js';

@@ -1,7 +1,7 @@
 import type { FormField, ProxyBodyType as ProtocolBodyType } from '@shared/protocol/body-builder';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
 import type { RedirectPolicy } from '@shared/protocol/types';
-import type { BodyType, FormDataItem, HttpRequest } from '@/types';
+import type { BodyType, FormDataItem, HttpRequest } from '@shared/types';
 import type { LoadedRequest } from '../collectionLoader';
 import { createUndiciFetcher, undiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';

@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron';
 import WebSocket from 'ws';
-import { createLogger } from '../../../src/lib/shared/logger';
+import { createLogger } from '@shared/runtime/logger';
 import { EVENT_PREFIX, IPC } from '../../shared/channels';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import {

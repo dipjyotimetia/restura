@@ -37,6 +37,7 @@ npm run build                  # Production build (SPA + Worker bundle)
 npm run preview                # Preview production build
 npm run type-check             # TypeScript strict mode — RENDERER ONLY (excludes worker, electron/main, cli)
 npm run type-check:all         # Full type-check across all tsconfigs — what CI runs
+npm run architecture:check     # Enforce runtime boundaries, acyclic imports, file-size ratchets
 npm run lint                   # Biome lint over src/ shared/ electron/main/ worker/ echo/ echo-local/ cli/ tests/ scripts/
 npm run format                 # Biome format (write)
 npm run format:check           # Biome format check
@@ -51,7 +52,7 @@ npm run test:coverage          # Coverage report
 npm run test:e2e               # Playwright (boots dev server; needs .dev.vars)
 
 # Full validation (matches CI) — NOT just type-check+lint+test
-npm run validate               # type-check:all → lint → format:check → verify:opencollection-types → capabilities:check → test:run → cli test
+npm run validate               # Static policy → root/workspace tests → production builds + size
 
 # Self-hosted Node / Docker server (single process: SPA + /api/* on one port)
 npm run build:docker           # SPA → dist/web + esbuild Worker → dist/server/index.mjs
@@ -170,7 +171,8 @@ paths (`main.ts`, `window-manager.ts`, `preload.ts`) **must stay at the
   `grpc-handler.ts`, `websocket-handler.ts`, `sse-handler.ts`, `mcp-handler.ts`,
   `kafka-handler.ts`, `mqtt-handler.ts`, `ai-handler.ts`, `ai-lab-handler.ts`,
   `mcp-server-handler.ts`, etc.
-- **`ipc/`** — the IPC boundary: validators, rate-limiter, stream-registry,
+- **`ipc/`** — the IPC boundary: domain validators under `ipc/validators/`,
+  the stable `ipc-validators.ts` barrel, rate-limiter, stream-registry,
   connection-cleanup.
 - **`security/`** — `dns-guard.ts` (pre-flight SSRF), `safe-connect.ts`,
   `kafka-broker-guard.ts`/`mqtt-broker-guard.ts`, `secret-handle-store.ts`.
@@ -179,9 +181,9 @@ paths (`main.ts`, `window-manager.ts`, `preload.ts`) **must stay at the
 
 The renderer's executors branch on `isElectron()` to use IPC instead of HTTP.
 New IPC methods need **all three**: a Zod schema + `createValidatedHandler` in
-`electron/main/ipc/ipc-validators.ts`, the preload bridge in `preload.ts`, and a
-type declaration checked against `electron/types/electron-api.ts` — or the call
-breaks at runtime on desktop.
+`electron/main/ipc/validators/`, the preload domain module under
+`electron/main/preload/`, and a type declaration under `electron/types/api/`
+composed by `electron-api.ts` — or the call breaks at runtime on desktop.
 
 ### Worker (`worker/`)
 
@@ -203,15 +205,18 @@ Node/Docker entry. Routes: `/health`, `/ready`, `/api/proxy`, `/api/grpc`,
 
 - **Path alias** `@/` → `./src/`. Cross-feature imports are discouraged —
   compose at the route or shared-component level.
+- **Architecture boundaries** — `shared/` is the dependency floor; Worker,
+  Electron main, and CLI do not import renderer-owned `src/`. The checked
+  policy is `scripts/architecture.config.mts` (ADR 0028).
 - **Build**: Vite 8 + `@vitejs/plugin-react` + `@cloudflare/vite-plugin`
   (boots Miniflare during `vite dev`). Config is `vite.config.mts` (ESM-only).
 - **Tailwind v4** via `@tailwindcss/vite` (no separate PostCSS config).
 - **Strict TS**: `noUnusedLocals`, `noUnusedParameters`, `noImplicitReturns`,
   `noUncheckedIndexedAccess`. `exactOptionalPropertyTypes` is off intentionally.
 - **Script sandbox**: pre-request/test scripts run in QuickJS WASM
-  (`src/features/scripts/lib/scriptExecutor.ts`).
+  (`shared/scripts/script-executor.ts`; the renderer path is a compatibility re-export).
 - **Collection import/export**: Postman v2.1, Insomnia, and OpenCollection
-  (`src/lib/opencollection/`, with codegen — `spec-types.ts` is generated and
+  (`shared/opencollection/`, with codegen — `spec-types.ts` is generated and
   gated by `verify:opencollection-types`; never hand-edit it).
 - **Multiple tsconfigs**: renderer, `electron/`, `worker/`, `echo/`, `cli/`,
   plus `src/features/http/`. `tsconfig.base.json` holds shared options.

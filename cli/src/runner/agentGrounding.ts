@@ -3,7 +3,7 @@ import {
   type ContextPacket,
   type GroundingSelection,
 } from '@shared/agent-lab';
-import type { HttpRequest } from '@/types';
+import type { HttpRequest } from '@shared/types';
 import type { LoadedCollection } from './collectionLoader.js';
 import type { AgentRuntimeManifest } from '../commands/agentRuntime.js';
 import { connectCliMcpClient } from './agentMcpClient.js';

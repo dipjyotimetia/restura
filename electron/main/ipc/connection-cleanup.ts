@@ -1,5 +1,5 @@
 import type { WebContents } from 'electron';
-import { createLogger } from '../../../src/lib/shared/logger';
+import { createLogger } from '@shared/runtime/logger';
 
 const log = createLogger('connection-cleanup');
 

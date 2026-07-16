@@ -1,7 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { websocketManager } from '@/features/websocket/lib/websocketManager';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
@@ -170,12 +169,6 @@ export const useWebSocketStore = create<WebSocketState>()(
       cleanupConnectionForTab: (tabId) => {
         const connectionId = get().connectionByTabId[tabId];
         if (!connectionId) return;
-        // Best-effort disconnect; manager is a no-op if the socket is already closed.
-        try {
-          websocketManager.disconnect(connectionId, /* clearReconnect */ true);
-        } catch {
-          /* ignore */
-        }
         set((state) => {
           const { [connectionId]: _drop, ...restConns } = state.connections;
           const { [tabId]: _dropTab, ...restMap } = state.connectionByTabId;

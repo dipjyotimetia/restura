@@ -45,7 +45,7 @@ auth-signer runs. The preload bridge deliberately exposes only `store`,
 
 ## Foundation (landed)
 
-- `src/lib/shared/secretRef.ts` — types, predicates, sync helpers
+- `shared/secrets/secret-ref.ts` — types, predicates, sync helpers (renderer path is a compatibility re-export)
   (`unwrapSecret`, `describeSecret`, `redactSecret`, constructors,
   `assertSecretValue`)
 - `electron/main/security/secret-handle-store.ts` — UUID-keyed encrypted store,

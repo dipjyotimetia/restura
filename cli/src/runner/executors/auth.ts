@@ -1,7 +1,7 @@
 import type { ProtocolAuthConfig, ProtocolAuthType } from '@shared/protocol/types';
 import { validateURL } from '@shared/protocol/url-validation';
-import { fetchClientCredentialsToken, tokenExpiresAt } from '@/features/auth/lib/oauth2';
-import type { AuthConfig } from '@/types';
+import { fetchClientCredentialsToken, tokenExpiresAt } from '@shared/auth/oauth2';
+import type { AuthConfig } from '@shared/types';
 import { resolveVarsDeep } from '../varResolver';
 
 /**

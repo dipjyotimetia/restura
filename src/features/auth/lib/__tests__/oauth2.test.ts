@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  authorizeWithPopup,
   buildAuthorizationUrl,
   exchangeCodeForToken,
   fetchClientCredentialsToken,
@@ -7,6 +8,12 @@ import {
   OAuth2TokenError,
   tokenExpiresAt,
 } from '../oauth2';
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 const mockTokenResponse = {
   access_token: 'next-token',
@@ -23,6 +30,62 @@ const baseConfig = {
   redirectUri: 'https://app.example/callback',
   scope: 'read write',
 };
+
+describe('authorizeWithPopup', () => {
+  it('returns null when the browser blocks the popup', async () => {
+    vi.spyOn(window, 'open').mockReturnValue(null);
+
+    await expect(authorizeWithPopup('https://auth.example', 'expected')).resolves.toBeNull();
+  });
+
+  it('returns the authorization code and closes a matching popup', async () => {
+    vi.useFakeTimers();
+    const close = vi.fn();
+    vi.spyOn(window, 'open').mockReturnValue({
+      closed: false,
+      close,
+      location: { href: 'https://app.example/callback?code=code-1&state=expected' },
+    } as unknown as Window);
+
+    const result = authorizeWithPopup('https://auth.example', 'expected');
+    await vi.advanceTimersByTimeAsync(500);
+
+    await expect(result).resolves.toEqual({ code: 'code-1' });
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('returns null when the user closes the popup', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(window, 'open').mockReturnValue({ closed: true } as Window);
+
+    const result = authorizeWithPopup('https://auth.example', 'expected');
+    await vi.advanceTimersByTimeAsync(500);
+
+    await expect(result).resolves.toBeNull();
+  });
+
+  it('tolerates cross-origin access and times out safely', async () => {
+    vi.useFakeTimers();
+    const close = vi.fn();
+    const popup = { closed: false, close } as {
+      closed: boolean;
+      close: () => void;
+      location?: Location;
+    };
+    Object.defineProperty(popup, 'location', {
+      get: () => {
+        throw new DOMException('Blocked by same-origin policy', 'SecurityError');
+      },
+    });
+    vi.spyOn(window, 'open').mockReturnValue(popup as unknown as Window);
+
+    const result = authorizeWithPopup('https://auth.example', 'expected', 400);
+    await vi.advanceTimersByTimeAsync(500);
+
+    await expect(result).resolves.toBeNull();
+    expect(close).toHaveBeenCalledOnce();
+  });
+});
 
 describe('buildAuthorizationUrl', () => {
   it('builds authorization URL with PKCE challenge and state', async () => {
@@ -54,6 +117,12 @@ describe('buildAuthorizationUrl', () => {
     const url = new URL(result.url);
     expect(url.searchParams.get('scope')).toBe('openid profile');
   });
+
+  it('omits scope when it is not configured', async () => {
+    const result = await buildAuthorizationUrl({ ...baseConfig, scope: undefined });
+
+    expect(new URL(result.url).searchParams.has('scope')).toBe(false);
+  });
 });
 
 describe('exchangeCodeForToken', () => {
@@ -77,6 +146,13 @@ describe('exchangeCodeForToken', () => {
     expect(body).toContain('grant_type=authorization_code');
     expect(body).toContain('code=auth-code');
     expect(body).toContain('code_verifier=my-verifier');
+  });
+
+  it('includes the optional client secret in the exchange', async () => {
+    await exchangeCodeForToken({ ...baseConfig, clientSecret: 'secret' }, 'code', 'verifier');
+
+    const body = String((fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.body);
+    expect(body).toContain('client_secret=secret');
   });
 
   it('throws when redirectUri is missing', async () => {
@@ -125,6 +201,23 @@ describe('fetchRefreshToken', () => {
     expect(body).toContain('client_secret=secret');
   });
 
+  it('includes scope and forwards an abort signal', async () => {
+    const signal = new AbortController().signal;
+    await fetchRefreshToken(
+      {
+        clientId: 'client',
+        tokenUrl: 'https://auth.example/token',
+        refreshToken: 'refresh-old',
+        scope: 'read write',
+      },
+      signal
+    );
+
+    const init = (fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[1];
+    expect(String(init?.body)).toContain('scope=read+write');
+    expect(init?.signal).toBe(signal);
+  });
+
   it('returns token response on success', async () => {
     const result = await fetchRefreshToken({
       clientId: 'client',
@@ -159,9 +252,51 @@ describe('fetchClientCredentialsToken', () => {
     ).rejects.toThrow(OAuth2TokenError);
   });
 
+  it('uses safe fallbacks for a malformed token error response', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response('{}', { status: 503, headers: { 'content-type': 'application/json' } })
+      )
+    );
+
+    await expect(
+      fetchClientCredentialsToken({
+        grantType: 'client_credentials',
+        clientId: 'client',
+        tokenUrl: 'https://auth.example/token',
+      })
+    ).rejects.toMatchObject({
+      errorCode: 'unknown_error',
+      message: 'Token request failed: 503',
+    });
+  });
+
+  it('rejects an OAuth error body even when the HTTP status is successful', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: 'invalid_scope' }), {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          })
+      )
+    );
+
+    await expect(
+      fetchClientCredentialsToken({
+        grantType: 'client_credentials',
+        clientId: 'client',
+        tokenUrl: 'https://auth.example/token',
+      })
+    ).rejects.toMatchObject({ errorCode: 'invalid_scope' });
+  });
+
   it('uses an injected fetch implementation when supplied by a secure caller', async () => {
     const secureFetch = vi.fn(
-      async () =>
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
         new Response(JSON.stringify(mockTokenResponse), {
           status: 200,
           headers: { 'content-type': 'application/json' },
@@ -181,6 +316,33 @@ describe('fetchClientCredentialsToken', () => {
       'https://auth.example/token',
       expect.objectContaining({ method: 'POST' })
     );
+  });
+
+  it('includes optional client credentials fields and forwards an abort signal', async () => {
+    const signal = new AbortController().signal;
+    const secureFetch = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
+        new Response(JSON.stringify(mockTokenResponse), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+    );
+
+    await fetchClientCredentialsToken(
+      {
+        grantType: 'client_credentials',
+        clientId: 'client',
+        clientSecret: 'secret',
+        scope: 'read write',
+        tokenUrl: 'https://auth.example/token',
+      },
+      { fetch: secureFetch, signal }
+    );
+
+    const init = secureFetch.mock.calls[0]?.[1];
+    expect(String(init?.body)).toContain('client_secret=secret');
+    expect(String(init?.body)).toContain('scope=read+write');
+    expect(init?.signal).toBe(signal);
   });
 });
 
@@ -226,6 +388,23 @@ describe('fetchPasswordToken', () => {
     expect(body).toContain('username=user');
     expect(body).toContain('password=pass');
   });
+
+  it('includes optional password-grant client secret and scope', async () => {
+    const { fetchPasswordToken } = await import('../oauth2');
+    await fetchPasswordToken({
+      grantType: 'password',
+      clientId: 'client',
+      clientSecret: 'secret',
+      scope: 'read write',
+      tokenUrl: 'https://auth.example/token',
+      username: 'user',
+      password: 'pass',
+    });
+
+    const body = String((fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.body);
+    expect(body).toContain('client_secret=secret');
+    expect(body).toContain('scope=read+write');
+  });
 });
 
 describe('fetchDeviceCode', () => {
@@ -268,6 +447,36 @@ describe('fetchDeviceCode', () => {
 
     expect(result.device_code).toBe('device-abc');
     expect(result.user_code).toBe('ABCD-1234');
+  });
+
+  it('includes scope in the device authorization request', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              device_code: 'device-abc',
+              user_code: 'ABCD-1234',
+              verification_uri: 'https://device.example/activate',
+              expires_in: 300,
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          )
+      )
+    );
+
+    const { fetchDeviceCode } = await import('../oauth2');
+    await fetchDeviceCode({
+      grantType: 'device_code',
+      clientId: 'client',
+      scope: 'read write',
+      tokenUrl: 'https://auth.example/token',
+      deviceAuthorizationUrl: 'https://auth.example/device_authorization',
+    });
+
+    const body = String((fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[1]?.body);
+    expect(body).toContain('scope=read+write');
   });
 
   it('throws on non-ok response from device endpoint', async () => {

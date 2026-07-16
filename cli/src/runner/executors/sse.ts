@@ -1,7 +1,7 @@
 import { SseParser } from '@shared/protocol/sse-parser';
 import { validateURL } from '@shared/protocol/url-validation';
 import { request as undiciRequest } from 'undici';
-import type { SseRequest } from '@/types';
+import type { SseRequest } from '@shared/types';
 import type { LoadedRequest } from '../collectionLoader';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, resolveOAuth2Token } from './auth';
