@@ -156,6 +156,13 @@ describe('UpdateNotification', () => {
     expect(toastMock.error).not.toHaveBeenCalled();
   });
 
+  it('stays silent for a legacy error that has no active-operation phase', () => {
+    render(<UpdateNotification />);
+    emit({ state: 'error', message: 'legacy updater error' });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(toastMock.error).not.toHaveBeenCalled();
+  });
+
   it('keeps a download failure visible instead of relying only on a toast', () => {
     render(<UpdateNotification />);
     emit({
@@ -187,6 +194,36 @@ describe('UpdateNotification', () => {
     await userEvent.click(screen.getByRole('button', { name: /manual download/i }));
     expect(api.shell.openExternal).toHaveBeenCalledWith(
       'https://github.com/dipjyotimetia/restura/releases/latest'
+    );
+  });
+
+  it('labels installation failures separately from validation failures', () => {
+    render(<UpdateNotification />);
+    emit({
+      state: 'error',
+      phase: 'install',
+      message: 'The update could not be installed. Try again or download it manually.',
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/update installation failed/i);
+    expect(toastMock.error).toHaveBeenCalledWith(
+      'Update installation failed',
+      expect.objectContaining({ description: expect.stringContaining('could not be installed') })
+    );
+  });
+
+  it('falls back safely when a newer main process reports an unknown active error phase', () => {
+    render(<UpdateNotification />);
+    emit({
+      state: 'error',
+      phase: 'migration' as UpdaterStatus['phase'],
+      message: 'The update requires attention.',
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/update failed/i);
+    expect(toastMock.error).toHaveBeenCalledWith(
+      'Update failed',
+      expect.objectContaining({ description: 'The update requires attention.' })
     );
   });
 
