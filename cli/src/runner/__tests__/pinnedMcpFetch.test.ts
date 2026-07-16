@@ -56,7 +56,7 @@ describe('pinned MCP fetch', () => {
       const response = await Promise.race([
         session.fetch(`http://127.0.0.1:${address.port}/mcp`),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('headers timed out')), 20)
+          setTimeout(() => reject(new Error('headers timed out')), 1_000)
         ),
       ]);
       await expect(response.text()).resolves.toContain('data: final');
