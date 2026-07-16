@@ -31,7 +31,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
+        run: npm ci --prefer-offline --no-audit --no-fund${{ github.event_name == 'pull_request' && github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
 
       # Kick the test suite off in the background (it's the long pole — ~3× the
       # next-slowest gate) so the type-check/lint/format/build gates below run
@@ -211,8 +211,9 @@ jobs:
     # Skip for Dependabot: this job needs the `electron-builder install-app-deps`
     # postinstall (native rebuild), which the Dependabot runs deliberately skip
     # via --ignore-scripts. Electron dep bumps still get desktop coverage at
-    # release-preflight time. Not a required check, so skipping never blocks merge.
-    if: ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' }}
+    # release-preflight time. The merge gate explicitly allows this skip only
+    # for Dependabot; every other PR and push to main must run the matrix.
+    if: ${{ github.event_name != 'pull_request' || github.actor != 'dependabot[bot]' }}
     needs: [validate]
     strategy:
       fail-fast: false
@@ -229,7 +230,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
+        run: npm ci --prefer-offline --no-audit --no-fund${{ github.event_name == 'pull_request' && github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
 
       - name: Generate icons
         # Produces icon.ico (Windows) / icon.icns / PNGs from icon.svg. The .ico
@@ -265,7 +266,6 @@ jobs:
           node scripts/verify-asar-renderer.mjs "$asar"
 
   e2e:
-    if: github.event_name == 'pull_request'
     # Two shards run in parallel on separate runners — each boots its own dev
     # server, so playwright.config.ts's `workers: 1` / `fullyParallel: false`
     # (which keeps suites within a shard from racing on shared dev-server
@@ -288,7 +288,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
+        run: npm ci --prefer-offline --no-audit --no-fund${{ github.event_name == 'pull_request' && github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
 
       # Pin the Playwright browser cache to the package-lock so a version bump
       # invalidates it automatically and we don't run on stale binaries.
@@ -337,7 +337,6 @@ jobs:
           retention-days: 7
 
   e2e-extension:
-    if: github.event_name == 'pull_request'
     # Browser capture extension: builds the MV3 bundle (an explicit build gate —
     # the only place `extension/`'s vite build is exercised) and runs its e2e in
     # a real Chromium persistent context with the unpacked extension loaded. Uses
@@ -357,7 +356,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
+        run: npm ci --prefer-offline --no-audit --no-fund${{ github.event_name == 'pull_request' && github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
 
       - name: Cache Playwright browsers
         id: playwright-cache
@@ -396,7 +395,7 @@ jobs:
   e2e-electron:
     # Skip for Dependabot (see electron-smoke): needs the native-rebuild
     # postinstall that --ignore-scripts skips on Dependabot runs.
-    if: ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' }}
+    if: ${{ github.event_name != 'pull_request' || github.actor != 'dependabot[bot]' }}
     # Desktop e2e: launches the compiled, unpacked app via Playwright's
     # `_electron` API (no electron-builder packaging, no Vite dev server). The
     # specs spin up in-process mock upstreams + a spawned native gRPC server,
@@ -416,7 +415,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
+        run: npm ci --prefer-offline --no-audit --no-fund${{ github.event_name == 'pull_request' && github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
 
       # Electron bundles Chromium, so it needs the same shared system libs
       # (libnss3, libgbm, libatk, GTK, …). `playwright install-deps chromium`
@@ -458,10 +457,9 @@ jobs:
     # The extension's @vscode/test-cli suite launches a real VS Code (Electron)
     # host to verify activation, command registration, and live diagnostics —
     # coverage the renderer unit tests can't give. Kept off the validate job
-    # because it needs a VS Code download + a virtual display. Not a required
-    # check, so a flaky download never blocks merge.
+    # because it needs a VS Code download + a virtual display.
     name: VS Code extension integration
-    if: ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' }}
+    if: ${{ github.event_name != 'pull_request' || github.actor != 'dependabot[bot]' }}
     needs: [validate]
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -529,7 +527,7 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
+        run: npm ci --prefer-offline --no-audit --no-fund${{ github.event_name == 'pull_request' && github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
 
       - name: Build
         env:
@@ -584,7 +582,7 @@ jobs:
           command: pages deploy dist/web/client --project-name=restura --branch=${{ steps.branch.outputs.slug }}
 
       - name: Install docs-site dependencies
-        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
+        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund${{ github.event_name == 'pull_request' && github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
 
       - name: Build docs site
         run: npm --prefix docs-site run build
@@ -646,10 +644,25 @@ jobs:
           cache-dependency-path: docs-site/package-lock.json
 
       - name: Install docs-site dependencies
-        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
+        run: npm --prefix docs-site ci --prefer-offline --no-audit --no-fund${{ github.event_name == 'pull_request' && github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
 
       - name: Type-check docs (astro check)
         run: npm --prefix docs-site run check
 
       - name: Build docs
         run: npm --prefix docs-site run build
+
+  merge-gate:
+    name: merge-gate
+    if: always()
+    needs: [validate, electron-smoke, e2e, e2e-extension, e2e-electron, vscode-extension-e2e, docs]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Assert every required CI surface passed
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          ALLOWED_SKIPPED_JOBS: ${{ github.event_name == 'pull_request' && github.actor == 'dependabot[bot]' && 'electron-smoke,e2e-electron,vscode-extension-e2e' || '' }}
+        run: node scripts/ci/assert-merge-gate.mjs

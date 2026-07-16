@@ -87,4 +87,13 @@ describe('release workflow Sentry guardrails', () => {
     expect(workflow).toContain("needs.release.outputs.is_repair != 'true'");
     expect(workflow).toContain("needs.release.outputs.is_repair == 'true'");
   });
+
+  it('requires the full merge gate on the exact release candidate SHA', () => {
+    expect(workflow).toContain('checks: read');
+    expect(workflow).toContain('id: candidate');
+    expect(workflow).toContain('candidate_sha=');
+    expect(workflow).toContain('node scripts/ci/wait-for-check-run.mjs');
+    expect(workflow).toContain('--name merge-gate');
+    expect(workflow).toContain('--sha "${{ steps.candidate.outputs.candidate_sha }}"');
+  });
 });

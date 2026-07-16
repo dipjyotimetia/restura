@@ -25,6 +25,14 @@ const requiredAgents = [
   'restura-docs-steward',
 ];
 
+function workflowJob(workflow: string, name: string): string {
+  const start = workflow.indexOf(`  ${name}:`);
+  if (start < 0) return '';
+  const remainder = workflow.slice(start + name.length + 3);
+  const next = remainder.search(/^  [a-zA-Z0-9_-]+:/m);
+  return next < 0 ? workflow.slice(start) : workflow.slice(start, start + name.length + 3 + next);
+}
+
 describe('agentic harness package scripts', () => {
   it.each(['test:coverage', 'test:ci'])('%s generates sandbox libraries first', (name) => {
     expect(packageJson.scripts[name]).toMatch(
@@ -88,5 +96,49 @@ describe('Codex repository discovery', () => {
     expect(launcher).toContain('chrome-devtools-mcp@1.6.0');
     expect(launcher).toContain("'.codex', 'cache', 'npm'");
     expect(`${config}\n${launcher}`).not.toContain('@latest');
+  });
+});
+
+describe('complete CI merge gate', () => {
+  const ci = readFileSync(resolve(process.cwd(), '.github/workflows/ci.yml'), 'utf8');
+
+  it('aggregates every required validation and shipping surface', () => {
+    expect(ci).toContain('  merge-gate:');
+    expect(ci).toContain('    name: merge-gate');
+    expect(ci).toContain('    if: always()');
+    expect(ci).toContain(
+      '    needs: [validate, electron-smoke, e2e, e2e-extension, e2e-electron, vscode-extension-e2e, docs]'
+    );
+    expect(ci).toContain('NEEDS_JSON: ${{ toJSON(needs) }}');
+    expect(ci).toContain('node scripts/ci/assert-merge-gate.mjs');
+    expect(ci).toContain('electron-smoke,e2e-electron,vscode-extension-e2e');
+  });
+
+  it('runs required platform jobs for pushes to main as well as pull requests', () => {
+    for (const name of [
+      'electron-smoke',
+      'e2e',
+      'e2e-extension',
+      'e2e-electron',
+      'vscode-extension-e2e',
+    ]) {
+      expect(workflowJob(ci, name), `${name} remains pull-request-only`).not.toMatch(
+        /\n    if: (?:\$\{\{ )?github\.event_name == 'pull_request'/
+      );
+    }
+  });
+
+  it('limits Dependabot skips and ignored install scripts to pull-request runs', () => {
+    for (const name of ['electron-smoke', 'e2e-electron', 'vscode-extension-e2e']) {
+      expect(workflowJob(ci, name)).toContain(
+        "github.event_name != 'pull_request' || github.actor != 'dependabot[bot]'"
+      );
+    }
+    expect(ci).toContain(
+      "github.event_name == 'pull_request' && github.actor == 'dependabot[bot]' && ' --ignore-scripts'"
+    );
+    expect(workflowJob(ci, 'merge-gate')).toContain(
+      "github.event_name == 'pull_request' && github.actor == 'dependabot[bot]' && 'electron-smoke,e2e-electron,vscode-extension-e2e'"
+    );
   });
 });
