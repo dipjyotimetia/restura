@@ -92,7 +92,7 @@ git commit -m "fix(release): authorize signing for trusted release PRs"
 **Files:**
 
 - Modify: `scripts/verify-electron-signature.mjs`
-- Modify: `scripts/__tests__/verify-electron-signature.test.ts`
+- Modify: `tests/release/verify-electron-signature.test.ts`
 
 ### 2.1 Define the verification policy in tests
 
@@ -128,7 +128,7 @@ TeamIdentifier=S7NSMM7XB2
 - [ ] Run:
 
 ```bash
-npm run test:run -- scripts/__tests__/verify-electron-signature.test.ts
+npm run test:run -- tests/release/verify-electron-signature.test.ts
 ```
 
 Expected: new fail-closed policy cases fail against the current permissive verifier.
@@ -156,7 +156,7 @@ export async function verifySignedMacApp(appPath, policy = {}, execute = run)
 - [ ] Run:
 
 ```bash
-npm run test:run -- scripts/__tests__/verify-electron-signature.test.ts
+npm run test:run -- tests/release/verify-electron-signature.test.ts
 ```
 
 Expected: valid Developer ID metadata passes, every required-policy mismatch fails, and optional ad-hoc builds remain skipped.
@@ -164,7 +164,7 @@ Expected: valid Developer ID metadata passes, every required-policy mismatch fai
 ### 2.5 Commit
 
 ```bash
-git add scripts/verify-electron-signature.mjs scripts/__tests__/verify-electron-signature.test.ts
+git add scripts/verify-electron-signature.mjs tests/release/verify-electron-signature.test.ts
 git commit -m "fix(release): require Developer ID for stable mac builds"
 ```
 
@@ -175,8 +175,8 @@ git commit -m "fix(release): require Developer ID for stable mac builds"
 **Files:**
 
 - Modify: `electron/types/electron-api.ts`
-- Modify: `electron/main/auto-updater.ts`
-- Modify: `electron/main/__tests__/auto-updater.test.ts`
+- Modify: `electron/main/lifecycle/auto-updater.ts`
+- Modify: `electron/main/lifecycle/__tests__/auto-updater.test.ts`
 
 ### 3.1 Add failing state-machine tests
 
@@ -195,7 +195,7 @@ git commit -m "fix(release): require Developer ID for stable mac builds"
 - [ ] Run:
 
 ```bash
-npm run test:run -- electron/main/__tests__/auto-updater.test.ts
+npm run test:run -- electron/main/lifecycle/__tests__/auto-updater.test.ts
 ```
 
 Expected: the current implementation announces `downloaded` too early and has no restart readiness guard.
@@ -233,7 +233,7 @@ import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, ipcMain } from "e
 - [ ] Run:
 
 ```bash
-npm run test:run -- electron/main/__tests__/auto-updater.test.ts
+npm run test:run -- electron/main/lifecycle/__tests__/auto-updater.test.ts
 npm run electron:compile
 ```
 
@@ -242,7 +242,7 @@ Expected: all updater tests pass and Electron main/preload/types compile cleanly
 ### 3.6 Commit
 
 ```bash
-git add electron/types/electron-api.ts electron/main/auto-updater.ts electron/main/__tests__/auto-updater.test.ts
+git add electron/types/electron-api.ts electron/main/lifecycle/auto-updater.ts electron/main/lifecycle/__tests__/auto-updater.test.ts
 git commit -m "fix(desktop): wait for native update validation"
 ```
 
@@ -309,7 +309,7 @@ git commit -m "fix(desktop): surface updater validation failures"
 **Files:**
 
 - Modify: `scripts/verify-electron-signature.mjs`
-- Modify: `scripts/__tests__/verify-electron-signature.test.ts`
+- Modify: `tests/release/verify-electron-signature.test.ts`
 - Modify: `.github/workflows/release.yml`
 - Modify: `tests/release-sentry-workflow.test.ts`
 - Modify: `docs/CI_CD.md`
@@ -337,7 +337,7 @@ git commit -m "fix(desktop): surface updater validation failures"
 - [ ] Run:
 
 ```bash
-npm run test:run -- scripts/__tests__/verify-electron-signature.test.ts tests/release-sentry-workflow.test.ts
+npm run test:run -- tests/release/verify-electron-signature.test.ts tests/release-sentry-workflow.test.ts
 ```
 
 Expected: no verifier CLI or packaged-artifact gate exists yet.
@@ -391,7 +391,7 @@ Expected: no verifier CLI or packaged-artifact gate exists yet.
 - [ ] Run:
 
 ```bash
-npm run test:run -- scripts/__tests__/verify-electron-signature.test.ts tests/release-sentry-workflow.test.ts
+npm run test:run -- tests/release/verify-electron-signature.test.ts tests/release-sentry-workflow.test.ts
 npm run format:check
 ```
 
@@ -400,7 +400,7 @@ Expected: verifier CLI tests and workflow placement/policy tests pass; edited fi
 ### 5.7 Commit
 
 ```bash
-git add scripts/verify-electron-signature.mjs scripts/__tests__/verify-electron-signature.test.ts .github/workflows/release.yml tests/release-sentry-workflow.test.ts docs/CI_CD.md docs/DISTRIBUTION.md
+git add scripts/verify-electron-signature.mjs tests/release/verify-electron-signature.test.ts .github/workflows/release.yml tests/release-sentry-workflow.test.ts docs/CI_CD.md docs/DISTRIBUTION.md
 git commit -m "fix(release): gate publication on signed mac artifacts"
 ```
 
@@ -413,7 +413,7 @@ git commit -m "fix(release): gate publication on signed mac artifacts"
 - [ ] Run:
 
 ```bash
-npm run test:run -- electron/main/__tests__/auto-updater.test.ts src/components/shared/__tests__/UpdateNotification.test.tsx scripts/__tests__/verify-electron-signature.test.ts tests/release-sentry-workflow.test.ts
+npm run test:run -- electron/main/lifecycle/__tests__/auto-updater.test.ts src/components/shared/__tests__/UpdateNotification.test.tsx tests/release/verify-electron-signature.test.ts tests/release-sentry-workflow.test.ts
 npm run electron:compile
 ```
 
