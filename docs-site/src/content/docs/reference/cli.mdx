@@ -232,6 +232,20 @@ Combine with a comma: `--reporter live,junit --reporter-output junit=results.xml
 | `1` | One or more requests failed or errored (or no requests matched after filtering) |
 | `2` | Internal error: missing collection, bad reporter name, IO failure, … |
 
+## Agent eval
+
+`restura agent eval <suite-or-bundle.json>` runs a versioned Agent Suite or portable Agent Bundle in CI and prints a compact JSON summary. It exits `0` only when every trial and every configured baseline gate passes; evaluated failures, errors, and cancellations exit `1`; invalid input or unsupported configuration exits `2`.
+
+```bash
+restura agent eval ./orders.agent-bundle.json --output agent-report.json
+```
+
+The CLI is intentionally narrower than the desktop AI Lab: it supports stateless OpenAI Responses and Anthropic Messages with environment credentials, deterministic fixtures, and an optional runtime manifest for selected saved HTTP and MCP tools. It refuses desktop secret handles, arbitrary base URLs, judge graders, and sandbox providers. A runtime manifest can only expose explicitly listed read-only HTTP requests and read-only MCP tools with an allowlist; `--allow-localhost` remains off by default.
+
+<Aside type="caution" title="Treat trace reports as sensitive">
+`--output` writes the full local trace report, which can contain task inputs and model or tool outputs. Store and expire it according to your CI artifact policy.
+</Aside>
+
 ## Example: GitHub Actions
 
 ```yaml
@@ -284,4 +298,5 @@ This page mirrors [`cli/README.md`](https://github.com/dipjyotimetia/restura/blo
 - [Scripts](/guides/scripts/) — the Postman `pm.*` API.
 - [Workflows](/guides/workflows/) — request chaining (also runs in CLI).
 - [OpenCollection](/reference/opencollection/) — the collection format.
+- [AI Lab](/guides/ai-lab/) — desktop authoring and execution for agent suites.
 - [ADR 0005 — CLI runner](/architecture/adrs/0005-cli-runner/).

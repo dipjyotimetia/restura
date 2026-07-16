@@ -1,0 +1,32 @@
+---
+title: ADR 0027 — Telemetry + privacy-preserving usage
+description: A minimal, disclosed, non-identifying signal for crash health and aggregate usage.
+sidebar:
+  order: 27
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+<Badge text="Accepted · 2026-07-03" variant="success" />
+
+## Context
+
+Restura needs enough operational signal to detect crashes and understand release health without compromising its promise of local-first, account-free API testing. Request URLs, headers, bodies, secrets, user identifiers, and behavioural profiles are out of scope.
+
+## Decision
+
+- **Desktop error reporting** uses Sentry only while **Settings → Privacy** permits it. Tracing is off; `sendDefaultPii` is false; an aggressive scrubber removes request context, hostnames, user data, breadcrumbs, stack-frame locals, secrets, and file paths.
+- **Desktop Release Health** supplies anonymous, aggregate session information such as crash-free rate and version adoption. It is controlled by the same opt-out and has no per-user or device identifier.
+- **Hosted web errors** go only to a redacted, rate-limited, allowlist-only Worker log sink for operational debugging. Restura neither stores them nor forwards them to a third party.
+- **Web usage** relies on Cloudflare's built-in infrastructure dashboard. Restura adds no application-level request counting, analytics SDK, or per-request telemetry.
+- **Self-hosted deployments** collect no server-side usage telemetry.
+
+## Consequences
+
+Operators can diagnose crashes and see coarse aggregate health without collecting API traffic or building a user profile. The trade-off is deliberate: Restura cannot report a precise unique-user count, and richer product analytics would require a new privacy decision and explicit user-facing disclosure.
+
+## Related
+
+- [Security model](/architecture/security/) — practical data-handling boundaries.
+- [ADR 0004 — Security hardening](/architecture/adrs/0004-security-hardening/)
+- [ADR 0007 — SecretRef pattern](/architecture/adrs/0007-secret-ref-pattern/)
