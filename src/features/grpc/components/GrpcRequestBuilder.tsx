@@ -74,8 +74,8 @@ function GrpcRequestBuilder() {
   const setCurrentResponse = useRequestStore((s) => s.setCurrentResponse);
   const setScriptResult = useRequestStore((s) => s.setScriptResult);
   const isLoading = useRequestStore((s) => s.isLoading);
-  const { addHistoryItem } = useHistoryStore();
-  const { resolveVariables } = useEnvironmentStore();
+  const addHistoryItem = useHistoryStore((s) => s.addHistoryItem);
+  const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const { run: runViaRegistry } = useRequestRunner();
   const [activeTab, setActiveTab] = useState<GrpcSubTab>('message');
   const [protoFile, setProtoFile] = useState<File | null>(null);

@@ -62,8 +62,11 @@ function GraphQLRequestBuilder() {
   const setCurrentResponse = useRequestStore((s) => s.setCurrentResponse);
   const setScriptResult = useRequestStore((s) => s.setScriptResult);
   const isLoading = useRequestStore((s) => s.isLoading);
-  const { resolveVariables } = useEnvironmentStore();
-  const { fetchSchema, getSchema, isLoading: isSchemaLoading } = useGraphQLSchemaStore();
+  const url = currentRequest?.url ?? '';
+  const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
+  const fetchSchema = useGraphQLSchemaStore((s) => s.fetchSchema);
+  const schemaResult = useGraphQLSchemaStore((s) => (url ? (s.schemas[url] ?? null) : null));
+  const schemaLoading = useGraphQLSchemaStore((s) => (url ? (s.loading[url] ?? false) : false));
   const { run: runViaRegistry } = useRequestRunner();
   const [activeTab, setActiveTab] = useState<TabValue>('query');
   // Schema explorer is hidden by default so the query editor gets the full
@@ -81,9 +84,6 @@ function GraphQLRequestBuilder() {
     handleDelete: handleDeleteHeader,
   } = useKeyValueCollection(currentRequest?.headers ?? [], (headers) => updateRequest({ headers }));
 
-  const url = currentRequest?.url ?? '';
-  const schemaResult = url ? getSchema(url) : null;
-  const schemaLoading = url ? isSchemaLoading(url) : false;
   const executableSchema = useMemo(
     () => (schemaResult ? buildSchemaFromIntrospection(schemaResult) : null),
     [schemaResult]

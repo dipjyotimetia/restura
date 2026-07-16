@@ -806,7 +806,11 @@ function KafkaClient() {
                               ? 'bg-sp-active border-l-sp-accent'
                               : 'border-l-transparent hover:bg-sp-hover'
                           )}
-                          style={{ gridTemplateColumns: '40px 80px 110px 130px 1fr' }}
+                          style={{
+                            gridTemplateColumns: '40px 80px 110px 130px 1fr',
+                            contentVisibility: 'auto',
+                            containIntrinsicSize: 'auto 32px',
+                          }}
                         >
                           <div>
                             {m.partition !== undefined ? (

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import { useShallow } from 'zustand/react/shallow';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
@@ -478,7 +479,20 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
     updateVariable,
     removeVariable,
     createNewEnvironment,
-  } = useEnvironmentStore();
+  } = useEnvironmentStore(
+    useShallow((s) => ({
+      environments: s.environments,
+      activeEnvironmentId: s.activeEnvironmentId,
+      addEnvironment: s.addEnvironment,
+      updateEnvironment: s.updateEnvironment,
+      removeEnvironment: s.removeEnvironment,
+      setActiveEnvironment: s.setActiveEnvironment,
+      addVariable: s.addVariable,
+      updateVariable: s.updateVariable,
+      removeVariable: s.removeVariable,
+      createNewEnvironment: s.createNewEnvironment,
+    }))
+  );
 
   const [selectedEnvId, setSelectedEnvId] = useState<string | null>(
     activeEnvironmentId || environments[0]?.id || null

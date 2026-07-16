@@ -31,8 +31,8 @@ export default function CodeGeneratorDialog({
 }: CodeGeneratorDialogProps) {
   const [activeLanguage, setActiveLanguage] = useState<CodeGeneratorType>('curl');
   const [copied, setCopied] = useState(false);
-  const { resolveVariables } = useEnvironmentStore();
-  const { settings: globalSettings } = useSettingsStore();
+  const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
+  const globalSettings = useSettingsStore((s) => s.settings);
 
   const generatedCode = useMemo(() => {
     // Resolve environment variables

@@ -3,12 +3,18 @@
 import { useEffect, useState } from 'react';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { Floater } from '@/components/ui/spatial';
-import CodeGeneratorDialog from '@/features/http/components/CodeGeneratorDialog';
 import UrlBar from '@/features/http/components/UrlBar';
 import { useHttpRequestPage } from '@/features/http/hooks/useHttpRequestPage';
-import LoadTestDialog from '@/features/load-testing/components/LoadTestDialog';
+import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { useUiStore } from '@/store/useUiStore';
 import { RequestBuilderTabs } from './RequestBuilderTabs';
+
+const CodeGeneratorDialog = lazyComponent(
+  () => import('@/features/http/components/CodeGeneratorDialog')
+);
+const LoadTestDialog = lazyComponent(
+  () => import('@/features/load-testing/components/LoadTestDialog')
+);
 
 type SubTabKey = 'params' | 'headers' | 'body' | 'auth' | 'scripts' | 'settings';
 
@@ -91,13 +97,21 @@ function RequestBuilder() {
         </p>
       )}
 
-      <CodeGeneratorDialog open={codeGenOpen} onOpenChange={setCodeGenOpen} request={httpRequest} />
+      {codeGenOpen && (
+        <CodeGeneratorDialog
+          open={codeGenOpen}
+          onOpenChange={setCodeGenOpen}
+          request={httpRequest}
+        />
+      )}
 
-      <LoadTestDialog
-        open={loadTestOpen}
-        onClose={() => setLoadTestOpen(false)}
-        request={httpRequest}
-      />
+      {loadTestOpen && (
+        <LoadTestDialog
+          open={loadTestOpen}
+          onClose={() => setLoadTestOpen(false)}
+          request={httpRequest}
+        />
+      )}
 
       <Floater
         radius="panel"

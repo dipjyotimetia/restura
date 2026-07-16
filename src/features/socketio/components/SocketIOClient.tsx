@@ -194,7 +194,7 @@ function SocketIOClient() {
     }))
   );
 
-  const { resolveVariables } = useEnvironmentStore();
+  const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
 
   const [emitEventName, setEmitEventName] = useState('message');
   const [emitArgsText, setEmitArgsText] = useState('"hello"');
@@ -581,7 +581,11 @@ function SocketIOClient() {
                         ? 'bg-sp-active border-sp-accent'
                         : 'border-transparent hover:bg-sp-hover'
                     )}
-                    style={{ gridTemplateColumns: '52px 88px 120px 64px 1fr' }}
+                    style={{
+                      gridTemplateColumns: '52px 88px 120px 64px 1fr',
+                      contentVisibility: 'auto',
+                      containIntrinsicSize: 'auto 32px',
+                    }}
                   >
                     <DirTag direction={event.direction} />
                     <span className="text-sp-dim text-sp-11 tabular-nums">

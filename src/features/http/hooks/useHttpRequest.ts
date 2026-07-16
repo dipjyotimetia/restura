@@ -42,8 +42,8 @@ export function useHttpRequest(): UseHttpRequestReturn {
   const isLoading = useRequestStore((s) => s.isLoading);
   const setScriptResult = useRequestStore((s) => s.setScriptResult);
 
-  const { resolveVariables } = useEnvironmentStore();
-  const { settings: globalSettings } = useSettingsStore();
+  const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
+  const globalSettings = useSettingsStore((s) => s.settings);
   const { run: runViaRegistry } = useRequestRunner();
 
   const updateRequest = useCallback(

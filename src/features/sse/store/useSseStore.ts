@@ -1,6 +1,12 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import {
+  appendSseEventToSummary,
+  createSseStreamSummary,
+  rebuildSseStreamSummary,
+  type SseStreamSummary,
+} from '@/features/sse/lib/streamSummary';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
@@ -52,6 +58,8 @@ export interface SseConnection {
 
 interface SseState {
   connections: Record<string, SseConnection>;
+  /** Transient aggregates for rendering active streams without rescanning their logs. */
+  summaries: Record<string, SseStreamSummary>;
   activeConnectionId: string | null;
 
   searchQuery: string;
@@ -91,6 +99,7 @@ export const useSseStore = create<SseState>()(
   persist(
     (set, get) => ({
       connections: {},
+      summaries: {},
       activeConnectionId: null,
       searchQuery: '',
 
@@ -112,6 +121,7 @@ export const useSseStore = create<SseState>()(
         };
         set((s) => ({
           connections: { ...s.connections, [id]: conn },
+          summaries: { ...s.summaries, [id]: createSseStreamSummary() },
           activeConnectionId: id,
         }));
         return id;
@@ -120,8 +130,10 @@ export const useSseStore = create<SseState>()(
       removeConnection: (id) =>
         set((s) => {
           const { [id]: _, ...rest } = s.connections;
+          const { [id]: _summary, ...summaries } = s.summaries;
           return {
             connections: rest,
+            summaries,
             activeConnectionId: s.activeConnectionId === id ? null : s.activeConnectionId,
           };
         }),
@@ -184,7 +196,8 @@ export const useSseStore = create<SseState>()(
             timestamp: Date.now(),
           };
           let log = [...c.log, record];
-          if (log.length > MAX_LOG_PER_CONNECTION) log = log.slice(-MAX_LOG_PER_CONNECTION);
+          const logWasTrimmed = log.length > MAX_LOG_PER_CONNECTION;
+          if (logWasTrimmed) log = log.slice(-MAX_LOG_PER_CONNECTION);
           // Mirror to the unified console so SSE events show up alongside
           // WS/Kafka frames in the Frames tab (same pattern as useWebSocketStore).
           useConsoleStore.getState().addFrame({
@@ -202,7 +215,16 @@ export const useSseStore = create<SseState>()(
             log,
             ...(event.lastEventId !== undefined ? { lastEventId: event.lastEventId } : {}),
           };
-          return { connections: { ...s.connections, [connectionId]: next } };
+          const summary = logWasTrimmed
+            ? rebuildSseStreamSummary(log)
+            : appendSseEventToSummary(
+                s.summaries[connectionId] ?? createSseStreamSummary(),
+                record
+              );
+          return {
+            connections: { ...s.connections, [connectionId]: next },
+            summaries: { ...s.summaries, [connectionId]: summary },
+          };
         }),
 
       appendSystem: (connectionId, message) =>
@@ -231,7 +253,10 @@ export const useSseStore = create<SseState>()(
         set((s) => {
           const c = s.connections[connectionId];
           if (!c) return s;
-          return { connections: { ...s.connections, [connectionId]: { ...c, log: [] } } };
+          return {
+            connections: { ...s.connections, [connectionId]: { ...c, log: [] } },
+            summaries: { ...s.summaries, [connectionId]: createSseStreamSummary() },
+          };
         }),
 
       addHeader: (connectionId) =>

@@ -27,7 +27,6 @@ import { toast } from 'sonner';
 import { useShallow } from 'zustand/react/shallow';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
-import GitDialog from '@/components/shared/GitDialog';
 import RunsPanel from '@/components/shared/RunsPanel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -55,9 +54,6 @@ import {
   getCollectionExportWarnings,
 } from '@/features/collections/lib/exporters';
 import { loadContractSpec } from '@/features/contracts/lib/specLoader';
-import { WorkflowBuilder } from '@/features/workflows/components/WorkflowBuilder';
-import { WorkflowExecutor } from '@/features/workflows/components/WorkflowExecutor';
-import { WorkflowManager } from '@/features/workflows/components/WorkflowManager';
 import {
   countCollectionInlineSecrets,
   redactCollectionSecrets,
@@ -65,6 +61,7 @@ import {
 import { httpLikeStatus } from '@/lib/shared/console-format';
 import { METHOD_COLORS, PROTOCOL_LABELS } from '@/lib/shared/constants';
 import { downloadBlob } from '@/lib/shared/file-utils';
+import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { getElectronAPI } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import { selectFavoriteIds, selectHistoryCount } from '@/store/selectors';
@@ -98,8 +95,8 @@ import {
   uniqueName,
 } from '../lib/names';
 import { CollectionDirectoryPicker } from './CollectionDirectoryPicker';
-import { CollectionRunnerDialog, type RunnerScope } from './CollectionRunnerDialog';
-import { CollectionSettingsDialog, type SettingsTarget } from './CollectionSettingsDialog';
+import type { RunnerScope } from './CollectionRunnerDialog';
+import type { SettingsTarget } from './CollectionSettingsDialog';
 import {
   CollectionTreeItems,
   handleTreeKeyDown,
@@ -108,8 +105,6 @@ import {
   type TreeState,
 } from './CollectionTree';
 import { ConflictDialog } from './ConflictDialog';
-import DocsViewer from './DocsViewer';
-import { ExportSecretsDialog } from './ExportSecretsDialog';
 import { FileStatusBadge } from './FileStatusBadge';
 
 interface SidebarProps {
@@ -117,6 +112,33 @@ interface SidebarProps {
 }
 
 const HISTORY_PAGE_SIZE = 20;
+
+const GitDialog = lazyComponent(() => import('@/components/shared/GitDialog'));
+const WorkflowBuilder = lazyComponent(async () => {
+  const module = await import('@/features/workflows/components/WorkflowBuilder');
+  return { default: module.WorkflowBuilder };
+});
+const WorkflowExecutor = lazyComponent(async () => {
+  const module = await import('@/features/workflows/components/WorkflowExecutor');
+  return { default: module.WorkflowExecutor };
+});
+const WorkflowManager = lazyComponent(async () => {
+  const module = await import('@/features/workflows/components/WorkflowManager');
+  return { default: module.WorkflowManager };
+});
+const CollectionRunnerDialog = lazyComponent(async () => {
+  const module = await import('./CollectionRunnerDialog');
+  return { default: module.CollectionRunnerDialog };
+});
+const CollectionSettingsDialog = lazyComponent(async () => {
+  const module = await import('./CollectionSettingsDialog');
+  return { default: module.CollectionSettingsDialog };
+});
+const ExportSecretsDialog = lazyComponent(async () => {
+  const module = await import('./ExportSecretsDialog');
+  return { default: module.ExportSecretsDialog };
+});
+const DocsViewer = lazyComponent(() => import('./DocsViewer'));
 
 /** Stable "nothing collapsed" set used while a search is active. */
 const EMPTY_COLLAPSED: Set<string> = new Set();
@@ -1560,33 +1582,42 @@ function Sidebar({ activePanel }: SidebarProps) {
         />
       </aside>
 
-      <CollectionRunnerDialog scope={runnerScope} onClose={() => setRunnerScope(null)} />
+      {runnerScope && (
+        <CollectionRunnerDialog scope={runnerScope} onClose={() => setRunnerScope(null)} />
+      )}
 
-      <CollectionSettingsDialog target={settingsTarget} onClose={() => setSettingsTarget(null)} />
+      {settingsTarget && (
+        <CollectionSettingsDialog target={settingsTarget} onClose={() => setSettingsTarget(null)} />
+      )}
 
-      <ExportSecretsDialog
-        open={exportPrompt !== null}
-        secretCount={exportPrompt?.secretCount ?? 0}
-        onCancel={() => setExportPrompt(null)}
-        onExport={(includeSecrets) => {
-          if (!exportPrompt) return;
-          const { collection, format } = exportPrompt;
-          setExportPrompt(null);
-          void performExport(
-            includeSecrets ? collection : redactCollectionSecrets(collection),
-            format
-          );
-        }}
-      />
+      {exportPrompt && (
+        <ExportSecretsDialog
+          open
+          secretCount={exportPrompt.secretCount}
+          onCancel={() => setExportPrompt(null)}
+          onExport={(includeSecrets) => {
+            const { collection, format } = exportPrompt;
+            setExportPrompt(null);
+            void performExport(
+              includeSecrets ? collection : redactCollectionSecrets(collection),
+              format
+            );
+          }}
+        />
+      )}
 
-      <DocsViewer collection={docsCollection} onClose={() => setDocsCollection(null)} />
+      {docsCollection && (
+        <DocsViewer collection={docsCollection} onClose={() => setDocsCollection(null)} />
+      )}
 
-      <GitDialog
-        open={gitTarget !== null}
-        collectionName={gitTarget?.collection.name ?? ''}
-        directoryPath={gitTarget?.directoryPath ?? null}
-        onClose={() => setGitTarget(null)}
-      />
+      {gitTarget && (
+        <GitDialog
+          open
+          collectionName={gitTarget.collection.name}
+          directoryPath={gitTarget.directoryPath}
+          onClose={() => setGitTarget(null)}
+        />
+      )}
     </TooltipProvider>
   );
 }

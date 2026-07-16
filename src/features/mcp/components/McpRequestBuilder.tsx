@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import { useShallow } from 'zustand/react/shallow';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,8 +42,12 @@ import type {
 type ListTab = 'tools' | 'resources' | 'prompts' | 'log';
 
 export default function McpRequestBuilder() {
+  const hasConnections = useMcpStore((s) => Object.keys(s.connections).length > 0);
+  const activeConnectionId = useMcpStore((s) => s.activeConnectionId);
+  const active = useMcpStore((s) =>
+    activeConnectionId ? (s.connections[activeConnectionId] ?? null) : null
+  );
   const {
-    connections,
     createConnection,
     setUrl,
     setTransport,
@@ -53,15 +58,25 @@ export default function McpRequestBuilder() {
     setCapabilities,
     appendLog,
     clearLog,
-    getActive,
-  } = useMcpStore();
-  const { resolveVariables } = useEnvironmentStore();
+  } = useMcpStore(
+    useShallow((s) => ({
+      createConnection: s.createConnection,
+      setUrl: s.setUrl,
+      setTransport: s.setTransport,
+      addHeader: s.addHeader,
+      updateHeader: s.updateHeader,
+      removeHeader: s.removeHeader,
+      setStatus: s.setStatus,
+      setCapabilities: s.setCapabilities,
+      appendLog: s.appendLog,
+      clearLog: s.clearLog,
+    }))
+  );
+  const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
 
   useEffect(() => {
-    if (Object.keys(connections).length === 0) createConnection('');
-  }, [connections, createConnection]);
-
-  const active = getActive();
+    if (!hasConnections) createConnection('');
+  }, [hasConnections, createConnection]);
 
   // The MCP client owns the session id and the IPC subscription, so we hold it in a
   // ref across renders. The cleanup runs on unmount (mode switch) — pin the

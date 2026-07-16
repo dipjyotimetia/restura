@@ -125,7 +125,7 @@ function WebSocketClient() {
   // null = auto (open only when something is configured); boolean = user override.
   const [configOpenOverride, setConfigOpenOverride] = useState<boolean | null>(null);
 
-  const { resolveVariables } = useEnvironmentStore();
+  const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const activeTabId = useActiveTabId();
 
   const connectionByTabId = useWebSocketStore((s) => s.connectionByTabId);
@@ -549,7 +549,11 @@ function WebSocketClient() {
                         ? 'bg-sp-active border-sp-accent'
                         : 'border-transparent hover:bg-sp-hover'
                     )}
-                    style={{ gridTemplateColumns: '52px 88px 64px 1fr' }}
+                    style={{
+                      gridTemplateColumns: '52px 88px 64px 1fr',
+                      contentVisibility: 'auto',
+                      containIntrinsicSize: 'auto 32px',
+                    }}
                   >
                     <DirTag type={msg.type} />
                     <span className="text-sp-dim text-sp-11 tabular-nums">

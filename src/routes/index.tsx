@@ -1,18 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import {
-  BugReportDialog,
-  type BugReportScreenshot,
-  type BugReportSubmission,
-} from '@/components/shared/BugReportDialog';
+import type { BugReportScreenshot, BugReportSubmission } from '@/components/shared/BugReportDialog';
 import ClientHydration from '@/components/shared/ClientHydration';
 import CommandPalette from '@/components/shared/CommandPalette';
 import ConsoleDrawer from '@/components/shared/ConsoleDrawer';
-import ImportDialog from '@/components/shared/ImportDialog';
 import ResizableLayout from '@/components/shared/ResizableLayout';
 import ResponseViewer from '@/components/shared/ResponseViewer';
 import { SaveToCollectionDialog } from '@/components/shared/SaveToCollectionDialog';
-import SettingsDrawer, { type SectionId } from '@/components/shared/SettingsDrawer';
+import type { SectionId } from '@/components/shared/SettingsDrawer';
 import Sidebar from '@/components/shared/Sidebar';
 import StatusBar from '@/components/shared/StatusBar';
 import { TabBar } from '@/components/shared/TabBar';
@@ -21,9 +16,9 @@ import WelcomeOnboarding from '@/components/shared/WelcomeOnboarding';
 import { motion } from '@/components/ui/motion';
 import { useAiChatStore } from '@/features/ai/store';
 import { saveTabBackToCollection } from '@/features/collections/lib/saveBack';
-import EnvironmentManager from '@/features/environments/components/EnvironmentManager';
 import RequestBuilder from '@/features/http/components/RequestBuilder';
 import { useKeybindings } from '@/hooks/useKeybindings';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useStoreHydration } from '@/hooks/useStoreHydration';
 import {
   type BugReportDiagnostics,
@@ -45,6 +40,15 @@ import type { ActivePanel, RequestMode } from '@/types';
 import { isConnectionMode } from '@/types';
 
 const ChatPanel = lazyComponent(() => import('@/features/ai/components/ChatPanel'));
+const SettingsDrawer = lazyComponent(() => import('@/components/shared/SettingsDrawer'));
+const EnvironmentManager = lazyComponent(
+  () => import('@/features/environments/components/EnvironmentManager')
+);
+const ImportDialog = lazyComponent(() => import('@/components/shared/ImportDialog'));
+const BugReportDialog = lazyComponent(async () => {
+  const module = await import('@/components/shared/BugReportDialog');
+  return { default: module.BugReportDialog };
+});
 
 // HTTP is the default mode and stays eager (imported above). The other seven
 // protocol builders are split into their own chunks so they're only fetched
@@ -76,18 +80,19 @@ export default function Home() {
   const [activePanel] = useState<ActivePanel>('collections');
   const [envManagerOpen, setEnvManagerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] = useState<SectionId>('general');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importDialogLoaded, setImportDialogLoaded] = useState(false);
+  const [envManagerLoaded, setEnvManagerLoaded] = useState(false);
   const [saveDialogTabId, setSaveDialogTabId] = useState<string | null>(null);
   const [bugReportOpen, setBugReportOpen] = useState(false);
   const [bugReportScreenshot, setBugReportScreenshot] = useState<BugReportScreenshot>();
   const [bugReportDiagnostics, setBugReportDiagnostics] = useState<BugReportDiagnostics>();
   const [bugReportCaptureError, setBugReportCaptureError] = useState<string>();
   const [bugReportDiagnosticsError, setBugReportDiagnosticsError] = useState<string>();
-  const [windowWidth, setWindowWidth] = useState(() =>
-    typeof window !== 'undefined' ? window.innerWidth : 1920
-  );
+  const isNarrowWorkspace = useMediaQuery('(max-width: 1279px)');
 
   useStoreHydration();
   const activeTab = useActiveTab();
@@ -131,7 +136,23 @@ export default function Home() {
     [createNewRequest, openTabWithMode]
   );
 
-  const effectiveLayout = windowWidth < 1280 ? 'vertical' : settings.layoutOrientation;
+  const effectiveLayout = isNarrowWorkspace ? 'vertical' : settings.layoutOrientation;
+
+  const openSettings = useCallback((section: SectionId) => {
+    setSettingsInitialSection(section);
+    setSettingsLoaded(true);
+    setSettingsOpen(true);
+  }, []);
+
+  const openEnvironmentManager = useCallback(() => {
+    setEnvManagerLoaded(true);
+    setEnvManagerOpen(true);
+  }, []);
+
+  const openImportDialog = useCallback(() => {
+    setImportDialogLoaded(true);
+    setImportDialogOpen(true);
+  }, []);
 
   // Persisted request/response split (shared by every split protocol view).
   const handleSplitChange = useCallback(
@@ -143,13 +164,6 @@ export default function Home() {
     split: settings.requestResponseSplit ?? 50,
     onSplitChange: handleSplitChange,
   };
-
-  useEffect(() => {
-    const handleResize = () => setWindowWidth(window.innerWidth);
-    setWindowWidth(window.innerWidth);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   const allLogs = useMemo(
     () => [...(scriptResult?.preRequest?.logs ?? []), ...(scriptResult?.test?.logs ?? [])],
@@ -169,18 +183,12 @@ export default function Home() {
     {
       combo: 'mod+,',
       allowInInput: true,
-      handler: () => {
-        setSettingsInitialSection('general');
-        setSettingsOpen(true);
-      },
+      handler: () => openSettings('general'),
     },
     {
       combo: 'mod+/',
       allowInInput: true,
-      handler: () => {
-        setSettingsInitialSection('shortcuts');
-        setSettingsOpen(true);
-      },
+      handler: () => openSettings('shortcuts'),
     },
     {
       combo: 'mod+s',
@@ -208,26 +216,18 @@ export default function Home() {
 
   // Native "Settings/Preferences" menu item (Electron) → open the drawer. The
   // mod+, keybinding above covers the web build, where there is no native menu.
-  useEffect(
-    () =>
-      onMenuEvent('menu:settings', () => {
-        setSettingsInitialSection('general');
-        setSettingsOpen(true);
-      }),
-    []
-  );
+  useEffect(() => onMenuEvent('menu:settings', () => openSettings('general')), [openSettings]);
 
   // The desktop updater banner uses this renderer-local event so it can take
   // the user straight to the shared, in-app release history without adding a
   // second Electron-only settings surface.
   useEffect(() => {
     const openReleaseNotes = () => {
-      setSettingsInitialSection('updates');
-      setSettingsOpen(true);
+      openSettings('updates');
     };
     window.addEventListener('restura:open-release-notes', openReleaseNotes);
     return () => window.removeEventListener('restura:open-release-notes', openReleaseNotes);
-  }, []);
+  }, [openSettings]);
 
   const handleOpenBugReport = useCallback(async () => {
     setBugReportScreenshot(undefined);
@@ -351,14 +351,11 @@ export default function Home() {
       <TopBar
         requestMode={requestMode}
         onRequestModeChange={handleRequestModeChange}
-        onOpenImport={() => setImportDialogOpen(true)}
-        setEnvManagerOpen={setEnvManagerOpen}
-        onOpenEnvSwitcher={() => setEnvManagerOpen(true)}
+        onOpenImport={openImportDialog}
+        setEnvManagerOpen={openEnvironmentManager}
+        onOpenEnvSwitcher={openEnvironmentManager}
         onOpenCommandPalette={() => setPaletteOpen(true)}
-        onOpenSettings={() => {
-          setSettingsInitialSection('general');
-          setSettingsOpen(true);
-        }}
+        onOpenSettings={() => openSettings('general')}
         onToggleAi={enableAi ? () => setAiPanelOpen(!aiPanelOpen) : undefined}
         onOpenBugReport={() => void handleOpenBugReport()}
       />
@@ -374,7 +371,7 @@ export default function Home() {
             transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
             className="shrink-0 overflow-hidden"
           >
-            <Sidebar activePanel={activePanel} onOpenImport={() => setImportDialogOpen(true)} />
+            <Sidebar activePanel={activePanel} onOpenImport={openImportDialog} />
           </motion.div>
         </ClientHydration>
 
@@ -403,34 +400,39 @@ export default function Home() {
       <CommandPalette
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
-        onOpenEnvironments={() => setEnvManagerOpen(true)}
-        onOpenSettings={() => {
-          setSettingsInitialSection('general');
-          setSettingsOpen(true);
-        }}
-        onOpenImport={() => setImportDialogOpen(true)}
+        onOpenEnvironments={openEnvironmentManager}
+        onOpenSettings={() => openSettings('general')}
+        onOpenImport={openImportDialog}
         onSendRequest={handleSendRequest}
         onChangeMode={handleRequestModeChange}
       />
-      <SettingsDrawer
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        initialSection={settingsInitialSection}
-      />
+      {settingsLoaded && (
+        <SettingsDrawer
+          open={settingsOpen}
+          onOpenChange={setSettingsOpen}
+          initialSection={settingsInitialSection}
+        />
+      )}
       <WelcomeOnboarding />
 
       {/* Dialogs */}
-      <EnvironmentManager open={envManagerOpen} onOpenChange={setEnvManagerOpen} />
-      <ImportDialog open={importDialogOpen} onOpenChange={setImportDialogOpen} />
-      <BugReportDialog
-        open={bugReportOpen}
-        onOpenChange={setBugReportOpen}
-        screenshot={bugReportScreenshot}
-        diagnostics={bugReportDiagnostics}
-        captureError={bugReportCaptureError}
-        diagnosticsError={bugReportDiagnosticsError}
-        onOpenGitHubDraft={handleOpenGitHubDraft}
-      />
+      {envManagerLoaded && (
+        <EnvironmentManager open={envManagerOpen} onOpenChange={setEnvManagerOpen} />
+      )}
+      {importDialogLoaded && (
+        <ImportDialog open={importDialogOpen} onOpenChange={setImportDialogOpen} />
+      )}
+      {bugReportOpen && (
+        <BugReportDialog
+          open={bugReportOpen}
+          onOpenChange={setBugReportOpen}
+          screenshot={bugReportScreenshot}
+          diagnostics={bugReportDiagnostics}
+          captureError={bugReportCaptureError}
+          diagnosticsError={bugReportDiagnosticsError}
+          onOpenGitHubDraft={handleOpenGitHubDraft}
+        />
+      )}
       {saveDialogTabId && (
         <SaveToCollectionDialog
           tabId={saveDialogTabId}
