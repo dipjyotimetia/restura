@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentRuntimeManifest } from '../../commands/agentRuntime.js';
+
+const connectCliMcpClient = vi.hoisted(() => vi.fn());
+vi.mock('../agentMcpClient.js', () => ({ connectCliMcpClient }));
+
 import { resolveCliGrounding } from '../agentGrounding.js';
 
 const runtime: AgentRuntimeManifest = {
@@ -44,5 +48,35 @@ describe('resolveCliGrounding', () => {
         { loadCollection: vi.fn() }
       )
     ).rejects.toThrow('not listed in the runtime manifest');
+  });
+
+  it('redacts MCP endpoint credentials before emitting catalog evidence', async () => {
+    connectCliMcpClient.mockResolvedValue({
+      listTools: vi.fn().mockResolvedValue([]),
+      dispose: vi.fn().mockResolvedValue(undefined),
+    });
+    const mcpRuntime: AgentRuntimeManifest = {
+      schemaVersion: 1,
+      sources: [
+        {
+          id: 'catalog',
+          kind: 'mcp',
+          url: 'https://alice:secret@mcp.example.test/mcp?api_key=signed#fragment',
+          transport: 'streamable-http',
+          headers: [],
+          readOnly: true,
+          allowedTools: [],
+        },
+      ],
+    };
+
+    const [packet] = await resolveCliGrounding(
+      { sourceIds: ['catalog'], maxBytes: 10_000 },
+      mcpRuntime,
+      { environment: {}, allowLocalhost: false, timeoutMs: 5_000 },
+      { loadCollection: vi.fn() }
+    );
+    expect(packet).toMatchObject({ label: 'MCP: https://mcp.example.test/mcp?api_key=REDACTED' });
+    expect(JSON.stringify(packet)).not.toMatch(/alice|secret|signed|fragment/);
   });
 });

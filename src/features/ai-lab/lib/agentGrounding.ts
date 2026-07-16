@@ -63,10 +63,10 @@ export async function resolveDesktopGrounding(
       sources.push({
         id,
         kind: 'mcp-catalog',
-        label: `MCP: ${connection.url}`,
+        label: `MCP: ${redactToolUrl(connection.url)}`,
         version: connection.capabilities?.serverVersion ?? 'current',
         content: [
-          `MCP server: ${connection.capabilities?.serverName ?? connection.url}`,
+          `MCP server: ${connection.capabilities?.serverName ?? redactToolUrl(connection.url)}`,
           ...tools.map((tool) => `${tool.name}${tool.description ? `: ${tool.description}` : ''}`),
         ].join('\n'),
       });

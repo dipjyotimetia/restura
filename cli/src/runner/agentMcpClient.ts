@@ -4,7 +4,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { validateMcpSpec } from '@shared/protocol/mcp-proxy';
 import type { AgentMcpClient, ContentBlock, McpToolDescriptor } from '@shared/agent-lab';
 import type { AgentRuntimeSource } from '../commands/agentRuntime.js';
-import { createPinnedMcpFetch } from './pinnedMcpFetch.js';
+import { createPinnedMcpFetchSession } from './pinnedMcpFetch.js';
 
 type McpRuntimeSource = Extract<AgentRuntimeSource, { kind: 'mcp' }>;
 
@@ -12,6 +12,7 @@ export interface CliMcpClientOptions {
   environment: Readonly<Record<string, string | undefined>>;
   allowLocalhost: boolean;
   timeoutMs: number;
+  signal?: AbortSignal;
 }
 
 export interface ConnectedCliMcpClient extends AgentMcpClient {
@@ -47,8 +48,9 @@ export async function connectCliMcpClient(
   );
   if (!validation.ok) throw new Error(validation.error);
 
+  const pinnedSession = createPinnedMcpFetchSession(options.allowLocalhost);
   const transportOptions = {
-    fetch: createPinnedMcpFetch(options.allowLocalhost),
+    fetch: pinnedSession.fetch,
     requestInit: { headers: validation.headers },
   };
   const transport =
@@ -56,10 +58,19 @@ export async function connectCliMcpClient(
       ? new StreamableHTTPClientTransport(new URL(source.url), transportOptions)
       : new SSEClientTransport(new URL(source.url), transportOptions);
   const client = new Client({ name: 'restura-cli', version: '1.0.0' }, { capabilities: {} });
+  const abort = () => {
+    void client.close().catch(() => {});
+    void pinnedSession.dispose();
+  };
+  options.signal?.addEventListener('abort', abort, { once: true });
   try {
+    options.signal?.throwIfAborted();
     await client.connect(transport);
+    options.signal?.throwIfAborted();
   } catch (error) {
     await client.close().catch(() => {});
+    await pinnedSession.dispose();
+    options.signal?.removeEventListener('abort', abort);
     throw error;
   }
 
@@ -98,7 +109,8 @@ export async function connectCliMcpClient(
       return [{ type: 'json', value: result }];
     },
     async dispose() {
-      await client.close();
+      options.signal?.removeEventListener('abort', abort);
+      await Promise.allSettled([client.close(), pinnedSession.dispose()]);
     },
   };
 }

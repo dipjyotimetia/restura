@@ -104,7 +104,7 @@ const oauth2TokenCache = new Map<string, CachedToken>();
 export async function resolveOAuth2Token(
   auth: AuthConfig | undefined,
   vars: Record<string, string>,
-  opts: { allowLocalhost?: boolean } = {}
+  opts: { allowLocalhost?: boolean; fetch?: typeof globalThis.fetch; signal?: AbortSignal } = {}
 ): Promise<AuthConfig | undefined> {
   if (!auth || auth.type !== 'oauth2' || !auth.oauth2) return auth;
   const o = auth.oauth2;
@@ -133,13 +133,19 @@ export async function resolveOAuth2Token(
   });
   if (!validation.valid) throw new Error(`OAuth2 token URL blocked: ${validation.error}`);
 
-  const token = await fetchClientCredentialsToken({
-    grantType: 'client_credentials',
-    clientId,
-    tokenUrl,
-    ...(clientSecret !== undefined ? { clientSecret } : {}),
-    ...(scope !== undefined ? { scope } : {}),
-  });
+  const token = await fetchClientCredentialsToken(
+    {
+      grantType: 'client_credentials',
+      clientId,
+      tokenUrl,
+      ...(clientSecret !== undefined ? { clientSecret } : {}),
+      ...(scope !== undefined ? { scope } : {}),
+    },
+    {
+      ...(opts.fetch ? { fetch: opts.fetch } : {}),
+      ...(opts.signal ? { signal: opts.signal } : {}),
+    }
+  );
   const tokenType = token.token_type ?? 'Bearer';
   const expiresAt = tokenExpiresAt(now, token.expires_in);
   oauth2TokenCache.set(cacheKey, {

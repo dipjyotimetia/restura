@@ -219,7 +219,7 @@ export async function runDesktopAgentSuite(
     async resolveCredential() {
       return undefined;
     },
-    resolveTools: toolResolver.resolve,
+    resolveTools: (sources, signal) => toolResolver.resolve(sources, signal),
     resolveGrounding: resolveDesktopGrounding,
     ...(options.requestApproval ? { requestApproval: options.requestApproval } : {}),
   });

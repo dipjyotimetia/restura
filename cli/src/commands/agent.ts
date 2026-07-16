@@ -160,7 +160,7 @@ async function runAgentSuite(
       const adapterSources = sources.filter(
         (source) => source.kind !== 'restura-request' && source.kind !== 'mcp'
       );
-      const adapterTools = await toolResolver.resolve(adapterSources);
+      const adapterTools = await toolResolver.resolve(adapterSources, signal);
       if (runtimeSources.length === 0) return adapterTools;
       if (!runtime) throw new Error('headless tool sources require a runtime manifest');
       const resolved = await resolveCliAgentTools(

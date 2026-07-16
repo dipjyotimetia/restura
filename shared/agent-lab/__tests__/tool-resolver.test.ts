@@ -66,4 +66,19 @@ describe('AgentToolResolver', () => {
     );
     expect(resolved).toBe(false);
   });
+
+  it('rejects duplicate runtime adapters', () => {
+    expect(() =>
+      createAgentToolResolver([adapter('fixture', 'one'), adapter('fixture', 'two')])
+    ).toThrow('duplicate tool source adapter: fixture');
+  });
+
+  it('stops resolving a later adapter after cancellation', async () => {
+    const resolver = createAgentToolResolver([adapter('fixture', 'fixture_tool')]);
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      resolver.resolve([{ kind: 'fixture', fixtureId: 'fixture-1' }], controller.signal)
+    ).rejects.toThrow(/abort/i);
+  });
 });

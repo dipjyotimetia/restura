@@ -4,12 +4,12 @@ import type { ToolSource } from './types';
 export interface AgentToolSourceAdapter {
   readonly kind: ToolSource['kind'];
   assertSource?(source: ToolSource): void;
-  resolve(source: ToolSource): Promise<AgentTool[]>;
+  resolve(source: ToolSource, signal?: AbortSignal): Promise<AgentTool[]>;
 }
 
 export interface AgentToolResolver {
   assertSupported(sources: ToolSource[]): void;
-  resolve(sources: ToolSource[]): Promise<AgentTool[]>;
+  resolve(sources: ToolSource[], signal?: AbortSignal): Promise<AgentTool[]>;
 }
 
 export function createAgentToolResolver(
@@ -35,11 +35,12 @@ export function createAgentToolResolver(
 
   return {
     assertSupported,
-    async resolve(sources) {
+    async resolve(sources, signal) {
       assertSupported(sources);
       const tools: AgentTool[] = [];
       for (const source of sources) {
-        tools.push(...(await adaptersByKind.get(source.kind)!.resolve(source)));
+        signal?.throwIfAborted();
+        tools.push(...(await adaptersByKind.get(source.kind)!.resolve(source, signal)));
       }
       return tools;
     },

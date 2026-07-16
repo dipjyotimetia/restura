@@ -3,6 +3,7 @@ import {
   AgentBundleSchema,
   AgentSuiteSchema,
   migrateAgentSuite,
+  type AgentBundle,
 } from '@shared/agent-lab';
 import { Bot, Download, Play, Plus, Save, Square, Trash2, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -19,6 +20,12 @@ import { useAiLabUiStore } from '../store/useAiLabUiStore';
 import type { AiLabProviderConfig } from '../types';
 import { useMcpStore } from '@/features/mcp/store/useMcpStore';
 import { useCollectionStore } from '@/store/useCollectionStore';
+
+type NormalizedAgentSuite = ReturnType<typeof migrateAgentSuite>;
+type NormalizedAgentBundle = AgentBundle & { suite: NormalizedAgentSuite };
+type DraftPayload =
+  | { bundle: false; value: NormalizedAgentSuite }
+  | { bundle: true; value: NormalizedAgentBundle };
 
 function starterSuite(providers: Record<string, AiLabProviderConfig> = {}) {
   const id = crypto.randomUUID();
@@ -85,20 +92,28 @@ export function AgentWorkbench() {
     setDraft(JSON.stringify(suites[id], null, 2));
     setMessage('Suite loaded');
   };
-  const parseDraft = () => migrateAgentSuite(AgentSuiteSchema.parse(JSON.parse(draft)));
+  const parseDraftPayload = (): DraftPayload => {
+    const raw = JSON.parse(draft);
+    const bundle = AgentBundleSchema.safeParse(raw);
+    if (!bundle.success)
+      return { bundle: false, value: migrateAgentSuite(AgentSuiteSchema.parse(raw)) };
+    return {
+      bundle: true,
+      value: { ...bundle.data, suite: migrateAgentSuite(bundle.data.suite) },
+    };
+  };
   const save = () => {
     try {
-      const raw = JSON.parse(draft);
-      const bundle = AgentBundleSchema.safeParse(raw);
-      if (bundle.success) {
+      const parsed = parseDraftPayload();
+      if (parsed.bundle) {
         setActiveId(null);
-        setDraft(JSON.stringify(bundle.data, null, 2));
+        setDraft(JSON.stringify(parsed.value, null, 2));
         setMessage('Bundle schema-validated; export it to commit with your project');
       } else {
-        const parsed = migrateAgentSuite(AgentSuiteSchema.parse(raw));
-        upsert(parsed);
-        setActiveId(parsed.id);
-        setDraft(JSON.stringify(parsed, null, 2));
+        const suite = parsed.value;
+        upsert(suite);
+        setActiveId(suite.id);
+        setDraft(JSON.stringify(suite, null, 2));
         setMessage('Saved and schema-validated');
       }
     } catch (error) {
@@ -107,15 +122,13 @@ export function AgentWorkbench() {
   };
   const exportSuite = () => {
     try {
-      const raw = JSON.parse(draft);
-      const bundle = AgentBundleSchema.safeParse(raw);
-      const parsed = bundle.success ? bundle.data : parseDraft();
+      const parsed = parseDraftPayload();
       const url = URL.createObjectURL(
-        new Blob([JSON.stringify(parsed, null, 2)], { type: 'application/json' })
+        new Blob([JSON.stringify(parsed.value, null, 2)], { type: 'application/json' })
       );
       const link = document.createElement('a');
       link.href = url;
-      link.download = `${parsed.id}.${bundle.success ? 'agent-bundle' : 'agent-suite'}.json`;
+      link.download = `${parsed.value.id}.${parsed.bundle ? 'agent-bundle' : 'agent-suite'}.json`;
       link.click();
       URL.revokeObjectURL(url);
     } catch (error) {
@@ -127,8 +140,9 @@ export function AgentWorkbench() {
       const raw = JSON.parse(await file.text());
       const bundle = AgentBundleSchema.safeParse(raw);
       if (bundle.success) {
+        const parsed = { ...bundle.data, suite: migrateAgentSuite(bundle.data.suite) };
         setActiveId(null);
-        setDraft(JSON.stringify(bundle.data, null, 2));
+        setDraft(JSON.stringify(parsed, null, 2));
         setMessage('Bundle imported and schema-validated');
       } else {
         const parsed = migrateAgentSuite(AgentSuiteSchema.parse(raw));
@@ -143,11 +157,9 @@ export function AgentWorkbench() {
   };
   const run = () => {
     try {
-      const raw = JSON.parse(draft);
-      const bundle = AgentBundleSchema.safeParse(raw);
-      const parsed = bundle.success ? bundle.data : parseDraft();
-      if (!bundle.success) upsert(parsed);
-      const started = startAgentRun(parsed, providers, async (request) =>
+      const parsed = parseDraftPayload();
+      if (!parsed.bundle) upsert(parsed.value);
+      const started = startAgentRun(parsed.value, providers, async (request) =>
         window.confirm(
           `Allow ${request.permissionClass} tool “${request.toolName}”?\n\n${JSON.stringify(request.arguments, null, 2)}`
         )
@@ -156,18 +168,21 @@ export function AgentWorkbench() {
       );
       if (!started)
         setMessage('An agent run is already active. Cancel it before starting another.');
-      else if (bundle.success) setMessage('Running deterministic fixture bundle');
+      else if (parsed.bundle) setMessage('Running deterministic fixture bundle');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     }
   };
   const toggleGrounding = (sourceId: string) => {
     try {
-      const parsed = parseDraft();
-      const selected = new Set(parsed.grounding.sourceIds);
+      const parsed = parseDraftPayload();
+      const suite = parsed.bundle ? parsed.value.suite : parsed.value;
+      const grounding = suite.grounding;
+      const selected = new Set(grounding.sourceIds);
       if (selected.has(sourceId)) selected.delete(sourceId);
       else selected.add(sourceId);
-      const next = { ...parsed, grounding: { ...parsed.grounding, sourceIds: [...selected] } };
+      const nextSuite = { ...suite, grounding: { ...grounding, sourceIds: [...selected] } };
+      const next = parsed.bundle ? { ...parsed.value, suite: nextSuite } : nextSuite;
       setDraft(JSON.stringify(next, null, 2));
       setMessage(`Grounding ${selected.has(sourceId) ? 'enabled' : 'disabled'} for ${sourceId}`);
     } catch (error) {
@@ -178,7 +193,9 @@ export function AgentWorkbench() {
   };
   let selectedGrounding = new Set<string>();
   try {
-    selectedGrounding = new Set(parseDraft().grounding.sourceIds);
+    const parsed = parseDraftPayload();
+    const suite = parsed.bundle ? parsed.value.suite : parsed.value;
+    selectedGrounding = new Set(suite.grounding.sourceIds);
   } catch {
     // Keep the raw JSON editable; source buttons become inactive until valid.
   }
@@ -253,6 +270,7 @@ export function AgentWorkbench() {
             <Button
               size="sm"
               variant="ghost"
+              aria-label="Delete suite"
               onClick={() => {
                 remove(activeId);
                 setActiveId(null);

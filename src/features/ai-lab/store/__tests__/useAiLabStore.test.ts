@@ -564,6 +564,41 @@ describe('useAiLabStore — report migration', () => {
     expect(warn).toHaveBeenCalledTimes(2);
     warn.mockRestore();
   });
+
+  it('normalizes persisted v2 suites while quarantining only malformed siblings', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const migrated = migrateAiLabState({
+      agentSuites: {
+        valid: {
+          schemaVersion: 2,
+          id: 'valid',
+          name: 'Valid legacy suite',
+          mode: 'regression',
+          agents: [
+            {
+              id: 'agent',
+              model: { providerId: 'provider', model: 'model' },
+              instructions: 'safe',
+              tools: [],
+              limits: { maxSteps: 1, maxWallTimeMs: 1_000 },
+            },
+          ],
+          tasks: [{ id: 'task', input: [{ type: 'text', text: 'safe' }] }],
+          graders: [],
+          trials: 1,
+        },
+        malformed: { schemaVersion: 2, id: 'malformed' },
+      },
+    });
+
+    expect(migrated.agentSuites?.valid).toMatchObject({
+      schemaVersion: 3,
+      grounding: { sourceIds: [], maxBytes: 16_384 },
+    });
+    expect(migrated.agentSuites?.malformed).toBeUndefined();
+    expect(migrated.reportQuarantineCount).toBe(1);
+    warn.mockRestore();
+  });
 });
 
 describe('useAiLabStore — prompts', () => {

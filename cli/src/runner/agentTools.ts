@@ -10,6 +10,7 @@ import type { LoadedRequest } from './collectionLoader.js';
 import type { ExecuteOptions, ExecuteOutcome } from './executors/types.js';
 import type { AgentRuntimeManifest } from '../commands/agentRuntime.js';
 import { connectCliMcpClient } from './agentMcpClient.js';
+import { createPinnedMcpFetchSession } from './pinnedMcpFetch.js';
 
 export interface CliAgentToolDependencies {
   loadCollection(path: string): Promise<{ requests: LoadedRequest[] }>;
@@ -50,6 +51,13 @@ export async function resolveCliAgentTools(
   const mcpSources = sources.filter(
     (source): source is Extract<ToolSource, { kind: 'mcp' }> => source.kind === 'mcp'
   );
+  // The pinned transport deliberately rejects process-wide proxy settings: a
+  // normal CONNECT proxy resolves the final host itself and would defeat the
+  // DNS-pinning invariant. Do not create it for suites with no network tools.
+  const pinnedHttpSession =
+    requestedIds.size > 0 || mcpSources.length > 0
+      ? createPinnedMcpFetchSession(options.allowLocalhost)
+      : undefined;
 
   for (const source of runtime.sources) {
     if (source.kind !== 'collection') continue;
@@ -88,6 +96,8 @@ export async function resolveCliAgentTools(
             timeoutMs: options.timeoutMs,
             allowLocalhost: options.allowLocalhost,
             signal: context.signal,
+            fetcher: pinnedHttpSession?.fetcher,
+            oauthFetch: pinnedHttpSession?.fetch,
           });
           return outcomeToContent(requestId, outcome, context.signal.aborted);
         },
@@ -113,6 +123,7 @@ export async function resolveCliAgentTools(
         environment: options.environment,
         allowLocalhost: options.allowLocalhost,
         timeoutMs: options.timeoutMs,
+        ...(options.signal ? { signal: options.signal } : {}),
       });
       clients.push(client);
       // The manifest's required `readOnly: true` is the CI operator's
@@ -128,12 +139,14 @@ export async function resolveCliAgentTools(
     }
   } catch (error) {
     await Promise.allSettled(clients.map((client) => client.dispose()));
+    await pinnedHttpSession?.dispose();
     throw error;
   }
   return {
     tools,
     async dispose() {
       await Promise.allSettled(clients.map((client) => client.dispose()));
+      await pinnedHttpSession?.dispose();
     },
   };
 }

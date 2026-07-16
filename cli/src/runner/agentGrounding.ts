@@ -80,10 +80,10 @@ export async function resolveCliGrounding(
       sources.push({
         id: source.id,
         kind: 'mcp-catalog',
-        label: `MCP: ${source.url}`,
+        label: `MCP: ${redactUrl(source.url)}`,
         version: 'current',
         content: [
-          `MCP catalog: ${source.url}`,
+          `MCP catalog: ${redactUrl(source.url)}`,
           ...tools.map((tool) => `${tool.name}${tool.description ? `: ${tool.description}` : ''}`),
         ].join('\n'),
       });

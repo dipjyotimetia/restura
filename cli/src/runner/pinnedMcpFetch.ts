@@ -6,7 +6,9 @@ import {
   isPrivateAddress,
   validateURL,
 } from '@shared/protocol/url-validation';
+import type { Fetcher } from '@shared/protocol/types';
 import { Agent, fetch as undiciFetch } from 'undici';
+import { createUndiciFetcher } from './undiciFetcher.js';
 
 interface PinnedAddress {
   host: string;
@@ -67,31 +69,77 @@ function createPinnedLookup(host: string, ip: string): any {
   };
 }
 
+export interface PinnedFetchSession {
+  fetch: typeof globalThis.fetch;
+  /** DNS-pinned equivalent for the shared HTTP protocol executor. */
+  fetcher: Fetcher;
+  /** Ends all requests owned by this short-lived agent/MCP session. */
+  dispose(): Promise<void>;
+}
+
+function configuredProxyEnvironment(): string | undefined {
+  return ['HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy'].find((name) =>
+    Boolean(process.env[name])
+  );
+}
+
+function createPinnedAgent(address: PinnedAddress): Agent {
+  return new Agent({
+    connect: { lookup: createPinnedLookup(address.host, address.ip) } as Agent.Options['connect'],
+  });
+}
+
 /**
  * DNS-pinned MCP fetch. Redirects are rejected rather than followed, because
  * an SDK-initiated redirect would otherwise need a new validated+ pinned
  * dispatcher. Users must configure the final MCP endpoint directly.
  */
-export function createPinnedMcpFetch(allowLocalhost: boolean): typeof globalThis.fetch {
-  return (async (input, init) => {
-    const rawUrl = typeof input === 'string' || input instanceof URL ? input.toString() : input.url;
+export function createPinnedMcpFetchSession(allowLocalhost: boolean): PinnedFetchSession {
+  const proxyVariable = configuredProxyEnvironment();
+  if (proxyVariable) {
+    throw new Error(
+      `agent network tools cannot run with ${proxyVariable}: DNS-pinned direct transport ` +
+        'does not support HTTP proxying; unset the proxy for this run'
+    );
+  }
+  const agents = new Set<Agent>();
+  let disposed = false;
+
+  const agentFor = async (rawUrl: string): Promise<Agent> => {
+    if (disposed) throw new DOMException('pinned fetch session disposed', 'AbortError');
     const address = await resolvePinnedMcpAddress(rawUrl, allowLocalhost);
-    const agent = new Agent({
-      connect: { lookup: createPinnedLookup(address.host, address.ip) } as Agent.Options['connect'],
-    });
-    try {
-      const response = await undiciFetch(input as Parameters<typeof undiciFetch>[0], {
-        ...(init as Parameters<typeof undiciFetch>[1]),
-        dispatcher: agent,
-        redirect: 'manual',
-      });
-      if (response.status >= 300 && response.status < 400) {
-        await response.body?.cancel();
-        throw new Error('MCP transport redirects are not permitted');
-      }
-      return response as unknown as Response;
-    } finally {
-      await agent.close();
+    if (disposed) throw new DOMException('pinned fetch session disposed', 'AbortError');
+    const agent = createPinnedAgent(address);
+    if (disposed) {
+      agent.destroy();
+      throw new DOMException('pinned fetch session disposed', 'AbortError');
     }
+    agents.add(agent);
+    return agent;
+  };
+
+  const fetch = (async (input, init) => {
+    const rawUrl = typeof input === 'string' || input instanceof URL ? input.toString() : input.url;
+    const response = await undiciFetch(input as Parameters<typeof undiciFetch>[0], {
+      ...(init as Parameters<typeof undiciFetch>[1]),
+      dispatcher: await agentFor(rawUrl),
+      redirect: 'manual',
+    });
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      throw new Error('MCP transport redirects are not permitted');
+    }
+    return response as unknown as Response;
   }) as typeof globalThis.fetch;
+
+  return {
+    fetch,
+    fetcher: async (request) => createUndiciFetcher(await agentFor(request.url))(request),
+    async dispose() {
+      if (disposed) return;
+      disposed = true;
+      for (const agent of agents) agent.destroy();
+      agents.clear();
+    },
+  };
 }

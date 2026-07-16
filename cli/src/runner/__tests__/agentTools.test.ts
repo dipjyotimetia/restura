@@ -58,6 +58,8 @@ describe('resolveCliAgentTools', () => {
         allowLocalhost: false,
         timeoutMs: 5_000,
         signal: controller.signal,
+        fetcher: expect.any(Function),
+        oauthFetch: expect.any(Function),
       })
     );
     expect(output).toEqual([

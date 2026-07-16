@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildContextPackets } from '../grounding';
+import { buildContextPackets, renderContextPacket } from '../grounding';
 
 describe('buildContextPackets', () => {
   it('uses only explicitly selected sources and truncates deterministically to the byte budget', () => {
@@ -20,7 +20,7 @@ describe('buildContextPackets', () => {
           content: 'must never be supplied',
         },
       ],
-      { sourceIds: ['orders-schema'], maxBytes: 64 }
+      { sourceIds: ['orders-schema'], maxBytes: 256 }
     );
 
     expect(packets).toHaveLength(1);
@@ -31,12 +31,63 @@ describe('buildContextPackets', () => {
       version: '2026-07-16',
       truncated: true,
     });
-    expect(new TextEncoder().encode(packets[0]?.content).byteLength).toBeLessThanOrEqual(64);
+    expect(
+      new TextEncoder().encode(renderContextPacket(packets[0]!)).byteLength
+    ).toBeLessThanOrEqual(256);
   });
 
   it('rejects an unknown selected source instead of silently searching elsewhere', () => {
     expect(() => buildContextPackets([], { sourceIds: ['missing'], maxBytes: 1_024 })).toThrow(
       'unknown grounding source: missing'
     );
+  });
+
+  it.each([0, 1.5, Number.NaN])('rejects an invalid byte budget: %s', (maxBytes) => {
+    expect(() => buildContextPackets([], { sourceIds: [], maxBytes })).toThrow(
+      'grounding maxBytes must be a positive integer'
+    );
+  });
+
+  it('counts untrusted labels and versions against the evidence budget', () => {
+    const [packet] = buildContextPackets(
+      [
+        {
+          id: 'hostile-label',
+          kind: 'mcp-catalog',
+          label: 'L'.repeat(1_000),
+          version: 'V'.repeat(1_000),
+          content: 'C'.repeat(1_000),
+        },
+      ],
+      { sourceIds: ['hostile-label'], maxBytes: 256 }
+    );
+    expect(packet?.truncated).toBe(true);
+    expect(new TextEncoder().encode(renderContextPacket(packet!)).byteLength).toBeLessThanOrEqual(
+      256
+    );
+  });
+
+  it('budgets packet wrappers and inter-packet separators in the rendered evidence', () => {
+    const packets = buildContextPackets(
+      [
+        { id: 'one', kind: 'openapi', label: 'One', version: 'v1', content: 'A'.repeat(1_000) },
+        { id: 'two', kind: 'graphql', label: 'Two', version: 'v2', content: 'B'.repeat(1_000) },
+      ],
+      { sourceIds: ['one', 'two'], maxBytes: 256 }
+    );
+
+    expect(
+      new TextEncoder().encode(packets.map(renderContextPacket).join('\n\n')).byteLength
+    ).toBeLessThanOrEqual(256);
+    expect(packets.every((packet) => packet.truncated)).toBe(true);
+  });
+
+  it('rejects a selected source when its safety framing cannot fit the budget', () => {
+    expect(() =>
+      buildContextPackets(
+        [{ id: 'tiny', kind: 'history', label: 'Tiny', version: 'v1', content: 'data' }],
+        { sourceIds: ['tiny'], maxBytes: 1 }
+      )
+    ).toThrow('too small for selected source evidence framing');
   });
 });

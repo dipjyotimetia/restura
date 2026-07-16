@@ -158,6 +158,30 @@ describe('fetchClientCredentialsToken', () => {
       })
     ).rejects.toThrow(OAuth2TokenError);
   });
+
+  it('uses an injected fetch implementation when supplied by a secure caller', async () => {
+    const secureFetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify(mockTokenResponse), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+    );
+
+    await fetchClientCredentialsToken(
+      {
+        grantType: 'client_credentials',
+        clientId: 'client',
+        tokenUrl: 'https://auth.example/token',
+      },
+      { fetch: secureFetch }
+    );
+
+    expect(secureFetch).toHaveBeenCalledWith(
+      'https://auth.example/token',
+      expect.objectContaining({ method: 'POST' })
+    );
+  });
 });
 
 describe('fetchPasswordToken', () => {
