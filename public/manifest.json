@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Restura - Multi-Protocol API Testing Tool",
+  "name": "Restura — Privacy-First Multi-Protocol API Client",
   "short_name": "Restura",
-  "description": "A modern API client for testing HTTP, GraphQL, gRPC, and WebSocket endpoints.",
+  "description": "Privacy-first API client for HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MQTT, and MCP.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -12,19 +12,19 @@
   "lang": "en-US",
   "icons": [
     {
-      "src": "/icon.svg",
+      "src": "/icon.svg?v=20260716",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
     },
     {
-      "src": "/icon-maskable.svg",
+      "src": "/icon-maskable.svg?v=20260716",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "maskable"
     },
     {
-      "src": "/apple-touch-icon.png",
+      "src": "/apple-touch-icon.png?v=20260716",
       "sizes": "180x180",
       "type": "image/png",
       "purpose": "any"
