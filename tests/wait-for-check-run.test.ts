@@ -65,7 +65,7 @@ describe('check-run polling', () => {
       { check_runs: [checkRun()] },
     ];
     const fetchImpl = vi.fn(
-      async () =>
+      async (_input: RequestInfo | URL, _init?: RequestInit) =>
         new Response(JSON.stringify(payloads.shift()), {
           status: 200,
           headers: { 'content-type': 'application/json' },
