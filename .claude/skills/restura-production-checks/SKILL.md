@@ -11,13 +11,13 @@ The golden rule: **a green local `validate` is NOT the same as a green CI.** The
 
 ## The gates, in order
 
-Run `npm run validate` — it chains: `type-check:all` → `lint` → `verify:opencollection-types` → `capabilities:check` → `test:run`. That mirrors CI's `validate` job. But `validate` does **not** run e2e, the security suite, or builds — see "What validate misses" below.
+Run `npm run validate` — it chains `type-check:all` → `lint` → `format:check` → `verify:opencollection-types` → `capabilities:check` → `test:ci` → CLI tests and records content-bound evidence for the Codex stop policy. It is the coverage-aware local gate, not the complete CI verdict. GitHub's `merge-gate` also requires the shipped self-hosted image/API/SPA smoke and the platform, extension, documentation, and packaging jobs below.
 
 `/ship-check` runs the whole thing (including the parts `validate` skips) and triages failures. Reach for it before a PR.
 
 ## Top gotchas (the reason this skill exists)
 
-1. **`npm run type-check` only covers the renderer.** The root `tsconfig.json` runs bare `tsc --noEmit` and **excludes `worker`, `electron/main`, and `cli`**. A clean `type-check` says nothing about whether the Electron main process, the Worker, the CLI, the echo server, or the http feature compiles. **Always use `npm run type-check:all`** — it runs all six `tsc` projects the way CI does. This is now chained into `validate`. If you see someone run plain `type-check` to "confirm it compiles," that's the trap.
+1. **`npm run type-check` only covers the renderer.** The root `tsconfig.json` runs bare `tsc --noEmit` and excludes the Worker, Electron main process, CLI, echo servers, HTTP project, and extensions. **Always use `npm run type-check:all`** — it covers every TypeScript project used by CI and is chained into `validate`.
 
 2. **The pre-commit hook skips tsc entirely.** `.husky/pre-commit` runs `lint-staged` (Biome check on _staged_ files only). No type-check, no tests. **Type errors land in commits routinely.** Never treat "it committed cleanly" as "it type-checks." Run `type-check:all` yourself.
 
@@ -27,14 +27,14 @@ Run `npm run validate` — it chains: `type-check:all` → `lint` → `verify:op
 
 4. **Capability parity is data-driven.** Any feature that behaves differently on web vs. desktop (e.g. Kafka, SOCKS/PAC/mTLS are desktop-only — no browser TCP) MUST add/update an entry in `src/lib/shared/capabilities.ts`. Forgetting this passes locally and fails `capabilities:check`.
 
-5. **Coverage thresholds gate the test job.** `vitest.config.ts` enforces lines 80 / functions 78 / branches 61 / statements 78. New code without tests can drop you under the line even when every test passes. Add tests with the code.
+5. **Coverage budgets gate the test job.** The global suite fails when uncovered items exceed the checked-in budgets (currently 5,226 branches, 4,378 lines, 1,344 functions, and 5,321 statements); `shared/protocol/**` also retains stronger percentage thresholds. New untested production code can fail even when every assertion passes.
 
 6. **Commit messages are linted.** `commitlint.config.mjs` enforces conventional commits with a fixed `scope-enum` (ai, auth, cli, ci, collections, console, deps, docs, e2e, electron, graphql, grpc, http, kafka, mcp, release, scripts, security, shared, socketio, sse, tests, ui, websocket, worker, workflows). A scope outside that list fails `commit-msg`. `body-max-line-length` is 200.
 
 ## What `validate` misses (run these too when relevant)
 
 - **e2e** (`npm run test:e2e`) — Playwright against the local dev server / echo upstream. Not in `validate`; CI runs a subset. Needs `.dev.vars` (bootstrapped by `e2e/global-setup.ts`).
-- **Security suite** (`tests/security/*`) — these ARE part of `test:run`, but you should consciously confirm the right ones pass for your change. See `references/security-checklist.md`.
+- **Security suite** (`tests/security/*`) — these are part of `test:ci`, but consciously confirm the mapped boundary tests for your change. See `references/security-checklist.md`.
 - **Builds** — `npm run build` (web+Worker), `npm run electron:compile`, `npm run build:docker`. A type-clean change can still fail a build (bundle layout, ASAR). See `references/release-readiness.md`.
 - **Bundle size** — `npm run size` (`size-limit`). Gated in CI.
 - **Docs parity** — nothing in `validate` checks that docs/ADRs/docs-site still match the code. See `references/docs-parity.md`.

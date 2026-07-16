@@ -89,7 +89,8 @@ For new IPC schemas, add a test that asserts the Zod schema rejects malformed in
 Run before declaring done:
 
 ```bash
-npm run validate   # type-check + lint + test:run
+npm run validate   # coverage-aware local shipping gate (uses test:ci)
+# GitHub merge-gate remains the complete cross-platform verdict.
 ```
 
 ## Step 5 — Verify both harnesses

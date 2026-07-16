@@ -1,10 +1,10 @@
-export function validationDecision({ dirty, signature, previous, passed }) {
-  if (!dirty || passed || (previous?.signature === signature && previous.passed === false)) {
+export function validationDecision({ dirty, signature, previous }) {
+  if (!dirty || (previous?.signature === signature && previous.passed === true)) {
     return null;
   }
   return {
     continue: false,
     stopReason:
-      'Restura validation is not green. Fix the reported npm run validate failure before stopping.',
+      'Restura validation evidence is missing or stale. Run npm run validate explicitly before stopping.',
   };
 }

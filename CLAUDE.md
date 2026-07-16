@@ -258,7 +258,7 @@ Codex uses the matching skills in `.agents/skills/`, read-only review agents in
 - **Time loops** — `/babysit-prs` is one idempotent iteration of PR care (CI fixes, review comments); drive it with `/loop 15m /babysit-prs` locally, or `subscribe_pr_activity` in remote sessions (events beat polling).
 - **Proactive loops** — `/triage-maintenance` sweeps dependabot PRs, security-audit findings, and skill metrics in one pass; pilot manually, then `/schedule` it.
 - **Pre-PR gate** — `/ship-check` fans out the review agents (`restura-security-auditor`, `restura-parity-checker`, `restura-docs-steward`) **in parallel** plus a fresh-context `/code-review`.
-- **Complete CI verdict** — the `merge-gate` job aggregates validation, docs, browser and Electron E2E, both extensions, and cross-OS Electron packaging. Local `validate` is necessary but does not replace it.
+- **Complete CI verdict** — the `merge-gate` job aggregates validation, the shipped self-hosted image plus API/SPA smoke, docs, browser and Electron E2E, both extensions, and cross-OS Electron packaging. Local `validate` is necessary but does not replace it.
 - **Release proof** — release preflight waits for a successful `merge-gate` on the exact candidate SHA before publishing.
 - **Parallel sessions** — independent fixes get independent sessions in separate git worktrees (one topic per branch/PR); don't stack unrelated fixes serially on one branch.
 - **When a loop's output misses the bar**: don't just fix the instance — encode the fix (skill, hook, command, CLAUDE.md note) so every future iteration inherits it.

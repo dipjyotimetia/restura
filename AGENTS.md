@@ -248,9 +248,9 @@ Iteration discipline for agentic work in this repo. Claude Code wrappers live
 in `.claude/commands/`; Codex skills live in `.agents/skills/`, read-only review
 agents in `.codex/agents/`, and lifecycle details in `.codex/README.md`:
 
-- **Verify before declaring done** — for renderer/UI changes, boot `npm run dev`, drive the change in a real browser, and check the console for new errors (see `.claude/skills/verify-ui-change/SKILL.md`). A compiling edit is not a verified change.
+- **Verify before declaring done** — for renderer/UI changes, boot `npm run dev`, drive the change in a real browser, and check the console for new errors (see `.agents/skills/verify-ui-change/SKILL.md`). A compiling edit is not a verified change.
 - **Iterate against a deterministic local gate** — `npm run validate` passing is the coverage-aware exit criterion for fix loops, with a hard attempt cap; don't stop at "looks done".
-- **Treat CI as the complete shipping verdict** — the `merge-gate` job aggregates local validation, docs, browser and Electron E2E, both extensions, and cross-OS Electron packaging. A local `validate` pass does not replace it.
+- **Treat CI as the complete shipping verdict** — the `merge-gate` job aggregates local validation, the shipped self-hosted image plus API/SPA smoke, docs, browser and Electron E2E, both extensions, and cross-OS Electron packaging. A local `validate` pass does not replace it.
 - **Release only proven commits** — release preflight waits for a successful `merge-gate` attached to the exact candidate SHA before any publish surface can start.
 - **One topic per branch/PR** — independent fixes get independent worktrees/sessions; don't stack unrelated fixes serially on one branch.
 - **Pre-PR review fan-out** — run the security/parity/docs review passes in parallel, plus a fresh-context code review that didn't author the diff.

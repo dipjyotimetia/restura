@@ -159,10 +159,10 @@ The coverage-aware local `validate` gate runs:
    stronger `shared/protocol/**` percentage thresholds.
 7. CLI workspace test.
 
-The GitHub `merge-gate` is the full CI verdict. It additionally aggregates docs,
-browser and Electron E2E, browser and VS Code extension E2E, and cross-OS
-Electron packaging. There are also codegen ownership checks and bundle-size
-limits (`size-limit`).
+The GitHub `merge-gate` is the full CI verdict. It additionally aggregates the
+self-hosted image build and API/SPA smoke, docs, browser and Electron E2E, browser
+and VS Code extension E2E, and cross-OS Electron packaging. There are also
+codegen ownership checks and bundle-size limits (`size-limit`).
 
 ---
 
@@ -201,11 +201,12 @@ Source of truth for workflows is `.github/workflows/`. Key documents:
 Important rules:
 
 - `npm run validate` is the deterministic local gate; the GitHub `merge-gate`
-  is the complete shipping verdict across docs, web/Electron E2E, extensions,
-  and cross-OS packaging.
+  is the complete shipping verdict across the self-host image/API/SPA, docs, web/Electron
+  E2E, extensions, and cross-OS packaging.
 - Release preflight requires that `merge-gate` succeeded for the exact release
   candidate commit before any publication job starts.
-- Releases are not auto-cut on merge. Manual `workflow_dispatch` runs the Release workflow.
+- Ordinary merges do not cut releases. A manual dispatch starts the stable
+  flow; its trusted version-only PR-close event resumes exact-candidate publication.
 - CLI provenance is published via `npm publish --provenance`.
 - Desktop and image provenance use `actions/attest-build-provenance` and can be verified with `gh attestation verify`.
 - SBOMs are generated with `@cyclonedx/cyclonedx-npm` and attached to releases.

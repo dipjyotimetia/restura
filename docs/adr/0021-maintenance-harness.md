@@ -18,7 +18,7 @@ We wanted the assistant (Claude Code) to be able to build and maintain Restura a
 
 Add a **maintenance harness** under `.claude/`, paired with a source-level fix for the type-check gap.
 
-**Source fix (closes the root cause).** Add `npm run type-check:all`, which runs all six `tsc` projects CI uses, and chain it into `npm run validate`. Local `validate` now matches CI. Correct the stale type-check claims in `CLAUDE.md` and `docs/ARCHITECTURE.md`.
+**Source fix (closes the root cause).** Add `npm run type-check:all`, which aggregates every TypeScript project CI used at the time, and chain it into `npm run validate`. The command has since expanded as more workspaces were added. Correct the stale type-check claims in `CLAUDE.md` and `docs/ARCHITECTURE.md`.
 
 **Skill — `restura-production-checks`.** The verify/maintain counterpart to `restura-feature-dev`. `SKILL.md` carries the top gotchas (type-check gap, pre-commit skips tsc, codegen drift gates, capability parity, coverage thresholds, commit scope-enum); `references/` provides progressive disclosure (`verification-gates.md`, `security-checklist.md`, `release-readiness.md`, `docs-parity.md`).
 

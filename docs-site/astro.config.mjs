@@ -233,6 +233,10 @@ export default defineConfig({
                   slug: 'architecture/adrs/0026-electron-csp-and-permission-hardening',
                 },
                 {
+                  label: '0027 — Privacy-preserving usage signal',
+                  slug: 'architecture/adrs/0027-telemetry-and-privacy-preserving-usage-analytics',
+                },
+                {
                   label: '0028 — Codex agentic harness + shipping gates',
                   slug: 'architecture/adrs/0028-codex-agentic-harness-and-shipping-gates',
                 },

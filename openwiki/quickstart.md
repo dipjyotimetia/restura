@@ -89,8 +89,11 @@ npm run start                       # node dist/server/index.mjs
 # CLI
 npm run --workspace cli test
 
-# Full validation (matches CI)
-npm run validate                    # type-check:all -> lint -> fmt -> generated code checks -> tests
+# Coverage-aware local shipping validation
+npm run validate                    # type-check:all -> lint -> fmt -> codegen checks -> coverage -> CLI tests
+
+# Complete GitHub CI verdict
+# merge-gate also requires the shipped self-host image/API/SPA, docs, e2e, extensions, and packaging
 ```
 
 **Traps for agents**
@@ -98,6 +101,9 @@ npm run validate                    # type-check:all -> lint -> fmt -> generated
 - `npm run type-check` only covers the renderer. Use `npm run type-check:all` for the same coverage CI uses.
 - The pre-commit hook runs only `lint-staged` (Biome lint + format). It does not run tests or tsc.
 - Generated code is CI-gated: `npm run verify:opencollection-types` and `npm run capabilities:check` can fail if source-of-truth files changed but outputs were not regenerated.
+- A local `npm run validate` pass is necessary but not the complete shipping
+  verdict; GitHub's `merge-gate` aggregates every required platform job,
+  including the shipped self-hosted image, `/health`, and bundled SPA.
 - Adding a protocol? Put backend-agnostic logic in `shared/protocol/` and add a thin `Fetcher` adapter in `worker/handlers/` and `electron/main/handlers/`.
 
 ---

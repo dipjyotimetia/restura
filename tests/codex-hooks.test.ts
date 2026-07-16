@@ -1,8 +1,23 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseStatusPath } from '../.codex/hooks/_shared.mjs';
+import {
+  contentFingerprint,
+  parseStatusPath,
+  signatureFromDetails,
+  statePath,
+  treeSignature,
+} from '../.codex/hooks/_shared.mjs';
 import { validationDecision } from '../.codex/hooks/stop-policy.mjs';
 
 const repoRoot = resolve(process.cwd());
@@ -69,37 +84,100 @@ describe('Codex stop policy', () => {
   });
 
   it('does not validate a clean tree', () => {
+    expect(validationDecision({ dirty: false, signature: 'a', previous: null })).toBeNull();
+  });
+
+  it('accepts only a matching explicit validation success', () => {
     expect(
-      validationDecision({ dirty: false, signature: 'a', previous: null, passed: false })
+      validationDecision({
+        dirty: true,
+        signature: 'a',
+        previous: { signature: 'a', passed: true },
+      })
     ).toBeNull();
   });
 
-  it('does not block a passing validation', () => {
-    expect(
-      validationDecision({ dirty: true, signature: 'a', previous: null, passed: true })
-    ).toBeNull();
-  });
-
-  it('uses the current Codex stop contract for a new failure', () => {
-    expect(
-      validationDecision({ dirty: true, signature: 'a', previous: null, passed: false })
-    ).toEqual({
+  it('uses the current Codex stop contract when evidence is absent or stale', () => {
+    expect(validationDecision({ dirty: true, signature: 'a', previous: null })).toEqual({
       continue: false,
       stopReason:
-        'Restura validation is not green. Fix the reported npm run validate failure before stopping.',
+        'Restura validation evidence is missing or stale. Run npm run validate explicitly before stopping.',
     });
   });
 
-  it('does not block twice for an unchanged failure', () => {
+  it('continues to block an unchanged explicit failure', () => {
     expect(
       validationDecision({
         dirty: true,
         signature: 'a',
         previous: { signature: 'a', passed: false },
-        passed: false,
       })
-    ).toBeNull();
+    ).not.toBeNull();
   });
+
+  it('fails closed when validation evidence cannot be inspected', () => {
+    const result = runHook('stop-checks.mjs', { cwd: tmpdir(), hook_event_name: 'Stop' });
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      continue: false,
+    });
+    expect(result.stdout).toContain('could not be verified');
+  });
+
+  it('fingerprints file content rather than size and mtime metadata', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'restura-hook-fingerprint-'));
+    const file = join(directory, 'same-size.txt');
+    try {
+      writeFileSync(file, 'first');
+      const before = statSync(file);
+      const first = contentFingerprint('same-size.txt', directory);
+      writeFileSync(file, 'other');
+      utimesSync(file, before.atime, before.mtime);
+      const second = contentFingerprint('same-size.txt', directory);
+      expect(second).not.toBe(first);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('binds validation evidence to the checked-out commit', () => {
+    const details = ['src/example.ts:33188:content'];
+    expect(signatureFromDetails('a'.repeat(40), details)).not.toBe(
+      signatureFromDetails('b'.repeat(40), details)
+    );
+  });
+
+  it('stores bounded state inside the writable ignored worktree directory', () => {
+    expect(statePath('stop-checks.json', repoRoot)).toBe(
+      resolve(repoRoot, '.codex/metrics/stop-checks.json')
+    );
+  });
+
+  it('detects content changes inside an untracked directory', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'restura-hook-untracked-'));
+    try {
+      expect(spawnSync('git', ['init', '-q'], { cwd: directory }).status).toBe(0);
+      expect(
+        spawnSync('git', ['config', 'user.email', 'test@example.com'], { cwd: directory }).status
+      ).toBe(0);
+      expect(spawnSync('git', ['config', 'user.name', 'Test'], { cwd: directory }).status).toBe(0);
+      writeFileSync(join(directory, 'tracked.txt'), 'tracked');
+      expect(spawnSync('git', ['add', 'tracked.txt'], { cwd: directory }).status).toBe(0);
+      expect(spawnSync('git', ['commit', '-qm', 'test'], { cwd: directory }).status).toBe(0);
+
+      const nested = join(directory, 'nested');
+      mkdirSync(nested);
+      writeFileSync(join(nested, 'new-file.ts'), 'first');
+      const first = treeSignature(directory);
+      writeFileSync(join(nested, 'new-file.ts'), 'other');
+      const second = treeSignature(directory);
+
+      expect(first.dirty).toBe(true);
+      expect(second.signature).not.toBe(first.signature);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }, 15_000);
 });
 
 describe('Codex hook configuration', () => {
@@ -117,5 +195,19 @@ describe('Codex hook configuration', () => {
     expect(config.hooks.PostToolUse).toHaveLength(1);
     expect(config.hooks.PreCompact).toHaveLength(1);
     expect(config.hooks.Stop).toHaveLength(1);
+  });
+
+  it('never auto-executes mutable workspace validation or format binaries', () => {
+    const stop = readFileSync(resolve(hooksDir, 'stop-checks.mjs'), 'utf8');
+    const format = readFileSync(resolve(hooksDir, 'format-edit.mjs'), 'utf8');
+    const packageJson = JSON.parse(readFileSync(resolve(repoRoot, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+
+    expect(stop).not.toContain('spawnSync');
+    expect(stop).not.toContain("['run', 'validate']");
+    expect(format).not.toContain('node_modules/.bin/biome');
+    expect(packageJson.scripts.validate).toBe('node scripts/ci/run-validation.mjs');
+    expect(packageJson.scripts['validate:checks']).toContain('npm run test:ci');
   });
 });

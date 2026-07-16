@@ -1,6 +1,6 @@
 ---
 title: Contract tests & CI
-description: How tests/contract/ proves the shared protocol core behaves identically across backends, and where that fits in the single CI gate.
+description: How tests/contract/ proves shared-core parity and how local validation feeds the complete CI merge gate.
 ---
 
 ## What a contract test checks
@@ -31,9 +31,13 @@ Two more gates catch a different class of bug: generated files that have gone st
 
 Both are "generated file is out of date" checks, not functional tests — fix them by running the corresponding `gen:*` script and committing the result, not by hand-editing the generated file.
 
-## The single CI gate
+## Local validation and the complete CI gate
 
-`npm run validate` is the type-check, lint, format, codegen-drift, and unit-test slice of the pipeline. It chains `type-check:all` → `lint` → `format:check` → `verify:opencollection-types` → `capabilities:check` → `test:run` → the CLI workspace's own test suite.
+`npm run validate` is the coverage-aware local slice of the pipeline. It chains
+`type-check:all` → `lint` → `format:check` →
+`verify:opencollection-types` → `capabilities:check` → `test:ci` → the CLI
+workspace's own tests. The explicit command also records content-bound evidence
+for the repository's Codex stop policy.
 
 Run the whole thing locally before opening a PR:
 
@@ -41,7 +45,14 @@ Run the whole thing locally before opening a PR:
 npm run validate
 ```
 
-`validate` is one slice of a larger pipeline — build, bundle-size checks, Playwright end-to-end (web and Electron), the docs site build, and PR preview deploy all run alongside it in CI. Rather than duplicate that pipeline here, see [`docs/CI_CD.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/CI_CD.md) on GitHub for the full breakdown of workflows, required status checks, and branch protection.
+`validate` is one slice of a larger pipeline. GitHub's fail-closed `merge-gate`
+also requires the web/Worker build, shipped self-hosted image and API/SPA smoke,
+bundle-size checks, Playwright end-to-end (web and Electron), Chrome and VS Code
+extension validation, the docs build, and cross-OS Electron packaging. It runs
+on pull requests and pushes to `main`, and releases accept only a successful
+gate produced for the exact candidate SHA. See
+[`docs/CI_CD.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/CI_CD.md)
+for the workflow and live-ruleset details.
 
 ## Related
 

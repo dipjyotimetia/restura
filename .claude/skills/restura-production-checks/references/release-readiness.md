@@ -1,6 +1,9 @@
 # Release / deploy readiness
 
-`validate` proves the code is correct. These prove it _ships_. Run before a release tag or a deploy. Source: `package.json` scripts, `electron-builder.json`, `.github/workflows/release.yml`, `scripts/`.
+`validate` is the coverage-aware local gate. These checks plus GitHub's
+`merge-gate` prove the branch _ships_ across its supported surfaces. Run them
+before a release tag or deploy. Source: `package.json` scripts,
+`electron-builder.json`, `.github/workflows/{ci,release}.yml`, and `scripts/`.
 
 ## Builds (a type-clean change can still fail a build)
 
@@ -13,18 +16,25 @@
 
 ## Pre-release checklist
 
-1. `npm run validate` clean (all six type-checks, lint, codegen, tests).
+1. `npm run validate` clean (all TypeScript projects, Biome, codegen, root coverage, CLI tests).
 2. `npm run size` under budget (`size-limit`).
 3. `npm run build` succeeds; web bundle present.
-4. `npm run electron:pack` succeeds on at least the host OS; CI `electron-pack-smoke` covers the matrix.
-5. `node scripts/verify-asar-renderer.mjs` passes — guards against `dist/web` layout drift breaking the packaged renderer entry.
-6. Docs in parity (`references/docs-parity.md`), `npm run docs:check` clean.
-7. `npm audit --audit-level=critical` clean (weekly CI is non-blocking — check it for a release).
-8. Capability matrix current (`npm run capabilities:check`).
+4. `npm run build:docker` succeeds and the self-hosted server answers `/health`.
+5. `npm run electron:pack` succeeds on at least the host OS; CI `electron-smoke` covers the cross-OS matrix.
+6. `node scripts/verify-asar-renderer.mjs` passes — guards against `dist/web` layout drift breaking the packaged renderer entry.
+7. Docs in parity (`references/docs-parity.md`), `npm run docs:check` clean.
+8. `npm audit --audit-level=critical` clean (weekly CI is non-blocking — check it for a release).
+9. Capability matrix current (`npm run capabilities:check`).
+10. A trusted GitHub Actions `merge-gate` from this repository's CI workflow on a `main` push is green for the exact candidate SHA.
 
-## Release workflow (`release.yml`, manual `workflow_dispatch`)
+## Release workflow (`release.yml`)
 
-Inputs: `release_bump` (patch/minor/major), `prerelease`, `prerelease_identifier`, `publish_docker`. Flow: preflight validate → semver bump → commit + tag → release notes (git-cliff) → SBOM → fan-out: `desktop` (electron installers, all platforms), `publish-cli` (npm, stable only), `publish-docker` (GHCR, opt-in), `deploy-web` (Cloudflare, stable only).
+Inputs: `release_bump` (patch/minor/major), `prerelease`,
+`prerelease_identifier`, `publish_docker`, plus recovery/repair inputs. A manual
+stable dispatch opens and merges a trusted version-only PR; its close event
+resumes publication. Preflight resolves one candidate SHA, verifies its trusted
+CI proof, and propagates that SHA through tag verification, notes/SBOM, and the
+desktop, CLI, Docker, and web fan-out.
 
 - macOS builds are notarized (`docs/notary.md`); Sentry sourcemaps uploaded via `scripts/sentry-sourcemaps.mjs` on publish.
 - CLI publishes from the `cli/` workspace; Docker from the repo Dockerfile.

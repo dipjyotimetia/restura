@@ -5,9 +5,38 @@ import { fileURLToPath } from 'node:url';
 const delay = (milliseconds) =>
   new Promise((resolveDelay) => setTimeout(resolveDelay, milliseconds));
 
-export function selectCheckRun(checkRuns, sha, name) {
+function trustedActionsRunId(checkRun, owner, repo) {
+  if (checkRun?.app?.slug !== 'github-actions') return null;
+  try {
+    const details = new URL(checkRun.details_url);
+    const segments = details.pathname.split('/').filter(Boolean);
+    if (
+      details.protocol !== 'https:' ||
+      details.hostname !== 'github.com' ||
+      segments[0] !== owner ||
+      segments[1] !== repo ||
+      segments[2] !== 'actions' ||
+      segments[3] !== 'runs' ||
+      !/^\d+$/.test(segments[4] || '') ||
+      segments[5] !== 'job' ||
+      !/^\d+$/.test(segments[6] || '')
+    ) {
+      return null;
+    }
+    return segments[4];
+  } catch {
+    return null;
+  }
+}
+
+export function selectCheckRun(checkRuns, sha, name, owner, repo) {
   const run = checkRuns
-    .filter((candidate) => candidate?.name === name && candidate?.head_sha === sha)
+    .filter(
+      (candidate) =>
+        candidate?.name === name &&
+        candidate?.head_sha === sha &&
+        trustedActionsRunId(candidate, owner, repo)
+    )
     .sort((left, right) => Number(right.id || 0) - Number(left.id || 0))[0];
   if (!run) return { state: 'missing', message: `${name} is not present on ${sha}` };
   if (run.status !== 'completed') {
@@ -21,6 +50,28 @@ export function selectCheckRun(checkRuns, sha, name) {
     message: `${name} completed with ${run.conclusion || 'no conclusion'}`,
     run,
   };
+}
+
+export function validateWorkflowRun(workflowRun, { owner, repo, sha }) {
+  if (workflowRun?.repository?.full_name !== `${owner}/${repo}`) {
+    return 'workflow repository does not match the release repository';
+  }
+  if (workflowRun?.path !== '.github/workflows/ci.yml') {
+    return 'workflow path is not .github/workflows/ci.yml';
+  }
+  if (workflowRun?.event !== 'push') {
+    return 'workflow is not a push event';
+  }
+  if (workflowRun?.head_branch !== 'main') {
+    return 'workflow is not a main branch run';
+  }
+  if (workflowRun?.head_sha !== sha) {
+    return 'workflow head SHA does not match the release candidate';
+  }
+  if (workflowRun?.conclusion !== 'success') {
+    return `workflow conclusion is ${workflowRun?.conclusion || 'missing'}`;
+  }
+  return null;
 }
 
 export async function waitForCheckRun({
@@ -57,13 +108,36 @@ export async function waitForCheckRun({
     const selection = selectCheckRun(
       Array.isArray(payload?.check_runs) ? payload.check_runs : [],
       sha,
-      name
+      name,
+      owner,
+      repo
     );
     if (selection.message !== lastMessage) {
       onState(selection.message);
       lastMessage = selection.message;
     }
-    if (selection.state === 'success') return selection.run;
+    if (selection.state === 'success') {
+      const actionsRunId = trustedActionsRunId(selection.run, owner, repo);
+      if (!actionsRunId) throw new Error('successful check is not from trusted GitHub Actions');
+      const workflowResponse = await fetchImpl(
+        `https://api.github.com/repos/${owner}/${repo}/actions/runs/${actionsRunId}`,
+        {
+          headers: {
+            Accept: 'application/vnd.github+json',
+            Authorization: `Bearer ${token}`,
+            'X-GitHub-Api-Version': '2022-11-28',
+          },
+        }
+      );
+      if (!workflowResponse.ok) {
+        throw new Error(`GitHub Actions Runs API returned HTTP ${workflowResponse.status}`);
+      }
+      const workflowRun = await workflowResponse.json();
+      const validationError = validateWorkflowRun(workflowRun, { owner, repo, sha });
+      if (validationError)
+        throw new Error(`Trusted workflow verification failed: ${validationError}`);
+      return selection.run;
+    }
     if (selection.state === 'failure') throw new Error(selection.message);
     if (now() - startedAt >= timeoutMs) {
       throw new Error(`Timed out waiting for ${name} on ${sha}`);

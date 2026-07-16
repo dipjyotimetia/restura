@@ -12,18 +12,19 @@ Determine the diff under review: `git diff --stat main...HEAD` and `git status -
 
 ## Gates (run all; capture pass/fail + output)
 
-1. **Type-check (all six projects)** — `npm run type-check:all`. NOTE: plain `type-check` only covers the renderer; this is the real gate. If it fails but renderer is clean, the error is in worker/electron-main/cli/echo/http.
+1. **Type-check (all projects)** — `npm run type-check:all`. NOTE: plain `type-check` only covers the renderer; the aggregate command also covers Worker, Electron, CLI, echo, HTTP, and extension projects.
 2. **Lint** — `npm run lint`.
 3. **Codegen freshness** — `npm run verify:opencollection-types` and `npm run capabilities:check`. On failure, the fix is to regenerate (`gen:opencollection-types` / `capabilities:matrix`), not hand-edit.
-4. **Unit/integration + coverage** — `npm run test:run`.
+4. **Unit/integration + coverage** — `npm run test:ci` (normally through `npm run validate`).
 5. **Agent review fan-out** — dispatch every applicable reviewer **in parallel** (one message, multiple Task calls — they are independent; serializing them wastes the wall-clock of every faster agent):
    - `restura-security-auditor` — if the diff touches `shared/protocol/`, `electron/main/*-guard.ts`, `dns-guard.ts`, `ipc-validators.ts`, secret stores, or sandboxes. Also confirm the relevant `tests/security/*` passed in step 4.
    - `restura-parity-checker` — if the diff adds/changes a protocol or networked feature.
    - `restura-docs-steward` — always (CI has no content-parity gate). Run `npm run docs:check` alongside it.
    - **Fresh-context code review** — for any non-trivial diff, also run the built-in `/code-review` skill. A reviewer that did not write the code is not influenced by the authoring session's reasoning; the agents above check domain properties, this one checks correctness.
-6. **Builds** (unless `--quick`) — `npm run build` and `npm run electron:compile`. Start these as **background Bash** in the same message as the agent dispatch so they overlap the fan-out — running them afterwards serializes the two slowest gates.
+6. **Builds** (unless `--quick`) — `npm run build`, `npm run build:docker`, and `npm run electron:compile`. Start these as **background Bash** in the same message as the agent dispatch so they overlap the fan-out — running them afterwards serializes the slowest gates.
 7. **Bundle size** (only `--full`) — `npm run size`.
 8. **e2e** (only `--full`, or if protocol/transport changed) — `npm run test:e2e`.
+9. **Complete CI verdict** — local commands do not replace the GitHub `merge-gate`, which must succeed for the exact branch SHA before shipping.
 
 ## Output
 

@@ -8,10 +8,10 @@ description: Run Restura pre-shipping validation, builds, platform reviews, docu
 Load `restura-production-checks`, inspect the diff against `main`, and collect a
 single evidence table.
 
-Run `npm run validate`, `npm run build`, `npm run electron:compile`, and
-`npm run size`. Run browser and Electron E2E when the diff touches a protocol,
-transport, or UI execution path. Confirm the Cloudflare Worker, self-hosted Node,
-and Electron surfaces remain represented.
+Run `npm run validate`, `npm run build`, `npm run build:docker`,
+`npm run electron:compile`, and `npm run size`. Run browser and Electron E2E
+when the diff touches a protocol, transport, or UI execution path. Confirm the
+Cloudflare Worker, self-hosted Node, and Electron surfaces remain represented.
 
 Before publication, run independent `restura-security-auditor`,
 `restura-parity-checker`, and `restura-docs-steward` reviews plus a fresh-context

@@ -11,15 +11,15 @@ checks, root Vitest with coverage budgets, and CLI tests. Plain
 `npm run type-check` covers only the renderer.
 
 The complete GitHub verdict is `merge-gate`. It aggregates core validation,
-the Cloudflare Worker and self-hosted Node build surface, Electron tests and
+the Cloudflare Worker and shipped self-hosted image/API/SPA surface, Electron tests and
 cross-OS packaging smoke, browser E2E, Chrome extension E2E, VS Code tests, and
 documentation builds. A release must use a successful `merge-gate` from the
 exact candidate SHA.
 
 Before shipping:
 
-1. Run `npm run validate`, `npm run build`, `npm run electron:compile`, and
-   `npm run size`.
+1. Run `npm run validate`, `npm run build`, `npm run build:docker`,
+   `npm run electron:compile`, and `npm run size`.
 2. Run applicable browser/Electron E2E and the mapped security tests from
    `references/security-checklist.md`.
 3. Request independent review from `restura-security-auditor`,

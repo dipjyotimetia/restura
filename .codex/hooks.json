@@ -20,8 +20,8 @@
           {
             "type": "command",
             "command": "node \"$(git rev-parse --show-toplevel)/.codex/hooks/format-edit.mjs\"",
-            "timeout": 30,
-            "statusMessage": "Formatting edited files"
+            "timeout": 10,
+            "statusMessage": "Recording edited files"
           }
         ]
       }
@@ -43,8 +43,8 @@
           {
             "type": "command",
             "command": "node \"$(git rev-parse --show-toplevel)/.codex/hooks/stop-checks.mjs\"",
-            "timeout": 610,
-            "statusMessage": "Running Restura validation"
+            "timeout": 10,
+            "statusMessage": "Checking Restura validation evidence"
           }
         ]
       }

@@ -10,8 +10,9 @@ use this page for runtime wiring and lifecycle diagnostics.
   maintenance, and shipping workflows that Codex discovers for this repo.
 - `.codex/agents/` contains read-only Restura security, platform-parity, and
   documentation reviewers. They report findings; the primary agent owns edits.
-- `.codex/config.toml` bounds parallelism, registers those agents, and starts
-  the Chrome DevTools MCP through the pinned launcher.
+- `.codex/config.toml` bounds parallelism and starts the Chrome DevTools MCP
+  through the pinned launcher; Codex discovers reviewer definitions from
+  `.codex/agents/`.
 - `.codex/hooks.json` defines repository lifecycle hooks. Inspect them with
   Codex `/hooks`; inspect the registered Chrome DevTools server with `/mcp`.
 
@@ -20,11 +21,15 @@ use this page for runtime wiring and lifecycle diagnostics.
 The committed hooks are deterministic repository policy, not a secret-bearing
 personal configuration:
 
-- generated files are blocked before edits;
-- edited source files are formatted with Biome;
-- pre-compaction summaries are written under the worktree's Git metadata;
-- the stop hook runs `npm run validate`, deduplicates an unchanged result, and
-  records bounded diagnostics under Git metadata.
+- generated-file edits through the Codex edit tools are rejected with source
+  and regeneration guidance;
+- edited paths are recorded under the worktree-local ignored `.codex/metrics/`
+  directory for bounded
+  diagnostics, without executing mutable workspace tools;
+- pre-compaction events are recorded under ignored `.codex/metrics/` state;
+- an explicit `npm run validate` records content-bound validation evidence in
+  that worktree-local directory, and the stop hook only accepts matching successful
+  evidence. It never launches repository package scripts automatically.
 
 Machine-local `.claude/settings.local.json`, MCP npm cache data under
 `.codex/cache/`, and metrics under `.codex/metrics/` remain ignored and must not
@@ -39,9 +44,10 @@ runs Biome and generated-file drift checks, enforces capability parity, executes
 Vitest with coverage budgets, and tests the CLI.
 
 Local validation is not the complete cross-platform verdict. GitHub's
-`merge-gate` aggregates validation, docs, browser and Electron E2E, browser and
-VS Code extensions, and cross-OS Electron packaging. Release preflight waits
-for that check on the exact candidate commit before publishing.
+`merge-gate` aggregates validation, the shipped self-hosted image plus API/SPA
+smoke, docs, browser and Electron E2E, browser and VS Code extensions, and cross-OS
+Electron packaging. Release preflight accepts only the trusted CI workflow's
+check on the exact candidate commit before publishing.
 
 Live branch rules are administrative state. The repository documents their
 observed state and recommended update in `docs/CI_CD.md`; agents must not mutate

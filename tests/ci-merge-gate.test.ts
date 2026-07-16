@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateMergeGate } from '../scripts/ci/assert-merge-gate.mjs';
+import { evaluateMergeGate, REQUIRED_JOBS } from '../scripts/ci/assert-merge-gate.mjs';
 
 const requiredJobs = [
   'validate',
+  'self-host-smoke',
   'electron-smoke',
   'e2e',
   'e2e-extension',
@@ -14,6 +15,10 @@ const requiredJobs = [
 const successNeeds = Object.fromEntries(requiredJobs.map((name) => [name, { result: 'success' }]));
 
 describe('CI merge-gate evaluation', () => {
+  it('includes the self-hosted Node shipping surface', () => {
+    expect(REQUIRED_JOBS).toContain('self-host-smoke');
+  });
+
   it('passes only when every required job succeeds', () => {
     expect(evaluateMergeGate(successNeeds, new Set())).toEqual({ ok: true, errors: [] });
   });

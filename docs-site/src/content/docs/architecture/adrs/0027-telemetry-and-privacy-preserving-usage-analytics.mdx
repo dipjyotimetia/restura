@@ -1,0 +1,49 @@
+---
+title: ADR 0027 — Privacy-preserving usage signal
+description: Explicit desktop Release Health sessions and infrastructure-only web metrics, without per-user analytics or application-level request counting.
+sidebar:
+  order: 27
+---
+
+import { Badge } from '@astrojs/starlight/components';
+
+<Badge text="Accepted · 2026-07-03" variant="success" />
+
+## Context
+
+Restura already supported opt-out crash and error reporting, but its anonymous
+desktop session signal was undocumented and the project had no explicit
+boundary for usage analytics. The goal was to understand aggregate adoption
+without request instrumentation, device identifiers, or behavioural profiles.
+
+## Decision
+
+- Keep Sentry tracing disabled and continue scrubbing request context, hostnames,
+  users, stack locals, breadcrumbs, secrets, and file paths.
+- Explicitly enable Sentry Release Health sessions for opted-in desktop users.
+  These anonymous session envelopes support crash-free rate and version-adoption
+  reporting without a device or user identifier.
+- Rely on Cloudflare's existing infrastructure dashboard for hosted web request
+  volume and add no application-level counter or analytics SDK.
+- Collect no usage analytics in the self-hosted Node server.
+- Reject the proposed Workers Analytics Engine middleware because per-request
+  product telemetry adds unnecessary surface while infrastructure metrics meet
+  the current need.
+- Describe the posture as no per-user tracking or behavioural profiling, and
+  disclose the anonymous aggregate desktop signal consistently.
+
+## Consequences
+
+- Restura can estimate aggregate desktop adoption and web traffic without a
+  persistent identity or new app-level web collection.
+- Opting out of error reporting also prevents desktop sessions on the next
+  launch, while self-hosters retain a no-usage-collection guarantee.
+- The project deliberately cannot report a precise unique-user count, and any
+  richer signal requires a new decision at the same privacy bar or explicit
+  opt-in.
+
+## Related
+
+- [ADR 0004 — Security hardening](/architecture/adrs/0004-security-hardening/)
+- [ADR 0007 — SecretRef pattern](/architecture/adrs/0007-secret-ref-pattern/)
+- [ADR 0026 — Electron CSP and permission hardening](/architecture/adrs/0026-electron-csp-and-permission-hardening/)

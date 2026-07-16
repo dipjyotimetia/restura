@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -42,8 +42,9 @@ describe('agentic harness package scripts', () => {
   });
 
   it('makes validate coverage-aware', () => {
-    expect(packageJson.scripts.validate).toContain('npm run test:ci');
-    expect(packageJson.scripts.validate).not.toContain('npm run test:run');
+    expect(packageJson.scripts.validate).toBe('node scripts/ci/run-validation.mjs');
+    expect(packageJson.scripts['validate:checks']).toContain('npm run test:ci');
+    expect(packageJson.scripts['validate:checks']).not.toContain('npm run test:run');
   });
 
   it('keeps agent and CI control-plane tooling outside the product coverage budget', () => {
@@ -114,11 +115,16 @@ describe('complete CI merge gate', () => {
     expect(ci).toContain('    name: merge-gate');
     expect(ci).toContain('    if: always()');
     expect(ci).toContain(
-      '    needs: [validate, electron-smoke, e2e, e2e-extension, e2e-electron, vscode-extension-e2e, docs]'
+      '    needs: [validate, self-host-smoke, electron-smoke, e2e, e2e-extension, e2e-electron, vscode-extension-e2e, docs]'
     );
     expect(ci).toContain('NEEDS_JSON: ${{ toJSON(needs) }}');
     expect(ci).toContain('node scripts/ci/assert-merge-gate.mjs');
     expect(ci).toContain('electron-smoke,e2e-electron,vscode-extension-e2e');
+    const selfHost = workflowJob(ci, 'self-host-smoke');
+    expect(selfHost).toContain('docker build');
+    expect(selfHost).toContain('docker run');
+    expect(selfHost).toContain('/health');
+    expect(selfHost).toContain('http://127.0.0.1:31337/');
   });
 
   it('runs required platform jobs for pushes to main as well as pull requests', () => {
@@ -150,15 +156,39 @@ describe('complete CI merge gate', () => {
   });
 });
 
+describe('agent runtime build-context isolation', () => {
+  it('never sends machine-local Claude or Codex state to Docker builds', () => {
+    const dockerignore = readFileSync(resolve(process.cwd(), '.dockerignore'), 'utf8');
+    for (const path of [
+      '.claude/settings.local.json',
+      '.claude/metrics',
+      '.codex/cache',
+      '.codex/metrics',
+    ]) {
+      expect(dockerignore).toContain(path);
+    }
+  });
+});
+
 describe('agentic harness documentation truth', () => {
   const agents = readFileSync(resolve(process.cwd(), 'AGENTS.md'), 'utf8');
   const claude = readFileSync(resolve(process.cwd(), 'CLAUDE.md'), 'utf8');
   const ciDocs = readFileSync(resolve(process.cwd(), 'docs/CI_CD.md'), 'utf8');
+  const quickstart = readFileSync(resolve(process.cwd(), 'openwiki/quickstart.md'), 'utf8');
   const testing = readFileSync(resolve(process.cwd(), 'openwiki/testing/index.md'), 'utf8');
   const operations = readFileSync(resolve(process.cwd(), 'openwiki/operations/index.md'), 'utf8');
+  const readme = readFileSync(resolve(process.cwd(), 'README.md'), 'utf8');
+  const devSetup = readFileSync(
+    resolve(process.cwd(), 'docs-site/src/content/docs/contributing/dev-setup.mdx'),
+    'utf8'
+  );
+  const contractCi = readFileSync(
+    resolve(process.cwd(), 'docs-site/src/content/docs/testing/contract-and-ci.mdx'),
+    'utf8'
+  );
 
   it('documents local coverage validation, the full CI gate, and exact-SHA release proof', () => {
-    for (const text of [agents, claude, ciDocs, testing, operations]) {
+    for (const text of [agents, claude, ciDocs, quickstart, testing, operations]) {
       expect(text).toContain('npm run validate');
       expect(text).toContain('merge-gate');
     }
@@ -174,10 +204,97 @@ describe('agentic harness documentation truth', () => {
     expect(testing).not.toContain('zeroes all thresholds');
   });
 
+  it('does not retain the superseded claim that local validation is all of CI', () => {
+    const adr = readFileSync(
+      resolve(process.cwd(), 'docs/adr/0021-maintenance-harness.md'),
+      'utf8'
+    );
+    const siteAdr = readFileSync(
+      resolve(
+        process.cwd(),
+        'docs-site/src/content/docs/architecture/adrs/0021-maintenance-harness.mdx'
+      ),
+      'utf8'
+    );
+    expect(quickstart).not.toContain('Full validation (matches CI)');
+    expect(adr).not.toContain('Local `validate` now matches CI');
+    expect(siteAdr).not.toContain('Local `validate` now matches CI');
+    expect(readme).not.toContain('tests (same as CI)');
+    expect(devSetup).not.toContain('The full gate:');
+    expect(contractCi).not.toContain('The single CI gate');
+  });
+
+  it('keeps Claude and public validation guidance aligned with the coverage-aware gate', () => {
+    const claudeSkill = readFileSync(
+      resolve(process.cwd(), '.claude/skills/restura-production-checks/SKILL.md'),
+      'utf8'
+    );
+    const claudeShipCheck = readFileSync(
+      resolve(process.cwd(), '.claude/commands/ship-check.md'),
+      'utf8'
+    );
+    const claudeGates = readFileSync(
+      resolve(
+        process.cwd(),
+        '.claude/skills/restura-production-checks/references/verification-gates.md'
+      ),
+      'utf8'
+    );
+
+    for (const text of [claudeSkill, claudeShipCheck, claudeGates, devSetup, contractCi]) {
+      expect(text).toContain('test:ci');
+      expect(text).toContain('merge-gate');
+    }
+    expect(claudeSkill).toContain('5,226');
+    expect(claudeSkill).toContain('4,378');
+    expect(claudeSkill).not.toContain('lines 80 / functions 78 / branches 61 / statements 78');
+    expect(claudeShipCheck).toContain('npm run build:docker');
+    expect(claudeGates).toContain('self-host-smoke');
+    expect(claudeGates).toContain('pushes to `main`');
+  });
+
+  it('keeps Codex documentation ownership and lifecycle guidance accurate', () => {
+    const docsSync = readFileSync(
+      resolve(process.cwd(), '.agents/skills/docs-sync/SKILL.md'),
+      'utf8'
+    );
+    const docsParity = readFileSync(
+      resolve(process.cwd(), '.agents/skills/restura-production-checks/references/docs-parity.md'),
+      'utf8'
+    );
+    const codexReadme = readFileSync(resolve(process.cwd(), '.codex/README.md'), 'utf8');
+
+    expect(docsSync).toContain(
+      '.agents/skills/restura-production-checks/references/docs-parity.md'
+    );
+    for (const path of [
+      'README.md',
+      'openwiki/quickstart.md',
+      'docs-site/src/content/docs/contributing/dev-setup.mdx',
+      'docs-site/src/content/docs/testing/contract-and-ci.mdx',
+    ]) {
+      expect(docsParity).toContain(path);
+    }
+    expect(agents).toContain('.agents/skills/verify-ui-change/SKILL.md');
+    expect(codexReadme).toContain('.codex/metrics/');
+    expect(codexReadme).toContain('explicit `npm run validate`');
+    expect(codexReadme).not.toContain('edited source files are formatted with Biome');
+    expect(codexReadme).not.toContain('the stop hook runs `npm run validate`');
+  });
+
   it('separates observed live rules from the deferred administrative recommendation', () => {
     expect(ciDocs).toContain('Currently observed live rules');
     expect(ciDocs).toContain('Deferred administrative follow-up');
+    expect(ciDocs).toContain('Main protection with');
+    expect(ciDocs).toContain('Copilot review for default branch');
     expect(ciDocs).toContain('require `merge-gate`');
+    expect(ciDocs).toMatch(/self-hosted\s+Node image/);
+  });
+
+  it('describes manual release initiation and trusted PR-close continuation accurately', () => {
+    expect(ciDocs).toContain('manually starts');
+    expect(ciDocs).toContain('PR-close');
+    expect(ciDocs).not.toContain('Production ships only from a\n> manually-dispatched');
   });
 
   it('provides a Codex harness reference', () => {
@@ -204,6 +321,19 @@ describe('agentic harness documentation truth', () => {
     expect(adr).toContain('Exact-commit release proof');
     expect(siteIndex).toContain('0028 — Codex agentic harness and shipping gates');
     expect(siteConfig).toContain('0028-codex-agentic-harness-and-shipping-gates');
+  });
+
+  it('publishes every canonical ADR number in the docs site', () => {
+    const canonicalNumbers = readdirSync(resolve(process.cwd(), 'docs/adr'))
+      .map((name) => name.match(/^(\d{4})-.*\.md$/)?.[1])
+      .filter((number): number is string => number !== undefined);
+    const siteNumbers = new Set(
+      readdirSync(resolve(process.cwd(), 'docs-site/src/content/docs/architecture/adrs'))
+        .map((name) => name.match(/^(\d{4})-.*\.mdx$/)?.[1])
+        .filter((number): number is string => number !== undefined)
+    );
+
+    expect(canonicalNumbers.filter((number) => !siteNumbers.has(number))).toEqual([]);
   });
 
   it('does not track machine-local Claude settings', () => {

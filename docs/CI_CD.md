@@ -21,13 +21,14 @@ secret scanning, required reviewers, secrets).
 | **Security Audit**        | `.github/workflows/security-audit.yml`           | weekly, manual                           | Non-blocking `npm audit --audit-level=critical` (visibility net; Dependabot is the fix path).                                                                           |
 | **Dependabot auto-merge** | `.github/workflows/dependabot-auto-merge.yml`    | PR (Dependabot only)                     | Enables auto-merge for patch/minor dependency updates once required checks pass (no self-approval — see §4).                                                            |
 | **OpenWiki update**       | `.github/workflows/openwiki-update.yml`          | daily, manual                            | Runs [OpenWiki](https://github.com/langchain-ai/openwiki) against OpenRouter to diff recent commits and open a PR updating `openwiki/`, the agent-facing docs (see §8). |
-| **Release**               | `.github/workflows/release.yml`                  | **manual** (`workflow_dispatch`)         | Versioned, attested release: tag → notes → SBOM → desktop installers → npm CLI → Docker → Cloudflare.                                                                   |
+| **Release**               | `.github/workflows/release.yml`                  | manual dispatch + trusted release-PR close | Versioned, attested release: prepare by dispatch, then publish the exact merged candidate after its complete CI proof.                                                  |
 | **VS Code extension**     | `.github/workflows/extension-vscode-release.yml` | tag `vscode-v*.*.*` + manual dry-run     | Package + publish `restura-vscode` to the VS Code Marketplace + Open VSX; attach `.vsix` to a GitHub release.                                                           |
 | **Chrome extension**      | `.github/workflows/extension-chrome-release.yml` | tag `chrome-v*.*.*` + manual dry-run     | Build + zip the MV3 bundle, upload to the Chrome Web Store; attach `.zip` to a GitHub release.                                                                          |
 
-> Releases are **never** cut on merge to `main`. Production ships only from a
-> manually-dispatched **Release** run (desktop/web/CLI) or a pushed `*-v*` tag
-> (extensions). See the [release runbook](#release-runbook) below and the
+> Ordinary merges to `main` never cut a release. A maintainer manually starts
+> the stable release flow; after its trusted version-only PR merges, the PR-close
+> event resumes publication for that exact candidate. Extensions still publish
+> from explicit `*-v*` tags. See the [release runbook](#release-runbook) and the
 > dedicated [extension release runbook](./EXTENSION_RELEASE.md).
 
 ---
@@ -70,9 +71,10 @@ These cannot be committed to the repo — enable them in the GitHub UI / CLI.
 
 #### Currently observed live rules
 
-The repository ruleset was inspected on 2026-07-16. The live `main` rule
-requires the `validate` status check and one approving review, dismisses stale
-reviews, and blocks force-pushes and deletions. Conversation resolution, Code
+The repository rulesets were inspected on 2026-07-16. **Main protection with
+release-bot bypass** requires the `validate` status check and one approving
+review and dismisses stale reviews. **Copilot review for default branch** owns
+the deletion and non-fast-forward protections. Conversation resolution, Code
 Owner review, and approval of the most recent push were not enabled. This is an
 observed-state record, not evidence that the settings are enforced by files in
 this repository.
@@ -80,17 +82,18 @@ this repository.
 #### Deferred administrative follow-up
 
 After this branch lands and GitHub has created the new check context, update the
-repository ruleset to require `merge-gate` (replacing the narrower `validate`
+status-check ruleset to require `merge-gate` (replacing the narrower `validate`
 requirement), keep branches up to date, and enable conversation resolution.
 Consider Code Owner review, last-push approval, and signed commits according to
 the maintainer policy. This repository change deliberately does not mutate live
 GitHub administration.
 
 `npm run validate` is the coverage-aware local shipping gate. `merge-gate` is
-the single complete CI verdict: it fails unless `validate`, the docs build, web
-and Electron E2E, browser and VS Code extension E2E, and every cross-OS Electron
-packaging smoke job succeed. The only permitted skips are the documented native
-jobs on Dependabot pull requests. Do **not** require `Deploy preview`, which is
+the single complete CI verdict: it fails unless `validate`, the shipped
+self-hosted Node image build plus API/SPA smoke, the docs build, web and Electron
+E2E, browser and VS Code extension E2E, and every cross-OS Electron packaging
+smoke job succeed. The only permitted skips are the documented native jobs on
+Dependabot pull requests. Do **not** require `Deploy preview`, which is
 intentionally absent for forked pull requests.
 
 Keep the **Main protection with release-bot bypass** ruleset's pull-request-only
@@ -264,8 +267,10 @@ requests` error.
 3. For a stable release, the generated `chore(release): vX.Y.Z` version-only
    PR is immediately merged by `restura-bot` through its App-only bypass; it
    does not wait for candidate-PR CI. The merged PR starts a publish workflow,
-   but preflight waits for `merge-gate` success on the exact candidate SHA. The
-   workflow uses that exact merge commit, so later `main` commits are excluded.
+   but preflight accepts `merge-gate` only from this repository's CI workflow
+   run on a `main` push for the exact candidate SHA. The workflow propagates that
+   immutable merge commit through every checkout, so later `main` commits are
+   excluded.
 4. The publish run: **preflight** (exact-SHA CI proof + build surfaces) → **release**
    (tag, notes, SBOM, draft release) → fan-out (**desktop**, **publish-cli**,
    **publish-docker**, **deploy-web**) → **publish-release** (flips the draft to

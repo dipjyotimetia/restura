@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 import { appendFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
-import { readPayload, repoRoot } from './_shared.mjs';
+import { readPayload, repoRoot, statePath } from './_shared.mjs';
 
 try {
   const payload = readPayload();
   const root = repoRoot(payload?.cwd || process.cwd());
-  const directory = path.resolve(root, '.codex/metrics');
+  const directory = path.dirname(statePath('compaction.log', root));
   mkdirSync(directory, { recursive: true });
   appendFileSync(
     path.resolve(directory, 'compaction.log'),

@@ -30,13 +30,15 @@ Publish shared workflows under `.agents/skills/`, read-only Restura reviewers
 under `.codex/agents/`, and bounded lifecycle hooks through
 `.codex/hooks.json`. Pin the Chrome DevTools MCP launcher, keep its npm cache
 repository-local and ignored, and document runtime inspection in
-`.codex/README.md`. Hook state is worktree-aware and stored under Git metadata;
-machine-local settings and diagnostics are never tracked.
+`.codex/README.md`. Hook state is worktree-aware and stored under the ignored
+`.codex/metrics/` directory; machine-local settings and diagnostics are never tracked.
 
-Generated-source edits are blocked before mutation, edited files are formatted
-with Biome, compaction records a bounded handoff, and the stop hook runs the
-deterministic local gate with an unchanged-state deduplication guard. These are
-repository policies, not substitutes for human authorization or CI.
+Generated-source edits through Codex edit tools are blocked before mutation,
+edited paths and compaction events are recorded in bounded ignored state, and
+hooks never automatically execute mutable workspace tooling. An explicit
+`npm run validate` records content-and-commit-bound success evidence under the
+worktree-local metrics directory; the stop hook accepts only matching evidence and otherwise fails
+closed. These policies do not substitute for human authorization or CI.
 
 ### Coverage-aware clean-checkout validation
 
@@ -49,8 +51,9 @@ thresholds.
 ### One complete CI verdict
 
 Add a `merge-gate` job that evaluates every required validation and shipping
-surface: core validation, documentation, browser and Electron E2E, browser and
-VS Code extension E2E, and cross-OS Electron packaging. Missing, pending,
+surface: core validation, the shipped self-hosted image and API/SPA smoke,
+documentation, browser and Electron E2E, browser and VS Code extension E2E,
+and cross-OS Electron packaging. Missing, pending,
 failed, cancelled, timed-out, or unapproved skipped jobs fail closed. Only the
 explicit native-job skip set for Dependabot pull requests is allowed.
 
@@ -60,9 +63,13 @@ created by the release-bot bypass receives the same complete verdict.
 ### Exact-commit release proof
 
 Release preflight resolves one immutable candidate SHA and polls GitHub Checks
-for a successful `merge-gate` attached to that exact SHA. Missing, pending, or
-failed evidence prevents every publish job. Stable preparation, recovery, and
-tag-repair paths all use the same proof boundary.
+for a successful `merge-gate` attached to that exact SHA. It trusts only a
+GitHub Actions check whose details identify this repository's CI workflow run
+on a `main` push, then validates that run's workflow path and `head_sha`. Downstream
+jobs check out the propagated SHA, and tag creation verifies the tag still
+points to it. Missing, pending, failed, or mismatched evidence prevents every
+publish job; stable preparation, recovery, and tag-repair paths share the same
+proof boundary.
 
 The repository records the currently observed live rules and recommends
 requiring `merge-gate`, but does not mutate GitHub administration. That remains

@@ -217,14 +217,14 @@ cli/                   # restura-cli — run collections in CI
 
 ```bash
 npm run dev              # web dev server (port 5173)
-npm run validate         # type-check + lint + tests (same as CI)
+npm run validate         # coverage-aware local shipping gate
 npm run test:run         # run tests once
 npm run test:coverage    # coverage report
 npm run lint             # Biome lint
 npm run format           # Biome format
 ```
 
-Every PR runs type-check (renderer + Electron main + Worker), lint, security audit, tests, build, and a Cloudflare Pages preview deploy — the URL is posted to the PR automatically.
+Every PR runs the local gate plus builds, docs, browser and Electron E2E, extension checks, cross-OS packaging smoke, and a Cloudflare Pages preview deploy. The required jobs converge on one `merge-gate` verdict; the preview URL is posted to the PR when that deploy is eligible.
 
 ## Contributing
 
@@ -233,7 +233,7 @@ This started as a personal tool and I'd genuinely love help making it better. Bu
 ```bash
 git checkout -b fix/my-thing
 # make your changes
-npm run validate          # type-check + lint + tests — same gates as CI
+npm run validate          # coverage-aware local gate; CI merge-gate is broader
 git commit -m 'fix: my thing'
 # open a PR
 ```

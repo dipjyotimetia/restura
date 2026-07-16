@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 export const REQUIRED_JOBS = [
   'validate',
+  'self-host-smoke',
   'electron-smoke',
   'e2e',
   'e2e-extension',

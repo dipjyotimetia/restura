@@ -17,6 +17,10 @@ cache
 .dev.vars
 .dev.vars.*
 *.local
+.claude/settings.local.json
+.claude/metrics
+.codex/cache
+.codex/metrics
 
 # Source-control noise.
 .git

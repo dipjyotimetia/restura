@@ -89,11 +89,23 @@ describe('release workflow Sentry guardrails', () => {
   });
 
   it('requires the full merge gate on the exact release candidate SHA', () => {
+    expect(workflow).toContain('actions: read');
     expect(workflow).toContain('checks: read');
     expect(workflow).toContain('id: candidate');
     expect(workflow).toContain('candidate_sha=');
     expect(workflow).toContain('node scripts/ci/wait-for-check-run.mjs');
     expect(workflow).toContain('--name merge-gate');
     expect(workflow).toContain('--sha "${{ steps.candidate.outputs.candidate_sha }}"');
+  });
+
+  it('propagates the authorized SHA through tag creation and every publisher', () => {
+    expect(workflow).toContain('candidate_sha: ${{ steps.candidate.outputs.candidate_sha }}');
+    expect(workflow).toContain('candidate_sha: ${{ needs.preflight.outputs.candidate_sha }}');
+    expect(workflow).toContain('ref: ${{ needs.preflight.outputs.candidate_sha }}');
+    expect(workflow.match(/ref: \$\{\{ needs\.release\.outputs\.candidate_sha \}\}/g)).toHaveLength(
+      4
+    );
+    expect(workflow).not.toContain('ref: ${{ needs.release.outputs.actual_tag }}');
+    expect(workflow).toContain('Verify tag points to authorized candidate SHA');
   });
 });

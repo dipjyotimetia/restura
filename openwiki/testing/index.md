@@ -106,7 +106,8 @@ The security-critical `shared/protocol/**` core keeps percentage thresholds of
 90% lines, 88% functions, 75% branches, and 88% statements. `npm run test:ci`
 enforces both layers, and `npm run validate` includes that coverage-aware run.
 The GitHub `merge-gate` is the broader shipping verdict because it also
-aggregates docs, browser/Electron E2E, extensions, and cross-OS packaging.
+aggregates the shipped self-hosted image plus API/SPA smoke, docs, browser/Electron
+E2E, extensions, and cross-OS packaging.
 
 ---
 

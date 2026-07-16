@@ -5,7 +5,7 @@ description: Update every Restura documentation surface made stale by a code or 
 
 # Synchronize Restura documentation
 
-Load `restura-production-checks/references/docs-parity.md` and request a
+Load `.agents/skills/restura-production-checks/references/docs-parity.md` and request a
 `restura-docs-steward` review of the complete diff. Update only the stale
 sections it identifies across root guidance, `docs/`, OpenWiki, `docs-site/`,
 and generated capability documentation. Architectural decisions require a new

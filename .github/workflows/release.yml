@@ -1,8 +1,8 @@
 name: Release
 
-# Manually dispatched — a release is NEVER cut automatically on merge to main.
-# Run it from the Actions tab ("Release" → "Run workflow", on the main branch)
-# or via `gh workflow run release.yml --ref main` when you want to ship.
+# A maintainer manually dispatches every new release. Stable dispatch creates a
+# trusted version-only PR; closing that PR resumes publication for its exact
+# merge commit. Ordinary merges to main never cut a release.
 #
 # Inputs:
 #   release_bump             — semver bump to release: patch, minor, or major.
@@ -93,10 +93,13 @@ jobs:
     name: Release preflight
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.ref == 'release/prepare' && github.event.pull_request.user.login == 'restura-bot[bot]') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
+    outputs:
+      candidate_sha: ${{ steps.candidate.outputs.candidate_sha }}
     permissions:
       contents: read
       checks: read
+      actions: read
     steps:
       - name: Require main branch
         run: |
@@ -367,8 +370,9 @@ jobs:
     timeout-minutes: 15
     outputs:
       # The actual published tag — includes prerelease suffix when applicable.
-      # Consumed by downstream jobs so they check out the right commit.
+      # Used as release metadata; downstream source checkouts use candidate_sha.
       actual_tag: ${{ steps.tag.outputs.actual_tag }}
+      candidate_sha: ${{ needs.preflight.outputs.candidate_sha }}
       is_prerelease: ${{ steps.context.outputs.is_prerelease }}
       is_repair: ${{ steps.context.outputs.is_repair }}
       publish_docker: ${{ steps.context.outputs.publish_docker }}
@@ -407,7 +411,7 @@ jobs:
           # full history so the bump action can read every prior tag
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-          ref: ${{ inputs.repair_release_tag || github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || inputs.recover_stable_release_sha || github.sha }}
+          ref: ${{ needs.preflight.outputs.candidate_sha }}
 
       - uses: actions/setup-node@v6
         with:
@@ -512,6 +516,19 @@ jobs:
           git tag -a "${ACTUAL_TAG}" -m "${ACTUAL_TAG}"
           git push origin "${ACTUAL_TAG}"
 
+      - name: Verify tag points to authorized candidate SHA
+        env:
+          ACTUAL_TAG: ${{ steps.tag.outputs.actual_tag }}
+          CANDIDATE_SHA: ${{ needs.preflight.outputs.candidate_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --force origin "refs/tags/${ACTUAL_TAG}:refs/tags/${ACTUAL_TAG}"
+          TAG_SHA="$(git rev-parse --verify "${ACTUAL_TAG}^{commit}")"
+          if [ "$TAG_SHA" != "$CANDIDATE_SHA" ]; then
+            echo "Release tag $ACTUAL_TAG resolves to $TAG_SHA, not authorized candidate $CANDIDATE_SHA."
+            exit 1
+          fi
+
       - name: Compute changelog range
         if: ${{ steps.context.outputs.is_repair != 'true' }}
         id: range
@@ -610,9 +627,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # The freshly-pushed version-bump commit, by tag, so package.json's
-          # version matches the release electron-builder publishes into.
-          ref: ${{ needs.release.outputs.actual_tag }}
+          # Immutable source authorized by preflight. The tag remains release
+          # metadata and is verified against this SHA before publication.
+          ref: ${{ needs.release.outputs.candidate_sha }}
 
       - uses: actions/setup-node@v6
         with:
@@ -742,9 +759,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          # The freshly-pushed version-bump commit, by tag, so cli/package.json's
-          # version matches the GitHub release this run cut.
-          ref: ${{ needs.release.outputs.actual_tag }}
+          # Build the immutable source authorized by release preflight.
+          ref: ${{ needs.release.outputs.candidate_sha }}
 
       - uses: actions/setup-node@v6
         with:
@@ -798,7 +814,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.release.outputs.actual_tag }}
+          ref: ${{ needs.release.outputs.candidate_sha }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.2.0
@@ -879,7 +895,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ needs.release.outputs.actual_tag }}
+          ref: ${{ needs.release.outputs.candidate_sha }}
 
       - uses: actions/setup-node@v6
         with:

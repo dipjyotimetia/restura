@@ -2,9 +2,9 @@
 
 Every gate, the exact command, what it catches, and what it silently misses. Source of truth: `package.json` scripts and `.github/workflows/ci.yml`.
 
-## The `validate` chain (CI `validate` job)
+## The local `validate` chain
 
-`npm run validate` = `type-check:all` → `lint` → `verify:opencollection-types` → `capabilities:check` → `test:run`.
+`npm run validate` = `type-check:all` → `lint` → `format:check` → `verify:opencollection-types` → `capabilities:check` → `test:ci` → CLI tests. It is coverage-aware and records explicit validation evidence for Codex; GitHub `merge-gate` is the complete CI verdict.
 
 | Step                       | Command                               | Catches                                                                                                     | Misses                                                                           |
 | -------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
@@ -13,9 +13,9 @@ Every gate, the exact command, what it catches, and what it silently misses. Sou
 | Lint                       | `npm run lint`                        | `src electron/main worker echo scripts` — style, `no-explicit-any` (error), unused vars, type-imports       | Renderer-only react-hooks rules apply only under `src/`                          |
 | OpenCollection types       | `npm run verify:opencollection-types` | Stale `src/lib/opencollection/spec-types.ts` vs schema                                                      | n/a                                                                              |
 | Capability matrix          | `npm run capabilities:check`          | Stale `docs/CAPABILITY_MATRIX.md` vs `capabilities.ts`                                                      | Whether the capability value is _correct_ — only checks freshness                |
-| Unit/integration tests     | `npm run test:run`                    | Vitest across `src/`, `tests/`, `electron/main/__tests__`, `worker`, `echo`, `shared` + coverage thresholds | Anything not covered; e2e flows                                                  |
+| Unit/integration tests     | `npm run test:ci`                     | Vitest across product surfaces with coverage budgets                                                | Anything not covered; e2e flows                                                  |
 
-## The six type-check projects (what `type-check:all` runs)
+## Type-check projects (what `type-check:all` runs)
 
 ```
 npm run type-check                                    # renderer + shared (root tsconfig.json)
@@ -24,6 +24,8 @@ tsc --noEmit -p src/features/http/tsconfig.json       # http feature project
 tsc --noEmit -p worker/tsconfig.json                  # Cloudflare Worker
 tsc --noEmit -p echo/tsconfig.json                    # echo test server
 npm run --workspace cli type-check                    # @restura/cli workspace
+npm run --workspace @restura/extension type-check     # Chrome extension
+npm run --workspace restura-vscode type-check         # VS Code extension
 ```
 
 Root `tsconfig.json` `exclude` = `node_modules, dist, out, worker, electron/main, cli, docs-site`. That exclusion is the whole reason `type-check:all` exists.
@@ -33,7 +35,7 @@ Root `tsconfig.json` `exclude` = `node_modules, dist, out, worker, electron/main
 | Gate             | Command                               | When                                                                                                  |
 | ---------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | e2e              | `npm run test:e2e` (`:ui`, `:headed`) | Protocol/UI flows; needs `.dev.vars`. `workers:1`, not parallel.                                      |
-| Contract         | `npm run test:contract`               | Cross-fetcher HTTP parity (`tests/contract/`) — also runs under `test:run` glob, but this targets it. |
+| Contract         | `npm run test:contract`               | Cross-fetcher HTTP parity (`tests/contract/`) — also runs under the root Vitest glob, but this targets it. |
 | Web build        | `npm run build`                       | Bundle/Worker layout changes                                                                          |
 | Electron compile | `npm run electron:compile`            | Anything in `electron/main` (preload bundling, tsc-alias)                                             |
 | Docker build     | `npm run build:docker`                | `worker/node-entry.ts`, self-host changes                                                             |
@@ -43,8 +45,11 @@ Root `tsconfig.json` `exclude` = `node_modules, dist, out, worker, electron/main
 
 ## CI jobs (`.github/workflows/ci.yml`)
 
-- `validate` — runs the six type-checks as separate steps, then lint, generated-code verification, `test:ci` (coverage), build (renderer + electron compile), bundle size.
-- `electron-pack-smoke` — matrix build on macOS/Windows/Ubuntu (PRs only).
+- `validate` — type-checks all projects, then runs lint, generated-code verification, `test:ci` (coverage), the web/Worker build, Electron compile, and bundle size.
+- `self-host-smoke` — builds and runs the shipped Docker image, then probes `/health` and the bundled SPA.
+- `electron-smoke` — matrix packaging on macOS/Windows/Ubuntu.
+- Browser, Electron, Chrome extension, VS Code extension, and docs jobs exercise their own runtime surfaces.
+- `merge-gate` — fail-closed aggregate on pull requests and pushes to `main`; only the documented Dependabot native-job skips are permitted.
 - Separate workflows: `security-audit.yml` (weekly `npm audit --audit-level=critical`, non-blocking), `dependency-review.yml` (PR license/severity gate).
 
 ## Fast triage when a gate fails

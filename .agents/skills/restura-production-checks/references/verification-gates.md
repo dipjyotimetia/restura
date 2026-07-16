@@ -11,6 +11,7 @@
 | Browser E2E | `npm run test:e2e` | real web interactions |
 | Electron E2E | `npm run test:e2e:electron` | unpacked desktop runtime |
 
-GitHub `merge-gate` aggregates required CI-only shards and cross-OS packaging.
-Skipped is not passed unless the tested Dependabot exception explicitly allows
-that job.
+GitHub `merge-gate` builds and runs the shipped self-hosted Docker image, probes
+its API and SPA, and aggregates the remaining required CI-only shards plus
+cross-OS packaging. Skipped is not passed unless the tested Dependabot exception
+explicitly allows that job.

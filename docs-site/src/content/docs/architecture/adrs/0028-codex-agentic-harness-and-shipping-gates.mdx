@@ -23,13 +23,19 @@ commit being published.
 - Publish Codex workflows in `.agents/skills/`, read-only Restura reviewers in
   `.codex/agents/`, bounded worktree-aware hooks in `.codex/hooks.json`, and a
   pinned repository-cached Chrome DevTools MCP launcher.
+- Keep lifecycle hooks non-executing: explicit `npm run validate` records
+  content-bound evidence, while the stop hook only verifies that evidence and
+  fails closed when it is missing or stale.
 - Make `npm run validate` coverage-aware. Coverage commands generate ignored
   sandbox libraries first, then enforce global uncovered-item budgets plus
   stronger percentages for the shared protocol security boundary.
-- Add one fail-closed `merge-gate` that aggregates validation, documentation,
-  browser and Electron E2E, both extension surfaces, and cross-OS packaging.
+- Add one fail-closed `merge-gate` that aggregates validation, the shipped
+  self-hosted image and API/SPA smoke, documentation, browser and Electron E2E, both
+  extension surfaces, and cross-OS packaging.
 - Run the required matrix on `main` and require release preflight to observe a
-  successful `merge-gate` check attached to the exact candidate SHA.
+  trusted CI workflow's successful `merge-gate` attached to the exact candidate
+  SHA. Propagate that SHA to every checkout and verify the release tag points to
+  it.
 - Record live ruleset state separately from the recommendation to require the
   new gate. Repository automation does not mutate that external administration.
 

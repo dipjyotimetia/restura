@@ -206,6 +206,41 @@ jobs:
           path: coverage/
           retention-days: 14
 
+  self-host-smoke:
+    name: Self-hosted Docker image + health smoke
+    needs: [validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build shipped self-hosted image
+        run: docker build --tag restura-self-host:ci .
+
+      - name: Start shipped image and verify health + SPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          container=restura-self-host-ci
+          trap 'docker rm --force "$container" >/dev/null 2>&1 || true' EXIT
+          docker run --detach --name "$container" --publish 127.0.0.1:31337:3000 restura-self-host:ci
+          for attempt in {1..30}; do
+            if ! docker inspect --format '{{.State.Running}}' "$container" | grep -qx true; then
+              docker logs "$container"
+              exit 1
+            fi
+            health="$(curl --fail --silent http://127.0.0.1:31337/health || true)"
+            if printf '%s' "$health" | grep -q '"status":"ok"' && \
+              curl --fail --silent http://127.0.0.1:31337/ | grep -qi '<!doctype html'; then
+              printf '%s\n' "$health"
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs "$container"
+          echo 'Self-hosted image did not serve a healthy API and SPA within 30 seconds.'
+          exit 1
+
   electron-smoke:
     name: Electron pack smoke (${{ matrix.os }})
     # Skip for Dependabot: this job needs the `electron-builder install-app-deps`
@@ -655,7 +690,7 @@ jobs:
   merge-gate:
     name: merge-gate
     if: always()
-    needs: [validate, electron-smoke, e2e, e2e-extension, e2e-electron, vscode-extension-e2e, docs]
+    needs: [validate, self-host-smoke, electron-smoke, e2e, e2e-extension, e2e-electron, vscode-extension-e2e, docs]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
