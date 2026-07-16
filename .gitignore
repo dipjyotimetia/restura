@@ -73,6 +73,8 @@ yarn-error.log*
 .claude/metrics/
 # Codex MCP cache (root-resolved by .codex/run-chrome-devtools-mcp.mjs)
 .codex/cache/
+# Codex hook metrics (machine-local, bounded diagnostic data)
+.codex/metrics/
 
 # IDE
 .idea/
