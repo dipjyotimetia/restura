@@ -71,6 +71,13 @@ export function inspectSource(
     } else if (value.type === 'ImportExpression') {
       const specifier = stringLiteralValue(value.source);
       if (specifier) addImport(imports, specifier, false, resolve);
+    } else if (value.type === 'TSImportEqualsDeclaration') {
+      const moduleReference = value.moduleReference;
+      const specifier =
+        isRecord(moduleReference) && moduleReference.type === 'TSExternalModuleReference'
+          ? stringLiteralValue(moduleReference.expression)
+          : undefined;
+      if (specifier) addImport(imports, specifier, false, resolve);
     } else if (value.type === 'CallExpression') {
       const callee = value.callee;
       const args = Array.isArray(value.arguments) ? value.arguments : [];

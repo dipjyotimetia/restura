@@ -19,7 +19,7 @@ Supported formats:
 - Bruno Collection
 - HTTP file (`importHttpFile`)
 
-Types: `src/types/import-export.ts`.
+Types: `shared/types/import-export.ts` (with a renderer compatibility re-export at `src/types/import-export.ts`).
 
 ### Import behaviour
 

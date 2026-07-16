@@ -12,6 +12,7 @@ import {
   isArchitectureSourcePath,
   scanArchitectureFiles,
 } from '../scripts/architecture-scanner.mts';
+import { architecturePolicy } from '../scripts/architecture.config.mts';
 
 const temporaryDirectories: string[] = [];
 
@@ -208,6 +209,18 @@ describe('evaluateArchitecture', () => {
 
     expect(violations).toEqual([]);
   });
+
+  it('applies production file limits to NodeNext TypeScript source files', () => {
+    const violations = evaluateArchitecture(
+      [file('src/new-module.mts', [], 801), file('src/new-module.cts', [], 801)],
+      policy
+    );
+
+    expect(violations).toEqual([
+      expect.objectContaining({ rule: 'file-size', file: 'src/new-module.cts', limit: 800 }),
+      expect.objectContaining({ rule: 'file-size', file: 'src/new-module.mts', limit: 800 }),
+    ]);
+  });
 });
 
 describe('inspectSource', () => {
@@ -264,6 +277,32 @@ describe('inspectSource', () => {
       { specifier: './lazy', resolvedPath: 'src/lazy.ts', typeOnly: false },
       { specifier: './legacy', resolvedPath: 'src/legacy.ts', typeOnly: false },
     ]);
+  });
+
+  it('finds TypeScript import-equals require declarations', () => {
+    const inspected = inspectSource(
+      'electron/main/legacy.ts',
+      ["import bridge = require('../../shared/bridge');", 'void bridge;'].join('\n'),
+      (specifier) => (specifier === '../../shared/bridge' ? 'shared/bridge.ts' : undefined)
+    );
+
+    expect(inspected.imports).toEqual([
+      {
+        specifier: '../../shared/bridge',
+        resolvedPath: 'shared/bridge.ts',
+        typeOnly: false,
+      },
+    ]);
+  });
+
+  it('ignores TypeScript import-equals declarations without an external module source', () => {
+    const inspected = inspectSource(
+      'src/namespace.ts',
+      ['import namespace = App.Namespace;', 'void namespace;'].join('\n'),
+      () => 'should-not-resolve.ts'
+    );
+
+    expect(inspected.imports).toEqual([]);
   });
 
   it('handles declarations without sources and mixed type/value specifiers', () => {
@@ -390,5 +429,37 @@ describe('inspectSource', () => {
       },
       { specifier: './missing', resolvedPath: undefined, typeOnly: false },
     ]);
+  });
+});
+
+describe('repository architecture contract', () => {
+  it('covers Electron shared contracts and prohibits unsupported runtime directions', () => {
+    expect(architecturePolicy.zones).toContainEqual({
+      name: 'electron-shared',
+      root: 'electron/shared/',
+    });
+    expect(architecturePolicy.forbiddenDependencies).toEqual(
+      expect.arrayContaining([
+        { from: 'renderer', to: 'worker' },
+        { from: 'renderer', to: 'electron-main' },
+        { from: 'echo', to: 'renderer' },
+        { from: 'echo-local', to: 'renderer' },
+        { from: 'electron-shared', to: 'renderer' },
+        { from: 'electron-shared', to: 'worker' },
+      ])
+    );
+  });
+
+  it('builds the Electron renderer before compiling Electron main', () => {
+    const packageJson = JSON.parse(
+      fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8')
+    ) as { scripts: Record<string, string> };
+    const validationBuild = packageJson.scripts['validate:build'];
+
+    expect(validationBuild).toContain('npm run electron:build:web');
+    if (!validationBuild) throw new Error('validate:build script must be defined');
+    expect(validationBuild.indexOf('npm run electron:build:web')).toBeLessThan(
+      validationBuild.indexOf('npm run electron:compile')
+    );
   });
 });

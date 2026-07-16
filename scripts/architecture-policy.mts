@@ -62,12 +62,12 @@ function zoneFor(path: string, policy: ArchitecturePolicy): string | undefined {
 
 function isProductionSource(path: string): boolean {
   return (
-    /\.(?:ts|tsx)$/.test(path) &&
+    /\.(?:ts|tsx|mts|cts)$/.test(path) &&
     !/(?:^|\/)__tests__(?:\/|$)/.test(path) &&
-    !/\.(?:test|spec)\.(?:ts|tsx)$/.test(path) &&
+    !/\.(?:test|spec)\.(?:ts|tsx|mts|cts)$/.test(path) &&
     !/(?:^|\/)tests?(?:\/|$)/.test(path) &&
     !/(?:^|\/)(?:dist|out|coverage)(?:\/|$)/.test(path) &&
-    !/(?:generated|spec-types|bundle\.generated)\.(?:ts|tsx)$/.test(path)
+    !/(?:generated|spec-types|bundle\.generated)\.(?:ts|tsx|mts|cts)$/.test(path)
   );
 }
 

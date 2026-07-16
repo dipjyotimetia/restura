@@ -22,14 +22,14 @@ User-written pre-request and test scripts run inside a QuickJS WASM VM (`quickjs
 - `pm.environment.get/set`
 - `pm.globals.get/set`
 - `pm.collectionVariables.get/set`
-- `pm.test(name, fn)` and `pm.expect(value)` (`src/features/scripts/lib/pmExpect.ts`)
+- `pm.test(name, fn)` and `pm.expect(value)` (`shared/scripts/expect-bootstrap.ts`, re-exported by the renderer compatibility path)
 - `pm.response.*`
 - `pm.sendRequest(spec, callback)`
 - `pm.cookies.*`
 - `pm.vault.*` (desktop secret handles)
 - `rs.judge(...)` (AI judge bridge)
 
-The result shape (`ScriptResult`) is in `src/types/scripts.ts` and includes:
+The result shape (`ScriptResult`) is in `shared/types/scripts.ts` and includes:
 
 - logs, errors, tests
 - `variables` (environment mutations)

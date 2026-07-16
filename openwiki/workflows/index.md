@@ -145,7 +145,7 @@ When changing workflow or variable code, run the workflow-related Vitest suite a
 
 | Concern             | Files                                                                                                                                            |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Workflow types      | `src/types/index.ts`, `src/features/workflows/lib/flowTypes.ts`                                                                                  |
+| Workflow types      | `shared/types/index.ts`, `src/features/workflows/lib/flowTypes.ts`                                                                               |
 | Workflow store      | `src/store/useWorkflowStore.ts`, `src/store/useCollectionRunStore.ts`                                                                            |
 | Linear executor     | `src/features/workflows/lib/workflowExecutor.ts`, `src/features/workflows/hooks/useWorkflowExecution.ts`                                         |
 | DAG executor        | `src/features/workflows/lib/dagExecutor.ts`                                                                                                      |

@@ -64,7 +64,7 @@
     "test:workspaces": "npm run --workspace cli test && npm run --workspace restura-vscode test:unit",
     "build:workspaces": "npm run --workspace cli build && npm run --workspace @restura/extension build && npm run --workspace restura-vscode build",
     "validate:test": "npm run test:ci && npm run test:workspaces",
-    "validate:build": "npm run build && npm run size && npm run build:docker && npm run build:workspaces && npm run electron:compile",
+    "validate:build": "npm run build && npm run size && npm run build:docker && npm run build:workspaces && npm run electron:build:web && npm run electron:compile",
     "validate": "npm run validate:static && npm run validate:test && npm run validate:build",
     "size": "size-limit",
     "prepare": "husky",

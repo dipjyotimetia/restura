@@ -51,8 +51,9 @@ npm run test:run               # Single test run
 npm run test:coverage          # Coverage report
 npm run test:e2e               # Playwright (boots dev server; needs .dev.vars)
 
-# Full validation (matches CI) — NOT just type-check+lint+test
-npm run validate               # Static policy → root/workspace tests → production builds + size
+# Core product validation — NOT just type-check+lint+test
+npm run validate               # Static policy → root/workspace tests → web, Docker, Electron, extension builds + size
+# Docs, E2E, packaging smoke, and deploy checks are separate CI jobs; see docs/CI_CD.md.
 
 # Self-hosted Node / Docker server (single process: SPA + /api/* on one port)
 npm run build:docker           # SPA → dist/web + esbuild Worker → dist/server/index.mjs

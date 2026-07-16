@@ -34,11 +34,11 @@ The two generated-artifact checks are fixed by running their corresponding gener
 
 ## The single CI gate
 
-`npm run validate` is the canonical local and required-CI gate. It runs three explicit stages:
+`npm run validate` is the canonical local core-product gate and is used by CI's required `validate` job. It runs three explicit stages:
 
 1. `validate:static` — every product/tooling TypeScript config, Biome lint/format, generated OpenCollection types, the capability matrix, and `architecture:check`.
 2. `validate:test` — root Vitest with coverage plus CLI and VS Code workspace unit tests.
-3. `validate:build` — web/Worker and self-host Node/Docker builds, CLI and extension bundles, Electron main/preload compilation with runtime-import verification, and renderer bundle-size budgets.
+3. `validate:build` — web/Worker and self-host Node/Docker builds, CLI and extension bundles, the Electron `file://` renderer build, Electron main/preload compilation with runtime-import verification, and renderer bundle-size budgets.
 
 Run the whole thing locally before opening a PR:
 

@@ -54,8 +54,9 @@ vitest run path/to/file.test.ts                  # Run a single Vitest file
 vitest run -t "test name pattern"                # Filter by test name
 npx playwright test e2e/real-http.spec.ts        # Run a single e2e spec
 
-# Full validation (matches CI)
-npm run validate               # Static policy + root/workspace tests + production builds + size
+# Core product validation
+npm run validate               # Static policy + root/workspace tests + web, Docker, Electron, extension builds + size
+# Docs, E2E, packaging smoke, and deploy checks are separate CI jobs; see docs/CI_CD.md.
 
 # Generated code
 npm run proto:gen                       # buf generate (regenerates protobuf TS)

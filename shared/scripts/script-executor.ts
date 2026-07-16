@@ -765,7 +765,7 @@ class ScriptExecutor {
           // handle below (vm, deferred, cbHandle) is owned by the runtime
           // and was already freed. Note: `errH = vm.null` / `nullH = vm.null`
           // are shared QuickJS singletons — never call `.dispose()` on them.
-          if (!this.runtime) return;
+          if (!this.runtime || !this.pendingHostCleanups.has(cleanup)) return;
           const respJs = this.makeJSValue(vm, response as unknown);
           deferred.resolve(respJs);
           if (cbHandle) {
@@ -777,7 +777,7 @@ class ScriptExecutor {
           respJs.dispose();
         })
         .catch((err: unknown) => {
-          if (!this.runtime) return;
+          if (!this.runtime || !this.pendingHostCleanups.has(cleanup)) return;
           const msg = err instanceof Error ? err.message : String(err);
           const errObj = this.makeJSValue(vm, { message: msg });
           deferred.reject(errObj);
@@ -856,13 +856,13 @@ class ScriptExecutor {
       .then((value) => {
         // Bail if dispose() ran during host work — every handle below
         // is owned by the vm that's now gone.
-        if (!this.runtime) return;
+        if (!this.runtime || !this.pendingHostCleanups.has(cleanup)) return;
         const h = onResolve(value);
         deferred.resolve(h);
         h.dispose();
       })
       .catch((err: unknown) => {
-        if (!this.runtime) return;
+        if (!this.runtime || !this.pendingHostCleanups.has(cleanup)) return;
         const msg = err instanceof Error ? err.message : String(err);
         const e = this.makeJSValue(vm, { message: msg });
         deferred.reject(e);

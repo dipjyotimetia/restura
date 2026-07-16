@@ -14,10 +14,11 @@ const KafkaBrokerSchema = z
   .string()
   .min(3)
   .max(253)
-  .regex(
-    /^[a-zA-Z0-9.-]+:\d{1,5}$/,
-    'Broker must be host:port (alphanumeric host, numeric port 1-65535)'
-  );
+  .regex(/^[a-zA-Z0-9.-]+:\d{1,5}$/, 'Broker must be host:port (alphanumeric host, numeric port)')
+  .refine((broker) => {
+    const port = Number(broker.slice(broker.lastIndexOf(':') + 1));
+    return Number.isInteger(port) && port >= 1 && port <= 65_535;
+  }, 'Broker port must be between 1 and 65535');
 
 const KafkaSaslMechanismSchema = z.enum(['PLAIN', 'SCRAM-SHA-256', 'SCRAM-SHA-512']);
 

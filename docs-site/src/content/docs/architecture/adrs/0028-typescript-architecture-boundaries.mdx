@@ -19,7 +19,7 @@ Restura compiles one repository into independent renderer, Worker/Node, Electron
 
 `npm run architecture:check` parses TypeScript and enforces source-zone directions, an acyclic runtime import graph, an 800-line ceiling for new production modules, and exact non-growing caps for legacy oversized files. Type-only imports do not create runtime cycles.
 
-The Electron preload, IPC validators, and renderer API declaration are composed from domain modules while their existing top-level entry paths remain stable. Tooling has dedicated TypeScript configs, and `npm run validate` is the complete static, test, build, Electron, and bundle-size contract used by CI.
+The Electron preload, IPC validators, and renderer API declaration are composed from domain modules while their existing top-level entry paths remain stable. Tooling has dedicated TypeScript configs, and `npm run validate` is the core product static, test, web/self-host/Electron/extension build, and bundle-size contract. Docs, end-to-end, packaging, and deploy checks remain separate CI jobs.
 
 ## Consequences
 

@@ -28,7 +28,7 @@ interface ProtocolModule {
 
 `RunContext` carries the `AbortSignal`, merged variable map, an optional `onScriptResult` callback, and opaque `protocolOptions`.
 
-### Request type system (`src/types/request.ts`)
+### Request type system (`shared/types/request.ts`)
 
 ```ts
 type RequestType = 'http' | 'grpc' | 'sse' | 'mcp';

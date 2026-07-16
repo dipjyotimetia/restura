@@ -34,7 +34,7 @@ The inline **Send** feature opens an outbound path from the extension host, so i
 ## Consequences
 
 - **No parity drift on the two expensive surfaces.** Test runs are literally the CLI; inline sends are literally the shared protocol core. The extension owns only editor-specific glue (diagnostics, Test Explorer tree, CodeLens, the response webview).
-- The OpenCollection JSON Schema is **vendored** into the extension (`schemas/`) rather than imported from the generated renderer types — the extension is a standalone workspace and must not depend on `src/`. This schema can drift from `src/lib/opencollection/` and is not covered by `verify:opencollection-types`; it must be refreshed by hand when the spec version bumps.
+- The OpenCollection JSON Schema is **vendored** into the extension (`schemas/`) rather than imported from the generated shared types — the extension is a standalone workspace and must not depend on renderer-owned `src/`. This schema can drift from `shared/opencollection/` and is not covered by `verify:opencollection-types`; it must be refreshed by hand when the spec version bumps.
 - Two further offerings are scoped but **not shipped**: OpenAPI contract-drift (blocked on a Node-safe spec loader) and one-click MCP registration (blocked on the headless MCP context loader).
 - The extension is type-checked and linted in CI (`type-check:all` runs `--workspace restura-vscode type-check`; `npm run lint` covers `extension/vscode`) and has unit tests (`test/unit/`) plus a VS Code integration test (`test/integration/`).
 

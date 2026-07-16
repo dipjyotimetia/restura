@@ -25,7 +25,7 @@ The Electron boundary is composed by domain:
 - `electron/main/ipc/ipc-validators.ts` is a compatibility barrel over `ipc/validators/`;
 - `electron/types/electron-api.ts` composes type modules under `electron/types/api/`.
 
-Tooling is checked separately through `tsconfig.tooling.json` and the legacy-JavaScript ratchet in `tsconfig.tooling-js.json`. `npm run validate` is the canonical local/CI contract and runs static checks, root/workspace tests, production builds, Electron compilation, and bundle-size checks.
+Tooling is checked separately through `tsconfig.tooling.json` and the legacy-JavaScript ratchet in `tsconfig.tooling-js.json`. `npm run validate` is the canonical local core-product contract and runs static checks, root/workspace tests, web, self-host, Electron-renderer/main, and extension builds, plus bundle-size checks. Docs, end-to-end, packaging, and deploy jobs remain separate CI surfaces.
 
 ## Consequences
 

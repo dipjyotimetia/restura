@@ -40,6 +40,17 @@ function buildMockResponse(overrides: Partial<PmSubResponse> = {}): PmSubRespons
   };
 }
 
+function createDeferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 describe('pm.sendRequest — host bridge', () => {
   it('callback form: fires the host, response goes back via cb(null, res)', async () => {
     const seen: PmSendRequestInput[] = [];
@@ -244,6 +255,50 @@ describe('pm.sendRequest — wall-clock guard', () => {
       {}
     );
     expect(r.errors.some((e) => /timed out/.test(e))).toBe(true);
+    ex.dispose();
+  }, 10_000);
+
+  it('ignores a late pm.sendRequest completion after the async deadline', async () => {
+    const delayed = createDeferred<PmSubResponse>();
+    const ex = new ScriptExecutor({
+      host: { sendRequest: vi.fn(() => delayed.promise) },
+    });
+    await ex.initialize();
+    ex.__setCeilingsForTest(undefined, 50);
+
+    const timedOut = await ex.eval(`pm.sendRequest('https://slow.example', function () {});`, {});
+    expect(timedOut.errors.some((error) => /timed out/.test(error))).toBe(true);
+
+    delayed.resolve(buildMockResponse());
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    const followUp = await ex.eval(`pm.test('runtime remains usable', function () {});`, {});
+    expect(followUp.success).toBe(true);
+    ex.dispose();
+  }, 10_000);
+
+  it('ignores a late pm.vault completion after the async deadline', async () => {
+    const delayed = createDeferred<string>();
+    const ex = new ScriptExecutor({
+      host: {
+        vault: {
+          get: vi.fn(() => delayed.promise),
+          set: vi.fn(async () => undefined),
+          unset: vi.fn(async () => undefined),
+        },
+      },
+    });
+    await ex.initialize();
+    ex.__setCeilingsForTest(undefined, 50);
+
+    const timedOut = await ex.eval(`pm.vault.get('api-token');`, {});
+    expect(timedOut.errors.some((error) => /timed out/.test(error))).toBe(true);
+
+    delayed.resolve('late-token');
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    const followUp = await ex.eval(`pm.test('runtime remains usable', function () {});`, {});
+    expect(followUp.success).toBe(true);
     ex.dispose();
   }, 10_000);
 });
