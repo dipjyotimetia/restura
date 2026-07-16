@@ -92,7 +92,8 @@ Add read-only Codex agents under `.codex/agents/` for:
   Electron;
 - documentation and generated-artifact consistency review.
 
-The root Codex configuration will register the agents explicitly. Agent
+Codex will discover these standalone TOML files automatically; the root Codex
+configuration will only set bounded global agent concurrency/depth. Agent
 instructions will require evidence with file references and will prohibit
 mutation. The pre-PR skill will run these independent reviews plus a
 fresh-context code review before publication.
