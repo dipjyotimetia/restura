@@ -36,6 +36,12 @@ describe('subscriptionLog', () => {
     expect(countSubscriptionData(log)).toBe(1);
   });
 
+  it('does not create serialized payload text when a message has no payload', () => {
+    const withoutPayload = appendSubscriptionMessage([], { ...message(1), payload: undefined });
+
+    expect(withoutPayload[0]).not.toHaveProperty('payloadText');
+  });
+
   it('keeps the data count correct when the bounded log evicts a message', () => {
     let log = emptySubscriptionLog;
     for (let i = 0; i < MAX_SUBSCRIPTION_MESSAGES; i++) {
