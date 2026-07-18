@@ -1,18 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import { sseManager } from '@/features/sse/lib/sseManager';
+import { createSseStreamSummary, getSseSummaryView } from '@/features/sse/lib/streamSummary';
 import { useSseStore } from '@/features/sse/store/useSseStore';
 import { keyValuePairsToRecord } from '@/lib/shared/utils';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
-import SseAssembledOutput, { type SsePhase } from './SseAssembledOutput';
+import SseAssembledOutput from './SseAssembledOutput';
 import SseCounters from './SseCounters';
 import SseEventTimeline from './SseEventTimeline';
 import SseStatsRow from './SseStatsRow';
 import SseUrlBar from './SseUrlBar';
+
+const EMPTY_SUMMARY = createSseStreamSummary();
 
 /**
  * SSE view — Spatial Depth redesign.
@@ -30,8 +34,15 @@ import SseUrlBar from './SseUrlBar';
  * from the existing log.
  */
 export default function SseClient() {
+  const activeConnectionId = useSseStore((s) => s.activeConnectionId);
+  const active = useSseStore((s) =>
+    activeConnectionId ? (s.connections[activeConnectionId] ?? null) : null
+  );
+  const summary = useSseStore((s) =>
+    activeConnectionId ? (s.summaries[activeConnectionId] ?? EMPTY_SUMMARY) : EMPTY_SUMMARY
+  );
+  const hasConnections = useSseStore((s) => Object.keys(s.connections).length > 0);
   const {
-    connections,
     createConnection,
     updateConnectionUrl,
     setReconnectOnResume,
@@ -43,19 +54,32 @@ export default function SseClient() {
     setSearchQuery,
     setEventNameFilter,
     searchQuery,
-    getActiveConnection,
     getFilteredLog,
-  } = useSseStore();
-  const { resolveVariables } = useEnvironmentStore();
+  } = useSseStore(
+    useShallow((s) => ({
+      createConnection: s.createConnection,
+      updateConnectionUrl: s.updateConnectionUrl,
+      setReconnectOnResume: s.setReconnectOnResume,
+      clearLog: s.clearLog,
+      addHeader: s.addHeader,
+      updateHeader: s.updateHeader,
+      removeHeader: s.removeHeader,
+      setAuth: s.setAuth,
+      setSearchQuery: s.setSearchQuery,
+      setEventNameFilter: s.setEventNameFilter,
+      searchQuery: s.searchQuery,
+      getFilteredLog: s.getFilteredLog,
+    }))
+  );
+  const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
 
   // Auto-create a default connection on first mount if none exist
   useEffect(() => {
-    if (Object.keys(connections).length === 0) {
+    if (!hasConnections) {
       createConnection();
     }
-  }, [connections, createConnection]);
+  }, [hasConnections, createConnection]);
 
-  const active = getActiveConnection();
   const filtered = useMemo(
     () => (active ? getFilteredLog(active.id) : []),
     [active, getFilteredLog]
@@ -109,120 +133,7 @@ export default function SseClient() {
     sseManager.disconnect(active.id);
   };
 
-  const eventNames = useMemo(() => {
-    if (!active) return [] as string[];
-    const set = new Set<string>();
-    for (const e of active.log) if (e.kind === 'event') set.add(e.event);
-    return Array.from(set).sort();
-  }, [active]);
-
-  // ─────────────────────────────────────────────────────────────────────
-  // Derived display metrics — purely from the existing log. No store
-  // changes; we treat the log as the source of truth.
-  // ─────────────────────────────────────────────────────────────────────
-  const derived = useMemo(() => {
-    if (!active) {
-      return {
-        eventCount: 0,
-        bytes: 0,
-        tokenCount: 0,
-        avgGapMs: null as number | null,
-        assembledText: '',
-        progress: null as number | null,
-        phases: [] as SsePhase[],
-      };
-    }
-    let bytes = 0;
-    let tokenCount = 0;
-    let eventCount = 0;
-    let lastTs: number | null = null;
-    const gaps: number[] = [];
-    let assembledText = '';
-    let progress: number | null = null;
-    const phaseOrder: string[] = [];
-    const phaseStates: Record<string, 'pending' | 'active' | 'done'> = {};
-
-    for (const entry of active.log) {
-      if (entry.kind !== 'event') continue;
-      eventCount += 1;
-      bytes += entry.data.length;
-      if (lastTs != null) gaps.push(entry.timestamp - lastTs);
-      lastTs = entry.timestamp;
-
-      const ev = entry.event.toLowerCase();
-
-      // `token` events — append data to assembled output, count tokens.
-      if (ev === 'token') {
-        tokenCount += 1;
-        assembledText += entry.data;
-      } else if (ev === 'message') {
-        // `message` may carry a JSON payload with a token / text / phase
-        // — be lenient: try JSON, else append.
-        try {
-          const parsed = JSON.parse(entry.data) as Record<string, unknown>;
-          if (typeof parsed['token'] === 'string') {
-            assembledText += parsed['token'];
-            tokenCount += 1;
-          } else if (typeof parsed['text'] === 'string') {
-            assembledText += parsed['text'];
-          } else if (typeof parsed['delta'] === 'string') {
-            assembledText += parsed['delta'];
-            tokenCount += 1;
-          }
-          const phase = parsed['phase'];
-          if (typeof phase === 'string') {
-            if (!(phase in phaseStates)) {
-              phaseOrder.push(phase);
-            }
-            // Mark previous phases done.
-            for (const p of phaseOrder) {
-              if (p === phase) phaseStates[p] = 'active';
-              else if (phaseStates[p] !== 'done') phaseStates[p] = 'done';
-            }
-          }
-        } catch {
-          // Not JSON — show raw line in the timeline only.
-        }
-      } else if (ev === 'progress') {
-        // Accept `{"progress":0.42}` or a bare number.
-        try {
-          const parsed: unknown = JSON.parse(entry.data);
-          if (typeof parsed === 'number') {
-            progress = parsed > 1 ? parsed / 100 : parsed;
-          } else if (parsed && typeof parsed === 'object') {
-            const obj = parsed as Record<string, unknown>;
-            const v = obj['progress'] ?? obj['value'];
-            if (typeof v === 'number') progress = v > 1 ? v / 100 : v;
-          }
-        } catch {
-          const n = Number(entry.data);
-          if (Number.isFinite(n)) progress = n > 1 ? n / 100 : n;
-        }
-      } else if (ev === 'done') {
-        progress = 1;
-        // Mark all phases done.
-        for (const p of phaseOrder) phaseStates[p] = 'done';
-      }
-    }
-
-    const avgGapMs = gaps.length === 0 ? null : gaps.reduce((a, b) => a + b, 0) / gaps.length;
-
-    const phases: SsePhase[] = phaseOrder.map((id) => ({
-      id,
-      label: id,
-      state: phaseStates[id] ?? 'pending',
-    }));
-
-    return {
-      eventCount,
-      bytes,
-      tokenCount,
-      avgGapMs,
-      assembledText,
-      progress,
-      phases,
-    };
-  }, [active]);
+  const derived = useMemo(() => getSseSummaryView(summary), [summary]);
 
   if (!active) return null;
 
@@ -283,7 +194,7 @@ export default function SseClient() {
           onSearchChange={setSearchQuery}
           eventNameFilter={active.eventNameFilter}
           onEventNameFilterChange={(v) => setEventNameFilter(active.id, v)}
-          eventNames={eventNames}
+          eventNames={derived.eventNames}
           onClearLog={() => clearLog(active.id)}
         />
         <div className="flex flex-col gap-2.5 min-h-0">

@@ -47,11 +47,9 @@ export default function GraphQLBodyEditor({
   onVariablesChange,
 }: GraphQLBodyEditorProps) {
   const [showVariables, setShowVariables] = useState(true);
-  const { getSchema } = useGraphQLSchemaStore();
   const diagnosticsRef = useRef<Monaco.IDisposable | null>(null);
   const activeTabId = useActiveTab()?.id;
-
-  const schemaResult = url ? getSchema(url) : null;
+  const schemaResult = useGraphQLSchemaStore((s) => (url ? (s.schemas[url] ?? null) : null));
 
   const executableSchema = useMemo(
     () => (schemaResult ? buildSchemaFromIntrospection(schemaResult) : null),

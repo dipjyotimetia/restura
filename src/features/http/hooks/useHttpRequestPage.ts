@@ -47,10 +47,10 @@ export function useHttpRequestPage() {
   const setCurrentResponse = useRequestStore((s) => s.setCurrentResponse);
   const isLoading = useRequestStore((s) => s.isLoading);
   const setScriptResult = useRequestStore((s) => s.setScriptResult);
-  const { addHistoryItem } = useHistoryStore();
-  const { resolveVariables } = useEnvironmentStore();
-  const { settings: globalSettings } = useSettingsStore();
-  const { addEntry } = useConsoleStore();
+  const addHistoryItem = useHistoryStore((s) => s.addHistoryItem);
+  const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
+  const globalSettings = useSettingsStore((s) => s.settings);
+  const addEntry = useConsoleStore((s) => s.addEntry);
 
   const {
     handleAdd: addParam,

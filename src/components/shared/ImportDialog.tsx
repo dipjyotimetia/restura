@@ -359,8 +359,8 @@ interface ImportDialogProps {
 }
 
 export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
-  const { addCollection } = useCollectionStore();
-  const { addEnvironment } = useEnvironmentStore();
+  const addCollection = useCollectionStore((s) => s.addCollection);
+  const addEnvironment = useEnvironmentStore((s) => s.addEnvironment);
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
   const [warnings, setWarnings] = useState<ImportResult['warnings']>([]);

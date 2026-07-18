@@ -552,6 +552,8 @@
      already-finished animation. */
   .sp-stream-row {
     animation: var(--animate-sp-row-in);
+    content-visibility: auto;
+    contain-intrinsic-size: auto 32px;
   }
   [data-stream-rapid] .sp-stream-row {
     animation-duration: 0.01ms;

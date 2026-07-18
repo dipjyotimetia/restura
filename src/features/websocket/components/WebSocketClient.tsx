@@ -118,6 +118,17 @@ function DirTag({ type }: { type: WebSocketMessageType }) {
   );
 }
 
+function UptimeStat({ connectedAt, isConnected }: { connectedAt?: number; isConnected: boolean }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!isConnected) return;
+    const id = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(id);
+  }, [isConnected]);
+  const duration = isConnected && connectedAt ? now - connectedAt : 0;
+  return <Stat label="Uptime" value={duration > 0 ? formatDuration(duration) : '—'} />;
+}
+
 function WebSocketClient() {
   const [message, setMessage] = useState('');
   const [sendFormat, setSendFormat] = useState<SendFormat>('json');
@@ -125,7 +136,7 @@ function WebSocketClient() {
   // null = auto (open only when something is configured); boolean = user override.
   const [configOpenOverride, setConfigOpenOverride] = useState<boolean | null>(null);
 
-  const { resolveVariables } = useEnvironmentStore();
+  const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const activeTabId = useActiveTabId();
 
   const connectionByTabId = useWebSocketStore((s) => s.connectionByTabId);
@@ -168,13 +179,6 @@ function WebSocketClient() {
   useEffect(() => {
     if (activeTabId) ensureConnectionForTab(activeTabId);
   }, [activeTabId, ensureConnectionForTab]);
-
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (connection?.status !== 'connected') return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [connection?.status]);
 
   // Counts (memoised so we don't walk the full message list on every render).
   const counts = useMemo(() => {
@@ -276,9 +280,6 @@ function WebSocketClient() {
     a.click();
     URL.revokeObjectURL(url);
   };
-
-  const connectionDuration =
-    isConnected && connection.lastConnectedAt ? now - connection.lastConnectedAt : 0;
 
   const filteredMessages = getFilteredMessages(activeConnectionId);
   const selectedMessage =
@@ -420,10 +421,7 @@ function WebSocketClient() {
 
       {/* Stats row */}
       <div className="flex items-center gap-6 px-1 shrink-0">
-        <Stat
-          label="Uptime"
-          value={connectionDuration > 0 ? formatDuration(connectionDuration) : '—'}
-        />
+        <UptimeStat connectedAt={connection.lastConnectedAt} isConnected={isConnected} />
         <Stat
           label="↑ Messages"
           value={<span style={{ color: 'var(--color-proto-ws)' }}>{counts.sent}</span>}

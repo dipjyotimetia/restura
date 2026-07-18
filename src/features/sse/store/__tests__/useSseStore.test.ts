@@ -3,7 +3,12 @@ import { useSseStore } from '@/features/sse/store/useSseStore';
 
 describe('useSseStore', () => {
   beforeEach(() => {
-    useSseStore.setState({ connections: {}, activeConnectionId: null, searchQuery: '' });
+    useSseStore.setState({
+      connections: {},
+      summaries: {},
+      activeConnectionId: null,
+      searchQuery: '',
+    });
   });
 
   it('creates connections with structured-auth and filter defaults', () => {
@@ -47,5 +52,27 @@ describe('useSseStore', () => {
     expect(filteredA.every((e) => e.kind === 'event' && e.event === 'tick')).toBe(true);
     expect(filteredA).toHaveLength(1);
     expect(filteredB).toHaveLength(2);
+  });
+
+  it('maintains an ephemeral stream summary without rescanning the rendered log', () => {
+    const id = useSseStore.getState().createConnection();
+
+    useSseStore.getState().appendEvent(id, { event: 'token', data: 'hello' });
+    useSseStore.getState().appendEvent(id, { event: 'done', data: '' });
+
+    expect(useSseStore.getState().summaries[id]).toMatchObject({
+      eventCount: 2,
+      tokenCount: 1,
+      assembledText: 'hello',
+      progress: 1,
+    });
+
+    useSseStore.getState().clearLog(id);
+    expect(useSseStore.getState().summaries[id]).toMatchObject({
+      eventCount: 0,
+      tokenCount: 0,
+      assembledText: '',
+      progress: null,
+    });
   });
 });

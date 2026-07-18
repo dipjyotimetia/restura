@@ -147,8 +147,9 @@ function IconButton({
 }
 
 function LayoutToggleButton() {
-  const { settings, updateSettings } = useSettingsStore();
-  const vertical = settings.layoutOrientation === 'vertical';
+  const layoutOrientation = useSettingsStore((s) => s.settings.layoutOrientation);
+  const updateSettings = useSettingsStore((s) => s.updateSettings);
+  const vertical = layoutOrientation === 'vertical';
   return (
     <IconButton
       icon={vertical ? <Columns className="h-3.5 w-3.5" /> : <Rows className="h-3.5 w-3.5" />}

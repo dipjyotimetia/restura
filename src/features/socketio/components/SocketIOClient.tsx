@@ -1,5 +1,5 @@
 import { Download, Filter, Search, Send, Trash2, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
@@ -24,6 +24,7 @@ import {
   VariableText,
 } from '@/components/ui/spatial';
 import { socketioManager } from '@/features/socketio/lib/socketioManager';
+import { filterSocketIOEvents } from '@/features/socketio/lib/eventFilter';
 import {
   type SocketIOEventDirection,
   type SocketIOEventFilter,
@@ -159,6 +160,17 @@ function DirTag({ direction }: { direction: SocketIOEventDirection }) {
   );
 }
 
+function UptimeStat({ connectedAt, isConnected }: { connectedAt?: number; isConnected: boolean }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!isConnected) return;
+    const id = setInterval(() => setNow(Date.now()), 1_000);
+    return () => clearInterval(id);
+  }, [isConnected]);
+  const duration = isConnected && connectedAt ? now - connectedAt : 0;
+  return <Stat label="Uptime" value={duration > 0 ? formatDuration(duration) : '—'} />;
+}
+
 function SocketIOClient() {
   const activeTabId = useActiveTabId();
   const connectionByTabId = useSocketIOStore((s) => s.connectionByTabId);
@@ -175,7 +187,6 @@ function SocketIOClient() {
     clearEvents,
     setEventFilter,
     setSearchQuery,
-    getFilteredEvents,
     addKv,
     updateKv,
     removeKv,
@@ -187,14 +198,13 @@ function SocketIOClient() {
       clearEvents: s.clearEvents,
       setEventFilter: s.setEventFilter,
       setSearchQuery: s.setSearchQuery,
-      getFilteredEvents: s.getFilteredEvents,
       addKv: s.addKv,
       updateKv: s.updateKv,
       removeKv: s.removeKv,
     }))
   );
 
-  const { resolveVariables } = useEnvironmentStore();
+  const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
 
   const [emitEventName, setEmitEventName] = useState('message');
   const [emitArgsText, setEmitArgsText] = useState('"hello"');
@@ -208,17 +218,12 @@ function SocketIOClient() {
     if (activeTabId) ensureConnectionForTab(activeTabId);
   }, [activeTabId, ensureConnectionForTab]);
 
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (connection?.status !== 'connected') return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [connection?.status]);
-
   const rawEventsLength = connection?.events.length ?? 0;
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const filteredEvents = useMemo(
-    () => (activeConnectionId ? getFilteredEvents(activeConnectionId) : []),
-    [activeConnectionId, getFilteredEvents, rawEventsLength, eventFilter, searchQuery]
+    () =>
+      connection ? filterSocketIOEvents(connection.events, eventFilter, deferredSearchQuery) : [],
+    [connection, eventFilter, deferredSearchQuery]
   );
 
   const counts = useMemo(() => {
@@ -305,9 +310,6 @@ function SocketIOClient() {
   // `addEvent` is destructured for parity with the WebSocket client but not yet
   // used here (events are appended by socketioManager); reference it to satisfy lint.
   void addEvent;
-
-  const connectionDuration =
-    isConnected && connection.lastConnectedAt ? now - connection.lastConnectedAt : 0;
 
   const selectedEvent =
     (selectedEventId && connection.events.find((e) => e.id === selectedEventId)) || null;
@@ -455,10 +457,7 @@ function SocketIOClient() {
 
       {/* Stats row */}
       <div className="flex items-center gap-6 px-1 shrink-0">
-        <Stat
-          label="Uptime"
-          value={connectionDuration > 0 ? formatDuration(connectionDuration) : '—'}
-        />
+        <UptimeStat connectedAt={connection.lastConnectedAt} isConnected={isConnected} />
         <Stat
           label="↑ Events"
           value={<span style={{ color: 'var(--color-proto-ws)' }}>{counts.sent}</span>}

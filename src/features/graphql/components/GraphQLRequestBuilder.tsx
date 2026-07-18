@@ -22,10 +22,12 @@ import {
   extractGraphQLErrors,
   extractOperationType,
 } from '@/features/graphql/lib/queryParser';
+import { GraphQLSubscriptionClient } from '@/features/graphql/lib/subscriptionClient';
 import {
-  GraphQLSubscriptionClient,
-  type SubscriptionMessage,
-} from '@/features/graphql/lib/subscriptionClient';
+  appendSubscriptionLog,
+  emptySubscriptionLog,
+  type SubscriptionLogState,
+} from '@/features/graphql/lib/subscriptionLog';
 import {
   buildDesktopTransportConfig,
   resolveEffectiveSettings,
@@ -62,8 +64,11 @@ function GraphQLRequestBuilder() {
   const setCurrentResponse = useRequestStore((s) => s.setCurrentResponse);
   const setScriptResult = useRequestStore((s) => s.setScriptResult);
   const isLoading = useRequestStore((s) => s.isLoading);
-  const { resolveVariables } = useEnvironmentStore();
-  const { fetchSchema, getSchema, isLoading: isSchemaLoading } = useGraphQLSchemaStore();
+  const url = currentRequest?.url ?? '';
+  const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
+  const fetchSchema = useGraphQLSchemaStore((s) => s.fetchSchema);
+  const schemaResult = useGraphQLSchemaStore((s) => (url ? (s.schemas[url] ?? null) : null));
+  const schemaLoading = useGraphQLSchemaStore((s) => (url ? (s.loading[url] ?? false) : false));
   const { run: runViaRegistry } = useRequestRunner();
   const [activeTab, setActiveTab] = useState<TabValue>('query');
   // Schema explorer is hidden by default so the query editor gets the full
@@ -71,7 +76,8 @@ function GraphQLRequestBuilder() {
   // reveals it on demand, matching the gRPC/MCP catalog pattern.
   const [showSchema, setShowSchema] = useState(false);
   const [graphqlVariables, setGraphqlVariables] = useState('{}');
-  const [subscriptionMessages, setSubscriptionMessages] = useState<SubscriptionMessage[]>([]);
+  const [subscriptionLog, setSubscriptionLog] =
+    useState<SubscriptionLogState>(emptySubscriptionLog);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const subscriptionClientRef = useRef<GraphQLSubscriptionClient | null>(null);
 
@@ -81,9 +87,6 @@ function GraphQLRequestBuilder() {
     handleDelete: handleDeleteHeader,
   } = useKeyValueCollection(currentRequest?.headers ?? [], (headers) => updateRequest({ headers }));
 
-  const url = currentRequest?.url ?? '';
-  const schemaResult = url ? getSchema(url) : null;
-  const schemaLoading = url ? isSchemaLoading(url) : false;
   const executableSchema = useMemo(
     () => (schemaResult ? buildSchemaFromIntrospection(schemaResult) : null),
     [schemaResult]
@@ -138,7 +141,7 @@ function GraphQLRequestBuilder() {
       return;
     }
 
-    setSubscriptionMessages([]);
+    setSubscriptionLog(emptySubscriptionLog);
     setIsSubscribed(true);
 
     const headers = buildHeaders();
@@ -151,7 +154,7 @@ function GraphQLRequestBuilder() {
       variables,
       headers,
       onMessage: (msg) => {
-        setSubscriptionMessages((prev) => [...prev, msg]);
+        setSubscriptionLog((prev) => appendSubscriptionLog(prev, msg));
         if (msg.type === 'complete') {
           setIsSubscribed(false);
           subscriptionClientRef.current = null;
@@ -374,7 +377,7 @@ function GraphQLRequestBuilder() {
           {
             value: 'subscription',
             label: 'Messages',
-            count: subscriptionMessages.filter((m) => m.type === 'data').length,
+            count: subscriptionLog.dataCount,
           },
         ] as SubTab<TabValue>[])
       : []),
@@ -549,7 +552,7 @@ function GraphQLRequestBuilder() {
 
             {activeTab === 'subscription' && isSubscription && (
               <div className="p-3 overflow-auto h-full">
-                {subscriptionMessages.length === 0 ? (
+                {subscriptionLog.messages.length === 0 ? (
                   <div className="text-center py-8 text-sp-muted font-mono text-sp-12">
                     {isSubscribed
                       ? 'Waiting for messages...'
@@ -557,7 +560,7 @@ function GraphQLRequestBuilder() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {subscriptionMessages.map((msg) => (
+                    {subscriptionLog.messages.map((msg) => (
                       <div
                         key={msg.id}
                         className={cn(
@@ -576,9 +579,7 @@ function GraphQLRequestBuilder() {
                           <span>{new Date(msg.timestamp).toLocaleTimeString()}</span>
                         </div>
                         {msg.payload !== undefined && (
-                          <pre className="whitespace-pre-wrap break-all">
-                            {JSON.stringify(msg.payload, null, 2)}
-                          </pre>
+                          <pre className="whitespace-pre-wrap break-all">{msg.payloadText}</pre>
                         )}
                         {msg.error && <span className="text-destructive">{msg.error}</span>}
                       </div>

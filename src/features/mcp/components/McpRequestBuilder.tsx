@@ -25,6 +25,7 @@ import {
   TextField,
   VariableText,
 } from '@/components/ui/spatial';
+import { useMcpConnectionActions } from '@/features/mcp/hooks/useMcpConnectionActions';
 import { generateMcpTemplate, type McpCall, McpClient } from '@/features/mcp/lib/mcpClient';
 import { type McpInvocationLog, useMcpStore } from '@/features/mcp/store/useMcpStore';
 import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
@@ -41,8 +42,12 @@ import type {
 type ListTab = 'tools' | 'resources' | 'prompts' | 'log';
 
 export default function McpRequestBuilder() {
+  const hasConnections = useMcpStore((s) => Object.keys(s.connections).length > 0);
+  const activeConnectionId = useMcpStore((s) => s.activeConnectionId);
+  const active = useMcpStore((s) =>
+    activeConnectionId ? (s.connections[activeConnectionId] ?? null) : null
+  );
   const {
-    connections,
     createConnection,
     setUrl,
     setTransport,
@@ -53,19 +58,13 @@ export default function McpRequestBuilder() {
     setCapabilities,
     appendLog,
     clearLog,
-    getActive,
-  } = useMcpStore();
-  const { resolveVariables } = useEnvironmentStore();
+  } = useMcpConnectionActions();
+  const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
 
   useEffect(() => {
-    if (Object.keys(connections).length === 0) createConnection('');
-  }, [connections, createConnection]);
+    if (!hasConnections) createConnection('');
+  }, [hasConnections, createConnection]);
 
-  const active = getActive();
-
-  // The MCP client owns the session id and the IPC subscription, so we hold it in a
-  // ref across renders. The cleanup runs on unmount (mode switch) — pin the
-  // connectionId so we always tear down the right session even if clientRef is null.
   const clientRef = useRef<McpClient | null>(null);
   const activeIdForCleanup = active?.id;
   useEffect(() => {

@@ -183,7 +183,11 @@ export function SseEventTimeline({
                   <li
                     key={entry.id}
                     className="grid items-start gap-3 text-sp-11 sp-stream-row"
-                    style={{ gridTemplateColumns: '80px 24px 1fr' }}
+                    style={{
+                      gridTemplateColumns: '80px 24px 1fr',
+                      contentVisibility: 'auto',
+                      containIntrinsicSize: 'auto 32px',
+                    }}
                   >
                     <span className="font-mono text-sp-dim text-right tabular-nums">
                       {formatTs(entry.timestamp)}
@@ -210,7 +214,11 @@ export function SseEventTimeline({
                 <li
                   key={entry.id}
                   className="grid items-start gap-3 sp-stream-row"
-                  style={{ gridTemplateColumns: '80px 24px 1fr' }}
+                  style={{
+                    gridTemplateColumns: '80px 24px 1fr',
+                    contentVisibility: 'auto',
+                    containIntrinsicSize: 'auto 32px',
+                  }}
                 >
                   <span className="font-mono text-sp-dim text-sp-11 text-right tabular-nums pt-[3px]">
                     {formatTs(entry.timestamp)}

@@ -166,6 +166,7 @@ export default function CommandPalette({
 
   // Toggle ⌘K / Ctrl+K — works regardless of controlled/uncontrolled mode.
   useEffect(() => {
+    if (isControlled) return;
     const down = (e: KeyboardEvent) => {
       if (e.key === 'k' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
@@ -174,7 +175,7 @@ export default function CommandPalette({
     };
     document.addEventListener('keydown', down);
     return () => document.removeEventListener('keydown', down);
-  }, [setOpen]);
+  }, [isControlled, setOpen]);
 
   // Reset transient state on open
   useEffect(() => {

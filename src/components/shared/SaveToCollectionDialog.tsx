@@ -1,6 +1,7 @@
 import { FolderPlus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import { useShallow } from 'zustand/react/shallow';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -47,7 +48,14 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
   const tab = useRequestStore((s) => s.tabs.find((t) => t.id === tabId));
   const linkTabToSavedRequest = useRequestStore((s) => s.linkTabToSavedRequest);
   const { collections, addItemToCollection, createNewCollection, addCollection } =
-    useCollectionStore();
+    useCollectionStore(
+      useShallow((s) => ({
+        collections: s.collections,
+        addItemToCollection: s.addItemToCollection,
+        createNewCollection: s.createNewCollection,
+        addCollection: s.addCollection,
+      }))
+    );
 
   const [selectedCollectionId, setSelectedCollectionId] = useState('');
   const [selectedFolderId, setSelectedFolderId] = useState('');

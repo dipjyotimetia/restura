@@ -51,7 +51,8 @@ const getLogColor = (type: ConsoleLog['type']) => {
 };
 
 export default function ScriptsTab({ logs, tests }: ScriptsTabProps) {
-  const { entries, selectedEntryId } = useConsoleStore();
+  const entries = useConsoleStore((s) => s.entries);
+  const selectedEntryId = useConsoleStore((s) => s.selectedEntryId);
 
   // Prefer the selected entry's *captured* script output so older entries
   // show their own logs instead of the latest send. Falls back to the live

@@ -376,7 +376,10 @@ const FolderRow = memo(function FolderRow({
   const menuProps = { collectionId, item, isSelected, selectedCount, actions };
 
   return (
-    <div className="relative group/row">
+    <div
+      className="relative group/row"
+      style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 28px' }}
+    >
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div
@@ -550,7 +553,10 @@ const RequestRow = memo(function RequestRow({
   const menuProps = { collectionId, item, isSelected, selectedCount, actions };
 
   return (
-    <div className="relative group/row">
+    <div
+      className="relative group/row"
+      style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 28px' }}
+    >
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <button

@@ -12,7 +12,6 @@ import {
   GitBranch,
   HardDrive,
   History,
-  type LucideIcon,
   MoreVertical,
   Pencil,
   Play,
@@ -27,7 +26,6 @@ import { toast } from 'sonner';
 import { useShallow } from 'zustand/react/shallow';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
-import GitDialog from '@/components/shared/GitDialog';
 import RunsPanel from '@/components/shared/RunsPanel';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -55,9 +53,6 @@ import {
   getCollectionExportWarnings,
 } from '@/features/collections/lib/exporters';
 import { loadContractSpec } from '@/features/contracts/lib/specLoader';
-import { WorkflowBuilder } from '@/features/workflows/components/WorkflowBuilder';
-import { WorkflowExecutor } from '@/features/workflows/components/WorkflowExecutor';
-import { WorkflowManager } from '@/features/workflows/components/WorkflowManager';
 import {
   countCollectionInlineSecrets,
   redactCollectionSecrets,
@@ -98,8 +93,8 @@ import {
   uniqueName,
 } from '../lib/names';
 import { CollectionDirectoryPicker } from './CollectionDirectoryPicker';
-import { CollectionRunnerDialog, type RunnerScope } from './CollectionRunnerDialog';
-import { CollectionSettingsDialog, type SettingsTarget } from './CollectionSettingsDialog';
+import type { RunnerScope } from './CollectionRunnerDialog';
+import type { SettingsTarget } from './CollectionSettingsDialog';
 import {
   CollectionTreeItems,
   handleTreeKeyDown,
@@ -108,9 +103,18 @@ import {
   type TreeState,
 } from './CollectionTree';
 import { ConflictDialog } from './ConflictDialog';
-import DocsViewer from './DocsViewer';
-import { ExportSecretsDialog } from './ExportSecretsDialog';
 import { FileStatusBadge } from './FileStatusBadge';
+import { SidebarEmptyState } from './SidebarEmptyState';
+import {
+  CollectionRunnerDialog,
+  CollectionSettingsDialog,
+  DocsViewer,
+  ExportSecretsDialog,
+  GitDialog,
+  WorkflowBuilder,
+  WorkflowExecutor,
+  WorkflowManager,
+} from './sidebarLazyDialogs';
 
 interface SidebarProps {
   activePanel?: ActivePanel | null;
@@ -143,25 +147,6 @@ const siblingNames = (collectionId: string, parentId?: string) => {
 };
 
 type ExportFormat = 'postman' | 'insomnia' | 'opencollection' | 'bruno';
-
-/** Quiet empty state shared by the collections / history / workflows tabs. */
-function SidebarEmptyState({
-  icon: Icon,
-  title,
-  hint,
-}: {
-  icon: LucideIcon;
-  title: string;
-  hint: string;
-}) {
-  return (
-    <div className="text-center text-xs py-10 px-3">
-      <Icon className="mx-auto mb-2.5 h-5 w-5 text-sp-dim" />
-      <p className="text-muted-foreground">{title}</p>
-      <p className="text-[11px] mt-1 text-sp-dim">{hint}</p>
-    </div>
-  );
-}
 
 function Sidebar({ activePanel }: SidebarProps) {
   const {
@@ -1560,33 +1545,42 @@ function Sidebar({ activePanel }: SidebarProps) {
         />
       </aside>
 
-      <CollectionRunnerDialog scope={runnerScope} onClose={() => setRunnerScope(null)} />
+      {runnerScope && (
+        <CollectionRunnerDialog scope={runnerScope} onClose={() => setRunnerScope(null)} />
+      )}
 
-      <CollectionSettingsDialog target={settingsTarget} onClose={() => setSettingsTarget(null)} />
+      {settingsTarget && (
+        <CollectionSettingsDialog target={settingsTarget} onClose={() => setSettingsTarget(null)} />
+      )}
 
-      <ExportSecretsDialog
-        open={exportPrompt !== null}
-        secretCount={exportPrompt?.secretCount ?? 0}
-        onCancel={() => setExportPrompt(null)}
-        onExport={(includeSecrets) => {
-          if (!exportPrompt) return;
-          const { collection, format } = exportPrompt;
-          setExportPrompt(null);
-          void performExport(
-            includeSecrets ? collection : redactCollectionSecrets(collection),
-            format
-          );
-        }}
-      />
+      {exportPrompt && (
+        <ExportSecretsDialog
+          open
+          secretCount={exportPrompt.secretCount}
+          onCancel={() => setExportPrompt(null)}
+          onExport={(includeSecrets) => {
+            const { collection, format } = exportPrompt;
+            setExportPrompt(null);
+            void performExport(
+              includeSecrets ? collection : redactCollectionSecrets(collection),
+              format
+            );
+          }}
+        />
+      )}
 
-      <DocsViewer collection={docsCollection} onClose={() => setDocsCollection(null)} />
+      {docsCollection && (
+        <DocsViewer collection={docsCollection} onClose={() => setDocsCollection(null)} />
+      )}
 
-      <GitDialog
-        open={gitTarget !== null}
-        collectionName={gitTarget?.collection.name ?? ''}
-        directoryPath={gitTarget?.directoryPath ?? null}
-        onClose={() => setGitTarget(null)}
-      />
+      {gitTarget && (
+        <GitDialog
+          open
+          collectionName={gitTarget.collection.name}
+          directoryPath={gitTarget.directoryPath}
+          onClose={() => setGitTarget(null)}
+        />
+      )}
     </TooltipProvider>
   );
 }

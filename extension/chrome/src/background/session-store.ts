@@ -7,7 +7,7 @@
  */
 import type { CaptureSession } from '@shared/capture/types';
 
-const KEY = 'restura:capture:session';
+export const CAPTURE_SESSION_KEY = 'restura:capture:session';
 const META_KEY = 'restura:capture:meta';
 
 /**
@@ -21,12 +21,12 @@ export interface CaptureMeta {
 }
 
 export async function saveSession(session: CaptureSession | null): Promise<void> {
-  await chrome.storage.session.set({ [KEY]: session });
+  await chrome.storage.session.set({ [CAPTURE_SESSION_KEY]: session });
 }
 
 export async function loadSession(): Promise<CaptureSession | null> {
-  const out = await chrome.storage.session.get(KEY);
-  return (out[KEY] as CaptureSession | null) ?? null;
+  const out = await chrome.storage.session.get(CAPTURE_SESSION_KEY);
+  return (out[CAPTURE_SESSION_KEY] as CaptureSession | null) ?? null;
 }
 
 export async function saveMeta(meta: CaptureMeta): Promise<void> {
