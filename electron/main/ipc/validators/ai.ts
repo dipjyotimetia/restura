@@ -1,4 +1,5 @@
 import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
+import { AgentTelemetryConfigSchema } from '@shared/agent-lab/telemetry-config';
 import { z } from 'zod';
 
 // ===========================
@@ -161,3 +162,65 @@ export const AiLabDiscoverSchema = z
     message: 'This provider requires an API key to discover models.',
     path: ['apiKey'],
   });
+
+const TelemetryTraceEventSchema = z.discriminatedUnion('type', [
+  z
+    .object({
+      id: z.string().min(1).max(200),
+      type: z.literal('model.completed'),
+      timestamp: z.number().nonnegative(),
+      providerId: z.string().min(1).max(200),
+      model: z.string().min(1).max(500),
+      durationMs: z.number().nonnegative(),
+      usage: z
+        .object({ inputTokens: z.number().nonnegative(), outputTokens: z.number().nonnegative() })
+        .optional(),
+      costUSD: z.number().nonnegative().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1).max(200),
+      type: z.literal('model.failed'),
+      timestamp: z.number().nonnegative(),
+      providerId: z.string().min(1).max(200),
+      model: z.string().min(1).max(500),
+      durationMs: z.number().nonnegative(),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1).max(200),
+      type: z.enum(['tool.completed', 'tool.failed']),
+      timestamp: z.number().nonnegative(),
+      toolName: z.string().min(1).max(500),
+      durationMs: z.number().nonnegative(),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.string().min(1).max(200),
+      type: z.literal('run.completed'),
+      timestamp: z.number().nonnegative(),
+      status: z.string().max(30),
+    })
+    .strict(),
+]);
+
+export const AiLabTelemetryExportSchema = z
+  .object({
+    config: AgentTelemetryConfigSchema,
+    trace: z
+      .object({
+        id: z.string().min(1).max(200),
+        suiteId: z.string().min(1).max(200),
+        taskId: z.string().min(1).max(200),
+        trial: z.number().int().positive(),
+        agentId: z.string().min(1).max(200),
+        startedAt: z.number().nonnegative(),
+        finishedAt: z.number().nonnegative().optional(),
+        events: z.array(TelemetryTraceEventSchema).max(1000),
+      })
+      .strict(),
+  })
+  .strict();

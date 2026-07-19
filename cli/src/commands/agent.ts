@@ -11,6 +11,7 @@ import {
   AgentSuiteRunner,
   type AgentToolResolver,
   AgentSuiteSchema,
+  AgentTelemetryConfigSchema,
   AnthropicMessagesAdapter,
   migrateAgentSuite,
   evaluateAgentBundleBaseline,
@@ -26,6 +27,7 @@ import { resolveCliAgentTools } from '../runner/agentTools.js';
 import { resolveCliGrounding } from '../runner/agentGrounding.js';
 import { undiciFetcher } from '../runner/undiciFetcher.js';
 import { AgentRuntimeManifestSchema, type AgentRuntimeManifest } from './agentRuntime.js';
+import { exportCliAgentTelemetry } from '../runner/agentTelemetry.js';
 
 export interface AgentEvalOptions {
   output?: string;
@@ -33,6 +35,7 @@ export interface AgentEvalOptions {
   env?: string;
   timeout?: string;
   allowLocalhost?: boolean;
+  telemetryConfig?: string;
 }
 
 export interface AgentEvalDependencies {
@@ -212,6 +215,7 @@ export async function evaluateAgentSuite(
   const toolResolver = createAgentToolResolver();
   preflightAgentSuite(suite, toolResolver, runtime);
   const report = await runAgentSuite(suite, dependencies, toolResolver, runtime, options);
+  await exportTelemetryIfConfigured(report, options, dependencies);
   if (options.output)
     await dependencies.writeText(options.output, `${JSON.stringify(report, null, 2)}\n`);
   return report;
@@ -232,6 +236,7 @@ export async function evaluateAgentBundle(
   const toolResolver = createAgentToolResolver([createFixtureToolSourceAdapter(bundle.fixtures)]);
   preflightAgentSuite(suite, toolResolver, runtime);
   const report = await runAgentSuite(suite, dependencies, toolResolver, runtime, options);
+  await exportTelemetryIfConfigured(report, options, dependencies);
   const gates = evaluateAgentBundleBaseline(bundle, report);
   const result = { report: applyAgentBundleBaseline(report, gates), gates };
   if (options.output)
@@ -250,6 +255,10 @@ export function registerAgentCommand(program: Command): void {
     .option('--env <file>', 'Path to env file (json or yaml) used by saved requests')
     .option('--timeout <ms>', 'Per saved HTTP request timeout', '30000')
     .option('--allow-localhost', 'Permit localhost saved request targets (off by default)', false)
+    .option(
+      '--telemetry-config <file>',
+      'Metadata-only Langfuse or OTLP telemetry configuration; credentials must be environment references'
+    )
     .action(async (suitePath: string, options: AgentEvalOptions) => {
       try {
         const input = JSON.parse(await defaultDependencies.readText(suitePath)) as Record<
@@ -274,6 +283,24 @@ export function registerAgentCommand(program: Command): void {
         );
       }
     });
+}
+
+async function exportTelemetryIfConfigured(
+  report: AgentSuiteReport,
+  options: AgentEvalOptions,
+  dependencies: AgentEvalDependencies
+): Promise<void> {
+  if (!options.telemetryConfig) return;
+  try {
+    const config = AgentTelemetryConfigSchema.parse(
+      JSON.parse(await dependencies.readText(options.telemetryConfig))
+    );
+    await exportCliAgentTelemetry(report, config, dependencies.environment);
+  } catch (error) {
+    console.error(
+      `telemetry export skipped: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }
 
 function numericFlag(name: string, value: string): number {

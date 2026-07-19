@@ -81,6 +81,7 @@ export const integrationApi: IntegrationApi = {
       ),
   },
   aiLab: {
+    exportTelemetry: invoke<ElectronAPI['aiLab']['exportTelemetry']>(IPC.aiLab.exportTelemetry),
     complete: invoke<ElectronAPI['aiLab']['complete']>(IPC.aiLab.complete),
     cancelComplete: invoke<ElectronAPI['aiLab']['cancelComplete']>(IPC.aiLab.completeCancel),
     stream: invoke<ElectronAPI['aiLab']['stream']>(IPC.aiLab.stream),

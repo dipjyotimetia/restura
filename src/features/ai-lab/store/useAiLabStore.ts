@@ -1,4 +1,9 @@
-import { type AgentSuite, migrateAgentSuite, type ModelCapabilities } from '@shared/agent-lab';
+import {
+  type AgentSuite,
+  type AgentTelemetryConfig,
+  migrateAgentSuite,
+  type ModelCapabilities,
+} from '@shared/agent-lab';
 import { isHuggingFaceProvider, isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
@@ -31,6 +36,7 @@ interface PersistedAiLabState {
   agentSuites: Record<string, AgentSuite>;
   runReports: Record<string, AiLabReportEnvelope>;
   reportQuarantineCount: number;
+  agentTelemetry?: AgentTelemetryConfig;
 }
 
 interface AiLabState extends PersistedAiLabState {
@@ -81,6 +87,7 @@ interface AiLabState extends PersistedAiLabState {
   // Agent workbench
   upsertAgentSuite: (suite: unknown) => string;
   removeAgentSuite: (id: string) => void;
+  setAgentTelemetryConfig: (config?: AgentTelemetryConfig) => void;
   hydrateRunReports: () => Promise<void>;
   saveRunReport: (report: AiLabReportEnvelope) => Promise<void>;
   removeRunReport: (id: string) => Promise<void>;
@@ -418,6 +425,7 @@ export const useAiLabStore = create<AiLabState>()(
           delete next[id];
           return { agentSuites: next };
         }),
+      setAgentTelemetryConfig: (agentTelemetry) => set({ agentTelemetry }),
       hydrateRunReports: () =>
         enqueueReportMutation(async () => {
           const loaded = await getAiLabReportRepository().load();
@@ -465,6 +473,7 @@ export const useAiLabStore = create<AiLabState>()(
         recentModelKeys: state.recentModelKeys,
         agentSuites: state.agentSuites,
         reportQuarantineCount: state.reportQuarantineCount,
+        ...(state.agentTelemetry ? { agentTelemetry: state.agentTelemetry } : {}),
       }),
       merge: (persisted, current) => ({ ...current, ...migrateAiLabState(persisted) }),
       onRehydrateStorage: () => (state) => {
