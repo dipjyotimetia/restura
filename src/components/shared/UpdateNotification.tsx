@@ -1,7 +1,14 @@
-import { AlertTriangle, Download, ExternalLink, RefreshCw, RotateCw } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Download,
+  ExternalLink,
+  RefreshCw,
+  RotateCw,
+} from 'lucide-react';
 import { type ReactElement, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { getElectronAPI, isElectron } from '@/lib/shared/platform';
+import { getElectronAPI, getPlatform, isElectron } from '@/lib/shared/platform';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { DEFAULT_AUTO_UPDATE_SETTINGS } from '@/types';
 import type { UpdaterStatus } from '../../../electron/types/electron-api';
@@ -96,6 +103,8 @@ export function UpdateNotification(): ReactElement | null {
   if (!api) return null;
 
   const visibleError = status.state === 'error' && status.phase && status.phase !== 'check';
+  const isMacDesktop = getPlatform() === 'darwin';
+  const isDownloaded = status.state === 'downloaded';
 
   // Background checks remain transient and silent. Download, validation, and
   // installation failures stay visible because the user must be able to
@@ -118,47 +127,51 @@ export function UpdateNotification(): ReactElement | null {
     <div
       role={visibleError ? 'alert' : 'status'}
       aria-live="polite"
-      className={`sticky top-0 z-50 border-b px-4 py-2 text-sm ${
+      className={`sticky top-0 z-50 border-b py-2 text-sm ${isMacDesktop ? 'pl-20 pr-4' : 'px-4'} ${
         visibleError
           ? 'border-red-500/40 bg-red-500/10 text-red-800 dark:bg-red-950/40 dark:text-red-100'
-          : 'border-sky-500/40 bg-sky-500/10 text-sky-800 dark:bg-sky-950/40 dark:text-sky-100'
+          : isDownloaded
+            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-100'
+            : 'border-sky-500/40 bg-sky-500/10 text-sky-800 dark:bg-sky-950/40 dark:text-sky-100'
       }`}
     >
-      <div className="mx-auto flex max-w-7xl items-center gap-3">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-3">
         {status.state === 'available' && (
           <>
             <Download className="h-4 w-4 shrink-0 text-sky-400" aria-hidden />
-            <div className="flex-1 min-w-0">
+            <div className="min-w-56 flex-1">
               <span className="font-medium">Update available</span>
               {status.version && <span className="ml-1 text-sky-200/90">v{status.version}</span>}
               {autoUpdate.autoDownload && (
                 <span className="ml-2 text-xs text-sky-200/70">Preparing download…</span>
               )}
             </div>
-            {!autoUpdate.autoDownload && (
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+              {!autoUpdate.autoDownload && (
+                <button
+                  type="button"
+                  onClick={() => void api.updater.download()}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-sky-400/40 px-2.5 py-1 text-xs font-medium text-sky-100 transition hover:bg-sky-400/10"
+                >
+                  <Download className="h-3 w-3" aria-hidden />
+                  Download
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => void api.updater.download()}
-                className="inline-flex items-center gap-1.5 rounded-md border border-sky-400/40 px-2.5 py-1 text-xs font-medium text-sky-100 transition hover:bg-sky-400/10"
+                onClick={() => window.dispatchEvent(new Event('restura:open-release-notes'))}
+                className="rounded-md px-2.5 py-1 text-xs font-medium text-sky-200/80 transition hover:bg-sky-400/10"
               >
-                <Download className="h-3 w-3" aria-hidden />
-                Download
+                What's new
               </button>
-            )}
-            <button
-              type="button"
-              onClick={() => window.dispatchEvent(new Event('restura:open-release-notes'))}
-              className="rounded-md px-2.5 py-1 text-xs font-medium text-sky-200/80 transition hover:bg-sky-400/10"
-            >
-              What's new
-            </button>
+            </div>
           </>
         )}
 
         {status.state === 'downloading' && (
           <>
             <RefreshCw className="h-4 w-4 shrink-0 animate-spin text-sky-400" aria-hidden />
-            <div className="flex-1 min-w-0">
+            <div className="min-w-56 flex-1">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-medium">
                   Downloading update{status.version ? ` v${status.version}` : ''}
@@ -174,20 +187,22 @@ export function UpdateNotification(): ReactElement | null {
                 />
               </div>
             </div>
-            <button
-              type="button"
-              onClick={() => void api.updater.cancel()}
-              className="inline-flex items-center gap-1.5 rounded-md border border-sky-400/40 px-2.5 py-1 text-xs font-medium text-sky-100 transition hover:bg-sky-400/10"
-            >
-              Cancel
-            </button>
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={() => void api.updater.cancel()}
+                className="inline-flex items-center gap-1.5 rounded-md border border-sky-400/40 px-2.5 py-1 text-xs font-medium text-sky-100 transition hover:bg-sky-400/10"
+              >
+                Cancel
+              </button>
+            </div>
           </>
         )}
 
         {status.state === 'validating' && (
           <>
             <RefreshCw className="h-4 w-4 shrink-0 animate-spin text-sky-400" aria-hidden />
-            <div className="flex-1 min-w-0">
+            <div className="min-w-56 flex-1">
               <span className="font-medium">Verifying update…</span>
               <span className="ml-2 text-xs text-sky-200/70">
                 Checking the downloaded app before restart.
@@ -198,35 +213,43 @@ export function UpdateNotification(): ReactElement | null {
 
         {status.state === 'downloaded' && (
           <>
-            <RotateCw className="h-4 w-4 shrink-0 text-emerald-400" aria-hidden />
-            <div className="flex-1 min-w-0">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" aria-hidden />
+            <div className="min-w-56 flex-1">
               <span className="font-medium">
-                Update{status.version ? ` v${status.version}` : ''} ready
+                Version{status.version ? ` v${status.version}` : ''} is ready to install.
               </span>
-              <span className="ml-2 text-xs text-sky-200/70">Restart to apply.</span>
             </div>
-            <button
-              type="button"
-              onClick={() => setDismissed(true)}
-              className="rounded-md px-2.5 py-1 text-xs font-medium text-sky-200/80 transition hover:bg-sky-400/10"
-            >
-              Later
-            </button>
-            <button
-              type="button"
-              onClick={() => void api.updater.restart()}
-              className="inline-flex items-center gap-1.5 rounded-md border border-emerald-400/50 bg-emerald-400/10 px-2.5 py-1 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-400/20"
-            >
-              <RotateCw className="h-3 w-3" aria-hidden />
-              Restart now
-            </button>
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new Event('restura:open-release-notes'))}
+                className="rounded-md px-2.5 py-1 text-xs font-medium text-emerald-800/80 transition hover:bg-emerald-400/10 dark:text-emerald-100/80"
+              >
+                What's new
+              </button>
+              <button
+                type="button"
+                onClick={() => setDismissed(true)}
+                className="rounded-md px-2.5 py-1 text-xs font-medium text-emerald-800/80 transition hover:bg-emerald-400/10 dark:text-emerald-100/80"
+              >
+                Not now
+              </button>
+              <button
+                type="button"
+                onClick={() => void api.updater.restart()}
+                className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/50 bg-emerald-500/15 px-2.5 py-1 text-xs font-semibold text-emerald-950 transition hover:bg-emerald-500/25 dark:text-emerald-50"
+              >
+                <RotateCw className="h-3 w-3" aria-hidden />
+                Restart Restura
+              </button>
+            </div>
           </>
         )}
 
         {status.state === 'installing' && (
           <>
             <RotateCw className="h-4 w-4 shrink-0 animate-spin text-emerald-400" aria-hidden />
-            <div className="flex-1 min-w-0">
+            <div className="min-w-56 flex-1">
               <span className="font-medium">Restarting to install…</span>
               <span className="ml-2 text-xs text-sky-200/70">Restura will reopen shortly.</span>
             </div>
@@ -236,26 +259,28 @@ export function UpdateNotification(): ReactElement | null {
         {visibleError && status.state === 'error' && (
           <>
             <AlertTriangle className="h-4 w-4 shrink-0 text-red-400" aria-hidden />
-            <div className="flex-1 min-w-0">
+            <div className="min-w-56 flex-1">
               <div className="font-medium">{updaterErrorTitle(status)}</div>
               <div className="text-xs text-red-700/80 dark:text-red-200/80">{status.message}</div>
             </div>
-            <button
-              type="button"
-              onClick={() => void api.updater.check()}
-              className="inline-flex items-center gap-1.5 rounded-md border border-red-400/40 px-2.5 py-1 text-xs font-medium transition hover:bg-red-400/10"
-            >
-              <RefreshCw className="h-3 w-3" aria-hidden />
-              Retry
-            </button>
-            <button
-              type="button"
-              onClick={() => void api.shell.openExternal(MANUAL_DOWNLOAD_URL)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-red-400/40 px-2.5 py-1 text-xs font-medium transition hover:bg-red-400/10"
-            >
-              <ExternalLink className="h-3 w-3" aria-hidden />
-              Manual download
-            </button>
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={() => void api.updater.check()}
+                className="inline-flex items-center gap-1.5 rounded-md border border-red-400/40 px-2.5 py-1 text-xs font-medium transition hover:bg-red-400/10"
+              >
+                <RefreshCw className="h-3 w-3" aria-hidden />
+                Retry
+              </button>
+              <button
+                type="button"
+                onClick={() => void api.shell.openExternal(MANUAL_DOWNLOAD_URL)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-red-400/40 px-2.5 py-1 text-xs font-medium transition hover:bg-red-400/10"
+              >
+                <ExternalLink className="h-3 w-3" aria-hidden />
+                Manual download
+              </button>
+            </div>
           </>
         )}
       </div>
