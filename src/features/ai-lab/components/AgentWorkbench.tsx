@@ -227,28 +227,26 @@ export function AgentWorkbench() {
       );
     }
   };
-  const updateGuidedSuite = (update: (suite: NormalizedAgentSuite) => NormalizedAgentSuite) => {
-    try {
-      const parsed = parseDraftPayload();
-      const suite = parsed.bundle ? parsed.value.suite : parsed.value;
-      const nextSuite = update(suite);
-      setDraft(
-        JSON.stringify(parsed.bundle ? { ...parsed.value, suite: nextSuite } : nextSuite, null, 2)
-      );
-      setMessage('Builder updated the portable suite');
-    } catch (error) {
-      setMessage(
-        `Fix suite JSON before editing: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
+  const updateGuidedSuite = (
+    payload: DraftPayload,
+    update: (suite: NormalizedAgentSuite) => NormalizedAgentSuite
+  ) => {
+    const suite = payload.bundle ? payload.value.suite : payload.value;
+    const nextSuite = update(suite);
+    setDraft(
+      JSON.stringify(payload.bundle ? { ...payload.value, suite: nextSuite } : nextSuite, null, 2)
+    );
+    setMessage('Builder updated the portable suite');
   };
   let selectedGrounding = new Set<string>();
   let guidedSuite: NormalizedAgentSuite | null = null;
+  let guidedPayload: DraftPayload | null = null;
   try {
     const parsed = parseDraftPayload();
     const suite = parsed.bundle ? parsed.value.suite : parsed.value;
     selectedGrounding = new Set(suite.grounding.sourceIds);
     guidedSuite = suite;
+    guidedPayload = parsed;
   } catch {
     // Keep the raw JSON editable; source buttons become inactive until valid.
   }
@@ -370,11 +368,11 @@ export function AgentWorkbench() {
               </Button>
             ))}
           </div>
-          {guidedSuite ? (
+          {guidedSuite && guidedPayload ? (
             <GuidedStep
               step={builderStep}
               suite={guidedSuite}
-              onChange={updateGuidedSuite}
+              onChange={(update) => updateGuidedSuite(guidedPayload, update)}
               onExport={exportSuite}
             />
           ) : (
@@ -506,8 +504,8 @@ function GuidedStep({
   onChange: (update: (suite: NormalizedAgentSuite) => NormalizedAgentSuite) => void;
   onExport: () => void;
 }) {
-  const agent = suite.agents[0];
-  if (!agent) return null;
+  // `GuidedStep` receives a suite validated by AgentSuiteSchema, which requires one agent.
+  const agent = suite.agents[0]!;
   if (step === 'task') {
     return (
       <div className="mt-3 grid gap-3 md:grid-cols-2">

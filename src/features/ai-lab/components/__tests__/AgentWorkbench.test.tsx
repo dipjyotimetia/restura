@@ -143,9 +143,86 @@ describe('AgentWorkbench runs', () => {
 
     await user.click(screen.getByRole('tab', { name: 'Checks & budgets' }));
     await user.click(screen.getByRole('button', { name: 'Add approval policy' }));
+    await user.click(screen.getByRole('button', { name: 'Add approval policy' }));
 
-    expect((screen.getByLabelText('Agent suite JSON') as HTMLTextAreaElement).value).toContain(
-      'desktop-approval'
+    const draft = JSON.parse(
+      (screen.getByLabelText('Agent suite JSON') as HTMLTextAreaElement).value
+    );
+    expect(draft).toMatchObject({
+      policies: [expect.objectContaining({ id: 'desktop-approval' })],
+      agents: [expect.objectContaining({ policyId: 'desktop-approval' })],
+    });
+    expect(draft.policies).toHaveLength(1);
+  });
+
+  it('renders each guided builder step and edits bundle-contained suites', async () => {
+    const user = userEvent.setup();
+    render(<AgentWorkbench />);
+    const bundle = {
+      schemaVersion: 1,
+      id: 'guided-bundle',
+      name: 'Guided bundle',
+      suite: SUITE,
+      fixtures: [],
+    };
+    fireEvent.change(screen.getByLabelText('Agent suite JSON'), {
+      target: { value: JSON.stringify(bundle) },
+    });
+
+    await user.click(screen.getByRole('tab', { name: 'Model' }));
+    expect(screen.getByText(/Primary model: provider\/model/)).toBeVisible();
+    await user.click(screen.getByRole('tab', { name: 'Tools & grounding' }));
+    expect(screen.getByText(/Configure saved request and MCP tool sources/)).toBeVisible();
+    await user.click(screen.getByRole('tab', { name: 'Review & export' }));
+    expect(screen.getByText(/Review the generated portable schema/)).toBeVisible();
+    await user.click(screen.getByRole('tab', { name: 'Task' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Suite name' }), {
+      target: { value: 'Updated nested suite' },
+    });
+
+    expect(
+      JSON.parse((screen.getByLabelText('Agent suite JSON') as HTMLTextAreaElement).value)
+    ).toMatchObject({
+      suite: { name: 'Updated nested suite' },
+    });
+  });
+
+  it('changes only the primary agent instructions from the guided task step', async () => {
+    const user = userEvent.setup();
+    render(<AgentWorkbench />);
+    fireEvent.change(screen.getByLabelText('Agent suite JSON'), {
+      target: {
+        value: JSON.stringify({
+          ...SUITE,
+          agents: [
+            SUITE.agents[0],
+            {
+              ...SUITE.agents[0],
+              id: 'secondary-agent',
+              instructions: 'Keep this instruction',
+            },
+          ],
+        }),
+      },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Agent instructions' }), {
+      target: { value: 'Update the primary agent' },
+    });
+    await user.click(screen.getByRole('tab', { name: 'Checks & budgets' }));
+    await user.click(screen.getByRole('button', { name: 'Add approval policy' }));
+
+    const updated = JSON.parse(
+      (screen.getByLabelText('Agent suite JSON') as HTMLTextAreaElement).value
+    );
+    expect(updated.agents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'agent',
+          instructions: 'Update the primary agent',
+          policyId: 'desktop-approval',
+        }),
+        expect.objectContaining({ id: 'secondary-agent', instructions: 'Keep this instruction' }),
+      ])
     );
   });
 
