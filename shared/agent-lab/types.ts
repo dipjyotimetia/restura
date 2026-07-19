@@ -7,7 +7,10 @@ import type {
   ContentBlockSchema,
   CredentialRefSchema,
   GraderSchema,
+  KnowledgeSourceSchema,
+  KnowledgeSourceDescriptorSchema,
   ModelRefSchema,
+  SourceProvenanceSchema,
   ToolSourceSchema,
   TraceEventSchema,
 } from './schema';
@@ -21,6 +24,9 @@ export type AgentTask = z.infer<typeof AgentTaskSchema>;
 export type Grader = z.infer<typeof GraderSchema>;
 export type AgentSuite = z.infer<typeof AgentSuiteSchema>;
 export type TraceEvent = z.infer<typeof TraceEventSchema>;
+export type KnowledgeSource = z.infer<typeof KnowledgeSourceSchema>;
+export type KnowledgeSourceDescriptor = z.infer<typeof KnowledgeSourceDescriptorSchema>;
+export type SourceProvenance = z.infer<typeof SourceProvenanceSchema>;
 
 export interface AgentGradingContext {
   task: AgentTask;

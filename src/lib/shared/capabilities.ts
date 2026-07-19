@@ -48,6 +48,10 @@ export type CapabilityName =
   | 'aiLab.agentRequestTools'
   | 'aiLab.agentMcpTools'
   | 'aiLab.agentSandboxes'
+  | 'aiLab.agentGroundingKnowledgeSources'
+  | 'aiLab.agentGroundingRetrievalAdapters'
+  | 'aiLab.agentGroundingEvidencePackets'
+  | 'aiLab.agentGroundingExternalSources'
   | 'collections.file'
   | 'collections.git'
   | 'mock.localServer'
@@ -286,6 +290,34 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     desktop: false,
     notes:
       'Unsupported: the provider contract and registry are implemented, but no Docker or hosted sandbox provider ships yet',
+  },
+  'aiLab.agentGroundingKnowledgeSources': {
+    label: 'AI Lab managed knowledge-source registry with provenance',
+    web: false,
+    desktop: true,
+    notes:
+      'Versioned source registry with provenance, byte budgets, sharing policy, and inspectable evidence packets. Local-first: collections, OpenAPI/GraphQL/proto artifacts, history, and MCP metadata. Deterministic bounded extraction is the baseline; vector indexing is an opt-in local implementation, not a mandatory vendor dependency.',
+  },
+  'aiLab.agentGroundingRetrievalAdapters': {
+    label: 'AI Lab optional retrieval/index adapters',
+    web: false,
+    desktop: false,
+    notes:
+      'RetrievalAdapter interface is defined; no adapters ship yet. Implementations must be local by default; remote embedding providers require separate explicit opt-in.',
+  },
+  'aiLab.agentGroundingEvidencePackets': {
+    label: 'AI Lab inspectable evidence packets',
+    web: false,
+    desktop: true,
+    notes:
+      'Bounded evidence packets preserve provenance (origin, acquisition time, refresh state) and redaction metadata so users can inspect exactly what reaches a model.',
+  },
+  'aiLab.agentGroundingExternalSources': {
+    label: 'AI Lab external source adapter contract',
+    web: false,
+    desktop: false,
+    notes:
+      'Adapter contract (ExternalSourceAdapter) is defined for GitHub/Jira/Confluence/web sources with OAuth/SecretRef and source-specific redaction. No adapters ship yet — the interface is established for future implementation.',
   },
   'collections.file': { label: 'Filesystem-backed collections', web: false, desktop: true },
   'collections.git': { label: 'Git operations on collections', web: false, desktop: true },

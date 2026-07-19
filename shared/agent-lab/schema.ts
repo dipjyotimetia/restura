@@ -117,6 +117,72 @@ export const GroundingConfigSchema = z
     }
   });
 
+// ── Knowledge source metadata (Zod-validated) ─────────────────────────────
+
+export const SourceOriginSchema = z.enum([
+  'local-collection',
+  'local-openapi',
+  'local-graphql',
+  'local-proto',
+  'local-history',
+  'mcp-catalog',
+  'user-upload',
+  'api-import',
+  'git-sync',
+  'external-adapter',
+]);
+
+export const SourceProvenanceSchema = z.object({
+  origin: SourceOriginSchema,
+  acquiredAt: z.string().datetime({ offset: true }),
+  lastRefreshedAt: z.string().datetime({ offset: true }).optional(),
+});
+
+export const SharingPolicySchema = z.enum(['private', 'suite-scoped', 'project']);
+
+export const RefreshStateSchema = z.object({
+  stale: z.boolean(),
+  lastAttempt: z.string().datetime({ offset: true }).optional(),
+  lastError: z.string().optional(),
+  nextRefreshAt: z.string().datetime({ offset: true }).optional(),
+});
+
+export const ContentBudgetSchema = z.object({
+  maxBytes: z.number().int().positive(),
+  currentBytes: z.number().int().nonnegative(),
+});
+
+export const KnowledgeSourceSchema = z.object({
+  id: IdentifierSchema,
+  kind: z.enum(['collection', 'openapi', 'graphql', 'proto', 'history', 'mcp-catalog']),
+  label: z.string().min(1),
+  version: z.string().min(1),
+  content: z.string(),
+  provenance: SourceProvenanceSchema,
+  budget: ContentBudgetSchema,
+  sharing: SharingPolicySchema,
+  refreshState: RefreshStateSchema,
+  redacted: z.boolean(),
+});
+
+export const KnowledgeSourceDescriptorSchema = z.object({
+  id: IdentifierSchema,
+  kind: z.enum(['collection', 'openapi', 'graphql', 'proto', 'history', 'mcp-catalog']),
+  label: z.string().min(1),
+  version: z.string().min(1),
+  content: z.string(),
+  provenance: SourceProvenanceSchema,
+  budget: ContentBudgetSchema.partial().optional(),
+  sharing: SharingPolicySchema.optional(),
+});
+
+export type KnowledgeSource = z.infer<typeof KnowledgeSourceSchema>;
+export type KnowledgeSourceDescriptor = z.infer<typeof KnowledgeSourceDescriptorSchema>;
+export type SourceProvenance = z.infer<typeof SourceProvenanceSchema>;
+export type SharingPolicy = z.infer<typeof SharingPolicySchema>;
+export type ContentBudget = z.infer<typeof ContentBudgetSchema>;
+export type RefreshState = z.infer<typeof RefreshStateSchema>;
+
 const GraderBaseSchema = z.object({ id: IdentifierSchema, label: z.string().optional() });
 export const GraderSchema = z.discriminatedUnion('kind', [
   GraderBaseSchema.extend({ kind: z.literal('exact'), value: z.string().optional() }),

@@ -13,6 +13,21 @@ export interface GroundingSource {
   label: string;
   version: string;
   content: string;
+  /** Optional provenance metadata for managed knowledge sources. */
+  provenance?: {
+    origin: string;
+    acquiredAt: string;
+    lastRefreshedAt?: string;
+  };
+  /** Whether the source content has been redacted. */
+  redacted?: boolean;
+  /** Optional byte budget metadata. */
+  budget?: {
+    maxBytes: number;
+    currentBytes: number;
+  };
+  /** Optional sharing policy. */
+  sharing?: string;
 }
 
 /** Bounded evidence injected into a model request and retained in a run trace. */
@@ -23,6 +38,16 @@ export interface ContextPacket {
   version: string;
   content: string;
   truncated: boolean;
+  /** Optional provenance metadata for inspectable evidence packets. */
+  provenance?: {
+    origin: string;
+    acquiredAt: string;
+    lastRefreshedAt?: string;
+  };
+  /** Whether redaction was applied to this evidence. */
+  redacted?: boolean;
+  /** Optional human-readable description. */
+  description?: string;
 }
 
 export interface GroundingSelection {
