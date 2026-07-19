@@ -38,5 +38,7 @@ restura agent eval path/to/orders.agent-bundle.json --output report.json
 The command exits non-zero when the suite fails or a committed baseline gate
 regresses. Full reports include the sanitized agent trace and bundle gate
 results. Bundles reject `secret-handle` credentials; use environment credential
-references instead. Live saved-request and MCP tools are intentionally rejected
-by the CLI until their trusted adapters are wired end to end.
+references instead. Controlled live checks require an explicit runtime manifest:
+saved HTTP requests and MCP tools must be read-only and explicitly allowlisted.
+The CLI still refuses write-capable tools, base-URL overrides, judge graders,
+and sandbox providers.

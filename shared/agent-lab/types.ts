@@ -2,6 +2,7 @@ import type { z } from 'zod';
 import type { AgentRunResult } from './runner';
 import type {
   AgentDefinitionSchema,
+  AgentPolicyProfileSchema,
   AgentSuiteSchema,
   AgentTaskSchema,
   ContentBlockSchema,
@@ -17,6 +18,7 @@ export type CredentialRef = z.infer<typeof CredentialRefSchema>;
 export type ModelRef = z.infer<typeof ModelRefSchema>;
 export type ToolSource = z.infer<typeof ToolSourceSchema>;
 export type AgentDefinition = z.infer<typeof AgentDefinitionSchema>;
+export type AgentPolicyProfile = z.infer<typeof AgentPolicyProfileSchema>;
 export type AgentTask = z.infer<typeof AgentTaskSchema>;
 export type Grader = z.infer<typeof GraderSchema>;
 export type AgentSuite = z.infer<typeof AgentSuiteSchema>;

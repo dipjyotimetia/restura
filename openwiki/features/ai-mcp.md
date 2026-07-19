@@ -71,7 +71,7 @@ Per-model capabilities are conservative and tied to provider discovery evidence.
 
 Desktop agent reports are sanitized before persistence or export, with sensitive-key/header/query and recognized secret-shaped body-value redaction, explicit truncation, a 2 MiB per-report limit, and retention of at most the newest 20 reports / 20 MiB total. Opaque sensitive data in model or tool output may not be recognized, so exports still require appropriate access controls. Persistence is awaited; if it fails, the sanitized live report remains viewable/exportable and can be retried. Persisted reports are schema-validated during hydration and migration; invalid entries are quarantined independently so they cannot reset unrelated workbench state.
 
-The headless OpenAI Responses adapter uses stateless encrypted reasoning and function-call replay with `store: false`; server-side `previous_response_id` continuation is disabled. `restura agent eval` currently accepts only OpenAI Responses suites with environment credentials. It refuses base-URL overrides, desktop secret handles, judge graders, and all tool sources until trusted CLI adapters are registered.
+The headless OpenAI Responses adapter uses stateless encrypted reasoning and function-call replay with `store: false`; server-side `previous_response_id` continuation is disabled. `restura agent eval` accepts OpenAI Responses and Anthropic Messages suites with environment credentials. It refuses base-URL overrides, desktop secret handles, judge graders, and sandbox providers; controlled live HTTP and MCP tools require an explicit runtime manifest and remain read-only with allowlists.
 
 ### `http-exec` eval target
 
