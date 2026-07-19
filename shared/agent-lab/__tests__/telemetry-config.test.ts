@@ -30,6 +30,8 @@ describe('agent telemetry configuration', () => {
       'http://collector.internal/v1/traces',
       'https://collector.example/v1/traces?token=secret',
       'https://token@example.com/v1/traces',
+      'https://169.254.169.254/v1/traces',
+      'https://192.168.1.10/v1/traces',
     ]) {
       expect(() =>
         AgentTelemetryConfigSchema.parse({
