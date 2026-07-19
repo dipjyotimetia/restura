@@ -16,6 +16,12 @@ import {
   evaluateAgentBundleBaseline,
   OpenAiResponsesAdapter,
   ProviderRegistry,
+  normaliseAgentTelemetryConfig,
+  redactTrace,
+  redactedTraceToOtlp,
+  exportOtlpPayload,
+  shouldSample,
+  type AgentTelemetryConfigOrDisabled,
 } from '@shared/agent-lab';
 import type { Fetcher } from '@shared/protocol/types';
 import type { Command } from 'commander';
@@ -33,6 +39,8 @@ export interface AgentEvalOptions {
   env?: string;
   timeout?: string;
   allowLocalhost?: boolean;
+  /** Telemetry configuration as a JSON string (inline or file path). */
+  telemetry?: string;
 }
 
 export interface AgentEvalDependencies {
@@ -139,6 +147,7 @@ async function runAgentSuite(
   runtime: AgentRuntimeManifest | undefined,
   options: AgentEvalOptions
 ): Promise<AgentSuiteReport> {
+  const telemetry = loadTelemetryConfig(options);
   const variables = options.env ? await dependencies.loadEnvironment(options.env) : {};
   const timeoutMs = numericFlag('--timeout', options.timeout ?? '30000');
   const providers = new ProviderRegistry([
@@ -198,6 +207,42 @@ async function runAgentSuite(
   return new AgentSuiteRunner({ run: (request) => runner.run(request) }).run({ suite });
 }
 
+function loadTelemetryConfig(options: AgentEvalOptions): AgentTelemetryConfigOrDisabled {
+  if (!options.telemetry) return { kind: 'disabled' };
+  try {
+    const raw = JSON.parse(options.telemetry);
+    return normaliseAgentTelemetryConfig(raw);
+  } catch {
+    return { kind: 'disabled' };
+  }
+}
+
+async function exportTraces(
+  report: AgentSuiteReport,
+  telemetry: AgentTelemetryConfigOrDisabled,
+): Promise<void> {
+  if (telemetry.kind === 'disabled') return;
+  const { config } = telemetry;
+
+  for (const result of report.results) {
+    const trace = result.trace;
+    // Sampling decision
+    if (!shouldSample(trace.id, config.sampleRate)) continue;
+
+    // Redact
+    const redacted = redactTrace(trace, config.dataContent);
+
+    // Convert to OTLP
+    const payload = redactedTraceToOtlp(redacted);
+
+    // Export (fire-and-forget with logging — never affects exit code)
+    const outcome = await exportOtlpPayload(payload, config);
+    if (!outcome.success) {
+      console.error(`[telemetry] export failed for trace ${trace.id}: ${outcome.error ?? `HTTP ${outcome.statusCode}`}`);
+    }
+  }
+}
+
 export async function evaluateAgentSuite(
   suitePath: string,
   options: AgentEvalOptions = {},
@@ -214,6 +259,9 @@ export async function evaluateAgentSuite(
   const report = await runAgentSuite(suite, dependencies, toolResolver, runtime, options);
   if (options.output)
     await dependencies.writeText(options.output, `${JSON.stringify(report, null, 2)}\n`);
+  // Export telemetry after successful evaluation (best-effort, doesn't affect result)
+  const telemetry = loadTelemetryConfig(options);
+  await exportTraces(report, telemetry);
   return report;
 }
 
@@ -236,6 +284,9 @@ export async function evaluateAgentBundle(
   const result = { report: applyAgentBundleBaseline(report, gates), gates };
   if (options.output)
     await dependencies.writeText(options.output, `${JSON.stringify(result, null, 2)}\n`);
+  // Export telemetry after successful evaluation (best-effort, doesn't affect result)
+  const telemetry = loadTelemetryConfig(options);
+  await exportTraces(report, telemetry);
   return result;
 }
 
@@ -250,6 +301,7 @@ export function registerAgentCommand(program: Command): void {
     .option('--env <file>', 'Path to env file (json or yaml) used by saved requests')
     .option('--timeout <ms>', 'Per saved HTTP request timeout', '30000')
     .option('--allow-localhost', 'Permit localhost saved request targets (off by default)', false)
+    .option('--telemetry <json>', 'Agent telemetry config (JSON string): {"endpoint":"<url>","auth":{"kind":"env","name":"<env-var>"}}')
     .action(async (suitePath: string, options: AgentEvalOptions) => {
       try {
         const input = JSON.parse(await defaultDependencies.readText(suitePath)) as Record<
