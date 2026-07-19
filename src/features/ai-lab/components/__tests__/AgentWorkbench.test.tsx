@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useMcpStore } from '@/features/mcp/store/useMcpStore';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import {
   resetAgentRunServiceForTests,
   setAgentRunRepositoryForTests,
@@ -9,8 +11,6 @@ import {
 } from '../../run-engine/agentRunService';
 import { useAiLabStore } from '../../store/useAiLabStore';
 import { useAiLabUiStore } from '../../store/useAiLabUiStore';
-import { useCollectionStore } from '@/store/useCollectionStore';
-import { useMcpStore } from '@/features/mcp/store/useMcpStore';
 import { AgentWorkbench } from '../AgentWorkbench';
 
 const runDesktopAgentSuite = vi.hoisted(() => vi.fn());
@@ -122,6 +122,31 @@ describe('AgentWorkbench runs', () => {
     useAiLabUiStore.setState({ tab: 'agents', reportRunId: null });
     useCollectionStore.setState({ collections: [], activeCollectionId: null });
     useMcpStore.setState({ connections: {}, activeConnectionId: null });
+  });
+
+  it('edits the portable suite through the guided Task step and keeps expert JSON in sync', async () => {
+    render(<AgentWorkbench />);
+
+    expect(screen.getByRole('tab', { name: 'Task' })).toBeVisible();
+    fireEvent.change(screen.getByRole('textbox', { name: 'Suite name' }), {
+      target: { value: 'Orders contract' },
+    });
+
+    expect((screen.getByLabelText('Agent suite JSON') as HTMLTextAreaElement).value).toContain(
+      'Orders contract'
+    );
+  });
+
+  it('creates a named approval policy from the guided checks step', async () => {
+    const user = userEvent.setup();
+    render(<AgentWorkbench />);
+
+    await user.click(screen.getByRole('tab', { name: 'Checks & budgets' }));
+    await user.click(screen.getByRole('button', { name: 'Add approval policy' }));
+
+    expect((screen.getByLabelText('Agent suite JSON') as HTMLTextAreaElement).value).toContain(
+      'desktop-approval'
+    );
   });
 
   it('persists a sanitized cancelled report from late partial success without navigating', async () => {
@@ -444,9 +469,7 @@ describe('AgentWorkbench runs', () => {
   it.each([
     [true, 'approved'],
     [false, 'denied'],
-  ])('forwards %s approval decisions from the workbench', async (confirmed, decision) => {
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(confirmed);
-    confirm.mockClear();
+  ])('forwards %s approval decisions from the workbench', async (approved, decision) => {
     runDesktopAgentSuite.mockImplementationOnce(
       async (
         _suite: unknown,
@@ -478,7 +501,11 @@ describe('AgentWorkbench runs', () => {
       target: { value: JSON.stringify(SUITE) },
     });
     await user.click(screen.getByRole('button', { name: 'Run' }));
-    await waitFor(() => expect(confirm).toHaveBeenCalledOnce());
+    expect(await screen.findByRole('dialog', { name: 'Tool approval' })).toHaveTextContent('write');
+    await user.click(
+      screen.getByRole('button', { name: approved ? 'Approve tool call' : 'Deny tool call' })
+    );
+    await waitFor(() => expect(runDesktopAgentSuite).toHaveBeenCalledOnce());
   });
 
   it('marks a desktop bundle report failed when its committed baseline regresses', async () => {

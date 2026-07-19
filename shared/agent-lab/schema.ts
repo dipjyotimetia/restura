@@ -81,12 +81,33 @@ export const AgentLimitsSchema = z.object({
   maxOutputBytes: z.number().int().min(1_024).max(100_000_000).optional(),
 });
 
+export const PermissionClassSchema = z.enum([
+  'read',
+  'network',
+  'mutation',
+  'credential',
+  'filesystem',
+  'process',
+  'destructive',
+]);
+
+/** Portable policy metadata controls approvals only. Transport allowlists stay
+ * in each tool source/runtime manifest and cannot be widened by a profile. */
+export const AgentPolicyProfileSchema = z.object({
+  id: IdentifierSchema,
+  name: z.string().min(1).max(500),
+  version: z.number().int().min(1),
+  autoApprove: z.array(PermissionClassSchema).max(7).default([]),
+  ciEligible: z.boolean().default(false),
+});
+
 export const AgentDefinitionSchema = z.object({
   id: IdentifierSchema,
   model: ModelRefSchema,
   instructions: z.string().min(1),
   tools: z.array(ToolSourceSchema),
   limits: AgentLimitsSchema,
+  policyId: IdentifierSchema.optional(),
   handoffs: z.array(IdentifierSchema).optional(),
 });
 
@@ -179,6 +200,7 @@ export const AgentSuiteSchema = z
     graders: z.array(GraderSchema),
     trials: z.number().int().min(1).max(100),
     grounding: GroundingConfigSchema.optional(),
+    policies: z.array(AgentPolicyProfileSchema).max(100).optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
   })
   .superRefine((suite, context) => {
@@ -207,6 +229,20 @@ export const AgentSuiteSchema = z
       suite.graders.map((grader) => grader.id),
       'graders'
     );
+    assertUnique(
+      (suite.policies ?? []).map((policy) => policy.id),
+      'policies'
+    );
+    const policyIds = new Set((suite.policies ?? []).map((policy) => policy.id));
+    for (const [agentIndex, agent] of suite.agents.entries()) {
+      if (agent.policyId && !policyIds.has(agent.policyId)) {
+        context.addIssue({
+          code: 'custom',
+          message: `unknown policy profile: ${agent.policyId}`,
+          path: ['agents', agentIndex, 'policyId'],
+        });
+      }
+    }
     const agentIds = new Set(suite.agents.map((agent) => agent.id));
     for (const agent of suite.agents) {
       for (const handoff of agent.handoffs ?? []) {

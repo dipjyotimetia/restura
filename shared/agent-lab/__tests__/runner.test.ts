@@ -102,12 +102,13 @@ describe('AgentRunner', () => {
       'model.requested',
       'model.completed',
       'tool.requested',
+      'policy.decision',
       'tool.completed',
       'model.requested',
       'model.completed',
       'run.completed',
     ]);
-    expect(result.trace.events.map((event) => event.sequence)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+    expect(result.trace.events.map((event) => event.sequence)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
   });
 
   it('disposes platform tool resources after the run settles', async () => {
@@ -229,6 +230,73 @@ describe('AgentRunner', () => {
         subject: 'orders.get',
       })
     );
+  });
+
+  it('records and applies the named policy profile before prompting', async () => {
+    let executed = false;
+    const configured = suite();
+    configured.agents[0]!.policyId = 'local-write';
+    configured.policies = [
+      {
+        id: 'local-write',
+        name: 'Local write workflow',
+        version: 1,
+        autoApprove: ['mutation'],
+        ciEligible: false,
+      },
+    ];
+    const runner = new AgentRunner({
+      providers: new ProviderRegistry([
+        fakeAdapter([
+          {
+            id: 'r1',
+            output: [],
+            toolCalls: [{ id: 'call-1', name: 'orders.get', arguments: {} }],
+            stopReason: 'tool-calls',
+          },
+          {
+            id: 'r2',
+            output: [{ type: 'text', text: 'done' }],
+            toolCalls: [],
+            stopReason: 'completed',
+          },
+        ]),
+      ]),
+      async resolveTools() {
+        return [
+          {
+            ...lookupTool,
+            permissionClass: 'mutation',
+            async execute() {
+              executed = true;
+              return [];
+            },
+          },
+        ];
+      },
+      async resolveCredential() {
+        return undefined;
+      },
+    });
+
+    const result = await runner.run({
+      suite: configured,
+      taskId: 'task',
+      agentId: 'agent',
+      trial: 1,
+    });
+
+    expect(result.status).toBe('passed');
+    expect(executed).toBe(true);
+    expect(result.trace.events).toContainEqual(
+      expect.objectContaining({
+        type: 'policy.decision',
+        subject: 'orders.get',
+        decision: 'allowed',
+        reason: 'policy local-write auto-approved mutation tool',
+      })
+    );
+    expect(result.trace.events.map((event) => event.type)).not.toContain('approval.requested');
   });
 
   it('stops a non-terminating model at the configured step limit', async () => {

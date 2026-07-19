@@ -1,13 +1,17 @@
 import {
   AGENT_SUITE_SCHEMA_VERSION,
-  AgentBundleSchema,
-  AgentSuiteSchema,
-  migrateAgentSuite,
   type AgentBundle,
+  AgentBundleSchema,
+  type AgentSuite,
+  AgentSuiteSchema,
+  type ApprovalRequest,
+  migrateAgentSuite,
 } from '@shared/agent-lab';
 import { Bot, Download, Play, Plus, Save, Square, Trash2, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { useMcpStore } from '@/features/mcp/store/useMcpStore';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import {
   cancelAgentRun,
   registerAgentRunOwner,
@@ -18,14 +22,25 @@ import {
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore } from '../store/useAiLabUiStore';
 import type { AiLabProviderConfig } from '../types';
-import { useMcpStore } from '@/features/mcp/store/useMcpStore';
-import { useCollectionStore } from '@/store/useCollectionStore';
 
 type NormalizedAgentSuite = ReturnType<typeof migrateAgentSuite>;
 type NormalizedAgentBundle = AgentBundle & { suite: NormalizedAgentSuite };
 type DraftPayload =
   | { bundle: false; value: NormalizedAgentSuite }
   | { bundle: true; value: NormalizedAgentBundle };
+type BuilderStep = 'task' | 'model' | 'tools' | 'checks' | 'review';
+interface PendingApproval {
+  request: ApprovalRequest;
+  resolve: (decision: 'approved' | 'denied') => void;
+}
+
+const BUILDER_STEPS: Array<{ id: BuilderStep; label: string }> = [
+  { id: 'task', label: 'Task' },
+  { id: 'model', label: 'Model' },
+  { id: 'tools', label: 'Tools & grounding' },
+  { id: 'checks', label: 'Checks & budgets' },
+  { id: 'review', label: 'Review & export' },
+];
 
 function starterSuite(providers: Record<string, AiLabProviderConfig> = {}) {
   const id = crypto.randomUUID();
@@ -69,6 +84,8 @@ export function AgentWorkbench() {
   const [message, setMessage] = useState(
     'Schema v3 · selected grounding is sanitized before it reaches a model'
   );
+  const [builderStep, setBuilderStep] = useState<BuilderStep>('task');
+  const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
   const running = useAgentRunLiveStore((state) => state.running);
   const progress = useAgentRunLiveStore((state) => state.progress);
   const runStatus = useAgentRunLiveStore((state) => state.status);
@@ -86,6 +103,15 @@ export function AgentWorkbench() {
   }, [navigationReportId, openReport]);
 
   useEffect(() => registerAgentRunOwner(), []);
+  useEffect(
+    () => () => {
+      setPendingApproval((pending) => {
+        pending?.resolve('denied');
+        return null;
+      });
+    },
+    []
+  );
 
   const select = (id: string) => {
     setActiveId(id);
@@ -159,12 +185,13 @@ export function AgentWorkbench() {
     try {
       const parsed = parseDraftPayload();
       if (!parsed.bundle) upsert(parsed.value);
-      const started = startAgentRun(parsed.value, providers, async (request) =>
-        window.confirm(
-          `Allow ${request.permissionClass} tool “${request.toolName}”?\n\n${JSON.stringify(request.arguments, null, 2)}`
-        )
-          ? 'approved'
-          : 'denied'
+      const started = startAgentRun(
+        parsed.value,
+        providers,
+        (request) =>
+          new Promise<'approved' | 'denied'>((resolve) => {
+            setPendingApproval({ request, resolve });
+          })
       );
       if (!started)
         setMessage('An agent run is already active. Cancel it before starting another.');
@@ -191,11 +218,28 @@ export function AgentWorkbench() {
       );
     }
   };
+  const updateGuidedSuite = (update: (suite: NormalizedAgentSuite) => NormalizedAgentSuite) => {
+    try {
+      const parsed = parseDraftPayload();
+      const suite = parsed.bundle ? parsed.value.suite : parsed.value;
+      const nextSuite = update(suite);
+      setDraft(
+        JSON.stringify(parsed.bundle ? { ...parsed.value, suite: nextSuite } : nextSuite, null, 2)
+      );
+      setMessage('Builder updated the portable suite');
+    } catch (error) {
+      setMessage(
+        `Fix suite JSON before editing: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  };
   let selectedGrounding = new Set<string>();
+  let guidedSuite: NormalizedAgentSuite | null = null;
   try {
     const parsed = parseDraftPayload();
     const suite = parsed.bundle ? parsed.value.suite : parsed.value;
     selectedGrounding = new Set(suite.grounding.sourceIds);
+    guidedSuite = suite;
   } catch {
     // Keep the raw JSON editable; source buttons become inactive until valid.
   }
@@ -295,13 +339,46 @@ export function AgentWorkbench() {
             Save suite
           </Button>
         </div>
-        <textarea
-          aria-label="Agent suite JSON"
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          spellCheck={false}
-          className="min-h-0 flex-1 resize-none rounded-sp-card border border-sp-line bg-sp-surface-lo p-4 font-mono text-sp-11 leading-5 text-sp-text outline-none focus:border-sp-accent"
-        />
+        <div className="mb-3 rounded-sp-card border border-sp-line bg-sp-surface-lo p-3">
+          <div className="flex flex-wrap gap-1" role="tablist" aria-label="Guided suite builder">
+            {BUILDER_STEPS.map((step) => (
+              <Button
+                key={step.id}
+                size="sm"
+                variant={builderStep === step.id ? 'default' : 'ghost'}
+                role="tab"
+                aria-selected={builderStep === step.id}
+                onClick={() => setBuilderStep(step.id)}
+              >
+                {step.label}
+              </Button>
+            ))}
+          </div>
+          {guidedSuite ? (
+            <GuidedStep
+              step={builderStep}
+              suite={guidedSuite}
+              onChange={updateGuidedSuite}
+              onExport={exportSuite}
+            />
+          ) : (
+            <p className="mt-3 text-sp-10 text-destructive">
+              Fix expert JSON to resume guided editing.
+            </p>
+          )}
+        </div>
+        <details className="min-h-0 flex-1 rounded-sp-card border border-sp-line bg-sp-surface-lo">
+          <summary className="cursor-pointer px-3 py-2 text-sp-10 font-medium text-sp-muted">
+            Advanced JSON · schema-validated portable suite
+          </summary>
+          <textarea
+            aria-label="Agent suite JSON"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            spellCheck={false}
+            className="min-h-[18rem] w-full resize-y border-t border-sp-line bg-sp-surface-lo p-4 font-mono text-sp-11 leading-5 text-sp-text outline-none focus:border-sp-accent"
+          />
+        </details>
         <div className="mt-3 rounded-sp-card border border-sp-line bg-sp-surface-lo p-3">
           <div className="mb-2 flex items-baseline justify-between gap-3">
             <div>
@@ -356,7 +433,165 @@ export function AgentWorkbench() {
             </Button>
           )}
         </div>
+        {pendingApproval && (
+          <ToolApprovalDialog
+            request={pendingApproval.request}
+            onResolve={(decision) => {
+              pendingApproval.resolve(decision);
+              setPendingApproval(null);
+            }}
+          />
+        )}
       </section>
+    </div>
+  );
+}
+
+function ToolApprovalDialog({
+  request,
+  onResolve,
+}: {
+  request: ApprovalRequest;
+  onResolve: (decision: 'approved' | 'denied') => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Tool approval"
+      className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4"
+    >
+      <div className="w-full max-w-lg rounded-sp-card border border-sp-line bg-sp-surface p-4 shadow-sp-float">
+        <h3 className="text-sp-13 font-semibold">Tool approval required</h3>
+        <p className="mt-1 text-sp-11 text-sp-muted">
+          {request.permissionClass} tool · {request.toolName}
+        </p>
+        <pre className="mt-3 max-h-48 overflow-auto rounded-sp-btn bg-sp-bg p-3 text-sp-10 text-sp-text">
+          {JSON.stringify(request.arguments, null, 2)}
+        </pre>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button size="sm" variant="outline" onClick={() => onResolve('denied')}>
+            Deny tool call
+          </Button>
+          <Button size="sm" onClick={() => onResolve('approved')}>
+            Approve tool call
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function GuidedStep({
+  step,
+  suite,
+  onChange,
+  onExport,
+}: {
+  step: BuilderStep;
+  suite: AgentSuite;
+  onChange: (update: (suite: NormalizedAgentSuite) => NormalizedAgentSuite) => void;
+  onExport: () => void;
+}) {
+  const agent = suite.agents[0];
+  if (!agent) return null;
+  if (step === 'task') {
+    return (
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        <label className="text-sp-10 text-sp-muted">
+          Suite name
+          <input
+            aria-label="Suite name"
+            value={suite.name}
+            onChange={(event) => onChange((current) => ({ ...current, name: event.target.value }))}
+            className="mt-1 w-full rounded-sp-btn border border-sp-line bg-sp-bg px-2 py-1.5 text-sp-11 text-sp-text"
+          />
+        </label>
+        <label className="text-sp-10 text-sp-muted">
+          Agent instructions
+          <textarea
+            aria-label="Agent instructions"
+            value={agent.instructions}
+            onChange={(event) =>
+              onChange((current) => ({
+                ...current,
+                agents: current.agents.map((candidate, index) =>
+                  index === 0 ? { ...candidate, instructions: event.target.value } : candidate
+                ),
+              }))
+            }
+            className="mt-1 min-h-16 w-full rounded-sp-btn border border-sp-line bg-sp-bg px-2 py-1.5 text-sp-11 text-sp-text"
+          />
+        </label>
+      </div>
+    );
+  }
+  if (step === 'model') {
+    return (
+      <p className="mt-3 text-sp-10 text-sp-muted">
+        Primary model: {agent.model.providerId}/{agent.model.model}. Configure provider credentials
+        in Models; suites never contain inline credentials.
+      </p>
+    );
+  }
+  if (step === 'tools') {
+    return (
+      <p className="mt-3 text-sp-10 text-sp-muted">
+        Configure saved request and MCP tool sources below, then select only sanitized grounding
+        evidence needed for this task.
+      </p>
+    );
+  }
+  if (step === 'checks') {
+    return (
+      <div className="mt-3 flex items-center justify-between gap-3 text-sp-10 text-sp-muted">
+        <span>
+          Current limits: {agent.limits.maxSteps} steps · {agent.limits.maxWallTimeMs}ms wall time ·{' '}
+          {suite.graders.length} graders.
+        </span>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            onChange((current) => {
+              const id = 'desktop-approval';
+              const policies = current.policies ?? [];
+              const hasPolicy = policies.some((policy) => policy.id === id);
+              return {
+                ...current,
+                policies: hasPolicy
+                  ? policies
+                  : [
+                      ...policies,
+                      {
+                        id,
+                        name: 'Desktop approval',
+                        version: 1,
+                        autoApprove: [],
+                        ciEligible: false,
+                      },
+                    ],
+                agents: current.agents.map((candidate, index) =>
+                  index === 0 ? { ...candidate, policyId: id } : candidate
+                ),
+              };
+            })
+          }
+        >
+          Add approval policy
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-3 flex items-center justify-between gap-3 text-sp-10 text-sp-muted">
+      <span>
+        Review the generated portable schema before committing it. Sensitive tools remain
+        approval-gated outside explicit read-only CI manifests.
+      </span>
+      <Button size="sm" variant="outline" onClick={onExport}>
+        Export portable suite
+      </Button>
     </div>
   );
 }
