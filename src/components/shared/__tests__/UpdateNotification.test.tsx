@@ -1,6 +1,7 @@
 import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getPlatform } from '@/lib/shared/platform';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { UpdaterStatus } from '../../../../electron/types/electron-api';
 import { UpdateNotification } from '../UpdateNotification';
@@ -44,6 +45,7 @@ vi.mock('@/lib/shared/platform', async (orig) => {
   return {
     ...actual,
     isElectron: vi.fn(() => true),
+    getPlatform: vi.fn(() => 'web'),
     getElectronAPI: vi.fn(() => api),
   };
 });
@@ -58,6 +60,7 @@ describe('UpdateNotification', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     statusCb = null;
+    vi.mocked(getPlatform).mockReturnValue('web');
     useSettingsStore
       .getState()
       .updateSettings({ autoUpdate: { autoDownload: true, channel: 'stable' } });
@@ -82,7 +85,7 @@ describe('UpdateNotification', () => {
 
     render(<UpdateNotification />);
 
-    expect(await screen.findByText(/update v2\.1\.0 ready/i)).toBeInTheDocument();
+    expect(await screen.findByText('Version v2.1.0 is ready to install.')).toBeInTheDocument();
     expect(updater.getStatus).toHaveBeenCalledOnce();
   });
 
@@ -120,13 +123,34 @@ describe('UpdateNotification', () => {
     expect(updater.cancel).toHaveBeenCalledOnce();
   });
 
-  it('offers Restart now when the update is downloaded', async () => {
+  it('keeps update content clear of macOS traffic lights', () => {
+    vi.mocked(getPlatform).mockReturnValue('darwin');
     render(<UpdateNotification />);
     emit({ state: 'downloaded', version: '2.1.0' });
 
-    expect(screen.getByText(/ready/i)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: /restart now/i }));
+    expect(screen.getByRole('status')).toHaveClass('pl-20');
+  });
+
+  it('does not reserve macOS traffic-light space on other platforms', () => {
+    render(<UpdateNotification />);
+    emit({ state: 'downloaded', version: '2.1.0' });
+
+    expect(screen.getByRole('status')).not.toHaveClass('pl-20');
+  });
+
+  it('offers release notes and Restart Restura when the update is downloaded', async () => {
+    const onOpenReleaseNotes = vi.fn();
+    window.addEventListener('restura:open-release-notes', onOpenReleaseNotes);
+    render(<UpdateNotification />);
+    emit({ state: 'downloaded', version: '2.1.0' });
+
+    expect(screen.getByText('Version v2.1.0 is ready to install.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: /what's new/i }));
+    expect(onOpenReleaseNotes).toHaveBeenCalledOnce();
+
+    await userEvent.click(screen.getByRole('button', { name: /restart restura/i }));
     expect(updater.restart).toHaveBeenCalledOnce();
+    window.removeEventListener('restura:open-release-notes', onOpenReleaseNotes);
   });
 
   it('shows native validation and installation progress without offering restart', () => {
@@ -134,17 +158,17 @@ describe('UpdateNotification', () => {
 
     emit({ state: 'validating', version: '2.1.0' });
     expect(screen.getByText(/verifying update/i)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /restart now/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /restart restura/i })).toBeNull();
 
     emit({ state: 'installing', version: '2.1.0' });
     expect(screen.getByText(/restarting to install/i)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /restart now/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /restart restura/i })).toBeNull();
   });
 
-  it('Later dismisses the downloaded banner', async () => {
+  it('Not now dismisses the downloaded banner', async () => {
     render(<UpdateNotification />);
     emit({ state: 'downloaded', version: '2.1.0' });
-    await userEvent.click(screen.getByRole('button', { name: /later/i }));
+    await userEvent.click(screen.getByRole('button', { name: /not now/i }));
     expect(screen.queryByRole('status')).toBeNull();
   });
 
@@ -186,7 +210,7 @@ describe('UpdateNotification', () => {
     });
 
     expect(screen.getByRole('alert')).toHaveTextContent(/update verification failed/i);
-    expect(screen.queryByRole('button', { name: /restart now/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /restart restura/i })).toBeNull();
 
     await userEvent.click(screen.getByRole('button', { name: /retry/i }));
     expect(updater.check).toHaveBeenCalledOnce();
