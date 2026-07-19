@@ -16,7 +16,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
-  CodeEditorFrame,
   Floater,
   ProtoChip,
   Segmented,
@@ -25,7 +24,12 @@ import {
   TextField,
   VariableText,
 } from '@/components/ui/spatial';
+import {
+  McpArgumentField,
+  type McpArgumentField as McpArgumentFieldType,
+} from './McpArgumentField';
 import { useMcpConnectionActions } from '@/features/mcp/hooks/useMcpConnectionActions';
+import { parseMcpArgument } from '@/features/mcp/lib/mcpArgumentValidation';
 import { generateMcpTemplate, type McpCall, McpClient } from '@/features/mcp/lib/mcpClient';
 import { type McpInvocationLog, useMcpStore } from '@/features/mcp/store/useMcpStore';
 import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
@@ -775,14 +779,6 @@ function EmptyForm({ tab }: { tab: ListTab }) {
 // Invoke tool form (column 2)
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface ArgField {
-  name: string;
-  type: string;
-  required: boolean;
-  description?: string;
-  isComplex: boolean;
-}
-
 function describeType(schema: McpJsonSchema | undefined): string {
   if (!schema || !schema.type) return 'any';
   const t = schema.type;
@@ -790,13 +786,13 @@ function describeType(schema: McpJsonSchema | undefined): string {
   return t;
 }
 
-function flattenFields(schema: McpJsonSchema | undefined): ArgField[] {
+function flattenFields(schema: McpJsonSchema | undefined): McpArgumentFieldType[] {
   if (!schema || !schema.properties) return [];
   const required = new Set(schema.required ?? []);
   return Object.entries(schema.properties).map(([name, sub]) => {
     const type = describeType(sub);
     const isComplex = type === 'object' || type === 'array';
-    const field: ArgField = {
+    const field: McpArgumentFieldType = {
       name,
       type,
       required: required.has(name),
@@ -814,22 +810,6 @@ function valueToString(v: unknown): string {
   return JSON.stringify(v, null, 2);
 }
 
-function stringToValue(s: string, type: string): unknown {
-  if (type === 'number' || type === 'integer') {
-    const n = Number(s);
-    return Number.isNaN(n) ? s : n;
-  }
-  if (type === 'boolean') return s === 'true';
-  if (type === 'object' || type === 'array') {
-    try {
-      return JSON.parse(s);
-    } catch {
-      return s;
-    }
-  }
-  return s;
-}
-
 function InvokeToolForm({
   tool,
   onCall,
@@ -839,6 +819,7 @@ function InvokeToolForm({
 }) {
   const fields = useMemo(() => flattenFields(tool?.inputSchema), [tool]);
   const [values, setValues] = useState<Record<string, string>>({});
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [running, setRunning] = useState(false);
 
   // Reset values when the selected tool changes — pre-fill with template defaults.
@@ -856,19 +837,35 @@ function InvokeToolForm({
       }
     }
     setValues(next);
+    setValidationErrors({});
   }, [tool, fields]);
 
   const handleCall = async () => {
     if (!tool) return;
     const args: Record<string, unknown> = {};
+    const nextErrors: Record<string, string> = {};
     for (const f of fields) {
       const raw = values[f.name];
       if (raw === undefined || raw === '') {
-        if (f.required) continue; // leave undefined; server will validate
+        if (f.required) nextErrors[f.name] = 'This field is required.';
         continue;
       }
-      args[f.name] = stringToValue(raw, f.type);
+      const parsed = parseMcpArgument(raw, f.type);
+      if (!parsed.ok) {
+        nextErrors[f.name] = parsed.error;
+        continue;
+      }
+      args[f.name] = parsed.value;
     }
+    if (Object.keys(nextErrors).length > 0) {
+      console.warn('MCP tool argument validation failed', {
+        fields: Object.keys(nextErrors),
+        toolName: tool.name,
+      });
+      setValidationErrors(nextErrors);
+      return;
+    }
+    setValidationErrors({});
     setRunning(true);
     try {
       await onCall(tool, args);
@@ -912,68 +909,24 @@ function InvokeToolForm({
             <div className="text-sp-12 text-sp-dim italic">This tool takes no arguments.</div>
           ) : (
             fields.map((f) => (
-              <ArgFieldRow
+              <McpArgumentField
                 key={f.name}
                 field={f}
                 value={values[f.name] ?? ''}
-                onChange={(v) => setValues((cur) => ({ ...cur, [f.name]: v }))}
+                error={validationErrors[f.name]}
+                onChange={(v) => {
+                  setValues((cur) => ({ ...cur, [f.name]: v }));
+                  setValidationErrors((current) => {
+                    if (current[f.name] === undefined) return current;
+                    const { [f.name]: _removed, ...remaining } = current;
+                    return remaining;
+                  });
+                }}
               />
             ))
           )}
         </div>
       </ScrollArea>
-    </div>
-  );
-}
-
-function ArgFieldRow({
-  field,
-  value,
-  onChange,
-}: {
-  field: ArgField;
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="font-mono font-bold text-sp-12 text-sp-text">{field.name}</span>
-        <span className="font-mono text-sp-11 text-sp-dim">{field.type}</span>
-        {field.required && (
-          <span
-            className="inline-flex items-center px-1.5 h-4 rounded-[5px] font-mono font-bold text-sp-9 tracking-wider"
-            style={{
-              color: 'var(--color-danger)',
-              background: 'color-mix(in srgb, var(--color-danger) 14%, transparent)',
-            }}
-          >
-            REQUIRED
-          </span>
-        )}
-      </div>
-      {field.description && <div className="text-sp-11-5 text-sp-muted">{field.description}</div>}
-      {field.isComplex ? (
-        <CodeEditorFrame gutter={false} className="min-h-[100px]">
-          <textarea
-            aria-label={field.name}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            spellCheck={false}
-            className="w-full h-full min-h-[80px] bg-transparent outline-none resize-y font-mono text-sp-12 text-sp-text placeholder:text-sp-dim"
-            placeholder={field.type === 'array' ? '[]' : '{}'}
-          />
-        </CodeEditorFrame>
-      ) : (
-        <TextField
-          mono
-          size="md"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={field.type === 'boolean' ? 'true / false' : field.type}
-          className="w-full"
-        />
-      )}
     </div>
   );
 }

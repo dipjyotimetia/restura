@@ -49,11 +49,14 @@ import type {
   TryCatchFlowNode,
   VariableExtraction,
   Workflow,
-  WorkflowRequest,
   WsExchangeFlowNode,
 } from '@/types';
 import { flattenRequests } from '../../lib/collectionHelpers';
 import { selectAtPath } from '../../lib/flowTypes';
+import {
+  useUpdateInspectorNode,
+  useUpdateInspectorRequest,
+} from '../../hooks/useWorkflowInspectorUpdates';
 import { VariableExtractorConfig } from '../VariableExtractorConfig';
 
 interface FlowInspectorProps {
@@ -65,28 +68,6 @@ interface FlowInspectorProps {
   onClose: () => void;
   /** Push a path segment to drill into a forEach/tryCatch body. */
   onDrillInto: (segment: SubgraphPath[number]) => void;
-}
-
-function useUpdateNode(workflowId: string, path: SubgraphPath) {
-  const setWorkflowSubgraph = useWorkflowStore((s) => s.setWorkflowSubgraph);
-  const workflows = useWorkflowStore((s) => s.workflows);
-  return (nodeId: string, mutator: (node: FlowNode) => FlowNode) => {
-    const wf = workflows.find((w) => w.id === workflowId);
-    if (!wf?.graph) return;
-    const slice = path.length === 0 ? wf.graph : selectAtPath(wf.graph, path);
-    if (!slice) return;
-    setWorkflowSubgraph(workflowId, path, {
-      ...slice,
-      nodes: slice.nodes.map((n) => (n.id === nodeId ? mutator(n) : n)),
-    });
-  };
-}
-
-function useUpdateWorkflowRequest(workflowId: string) {
-  const updateWorkflowRequest = useWorkflowStore((s) => s.updateWorkflowRequest);
-  return (workflowRequestId: string, updates: Partial<WorkflowRequest>) => {
-    updateWorkflowRequest(workflowId, workflowRequestId, updates);
-  };
 }
 
 export function FlowInspector({
@@ -230,8 +211,8 @@ function RequestInspector({
   subgraphPath: SubgraphPath;
   node: RequestFlowNode;
 }) {
-  const updateNode = useUpdateNode(workflow.id, subgraphPath);
-  const updateWR = useUpdateWorkflowRequest(workflow.id);
+  const updateNode = useUpdateInspectorNode(workflow.id, subgraphPath);
+  const updateWR = useUpdateInspectorRequest(workflow.id);
   const wr = workflow.requests.find((r) => r.id === node.data.workflowRequestId);
   const [extractorOpen, setExtractorOpen] = useState(false);
 
@@ -383,7 +364,7 @@ function ConditionInspector({
   subgraphPath: SubgraphPath;
   node: ConditionFlowNode;
 }) {
-  const updateNode = useUpdateNode(workflow.id, subgraphPath);
+  const updateNode = useUpdateInspectorNode(workflow.id, subgraphPath);
   return (
     <>
       <div>
@@ -431,7 +412,7 @@ function SwitchInspector({
   subgraphPath: SubgraphPath;
   node: SwitchFlowNode;
 }) {
-  const updateNode = useUpdateNode(workflow.id, subgraphPath);
+  const updateNode = useUpdateInspectorNode(workflow.id, subgraphPath);
   const update = (mutate: (data: SwitchFlowNode['data']) => SwitchFlowNode['data']) =>
     updateNode(node.id, (n) => ({
       ...(n as SwitchFlowNode),
@@ -444,7 +425,7 @@ function SwitchInspector({
     }));
   const setWorkflowSubgraph = useWorkflowStore((s) => s.setWorkflowSubgraph);
   const workflows = useWorkflowStore((s) => s.workflows);
-  // `update`/`useUpdateNode` only rewrites `nodes` — removing a case here
+  // The node update hook only rewrites `nodes` — removing a case here
   // also needs to prune any edge wired to that case's handle, or it lingers
   // as permanently-unreachable dead wiring (dagExecutor's routing only ever
   // matches handles still present in `cases`) that's only caught as an
@@ -564,7 +545,7 @@ function SetVariableInspector({
   subgraphPath: SubgraphPath;
   node: SetVariableFlowNode;
 }) {
-  const updateNode = useUpdateNode(workflow.id, subgraphPath);
+  const updateNode = useUpdateInspectorNode(workflow.id, subgraphPath);
   const update = (mutate: (data: SetVariableFlowNode['data']) => SetVariableFlowNode['data']) =>
     updateNode(node.id, (n) => ({
       ...(n as SetVariableFlowNode),
@@ -653,7 +634,7 @@ function DelayInspector({
   subgraphPath: SubgraphPath;
   node: DelayFlowNode;
 }) {
-  const updateNode = useUpdateNode(workflow.id, subgraphPath);
+  const updateNode = useUpdateInspectorNode(workflow.id, subgraphPath);
   return (
     <div>
       <Label className="text-xs">Duration (ms)</Label>
@@ -684,7 +665,7 @@ function TransformInspector({
   subgraphPath: SubgraphPath;
   node: TransformFlowNode;
 }) {
-  const updateNode = useUpdateNode(workflow.id, subgraphPath);
+  const updateNode = useUpdateInspectorNode(workflow.id, subgraphPath);
   return (
     <div>
       <Label className="text-xs">Script (JS)</Label>
@@ -716,7 +697,7 @@ function TemplateInspector({
   subgraphPath: SubgraphPath;
   node: TemplateFlowNode;
 }) {
-  const updateNode = useUpdateNode(workflow.id, subgraphPath);
+  const updateNode = useUpdateInspectorNode(workflow.id, subgraphPath);
   const update = (mutate: (d: TemplateFlowNode['data']) => TemplateFlowNode['data']) =>
     updateNode(node.id, (n) => ({
       ...(n as TemplateFlowNode),
@@ -759,7 +740,7 @@ function DisplayInspector({
   subgraphPath: SubgraphPath;
   node: DisplayFlowNode;
 }) {
-  const updateNode = useUpdateNode(workflow.id, subgraphPath);
+  const updateNode = useUpdateInspectorNode(workflow.id, subgraphPath);
   const update = (mutate: (d: DisplayFlowNode['data']) => DisplayFlowNode['data']) =>
     updateNode(node.id, (n) => ({
       ...(n as DisplayFlowNode),
@@ -818,7 +799,7 @@ function ParallelInspector({
   subgraphPath: SubgraphPath;
   node: ParallelFlowNode;
 }) {
-  const updateNode = useUpdateNode(workflow.id, subgraphPath);
+  const updateNode = useUpdateInspectorNode(workflow.id, subgraphPath);
   return (
     <>
       <div>
@@ -885,7 +866,7 @@ function ForEachInspector({
   node: ForEachFlowNode;
   onDrillInto: (segment: SubgraphPath[number]) => void;
 }) {
-  const updateNode = useUpdateNode(workflow.id, subgraphPath);
+  const updateNode = useUpdateInspectorNode(workflow.id, subgraphPath);
   const update = (mutate: (d: ForEachFlowNode['data']) => ForEachFlowNode['data']) =>
     updateNode(node.id, (n) => ({
       ...(n as ForEachFlowNode),
@@ -962,7 +943,7 @@ function LoopInspector({
   node: LoopFlowNode;
   onDrillInto: (segment: SubgraphPath[number]) => void;
 }) {
-  const updateNode = useUpdateNode(workflow.id, subgraphPath);
+  const updateNode = useUpdateInspectorNode(workflow.id, subgraphPath);
   const data = node.data;
   const update = (mutate: (d: LoopFlowNode['data']) => LoopFlowNode['data']) =>
     updateNode(node.id, (n) => ({
@@ -1206,8 +1187,8 @@ function SseSubscribeInspector({
   subgraphPath: SubgraphPath;
   node: SseSubscribeFlowNode;
 }) {
-  const updateNode = useUpdateNode(workflow.id, subgraphPath);
-  const updateWR = useUpdateWorkflowRequest(workflow.id);
+  const updateNode = useUpdateInspectorNode(workflow.id, subgraphPath);
+  const updateWR = useUpdateInspectorRequest(workflow.id);
   const wr = workflow.requests.find((r) => r.id === node.data.workflowRequestId);
   const allRequests = useFlattenedRequests(workflow.collectionId);
   const sseRequests = allRequests.filter((r) => r.kind === 'sse');
@@ -1309,7 +1290,7 @@ function WsExchangeInspector({
   subgraphPath: SubgraphPath;
   node: WsExchangeFlowNode;
 }) {
-  const updateNode = useUpdateNode(workflow.id, subgraphPath);
+  const updateNode = useUpdateInspectorNode(workflow.id, subgraphPath);
   const update = (mutate: (d: WsExchangeFlowNode['data']) => WsExchangeFlowNode['data']) =>
     updateNode(node.id, (n) => ({
       ...(n as WsExchangeFlowNode),
@@ -1375,8 +1356,8 @@ function McpCallInspector({
   subgraphPath: SubgraphPath;
   node: McpCallFlowNode;
 }) {
-  const updateNode = useUpdateNode(workflow.id, subgraphPath);
-  const updateWR = useUpdateWorkflowRequest(workflow.id);
+  const updateNode = useUpdateInspectorNode(workflow.id, subgraphPath);
+  const updateWR = useUpdateInspectorRequest(workflow.id);
   const wr = workflow.requests.find((r) => r.id === node.data.workflowRequestId);
   const allRequests = useFlattenedRequests(workflow.collectionId);
   const mcpRequests = allRequests.filter((r) => r.kind === 'mcp');
@@ -1461,7 +1442,7 @@ function SubWorkflowInspector({
   subgraphPath: SubgraphPath;
   node: SubWorkflowFlowNode;
 }) {
-  const updateNode = useUpdateNode(workflow.id, subgraphPath);
+  const updateNode = useUpdateInspectorNode(workflow.id, subgraphPath);
   const allWorkflows = useWorkflowStore((s) => s.workflows);
   const candidates = allWorkflows.filter(
     (w) => w.id !== workflow.id && w.collectionId === workflow.collectionId
