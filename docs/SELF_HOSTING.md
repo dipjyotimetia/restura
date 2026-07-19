@@ -29,6 +29,20 @@ Open `http://localhost:3000` in a browser. In **Settings → Proxy token**,
 paste the `WORKER_PROXY_TOKEN` you set in `.env` so the SPA can authenticate
 against the proxy.
 
+### Local source smoke test
+
+For a disposable local build that does not require a `.env` file or a published
+image, use the development-only Compose file:
+
+```bash
+docker compose -f docker-compose.local.yml up --build --wait
+curl -fs http://localhost:3000/health
+docker compose -f docker-compose.local.yml down
+```
+
+It deliberately enables the development auth bypass and must not be used for
+production or exposed beyond your local machine.
+
 ---
 
 ## Architecture
