@@ -94,6 +94,14 @@ export function AgentWorkbench() {
   const navigationReportId = useAgentRunLiveStore((state) => state.navigationReportId);
   const fileRef = useRef<HTMLInputElement>(null);
   const seenNavigationReportId = useRef(navigationReportId);
+  const pendingApprovalRef = useRef<PendingApproval | null>(null);
+
+  const resolvePendingApproval = (decision: 'approved' | 'denied') => {
+    const pending = pendingApprovalRef.current;
+    pendingApprovalRef.current = null;
+    pending?.resolve(decision);
+    setPendingApproval(null);
+  };
 
   useEffect(() => {
     if (navigationReportId && navigationReportId !== seenNavigationReportId.current) {
@@ -105,10 +113,9 @@ export function AgentWorkbench() {
   useEffect(() => registerAgentRunOwner(), []);
   useEffect(
     () => () => {
-      setPendingApproval((pending) => {
-        pending?.resolve('denied');
-        return null;
-      });
+      const pending = pendingApprovalRef.current;
+      pendingApprovalRef.current = null;
+      pending?.resolve('denied');
     },
     []
   );
@@ -190,7 +197,9 @@ export function AgentWorkbench() {
         providers,
         (request) =>
           new Promise<'approved' | 'denied'>((resolve) => {
-            setPendingApproval({ request, resolve });
+            const pending = { request, resolve };
+            pendingApprovalRef.current = pending;
+            setPendingApproval(pending);
           })
       );
       if (!started)
@@ -324,7 +333,14 @@ export function AgentWorkbench() {
             </Button>
           )}
           {running ? (
-            <Button size="sm" variant="outline" onClick={cancelAgentRun}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                resolvePendingApproval('denied');
+                cancelAgentRun();
+              }}
+            >
               <Square className="mr-1.5 h-3.5 w-3.5" />
               Cancel
             </Button>
@@ -436,10 +452,7 @@ export function AgentWorkbench() {
         {pendingApproval && (
           <ToolApprovalDialog
             request={pendingApproval.request}
-            onResolve={(decision) => {
-              pendingApproval.resolve(decision);
-              setPendingApproval(null);
-            }}
+            onResolve={resolvePendingApproval}
           />
         )}
       </section>

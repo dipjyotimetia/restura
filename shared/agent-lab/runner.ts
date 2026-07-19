@@ -102,6 +102,21 @@ function isValidTokenUsage(usage: unknown): usage is NonNullable<GenerationRespo
   );
 }
 
+function awaitAbortableApproval(
+  approval: Promise<'approved' | 'denied'>,
+  signal: AbortSignal
+): Promise<'approved' | 'denied'> {
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(new DOMException('agent run cancelled', 'AbortError'));
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    signal.addEventListener('abort', abort, { once: true });
+    void approval.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
+}
+
 export class AgentRunner {
   private readonly now: () => number;
   private readonly id: () => string;
@@ -441,13 +456,16 @@ export class AgentRunner {
             });
             const decision = this.dependencies.requestApproval
               ? await withinWallTime(
-                  this.dependencies.requestApproval({
-                    approvalId,
-                    toolCallId: toolCall.id,
-                    toolName: toolCall.name,
-                    arguments: toolCall.arguments,
-                    permissionClass: tool.permissionClass,
-                  })
+                  awaitAbortableApproval(
+                    this.dependencies.requestApproval({
+                      approvalId,
+                      toolCallId: toolCall.id,
+                      toolName: toolCall.name,
+                      arguments: toolCall.arguments,
+                      permissionClass: tool.permissionClass,
+                    }),
+                    abortController.signal
+                  )
                 )
               : 'denied';
             emit({ type: 'approval.resolved', approvalId, decision });
@@ -460,6 +478,8 @@ export class AgentRunner {
             if (decision === 'denied')
               throw new Error(`approval denied for tool: ${toolCall.name}`);
           }
+
+          abortController.signal.throwIfAborted();
 
           const toolStartedAt = this.now();
           try {

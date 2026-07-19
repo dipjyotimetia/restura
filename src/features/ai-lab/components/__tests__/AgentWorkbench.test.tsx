@@ -508,6 +508,46 @@ describe('AgentWorkbench runs', () => {
     await waitFor(() => expect(runDesktopAgentSuite).toHaveBeenCalledOnce());
   });
 
+  it('denies a pending approval when the user cancels the agent run', async () => {
+    let decision: 'approved' | 'denied' | undefined;
+    runDesktopAgentSuite.mockImplementationOnce(
+      async (
+        _suite: unknown,
+        _providers: unknown,
+        options: {
+          requestApproval?: (request: {
+            approvalId: string;
+            toolCallId: string;
+            toolName: string;
+            arguments: unknown;
+            permissionClass: 'mutation';
+          }) => Promise<'approved' | 'denied'>;
+        }
+      ) => {
+        decision = await options.requestApproval?.({
+          approvalId: 'approval',
+          toolCallId: 'call',
+          toolName: 'write',
+          arguments: { id: '1' },
+          permissionClass: 'mutation',
+        });
+        return { ...REPORT, status: 'cancelled' as const };
+      }
+    );
+    const user = userEvent.setup();
+    render(<AgentWorkbench />);
+    fireEvent.change(screen.getByLabelText('Agent suite JSON'), {
+      target: { value: JSON.stringify(SUITE) },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Run' }));
+    expect(await screen.findByRole('dialog', { name: 'Tool approval' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(decision).toBe('denied'));
+    expect(screen.queryByRole('dialog', { name: 'Tool approval' })).toBeNull();
+  });
+
   it('marks a desktop bundle report failed when its committed baseline regresses', async () => {
     runDesktopAgentBundle.mockResolvedValue({
       report: { ...REPORT, status: 'failed' },

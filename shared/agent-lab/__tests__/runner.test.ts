@@ -299,6 +299,59 @@ describe('AgentRunner', () => {
     expect(result.trace.events.map((event) => event.type)).not.toContain('approval.requested');
   });
 
+  it('does not execute a tool after cancellation wins over a pending approval', async () => {
+    let resolveApproval!: (decision: 'approved' | 'denied') => void;
+    let approvalRequested!: () => void;
+    const approvalStarted = new Promise<void>((resolve) => (approvalRequested = resolve));
+    let executed = false;
+    const controller = new AbortController();
+    const runner = new AgentRunner({
+      providers: new ProviderRegistry([
+        fakeAdapter([
+          {
+            id: 'r1',
+            output: [],
+            toolCalls: [{ id: 'call-1', name: 'orders.get', arguments: {} }],
+            stopReason: 'tool-calls',
+          },
+        ]),
+      ]),
+      async resolveTools() {
+        return [
+          {
+            ...lookupTool,
+            permissionClass: 'mutation',
+            async execute() {
+              executed = true;
+              return [];
+            },
+          },
+        ];
+      },
+      async resolveCredential() {
+        return undefined;
+      },
+      requestApproval() {
+        approvalRequested();
+        return new Promise<'approved' | 'denied'>((resolve) => (resolveApproval = resolve));
+      },
+    });
+
+    const result = runner.run({
+      suite: suite(),
+      taskId: 'task',
+      agentId: 'agent',
+      trial: 1,
+      signal: controller.signal,
+    });
+    await approvalStarted;
+    controller.abort();
+    resolveApproval('approved');
+
+    expect((await result).status).toBe('cancelled');
+    expect(executed).toBe(false);
+  });
+
   it('stops a non-terminating model at the configured step limit', async () => {
     const repeated = Array.from({ length: 3 }, (_, index) => ({
       id: `r${index}`,
