@@ -1,4 +1,6 @@
 import Ajv, { type ValidateFunction } from 'ajv';
+import { type ContextPacket, type GroundingSelection, renderContextPacket } from './grounding';
+import { evaluateToolPolicy, type PermissionClass } from './policy';
 import {
   type AgentToolDefinition,
   type GenerationMessage,
@@ -7,9 +9,9 @@ import {
   validateGenerationRequest,
 } from './provider';
 import { TraceEventSchema } from './schema';
-import { renderContextPacket, type ContextPacket, type GroundingSelection } from './grounding';
 import type {
   AgentDefinition,
+  AgentPolicyProfile,
   AgentSuite,
   ContentBlock,
   CredentialRef,
@@ -18,14 +20,7 @@ import type {
   TraceEvent,
 } from './types';
 
-export type PermissionClass =
-  | 'read'
-  | 'network'
-  | 'mutation'
-  | 'credential'
-  | 'filesystem'
-  | 'process'
-  | 'destructive';
+export type { PermissionClass } from './policy';
 
 export interface AgentTool {
   definition: AgentToolDefinition;
@@ -95,10 +90,6 @@ function messageInput(messages: GenerationMessage[]): ContentBlock[] {
   return messages.flatMap((message) => message.content);
 }
 
-function requiresApproval(permissionClass: PermissionClass): boolean {
-  return permissionClass !== 'read';
-}
-
 function isValidTokenUsage(usage: unknown): usage is NonNullable<GenerationResponse['usage']> {
   if (typeof usage !== 'object' || usage === null) return false;
   const candidate = usage as Record<string, unknown>;
@@ -109,6 +100,21 @@ function isValidTokenUsage(usage: unknown): usage is NonNullable<GenerationRespo
       Number.isInteger(tokens) &&
       tokens >= 0
   );
+}
+
+function awaitAbortableApproval(
+  approval: Promise<'approved' | 'denied'>,
+  signal: AbortSignal
+): Promise<'approved' | 'denied'> {
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(new DOMException('agent run cancelled', 'AbortError'));
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    signal.addEventListener('abort', abort, { once: true });
+    void approval.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
 }
 
 export class AgentRunner {
@@ -159,6 +165,7 @@ export class AgentRunner {
         agent,
         task.input,
         suite.grounding,
+        suite.policies ?? [],
         request.signal,
         startedAt,
         emit
@@ -179,6 +186,7 @@ export class AgentRunner {
     agent: AgentDefinition,
     input: ContentBlock[],
     grounding: GroundingSelection | undefined,
+    policies: AgentPolicyProfile[],
     externalSignal: AbortSignal | undefined,
     startedAt: number,
     emit: (event: TraceEventInput) => void
@@ -212,6 +220,9 @@ export class AgentRunner {
       if (agent.handoffs?.length) {
         throw new Error('agent handoffs require a registered handoff runtime');
       }
+      const policy = agent.policyId
+        ? policies.find((candidate) => candidate.id === agent.policyId)
+        : undefined;
       const toolsByName = new Map(tools.map((tool) => [tool.definition.name, tool]));
       const ajv = new Ajv({ allErrors: true, strict: false });
       const toolValidators = new Map<string, ValidateFunction>();
@@ -427,7 +438,15 @@ export class AgentRunner {
             permissionClass: tool.permissionClass,
           });
 
-          if (requiresApproval(tool.permissionClass)) {
+          const policyDecision = evaluateToolPolicy(policy, tool.permissionClass);
+          if (policyDecision.decision === 'allowed') {
+            emit({
+              type: 'policy.decision',
+              subject: toolCall.name,
+              decision: 'allowed',
+              reason: policyDecision.reason,
+            });
+          } else {
             const approvalId = this.id();
             emit({
               type: 'approval.requested',
@@ -437,13 +456,16 @@ export class AgentRunner {
             });
             const decision = this.dependencies.requestApproval
               ? await withinWallTime(
-                  this.dependencies.requestApproval({
-                    approvalId,
-                    toolCallId: toolCall.id,
-                    toolName: toolCall.name,
-                    arguments: toolCall.arguments,
-                    permissionClass: tool.permissionClass,
-                  })
+                  awaitAbortableApproval(
+                    this.dependencies.requestApproval({
+                      approvalId,
+                      toolCallId: toolCall.id,
+                      toolName: toolCall.name,
+                      arguments: toolCall.arguments,
+                      permissionClass: tool.permissionClass,
+                    }),
+                    abortController.signal
+                  )
                 )
               : 'denied';
             emit({ type: 'approval.resolved', approvalId, decision });
@@ -451,11 +473,13 @@ export class AgentRunner {
               type: 'policy.decision',
               subject: toolCall.name,
               decision: decision === 'approved' ? 'allowed' : 'denied',
-              reason: `explicit approval required for ${tool.permissionClass} tool`,
+              reason: policyDecision.reason,
             });
             if (decision === 'denied')
               throw new Error(`approval denied for tool: ${toolCall.name}`);
           }
+
+          abortController.signal.throwIfAborted();
 
           const toolStartedAt = this.now();
           try {

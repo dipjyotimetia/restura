@@ -1,9 +1,13 @@
-import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { defineConfig } from 'vitest/config';
+import { sandboxLibsPlugin } from './scripts/vite-plugin-sandbox-libs';
 
 export default defineConfig({
-  plugins: [react()],
+  // Direct `npx vitest` must be as fresh-checkout safe as npm test. The
+  // ignored QuickJS bundle is imported during Vite transform, before setup
+  // files or wrapper scripts can repair it.
+  plugins: [sandboxLibsPlugin(), react()],
   test: {
     environment: 'jsdom',
     globals: true,
