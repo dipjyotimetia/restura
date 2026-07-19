@@ -48,6 +48,7 @@ import type {
   KafkaSecurityProtocol,
 } from '@/features/kafka/store/useKafkaStore';
 import { KAFKA_SECRET_SENTINEL, useKafkaStore } from '@/features/kafka/store/useKafkaStore';
+import { isValidManualOffset } from '@/features/kafka/lib/kafkaConsumerValidation';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
@@ -200,10 +201,7 @@ function KafkaClient() {
   // A valid MANUAL-seek spec: partition is a 0..2^31-1 integer and offset a
   // non-negative integer. Shared by the Subscribe guard and the seek payload so
   // the two can't drift.
-  const offsetSpecValid =
-    /^\d+$/.test(offsetPartition.trim()) &&
-    Number(offsetPartition) <= 2_147_483_647 &&
-    /^\d+$/.test(offsetValue.trim());
+  const offsetSpecValid = isValidManualOffset(offsetPartition, offsetValue);
 
   // Admin tab — transient results (not persisted to the store).
   const [adminTopics, setAdminTopics] = useState<string[] | null>(null);

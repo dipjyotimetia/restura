@@ -21,6 +21,7 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { Floater } from '@/components/ui/spatial';
+import { duplicateEnvironment } from '@/features/environments/lib/environmentActions';
 import { envColorFor } from '@/features/environments/lib/envColor';
 import { envHostHint as hostHint } from '@/features/environments/lib/envHint';
 import { cn } from '@/lib/shared/utils';
@@ -524,12 +525,7 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
   };
 
   const duplicateEnv = (source: Environment) => {
-    const clone: Environment = {
-      ...source,
-      id: uuidv4(),
-      name: `${source.name} (copy)`,
-      variables: source.variables.map((v) => ({ ...v, id: uuidv4() })),
-    };
+    const clone = duplicateEnvironment(source, uuidv4);
     addEnvironment(clone);
     setSelectedEnvId(clone.id);
   };
