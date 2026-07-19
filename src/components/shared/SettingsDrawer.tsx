@@ -33,6 +33,7 @@ import { CaptureBridgeCard } from '@/components/shared/CaptureBridgeCard';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { Logo } from '@/components/shared/Logo';
+import { useReleaseNotes } from '@/components/shared/settings/useReleaseNotes';
 import { Badge } from '@/components/ui/badge';
 import { Floater, Kbd, Segmented, Stepper, TextField, ToggleField } from '@/components/ui/spatial';
 import SecretInput from '@/features/auth/components/SecretInput';
@@ -48,13 +49,7 @@ import { downloadBlob, readFileAsText } from '@/lib/shared/file-utils';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { looksLikePemCertificate } from '@/lib/shared/pemValidation';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
-import {
-  clearReleaseNotesCache,
-  fetchReleaseNotesPage,
-  parseReleaseNoteContent,
-  type ReleaseNote,
-  type ReleaseNotesChannel,
-} from '@/lib/shared/release-notes';
+import { parseReleaseNoteContent, type ReleaseNotesChannel } from '@/lib/shared/release-notes';
 import { cn } from '@/lib/shared/utils';
 import { withViewTransition } from '@/lib/shared/viewTransition';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -1969,55 +1964,18 @@ function ReleaseNoteMarkdown({ children }: { children: string }) {
 }
 
 function ReleaseNotesPanel({ channel }: { channel: ReleaseNotesChannel }) {
-  const [releases, setReleases] = useState<ReleaseNote[]>([]);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [nextPage, setNextPage] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    releases,
+    selectedId,
+    setSelectedId,
+    nextPage,
+    loading,
+    loadingMore,
+    error,
+    reload,
+    loadMore,
+  } = useReleaseNotes(channel);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(() => new Set());
-
-  const loadFirstPage = useCallback(
-    async (refresh = false) => {
-      if (refresh) clearReleaseNotesCache();
-      setLoading(true);
-      setError(null);
-      try {
-        const page = await fetchReleaseNotesPage({ channel });
-        setReleases(page.releases);
-        setSelectedId(page.releases[0]?.id ?? null);
-        setNextPage(page.nextPage);
-      } catch (cause) {
-        setReleases([]);
-        setSelectedId(null);
-        setNextPage(null);
-        setError(
-          cause instanceof Error ? cause.message : 'Release notes are unavailable right now.'
-        );
-      } finally {
-        setLoading(false);
-      }
-    },
-    [channel]
-  );
-
-  useEffect(() => {
-    void loadFirstPage();
-  }, [loadFirstPage]);
-
-  const loadMore = useCallback(async () => {
-    if (nextPage == null) return;
-    setLoadingMore(true);
-    try {
-      const page = await fetchReleaseNotesPage({ channel, page: nextPage });
-      setReleases((current) => [...current, ...page.releases]);
-      setNextPage(page.nextPage);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Release notes are unavailable right now.');
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [channel, nextPage]);
 
   const selected = releases.find((release) => release.id === selectedId) ?? releases[0];
   const content = selected ? parseReleaseNoteContent(selected.body) : null;
@@ -2036,7 +1994,7 @@ function ReleaseNotesPanel({ channel }: { channel: ReleaseNotesChannel }) {
         </div>
         <button
           type="button"
-          onClick={() => void loadFirstPage(true)}
+          onClick={() => void reload(true)}
           disabled={loading}
           className={cn(
             'inline-flex items-center gap-1.5 h-8 px-3 rounded-sp-btn shrink-0',
@@ -2058,7 +2016,7 @@ function ReleaseNotesPanel({ channel }: { channel: ReleaseNotesChannel }) {
           <p>{error}</p>
           <button
             type="button"
-            onClick={() => void loadFirstPage(true)}
+            onClick={() => void reload(true)}
             className="mt-2 font-medium underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
           >
             Try again

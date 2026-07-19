@@ -3,8 +3,6 @@ import { toast } from 'sonner';
 import type { BugReportScreenshot, BugReportSubmission } from '@/components/shared/BugReportDialog';
 import ClientHydration from '@/components/shared/ClientHydration';
 import ConsoleDrawer from '@/components/shared/ConsoleDrawer';
-import ResizableLayout from '@/components/shared/ResizableLayout';
-import ResponseViewer from '@/components/shared/ResponseViewer';
 import { SaveToCollectionDialog } from '@/components/shared/SaveToCollectionDialog';
 import type { SectionId } from '@/components/shared/SettingsDrawer';
 import Sidebar from '@/components/shared/Sidebar';
@@ -15,7 +13,6 @@ import WelcomeOnboarding from '@/components/shared/WelcomeOnboarding';
 import { motion } from '@/components/ui/motion';
 import { useAiChatStore } from '@/features/ai/store';
 import { saveTabBackToCollection } from '@/features/collections/lib/saveBack';
-import RequestBuilder from '@/features/http/components/RequestBuilder';
 import { useKeybindings } from '@/hooks/useKeybindings';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useStoreHydration } from '@/hooks/useStoreHydration';
@@ -37,6 +34,7 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { ActivePanel, RequestMode } from '@/types';
 import { isConnectionMode } from '@/types';
+import { RequestWorkspace } from './components/RequestWorkspace';
 
 const ChatPanel = lazyComponent(() => import('@/features/ai/components/ChatPanel'));
 const CommandPalette = lazyComponent(() => import('@/components/shared/CommandPalette'));
@@ -49,32 +47,6 @@ const BugReportDialog = lazyComponent(async () => {
   const module = await import('@/components/shared/BugReportDialog');
   return { default: module.BugReportDialog };
 });
-
-// HTTP is the default mode and stays eager (imported above). The other seven
-// protocol builders are split into their own chunks so they're only fetched
-// when the user actually switches into that mode — this keeps them (and their
-// transitive deps: socket.io-client, graphql, the Kafka/MCP UI trees) out of
-// the renderer entry chunk that V8 parses at desktop startup.
-const GrpcRequestBuilder = lazyComponent(
-  () => import('@/features/grpc/components/GrpcRequestBuilder')
-);
-const GrpcResponsePanel = lazyComponent(
-  () => import('@/features/grpc/components/GrpcResponsePanel')
-);
-const GraphQLRequestBuilder = lazyComponent(
-  () => import('@/features/graphql/components/GraphQLRequestBuilder')
-);
-const WebSocketClient = lazyComponent(
-  () => import('@/features/websocket/components/WebSocketClient')
-);
-const SocketIOClient = lazyComponent(() => import('@/features/socketio/components/SocketIOClient'));
-const SseClient = lazyComponent(() => import('@/features/sse/components/SseClient'));
-const McpRequestBuilder = lazyComponent(
-  () => import('@/features/mcp/components/McpRequestBuilder')
-);
-const McpResultPanel = lazyComponent(() => import('@/features/mcp/components/McpResultPanel'));
-const KafkaClient = lazyComponent(() => import('@/features/kafka/components/KafkaClient'));
-const MqttClient = lazyComponent(() => import('@/features/mqtt/components/MqttClient'));
 
 export default function Home() {
   const [activePanel] = useState<ActivePanel>('collections');
@@ -170,11 +142,6 @@ export default function Home() {
     (split: number) => updateSettings({ requestResponseSplit: split }),
     [updateSettings]
   );
-  const splitProps = {
-    orientation: effectiveLayout,
-    split: settings.requestResponseSplit ?? 50,
-    onSplitChange: handleSplitChange,
-  };
 
   const allLogs = useMemo(
     () => [...(scriptResult?.preRequest?.logs ?? []), ...(scriptResult?.test?.logs ?? [])],
@@ -310,51 +277,6 @@ export default function Home() {
     window.dispatchEvent(event);
   }, []);
 
-  const renderRequestBuilder = () => {
-    switch (requestMode) {
-      case 'http':
-        return (
-          <ResizableLayout {...splitProps}>
-            <RequestBuilder />
-            <ResponseViewer />
-          </ResizableLayout>
-        );
-      case 'grpc':
-        return (
-          <ResizableLayout {...splitProps}>
-            <GrpcRequestBuilder />
-            <GrpcResponsePanel />
-          </ResizableLayout>
-        );
-      case 'graphql':
-        return (
-          <ResizableLayout {...splitProps}>
-            <GraphQLRequestBuilder />
-            <ResponseViewer />
-          </ResizableLayout>
-        );
-      case 'websocket':
-        return <WebSocketClient />;
-      case 'socketio':
-        return <SocketIOClient />;
-      case 'sse':
-        return <SseClient />;
-      case 'mcp':
-        return (
-          <ResizableLayout {...splitProps}>
-            <McpRequestBuilder />
-            <McpResultPanel />
-          </ResizableLayout>
-        );
-      case 'kafka':
-        return <KafkaClient />;
-      case 'mqtt':
-        return <MqttClient />;
-      default:
-        return null;
-    }
-  };
-
   return (
     <div className="flex flex-col h-screen overflow-hidden">
       {/* WindowChrome — fixed 44px top bar. The Sidebar lives below it so
@@ -395,7 +317,14 @@ export default function Home() {
               onSaveToCollection={setSaveDialogTabId}
               onChangeMode={handleRequestModeChange}
             />
-            <div className="flex flex-1 flex-col min-h-0">{renderRequestBuilder()}</div>
+            <div className="flex flex-1 flex-col min-h-0">
+              <RequestWorkspace
+                mode={requestMode}
+                orientation={effectiveLayout}
+                split={settings.requestResponseSplit ?? 50}
+                onSplitChange={handleSplitChange}
+              />
+            </div>
             <ConsoleDrawer
               scriptLogs={allLogs}
               {...(allTests !== undefined && { tests: allTests })}

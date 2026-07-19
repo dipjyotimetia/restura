@@ -39,6 +39,11 @@ import { listModels, testConnection } from '../lib/llmClient';
 import { buildModelOptions } from '../lib/modelOptions';
 import { plural } from '../lib/plural';
 import {
+  effectiveProviderBaseUrl,
+  PROVIDER_DEFAULT_BASE,
+  providerRequiresApiKey,
+} from '../lib/providerPolicy';
+import {
   connectAndAddProvider,
   deleteSecretHandle,
   replaceSecretHandle,
@@ -65,15 +70,6 @@ const PROVIDER_OPTIONS: Array<{ value: Provider; label: string; needsBaseUrl: bo
   },
 ];
 
-const DEFAULT_BASE: Record<Provider, string> = {
-  openai: 'https://api.openai.com',
-  anthropic: 'https://api.anthropic.com',
-  openrouter: 'https://openrouter.ai/api',
-  ollama: 'http://localhost:11434',
-  huggingface: 'https://router.huggingface.co',
-  'openai-compatible': '',
-};
-
 const BOOLEAN_CAPABILITIES: Array<{
   key: keyof Pick<ModelCapabilities, 'toolCalling' | 'parallelToolCalls'>;
   label: string;
@@ -81,19 +77,6 @@ const BOOLEAN_CAPABILITIES: Array<{
   { key: 'toolCalling', label: 'Tool calling' },
   { key: 'parallelToolCalls', label: 'Parallel tool calls' },
 ];
-
-function effectiveBaseUrl(cfg: AiLabProviderConfig): string {
-  return cfg.baseUrl || DEFAULT_BASE[cfg.provider];
-}
-
-function requiresApiKey(provider: Provider): boolean {
-  return (
-    provider === 'openai' ||
-    provider === 'anthropic' ||
-    provider === 'openrouter' ||
-    provider === 'huggingface'
-  );
-}
 
 export function ProviderManager() {
   const providers = useAiLabStore((state) => state.providers);
@@ -115,7 +98,7 @@ export function ProviderManager() {
   const [showAdd, setShowAdd] = useState(providerList.length === 0);
   const [provider, setProvider] = useState<Provider>('ollama');
   const [label, setLabel] = useState('');
-  const [baseUrl, setBaseUrl] = useState(DEFAULT_BASE.ollama);
+  const [baseUrl, setBaseUrl] = useState(PROVIDER_DEFAULT_BASE.ollama);
   const [apiKey, setApiKey] = useState('');
   const [connecting, setConnecting] = useState(false);
   const [busy, setBusy] = useState<{ id: string; action: 'test' | 'discover' } | null>(null);
@@ -151,7 +134,7 @@ export function ProviderManager() {
 
   const onProviderChange = (next: Provider) => {
     setProvider(next);
-    setBaseUrl(DEFAULT_BASE[next]);
+    setBaseUrl(PROVIDER_DEFAULT_BASE[next]);
     if (!label.trim()) {
       setLabel(
         PROVIDER_OPTIONS.find((option) => option.value === next)?.label.split(' (')[0] ?? ''
@@ -161,7 +144,7 @@ export function ProviderManager() {
 
   const connect = async () => {
     const name = label.trim();
-    const resolvedBaseUrl = baseUrl.trim() || DEFAULT_BASE[provider];
+    const resolvedBaseUrl = baseUrl.trim() || PROVIDER_DEFAULT_BASE[provider];
     if (!name) {
       toast.error('Give this provider a recognizable name.');
       return;
@@ -170,7 +153,7 @@ export function ProviderManager() {
       toast.error('Enter the provider base URL.');
       return;
     }
-    if (requiresApiKey(provider) && !apiKey.trim()) {
+    if (providerRequiresApiKey(provider) && !apiKey.trim()) {
       toast.error(`${selectedProvider.label} requires an API key before it can run models.`);
       return;
     }
@@ -209,7 +192,7 @@ export function ProviderManager() {
     try {
       const result = await listModels({
         provider: cfg.provider,
-        baseUrl: effectiveBaseUrl(cfg),
+        baseUrl: effectiveProviderBaseUrl(cfg),
         ...(cfg.apiKeyHandleId ? { apiKeyHandleId: cfg.apiKeyHandleId } : {}),
       });
       if (!result.ok) {
@@ -237,7 +220,7 @@ export function ProviderManager() {
     try {
       const result = await testConnection({
         provider: cfg.provider,
-        baseUrl: effectiveBaseUrl(cfg),
+        baseUrl: effectiveProviderBaseUrl(cfg),
         ...(cfg.apiKeyHandleId ? { apiKeyHandleId: cfg.apiKeyHandleId } : {}),
       });
       if (result.ok) {
@@ -468,7 +451,7 @@ export function ProviderManager() {
             )}
             <div className="space-y-1.5">
               <Label htmlFor="ailab-provider-key" className="sp-label">
-                API key {requiresApiKey(provider) ? '' : '(optional)'}
+                API key {providerRequiresApiKey(provider) ? '' : '(optional)'}
               </Label>
               <Input
                 id="ailab-provider-key"
@@ -480,7 +463,7 @@ export function ProviderManager() {
                     ? 'Usually not required'
                     : provider === 'huggingface'
                       ? 'hf_…'
-                      : requiresApiKey(provider)
+                      : providerRequiresApiKey(provider)
                         ? 'Required'
                         : 'sk-…'
                 }
@@ -545,9 +528,9 @@ export function ProviderManager() {
                     </div>
                     <p
                       className="mt-0.5 truncate text-sp-10 text-sp-muted"
-                      title={effectiveBaseUrl(cfg)}
+                      title={effectiveProviderBaseUrl(cfg)}
                     >
-                      {effectiveBaseUrl(cfg)}
+                      {effectiveProviderBaseUrl(cfg)}
                     </p>
                     <div className="mt-1 flex flex-wrap items-center gap-x-2 text-sp-10 text-sp-muted">
                       <span>{plural(cfg.models.length, 'model')}</span>
@@ -823,7 +806,7 @@ export function ProviderManager() {
                     <Input
                       value={editing.baseUrl}
                       aria-label="Provider base URL"
-                      placeholder={DEFAULT_BASE[cfg.provider] || 'https://…'}
+                      placeholder={PROVIDER_DEFAULT_BASE[cfg.provider] || 'https://…'}
                       onChange={(event) => setEditing({ ...editing, baseUrl: event.target.value })}
                     />
                     <Input
