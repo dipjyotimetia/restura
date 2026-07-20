@@ -6,15 +6,7 @@
  */
 
 import Dexie, { type Table } from 'dexie';
-import type {
-  AppSettings,
-  Collection,
-  Environment,
-  Request,
-  Response,
-  Workflow,
-  WorkflowExecution,
-} from '@/types';
+import type { AppSettings, Collection, Environment, Request, Response } from '@/types';
 
 // Database record types with encryption support
 export interface CollectionRecord {
@@ -58,20 +50,12 @@ export interface CookieRecord {
   encryptedData: string;
 }
 
-export interface WorkflowRecord {
+/** Encrypted Zustand state for the OWS workflow catalog. */
+export interface OwsWorkflowStoreRecord {
   id: string;
   name: string;
   updatedAt: number;
-  // Encrypted JSON string containing: requests, variables, config
-  encryptedData: string;
-}
-
-export interface WorkflowExecutionRecord {
-  id: string;
-  workflowId: string;
-  timestamp: number;
-  status: 'pending' | 'running' | 'completed' | 'failed';
-  // Encrypted JSON string containing: results, variables, errors
+  // Encrypted JSON containing only OWS documents, typed bindings, and layout.
   encryptedData: string;
 }
 
@@ -123,8 +107,7 @@ export class ResturaDB extends Dexie {
   history!: Table<HistoryRecord, string>;
   settings!: Table<SettingsRecord, string>;
   cookies!: Table<CookieRecord, string>;
-  workflows!: Table<WorkflowRecord, string>;
-  workflowExecutions!: Table<WorkflowExecutionRecord, string>;
+  workflows!: Table<OwsWorkflowStoreRecord, string>;
   fileCollections!: Table<FileCollectionRecord, string>;
   requestTabs!: Table<RequestTabsRecord, string>;
   websocketConnections!: Table<WebSocketConnectionsRecord, string>;
@@ -248,6 +231,12 @@ export class ResturaDB extends Dexie {
       // Same encrypted NamedEncryptedRecord shape as evalRuns. Additive only.
       arenaRuns: 'id, name, updatedAt',
     });
+
+    this.version(14).stores({
+      // The legacy Flow execution history was not an OWS artifact and has no
+      // clean-slate compatibility path.
+      workflowExecutions: null,
+    });
   }
 
   /**
@@ -360,12 +349,4 @@ export class ResturaDB extends Dexie {
 export const db = new ResturaDB();
 
 // Re-export types for convenience
-export type {
-  AppSettings,
-  Collection,
-  Environment,
-  Request,
-  Response,
-  Workflow,
-  WorkflowExecution,
-};
+export type { AppSettings, Collection, Environment, Request, Response };

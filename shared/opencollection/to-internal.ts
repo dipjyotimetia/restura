@@ -212,8 +212,7 @@ function graphqlToHttpRequest(item: Record<string, unknown>): HttpRequest {
   const gql = (item.graphql ?? {}) as Record<string, unknown>;
   const name = info.name ?? 'GraphQL';
   const query = (gql.query as string) ?? '';
-  const variables = (gql.variables as string) ?? '';
-  const raw = JSON.stringify({ query, variables });
+  const variables = gql.variables;
   const scripts = extractScripts(item, name);
   const description = descriptionToString(info.description);
   return {
@@ -224,7 +223,15 @@ function graphqlToHttpRequest(item: Record<string, unknown>): HttpRequest {
     url: (gql.url as string) ?? '',
     headers: ((gql.headers as unknown[]) ?? []).map(kvToInternal),
     params: [],
-    body: { type: 'graphql' as BodyType, raw },
+    body: {
+      type: 'graphql' as BodyType,
+      raw: query,
+      ...(variables === undefined
+        ? {}
+        : {
+            graphqlVariables: typeof variables === 'string' ? variables : JSON.stringify(variables),
+          }),
+    },
     auth: authToInternal(gql.auth),
     ...(scripts.preRequest ? { preRequestScript: scripts.preRequest } : {}),
     ...(scripts.test ? { testScript: scripts.test } : {}),

@@ -25,7 +25,7 @@ If none match, the placeholder is left as-is so you can spot the typo.
 ## Switching environments
 
 - Top-right environment selector switches in one click.
-- Workflows can override the environment at run-time.
+- OWS workflows use their bound saved request's normal environment resolution; they cannot override environments or write environment variables.
 - The [CLI](/reference/cli/) accepts `--env <file>` to load an environment file (JSON or YAML) for a CI run.
 
 ## Built-in helpers
@@ -45,5 +45,5 @@ Postman-compatible helpers work in any `{{...}}` placeholder:
 ## Related
 
 - [Authentication](/guides/auth/) — tokens stored as `SecretRef`.
-- [Workflows](/guides/workflows/) — extract values from responses and stash them as environment variables.
+- [Workflows](/guides/workflows/) — bounded OWS orchestration over saved HTTP requests; it does not extract or persist environment variables.
 - [Scripts](/guides/scripts/) — `pm.environment.set(...)`, `pm.environment.get(...)`.

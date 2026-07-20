@@ -17,10 +17,9 @@ import {
  * tabs), or when no ancestor has a configured auth.
  *
  * Callers: the registry runner (gRPC/GraphQL single sends), the HTTP send
- * hook, the Auth-tab "Inherits…" hint, and `useWorkflowExecution` (which
- * wraps it as the executors' `getInheritedAuth` callback). The collection
- * runner does NOT use this — `flattenRunnables` threads the same rule in its
- * single tree pass.
+ * hook, the Auth-tab "Inherits…" hint, and the OWS saved-request dispatcher.
+ * The collection runner does NOT use this — `flattenRunnables` threads the
+ * same rule in its single tree pass.
  */
 export function resolveInheritedAuthFor(
   request: Pick<Request, 'id'> & { auth: AuthConfig }

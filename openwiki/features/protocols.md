@@ -78,13 +78,12 @@ Connection-based UI modes (GraphQL, WebSocket, Socket.IO, Kafka, MQTT) live as a
 ### SSE (`src/features/sse/`)
 
 - `protocol.ts` throws from `runRequest`; the interactive client owns the UI.
-- Provides `startStream` returning an async iterable used by the workflow DAG executor.
-- Avoids `useSseStore` in workflow paths to keep streaming ownership explicit.
+- Provides `startStream` returning an async iterable for the interactive stream UI.
 
 ### WebSocket (`src/features/websocket/`)
 
 - No `Request` shape in the registry; interactive client / store owns state.
-- Provides `startStream` returning a handle with `.send()` extension for workflow use.
+- Provides `startStream` returning a handle with `.send()` for interactive use.
 
 ### Socket.IO (`src/features/socketio/`)
 
@@ -99,8 +98,8 @@ Connection-based UI modes (GraphQL, WebSocket, Socket.IO, Kafka, MQTT) live as a
 
 ### MCP client (`src/features/mcp/`)
 
-- Protocol module: `runJsonRpc` with an optional `McpClientPool` keyed by `cacheKey` (typically a workflow request id).
-- Caches the client-init promise to avoid duplicate handshakes when parallel `mcpCall` workflow nodes hit the same server.
+- Protocol module: `runJsonRpc` with an optional `McpClientPool` keyed by `cacheKey`.
+- Caches the client-init promise to avoid duplicate handshakes for equivalent MCP requests.
 - Electron path uses `window.electron.mcp.*`; web path posts to `/api/mcp`.
 - Supports `streamable-http` and `http-sse`; web limited to `streamable-http`.
 
@@ -108,16 +107,16 @@ Connection-based UI modes (GraphQL, WebSocket, Socket.IO, Kafka, MQTT) live as a
 
 ## Streaming vs one-shot execution
 
-| Protocol     | UI interaction                     | Registry execution        | Workflow usage                    |
-| ------------ | ---------------------------------- | ------------------------- | --------------------------------- |
-| HTTP         | One-shot                           | `runRequest`              | `runRequest` with retries         |
-| GraphQL      | One-shot / subscription            | `runRequest`              | `runRequest`                      |
-| gRPC         | Unary in registry; streaming in UI | `runRequest`              | `runRequest` (unary only)         |
-| SSE          | Stream UI                          | throws                    | `startStream`                     |
-| WebSocket    | Stream UI                          | throws                    | `startStream` + `.send()`         |
-| Socket.IO    | Stream UI                          | stub                      | via store                         |
-| Kafka / MQTT | Stream UI                          | stub                      | partial / IPC direct              |
-| MCP          | JSON-RPC call + long-lived session | `runRequest`/`runJsonRpc` | `mcpCall` node with pooled client |
+| Protocol     | UI interaction                     | Registry execution        | OWS workflow usage                              |
+| ------------ | ---------------------------------- | ------------------------- | ----------------------------------------------- |
+| HTTP         | One-shot                           | `runRequest`              | Bound saved HTTP request                        |
+| GraphQL      | One-shot / subscription            | `runRequest`              | Bound saved query or mutation (with confirmation) |
+| gRPC         | Unary in registry; streaming in UI | `runRequest`              | Not supported                                   |
+| SSE          | Stream UI                          | throws                    | Not supported                                   |
+| WebSocket    | Stream UI                          | throws                    | Not supported                                   |
+| Socket.IO    | Stream UI                          | stub                      | Not supported                                   |
+| Kafka / MQTT | Stream UI                          | stub                      | Not supported                                   |
+| MCP          | JSON-RPC call + long-lived session | `runRequest`/`runJsonRpc` | Not supported                                   |
 
 `shared/protocol/http-proxy.ts` exposes two variants:
 

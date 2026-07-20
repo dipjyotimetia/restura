@@ -1,28 +1,9 @@
 'use client';
 
-import {
-  Download,
-  GitBranch,
-  MoreVertical,
-  Pencil,
-  Play,
-  Plus,
-  Trash2,
-  Upload,
-  Workflow as WorkflowIcon,
-} from 'lucide-react';
+import { Download, MoreVertical, Pencil, Play, Plus, Trash2, Upload, Workflow } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+import { useShallow } from 'zustand/react/shallow';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -39,14 +20,13 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { isNameTaken, uniqueName } from '@/features/collections/lib/names';
-import { useWorkflowStore } from '@/store/useWorkflowStore';
-import type { Workflow } from '@/types';
+import { type OwsStoredWorkflow, useWorkflowStore } from '@/store/useWorkflowStore';
 import { exportWorkflow, parseWorkflowImport } from '../lib/workflowIO';
 
 interface WorkflowManagerProps {
   collectionId: string;
-  onSelectWorkflow: (workflow: Workflow) => void;
-  onRunWorkflow: (workflow: Workflow) => void;
+  onSelectWorkflow: (workflow: OwsStoredWorkflow) => void;
+  onRunWorkflow: (workflow: OwsStoredWorkflow) => void;
 }
 
 export function WorkflowManager({
@@ -54,114 +34,92 @@ export function WorkflowManager({
   onSelectWorkflow,
   onRunWorkflow,
 }: WorkflowManagerProps) {
-  const allWorkflows = useWorkflowStore((s) => s.workflows);
-  const executions = useWorkflowStore((s) => s.executions);
-  const createNewWorkflow = useWorkflowStore((s) => s.createNewWorkflow);
-  const addWorkflow = useWorkflowStore((s) => s.addWorkflow);
-  const updateWorkflow = useWorkflowStore((s) => s.updateWorkflow);
-  const removeWorkflow = useWorkflowStore((s) => s.removeWorkflow);
-
-  const workflows = useMemo(
-    () => allWorkflows.filter((wf) => wf.collectionId === collectionId),
-    [allWorkflows, collectionId]
+  const workflows = useWorkflowStore(
+    useShallow((state) =>
+      state.workflows.filter((workflow) => workflow.collectionId === collectionId)
+    )
   );
-
-  const getLatestExecution = useMemo(() => {
-    return (workflowId: string) =>
-      executions
-        .filter((ex) => ex.workflowId === workflowId)
-        .sort((a, b) => b.startedAt - a.startedAt)[0];
-  }, [executions]);
-
+  const createNewWorkflow = useWorkflowStore((state) => state.createNewWorkflow);
+  const addWorkflow = useWorkflowStore((state) => state.addWorkflow);
+  const renameWorkflow = useWorkflowStore((state) => state.renameWorkflow);
+  const removeWorkflow = useWorkflowStore((state) => state.removeWorkflow);
   const [showNewDialog, setShowNewDialog] = useState(false);
-  const [editingWorkflow, setEditingWorkflow] = useState<Workflow | null>(null);
-  const [deletingWorkflow, setDeletingWorkflow] = useState<Workflow | null>(null);
+  const [editingWorkflow, setEditingWorkflow] = useState<OwsStoredWorkflow | null>(null);
   const [workflowName, setWorkflowName] = useState('');
   const importInputRef = useRef<HTMLInputElement>(null);
+  const workflowNames = useMemo(
+    () => workflows.map((workflow) => workflow.document.document.name),
+    [workflows]
+  );
 
-  const handleExport = (workflow: Workflow) => {
-    const blob = new Blob([exportWorkflow(workflow)], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${workflow.name.replace(/[^a-z0-9-_]+/gi, '_')}.workflow.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const handleImportFile = async (file: File) => {
-    const text = await file.text();
-    const result = parseWorkflowImport(text, collectionId);
-    if (!result.ok) {
-      toast.error(`Import failed — ${result.error}`);
-      return;
-    }
-    addWorkflow(result.workflow);
-    toast.success(`Imported "${result.workflow.name}"`);
-    onSelectWorkflow(result.workflow);
-  };
-
-  const handleCreate = () => {
+  const create = () => {
     if (!workflowName.trim()) return;
-
-    const finalName = uniqueName(
-      workflowName.trim(),
-      workflows.map((w) => w.name)
+    const workflow = createNewWorkflow(
+      uniqueName(workflowName.trim(), workflowNames),
+      collectionId
     );
-    const workflow = createNewWorkflow(finalName, collectionId);
     addWorkflow(workflow);
     setWorkflowName('');
     setShowNewDialog(false);
     onSelectWorkflow(workflow);
   };
-
-  const handleUpdate = () => {
+  const rename = () => {
     if (!editingWorkflow || !workflowName.trim()) return;
-
-    const newName = workflowName.trim();
-    const otherNames = workflows.filter((w) => w.id !== editingWorkflow.id).map((w) => w.name);
-    if (isNameTaken(newName, otherNames)) {
-      toast.error(`A workflow named "${newName}" already exists`);
+    const otherNames = workflowNames.filter(
+      (name) => name !== editingWorkflow.document.document.name
+    );
+    if (isNameTaken(workflowName.trim(), otherNames)) {
+      toast.error(`A workflow named "${workflowName.trim()}" already exists`);
       return;
     }
-    updateWorkflow(editingWorkflow.id, { name: newName });
+    renameWorkflow(editingWorkflow.id, workflowName.trim());
     setEditingWorkflow(null);
     setWorkflowName('');
   };
-
-  const handleDelete = () => {
-    if (!deletingWorkflow) return;
-
-    removeWorkflow(deletingWorkflow.id);
-    setDeletingWorkflow(null);
+  const exportArtifact = (workflow: OwsStoredWorkflow) => {
+    const url = URL.createObjectURL(
+      new Blob([exportWorkflow(workflow)], { type: 'application/json' })
+    );
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${workflow.document.document.name}.ows.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+  const importArtifact = async (file: File) => {
+    const result = parseWorkflowImport(await file.text(), collectionId);
+    if (!result.ok) {
+      toast.error(`Import failed — ${result.error}`);
+      return;
+    }
+    addWorkflow(result.workflow);
+    toast.success(`Imported "${result.workflow.document.document.name}"`);
+    onSelectWorkflow(result.workflow);
   };
 
   return (
     <div className="space-y-2">
-      {/* Header */}
       <div className="flex items-center justify-between px-2">
         <h3 className="text-sm font-medium text-muted-foreground">Workflows</h3>
-        <div className="flex items-center gap-0.5">
+        <div className="flex gap-0.5">
           <input
             ref={importInputRef}
             type="file"
-            accept="application/json,.json"
-            aria-label="Import workflow from JSON"
+            accept="application/json,application/yaml,text/yaml,.json,.yaml,.yml"
             className="hidden"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) void handleImportFile(file);
-              e.target.value = '';
+            aria-label="Import workflow"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) void importArtifact(file);
+              event.target.value = '';
             }}
           />
           <Button
             variant="ghost"
             size="icon"
             className="h-6 w-6"
+            title="Import workflow JSON or YAML"
             onClick={() => importInputRef.current?.click()}
-            title="Import workflow from JSON"
           >
             <Upload className="h-4 w-4" />
           </Button>
@@ -169,201 +127,134 @@ export function WorkflowManager({
             variant="ghost"
             size="icon"
             className="h-6 w-6"
-            onClick={() => setShowNewDialog(true)}
             title="New workflow"
+            onClick={() => setShowNewDialog(true)}
           >
             <Plus className="h-4 w-4" />
           </Button>
         </div>
       </div>
-
-      {/* Workflow List */}
       {workflows.length === 0 ? (
-        <div className="text-center py-8 text-sm text-muted-foreground">
-          <GitBranch className="h-8 w-8 mx-auto mb-2 opacity-50" />
-          <p>No workflows yet</p>
-          <Button variant="link" size="sm" className="mt-1" onClick={() => setShowNewDialog(true)}>
-            Create your first workflow
-          </Button>
-        </div>
+        <div className="py-8 text-center text-sm text-muted-foreground">No workflows yet</div>
       ) : (
         <div className="space-y-1">
-          {workflows.map((workflow) => {
-            const latestExecution = getLatestExecution(workflow.id);
-            return (
-              <div
-                key={workflow.id}
-                role="button"
-                tabIndex={0}
-                className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/50 group cursor-pointer"
+          {workflows.map((workflow) => (
+            <div
+              key={workflow.id}
+              className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
+            >
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                aria-label={`Edit workflow ${workflow.document.document.name}`}
                 onClick={() => onSelectWorkflow(workflow)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    onSelectWorkflow(workflow);
-                  }
-                }}
               >
-                <GitBranch className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium truncate">{workflow.name}</div>
-                  <div className="text-xs text-muted-foreground flex items-center gap-1">
-                    <span>{workflow.requests.length} steps</span>
-                    {latestExecution && (
-                      <>
-                        <span>·</span>
-                        <span
-                          className={
-                            latestExecution.status === 'success'
-                              ? 'text-green-600'
-                              : latestExecution.status === 'failed'
-                                ? 'text-red-600'
-                                : ''
-                          }
-                        >
-                          {latestExecution.status}
-                        </span>
-                      </>
-                    )}
+                <Workflow className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium">
+                    {workflow.document.document.name}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {Object.keys(workflow.bindings.tasks).length} bound call
+                    {Object.keys(workflow.bindings.tasks).length === 1 ? '' : 's'}
                   </div>
                 </div>
-
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onRunWorkflow(workflow);
-                    }}
-                    title="Run workflow"
-                  >
-                    <Play className="h-3.5 w-3.5" />
-                  </Button>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <MoreVertical className="h-3.5 w-3.5" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setWorkflowName(workflow.name);
-                          setEditingWorkflow(workflow);
-                        }}
-                      >
-                        <Pencil className="h-4 w-4 mr-2" />
-                        Rename
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleExport(workflow);
-                        }}
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        Export
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="text-destructive"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeletingWorkflow(workflow);
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4 mr-2" />
-                        Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
+              </button>
+              <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  title="Run workflow"
+                  aria-label={`Run workflow ${workflow.document.document.name}`}
+                  onClick={() => {
+                    onRunWorkflow(workflow);
+                  }}
+                >
+                  <Play className="h-3.5 w-3.5" />
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      aria-label={`Workflow actions for ${workflow.document.document.name}`}
+                    >
+                      <MoreVertical className="h-3.5 w-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={() => {
+                        setEditingWorkflow(workflow);
+                        setWorkflowName(workflow.document.document.name);
+                      }}
+                    >
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Rename
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => exportArtifact(workflow)}>
+                      <Download className="mr-2 h-4 w-4" />
+                      Export workflow JSON
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-destructive"
+                      onClick={() => removeWorkflow(workflow.id)}
+                    >
+                      <Trash2 className="mr-2 h-4 w-4" />
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       )}
-
-      {/* New Workflow Dialog */}
       <Dialog open={showNewDialog} onOpenChange={setShowNewDialog}>
         <DialogContent>
-          <DialogHeader icon={WorkflowIcon}>
-            <DialogTitle>Create Workflow</DialogTitle>
+          <DialogHeader icon={Workflow}>
+            <DialogTitle>Create workflow</DialogTitle>
           </DialogHeader>
-          <div className="py-4">
-            <Input
-              placeholder="Workflow name"
-              value={workflowName}
-              onChange={(e) => setWorkflowName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
-              autoFocus
-            />
-          </div>
+          <Input
+            autoFocus
+            placeholder="Workflow name"
+            value={workflowName}
+            onChange={(event) => setWorkflowName(event.target.value)}
+            onKeyDown={(event) => event.key === 'Enter' && create()}
+          />
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowNewDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleCreate} disabled={!workflowName.trim()}>
+            <Button disabled={!workflowName.trim()} onClick={create}>
               Create
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Edit Workflow Dialog */}
-      <Dialog open={!!editingWorkflow} onOpenChange={() => setEditingWorkflow(null)}>
+      <Dialog open={!!editingWorkflow} onOpenChange={(open) => !open && setEditingWorkflow(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Rename Workflow</DialogTitle>
+            <DialogTitle>Rename workflow</DialogTitle>
           </DialogHeader>
-          <div className="py-4">
-            <Input
-              placeholder="Workflow name"
-              value={workflowName}
-              onChange={(e) => setWorkflowName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleUpdate()}
-              autoFocus
-            />
-          </div>
+          <Input
+            autoFocus
+            value={workflowName}
+            onChange={(event) => setWorkflowName(event.target.value)}
+            onKeyDown={(event) => event.key === 'Enter' && rename()}
+          />
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingWorkflow(null)}>
               Cancel
             </Button>
-            <Button onClick={handleUpdate} disabled={!workflowName.trim()}>
+            <Button disabled={!workflowName.trim()} onClick={rename}>
               Save
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Delete Confirmation */}
-      <AlertDialog open={!!deletingWorkflow} onOpenChange={() => setDeletingWorkflow(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Workflow</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete "{deletingWorkflow?.name}"? This action cannot be
-              undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={handleDelete}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

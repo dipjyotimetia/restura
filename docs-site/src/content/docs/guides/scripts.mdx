@@ -93,10 +93,10 @@ rs.environment.set('token', res.body.token);
 ```
 
 <Aside title="Scripting vs. workflows">
-For multi-step orchestration with branching, retries, and parallelism, a [workflow](/guides/workflows/) is usually clearer than chaining `rs.sendRequest` calls in one script.
+For bounded multi-step orchestration, a [workflow](/guides/workflows/) is usually clearer than chaining `rs.sendRequest` calls in one script. The current safe OWS profile supports sequential `do`, `set`, `wait`, timeout/cancellation, and binding-only saved HTTP calls; branching, retries, and parallelism are intentionally unavailable.
 </Aside>
 
 ## Related
 
-- [Workflows](/guides/workflows/) — chain requests declaratively, with branching and retries.
+- [Workflows](/guides/workflows/) — sequence saved HTTP requests declaratively through the safe OWS profile.
 - [Postman compatibility reference](/reference/postman-compat/) — the full `pm.*` ↔ `rs.*` mapping.

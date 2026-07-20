@@ -25,6 +25,32 @@ export function findRequestInItems(
   return undefined;
 }
 
+/**
+ * Resolve an OWS saved-request binding. OpenCollection does not persist the
+ * renderer's UUIDs, so a Git workspace binds to the deterministic logical
+ * percent-encoded folder/request path. Renderer UUIDs are deliberately not a
+ * fallback: OpenCollection regenerates them on load, so accepting one would
+ * make a Git-native workflow silently non-portable.
+ */
+export function findRequestByReference(
+  items: CollectionItem[],
+  reference: string,
+  parentPath = ''
+): Request | undefined {
+  for (const item of items) {
+    const segment = encodeURIComponent(item.name);
+    const logicalPath = parentPath ? `${parentPath}/${segment}` : segment;
+    if (item.type === 'request' && item.request && logicalPath === reference) {
+      return item.request;
+    }
+    if (item.items) {
+      const found = findRequestByReference(item.items, reference, logicalPath);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
 export interface RequestSummary {
   /** The underlying request's id (stable across renames). */
   id: string;
@@ -34,6 +60,8 @@ export interface RequestSummary {
   method: string;
   /** Underlying request `type` discriminator — `'http' | 'grpc' | 'sse' | 'mcp' | ...`. */
   kind: Request['type'];
+  /** Execution adapter selected by a workflow binding for HTTP-shaped requests. */
+  workflowProtocol: 'http' | 'graphql' | null;
   /** Slash-joined breadcrumb of folder names. */
   path: string;
 }
@@ -50,6 +78,12 @@ export function flattenRequests(items: CollectionItem[]): RequestSummary[] {
           name: item.name,
           method: r.type === 'http' ? (r as HttpRequest).method : r.type.toUpperCase(),
           kind: r.type,
+          workflowProtocol:
+            r.type === 'http' && (r as HttpRequest).body.type === 'graphql'
+              ? 'graphql'
+              : r.type === 'http'
+                ? 'http'
+                : null,
           path: path ? `${path} / ${item.name}` : item.name,
         });
       }

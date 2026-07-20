@@ -75,7 +75,9 @@ function GraphQLRequestBuilder() {
   // builder width (side-by-side leaves the pane narrow); the URL-bar toggle
   // reveals it on demand, matching the gRPC/MCP catalog pattern.
   const [showSchema, setShowSchema] = useState(false);
-  const [graphqlVariables, setGraphqlVariables] = useState('{}');
+  const [graphqlVariables, setGraphqlVariables] = useState(
+    () => currentRequest?.body.graphqlVariables ?? '{}'
+  );
   const [subscriptionLog, setSubscriptionLog] =
     useState<SubscriptionLogState>(emptySubscriptionLog);
   const [isSubscribed, setIsSubscribed] = useState(false);
@@ -273,6 +275,11 @@ function GraphQLRequestBuilder() {
     if (!query.trim()) return;
     const formatted = formatQuery(query);
     updateRequest({ body: { ...httpRequest.body, raw: formatted } });
+  };
+
+  const handleVariablesChange = (value: string) => {
+    setGraphqlVariables(value);
+    updateRequest({ body: { ...httpRequest.body, graphqlVariables: value } });
   };
 
   const handleDownloadSDL = () => {
@@ -489,7 +496,7 @@ function GraphQLRequestBuilder() {
                 variables={graphqlVariables}
                 url={httpRequest.url}
                 onQueryChange={(q) => updateRequest({ body: { ...httpRequest.body, raw: q } })}
-                onVariablesChange={setGraphqlVariables}
+                onVariablesChange={handleVariablesChange}
               />
             )}
 
@@ -501,7 +508,7 @@ function GraphQLRequestBuilder() {
                 >
                   <CodeEditor
                     value={graphqlVariables || '{}'}
-                    onChange={setGraphqlVariables}
+                    onChange={handleVariablesChange}
                     language="json"
                     height="100%"
                     {...(activeTabId ? { path: `tab-${activeTabId}-graphql-variables-full` } : {})}

@@ -171,7 +171,7 @@ restura/
 │   │   ├── ai-lab/               # Electron-only LLM/prompt eval workbench
 │   │   ├── mcp-server/           # Restura-as-MCP-server surface
 │   │   ├── load-testing/         # Collection load/perf runner
-│   │   ├── workflows/            # Request chaining, variable extraction, retry policies
+│   │   ├── workflows/            # OWS documents, typed bindings, and safe execution adapter
 │   │   ├── collections/          # Sidebar, CollectionRunner, importers, exporters
 │   │   ├── environments/         # EnvironmentManager
 │   │   ├── registry/             # Service/schema registry

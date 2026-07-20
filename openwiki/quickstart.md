@@ -13,7 +13,7 @@ This wiki is an in-repo map for humans and future coding agents. It links out to
 | Run the app, type-check, test, or build                             | [Operations — Development setup](operations/index.md#development-setup) |
 | Understand the renderer/backends/shared protocol layer              | [Architecture overview](architecture/overview.md)                       |
 | Work on a protocol feature (HTTP, gRPC, WS, SSE, MCP, AI)           | [Protocol features](features/protocols.md)                              |
-| Work on workflows, Flow, or collection batch runners                | [Workflows](workflows/index.md)                                         |
+| Work on OWS workflows or collection batch runners                   | [Workflows](workflows/index.md)                                         |
 | Work on scripts, variables, environments, secrets, or persistence   | [Scripts, variables & storage](features/scripts-variables-storage.md)   |
 | Import/export, OpenCollection, Postman parity, file/Git collections | [Integrations](integrations/index.md)                                   |
 | CI/CD, Docker self-host, packaging, telemetry, security             | [Operations](operations/index.md)                                       |
@@ -108,7 +108,7 @@ npm run validate                    # static policy -> all tests/workspaces -> p
 
 - [Architecture overview](architecture/overview.md) — renderer, backends, shared protocol layer, Fetcher pattern.
 - [Protocol features](features/protocols.md) — registry, request types, streaming vs execution, per-protocol notes.
-- [Workflows](workflows/index.md) — linear and DAG execution, Flow canvas, validators, collection runner.
+- [Workflows](workflows/index.md) — bounded OWS execution, workspace artifacts, editor, and collection runner.
 - [Scripts, variables & storage](features/scripts-variables-storage.md) — QuickJS sandbox, variable scopes, persistence, secrets.
 - [AI and MCP](features/ai-mcp.md) — AI chat, AI Lab eval workbench, Restura-as-MCP-server, MCP client.
 - [Integrations](integrations/index.md) — import/export, OpenCollection, Postman parity, file/Git collections.

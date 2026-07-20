@@ -50,6 +50,7 @@ rather than discover it experimentally.
 | AI Lab pluggable code sandboxes | ❌ | ❌ | Unsupported: the provider contract and registry are implemented, but no Docker or hosted sandbox provider ships yet |
 | Filesystem-backed collections | ❌ | ✅ |  |
 | Git operations on collections | ❌ | ✅ |  |
+| Workflows | ✅ | ✅ | Safe sequential, guarded, loop, and recovery controls execute with typed data/output, timeout/cancellation, and binding-only HTTP or GraphQL saved-request calls. GraphQL mutations require explicit approval. Other controls, event/process tasks, inline transport configuration, and unsupported transports are rejected before persistence or execution. |
 | Local mock server | ❌ | ✅ | Binds a localhost HTTP listener; no browser TCP |
 | Browser capture desktop bridge | ❌ | ✅ | Loopback receiver for the Restura capture extension; no browser TCP listener |
 | OS keychain (safeStorage) for secrets | ❌ | ✅ | Web has no OS keychain; its default IndexedDB persistence is plaintext |

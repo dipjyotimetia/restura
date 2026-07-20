@@ -35,7 +35,12 @@ export const test = base.extend<ElectronFixtures, ElectronWorkerFixtures>({
   _electronApp: [
     // biome-ignore lint/correctness/noEmptyPattern: legacy type boundary
     async ({}, use) => {
-      const userDataDir = mkdtempSync(path.join(tmpdir(), 'restura-e2e-'));
+      // macOS's os.tmpdir() is /var/folders/...; the desktop file boundary
+      // correctly rejects system-root paths, including that location. Keep
+      // the isolated profile under /tmp on POSIX so file-workspace IPC can be
+      // exercised through the same allowlist as a real user-picked project.
+      const e2eTempRoot = process.platform === 'win32' ? tmpdir() : '/tmp';
+      const userDataDir = mkdtempSync(path.join(e2eTempRoot, 'restura-e2e-'));
       const electronApp = await _electron.launch({
         // `--ignore-certificate-errors` is a test-only Chromium switch (not a
         // source change). It affects ONLY renderer-initiated TLS (the OAuth2
@@ -54,6 +59,9 @@ export const test = base.extend<ElectronFixtures, ElectronWorkerFixtures>({
       });
 
       const page = await electronApp.firstWindow();
+      page.on('pageerror', (error) => {
+        console.error(`[electron-e2e renderer error] ${error.stack ?? error.message}`);
+      });
       await page.waitForLoadState('domcontentloaded');
 
       // Fresh userData ⇒ the welcome onboarding shows. Dismiss it via its own

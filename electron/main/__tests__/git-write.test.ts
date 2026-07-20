@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -51,6 +51,41 @@ describe.skipIf(!gitAvailable)('git write operations (temp repo)', () => {
     expect(log[0]?.subject).toBe('initial commit');
     const status = await gitStatus(dir);
     expect(status.clean).toBe(true);
+  });
+
+  it('reports, stages, and commits OWS workspace artifacts as normal project files', async () => {
+    const workflowDirectory = path.join(dir, 'workflows', 'billing');
+    mkdirSync(workflowDirectory, { recursive: true });
+    const files = [
+      'workflows/billing/workflow.ows.json',
+      'workflows/billing/bindings.restura.json',
+      'workflows/billing/layout.restura.json',
+    ];
+    writeFileSync(
+      path.join(workflowDirectory, 'workflow.ows.json'),
+      '{"document":{"name":"billing"}}\n'
+    );
+    writeFileSync(
+      path.join(workflowDirectory, 'bindings.restura.json'),
+      '{"version":1,"tasks":{}}\n'
+    );
+    writeFileSync(
+      path.join(workflowDirectory, 'layout.restura.json'),
+      '{"version":1,"nodes":{}}\n'
+    );
+
+    // Git's porcelain status intentionally collapses an untracked directory;
+    // once staged, every portable artifact is individually visible.
+    expect((await gitStatus(dir)).files).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: 'workflows/' })])
+    );
+    await gitAddFiles(dir, files);
+    expect((await gitStatus(dir)).files.filter((file) => files.includes(file.path))).toEqual(
+      expect.arrayContaining(files.map((path) => expect.objectContaining({ path, staged: 'A' })))
+    );
+    await expect(gitCommit(dir, 'add OWS workflow artifacts')).resolves.toMatchObject({
+      sha: expect.stringMatching(/^[0-9a-f]{40}$/),
+    });
   });
 
   it('creates and switches branches', async () => {

@@ -74,8 +74,8 @@ import {
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useMockStore } from '@/store/useMockStore';
 import { useRequestStore } from '@/store/useRequestStore';
-import { useWorkflowStore } from '@/store/useWorkflowStore';
-import type { ActivePanel, Collection, CollectionItem, OpenAPIDocument, Workflow } from '@/types';
+import { type OwsStoredWorkflow, useWorkflowStore } from '@/store/useWorkflowStore';
+import type { ActivePanel, Collection, CollectionItem, OpenAPIDocument } from '@/types';
 import {
   duplicateCollection,
   duplicateRequestItem,
@@ -217,8 +217,8 @@ function Sidebar({ activePanel }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [methodFilter, setMethodFilter] = useState<string | null>(null);
   const [visibleHistoryCount, setVisibleHistoryCount] = useState(HISTORY_PAGE_SIZE);
-  const [selectedWorkflow, setSelectedWorkflow] = useState<Workflow | null>(null);
-  const [runningWorkflow, setRunningWorkflow] = useState<Workflow | null>(null);
+  const [selectedWorkflow, setSelectedWorkflow] = useState<OwsStoredWorkflow | null>(null);
+  const [runningWorkflow, setRunningWorkflow] = useState<OwsStoredWorkflow | null>(null);
   const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
   const [directoryPickerMode, setDirectoryPickerMode] = useState<'open' | 'save'>('open');
   const [saveCollectionId, setSaveCollectionId] = useState<string | undefined>();
@@ -392,18 +392,15 @@ function Sidebar({ activePanel }: SidebarProps) {
     startCollectionRename(newCollection.id, newCollection.name);
   }, [collections, createNewCollection, addCollection, startCollectionRename]);
 
-  // None of Postman/Insomnia/OpenCollection/Bruno have a DAG/graph concept,
-  // so a linked workflow isn't "flattened" on export — it's silently
-  // omitted entirely, which reads as "covered everything" when it didn't.
-  // Warn (matching the Bruno lossy-export pattern below) rather than stay
-  // silent.
+  // These collection formats have no workflow companion-artifact convention, so a
+  // linked workflow would otherwise be omitted silently during export.
   const warnAboutOmittedWorkflows = useCallback((collection: Collection) => {
     const linked = useWorkflowStore
       .getState()
       .workflows.filter((w) => w.collectionId === collection.id);
     if (linked.length === 0) return;
     toast.warning(
-      `This export format doesn't support Flow workflows — ${linked.length} workflow${
+      `This export format doesn't support workflows — ${linked.length} workflow${
         linked.length === 1 ? '' : 's'
       } in "${collection.name}" ${linked.length === 1 ? 'was' : 'were'} not included.`
     );
@@ -1490,12 +1487,13 @@ function Sidebar({ activePanel }: SidebarProps) {
             open={!!selectedWorkflow}
             onOpenChange={(open) => !open && setSelectedWorkflow(null)}
             onRun={() => {
-              setRunningWorkflow(selectedWorkflow);
+              setRunningWorkflow(
+                useWorkflowStore.getState().getWorkflowById(selectedWorkflow.id) ?? selectedWorkflow
+              );
               setSelectedWorkflow(null);
             }}
           />
         )}
-
         {/* Workflow Executor Dialog */}
         {runningWorkflow && (
           <WorkflowExecutor
@@ -1504,7 +1502,6 @@ function Sidebar({ activePanel }: SidebarProps) {
             onOpenChange={(open) => !open && setRunningWorkflow(null)}
           />
         )}
-
         {/* File Collection Dialogs */}
         <CollectionDirectoryPicker
           open={directoryPickerOpen}

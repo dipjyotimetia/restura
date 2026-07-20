@@ -31,7 +31,9 @@ function createDefaultGraphQLRequest(): HttpRequest {
     url: '',
     headers: [],
     params: [],
-    body: { type: 'json', raw: '' },
+    // Persist the protocol marker so saved GraphQL requests can be safely
+    // selected by workflows without guessing from arbitrary JSON HTTP bodies.
+    body: { type: 'graphql', raw: '' },
     auth: { type: 'none' },
   };
 }
@@ -88,6 +90,9 @@ function injectGraphQLVariables(request: Request, variables: Record<string, stri
     }
     body = { ...body, raw: nextRaw };
   }
+  if (body.graphqlVariables !== undefined) {
+    body = { ...body, graphqlVariables: inject(body.graphqlVariables) };
+  }
 
   return {
     ...http,
@@ -138,10 +143,55 @@ export const graphqlProtocol: ProtocolModule = {
     }
     const globalSettings = useSettingsStore.getState().settings;
     const variables = ctx.variables ?? {};
+    const http = request as HttpRequest;
+    // Saved GraphQL requests retain the query document as `body.raw` and a
+    // `graphql` body marker. The normal request executor transports JSON, so
+    // shape the standard { query, variables, operationName? } envelope here.
+    const executable =
+      http.body.type === 'graphql'
+        ? {
+            ...http,
+            body: {
+              ...http.body,
+              type: 'json' as const,
+              raw: (() => {
+                const storedVariables = (() => {
+                  if (http.body.graphqlVariables === undefined) return undefined;
+                  try {
+                    const parsed = JSON.parse(http.body.graphqlVariables ?? '{}');
+                    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+                      ? parsed
+                      : {};
+                  } catch {
+                    return {};
+                  }
+                })();
+                try {
+                  const parsed = JSON.parse(http.body.raw ?? '') as Record<string, unknown>;
+                  return typeof parsed.query === 'string'
+                    ? JSON.stringify({
+                        ...parsed,
+                        ...(storedVariables === undefined ? {} : { variables: storedVariables }),
+                      })
+                    : JSON.stringify({
+                        query: http.body.raw ?? '',
+                        variables: storedVariables ?? {},
+                      });
+                } catch {
+                  return JSON.stringify({
+                    query: http.body.raw ?? '',
+                    variables: storedVariables ?? {},
+                  });
+                }
+              })(),
+            },
+          }
+        : http;
     const result = await executeRequest({
-      request,
+      request: executable,
       envVars: { ...variables },
       globalSettings,
+      signal: ctx.signal,
       resolveVariables: (text) => defaultResolveVariables(text, variables),
     });
     if (ctx.onScriptResult && result.scriptResult) {

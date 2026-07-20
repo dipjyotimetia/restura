@@ -3,6 +3,24 @@
 // compile-time error in both the renderer and Electron main projects.
 
 import type {
+  ElectronAiAPI,
+  ElectronAiLabAPI,
+  ElectronBugReportAPI,
+  ElectronCaptureAPI,
+  ElectronCollectionsAPI,
+  ElectronGitAPI,
+  ElectronKeychainAPI,
+  ElectronLogAPI,
+  ElectronMockAPI,
+  ElectronNotificationAPI,
+  ElectronOwsWorkspaceAPI,
+  ElectronSecretsAPI,
+  ElectronSecurityAPI,
+  ElectronStoreAPI,
+  ElectronTelemetryAPI,
+  ElectronVaultAPI,
+} from './api/integrations';
+import type {
   ElectronAppAPI,
   ElectronDialogAPI,
   ElectronFSAPI,
@@ -20,23 +38,6 @@ import type {
   ElectronSseAPI,
   ElectronWebSocketAPI,
 } from './api/protocols';
-import type {
-  ElectronAiAPI,
-  ElectronAiLabAPI,
-  ElectronBugReportAPI,
-  ElectronCaptureAPI,
-  ElectronCollectionsAPI,
-  ElectronGitAPI,
-  ElectronKeychainAPI,
-  ElectronLogAPI,
-  ElectronMockAPI,
-  ElectronNotificationAPI,
-  ElectronSecretsAPI,
-  ElectronSecurityAPI,
-  ElectronStoreAPI,
-  ElectronTelemetryAPI,
-  ElectronVaultAPI,
-} from './api/integrations';
 
 export interface ElectronAPI {
   platform: NodeJS.Platform;
@@ -67,6 +68,7 @@ export interface ElectronAPI {
   log: ElectronLogAPI;
   keychain: ElectronKeychainAPI;
   collections: ElectronCollectionsAPI;
+  owsWorkspace: ElectronOwsWorkspaceAPI;
   bugReport: ElectronBugReportAPI;
   telemetry: ElectronTelemetryAPI;
   security: ElectronSecurityAPI;

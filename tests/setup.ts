@@ -22,7 +22,6 @@ vi.mock('@/lib/shared/dexie-storage', () => {
       settings: f,
       cookies: f,
       workflows: f,
-      workflowExecutions: f,
       fileCollections: f,
       requestTabs: f,
       websocketConnections: f,

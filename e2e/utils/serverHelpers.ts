@@ -106,7 +106,9 @@ export function applyCors(res: ServerResponse, opts: CorsOptions = {}): void {
 }
 
 export function handlePreflight(req: IncomingMessage, res: ServerResponse): boolean {
-  if (req.method !== 'OPTIONS') return false;
+  // An OPTIONS request is a valid API operation. It is a CORS preflight only
+  // when the browser supplies the request-method negotiation header.
+  if (req.method !== 'OPTIONS' || !req.headers['access-control-request-method']) return false;
   res.writeHead(204);
   res.end();
   return true;

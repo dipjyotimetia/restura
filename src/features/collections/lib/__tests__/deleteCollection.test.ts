@@ -4,7 +4,7 @@ import { useCollectionStore } from '@/store/useCollectionStore';
 import { useFileCollectionStore } from '@/store/useFileCollectionStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useWorkflowStore } from '@/store/useWorkflowStore';
-import type { Collection, HttpRequest, RequestTab, Workflow } from '@/types';
+import type { Collection, HttpRequest, RequestTab } from '@/types';
 import { deleteCollectionWithCleanup } from '../deleteCollection';
 
 const request: HttpRequest = {
@@ -44,14 +44,17 @@ describe('deleteCollectionWithCleanup', () => {
       workflows: [
         {
           id: 'workflow',
-          name: 'Workflow',
           collectionId: 'collection',
-          requests: [],
+          document: {
+            document: { dsl: '1.0.3', namespace: 'restura', name: 'workflow', version: '1.0.0' },
+            do: [{ initialize: { wait: { milliseconds: 0 } } }],
+          },
+          bindings: { version: 1, tasks: {} },
+          layout: { version: 1, nodes: {} },
           createdAt: 1,
           updatedAt: 1,
-        } as Workflow,
-      ],
-      executions: [],
+        },
+      ] as never,
     });
     useCollectionRunStore.setState({
       runs: [
