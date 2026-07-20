@@ -1,3 +1,4 @@
+import type { MockHttpServerHandle } from '../../e2e/mocks/httpServer';
 import { launch } from '../../echo-local/launcher';
 import { PORTS } from '../../echo-local/ports';
 import { test as electronTest } from './electronApp';
@@ -18,14 +19,16 @@ export interface EchoLocalStack {
   ports: typeof PORTS;
   /** Plain HTTP echo + the full auth surface (basic/bearer/apikey/awsv4/…). */
   httpUrl: string;
+  /** Request recorder for asserting the wire payload sent to Echo Local. */
+  http: MockHttpServerHandle;
 }
 
 export const test = electronTest.extend<NonNullable<unknown>, { echo: EchoLocalStack }>({
   echo: [
-    // biome-ignore lint/correctness/noEmptyPattern: legacy type boundary
     async ({}, use) => {
       const result = await launch({ only: new Set(['http']), tls: false });
-      await use({ ports: PORTS, httpUrl: `http://${HOST}:${PORTS.http}` });
+      if (!result.http) throw new Error('Echo Local HTTP service did not start');
+      await use({ ports: PORTS, httpUrl: `http://${HOST}:${PORTS.http}`, http: result.http });
       await result.shutdown();
     },
     { scope: 'worker' },

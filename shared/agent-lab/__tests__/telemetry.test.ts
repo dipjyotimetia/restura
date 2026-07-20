@@ -99,4 +99,75 @@ describe('OpenTelemetry export', () => {
       ])
     );
   });
+
+  it('handles optional metadata and every exportable event category', () => {
+    const payload = traceToOtlp({
+      id: 'trace-optional',
+      suiteId: 'suite',
+      taskId: 'task',
+      trial: 1,
+      agentId: 'agent',
+      startedAt: 10,
+      events: [
+        {
+          id: 'model-without-usage',
+          traceId: 'trace-optional',
+          sequence: 0,
+          timestamp: 12,
+          type: 'model.completed',
+          providerId: 'openai.responses',
+          model: 'gpt',
+          output: [],
+          durationMs: 2,
+          costUSD: 0.01,
+        },
+        {
+          id: 'failed-model',
+          traceId: 'trace-optional',
+          sequence: 1,
+          timestamp: 14,
+          type: 'model.failed',
+          providerId: 'openai.responses',
+          model: 'gpt',
+          error: 'kept local',
+          durationMs: 2,
+        },
+        {
+          id: 'completed-tool',
+          traceId: 'trace-optional',
+          sequence: 2,
+          timestamp: 16,
+          type: 'tool.completed',
+          toolCallId: 'call',
+          toolName: 'request',
+          output: [],
+          durationMs: 2,
+        },
+        {
+          id: 'completed-run',
+          traceId: 'trace-optional',
+          sequence: 3,
+          timestamp: 18,
+          type: 'run.completed',
+          status: 'passed',
+        },
+        {
+          id: 'unexported-event',
+          traceId: 'trace-optional',
+          sequence: 4,
+          timestamp: 20,
+          type: 'agent.started',
+        } as never,
+      ],
+    });
+    const spans = payload.resourceSpans[0]?.scopeSpans[0]?.spans ?? [];
+
+    expect(spans.map((span) => span.name)).toEqual([
+      'agent agent',
+      'model gpt',
+      'model gpt',
+      'tool request',
+    ]);
+    expect(spans[0]?.endTimeUnixNano).toBe(spans[0]?.startTimeUnixNano);
+  });
 });

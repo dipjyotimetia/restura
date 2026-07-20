@@ -282,6 +282,30 @@ describe('AgentWorkbench runs', () => {
     });
   });
 
+  it('keeps configured telemetry local when the desktop bridge is unavailable', async () => {
+    const originalElectron = window.electron;
+    window.electron = undefined;
+    useAiLabStore.setState({
+      agentTelemetry: {
+        enabled: true,
+        target: 'otlp',
+        endpoint: 'https://collector.example/v1/traces',
+        environment: 'test',
+        sampleRate: 1,
+        auth: { mode: 'none' },
+      },
+    });
+    runDesktopAgentSuite.mockResolvedValue(REPORT);
+
+    try {
+      expect(startAgentRun(SUITE, {})).toBe(true);
+      await waitFor(() => expect(save).toHaveBeenCalledOnce());
+      expect(useAgentRunLiveStore.getState().telemetryStatus).toBeNull();
+    } finally {
+      window.electron = originalElectron;
+    }
+  });
+
   it('runs a fixture bundle through the desktop bundle runtime', async () => {
     runDesktopAgentBundle.mockResolvedValue({
       report: REPORT,
