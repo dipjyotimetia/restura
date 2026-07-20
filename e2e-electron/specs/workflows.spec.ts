@@ -2,6 +2,8 @@ import { mkdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   fillFirstMonacoEditor,
+  fillMonacoEditor,
+  getMonacoEditorValue,
   selectHttpMethod,
   setUrl,
   switchMode,
@@ -99,6 +101,54 @@ async function createCollectionAndSavedGraphqlRequest(
 }
 
 test.describe('Desktop workflows', () => {
+  test('uses Monaco for both advanced artifacts and blocks an invalid draft before it runs', async ({
+    app: page,
+  }) => {
+    await page.getByRole('tab', { name: 'Collections', exact: true }).click();
+    await page.getByRole('button', { name: 'New collection', exact: true }).click();
+    await page.keyboard.press('Enter');
+    await page.getByRole('tab', { name: 'Workflows', exact: true }).click();
+    await page
+      .getByRole('tabpanel', { name: 'Workflows' })
+      .getByTitle('New workflow')
+      .first()
+      .click();
+    const createDialog = page.getByRole('dialog', { name: 'Create workflow' });
+    await createDialog.getByPlaceholder('Workflow name').fill('Monaco diagnostics');
+    await createDialog.getByRole('button', { name: 'Create' }).click();
+
+    const editor = page.getByRole('dialog', { name: 'Workflow: monaco-diagnostics' });
+    await editor.getByRole('tab', { name: 'Workflow JSON' }).click();
+    const workflowJsonEditor = editor.getByRole('code').first();
+    const bindingsJsonEditor = editor.getByRole('code').last();
+    await expect(workflowJsonEditor).toBeVisible();
+    await expect(editor.getByRole('region', { name: 'Workflow JSON problems' })).toContainText(
+      'Problems: none'
+    );
+    await editor.getByRole('tab', { name: 'Bindings' }).click();
+    await expect(bindingsJsonEditor).toBeVisible();
+    await expect(
+      editor.getByRole('region', { name: 'Workflow bindings JSON problems' })
+    ).toBeVisible();
+    await editor.getByRole('tab', { name: 'Workflow JSON' }).click();
+
+    await fillMonacoEditor(
+      page,
+      workflowJsonEditor,
+      JSON.stringify({
+        ...WORKFLOW_DOCUMENT,
+        document: { ...WORKFLOW_DOCUMENT.document, name: 'monaco-diagnostics' },
+        do: [{ unsafe: { fork: { branches: [] } } }],
+      })
+    );
+    await expect(editor.getByRole('region', { name: 'Workflow JSON problems' })).toContainText(
+      "OWS 'fork' tasks are not implemented"
+    );
+    await expect(editor.getByRole('button', { name: 'Save before running' })).toBeDisabled();
+    await editor.getByRole('button', { name: 'Close' }).first().click();
+    await page.getByRole('button', { name: 'Discard changes' }).click();
+  });
+
   test('adds and executes a saved GraphQL query from the workflow graph', async ({
     app: page,
     servers,
@@ -120,11 +170,13 @@ test.describe('Desktop workflows', () => {
     await editor.getByRole('button', { name: requestName }).click();
     await editor.getByRole('button', { name: 'Validate & save' }).click();
     await editor.getByRole('tab', { name: 'Workflow JSON' }).click();
-    await expect(editor.getByRole('textbox', { name: 'Workflow JSON' })).toContainText('POST');
+    await expect(
+      getMonacoEditorValue(page, editor.locator('.monaco-editor:visible'))
+    ).resolves.toContain('POST');
     await editor.getByRole('tab', { name: 'Bindings' }).click();
-    await expect(editor.getByRole('textbox', { name: 'Workflow bindings JSON' })).toContainText(
-      'graphql'
-    );
+    await expect(
+      getMonacoEditorValue(page, editor.locator('.monaco-editor:visible'))
+    ).resolves.toContain('graphql');
 
     await editor.getByRole('button', { name: 'Run' }).click();
     const runDialog = page.getByRole('dialog', { name: /graphql-query/ });
@@ -299,7 +351,9 @@ test.describe('Desktop workflows', () => {
       ],
     };
     await editor.getByRole('tab', { name: 'Bindings' }).click();
-    await editor.getByRole('textbox', { name: 'Workflow bindings JSON' }).fill(
+    await fillMonacoEditor(
+      page,
+      editor.locator('.monaco-editor:visible'),
       JSON.stringify({
         version: 1,
         tasks: {
@@ -308,9 +362,11 @@ test.describe('Desktop workflows', () => {
       })
     );
     await editor.getByRole('tab', { name: 'Workflow JSON' }).click();
-    await editor
-      .getByRole('textbox', { name: 'Workflow JSON' })
-      .fill(JSON.stringify(allControlsDocument));
+    await fillMonacoEditor(
+      page,
+      editor.locator('.monaco-editor:visible'),
+      JSON.stringify(allControlsDocument)
+    );
     await editor.getByRole('button', { name: 'Validate & save' }).click();
     await expect(editor.getByText('Saved as a validated workflow.')).toBeVisible();
 
@@ -357,16 +413,15 @@ test.describe('Desktop workflows', () => {
     await expect(editor.getByText('Saved as a validated workflow.')).toBeVisible();
 
     await editor.getByRole('tab', { name: 'Workflow JSON' }).click();
-    await expect(editor.getByRole('textbox', { name: 'Workflow JSON' })).toContainText('set-1');
-    await expect(editor.getByRole('textbox', { name: 'Workflow JSON' })).toContainText(
-      'sequence-1'
-    );
-    await expect(editor.getByRole('textbox', { name: 'Workflow JSON' })).toContainText('each-1');
-    await expect(editor.getByRole('textbox', { name: 'Workflow JSON' })).toContainText('request-1');
+    const workflowJson = await getMonacoEditorValue(page, editor.locator('.monaco-editor:visible'));
+    expect(workflowJson).toContain('set-1');
+    expect(workflowJson).toContain('sequence-1');
+    expect(workflowJson).toContain('each-1');
+    expect(workflowJson).toContain('request-1');
     await editor.getByRole('tab', { name: 'Bindings' }).click();
-    await expect(editor.getByRole('textbox', { name: 'Workflow bindings JSON' })).toContainText(
-      'Workflow%20GET'
-    );
+    await expect(
+      getMonacoEditorValue(page, editor.locator('.monaco-editor:visible'))
+    ).resolves.toContain('Workflow%20GET');
 
     await editor.getByRole('button', { name: 'Run' }).click();
     const runDialog = page.getByRole('dialog', { name: /graph-blocks/ });
@@ -396,7 +451,9 @@ test.describe('Desktop workflows', () => {
       const workflowName = `method-${method.toLowerCase()}`;
       const editor = page.getByRole('dialog', { name: `Workflow: ${workflowName}` });
       await editor.getByRole('tab', { name: 'Workflow JSON' }).click();
-      await editor.getByRole('textbox', { name: 'Workflow JSON' }).fill(
+      await fillMonacoEditor(
+        page,
+        editor.locator('.monaco-editor:visible'),
         JSON.stringify({
           document: { ...WORKFLOW_DOCUMENT.document, name: workflowName },
           do: [
@@ -410,7 +467,9 @@ test.describe('Desktop workflows', () => {
         })
       );
       await editor.getByRole('tab', { name: 'Bindings' }).click();
-      await editor.getByRole('textbox', { name: 'Workflow bindings JSON' }).fill(
+      await fillMonacoEditor(
+        page,
+        editor.locator('.monaco-editor:visible'),
         JSON.stringify({
           version: 1,
           tasks: {
@@ -458,10 +517,11 @@ test.describe('Desktop workflows', () => {
 
     const editor = page.getByRole('dialog', { name: 'Workflow: unsafe-control' });
     await editor.getByRole('tab', { name: 'Workflow JSON' }).click();
-    const documentInput = editor.getByRole('textbox', { name: 'Workflow JSON' });
     const unsupportedControls = ['fork', 'emit', 'listen', 'raise', 'run', 'switch'];
     for (const control of unsupportedControls) {
-      await documentInput.fill(
+      await fillMonacoEditor(
+        page,
+        editor.locator('.monaco-editor:visible'),
         JSON.stringify({
           ...WORKFLOW_DOCUMENT,
           document: { ...WORKFLOW_DOCUMENT.document, name: 'unsafe-control' },
@@ -475,7 +535,9 @@ test.describe('Desktop workflows', () => {
     }
 
     for (const transport of ['grpc', 'openapi', 'asyncapi', 'mcp', 'a2a']) {
-      await documentInput.fill(
+      await fillMonacoEditor(
+        page,
+        editor.locator('.monaco-editor:visible'),
         JSON.stringify({
           ...WORKFLOW_DOCUMENT,
           document: { ...WORKFLOW_DOCUMENT.document, name: 'unsafe-control' },
@@ -495,7 +557,11 @@ test.describe('Desktop workflows', () => {
       { ...WORKFLOW_DOCUMENT, do: [{ unsafe: { for: { each: 'item', in: 'items' }, do: [] } }] },
       { ...WORKFLOW_DOCUMENT, do: [{ unsafe: { try: [], catch: { retry: { count: 1 } } } }] },
     ]) {
-      await documentInput.fill(JSON.stringify(invalidDocument));
+      await fillMonacoEditor(
+        page,
+        editor.locator('.monaco-editor:visible'),
+        JSON.stringify(invalidDocument)
+      );
       await editor.getByRole('button', { name: 'Validate & save' }).click();
       await expect(editor.getByRole('alert')).toBeVisible();
     }
@@ -517,8 +583,6 @@ test.describe('Desktop workflows', () => {
 
     const editor = page.getByRole('dialog', { name: 'Workflow: cancellation-boundary' });
     await editor.getByRole('tab', { name: 'Workflow JSON' }).click();
-    const documentInput = editor.getByRole('textbox', { name: 'Workflow JSON' });
-    const bindingsInput = editor.getByRole('textbox', { name: 'Workflow bindings JSON' });
     const boundCall = {
       callSavedRequest: {
         call: 'http',
@@ -536,7 +600,11 @@ test.describe('Desktop workflows', () => {
       },
     };
     await editor.getByRole('tab', { name: 'Bindings' }).click();
-    await bindingsInput.fill(JSON.stringify(bindings));
+    await fillMonacoEditor(
+      page,
+      editor.locator('.monaco-editor:visible'),
+      JSON.stringify(bindings)
+    );
     await editor.getByRole('tab', { name: 'Workflow JSON' }).click();
 
     // Both timeout levels must terminate before the later HTTP task is reached.
@@ -555,7 +623,11 @@ test.describe('Desktop workflows', () => {
         ],
       },
     ]) {
-      await documentInput.fill(JSON.stringify(timeoutDocument));
+      await fillMonacoEditor(
+        page,
+        editor.locator('.monaco-editor:visible'),
+        JSON.stringify(timeoutDocument)
+      );
       if (hasUnsavedChange) {
         await expect(editor.getByRole('button', { name: 'Save before running' })).toBeDisabled();
         hasUnsavedChange = false;
@@ -574,7 +646,9 @@ test.describe('Desktop workflows', () => {
     }
 
     // Closing/Stop must abort a wait and prevent the following bound call.
-    await documentInput.fill(
+    await fillMonacoEditor(
+      page,
+      editor.locator('.monaco-editor:visible'),
       JSON.stringify({
         document: { ...WORKFLOW_DOCUMENT.document, name: 'cancellation-boundary' },
         do: [{ pause: { wait: { milliseconds: 500 } } }, boundCall],

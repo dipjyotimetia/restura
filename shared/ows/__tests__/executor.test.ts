@@ -227,7 +227,7 @@ describe('OWS executor', () => {
         variables: {},
         dispatcher,
       })
-    ).rejects.toThrow('OWS binding task path does not exist: /do/99/removed');
+    ).rejects.toThrow('Workflow binding task path /do/99/removed does not exist');
     expect(dispatcher.dispatch).not.toHaveBeenCalled();
   });
 

@@ -1,6 +1,5 @@
 'use client';
 
-import '@/lib/shared/monaco-setup';
 import type { OnMount } from '@monaco-editor/react';
 import Editor from '@monaco-editor/react';
 import { Check, Copy } from 'lucide-react';
@@ -10,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { registerGraphQLLanguage } from '@/features/graphql/lib/monacoGraphql';
+import { jsonDefaults } from '@/lib/shared/monaco-setup';
 import { findVariableTokens } from '@/lib/shared/variableTokens';
 
 interface CodeEditorProps {
@@ -20,7 +20,15 @@ interface CodeEditorProps {
   height?: string | number;
   minimap?: boolean;
   showCopyButton?: boolean;
-  onEditorMount?: (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => void;
+  onEditorMount?: (
+    editor: Monaco.editor.IStandaloneCodeEditor,
+    monaco: typeof Monaco,
+    defaults: typeof jsonDefaults
+  ) => void;
+  /** Accessible name for Monaco's input textarea. */
+  ariaLabel?: string;
+  /** Format JSON when first mounted. Disable for draft editors to retain undo history exactly. */
+  formatOnMount?: boolean;
   /**
    * Optional Monaco model path. When provided, @monaco-editor/react keeps a
    * dedicated ITextModel per path so cursor, selection, fold state and the
@@ -46,6 +54,8 @@ export default function CodeEditor({
   minimap = false,
   showCopyButton = true,
   onEditorMount,
+  ariaLabel,
+  formatOnMount = true,
   path,
   getVariableStatus,
 }: CodeEditorProps) {
@@ -105,7 +115,7 @@ export default function CodeEditor({
   const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     monacoRef.current = monaco;
-    onEditorMount?.(editor, monaco);
+    onEditorMount?.(editor, monaco, jsonDefaults);
 
     // Register GraphQL language if needed
     if (language === 'graphql') {
@@ -126,7 +136,7 @@ export default function CodeEditor({
     });
 
     // Auto-format on mount if JSON
-    if (language === 'json' && value) {
+    if (formatOnMount && language === 'json' && value) {
       try {
         editor.getAction('editor.action.formatDocument')?.run();
       } catch {
@@ -232,6 +242,7 @@ export default function CodeEditor({
           lineNumbers: 'on',
           wordWrap: 'on',
           automaticLayout: true,
+          ...(ariaLabel ? { ariaLabel } : {}),
         }}
       />
     </div>

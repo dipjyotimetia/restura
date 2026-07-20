@@ -10,7 +10,12 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
-import { isOwsBindings, type OwsBindings, type OwsLayout } from '../bindings';
+import {
+  type OwsBindings,
+  type OwsLayout,
+  validateOwsArtifactBindings,
+  validateOwsBindings,
+} from '../bindings';
 import { type OwsWorkflow, validateOwsProfile } from '../workflow-profile';
 import {
   normalizeOwsWorkflowWithSdk,
@@ -96,22 +101,6 @@ function collectTaskPaths(list: unknown, path: string, output: Set<string>): voi
   }
 }
 
-function collectCallPaths(list: unknown, path: string, output: Set<string>): void {
-  if (!Array.isArray(list)) return;
-  for (const [index, entry] of list.entries()) {
-    if (!isRecord(entry)) continue;
-    const entries = Object.entries(entry);
-    if (entries.length !== 1) continue;
-    const [name, task] = entries[0]!;
-    if (!isRecord(task)) continue;
-    const taskPath = `${path}/${index}/${name}`;
-    if (task.call === 'http') output.add(taskPath);
-    collectCallPaths(task.do, `${taskPath}/do`, output);
-    collectCallPaths(task.try, `${taskPath}/try`, output);
-    if (isRecord(task.catch)) collectCallPaths(task.catch.do, `${taskPath}/catch/do`, output);
-  }
-}
-
 function assertFinitePosition(
   value: unknown,
   label: string
@@ -129,8 +118,9 @@ function assertFinitePosition(
 function validateArtifact(workflow: OwsWorkflow, bindings: OwsBindings, layout: OwsLayout): void {
   const profile = validateOwsProfile(workflow);
   if (!profile.ok) throw new Error(profile.issues.map((issue) => issue.message).join(' '));
-  if (!isOwsBindings(bindings) || !isRecord(bindings.tasks)) {
-    throw new Error('Invalid OWS bindings artifact.');
+  const bindingValidation = validateOwsArtifactBindings(workflow, bindings);
+  if (!bindingValidation.ok) {
+    throw new Error(bindingValidation.issues.map((issue) => issue.message).join(' '));
   }
   if (!isOwsLayout(layout)) {
     throw new Error('Invalid OWS layout artifact.');
@@ -155,16 +145,6 @@ function validateArtifact(workflow: OwsWorkflow, bindings: OwsBindings, layout: 
 
   const paths = new Set<string>();
   collectTaskPaths(workflow.do, '/do', paths);
-  const callPaths = new Set<string>();
-  collectCallPaths(workflow.do, '/do', callPaths);
-  for (const taskPath of callPaths) {
-    if (!bindings.tasks[taskPath]) {
-      throw new Error(`OWS call task is missing a binding: ${taskPath}`);
-    }
-  }
-  for (const taskPath of Object.keys(bindings.tasks)) {
-    if (!paths.has(taskPath)) throw new Error(`OWS binding task path does not exist: ${taskPath}`);
-  }
   for (const [taskPath, position] of Object.entries(layout.nodes)) {
     if (!paths.has(taskPath)) throw new Error(`OWS layout task path does not exist: ${taskPath}`);
     assertFinitePosition(position, taskPath);
@@ -294,10 +274,10 @@ async function validateStagedArtifact(directory: string): Promise<void> {
   const workflow = parseOwsWorkflowJsonWithSdk(source);
   const bindings = JSON.parse(bindingsSource) as unknown;
   const layout = JSON.parse(layoutSource) as unknown;
-  if (!isOwsBindings(bindings) || !isOwsLayout(layout)) {
+  if (!validateOwsBindings(bindings).ok || !isOwsLayout(layout)) {
     throw new Error('Invalid staged OWS workspace artifacts.');
   }
-  validateArtifact(workflow, bindings, layout);
+  validateArtifact(workflow, bindings as OwsBindings, layout);
 }
 
 async function withSaveLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
@@ -402,11 +382,11 @@ export async function loadOwsWorkflowArtifact(
   const bindings = JSON.parse(bindingsSource) as unknown;
   const layout =
     layoutSource === undefined ? DEFAULT_LAYOUT : (JSON.parse(layoutSource) as unknown);
-  if (!isOwsBindings(bindings) || !isOwsLayout(layout)) {
+  if (!validateOwsBindings(bindings).ok || !isOwsLayout(layout)) {
     throw new Error('Invalid OWS workspace artifacts.');
   }
-  validateArtifact(workflow, bindings, layout);
-  return { workflow, bindings, layout };
+  validateArtifact(workflow, bindings as OwsBindings, layout);
+  return { workflow, bindings: bindings as OwsBindings, layout };
 }
 
 /** Remove one complete validated workflow artifact directory, never a path outside the workspace. */

@@ -1,4 +1,4 @@
-import { isOwsBindings, type OwsBindings, type OwsTaskBinding } from './bindings';
+import { type OwsBindings, type OwsTaskBinding, validateOwsArtifactBindings } from './bindings';
 import { evaluateOwsCondition, readOwsPath, resolveOwsValue } from './runtime-expression';
 import { normalizeOwsWorkflow, type OwsWorkflow, validateOwsProfile } from './workflow-profile';
 
@@ -169,24 +169,6 @@ async function withinScope<T>(
   }
 }
 
-function collectCallPaths(list: unknown, path: string, output: string[]): void {
-  if (!Array.isArray(list)) return;
-  for (const [index, entry] of list.entries()) {
-    if (!isRecord(entry) || Object.keys(entry).length !== 1) continue;
-    const first = Object.entries(entry)[0];
-    if (!first) continue;
-    const [name, task] = first;
-    if (!isRecord(task)) continue;
-    const taskPath = `${path}/${index}/${name}`;
-    if ('call' in task) output.push(taskPath);
-    if ('do' in task) collectCallPaths(task.do, `${taskPath}/do`, output);
-    if ('try' in task) collectCallPaths(task.try, `${taskPath}/try`, output);
-    if (isRecord(task.catch) && 'do' in task.catch) {
-      collectCallPaths(task.catch.do, `${taskPath}/catch/do`, output);
-    }
-  }
-}
-
 /** Executes only the profile controls the local executor can enforce. */
 export async function executeOwsWorkflow(options: OwsExecutorOptions): Promise<OwsExecutionResult> {
   const workflow = normalizeOwsWorkflow(options.workflow);
@@ -196,21 +178,9 @@ export async function executeOwsWorkflow(options: OwsExecutorOptions): Promise<O
       `OWS workflow is outside Restura's executable profile: ${profile.issues[0]?.message}`
     );
   }
-  if (!isOwsBindings(options.bindings)) {
-    throw new Error('OWS bindings must contain only approved typed resource references.');
-  }
-  const callPaths: string[] = [];
-  collectCallPaths(workflow.do, '/do', callPaths);
-  const callPathSet = new Set(callPaths);
-  for (const taskPath of callPaths) {
-    if (!options.bindings.tasks[taskPath]) {
-      throw new Error(`OWS call ${taskPath} is missing an approved binding.`);
-    }
-  }
-  for (const taskPath of Object.keys(options.bindings.tasks)) {
-    if (!callPathSet.has(taskPath)) {
-      throw new Error(`OWS binding task path does not exist: ${taskPath}`);
-    }
+  const bindingValidation = validateOwsArtifactBindings(workflow, options.bindings);
+  if (!bindingValidation.ok) {
+    throw new Error(bindingValidation.issues[0]?.message ?? 'Invalid OWS bindings artifact.');
   }
   if (
     options.timeoutMs !== undefined &&

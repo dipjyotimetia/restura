@@ -23,7 +23,7 @@
    (see the inline notes), so import/order's alphabetical grouping is wrong. */
 import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
 import 'monaco-editor/esm/vs/editor/editor.all.js';
-import 'monaco-editor/esm/vs/language/json/monaco.contribution';
+import { jsonDefaults } from 'monaco-editor/esm/vs/language/json/monaco.contribution';
 import 'monaco-editor/esm/vs/language/typescript/monaco.contribution';
 // The typescript *language-service* contribution above wires the worker +
 // javascriptDefaults and an onLanguage('javascript') hook, but it does NOT
@@ -41,6 +41,8 @@ import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
 import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
 import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
 import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
+
+export { jsonDefaults };
 
 self.MonacoEnvironment = {
   getWorker(_workerId, label) {

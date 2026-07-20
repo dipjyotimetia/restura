@@ -1,4 +1,4 @@
-import type { Page, Locator } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 export const modes = {
   http: 'HTTP request',
@@ -66,6 +66,11 @@ export async function selectBodyType(page: Page, type: string): Promise<void> {
 
 export async function fillFirstMonacoEditor(page: Page, text: string): Promise<void> {
   const editor = page.locator('.monaco-editor').first();
+  await fillMonacoEditor(page, editor, text);
+}
+
+/** Update a specific Monaco model without treating its ARIA editor div as a textarea. */
+export async function fillMonacoEditor(page: Page, editor: Locator, text: string): Promise<void> {
   await editor.waitFor({ state: 'visible' });
   const changedViaReact = await editor.evaluate((node, value) => {
     const reactFiberKey = Object.keys(node.parentElement ?? node).find((key) =>
@@ -108,11 +113,7 @@ export async function fillFirstMonacoEditor(page: Page, text: string): Promise<v
         }
       ).monaco;
       const models = monaco?.editor?.getModels?.() ?? [];
-      const model =
-        (uri ? models.find((m) => m.uri?.toString() === uri) : undefined) ??
-        models.find((m) => m.uri?.toString().includes('graphql-query')) ??
-        models.find((m) => m.getLanguageId?.() !== 'json') ??
-        models.at(-1);
+      const model = uri ? models.find((m) => m.uri?.toString() === uri) : undefined;
       if (!model) return false;
       model.setValue(value);
       return true;
@@ -120,11 +121,51 @@ export async function fillFirstMonacoEditor(page: Page, text: string): Promise<v
     { value: text, uri }
   );
   if (!updated) {
-    await page
-      .locator('.monaco-editor .view-lines')
-      .first()
-      .click({ force: true, position: { x: 10, y: 10 } });
+    await editor.locator('.view-lines').click({ force: true, position: { x: 10, y: 10 } });
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
     await page.keyboard.insertText(text);
   }
+}
+
+/** Read the model belonging to this exact Monaco editor, avoiding virtualized line DOM. */
+export async function getMonacoEditorValue(page: Page, editor: Locator): Promise<string> {
+  const uri = await editor.evaluate((node) => {
+    const editorNode = node.closest('.monaco-editor') ?? node;
+    return editorNode.getAttribute('data-uri');
+  });
+  if (!uri) throw new Error('The Monaco editor did not expose a model URI.');
+  const reactValue = await editor.evaluate((node, modelUri) => {
+    const reactFiberKey = Object.keys(node.parentElement ?? node).find((key) =>
+      key.startsWith('__reactFiber$')
+    );
+    let fiber = reactFiberKey
+      ? (node.parentElement ?? node)[reactFiberKey as keyof Element]
+      : undefined;
+    while (fiber) {
+      const props = (fiber as { memoizedProps?: { path?: unknown; value?: unknown } })
+        .memoizedProps;
+      if (props?.path === modelUri && typeof props.value === 'string') return props.value;
+      fiber = (fiber as { return?: unknown }).return;
+    }
+    return null;
+  }, uri);
+  if (reactValue !== null) return reactValue;
+  const value = await page.evaluate((modelUri) => {
+    const monaco = (
+      window as unknown as {
+        monaco?: {
+          editor?: {
+            getModels?: () => Array<{
+              uri?: { toString: () => string };
+              getValue: () => string;
+            }>;
+          };
+        };
+      }
+    ).monaco;
+    const model = monaco?.editor?.getModels?.().find((item) => item.uri?.toString() === modelUri);
+    return model?.getValue() ?? null;
+  }, uri);
+  if (value === null) throw new Error(`No Monaco model found for ${uri}.`);
+  return value;
 }
