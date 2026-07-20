@@ -22,6 +22,13 @@ export function AgentTelemetrySettings() {
   const [secret, setSecret] = useState('');
   const [message, setMessage] = useState('Disabled by default; content is never exported.');
 
+  const changeTarget = (nextTarget: 'langfuse' | 'otlp') => {
+    setTarget(nextTarget);
+    setEndpoint('');
+    setPublicKey('');
+    setSecret('');
+  };
+
   const save = async () => {
     if (!window.electron) return;
     const rate = Number(sampleRate);
@@ -99,7 +106,7 @@ export function AgentTelemetrySettings() {
           Target
           <select
             value={target}
-            onChange={(event) => setTarget(event.target.value as 'langfuse' | 'otlp')}
+            onChange={(event) => changeTarget(event.target.value as 'langfuse' | 'otlp')}
             className="mt-1 w-full rounded border border-sp-line bg-sp-bg p-1.5 text-sp-11 text-sp-text"
           >
             <option value="langfuse">Langfuse</option>

@@ -101,6 +101,8 @@ jobs:
         # Same-repo only: forked PRs get a read-only GITHUB_TOKEN (the job's
         # `pull-requests: write` is silently ignored), so createComment would 403
         # and fail an otherwise-green run. External PRs simply skip the comment.
+        # GitHub comment API availability must not turn a completed validation run red.
+        continue-on-error: true
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
         uses: actions/github-script@v9
         with:
@@ -170,6 +172,8 @@ jobs:
       - name: Vitest Coverage Report
         # Same-repo only — posts a PR comment, so it 403s on forked PRs (read-only
         # token). The coverage artifact upload below still runs for every PR.
+        # A transient GitHub API failure must not hide the actual validation result.
+        continue-on-error: true
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
         uses: davelosert/vitest-coverage-report-action@v2.12.0
         with:

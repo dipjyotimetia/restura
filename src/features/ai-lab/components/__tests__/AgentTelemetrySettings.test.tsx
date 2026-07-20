@@ -45,6 +45,15 @@ describe('AgentTelemetrySettings', () => {
     expect(useAiLabStore.getState().agentTelemetry).toBeUndefined();
   });
 
+  it('clears target-specific endpoint and credentials when switching telemetry targets', () => {
+    render(<AgentTelemetrySettings />);
+    fireEvent.change(screen.getByLabelText('Secret key'), { target: { value: 'langfuse-secret' } });
+    fireEvent.change(screen.getByLabelText('Target'), { target: { value: 'otlp' } });
+
+    expect(screen.getByLabelText('OTLP traces endpoint')).toHaveValue('');
+    expect(screen.getByLabelText('Bearer token (optional)')).toHaveValue('');
+  });
+
   it('rejects incomplete Langfuse credentials and storage failures', async () => {
     render(<AgentTelemetrySettings />);
     fireEvent.change(screen.getByLabelText('Public key'), { target: { value: 'pk' } });

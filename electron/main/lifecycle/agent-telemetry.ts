@@ -60,13 +60,20 @@ export function createAgentTelemetryService(dependencies: AgentTelemetryServiceD
       delivery.status = 'queued';
       const key = JSON.stringify(config);
       const operation = (async (): Promise<void> => {
+        let pipeline: Promise<TelemetryPipeline> | undefined;
         try {
-          let pipeline = pipelines.get(key);
+          pipeline = pipelines.get(key);
           if (!pipeline) {
             pipeline = createPipeline(config);
             pipelines.set(key, pipeline);
           }
-          const resolved = await pipeline;
+          let resolved: TelemetryPipeline;
+          try {
+            resolved = await pipeline;
+          } catch (error) {
+            if (pipelines.get(key) === pipeline) pipelines.delete(key);
+            throw error;
+          }
           await resolved.exportTrace(trace);
           await resolved.flush();
           delivery.status = 'sent';
