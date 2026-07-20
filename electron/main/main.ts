@@ -1,5 +1,5 @@
-import { app, BrowserWindow, session } from 'electron';
 import { createLogger } from '@shared/runtime/logger';
+import { app, BrowserWindow, session } from 'electron';
 import { registerAiHandlers, unregisterAiHandlers } from './handlers/ai-handler';
 import { registerAiLabHandlers, unregisterAiLabHandlers } from './handlers/ai-lab-handler';
 import { registerBugReportIPC } from './handlers/bug-report-handler';
@@ -22,6 +22,7 @@ import {
   unregisterMockServerIPC,
 } from './handlers/mock-server-handler';
 import { registerMqttHandlerIPC, stopMqttCleanup } from './handlers/mqtt-handler';
+import { registerOwsWorkspaceHandlerIPC } from './handlers/ows-workspace-handler';
 import { registerSocketIoHandlerIPC, stopSocketIoCleanup } from './handlers/socketio-handler';
 import { registerSseHandlerIPC, stopSseCleanup } from './handlers/sse-handler';
 import { registerWebSocketHandlerIPC, stopWebSocketCleanup } from './handlers/websocket-handler';
@@ -161,6 +162,7 @@ const IPC_MODULES: IpcModule[] = [
     register: () => registerCollectionManagerIPC(getMainWindow),
     dispose: () => cleanupCollectionWatchers(),
   },
+  { register: () => registerOwsWorkspaceHandlerIPC() },
   { register: () => registerStoreHandlerIPC() },
   { register: () => registerSecretHandleIPC(), dispose: () => unregisterSecretHandleIPC() },
   { register: () => registerVaultHandlers(), dispose: () => unregisterVaultHandlers() },

@@ -1,160 +1,111 @@
-# Workflows
+# OWS workflows
 
-Workflows chain requests, run scripts, extract variables, apply retries, and branch on conditions. Restura supports both a legacy **linear** workflow and a **graph/DAG** workflow (the Flow canvas).
+Restura workflows are a clean-slate, OWS-native orchestration feature. There
+is no legacy linear workflow, proprietary Flow graph, migration path, or
+compatibility executor. The Open Workflow Specification document is the sole
+executable workflow definition.
 
----
+The public capability boundary is documented in
+[`docs/workflows.md`](../../docs/workflows.md). This page is a source map for
+contributors.
 
-## Data model
+## Data model and persistence
 
-The workflow store is `src/store/useWorkflowStore.ts`. A `Workflow` contains:
+`src/store/useWorkflowStore.ts` keeps the renderer's validated OWS records:
 
-- `id`, `name`, `description`
-- `requests: WorkflowRequest[]` — linear list (legacy)
-- `graph?: WorkflowGraph` — optional DAG definition
-- Variable extraction rules per step
-- Execution history
+- an SDK-normalized `OwsWorkflow` document;
+- exact task-path-to-saved-request bindings;
+- non-semantic layout; and
+- ordinary collection and timestamp metadata.
 
-The store wraps `zundo` for undo/redo.
+For a normal browser collection, the record is persisted through the existing
+Zustand storage adapter. For a desktop file-backed collection, the canonical
+workspace artifacts are:
 
-### Linear `WorkflowRequest`
+```
+opencollection.yml
+workflows/<workflow-id>/workflow.ows.json
+workflows/<workflow-id>/bindings.restura.json
+workflows/<workflow-id>/layout.restura.json
+```
 
-A step in a linear workflow references a request plus:
+`shared/ows/node/workspace.ts` validates and atomically writes those artifacts.
+It rejects non-portable IDs, links, stale paths, incomplete artifact sets, and
+unknown files. `src/store/useFileCollectionStore.ts` loads them after the
+workspace watcher is registered and saves/removes them as the collection is
+synced.
 
-- retry count and delay
-- pre-condition script
-- delay before/after
-- variable extractions (JSONPath, regex, header, body)
+## Supported profile
 
-### DAG `WorkflowGraph`
+`shared/ows/workflow-profile.ts` uses `@openworkflowspec/sdk` to parse,
+normalize, validate, graph, and serialize documents. Restura deliberately
+executes only its bounded safe profile:
 
-Defined in `src/features/workflows/lib/flowTypes.ts`:
+- sequential `do`, `set`, and `wait` tasks;
+- task and workflow timeouts, plus cancellation; and
+- HTTP calls that reference a saved OpenCollection request through a
+  `restura://saved-request` endpoint and a typed companion binding.
 
-- `nodes: FlowNode[]`
-- `edges: FlowEdge[]`
-- `variables?: Variable[]`
-- exactly one `start` node, at least one `end` node
+All other OWS controls and call transports are rejected before persistence and
+execution. In particular, inline transport configuration, executable
+extensions, opaque extras, schedules/triggers, inline credentials, arbitrary
+scripts, and legacy graph semantics are unavailable.
 
-Node kinds include `request`, `condition`, `switch`, `parallel`, `forEach`, `loop`, `tryCatch`, `subWorkflow`, `setVariable`, `delay`, `transform`, `template`, `display`, `sseSubscribe`, `wsExchange`, `mcpCall`.
+## Execution
 
-The graph shape is versioned via `CURRENT_GRAPH_VERSION`. The current validator hardcodes version 1; bumping it requires adding a migration or existing graphs will fail to load.
+`shared/ows/executor.ts` interprets a validated document and gives the
+renderer/CLI dispatcher only a task path, binding, method, cancellation signal,
+and bounded timeout. It never passes raw OWS call configuration to a transport.
 
----
+`src/features/workflows/hooks/useOwsWorkflowExecution.ts` resolves each
+approved binding to an existing saved HTTP request and invokes the normal
+protocol registry, retaining its auth inheritance and protocol policy.
+`cli/src/runner/owsWorkspaceLoader.ts` discovers the same strict artifact
+layout and `cli/src/runner/owsWorkspaceRunner.ts` dispatches through the CLI's
+existing HTTP runner.
 
-## Execution engines
+Electron IPC is exposed through `owsWorkspace` in the preload bridge. The main
+process handler requires a registered collection watcher root and validates
+every list/load/save/delete payload before reaching the Node workspace helper.
 
-### Linear executor (`src/features/workflows/lib/workflowExecutor.ts`)
+## Editor
 
-- Iterates `workflow.requests`.
-- Evaluates preconditions via `evalScriptBoolean`.
-- Executes each HTTP step with retry logic.
-- Extracts variables after each step.
-- Stops on first non-2xx by default.
-- Honors `pm.execution.setNextRequest` flow control.
-- Refuses to run workflows that define `workflow.graph`.
-
-### DAG executor (`src/features/workflows/lib/dagExecutor.ts`)
-
-- Traverses `workflow.graph` starting from the `start` node.
-- Single-token traversal via `walkFrom` / `walkOutgoing`.
-- Routes through `condition` and `switch` nodes by stashing branch labels in temporary variables.
-- Handles `parallel` fan-out via a dedicated `runParallel` handler.
-- Supports nested `subWorkflow` nodes with recursion guard.
-- SSE subscribe, WebSocket exchange, and MCP call nodes are implemented via `startStream` handles from their respective protocols.
-- Live status, logs, and variables are tracked in `src/features/workflows/store/useFlowRunStore.ts`.
-
-### Run hook (`src/features/workflows/hooks/useWorkflowExecution.ts`)
-
-Seeds variables from globals, the active environment, and linked collection variables, then dispatches to `executeDag` if `workflow.graph` exists, otherwise to `executeWorkflow`.
-
----
-
-## Validation
-
-Two validation layers exist:
-
-1. `src/features/workflows/lib/validators.ts` — structural validation for linear workflow steps.
-2. `src/features/workflows/lib/flowValidators.ts` — recursive Zod schema for DAGs:
-   - exactly one `start`
-   - at least one `end`
-   - acyclicity
-   - recursion-cycle detection for `subWorkflow` references
-   - nested subgraph validation
-
-`src/features/workflows/hooks/useGraphValidation.ts` shares validation between the UI and executor.
-
----
-
-## Flow canvas
-
-The visual workflow editor is under `src/features/workflows/components/flow-canvas/`:
-
-- `FlowEditor.tsx` — canvas wrapper using `@xyflow/react`.
-- `FlowCanvas.tsx` — node/edge rendering.
-- `FlowToolbar.tsx` — controls.
-- `FlowInspector.tsx` — selected node editor.
-
-AI graph generation lives in `src/features/workflows/lib/aiGraphGen.ts`.
-
----
-
-## Console mirroring
-
-`src/features/workflows/lib/consoleMirror.ts` feeds workflow execution logs into the console store so users can see per-step output in a central panel.
-
----
+`src/features/workflows/components/WorkflowBuilder.tsx` is a compact OWS JSON
+editor with a bindings editor and an SDK graph preview. It may display
+synthetic start/end nodes for orientation; these are never serialized as
+workflow semantics. `WorkflowManager.tsx` provides create/import/export and
+`WorkflowExecutor.tsx` renders bounded run results.
 
 ## Collection runner
 
-The collection-level runner (`src/features/collections/lib/collectionRunner.ts`) reuses the same variable-scope model and script executor as workflows. It supports:
-
-- iteration data / CSV-driven runs
-- collection and folder-level scripts
-- variable precedence `globals < environment < collection < iteration data`
-- same-run environment/local and collection-variable carry-forward via `shared/collections/variable-mutations.ts`
-- HTTP and unary gRPC execution; streaming/connection protocols are reported as explicit skips
-- folder ancestry in `pm.execution.location.folderPath` and explicit completed/aborted run outcomes
-- protocol options narrowing in `src/features/scripts/lib/pmRunContextOptions.ts`
-
-The CLI runner (`cli/src/runner/runner.ts`) runs the same logic headlessly with multiple reporter targets. See [Operations](../operations/index.md#cli).
-
----
-
-## Recent work to be aware of
-
-Recent PRs hardened the Flow feature:
-
-- Concurrency fixes in parallel branch execution and the Flow run store.
-- Desktop parity for SSE and WebSocket protocol nodes.
-- Graph validation deduplication and new tests (`flowValidators.test.ts`, `validators.test.ts`).
-- `consoleMirror.ts`, `useGraphValidation.ts`, and validator memo cleanup (PR #425).
-
-When changing workflow or variable code, run the workflow-related Vitest suite and the workflow e2e specs.
-
----
+The collection-level runner (`src/features/collections/lib/collectionRunner.ts`)
+remains separate from OWS. It executes saved collection requests and
+collection scripts; it is not a workflow compatibility layer.
 
 ## Change guidance
 
-- If you change `WorkflowGraph` shape, update `CURRENT_GRAPH_VERSION` **and** add a migration. The current validator hardcodes version 1; without a migration, existing graphs will fail to load.
-- If you add a node kind, add it to `flowTypes.ts`, `flowValidators.ts`, and `dagExecutor.ts` dispatch.
-- If you touch variable extraction or scoping, run `src/features/workflows/lib/__tests__/dagExecutor.test.ts` and `src/store/__tests__/useWorkflowStore.saveExecution.test.ts`.
-- If you change auth inheritance in workflows, test both folder-level inherited auth and request-level explicit auth.
-
----
+- Start with `docs/workflows.md`; do not expand the accepted OWS profile unless
+  there is a bounded, policy-enforcing runtime dispatcher and test coverage for
+  every platform that advertises it.
+- Keep `shared/ows/` runtime-neutral. Electron filesystem access belongs in the
+  main-process handler and `shared/ows/node/`; renderer code must not bypass
+  IPC.
+- Do not add a migration, hidden legacy importer, Flow node, or executable
+  sidecar. Invalid/legacy workflow data is intentionally unavailable.
+- Update the capability source and regenerate the matrix when the supported
+  profile changes.
 
 ## Source map
 
-| Concern             | Files                                                                                                                                            |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Workflow types      | `shared/types/index.ts`, `src/features/workflows/lib/flowTypes.ts`                                                                               |
-| Workflow store      | `src/store/useWorkflowStore.ts`, `src/store/useCollectionRunStore.ts`                                                                            |
-| Linear executor     | `src/features/workflows/lib/workflowExecutor.ts`, `src/features/workflows/hooks/useWorkflowExecution.ts`                                         |
-| DAG executor        | `src/features/workflows/lib/dagExecutor.ts`                                                                                                      |
-| Graph validation    | `src/features/workflows/lib/flowValidators.ts`, `src/features/workflows/lib/validators.ts`, `src/features/workflows/hooks/useGraphValidation.ts` |
-| Variable extraction | `src/features/workflows/lib/variableExtractor.ts`                                                                                                |
-| Script helpers      | `src/features/workflows/lib/scriptHelpers.ts`                                                                                                    |
-| Retry / abort       | `src/features/workflows/lib/retryHelpers.ts`                                                                                                     |
-| AI graph generation | `src/features/workflows/lib/aiGraphGen.ts`                                                                                                       |
-| Collection runner   | `src/features/collections/lib/collectionRunner.ts`                                                                                               |
-| CLI runner          | `cli/src/runner/runner.ts`                                                                                                                       |
-| Flow UI             | `src/features/workflows/components/flow-canvas/{FlowCanvas,FlowEditor,FlowToolbar,FlowInspector}.tsx`                                            |
-| Legacy UI           | `src/features/workflows/components/{WorkflowBuilder,WorkflowExecutor,WorkflowStep}.tsx`                                                          |
+| Concern | Files |
+| --- | --- |
+| OWS SDK/profile | `shared/ows/workflow-profile.ts` |
+| Bindings/layout | `shared/ows/bindings.ts` |
+| Safe executor | `shared/ows/executor.ts` |
+| File workspace | `shared/ows/node/workspace.ts` |
+| Renderer store | `src/store/useWorkflowStore.ts` |
+| File-collection integration | `src/store/useFileCollectionStore.ts` |
+| Renderer execution | `src/features/workflows/hooks/useOwsWorkflowExecution.ts` |
+| Editor UI | `src/features/workflows/components/{WorkflowBuilder,WorkflowManager,WorkflowExecutor}.tsx` |
+| Electron IPC | `electron/main/handlers/ows-workspace-handler.ts`, `electron/main/preload/integration-api.ts` |
+| CLI discovery/execution | `cli/src/runner/{owsWorkspaceLoader,owsWorkspaceRunner}.ts`, `cli/src/commands/workflow.ts` |

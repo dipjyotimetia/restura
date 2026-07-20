@@ -54,7 +54,7 @@ I got tired of opening a different tool for every protocol. Postman for HTTP, a 
     Pre-request and test scripts run in a QuickJS WASM sandbox. No DOM, no filesystem, no network. Memory and execution time are capped. If someone sends you a collection with a dodgy pre-request script, it doesn't get far. Fully `pm.*` compatible if you're coming from Postman.
   </Card>
   <Card title="Chain requests together" icon="seti:plan">
-    String requests into workflows with branching, loops, retries, and variable extraction via JSONPath or regex. Run them in the app, or run them headless in CI using `restura-cli`. Outputs JUnit, HTML, and JSON reports.
+    Sequence saved HTTP requests as portable OWS workflows with typed bindings, `set`/`wait`, and cancellation. Run them in the app or in CI with `restura workflow run`.
   </Card>
   <Card title="Ask an AI about your request" icon="seti:notebook">
     The AI assistant can see the current request and response — useful for explaining errors, writing test assertions, or generating follow-up requests. Secrets and internal URLs are stripped before anything reaches the model.

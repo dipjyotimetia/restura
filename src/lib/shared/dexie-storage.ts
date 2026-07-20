@@ -63,7 +63,6 @@ type StorageTableName =
   | 'settings'
   | 'cookies'
   | 'workflows'
-  | 'workflowExecutions'
   | 'fileCollections'
   | 'requestTabs'
   | 'websocketConnections'
@@ -315,12 +314,6 @@ export const dexieStorageAdapters = {
   workflows: () =>
     createDexieStorage({
       tableName: 'workflows',
-      encrypt: true,
-    }),
-
-  workflowExecutions: () =>
-    createDexieStorage({
-      tableName: 'workflowExecutions',
       encrypt: true,
     }),
 

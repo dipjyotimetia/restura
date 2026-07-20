@@ -3,14 +3,14 @@
  *
  * - `runRequest` still throws — the interactive UI drives a long-lived
  *   McpClient via useMcpStore.
- * - `runJsonRpc` is the graph-executor-facing single-call surface. It
+ * - `runJsonRpc` is the reusable single-call surface. It
  *   accepts an optional `clientPool` keyed by an executor-supplied
- *   `cacheKey` (typically the WorkflowRequest id). When the pool has a
+ *   `cacheKey` (typically a saved-resource id). When the pool has a
  *   cached client, it reuses it and skips the initialize handshake;
  *   otherwise it lazy-inits and caches. The executor disposes pooled
  *   clients in its run-end `finally`.
  *
- * Without the pool, a workflow with N mcpCall nodes against the same
+ * Without the pool, a sequence of calls against the same
  * server pays N initialize round-trips. With the pool, one.
  */
 import { v4 as uuidv4 } from 'uuid';

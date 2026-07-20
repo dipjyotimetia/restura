@@ -6,7 +6,7 @@ import { invoke } from './invoke';
 
 type IntegrationApi = Pick<
   ElectronAPI,
-  'git' | 'mock' | 'capture' | 'secrets' | 'vault' | 'ai' | 'aiLab' | 'collections'
+  'git' | 'mock' | 'capture' | 'secrets' | 'vault' | 'ai' | 'aiLab' | 'collections' | 'owsWorkspace'
 >;
 
 function subscribe<TPayload>(channel: string, callback: (payload: TPayload) => void): () => void {
@@ -121,5 +121,14 @@ export const integrationApi: IntegrationApi = {
       ipcRenderer.on(EVENT.collectionFileChanged, (_event, data) => callback(data));
     },
     removeFileChangedListener: () => ipcRenderer.removeAllListeners(EVENT.collectionFileChanged),
+  },
+  owsWorkspace: {
+    list: (directoryPath) => ipcRenderer.invoke(IPC.owsWorkspace.list, { directoryPath }),
+    load: (directoryPath, workflowId) =>
+      ipcRenderer.invoke(IPC.owsWorkspace.load, { directoryPath, workflowId }),
+    save: (directoryPath, workflowId, artifact) =>
+      ipcRenderer.invoke(IPC.owsWorkspace.save, { directoryPath, workflowId, ...artifact }),
+    delete: (directoryPath, workflowId) =>
+      ipcRenderer.invoke(IPC.owsWorkspace.delete, { directoryPath, workflowId }),
   },
 };

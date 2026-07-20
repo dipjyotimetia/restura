@@ -137,6 +137,75 @@ describe('restoreFileCollectionWatchers', () => {
     expect(forDir).toHaveLength(1);
   });
 
+  it('loads complete OWS artifacts with a file collection and replaces stale workspace records', async () => {
+    const { loadCollectionFromDirectory } = await import('../useFileCollectionStore');
+    const { useCollectionStore } = await import('../useCollectionStore');
+    const { useWorkflowStore } = await import('../useWorkflowStore');
+    useCollectionStore.setState({ collections: [] });
+    useWorkflowStore.setState({ workflows: [] });
+    const list = vi.fn().mockResolvedValue({ ok: true, workflowIds: ['billing'] });
+    const load = vi.fn().mockResolvedValue({
+      ok: true,
+      artifact: {
+        workflow: {
+          document: { dsl: '1.0.3', namespace: 'restura', name: 'billing', version: '1.0.0' },
+          do: [{ initialize: { wait: { milliseconds: 0 } } }],
+        },
+        bindings: { version: 1, tasks: {} },
+        layout: { version: 1, nodes: {} },
+      },
+    });
+    (window as unknown as { electron: Partial<ElectronAPI> }).electron = {
+      collections: {
+        loadFromDirectory: vi.fn().mockResolvedValue({
+          success: true,
+          collection: { id: 'disk', name: 'Demo', items: [] },
+        }),
+        watchDirectory: vi.fn().mockResolvedValue({ success: true }),
+      } as unknown as ElectronAPI['collections'],
+      owsWorkspace: { list, load } as unknown as ElectronAPI['owsWorkspace'],
+    };
+
+    await expect(loadCollectionFromDirectory('/tmp/ows-demo')).resolves.toMatchObject({
+      success: true,
+    });
+    expect(useWorkflowStore.getState().workflows).toEqual([
+      expect.objectContaining({ collectionId: 'disk', workspaceId: 'billing' }),
+    ]);
+    expect(list).toHaveBeenCalledWith('/tmp/ows-demo');
+    expect(load).toHaveBeenCalledWith('/tmp/ows-demo', 'billing');
+  });
+
+  it('saves OWS companions through the registered workspace boundary and removes stale artifacts', async () => {
+    const { useFileCollectionStore, syncFileCollection } = await import(
+      '../useFileCollectionStore'
+    );
+    const { useCollectionStore } = await import('../useCollectionStore');
+    const { useWorkflowStore } = await import('../useWorkflowStore');
+    useCollectionStore.setState({ collections: [{ id: 'c1', name: 'Demo', items: [] }] });
+    useWorkflowStore.setState({ workflows: [] });
+    const workflow = useWorkflowStore.getState().createNewWorkflow('Billing', 'c1');
+    useWorkflowStore.getState().addWorkflow({ ...workflow, workspaceId: 'billing' });
+    useFileCollectionStore.getState().registerFileCollection('c1', '/tmp/ows-save');
+    const save = vi.fn().mockResolvedValue({ ok: true });
+    const list = vi.fn().mockResolvedValue({ ok: true, workflowIds: ['billing', 'stale'] });
+    const remove = vi.fn().mockResolvedValue({ ok: true });
+    (window as unknown as { electron: Partial<ElectronAPI> }).electron = {
+      collections: {
+        saveToDirectory: vi.fn().mockResolvedValue({ success: true }),
+      } as unknown as ElectronAPI['collections'],
+      owsWorkspace: { save, list, delete: remove } as unknown as ElectronAPI['owsWorkspace'],
+    };
+
+    await expect(syncFileCollection('c1')).resolves.toEqual({ success: true });
+    expect(save).toHaveBeenCalledWith('/tmp/ows-save', 'billing', {
+      workflow: workflow.document,
+      bindings: workflow.bindings,
+      layout: workflow.layout,
+    });
+    expect(remove).toHaveBeenCalledWith('/tmp/ows-save', 'stale');
+  });
+
   it('preserves item, request, and row ids across disk reloads', async () => {
     const { reconcileCollectionIds } = await import('../useFileCollectionStore');
     type Ids = [string, string, string, string, string, string];

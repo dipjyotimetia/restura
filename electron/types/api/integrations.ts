@@ -209,6 +209,39 @@ export interface ElectronCollectionsAPI {
   removeFileChangedListener: () => void;
 }
 
+export interface ElectronOwsWorkspaceAPI {
+  list: (
+    directoryPath: string
+  ) => Promise<{ ok: true; workflowIds: string[] } | { ok: false; error: string }>;
+  load: (
+    directoryPath: string,
+    workflowId: string
+  ) => Promise<
+    | {
+        ok: true;
+        artifact: {
+          workflow: import('../../../shared/ows/workflow-profile').OwsWorkflow;
+          bindings: import('../../../shared/ows/bindings').OwsBindings;
+          layout: import('../../../shared/ows/bindings').OwsLayout;
+        };
+      }
+    | { ok: false; error: string }
+  >;
+  save: (
+    directoryPath: string,
+    workflowId: string,
+    artifact: {
+      workflow: import('../../../shared/ows/workflow-profile').OwsWorkflow;
+      bindings: import('../../../shared/ows/bindings').OwsBindings;
+      layout: import('../../../shared/ows/bindings').OwsLayout;
+    }
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  delete: (
+    directoryPath: string,
+    workflowId: string
+  ) => Promise<{ ok: true } | { ok: false; error: string }>;
+}
+
 export interface ElectronSecretHandleDescriptor {
   label?: string;
   scope?: string;
@@ -435,4 +468,5 @@ export interface ElectronBugReportAPI {
   >;
   copyScreenshot: (imageDataUrl: string) => Promise<{ ok: true } | { ok: false; error: string }>;
 }
+
 import type { ProtocolSecretValue } from './protocols';

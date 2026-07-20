@@ -38,7 +38,7 @@ Pre-request and test scripts in a QuickJS WASM sandbox — memory and time cappe
 
 ### Workflows
 
-Request chaining with branching, switches, loops, and parallel steps. Variable extraction via JSONPath, regex, or headers. Retry with fixed or exponential backoff. Visual builder.
+Expand the safe OWS workflow profile only when each control has a bounded, policy-enforced runtime. Today the profile supports `do`, `set`, `wait`, timeout/cancellation, and binding-only saved HTTP requests; branching, loops, retries, and arbitrary transforms remain unavailable.
 
 ### CLI runner
 

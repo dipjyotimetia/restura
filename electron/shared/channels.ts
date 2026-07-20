@@ -161,6 +161,12 @@ export const IPC = {
     getFileInfo: 'collection:get-file-info',
     saveBrunoDirectory: 'collection:save-bruno-directory',
   },
+  owsWorkspace: {
+    list: 'ows-workspace:list',
+    load: 'ows-workspace:load',
+    save: 'ows-workspace:save',
+    delete: 'ows-workspace:delete',
+  },
   ai: {
     chat: 'ai:chat',
     chatCancel: 'ai:chat:cancel',

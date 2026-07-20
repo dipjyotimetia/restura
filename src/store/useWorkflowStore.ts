@@ -1,177 +1,164 @@
+import type { OwsBindings, OwsLayout } from '@shared/ows/bindings';
+import { isOwsBindings } from '@shared/ows/bindings';
+import {
+  normalizeOwsWorkflow,
+  type OwsWorkflow,
+  validateOwsProfile,
+} from '@shared/ows/workflow-profile';
 import { v4 as uuidv4 } from 'uuid';
 import { temporal } from 'zundo';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { selectAtPath, setAtPath } from '@/features/workflows/lib/flowTypes';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
-import { truncateForPersist } from '@/lib/shared/utils';
-import type {
-  FlowNode,
-  FlowNodePosition,
-  McpCallFlowNode,
-  RequestFlowNode,
-  SseSubscribeFlowNode,
-  SubgraphPath,
-  VariableExtraction,
-  Workflow,
-  WorkflowExecution,
-  WorkflowGraph,
-  WorkflowRequest,
-} from '@/types';
+
+/**
+ * The renderer's workflow record intentionally contains only portable OWS
+ * semantics plus Restura-owned references and presentation metadata. The
+ * document is executable; bindings and layout are not.
+ */
+export interface OwsStoredWorkflow {
+  id: string;
+  collectionId: string;
+  /** Portable artifact directory id when this workflow was loaded from disk. */
+  workspaceId?: string;
+  document: OwsWorkflow;
+  bindings: OwsBindings;
+  layout: OwsLayout;
+  createdAt: number;
+  updatedAt: number;
+}
 
 interface WorkflowState {
-  workflows: Workflow[];
-  executions: WorkflowExecution[];
+  workflows: OwsStoredWorkflow[];
 
-  // Workflow CRUD
-  addWorkflow: (workflow: Workflow) => void;
-  updateWorkflow: (id: string, updates: Partial<Workflow>) => void;
+  addWorkflow: (workflow: OwsStoredWorkflow) => void;
+  renameWorkflow: (id: string, name: string) => void;
+  updateWorkflowArtifacts: (
+    id: string,
+    document: OwsWorkflow,
+    bindings: OwsBindings,
+    layout: OwsLayout
+  ) => void;
   removeWorkflow: (id: string) => void;
   removeWorkflowsByCollectionId: (collectionId: string) => void;
-  getWorkflowById: (id: string) => Workflow | undefined;
-  getWorkflowsByCollectionId: (collectionId: string) => Workflow[];
-  createNewWorkflow: (name: string, collectionId: string) => Workflow;
-
-  // Workflow Request CRUD (legacy linear path)
-  // When workflow.graph is set, these throw — form view is read-only in that
-  // case and graph view uses addRequestNode/removeRequestNode for the dual
-  // WorkflowRequest+FlowNode mutation.
-  addWorkflowRequest: (workflowId: string, request: WorkflowRequest) => void;
-  updateWorkflowRequest: (
-    workflowId: string,
-    requestId: string,
-    updates: Partial<WorkflowRequest>
-  ) => void;
-  removeWorkflowRequest: (workflowId: string, requestId: string) => void;
-  reorderWorkflowRequests: (workflowId: string, requests: WorkflowRequest[]) => void;
-
-  // Graph operations
-  // setWorkflowGraph is the single mutation point for top-level canvas
-  // writes. setWorkflowSubgraph handles writes inside nested
-  // forEach/tryCatch bodies. Both flow through zundo for undo/redo.
-  setWorkflowGraph: (workflowId: string, graph: WorkflowGraph) => void;
-  /** Replace the nested subgraph at `path` inside `workflow.graph`.
-   *  Empty path delegates to setWorkflowGraph. Invalid paths no-op. */
-  setWorkflowSubgraph: (workflowId: string, path: SubgraphPath, graph: WorkflowGraph) => void;
-  /** Drop a collection request onto the canvas. Creates both a
-   *  WorkflowRequest (always in workflow.requests[] — flat bag, no
-   *  matter how deep the path) AND a FlowNode (in the graph at
-   *  `path`, default = top-level). The root graph must already exist
-   *  (open the Graph tab first to trigger the stub).
-   *
-   *  `nodeKind` lets a saved SSE/MCP request drop create the matching
-   *  streaming-node kind directly instead of a generic `request` node.
-   *  Defaults to `'request'` for back-compat. */
-  addRequestNode: (
-    workflowId: string,
-    collectionRequestId: string,
-    requestName: string,
-    position: FlowNodePosition,
-    path?: SubgraphPath,
-    nodeKind?: 'request' | 'sseSubscribe' | 'mcpCall'
-  ) => { nodeId: string; workflowRequestId: string };
-  /** Remove a node from the graph at `path`. For request nodes, also
-   *  deletes the underlying WorkflowRequest. Cascades edges touching
-   *  the node within the same subgraph. */
-  removeRequestNode: (workflowId: string, nodeId: string, path?: SubgraphPath) => void;
-  clearWorkflowGraph: (workflowId: string) => void;
-
-  // Variable Extraction
-  addExtraction: (workflowId: string, requestId: string, extraction: VariableExtraction) => void;
-  updateExtraction: (
-    workflowId: string,
-    requestId: string,
-    extractionId: string,
-    updates: Partial<VariableExtraction>
-  ) => void;
-  removeExtraction: (workflowId: string, requestId: string, extractionId: string) => void;
-
-  // Execution History
-  saveExecution: (execution: WorkflowExecution) => void;
-  getExecutionsByWorkflowId: (workflowId: string) => WorkflowExecution[];
-  getLatestExecution: (workflowId: string) => WorkflowExecution | undefined;
-  clearExecutionHistory: (workflowId?: string) => void;
-
-  // Helpers
-  createNewWorkflowRequest: (requestId: string, name: string) => WorkflowRequest;
-  createNewExtraction: (variableName: string, path: string) => VariableExtraction;
+  getWorkflowById: (id: string) => OwsStoredWorkflow | undefined;
+  getWorkflowsByCollectionId: (collectionId: string) => OwsStoredWorkflow[];
+  createNewWorkflow: (name: string, collectionId: string) => OwsStoredWorkflow;
 }
 
-// `executions` is capped at 100 entries (see `saveExecution`), but nothing
-// bounded the SIZE of any one entry: a step's `response.body` can hold a
-// full response, and `extractedVariables`/`finalVariables` can hold a
-// `JSON.stringify`'d capture of up to 10,000 sseSubscribe events or a large
-// forEach's `.results` — persisted verbatim, 100 such runs could bloat
-// storage arbitrarily. Uses the same `truncateForPersist` helper (and the
-// same limit values) as `useConsoleStore.ts`'s PERSIST_BODY_LIMIT /
-// PERSIST_LOG_MESSAGE_LIMIT.
-const PERSIST_VALUE_LIMIT = 64 * 1024;
-const PERSIST_LOG_MESSAGE_LIMIT = 4 * 1024;
-const PERSIST_LOG_LIMIT = 500;
+function workflowName(name: string): string {
+  const normalized = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return normalized || 'workflow';
+}
 
-// Every call site below already only invokes this on a defined map (guarded
-// by `step.extractedVariables &&` or `execution.finalVariables` being a
-// required field), so it takes/returns `Record<string, string>` directly
-// rather than carrying an `| undefined` case none of its callers need.
-function truncateVariableMap(vars: Record<string, string>): Record<string, string> {
-  const next: Record<string, string> = {};
-  for (const [k, v] of Object.entries(vars)) {
-    next[k] = v.length > PERSIST_VALUE_LIMIT ? truncateForPersist(v, PERSIST_VALUE_LIMIT) : v;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function validateLayout(layout: unknown): asserts layout is OwsLayout {
+  if (!isRecord(layout) || layout.version !== 1 || !isRecord(layout.nodes)) {
+    throw new Error('OWS layout must be a version 1 non-semantic layout document.');
   }
-  return next;
+  for (const position of Object.values(layout.nodes)) {
+    if (
+      !isRecord(position) ||
+      typeof position.x !== 'number' ||
+      !Number.isFinite(position.x) ||
+      typeof position.y !== 'number' ||
+      !Number.isFinite(position.y)
+    ) {
+      throw new Error('OWS layout node positions must be finite numbers.');
+    }
+  }
 }
 
-/** Bound the persisted footprint of one execution: response bodies,
- *  extracted/final variables, and the log feed. The in-memory execution
- *  object returned to the UI immediately after a run stays full-fidelity —
- *  only the copy written to `executions` (and thus Dexie) is trimmed. */
-function trimExecutionForPersist(execution: WorkflowExecution): WorkflowExecution {
+function collectCallPaths(list: unknown, path: string, output: Set<string>): void {
+  if (!Array.isArray(list)) return;
+  for (const [index, entry] of list.entries()) {
+    if (!isRecord(entry) || Object.keys(entry).length !== 1) continue;
+    const [name, task] = Object.entries(entry)[0] ?? [];
+    if (!name || !isRecord(task)) continue;
+    const taskPath = `${path}/${index}/${name}`;
+    if ('call' in task) output.add(taskPath);
+    if ('do' in task) collectCallPaths(task.do, `${taskPath}/do`, output);
+  }
+}
+
+/** Validate every persisted artifact together so a document can never be saved with stale bindings. */
+export function normalizeOwsWorkflowArtifacts(
+  document: OwsWorkflow,
+  bindings: OwsBindings,
+  layout: OwsLayout
+): Pick<OwsStoredWorkflow, 'document' | 'bindings' | 'layout'> {
+  const normalized = normalizeOwsWorkflow(document);
+  const profile = validateOwsProfile(normalized);
+  if (!profile.ok) {
+    throw new Error(
+      `OWS workflow is outside Restura's executable profile: ${profile.issues[0]?.message ?? 'invalid profile'}`
+    );
+  }
+  if (!isOwsBindings(bindings)) {
+    throw new Error('OWS bindings must be a version 1 typed bindings document.');
+  }
+  validateLayout(layout);
+
+  const callPaths = new Set<string>();
+  collectCallPaths(normalized.do, '/do', callPaths);
+  for (const taskPath of callPaths) {
+    if (!bindings.tasks[taskPath]) {
+      throw new Error(`OWS call ${taskPath} is missing an approved binding.`);
+    }
+  }
+  for (const taskPath of Object.keys(bindings.tasks)) {
+    if (!callPaths.has(taskPath)) {
+      throw new Error(`OWS binding task path ${taskPath} does not exist in the workflow document.`);
+    }
+  }
+  return { document: normalized, bindings, layout };
+}
+
+function createDocument(name: string): OwsWorkflow {
   return {
-    ...execution,
-    steps: execution.steps.map((step) => ({
-      ...step,
-      ...(step.response && {
-        response: {
-          ...step.response,
-          body: truncateForPersist(step.response.body, PERSIST_VALUE_LIMIT),
-        },
-      }),
-      ...(step.extractedVariables && {
-        extractedVariables: truncateVariableMap(step.extractedVariables),
-      }),
-    })),
-    finalVariables: truncateVariableMap(execution.finalVariables),
-    executionLog: execution.executionLog
-      .slice(-PERSIST_LOG_LIMIT)
-      .map((l) => ({ ...l, message: truncateForPersist(l.message, PERSIST_LOG_MESSAGE_LIMIT) })),
+    document: {
+      dsl: '1.0.3',
+      namespace: 'restura',
+      name: workflowName(name),
+      version: '1.0.0',
+    },
+    // OWS requires a task list entry. A zero-duration wait is a bounded no-op
+    // and replaces the old persisted synthetic graph start/end nodes.
+    do: [{ initialize: { wait: { milliseconds: 0 } } }],
   };
 }
 
-/**
- * Throttle a function so successive invocations within `delay` ms fire
- * at most once (leading + trailing). Used to coalesce rapid graph
- * mutations (e.g. dragging a node, which fires onNodesChange every
- * frame) into a single undo entry per ~300 ms.
- */
-function throttle<T extends (...args: never[]) => unknown>(fn: T, delay: number): T {
-  let lastFire = 0;
-  let pending: ReturnType<typeof setTimeout> | null = null;
-  let lastArgs: Parameters<T> | null = null;
-  return ((...args: Parameters<T>) => {
-    const now = Date.now();
-    lastArgs = args;
-    if (now - lastFire >= delay) {
-      lastFire = now;
-      fn(...args);
-    } else if (!pending) {
-      const wait = delay - (now - lastFire);
-      pending = setTimeout(() => {
-        pending = null;
-        lastFire = Date.now();
-        if (lastArgs) fn(...lastArgs);
-      }, wait);
-    }
-  }) as T;
+function toStoredWorkflow(value: unknown): OwsStoredWorkflow | undefined {
+  if (!isRecord(value) || typeof value.id !== 'string' || typeof value.collectionId !== 'string') {
+    return undefined;
+  }
+  if (typeof value.createdAt !== 'number' || typeof value.updatedAt !== 'number') return undefined;
+  try {
+    const artifacts = normalizeOwsWorkflowArtifacts(
+      value.document as OwsWorkflow,
+      value.bindings as OwsBindings,
+      value.layout as OwsLayout
+    );
+    return {
+      id: value.id,
+      collectionId: value.collectionId,
+      ...(typeof value.workspaceId === 'string' ? { workspaceId: value.workspaceId } : {}),
+      ...artifacts,
+      createdAt: value.createdAt,
+      updatedAt: value.updatedAt,
+    };
+  } catch {
+    // Legacy/malformed records are intentionally unavailable; no conversion
+    // or shadow persistence path exists.
+    return undefined;
+  }
 }
 
 export const useWorkflowStore = create<WorkflowState>()(
@@ -179,427 +166,82 @@ export const useWorkflowStore = create<WorkflowState>()(
     persist(
       (set, get) => ({
         workflows: [],
-        executions: [],
-
-        // Workflow CRUD
-        addWorkflow: (workflow) =>
+        addWorkflow: (workflow) => {
+          const normalized = toStoredWorkflow(workflow);
+          if (!normalized) throw new Error('Invalid OWS workflow artifact.');
+          set((state) => ({ workflows: [...state.workflows, normalized] }));
+        },
+        renameWorkflow: (id, name) =>
           set((state) => ({
-            workflows: [...state.workflows, workflow],
-          })),
-
-        updateWorkflow: (id, updates) =>
-          set((state) => ({
-            workflows: state.workflows.map((wf) =>
-              wf.id === id ? { ...wf, ...updates, updatedAt: Date.now() } : wf
-            ),
-          })),
-
-        removeWorkflow: (id) =>
-          set((state) => ({
-            workflows: state.workflows.filter((wf) => wf.id !== id),
-            executions: state.executions.filter((ex) => ex.workflowId !== id),
-          })),
-
-        removeWorkflowsByCollectionId: (collectionId) =>
-          set((state) => {
-            const removedIds = new Set(
-              state.workflows
-                .filter((workflow) => workflow.collectionId === collectionId)
-                .map((workflow) => workflow.id)
-            );
-            if (removedIds.size === 0) return state;
-            return {
-              workflows: state.workflows.filter((workflow) => !removedIds.has(workflow.id)),
-              executions: state.executions.filter(
-                (execution) => !removedIds.has(execution.workflowId)
-              ),
-            };
-          }),
-
-        getWorkflowById: (id) => get().workflows.find((wf) => wf.id === id),
-
-        getWorkflowsByCollectionId: (collectionId) =>
-          get().workflows.filter((wf) => wf.collectionId === collectionId),
-
-        createNewWorkflow: (name, collectionId) => ({
-          id: uuidv4(),
-          name,
-          collectionId,
-          requests: [],
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        }),
-
-        // Workflow Request CRUD
-        addWorkflowRequest: (workflowId, request) =>
-          set((state) => ({
-            workflows: state.workflows.map((wf) => {
-              if (wf.id !== workflowId) return wf;
-              if (wf.graph) {
-                throw new Error(
-                  'Cannot addWorkflowRequest on a graph-authored workflow. Use addRequestNode (graph view) or clear the graph first.'
-                );
-              }
-              return { ...wf, requests: [...wf.requests, request], updatedAt: Date.now() };
-            }),
-          })),
-
-        updateWorkflowRequest: (workflowId, requestId, updates) =>
-          set((state) => ({
-            workflows: state.workflows.map((wf) =>
-              wf.id === workflowId
-                ? {
-                    ...wf,
-                    requests: wf.requests.map((req) =>
-                      req.id === requestId ? { ...req, ...updates } : req
-                    ),
-                    updatedAt: Date.now(),
-                  }
-                : wf
-            ),
-          })),
-
-        removeWorkflowRequest: (workflowId, requestId) =>
-          set((state) => ({
-            workflows: state.workflows.map((wf) => {
-              if (wf.id !== workflowId) return wf;
-              if (wf.graph) {
-                throw new Error(
-                  'Cannot removeWorkflowRequest on a graph-authored workflow. Use removeRequestNode (graph view) or clear the graph first.'
-                );
-              }
+            workflows: state.workflows.map((workflow) => {
+              if (workflow.id !== id) return workflow;
+              const document = {
+                ...workflow.document,
+                document: { ...workflow.document.document, name: workflowName(name) },
+              } as OwsWorkflow;
               return {
-                ...wf,
-                requests: wf.requests.filter((req) => req.id !== requestId),
+                ...workflow,
+                ...normalizeOwsWorkflowArtifacts(document, workflow.bindings, workflow.layout),
                 updatedAt: Date.now(),
               };
             }),
           })),
-
-        reorderWorkflowRequests: (workflowId, requests) =>
+        updateWorkflowArtifacts: (id, document, bindings, layout) => {
+          const artifacts = normalizeOwsWorkflowArtifacts(document, bindings, layout);
           set((state) => ({
-            workflows: state.workflows.map((wf) => {
-              if (wf.id !== workflowId) return wf;
-              if (wf.graph) {
-                throw new Error(
-                  'Cannot reorderWorkflowRequests on a graph-authored workflow. Edges in the graph are the source of order.'
-                );
-              }
-              return { ...wf, requests, updatedAt: Date.now() };
-            }),
-          })),
-
-        setWorkflowGraph: (workflowId, graph) =>
-          set((state) => ({
-            workflows: state.workflows.map((wf) =>
-              wf.id === workflowId ? { ...wf, graph, updatedAt: Date.now() } : wf
+            workflows: state.workflows.map((workflow) =>
+              workflow.id === id ? { ...workflow, ...artifacts, updatedAt: Date.now() } : workflow
             ),
-          })),
-
-        setWorkflowSubgraph: (workflowId, path, graph) =>
-          set((state) => ({
-            workflows: state.workflows.map((wf) => {
-              if (wf.id !== workflowId) return wf;
-              if (!wf.graph) {
-                throw new Error('setWorkflowSubgraph requires workflow.graph to exist.');
-              }
-              if (path.length === 0) {
-                return { ...wf, graph, updatedAt: Date.now() };
-              }
-              return {
-                ...wf,
-                graph: setAtPath(wf.graph, path, graph),
-                updatedAt: Date.now(),
-              };
-            }),
-          })),
-
-        addRequestNode: (
-          workflowId,
-          collectionRequestId,
-          requestName,
-          position,
-          path,
-          nodeKind
-        ) => {
-          const newWorkflowRequest: WorkflowRequest = {
-            id: uuidv4(),
-            requestId: collectionRequestId,
-            name: requestName,
-          };
-          const newNodeId = `node-${uuidv4()}`;
-          let newNode: FlowNode;
-          if (nodeKind === 'sseSubscribe') {
-            const data: SseSubscribeFlowNode['data'] = {
-              workflowRequestId: newWorkflowRequest.id,
-              completion: { kind: 'eventCount', n: 1 },
-              accumulateAll: true,
-            };
-            newNode = {
-              id: newNodeId,
-              kind: 'sseSubscribe',
-              position,
-              data,
-            };
-          } else if (nodeKind === 'mcpCall') {
-            const data: McpCallFlowNode['data'] = {
-              workflowRequestId: newWorkflowRequest.id,
-              method: 'tools/call',
-              paramsExpression: 'return {};',
-            };
-            newNode = {
-              id: newNodeId,
-              kind: 'mcpCall',
-              position,
-              data,
-            };
-          } else {
-            const data: RequestFlowNode['data'] = {
-              workflowRequestId: newWorkflowRequest.id,
-            };
-            newNode = {
-              id: newNodeId,
-              kind: 'request',
-              position,
-              data,
-            };
-          }
-          set((state) => ({
-            workflows: state.workflows.map((wf) => {
-              if (wf.id !== workflowId) return wf;
-              if (!wf.graph) {
-                throw new Error(
-                  'addRequestNode requires workflow.graph to exist. Open the Graph tab first.'
-                );
-              }
-              // WorkflowRequest is always flat — it's a bag indexed by id
-              // regardless of where in the graph the node lives.
-              const nextRequests = [...wf.requests, newWorkflowRequest];
-              if (!path || path.length === 0) {
-                return {
-                  ...wf,
-                  requests: nextRequests,
-                  graph: {
-                    ...wf.graph,
-                    nodes: [...wf.graph.nodes, newNode],
-                  },
-                  updatedAt: Date.now(),
-                };
-              }
-              const targetSlice = selectAtPath(wf.graph, path);
-              if (!targetSlice) {
-                // Path was invalid — drop the request anyway? No: the
-                // caller assumes the FlowNode lands somewhere. Throw to
-                // surface the bug.
-                throw new Error(
-                  `addRequestNode: subgraph path ${JSON.stringify(path)} did not resolve.`
-                );
-              }
-              const nextSlice: WorkflowGraph = {
-                ...targetSlice,
-                nodes: [...targetSlice.nodes, newNode],
-              };
-              return {
-                ...wf,
-                requests: nextRequests,
-                graph: setAtPath(wf.graph, path, nextSlice),
-                updatedAt: Date.now(),
-              };
-            }),
           }));
+        },
+        removeWorkflow: (id) =>
+          set((state) => ({ workflows: state.workflows.filter((workflow) => workflow.id !== id) })),
+        removeWorkflowsByCollectionId: (collectionId) =>
+          set((state) => ({
+            workflows: state.workflows.filter((workflow) => workflow.collectionId !== collectionId),
+          })),
+        getWorkflowById: (id) => get().workflows.find((workflow) => workflow.id === id),
+        getWorkflowsByCollectionId: (collectionId) =>
+          get().workflows.filter((workflow) => workflow.collectionId === collectionId),
+        createNewWorkflow: (name, collectionId) => {
+          const now = Date.now();
+          const bindings: OwsBindings = { version: 1, tasks: {} };
+          const layout: OwsLayout = { version: 1, nodes: {} };
           return {
-            nodeId: newNodeId,
-            workflowRequestId: newWorkflowRequest.id,
+            id: uuidv4(),
+            collectionId,
+            ...normalizeOwsWorkflowArtifacts(createDocument(name), bindings, layout),
+            createdAt: now,
+            updatedAt: now,
           };
         },
-
-        removeRequestNode: (workflowId, nodeId, path) =>
-          set((state) => ({
-            workflows: state.workflows.map((wf) => {
-              if (wf.id !== workflowId) return wf;
-              if (!wf.graph) return wf;
-              const slice = !path || path.length === 0 ? wf.graph : selectAtPath(wf.graph, path);
-              if (!slice) return wf;
-              const node = slice.nodes.find((n) => n.id === nodeId);
-              const nextSlice: WorkflowGraph = {
-                ...slice,
-                nodes: slice.nodes.filter((n) => n.id !== nodeId),
-                edges: slice.edges.filter((e) => e.source !== nodeId && e.target !== nodeId),
-              };
-              const nextGraph =
-                !path || path.length === 0 ? nextSlice : setAtPath(wf.graph, path, nextSlice);
-              // Cascade WorkflowRequest deletion for any node kind that
-              // holds a `workflowRequestId` in its `data`. Three kinds
-              // qualify today: request, sseSubscribe, mcpCall. (wsExchange
-              // uses inline URL config and has no linked WorkflowRequest.)
-              const linkedWorkflowRequestId =
-                node &&
-                'data' in node &&
-                node.data &&
-                (node.kind === 'request' || node.kind === 'sseSubscribe' || node.kind === 'mcpCall')
-                  ? (node.data as { workflowRequestId?: string }).workflowRequestId
-                  : undefined;
-              const nextRequests = linkedWorkflowRequestId
-                ? wf.requests.filter((r) => r.id !== linkedWorkflowRequestId)
-                : wf.requests;
-              return {
-                ...wf,
-                requests: nextRequests,
-                graph: nextGraph,
-                updatedAt: Date.now(),
-              };
-            }),
-          })),
-
-        clearWorkflowGraph: (workflowId) =>
-          set((state) => ({
-            workflows: state.workflows.map((wf) => {
-              if (wf.id !== workflowId) return wf;
-              // Strip `graph` from the workflow. The rest (requests[],
-              // variables, etc.) is preserved verbatim so users return to
-              // the linear form view with everything still in place.
-              const { graph: _graph, ...rest } = wf;
-              return { ...rest, updatedAt: Date.now() };
-            }),
-          })),
-
-        // Variable Extraction
-        addExtraction: (workflowId, requestId, extraction) =>
-          set((state) => ({
-            workflows: state.workflows.map((wf) =>
-              wf.id === workflowId
-                ? {
-                    ...wf,
-                    requests: wf.requests.map((req) =>
-                      req.id === requestId
-                        ? {
-                            ...req,
-                            extractVariables: [...(req.extractVariables || []), extraction],
-                          }
-                        : req
-                    ),
-                    updatedAt: Date.now(),
-                  }
-                : wf
-            ),
-          })),
-
-        updateExtraction: (workflowId, requestId, extractionId, updates) =>
-          set((state) => ({
-            workflows: state.workflows.map((wf) =>
-              wf.id === workflowId
-                ? {
-                    ...wf,
-                    requests: wf.requests.map((req) =>
-                      req.id === requestId
-                        ? {
-                            ...req,
-                            extractVariables: req.extractVariables?.map((ext) =>
-                              ext.id === extractionId ? { ...ext, ...updates } : ext
-                            ),
-                          }
-                        : req
-                    ),
-                    updatedAt: Date.now(),
-                  }
-                : wf
-            ),
-          })),
-
-        removeExtraction: (workflowId, requestId, extractionId) =>
-          set((state) => ({
-            workflows: state.workflows.map((wf) =>
-              wf.id === workflowId
-                ? {
-                    ...wf,
-                    requests: wf.requests.map((req) =>
-                      req.id === requestId
-                        ? {
-                            ...req,
-                            extractVariables: req.extractVariables?.filter(
-                              (ext) => ext.id !== extractionId
-                            ),
-                          }
-                        : req
-                    ),
-                    updatedAt: Date.now(),
-                  }
-                : wf
-            ),
-          })),
-
-        // Execution History
-        saveExecution: (execution) =>
-          set((state) => ({
-            // Keep last 100 executions, each bounded in size (see
-            // trimExecutionForPersist) — count alone doesn't cap storage
-            // when a single run's response bodies or captured variables
-            // (e.g. a large sseSubscribe/forEach) can be arbitrarily large.
-            executions: [...state.executions, trimExecutionForPersist(execution)].slice(-100),
-          })),
-
-        getExecutionsByWorkflowId: (workflowId) =>
-          get()
-            .executions.filter((ex) => ex.workflowId === workflowId)
-            .sort((a, b) => b.startedAt - a.startedAt),
-
-        getLatestExecution: (workflowId) =>
-          get()
-            .executions.filter((ex) => ex.workflowId === workflowId)
-            .sort((a, b) => b.startedAt - a.startedAt)[0],
-
-        clearExecutionHistory: (workflowId) =>
-          set((state) => ({
-            executions: workflowId
-              ? state.executions.filter((ex) => ex.workflowId !== workflowId)
-              : [],
-          })),
-
-        // Helpers
-        createNewWorkflowRequest: (requestId, name) => ({
-          id: uuidv4(),
-          requestId,
-          name,
-        }),
-
-        createNewExtraction: (variableName, path) => ({
-          id: uuidv4(),
-          variableName,
-          extractionMethod: 'jsonpath' as const,
-          path,
-        }),
       }),
       {
         name: 'workflow-storage',
-        // v3 → optional Workflow.graph (WorkflowGraph); existing rows just have
-        // `graph` absent, which is valid — no migration needed.
-        version: 3,
+        version: 4,
         storage: dexieStorageAdapters.workflows(),
-        onRehydrateStorage: () => (state, error) => {
-          if (error) {
-            console.error('Workflow store rehydration failed:', error);
-          }
-          if (state) {
-            console.debug('Workflow store rehydrated from Dexie successfully');
-          }
+        partialize: (state) => ({ workflows: state.workflows }),
+        // The application never transforms legacy graphs. Any record that is
+        // not a complete OWS artifact is dropped during hydration.
+        merge: (persisted, current) => {
+          const raw =
+            isRecord(persisted) && Array.isArray(persisted.workflows) ? persisted.workflows : [];
+          return {
+            ...current,
+            workflows: raw.flatMap((workflow) => {
+              const normalized = toStoredWorkflow(workflow);
+              return normalized ? [normalized] : [];
+            }),
+          };
+        },
+        onRehydrateStorage: () => (_state, error) => {
+          if (error) console.error('OWS workflow store rehydration failed:', error);
         },
       }
     ),
     {
-      // Track only the workflows array — executions are ephemeral run
-      // history (not user intent to undo) and the action functions
-      // themselves are stable. Reading the persisted slice keeps the
-      // undo stack focused on graph/workflow edits.
       partialize: (state) => ({ workflows: state.workflows }),
-      // Cap history at 10 to avoid unbounded memory growth during a long
-      // editing session. zundo defaults to unlimited.
       limit: 10,
-      // Throttle entry creation. Dragging a node fires onNodesChange
-      // many times per second; we coalesce into one undo step per ~300 ms.
-      handleSet: (handleSet) => throttle(handleSet, 300),
-      // Don't track the temporal stack itself across reloads — it'd be
-      // misleading after a refresh since the user has no visual cue for
-      // why "Undo" still works from a previous session.
     }
   )
 );

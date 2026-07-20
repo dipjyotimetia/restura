@@ -19,6 +19,7 @@
     "../shared/**/*.test.ts",
     "../shared/**/*.spec.ts",
     "../shared/**/__tests__/**",
-    "../shared/opencollection/node/**"
+    "../shared/opencollection/node/**",
+    "../shared/ows/node/**"
   ]
 }

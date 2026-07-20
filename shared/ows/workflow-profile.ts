@@ -1,0 +1,328 @@
+import {
+  buildGraph,
+  Classes,
+  type Graph,
+  type Specification,
+  WorkflowValidationError,
+} from '@openworkflowspec/sdk';
+
+/** The sole workflow DSL Restura reads or writes. */
+export const RESTURA_OWS_DSL_VERSION = '1.0.3' as const;
+/** Largest delay that browsers and Node can enforce without timer clamping. */
+export const MAX_OWS_DURATION_MS = 2_147_483_647;
+
+export type OwsWorkflow = Specification.Workflow;
+
+export interface OwsProfileIssue {
+  path: string;
+  message: string;
+  severity: 'error';
+}
+
+export type OwsProfileValidation =
+  | { ok: true; issues: [] }
+  | { ok: false; issues: OwsProfileIssue[] };
+
+const TASK_DISCRIMINATORS = [
+  'call',
+  'do',
+  'fork',
+  'emit',
+  'for',
+  'listen',
+  'raise',
+  'run',
+  'set',
+  'switch',
+  'try',
+  'wait',
+] as const;
+const SAFE_TASKS = new Set(['do', 'set', 'wait']);
+const SAFE_HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
+const DURATION_FIELDS = new Set(['days', 'hours', 'minutes', 'seconds', 'milliseconds']);
+const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function profileError(path: string, message: string): OwsProfileIssue {
+  return { path, message, severity: 'error' };
+}
+
+function validateDuration(value: unknown, path: string, issues: OwsProfileIssue[]): void {
+  if (!isRecord(value)) {
+    issues.push(profileError(path, 'Restura accepts only inline, finite OWS durations.'));
+    return;
+  }
+
+  let totalMs = 0;
+  for (const [key, amount] of Object.entries(value)) {
+    if (
+      !DURATION_FIELDS.has(key) ||
+      typeof amount !== 'number' ||
+      !Number.isFinite(amount) ||
+      amount < 0
+    ) {
+      issues.push(
+        profileError(path, 'Restura accepts only non-negative finite OWS duration fields.')
+      );
+      return;
+    }
+    const multiplier =
+      key === 'days'
+        ? 86_400_000
+        : key === 'hours'
+          ? 3_600_000
+          : key === 'minutes'
+            ? 60_000
+            : key === 'seconds'
+              ? 1000
+              : 1;
+    totalMs += amount * multiplier;
+  }
+  if (!Number.isFinite(totalMs) || totalMs > MAX_OWS_DURATION_MS) {
+    issues.push(
+      profileError(
+        path,
+        `OWS durations may not exceed ${MAX_OWS_DURATION_MS} milliseconds, the maximum safe platform timer.`
+      )
+    );
+  }
+}
+
+function validateTimeout(value: unknown, path: string, issues: OwsProfileIssue[]): void {
+  if (!isRecord(value) || Object.keys(value).length !== 1 || !('after' in value)) {
+    issues.push(
+      profileError(path, 'Restura accepts only an inline OWS timeout with an after duration.')
+    );
+    return;
+  }
+  validateDuration(value.after, `${path}/after`, issues);
+}
+
+function validateSetValue(value: unknown, path: string, issues: OwsProfileIssue[]): void {
+  if (value === null || typeof value === 'boolean' || typeof value === 'string') return;
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value))
+      issues.push(profileError(path, 'OWS set values must be finite JSON values.'));
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => validateSetValue(item, `${path}/${index}`, issues));
+    return;
+  }
+  if (!isRecord(value)) {
+    issues.push(
+      profileError(path, 'OWS set values must be JSON data or simple runtime references.')
+    );
+    return;
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (UNSAFE_OBJECT_KEYS.has(key)) {
+      issues.push(
+        profileError(`${path}/${key}`, 'OWS set values may not modify object prototypes.')
+      );
+      continue;
+    }
+    validateSetValue(item, `${path}/${key}`, issues);
+  }
+}
+
+function validateSet(value: unknown, path: string, issues: OwsProfileIssue[]): void {
+  if (!isRecord(value)) {
+    issues.push(profileError(path, "OWS 'set' must assign an object."));
+    return;
+  }
+  for (const [key, item] of Object.entries(value)) {
+    if (UNSAFE_OBJECT_KEYS.has(key)) {
+      issues.push(
+        profileError(`${path}/${key}`, 'OWS set tasks may not modify object prototypes.')
+      );
+      continue;
+    }
+    validateSetValue(item, `${path}/${key}`, issues);
+  }
+}
+
+function validateBoundHttpCall(
+  task: Record<string, unknown>,
+  path: string,
+  issues: OwsProfileIssue[]
+): void {
+  if (task.call !== 'http') {
+    issues.push(
+      profileError(
+        path,
+        'Restura supports only binding-only HTTP calls in the current OWS profile.'
+      )
+    );
+    return;
+  }
+  if (!isRecord(task.with) || Object.keys(task.with).length !== 2) {
+    issues.push(
+      profileError(
+        `${path}/with`,
+        'OWS HTTP calls must contain only method and the Restura binding endpoint.'
+      )
+    );
+    return;
+  }
+  const method = task.with.method;
+  if (typeof method !== 'string' || !SAFE_HTTP_METHODS.has(method)) {
+    issues.push(
+      profileError(
+        `${path}/with/method`,
+        'OWS binding-only HTTP calls must use a supported HTTP method.'
+      )
+    );
+  }
+  const endpoint = task.with.endpoint;
+  if (
+    !isRecord(endpoint) ||
+    Object.keys(endpoint).length !== 1 ||
+    endpoint.uri !== 'restura://saved-request'
+  ) {
+    issues.push(
+      profileError(
+        `${path}/with/endpoint`,
+        'OWS HTTP calls must use the restura://saved-request binding endpoint.'
+      )
+    );
+  }
+}
+
+function validateTaskList(list: unknown, path: string, issues: OwsProfileIssue[]): void {
+  if (!Array.isArray(list)) {
+    issues.push(profileError(path, 'OWS task list must be an array.'));
+    return;
+  }
+
+  for (const [index, entry] of list.entries()) {
+    const entryPath = `${path}/${index}`;
+    if (!isRecord(entry) || Object.keys(entry).length !== 1) {
+      issues.push(profileError(entryPath, 'Each OWS task must have exactly one task name.'));
+      continue;
+    }
+    const [name, task] = Object.entries(entry)[0] ?? [];
+    const taskPath = `${entryPath}/${name}`;
+    if (!isRecord(task)) {
+      issues.push(profileError(taskPath, 'OWS task must be an object.'));
+      continue;
+    }
+
+    const active = TASK_DISCRIMINATORS.filter((key) => task[key] !== undefined);
+    if (active.length !== 1) {
+      issues.push(
+        profileError(taskPath, 'Restura tasks must contain exactly one supported task operation.')
+      );
+      continue;
+    }
+    const operation = active[0];
+    if (!operation) continue;
+    if (!SAFE_TASKS.has(operation) && operation !== 'call') {
+      const message = `OWS '${operation}' tasks are not implemented by Restura's safe executor.`;
+      issues.push(profileError(taskPath, message));
+    }
+
+    for (const key of Object.keys(task)) {
+      if (key !== operation && key !== 'timeout' && !(operation === 'call' && key === 'with')) {
+        issues.push(
+          profileError(
+            `${taskPath}/${key}`,
+            `OWS task-level '${key}' is unavailable until Restura can enforce it safely.`
+          )
+        );
+      }
+    }
+    if (task.timeout !== undefined) validateTimeout(task.timeout, `${taskPath}/timeout`, issues);
+
+    if (operation === 'do') validateTaskList(task.do, `${taskPath}/do`, issues);
+    if (operation === 'set') validateSet(task.set, `${taskPath}/set`, issues);
+    if (operation === 'wait') validateDuration(task.wait, `${taskPath}/wait`, issues);
+    if (operation === 'call') validateBoundHttpCall(task, taskPath, issues);
+  }
+}
+
+/**
+ * OWS' schema deliberately supports automation features Restura cannot safely
+ * host. This product-owned validation layer is intentionally narrower than
+ * the SDK: it enables only controls the executor enforces today.
+ */
+export function validateOwsProfile(workflow: OwsWorkflow): OwsProfileValidation {
+  const issues: OwsProfileIssue[] = [];
+  const candidate = workflow as Record<string, unknown>;
+
+  for (const key of Object.keys(candidate)) {
+    if (key !== 'document' && key !== 'do' && key !== 'timeout') {
+      const message =
+        key === 'schedule'
+          ? 'Schedules and event triggers are not executable in Restura.'
+          : `OWS workflow-level '${key}' is unavailable until Restura can enforce it safely.`;
+      issues.push(profileError(`/${key}`, message));
+    }
+  }
+  if (candidate.timeout !== undefined) validateTimeout(candidate.timeout, '/timeout', issues);
+  validateTaskList(candidate.do, '/do', issues);
+
+  return issues.length === 0 ? { ok: true, issues: [] } : { ok: false, issues };
+}
+
+/** Parse OWS JSON only. YAML is intentionally import-only until the upstream SDK has stable JSON/YAML parity. */
+export function parseOwsWorkflowJson(source: string): OwsWorkflow {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    throw new Error('OWS workflows must be JSON.');
+  }
+  if (!isRecord(parsed) || !isRecord(parsed.document) || !Array.isArray(parsed.do)) {
+    throw new Error('Expected an OWS workflow document.');
+  }
+
+  try {
+    const normalized = new Classes.Workflow(parsed).normalize() as OwsWorkflow;
+    new Classes.Workflow(normalized).validate();
+    return normalized;
+  } catch (error) {
+    const message = error instanceof WorkflowValidationError ? error.message : String(error);
+    throw new Error(`Invalid OWS workflow: ${message}`);
+  }
+}
+
+/**
+ * Import an OWS document supplied as JSON or YAML. Persisted workflow files
+ * remain JSON-only: callers must serialize the returned model with the SDK.
+ */
+export function parseOwsWorkflowImport(source: string): OwsWorkflow {
+  try {
+    const imported = Classes.Workflow.deserialize(source).normalize() as OwsWorkflow;
+    new Classes.Workflow(imported).validate();
+    return imported;
+  } catch (error) {
+    const message = error instanceof WorkflowValidationError ? error.message : String(error);
+    throw new Error(`Invalid OWS workflow import: ${message}`);
+  }
+}
+
+/** Normalize and validate through the SDK before applying Restura's safe executable subset. */
+export function normalizeOwsWorkflow(workflow: OwsWorkflow): OwsWorkflow {
+  try {
+    const normalized = new Classes.Workflow(workflow).normalize() as OwsWorkflow;
+    new Classes.Workflow(normalized).validate();
+    return normalized;
+  } catch (error) {
+    const message = error instanceof WorkflowValidationError ? error.message : String(error);
+    throw new Error(`Invalid OWS workflow: ${message}`);
+  }
+}
+
+/** Deterministic OWS JSON is the only portable Flow executable artifact. */
+export function serializeOwsWorkflowJson(workflow: OwsWorkflow): string {
+  return Classes.Workflow.serialize(normalizeOwsWorkflow(workflow), 'json');
+}
+
+/** The SDK-owned graph is the semantic source for visual projection. */
+export function buildOwsGraph(workflow: OwsWorkflow): Graph {
+  return buildGraph(normalizeOwsWorkflow(workflow));
+}

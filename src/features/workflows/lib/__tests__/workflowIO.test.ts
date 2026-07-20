@@ -1,64 +1,93 @@
 import { describe, expect, it } from 'vitest';
-import type { Workflow, WorkflowGraph } from '@/types';
+import type { OwsStoredWorkflow } from '@/store/useWorkflowStore';
 import { exportWorkflow, parseWorkflowImport } from '../workflowIO';
 
-const graph: WorkflowGraph = {
-  version: 1,
-  nodes: [
-    { id: 'start', kind: 'start', position: { x: 0, y: 0 } },
-    { id: 'end', kind: 'end', position: { x: 0, y: 0 } },
-  ],
-  edges: [{ id: 'e1', source: 'start', target: 'end' }],
-};
-
-const workflow: Workflow = {
+const workflow: OwsStoredWorkflow = {
   id: 'orig-id',
-  name: 'My Flow',
-  description: 'desc',
   collectionId: 'col-a',
-  requests: [],
-  variables: [{ id: 'v1', key: 'k', value: 'v', enabled: true }],
-  graph,
+  document: {
+    document: {
+      dsl: '1.0.3',
+      namespace: 'restura',
+      name: 'my-flow',
+      version: '1.0.0',
+    },
+    do: [{ seed: { set: { greeting: 'hello' } } }],
+  },
+  bindings: { version: 1, tasks: {} },
+  layout: { version: 1, nodes: { '/do/0/seed': { x: 12, y: 34 } } },
   createdAt: 1,
   updatedAt: 2,
 };
 
 describe('workflowIO', () => {
-  it('round-trips a workflow, re-ids it, and rebinds the collection', () => {
+  it('round-trips canonical OWS JSON, re-ids it, and rebinds the collection', () => {
     const json = exportWorkflow(workflow);
     const result = parseWorkflowImport(json, 'col-b');
+
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.workflow.id).not.toBe('orig-id');
     expect(result.workflow.collectionId).toBe('col-b');
-    expect(result.workflow.name).toBe('My Flow');
-    expect(result.workflow.description).toBe('desc');
-    expect(result.workflow.graph).toEqual(graph);
-    expect(result.workflow.variables).toEqual([{ id: 'v1', key: 'k', value: 'v', enabled: true }]);
+    expect(result.workflow.document.document.name).toBe('my-flow');
+    expect(result.workflow.bindings).toEqual({ version: 1, tasks: {} });
+    expect(result.workflow.layout).toEqual({ version: 1, nodes: {} });
+    expect(JSON.parse(json)).toEqual(workflow.document);
   });
 
-  it('accepts a bare workflow object (no envelope)', () => {
-    const result = parseWorkflowImport(JSON.stringify(workflow), 'col-c');
-    expect(result.ok).toBe(true);
-    if (result.ok) expect(result.workflow.collectionId).toBe('col-c');
+  it('rejects legacy workflow envelopes and YAML at the JSON-only parser boundary', () => {
+    expect(
+      parseWorkflowImport(JSON.stringify({ format: 'restura-workflow', workflow: {} }), 'col-c')
+    ).toEqual(expect.objectContaining({ ok: false }));
+    expect(parseWorkflowImport('document:\n  dsl: 1.0.3', 'col-c')).toEqual(
+      expect.objectContaining({ ok: false })
+    );
   });
 
-  it('rejects non-JSON', () => {
-    const result = parseWorkflowImport('{not json', 'c');
-    expect(result.ok).toBe(false);
+  it('imports native OWS YAML but persists the normalized JSON model', () => {
+    const result = parseWorkflowImport(
+      `
+document:
+  dsl: 1.0.3
+  namespace: restura
+  name: yaml-flow
+  version: 1.0.0
+do:
+  - seed:
+      set:
+        source: yaml
+`,
+      'col-c'
+    );
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: true,
+        workflow: expect.objectContaining({
+          document: expect.objectContaining({
+            document: expect.objectContaining({ name: 'yaml-flow' }),
+          }),
+        }),
+      })
+    );
   });
 
-  it('rejects a workflow with no name', () => {
-    const result = parseWorkflowImport(JSON.stringify({ collectionId: 'x' }), 'c');
-    expect(result.ok).toBe(false);
-  });
+  it('rejects a call without a strict task-path binding', () => {
+    const result = parseWorkflowImport(
+      JSON.stringify({
+        ...workflow.document,
+        do: [
+          {
+            request: {
+              call: 'http',
+              with: { method: 'GET', endpoint: { uri: 'restura://saved-request' } },
+            },
+          },
+        ],
+      }),
+      'col-c'
+    );
 
-  it('rejects an invalid embedded graph', () => {
-    const bad = {
-      ...workflow,
-      graph: { version: 1, nodes: [], edges: [] }, // no start node
-    };
-    const result = parseWorkflowImport(JSON.stringify(bad), 'c');
-    expect(result.ok).toBe(false);
+    expect(result).toEqual(expect.objectContaining({ ok: false }));
   });
 });

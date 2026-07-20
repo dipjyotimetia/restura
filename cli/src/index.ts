@@ -4,6 +4,7 @@ import { EnvHttpProxyAgent, setGlobalDispatcher } from 'undici';
 import { version } from '../package.json';
 import { registerAgentCommand } from './commands/agent.js';
 import { registerRunCommand } from './commands/run.js';
+import { registerWorkflowCommand } from './commands/workflow.js';
 import { interactive } from './ui/colors.js';
 
 // Honour HTTP_PROXY / HTTPS_PROXY / NO_PROXY for all outbound requests — the
@@ -26,6 +27,7 @@ program.name('restura').description('Restura CLI — run API collections in CI')
 
 registerRunCommand(program);
 registerAgentCommand(program);
+registerWorkflowCommand(program);
 
 // Bare `restura` (no args) launches the interactive run wizard in a terminal by
 // routing through the `run` action (which detects the missing collection and

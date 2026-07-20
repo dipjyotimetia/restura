@@ -132,6 +132,14 @@ restura run [collection] [options]
 | `--cert-passphrase <value>` | | Passphrase for an encrypted `--client-key`. |
 | `--proxy <url>` | | HTTP(S) proxy URL. Overrides `HTTP_PROXY` / `HTTPS_PROXY`; composes with the TLS flags. |
 
+### OWS workflows
+
+```bash
+restura workflow run <workspace> <workflow-id> [--env ci.env] [--timeout 30000]
+```
+
+The workspace must be an OpenCollection directory with `opencollection.yml` and a complete `workflows/<workflow-id>/` artifact set. The command accepts only Restura's safe OWS profile: `do`, `set`, `wait`, timeout/cancellation, and binding-only HTTP calls to saved requests. It rejects inline endpoints, credentials, non-HTTP calls, and controls without a bounded runtime before dispatching any network request.
+
 ## Scripts and assertions
 
 Pre-request and test scripts run in a sandboxed QuickJS WASM VM — no DOM, no filesystem, no network escape; 10 MB memory cap, 5 s execution timeout. See [Scripts](/guides/scripts/) for the full Postman API surface.

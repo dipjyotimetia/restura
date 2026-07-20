@@ -23,7 +23,6 @@ export type StoreName =
   | 'settings'
   | 'cookies'
   | 'workflows'
-  | 'workflowExecutions'
   | 'fileCollections'
   | 'requestTabs'
   | 'websocketConnections'

@@ -24,6 +24,21 @@ restura run ./my-collection --reporter junit --reporter-output junit=results.xml
 
 Exit code is `0` when every request passed, `1` if any failed, `2` on internal errors (missing collection, bad flags).
 
+## OWS workflows
+
+Run a portable Open Workflow Specification artifact from an OpenCollection workspace:
+
+```bash
+restura workflow run ./my-workspace billing --env ./ci.env
+```
+
+The workspace must contain `opencollection.yml` and `workflows/billing/` with
+`workflow.ows.json`, `bindings.restura.json`, and `layout.restura.json`. The
+CLI accepts only the safe OWS profile: sequential `do`, `set`, `wait`, timeout
+/ cancellation, and binding-only HTTP calls to saved requests. Inline endpoints,
+credentials, non-HTTP calls, and controls without a bounded runtime are rejected
+before any network request is made.
+
 ## Interactive mode
 
 Run `restura` (or `restura run`) with **no collection** in a terminal to launch a guided wizard — pick the collection, reporters, output paths, an optional env file, and whether to allow localhost, then it runs:

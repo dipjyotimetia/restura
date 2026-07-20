@@ -5,6 +5,7 @@
  * Works alongside useCollectionStore to sync changes to the file system.
  */
 
+import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
@@ -12,6 +13,7 @@ import { isElectron } from '@/lib/shared/platform';
 import type { Collection, CollectionItem, KeyValue, Request } from '@/types';
 import type { ElectronAPI } from '../../electron/types/electron-api';
 import { useCollectionStore } from './useCollectionStore';
+import { useWorkflowStore } from './useWorkflowStore';
 
 // Runtime UI sync state (distinct from the persisted file `SyncState` in
 // file-collection-schema.ts, which tracks git file states like 'new'/'deleted').
@@ -191,6 +193,82 @@ function getElectronCollections(): ElectronAPI['collections'] | null {
     return window.electron.collections;
   }
   return null;
+}
+
+function getElectronOwsWorkspace(): ElectronAPI['owsWorkspace'] | null {
+  if (typeof window !== 'undefined' && window.electron?.owsWorkspace) {
+    return window.electron.owsWorkspace;
+  }
+  return null;
+}
+
+async function loadOwsWorkspaceForCollection(
+  directoryPath: string,
+  collectionId: string
+): Promise<void> {
+  const workspace = getElectronOwsWorkspace();
+  if (!workspace) return;
+  const listed = await workspace.list(directoryPath);
+  if (!listed.ok) throw new Error(listed.error);
+  const loaded = await Promise.all(
+    listed.workflowIds.map(async (workspaceId) => {
+      const result = await workspace.load(directoryPath, workspaceId);
+      if (!result.ok) throw new Error(result.error);
+      return { workspaceId, artifact: result.artifact };
+    })
+  );
+
+  const workflowStore = useWorkflowStore.getState();
+  const existing = new Map(
+    workflowStore.workflows
+      .filter((workflow) => workflow.collectionId === collectionId)
+      .map((workflow) => [workflow.workspaceId ?? workflow.id, workflow])
+  );
+  workflowStore.removeWorkflowsByCollectionId(collectionId);
+  const now = Date.now();
+  for (const { workspaceId, artifact } of loaded) {
+    const previous = existing.get(workspaceId);
+    workflowStore.addWorkflow({
+      id: previous?.id ?? uuidv4(),
+      collectionId,
+      workspaceId,
+      document: artifact.workflow,
+      bindings: artifact.bindings,
+      layout: artifact.layout,
+      createdAt: previous?.createdAt ?? now,
+      updatedAt: now,
+    });
+  }
+}
+
+async function saveOwsWorkspaceForCollection(
+  directoryPath: string,
+  collectionId: string
+): Promise<void> {
+  const workspace = getElectronOwsWorkspace();
+  if (!workspace) return;
+  const workflowStore = useWorkflowStore.getState();
+  const workflows = workflowStore.workflows.filter(
+    (workflow) => workflow.collectionId === collectionId
+  );
+  const desired = new Set<string>();
+  for (const workflow of workflows) {
+    const workspaceId = workflow.workspaceId ?? workflow.id;
+    desired.add(workspaceId);
+    const result = await workspace.save(directoryPath, workspaceId, {
+      workflow: workflow.document,
+      bindings: workflow.bindings,
+      layout: workflow.layout,
+    });
+    if (!result.ok) throw new Error(result.error);
+  }
+  const listed = await workspace.list(directoryPath);
+  if (!listed.ok) throw new Error(listed.error);
+  for (const workspaceId of listed.workflowIds) {
+    if (desired.has(workspaceId)) continue;
+    const result = await workspace.delete(directoryPath, workspaceId);
+    if (!result.ok) throw new Error(result.error);
+  }
 }
 
 export { isElectron as isElectronEnvironment };
@@ -376,6 +454,17 @@ export async function loadCollectionFromDirectory(directoryPath: string): Promis
     // Start watching (the active-watcher set is the git allowlist).
     await startWatching(collection.id, directoryPath);
 
+    try {
+      await loadOwsWorkspaceForCollection(directoryPath, collection.id);
+    } catch (error) {
+      fileStore.updateSyncState(
+        collection.id,
+        'error',
+        error instanceof Error ? error.message : String(error)
+      );
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+
     return { success: true, collection };
   }
 
@@ -422,7 +511,16 @@ export async function syncFileCollection(collectionId: string): Promise<{
     return { success: false, error: 'Collection not found' };
   }
 
-  return saveCollectionToDirectory(collection, fileInfo.directoryPath);
+  const result = await saveCollectionToDirectory(collection, fileInfo.directoryPath);
+  if (!result.success) return result;
+  try {
+    await saveOwsWorkspaceForCollection(fileInfo.directoryPath, collectionId);
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    fileStore.updateSyncState(collectionId, 'error', message);
+    return { success: false, error: message };
+  }
 }
 
 // Open collection directory in file explorer
@@ -466,6 +564,11 @@ export async function exportCollectionToFiles(
 
     // Start watching (the active-watcher set is the git allowlist).
     await startWatching(collectionId, directoryPath);
+    try {
+      await saveOwsWorkspaceForCollection(directoryPath, collectionId);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
   }
 
   return result;

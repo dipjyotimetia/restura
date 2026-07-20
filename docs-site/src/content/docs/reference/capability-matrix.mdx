@@ -18,7 +18,7 @@ Restura's capability matrix is **data-driven**: there's a single source of truth
 - Server-Sent Events — basic stream viewer with reconnection.
 - MCP — streamable-HTTP transport (`http-sse` is desktop-only).
 - Socket.IO — emit / listen / ack.
-- Collections, environments, workflows, scripts.
+- Collections, environments, scripts, and the safe OWS workflow profile (`do`, `set`, `wait`, timeout/cancellation, and bound HTTP saved-request calls). OWS event/process tasks, controls without a bounded runtime, and non-HTTP calls are rejected.
 - Load testing — fire an HTTP request at bounded concurrency (browser caps effective concurrency ~6).
 - Persistent IndexedDB storage (not encrypted at rest).
 - SSRF guard on all upstream requests.

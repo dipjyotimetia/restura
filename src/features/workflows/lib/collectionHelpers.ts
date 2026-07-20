@@ -25,6 +25,32 @@ export function findRequestInItems(
   return undefined;
 }
 
+/**
+ * Resolve an OWS saved-request binding. OpenCollection does not persist the
+ * renderer's UUIDs, so a Git workspace binds to the deterministic logical
+ * percent-encoded folder/request path. Renderer UUIDs are deliberately not a
+ * fallback: OpenCollection regenerates them on load, so accepting one would
+ * make a Git-native workflow silently non-portable.
+ */
+export function findRequestByReference(
+  items: CollectionItem[],
+  reference: string,
+  parentPath = ''
+): Request | undefined {
+  for (const item of items) {
+    const segment = encodeURIComponent(item.name);
+    const logicalPath = parentPath ? `${parentPath}/${segment}` : segment;
+    if (item.type === 'request' && item.request && logicalPath === reference) {
+      return item.request;
+    }
+    if (item.items) {
+      const found = findRequestByReference(item.items, reference, logicalPath);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
 export interface RequestSummary {
   /** The underlying request's id (stable across renames). */
   id: string;

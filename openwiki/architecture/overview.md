@@ -177,7 +177,7 @@ Key stores:
 - `useRequestStore` — current request, tabs, active tab lifecycle.
 - `useCollectionStore` — in-app collections/folders/requests.
 - `useFileCollectionStore` — desktop filesystem-backed collections, git ops, watchers.
-- `useWorkflowStore` — workflow definitions, step extraction rules, save state.
+- `useWorkflowStore` — validated OWS workflow documents, typed saved-request bindings, non-semantic layout, and save state.
 - `useEnvironmentStore` — environments and variable substitution.
 - `useSettingsStore` — app settings including telemetry opt-out.
 
