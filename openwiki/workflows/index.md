@@ -38,6 +38,14 @@ Node kinds include `request`, `condition`, `switch`, `parallel`, `forEach`, `loo
 
 The graph shape is versioned via `CURRENT_GRAPH_VERSION`. The current validator hardcodes version 1; bumping it requires adding a migration or existing graphs will fail to load.
 
+### Open Workflow Specification interchange
+
+`shared/workflow-interop/ows/` provides a runtime-neutral, fail-closed OWS import boundary. It uses the official `@openworkflowspec/sdk` for YAML/JSON parsing, schema validation, normalization, serialization, and graph generation; Restura does not maintain a second OWS AST or serializer.
+
+Imported OWS documents must include a separate Restura binding manifest that maps SDK-validated task paths to saved protocol resources. The current safe profile permits controlled call/control-flow shapes and rejects execution-capable declarations such as shell/script/container runs, schedules, reusable secrets/authentication/functions, events, and unbound calls. It also rejects workflow inputs and inline request headers, query/body/authentication data: execution data must come from the bound Restura resource and its secret-handle policy. It does not execute workflows or change persisted Flow graphs yet: execution remains in the protocol registry and agent-policy layers.
+
+The pinned SDK prerelease currently has an upstream YAML serialization defect for normalized class instances. YAML input is supported; safe-profile export is deliberately JSON-only until that SDK defect is fixed and covered by a contract test.
+
 ---
 
 ## Execution engines
