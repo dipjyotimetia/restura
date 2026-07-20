@@ -9,6 +9,7 @@ describe('CI workflow', () => {
     const commentSteps: Array<[start: string, end: string]> = [
       ['- name: Comment test results on PR', '- name: Vitest Coverage Report'],
       ['- name: Vitest Coverage Report', '- name: Upload coverage report'],
+      ['- name: Comment preview URL on PR', '  # docs-site is NOT an npm workspace'],
     ];
 
     for (const [start, end] of commentSteps) {
