@@ -51,7 +51,7 @@ export function useOwsWorkflowExecution() {
   const run = useCallback(
     async (workflow: OwsStoredWorkflow): Promise<OwsExecutionResult> => {
       if (controllerRef.current) {
-        throw new Error('An OWS workflow is already running. Stop it before starting another run.');
+        throw new Error('A workflow is already running. Stop it before starting another run.');
       }
       const collection = collections.find((candidate) => candidate.id === workflow.collectionId);
       if (!collection) throw new Error('The workflow collection is unavailable.');
@@ -79,17 +79,17 @@ export function useOwsWorkflowExecution() {
           dispatcher: {
             dispatch: async ({ binding, call, method, signal }) => {
               if (binding.kind !== 'saved-request' || binding.call !== 'http' || call !== 'http') {
-                throw new Error('OWS calls require an approved saved HTTP request binding.');
+                throw new Error('Workflow calls require an approved saved HTTP request binding.');
               }
               const request = findRequestByReference(collection.items, binding.resourceId);
               if (!request || request.type !== 'http') {
                 throw new Error(
-                  `OWS binding ${binding.resourceId} does not resolve to a saved HTTP request.`
+                  `Workflow binding ${binding.resourceId} does not resolve to a saved HTTP request.`
                 );
               }
               if (request.method !== method) {
                 throw new Error(
-                  `OWS call method ${method} does not match saved request method ${request.method}.`
+                  `Workflow call method ${method} does not match saved request method ${request.method}.`
                 );
               }
               const protocol = protocolRegistry.get('http');
@@ -108,7 +108,7 @@ export function useOwsWorkflowExecution() {
         if (runGeneration === runGenerationRef.current) setResult(execution);
         return execution;
       } catch (cause) {
-        const message = cause instanceof Error ? cause.message : 'OWS workflow execution failed.';
+        const message = cause instanceof Error ? cause.message : 'Workflow execution failed.';
         if (runGeneration === runGenerationRef.current) setError(message);
         throw cause;
       } finally {

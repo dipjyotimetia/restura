@@ -392,7 +392,7 @@ function Sidebar({ activePanel }: SidebarProps) {
     startCollectionRename(newCollection.id, newCollection.name);
   }, [collections, createNewCollection, addCollection, startCollectionRename]);
 
-  // These collection formats have no OWS companion-artifact convention, so a
+  // These collection formats have no workflow companion-artifact convention, so a
   // linked workflow would otherwise be omitted silently during export.
   const warnAboutOmittedWorkflows = useCallback((collection: Collection) => {
     const linked = useWorkflowStore
@@ -400,7 +400,7 @@ function Sidebar({ activePanel }: SidebarProps) {
       .workflows.filter((w) => w.collectionId === collection.id);
     if (linked.length === 0) return;
     toast.warning(
-      `This export format doesn't support OWS workflows — ${linked.length} workflow${
+      `This export format doesn't support workflows — ${linked.length} workflow${
         linked.length === 1 ? '' : 's'
       } in "${collection.name}" ${linked.length === 1 ? 'was' : 'were'} not included.`
     );

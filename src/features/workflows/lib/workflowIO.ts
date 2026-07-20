@@ -42,7 +42,7 @@ export function parseWorkflowImport(json: string, collectionId: string): Workflo
   } catch (error) {
     return {
       ok: false,
-      error: error instanceof Error ? error.message : 'Invalid OWS workflow artifact.',
+      error: error instanceof Error ? error.message : 'Invalid workflow artifact.',
     };
   }
 }

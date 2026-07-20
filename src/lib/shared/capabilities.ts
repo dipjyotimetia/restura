@@ -291,7 +291,7 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
   'collections.file': { label: 'Filesystem-backed collections', web: false, desktop: true },
   'collections.git': { label: 'Git operations on collections', web: false, desktop: true },
   'workflows.ows': {
-    label: 'OWS workflows (safe profile)',
+    label: 'Workflows (safe profile)',
     web: true,
     desktop: true,
     notes:

@@ -107,7 +107,7 @@ export function WorkflowManager({
             type="file"
             accept="application/json,application/yaml,text/yaml,.json,.yaml,.yml"
             className="hidden"
-            aria-label="Import OWS workflow"
+            aria-label="Import workflow"
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (file) void importArtifact(file);
@@ -118,7 +118,7 @@ export function WorkflowManager({
             variant="ghost"
             size="icon"
             className="h-6 w-6"
-            title="Import OWS workflow JSON or YAML"
+            title="Import workflow JSON or YAML"
             onClick={() => importInputRef.current?.click()}
           >
             <Upload className="h-4 w-4" />
@@ -127,7 +127,7 @@ export function WorkflowManager({
             variant="ghost"
             size="icon"
             className="h-6 w-6"
-            title="New OWS workflow"
+            title="New workflow"
             onClick={() => setShowNewDialog(true)}
           >
             <Plus className="h-4 w-4" />
@@ -135,7 +135,7 @@ export function WorkflowManager({
         </div>
       </div>
       {workflows.length === 0 ? (
-        <div className="py-8 text-center text-sm text-muted-foreground">No OWS workflows yet</div>
+        <div className="py-8 text-center text-sm text-muted-foreground">No workflows yet</div>
       ) : (
         <div className="space-y-1">
           {workflows.map((workflow) => (
@@ -196,7 +196,7 @@ export function WorkflowManager({
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => exportArtifact(workflow)}>
                       <Download className="mr-2 h-4 w-4" />
-                      Export OWS JSON
+                      Export workflow JSON
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className="text-destructive"
@@ -215,7 +215,7 @@ export function WorkflowManager({
       <Dialog open={showNewDialog} onOpenChange={setShowNewDialog}>
         <DialogContent>
           <DialogHeader icon={Workflow}>
-            <DialogTitle>Create OWS workflow</DialogTitle>
+            <DialogTitle>Create workflow</DialogTitle>
           </DialogHeader>
           <Input
             autoFocus
@@ -237,7 +237,7 @@ export function WorkflowManager({
       <Dialog open={!!editingWorkflow} onOpenChange={(open) => !open && setEditingWorkflow(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Rename OWS workflow</DialogTitle>
+            <DialogTitle>Rename workflow</DialogTitle>
           </DialogHeader>
           <Input
             autoFocus

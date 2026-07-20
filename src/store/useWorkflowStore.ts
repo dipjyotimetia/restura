@@ -98,11 +98,11 @@ export function normalizeOwsWorkflowArtifacts(
   const profile = validateOwsProfile(normalized);
   if (!profile.ok) {
     throw new Error(
-      `OWS workflow is outside Restura's executable profile: ${profile.issues[0]?.message ?? 'invalid profile'}`
+      `Workflow is outside Restura's executable profile: ${profile.issues[0]?.message ?? 'invalid profile'}`
     );
   }
   if (!isOwsBindings(bindings)) {
-    throw new Error('OWS bindings must be a version 1 typed bindings document.');
+    throw new Error('Workflow bindings must be a version 1 typed bindings document.');
   }
   validateLayout(layout);
 
@@ -110,12 +110,14 @@ export function normalizeOwsWorkflowArtifacts(
   collectCallPaths(normalized.do, '/do', callPaths);
   for (const taskPath of callPaths) {
     if (!bindings.tasks[taskPath]) {
-      throw new Error(`OWS call ${taskPath} is missing an approved binding.`);
+      throw new Error(`Workflow call ${taskPath} is missing an approved binding.`);
     }
   }
   for (const taskPath of Object.keys(bindings.tasks)) {
     if (!callPaths.has(taskPath)) {
-      throw new Error(`OWS binding task path ${taskPath} does not exist in the workflow document.`);
+      throw new Error(
+        `Workflow binding task path ${taskPath} does not exist in the workflow document.`
+      );
     }
   }
   return { document: normalized, bindings, layout };
@@ -168,7 +170,7 @@ export const useWorkflowStore = create<WorkflowState>()(
         workflows: [],
         addWorkflow: (workflow) => {
           const normalized = toStoredWorkflow(workflow);
-          if (!normalized) throw new Error('Invalid OWS workflow artifact.');
+          if (!normalized) throw new Error('Invalid workflow artifact.');
           set((state) => ({ workflows: [...state.workflows, normalized] }));
         },
         renameWorkflow: (id, name) =>

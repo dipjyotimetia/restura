@@ -100,7 +100,7 @@ export function WorkflowExecutor({ workflow, open, onOpenChange }: WorkflowExecu
           ) : (
             <Button onClick={() => void run(workflow).catch(() => undefined)}>
               <Play className="mr-2 h-4 w-4" />
-              Run OWS workflow
+              Run workflow
             </Button>
           )}
         </DialogFooter>

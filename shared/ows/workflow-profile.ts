@@ -190,6 +190,10 @@ function validateSet(value: unknown, path: string, issues: OwsProfileIssue[]): v
     issues.push(profileError(path, "OWS 'set' must assign an object."));
     return;
   }
+  if (Object.keys(value).length === 0) {
+    issues.push(profileError(path, "OWS 'set' must assign at least one value."));
+    return;
+  }
   for (const [key, item] of Object.entries(value)) {
     if (UNSAFE_OBJECT_KEYS.has(key)) {
       issues.push(

@@ -1,0 +1,106 @@
+.workflow-canvas {
+  border-color: color-mix(in oklab, var(--sp-line) 82%, #6e8aa8);
+  background: #101720;
+}
+
+.workflow-canvas > aside {
+  background: linear-gradient(180deg, #121b26 0%, #0e151e 100%);
+}
+
+.workflow-canvas__surface .react-flow {
+  background:
+    radial-gradient(circle at 50% -20%, rgb(43 75 112 / 26%), transparent 48%),
+    linear-gradient(135deg, #0c121a 0%, #111a25 100%);
+}
+
+.workflow-canvas__surface .react-flow__pane {
+  background-image:
+    linear-gradient(rgb(134 162 194 / 7%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(134 162 194 / 7%) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+.workflow-canvas__surface .react-flow__node {
+  border-radius: 14px;
+  border: 1px solid #2e4054;
+  background: linear-gradient(145deg, #1a2634, #111a24);
+  box-shadow:
+    0 14px 30px rgb(0 0 0 / 30%),
+    inset 0 1px 0 rgb(255 255 255 / 5%);
+  color: #e2ebf7;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.015em;
+}
+
+.workflow-canvas__surface .react-flow__node.selected,
+.workflow-canvas__surface .react-flow__node:focus-visible {
+  border-color: #3b9df8;
+  box-shadow:
+    0 0 0 3px rgb(59 157 248 / 16%),
+    0 16px 32px rgb(0 0 0 / 36%);
+}
+
+.workflow-canvas__surface .workflow-canvas__node--terminal {
+  border-color: #344658;
+  background: linear-gradient(145deg, #263343, #192330);
+  color: #cbd8e7;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+
+.workflow-canvas__surface .workflow-canvas__node--do {
+  border-color: #5c70d5;
+}
+
+.workflow-canvas__surface .workflow-canvas__node--set {
+  border-color: #ad75d3;
+}
+
+.workflow-canvas__surface .workflow-canvas__node--wait {
+  border-color: #c39142;
+}
+
+.workflow-canvas__surface .workflow-canvas__node--call {
+  border-color: #319b75;
+}
+
+.workflow-canvas__surface .react-flow__edge-path {
+  stroke: #526a83;
+  stroke-width: 2;
+}
+
+.workflow-canvas__surface .react-flow__controls {
+  overflow: hidden;
+  border: 1px solid #324457;
+  border-radius: 8px;
+  background: #151f2b;
+  box-shadow: 0 8px 20px rgb(0 0 0 / 28%);
+}
+
+.workflow-canvas__surface .react-flow__controls-button {
+  border-bottom-color: #2c3d4f;
+  background: #151f2b;
+  fill: #b7c8dc;
+}
+
+.workflow-canvas__surface .react-flow__controls-button:hover {
+  background: #223247;
+}
+
+.workflow-canvas__surface .react-flow__minimap {
+  border: 1px solid #324457;
+  border-radius: 8px;
+  background: #111a24;
+  box-shadow: 0 8px 20px rgb(0 0 0 / 25%);
+}
+
+.workflow-canvas__surface .react-flow__minimap-mask {
+  fill: rgb(10 16 24 / 65%);
+}
+
+.workflow-canvas__surface .react-flow__minimap-node {
+  fill: #6684a5;
+  stroke: #a4bdd8;
+}

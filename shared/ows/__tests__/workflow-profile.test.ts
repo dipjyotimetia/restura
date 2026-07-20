@@ -41,6 +41,7 @@ describe('OWS workflow profile', () => {
     ['an empty workflow name', { document: { ...supportedWorkflow.document, name: '' } }],
     ['unknown document metadata', { document: { ...supportedWorkflow.document, unsafe: true } }],
     ['an empty task list', { do: [] }],
+    ['an empty set assignment', { do: [{ seed: { set: {} } }] }],
     ['an empty wait duration', { do: [{ pause: { wait: {} } }] }],
   ])('rejects %s in the CSP-safe renderer profile before persistence or execution', (_name, change) => {
     expect(() => parseOwsWorkflowJson(JSON.stringify({ ...supportedWorkflow, ...change }))).toThrow(

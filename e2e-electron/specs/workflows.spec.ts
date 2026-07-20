@@ -1,6 +1,6 @@
 import { mkdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { setUrl, switchMode } from '../../e2e/utils/selectors';
+import { selectHttpMethod, setUrl, switchMode } from '../../e2e/utils/selectors';
 import { expect, test } from '../fixtures/servers';
 
 const WORKFLOW_DOCUMENT = {
@@ -37,16 +37,18 @@ const WORKFLOW_BINDINGS = {
     '/do/1/callSavedRequest': {
       kind: 'saved-request',
       call: 'http',
-      resourceId: 'Workflow%20request',
+      resourceId: 'Workflow%20GET',
     },
   },
 };
 
 async function createCollectionAndSavedRequest(
   page: Parameters<typeof setUrl>[0],
-  url: string
-): Promise<void> {
+  url: string,
+  method = 'GET'
+): Promise<{ collectionName: string; requestName: string }> {
   await switchMode(page, 'http');
+  if (method !== 'GET') await selectHttpMethod(page, method);
   await setUrl(page, url);
   const requestTab = page
     .getByRole('tablist', { name: 'Request tabs' })
@@ -55,15 +57,18 @@ async function createCollectionAndSavedRequest(
   await page.getByRole('menuitem', { name: 'Save to Collection…' }).click();
 
   const saveDialog = page.getByRole('dialog', { name: 'Save to Collection' });
-  await saveDialog.getByPlaceholder('Request name').fill('Workflow request');
+  const requestName = `Workflow ${method}`;
+  const collectionName = `Workflow E2E ${Date.now()} ${method}`;
+  await saveDialog.getByPlaceholder('Request name').fill(requestName);
   const newMode = saveDialog.getByRole('button', { name: 'New' });
   if (await newMode.count()) await newMode.click();
-  await saveDialog.getByPlaceholder('New collection name').fill(`Workflow E2E ${Date.now()}`);
+  await saveDialog.getByPlaceholder('New collection name').fill(collectionName);
   await saveDialog.getByRole('button', { name: 'Save' }).click();
+  return { collectionName, requestName };
 }
 
-test.describe('Desktop OWS workflows', () => {
-  test('persists and reloads the complete OWS artifact triplet through Electron IPC', async ({
+test.describe('Desktop workflows', () => {
+  test('persists and reloads the complete workflow artifact triplet through Electron IPC', async ({
     app: page,
   }) => {
     const userDataPath = await page.evaluate(() => window.electron?.app.getPath('userData'));
@@ -118,11 +123,15 @@ test.describe('Desktop OWS workflows', () => {
         ])
       ).resolves.toHaveLength(3);
     } finally {
+      await page.evaluate(async (directoryPath) => {
+        const electron = window.electron;
+        if (electron) await electron.collections.unwatchDirectory(directoryPath);
+      }, workspaceRoot);
       await rm(workspaceRoot, { recursive: true, force: true });
     }
   });
 
-  test('authors and runs every supported OWS control through the native HTTP path', async ({
+  test('authors and runs every supported workflow control through the native HTTP path', async ({
     app: page,
     servers,
   }) => {
@@ -130,34 +139,141 @@ test.describe('Desktop OWS workflows', () => {
 
     await page.getByRole('tab', { name: 'Workflows', exact: true }).click();
     await expect(page.getByRole('tabpanel', { name: 'Workflows' })).toBeVisible();
-    await page.getByRole('tabpanel', { name: 'Workflows' }).getByTitle('New OWS workflow').click();
-    const createDialog = page.getByRole('dialog', { name: 'Create OWS workflow' });
-    await createDialog.getByPlaceholder('Workflow name').fill('Desktop OWS flow');
+    await page.getByRole('tabpanel', { name: 'Workflows' }).getByTitle('New workflow').click();
+    const createDialog = page.getByRole('dialog', { name: 'Create workflow' });
+    await createDialog.getByPlaceholder('Workflow name').fill('Desktop flow');
     await createDialog.getByRole('button', { name: 'Create' }).click();
 
-    const editor = page.getByRole('dialog', { name: 'OWS workflow: desktop-ows-flow' });
-    await editor
-      .getByRole('textbox', { name: 'OWS workflow JSON' })
-      .fill(JSON.stringify(WORKFLOW_DOCUMENT));
+    const editor = page.getByRole('dialog', { name: 'Workflow: desktop-flow' });
+    await editor.getByRole('tab', { name: 'Workflow JSON' }).click();
+    await editor.getByRole('textbox', { name: 'Workflow JSON' }).fill(
+      JSON.stringify({
+        ...WORKFLOW_DOCUMENT,
+        document: { ...WORKFLOW_DOCUMENT.document, name: 'desktop-flow' },
+      })
+    );
     await editor.getByRole('tab', { name: 'Bindings' }).click();
     await editor
-      .getByRole('textbox', { name: 'OWS bindings JSON' })
+      .getByRole('textbox', { name: 'Workflow bindings JSON' })
       .fill(JSON.stringify(WORKFLOW_BINDINGS));
     await editor.getByRole('button', { name: 'Validate & save' }).click();
-    await expect(editor.getByText('Saved as validated OWS artifacts.')).toBeVisible();
+    await expect(editor.getByText('Saved as a validated workflow.')).toBeVisible();
 
-    await editor.getByRole('tab', { name: 'Task graph' }).click();
-    await expect(editor.getByText('/do/0/initialize/do/0/setContext')).toBeVisible();
-    await expect(editor.getByText('/do/0/initialize/do/1/boundedDelay')).toBeVisible();
-    await expect(editor.getByText('/do/1/callSavedRequest')).toBeVisible();
+    await editor.getByRole('tab', { name: 'Graph' }).click();
+    await expect(editor.getByText('START')).toBeVisible();
+    await expect(editor.getByText('END')).toBeVisible();
+    await expect(editor.getByText(/Sequence · 2 blocks/)).toBeVisible();
+    await expect(editor.getByText(/GET · Workflow%20GET/)).toBeVisible();
 
     await editor.getByRole('button', { name: 'Run' }).click();
-    const runDialog = page.getByRole('dialog', { name: /desktop-ows-flow/ });
-    await runDialog.getByRole('button', { name: 'Run OWS workflow' }).click();
+    const runDialog = page.getByRole('dialog', { name: /desktop-flow/ });
+    await runDialog.getByRole('button', { name: 'Run workflow' }).click();
     await expect(runDialog.getByText('success', { exact: true }).first()).toBeVisible();
     await expect(runDialog.getByText('/do/1/callSavedRequest')).toBeVisible();
     expect(servers.http.requests().some((request) => request.path === '/json')).toBe(true);
     await runDialog.getByRole('button', { name: 'Close' }).first().click();
+  });
+
+  test('converts safe graph blocks into an executable workflow and typed request binding', async ({
+    app: page,
+    servers,
+  }) => {
+    await createCollectionAndSavedRequest(page, `${servers.http.url}/json`);
+    await page.getByRole('tab', { name: 'Workflows', exact: true }).click();
+    const workflowPanel = page.getByRole('tabpanel', { name: 'Workflows' });
+    await workflowPanel.getByTitle('New workflow').last().click();
+    const createDialog = page.getByRole('dialog', { name: 'Create workflow' });
+    await createDialog.getByPlaceholder('Workflow name').fill('Graph blocks');
+    await createDialog.getByRole('button', { name: 'Create' }).click();
+
+    const editor = page.getByRole('dialog', { name: 'Workflow: graph-blocks' });
+    await expect(editor.getByText('START')).toBeVisible();
+    await editor.getByRole('button', { name: 'Sequence' }).click();
+    await editor.getByRole('button', { name: 'Set value' }).click();
+    await editor.getByRole('button', { name: 'Wait' }).click();
+    await editor.getByRole('button', { name: /GET Workflow GET/ }).click();
+    await editor.getByRole('button', { name: 'Validate & save' }).click();
+    await expect(editor.getByText('Saved as a validated workflow.')).toBeVisible();
+
+    await editor.getByRole('tab', { name: 'Workflow JSON' }).click();
+    await expect(editor.getByRole('textbox', { name: 'Workflow JSON' })).toContainText('set-1');
+    await expect(editor.getByRole('textbox', { name: 'Workflow JSON' })).toContainText(
+      'sequence-1'
+    );
+    await expect(editor.getByRole('textbox', { name: 'Workflow JSON' })).toContainText('request-1');
+    await editor.getByRole('tab', { name: 'Bindings' }).click();
+    await expect(editor.getByRole('textbox', { name: 'Workflow bindings JSON' })).toContainText(
+      'Workflow%20GET'
+    );
+
+    await editor.getByRole('button', { name: 'Run' }).click();
+    const runDialog = page.getByRole('dialog', { name: /graph-blocks/ });
+    await runDialog.getByRole('button', { name: 'Run workflow' }).click();
+    await expect(runDialog.getByText('success', { exact: true }).first()).toBeVisible();
+    expect(servers.http.requests().some((request) => request.path === '/json')).toBe(true);
+    await runDialog.getByRole('button', { name: 'Close' }).first().click();
+  });
+
+  test('runs every supported bound HTTP method through the Electron workflow executor', async ({
+    app: page,
+    servers,
+  }) => {
+    for (const method of ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']) {
+      const { requestName } = await createCollectionAndSavedRequest(
+        page,
+        `${servers.http.url}/echo`,
+        method
+      );
+      await page.getByRole('tab', { name: 'Workflows', exact: true }).click();
+      const workflowPanel = page.getByRole('tabpanel', { name: 'Workflows' });
+      await workflowPanel.getByTitle('New workflow').last().click();
+      const createDialog = page.getByRole('dialog', { name: 'Create workflow' });
+      await createDialog.getByPlaceholder('Workflow name').fill(`Method ${method}`);
+      await createDialog.getByRole('button', { name: 'Create' }).click();
+
+      const workflowName = `method-${method.toLowerCase()}`;
+      const editor = page.getByRole('dialog', { name: `Workflow: ${workflowName}` });
+      await editor.getByRole('tab', { name: 'Workflow JSON' }).click();
+      await editor.getByRole('textbox', { name: 'Workflow JSON' }).fill(
+        JSON.stringify({
+          document: { ...WORKFLOW_DOCUMENT.document, name: workflowName },
+          do: [
+            {
+              invoke: {
+                call: 'http',
+                with: { method, endpoint: { uri: 'restura://saved-request' } },
+              },
+            },
+          ],
+        })
+      );
+      await editor.getByRole('tab', { name: 'Bindings' }).click();
+      await editor.getByRole('textbox', { name: 'Workflow bindings JSON' }).fill(
+        JSON.stringify({
+          version: 1,
+          tasks: {
+            '/do/0/invoke': {
+              kind: 'saved-request',
+              call: 'http',
+              resourceId: encodeURIComponent(requestName),
+            },
+          },
+        })
+      );
+      await editor.getByRole('button', { name: 'Validate & save' }).click();
+      await editor.getByRole('button', { name: 'Run' }).click();
+      const runDialog = page.getByRole('dialog', { name: workflowName });
+      await runDialog.getByRole('button', { name: 'Run workflow' }).click();
+      await expect(runDialog.getByText('success', { exact: true }).first()).toBeVisible();
+      await expect
+        .poll(() =>
+          servers.http
+            .requests()
+            .some((request) => request.path === '/echo' && request.method === method)
+        )
+        .toBe(true);
+      await runDialog.getByRole('button', { name: 'Close' }).first().click();
+    }
   });
 
   test('rejects every unsupported control and call transport before it can be saved', async ({
@@ -171,15 +287,16 @@ test.describe('Desktop OWS workflows', () => {
     await expect(page.getByRole('tabpanel', { name: 'Workflows' })).toBeVisible();
     await page
       .getByRole('tabpanel', { name: 'Workflows' })
-      .getByTitle('New OWS workflow')
+      .getByTitle('New workflow')
       .first()
       .click();
-    const createDialog = page.getByRole('dialog', { name: 'Create OWS workflow' });
+    const createDialog = page.getByRole('dialog', { name: 'Create workflow' });
     await createDialog.getByPlaceholder('Workflow name').fill('Unsafe control');
     await createDialog.getByRole('button', { name: 'Create' }).click();
 
-    const editor = page.getByRole('dialog', { name: 'OWS workflow: unsafe-control' });
-    const documentInput = editor.getByRole('textbox', { name: 'OWS workflow JSON' });
+    const editor = page.getByRole('dialog', { name: 'Workflow: unsafe-control' });
+    await editor.getByRole('tab', { name: 'Workflow JSON' }).click();
+    const documentInput = editor.getByRole('textbox', { name: 'Workflow JSON' });
     const unsupportedControls = ['fork', 'for', 'emit', 'listen', 'raise', 'run', 'switch', 'try'];
     for (const control of unsupportedControls) {
       await documentInput.fill(
@@ -227,14 +344,15 @@ test.describe('Desktop OWS workflows', () => {
     await createCollectionAndSavedRequest(page, `${servers.http.url}/slow?ms=1500`);
     await page.getByRole('tab', { name: 'Workflows', exact: true }).click();
     const workflowPanel = page.getByRole('tabpanel', { name: 'Workflows' });
-    await workflowPanel.getByTitle('New OWS workflow').click();
-    const createDialog = page.getByRole('dialog', { name: 'Create OWS workflow' });
+    await workflowPanel.getByTitle('New workflow').click();
+    const createDialog = page.getByRole('dialog', { name: 'Create workflow' });
     await createDialog.getByPlaceholder('Workflow name').fill('Cancellation boundary');
     await createDialog.getByRole('button', { name: 'Create' }).click();
 
-    const editor = page.getByRole('dialog', { name: 'OWS workflow: cancellation-boundary' });
-    const documentInput = editor.getByRole('textbox', { name: 'OWS workflow JSON' });
-    const bindingsInput = editor.getByRole('textbox', { name: 'OWS bindings JSON' });
+    const editor = page.getByRole('dialog', { name: 'Workflow: cancellation-boundary' });
+    await editor.getByRole('tab', { name: 'Workflow JSON' }).click();
+    const documentInput = editor.getByRole('textbox', { name: 'Workflow JSON' });
+    const bindingsInput = editor.getByRole('textbox', { name: 'Workflow bindings JSON' });
     const boundCall = {
       callSavedRequest: {
         call: 'http',
@@ -247,13 +365,13 @@ test.describe('Desktop OWS workflows', () => {
         '/do/1/callSavedRequest': {
           kind: 'saved-request',
           call: 'http',
-          resourceId: 'Workflow%20request',
+          resourceId: 'Workflow%20GET',
         },
       },
     };
     await editor.getByRole('tab', { name: 'Bindings' }).click();
     await bindingsInput.fill(JSON.stringify(bindings));
-    await editor.getByRole('tab', { name: 'OWS JSON' }).click();
+    await editor.getByRole('tab', { name: 'Workflow JSON' }).click();
 
     // Both timeout levels must terminate before the later HTTP task is reached.
     let hasUnsavedChange = true;
@@ -279,13 +397,14 @@ test.describe('Desktop OWS workflows', () => {
       await editor.getByRole('button', { name: 'Validate & save' }).click();
       await editor.getByRole('button', { name: 'Run' }).click();
       const runDialog = page.getByRole('dialog', { name: /cancellation-boundary/ });
-      await runDialog.getByRole('button', { name: 'Run OWS workflow' }).click();
+      await runDialog.getByRole('button', { name: 'Run workflow' }).click();
       await expect(runDialog.getByText('failed', { exact: true }).first()).toBeVisible();
       expect(servers.http.requests().filter((request) => request.path === '/slow')).toHaveLength(0);
       await runDialog.getByRole('button', { name: 'Close' }).first().click();
       await workflowPanel
         .getByRole('button', { name: 'Edit workflow cancellation-boundary' })
         .click();
+      await editor.getByRole('tab', { name: 'Workflow JSON' }).click();
     }
 
     // Closing/Stop must abort a wait and prevent the following bound call.
@@ -298,7 +417,7 @@ test.describe('Desktop OWS workflows', () => {
     await editor.getByRole('button', { name: 'Validate & save' }).click();
     await editor.getByRole('button', { name: 'Run' }).click();
     const runDialog = page.getByRole('dialog', { name: /cancellation-boundary/ });
-    await runDialog.getByRole('button', { name: 'Run OWS workflow' }).click();
+    await runDialog.getByRole('button', { name: 'Run workflow' }).click();
     await expect(runDialog.getByRole('button', { name: 'Stop' })).toBeVisible();
     await runDialog.getByRole('button', { name: 'Stop' }).click();
     await expect(runDialog.getByText('stopped', { exact: true }).first()).toBeVisible();
