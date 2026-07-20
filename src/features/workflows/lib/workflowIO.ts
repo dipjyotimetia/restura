@@ -18,8 +18,8 @@ export function exportWorkflow(workflow: OwsStoredWorkflow): string {
 
 export function parseWorkflowImport(json: string, collectionId: string): WorkflowImportResult {
   try {
-    // YAML is accepted only as an import convenience. The returned workflow
-    // is normalized by the SDK and all subsequent export/persistence is JSON.
+    // YAML is accepted only as an import convenience. Persistence is JSON,
+    // and the Node workspace/CLI boundaries normalize canonical artifacts with the SDK.
     // A document containing calls needs its separate typed bindings artifact
     // before it can be admitted to the executable store.
     const document = parseOwsWorkflowImport(json);

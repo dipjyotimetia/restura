@@ -3,6 +3,7 @@
 import { Download, MoreVertical, Pencil, Play, Plus, Trash2, Upload, Workflow } from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { useShallow } from 'zustand/react/shallow';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -33,8 +34,10 @@ export function WorkflowManager({
   onSelectWorkflow,
   onRunWorkflow,
 }: WorkflowManagerProps) {
-  const workflows = useWorkflowStore((state) =>
-    state.workflows.filter((workflow) => workflow.collectionId === collectionId)
+  const workflows = useWorkflowStore(
+    useShallow((state) =>
+      state.workflows.filter((workflow) => workflow.collectionId === collectionId)
+    )
   );
   const createNewWorkflow = useWorkflowStore((state) => state.createNewWorkflow);
   const addWorkflow = useWorkflowStore((state) => state.addWorkflow);

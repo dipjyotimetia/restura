@@ -37,9 +37,11 @@ synced.
 
 ## Supported profile
 
-`shared/ows/workflow-profile.ts` uses `@openworkflowspec/sdk` to parse,
-normalize, validate, graph, and serialize documents. Restura deliberately
-executes only its bounded safe profile:
+`shared/ows/workflow-sdk.ts` uses `@openworkflowspec/sdk` to parse, normalize,
+validate, graph, and serialize persisted documents in Node workspace and CLI
+paths. The renderer's CSP-safe `shared/ows/workflow-profile.ts` validates and
+projects the same bounded profile without loading the SDK's dynamic code
+generator. Restura deliberately executes only this safe profile:
 
 - sequential `do`, `set`, and `wait` tasks;
 - task and workflow timeouts, plus cancellation; and
@@ -71,7 +73,7 @@ every list/load/save/delete payload before reaching the Node workspace helper.
 ## Editor
 
 `src/features/workflows/components/WorkflowBuilder.tsx` is a compact OWS JSON
-editor with a bindings editor and an SDK graph preview. It may display
+editor with a bindings editor and safe graph preview. It may display
 synthetic start/end nodes for orientation; these are never serialized as
 workflow semantics. `WorkflowManager.tsx` provides create/import/export and
 `WorkflowExecutor.tsx` renders bounded run results.
@@ -99,7 +101,7 @@ collection scripts; it is not a workflow compatibility layer.
 
 | Concern | Files |
 | --- | --- |
-| OWS SDK/profile | `shared/ows/workflow-profile.ts` |
+| OWS SDK/profile | `shared/ows/workflow-sdk.ts`, `shared/ows/workflow-profile.ts` |
 | Bindings/layout | `shared/ows/bindings.ts` |
 | Safe executor | `shared/ows/executor.ts` |
 | File workspace | `shared/ows/node/workspace.ts` |

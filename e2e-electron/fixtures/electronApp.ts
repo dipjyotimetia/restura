@@ -54,6 +54,9 @@ export const test = base.extend<ElectronFixtures, ElectronWorkerFixtures>({
       });
 
       const page = await electronApp.firstWindow();
+      page.on('pageerror', (error) => {
+        console.error(`[electron-e2e renderer error] ${error.stack ?? error.message}`);
+      });
       await page.waitForLoadState('domcontentloaded');
 
       // Fresh userData ⇒ the welcome onboarding shows. Dismiss it via its own

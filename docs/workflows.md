@@ -13,7 +13,7 @@ workflows/<workflow-id>/bindings.restura.json
 workflows/<workflow-id>/layout.restura.json
 ```
 
-- `workflow.ows.json` is normalized, validated, graphed, and serialized by `@openworkflowspec/sdk`.
+- `workflow.ows.json` is normalized, validated, graphed, and serialized by `@openworkflowspec/sdk` in the Node workspace and CLI boundary. The renderer retains Electron's strict CSP and uses the same bounded profile without loading the SDK's dynamic code generator.
 - `bindings.restura.json` maps an OWS task path to an approved saved-request reference. It contains no URLs, headers, credentials, environment values, scripts, or executable behavior.
 - `layout.restura.json` is editor-only presentation metadata. It may be removed; Restura loads an empty layout and recreates it on the next save, without changing execution.
 
@@ -33,7 +33,7 @@ Restura currently rejects controls and transports without a complete safe runtim
 
 ## Editor and execution
 
-Create and open workflows from the collection sidebar. The editor presents the OWS JSON document, typed bindings, and an SDK graph projection. Start and end rows are visual-only; they are not stored as custom workflow semantics.
+Create and open workflows from the collection sidebar. The editor presents the OWS JSON document, typed bindings, and a CSP-safe graph projection. Start and end rows are visual-only; they are not stored as custom workflow semantics.
 
 Run results show the OWS task path and status. A missing, stale, non-HTTP, or method-mismatched binding stops the run before any network request is made.
 

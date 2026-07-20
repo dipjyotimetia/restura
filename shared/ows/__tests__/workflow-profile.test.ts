@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
+import { validateOwsProfile } from '../workflow-profile';
 import {
-  buildOwsGraph,
-  normalizeOwsWorkflow,
-  parseOwsWorkflowImport,
-  parseOwsWorkflowJson,
-  serializeOwsWorkflowJson,
-  validateOwsProfile,
-} from '../workflow-profile';
+  buildOwsGraphWithSdk,
+  normalizeOwsWorkflowWithSdk,
+  parseOwsWorkflowImportWithSdk,
+  parseOwsWorkflowJsonWithSdk,
+  serializeOwsWorkflowJsonWithSdk,
+} from '../workflow-sdk';
 
 const supportedWorkflow = {
   document: {
@@ -32,13 +32,13 @@ const supportedWorkflow = {
 
 describe('OWS workflow profile', () => {
   it('parses, normalizes, validates, serializes, and graphs a supported OWS JSON document', () => {
-    const parsed = parseOwsWorkflowJson(JSON.stringify(supportedWorkflow));
-    const normalized = normalizeOwsWorkflow(parsed);
+    const parsed = parseOwsWorkflowJsonWithSdk(JSON.stringify(supportedWorkflow));
+    const normalized = normalizeOwsWorkflowWithSdk(parsed);
 
     expect(validateOwsProfile(normalized)).toEqual({ ok: true, issues: [] });
-    expect(JSON.parse(serializeOwsWorkflowJson(normalized))).toEqual(normalized);
+    expect(JSON.parse(serializeOwsWorkflowJsonWithSdk(normalized))).toEqual(normalized);
 
-    const graph = buildOwsGraph(normalized);
+    const graph = buildOwsGraphWithSdk(normalized);
     expect(graph.entryNode).toBeDefined();
     expect(graph.nodes.map((node) => node.id)).toContain('/do/0/seed');
     expect(graph.nodes.map((node) => node.id)).toContain('/do/1/pause');
@@ -57,7 +57,7 @@ describe('OWS workflow profile', () => {
       ],
     };
 
-    expect(validateOwsProfile(parseOwsWorkflowJson(JSON.stringify(workflow)))).toEqual({
+    expect(validateOwsProfile(parseOwsWorkflowJsonWithSdk(JSON.stringify(workflow)))).toEqual({
       ok: true,
       issues: [],
     });
@@ -104,7 +104,7 @@ describe('OWS workflow profile', () => {
       },
     ],
   ])('rejects %s even when the SDK can parse the document', (_name, workflow) => {
-    const parsed = parseOwsWorkflowJson(JSON.stringify(workflow));
+    const parsed = parseOwsWorkflowJsonWithSdk(JSON.stringify(workflow));
 
     expect(validateOwsProfile(parsed)).toMatchObject({
       ok: false,
@@ -132,12 +132,14 @@ describe('OWS workflow profile', () => {
       ],
     };
 
-    expect(() => parseOwsWorkflowJson(JSON.stringify(workflow))).toThrow('Invalid OWS workflow');
+    expect(() => parseOwsWorkflowJsonWithSdk(JSON.stringify(workflow))).toThrow(
+      'Invalid OWS workflow'
+    );
   });
 
   it('rejects documents that the SDK schema cannot validate during JSON parsing', () => {
     expect(() =>
-      parseOwsWorkflowJson(
+      parseOwsWorkflowJsonWithSdk(
         JSON.stringify({
           ...supportedWorkflow,
           do: [{ incomplete: { call: 'http' } }],
@@ -147,16 +149,16 @@ describe('OWS workflow profile', () => {
   });
 
   it('rejects YAML and legacy Restura graph envelopes at the OWS-only import boundary', () => {
-    expect(() => parseOwsWorkflowJson('document:\n  dsl: 1.0.3')).toThrow('JSON');
+    expect(() => parseOwsWorkflowJsonWithSdk('document:\n  dsl: 1.0.3')).toThrow('JSON');
     expect(() =>
-      parseOwsWorkflowJson(
+      parseOwsWorkflowJsonWithSdk(
         JSON.stringify({ format: 'restura-workflow', version: 1, workflow: supportedWorkflow })
       )
     ).toThrow('OWS workflow document');
   });
 
   it('accepts native OWS YAML only at the import boundary and normalizes it to the SDK model', () => {
-    const imported = parseOwsWorkflowImport(`
+    const imported = parseOwsWorkflowImportWithSdk(`
 document:
   dsl: 1.0.3
   namespace: restura
@@ -178,13 +180,15 @@ do:
       do: [{ delayed: { wait: { days: Number.MAX_VALUE } } }],
     };
 
-    expect(validateOwsProfile(parseOwsWorkflowJson(JSON.stringify(workflow)))).toMatchObject({
-      ok: false,
-      issues: expect.arrayContaining([
-        expect.objectContaining({
-          message: expect.stringContaining('maximum safe platform timer'),
-        }),
-      ]),
-    });
+    expect(validateOwsProfile(parseOwsWorkflowJsonWithSdk(JSON.stringify(workflow)))).toMatchObject(
+      {
+        ok: false,
+        issues: expect.arrayContaining([
+          expect.objectContaining({
+            message: expect.stringContaining('maximum safe platform timer'),
+          }),
+        ]),
+      }
+    );
   });
 });

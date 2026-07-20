@@ -1487,12 +1487,13 @@ function Sidebar({ activePanel }: SidebarProps) {
             open={!!selectedWorkflow}
             onOpenChange={(open) => !open && setSelectedWorkflow(null)}
             onRun={() => {
-              setRunningWorkflow(selectedWorkflow);
+              setRunningWorkflow(
+                useWorkflowStore.getState().getWorkflowById(selectedWorkflow.id) ?? selectedWorkflow
+              );
               setSelectedWorkflow(null);
             }}
           />
         )}
-
         {/* Workflow Executor Dialog */}
         {runningWorkflow && (
           <WorkflowExecutor
@@ -1501,7 +1502,6 @@ function Sidebar({ activePanel }: SidebarProps) {
             onOpenChange={(open) => !open && setRunningWorkflow(null)}
           />
         )}
-
         {/* File Collection Dialogs */}
         <CollectionDirectoryPicker
           open={directoryPickerOpen}

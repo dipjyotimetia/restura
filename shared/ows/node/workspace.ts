@@ -11,13 +11,12 @@ import {
 } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import { isOwsBindings, type OwsBindings, type OwsLayout } from '../bindings';
+import { type OwsWorkflow, validateOwsProfile } from '../workflow-profile';
 import {
-  normalizeOwsWorkflow,
-  type OwsWorkflow,
-  parseOwsWorkflowJson,
-  serializeOwsWorkflowJson,
-  validateOwsProfile,
-} from '../workflow-profile';
+  normalizeOwsWorkflowWithSdk,
+  parseOwsWorkflowJsonWithSdk,
+  serializeOwsWorkflowJsonWithSdk,
+} from '../workflow-sdk';
 
 const WORKFLOWS_DIR = 'workflows';
 const WORKFLOW_FILE = 'workflow.ows.json';
@@ -269,7 +268,7 @@ async function validateStagedArtifact(directory: string): Promise<void> {
     readFile(join(directory, BINDINGS_FILE), 'utf8'),
     readFile(join(directory, LAYOUT_FILE), 'utf8'),
   ]);
-  const workflow = parseOwsWorkflowJson(source);
+  const workflow = parseOwsWorkflowJsonWithSdk(source);
   const bindings = JSON.parse(bindingsSource) as unknown;
   const layout = JSON.parse(layoutSource) as unknown;
   if (!isOwsBindings(bindings) || !isOwsLayout(layout)) {
@@ -297,10 +296,10 @@ export async function saveOwsWorkflowArtifact(
   layout: OwsLayout
 ): Promise<void> {
   assertWorkflowId(id);
-  const workflow = normalizeOwsWorkflow(input);
+  const workflow = normalizeOwsWorkflowWithSdk(input);
   validateArtifact(workflow, bindings, layout);
   const contents: ArtifactContents = {
-    [WORKFLOW_FILE]: `${serializeOwsWorkflowJson(workflow)}\n`,
+    [WORKFLOW_FILE]: `${serializeOwsWorkflowJsonWithSdk(workflow)}\n`,
     [BINDINGS_FILE]: canonicalJson(bindings),
     [LAYOUT_FILE]: canonicalJson(layout),
   };
@@ -373,7 +372,7 @@ export async function loadOwsWorkflowArtifact(
       throw error;
     }),
   ]);
-  const workflow = parseOwsWorkflowJson(source);
+  const workflow = parseOwsWorkflowJsonWithSdk(source);
   const bindings = JSON.parse(bindingsSource) as unknown;
   const layout =
     layoutSource === undefined ? DEFAULT_LAYOUT : (JSON.parse(layoutSource) as unknown);

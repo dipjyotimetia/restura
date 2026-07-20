@@ -1,10 +1,5 @@
-import {
-  buildGraph,
-  Classes,
-  type Graph,
-  type Specification,
-  WorkflowValidationError,
-} from '@openworkflowspec/sdk';
+import type { Specification } from '@openworkflowspec/sdk';
+import * as yaml from 'js-yaml';
 
 /** The sole workflow DSL Restura reads or writes. */
 export const RESTURA_OWS_DSL_VERSION = '1.0.3' as const;
@@ -269,6 +264,34 @@ export function validateOwsProfile(workflow: OwsWorkflow): OwsProfileValidation 
 }
 
 /** Parse OWS JSON only. YAML is intentionally import-only until the upstream SDK has stable JSON/YAML parity. */
+function assertSafeOwsDocument(value: unknown): OwsWorkflow {
+  if (!isRecord(value) || !isRecord(value.document) || !Array.isArray(value.do)) {
+    throw new Error('Expected an OWS workflow document.');
+  }
+  const document = value.document;
+  if (
+    typeof document.dsl !== 'string' ||
+    typeof document.namespace !== 'string' ||
+    typeof document.name !== 'string' ||
+    typeof document.version !== 'string'
+  ) {
+    throw new Error('Expected OWS document metadata with dsl, namespace, name, and version.');
+  }
+  const workflow = JSON.parse(JSON.stringify(value)) as OwsWorkflow;
+  const profile = validateOwsProfile(workflow);
+  if (!profile.ok) {
+    throw new Error(
+      `OWS workflow is outside Restura's executable profile: ${profile.issues[0]?.message}`
+    );
+  }
+  return workflow;
+}
+
+/**
+ * CSP-safe renderer parser. The desktop renderer cannot load Ajv's runtime
+ * code generator under its strict CSP; the Electron/CLI workspace boundary
+ * performs the full SDK parse/normalize/validate before filesystem execution.
+ */
 export function parseOwsWorkflowJson(source: string): OwsWorkflow {
   let parsed: unknown;
   try {
@@ -276,53 +299,53 @@ export function parseOwsWorkflowJson(source: string): OwsWorkflow {
   } catch {
     throw new Error('OWS workflows must be JSON.');
   }
-  if (!isRecord(parsed) || !isRecord(parsed.document) || !Array.isArray(parsed.do)) {
-    throw new Error('Expected an OWS workflow document.');
-  }
-
-  try {
-    const normalized = new Classes.Workflow(parsed).normalize() as OwsWorkflow;
-    new Classes.Workflow(normalized).validate();
-    return normalized;
-  } catch (error) {
-    const message = error instanceof WorkflowValidationError ? error.message : String(error);
-    throw new Error(`Invalid OWS workflow: ${message}`);
-  }
+  return assertSafeOwsDocument(parsed);
 }
 
 /**
  * Import an OWS document supplied as JSON or YAML. Persisted workflow files
- * remain JSON-only: callers must serialize the returned model with the SDK.
+ * remain JSON-only: the Node workspace and CLI boundaries serialize with the SDK.
  */
 export function parseOwsWorkflowImport(source: string): OwsWorkflow {
   try {
-    const imported = Classes.Workflow.deserialize(source).normalize() as OwsWorkflow;
-    new Classes.Workflow(imported).validate();
-    return imported;
+    return assertSafeOwsDocument(
+      source.trimStart().startsWith('{') ? JSON.parse(source) : yaml.load(source)
+    );
   } catch (error) {
-    const message = error instanceof WorkflowValidationError ? error.message : String(error);
+    const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Invalid OWS workflow import: ${message}`);
   }
 }
 
-/** Normalize and validate through the SDK before applying Restura's safe executable subset. */
+/** Normalize renderer data without invoking CSP-incompatible dynamic code generation. */
 export function normalizeOwsWorkflow(workflow: OwsWorkflow): OwsWorkflow {
-  try {
-    const normalized = new Classes.Workflow(workflow).normalize() as OwsWorkflow;
-    new Classes.Workflow(normalized).validate();
-    return normalized;
-  } catch (error) {
-    const message = error instanceof WorkflowValidationError ? error.message : String(error);
-    throw new Error(`Invalid OWS workflow: ${message}`);
-  }
+  return assertSafeOwsDocument(workflow);
 }
 
 /** Deterministic OWS JSON is the only portable Flow executable artifact. */
 export function serializeOwsWorkflowJson(workflow: OwsWorkflow): string {
-  return Classes.Workflow.serialize(normalizeOwsWorkflow(workflow), 'json');
+  return `${JSON.stringify(normalizeOwsWorkflow(workflow), null, 2)}\n`;
 }
 
-/** The SDK-owned graph is the semantic source for visual projection. */
-export function buildOwsGraph(workflow: OwsWorkflow): Graph {
-  return buildGraph(normalizeOwsWorkflow(workflow));
+export interface OwsGraphProjection {
+  entryNode?: { id: string };
+  nodes: Array<{ id: string }>;
+}
+
+/** CSP-safe visual projection; synthetic visual nodes are never persisted. */
+export function buildOwsGraph(workflow: OwsWorkflow): OwsGraphProjection {
+  const nodes: Array<{ id: string }> = [];
+  const visit = (list: unknown, path: string): void => {
+    if (!Array.isArray(list)) return;
+    for (const [index, entry] of list.entries()) {
+      if (!isRecord(entry) || Object.keys(entry).length !== 1) continue;
+      const [name, task] = Object.entries(entry)[0] ?? [];
+      if (!name || !isRecord(task)) continue;
+      const id = `${path}/${index}/${name}`;
+      nodes.push({ id });
+      if ('do' in task) visit(task.do, `${id}/do`);
+    }
+  };
+  visit(normalizeOwsWorkflow(workflow).do, '/do');
+  return { ...(nodes[0] ? { entryNode: nodes[0] } : {}), nodes };
 }

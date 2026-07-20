@@ -30,7 +30,7 @@ function stringify(value: unknown): string {
 }
 
 /**
- * OWS-native authoring surface. The SDK graph is only a read-only projection:
+ * OWS-native authoring surface. The graph is a CSP-safe read-only projection:
  * visual start/end rows are synthetic UI, never workflow semantics.
  */
 export function WorkflowBuilder({
@@ -53,8 +53,11 @@ export function WorkflowBuilder({
     setDocumentSource(stringify(workflow.document));
     setBindingsSource(stringify(workflow.bindings));
     setError(null);
-    setSaved(false);
   }, [workflow.id, workflow.updatedAt]);
+
+  useEffect(() => {
+    setSaved(false);
+  }, [workflow.id]);
 
   const graphPaths = useMemo(() => {
     try {
@@ -120,7 +123,7 @@ export function WorkflowBuilder({
           </TabsContent>
           <TabsContent value="graph" className="min-h-0 flex-1">
             <p className="mb-3 text-sm text-muted-foreground">
-              SDK graph projection. Start and end are visual-only and are not stored in OWS.
+              CSP-safe graph projection. Start and end are visual-only and are not stored in OWS.
             </p>
             <ScrollArea className="h-[380px] rounded border p-3">
               <ol className="space-y-2 text-sm">
