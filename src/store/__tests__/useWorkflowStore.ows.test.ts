@@ -38,4 +38,43 @@ describe('useWorkflowStore OWS workflows', () => {
       )
     ).toThrow('does not exist');
   });
+
+  it('keeps bindings for calls nested in a recovery path', () => {
+    const workflow = useWorkflowStore.getState().createNewWorkflow('Recovery', 'collection-1');
+    useWorkflowStore.getState().addWorkflow(workflow);
+    const document = {
+      ...workflow.document,
+      do: [
+        {
+          recover: {
+            try: [
+              {
+                request: {
+                  call: 'http',
+                  with: { method: 'GET', endpoint: { uri: 'restura://saved-request' } },
+                },
+              },
+            ],
+            catch: { as: 'error', do: [{ fallback: { wait: { milliseconds: 0 } } }] },
+          },
+        },
+      ],
+    };
+    const bindings = {
+      version: 1 as const,
+      tasks: {
+        '/do/0/recover/try/0/request': {
+          kind: 'saved-request' as const,
+          call: 'http' as const,
+          resourceId: 'request-1',
+        },
+      },
+    };
+
+    expect(() =>
+      useWorkflowStore
+        .getState()
+        .updateWorkflowArtifacts(workflow.id, document, bindings, workflow.layout)
+    ).not.toThrow();
+  });
 });

@@ -445,6 +445,18 @@ describe('useRequestStore — tabs', () => {
       expect(state.activeTabId).toBe(id);
     });
 
+    it('marks a new GraphQL tab as a POST GraphQL request before it can be saved', () => {
+      const id = useRequestStore.getState().openTabWithMode('graphql');
+      const tab = useRequestStore.getState().tabs.find((candidate) => candidate.id === id);
+      expect(tab?.modeOverride).toBe('graphql');
+      expect(tab?.request).toMatchObject({
+        type: 'http',
+        method: 'POST',
+        name: 'New GraphQL Request',
+        body: { type: 'graphql', raw: '' },
+      });
+    });
+
     it('produces independent tabs for repeated invocations', () => {
       const a = useRequestStore.getState().openTabWithMode('socketio');
       const b = useRequestStore.getState().openTabWithMode('socketio');

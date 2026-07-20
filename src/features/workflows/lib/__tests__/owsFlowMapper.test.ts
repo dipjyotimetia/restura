@@ -55,4 +55,54 @@ describe('OWS flow mapper', () => {
     });
     expect(artifact.layout.nodes['/do/0/prepare']).toEqual({ x: 20, y: 40 });
   });
+
+  it('round-trips guarded, loop, catch, GraphQL, and output workflow constructs', () => {
+    const advanced = {
+      document: { dsl: '1.0.3', namespace: 'restura', name: 'advanced', version: '1.0.0' },
+      output: { as: { last: '${.last}' } },
+      do: [
+        { guarded: { if: '${.enabled}', do: [{ value: { set: { value: true } } }] } },
+        {
+          each: {
+            for: { each: 'item', in: '${.items}', at: 'index' },
+            do: [{ save: { set: { last: '${.item}' } } }],
+          },
+        },
+        {
+          recover: {
+            try: [{ wait: { wait: { milliseconds: 0 } } }],
+            catch: { as: 'error', do: [{ fallback: { set: { recovered: true } } }] },
+          },
+        },
+        {
+          graphql: {
+            call: 'http',
+            with: { method: 'POST', endpoint: { uri: 'restura://saved-request' } },
+          },
+        },
+      ],
+    } as OwsWorkflow;
+    const bindings = {
+      version: 1 as const,
+      tasks: {
+        '/do/3/graphql': {
+          kind: 'saved-request' as const,
+          call: 'http' as const,
+          protocol: 'graphql' as const,
+          resourceId: 'GraphQL%20request',
+        },
+      },
+    };
+
+    const model = deriveOwsFlowModel(advanced, bindings, { version: 1, nodes: {} });
+    expect(model.blocks.map((block) => block.kind)).toEqual(['do', 'for', 'try', 'call']);
+    expect(model.blocks[0]?.condition).toBe('${.enabled}');
+    expect(model.blocks[2]?.catchAs).toBe('error');
+    expect(model.output).toEqual({ as: { last: '${.last}' } });
+
+    expect(serializeOwsFlowModel(model, advanced.document)).toMatchObject({
+      document: advanced,
+      bindings,
+    });
+  });
 });

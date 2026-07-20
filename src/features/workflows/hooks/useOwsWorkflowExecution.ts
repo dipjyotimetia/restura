@@ -1,5 +1,6 @@
 import type { OwsExecutionResult, OwsExecutionStep } from '@shared/ows/executor';
 import { executeOwsWorkflow } from '@shared/ows/executor';
+import { getGraphqlResponseErrors } from '@shared/ows/graphql-operation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { protocolRegistry } from '@/features/registry/registry';
@@ -9,6 +10,7 @@ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import type { OwsStoredWorkflow } from '@/store/useWorkflowStore';
 import { findRequestByReference } from '../lib/collectionHelpers';
+import { findWorkflowGraphqlMutations } from '../lib/workflowGraphql';
 
 function stringVariables(values: Record<string, unknown>): Record<string, string> {
   return Object.fromEntries(
@@ -18,6 +20,15 @@ function stringVariables(values: Record<string, unknown>): Record<string, string
       return [];
     })
   );
+}
+
+function isGraphqlBinding(binding: { kind: string; call: string }): binding is {
+  kind: 'saved-request';
+  call: 'http';
+  protocol: 'graphql';
+  resourceId: string;
+} {
+  return 'protocol' in binding && binding.protocol === 'graphql';
 }
 
 /**
@@ -49,12 +60,33 @@ export function useOwsWorkflowExecution() {
   );
 
   const run = useCallback(
-    async (workflow: OwsStoredWorkflow): Promise<OwsExecutionResult> => {
+    async (
+      workflow: OwsStoredWorkflow,
+      options: { allowGraphqlMutations?: boolean } = {}
+    ): Promise<OwsExecutionResult> => {
       if (controllerRef.current) {
         throw new Error('A workflow is already running. Stop it before starting another run.');
       }
       const collection = collections.find((candidate) => candidate.id === workflow.collectionId);
       if (!collection) throw new Error('The workflow collection is unavailable.');
+      let mutations;
+      try {
+        mutations = findWorkflowGraphqlMutations(
+          workflow.document,
+          workflow.bindings,
+          collection.items
+        );
+      } catch (cause) {
+        const message =
+          cause instanceof Error ? cause.message : 'Workflow GraphQL validation failed.';
+        setError(message);
+        throw new Error(message);
+      }
+      if (mutations.length > 0 && !options.allowGraphqlMutations) {
+        throw new Error(
+          `Workflow contains GraphQL mutation steps (${mutations.map((mutation) => mutation.name).join(', ')}). Confirm before running.`
+        );
+      }
       const activeEnvironment = environments.find(
         (environment) => environment.id === activeEnvironmentId
       );
@@ -77,7 +109,7 @@ export function useOwsWorkflowExecution() {
           variables: initialVariables,
           signal: controller.signal,
           dispatcher: {
-            dispatch: async ({ binding, call, method, signal }) => {
+            dispatch: async ({ binding, call, method, signal, variables }) => {
               if (binding.kind !== 'saved-request' || binding.call !== 'http' || call !== 'http') {
                 throw new Error('Workflow calls require an approved saved HTTP request binding.');
               }
@@ -87,21 +119,44 @@ export function useOwsWorkflowExecution() {
                   `Workflow binding ${binding.resourceId} does not resolve to a saved HTTP request.`
                 );
               }
+              const graphql = isGraphqlBinding(binding);
               if (request.method !== method) {
                 throw new Error(
                   `Workflow call method ${method} does not match saved request method ${request.method}.`
                 );
               }
-              const protocol = protocolRegistry.get('http');
-              if (!protocol) throw new Error('The HTTP protocol adapter is unavailable.');
+              if (graphql && (request.method !== 'POST' || request.body.type !== 'graphql')) {
+                throw new Error(
+                  `Workflow GraphQL binding ${binding.resourceId} does not resolve to a saved GraphQL POST request.`
+                );
+              }
+              if (!graphql && request.body.type === 'graphql') {
+                throw new Error(
+                  `Workflow HTTP binding ${binding.resourceId} cannot resolve to a saved GraphQL request.`
+                );
+              }
+              const protocol = protocolRegistry.get(graphql ? 'graphql' : 'http');
+              if (!protocol) {
+                throw new Error(`${graphql ? 'GraphQL' : 'HTTP'} protocol adapter is unavailable.`);
+              }
               const authed = withEffectiveAuth(request, collection.auth);
+              const resolvedVariables = stringVariables(variables);
               const injected = protocol.injectVariables
-                ? protocol.injectVariables(authed, stringVariables(initialVariables))
+                ? protocol.injectVariables(authed, resolvedVariables)
                 : authed;
-              return protocol.runRequest(injected, {
+              const response = await protocol.runRequest(injected, {
                 signal,
-                variables: stringVariables(initialVariables),
+                variables: resolvedVariables,
               });
+              if (graphql) {
+                const errors = getGraphqlResponseErrors(response.body);
+                if (errors.length > 0) {
+                  throw new Error(
+                    `Saved GraphQL request ${binding.resourceId} returned errors: ${errors.join('; ')}`
+                  );
+                }
+              }
+              return response;
             },
           },
         });
@@ -122,6 +177,19 @@ export function useOwsWorkflowExecution() {
   );
 
   const stop = useCallback(() => controllerRef.current?.abort(), []);
+  const getMutationSteps = useCallback(
+    (workflow: OwsStoredWorkflow) => {
+      const collection = collections.find((candidate) => candidate.id === workflow.collectionId);
+      if (!collection) return [];
+      try {
+        return findWorkflowGraphqlMutations(workflow.document, workflow.bindings, collection.items);
+      } catch {
+        // The execution preflight reports malformed GraphQL as a visible workflow error.
+        return [];
+      }
+    },
+    [collections]
+  );
   const steps: OwsExecutionStep[] = result?.steps ?? [];
-  return { isRunning, result, steps, error, run, stop };
+  return { isRunning, result, steps, error, run, stop, getMutationSteps };
 }

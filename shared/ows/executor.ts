@@ -1,15 +1,20 @@
 import { isOwsBindings, type OwsBindings, type OwsTaskBinding } from './bindings';
+import { evaluateOwsCondition, readOwsPath, resolveOwsValue } from './runtime-expression';
 import { normalizeOwsWorkflow, type OwsWorkflow, validateOwsProfile } from './workflow-profile';
 
-export type OwsExecutionStatus = 'success' | 'failed' | 'stopped';
+export const MAX_OWS_ITERATIONS = 1_000;
+export const MAX_OWS_EXECUTED_TASKS = 10_000;
+
+export type OwsExecutionStatus = 'success' | 'failed' | 'skipped' | 'stopped';
 
 export interface OwsExecutionStep {
   taskPath: string;
   name: string;
-  kind: 'call' | 'do' | 'wait' | 'set';
+  kind: 'call' | 'do' | 'for' | 'try' | 'wait' | 'set';
   status: OwsExecutionStatus;
   startedAt: number;
   completedAt: number;
+  iteration?: number;
   error?: string;
 }
 
@@ -17,6 +22,7 @@ export interface OwsExecutionResult {
   status: OwsExecutionStatus;
   steps: OwsExecutionStep[];
   variables: Record<string, unknown>;
+  output?: unknown;
 }
 
 /**
@@ -29,6 +35,8 @@ export interface OwsBoundCallRequest {
   binding: OwsTaskBinding;
   call: 'http';
   method: string;
+  /** Immutable workflow-scope snapshot at dispatch time. */
+  variables: Record<string, unknown>;
   signal: AbortSignal;
   timeoutMs?: number;
 }
@@ -57,36 +65,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function taskKind(task: Record<string, unknown>): OwsExecutionStep['kind'] {
   if ('call' in task) return 'call';
+  if ('for' in task) return 'for';
+  if ('try' in task) return 'try';
   if ('do' in task) return 'do';
   if ('wait' in task) return 'wait';
   return 'set';
-}
-
-function readPath(value: unknown, path: string): unknown {
-  const segments = path
-    .replace(/^\$\{\s*\.?/, '')
-    .replace(/\s*\}$/, '')
-    .split('.')
-    .filter(Boolean);
-  let current = value;
-  for (const segment of segments) {
-    if (!isRecord(current) || !(segment in current)) return undefined;
-    current = current[segment];
-  }
-  return current;
-}
-
-function resolveValue(value: unknown, variables: Record<string, unknown>): unknown {
-  if (typeof value === 'string' && /^\$\{\s*\.?[\w.]+\s*\}$/.test(value)) {
-    return readPath(variables, value);
-  }
-  if (Array.isArray(value)) return value.map((item) => resolveValue(item, variables));
-  if (isRecord(value)) {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, resolveValue(item, variables)])
-    );
-  }
-  return value;
 }
 
 function durationMs(value: unknown): number {
@@ -197,6 +180,10 @@ function collectCallPaths(list: unknown, path: string, output: string[]): void {
     const taskPath = `${path}/${index}/${name}`;
     if ('call' in task) output.push(taskPath);
     if ('do' in task) collectCallPaths(task.do, `${taskPath}/do`, output);
+    if ('try' in task) collectCallPaths(task.try, `${taskPath}/try`, output);
+    if (isRecord(task.catch) && 'do' in task.catch) {
+      collectCallPaths(task.catch.do, `${taskPath}/catch/do`, output);
+    }
   }
 }
 
@@ -246,10 +233,12 @@ export async function executeOwsWorkflow(options: OwsExecutorOptions): Promise<O
     'OWS workflow timed out.'
   );
 
+  let executedTasks = 0;
   const executeList = async (
     list: unknown,
     path: string,
-    parentSignal: AbortSignal
+    parentSignal: AbortSignal,
+    iteration?: number
   ): Promise<void> => {
     if (!Array.isArray(list)) throw new Error(`Invalid OWS task list at ${path}.`);
     for (const [index, entry] of list.entries()) {
@@ -262,6 +251,12 @@ export async function executeOwsWorkflow(options: OwsExecutorOptions): Promise<O
       const [name, taskValue] = first;
       if (!isRecord(taskValue)) throw new Error(`Invalid OWS task at ${path}/${index}/${name}.`);
       const taskPath = `${path}/${index}/${name}`;
+      executedTasks += 1;
+      if (executedTasks > MAX_OWS_EXECUTED_TASKS) {
+        throw new Error(
+          `OWS workflow exceeded the ${MAX_OWS_EXECUTED_TASKS} task execution limit.`
+        );
+      }
       const startedAt = Date.now();
       const step: OwsExecutionStep = {
         taskPath,
@@ -270,15 +265,23 @@ export async function executeOwsWorkflow(options: OwsExecutorOptions): Promise<O
         status: 'success',
         startedAt,
         completedAt: startedAt,
+        ...(iteration === undefined ? {} : { iteration }),
       };
       try {
+        if (taskValue.if !== undefined && !evaluateOwsCondition(String(taskValue.if), variables)) {
+          step.status = 'skipped';
+          step.completedAt = Date.now();
+          steps.push(step);
+          options.onStep?.(step);
+          continue;
+        }
         await withinScope(
           parentSignal,
           timeoutMs(taskValue.timeout),
           'OWS task timed out.',
           async (signal) => {
             if ('set' in taskValue) {
-              const set = resolveValue(taskValue.set, variables);
+              const set = resolveOwsValue(taskValue.set, variables);
               if (!isRecord(set))
                 throw new Error(`OWS set task ${taskPath} must assign an object.`);
               Object.assign(variables, set);
@@ -303,9 +306,65 @@ export async function executeOwsWorkflow(options: OwsExecutorOptions): Promise<O
                 binding,
                 call: 'http',
                 method: withArgs.method,
+                variables: { ...variables },
                 signal,
                 ...(callTimeout === undefined ? {} : { timeoutMs: callTimeout }),
               });
+            } else if ('for' in taskValue) {
+              const config = taskValue.for;
+              if (
+                !isRecord(config) ||
+                typeof config.in !== 'string' ||
+                typeof config.each !== 'string'
+              ) {
+                throw new Error(`OWS for task ${taskPath} has an invalid iterator configuration.`);
+              }
+              const items = readOwsPath(variables, config.in);
+              if (!Array.isArray(items)) {
+                throw new Error(`OWS for task ${taskPath} requires an array value.`);
+              }
+              if (items.length > MAX_OWS_ITERATIONS) {
+                throw new Error(
+                  `OWS for task ${taskPath} exceeds the ${MAX_OWS_ITERATIONS} iteration limit.`
+                );
+              }
+              const indexName = typeof config.at === 'string' ? config.at : undefined;
+              const previousItem = variables[config.each];
+              const hadPreviousItem = Object.prototype.hasOwnProperty.call(variables, config.each);
+              const previousIndex = indexName ? variables[indexName] : undefined;
+              const hadPreviousIndex = indexName
+                ? Object.prototype.hasOwnProperty.call(variables, indexName)
+                : false;
+              try {
+                for (const [itemIndex, item] of items.entries()) {
+                  variables[config.each] = item;
+                  if (indexName) variables[indexName] = itemIndex;
+                  await executeList(taskValue.do, `${taskPath}/do`, signal, itemIndex);
+                }
+              } finally {
+                if (hadPreviousItem) variables[config.each] = previousItem;
+                else delete variables[config.each];
+                if (indexName) {
+                  if (hadPreviousIndex) variables[indexName] = previousIndex;
+                  else delete variables[indexName];
+                }
+              }
+            } else if ('try' in taskValue) {
+              try {
+                await executeList(taskValue.try, `${taskPath}/try`, signal, iteration);
+              } catch (error) {
+                if (error instanceof OwsStoppedError || error instanceof OwsTimeoutError)
+                  throw error;
+                const catchConfig = taskValue.catch;
+                if (!isRecord(catchConfig)) throw error;
+                const errorName = typeof catchConfig.as === 'string' ? catchConfig.as : 'error';
+                variables[errorName] = {
+                  message: error instanceof Error ? error.message : 'Unknown workflow error.',
+                };
+                if ('do' in catchConfig) {
+                  await executeList(catchConfig.do, `${taskPath}/catch/do`, signal, iteration);
+                }
+              }
             } else if ('do' in taskValue) {
               await executeList(taskValue.do, `${taskPath}/do`, signal);
             } else {
@@ -329,7 +388,11 @@ export async function executeOwsWorkflow(options: OwsExecutorOptions): Promise<O
 
   try {
     await executeList(workflow.do, '/do', workflowScope.signal);
-    return { status: 'success', steps, variables };
+    const output =
+      isRecord(workflow) && isRecord(workflow.output) && 'as' in workflow.output
+        ? resolveOwsValue(workflow.output.as, variables)
+        : undefined;
+    return { status: 'success', steps, variables, ...(output === undefined ? {} : { output }) };
   } catch (error) {
     return { status: error instanceof OwsStoppedError ? 'stopped' : 'failed', steps, variables };
   } finally {

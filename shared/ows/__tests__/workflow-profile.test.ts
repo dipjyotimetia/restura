@@ -97,6 +97,63 @@ describe('OWS workflow profile', () => {
     });
   });
 
+  it('accepts guarded sequences, finite for loops, catch paths, and an output projection', () => {
+    const workflow = {
+      ...supportedWorkflow,
+      output: { as: { ids: '${.result.ids}' } },
+      do: [
+        {
+          guarded: {
+            if: '${.input.active} && ${.input.count} > 0',
+            do: [{ seed: { set: { greeting: 'hello' } } }],
+          },
+        },
+        {
+          eachItem: {
+            for: { each: 'item', at: 'index', in: '${.input.items}' },
+            do: [{ capture: { set: { last: '${.item}' } } }],
+          },
+        },
+        {
+          recover: {
+            try: [{ attempted: { wait: { milliseconds: 0 } } }],
+            catch: { as: 'error', do: [{ fallback: { set: { recovered: true } } }] },
+          },
+        },
+      ],
+    } as OwsWorkflow;
+
+    expect(validateOwsProfile(workflow)).toEqual({ ok: true, issues: [] });
+  });
+
+  it.each([
+    ['script-like condition', { if: 'process.exit(1)', do: [{ task: { set: { value: true } } }] }],
+    ['unbounded loop', { for: { each: 'item', in: '${.items}' }, while: 'true', do: [] }],
+    [
+      'retry policy',
+      { try: [{ task: { set: { value: true } } }], catch: { retry: { limit: { attempt: 2 } } } },
+    ],
+    [
+      'missing loop item name',
+      { for: { in: '${.items}' }, do: [{ task: { set: { value: true } } }] },
+    ],
+    [
+      'prototype loop item name',
+      { for: { each: '__proto__', in: '${.items}' }, do: [{ task: { set: { value: true } } }] },
+    ],
+    [
+      'prototype catch variable',
+      {
+        try: [{ task: { set: { value: true } } }],
+        catch: { as: 'constructor', do: [{ fallback: { set: { value: false } } }] },
+      },
+    ],
+  ])('rejects %s from the safe profile', (_name, task) => {
+    expect(
+      validateOwsProfile({ ...supportedWorkflow, do: [{ control: task }] } as OwsWorkflow)
+    ).toMatchObject({ ok: false });
+  });
+
   it.each([
     ['schedules', { ...supportedWorkflow, schedule: { cron: '0 * * * *' } }],
     [

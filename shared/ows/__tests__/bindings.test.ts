@@ -16,6 +16,17 @@ describe('OWS bindings', () => {
     ).toBe(true);
   });
 
+  it('accepts a GraphQL saved-request binding without transport configuration', () => {
+    expect(
+      isOwsTaskBinding({
+        kind: 'saved-request',
+        call: 'http',
+        protocol: 'graphql',
+        resourceId: 'Users/Find%20user',
+      })
+    ).toBe(true);
+  });
+
   it.each([
     [
       'environment variables',
@@ -43,6 +54,10 @@ describe('OWS bindings', () => {
     [
       'a binding whose declared call does not match its resource kind',
       { kind: 'saved-request', call: 'mcp', resourceId: 'request-1' },
+    ],
+    [
+      'an unsupported bound protocol',
+      { kind: 'saved-request', call: 'http', protocol: 'grpc', resourceId: 'request-1' },
     ],
   ])('rejects %s', (_name, value) => {
     if ('kind' in value) {

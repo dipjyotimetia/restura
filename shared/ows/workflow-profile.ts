@@ -1,5 +1,6 @@
 import type { Specification } from '@openworkflowspec/sdk';
 import * as yaml from 'js-yaml';
+import { evaluateOwsCondition, isOwsPathExpression } from './runtime-expression';
 
 /** The sole workflow DSL Restura reads or writes. */
 export const RESTURA_OWS_DSL_VERSION = '1.0.3' as const;
@@ -32,7 +33,7 @@ const TASK_DISCRIMINATORS = [
   'try',
   'wait',
 ] as const;
-const SAFE_TASKS = new Set(['do', 'set', 'wait']);
+const SAFE_TASKS = new Set(['do', 'for', 'set', 'try', 'wait']);
 const SAFE_HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
 const DURATION_FIELDS = new Set(['days', 'hours', 'minutes', 'seconds', 'milliseconds']);
 const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
@@ -252,6 +253,85 @@ function validateBoundHttpCall(
   }
 }
 
+function validateCondition(value: unknown, path: string, issues: OwsProfileIssue[]): void {
+  if (typeof value !== 'string') {
+    issues.push(
+      profileError(path, 'OWS task conditions must use the Restura declarative expression syntax.')
+    );
+    return;
+  }
+  try {
+    evaluateOwsCondition(value, {});
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Invalid condition.';
+    issues.push(profileError(path, message));
+  }
+}
+
+function validateFor(task: Record<string, unknown>, path: string, issues: OwsProfileIssue[]): void {
+  if (
+    !isRecord(task.for) ||
+    !isOwsPathExpression(task.for.in) ||
+    typeof task.for.each !== 'string' ||
+    !/^[A-Za-z_$][\w$]*$/.test(task.for.each) ||
+    UNSAFE_OBJECT_KEYS.has(task.for.each)
+  ) {
+    issues.push(profileError(`${path}/for`, "OWS 'for' requires a finite array context path."));
+  } else {
+    for (const [key, value] of Object.entries(task.for)) {
+      if (
+        !['each', 'at', 'in'].includes(key) ||
+        (key !== 'in' &&
+          (typeof value !== 'string' ||
+            !/^[A-Za-z_$][\w$]*$/.test(value) ||
+            UNSAFE_OBJECT_KEYS.has(value)))
+      ) {
+        issues.push(profileError(`${path}/for/${key}`, "OWS 'for' has an invalid iterator field."));
+      }
+    }
+  }
+  if ('while' in task) {
+    issues.push(profileError(`${path}/while`, "OWS 'while' loops are not executable in Restura."));
+  }
+  validateTaskList(task.do, `${path}/do`, issues);
+}
+
+function validateTry(task: Record<string, unknown>, path: string, issues: OwsProfileIssue[]): void {
+  validateTaskList(task.try, `${path}/try`, issues);
+  if (task.catch === undefined) return;
+  if (!isRecord(task.catch)) {
+    issues.push(profileError(`${path}/catch`, "OWS 'catch' must be an object."));
+    return;
+  }
+  for (const [key, value] of Object.entries(task.catch)) {
+    if (key === 'as') {
+      if (
+        typeof value !== 'string' ||
+        !/^[A-Za-z_$][\w$]*$/.test(value) ||
+        UNSAFE_OBJECT_KEYS.has(value)
+      ) {
+        issues.push(
+          profileError(`${path}/catch/as`, 'OWS catch variable names must be identifiers.')
+        );
+      }
+    } else if (key === 'do') {
+      validateTaskList(value, `${path}/catch/do`, issues);
+    } else {
+      issues.push(
+        profileError(`${path}/catch/${key}`, `OWS catch '${key}' is not executable in Restura.`)
+      );
+    }
+  }
+}
+
+function validateOutput(value: unknown, path: string, issues: OwsProfileIssue[]): void {
+  if (!isRecord(value) || Object.keys(value).length !== 1 || !('as' in value)) {
+    issues.push(profileError(path, 'Restura accepts only an inline workflow output projection.'));
+    return;
+  }
+  validateSetValue(value.as, `${path}/as`, issues);
+}
+
 function validateTaskList(list: unknown, path: string, issues: OwsProfileIssue[]): void {
   if (!Array.isArray(list) || list.length === 0) {
     issues.push(profileError(path, 'OWS task list must be an array.'));
@@ -278,7 +358,9 @@ function validateTaskList(list: unknown, path: string, issues: OwsProfileIssue[]
       continue;
     }
 
-    const active = TASK_DISCRIMINATORS.filter((key) => task[key] !== undefined);
+    const active = TASK_DISCRIMINATORS.filter(
+      (key) => task[key] !== undefined && !(key === 'do' && task.for !== undefined)
+    );
     if (active.length !== 1) {
       issues.push(
         profileError(taskPath, 'Restura tasks must contain exactly one supported task operation.')
@@ -293,7 +375,14 @@ function validateTaskList(list: unknown, path: string, issues: OwsProfileIssue[]
     }
 
     for (const key of Object.keys(task)) {
-      if (key !== operation && key !== 'timeout' && !(operation === 'call' && key === 'with')) {
+      const allowed =
+        key === operation ||
+        key === 'timeout' ||
+        key === 'if' ||
+        (operation === 'call' && key === 'with') ||
+        (operation === 'for' && key === 'do') ||
+        (operation === 'try' && key === 'catch');
+      if (!allowed) {
         issues.push(
           profileError(
             `${taskPath}/${key}`,
@@ -303,9 +392,12 @@ function validateTaskList(list: unknown, path: string, issues: OwsProfileIssue[]
       }
     }
     if (task.timeout !== undefined) validateTimeout(task.timeout, `${taskPath}/timeout`, issues);
+    if (task.if !== undefined) validateCondition(task.if, `${taskPath}/if`, issues);
 
     if (operation === 'do') validateTaskList(task.do, `${taskPath}/do`, issues);
+    if (operation === 'for') validateFor(task, taskPath, issues);
     if (operation === 'set') validateSet(task.set, `${taskPath}/set`, issues);
+    if (operation === 'try') validateTry(task, taskPath, issues);
     if (operation === 'wait') validateDuration(task.wait, `${taskPath}/wait`, issues);
     if (operation === 'call') validateBoundHttpCall(task, taskPath, issues);
   }
@@ -321,7 +413,7 @@ export function validateOwsProfile(workflow: OwsWorkflow): OwsProfileValidation 
   const candidate = workflow as Record<string, unknown>;
 
   for (const key of Object.keys(candidate)) {
-    if (key !== 'document' && key !== 'do' && key !== 'timeout') {
+    if (key !== 'document' && key !== 'do' && key !== 'timeout' && key !== 'output') {
       const message =
         key === 'schedule'
           ? 'Schedules and event triggers are not executable in Restura.'
@@ -331,6 +423,7 @@ export function validateOwsProfile(workflow: OwsWorkflow): OwsProfileValidation 
   }
   validateDocument(candidate.document, issues);
   if (candidate.timeout !== undefined) validateTimeout(candidate.timeout, '/timeout', issues);
+  if (candidate.output !== undefined) validateOutput(candidate.output, '/output', issues);
   validateTaskList(candidate.do, '/do', issues);
 
   return issues.length === 0 ? { ok: true, issues: [] } : { ok: false, issues };
@@ -419,6 +512,8 @@ export function buildOwsGraph(workflow: OwsWorkflow): OwsGraphProjection {
       const id = `${path}/${index}/${name}`;
       nodes.push({ id });
       if ('do' in task) visit(task.do, `${id}/do`);
+      if ('try' in task) visit(task.try, `${id}/try`);
+      if (isRecord(task.catch) && 'do' in task.catch) visit(task.catch.do, `${id}/catch/do`);
     }
   };
   visit(normalizeOwsWorkflow(workflow).do, '/do');

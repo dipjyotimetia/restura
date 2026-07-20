@@ -41,10 +41,8 @@ import { authToInternal, groupScripts, ocVariableToKeyValue } from './to-interna
  * items always emit verbatim regardless of which strategy fires above.
  *
  * Special cases mirroring `to-internal.ts`:
- *   - Internal HttpRequest with `body.type === 'graphql'` originated from an
- *     OC graphql item. Without `_oc` we cannot recover the original GraphQL
- *     OC representation, so we emit it as a plain HTTP item — that's the
- *     trade-off documented in Phase 0.
+ *   - Internal HttpRequest with `body.type === 'graphql'` is emitted as a
+ *     native OC GraphQL item, including its query and variables envelope.
  *   - SSE / MCP requests do not live in the OC `items` array; they go into
  *     `extensions['x-restura-sse']` / `extensions['x-restura-mcp']`.
  *   - WebSocket placeholders survive only via `_oc` bags on folder items.
@@ -316,6 +314,34 @@ function requestFromInternal(name: string, r: Request): unknown {
   switch (r.type) {
     case 'http': {
       const hr = r as HttpRequest;
+      if (hr.body.type === 'graphql') {
+        let query = hr.body.raw ?? '';
+        let variables = hr.body.graphqlVariables;
+        try {
+          const envelope = JSON.parse(query) as { query?: unknown; variables?: unknown };
+          if (typeof envelope.query === 'string') {
+            query = envelope.query;
+            if (variables === undefined && envelope.variables !== undefined) {
+              variables =
+                typeof envelope.variables === 'string'
+                  ? envelope.variables
+                  : JSON.stringify(envelope.variables);
+            }
+          }
+        } catch {
+          // Renderer-created GraphQL requests store query text directly.
+        }
+        const graphql: Record<string, unknown> = { url: hr.url };
+        if (query) graphql.query = query;
+        if (variables !== undefined) graphql.variables = variables;
+        if (hr.headers?.length) graphql.headers = hr.headers.map(kvFromInternal);
+        const auth = authFromInternal(hr.auth);
+        if (auth) graphql.auth = auth;
+        const out: Record<string, unknown> = { info: { type: 'graphql', name }, graphql };
+        const runtime = runtimeFromInternal(hr.preRequestScript, hr.testScript);
+        if (runtime) out.runtime = runtime;
+        return out;
+      }
       const http: Record<string, unknown> = {
         method: hr.method,
         url: hr.url,

@@ -30,6 +30,7 @@ describe('OWS workflow CLI command', () => {
       variables: { TOKEN: 'from-file' },
       timeoutMs: 1500,
       allowLocalhost: false,
+      allowMutations: false,
     });
   });
 
@@ -63,5 +64,22 @@ describe('OWS workflow CLI command', () => {
       )
     ).rejects.toThrow('--timeout expects a positive number');
     expect(deps.runOwsWorkspaceWorkflow).not.toHaveBeenCalled();
+  });
+
+  it('forwards an explicit mutation authorization to the workspace runner', async () => {
+    const deps = dependencies();
+
+    await executeOwsWorkflowCommand(
+      './workspace',
+      'billing',
+      { timeout: '1000', allowLocalhost: false, allowMutations: true },
+      deps
+    );
+
+    expect(deps.runOwsWorkspaceWorkflow).toHaveBeenCalledWith(
+      './workspace',
+      'billing',
+      expect.objectContaining({ allowMutations: true })
+    );
   });
 });

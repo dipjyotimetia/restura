@@ -94,6 +94,38 @@ describe('OWS executor', () => {
     expect(result).toMatchObject({ status: 'success', variables: { request: { status: 200 } } });
   });
 
+  it('passes values created by earlier blocks as an immutable dispatch snapshot', async () => {
+    const dispatcher = { dispatch: vi.fn().mockResolvedValue({ status: 200 }) };
+    await executeOwsWorkflow({
+      workflow: {
+        ...boundHttpWorkflow,
+        do: [
+          { prepare: { set: { tenant: 'acme', attempt: 2 } } },
+          {
+            request: {
+              call: 'http',
+              with: { method: 'GET', endpoint: { uri: 'restura://saved-request' } },
+            },
+          },
+        ],
+      },
+      bindings: {
+        version: 1,
+        tasks: {
+          '/do/1/request': { kind: 'saved-request', call: 'http', resourceId: 'request-1' },
+        },
+      },
+      variables: { input: 'initial' },
+      dispatcher,
+    });
+
+    expect(dispatcher.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        variables: { input: 'initial', tenant: 'acme', attempt: 2 },
+      })
+    );
+  });
+
   it('enforces task timeouts and reports them as failures', async () => {
     const result = await executeOwsWorkflow({
       workflow: {
@@ -212,5 +244,89 @@ describe('OWS executor', () => {
       status: 'failed',
       steps: [{ taskPath: '/do/0/slow', error: 'OWS workflow timed out.' }],
     });
+  });
+
+  it('executes guarded sequences, bounded array loops, catch paths, and workflow output', async () => {
+    const result = await executeOwsWorkflow({
+      workflow: {
+        ...workflow,
+        output: { as: { last: '${.last}', recovered: '${.recovered}' } },
+        do: [
+          { skipped: { if: '${.enabled}', set: { shouldNotAppear: true } } },
+          {
+            each: {
+              for: { each: 'item', at: 'index', in: '${.items}' },
+              do: [{ save: { set: { last: '${.item}' } } }],
+            },
+          },
+          {
+            recover: {
+              try: [
+                {
+                  call: {
+                    call: 'http',
+                    with: { method: 'GET', endpoint: { uri: 'restura://saved-request' } },
+                  },
+                },
+              ],
+              catch: { as: 'error', do: [{ fallback: { set: { recovered: true } } }] },
+            },
+          },
+        ],
+      },
+      bindings: {
+        version: 1,
+        tasks: {
+          '/do/2/recover/try/0/call': {
+            kind: 'saved-request',
+            call: 'http',
+            resourceId: 'request-1',
+          },
+        },
+      },
+      variables: { enabled: false, items: ['first', 'last'] },
+      dispatcher: { dispatch: vi.fn().mockRejectedValue(new Error('upstream failed')) },
+    });
+
+    expect(result.status).toBe('success');
+    expect(result.variables).toMatchObject({ last: 'last', recovered: true });
+    expect(result.variables).not.toHaveProperty('shouldNotAppear');
+    expect(result.output).toEqual({ last: 'last', recovered: true });
+    expect(result.steps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ taskPath: '/do/0/skipped', status: 'skipped' }),
+        expect.objectContaining({ taskPath: '/do/2/recover', status: 'success' }),
+      ])
+    );
+  });
+
+  it('fails closed when a loop source is not an array or exceeds the iteration limit', async () => {
+    const base = {
+      ...workflow,
+      do: [
+        {
+          each: {
+            for: { each: 'item', in: '${.items}' },
+            do: [{ save: { set: { last: '${.item}' } } }],
+          },
+        },
+      ],
+    } as OwsWorkflow;
+
+    const nonArray = await executeOwsWorkflow({
+      workflow: base,
+      bindings,
+      variables: { items: 'nope' },
+      dispatcher: { dispatch: vi.fn() },
+    });
+    expect(nonArray).toMatchObject({ status: 'failed' });
+
+    const oversized = await executeOwsWorkflow({
+      workflow: base,
+      bindings,
+      variables: { items: Array.from({ length: 1001 }, (_, index) => index) },
+      dispatcher: { dispatch: vi.fn() },
+    });
+    expect(oversized).toMatchObject({ status: 'failed' });
   });
 });

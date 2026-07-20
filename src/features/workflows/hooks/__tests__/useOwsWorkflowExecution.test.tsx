@@ -164,6 +164,78 @@ describe('useOwsWorkflowExecution', () => {
     );
   });
 
+  it('routes a typed GraphQL binding through the GraphQL adapter and fails GraphQL error envelopes', async () => {
+    runRequest.mockResolvedValue({
+      status: 200,
+      headers: {},
+      body: JSON.stringify({ errors: [{ message: 'mutation denied' }] }),
+      size: 2,
+      time: 1,
+    });
+    useCollectionStore.setState({
+      collections: [
+        {
+          id: 'collection-1',
+          name: 'Collection',
+          auth: { type: 'none' },
+          variables: [],
+          items: [
+            {
+              id: 'item-1',
+              name: 'GraphQL request',
+              type: 'request',
+              request: {
+                id: 'graphql-1',
+                name: 'GraphQL request',
+                type: 'http',
+                method: 'POST',
+                url: 'https://example.test/graphql',
+                headers: [],
+                params: [],
+                body: { type: 'graphql', raw: JSON.stringify({ query: 'query Q { me { id } }' }) },
+                auth: { type: 'none' },
+              },
+            },
+          ],
+        },
+      ],
+    } as never);
+    const graphqlWorkflow: OwsStoredWorkflow = {
+      ...workflow,
+      document: {
+        ...workflow.document,
+        do: [
+          {
+            request: {
+              call: 'http',
+              with: { method: 'POST', endpoint: { uri: 'restura://saved-request' } },
+            },
+          },
+        ],
+      },
+      bindings: {
+        version: 1,
+        tasks: {
+          '/do/0/request': {
+            kind: 'saved-request',
+            call: 'http',
+            protocol: 'graphql',
+            resourceId: 'GraphQL%20request',
+          },
+        },
+      },
+    };
+    const { result } = renderHook(() => useOwsWorkflowExecution());
+
+    await act(async () => {
+      await result.current.run(graphqlWorkflow);
+    });
+
+    expect(protocolRegistry.get).toHaveBeenCalledWith('graphql');
+    expect(result.current.result).toMatchObject({ status: 'failed' });
+    expect(result.current.result?.steps[0]?.error).toContain('mutation denied');
+  });
+
   it('rejects concurrent starts instead of letting an older run overwrite a newer run state', async () => {
     let resolveRequest: ((value: unknown) => void) | undefined;
     runRequest.mockImplementation(

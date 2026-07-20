@@ -85,6 +85,10 @@ function collectCallPaths(list: unknown, path: string, output: Set<string>): voi
     const taskPath = `${path}/${index}/${name}`;
     if ('call' in task) output.add(taskPath);
     if ('do' in task) collectCallPaths(task.do, `${taskPath}/do`, output);
+    if ('try' in task) collectCallPaths(task.try, `${taskPath}/try`, output);
+    if (isRecord(task.catch) && 'do' in task.catch) {
+      collectCallPaths(task.catch.do, `${taskPath}/catch/do`, output);
+    }
   }
 }
 

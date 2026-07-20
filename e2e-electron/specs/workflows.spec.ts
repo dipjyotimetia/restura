@@ -1,6 +1,11 @@
 import { mkdir, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { selectHttpMethod, setUrl, switchMode } from '../../e2e/utils/selectors';
+import {
+  fillFirstMonacoEditor,
+  selectHttpMethod,
+  setUrl,
+  switchMode,
+} from '../../e2e/utils/selectors';
 import { expect, test } from '../fixtures/servers';
 
 const WORKFLOW_DOCUMENT = {
@@ -67,7 +72,100 @@ async function createCollectionAndSavedRequest(
   return { collectionName, requestName };
 }
 
+async function createCollectionAndSavedGraphqlRequest(
+  page: Parameters<typeof setUrl>[0],
+  url: string,
+  query: string,
+  suffix: string
+): Promise<{ collectionName: string; requestName: string }> {
+  await switchMode(page, 'graphql');
+  await page.getByRole('textbox', { name: 'GraphQL endpoint URL' }).fill(url);
+  await fillFirstMonacoEditor(page, query);
+  const requestTab = page
+    .getByRole('tablist', { name: 'Request tabs' })
+    .getByRole('tab', { selected: true });
+  await requestTab.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Save to Collection…' }).click();
+
+  const saveDialog = page.getByRole('dialog', { name: 'Save to Collection' });
+  const requestName = `Workflow GraphQL ${suffix}`;
+  const collectionName = `Workflow GraphQL E2E ${Date.now()} ${suffix}`;
+  await saveDialog.getByPlaceholder('Request name').fill(requestName);
+  const newMode = saveDialog.getByRole('button', { name: 'New' });
+  if (await newMode.count()) await newMode.click();
+  await saveDialog.getByPlaceholder('New collection name').fill(collectionName);
+  await saveDialog.getByRole('button', { name: 'Save' }).click();
+  return { collectionName, requestName };
+}
+
 test.describe('Desktop workflows', () => {
+  test('adds and executes a saved GraphQL query from the workflow graph', async ({
+    app: page,
+    servers,
+  }) => {
+    const { requestName } = await createCollectionAndSavedGraphqlRequest(
+      page,
+      `${servers.http.url}/graphql`,
+      'query Viewer { hello(name: "Workflow") }',
+      'Query'
+    );
+    await page.getByRole('tab', { name: 'Workflows', exact: true }).click();
+    const panel = page.getByRole('tabpanel', { name: 'Workflows' });
+    await panel.getByTitle('New workflow').last().click();
+    const createDialog = page.getByRole('dialog', { name: 'Create workflow' });
+    await createDialog.getByPlaceholder('Workflow name').fill('GraphQL query');
+    await createDialog.getByRole('button', { name: 'Create' }).click();
+
+    const editor = page.getByRole('dialog', { name: 'Workflow: graphql-query' });
+    await editor.getByRole('button', { name: requestName }).click();
+    await editor.getByRole('button', { name: 'Validate & save' }).click();
+    await editor.getByRole('tab', { name: 'Workflow JSON' }).click();
+    await expect(editor.getByRole('textbox', { name: 'Workflow JSON' })).toContainText('POST');
+    await editor.getByRole('tab', { name: 'Bindings' }).click();
+    await expect(editor.getByRole('textbox', { name: 'Workflow bindings JSON' })).toContainText(
+      'graphql'
+    );
+
+    await editor.getByRole('button', { name: 'Run' }).click();
+    const runDialog = page.getByRole('dialog', { name: /graphql-query/ });
+    await runDialog.getByRole('button', { name: 'Run workflow' }).click();
+    await expect(runDialog.getByText('success', { exact: true }).first()).toBeVisible();
+    expect(servers.http.requests().some((request) => request.path === '/graphql')).toBe(true);
+    await runDialog.getByRole('button', { name: 'Close' }).first().click();
+  });
+
+  test('requires explicit confirmation before a saved GraphQL mutation runs', async ({
+    app: page,
+    servers,
+  }) => {
+    const { requestName } = await createCollectionAndSavedGraphqlRequest(
+      page,
+      `${servers.http.url}/graphql`,
+      'mutation Create { createUser(name: "Workflow") { id } }',
+      'Mutation'
+    );
+    await page.getByRole('tab', { name: 'Workflows', exact: true }).click();
+    const panel = page.getByRole('tabpanel', { name: 'Workflows' });
+    await panel.getByTitle('New workflow').last().click();
+    const createDialog = page.getByRole('dialog', { name: 'Create workflow' });
+    await createDialog.getByPlaceholder('Workflow name').fill('GraphQL mutation');
+    await createDialog.getByRole('button', { name: 'Create' }).click();
+
+    const editor = page.getByRole('dialog', { name: 'Workflow: graphql-mutation' });
+    await editor.getByRole('button', { name: requestName }).click();
+    await editor.getByRole('button', { name: 'Validate & save' }).click();
+    await editor.getByRole('button', { name: 'Run' }).click();
+    const runDialog = page.getByRole('dialog', { name: /graphql-mutation/ });
+    await runDialog.getByRole('button', { name: 'Run workflow' }).click();
+    await expect(runDialog.getByText('This workflow will run GraphQL mutations.')).toBeVisible();
+    expect(servers.http.requests().filter((request) => request.path === '/graphql')).toHaveLength(
+      0
+    );
+    await runDialog.getByRole('button', { name: 'Confirm & run' }).click();
+    await expect(runDialog.getByText('success', { exact: true }).first()).toBeVisible();
+    await runDialog.getByRole('button', { name: 'Close' }).first().click();
+  });
+
   test('persists and reloads the complete workflow artifact triplet through Electron IPC', async ({
     app: page,
   }) => {
@@ -139,23 +237,80 @@ test.describe('Desktop workflows', () => {
 
     await page.getByRole('tab', { name: 'Workflows', exact: true }).click();
     await expect(page.getByRole('tabpanel', { name: 'Workflows' })).toBeVisible();
-    await page.getByRole('tabpanel', { name: 'Workflows' }).getByTitle('New workflow').click();
+    await page
+      .getByRole('tabpanel', { name: 'Workflows' })
+      .getByTitle('New workflow')
+      .last()
+      .click();
     const createDialog = page.getByRole('dialog', { name: 'Create workflow' });
     await createDialog.getByPlaceholder('Workflow name').fill('Desktop flow');
     await createDialog.getByRole('button', { name: 'Create' }).click();
 
     const editor = page.getByRole('dialog', { name: 'Workflow: desktop-flow' });
-    await editor.getByRole('tab', { name: 'Workflow JSON' }).click();
-    await editor.getByRole('textbox', { name: 'Workflow JSON' }).fill(
+    const allControlsDocument = {
+      document: { ...WORKFLOW_DOCUMENT.document, name: 'desktop-flow' },
+      output: { as: { result: '${.recovered}' } },
+      do: [
+        {
+          initialize: {
+            do: [
+              { setContext: { set: { source: 'desktop-e2e', items: ['first', 'second'] } } },
+              { boundedDelay: { wait: { milliseconds: 1 } } },
+            ],
+          },
+        },
+        {
+          onlyWhenExpected: {
+            if: '${.source} == "desktop-e2e"',
+            do: [{ guardedDelay: { wait: { milliseconds: 1 } } }],
+          },
+        },
+        {
+          onlyWhenUnexpected: {
+            if: '${.source} == "not-desktop"',
+            do: [{ skippedDelay: { wait: { milliseconds: 1 } } }],
+          },
+        },
+        {
+          eachItem: {
+            for: { each: 'item', at: 'index', in: '${.items}' },
+            do: [{ captureItem: { set: { last: '${.item}' } } }],
+          },
+        },
+        {
+          recoverable: {
+            try: [
+              {
+                failingAttempt: {
+                  for: { each: 'item', in: '${.missing}' },
+                  do: [{ captureMissing: { set: { last: '${.item}' } } }],
+                },
+              },
+            ],
+            catch: { as: 'error', do: [{ recovered: { set: { recovered: true } } }] },
+          },
+        },
+        {
+          callSavedRequest: {
+            call: 'http',
+            with: { method: 'GET', endpoint: { uri: 'restura://saved-request' } },
+          },
+        },
+      ],
+    };
+    await editor.getByRole('tab', { name: 'Bindings' }).click();
+    await editor.getByRole('textbox', { name: 'Workflow bindings JSON' }).fill(
       JSON.stringify({
-        ...WORKFLOW_DOCUMENT,
-        document: { ...WORKFLOW_DOCUMENT.document, name: 'desktop-flow' },
+        version: 1,
+        tasks: {
+          '/do/5/callSavedRequest': WORKFLOW_BINDINGS.tasks['/do/1/callSavedRequest'],
+        },
       })
     );
-    await editor.getByRole('tab', { name: 'Bindings' }).click();
+    await editor.getByRole('tab', { name: 'Workflow JSON' }).click();
     await editor
-      .getByRole('textbox', { name: 'Workflow bindings JSON' })
-      .fill(JSON.stringify(WORKFLOW_BINDINGS));
+      .getByRole('textbox', { name: 'Workflow JSON' })
+      .fill(JSON.stringify(allControlsDocument));
     await editor.getByRole('button', { name: 'Validate & save' }).click();
     await expect(editor.getByText('Saved as a validated workflow.')).toBeVisible();
 
@@ -169,7 +324,12 @@ test.describe('Desktop workflows', () => {
     const runDialog = page.getByRole('dialog', { name: /desktop-flow/ });
     await runDialog.getByRole('button', { name: 'Run workflow' }).click();
     await expect(runDialog.getByText('success', { exact: true }).first()).toBeVisible();
-    await expect(runDialog.getByText('/do/1/callSavedRequest')).toBeVisible();
+    await expect(
+      runDialog.getByRole('listitem').filter({ hasText: '/do/2/onlyWhenUnexpected' }).first()
+    ).toHaveText(/skipped/);
+    await expect(runDialog.getByText('/do/4/recoverable/catch/do/0/recovered')).toBeVisible();
+    await expect(runDialog.getByText('/do/5/callSavedRequest')).toBeVisible();
+    await expect(runDialog.getByText(/"result": true/)).toBeVisible();
     expect(servers.http.requests().some((request) => request.path === '/json')).toBe(true);
     await runDialog.getByRole('button', { name: 'Close' }).first().click();
   });
@@ -188,8 +348,9 @@ test.describe('Desktop workflows', () => {
 
     const editor = page.getByRole('dialog', { name: 'Workflow: graph-blocks' });
     await expect(editor.getByText('START')).toBeVisible();
-    await editor.getByRole('button', { name: 'Sequence' }).click();
-    await editor.getByRole('button', { name: 'Set value' }).click();
+    await editor.getByRole('button', { name: 'Sequence', exact: true }).click();
+    await editor.getByRole('button', { name: 'List' }).click();
+    await editor.getByRole('button', { name: 'For each', exact: true }).click();
     await editor.getByRole('button', { name: 'Wait' }).click();
     await editor.getByRole('button', { name: /GET Workflow GET/ }).click();
     await editor.getByRole('button', { name: 'Validate & save' }).click();
@@ -200,6 +361,7 @@ test.describe('Desktop workflows', () => {
     await expect(editor.getByRole('textbox', { name: 'Workflow JSON' })).toContainText(
       'sequence-1'
     );
+    await expect(editor.getByRole('textbox', { name: 'Workflow JSON' })).toContainText('each-1');
     await expect(editor.getByRole('textbox', { name: 'Workflow JSON' })).toContainText('request-1');
     await editor.getByRole('tab', { name: 'Bindings' }).click();
     await expect(editor.getByRole('textbox', { name: 'Workflow bindings JSON' })).toContainText(
@@ -297,7 +459,7 @@ test.describe('Desktop workflows', () => {
     const editor = page.getByRole('dialog', { name: 'Workflow: unsafe-control' });
     await editor.getByRole('tab', { name: 'Workflow JSON' }).click();
     const documentInput = editor.getByRole('textbox', { name: 'Workflow JSON' });
-    const unsupportedControls = ['fork', 'for', 'emit', 'listen', 'raise', 'run', 'switch', 'try'];
+    const unsupportedControls = ['fork', 'emit', 'listen', 'raise', 'run', 'switch'];
     for (const control of unsupportedControls) {
       await documentInput.fill(
         JSON.stringify({
@@ -330,11 +492,15 @@ test.describe('Desktop workflows', () => {
       { ...WORKFLOW_DOCUMENT, document: { ...WORKFLOW_DOCUMENT.document, dsl: 'bogus' } },
       { ...WORKFLOW_DOCUMENT, do: [] },
       { ...WORKFLOW_DOCUMENT, do: [{ unsafe: { wait: {} } }] },
+      { ...WORKFLOW_DOCUMENT, do: [{ unsafe: { for: { each: 'item', in: 'items' }, do: [] } }] },
+      { ...WORKFLOW_DOCUMENT, do: [{ unsafe: { try: [], catch: { retry: { count: 1 } } } }] },
     ]) {
       await documentInput.fill(JSON.stringify(invalidDocument));
       await editor.getByRole('button', { name: 'Validate & save' }).click();
       await expect(editor.getByRole('alert')).toBeVisible();
     }
+    await editor.getByRole('button', { name: 'Close' }).first().click();
+    await page.getByRole('button', { name: 'Discard changes' }).click();
   });
 
   test('enforces workflow and task timeouts and lets Stop cancel before a later bound call', async ({
@@ -344,7 +510,7 @@ test.describe('Desktop workflows', () => {
     await createCollectionAndSavedRequest(page, `${servers.http.url}/slow?ms=1500`);
     await page.getByRole('tab', { name: 'Workflows', exact: true }).click();
     const workflowPanel = page.getByRole('tabpanel', { name: 'Workflows' });
-    await workflowPanel.getByTitle('New workflow').click();
+    await workflowPanel.getByTitle('New workflow').last().click();
     const createDialog = page.getByRole('dialog', { name: 'Create workflow' });
     await createDialog.getByPlaceholder('Workflow name').fill('Cancellation boundary');
     await createDialog.getByRole('button', { name: 'Create' }).click();

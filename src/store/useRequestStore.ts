@@ -341,7 +341,17 @@ export const useRequestStore = create<RequestState>()(
         },
 
         openTabWithMode: (mode) => {
-          const tab = createTabFromRequest(createDefaultHttpRequest(), { modeOverride: mode });
+          const request = createDefaultHttpRequest();
+          const modeRequest =
+            mode === 'graphql'
+              ? {
+                  ...request,
+                  name: 'New GraphQL Request',
+                  method: 'POST' as const,
+                  body: { type: 'graphql' as const, raw: '' },
+                }
+              : request;
+          const tab = createTabFromRequest(modeRequest, { modeOverride: mode });
           set((state) => ({
             tabs: [...state.tabs, tab],
             activeTabId: tab.id,

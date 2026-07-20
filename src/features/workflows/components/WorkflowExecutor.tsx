@@ -2,7 +2,7 @@
 
 import { buildOwsGraph } from '@shared/ows/workflow-profile';
 import { Play, Square } from 'lucide-react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -23,9 +23,12 @@ interface WorkflowExecutorProps {
 }
 
 export function WorkflowExecutor({ workflow, open, onOpenChange }: WorkflowExecutorProps) {
-  const { isRunning, result, steps, error, run, stop } = useOwsWorkflowExecution();
+  const { isRunning, result, steps, error, run, stop, getMutationSteps } =
+    useOwsWorkflowExecution();
+  const [awaitingMutationConfirmation, setAwaitingMutationConfirmation] = useState(false);
   const close = () => {
     stop();
+    setAwaitingMutationConfirmation(false);
     onOpenChange(false);
   };
   const graphPaths = useMemo(() => {
@@ -56,7 +59,7 @@ export function WorkflowExecutor({ workflow, open, onOpenChange }: WorkflowExecu
           </DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
-          Bound calls resolve only to saved HTTP resources and run through the normal
+          Bound calls resolve only to saved HTTP or GraphQL resources and run through the normal
           policy-enforced protocol adapter.
         </p>
         <ScrollArea className="h-[390px] rounded border p-3">
@@ -72,7 +75,11 @@ export function WorkflowExecutor({ workflow, open, onOpenChange }: WorkflowExecu
                   <code className="text-xs">{taskPath}</code>
                   <span
                     className={
-                      step?.status === 'failed' ? 'text-destructive' : 'text-muted-foreground'
+                      step?.status === 'failed'
+                        ? 'text-destructive'
+                        : step?.status === 'skipped'
+                          ? 'text-amber-500'
+                          : 'text-muted-foreground'
                     }
                   >
                     {step?.status ?? 'pending'}
@@ -83,10 +90,25 @@ export function WorkflowExecutor({ workflow, open, onOpenChange }: WorkflowExecu
             <li className="rounded bg-muted px-3 py-2 font-medium">End (visual only)</li>
           </ol>
         </ScrollArea>
+        {result?.output !== undefined && (
+          <pre className="max-h-36 overflow-auto rounded border bg-muted/50 p-3 text-xs">
+            {JSON.stringify(result.output, null, 2)}
+          </pre>
+        )}
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}
           </p>
+        )}
+        {awaitingMutationConfirmation && (
+          <div className="rounded border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
+            <p className="font-medium">This workflow will run GraphQL mutations.</p>
+            <ul className="mt-1 list-inside list-disc text-muted-foreground">
+              {getMutationSteps(workflow).map((mutation) => (
+                <li key={mutation.taskPath}>{mutation.name}</li>
+              ))}
+            </ul>
+          </div>
         )}
         <DialogFooter>
           <Button variant="outline" onClick={close}>
@@ -98,10 +120,30 @@ export function WorkflowExecutor({ workflow, open, onOpenChange }: WorkflowExecu
               Stop
             </Button>
           ) : (
-            <Button onClick={() => void run(workflow).catch(() => undefined)}>
-              <Play className="mr-2 h-4 w-4" />
-              Run workflow
-            </Button>
+            <>
+              {awaitingMutationConfirmation && (
+                <Button variant="outline" onClick={() => setAwaitingMutationConfirmation(false)}>
+                  Cancel
+                </Button>
+              )}
+              <Button
+                onClick={() => {
+                  if (awaitingMutationConfirmation) {
+                    setAwaitingMutationConfirmation(false);
+                    void run(workflow, { allowGraphqlMutations: true }).catch(() => undefined);
+                    return;
+                  }
+                  if (getMutationSteps(workflow).length > 0) {
+                    setAwaitingMutationConfirmation(true);
+                    return;
+                  }
+                  void run(workflow).catch(() => undefined);
+                }}
+              >
+                <Play className="mr-2 h-4 w-4" />
+                {awaitingMutationConfirmation ? 'Confirm & run' : 'Run workflow'}
+              </Button>
+            </>
           )}
         </DialogFooter>
       </DialogContent>

@@ -1,7 +1,7 @@
 import type { OwsBindings, OwsLayout, OwsTaskBinding } from '@shared/ows/bindings';
 import type { OwsWorkflow } from '@shared/ows/workflow-profile';
 
-export type WorkflowBlockKind = 'do' | 'set' | 'wait' | 'call';
+export type WorkflowBlockKind = 'do' | 'for' | 'set' | 'try' | 'wait' | 'call';
 
 export interface WorkflowBlock {
   /** Stable only for the current editor draft; task paths are regenerated on save. */
@@ -10,17 +10,22 @@ export interface WorkflowBlock {
   kind: WorkflowBlockKind;
   position: { x: number; y: number };
   timeout?: unknown;
+  condition?: string;
   set?: Record<string, unknown>;
   wait?: Record<string, number>;
+  for?: { each: string; in: string; at?: string };
+  catchAs?: string;
   method?: string;
   binding?: OwsTaskBinding;
   children?: WorkflowBlock[];
+  catchChildren?: WorkflowBlock[];
 }
 
 export interface WorkflowFlowModel {
   blocks: WorkflowBlock[];
   /** Preserved even though the graph editor does not edit workflow-wide deadlines yet. */
   timeout?: unknown;
+  output?: unknown;
   viewport?: OwsLayout['viewport'];
 }
 
@@ -45,15 +50,61 @@ function blocksFromTasks(
     const [name, task] = Object.entries(entry)[0] ?? [];
     if (!name || !isRecord(task)) continue;
     const taskPath = `${path}/${index}/${name}`;
-    const position = layout.nodes[taskPath] ?? { x: 0, y: index * 140 };
+    const position = layout.nodes[taskPath] ?? { x: 260, y: index * 140 + 100 };
     const timeout = task.timeout === undefined ? undefined : clone(task.timeout);
+    const condition = typeof task.if === 'string' ? task.if : undefined;
+    const common = {
+      ...(timeout === undefined ? {} : { timeout }),
+      ...(condition === undefined ? {} : { condition }),
+    };
+    if ('for' in task && isRecord(task.for)) {
+      const config = task.for;
+      if (typeof config.each !== 'string' || typeof config.in !== 'string') continue;
+      blocks.push({
+        id: taskPath,
+        name,
+        kind: 'for',
+        position,
+        ...common,
+        for: {
+          each: config.each,
+          in: config.in,
+          ...(typeof config.at === 'string' ? { at: config.at } : {}),
+        },
+        children: blocksFromTasks(task.do, `${taskPath}/do`, bindings, layout),
+      });
+      continue;
+    }
+    if ('try' in task) {
+      const catchConfig = isRecord(task.catch) ? task.catch : undefined;
+      blocks.push({
+        id: taskPath,
+        name,
+        kind: 'try',
+        position,
+        ...common,
+        children: blocksFromTasks(task.try, `${taskPath}/try`, bindings, layout),
+        ...(typeof catchConfig?.as === 'string' ? { catchAs: catchConfig.as } : {}),
+        ...(catchConfig && 'do' in catchConfig
+          ? {
+              catchChildren: blocksFromTasks(
+                catchConfig.do,
+                `${taskPath}/catch/do`,
+                bindings,
+                layout
+              ),
+            }
+          : {}),
+      });
+      continue;
+    }
     if ('do' in task) {
       blocks.push({
         id: taskPath,
         name,
         kind: 'do',
         position,
-        ...(timeout ? { timeout } : {}),
+        ...common,
         children: blocksFromTasks(task.do, `${taskPath}/do`, bindings, layout),
       });
       continue;
@@ -64,7 +115,7 @@ function blocksFromTasks(
         name,
         kind: 'set',
         position,
-        ...(timeout ? { timeout } : {}),
+        ...common,
         set: clone(task.set),
       });
       continue;
@@ -75,7 +126,7 @@ function blocksFromTasks(
         name,
         kind: 'wait',
         position,
-        ...(timeout ? { timeout } : {}),
+        ...common,
         wait: clone(task.wait) as Record<string, number>,
       });
       continue;
@@ -87,7 +138,7 @@ function blocksFromTasks(
         name,
         kind: 'call',
         position,
-        ...(timeout ? { timeout } : {}),
+        ...common,
         method: task.with.method,
         ...(binding ? { binding: clone(binding) } : {}),
       });
@@ -104,6 +155,7 @@ export function deriveOwsFlowModel(
   return {
     blocks: blocksFromTasks(document.do, '/do', bindings, layout),
     ...(document.timeout === undefined ? {} : { timeout: clone(document.timeout) }),
+    ...(document.output === undefined ? {} : { output: clone(document.output) }),
     ...(layout.viewport ? { viewport: layout.viewport } : {}),
   };
 }
@@ -118,15 +170,40 @@ function tasksFromBlocks(
     const taskPath = `${path}/${index}/${block.name}`;
     layout.nodes[taskPath] = block.position;
     const timeout = block.timeout === undefined ? {} : { timeout: clone(block.timeout) };
+    const condition = block.condition === undefined ? {} : { if: block.condition };
     let task: Record<string, unknown>;
     if (block.kind === 'do')
       task = {
         do: tasksFromBlocks(block.children ?? [], `${taskPath}/do`, bindings, layout),
         ...timeout,
+        ...condition,
       };
-    else if (block.kind === 'set') task = { set: clone(block.set ?? {}), ...timeout };
+    else if (block.kind === 'for') {
+      task = {
+        for: clone(block.for ?? { each: 'item', in: '${.items}' }),
+        do: tasksFromBlocks(block.children ?? [], `${taskPath}/do`, bindings, layout),
+        ...timeout,
+        ...condition,
+      };
+    } else if (block.kind === 'try') {
+      const catchChildren = block.catchChildren ?? [];
+      task = {
+        try: tasksFromBlocks(block.children ?? [], `${taskPath}/try`, bindings, layout),
+        ...(catchChildren.length > 0
+          ? {
+              catch: {
+                ...(block.catchAs ? { as: block.catchAs } : {}),
+                do: tasksFromBlocks(catchChildren, `${taskPath}/catch/do`, bindings, layout),
+              },
+            }
+          : {}),
+        ...timeout,
+        ...condition,
+      };
+    } else if (block.kind === 'set')
+      task = { set: clone(block.set ?? {}), ...timeout, ...condition };
     else if (block.kind === 'wait')
-      task = { wait: clone(block.wait ?? { milliseconds: 0 }), ...timeout };
+      task = { wait: clone(block.wait ?? { milliseconds: 0 }), ...timeout, ...condition };
     else {
       if (!block.binding || !block.method)
         throw new Error(`Saved HTTP block '${block.name}' needs a bound request.`);
@@ -135,6 +212,7 @@ function tasksFromBlocks(
         call: 'http',
         with: { method: block.method, endpoint: { uri: 'restura://saved-request' } },
         ...timeout,
+        ...condition,
       };
     }
     return { [block.name]: task };
@@ -155,6 +233,7 @@ export function serializeOwsFlowModel(
     document: {
       document: clone(metadata),
       ...(model.timeout === undefined ? {} : { timeout: clone(model.timeout) }),
+      ...(model.output === undefined ? {} : { output: clone(model.output) }),
       do: tasksFromBlocks(model.blocks, '/do', bindings, layout),
     } as OwsWorkflow,
     bindings,

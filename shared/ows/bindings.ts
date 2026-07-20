@@ -10,7 +10,9 @@
  * while in-app collections may resolve a current opaque id. A binding never
  * contains the request's endpoint, headers, authentication, or credentials.
  */
-export type OwsTaskBinding = { kind: 'saved-request'; call: 'http'; resourceId: string };
+export type OwsTaskBinding =
+  | { kind: 'saved-request'; call: 'http'; resourceId: string }
+  | { kind: 'saved-request'; call: 'http'; protocol: 'graphql'; resourceId: string };
 
 export interface OwsBindings {
   version: 1;
@@ -41,10 +43,14 @@ function hasExactKeys(value: Record<string, unknown>, keys: readonly string[]): 
 }
 
 export function isOwsTaskBinding(value: unknown): value is OwsTaskBinding {
-  if (!isPlainRecord(value) || !hasExactKeys(value, ['kind', 'call', 'resourceId'])) return false;
+  if (!isPlainRecord(value)) return false;
+  const isHttp = hasExactKeys(value, ['kind', 'call', 'resourceId']);
+  const isGraphql = hasExactKeys(value, ['kind', 'call', 'protocol', 'resourceId']);
+  if (!isHttp && !isGraphql) return false;
   return (
     value.kind === 'saved-request' &&
     value.call === 'http' &&
+    (isHttp || value.protocol === 'graphql') &&
     typeof value.resourceId === 'string' &&
     value.resourceId === value.resourceId.trim() &&
     RESOURCE_ID.test(value.resourceId)

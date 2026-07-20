@@ -285,4 +285,65 @@ describe('runOwsWorkspaceWorkflow', () => {
     });
     expect(executeHttp).not.toHaveBeenCalled();
   });
+
+  it('requires explicit CLI authorization before dispatching a saved GraphQL mutation', async () => {
+    const root = await createWorkspace();
+    await saveOwsWorkflowArtifact(
+      root,
+      'mutation',
+      {
+        document: { dsl: '1.0.3', namespace: 'restura', name: 'mutation', version: '1.0.0' },
+        do: [
+          {
+            update: {
+              call: 'http',
+              with: { method: 'POST', endpoint: { uri: 'restura://saved-request' } },
+            },
+          },
+        ],
+      },
+      {
+        version: 1,
+        tasks: {
+          '/do/0/update': {
+            kind: 'saved-request',
+            call: 'http',
+            protocol: 'graphql',
+            resourceId: 'get-billing.yaml',
+          },
+        },
+      },
+      { version: 1, nodes: { '/do/0/update': { x: 0, y: 0 } } }
+    );
+    const graphqlRequest: LoadedRequest = {
+      ...request,
+      request: {
+        ...request.request,
+        method: 'POST',
+        body: {
+          type: 'graphql',
+          raw: JSON.stringify({
+            query: 'mutation Update { update { id } }',
+            operationName: 'Update',
+          }),
+        },
+      },
+    };
+    const executeHttp = vi.fn();
+
+    await expect(
+      runOwsWorkspaceWorkflow(
+        root,
+        'mutation',
+        { variables: {}, timeoutMs: 1_000, allowLocalhost: false, allowMutations: false },
+        {
+          loadCollection: vi
+            .fn()
+            .mockResolvedValue({ ...loadedCollection, requests: [graphqlRequest] }),
+          executeHttp,
+        }
+      )
+    ).rejects.toThrow('--allow-mutations');
+    expect(executeHttp).not.toHaveBeenCalled();
+  });
 });

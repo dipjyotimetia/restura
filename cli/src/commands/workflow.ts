@@ -6,6 +6,7 @@ export interface OwsWorkflowCommandOpts {
   env?: string;
   timeout: string;
   allowLocalhost: boolean;
+  allowMutations?: boolean;
 }
 
 export interface OwsWorkflowCommandDependencies {
@@ -42,6 +43,7 @@ export async function executeOwsWorkflowCommand(
     variables,
     timeoutMs: positiveTimeout(opts.timeout),
     allowLocalhost: Boolean(opts.allowLocalhost),
+    allowMutations: Boolean(opts.allowMutations),
   });
   return result.status === 'success' ? 0 : 1;
 }
@@ -58,6 +60,7 @@ export function registerWorkflowCommand(program: Command): void {
     .option('--env <file>', 'Path to env file (json or yaml)')
     .option('--timeout <ms>', 'Workflow timeout cap', '30000')
     .option('--allow-localhost', 'Permit localhost / 127.0.0.1 targets (off by default)', false)
+    .option('--allow-mutations', 'Permit saved GraphQL mutation calls (off by default)', false)
     .action(async (workspace: string, workflowId: string, opts: OwsWorkflowCommandOpts) => {
       try {
         process.exitCode = await executeOwsWorkflowCommand(workspace, workflowId, opts);

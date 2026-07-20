@@ -96,6 +96,22 @@ function collectTaskPaths(list: unknown, path: string, output: Set<string>): voi
   }
 }
 
+function collectCallPaths(list: unknown, path: string, output: Set<string>): void {
+  if (!Array.isArray(list)) return;
+  for (const [index, entry] of list.entries()) {
+    if (!isRecord(entry)) continue;
+    const entries = Object.entries(entry);
+    if (entries.length !== 1) continue;
+    const [name, task] = entries[0]!;
+    if (!isRecord(task)) continue;
+    const taskPath = `${path}/${index}/${name}`;
+    if (task.call === 'http') output.add(taskPath);
+    collectCallPaths(task.do, `${taskPath}/do`, output);
+    collectCallPaths(task.try, `${taskPath}/try`, output);
+    if (isRecord(task.catch)) collectCallPaths(task.catch.do, `${taskPath}/catch/do`, output);
+  }
+}
+
 function assertFinitePosition(
   value: unknown,
   label: string
@@ -139,6 +155,13 @@ function validateArtifact(workflow: OwsWorkflow, bindings: OwsBindings, layout: 
 
   const paths = new Set<string>();
   collectTaskPaths(workflow.do, '/do', paths);
+  const callPaths = new Set<string>();
+  collectCallPaths(workflow.do, '/do', callPaths);
+  for (const taskPath of callPaths) {
+    if (!bindings.tasks[taskPath]) {
+      throw new Error(`OWS call task is missing a binding: ${taskPath}`);
+    }
+  }
   for (const taskPath of Object.keys(bindings.tasks)) {
     if (!paths.has(taskPath)) throw new Error(`OWS binding task path does not exist: ${taskPath}`);
   }

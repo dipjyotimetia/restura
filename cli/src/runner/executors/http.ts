@@ -158,9 +158,30 @@ function buildBody(body: HttpRequest['body'] | undefined, vars: Record<string, s
     case 'text':
       return { bodyType: 'text', ...(raw !== undefined ? { data: raw } : {}) };
     case 'graphql':
-      // GraphQL is just JSON over HTTP — body.raw already holds the stringified
-      // { query, variables, operationName } payload.
-      return { bodyType: 'json', ...(raw !== undefined ? { data: raw } : {}) };
+      // Keep the editor's query + variables representation portable while
+      // sending the standard GraphQL JSON envelope over the wire.
+      if (raw === undefined) return { bodyType: 'json' };
+      try {
+        const parsed = JSON.parse(raw) as Record<string, unknown>;
+        if (typeof parsed.query === 'string') return { bodyType: 'json', data: raw };
+      } catch {
+        // A query document is expected while it is being authored.
+      }
+      return {
+        bodyType: 'json',
+        data: JSON.stringify({
+          query: raw,
+          variables: (() => {
+            if (body.graphqlVariables === undefined) return {};
+            try {
+              const parsed = JSON.parse(resolveVarsDeep(body.graphqlVariables, vars));
+              return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+            } catch {
+              return {};
+            }
+          })(),
+        }),
+      };
     case 'xml':
       // 'raw' bodyType emits with no content-type. The header layer should set
       // application/xml if the caller wants it; we don't force it here.

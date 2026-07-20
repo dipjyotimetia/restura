@@ -1,6 +1,7 @@
-# OWS workflows
+# Workflows
 
-Restura workflows are a clean-slate, OWS-native orchestration feature. There
+Restura workflows are a clean-slate orchestration feature backed by the Open
+Workflow Specification. There
 is no legacy linear workflow, proprietary Flow graph, migration path, or
 compatibility executor. The Open Workflow Specification document is the sole
 executable workflow definition.
@@ -13,7 +14,7 @@ contributors.
 
 `src/store/useWorkflowStore.ts` keeps the renderer's validated OWS records:
 
-- an SDK-normalized `OwsWorkflow` document;
+- an SDK-normalized workflow document;
 - exact task-path-to-saved-request bindings;
 - non-semantic layout; and
 - ordinary collection and timestamp metadata.
@@ -44,9 +45,12 @@ projects the same bounded profile without loading the SDK's dynamic code
 generator. Restura deliberately executes only this safe profile:
 
 - sequential `do`, `set`, and `wait` tasks;
+- guarded paths, finite array `for` loops, and `try` / `catch` recovery;
+- safe output projection and typed data values; and
 - task and workflow timeouts, plus cancellation; and
-- HTTP calls that reference a saved OpenCollection request through a
-  `restura://saved-request` endpoint and a typed companion binding.
+- HTTP and GraphQL calls that reference a saved OpenCollection request through
+  a `restura://saved-request` endpoint and a typed companion binding. GraphQL
+  errors fail their task, and mutations require explicit desktop or CLI approval.
 
 All other OWS controls and call transports are rejected before persistence and
 execution. In particular, inline transport configuration, executable
@@ -72,8 +76,8 @@ every list/load/save/delete payload before reaching the Node workspace helper.
 
 ## Editor
 
-`src/features/workflows/components/WorkflowBuilder.tsx` is a compact OWS JSON
-editor with a bindings editor and safe graph preview. It may display
+`src/features/workflows/components/WorkflowBuilder.tsx` is a compact workflow
+editor with a bindings editor and safe graph projection. It may display
 synthetic start/end nodes for orientation; these are never serialized as
 workflow semantics. `WorkflowManager.tsx` provides create/import/export and
 `WorkflowExecutor.tsx` renders bounded run results.
@@ -81,12 +85,12 @@ workflow semantics. `WorkflowManager.tsx` provides create/import/export and
 ## Collection runner
 
 The collection-level runner (`src/features/collections/lib/collectionRunner.ts`)
-remains separate from OWS. It executes saved collection requests and
+remains separate from workflows. It executes saved collection requests and
 collection scripts; it is not a workflow compatibility layer.
 
 ## Change guidance
 
-- Start with `docs/workflows.md`; do not expand the accepted OWS profile unless
+- Start with `docs/workflows.md`; do not expand the accepted workflow profile unless
   there is a bounded, policy-enforcing runtime dispatcher and test coverage for
   every platform that advertises it.
 - Keep `shared/ows/` runtime-neutral. Electron filesystem access belongs in the

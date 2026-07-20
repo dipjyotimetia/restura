@@ -1,9 +1,10 @@
 'use client';
 
-import { isOwsBindings, type OwsBindings } from '@shared/ows/bindings';
+import { isOwsBindings } from '@shared/ows/bindings';
 import { parseOwsWorkflowJson } from '@shared/ows/workflow-profile';
 import { Check, Play, Workflow } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -50,10 +51,15 @@ export function WorkflowBuilder({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [discardOpen, setDiscardOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('graph');
   const [flowModel, setFlowModel] = useState(() =>
     deriveOwsFlowModel(workflow.document, workflow.bindings, workflow.layout)
   );
+  // Layout is non-semantic, but it is still part of the editable graph
+  // artifact. Keep it with the draft so Graph → JSON → Graph does not discard
+  // positions or viewport changes before a save.
+  const [layoutDraft, setLayoutDraft] = useState(() => workflow.layout);
 
   useEffect(() => {
     setDocumentSource(stringify(workflow.document));
@@ -61,6 +67,7 @@ export function WorkflowBuilder({
     setError(null);
     setDirty(false);
     setFlowModel(deriveOwsFlowModel(workflow.document, workflow.bindings, workflow.layout));
+    setLayoutDraft(workflow.layout);
   }, [workflow.id, workflow.updatedAt]);
 
   useEffect(() => {
@@ -74,13 +81,14 @@ export function WorkflowBuilder({
         const artifact = serializeOwsFlowModel(flowModel, workflow.document.document);
         setDocumentSource(stringify(artifact.document));
         setBindingsSource(stringify(artifact.bindings));
+        setLayoutDraft(artifact.layout);
       } else {
         const document = parseOwsWorkflowJson(documentSource);
         const bindings = JSON.parse(bindingsSource) as unknown;
         if (!isOwsBindings(bindings)) {
           throw new Error('Workflow bindings must be a version 1 typed bindings document.');
         }
-        setFlowModel(deriveOwsFlowModel(document, bindings, workflow.layout));
+        setFlowModel(deriveOwsFlowModel(document, bindings, layoutDraft));
       }
       setError(null);
       setActiveTab(nextTab);
@@ -99,17 +107,24 @@ export function WorkflowBuilder({
       const artifact =
         activeTab === 'graph'
           ? serializeOwsFlowModel(flowModel, workflow.document.document)
-          : {
-              document: parseOwsWorkflowJson(documentSource),
-              bindings: JSON.parse(bindingsSource) as OwsBindings,
-              layout: workflow.layout,
-            };
+          : (() => {
+              const bindings = JSON.parse(bindingsSource) as unknown;
+              if (!isOwsBindings(bindings)) {
+                throw new Error('Workflow bindings must be a version 1 typed bindings document.');
+              }
+              return {
+                document: parseOwsWorkflowJson(documentSource),
+                bindings,
+                layout: layoutDraft,
+              };
+            })();
       const document = artifact.document;
       const bindings = artifact.bindings;
       updateWorkflowArtifacts(workflow.id, document, bindings, artifact.layout);
       if (activeTab === 'graph') {
         setDocumentSource(stringify(document));
         setBindingsSource(stringify(bindings));
+        setLayoutDraft(artifact.layout);
       }
       setError(null);
       setSaved(true);
@@ -120,9 +135,22 @@ export function WorkflowBuilder({
     }
   };
 
+  const requestClose = () => {
+    if (dirty) {
+      setDiscardOpen(true);
+      return;
+    }
+    onOpenChange(false);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[88vh] flex flex-col">
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) requestClose();
+      }}
+    >
+      <DialogContent className="h-[min(88vh,820px)] max-w-[min(96vw,1400px)] flex flex-col">
         <DialogHeader icon={Workflow}>
           <DialogTitle>Workflow: {workflow.document.document.name}</DialogTitle>
         </DialogHeader>
@@ -186,7 +214,7 @@ export function WorkflowBuilder({
           </p>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={requestClose}>
             Close
           </Button>
           <Button variant="outline" onClick={save}>
@@ -202,6 +230,19 @@ export function WorkflowBuilder({
           </Button>
         </DialogFooter>
       </DialogContent>
+      <ConfirmDialog
+        open={discardOpen}
+        onOpenChange={setDiscardOpen}
+        title="Discard unsaved workflow changes?"
+        description="Your graph, workflow JSON, or bindings edits will be lost."
+        confirmText="Discard changes"
+        variant="destructive"
+        onConfirm={() => {
+          setDiscardOpen(false);
+          setDirty(false);
+          onOpenChange(false);
+        }}
+      />
     </Dialog>
   );
 }

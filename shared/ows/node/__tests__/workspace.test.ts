@@ -140,6 +140,26 @@ describe('OWS workspace artifacts', () => {
     await expect(
       saveOwsWorkflowArtifact(
         root,
+        'unbound-call',
+        {
+          ...workflow,
+          document: { ...workflow.document, name: 'unbound-call' },
+          do: [
+            {
+              request: {
+                call: 'http',
+                with: { method: 'GET', endpoint: { uri: 'restura://saved-request' } },
+              },
+            },
+          ],
+        },
+        { version: 1, tasks: {} },
+        { version: 1, nodes: {} }
+      )
+    ).rejects.toThrow('missing a binding');
+    await expect(
+      saveOwsWorkflowArtifact(
+        root,
         'Billing',
         workflow,
         { version: 1, tasks: {} },

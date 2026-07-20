@@ -291,11 +291,11 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
   'collections.file': { label: 'Filesystem-backed collections', web: false, desktop: true },
   'collections.git': { label: 'Git operations on collections', web: false, desktop: true },
   'workflows.ows': {
-    label: 'Workflows (safe profile)',
+    label: 'Workflows',
     web: true,
     desktop: true,
     notes:
-      'Only do, set, wait, timeout/cancellation, and binding-only HTTP saved-request calls execute. Other controls, event/process tasks, inline transport configuration, and non-HTTP calls are rejected before persistence or execution.',
+      'Safe sequential, guarded, loop, and recovery controls execute with typed data/output, timeout/cancellation, and binding-only HTTP or GraphQL saved-request calls. GraphQL mutations require explicit approval. Other controls, event/process tasks, inline transport configuration, and unsupported transports are rejected before persistence or execution.',
   },
   'mock.localServer': {
     label: 'Local mock server',

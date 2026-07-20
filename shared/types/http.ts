@@ -31,6 +31,8 @@ export interface FormDataItem extends KeyValue {
 export interface RequestBody {
   type: BodyType;
   raw?: string;
+  /** Persisted GraphQL variables JSON for a GraphQL body; never used by other body types. */
+  graphqlVariables?: string;
   formData?: FormDataItem[];
   binary?: File;
   multipartParts?: MultipartPart[];

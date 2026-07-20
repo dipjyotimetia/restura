@@ -60,6 +60,8 @@ export interface RequestSummary {
   method: string;
   /** Underlying request `type` discriminator — `'http' | 'grpc' | 'sse' | 'mcp' | ...`. */
   kind: Request['type'];
+  /** Execution adapter selected by a workflow binding for HTTP-shaped requests. */
+  workflowProtocol: 'http' | 'graphql' | null;
   /** Slash-joined breadcrumb of folder names. */
   path: string;
 }
@@ -76,6 +78,12 @@ export function flattenRequests(items: CollectionItem[]): RequestSummary[] {
           name: item.name,
           method: r.type === 'http' ? (r as HttpRequest).method : r.type.toUpperCase(),
           kind: r.type,
+          workflowProtocol:
+            r.type === 'http' && (r as HttpRequest).body.type === 'graphql'
+              ? 'graphql'
+              : r.type === 'http'
+                ? 'http'
+                : null,
           path: path ? `${path} / ${item.name}` : item.name,
         });
       }
