@@ -156,7 +156,7 @@ describe('OWS workspace artifacts', () => {
         { version: 1, tasks: {} },
         { version: 1, nodes: {} }
       )
-    ).rejects.toThrow('missing a binding');
+    ).rejects.toThrow('missing an approved binding');
     await expect(
       saveOwsWorkflowArtifact(
         root,
@@ -175,6 +175,30 @@ describe('OWS workspace artifacts', () => {
         { version: 1, nodes: {} }
       )
     ).rejects.toThrow('portable lowercase identifier');
+  });
+
+  it('rejects a saved-request binding attached to a non-call task', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'restura-ows-'));
+    roots.push(root);
+    const workflow: OwsWorkflow = {
+      document: { dsl: '1.0.3', namespace: 'restura', name: 'billing', version: '1.0.0' },
+      do: [{ pause: { wait: { milliseconds: 0 } } }],
+    };
+
+    await expect(
+      saveOwsWorkflowArtifact(
+        root,
+        'billing',
+        workflow,
+        {
+          version: 1,
+          tasks: {
+            '/do/0/pause': { kind: 'saved-request', call: 'http', resourceId: 'request-1' },
+          },
+        },
+        { version: 1, nodes: {} }
+      )
+    ).rejects.toThrow('does not exist in the workflow document');
   });
 
   it('refuses an artifact directory that escapes through a symbolic link', async () => {

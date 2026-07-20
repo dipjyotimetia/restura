@@ -38,6 +38,8 @@ Restura currently rejects controls and transports without a complete safe runtim
 
 Create and open workflows from the collection sidebar. The editor presents a graph, advanced workflow JSON, and typed bindings. Start and end rows are visual-only; they are not stored as custom workflow semantics. The graph offers safe control blocks, typed data values, select/template values, output projection, and saved HTTP or GraphQL requests.
 
+Advanced JSON uses an offline Monaco editor with bundled Restura-safe schemas, completion, hover help, formatting, folding, find, and a keyboard-accessible Problems list. It assists only the displayed bounded profile: upstream OWS controls that Restura cannot execute are absent from completion and receive a Restura-specific diagnostic. The schemas are never fetched, and no `$schema` field is added to saved workflow artifacts. `Validate & save` remains the authoritative validation gate.
+
 Run results show the OWS task path and status. A missing, stale, non-HTTP, or method-mismatched binding stops the run before any network request is made.
 
 ## CLI and desktop projects

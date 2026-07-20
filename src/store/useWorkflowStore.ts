@@ -1,5 +1,5 @@
 import type { OwsBindings, OwsLayout } from '@shared/ows/bindings';
-import { isOwsBindings } from '@shared/ows/bindings';
+import { validateOwsArtifactBindings } from '@shared/ows/bindings';
 import {
   normalizeOwsWorkflow,
   type OwsWorkflow,
@@ -76,22 +76,6 @@ function validateLayout(layout: unknown): asserts layout is OwsLayout {
   }
 }
 
-function collectCallPaths(list: unknown, path: string, output: Set<string>): void {
-  if (!Array.isArray(list)) return;
-  for (const [index, entry] of list.entries()) {
-    if (!isRecord(entry) || Object.keys(entry).length !== 1) continue;
-    const [name, task] = Object.entries(entry)[0] ?? [];
-    if (!name || !isRecord(task)) continue;
-    const taskPath = `${path}/${index}/${name}`;
-    if ('call' in task) output.add(taskPath);
-    if ('do' in task) collectCallPaths(task.do, `${taskPath}/do`, output);
-    if ('try' in task) collectCallPaths(task.try, `${taskPath}/try`, output);
-    if (isRecord(task.catch) && 'do' in task.catch) {
-      collectCallPaths(task.catch.do, `${taskPath}/catch/do`, output);
-    }
-  }
-}
-
 /** Validate every persisted artifact together so a document can never be saved with stale bindings. */
 export function normalizeOwsWorkflowArtifacts(
   document: OwsWorkflow,
@@ -105,25 +89,12 @@ export function normalizeOwsWorkflowArtifacts(
       `Workflow is outside Restura's executable profile: ${profile.issues[0]?.message ?? 'invalid profile'}`
     );
   }
-  if (!isOwsBindings(bindings)) {
-    throw new Error('Workflow bindings must be a version 1 typed bindings document.');
+  const bindingsValidation = validateOwsArtifactBindings(normalized, bindings);
+  if (!bindingsValidation.ok) {
+    throw new Error(bindingsValidation.issues[0]?.message ?? 'Invalid workflow bindings artifact.');
   }
   validateLayout(layout);
 
-  const callPaths = new Set<string>();
-  collectCallPaths(normalized.do, '/do', callPaths);
-  for (const taskPath of callPaths) {
-    if (!bindings.tasks[taskPath]) {
-      throw new Error(`Workflow call ${taskPath} is missing an approved binding.`);
-    }
-  }
-  for (const taskPath of Object.keys(bindings.tasks)) {
-    if (!callPaths.has(taskPath)) {
-      throw new Error(
-        `Workflow binding task path ${taskPath} does not exist in the workflow document.`
-      );
-    }
-  }
   return { document: normalized, bindings, layout };
 }
 

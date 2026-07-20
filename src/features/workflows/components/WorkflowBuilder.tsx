@@ -15,10 +15,11 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Textarea } from '@/components/ui/textarea';
 import { type OwsStoredWorkflow, useWorkflowStore } from '@/store/useWorkflowStore';
 import { deriveOwsFlowModel, serializeOwsFlowModel } from '../lib/owsFlowMapper';
+import { workflowEditorModelPath } from '../lib/workflowEditorMonaco';
 import { WorkflowCanvas } from './WorkflowCanvas';
+import { WorkflowJsonEditor } from './WorkflowJsonEditor';
 
 interface WorkflowBuilderProps {
   workflow: OwsStoredWorkflow;
@@ -160,35 +161,48 @@ export function WorkflowBuilder({
             <TabsTrigger value="document">Workflow JSON</TabsTrigger>
             <TabsTrigger value="bindings">Bindings</TabsTrigger>
           </TabsList>
-          <TabsContent value="document" className="min-h-0 flex-1 space-y-2">
-            <Label htmlFor="ows-document">Advanced workflow definition. JSON only.</Label>
-            <Textarea
-              id="ows-document"
-              aria-label="Workflow JSON"
-              className="font-mono text-xs min-h-[420px]"
+          <TabsContent
+            value="document"
+            forceMount
+            hidden={activeTab !== 'document'}
+            className="min-h-0 flex-1 space-y-2"
+          >
+            <Label>
+              Advanced workflow definition. JSON only; the Restura-safe profile is runnable.
+            </Label>
+            <WorkflowJsonEditor
+              ariaLabel="Workflow JSON"
+              document="workflow"
+              modelPath={workflowEditorModelPath(workflow.id, 'workflow')}
               value={documentSource}
-              onChange={(event) => {
-                setDocumentSource(event.target.value);
+              workflowSource={documentSource}
+              onChange={(next) => {
+                setDocumentSource(next);
                 setSaved(false);
                 setDirty(true);
               }}
-              spellCheck={false}
             />
           </TabsContent>
-          <TabsContent value="bindings" className="min-h-0 flex-1 space-y-2">
+          <TabsContent
+            value="bindings"
+            forceMount
+            hidden={activeTab !== 'bindings'}
+            className="min-h-0 flex-1 space-y-2"
+          >
             <p className="text-sm text-muted-foreground">
               Typed task-path references only. Credentials and executable behavior are rejected.
             </p>
-            <Textarea
-              aria-label="Workflow bindings JSON"
-              className="font-mono text-xs min-h-[400px]"
+            <WorkflowJsonEditor
+              ariaLabel="Workflow bindings JSON"
+              document="bindings"
+              modelPath={workflowEditorModelPath(workflow.id, 'bindings')}
               value={bindingsSource}
-              onChange={(event) => {
-                setBindingsSource(event.target.value);
+              workflowSource={documentSource}
+              onChange={(next) => {
+                setBindingsSource(next);
                 setSaved(false);
                 setDirty(true);
               }}
-              spellCheck={false}
             />
           </TabsContent>
           <TabsContent value="graph" className="min-h-0 flex-1">

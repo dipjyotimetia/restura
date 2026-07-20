@@ -4,6 +4,8 @@ import { evaluateOwsCondition, isOwsPathExpression } from './runtime-expression'
 
 /** The sole workflow DSL Restura reads or writes. */
 export const RESTURA_OWS_DSL_VERSION = '1.0.3' as const;
+/** Task names must be representable in a binding task-path segment. */
+export const OWS_TASK_NAME_PATTERN = '^[A-Za-z0-9][A-Za-z0-9._-]*$';
 /** Largest delay that browsers and Node can enforce without timer clamping. */
 export const MAX_OWS_DURATION_MS = 2_147_483_647;
 
@@ -48,8 +50,10 @@ const DOCUMENT_FIELDS = new Set([
   'metadata',
 ]);
 const WORKFLOW_IDENTIFIER = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/;
-const SEMVER =
-  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
+export const OWS_SEMVER_PATTERN =
+  '^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$';
+const SEMVER = new RegExp(OWS_SEMVER_PATTERN);
+const TASK_NAME = new RegExp(OWS_TASK_NAME_PATTERN);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -57,6 +61,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function profileError(path: string, message: string): OwsProfileIssue {
   return { path, message, severity: 'error' };
+}
+
+/** Escape a user-controlled property for a RFC 6901 JSON pointer. */
+export function escapeOwsJsonPointerSegment(segment: string): string {
+  return segment.replaceAll('~', '~0').replaceAll('/', '~1');
 }
 
 function validateDuration(value: unknown, path: string, issues: OwsProfileIssue[]): void {
@@ -114,7 +123,12 @@ function validateDocument(value: unknown, issues: OwsProfileIssue[]): void {
 
   for (const key of Object.keys(value)) {
     if (!DOCUMENT_FIELDS.has(key)) {
-      issues.push(profileError(`/document/${key}`, 'OWS document metadata is not supported.'));
+      issues.push(
+        profileError(
+          `/document/${escapeOwsJsonPointerSegment(key)}`,
+          'OWS document metadata is not supported.'
+        )
+      );
     }
   }
 
@@ -178,11 +192,14 @@ function validateSetValue(value: unknown, path: string, issues: OwsProfileIssue[
   for (const [key, item] of Object.entries(value)) {
     if (UNSAFE_OBJECT_KEYS.has(key)) {
       issues.push(
-        profileError(`${path}/${key}`, 'OWS set values may not modify object prototypes.')
+        profileError(
+          `${path}/${escapeOwsJsonPointerSegment(key)}`,
+          'OWS set values may not modify object prototypes.'
+        )
       );
       continue;
     }
-    validateSetValue(item, `${path}/${key}`, issues);
+    validateSetValue(item, `${path}/${escapeOwsJsonPointerSegment(key)}`, issues);
   }
 }
 
@@ -198,11 +215,14 @@ function validateSet(value: unknown, path: string, issues: OwsProfileIssue[]): v
   for (const [key, item] of Object.entries(value)) {
     if (UNSAFE_OBJECT_KEYS.has(key)) {
       issues.push(
-        profileError(`${path}/${key}`, 'OWS set tasks may not modify object prototypes.')
+        profileError(
+          `${path}/${escapeOwsJsonPointerSegment(key)}`,
+          'OWS set tasks may not modify object prototypes.'
+        )
       );
       continue;
     }
-    validateSetValue(item, `${path}/${key}`, issues);
+    validateSetValue(item, `${path}/${escapeOwsJsonPointerSegment(key)}`, issues);
   }
 }
 
@@ -286,7 +306,12 @@ function validateFor(task: Record<string, unknown>, path: string, issues: OwsPro
             !/^[A-Za-z_$][\w$]*$/.test(value) ||
             UNSAFE_OBJECT_KEYS.has(value)))
       ) {
-        issues.push(profileError(`${path}/for/${key}`, "OWS 'for' has an invalid iterator field."));
+        issues.push(
+          profileError(
+            `${path}/for/${escapeOwsJsonPointerSegment(key)}`,
+            "OWS 'for' has an invalid iterator field."
+          )
+        );
       }
     }
   }
@@ -318,7 +343,10 @@ function validateTry(task: Record<string, unknown>, path: string, issues: OwsPro
       validateTaskList(value, `${path}/catch/do`, issues);
     } else {
       issues.push(
-        profileError(`${path}/catch/${key}`, `OWS catch '${key}' is not executable in Restura.`)
+        profileError(
+          `${path}/catch/${escapeOwsJsonPointerSegment(key)}`,
+          `OWS catch '${key}' is not executable in Restura.`
+        )
       );
     }
   }
@@ -346,13 +374,22 @@ function validateTaskList(list: unknown, path: string, issues: OwsProfileIssue[]
       continue;
     }
     const [name, task] = Object.entries(entry)[0] ?? [];
-    const taskPath = `${entryPath}/${name}`;
+    const taskPath = `${entryPath}/${escapeOwsJsonPointerSegment(name ?? '')}`;
+    if (!name || UNSAFE_OBJECT_KEYS.has(name) || !TASK_NAME.test(name)) {
+      issues.push(
+        profileError(
+          entryPath,
+          'OWS task names must be portable binding-path identifiers and may not modify object prototypes.'
+        )
+      );
+      continue;
+    }
     if (name && taskNames.has(name)) {
       issues.push(
         profileError(entryPath, `OWS task name '${name}' must be unique within its list.`)
       );
     }
-    if (name) taskNames.add(name);
+    taskNames.add(name);
     if (!isRecord(task)) {
       issues.push(profileError(taskPath, 'OWS task must be an object.'));
       continue;
@@ -385,7 +422,7 @@ function validateTaskList(list: unknown, path: string, issues: OwsProfileIssue[]
       if (!allowed) {
         issues.push(
           profileError(
-            `${taskPath}/${key}`,
+            `${taskPath}/${escapeOwsJsonPointerSegment(key)}`,
             `OWS task-level '${key}' is unavailable until Restura can enforce it safely.`
           )
         );
@@ -418,7 +455,7 @@ export function validateOwsProfile(workflow: OwsWorkflow): OwsProfileValidation 
         key === 'schedule'
           ? 'Schedules and event triggers are not executable in Restura.'
           : `OWS workflow-level '${key}' is unavailable until Restura can enforce it safely.`;
-      issues.push(profileError(`/${key}`, message));
+      issues.push(profileError(`/${escapeOwsJsonPointerSegment(key)}`, message));
     }
   }
   validateDocument(candidate.document, issues);
