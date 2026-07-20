@@ -172,6 +172,7 @@ export const IPC = {
     streamCancel: 'ai-lab:stream:cancel',
     listModels: 'ai-lab:list-models',
     testConnection: 'ai-lab:test-connection',
+    exportTelemetry: 'ai-lab:telemetry:export',
   },
   mock: {
     start: 'mock:start',

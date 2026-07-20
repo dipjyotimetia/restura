@@ -9,7 +9,11 @@
 
 import { type ChildProcess, spawn } from 'node:child_process';
 import { resolve } from 'node:path';
-import { startMockHttpServer, startMockHttpsServer } from '../e2e/mocks/httpServer';
+import {
+  type MockHttpServerHandle,
+  startMockHttpServer,
+  startMockHttpsServer,
+} from '../e2e/mocks/httpServer';
 import { startMockMcpServer } from '../e2e/mocks/mcpServer';
 import { startMockProxyServer } from '../e2e/mocks/proxyServer';
 import { startMockSocketIOServer } from '../e2e/mocks/socketioServer';
@@ -33,6 +37,8 @@ export interface LaunchOptions {
 
 export interface LaunchResult {
   started: ServiceId[];
+  /** Present when the local HTTP echo service was started. */
+  http?: MockHttpServerHandle;
   shutdown: () => Promise<void>;
 }
 
@@ -82,9 +88,11 @@ export async function launch(opts: LaunchOptions): Promise<LaunchResult> {
   }
 
   const services: StartedService[] = [];
+  let http: MockHttpServerHandle | undefined;
 
   if (wanted('http')) {
     const h = await startMockHttpServer({ port: PORTS.http });
+    http = h;
     services.push({ id: 'http', close: h.close });
   }
   if (wanted('https') && opts.certs) {
@@ -131,6 +139,7 @@ export async function launch(opts: LaunchOptions): Promise<LaunchResult> {
 
   return {
     started: services.map((s) => s.id),
+    http,
     shutdown: async () => {
       await Promise.allSettled(services.map((s) => s.close()));
     },

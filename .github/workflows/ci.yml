@@ -101,6 +101,8 @@ jobs:
         # Same-repo only: forked PRs get a read-only GITHUB_TOKEN (the job's
         # `pull-requests: write` is silently ignored), so createComment would 403
         # and fail an otherwise-green run. External PRs simply skip the comment.
+        # GitHub comment API availability must not turn a completed validation run red.
+        continue-on-error: true
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
         uses: actions/github-script@v9
         with:
@@ -170,6 +172,8 @@ jobs:
       - name: Vitest Coverage Report
         # Same-repo only — posts a PR comment, so it 403s on forked PRs (read-only
         # token). The coverage artifact upload below still runs for every PR.
+        # A transient GitHub API failure must not hide the actual validation result.
+        continue-on-error: true
         if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' && (steps.tests.outcome == 'success' || steps.tests.outcome == 'failure') }}
         uses: davelosert/vitest-coverage-report-action@v2.12.0
         with:
@@ -582,6 +586,9 @@ jobs:
           command: pages deploy docs-site/dist --project-name=restura-docs --branch=${{ steps.branch.outputs.slug }}
 
       - name: Comment preview URL on PR
+        # The preview is already deployed. A transient GitHub API error while
+        # publishing its convenience link must not fail the deployment job.
+        continue-on-error: true
         uses: actions/github-script@v9
         env:
           PREVIEW_URL: ${{ steps.preview.outputs.deployment-url }}
@@ -600,7 +607,7 @@ jobs:
                 body = 'Pages preview deployed, but the URL output was invalid (check the Actions log).';
               }
             }
-            github.rest.issues.createComment({
+            await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,

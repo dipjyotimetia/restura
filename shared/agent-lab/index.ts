@@ -8,6 +8,7 @@ export * from './runner';
 export * from './schema';
 export * from './suite-runner';
 export * from './telemetry';
+export * from './telemetry-config';
 export * from './tool-resolver';
 export * from './tools';
 export type * from './types';

@@ -313,6 +313,20 @@ export interface AiLabDiscoverArgs {
 }
 
 export interface ElectronAiLabAPI {
+  exportTelemetry: (args: {
+    config: import('../../../shared/agent-lab/telemetry-config').AgentTelemetryConfig;
+    trace: import('../../../shared/agent-lab/telemetry').TelemetryTrace;
+  }) => Promise<
+    | {
+        ok: true;
+        delivery: {
+          id: string;
+          status: 'disabled' | 'queued' | 'sent' | 'failed';
+          error?: string;
+        };
+      }
+    | { ok: false; error: string }
+  >;
   complete: (
     spec: AiLabModelSpec & { operationId: string }
   ) => Promise<

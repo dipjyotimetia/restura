@@ -1,4 +1,9 @@
-import type { AgentBundle, AgentSuite, AgentSuiteReport } from '@shared/agent-lab';
+import {
+  projectTraceForTelemetry,
+  type AgentBundle,
+  type AgentSuite,
+  type AgentSuiteReport,
+} from '@shared/agent-lab';
 import { create } from 'zustand';
 import { runDesktopAgentBundle, runDesktopAgentSuite } from '../lib/agentRuntime';
 import { useAiLabStore } from '../store/useAiLabStore';
@@ -24,6 +29,7 @@ interface AgentRunLiveState {
   persistenceError: string | null;
   persistedReportId: string | null;
   navigationReportId: string | null;
+  telemetryStatus: string | null;
 }
 
 const initialState: AgentRunLiveState = {
@@ -35,6 +41,7 @@ const initialState: AgentRunLiveState = {
   persistenceError: null,
   persistedReportId: null,
   navigationReportId: null,
+  telemetryStatus: null,
 };
 
 export const useAgentRunLiveStore = create<AgentRunLiveState>()(() => initialState);
@@ -186,10 +193,32 @@ async function completeAgentRun(
     completedReport: sanitized,
     status: report.status.toUpperCase(),
   });
+  void queueTelemetry(report).catch(() => {
+    useAgentRunLiveStore.setState({ telemetryStatus: 'Telemetry export failed locally.' });
+  });
   const persisted = await persistReport(sanitized);
   if (navigate && persisted && owner !== null && mountedOwners.has(owner)) {
     useAgentRunLiveStore.setState({ navigationReportId: sanitized.id });
   }
+}
+
+async function queueTelemetry(report: AgentSuiteReport): Promise<void> {
+  const config = useAiLabStore.getState().agentTelemetry;
+  if (!config || !window.electron) return;
+  const results = await Promise.all(
+    report.results.map((result) =>
+      window.electron!.aiLab.exportTelemetry({
+        config,
+        trace: projectTraceForTelemetry(result.trace),
+      })
+    )
+  );
+  const failed = results.filter((result) => !result.ok || result.delivery.status === 'failed');
+  useAgentRunLiveStore.setState({
+    telemetryStatus: failed.length
+      ? `Telemetry export failed for ${failed.length}/${results.length} traces; retry by rerunning the suite.`
+      : `Telemetry exported ${results.length} trace${results.length === 1 ? '' : 's'}.`,
+  });
 }
 
 async function persistReport(report: AgentEnvelope): Promise<boolean> {

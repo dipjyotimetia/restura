@@ -1,0 +1,20 @@
+# Local self-host smoke stack. Does not require .env or a published image.
+# docker compose -f docker-compose.local.yml up --build
+services:
+  restura-local:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - '${RESTURA_LOCAL_PORT:-3000}:3000'
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      HOST: 0.0.0.0
+      ENVIRONMENT: development
+      DEV_BYPASS_AUTH: 'true'
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/health']
+      interval: 10s
+      timeout: 3s
+      retries: 12

@@ -32,12 +32,14 @@ import {
   AiLabCompleteCancelSchema,
   AiLabCompleteSchema,
   AiLabDiscoverSchema,
+  AiLabTelemetryExportSchema,
   AiLabStreamCancelSchema,
   AiLabStreamSchema,
   assertTrustedSender,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
 import { resolveSecretHandle } from '../security/secret-handle-store';
+import { createAgentTelemetryService } from '../lifecycle/agent-telemetry';
 import { makePinnedFetcher } from './fetch-fetcher';
 
 const log = createLogger('ai-lab');
@@ -109,6 +111,18 @@ function makeSemaphore(max: number) {
 }
 
 const completeSlots = makeSemaphore(COMPLETE_CONCURRENCY);
+const agentTelemetry = createAgentTelemetryService({
+  resolveCredential: async (ref) => {
+    if (ref.source === 'env') {
+      const value = process.env[ref.name];
+      if (value) return value;
+      throw new Error(`Telemetry credential environment variable is not set: ${ref.name}`);
+    }
+    const value = resolveSecretHandle(ref.id);
+    if (value) return value;
+    throw new Error('Telemetry secret handle could not be resolved');
+  },
+});
 
 interface ActiveAbort {
   webContentsId: number;
@@ -194,6 +208,14 @@ async function runStream(
 }
 
 export function registerAiLabHandlers(): void {
+  ipcMain.handle(IPC.aiLab.exportTelemetry, async (event, raw: unknown) => {
+    assertTrustedSender(IPC.aiLab.exportTelemetry, event);
+    const parsed = AiLabTelemetryExportSchema.safeParse(raw);
+    if (!parsed.success) return { ok: false as const, error: parsed.error.message };
+    const delivery = agentTelemetry.enqueue(parsed.data.trace, parsed.data.config);
+    await agentTelemetry.flush();
+    return { ok: true as const, delivery };
+  });
   // --- Non-streaming completion (eval cells + judge calls) ---------------
   ipcMain.handle(IPC.aiLab.complete, async (event, raw: unknown) => {
     assertTrustedSender(IPC.aiLab.complete, event);
@@ -363,6 +385,7 @@ export function registerAiLabHandlers(): void {
 }
 
 export function unregisterAiLabHandlers(): void {
+  ipcMain.removeHandler(IPC.aiLab.exportTelemetry);
   ipcMain.removeHandler(IPC.aiLab.complete);
   ipcMain.removeHandler(IPC.aiLab.completeCancel);
   ipcMain.removeHandler(IPC.aiLab.stream);
@@ -372,4 +395,5 @@ export function unregisterAiLabHandlers(): void {
   activeStreams.disposeAll();
   for (const active of activeCompletes.values()) active.abort.abort();
   activeCompletes.clear();
+  void agentTelemetry.shutdown();
 }

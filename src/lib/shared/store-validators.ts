@@ -1,5 +1,6 @@
 import { AgentSuiteSchema } from '@shared/agent-lab';
 import { z } from 'zod';
+import { AgentTelemetryConfigSchema } from '@shared/agent-lab/telemetry-config';
 import { AiLabReportEnvelopeSchema } from '@/features/ai-lab/run-engine/reportEnvelope';
 import type { Collection, Environment, Request, SpatialAccent } from '@/types';
 import { SPATIAL_ACCENT_PRESETS } from '@/types';
@@ -498,6 +499,7 @@ export const AiLabStateSchema = z.object({
   agentSuites: z.record(z.string(), AgentSuiteSchema).default({}),
   runReports: z.record(z.string(), AiLabReportEnvelopeSchema).default({}),
   reportQuarantineCount: z.number().int().nonnegative().default(0),
+  agentTelemetry: AgentTelemetryConfigSchema.optional(),
 });
 
 export type PersistedAiLabState = z.infer<typeof AiLabStateSchema>;

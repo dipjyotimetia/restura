@@ -22,6 +22,7 @@ import {
 import { useAiLabStore } from '../store/useAiLabStore';
 import { useAiLabUiStore } from '../store/useAiLabUiStore';
 import type { AiLabProviderConfig } from '../types';
+import { AgentTelemetrySettings } from './AgentTelemetrySettings';
 
 type NormalizedAgentSuite = ReturnType<typeof migrateAgentSuite>;
 type NormalizedAgentBundle = AgentBundle & { suite: NormalizedAgentSuite };
@@ -92,6 +93,7 @@ export function AgentWorkbench() {
   const completedReport = useAgentRunLiveStore((state) => state.completedReport);
   const persistenceError = useAgentRunLiveStore((state) => state.persistenceError);
   const navigationReportId = useAgentRunLiveStore((state) => state.navigationReportId);
+  const telemetryStatus = useAgentRunLiveStore((state) => state.telemetryStatus);
   const fileRef = useRef<HTMLInputElement>(null);
   const seenNavigationReportId = useRef(navigationReportId);
   const pendingApprovalRef = useRef<PendingApproval | null>(null);
@@ -434,6 +436,7 @@ export function AgentWorkbench() {
         </div>
         <div className="mt-2 truncate text-sp-10 text-sp-muted" role="status">
           {running || completedReport || runStatus !== 'Ready' ? runStatus : message}
+          {telemetryStatus ? ` · ${telemetryStatus}` : ''}
           {persistenceError ? ` · ${persistenceError}` : ''}
           {running && progress > 0 ? ` · ${Math.round(progress * 100)}%` : ''}
           {persistenceError && (
@@ -447,6 +450,7 @@ export function AgentWorkbench() {
             </Button>
           )}
         </div>
+        <AgentTelemetrySettings />
         {pendingApproval && (
           <ToolApprovalDialog
             request={pendingApproval.request}
