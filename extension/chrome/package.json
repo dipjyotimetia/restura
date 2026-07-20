@@ -1,6 +1,6 @@
 {
   "name": "@restura/extension",
-  "version": "1.6.2",
+  "version": "1.7.0",
   "private": true,
   "type": "module",
   "description": "Restura browser capture extension — capture multi-protocol traffic into Restura collections.",
