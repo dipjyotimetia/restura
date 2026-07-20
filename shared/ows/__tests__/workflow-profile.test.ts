@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildOwsGraph,
   type OwsWorkflow,
   parseOwsWorkflowJson,
   serializeOwsWorkflowJson,
@@ -281,5 +282,85 @@ do:
         ]),
       }
     );
+  });
+
+  it.each([
+    ['a non-object document', { document: null }],
+    [
+      'non-string optional document text',
+      { document: { ...supportedWorkflow.document, title: 1 } },
+    ],
+    ['non-object document tags', { document: { ...supportedWorkflow.document, tags: [] } }],
+    ['an invalid timeout shape', { timeout: { before: { seconds: 1 } } }],
+    ['a negative duration', { do: [{ pause: { wait: { milliseconds: -1 } } }] }],
+    ['an unknown duration field', { do: [{ pause: { wait: { weeks: 1 } } }] }],
+    ['an invalid output projection', { output: { value: '${.input}' } }],
+    ['a prototype-mutating set key', { do: [{ seed: { set: { constructor: 'unsafe' } } }] }],
+    [
+      'a binding call with an unsupported method',
+      {
+        do: [
+          {
+            request: {
+              call: 'http',
+              with: { method: 'TRACE', endpoint: { uri: 'restura://saved-request' } },
+            },
+          },
+        ],
+      },
+    ],
+    [
+      'a binding call with an incomplete endpoint',
+      { do: [{ request: { call: 'http', with: { method: 'GET', endpoint: {} } } }] },
+    ],
+    [
+      'a loop with an unsupported iterator field',
+      {
+        do: [
+          {
+            each: {
+              for: { each: 'item', in: '${.items}', parallel: 'yes' },
+              do: [{ save: { set: { item: '${.item}' } } }],
+            },
+          },
+        ],
+      },
+    ],
+    [
+      'a catch block that is not an object',
+      { do: [{ guarded: { try: [{ seed: { set: { ok: true } } }], catch: 'nope' } }] },
+    ],
+  ])('rejects %s without accepting it as executable workflow data', (_name, change) => {
+    expect(validateOwsProfile({ ...supportedWorkflow, ...change } as OwsWorkflow)).toMatchObject({
+      ok: false,
+      issues: expect.arrayContaining([expect.objectContaining({ severity: 'error' })]),
+    });
+  });
+
+  it('projects nested do, try, and catch tasks without adding visual nodes to workflow data', () => {
+    const workflow = {
+      ...supportedWorkflow,
+      do: [
+        {
+          sequence: {
+            do: [
+              {
+                recover: {
+                  try: [{ attempt: { wait: { milliseconds: 0 } } }],
+                  catch: { do: [{ fallback: { set: { recovered: true } } }] },
+                },
+              },
+            ],
+          },
+        },
+      ],
+    } as OwsWorkflow;
+
+    expect(buildOwsGraph(workflow).nodes.map((node) => node.id)).toEqual([
+      '/do/0/sequence',
+      '/do/0/sequence/do/0/recover',
+      '/do/0/sequence/do/0/recover/try/0/attempt',
+      '/do/0/sequence/do/0/recover/catch/do/0/fallback',
+    ]);
   });
 });

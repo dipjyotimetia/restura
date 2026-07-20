@@ -1,6 +1,6 @@
 # AI and MCP
 
-This page covers the AI chat assistant, the AI Lab evaluation workbench, Restura-as-MCP-server, and the MCP client used to call external MCP servers from Flows.
+This page covers the AI chat assistant, the AI Lab evaluation workbench, Restura-as-MCP-server, and the MCP client used to call external MCP servers from the request builder.
 
 ---
 
@@ -97,11 +97,11 @@ Restura can expose its own collections, environments, and history as tools to an
 
 ## MCP client (`src/features/mcp/`)
 
-Restura can call external MCP servers from the request builder and from workflow `mcpCall` nodes.
+Restura can call external MCP servers from the MCP request builder.
 
 - `src/features/mcp/protocol.ts` — protocol module; `runJsonRpc` with optional `McpClientPool`.
 - `src/features/mcp/lib/mcpClient.ts` — Electron path uses `window.electron.mcp.*`; web path posts to `/api/mcp`. Supports `streamable-http` and `http-sse`; web is limited to `streamable-http`. Tracks `Mcp-Session-Id`.
-- `src/features/mcp/lib/McpClientPool.ts` — caches the client-init promise keyed by `cacheKey` to avoid duplicate handshakes in parallel Flow `mcpCall` nodes.
+- `src/features/mcp/lib/McpClientPool.ts` — caches the client-init promise keyed by `cacheKey` to avoid duplicate handshakes for equivalent requests.
 - UI: `McpRequestBuilder.tsx` (explorer/builder), `McpResultPanel.tsx`.
 
 ---

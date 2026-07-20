@@ -382,6 +382,9 @@ export async function loadOwsWorkflowArtifact(
 ): Promise<OwsWorkflowArtifact> {
   assertWorkflowId(id);
   const workspaceRoot = await resolveWorkspaceRoot(root, false);
+  if (!(await validateExistingArtifactDirectory(workspaceRoot, id))) {
+    throw new Error(`OWS workflow artifact was not found: ${id}`);
+  }
   const directory = artifactDirectory(workspaceRoot, id);
   await assertNoSymlinkPath(workspaceRoot, join(WORKFLOWS_DIR, id));
   for (const file of ARTIFACT_FILES) {

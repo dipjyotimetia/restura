@@ -329,4 +329,59 @@ describe('OWS executor', () => {
     });
     expect(oversized).toMatchObject({ status: 'failed' });
   });
+
+  it('preserves pre-existing loop variables and runs nested do tasks', async () => {
+    const result = await executeOwsWorkflow({
+      workflow: {
+        ...workflow,
+        do: [
+          {
+            group: {
+              do: [
+                {
+                  each: {
+                    for: { each: 'item', in: '${.items}' },
+                    do: [{ write: { set: { last: '${.item}' } } }],
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      bindings,
+      variables: { item: 'original', items: ['first', 'second'] },
+      dispatcher: { dispatch: vi.fn() },
+    });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      variables: { item: 'original', last: 'second' },
+    });
+  });
+
+  it('reports unhandled dispatcher failures and validates a caller timeout cap', async () => {
+    const failed = await executeOwsWorkflow({
+      workflow: boundHttpWorkflow,
+      bindings: {
+        version: 1,
+        tasks: {
+          '/do/0/request': { kind: 'saved-request', call: 'http', resourceId: 'request-1' },
+        },
+      },
+      variables: {},
+      dispatcher: { dispatch: vi.fn().mockRejectedValue(new Error('upstream failed')) },
+    });
+
+    expect(failed.steps).toMatchObject([{ status: 'failed', error: 'upstream failed' }]);
+    await expect(
+      executeOwsWorkflow({
+        workflow,
+        bindings,
+        variables: {},
+        timeoutMs: 0,
+        dispatcher: { dispatch: vi.fn() },
+      })
+    ).rejects.toThrow('timeout cap');
+  });
 });

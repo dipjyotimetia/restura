@@ -66,4 +66,51 @@ describe('OWS bindings', () => {
       expect(isOwsBindings(value)).toBe(false);
     }
   });
+
+  it.each([
+    ['a primitive', 'saved-request'],
+    ['an array', []],
+    ['a prototype-bearing object', Object.create({ kind: 'saved-request' })],
+    [
+      'a path traversal reference',
+      { kind: 'saved-request', call: 'http', resourceId: 'Users/../token' },
+    ],
+    [
+      'a reference with surrounding whitespace',
+      { kind: 'saved-request', call: 'http', resourceId: ' request-1 ' },
+    ],
+    [
+      'a reference with an unsupported character',
+      { kind: 'saved-request', call: 'http', resourceId: 'request?token' },
+    ],
+    [
+      'a GraphQL binding with the wrong protocol discriminator',
+      { kind: 'saved-request', call: 'http', protocol: 'HTTP', resourceId: 'request-1' },
+    ],
+  ])('fails closed for malformed task bindings such as %s', (_name, value) => {
+    expect(isOwsTaskBinding(value)).toBe(false);
+  });
+
+  it.each([
+    ['an invalid version', { version: 2, tasks: {} }],
+    ['an array of tasks', { version: 1, tasks: [] }],
+    [
+      'an invalid task path',
+      {
+        version: 1,
+        tasks: { '/do/request': { kind: 'saved-request', call: 'http', resourceId: 'request-1' } },
+      },
+    ],
+    [
+      'a task path with an extra segment',
+      {
+        version: 1,
+        tasks: {
+          '/do/0/request/extra': { kind: 'saved-request', call: 'http', resourceId: 'request-1' },
+        },
+      },
+    ],
+  ])('rejects malformed bindings documents with %s', (_name, value) => {
+    expect(isOwsBindings(value)).toBe(false);
+  });
 });

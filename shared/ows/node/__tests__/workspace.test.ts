@@ -339,4 +339,39 @@ describe('OWS workspace artifacts', () => {
     await expect(listOwsWorkflowArtifactIds(root)).resolves.toEqual([]);
     await expect(deleteOwsWorkflowArtifact(root, '../escape')).rejects.toThrow('workflow id');
   });
+
+  it('fails closed for incomplete, unexpected, and malformed workspace artifacts', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'restura-ows-'));
+    roots.push(root);
+    const directory = join(root, 'workflows', 'billing');
+    await mkdir(directory, { recursive: true });
+    await expect(loadOwsWorkflowArtifact(root, 'billing')).rejects.toThrow();
+
+    const workflow: OwsWorkflow = {
+      document: { dsl: '1.0.3', namespace: 'restura', name: 'billing', version: '1.0.0' },
+      do: [{ seed: { set: { value: true } } }],
+    };
+    await expect(
+      saveOwsWorkflowArtifact(
+        root,
+        'billing',
+        workflow,
+        { version: 1, tasks: {} },
+        { version: 1, nodes: {} }
+      )
+    ).rejects.toThrow('unsupported files');
+    await rm(directory, { recursive: true });
+    await saveOwsWorkflowArtifact(
+      root,
+      'billing',
+      workflow,
+      { version: 1, tasks: {} },
+      {
+        version: 1,
+        nodes: {},
+      }
+    );
+    await mkdir(join(directory, 'unexpected'));
+    await expect(loadOwsWorkflowArtifact(root, 'billing')).rejects.toThrow('unsupported files');
+  });
 });

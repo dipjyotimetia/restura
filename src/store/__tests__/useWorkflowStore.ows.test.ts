@@ -77,4 +77,38 @@ describe('useWorkflowStore OWS workflows', () => {
         .updateWorkflowArtifacts(workflow.id, document, bindings, workflow.layout)
     ).not.toThrow();
   });
+
+  it('renames, scopes, and removes only complete workflow artifacts', () => {
+    const first = useWorkflowStore.getState().createNewWorkflow('First workflow', 'collection-1');
+    const second = useWorkflowStore.getState().createNewWorkflow('Second workflow', 'collection-2');
+    useWorkflowStore.getState().addWorkflow(first);
+    useWorkflowStore.getState().addWorkflow(second);
+
+    useWorkflowStore.getState().renameWorkflow(first.id, '  Release candidate!  ');
+
+    expect(useWorkflowStore.getState().getWorkflowById(first.id)?.document.document.name).toBe(
+      'release-candidate'
+    );
+    expect(useWorkflowStore.getState().getWorkflowsByCollectionId('collection-1')).toHaveLength(1);
+    expect(useWorkflowStore.getState().getWorkflowById('missing')).toBeUndefined();
+
+    useWorkflowStore.getState().removeWorkflowsByCollectionId('collection-1');
+    expect(useWorkflowStore.getState().workflows.map((workflow) => workflow.id)).toEqual([
+      second.id,
+    ]);
+    useWorkflowStore.getState().removeWorkflow(second.id);
+    expect(useWorkflowStore.getState().workflows).toEqual([]);
+  });
+
+  it('rejects malformed non-semantic layout data before persisting a workflow', () => {
+    const workflow = useWorkflowStore.getState().createNewWorkflow('Safe flow', 'collection-1');
+
+    expect(() =>
+      useWorkflowStore.getState().addWorkflow({
+        ...workflow,
+        layout: { version: 1, nodes: { '/do/0/initialize': { x: Number.NaN, y: 0 } } },
+      })
+    ).toThrow('Invalid workflow artifact.');
+    expect(useWorkflowStore.getState().workflows).toEqual([]);
+  });
 });

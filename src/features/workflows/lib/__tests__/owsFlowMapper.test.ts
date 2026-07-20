@@ -105,4 +105,38 @@ describe('OWS flow mapper', () => {
       bindings,
     });
   });
+
+  it('uses safe visual defaults for unpositioned blocks and preserves viewport metadata', () => {
+    const model = deriveOwsFlowModel(
+      {
+        document: { dsl: '1.0.3', namespace: 'restura', name: 'defaults', version: '1.0.0' },
+        do: [
+          { malformed: 'ignored' },
+          { group: { do: 'not-a-list' } },
+          { pause: { wait: { seconds: 1 } } },
+        ],
+      } as OwsWorkflow,
+      { version: 1, tasks: {} },
+      { version: 1, nodes: {}, viewport: { x: 10, y: 20, zoom: 1.5 } }
+    );
+
+    expect(model.blocks).toEqual([
+      expect.objectContaining({ id: '/do/1/group', kind: 'do', position: { x: 260, y: 240 } }),
+      expect.objectContaining({ id: '/do/2/pause', kind: 'wait', position: { x: 260, y: 380 } }),
+    ]);
+    expect(model.viewport).toEqual({ x: 10, y: 20, zoom: 1.5 });
+  });
+
+  it('requires a bound saved request when serializing a call block', () => {
+    expect(() =>
+      serializeOwsFlowModel(
+        {
+          blocks: [
+            { id: 'draft', name: 'request', kind: 'call', position: { x: 0, y: 0 }, method: 'GET' },
+          ],
+        },
+        document.document
+      )
+    ).toThrow("Saved HTTP block 'request' needs a bound request.");
+  });
 });
