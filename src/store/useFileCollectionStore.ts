@@ -218,26 +218,31 @@ async function loadOwsWorkspaceForCollection(
     })
   );
 
-  const workflowStore = useWorkflowStore.getState();
-  const existing = new Map(
-    workflowStore.workflows
-      .filter((workflow) => workflow.collectionId === collectionId)
-      .map((workflow) => [workflow.workspaceId ?? workflow.id, workflow])
-  );
-  workflowStore.removeWorkflowsByCollectionId(collectionId);
-  const now = Date.now();
-  for (const { workspaceId, artifact } of loaded) {
-    const previous = existing.get(workspaceId);
-    workflowStore.addWorkflow({
-      id: previous?.id ?? uuidv4(),
-      collectionId,
-      workspaceId,
-      document: artifact.workflow,
-      bindings: artifact.bindings,
-      layout: artifact.layout,
-      createdAt: previous?.createdAt ?? now,
-      updatedAt: now,
-    });
+  workflowReloadCollections.add(collectionId);
+  try {
+    const workflowStore = useWorkflowStore.getState();
+    const existing = new Map(
+      workflowStore.workflows
+        .filter((workflow) => workflow.collectionId === collectionId)
+        .map((workflow) => [workflow.workspaceId ?? workflow.id, workflow])
+    );
+    workflowStore.removeWorkflowsByCollectionId(collectionId);
+    const now = Date.now();
+    for (const { workspaceId, artifact } of loaded) {
+      const previous = existing.get(workspaceId);
+      workflowStore.addWorkflow({
+        id: previous?.id ?? uuidv4(),
+        collectionId,
+        workspaceId,
+        document: artifact.workflow,
+        bindings: artifact.bindings,
+        layout: artifact.layout,
+        createdAt: previous?.createdAt ?? now,
+        updatedAt: now,
+      });
+    }
+  } finally {
+    workflowReloadCollections.delete(collectionId);
   }
 }
 
@@ -603,20 +608,58 @@ export async function restoreFileCollectionWatchers(): Promise<void> {
 
 // Initialize file watcher event handler
 let unsubscribeCollectionChanges: (() => void) | null = null;
+let unsubscribeWorkflowChanges: (() => void) | null = null;
 const externalReloads = new Map<string, Promise<unknown>>();
 const pendingExternalReloads = new Set<string>();
+const workflowReloadCollections = new Set<string>();
+
+function workflowArtifactsChanged(
+  current: ReturnType<typeof useWorkflowStore.getState>['workflows'],
+  previous: ReturnType<typeof useWorkflowStore.getState>['workflows'],
+  collectionId: string
+): boolean {
+  const currentForCollection = current.filter((workflow) => workflow.collectionId === collectionId);
+  const previousForCollection = previous.filter(
+    (workflow) => workflow.collectionId === collectionId
+  );
+  return (
+    currentForCollection.length !== previousForCollection.length ||
+    currentForCollection.some((workflow, index) => {
+      const before = previousForCollection[index];
+      return (
+        !before ||
+        before.id !== workflow.id ||
+        before.workspaceId !== workflow.workspaceId ||
+        before.updatedAt !== workflow.updatedAt
+      );
+    })
+  );
+}
 
 export function initFileCollectionWatcher(): void {
   const electron = getElectronCollections();
   if (!electron) return;
 
   unsubscribeCollectionChanges?.();
+  unsubscribeWorkflowChanges?.();
   unsubscribeCollectionChanges = useCollectionStore.subscribe((state, previous) => {
     const fileStore = useFileCollectionStore.getState();
     for (const info of Object.values(fileStore.fileCollections)) {
       const current = state.collections.find((collection) => collection.id === info.collectionId);
       const before = previous.collections.find((collection) => collection.id === info.collectionId);
       if (current !== before && before && info.syncState === 'synced') {
+        fileStore.updateSyncState(info.collectionId, 'modified');
+      }
+    }
+  });
+  unsubscribeWorkflowChanges = useWorkflowStore.subscribe((state, previous) => {
+    const fileStore = useFileCollectionStore.getState();
+    for (const info of Object.values(fileStore.fileCollections)) {
+      if (
+        info.syncState === 'synced' &&
+        !workflowReloadCollections.has(info.collectionId) &&
+        workflowArtifactsChanged(state.workflows, previous.workflows, info.collectionId)
+      ) {
         fileStore.updateSyncState(info.collectionId, 'modified');
       }
     }

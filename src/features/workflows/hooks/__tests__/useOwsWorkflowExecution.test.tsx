@@ -163,4 +163,49 @@ describe('useOwsWorkflowExecution', () => {
       expect.anything()
     );
   });
+
+  it('rejects concurrent starts instead of letting an older run overwrite a newer run state', async () => {
+    let resolveRequest: ((value: unknown) => void) | undefined;
+    runRequest.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRequest = resolve;
+        })
+    );
+    const { result } = renderHook(() => useOwsWorkflowExecution());
+
+    let firstRun: Promise<unknown> | undefined;
+    await act(async () => {
+      firstRun = result.current.run(workflow);
+    });
+    expect(result.current.isRunning).toBe(true);
+    await expect(result.current.run(workflow)).rejects.toThrow('already running');
+
+    resolveRequest?.({ status: 200, headers: {}, body: 'ok', size: 2, time: 1 });
+    await act(async () => {
+      await firstRun;
+    });
+    expect(result.current.isRunning).toBe(false);
+  });
+
+  it('aborts an active workflow when its execution surface unmounts', async () => {
+    let signal: AbortSignal | undefined;
+    runRequest.mockImplementation(
+      (_request, options: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          signal = options.signal;
+          options.signal.addEventListener('abort', () =>
+            reject(new DOMException('Aborted', 'AbortError'))
+          );
+        })
+    );
+    const { result, unmount } = renderHook(() => useOwsWorkflowExecution());
+
+    await act(async () => {
+      void result.current.run(workflow).catch(() => undefined);
+    });
+    expect(signal?.aborted).toBe(false);
+    unmount();
+    expect(signal?.aborted).toBe(true);
+  });
 });

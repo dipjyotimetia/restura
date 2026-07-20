@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { validateOwsProfile } from '../workflow-profile';
+import {
+  type OwsWorkflow,
+  parseOwsWorkflowJson,
+  serializeOwsWorkflowJson,
+  validateOwsProfile,
+} from '../workflow-profile';
 import {
   buildOwsGraphWithSdk,
   normalizeOwsWorkflowWithSdk,
@@ -31,6 +36,34 @@ const supportedWorkflow = {
 };
 
 describe('OWS workflow profile', () => {
+  it.each([
+    ['an unsupported DSL version', { document: { ...supportedWorkflow.document, dsl: 'bogus' } }],
+    ['an empty workflow name', { document: { ...supportedWorkflow.document, name: '' } }],
+    ['unknown document metadata', { document: { ...supportedWorkflow.document, unsafe: true } }],
+    ['an empty task list', { do: [] }],
+    ['an empty wait duration', { do: [{ pause: { wait: {} } }] }],
+  ])('rejects %s in the CSP-safe renderer profile before persistence or execution', (_name, change) => {
+    expect(() => parseOwsWorkflowJson(JSON.stringify({ ...supportedWorkflow, ...change }))).toThrow(
+      /OWS|Restura/
+    );
+  });
+
+  it('serializes renderer-approved OWS JSON deterministically regardless of object insertion order', () => {
+    const reordered = {
+      do: supportedWorkflow.do,
+      document: {
+        version: '1.0.0',
+        name: 'seed-and-fetch',
+        namespace: 'restura',
+        dsl: '1.0.3',
+      },
+    };
+
+    expect(serializeOwsWorkflowJson(supportedWorkflow as unknown as OwsWorkflow)).toBe(
+      serializeOwsWorkflowJson(reordered as unknown as OwsWorkflow)
+    );
+  });
+
   it('parses, normalizes, validates, serializes, and graphs a supported OWS JSON document', () => {
     const parsed = parseOwsWorkflowJsonWithSdk(JSON.stringify(supportedWorkflow));
     const normalized = normalizeOwsWorkflowWithSdk(parsed);

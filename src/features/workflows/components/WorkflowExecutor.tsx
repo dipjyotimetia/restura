@@ -24,6 +24,10 @@ interface WorkflowExecutorProps {
 
 export function WorkflowExecutor({ workflow, open, onOpenChange }: WorkflowExecutorProps) {
   const { isRunning, result, steps, error, run, stop } = useOwsWorkflowExecution();
+  const close = () => {
+    stop();
+    onOpenChange(false);
+  };
   const graphPaths = useMemo(() => {
     try {
       return buildOwsGraph(workflow.document).nodes.map((node) => node.id);
@@ -33,7 +37,13 @@ export function WorkflowExecutor({ workflow, open, onOpenChange }: WorkflowExecu
   }, [workflow.document]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) stop();
+        onOpenChange(nextOpen);
+      }}
+    >
       <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -79,7 +89,7 @@ export function WorkflowExecutor({ workflow, open, onOpenChange }: WorkflowExecu
           </p>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={close}>
             Close
           </Button>
           {isRunning ? (
@@ -88,7 +98,7 @@ export function WorkflowExecutor({ workflow, open, onOpenChange }: WorkflowExecu
               Stop
             </Button>
           ) : (
-            <Button onClick={() => void run(workflow)}>
+            <Button onClick={() => void run(workflow).catch(() => undefined)}>
               <Play className="mr-2 h-4 w-4" />
               Run OWS workflow
             </Button>

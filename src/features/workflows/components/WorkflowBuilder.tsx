@@ -48,11 +48,13 @@ export function WorkflowBuilder({
   const [bindingsSource, setBindingsSource] = useState(() => stringify(workflow.bindings));
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     setDocumentSource(stringify(workflow.document));
     setBindingsSource(stringify(workflow.bindings));
     setError(null);
+    setDirty(false);
   }, [workflow.id, workflow.updatedAt]);
 
   useEffect(() => {
@@ -74,6 +76,7 @@ export function WorkflowBuilder({
       updateWorkflowArtifacts(workflow.id, document, bindings, workflow.layout);
       setError(null);
       setSaved(true);
+      setDirty(false);
     } catch (cause) {
       setSaved(false);
       setError(cause instanceof Error ? cause.message : 'Invalid OWS workflow artifact.');
@@ -102,6 +105,7 @@ export function WorkflowBuilder({
               onChange={(event) => {
                 setDocumentSource(event.target.value);
                 setSaved(false);
+                setDirty(true);
               }}
               spellCheck={false}
             />
@@ -117,6 +121,7 @@ export function WorkflowBuilder({
               onChange={(event) => {
                 setBindingsSource(event.target.value);
                 setSaved(false);
+                setDirty(true);
               }}
               spellCheck={false}
             />
@@ -155,9 +160,13 @@ export function WorkflowBuilder({
           <Button variant="outline" onClick={save}>
             Validate & save
           </Button>
-          <Button onClick={onRun}>
+          <Button
+            disabled={dirty}
+            onClick={onRun}
+            title={dirty ? 'Save changes before running' : undefined}
+          >
             <Play className="mr-2 h-4 w-4" />
-            Run
+            {dirty ? 'Save before running' : 'Run'}
           </Button>
         </DialogFooter>
       </DialogContent>

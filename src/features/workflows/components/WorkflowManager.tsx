@@ -141,35 +141,33 @@ export function WorkflowManager({
           {workflows.map((workflow) => (
             <div
               key={workflow.id}
-              role="button"
-              tabIndex={0}
-              className="group flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
-              onClick={() => onSelectWorkflow(workflow)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  onSelectWorkflow(workflow);
-                }
-              }}
+              className="group flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
             >
-              <Workflow className="h-4 w-4 shrink-0 text-muted-foreground" />
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">
-                  {workflow.document.document.name}
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                aria-label={`Edit workflow ${workflow.document.document.name}`}
+                onClick={() => onSelectWorkflow(workflow)}
+              >
+                <Workflow className="h-4 w-4 shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium">
+                    {workflow.document.document.name}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {Object.keys(workflow.bindings.tasks).length} bound call
+                    {Object.keys(workflow.bindings.tasks).length === 1 ? '' : 's'}
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  {Object.keys(workflow.bindings.tasks).length} bound call
-                  {Object.keys(workflow.bindings.tasks).length === 1 ? '' : 's'}
-                </div>
-              </div>
-              <div className="flex gap-1 opacity-0 group-hover:opacity-100">
+              </button>
+              <div className="flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-6 w-6"
                   title="Run workflow"
-                  onClick={(event) => {
-                    event.stopPropagation();
+                  aria-label={`Run workflow ${workflow.document.document.name}`}
+                  onClick={() => {
                     onRunWorkflow(workflow);
                   }}
                 >
@@ -181,7 +179,7 @@ export function WorkflowManager({
                       variant="ghost"
                       size="icon"
                       className="h-6 w-6"
-                      onClick={(event) => event.stopPropagation()}
+                      aria-label={`Workflow actions for ${workflow.document.document.name}`}
                     >
                       <MoreVertical className="h-3.5 w-3.5" />
                     </Button>

@@ -1,6 +1,6 @@
 import type { OwsExecutionResult, OwsExecutionStep } from '@shared/ows/executor';
 import { executeOwsWorkflow } from '@shared/ows/executor';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { protocolRegistry } from '@/features/registry/registry';
 import { buildValueMap } from '@/lib/shared/variableScopes';
@@ -31,12 +31,28 @@ export function useOwsWorkflowExecution() {
   const activeEnvironmentId = useEnvironmentStore((state) => state.activeEnvironmentId);
   const globalVariables = useGlobalsStore((state) => state.vars);
   const controllerRef = useRef<AbortController | null>(null);
+  const runGenerationRef = useRef(0);
   const [isRunning, setIsRunning] = useState(false);
   const [result, setResult] = useState<OwsExecutionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Closing the executor must have the same cancellation semantics as Stop.
+  // Without this cleanup a dialog unmount could leave a policy-enforced call
+  // running invisibly in the background.
+  useEffect(
+    () => () => {
+      runGenerationRef.current += 1;
+      controllerRef.current?.abort();
+      controllerRef.current = null;
+    },
+    []
+  );
+
   const run = useCallback(
     async (workflow: OwsStoredWorkflow): Promise<OwsExecutionResult> => {
+      if (controllerRef.current) {
+        throw new Error('An OWS workflow is already running. Stop it before starting another run.');
+      }
       const collection = collections.find((candidate) => candidate.id === workflow.collectionId);
       if (!collection) throw new Error('The workflow collection is unavailable.');
       const activeEnvironment = environments.find(
@@ -47,9 +63,9 @@ export function useOwsWorkflowExecution() {
         ...buildValueMap({ env: activeEnvironment?.variables }),
         ...buildValueMap({ collection: collection.variables }),
       };
-      controllerRef.current?.abort();
       const controller = new AbortController();
       controllerRef.current = controller;
+      const runGeneration = ++runGenerationRef.current;
       setIsRunning(true);
       setResult(null);
       setError(null);
@@ -89,15 +105,17 @@ export function useOwsWorkflowExecution() {
             },
           },
         });
-        setResult(execution);
+        if (runGeneration === runGenerationRef.current) setResult(execution);
         return execution;
       } catch (cause) {
         const message = cause instanceof Error ? cause.message : 'OWS workflow execution failed.';
-        setError(message);
+        if (runGeneration === runGenerationRef.current) setError(message);
         throw cause;
       } finally {
-        if (controllerRef.current === controller) controllerRef.current = null;
-        setIsRunning(false);
+        if (controllerRef.current === controller) {
+          controllerRef.current = null;
+          if (runGeneration === runGenerationRef.current) setIsRunning(false);
+        }
       }
     },
     [activeEnvironmentId, collections, environments, globalVariables]

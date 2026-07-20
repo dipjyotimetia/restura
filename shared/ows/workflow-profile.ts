@@ -36,6 +36,19 @@ const SAFE_TASKS = new Set(['do', 'set', 'wait']);
 const SAFE_HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
 const DURATION_FIELDS = new Set(['days', 'hours', 'minutes', 'seconds', 'milliseconds']);
 const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const DOCUMENT_FIELDS = new Set([
+  'dsl',
+  'namespace',
+  'name',
+  'version',
+  'title',
+  'summary',
+  'tags',
+  'metadata',
+]);
+const WORKFLOW_IDENTIFIER = /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/;
+const SEMVER =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -46,7 +59,7 @@ function profileError(path: string, message: string): OwsProfileIssue {
 }
 
 function validateDuration(value: unknown, path: string, issues: OwsProfileIssue[]): void {
-  if (!isRecord(value)) {
+  if (!isRecord(value) || Object.keys(value).length === 0) {
     issues.push(profileError(path, 'Restura accepts only inline, finite OWS durations.'));
     return;
   }
@@ -83,6 +96,54 @@ function validateDuration(value: unknown, path: string, issues: OwsProfileIssue[
         `OWS durations may not exceed ${MAX_OWS_DURATION_MS} milliseconds, the maximum safe platform timer.`
       )
     );
+  }
+}
+
+/**
+ * Small, CSP-safe validation for the SDK schema subset that can reach the
+ * renderer. Keep this structural gate deliberately fail-closed: the Node
+ * workspace uses the SDK for the complete OWS model, while web and in-memory
+ * desktop workflows must never persist or execute data outside this profile.
+ */
+function validateDocument(value: unknown, issues: OwsProfileIssue[]): void {
+  if (!isRecord(value)) {
+    issues.push(profileError('/document', 'OWS document metadata must be an object.'));
+    return;
+  }
+
+  for (const key of Object.keys(value)) {
+    if (!DOCUMENT_FIELDS.has(key)) {
+      issues.push(profileError(`/document/${key}`, 'OWS document metadata is not supported.'));
+    }
+  }
+
+  if (value.dsl !== RESTURA_OWS_DSL_VERSION) {
+    issues.push(
+      profileError('/document/dsl', `Restura supports only OWS DSL ${RESTURA_OWS_DSL_VERSION}.`)
+    );
+  }
+  for (const field of ['namespace', 'name'] as const) {
+    if (typeof value[field] !== 'string' || !WORKFLOW_IDENTIFIER.test(value[field])) {
+      issues.push(
+        profileError(
+          `/document/${field}`,
+          'OWS workflow namespace and name must be portable identifiers.'
+        )
+      );
+    }
+  }
+  if (typeof value.version !== 'string' || !SEMVER.test(value.version)) {
+    issues.push(
+      profileError('/document/version', 'OWS workflow version must be semantic version.')
+    );
+  }
+  for (const field of ['title', 'summary'] as const) {
+    if (value[field] !== undefined && typeof value[field] !== 'string') {
+      issues.push(profileError(`/document/${field}`, `OWS document ${field} must be a string.`));
+    }
+  }
+  for (const field of ['tags', 'metadata'] as const) {
+    if (value[field] !== undefined) validateSet(value[field], `/document/${field}`, issues);
   }
 }
 
@@ -188,11 +249,12 @@ function validateBoundHttpCall(
 }
 
 function validateTaskList(list: unknown, path: string, issues: OwsProfileIssue[]): void {
-  if (!Array.isArray(list)) {
+  if (!Array.isArray(list) || list.length === 0) {
     issues.push(profileError(path, 'OWS task list must be an array.'));
     return;
   }
 
+  const taskNames = new Set<string>();
   for (const [index, entry] of list.entries()) {
     const entryPath = `${path}/${index}`;
     if (!isRecord(entry) || Object.keys(entry).length !== 1) {
@@ -201,6 +263,12 @@ function validateTaskList(list: unknown, path: string, issues: OwsProfileIssue[]
     }
     const [name, task] = Object.entries(entry)[0] ?? [];
     const taskPath = `${entryPath}/${name}`;
+    if (name && taskNames.has(name)) {
+      issues.push(
+        profileError(entryPath, `OWS task name '${name}' must be unique within its list.`)
+      );
+    }
+    if (name) taskNames.add(name);
     if (!isRecord(task)) {
       issues.push(profileError(taskPath, 'OWS task must be an object.'));
       continue;
@@ -257,6 +325,7 @@ export function validateOwsProfile(workflow: OwsWorkflow): OwsProfileValidation 
       issues.push(profileError(`/${key}`, message));
     }
   }
+  validateDocument(candidate.document, issues);
   if (candidate.timeout !== undefined) validateTimeout(candidate.timeout, '/timeout', issues);
   validateTaskList(candidate.do, '/do', issues);
 
@@ -267,15 +336,6 @@ export function validateOwsProfile(workflow: OwsWorkflow): OwsProfileValidation 
 function assertSafeOwsDocument(value: unknown): OwsWorkflow {
   if (!isRecord(value) || !isRecord(value.document) || !Array.isArray(value.do)) {
     throw new Error('Expected an OWS workflow document.');
-  }
-  const document = value.document;
-  if (
-    typeof document.dsl !== 'string' ||
-    typeof document.namespace !== 'string' ||
-    typeof document.name !== 'string' ||
-    typeof document.version !== 'string'
-  ) {
-    throw new Error('Expected OWS document metadata with dsl, namespace, name, and version.');
   }
   const workflow = JSON.parse(JSON.stringify(value)) as OwsWorkflow;
   const profile = validateOwsProfile(workflow);
@@ -324,7 +384,18 @@ export function normalizeOwsWorkflow(workflow: OwsWorkflow): OwsWorkflow {
 
 /** Deterministic OWS JSON is the only portable Flow executable artifact. */
 export function serializeOwsWorkflowJson(workflow: OwsWorkflow): string {
-  return `${JSON.stringify(normalizeOwsWorkflow(workflow), null, 2)}\n`;
+  return `${JSON.stringify(sortJson(normalizeOwsWorkflow(workflow)), null, 2)}\n`;
+}
+
+/** Sort object keys without changing task-list order, yielding Git-stable JSON in the renderer. */
+function sortJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortJson);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, sortJson(value[key])])
+  );
 }
 
 export interface OwsGraphProjection {

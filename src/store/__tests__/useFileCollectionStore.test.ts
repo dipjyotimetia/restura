@@ -526,6 +526,7 @@ describe('file collection operations', () => {
       '../useFileCollectionStore'
     );
     const { useCollectionStore } = await import('../useCollectionStore');
+    const { useWorkflowStore } = await import('../useWorkflowStore');
     let onFileChanged:
       | ((event: {
           type: 'modified' | 'added' | 'deleted';
@@ -541,6 +542,7 @@ describe('file collection operations', () => {
       removeFileChangedListener: vi.fn(),
     });
     useCollectionStore.setState({ collections: [{ id: 'c1', name: 'Demo', items: [] }] });
+    useWorkflowStore.setState({ workflows: [] });
     useFileCollectionStore.getState().registerFileCollection('c1', '/tmp/demo');
     initFileCollectionWatcher();
 
@@ -563,6 +565,59 @@ describe('file collection operations', () => {
     useFileCollectionStore.getState().updateSyncState('c1', 'loading');
     onFileChanged?.({ type: 'modified', filePath: '/', directoryPath: '/tmp/demo' });
     expect(useFileCollectionStore.getState().conflicts.at(-1)?.itemName).toBe('Unknown');
+  });
+
+  it('treats workflow artifact edits as local file-project changes before an external reload', async () => {
+    const { useFileCollectionStore, initFileCollectionWatcher } = await import(
+      '../useFileCollectionStore'
+    );
+    const { useCollectionStore } = await import('../useCollectionStore');
+    const { useWorkflowStore } = await import('../useWorkflowStore');
+    let onFileChanged:
+      | ((event: {
+          type: 'modified' | 'added' | 'deleted';
+          filePath: string;
+          directoryPath: string;
+          lastModified?: number;
+        }) => void)
+      | undefined;
+    installElectronCollections({
+      onFileChanged: vi.fn((listener) => {
+        onFileChanged = listener;
+      }),
+      removeFileChangedListener: vi.fn(),
+    });
+    useCollectionStore.setState({ collections: [{ id: 'c1', name: 'Demo', items: [] }] });
+    useWorkflowStore.setState({ workflows: [] });
+    useFileCollectionStore.getState().registerFileCollection('c1', '/tmp/demo');
+    initFileCollectionWatcher();
+
+    useWorkflowStore.getState().addWorkflow({
+      id: 'workflow-1',
+      collectionId: 'c1',
+      workspaceId: 'workflow-1',
+      document: {
+        document: { dsl: '1.0.3', namespace: 'restura', name: 'workflow', version: '1.0.0' },
+        do: [{ initialize: { wait: { milliseconds: 0 } } }],
+      },
+      bindings: { version: 1, tasks: {} },
+      layout: { version: 1, nodes: {} },
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    expect(useFileCollectionStore.getState().getFileInfo('c1')?.syncState).toBe('modified');
+
+    onFileChanged?.({
+      type: 'modified',
+      filePath: '/tmp/demo/workflows/workflow-1/workflow.ows.json',
+      directoryPath: '/tmp/demo',
+      lastModified: 456,
+    });
+    expect(useFileCollectionStore.getState().getFileInfo('c1')?.syncState).toBe('conflict');
+    expect(useFileCollectionStore.getState().conflicts.at(-1)).toMatchObject({
+      itemName: 'workflow.ows.json',
+      externalModified: 456,
+    });
   });
 
   it('reloads clean external changes and surfaces load failures', async () => {
