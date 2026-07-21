@@ -1,6 +1,10 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const toastMock = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
+
+vi.mock('sonner', () => ({ toast: toastMock }));
+
 const git = {
   status: {
     branch: 'feature/collection' as string | null,
@@ -44,6 +48,8 @@ import { GitDialog } from '../GitDialog';
 
 describe('GitDialog', () => {
   beforeEach(() => {
+    toastMock.error.mockReset();
+    toastMock.success.mockReset();
     Object.assign(git, {
       status: {
         branch: 'feature/collection',
@@ -161,5 +167,18 @@ describe('GitDialog', () => {
     expect(screen.getByText('Working tree clean')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Pull' }));
     await waitFor(() => expect(git.pull).toHaveBeenCalled());
+  });
+
+  it('reports remote sync failures', async () => {
+    git.push.mockResolvedValueOnce('remote rejected the branch');
+    render(
+      <GitDialog collectionName="Workspace" directoryPath="/workspace" open onClose={vi.fn()} />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Push' }));
+
+    await waitFor(() =>
+      expect(toastMock.error).toHaveBeenCalledWith('push failed: remote rejected the branch')
+    );
   });
 });
