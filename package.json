@@ -189,7 +189,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
-    "@babel/parser": "^7.29.7",
+    "@babel/parser": "^8.0.4",
     "@biomejs/biome": "^2.5.3",
     "@bufbuild/protoc-gen-es": "^2.12.1",
     "@cloudflare/vite-plugin": "^1.44.0",
