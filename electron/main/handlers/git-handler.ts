@@ -1,47 +1,8 @@
 /**
- * Git-native collections — Electron main-process handler.
- *
- * Read operations:
- *   - git:status   → modified / untracked / staged file lists
- *   - git:log      → recent commits
- *   - git:diff     → unified diff for a single file (working tree vs index, i.e.
- *                    unstaged changes)
- *   - git:branch:list → branches + current
- *
- * Local write operations (no remote):
- *   - git:init            → initialise a repo in a registered collection dir
- *   - git:add             → stage files
- *   - git:commit          → commit staged (optionally stage-all first)
- *   - git:branch:create   → create + switch to a branch
- *   - git:branch:checkout → switch branch. The renderer reloads the collection
- *                           from disk afterwards (see useGit.checkout) — the
- *                           file watcher is best-effort and not relied upon.
- *
- * Deferred: remote fetch/push/pull/clone — needs a credential model (SSH key vs
- * HTTPS token + SecretRef), a bigger conversation.
- *
- * Hardening: every invocation neutralises repo-local `core.fsmonitor`
- * (`-c core.fsmonitor=`) so merely opening a hostile repo can't run an
- * attacker-supplied program during the auto-polled `git status`; `git diff`
- * additionally passes `--no-ext-diff --no-textconv`. Repo hooks are deliberately
- * NOT disabled — a user committing to their own repo expects their
- * pre-commit/commit-msg hooks (secret scanners, linters) to run.
- *
- * Security:
- *  - Directory paths are validated against a whitelist (provided by the
- *    caller via the registration argument — typically backed by
- *    `useFileCollectionStore`). A handler call against an arbitrary dir is
- *    rejected.
- *  - We use `execFile` (NOT `exec`) — no shell parsing, no injection vector.
- *  - Branch and ref names are sanitized via a strict regex before being
- *    passed as arguments.
- *  - Output size is capped at MAX_OUTPUT_BYTES per call.
- *  - Concurrent calls per directory are serialised via a per-dir mutex to
- *    keep `git index` consistent under high-frequency polling.
- *
- * If `git` is not installed on PATH, every call returns a clear error —
- * we never silently no-op. Detection is best-effort and cached after the
- * first call.
+ * Git-native collections main-process handler. Every operation is allowlist
+ * gated, serialised per workspace, shell-free, and neutralises repo-local
+ * fsmonitor. System Git handles SSH-agent and credential-manager auth; Restura
+ * never accepts, stores, or exposes Git credentials. Hooks remain enabled.
  */
 
 import type { GitBranch, GitCommit, GitStatus, GitStatusFile } from '@shared/git-types';
@@ -52,9 +13,11 @@ import * as path from 'path';
 import { promisify } from 'util';
 import { z } from 'zod';
 import { createLogger } from '@shared/runtime/logger';
+import { loadCollectionDirectory } from '@shared/opencollection/node/fs-reader';
 import { IPC } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { assertTrustedSender } from '../ipc/ipc-validators';
+import { isPathRealSafe } from '../storage/file-operations';
 
 const log = createLogger('git');
 
@@ -62,19 +25,10 @@ const execFileAsync = promisify(execFile);
 
 const MAX_OUTPUT_BYTES = 2 * 1024 * 1024; // 2MB per command output
 const COMMAND_TIMEOUT_MS = 15_000;
+const REMOTE_COMMAND_TIMEOUT_MS = 60_000;
 
-/**
- * Per-webContents rate limiter shared across every git channel (parity with the
- * other protocol handlers). A `refresh()` in the renderer fires 3 read calls at
- * once and writes add a few more, so 120/min is generous headroom for active use
- * while still bounding a runaway/compromised renderer from pinning a core
- * spawning git processes. Registered for cleanup in window-manager.ts.
- */
+/** Per-webContents budget; registered for cleanup in window-manager.ts. */
 export const gitRateLimiter = createKeyedRateLimiter(120, 60_000);
-
-// ---------------------------------------------------------------------------
-// Whitelist — only operate against directories the renderer has registered.
-// ---------------------------------------------------------------------------
 
 let isDirectoryAllowed: (dirPath: string) => boolean = () => false;
 
@@ -98,15 +52,12 @@ function ensureDirectoryAllowed(rawPath: string): string {
   return absolute;
 }
 
-// ---------------------------------------------------------------------------
-// Input validation
-// ---------------------------------------------------------------------------
-
 const DirectoryInputSchema = z.object({
   directoryPath: z.string().min(1).max(2048),
 });
 const DiffInputSchema = DirectoryInputSchema.extend({
   filePath: z.string().min(1).max(2048),
+  staged: z.boolean().optional(),
 });
 const LogInputSchema = DirectoryInputSchema.extend({
   limit: z.number().int().min(1).max(500).optional(),
@@ -121,6 +72,11 @@ const CommitInputSchema = DirectoryInputSchema.extend({
 });
 const RefInputSchema = DirectoryInputSchema.extend({
   name: z.string().min(1).max(255),
+});
+const CloneInputSchema = z.object({
+  parentDirectory: z.string().min(1).max(2048),
+  remoteUrl: z.string().min(1).max(2048),
+  directoryName: z.string().min(1).max(255),
 });
 
 /**
@@ -140,9 +96,38 @@ function sanitiseRefName(name: string): string {
   return name;
 }
 
-// ---------------------------------------------------------------------------
-// Pure parsers — extracted so unit tests can cover them without `git`.
-// ---------------------------------------------------------------------------
+const SCP_STYLE_GIT_URL = /^git@[A-Za-z0-9.-]+:[A-Za-z0-9._~/-]+(?:\.git)?$/;
+
+/**
+ * Allow only credential-free HTTPS and SSH Git remotes. Local paths and
+ * `file:` URLs would let a compromised renderer use the clone entry point as
+ * an arbitrary local repository reader, so they are intentionally out of
+ * scope. Credentials remain with system Git's credential manager / SSH agent.
+ */
+function sanitiseRemoteUrl(value: string): string {
+  const remoteUrl = value.trim();
+  if (SCP_STYLE_GIT_URL.test(remoteUrl)) return remoteUrl;
+  try {
+    const url = new URL(remoteUrl);
+    if (url.protocol !== 'https:' && url.protocol !== 'ssh:') {
+      throw new GitError('Remote URL must use HTTPS or SSH.', 'invalid-remote-url');
+    }
+    if (!url.hostname || url.password || (url.username && url.protocol === 'https:')) {
+      throw new GitError('Remote URL must not contain credentials.', 'invalid-remote-url');
+    }
+    return remoteUrl;
+  } catch (error) {
+    if (error instanceof GitError) throw error;
+    throw new GitError('Remote URL must be a valid HTTPS or SSH Git URL.', 'invalid-remote-url');
+  }
+}
+
+function sanitiseCloneDirectoryName(name: string): string {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(name) || name === '.' || name === '..') {
+    throw new GitError('Choose a simple folder name for the cloned workspace.', 'invalid-input');
+  }
+  return name;
+}
 
 export type { GitBranch, GitCommit, GitStatus, GitStatusFile };
 
@@ -160,17 +145,16 @@ export function parsePorcelainV2(raw: string): GitStatus {
       const parts = line.slice('# branch.ab '.length).trim().split(' ');
       ahead = Number((parts[0] ?? '+0').replace(/[+-]/g, '')) || 0;
       behind = Number((parts[1] ?? '-0').replace(/[+-]/g, '')) || 0;
-    } else if (line.startsWith('1 ') || line.startsWith('2 ')) {
-      // 1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
-      // 2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <newPath>\t<origPath>
+    } else if (line.startsWith('1 ') || line.startsWith('2 ') || line.startsWith('u ')) {
       const xy = line.split(' ')[1] ?? '..';
       const isRename = line.startsWith('2 ');
-      // Rename: the CURRENT (new) path is before the tab, after the rename-score
-      // field (index 9). Ordinary change: path is field 8 onward.
+      const isUnmerged = line.startsWith('u ');
       const beforeTab = line.split('\t')[0] ?? '';
       const filePath = isRename
         ? beforeTab.split(' ').slice(9).join(' ')
-        : line.split(' ').slice(8).join(' ');
+        : isUnmerged
+          ? line.split(' ').slice(10).join(' ')
+          : line.split(' ').slice(8).join(' ');
       if (filePath) {
         files.push({
           path: filePath,
@@ -181,7 +165,6 @@ export function parsePorcelainV2(raw: string): GitStatus {
     } else if (line.startsWith('? ')) {
       files.push({ path: line.slice(2), staged: '?', unstaged: '?' });
     } else if (line.startsWith('! ')) {
-      // ignored — not surfaced
     }
   }
 
@@ -255,8 +238,6 @@ export function parseBranchList(raw: string, currentBranch: string | null): GitB
       isRemote = false;
       name = ref.slice('refs/heads/'.length);
     } else {
-      // Defensive: an unexpected ref category (tags shouldn't appear under
-      // `branch --all`). Treat as a local-ish ref keyed on its raw name.
       isRemote = false;
       name = ref;
     }
@@ -271,33 +252,19 @@ export function parseBranchList(raw: string, currentBranch: string | null): GitB
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// Per-directory mutex
-// ---------------------------------------------------------------------------
-
 const dirLocks = new Map<string, Promise<unknown>>();
 
 function withLock<T>(dir: string, fn: () => Promise<T>): Promise<T> {
   const prev = dirLocks.get(dir) ?? Promise.resolve();
   const next = prev.catch(() => undefined).then(fn);
-  // Store `next` itself as the lock head so the self-clean below can identity-
-  // match it. (Storing `next.finally(...)` — a distinct promise — made the
-  // `=== next` check always false, so the entry was never evicted and one
-  // settled promise leaked per directory.)
   dirLocks.set(dir, next);
   void next
     .catch(() => undefined)
     .finally(() => {
-      // Only the most-recent op clears the entry; if a newer op already
-      // replaced the head, leave it for that op to clean up.
       if (dirLocks.get(dir) === next) dirLocks.delete(dir);
     });
   return next;
 }
-
-// ---------------------------------------------------------------------------
-// Git binary invocation
-// ---------------------------------------------------------------------------
 
 export class GitError extends Error {
   constructor(
@@ -311,19 +278,30 @@ export class GitError extends Error {
 
 async function runGit(cwd: string, args: string[]): Promise<string> {
   try {
+    // An inherited GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, GIT_CONFIG_*, or
+    // GIT_SSH_COMMAND can redirect Git outside the allowlisted cwd or cause it
+    // to run an unexpected helper. System credential helpers remain available
+    // because they are configured by Git itself, not passed through `GIT_*`.
+    const safeEnv = Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))
+    );
     const { stdout } = await execFileAsync(
       'git',
-      // `-c core.fsmonitor=` (before the subcommand) neutralises a repo-local
-      // `core.fsmonitor = <program>`, which git would otherwise execute during
-      // `git status` — the auto-polled, zero-interaction path. Empirically the
-      // empty value disables both the program and boolean forms (git 2.x).
-      ['-c', 'core.fsmonitor=', ...args],
+      ['-c', 'core.fsmonitor=', '-c', 'core.sshCommand=', ...args],
       {
         cwd,
         maxBuffer: MAX_OUTPUT_BYTES,
-        timeout: COMMAND_TIMEOUT_MS,
-        // Force UTF-8 + no pager.
-        env: { ...process.env, LANG: 'C.UTF-8', GIT_PAGER: 'cat', PAGER: 'cat' },
+        timeout: ['clone', 'fetch', 'push'].includes(args[0] ?? '')
+          ? REMOTE_COMMAND_TIMEOUT_MS
+          : COMMAND_TIMEOUT_MS,
+        env: {
+          ...safeEnv,
+          LANG: 'C.UTF-8',
+          GIT_PAGER: 'cat',
+          PAGER: 'cat',
+          GIT_ALLOW_PROTOCOL: 'https:ssh',
+          GIT_LITERAL_PATHSPECS: '1',
+        },
       }
     );
     return stdout;
@@ -331,9 +309,6 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
     if (err && typeof err === 'object') {
       const e = err as { code?: string; stderr?: string; message?: string };
       if (e.code === 'ENOENT') {
-        // ENOENT is ambiguous: a missing `git` binary AND a missing `cwd` both
-        // surface it. Disambiguate so a deleted/unmounted collection directory
-        // doesn't masquerade as "git is not installed".
         if (!existsSync(cwd)) {
           throw new GitError(
             'Collection directory no longer exists. Re-open it to continue.',
@@ -346,10 +321,6 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
         );
       }
       const message = e.stderr?.trim() || e.message || 'git command failed';
-      // git has no distinct exit code for "outside a repo" — it's a generic
-      // fatal (128). Match its stderr ONCE here, at the boundary, and raise a
-      // stable `not-a-repo` code so the renderer never has to string-match
-      // localized git output to offer "Initialize repository".
       if (/not a git repository/i.test(message)) {
         throw new GitError(message, 'not-a-repo');
       }
@@ -359,16 +330,16 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Public command surface
-// ---------------------------------------------------------------------------
-
 export async function gitStatus(directoryPath: string): Promise<GitStatus> {
   const dir = ensureDirectoryAllowed(directoryPath);
   return withLock(dir, async () => {
-    const raw = await runGit(dir, ['status', '--porcelain=v2', '--branch']);
-    return parsePorcelainV2(raw);
+    return statusFromGit(dir);
   });
+}
+
+async function statusFromGit(dir: string): Promise<GitStatus> {
+  const raw = await runGit(dir, ['status', '--porcelain=v2', '--branch']);
+  return parsePorcelainV2(raw);
 }
 
 export async function gitLog(directoryPath: string, limit = 50): Promise<GitCommit[]> {
@@ -383,21 +354,23 @@ export async function gitLog(directoryPath: string, limit = 50): Promise<GitComm
   });
 }
 
-export async function gitDiff(directoryPath: string, filePath: string): Promise<string> {
+export async function gitDiff(
+  directoryPath: string,
+  filePath: string,
+  staged = false
+): Promise<string> {
   const dir = ensureDirectoryAllowed(directoryPath);
-  // Path is restricted to within the directory — no escapes.
   const abs = path.resolve(dir, filePath);
   if (!abs.startsWith(dir + path.sep) && abs !== dir) {
     throw new GitError(`File path escapes the collection directory: ${filePath}`, 'invalid-input');
   }
   return withLock(dir, async () => {
-    // --no-ext-diff / --no-textconv stop a repo-local `.gitattributes` from
-    // routing the diff through an attacker-supplied external program.
     const raw = await runGit(dir, [
       'diff',
       '--no-color',
       '--no-ext-diff',
       '--no-textconv',
+      ...(staged ? ['--cached'] : []),
       '--',
       filePath,
     ]);
@@ -416,17 +389,6 @@ export async function gitBranchList(directoryPath: string): Promise<GitBranch[]>
   });
 }
 
-// ---------------------------------------------------------------------------
-// Write operations (local only — no remote/push/pull; that needs a credential
-// model and lands in a later milestone). All reuse the allowlist + per-dir lock.
-// ---------------------------------------------------------------------------
-
-/**
- * Initialise a git repository in a registered collection directory. Idempotent —
- * `git init` on an existing repo simply re-initialises it. This is the local
- * "spinup" path: a file-backed collection created in a plain directory becomes
- * git-backed without leaving the app. Remote `clone` stays deferred (credentials).
- */
 export async function gitInit(directoryPath: string): Promise<true> {
   const dir = ensureDirectoryAllowed(directoryPath);
   return withLock(dir, async () => {
@@ -446,11 +408,58 @@ function resolveWithin(dir: string, filePath: string): string {
 
 export async function gitAddFiles(directoryPath: string, filePaths: string[]): Promise<true> {
   const dir = ensureDirectoryAllowed(directoryPath);
-  // Validate every path before touching the index.
   for (const fp of filePaths) resolveWithin(dir, fp);
   return withLock(dir, async () => {
-    // `--` terminates option parsing so a path can't be read as a flag.
     await runGit(dir, ['add', '--', ...filePaths]);
+    return true as const;
+  });
+}
+
+/** Remove selected paths from the index while preserving their working-tree content. */
+export async function gitUnstageFiles(directoryPath: string, filePaths: string[]): Promise<true> {
+  const dir = ensureDirectoryAllowed(directoryPath);
+  for (const fp of filePaths) resolveWithin(dir, fp);
+  return withLock(dir, async () => {
+    await runGit(dir, ['restore', '--staged', '--', ...filePaths]);
+    return true as const;
+  });
+}
+
+/**
+ * Discard selected paths after explicit renderer confirmation. Tracked files
+ * are restored from HEAD; untracked paths are removed with a path-scoped
+ * `git clean -f`. There is deliberately no broad "discard all" command.
+ */
+export async function gitDiscardFiles(directoryPath: string, filePaths: string[]): Promise<true> {
+  const dir = ensureDirectoryAllowed(directoryPath);
+  for (const fp of filePaths) resolveWithin(dir, fp);
+  return withLock(dir, async () => {
+    const status = await statusFromGit(dir);
+    const selected = new Set(filePaths);
+    const untracked = status.files
+      .filter((file) => selected.has(file.path) && file.staged === '?')
+      .map((file) => file.path);
+    const hasHead = await runGit(dir, ['rev-parse', '--verify', '--quiet', 'HEAD'])
+      .then(() => true)
+      .catch(() => false);
+    const unbornStaged = !hasHead
+      ? status.files
+          .filter((file) => selected.has(file.path) && file.staged === 'A')
+          .map((file) => file.path)
+      : [];
+    const tracked = filePaths.filter(
+      (filePath) => !untracked.includes(filePath) && !unbornStaged.includes(filePath)
+    );
+    if (tracked.length > 0) {
+      await runGit(dir, ['restore', '--source=HEAD', '--staged', '--worktree', '--', ...tracked]);
+    }
+    if (untracked.length > 0) {
+      await runGit(dir, ['clean', '-f', '--', ...untracked]);
+    }
+    if (unbornStaged.length > 0) {
+      await runGit(dir, ['rm', '--cached', '--', ...unbornStaged]);
+      await runGit(dir, ['clean', '-f', '--', ...unbornStaged]);
+    }
     return true as const;
   });
 }
@@ -469,9 +478,6 @@ export async function gitCommit(
   if (options.paths) for (const p of options.paths) resolveWithin(dir, p);
   return withLock(dir, async () => {
     if (options.all) await runGit(dir, ['add', '-A']);
-    // message passed as a single execFile arg — no shell, no injection.
-    // When `paths` are given, scope the commit to exactly those (git's --only
-    // semantics) so content staged outside this UI isn't swept in.
     const args = ['commit', '-m', message];
     if (options.paths && options.paths.length > 0) args.push('--', ...options.paths);
     await runGit(dir, args);
@@ -484,7 +490,6 @@ export async function gitCreateBranch(directoryPath: string, name: string): Prom
   const dir = ensureDirectoryAllowed(directoryPath);
   const ref = sanitiseRefName(name);
   return withLock(dir, async () => {
-    // Create and switch in one step.
     await runGit(dir, ['checkout', '-b', ref]);
     return ref;
   });
@@ -494,24 +499,182 @@ export async function gitCheckoutBranch(directoryPath: string, name: string): Pr
   const dir = ensureDirectoryAllowed(directoryPath);
   const ref = sanitiseRefName(name);
   return withLock(dir, async () => {
-    // Switching branches rewrites files on disk; the renderer reloads the
-    // collection explicitly afterwards (see useGit.checkout). The collection-manager
-    // file watcher (chokidar) is best-effort and not relied upon for the reload.
     await runGit(dir, ['checkout', ref]);
     return ref;
   });
 }
 
-// ---------------------------------------------------------------------------
-// IPC registration
-// ---------------------------------------------------------------------------
+function remoteNameFromUpstream(upstream: string): string {
+  const [remote] = upstream.split('/');
+  if (!remote) throw new GitError('The current branch has no upstream branch.', 'no-upstream');
+  return sanitiseRefName(remote);
+}
+
+async function currentBranchAndUpstream(
+  dir: string
+): Promise<{ branch: string; upstream: string }> {
+  const branch = (await runGit(dir, ['branch', '--show-current'])).trim();
+  if (!branch)
+    throw new GitError(
+      'Cannot sync while HEAD is detached. Check out a branch first.',
+      'detached-head'
+    );
+  try {
+    const upstream = (
+      await runGit(dir, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])
+    ).trim();
+    if (!upstream) throw new GitError('The current branch has no upstream branch.', 'no-upstream');
+    return { branch: sanitiseRefName(branch), upstream };
+  } catch (error) {
+    if (error instanceof GitError && error.code === 'git-error') {
+      throw new GitError(
+        'The current branch has no upstream branch. Push it to publish the branch.',
+        'no-upstream'
+      );
+    }
+    throw error;
+  }
+}
+
+async function defaultRemote(dir: string): Promise<string> {
+  const remotes = (await runGit(dir, ['remote']))
+    .split('\n')
+    .map((remote) => remote.trim())
+    .filter(Boolean);
+  const remote = remotes.includes('origin') ? 'origin' : remotes[0];
+  if (!remote) throw new GitError('No Git remote is configured for this workspace.', 'no-remote');
+  return sanitiseRefName(remote);
+}
+
+async function validatedRemote(dir: string, remote: string, push = false): Promise<void> {
+  sanitiseRemoteUrl(
+    (await runGit(dir, ['remote', 'get-url', ...(push ? ['--push'] : []), remote])).trim()
+  );
+}
+
+export async function gitFetch(directoryPath: string): Promise<{ remote: string }> {
+  const dir = ensureDirectoryAllowed(directoryPath);
+  return withLock(dir, async () => {
+    const remote = await defaultRemote(dir);
+    await validatedRemote(dir, remote);
+    await runGit(dir, ['fetch', '--prune', remote]);
+    return { remote };
+  });
+}
+
+/** Fetch and integrate only a fast-forward update. Merge/rebase conflicts stay external. */
+export async function gitPullFastForward(directoryPath: string): Promise<{ updated: boolean }> {
+  const dir = ensureDirectoryAllowed(directoryPath);
+  return withLock(dir, async () => {
+    if (!(await statusFromGit(dir)).clean) {
+      throw new GitError(
+        'Commit, stage, or discard local changes before pulling.',
+        'dirty-worktree'
+      );
+    }
+    const { upstream } = await currentBranchAndUpstream(dir);
+    const remote = remoteNameFromUpstream(upstream);
+    await validatedRemote(dir, remote);
+    await runGit(dir, ['fetch', '--prune', remote]);
+    try {
+      await runGit(dir, ['merge', '--ff-only', upstream]);
+    } catch (error) {
+      if (error instanceof GitError) {
+        throw new GitError(
+          'The remote branch cannot be fast-forwarded. Resolve or merge it externally, then refresh.',
+          'non-fast-forward'
+        );
+      }
+      throw error;
+    }
+    return { updated: true };
+  });
+}
+
+/** Push the current branch, publishing it to origin on first push when needed. */
+export async function gitPush(directoryPath: string): Promise<{ remote: string; branch: string }> {
+  const dir = ensureDirectoryAllowed(directoryPath);
+  return withLock(dir, async () => {
+    const branch = (await runGit(dir, ['branch', '--show-current'])).trim();
+    if (!branch)
+      throw new GitError(
+        'Cannot push while HEAD is detached. Check out a branch first.',
+        'detached-head'
+      );
+    const safeBranch = sanitiseRefName(branch);
+    let remote: string;
+    let upstream: string | null = null;
+    let hasUpstream = true;
+    try {
+      upstream = (await currentBranchAndUpstream(dir)).upstream;
+      remote = remoteNameFromUpstream(upstream);
+    } catch (error) {
+      if (!(error instanceof GitError) || error.code !== 'no-upstream') throw error;
+      remote = await defaultRemote(dir);
+      hasUpstream = false;
+    }
+    await validatedRemote(dir, remote, true);
+    try {
+      const remoteBranch = upstream?.slice(remote.length + 1);
+      await runGit(
+        dir,
+        hasUpstream && remoteBranch
+          ? ['push', remote, `refs/heads/${safeBranch}:refs/heads/${sanitiseRefName(remoteBranch)}`]
+          : ['push', '--set-upstream', remote, safeBranch]
+      );
+    } catch (error) {
+      if (
+        error instanceof GitError &&
+        /non-fast-forward|rejected|fetch first/i.test(error.message)
+      ) {
+        throw new GitError(
+          'Push was rejected because the remote branch has newer history. Pull and resolve it externally first.',
+          'push-rejected'
+        );
+      }
+      throw error;
+    }
+    return { remote, branch: safeBranch };
+  });
+}
 
 /**
- * Builds an `ipcMain.handle` callback that parses input through `schema`,
- * invokes `run`, and packages the response under `resultKey`. Errors are
- * normalised to `{ ok: false, error }`. Used by every git IPC handler so
- * the parse-then-try-catch boilerplate exists once.
+ * Clone a remote into a user-selected safe parent directory and verify that it
+ * is an OpenCollection workspace before returning it to the renderer. This
+ * intentionally does not register the directory: the existing collection
+ * loader performs registration only after its own load/validation succeeds.
  */
+export async function gitCloneWorkspace(
+  parentDirectory: string,
+  remoteUrl: string,
+  directoryName: string
+): Promise<{ directoryPath: string }> {
+  const parent = path.resolve(parentDirectory);
+  if (!(await isPathRealSafe(parent)) || !existsSync(parent)) {
+    throw new GitError(
+      'Choose an existing folder that Restura can access for the clone.',
+      'forbidden'
+    );
+  }
+  const destination = path.resolve(parent, sanitiseCloneDirectoryName(directoryName));
+  if (!destination.startsWith(parent + path.sep) || existsSync(destination)) {
+    throw new GitError(
+      'The clone destination must be a new folder inside the selected directory.',
+      'invalid-input'
+    );
+  }
+  await runGit(parent, ['clone', '--', sanitiseRemoteUrl(remoteUrl), destination]);
+  try {
+    await loadCollectionDirectory(destination);
+  } catch {
+    throw new GitError(
+      'Repository cloned, but it is not a valid OpenCollection workspace. No collection was opened.',
+      'invalid-workspace'
+    );
+  }
+  return { directoryPath: destination };
+}
+
 function ipcCommand<T, R>(
   schema: z.ZodType<T>,
   resultKey: string,
@@ -555,14 +718,20 @@ export function registerGitHandlerIPC(): void {
   handle(IPC.git.log, LogInputSchema, 'commits', ({ directoryPath, limit }) =>
     gitLog(directoryPath, limit ?? 50)
   );
-  handle(IPC.git.diff, DiffInputSchema, 'diff', ({ directoryPath, filePath }) =>
-    gitDiff(directoryPath, filePath)
+  handle(IPC.git.diff, DiffInputSchema, 'diff', ({ directoryPath, filePath, staged }) =>
+    gitDiff(directoryPath, filePath, staged)
   );
   handle(IPC.git.branchList, DirectoryInputSchema, 'branches', ({ directoryPath }) =>
     gitBranchList(directoryPath)
   );
   handle(IPC.git.add, AddFilesInputSchema, 'staged', ({ directoryPath, filePaths }) =>
     gitAddFiles(directoryPath, filePaths)
+  );
+  handle(IPC.git.unstage, AddFilesInputSchema, 'unstaged', ({ directoryPath, filePaths }) =>
+    gitUnstageFiles(directoryPath, filePaths)
+  );
+  handle(IPC.git.discard, AddFilesInputSchema, 'discarded', ({ directoryPath, filePaths }) =>
+    gitDiscardFiles(directoryPath, filePaths)
   );
   handle(IPC.git.commit, CommitInputSchema, 'commit', ({ directoryPath, message, all, paths }) =>
     gitCommit(directoryPath, message, {
@@ -576,6 +745,22 @@ export function registerGitHandlerIPC(): void {
   handle(IPC.git.checkoutBranch, RefInputSchema, 'branch', ({ directoryPath, name }) =>
     gitCheckoutBranch(directoryPath, name)
   );
+  handle(IPC.git.fetch, DirectoryInputSchema, 'remote', ({ directoryPath }) =>
+    gitFetch(directoryPath)
+  );
+  handle(IPC.git.pull, DirectoryInputSchema, 'result', ({ directoryPath }) =>
+    gitPullFastForward(directoryPath)
+  );
+  handle(IPC.git.push, DirectoryInputSchema, 'result', ({ directoryPath }) =>
+    gitPush(directoryPath)
+  );
+  handle(
+    IPC.git.clone,
+    CloneInputSchema,
+    'workspace',
+    ({ parentDirectory, remoteUrl, directoryName }) =>
+      gitCloneWorkspace(parentDirectory, remoteUrl, directoryName)
+  );
 }
 
 export function unregisterGitHandlerIPC(): void {
@@ -585,9 +770,15 @@ export function unregisterGitHandlerIPC(): void {
   ipcMain.removeHandler(IPC.git.diff);
   ipcMain.removeHandler(IPC.git.branchList);
   ipcMain.removeHandler(IPC.git.add);
+  ipcMain.removeHandler(IPC.git.unstage);
+  ipcMain.removeHandler(IPC.git.discard);
   ipcMain.removeHandler(IPC.git.commit);
   ipcMain.removeHandler(IPC.git.createBranch);
   ipcMain.removeHandler(IPC.git.checkoutBranch);
+  ipcMain.removeHandler(IPC.git.fetch);
+  ipcMain.removeHandler(IPC.git.pull);
+  ipcMain.removeHandler(IPC.git.push);
+  ipcMain.removeHandler(IPC.git.clone);
 }
 
 function errorMessage(err: unknown): string {
@@ -601,4 +792,4 @@ function errorCode(err: unknown): string | undefined {
 }
 
 // Surface the sanitiser so tests can exercise it without a real git repo.
-export { sanitiseRefName };
+export { sanitiseRefName, sanitiseRemoteUrl };

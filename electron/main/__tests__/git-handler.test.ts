@@ -6,6 +6,7 @@ import {
   parseCommitLog,
   parsePorcelainV2,
   sanitiseRefName,
+  sanitiseRemoteUrl,
 } from '../handlers/git-handler';
 
 describe('parsePorcelainV2', () => {
@@ -57,6 +58,16 @@ describe('parsePorcelainV2', () => {
     const r = parsePorcelainV2(raw);
     expect(r.files).toHaveLength(1);
     expect(r.files[0]?.path).toBe('new.txt');
+  });
+
+  it('treats unmerged paths as dirty changes', () => {
+    const raw = [
+      '# branch.head main',
+      'u UU N... 100644 100644 100644 100644 a b c conflict.yml',
+    ].join('\n');
+    const status = parsePorcelainV2(raw);
+    expect(status.clean).toBe(false);
+    expect(status.files).toEqual([expect.objectContaining({ path: 'conflict.yml' })]);
   });
 });
 
@@ -169,6 +180,24 @@ describe('sanitiseRefName', () => {
 
   it('rejects empty input', () => {
     expect(() => sanitiseRefName('')).toThrow(GitError);
+  });
+});
+
+describe('sanitiseRemoteUrl', () => {
+  it('accepts HTTPS and SSH remotes without credentials', () => {
+    expect(sanitiseRemoteUrl('https://github.com/restura/example.git')).toBe(
+      'https://github.com/restura/example.git'
+    );
+    expect(sanitiseRemoteUrl('git@github.com:restura/example.git')).toBe(
+      'git@github.com:restura/example.git'
+    );
+  });
+
+  it('rejects local, insecure, and credential-bearing remote URLs', () => {
+    expect(() => sanitiseRemoteUrl('/tmp/private-repo')).toThrow(GitError);
+    expect(() => sanitiseRemoteUrl('file:///tmp/private-repo')).toThrow(GitError);
+    expect(() => sanitiseRemoteUrl('http://example.com/repo.git')).toThrow(GitError);
+    expect(() => sanitiseRemoteUrl('https://token@example.com/repo.git')).toThrow(GitError);
   });
 });
 
