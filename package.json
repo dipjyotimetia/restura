@@ -223,7 +223,7 @@
     "cross-env": "^10.1.0",
     "crypto-js": "^4.2.0",
     "csv-parse": "^7.0.1",
-    "electron": "^43.1.0",
+    "electron": "^43.1.1",
     "electron-builder": "^26.15.3",
     "esbuild": "^0.28.1",
     "fake-indexeddb": "^6.2.5",
