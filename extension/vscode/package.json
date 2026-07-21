@@ -2,7 +2,7 @@
   "name": "restura-vscode",
   "displayName": "Restura",
   "description": "OpenCollection language support, a Test Explorer, and inline send/run for Restura API collections — right in your editor.",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "license": "MIT",
   "icon": "icon.png",
   "author": "dipjyotimetia",
