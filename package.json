@@ -192,7 +192,7 @@
     "@babel/parser": "^7.29.7",
     "@biomejs/biome": "^2.5.3",
     "@bufbuild/protoc-gen-es": "^2.12.1",
-    "@cloudflare/vite-plugin": "^1.44.0",
+    "@cloudflare/vite-plugin": "^1.45.0",
     "@cloudflare/workers-types": "^5.20260714.1",
     "@commitlint/cli": "^21.2.1",
     "@commitlint/config-conventional": "^21.2.0",
