@@ -1,7 +1,7 @@
 ---
-type: "Reference"
+type: Reference
 title: "AI and MCP"
-openwiki_generated: true
+description: "AI chat assistant, AI Lab eval/agents workbench, Restura-as-MCP-server, MCP client, and safety boundaries."
 ---
 
 # AI and MCP
@@ -67,6 +67,10 @@ An Electron-only LLM evaluation workbench accessible as `/ai-lab` route. It uses
 - Desktop agent bridge: `src/features/ai-lab/lib/agentRuntime.ts`; saved HTTP request tools use `agentTools.ts` and the normal request executor.
 - Headless CI: `restura agent eval <suite.json> --output report.json`.
 
+### Agent telemetry
+
+Opt-in telemetry for agent runs is exported as OTLP/OpenInference traces. The desktop settings UI (`src/features/ai-lab/components/AgentTelemetrySettings.tsx`) toggles the exporter; the runtime path is `shared/agent-lab/telemetry.ts` with a desktop lifecycle helper in `electron/main/lifecycle/agent-telemetry.ts`. Headless CI uses `cli/src/runner/agentTelemetry.ts`. No secrets, PII, or raw request/response bodies are exported; spans and attributes are bounded and redacted before leaving the process.
+
 ### Agent safety and current support
 
 Agent suites never persist inline credentials. Desktop model calls retain the existing keychain-backed IPC path. The runner fails closed on unavailable providers/tools and sensitive tool calls without approval, and enforces step/time/tool/token/cost/output limits. Saved Restura HTTP requests are wired as desktop tools; non-read methods require per-call approval. The shared MCP allowlist adapter and pluggable sandbox registry are implemented, but the capability matrix marks MCP connection resolution and concrete sandbox providers unsupported until those adapters are registered end to end.
@@ -124,6 +128,7 @@ Restura can call external MCP servers from the MCP request builder.
 | AI Lab playground / datasets | `src/features/ai-lab/lib/llmClient.ts`, `src/features/ai-lab/lib/openapiTestGen.ts`, `src/features/ai-lab/lib/redteamGen.ts`                                        |
 | AI Lab arena                 | `src/features/ai-lab/lib/arenaRunner.ts`, `src/features/ai-lab/lib/elo.ts`, `src/features/ai-lab/store/useArenaStore.ts`                                            |
 | AI Lab agents                | `shared/agent-lab/`, `src/features/ai-lab/lib/agentRuntime.ts`, `src/features/ai-lab/lib/agentTools.ts`, `cli/src/commands/agent.ts`                                |
+| Agent telemetry              | `shared/agent-lab/telemetry.ts`, `electron/main/lifecycle/agent-telemetry.ts`, `cli/src/runner/agentTelemetry.ts`, `src/features/ai-lab/components/AgentTelemetrySettings.tsx` |
 | MCP server                   | `shared/mcp-server/dispatch.ts`, `shared/mcp-server/consent.ts`, `shared/mcp-server/redaction.ts`, `electron/main/handlers/mcp-server-handler.ts`                   |
 | MCP client                   | `src/features/mcp/protocol.ts`, `src/features/mcp/lib/mcpClient.ts`, `src/features/mcp/lib/McpClientPool.ts`                                                        |
 

@@ -1,7 +1,7 @@
 ---
-type: "Reference"
+type: Reference
 title: "Restura — OpenWiki quickstart"
-openwiki_generated: true
+description: "Entry point for the Restura in-repo wiki: project layout, common commands, and navigation to architecture, features, integrations, operations, and testing docs."
 ---
 
 # Restura — OpenWiki quickstart

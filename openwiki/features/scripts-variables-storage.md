@@ -1,7 +1,7 @@
 ---
-type: "Reference"
+type: Reference
 title: "Scripts, variables & storage"
-openwiki_generated: true
+description: "QuickJS script sandbox, Postman-compatible pm.* APIs, variable scoping, persistence adapters, secrets, and export redaction."
 ---
 
 # Scripts, variables & storage

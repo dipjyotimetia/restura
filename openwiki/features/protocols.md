@@ -1,7 +1,7 @@
 ---
-type: "Reference"
+type: Reference
 title: "Protocol features"
-openwiki_generated: true
+description: "Protocol registry contract, per-protocol execution notes, streaming vs one-shot behaviour, and capability parity across web, self-hosted, and desktop."
 ---
 
 # Protocol features

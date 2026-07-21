@@ -1,7 +1,7 @@
 ---
-type: "Reference"
+type: Reference
 title: "Architecture overview"
-openwiki_generated: true
+description: "Cross-target renderer/backends architecture for Restura: shared protocol layer, Fetcher pattern, Electron/Worker/CLI boundaries, and capability gating."
 ---
 
 # Architecture overview
