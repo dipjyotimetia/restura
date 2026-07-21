@@ -4,7 +4,7 @@ import {
   GitCommit as GitCommitIcon,
   RefreshCw,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -13,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { useGit } from '@/hooks/useGit';
 import { cn } from '@/lib/shared/utils';
 
@@ -24,9 +25,8 @@ interface GitDialogProps {
 }
 
 /**
- * Local git operations for a file-backed collection: review changes, stage +
- * commit, and switch / create branches. Remote (push/pull) is intentionally
- * absent — that needs a credential model and lands later. Desktop-only.
+ * Git collaboration for a registered file-backed collection. Git credentials
+ * stay with system Git (SSH agent / credential manager), never in Restura.
  */
 export function GitDialog({ collectionName, directoryPath, open, onClose }: GitDialogProps) {
   const {
@@ -38,37 +38,34 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
     notARepo,
     refresh,
     init,
+    stage,
+    unstage,
+    discard,
+    diff,
     commit,
     createBranch,
     checkout,
+    fetch,
+    pull,
+    push,
   } = useGit(open ? directoryPath : null);
   const [message, setMessage] = useState('');
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [newBranch, setNewBranch] = useState('');
   const [busy, setBusy] = useState(false);
+  const [diffText, setDiffText] = useState<string | null>(null);
+  const [discardTarget, setDiscardTarget] = useState<string | null>(null);
 
   const changedFiles = useMemo(() => status?.files ?? [], [status]);
 
-  // Default to staging every changed file when the list refreshes.
-  useEffect(() => {
-    setSelected(new Set(changedFiles.map((f) => f.path)));
-  }, [changedFiles]);
-
   const localBranches = branches.filter((b) => !b.isRemote);
-
-  const toggle = (path: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
-      return next;
-    });
-  };
+  const stagedFiles = changedFiles.filter((file) => file.staged !== '.' && file.staged !== '?');
+  const unstagedFiles = changedFiles.filter((file) => file.staged === '?' || file.unstaged !== '.');
+  const currentBranch = localBranches.find((branch) => branch.isCurrent);
 
   const handleCommit = async () => {
-    if (!message.trim() || selected.size === 0) return;
+    if (!message.trim() || stagedFiles.length === 0) return;
     setBusy(true);
-    const err = await commit(message.trim(), [...selected]);
+    const err = await commit(message.trim());
     setBusy(false);
     if (err) {
       toast.error(`Commit failed: ${err}`);
@@ -76,6 +73,35 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
       toast.success('Committed');
       setMessage('');
     }
+  };
+
+  const handleFileAction = async (action: 'stage' | 'unstage' | 'discard', filePath: string) => {
+    setBusy(true);
+    const err =
+      action === 'stage'
+        ? await stage([filePath])
+        : action === 'unstage'
+          ? await unstage([filePath])
+          : await discard([filePath]);
+    setBusy(false);
+    if (err) toast.error(`${action} failed: ${err}`);
+    else if (action === 'discard') toast.success('Discarded local change');
+  };
+
+  const handleDiff = async (filePath: string, staged: boolean) => {
+    setBusy(true);
+    const result = await diff(filePath, staged);
+    setBusy(false);
+    setDiffText(result ?? 'No diff available.');
+  };
+
+  const handleSync = async (action: 'fetch' | 'pull' | 'push') => {
+    setBusy(true);
+    const err =
+      action === 'fetch' ? await fetch() : action === 'pull' ? await pull() : await push();
+    setBusy(false);
+    if (err) toast.error(`${action} failed: ${err}`);
+    else toast.success(action === 'push' ? 'Published branch' : `${action} complete`);
   };
 
   const handleCreateBranch = async () => {
@@ -155,6 +181,38 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
             </section>
           ) : (
             <>
+              <section className="rounded-sp-btn border border-sp-line p-2.5 flex items-center gap-3 text-sp-12 font-mono">
+                <span className="text-sp-text">{status?.branch ?? 'Detached HEAD'}</span>
+                <span className="text-sp-dim">{currentBranch?.upstream ?? 'No upstream'}</span>
+                <span className="ml-auto text-sp-muted">
+                  ↑{status?.ahead ?? 0} ↓{status?.behind ?? 0}
+                </span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void handleSync('fetch')}
+                  className="text-sp-accent disabled:opacity-50"
+                >
+                  Fetch
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || !status?.clean}
+                  onClick={() => void handleSync('pull')}
+                  className="text-sp-accent disabled:opacity-50"
+                >
+                  Pull
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void handleSync('push')}
+                  className="text-sp-accent disabled:opacity-50"
+                >
+                  Push
+                </button>
+              </section>
+
               {/* Changes + commit */}
               <section className="space-y-2">
                 <div className="sp-label">Changes ({changedFiles.length})</div>
@@ -162,29 +220,22 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
                   <p className="text-sp-12 text-sp-dim font-mono">Working tree clean</p>
                 ) : (
                   <>
-                    <div className="rounded-sp-btn border border-sp-line divide-y divide-sp-line max-h-44 overflow-auto">
-                      {changedFiles.map((f) => (
-                        <label
-                          key={f.path}
-                          className="flex items-center gap-2 px-2.5 py-1.5 cursor-pointer hover:bg-sp-hover"
-                        >
-                          <input
-                            type="checkbox"
-                            aria-label={`Stage ${f.path}`}
-                            checked={selected.has(f.path)}
-                            onChange={() => toggle(f.path)}
-                          />
-                          <span className="font-mono text-sp-11-5 text-sp-dim w-6 uppercase">
-                            {(f.staged !== '.' && f.staged) ||
-                              (f.unstaged !== '.' && f.unstaged) ||
-                              '?'}
-                          </span>
-                          <span className="font-mono text-sp-12 text-sp-text truncate">
-                            {f.path}
-                          </span>
-                        </label>
-                      ))}
-                    </div>
+                    <ChangeGroup
+                      title="Staged"
+                      files={stagedFiles}
+                      busy={busy}
+                      onAction={handleFileAction}
+                      onDiff={handleDiff}
+                      onDiscard={setDiscardTarget}
+                    />
+                    <ChangeGroup
+                      title="Unstaged"
+                      files={unstagedFiles}
+                      busy={busy}
+                      onAction={handleFileAction}
+                      onDiff={handleDiff}
+                      onDiscard={setDiscardTarget}
+                    />
                     <textarea
                       value={message}
                       onChange={(e) => setMessage(e.target.value)}
@@ -195,16 +246,25 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
                     />
                     <button
                       type="button"
-                      disabled={busy || !message.trim() || selected.size === 0}
+                      disabled={busy || !message.trim() || stagedFiles.length === 0}
                       onClick={handleCommit}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-sp-btn bg-sp-accent/15 text-sp-accent text-sp-12 font-medium hover:bg-sp-accent/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <GitCommitIcon className="h-3.5 w-3.5" />
-                      Commit {selected.size} file{selected.size === 1 ? '' : 's'}
+                      Commit index ({stagedFiles.length} file{stagedFiles.length === 1 ? '' : 's'})
                     </button>
                   </>
                 )}
               </section>
+
+              {diffText !== null && (
+                <section className="space-y-2">
+                  <div className="sp-label">File diff</div>
+                  <pre className="max-h-56 overflow-auto rounded-sp-btn border border-sp-line p-2 text-sp-11-5 font-mono whitespace-pre-wrap">
+                    {diffText}
+                  </pre>
+                </section>
+              )}
 
               {/* Branches */}
               <section className="space-y-2">
@@ -269,7 +329,70 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
           )}
         </div>
       </DialogContent>
+      <ConfirmDialog
+        open={discardTarget !== null}
+        onOpenChange={(value) => !value && setDiscardTarget(null)}
+        title="Discard local change?"
+        description="This restores the selected file from the last commit or removes an untracked file. This cannot be undone."
+        confirmText="Discard"
+        variant="destructive"
+        onConfirm={() => {
+          if (discardTarget) void handleFileAction('discard', discardTarget);
+          setDiscardTarget(null);
+        }}
+      />
     </Dialog>
+  );
+}
+
+function ChangeGroup({
+  title,
+  files,
+  busy,
+  onAction,
+  onDiff,
+  onDiscard,
+}: {
+  title: string;
+  files: Array<{ path: string; staged: string; unstaged: string }>;
+  busy: boolean;
+  onAction: (action: 'stage' | 'unstage', filePath: string) => Promise<void>;
+  onDiff: (filePath: string, staged: boolean) => Promise<void>;
+  onDiscard: (filePath: string) => void;
+}) {
+  if (files.length === 0) return null;
+  const staged = title === 'Staged';
+  return (
+    <div className="rounded-sp-btn border border-sp-line divide-y divide-sp-line">
+      <div className="px-2.5 py-1 text-sp-11-5 text-sp-dim font-mono">{title}</div>
+      {files.map((file) => (
+        <div key={`${title}:${file.path}`} className="flex items-center gap-2 px-2.5 py-1.5">
+          <button
+            type="button"
+            onClick={() => void onDiff(file.path, staged)}
+            className="font-mono text-sp-12 text-sp-text truncate text-left flex-1"
+          >
+            {file.path}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void onAction(staged ? 'unstage' : 'stage', file.path)}
+            className="text-sp-11-5 text-sp-accent disabled:opacity-50"
+          >
+            {staged ? 'Unstage' : 'Stage'}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onDiscard(file.path)}
+            className="text-sp-11-5 text-red-400 disabled:opacity-50"
+          >
+            Discard
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }
 

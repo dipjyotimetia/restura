@@ -1,6 +1,6 @@
 'use client';
 
-import { FolderOpen, FolderPlus } from 'lucide-react';
+import { FolderOpen, FolderPlus, GitBranch } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
@@ -24,7 +24,7 @@ import {
 interface CollectionDirectoryPickerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  mode: 'open' | 'save';
+  mode: 'open' | 'save' | 'clone';
   collectionId?: string; // For save mode - which collection to export
   onSuccess?: (collectionId: string) => void;
 }
@@ -38,6 +38,7 @@ export function CollectionDirectoryPicker({
 }: CollectionDirectoryPickerProps) {
   const [directoryPath, setDirectoryPath] = useState('');
   const [collectionName, setCollectionName] = useState('');
+  const [remoteUrl, setRemoteUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,6 +79,27 @@ export function CollectionDirectoryPicker({
           resetState();
         } else {
           setError(result.error || 'Failed to load collection');
+        }
+      } else if (mode === 'clone') {
+        const electron = window.electron;
+        if (!electron?.git) {
+          setError('Git is only available in the desktop app');
+          return;
+        }
+        const clone = await electron.git.clone(directoryPath, remoteUrl, collectionName.trim());
+        if (!clone.ok) {
+          setError(clone.error);
+          return;
+        }
+        // Registration is deliberately after the main-side OpenCollection
+        // validation and happens only when the standard loader succeeds.
+        const result = await loadCollectionFromDirectory(clone.workspace.directoryPath);
+        if (result.success && result.collection) {
+          onSuccess?.(result.collection.id);
+          onOpenChange(false);
+          resetState();
+        } else {
+          setError(result.error || 'Cloned workspace could not be opened');
         }
       } else if (mode === 'save' && collectionId) {
         // Export existing collection to directory
@@ -131,6 +153,7 @@ export function CollectionDirectoryPicker({
   const resetState = () => {
     setDirectoryPath('');
     setCollectionName('');
+    setRemoteUrl('');
     setError(null);
   };
 
@@ -168,6 +191,10 @@ export function CollectionDirectoryPicker({
                 <FolderOpen className="h-5 w-5" />
                 Open Collection from Folder
               </>
+            ) : mode === 'clone' ? (
+              <>
+                <GitBranch className="h-5 w-5" /> Clone OpenCollection workspace
+              </>
             ) : (
               <>
                 <FolderPlus className="h-5 w-5" />
@@ -178,7 +205,9 @@ export function CollectionDirectoryPicker({
           <DialogDescription>
             {mode === 'open'
               ? 'Select a folder containing a collection to open. The folder should contain a _collection.yaml file.'
-              : 'Select a folder to save this collection as YAML files for Git version control.'}
+              : mode === 'clone'
+                ? 'Clone into a new folder. Restura opens it only after validating its OpenCollection workspace.'
+                : 'Select a folder to save this collection as YAML files for Git version control.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -197,6 +226,23 @@ export function CollectionDirectoryPicker({
               </Button>
             </div>
           </div>
+
+          {mode === 'clone' && (
+            <div className="space-y-2">
+              <Label>Remote URL</Label>
+              <Input
+                value={remoteUrl}
+                onChange={(e) => setRemoteUrl(e.target.value)}
+                placeholder="https://github.com/org/workspace.git"
+              />
+              <Label>New folder name</Label>
+              <Input
+                value={collectionName}
+                onChange={(e) => setCollectionName(e.target.value)}
+                placeholder="workspace"
+              />
+            </div>
+          )}
 
           {mode === 'open' && (
             <div className="space-y-2">
@@ -228,8 +274,21 @@ export function CollectionDirectoryPicker({
               Create New
             </Button>
           )}
-          <Button onClick={handleConfirm} disabled={isLoading || !directoryPath}>
-            {isLoading ? 'Loading...' : mode === 'open' ? 'Open' : 'Save'}
+          <Button
+            onClick={handleConfirm}
+            disabled={
+              isLoading ||
+              !directoryPath ||
+              (mode === 'clone' && (!remoteUrl.trim() || !collectionName.trim()))
+            }
+          >
+            {isLoading
+              ? 'Loading...'
+              : mode === 'open'
+                ? 'Open'
+                : mode === 'clone'
+                  ? 'Clone and open'
+                  : 'Save'}
           </Button>
         </DialogFooter>
       </DialogContent>
