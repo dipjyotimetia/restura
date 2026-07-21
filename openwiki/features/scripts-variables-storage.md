@@ -1,3 +1,9 @@
+---
+type: Reference
+title: "Scripts, variables & storage"
+description: "QuickJS script sandbox, Postman-compatible pm.* APIs, variable scoping, persistence adapters, secrets, and export redaction."
+---
+
 # Scripts, variables & storage
 
 This page covers the QuickJS script sandbox, variable substitution and scoping, persistence adapters, and secret handling.

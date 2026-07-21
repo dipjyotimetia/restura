@@ -269,3 +269,13 @@ validation, `SecretRef`); gate results with `file:line` (`type-check:all`,
 (`capabilities.ts` / OpenCollection types) still needs regenerating. Drop
 verbose tool output before dropping any of that. (Mirrors the fuller section in
 CLAUDE.md.)
+
+<!-- OPENWIKI:START -->
+
+## OpenWiki
+
+This repository uses OpenWiki for recurring code documentation. Start with `openwiki/quickstart.md`, then follow its links to architecture, workflows, domain concepts, operations, integrations, testing guidance, and source maps.
+
+The scheduled OpenWiki GitHub Actions workflow refreshes the repository wiki. Do not hand-edit generated OpenWiki pages unless explicitly asked; prefer updating source code/docs and letting OpenWiki regenerate.
+
+<!-- OPENWIKI:END -->

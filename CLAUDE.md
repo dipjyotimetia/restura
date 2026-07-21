@@ -273,3 +273,13 @@ When this conversation is summarized to free context, **preserve** the following
 - **Decisions and their reasoning**, especially any ADR that the change warrants.
 
 Drop verbose tool output (full file dumps, passing test logs) before dropping any of the above.
+
+<!-- OPENWIKI:START -->
+
+## OpenWiki
+
+This repository uses OpenWiki for recurring code documentation. Start with `openwiki/quickstart.md`, then follow its links to architecture, workflows, domain concepts, operations, integrations, testing guidance, and source maps.
+
+The scheduled OpenWiki GitHub Actions workflow refreshes the repository wiki. Do not hand-edit generated OpenWiki pages unless explicitly asked; prefer updating source code/docs and letting OpenWiki regenerate.
+
+<!-- OPENWIKI:END -->

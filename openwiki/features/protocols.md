@@ -1,3 +1,9 @@
+---
+type: Reference
+title: "Protocol features"
+description: "Protocol registry contract, per-protocol execution notes, streaming vs one-shot behaviour, and capability parity across web, self-hosted, and desktop."
+---
+
 # Protocol features
 
 This page explains how Restura turns the React renderer's protocol-specific UI state into an actual request, and what each protocol feature owns.

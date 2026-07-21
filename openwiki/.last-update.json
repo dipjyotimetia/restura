@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-07-06T08:00:43.553Z",
+  "updatedAt": "2026-07-21T10:42:11.575Z",
   "command": "update",
-  "gitHead": "06c4956f2d132a2cc1a1013052d4c1d5d6675007",
-  "model": "deepseek/deepseek-v4-pro"
+  "gitHead": "80068173c66e18b9f44ed3ac37490e3c0307ed7e",
+  "model": "moonshotai/kimi-k2.7-code"
 }

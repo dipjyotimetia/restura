@@ -1,3 +1,9 @@
+---
+type: Reference
+title: "Architecture overview"
+description: "Cross-target renderer/backends architecture for Restura: shared protocol layer, Fetcher pattern, Electron/Worker/CLI boundaries, and capability gating."
+---
+
 # Architecture overview
 
 Restura is built around one constraint: a single React SPA renderer serves three different deployment targets. The renderer code in `/src` is the same for the web app, the self-hosted Node/Docker server, and the Electron desktop app. Only the transport layer changes.
