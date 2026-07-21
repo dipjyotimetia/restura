@@ -1,3 +1,9 @@
+---
+type: "Reference"
+title: "AI and MCP"
+openwiki_generated: true
+---
+
 # AI and MCP
 
 This page covers the AI chat assistant, the AI Lab evaluation workbench, Restura-as-MCP-server, and the MCP client used to call external MCP servers from the request builder.

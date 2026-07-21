@@ -1,3 +1,9 @@
+---
+type: "Reference"
+title: "Restura — OpenWiki quickstart"
+openwiki_generated: true
+---
+
 # Restura — OpenWiki quickstart
 
 Restura is a multi-protocol API client that speaks HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, Server-Sent Events (SSE), Kafka, MQTT, and MCP. It is privacy-first: data is stored locally by default with no accounts or cloud sync required. The project ships a single React SPA to three targets: a **web app** (Cloudflare Pages + Workers), a **self-hosted Node/Docker server**, and an **Electron desktop app** for macOS, Windows, and Linux.

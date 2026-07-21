@@ -1,3 +1,9 @@
+---
+type: "Reference"
+title: "Protocol features"
+openwiki_generated: true
+---
+
 # Protocol features
 
 This page explains how Restura turns the React renderer's protocol-specific UI state into an actual request, and what each protocol feature owns.

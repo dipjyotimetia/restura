@@ -1,3 +1,9 @@
+---
+type: "Reference"
+title: "Scripts, variables & storage"
+openwiki_generated: true
+---
+
 # Scripts, variables & storage
 
 This page covers the QuickJS script sandbox, variable substitution and scoping, persistence adapters, and secret handling.
