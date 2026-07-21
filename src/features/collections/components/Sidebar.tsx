@@ -42,7 +42,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Stagger, StaggerItem } from '@/components/ui/motion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { deleteCollectionWithCleanup } from '@/features/collections/lib/deleteCollection';
 import {
   downloadJSON,
@@ -83,6 +83,7 @@ import {
   makeRequestItem,
 } from '../lib/itemFactory';
 import { buildMockRoutes, buildMockRoutesFromSpec, mergeMockRoutes } from '../lib/mockRoutes';
+import { CollectionWorkspaceActions } from './CollectionWorkspaceActions';
 import {
   folderPathTo,
   isNameTaken,
@@ -220,7 +221,7 @@ function Sidebar({ activePanel }: SidebarProps) {
   const [selectedWorkflow, setSelectedWorkflow] = useState<OwsStoredWorkflow | null>(null);
   const [runningWorkflow, setRunningWorkflow] = useState<OwsStoredWorkflow | null>(null);
   const [directoryPickerOpen, setDirectoryPickerOpen] = useState(false);
-  const [directoryPickerMode, setDirectoryPickerMode] = useState<'open' | 'save'>('open');
+  const [directoryPickerMode, setDirectoryPickerMode] = useState<'open' | 'save' | 'clone'>('open');
   const [saveCollectionId, setSaveCollectionId] = useState<string | undefined>();
 
   // Inline rename state for collections
@@ -577,6 +578,12 @@ function Sidebar({ activePanel }: SidebarProps) {
 
   const handleOpenFromFolder = useCallback(() => {
     setDirectoryPickerMode('open');
+    setSaveCollectionId(undefined);
+    setDirectoryPickerOpen(true);
+  }, []);
+
+  const handleCloneWorkspace = useCallback(() => {
+    setDirectoryPickerMode('clone');
     setSaveCollectionId(undefined);
     setDirectoryPickerOpen(true);
   }, []);
@@ -947,21 +954,10 @@ function Sidebar({ activePanel }: SidebarProps) {
                   New collection
                 </Button>
                 {isElectronEnvironment() && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        onClick={handleOpenFromFolder}
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2 text-muted-foreground hover:text-foreground"
-                      >
-                        <FolderOpen className="h-3.5 w-3.5" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Open from folder</p>
-                    </TooltipContent>
-                  </Tooltip>
+                  <CollectionWorkspaceActions
+                    onOpen={handleOpenFromFolder}
+                    onClone={handleCloneWorkspace}
+                  />
                 )}
               </div>
 

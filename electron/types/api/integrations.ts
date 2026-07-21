@@ -25,7 +25,7 @@ export interface ElectronStoreAPI {
 
 /**
  * Git operations for file-backed collections (read plus staging, commit, and
- * local branch create/checkout; remote push/pull not yet exposed). All
+ * local branch create/checkout and scoped remote sync). All
  * operations are gated main-side by collection-manager's directory allowlist.
  */
 export interface ElectronGitAPI {
@@ -66,7 +66,8 @@ export interface ElectronGitAPI {
   >;
   diff: (
     directoryPath: string,
-    filePath: string
+    filePath: string,
+    staged?: boolean
   ) => Promise<{ ok: true; diff: string } | { ok: false; error: string }>;
   branchList: (directoryPath: string) => Promise<
     | {
@@ -79,6 +80,15 @@ export interface ElectronGitAPI {
     directoryPath: string,
     filePaths: string[]
   ) => Promise<{ ok: true; staged: true } | { ok: false; error: string }>;
+  unstage: (
+    directoryPath: string,
+    filePaths: string[]
+  ) => Promise<{ ok: true; unstaged: true } | { ok: false; error: string }>;
+  /** Discards only renderer-confirmed files. */
+  discard: (
+    directoryPath: string,
+    filePaths: string[]
+  ) => Promise<{ ok: true; discarded: true } | { ok: false; error: string }>;
   commit: (
     directoryPath: string,
     message: string,
@@ -94,6 +104,29 @@ export interface ElectronGitAPI {
     directoryPath: string,
     name: string
   ) => Promise<{ ok: true; branch: string } | { ok: false; error: string }>;
+  fetch: (
+    directoryPath: string
+  ) => Promise<
+    { ok: true; remote: { remote: string } } | { ok: false; error: string; code?: string }
+  >;
+  pull: (
+    directoryPath: string
+  ) => Promise<
+    { ok: true; result: { updated: boolean } } | { ok: false; error: string; code?: string }
+  >;
+  push: (
+    directoryPath: string
+  ) => Promise<
+    | { ok: true; result: { remote: string; branch: string } }
+    | { ok: false; error: string; code?: string }
+  >;
+  clone: (
+    parentDirectory: string,
+    remoteUrl: string,
+    directoryName: string
+  ) => Promise<
+    { ok: true; workspace: { directoryPath: string } } | { ok: false; error: string; code?: string }
+  >;
 }
 
 export interface ElectronMockStatus {
