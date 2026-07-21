@@ -25,11 +25,19 @@ export const integrationApi: IntegrationApi = {
         directoryPath,
         ...(limit !== undefined ? { limit } : {}),
       }),
-    diff: (directoryPath, filePath) =>
-      ipcRenderer.invoke(IPC.git.diff, { directoryPath, filePath }),
+    diff: (directoryPath, filePath, staged) =>
+      ipcRenderer.invoke(IPC.git.diff, {
+        directoryPath,
+        filePath,
+        ...(staged !== undefined ? { staged } : {}),
+      }),
     branchList: (directoryPath) => ipcRenderer.invoke(IPC.git.branchList, { directoryPath }),
     add: (directoryPath, filePaths) =>
       ipcRenderer.invoke(IPC.git.add, { directoryPath, filePaths }),
+    unstage: (directoryPath, filePaths) =>
+      ipcRenderer.invoke(IPC.git.unstage, { directoryPath, filePaths }),
+    discard: (directoryPath, filePaths) =>
+      ipcRenderer.invoke(IPC.git.discard, { directoryPath, filePaths }),
     commit: (directoryPath, message, options) =>
       ipcRenderer.invoke(IPC.git.commit, {
         directoryPath,
@@ -41,6 +49,11 @@ export const integrationApi: IntegrationApi = {
       ipcRenderer.invoke(IPC.git.createBranch, { directoryPath, name }),
     checkoutBranch: (directoryPath, name) =>
       ipcRenderer.invoke(IPC.git.checkoutBranch, { directoryPath, name }),
+    fetch: (directoryPath) => ipcRenderer.invoke(IPC.git.fetch, { directoryPath }),
+    pull: (directoryPath) => ipcRenderer.invoke(IPC.git.pull, { directoryPath }),
+    push: (directoryPath) => ipcRenderer.invoke(IPC.git.push, { directoryPath }),
+    clone: (parentDirectory, remoteUrl, directoryName) =>
+      ipcRenderer.invoke(IPC.git.clone, { parentDirectory, remoteUrl, directoryName }),
   },
   mock: {
     start: invoke<ElectronAPI['mock']['start']>(IPC.mock.start),
