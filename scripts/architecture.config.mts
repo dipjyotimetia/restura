@@ -53,7 +53,7 @@ export const architecturePolicy: ArchitecturePolicy = {
   grandfatheredFileLines: {
     'src/components/shared/SettingsDrawer.tsx': 2_406,
     'src/features/kafka/components/KafkaClient.tsx': 1_609,
-    'src/features/collections/components/Sidebar.tsx': 1_585,
+    'src/features/collections/components/Sidebar.tsx': 1_581,
     'shared/scripts/script-executor.ts': 1_537,
     'electron/main/handlers/http-handler.ts': 1_240,
     'src/features/mcp/components/McpRequestBuilder.tsx': 1_027,
