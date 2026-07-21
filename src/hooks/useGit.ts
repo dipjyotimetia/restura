@@ -17,8 +17,8 @@ interface GitState {
 
 /**
  * Renderer wrapper over the Electron git IPC for a single (allow-listed)
- * collection directory. Read ops populate state; write ops (stage/commit/
- * branch) refresh afterwards. Desktop-only — `api.git` is undefined on web,
+ * collection directory. Read ops populate state; writes refresh afterwards.
+ * Desktop-only — `api.git` is undefined on web,
  * surfaced as an error rather than throwing.
  */
 export function useGit(directoryPath: string | null) {
@@ -81,21 +81,56 @@ export function useGit(directoryPath: string | null) {
     return res.ok ? null : res.error;
   }, [directoryPath, refresh]);
 
-  const commit = useCallback(
-    async (message: string, filePaths: string[]): Promise<string | null> => {
+  const stage = useCallback(
+    async (filePaths: string[]): Promise<string | null> => {
       const api = getElectronAPI();
       if (!api?.git || !directoryPath) return 'Git unavailable';
-      if (filePaths.length > 0) {
-        const staged = await api.git.add(directoryPath, filePaths);
-        if (!staged.ok) return staged.error;
-      }
-      // Scope the commit to exactly the selected files so anything staged
-      // outside this dialog isn't committed too.
-      const res = await api.git.commit(
-        directoryPath,
-        message,
-        filePaths.length > 0 ? { paths: filePaths } : undefined
-      );
+      const res = await api.git.add(directoryPath, filePaths);
+      await refresh();
+      return res.ok ? null : res.error;
+    },
+    [directoryPath, refresh]
+  );
+
+  const unstage = useCallback(
+    async (filePaths: string[]): Promise<string | null> => {
+      const api = getElectronAPI();
+      if (!api?.git || !directoryPath) return 'Git unavailable';
+      const res = await api.git.unstage(directoryPath, filePaths);
+      await refresh();
+      return res.ok ? null : res.error;
+    },
+    [directoryPath, refresh]
+  );
+
+  const discard = useCallback(
+    async (filePaths: string[]): Promise<string | null> => {
+      const api = getElectronAPI();
+      if (!api?.git || !directoryPath) return 'Git unavailable';
+      const res = await api.git.discard(directoryPath, filePaths);
+      await refresh();
+      return res.ok ? null : res.error;
+    },
+    [directoryPath, refresh]
+  );
+
+  const diff = useCallback(
+    async (filePath: string, staged = false): Promise<string | null> => {
+      const api = getElectronAPI();
+      if (!api?.git || !directoryPath) return 'Git unavailable';
+      const res = await api.git.diff(directoryPath, filePath, staged);
+      return res.ok ? res.diff : res.error;
+    },
+    [directoryPath]
+  );
+
+  const commit = useCallback(
+    async (message: string): Promise<string | null> => {
+      const api = getElectronAPI();
+      if (!api?.git || !directoryPath) return 'Git unavailable';
+      // Commit exactly what is already in the index. The dialog stages files
+      // explicitly, so this never sweeps unstaged work into a commit.
+      const res = await api.git.commit(directoryPath, message);
       await refresh();
       return res.ok ? null : res.error;
     },
@@ -133,5 +168,48 @@ export function useGit(directoryPath: string | null) {
     [directoryPath, refresh]
   );
 
-  return { ...state, refresh, init, commit, createBranch, checkout };
+  const reloadCollection = useCallback(async () => {
+    if (directoryPath) await loadCollectionFromDirectory(directoryPath).catch(() => null);
+  }, [directoryPath]);
+
+  const fetch = useCallback(async (): Promise<string | null> => {
+    const api = getElectronAPI();
+    if (!api?.git || !directoryPath) return 'Git unavailable';
+    const res = await api.git.fetch(directoryPath);
+    await refresh();
+    return res.ok ? null : res.error;
+  }, [directoryPath, refresh]);
+
+  const pull = useCallback(async (): Promise<string | null> => {
+    const api = getElectronAPI();
+    if (!api?.git || !directoryPath) return 'Git unavailable';
+    const res = await api.git.pull(directoryPath);
+    if (res.ok) await reloadCollection();
+    await refresh();
+    return res.ok ? null : res.error;
+  }, [directoryPath, refresh, reloadCollection]);
+
+  const push = useCallback(async (): Promise<string | null> => {
+    const api = getElectronAPI();
+    if (!api?.git || !directoryPath) return 'Git unavailable';
+    const res = await api.git.push(directoryPath);
+    await refresh();
+    return res.ok ? null : res.error;
+  }, [directoryPath, refresh]);
+
+  return {
+    ...state,
+    refresh,
+    init,
+    stage,
+    unstage,
+    discard,
+    diff,
+    commit,
+    createBranch,
+    checkout,
+    fetch,
+    pull,
+    push,
+  };
 }
