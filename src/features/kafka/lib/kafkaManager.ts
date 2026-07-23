@@ -19,11 +19,7 @@ import type {
   KafkaTopicConfigEntry,
 } from '../../../../electron/types/electron-api';
 
-export type KafkaSecretField =
-  | 'sasl-password'
-  | 'tls-passphrase'
-  | 'registry-password'
-  | 'registry-token';
+export type KafkaSecretField = 'sasl-password' | 'tls-passphrase' | 'registry-password';
 
 export function kafkaSecretKey(connectionId: string, field: KafkaSecretField): string {
   // Every field name matches a secureStorage sensitive-key pattern
@@ -57,8 +53,6 @@ async function resolveRegistry(
     if (registry.auth.username) auth.username = registry.auth.username;
     const password = await resolve(registry.auth.password, 'registry-password');
     if (password) auth.password = password;
-    const token = await resolve(registry.auth.token, 'registry-token');
-    if (token) auth.token = token;
     if (Object.keys(auth).length > 0) out.auth = auth;
   }
   return out;
@@ -216,7 +210,9 @@ class KafkaManager {
     connectionId: string;
     topic: string;
     key?: string;
+    keyEncoding?: 'utf8' | 'base64';
     value: string;
+    valueEncoding?: 'utf8' | 'base64';
     headers?: Record<string, string>;
     partition?: number;
     acks: 0 | 1 | -1;
@@ -236,7 +232,9 @@ class KafkaManager {
       connectionId: params.connectionId,
       topic: params.topic,
       ...(params.key !== undefined ? { key: params.key } : {}),
+      ...(params.keyEncoding !== undefined ? { keyEncoding: params.keyEncoding } : {}),
       value: params.value,
+      ...(params.valueEncoding !== undefined ? { valueEncoding: params.valueEncoding } : {}),
       ...(params.headers ? { headers: params.headers } : {}),
       ...(params.partition !== undefined ? { partition: params.partition } : {}),
       acks: params.acks,
@@ -264,7 +262,9 @@ class KafkaManager {
       partition: result.ack.partition,
       offset: result.ack.offset,
       ...(params.key !== undefined ? { key: params.key } : {}),
+      ...(params.keyEncoding !== undefined ? { keyEncoding: params.keyEncoding } : {}),
       value: params.value,
+      ...(params.valueEncoding !== undefined ? { valueEncoding: params.valueEncoding } : {}),
       ...(params.headers ? { headers: params.headers } : {}),
     });
     return { ok: true, ack: result.ack };
@@ -498,7 +498,9 @@ class KafkaManager {
         partition: number;
         offset: string;
         key?: string;
+        keyEncoding?: 'utf8' | 'base64';
         value: string;
+        valueEncoding?: 'utf8' | 'base64';
         headers?: Record<string, string>;
         timestamp: number;
       };
@@ -508,7 +510,9 @@ class KafkaManager {
         partition: msg.partition,
         offset: msg.offset,
         ...(msg.key !== undefined ? { key: msg.key } : {}),
+        ...(msg.keyEncoding !== undefined ? { keyEncoding: msg.keyEncoding } : {}),
         value: msg.value,
+        ...(msg.valueEncoding !== undefined ? { valueEncoding: msg.valueEncoding } : {}),
         ...(msg.headers ? { headers: msg.headers } : {}),
         timestamp: msg.timestamp,
       });

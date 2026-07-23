@@ -50,8 +50,6 @@ export interface KafkaRegistry {
     username?: string;
     /** Persisted as the sentinel; real value comes from secureStorage */
     password?: string;
-    /** Persisted as the sentinel; real value comes from secureStorage */
-    token?: string;
   };
 }
 
@@ -63,6 +61,7 @@ export interface KafkaProducedAck {
 }
 
 export type KafkaMessageDirection = 'sent' | 'received' | 'system';
+export type KafkaPayloadEncoding = 'utf8' | 'base64';
 
 export interface KafkaMessage {
   id: string;
@@ -71,7 +70,9 @@ export interface KafkaMessage {
   partition?: number;
   offset?: string;
   key?: string;
+  keyEncoding?: KafkaPayloadEncoding;
   value: string;
+  valueEncoding?: KafkaPayloadEncoding;
   headers?: Record<string, string>;
   timestamp: number;
   error?: string;
@@ -403,6 +404,5 @@ function redactRegistry(registry: KafkaRegistry): KafkaRegistry {
   const auth: NonNullable<KafkaRegistry['auth']> = {};
   if (registry.auth.username !== undefined) auth.username = registry.auth.username;
   if (registry.auth.password) auth.password = KAFKA_SECRET_SENTINEL;
-  if (registry.auth.token) auth.token = KAFKA_SECRET_SENTINEL;
   return { url: registry.url, auth };
 }

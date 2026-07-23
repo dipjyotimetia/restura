@@ -1,17 +1,7 @@
-import {
-  Pause,
-  Play,
-  Plug,
-  PlugZap,
-  Plus,
-  RefreshCw,
-  Search,
-  Send,
-  Trash2,
-  Users,
-} from 'lucide-react';
+import { Pause, Play, Plug, PlugZap, Plus, RefreshCw, Search, Trash2, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -36,19 +26,21 @@ import {
 } from '@/components/ui/spatial';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Textarea } from '@/components/ui/textarea';
+import { isValidManualOffset } from '@/features/kafka/lib/kafkaConsumerValidation';
 import { kafkaManager, kafkaSecretKey } from '@/features/kafka/lib/kafkaManager';
+import {
+  validateJsonPayload,
+  validateKafkaHeaders,
+  validateOptionalSchemaId,
+} from '@/features/kafka/lib/kafkaProducerValidation';
 import type {
-  KafkaAcks,
   KafkaAuth,
-  KafkaCompression,
   KafkaMessage,
   KafkaRegistry,
   KafkaSaslMechanism,
   KafkaSecurityProtocol,
 } from '@/features/kafka/store/useKafkaStore';
 import { KAFKA_SECRET_SENTINEL, useKafkaStore } from '@/features/kafka/store/useKafkaStore';
-import { isValidManualOffset } from '@/features/kafka/lib/kafkaConsumerValidation';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
@@ -56,6 +48,7 @@ import { cn } from '@/lib/shared/utils';
 import { useActiveTabId } from '@/store/selectors';
 import type { KafkaGroupInfo } from '../../../../electron/types/electron-api';
 import { KafkaGroupInspector } from './KafkaGroupInspector';
+import { KafkaProducerPanel, type ProducePayloadMode } from './KafkaProducerPanel';
 import { KafkaTopicInspector } from './KafkaTopicInspector';
 import { KAFKA_PINK, partitionColor } from './shared';
 
@@ -66,8 +59,6 @@ const SECURITY_PROTOCOLS: KafkaSecurityProtocol[] = [
   'SSL',
 ];
 const SASL_MECHANISMS: KafkaSaslMechanism[] = ['PLAIN', 'SCRAM-SHA-256', 'SCRAM-SHA-512'];
-const COMPRESSION: KafkaCompression[] = ['none', 'gzip', 'snappy', 'lz4', 'zstd'];
-
 type ConsumeMode = 'latest' | 'earliest' | 'from-offset' | 'from-timestamp';
 
 const CONSUME_MODE_OPTIONS = [
@@ -177,14 +168,20 @@ function KafkaClient() {
   const [saslPasswordDraft, setSaslPasswordDraft] = useState('');
   const [tlsPassphraseDraft, setTlsPassphraseDraft] = useState('');
   const [registryPasswordDraft, setRegistryPasswordDraft] = useState('');
-  const [registryTokenDraft, setRegistryTokenDraft] = useState('');
   const [brokerDraft, setBrokerDraft] = useState('');
   const [topicDraft, setTopicDraft] = useState('');
   const [produceKey, setProduceKey] = useState('');
+  const [produceKeyEncoding, setProduceKeyEncoding] = useState<ProducePayloadMode>('utf8');
   const [produceValue, setProduceValue] = useState('');
+  const [produceValueEncoding, setProduceValueEncoding] = useState<ProducePayloadMode>('utf8');
+  const [produceHeaders, setProduceHeaders] = useState<
+    Array<{ id: string; key: string; value: string; enabled: boolean }>
+  >([]);
+  const [producePartition, setProducePartition] = useState('');
   // Optional Confluent schema ids (registry connections) — empty = plain.
   const [produceSchemaId, setProduceSchemaId] = useState('');
   const [produceKeySchemaId, setProduceKeySchemaId] = useState('');
+  const [produceError, setProduceError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('messages');
   // UI-only — does not affect store/subscription. Visually parks the log.
   const [paused, setPaused] = useState(false);
@@ -214,6 +211,7 @@ function KafkaClient() {
   // Admin tab — which topic/group is open in its inspector (null = none).
   const [inspectTopicName, setInspectTopicName] = useState<string | null>(null);
   const [inspectGroupId, setInspectGroupId] = useState<string | null>(null);
+  const [pendingTopicDelete, setPendingTopicDelete] = useState<string | null>(null);
 
   // Reset drafts when switching connections
   useEffect(() => {
@@ -222,7 +220,12 @@ function KafkaClient() {
     setBrokerDraft('');
     setTopicDraft('');
     setProduceKey('');
+    setProduceKeyEncoding('utf8');
     setProduceValue('');
+    setProduceValueEncoding('utf8');
+    setProduceHeaders([]);
+    setProducePartition('');
+    setProduceError(null);
     setSelectedMessageId(null);
     setPaused(false);
     setTimestampDraft('');
@@ -329,10 +332,10 @@ function KafkaClient() {
 
     // Persist registry secret drafts to secureStorage and store sentinels.
     let nextRegistry = connection.registry;
-    if (nextRegistry && (registryPasswordDraft || registryTokenDraft)) {
+    if (nextRegistry && registryPasswordDraft) {
       // Persist a draft secret (if any) and clear it; returns true when stored.
       const persistDraft = (
-        field: 'registry-password' | 'registry-token',
+        field: 'registry-password',
         draft: string,
         setDraft: (s: string) => void
       ): boolean => {
@@ -344,9 +347,6 @@ function KafkaClient() {
       const auth = { ...(nextRegistry.auth ?? {}) };
       if (persistDraft('registry-password', registryPasswordDraft, setRegistryPasswordDraft)) {
         auth.password = KAFKA_SECRET_SENTINEL;
-      }
-      if (persistDraft('registry-token', registryTokenDraft, setRegistryTokenDraft)) {
-        auth.token = KAFKA_SECRET_SENTINEL;
       }
       nextRegistry = { ...nextRegistry, auth };
       updateConnection(connection.id, { registry: nextRegistry });
@@ -369,24 +369,69 @@ function KafkaClient() {
   const handleProduce = async (): Promise<void> => {
     if (!connection) return;
     if (!produceValue || !connection.defaultTopic) return;
-    const toSchemaId = (raw: string): number | undefined => {
-      if (!connection.registry || !raw.trim()) return undefined;
-      const n = Number(raw);
-      return Number.isInteger(n) && n > 0 ? n : undefined;
-    };
-    const valueSchemaId = toSchemaId(produceSchemaId);
-    const keySchemaId = toSchemaId(produceKeySchemaId);
-    await kafkaManager.produce({
+    const valueSchema = connection.registry
+      ? validateOptionalSchemaId(produceSchemaId, 'Value')
+      : { valid: true as const, value: undefined };
+    const keySchema = connection.registry
+      ? validateOptionalSchemaId(produceKeySchemaId, 'Key')
+      : { valid: true as const, value: undefined };
+    if (!valueSchema.valid) {
+      setProduceError(valueSchema.error);
+      return;
+    }
+    if (!keySchema.valid) {
+      setProduceError(keySchema.error);
+      return;
+    }
+    if (produceValueEncoding === 'json') {
+      const json = validateJsonPayload(produceValue, 'Value');
+      if (!json.valid) {
+        setProduceError(json.error);
+        return;
+      }
+    }
+    if (produceKey && produceKeyEncoding === 'json') {
+      const json = validateJsonPayload(produceKey, 'Key');
+      if (!json.valid) {
+        setProduceError(json.error);
+        return;
+      }
+    }
+    if (produceValueEncoding === 'base64' && valueSchema.value !== undefined) {
+      setProduceError('A Base64 value cannot also use a Schema Registry schema.');
+      return;
+    }
+    if (produceKeyEncoding === 'base64' && keySchema.value !== undefined) {
+      setProduceError('A Base64 key cannot also use a Schema Registry schema.');
+      return;
+    }
+    const headers = validateKafkaHeaders(produceHeaders);
+    if (!headers.valid) {
+      setProduceError(headers.error);
+      return;
+    }
+    const partition = producePartition.trim() ? Number(producePartition) : undefined;
+    if (partition !== undefined && (!Number.isSafeInteger(partition) || partition < 0)) {
+      setProduceError('Partition must be a non-negative safe integer.');
+      return;
+    }
+    setProduceError(null);
+    const result = await kafkaManager.produce({
       connectionId: connection.id,
       topic: connection.defaultTopic,
       ...(produceKey ? { key: produceKey } : {}),
+      ...(produceKey ? { keyEncoding: produceKeyEncoding === 'base64' ? 'base64' : 'utf8' } : {}),
       value: produceValue,
+      valueEncoding: produceValueEncoding === 'base64' ? 'base64' : 'utf8',
       acks: connection.acks,
       ...(connection.compression !== 'none' ? { compression: connection.compression } : {}),
-      ...(valueSchemaId !== undefined ? { valueSchemaId } : {}),
-      ...(keySchemaId !== undefined ? { keySchemaId } : {}),
+      ...(Object.keys(headers.value).length > 0 ? { headers: headers.value } : {}),
+      ...(partition !== undefined ? { partition } : {}),
+      ...(valueSchema.value !== undefined ? { valueSchemaId: valueSchema.value } : {}),
+      ...(keySchema.value !== undefined ? { keySchemaId: keySchema.value } : {}),
     });
-    setProduceValue('');
+    if (result.ok) setProduceValue('');
+    else setProduceError(result.error);
   };
 
   const handleSubscribe = async (): Promise<void> => {
@@ -568,6 +613,26 @@ function KafkaClient() {
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden gap-2.5 p-3 bg-transparent">
+      <ConfirmDialog
+        open={pendingTopicDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingTopicDelete(null);
+        }}
+        title="Delete Kafka topic?"
+        description={
+          pendingTopicDelete
+            ? `This permanently deletes topic "${pendingTopicDelete}" and its retained messages.`
+            : ''
+        }
+        confirmText="Delete topic"
+        variant="destructive"
+        onConfirm={() => {
+          if (!pendingTopicDelete) return;
+          const topic = pendingTopicDelete;
+          setPendingTopicDelete(null);
+          void handleDeleteTopic(topic);
+        }}
+      />
       {/* Connection bar — pill Floater */}
       <Floater radius="pill" className="flex flex-wrap items-center gap-2 px-3 py-2 shrink-0">
         <ProtoChip protocol="KAFKA" />
@@ -869,7 +934,9 @@ function KafkaClient() {
 
                         {selectedMessage.key && (
                           <div className="space-y-1">
-                            <div className="sp-label">Key</div>
+                            <div className="sp-label">
+                              Key{selectedMessage.keyEncoding === 'base64' ? ' · Base64' : ''}
+                            </div>
                             <div className="font-mono text-sp-12 text-sp-text break-all">
                               {selectedMessage.key}
                             </div>
@@ -897,7 +964,9 @@ function KafkaClient() {
                         </div>
 
                         <div className="space-y-1">
-                          <div className="sp-label">Value</div>
+                          <div className="sp-label">
+                            Value{selectedMessage.valueEncoding === 'base64' ? ' · Base64' : ''}
+                          </div>
                           {(() => {
                             const { formatted } = tryFormatJson(selectedMessage.value);
                             const lineCount = formatted.split('\n').length;
@@ -1133,17 +1202,6 @@ function KafkaClient() {
                       }
                       className="h-8 text-xs font-mono"
                     />
-                    <Input
-                      type="password"
-                      value={registryTokenDraft}
-                      onChange={(e) => setRegistryTokenDraft(e.target.value)}
-                      placeholder={
-                        connection.registry.auth?.token === KAFKA_SECRET_SENTINEL
-                          ? 'Bearer token (stored — leave blank to keep)'
-                          : 'Bearer token (optional)'
-                      }
-                      className="h-8 text-xs font-mono"
-                    />
                     <p className="text-sp-11 text-sp-muted">
                       Decodes Avro / Protobuf / JSON messages on consume.
                     </p>
@@ -1154,141 +1212,28 @@ function KafkaClient() {
           </TabsContent>
 
           {/* Produce tab */}
-          <TabsContent value="produce" className="flex-1 overflow-auto m-0">
-            <Floater radius="panel" className="p-3 space-y-3">
-              <div className="space-y-2">
-                <Label className="text-xs sp-label">Topic</Label>
-                <Input
-                  value={connection.defaultTopic}
-                  onChange={(e) =>
-                    updateConnection(connection.id, { defaultTopic: e.target.value })
-                  }
-                  placeholder="my-topic"
-                  className="h-8 text-xs font-mono"
-                  style={{ color: connection.defaultTopic ? KAFKA_PINK : undefined }}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-2">
-                  <Label className="text-xs sp-label">Acks</Label>
-                  <Select
-                    value={connection.idempotent ? '-1' : String(connection.acks)}
-                    onValueChange={(v) =>
-                      updateConnection(connection.id, { acks: Number(v) as KafkaAcks })
-                    }
-                    disabled={connection.idempotent}
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="0">0 — fire & forget</SelectItem>
-                      <SelectItem value="1">1 — leader</SelectItem>
-                      <SelectItem value="-1">-1 — all in-sync replicas</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {connection.idempotent && (
-                    <p className="text-sp-11 text-sp-dim">Locked to -1 by idempotent mode.</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-xs sp-label">Compression</Label>
-                  <Select
-                    value={connection.compression}
-                    onValueChange={(v) =>
-                      updateConnection(connection.id, { compression: v as KafkaCompression })
-                    }
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {COMPRESSION.map((c) => (
-                        <SelectItem key={c} value={c}>
-                          {c}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="flex items-start gap-2 rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
-                <Switch
-                  checked={connection.idempotent}
-                  onCheckedChange={(checked) =>
-                    updateConnection(connection.id, { idempotent: checked })
-                  }
-                />
-                <div className="space-y-0.5">
-                  <Label className="text-xs">Idempotent producer</Label>
-                  <p className="text-sp-11 text-sp-dim">
-                    Exactly-once-per-partition dedup; forces acks=-1. Reconnect to apply.
-                  </p>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs sp-label">Key (optional)</Label>
-                <Input
-                  value={produceKey}
-                  onChange={(e) => setProduceKey(e.target.value)}
-                  className="h-8 text-xs font-mono"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs sp-label">Value</Label>
-                <Textarea
-                  value={produceValue}
-                  onChange={(e) => setProduceValue(e.target.value)}
-                  className="font-mono text-xs"
-                  rows={8}
-                />
-              </div>
-              {connection.registry &&
-                [
-                  {
-                    label: 'Value schema ID (optional)',
-                    value: produceSchemaId,
-                    onChange: setProduceSchemaId,
-                    placeholder: 'e.g. 1 — encode the value with this registry schema',
-                    encodedHint:
-                      'Value is parsed as JSON and Confluent-encoded with this schema (decoded on consume).',
-                    plainHint: 'No schema ID — the value is sent as a plain string.',
-                  },
-                  {
-                    label: 'Key schema ID (optional)',
-                    value: produceKeySchemaId,
-                    onChange: setProduceKeySchemaId,
-                    placeholder: 'e.g. 2 — encode the key with this registry schema',
-                    encodedHint:
-                      'Key is parsed as JSON and Confluent-encoded with this schema (requires a key; decoded on consume).',
-                    plainHint: 'No schema ID — the key is sent as a plain string.',
-                  },
-                ].map((f) => (
-                  <div key={f.label} className="space-y-2">
-                    <Label className="text-xs sp-label">{f.label}</Label>
-                    <Input
-                      type="number"
-                      min={1}
-                      value={f.value}
-                      onChange={(e) => f.onChange(e.target.value)}
-                      placeholder={f.placeholder}
-                      className="h-8 text-xs font-mono"
-                    />
-                    <p className="text-sp-11 text-sp-muted">
-                      {f.value.trim() ? f.encodedHint : f.plainHint}
-                    </p>
-                  </div>
-                ))}
-              <Button
-                onClick={handleProduce}
-                disabled={
-                  connection.status !== 'connected' || !produceValue || !connection.defaultTopic
-                }
-              >
-                <Send className="h-3.5 w-3.5 mr-1.5" /> Publish
-              </Button>
-            </Floater>
-          </TabsContent>
+          <KafkaProducerPanel
+            connection={connection}
+            updateConnection={updateConnection}
+            produceKey={produceKey}
+            setProduceKey={setProduceKey}
+            produceKeyEncoding={produceKeyEncoding}
+            setProduceKeyEncoding={setProduceKeyEncoding}
+            produceValue={produceValue}
+            setProduceValue={setProduceValue}
+            produceValueEncoding={produceValueEncoding}
+            setProduceValueEncoding={setProduceValueEncoding}
+            produceHeaders={produceHeaders}
+            setProduceHeaders={setProduceHeaders}
+            producePartition={producePartition}
+            setProducePartition={setProducePartition}
+            produceSchemaId={produceSchemaId}
+            setProduceSchemaId={setProduceSchemaId}
+            produceKeySchemaId={produceKeySchemaId}
+            setProduceKeySchemaId={setProduceKeySchemaId}
+            produceError={produceError}
+            onPublish={handleProduce}
+          />
 
           {/* Consume tab */}
           <TabsContent value="consume" className="flex-1 overflow-auto m-0">
@@ -1515,7 +1460,7 @@ function KafkaClient() {
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => handleDeleteTopic(t)}
+                          onClick={() => setPendingTopicDelete(t)}
                           disabled={adminBusy}
                           className="h-6 w-6 p-0"
                           title={`Delete topic ${t}`}

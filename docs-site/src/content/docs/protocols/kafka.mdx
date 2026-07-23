@@ -9,7 +9,7 @@ import { Badge } from '@astrojs/starlight/components';
 
 ## What works
 
-- **Produce** — pick a topic, set headers, send a key + value (text, JSON, or binary).
+- **Produce** — pick a topic, set text headers, target an optional partition, and send a key + value as UTF-8 text, validated JSON, or Base64-encoded arbitrary bytes. Base64 is decoded only at the Electron boundary, so invalid UTF-8 bytes are preserved exactly.
 - **Consume** — subscribe to a topic, see messages live with partition / offset / timestamp. Start from **latest**, **earliest**, a specific **offset**, or a **timestamp** (seeks each partition to its first message at or after the chosen time).
 - **Topic inspector** — per-partition earliest/latest watermarks (and the approximate message count) plus the topic's broker config.
 - **Consumer-group inspector** — members and state, committed offset per partition, and **consumer lag** (topic log-end minus the group's committed offset) — computed on demand for any group, no active subscription needed.
@@ -28,7 +28,8 @@ Every broker address (and Schema Registry URL) runs through a pre-flight [SSRF c
 ## Tips
 
 - Set the **client ID** (defaults to `restura`) to make your activity easy to spot in broker logs.
-- For schema-encoded payloads, set the connection's **Schema Registry URL**, then pick a **value** and/or **key schema ID** when producing — the field is parsed as JSON, Confluent-encoded, and decoded again automatically on consume.
+- For schema-encoded payloads, set the connection's **Schema Registry URL**, then pick a **value** and/or **key schema ID** when producing — the field is parsed as JSON, Confluent-encoded, and decoded again automatically on consume. Schema encoding and raw Base64 are intentionally mutually exclusive for the same field.
+- Use **JSON** mode to validate a JSON document before publishing its UTF-8 text. Use **Base64 bytes** for arbitrary binary payloads; Restura accepts canonical Base64 only and displays consumed non-UTF-8 fields as Base64 so they can be copied without byte loss.
 
 ## Related
 

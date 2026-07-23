@@ -243,7 +243,7 @@ export type KafkaAuthIpc =
  */
 export interface KafkaRegistryIpc {
   url: string;
-  auth?: { username?: string; password?: string; token?: string };
+  auth?: { username?: string; password?: string };
 }
 
 export interface KafkaAck {
@@ -329,6 +329,9 @@ export interface ElectronKafkaAPI {
     topic: string;
     key?: string;
     value: string;
+    /** Plain strings default to UTF-8; Base64 carries arbitrary byte payloads. */
+    keyEncoding?: 'utf8' | 'base64';
+    valueEncoding?: 'utf8' | 'base64';
     headers?: Record<string, string>;
     partition?: number;
     acks: 0 | 1 | -1;

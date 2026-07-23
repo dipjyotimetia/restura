@@ -1,9 +1,9 @@
 import type * as SchemaRegistryLib from '@kafkajs/confluent-schema-registry';
 import type * as KafkaLib from '@platformatic/kafka';
+import { createLogger } from '@shared/runtime/logger';
 import type { WebContents } from 'electron';
 import { ipcMain, webContents } from 'electron';
 import type { ZodSchema } from 'zod';
-import { createLogger } from '@shared/runtime/logger';
 import { IPC } from '../../shared/channels';
 import { KAFKA_CHANNEL, kafkaChannel } from '../../shared/kafka-channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
@@ -33,7 +33,8 @@ import type { LogEntry } from '../lifecycle/request-logger';
 import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
 import {
   computeGroupLag,
-  decodeField,
+  decodeDisplayField,
+  decodeWirePayload,
   encodeSchemaField,
   flattenConfigDescriptions,
   flattenGroup,
@@ -42,8 +43,7 @@ import {
 
 const log = createLogger('kafka');
 
-// Named types re-aliased from the lazy namespace imports above so the rest of
-// the file reads unchanged. Kept as type-only aliases (erased at compile time).
+// Type-only aliases for the lazily loaded client libraries.
 type SchemaRegistry = SchemaRegistryLib.SchemaRegistry;
 type Admin = KafkaLib.Admin;
 type AdminOptions = KafkaLib.AdminOptions;
@@ -73,15 +73,11 @@ export function __setKafkaForTests(lib: typeof KafkaLib | undefined): void {
   _kafka = lib;
 }
 
-// Confluent Schema Registry client (key + value encode/decode). Also lazy — only
-// constructed when a connection configures a registry URL.
+// Construct a Schema Registry client only for connections that use one.
 let _schemaRegistryLib: typeof SchemaRegistryLib | undefined;
 const getSchemaRegistryLib = (): typeof SchemaRegistryLib =>
   (_schemaRegistryLib ??= require('@kafkajs/confluent-schema-registry'));
 
-// Producer serializers accept either a Buffer (already registry-encoded) or a
-// string (plain — utf8-encoded here); consumer deserializers hand back the raw
-// Buffer so the handler can decode via the registry off the wire framing.
 const bufferOrStringSerializer = (data: string | Buffer | undefined): Buffer | undefined =>
   data == null ? undefined : Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf-8');
 const stringFieldSerializer = (data: string | undefined): Buffer | undefined =>
@@ -90,13 +86,10 @@ const rawDeserializer = (data: Buffer): Buffer | undefined =>
   Buffer.isBuffer(data) ? data : undefined;
 const stringFieldDeserializer = (data: Buffer): string | undefined =>
   Buffer.isBuffer(data) ? data.toString('utf-8') : undefined;
-
 export const kafkaRateLimiter = createKeyedRateLimiter(120, 60_000);
 
 const MAX_CONCURRENT_KAFKA_CONNECTIONS = 20;
 
-// Produce accepts string (plain) or Buffer (registry-encoded); consume yields raw
-// Buffers that the handler decodes via the registry (or reads as UTF-8).
 type ProduceKV = string | Buffer;
 type AppProducer = Producer<ProduceKV, ProduceKV, string, string>;
 type AppConsumer = Consumer<Buffer, Buffer, string, string>;
@@ -251,14 +244,18 @@ async function closeConnection(entry: ActiveKafka): Promise<void> {
 }
 
 async function emitConsumedMessage(entry: ActiveKafka, msg: AppMessage): Promise<void> {
-  const key = msg.key == null ? undefined : await decodeField(entry.registry, msg.key);
-  const value = msg.value == null ? '' : await decodeField(entry.registry, msg.value);
+  const key = msg.key == null ? undefined : await decodeDisplayField(entry.registry, msg.key);
+  const value =
+    msg.value == null
+      ? { value: '', encoding: 'utf8' as const }
+      : await decodeDisplayField(entry.registry, msg.value);
   emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.MESSAGE, entry.connectionId), {
     topic: msg.topic,
     partition: msg.partition,
     offset: msg.offset.toString(),
-    key,
-    value,
+    ...(key ? { key: key.value, keyEncoding: key.encoding } : {}),
+    value: value.value,
+    valueEncoding: value.encoding,
     headers: headersFromMap(msg.headers as Map<string, string> | undefined),
     timestamp: typeof msg.timestamp === 'bigint' ? Number(msg.timestamp) : Date.now(),
   });
@@ -319,10 +316,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
 
     const existing = activeConnections.get(connectionId);
     if (existing) {
-      // Renderer reconnected with the same connectionId — tear down the old
-      // pair before opening a new one. Emit a CLOSE log entry so the audit
-      // trail records the implicit disconnect; matches the explicit
-      // kafka:disconnect path.
+      // A same-ID reconnect replaces and records the old connection.
       if (onComplete) {
         onComplete({
           ts: Date.now(),
@@ -343,6 +337,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       if (cfg.registry) assertRegistryUrlSafe(cfg.registry.url);
     } catch (err) {
       const msg = errorMessage(err);
+      log.warn('connection rejected by transport guard', { connectionId });
       logEntry(400, msg);
       return { success: false, error: msg };
     }
@@ -351,18 +346,10 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       const clientOptions = buildClientOptions(cfg);
       const kafka = getKafka();
 
-      // Schema Registry (optional): encodes on produce, decodes on consume — for
-      // BOTH key and value. Construction is cheap; schemas are fetched on demand.
-      // Auth is HTTP Basic (username/password); bearer tokens aren't supported by
-      // the registry client — warn rather than silently send unauthenticated.
+      // Registry encodes/decodes both fields; IPC accepts HTTP Basic only.
       let registry: SchemaRegistry | undefined;
       if (cfg.registry) {
         const auth = cfg.registry.auth;
-        if (auth?.token && !auth.username) {
-          log.warn(
-            'Schema Registry bearer-token auth is not supported by the registry client; connecting without auth.'
-          );
-        }
         registry = new (getSchemaRegistryLib().SchemaRegistry)({
           host: cfg.registry.url,
           ...(auth?.username
@@ -371,9 +358,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         });
       }
 
-      // The platformatic Producer transports raw bytes; registry encode/decode is
-      // done in this handler, so the producer always uses our Buffer-or-string
-      // serializers (a Buffer passes through, a plain string is utf8-encoded).
+      // Registry payloads are encoded here; plain strings are UTF-8 encoded.
       const producerOptions = {
         ...clientOptions,
         serializers: {
@@ -388,9 +373,8 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       } as unknown as ProducerOptions<ProduceKV, ProduceKV, string, string>;
       const producer = new kafka.Producer<ProduceKV, ProduceKV, string, string>(producerOptions);
 
-      // @platformatic/kafka producers connect lazily; auth/TLS/host errors
-      // surface on the first send rather than here. Metadata pre-fetch was
-      // tried but some brokers reject `metadata({ topics: [] })`.
+      // Probe metadata before reporting connected; this stays read-only.
+      await producer.metadata({ autocreateTopics: false, forceUpdate: true });
       const wc = webContents.fromId(webContentsId) ?? undefined;
       const entry: ActiveKafka = {
         producer,
@@ -413,10 +397,16 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONNECTED, connectionId), {
         timestamp: Date.now(),
       });
+      log.info('connected', {
+        connectionId,
+        idempotent: entry.idempotent,
+        schemaRegistry: Boolean(entry.registry),
+      });
       logEntry(0);
       return { success: true };
     } catch (err) {
       const msg = errorMessage(err);
+      log.warn('connect failed', { connectionId });
       logEntry(500, msg);
       return { success: false, error: msg };
     }
@@ -447,10 +437,14 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
             error: 'A schema ID requires a Schema Registry on this connection.',
           };
         }
-        let messageKey: ProduceKV | undefined = cfg.key;
-        let messageValue: ProduceKV = cfg.value;
+        let messageKey: ProduceKV | undefined;
+        let messageValue: ProduceKV;
         if (registry && cfg.valueSchemaId !== undefined) {
           const r = await encodeSchemaField(registry, cfg.valueSchemaId, cfg.value, 'value');
+          if ('error' in r) return { success: false, error: r.error };
+          messageValue = r.value;
+        } else {
+          const r = decodeWirePayload(cfg.value, cfg.valueEncoding ?? 'utf8', 'value');
           if ('error' in r) return { success: false, error: r.error };
           messageValue = r.value;
         }
@@ -459,6 +453,10 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
             return { success: false, error: 'A key schema ID requires a message key.' };
           }
           const r = await encodeSchemaField(registry, cfg.keySchemaId, cfg.key, 'key');
+          if ('error' in r) return { success: false, error: r.error };
+          messageKey = r.value;
+        } else if (cfg.key !== undefined) {
+          const r = decodeWirePayload(cfg.key, cfg.keyEncoding ?? 'utf8', 'key');
           if ('error' in r) return { success: false, error: r.error };
           messageKey = r.value;
         }
