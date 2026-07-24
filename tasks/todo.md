@@ -24,7 +24,7 @@
   - Verify: focused settings tests, `npm run type-check`, and `npm run architecture:check`.
   - Files: `src/features/settings/sections/GeneralSection.tsx`, `src/features/settings/sections/AppearanceSection.tsx`, `src/features/settings/sections/RequestsSection.tsx`, `src/features/settings/sections/ProxySection.tsx`, `src/features/settings/SettingsDrawer.tsx`.
 
-- [ ] Task 5: Extract security-oriented settings sections.
+- [x] Task 5: Extract security-oriented settings sections.
   - Acceptance: judge, certificate, security, and secret-handle flows retain platform gates and no plaintext secret crosses the renderer boundary.
   - Verify: focused settings tests, security-relevant tests, and `npm run architecture:check`.
   - Files: `src/features/settings/sections/JudgeSection.tsx`, `src/features/settings/sections/CertificatesSection.tsx`, `src/features/settings/sections/SecuritySection.tsx`, `src/features/settings/sections/SecretsSection.tsx`, `src/features/settings/SettingsDrawer.tsx`.
