@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 describe('protocol bootstrap', () => {
   beforeEach(() => vi.resetModules());
 
+  // Bootstrap imports every protocol implementation; coverage workers can take
+  // longer than Vitest's default 5s while they transform that graph.
   it('registers http and grpc on import', async () => {
     await import('../bootstrap');
     const { protocolRegistry } = await import('../registry');
     expect(protocolRegistry.get('http')).toBeDefined();
     expect(protocolRegistry.get('grpc')).toBeDefined();
-  });
+  }, 15_000);
 
   it('registers every wire protocol Restura supports', async () => {
     await import('../bootstrap');
@@ -28,7 +30,7 @@ describe('protocol bootstrap', () => {
       'sse',
       'websocket',
     ]);
-  });
+  }, 15_000);
 
   it('every registered protocol has the required fields', async () => {
     await import('../bootstrap');

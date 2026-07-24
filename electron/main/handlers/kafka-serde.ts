@@ -3,6 +3,35 @@
 // Kept electron-free so both sides can be unit-tested without importing the IPC
 // handler's `electron` deps.
 
+import { isUtf8 } from 'node:buffer';
+
+export type KafkaPayloadEncoding = 'utf8' | 'base64';
+
+export interface KafkaDisplayField {
+  value: string;
+  encoding: KafkaPayloadEncoding;
+}
+
+/**
+ * Decode a renderer-provided payload at the wire boundary. Base64 is deliberately
+ * strict and canonical: Node's Buffer decoder is permissive (it silently ignores
+ * whitespace and malformed input), which would otherwise publish different bytes
+ * from the payload the user reviewed.
+ */
+export function decodeWirePayload(
+  raw: string,
+  encoding: KafkaPayloadEncoding,
+  field: 'key' | 'value'
+): { value: string | Buffer } | { error: string } {
+  if (encoding === 'utf8') return { value: raw };
+
+  const canonicalBase64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+  if (!canonicalBase64.test(raw) || Buffer.from(raw, 'base64').toString('base64') !== raw) {
+    return { error: `Binary ${field} must be canonical Base64.` };
+  }
+  return { value: Buffer.from(raw, 'base64') };
+}
+
 /**
  * DECODE: coerce a consumed message key/value into the string the renderer
  * displays. A plain value passes through unchanged; a registry-decoded
@@ -97,6 +126,27 @@ export async function decodeField(
     }
   }
   return valueToString(buf);
+}
+
+/**
+ * Decode a consumed field for display without treating arbitrary bytes as UTF-8.
+ * Registry-decoded values are textual JSON; raw invalid UTF-8 is emitted as
+ * canonical Base64 so a user can inspect and republish the exact byte sequence.
+ */
+export async function decodeDisplayField(
+  registry: SchemaDecoder | undefined,
+  buf: Buffer
+): Promise<KafkaDisplayField> {
+  if (registry && isConfluentEncoded(buf)) {
+    try {
+      return { value: valueToString(await registry.decode(buf)), encoding: 'utf8' };
+    } catch {
+      /* fall through to raw bytes */
+    }
+  }
+  return isUtf8(buf)
+    ? { value: buf.toString('utf8'), encoding: 'utf8' }
+    : { value: buf.toString('base64'), encoding: 'base64' };
 }
 
 // ---------------------------------------------------------------------------

@@ -52,7 +52,7 @@ export const architecturePolicy: ArchitecturePolicy = {
   maxNewProductionFileLines: 800,
   grandfatheredFileLines: {
     'src/components/shared/SettingsDrawer.tsx': 2_406,
-    'src/features/kafka/components/KafkaClient.tsx': 1_609,
+    'src/features/kafka/components/KafkaClient.tsx': 1_554,
     'src/features/collections/components/Sidebar.tsx': 1_581,
     'shared/scripts/script-executor.ts': 1_537,
     'electron/main/handlers/http-handler.ts': 1_240,
@@ -62,7 +62,7 @@ export const architecturePolicy: ArchitecturePolicy = {
     'src/features/auth/components/AuthConfig.tsx': 950,
     'src/features/ai-lab/components/EvalBuilder.tsx': 912,
     'src/features/ai-lab/components/ProviderManager.tsx': 861,
-    'electron/main/handlers/kafka-handler.ts': 869,
+    'electron/main/handlers/kafka-handler.ts': 867,
     'electron/main/handlers/grpc-connect.ts': 819,
     'src/components/shared/ImportDialog.tsx': 816,
     'src/features/ai-lab/components/ReportView.tsx': 801,

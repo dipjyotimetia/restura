@@ -2,7 +2,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeGroupLag,
+  decodeDisplayField,
   decodeField,
+  decodeWirePayload,
   encodeSchemaField,
   flattenConfigDescriptions,
   flattenGroup,
@@ -130,6 +132,34 @@ describe('decodeField', () => {
     const framed = Buffer.from([0x00, 0x00, 0x00, 0x00, 0x07, 0x68, 0x69]);
     // Falls back to the UTF-8 reading of the framed bytes (best-effort display).
     expect(await decodeField(failing, framed)).toBe(framed.toString('utf-8'));
+  });
+});
+
+describe('binary payload serde', () => {
+  it('decodes a Base64 produce value to the original arbitrary bytes', () => {
+    expect(decodeWirePayload('/4AB', 'base64', 'value')).toEqual({
+      value: Buffer.from([0xff, 0x80, 0x01]),
+    });
+  });
+
+  it('rejects non-canonical Base64 rather than silently changing the payload', () => {
+    expect(decodeWirePayload('not base64', 'base64', 'value')).toEqual({
+      error: 'Binary value must be canonical Base64.',
+    });
+  });
+
+  it('returns a Base64 display payload for non-UTF-8 consumed bytes', async () => {
+    expect(await decodeDisplayField(undefined, Buffer.from([0xff, 0x80, 0x01]))).toEqual({
+      value: '/4AB',
+      encoding: 'base64',
+    });
+  });
+
+  it('retains UTF-8 display text for ordinary consumed bytes', async () => {
+    expect(await decodeDisplayField(undefined, Buffer.from('hello', 'utf-8'))).toEqual({
+      value: 'hello',
+      encoding: 'utf8',
+    });
   });
 });
 

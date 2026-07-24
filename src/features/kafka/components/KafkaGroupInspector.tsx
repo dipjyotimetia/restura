@@ -56,7 +56,7 @@ export function KafkaGroupInspector({
   // Offset-reset form (per group; applies to one committed topic).
   const [resetTopic, setResetTopic] = useState('');
   const [resetTo, setResetTo] = useState<ResetTarget>('latest');
-  const [resetOffset, setResetOffset] = useState('0');
+  const [resetOffsets, setResetOffsets] = useState<Record<number, string>>({});
   const [resetConfirm, setResetConfirm] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
 
@@ -76,6 +76,10 @@ export function KafkaGroupInspector({
     () => Array.from(new Set((offsets ?? []).map((o) => o.topic))).sort(),
     [offsets]
   );
+  const resetPartitions = useMemo(
+    () => (offsets ?? []).filter((offset) => offset.topic === resetTopic),
+    [offsets, resetTopic]
+  );
 
   // Keep the reset-topic selection valid as offsets load / change.
   useEffect(() => {
@@ -86,14 +90,26 @@ export function KafkaGroupInspector({
     }
   }, [committedTopics, resetTopic]);
 
+  useEffect(() => {
+    setResetOffsets((current) =>
+      Object.fromEntries(
+        resetPartitions.map((offset) => [
+          offset.partition,
+          current[offset.partition] ?? offset.committed ?? '0',
+        ])
+      )
+    );
+  }, [resetPartitions]);
+
   const handleReset = async (): Promise<void> => {
     if (!resetTopic) return;
     setResetConfirm(false);
     const partitions =
       resetTo === 'specific'
-        ? (offsets ?? [])
-            .filter((o) => o.topic === resetTopic)
-            .map((o) => ({ partition: o.partition, offset: resetOffset.trim() }))
+        ? resetPartitions.map((offset) => ({
+            partition: offset.partition,
+            offset: resetOffsets[offset.partition]?.trim() ?? '',
+          }))
         : undefined;
     const result = await run(() =>
       kafkaManager.resetGroupOffsets({
@@ -114,7 +130,9 @@ export function KafkaGroupInspector({
   };
 
   const tone = group ? stateTone(group.state) : 'muted';
-  const resetOffsetInvalid = resetTo === 'specific' && !/^\d+$/.test(resetOffset.trim());
+  const resetOffsetInvalid =
+    resetTo === 'specific' &&
+    resetPartitions.some((offset) => !/^\d+$/.test(resetOffsets[offset.partition]?.trim() ?? ''));
 
   return (
     <div className="space-y-3 rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
@@ -278,16 +296,23 @@ export function KafkaGroupInspector({
                 </SelectItem>
               </SelectContent>
             </Select>
-            {resetTo === 'specific' && (
-              <Input
-                value={resetOffset}
-                onChange={(e) => setResetOffset(e.target.value)}
-                inputMode="numeric"
-                placeholder="offset"
-                className="h-8 w-24 text-xs font-mono"
-                title="Offset applied to every partition of the selected topic"
-              />
-            )}
+            {resetTo === 'specific' &&
+              resetPartitions.map((offset) => (
+                <Input
+                  key={offset.partition}
+                  value={resetOffsets[offset.partition] ?? ''}
+                  onChange={(e) =>
+                    setResetOffsets((current) => ({
+                      ...current,
+                      [offset.partition]: e.target.value,
+                    }))
+                  }
+                  inputMode="numeric"
+                  placeholder={`P${offset.partition} offset`}
+                  className="h-8 w-28 text-xs font-mono"
+                  title={`Offset for partition ${offset.partition}`}
+                />
+              ))}
             {resetConfirm ? (
               <div className="flex items-center gap-1.5">
                 <Button size="sm" variant="destructive" onClick={handleReset} disabled={busy}>

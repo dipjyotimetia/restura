@@ -78,4 +78,36 @@ describe('kafkaManager (Electron path)', () => {
     expect(useKafkaStore.getState().connections[id]!.status).toBe('disconnected');
     expect(handlerCount(kafkaChannel(KAFKA_CHANNEL.CLOSE, id))).toBe(0);
   });
+
+  it('forwards explicit payload encodings to Electron and records them for a sent message', async () => {
+    const { kafka } = installElectronMock();
+    kafka.produce.mockResolvedValueOnce({
+      success: true,
+      ack: { topic: 'orders', partition: 0, offset: '7', timestamp: 123 },
+    });
+    const id = useKafkaStore.getState().createConnection();
+
+    await expect(
+      kafkaManager.produce({
+        connectionId: id,
+        topic: 'orders',
+        key: '/w==',
+        keyEncoding: 'base64',
+        value: '/4AB',
+        valueEncoding: 'base64',
+        acks: 1,
+      })
+    ).resolves.toEqual({
+      ok: true,
+      ack: { topic: 'orders', partition: 0, offset: '7', timestamp: 123 },
+    });
+
+    expect(kafka.produce).toHaveBeenCalledWith(
+      expect.objectContaining({ keyEncoding: 'base64', valueEncoding: 'base64' })
+    );
+    expect(useKafkaStore.getState().connections[id]!.messages[0]).toMatchObject({
+      keyEncoding: 'base64',
+      valueEncoding: 'base64',
+    });
+  });
 });
