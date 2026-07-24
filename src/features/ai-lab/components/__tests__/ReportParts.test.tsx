@@ -171,10 +171,10 @@ describe('report components', () => {
         run={RUN}
         stats={STATS}
         previousStatsByKey={
-          new Map([
-            ['provider-a:model-a', { ...STATS[0], passRate: 0.5 }],
-            ['provider-b:model-b', { ...STATS[1], passRate: 1 }],
-            ['provider-c:model-c', { ...STATS[2] }],
+          new Map<string, ModelStats>([
+            ['provider-a:model-a', { ...STATS[0]!, passRate: 0.5 }],
+            ['provider-b:model-b', { ...STATS[1]!, passRate: 1 }],
+            ['provider-c:model-c', { ...STATS[2]! }],
           ])
         }
         judge={{
@@ -229,7 +229,7 @@ describe('report components', () => {
     expect(screen.getByText('accepted')).toBeInTheDocument();
     expect(screen.getByText('(empty)')).toBeInTheDocument();
     expect(screen.getByText('complete')).toBeInTheDocument();
-    fireEvent.click(screen.getAllByText(/Case 1 — region=au/)[0]);
+    fireEvent.click(screen.getAllByText(/Case 1 — region=au/)[0]!);
     fireEvent.click(screen.getByText(/Case 2 \(case-b\)/));
     fireEvent.click(screen.getByRole('button', { name: 'Clear case selection' }));
     expect(onDrillCaseChange).toHaveBeenNthCalledWith(1, null);
