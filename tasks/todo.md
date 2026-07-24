@@ -46,7 +46,7 @@
 
 ## Phase 3: Protocol controllers
 
-- [ ] Task 9: Separate Kafka connection/configuration state from the client view.
+- [x] Task 9: Separate Kafka connection/configuration state from the client view.
   - Acceptance: connection form, validation, and lifecycle actions have an explicit feature hook; desktop-only guards remain at the boundary.
   - Verify: Kafka unit tests, Electron Kafka tests, `npm run type-check:all`.
   - Files: `src/features/kafka/components/KafkaClient.tsx`, `src/features/kafka/hooks/useKafkaConnection.ts`, `src/features/kafka/components/KafkaConnectionForm.tsx`, `src/features/kafka/components/KafkaClient.test.tsx`.
@@ -61,7 +61,7 @@
   - Verify: `npm run architecture:check`, Kafka unit/Electron tests, and `npm run build`.
   - Files: `src/features/kafka/components/KafkaClient.tsx`, `src/features/kafka/components/KafkaProducerPanel.tsx`, `src/features/kafka/components/KafkaTopicInspector.tsx`, `scripts/architecture.config.mts`.
 
-- [ ] Task 12: Decompose Network Console filtering, selection, and detail rendering.
+- [x] Task 12: Decompose Network Console filtering, selection, and detail rendering.
   - Acceptance: filter/sort logic is pure or hook-owned, list rows remain virtualisation-friendly, and code-editor lazy loading remains unchanged.
   - Verify: Network Console tests, `npm run architecture:check`, and a web browser smoke test.
   - Files: `src/features/http/components/NetworkConsole/NetworkTab.tsx`, `src/features/http/components/NetworkConsole/useNetworkFilters.ts`, `src/features/http/components/NetworkConsole/NetworkEntryList.tsx`, `src/features/http/components/NetworkConsole/NetworkEntryDetail.tsx`, `scripts/architecture.config.mts`.
@@ -76,7 +76,7 @@
   - Verify: MQTT tests, Electron MQTT smoke coverage, and `npm run architecture:check`.
   - Files: `src/features/mqtt/components/MqttClient.tsx`, `src/features/mqtt/components/MqttConnectionPanel.tsx`, `src/features/mqtt/components/MqttSubscriptionsPanel.tsx`, `src/features/mqtt/components/MqttMessagePanel.tsx`, `scripts/architecture.config.mts`.
 
-- [ ] Task 15: Split auth scheme editors by domain and remove the AuthConfig exemption.
+- [x] Task 15: Split auth scheme editors by domain and remove the AuthConfig exemption.
   - Acceptance: each authentication scheme is a focused editor; inherited-auth and SecretRef behaviour are preserved exactly.
   - Verify: `npx vitest run src/features/auth/components/__tests__/AuthConfig.test.tsx`, auth parity tests, and `npm run architecture:check`.
   - Files: `src/features/auth/components/AuthConfig.tsx`, `src/features/auth/components/editors/HttpAuthEditor.tsx`, `src/features/auth/components/editors/OAuthEditor.tsx`, `src/features/auth/components/editors/AdvancedAuthEditor.tsx`, `scripts/architecture.config.mts`.
