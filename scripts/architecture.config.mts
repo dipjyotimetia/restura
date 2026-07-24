@@ -56,6 +56,5 @@ export const architecturePolicy: ArchitecturePolicy = {
     'electron/main/handlers/kafka-handler.ts': 867,
     'electron/main/handlers/grpc-connect.ts': 819,
     'src/components/shared/ImportDialog.tsx': 816,
-    'src/features/ai-lab/components/ReportView.tsx': 801,
   },
 };
