@@ -34,12 +34,12 @@
   - Verify: `npm run architecture:check`, focused settings tests, and `npm run build`.
   - Files: `src/features/settings/sections/DataSection.tsx`, `src/features/settings/sections/ShortcutsSection.tsx`, `src/features/settings/sections/UpdatesSection.tsx`, `src/features/settings/sections/AboutSection.tsx`, `scripts/architecture.config.mts`.
 
-- [ ] Task 7: Split collection sidebar commands and editing state from panel rendering.
+- [x] Task 7: Split collection sidebar commands and editing state from panel rendering.
   - Acceptance: creation, rename, import/export, Git, and destructive-action orchestration move into a focused hook or command module with unchanged store semantics.
   - Verify: collection/sidebar tests, `npm run type-check`, and `npm run architecture:check`.
   - Files: `src/features/collections/components/Sidebar.tsx`, `src/features/collections/hooks/useSidebarCommands.ts`, `src/features/collections/components/CollectionHeader.tsx`, `src/features/collections/components/CollectionActionsMenu.tsx`, `src/features/collections/components/__tests__/Sidebar.test.tsx`.
 
-- [ ] Task 8: Split collection sidebar panels and remove its size exemption.
+- [x] Task 8: Split collection sidebar panels and remove its size exemption.
   - Acceptance: collections, history, and workflows panels are focused components; keyboard/drag semantics are preserved; no collection sidebar source exceeds 800 lines.
   - Verify: collection tests, `npm run architecture:check`, and relevant web Playwright flow.
   - Files: `src/features/collections/components/CollectionsPanel.tsx`, `src/features/collections/components/HistoryPanel.tsx`, `src/features/collections/components/WorkflowsPanel.tsx`, `src/features/collections/components/Sidebar.tsx`, `scripts/architecture.config.mts`.
@@ -51,12 +51,12 @@
   - Verify: Kafka unit tests, Electron Kafka tests, `npm run type-check:all`.
   - Files: `src/features/kafka/components/KafkaClient.tsx`, `src/features/kafka/hooks/useKafkaConnection.ts`, `src/features/kafka/components/KafkaConnectionForm.tsx`, `src/features/kafka/components/KafkaClient.test.tsx`.
 
-- [ ] Task 10: Extract Kafka consume/message and administration sections.
+- [x] Task 10: Extract Kafka consume/message and administration sections.
   - Acceptance: consumer list/detail and admin topic/group views are independently testable with stable selection and stream cleanup.
   - Verify: focused Kafka tests and Electron Playwright Kafka coverage where available.
   - Files: `src/features/kafka/components/KafkaConsumerPanel.tsx`, `src/features/kafka/components/KafkaMessageDetail.tsx`, `src/features/kafka/components/KafkaAdminPanel.tsx`, `src/features/kafka/components/KafkaClient.tsx`, `src/features/kafka/components/KafkaClient.test.tsx`.
 
-- [ ] Task 11: Remove the Kafka client size exemption.
+- [x] Task 11: Remove the Kafka client size exemption.
   - Acceptance: `KafkaClient` is a compositional shell below 800 lines; extracted modules own their local props and no protocol behaviour is duplicated.
   - Verify: `npm run architecture:check`, Kafka unit/Electron tests, and `npm run build`.
   - Files: `src/features/kafka/components/KafkaClient.tsx`, `src/features/kafka/components/KafkaProducerPanel.tsx`, `src/features/kafka/components/KafkaTopicInspector.tsx`, `scripts/architecture.config.mts`.
@@ -71,7 +71,7 @@
   - Verify: MCP component/lib tests, `npm run test:coverage`, and `npm run architecture:check`.
   - Files: `src/features/mcp/components/McpRequestBuilder.tsx`, `src/features/mcp/components/McpConnectionPanel.tsx`, `src/features/mcp/components/McpDiscoveryPanel.tsx`, `src/features/mcp/components/McpInvokeForm.tsx`, `scripts/architecture.config.mts`.
 
-- [ ] Task 14: Decompose MQTT configuration and message views.
+- [x] Task 14: Decompose MQTT configuration and message views.
   - Acceptance: connection controls, subscriptions, and message rows/details are independently testable; memoised message rendering and connection cleanup remain intact.
   - Verify: MQTT tests, Electron MQTT smoke coverage, and `npm run architecture:check`.
   - Files: `src/features/mqtt/components/MqttClient.tsx`, `src/features/mqtt/components/MqttConnectionPanel.tsx`, `src/features/mqtt/components/MqttSubscriptionsPanel.tsx`, `src/features/mqtt/components/MqttMessagePanel.tsx`, `scripts/architecture.config.mts`.

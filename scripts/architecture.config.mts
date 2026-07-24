@@ -51,12 +51,9 @@ export const architecturePolicy: ArchitecturePolicy = {
   allowedDependencies: [],
   maxNewProductionFileLines: 800,
   grandfatheredFileLines: {
-    'src/features/collections/components/Sidebar.tsx': 1_581,
     'shared/scripts/script-executor.ts': 1_537,
     'electron/main/handlers/http-handler.ts': 1_240,
     'src/features/mcp/components/McpRequestBuilder.tsx': 1_027,
-    'src/features/mqtt/components/MqttClient.tsx': 1_007,
-    'src/features/kafka/components/KafkaClient.tsx': 1_201,
     'src/features/ai-lab/components/EvalBuilder.tsx': 912,
     'src/features/ai-lab/components/ProviderManager.tsx': 861,
     'electron/main/handlers/kafka-handler.ts': 867,
