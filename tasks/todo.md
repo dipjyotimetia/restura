@@ -66,7 +66,7 @@
   - Verify: Network Console tests, `npm run architecture:check`, and a web browser smoke test.
   - Files: `src/features/http/components/NetworkConsole/NetworkTab.tsx`, `src/features/http/components/NetworkConsole/useNetworkFilters.ts`, `src/features/http/components/NetworkConsole/NetworkEntryList.tsx`, `src/features/http/components/NetworkConsole/NetworkEntryDetail.tsx`, `scripts/architecture.config.mts`.
 
-- [ ] Task 13: Decompose MCP discovery and invocation forms.
+- [x] Task 13: Decompose MCP discovery and invocation forms.
   - Acceptance: connection state, list views, schema flattening, and invoke forms have explicit boundaries; argument validation remains canonical and fully covered.
   - Verify: MCP component/lib tests, `npm run test:coverage`, and `npm run architecture:check`.
   - Files: `src/features/mcp/components/McpRequestBuilder.tsx`, `src/features/mcp/components/McpConnectionPanel.tsx`, `src/features/mcp/components/McpDiscoveryPanel.tsx`, `src/features/mcp/components/McpInvokeForm.tsx`, `scripts/architecture.config.mts`.
@@ -83,12 +83,12 @@
 
 ## Phase 4: AI Lab and closeout
 
-- [ ] Task 16: Split evaluation draft/run orchestration from scorer editing.
+- [x] Task 16: Split evaluation draft/run orchestration from scorer editing.
   - Acceptance: `EvalBuilder` composes focused draft, run-control, scorer, and live-result sections below the limit; cancellation semantics are unchanged.
   - Verify: EvalBuilder and agent-runtime tests, `npm run test:coverage`, `npm run architecture:check`.
   - Files: `src/features/ai-lab/components/EvalBuilder.tsx`, `src/features/ai-lab/components/EvalDraftEditor.tsx`, `src/features/ai-lab/components/EvalRunControls.tsx`, `src/features/ai-lab/components/ScorerEditor.tsx`, `scripts/architecture.config.mts`.
 
-- [ ] Task 17: Split provider management into catalogue, credentials, and capability overrides.
+- [x] Task 17: Split provider management into catalogue, credentials, and capability overrides.
   - Acceptance: provider keys remain SecretRef-safe, capability overrides remain explicit, and the UI retains its existing validation and desktop gating.
   - Verify: ProviderManager tests, secret-handling tests, and `npm run architecture:check`.
   - Files: `src/features/ai-lab/components/ProviderManager.tsx`, `src/features/ai-lab/components/ProviderCatalog.tsx`, `src/features/ai-lab/components/ProviderCredentialEditor.tsx`, `src/features/ai-lab/components/CapabilityOverrides.tsx`, `scripts/architecture.config.mts`.

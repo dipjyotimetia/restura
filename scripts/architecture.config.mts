@@ -53,9 +53,6 @@ export const architecturePolicy: ArchitecturePolicy = {
   grandfatheredFileLines: {
     'shared/scripts/script-executor.ts': 1_537,
     'electron/main/handlers/http-handler.ts': 1_240,
-    'src/features/mcp/components/McpRequestBuilder.tsx': 1_027,
-    'src/features/ai-lab/components/EvalBuilder.tsx': 912,
-    'src/features/ai-lab/components/ProviderManager.tsx': 861,
     'electron/main/handlers/kafka-handler.ts': 867,
     'electron/main/handlers/grpc-connect.ts': 819,
     'src/components/shared/ImportDialog.tsx': 816,
