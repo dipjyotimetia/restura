@@ -103,7 +103,7 @@
   - Verify: `npm run architecture:check`, focused feature tests, and a fresh component review.
   - Files: one selected controller, up to three new feature-owned modules, its focused test file, and `scripts/architecture.config.mts` only if required.
 
-- [ ] Task 20: Run final production verification and publish the evidence.
+- [x] Task 20: Run final production verification and publish the evidence.
   - Acceptance: no React source is grandfathered, the full test run has no `act(...)` warnings, and the full gates pass without lowering quality thresholds.
   - Verify: `npm run validate`, `npm run test:e2e`, applicable `npm run test:e2e:electron`, and a fresh accessibility/architecture review.
   - Files: no production files expected; add only narrowly scoped regression tests or documentation if verification exposes a gap.
