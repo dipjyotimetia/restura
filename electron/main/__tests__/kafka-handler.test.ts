@@ -26,6 +26,7 @@ vi.mock('../security/kafka-broker-guard', () => ({
 }));
 
 import type * as KafkaLib from '@platformatic/kafka';
+import { consoleSink, setLogSink } from '@shared/runtime/logger';
 import { IPC } from '../../shared/channels';
 import {
   __setKafkaForTests,
@@ -43,6 +44,7 @@ class FakeProducer {
   static instances: FakeProducer[] = [];
   options: unknown;
   send = vi.fn(async () => ({ offsets: [{ topic: 'orders', partition: 0, offset: 7n }] }));
+  metadata = vi.fn(async () => new Map());
   close = vi.fn(async () => {});
   constructor(options: unknown) {
     this.options = options;
@@ -137,6 +139,7 @@ describe('kafka-handler', () => {
   afterEach(async () => {
     await stopKafkaCleanup();
     __setKafkaForTests(undefined);
+    setLogSink(consoleSink);
   });
 
   it('registers exactly the IPC.kafka channels', () => {
@@ -183,11 +186,40 @@ describe('kafka-handler', () => {
     expect(res).toEqual({ success: true });
     expect(mockBrokersSafe).toHaveBeenCalledWith(['broker.example.com:9092']);
     expect(FakeProducer.instances).toHaveLength(1);
+    expect(FakeProducer.instances[0]!.metadata).toHaveBeenCalledWith({
+      autocreateTopics: false,
+      forceUpdate: true,
+    });
     expect(mockEmitTo).toHaveBeenCalledWith(
       senderId,
       'kafka:connected:c1',
       expect.objectContaining({ timestamp: expect.any(Number) })
     );
+  });
+
+  it('logs a successful connection without broker addresses or credentials', async () => {
+    const records: Array<{
+      level: string;
+      scope: string;
+      message: string;
+      fields: Record<string, unknown>;
+    }> = [];
+    setLogSink((record) => records.push(record));
+    const { event } = makeEvent();
+
+    await expect(handlerFor(IPC.kafka.connect)(event, validConnect('c-log'))).resolves.toEqual({
+      success: true,
+    });
+
+    expect(records).toContainEqual(
+      expect.objectContaining({
+        level: 'info',
+        scope: 'kafka',
+        message: 'connected',
+        fields: { connectionId: 'c-log', idempotent: false, schemaRegistry: false },
+      })
+    );
+    expect(JSON.stringify(records)).not.toContain('broker.example.com');
   });
 
   it('maps a broker-guard rejection to { success: false } without constructing a producer', async () => {
@@ -222,6 +254,32 @@ describe('kafka-handler', () => {
 
     const missing = await handlerFor(IPC.kafka.produce)(event, validProduce('nope'));
     expect(missing).toEqual({ success: false, error: 'Not connected' });
+  });
+
+  it('publishes a Base64 payload as its exact raw bytes and rejects malformed Base64', async () => {
+    const { event } = makeEvent();
+    await handlerFor(IPC.kafka.connect)(event, validConnect('c1'));
+    const producer = FakeProducer.instances[0]!;
+
+    await expect(
+      handlerFor(IPC.kafka.produce)(
+        event,
+        validProduce('c1', { value: '/4AB', valueEncoding: 'base64' })
+      )
+    ).resolves.toEqual(expect.objectContaining({ success: true }));
+    expect(producer.send).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        messages: [expect.objectContaining({ value: Buffer.from([0xff, 0x80, 0x01]) })],
+      })
+    );
+
+    await expect(
+      handlerFor(IPC.kafka.produce)(
+        event,
+        validProduce('c1', { value: 'not base64', valueEncoding: 'base64' })
+      )
+    ).resolves.toEqual({ success: false, error: 'Binary value must be canonical Base64.' });
+    expect(producer.send).toHaveBeenCalledTimes(1);
   });
 
   it('an idempotent connection forces acks=-1 on produce regardless of the payload acks', async () => {

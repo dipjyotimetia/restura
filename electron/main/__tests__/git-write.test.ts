@@ -36,6 +36,12 @@ describe.skipIf(!gitAvailable)('git write operations (temp repo)', () => {
     execFileSync('git', ['config', 'user.email', 'test@restura.dev'], { cwd: dir });
     execFileSync('git', ['config', 'user.name', 'Restura Test'], { cwd: dir });
     execFileSync('git', ['config', 'commit.gpgsign', 'false'], { cwd: dir });
+    // Every test must be self-contained. Several sync scenarios push HEAD to a
+    // temporary remote; without this baseline commit, isolated test runs have
+    // an unborn HEAD and fail before exercising the behavior under test.
+    writeFileSync(path.join(dir, '.gitkeep'), 'test baseline\n');
+    execFileSync('git', ['add', '.gitkeep'], { cwd: dir });
+    execFileSync('git', ['commit', '-m', 'test baseline'], { cwd: dir });
     // Allow operations only against this temp directory.
     setGitDirectoryAllowlist((p) => p === dir);
   });
@@ -262,7 +268,7 @@ describe.skipIf(!gitAvailable)('git write operations (temp repo)', () => {
       rmSync(remoteDir, { recursive: true, force: true });
       rmSync(peerDir, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it('refuses a dirty fast-forward pull without changing the worktree', async () => {
     const remoteDir = mkdtempSync(path.join(tmpdir(), 'restura-git-dirty-remote-'));

@@ -27,7 +27,7 @@ describe('Kafka IPC validators', () => {
       expect(result.success).toBe(true);
     });
 
-    it('accepts an optional Schema Registry config with auth', () => {
+    it('accepts optional Schema Registry Basic auth but rejects unsupported bearer tokens', () => {
       const result = KafkaConnectSchema.safeParse({
         connectionId: 'abc',
         clientId: 'r',
@@ -35,10 +35,19 @@ describe('Kafka IPC validators', () => {
         auth: { securityProtocol: 'PLAINTEXT' },
         registry: {
           url: 'https://schema-registry:8081',
-          auth: { username: 'u', password: 'p', token: 't' },
+          auth: { username: 'u', password: 'p' },
         },
       });
       expect(result.success).toBe(true);
+      expect(
+        KafkaConnectSchema.safeParse({
+          connectionId: 'abc',
+          clientId: 'r',
+          bootstrapBrokers: ['localhost:9092'],
+          auth: { securityProtocol: 'PLAINTEXT' },
+          registry: { url: 'https://schema-registry:8081', auth: { token: 't' } },
+        }).success
+      ).toBe(false);
     });
 
     it('rejects a Schema Registry with a non-URL', () => {

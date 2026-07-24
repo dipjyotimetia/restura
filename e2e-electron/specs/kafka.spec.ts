@@ -1,4 +1,4 @@
-import { test, expect, dockerAvailable } from '../fixtures/brokers';
+import { dockerAvailable, expect, test } from '../fixtures/brokers';
 
 // Requires the Dockerised Redpanda broker; skip (don't fail) when Docker is absent.
 const describeOrSkip = dockerAvailable() ? test.describe : test.describe.skip;
@@ -22,7 +22,12 @@ describeOrSkip('Desktop Kafka (live Redpanda broker)', () => {
     expect(brokers.kafka).toBe('localhost:9092');
     const stamp = await page.evaluate(() => String(Date.now()));
     const topic = `restura-e2e-${stamp}`;
-    const value = `kafka-live-${stamp}`;
+    // Invalid UTF-8 bytes exercise the Base64 producer/consumer contract. The
+    // received row must display the same canonical Base64 rather than a lossy
+    // replacement-character string.
+    const value = '/4AB';
+    const headerName = `x-restura-e2e-${stamp}`;
+    const headerValue = `binary-${stamp}`;
 
     // Enter Kafka mode (desktop-only; not in the shared switchMode map).
     await page.getByRole('button', { name: 'new request', exact: true }).click();
@@ -49,11 +54,17 @@ describeOrSkip('Desktop Kafka (live Redpanda broker)', () => {
     await consume.getByRole('button', { name: 'Subscribe', exact: true }).click();
     await expect(page.getByText('Subscribed').first()).toBeVisible({ timeout: 20_000 });
 
-    // Produce the unique value.
+    // Produce arbitrary bytes to an explicit partition with a header.
     await page.getByRole('tab', { name: 'Produce' }).click();
     const produce = page.getByRole('tabpanel');
     await produce.getByPlaceholder('my-topic').fill(topic);
-    await produce.locator('textarea').fill(value);
+    await produce.getByLabel('Kafka partition').fill('0');
+    await produce.getByRole('button', { name: 'Add header' }).click();
+    await produce.getByRole('textbox', { name: 'Kafka header key' }).fill(headerName);
+    await produce.getByRole('textbox', { name: 'Kafka header value' }).fill(headerValue);
+    await produce.getByRole('combobox', { name: 'Value payload format' }).click();
+    await page.getByRole('option', { name: 'Base64 bytes', exact: true }).click();
+    await produce.getByLabel('Kafka message value').fill(value);
     await produce.getByRole('button', { name: 'Publish' }).click();
 
     // Messages: the produce logs a 'sent' row and the consumer reads the same
@@ -62,6 +73,9 @@ describeOrSkip('Desktop Kafka (live Redpanda broker)', () => {
     await page.getByRole('tab', { name: /Messages/ }).click();
     await expect(page.getByText(value).first()).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText(value)).toHaveCount(2, { timeout: 20_000 });
+    await page.getByText(value).first().click();
+    await expect(page.getByText(headerName)).toBeVisible();
+    await expect(page.getByText(headerValue)).toBeVisible();
 
     await page
       .getByRole('button', { name: /Disconnect/ })

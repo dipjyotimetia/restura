@@ -64,6 +64,7 @@ const KafkaAuthSchema = z.discriminatedUnion('securityProtocol', [
 
 export const KafkaCompressionSchema = z.enum(['none', 'gzip', 'snappy', 'lz4', 'zstd']);
 export const KafkaAcksSchema = z.union([z.literal(0), z.literal(1), z.literal(-1)]);
+const KafkaPayloadEncodingSchema = z.enum(['utf8', 'base64']);
 
 // Confluent Schema Registry. `url` is SSRF-guarded at connect; auth holds the
 // already-resolved plaintext (kafkaManager resolves secret sentinels first).
@@ -73,8 +74,8 @@ const KafkaRegistrySchema = z.object({
     .object({
       username: z.string().max(256).optional(),
       password: z.string().max(1024).optional(),
-      token: z.string().max(4096).optional(),
     })
+    .strict()
     .optional(),
 });
 
@@ -107,21 +108,33 @@ const KafkaTopicSchema = z
 const KAFKA_MAX_VALUE_BYTES = 10 * 1024 * 1024;
 const KAFKA_MAX_KEY_BYTES = 1 * 1024 * 1024;
 
-export const KafkaProduceSchema = z.object({
-  connectionId: KafkaConnectionIdSchema,
-  topic: KafkaTopicSchema,
-  key: z.string().max(KAFKA_MAX_KEY_BYTES).optional(),
-  value: z.string().max(KAFKA_MAX_VALUE_BYTES),
-  headers: z.record(z.string().min(1).max(256), z.string().max(64 * 1024)).optional(),
-  partition: z.number().int().nonnegative().max(2_147_483_647).optional(),
-  acks: KafkaAcksSchema,
-  compression: KafkaCompressionSchema.optional(),
-  // Confluent Schema Registry schema ids. When set (registry connections only),
-  // that field is parsed as JSON and encoded with the given schema. Key and value
-  // are independent.
-  valueSchemaId: z.number().int().positive().optional(),
-  keySchemaId: z.number().int().positive().optional(),
-});
+export const KafkaProduceSchema = z
+  .object({
+    connectionId: KafkaConnectionIdSchema,
+    topic: KafkaTopicSchema,
+    key: z.string().max(KAFKA_MAX_KEY_BYTES).optional(),
+    value: z.string().max(KAFKA_MAX_VALUE_BYTES),
+    /** Plain strings default to UTF-8; Base64 carries arbitrary byte payloads. */
+    keyEncoding: KafkaPayloadEncodingSchema.optional(),
+    valueEncoding: KafkaPayloadEncodingSchema.optional(),
+    headers: z.record(z.string().min(1).max(256), z.string().max(64 * 1024)).optional(),
+    partition: z.number().int().nonnegative().max(2_147_483_647).optional(),
+    acks: KafkaAcksSchema,
+    compression: KafkaCompressionSchema.optional(),
+    // Confluent Schema Registry schema ids. When set (registry connections only),
+    // that field is parsed as JSON and encoded with the given schema. Key and value
+    // are independent.
+    valueSchemaId: z.number().int().positive().optional(),
+    keySchemaId: z.number().int().positive().optional(),
+  })
+  .refine((cfg) => !(cfg.valueEncoding === 'base64' && cfg.valueSchemaId !== undefined), {
+    message: 'A Base64 value cannot also use a Schema Registry schema.',
+    path: ['valueEncoding'],
+  })
+  .refine((cfg) => !(cfg.keyEncoding === 'base64' && cfg.keySchemaId !== undefined), {
+    message: 'A Base64 key cannot also use a Schema Registry schema.',
+    path: ['keyEncoding'],
+  });
 
 // Per-partition starting offset for MANUAL consume mode. `offset` is a numeric
 // string because the underlying lib uses bigint offsets (TopicWithPartitionAndOffset)
