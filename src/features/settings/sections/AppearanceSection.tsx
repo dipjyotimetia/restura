@@ -5,7 +5,12 @@ import { cn } from '@/lib/shared/utils';
 import { withViewTransition } from '@/lib/shared/viewTransition';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { SPATIAL_ACCENT_PRESETS, type SpatialAccent } from '@/types';
-import { FieldGroup, FieldRow, SectionHeader, SectionLabel } from '../components/SettingsSectionPrimitives';
+import {
+  FieldGroup,
+  FieldRow,
+  SectionHeader,
+  SectionLabel,
+} from '../components/SettingsSectionPrimitives';
 
 export function AppearanceSection() {
   const accent = useSettingsStore((s) => s.settings.accent ?? '#2e91ff');
@@ -15,7 +20,11 @@ export function AppearanceSection() {
 
   return (
     <>
-      <SectionHeader icon={Palette} title="Appearance" description="Pick your accent color and theme." />
+      <SectionHeader
+        icon={Palette}
+        title="Appearance"
+        description="Pick your accent color and theme."
+      />
       <section className="mt-5 first:mt-0">
         <SectionLabel>Accent</SectionLabel>
         <Floater radius="panel" elevation="inset" className="p-4">
