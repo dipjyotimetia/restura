@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import FeatureSettingsDrawer from '@/features/settings/SettingsDrawer';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import SettingsDrawer from '../SettingsDrawer';
 
@@ -32,6 +33,10 @@ describe('SettingsDrawer', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it('keeps the shared import as a compatibility wrapper for the feature-owned drawer', () => {
+    expect(SettingsDrawer).toBe(FeatureSettingsDrawer);
   });
 
   it('lands on the General section by default', () => {

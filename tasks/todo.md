@@ -14,7 +14,7 @@
 
 ## Phase 2: Shared and collection controllers
 
-- [ ] Task 3: Establish the settings feature shell and stable public contract.
+- [x] Task 3: Establish the settings feature shell and stable public contract.
   - Acceptance: `SectionId` and `SettingsDrawerProps` remain stable while the drawer shell, navigation, and section registry live under `src/features/settings/`.
   - Verify: focused SettingsDrawer tests and `npm run architecture:check`.
   - Files: `src/components/shared/SettingsDrawer.tsx`, `src/features/settings/SettingsDrawer.tsx`, `src/features/settings/types.ts`, `src/features/settings/components/SettingsNavigation.tsx`, `src/components/shared/__tests__/SettingsDrawer.test.tsx`.
