@@ -1,6 +1,5 @@
 import { Pause, Play, Plug, PlugZap, Plus, RefreshCw, Search, Trash2, Users } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { useShallow } from 'zustand/react/shallow';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { Badge } from '@/components/ui/badge';
@@ -27,38 +26,24 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { isValidManualOffset } from '@/features/kafka/lib/kafkaConsumerValidation';
-import { kafkaManager, kafkaSecretKey } from '@/features/kafka/lib/kafkaManager';
+import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
 import {
   validateJsonPayload,
   validateKafkaHeaders,
   validateOptionalSchemaId,
 } from '@/features/kafka/lib/kafkaProducerValidation';
-import type {
-  KafkaAuth,
-  KafkaMessage,
-  KafkaRegistry,
-  KafkaSaslMechanism,
-  KafkaSecurityProtocol,
-} from '@/features/kafka/store/useKafkaStore';
-import { KAFKA_SECRET_SENTINEL, useKafkaStore } from '@/features/kafka/store/useKafkaStore';
-import { getElectronAPI, isElectron } from '@/lib/shared/platform';
-import { secureStorage } from '@/lib/shared/secure-storage';
+import type { KafkaMessage } from '@/features/kafka/store/useKafkaStore';
+import { useKafkaStore } from '@/features/kafka/store/useKafkaStore';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn } from '@/lib/shared/utils';
-import { useActiveTabId } from '@/store/selectors';
 import type { KafkaGroupInfo } from '../../../../electron/types/electron-api';
+import { useKafkaConnection } from '../hooks/useKafkaConnection';
+import { KafkaConnectionForm } from './KafkaConnectionForm';
 import { KafkaGroupInspector } from './KafkaGroupInspector';
 import { KafkaProducerPanel, type ProducePayloadMode } from './KafkaProducerPanel';
 import { KafkaTopicInspector } from './KafkaTopicInspector';
 import { KAFKA_PINK, partitionColor } from './shared';
 
-const SECURITY_PROTOCOLS: KafkaSecurityProtocol[] = [
-  'PLAINTEXT',
-  'SASL_PLAINTEXT',
-  'SASL_SSL',
-  'SSL',
-];
-const SASL_MECHANISMS: KafkaSaslMechanism[] = ['PLAIN', 'SCRAM-SHA-256', 'SCRAM-SHA-512'];
 type ConsumeMode = 'latest' | 'earliest' | 'from-offset' | 'from-timestamp';
 
 const CONSUME_MODE_OPTIONS = [
@@ -127,48 +112,21 @@ function DesktopOnlyPanel() {
 }
 
 function KafkaClient() {
-  const isDesktop = isElectron();
-  const activeTabId = useActiveTabId();
-
-  const connectionByTabId = useKafkaStore((s) => s.connectionByTabId);
-  const messageFilter = useKafkaStore((s) => s.messageFilter);
-  const searchQuery = useKafkaStore((s) => s.searchQuery);
-  const activeConnectionId = activeTabId ? (connectionByTabId[activeTabId] ?? null) : null;
-  const connection = useKafkaStore((s) =>
-    activeConnectionId ? (s.connections[activeConnectionId] ?? null) : null
-  );
+  const kafkaConnection = useKafkaConnection();
   const {
-    ensureConnectionForTab,
+    isDesktop,
+    activeConnectionId,
+    connection,
     removeConnection,
     updateConnection,
-    updateAuth,
     updateConsumer,
-    clearMessages,
-    setMessageFilter,
-    setSearchQuery,
-    getFilteredMessages,
-  } = useKafkaStore(
-    useShallow((s) => ({
-      ensureConnectionForTab: s.ensureConnectionForTab,
-      removeConnection: s.removeConnection,
-      updateConnection: s.updateConnection,
-      updateAuth: s.updateAuth,
-      updateConsumer: s.updateConsumer,
-      clearMessages: s.clearMessages,
-      setMessageFilter: s.setMessageFilter,
-      setSearchQuery: s.setSearchQuery,
-      getFilteredMessages: s.getFilteredMessages,
-    }))
-  );
-
-  useEffect(() => {
-    if (activeTabId && isDesktop) ensureConnectionForTab(activeTabId);
-  }, [activeTabId, ensureConnectionForTab, isDesktop]);
-
-  const [saslPasswordDraft, setSaslPasswordDraft] = useState('');
-  const [tlsPassphraseDraft, setTlsPassphraseDraft] = useState('');
-  const [registryPasswordDraft, setRegistryPasswordDraft] = useState('');
-  const [brokerDraft, setBrokerDraft] = useState('');
+  } = kafkaConnection;
+  const messageFilter = useKafkaStore((s) => s.messageFilter);
+  const searchQuery = useKafkaStore((s) => s.searchQuery);
+  const clearMessages = useKafkaStore((s) => s.clearMessages);
+  const setMessageFilter = useKafkaStore((s) => s.setMessageFilter);
+  const setSearchQuery = useKafkaStore((s) => s.setSearchQuery);
+  const getFilteredMessages = useKafkaStore((s) => s.getFilteredMessages);
   const [topicDraft, setTopicDraft] = useState('');
   const [produceKey, setProduceKey] = useState('');
   const [produceKeyEncoding, setProduceKeyEncoding] = useState<ProducePayloadMode>('utf8');
@@ -215,9 +173,6 @@ function KafkaClient() {
 
   // Reset drafts when switching connections
   useEffect(() => {
-    setSaslPasswordDraft('');
-    setTlsPassphraseDraft('');
-    setBrokerDraft('');
     setTopicDraft('');
     setProduceKey('');
     setProduceKeyEncoding('utf8');
@@ -306,65 +261,6 @@ function KafkaClient() {
   if (!isDesktop) {
     return <DesktopOnlyPanel />;
   }
-
-  const handleConnect = async (): Promise<void> => {
-    if (!connection) return;
-    let nextAuth = connection.auth;
-    if (saslPasswordDraft && nextAuth.sasl) {
-      secureStorage.set(kafkaSecretKey(connection.id, 'sasl-password'), saslPasswordDraft);
-      nextAuth = {
-        ...nextAuth,
-        sasl: { ...nextAuth.sasl, password: KAFKA_SECRET_SENTINEL },
-      };
-      setSaslPasswordDraft('');
-    }
-    if (tlsPassphraseDraft) {
-      secureStorage.set(kafkaSecretKey(connection.id, 'tls-passphrase'), tlsPassphraseDraft);
-      nextAuth = {
-        ...nextAuth,
-        tls: { ...(nextAuth.tls ?? {}), passphrase: KAFKA_SECRET_SENTINEL },
-      };
-      setTlsPassphraseDraft('');
-    }
-    if (nextAuth !== connection.auth) {
-      updateAuth(connection.id, nextAuth);
-    }
-
-    // Persist registry secret drafts to secureStorage and store sentinels.
-    let nextRegistry = connection.registry;
-    if (nextRegistry && registryPasswordDraft) {
-      // Persist a draft secret (if any) and clear it; returns true when stored.
-      const persistDraft = (
-        field: 'registry-password',
-        draft: string,
-        setDraft: (s: string) => void
-      ): boolean => {
-        if (!draft) return false;
-        secureStorage.set(kafkaSecretKey(connection.id, field), draft);
-        setDraft('');
-        return true;
-      };
-      const auth = { ...(nextRegistry.auth ?? {}) };
-      if (persistDraft('registry-password', registryPasswordDraft, setRegistryPasswordDraft)) {
-        auth.password = KAFKA_SECRET_SENTINEL;
-      }
-      nextRegistry = { ...nextRegistry, auth };
-      updateConnection(connection.id, { registry: nextRegistry });
-    }
-
-    await kafkaManager.connect({ ...connection, auth: nextAuth, registry: nextRegistry });
-  };
-
-  const handleDisconnect = async (): Promise<void> => {
-    if (!connection) return;
-    await kafkaManager.disconnect(connection.id);
-  };
-
-  // Merge a patch into the connection's registry config (non-secret fields).
-  const patchRegistry = (patch: Partial<KafkaRegistry>): void => {
-    if (!connection?.registry) return;
-    updateConnection(connection.id, { registry: { ...connection.registry, ...patch } });
-  };
 
   const handleProduce = async (): Promise<void> => {
     if (!connection) return;
@@ -488,21 +384,6 @@ function KafkaClient() {
     }
   };
 
-  const handleAddBroker = (): void => {
-    if (!connection || !brokerDraft.trim()) return;
-    updateConnection(connection.id, {
-      bootstrapBrokers: [...connection.bootstrapBrokers, brokerDraft.trim()],
-    });
-    setBrokerDraft('');
-  };
-
-  const handleRemoveBroker = (idx: number): void => {
-    if (!connection) return;
-    updateConnection(connection.id, {
-      bootstrapBrokers: connection.bootstrapBrokers.filter((_, i) => i !== idx),
-    });
-  };
-
   const handleAddTopic = (): void => {
     if (!connection || !topicDraft.trim()) return;
     updateConsumer(connection.id, {
@@ -517,36 +398,6 @@ function KafkaClient() {
       topics: connection.consumer.topics.filter((_, i) => i !== idx),
     });
   };
-
-  const pickTlsFile = async (field: 'caPath' | 'certPath' | 'keyPath'): Promise<void> => {
-    if (!connection) return;
-    const api = getElectronAPI();
-    if (!api) return;
-    const result = await api.dialog.openFile({
-      filters: [
-        { name: 'PEM / KEY', extensions: ['pem', 'crt', 'cer', 'key'] },
-        { name: 'All Files', extensions: ['*'] },
-      ],
-    });
-    if (result.canceled || !result.filePaths[0]) return;
-    updateAuth(connection.id, {
-      ...connection.auth,
-      tls: { ...(connection.auth.tls ?? {}), [field]: result.filePaths[0] },
-    });
-  };
-
-  const setSecurityProtocol = (sp: KafkaSecurityProtocol): void => {
-    if (!connection) return;
-    const next: KafkaAuth = { securityProtocol: sp };
-    if (sp === 'SASL_PLAINTEXT' || sp === 'SASL_SSL') {
-      next.sasl = connection.auth.sasl ?? { mechanism: 'PLAIN', username: '', password: '' };
-    }
-    if (sp === 'SASL_SSL' || sp === 'SSL') {
-      next.tls = connection.auth.tls ?? {};
-    }
-    updateAuth(connection.id, next);
-  };
-
   const refreshAdminTopics = async (): Promise<void> => {
     if (!connection) return;
     setAdminBusy(true);
@@ -708,7 +559,12 @@ function KafkaClient() {
           )}
 
           {connection && connection.status !== 'connected' && (
-            <Button variant="cta" size="cta" onClick={handleConnect} className="min-w-[88px]">
+            <Button
+              variant="cta"
+              size="cta"
+              onClick={kafkaConnection.connect}
+              className="min-w-[88px]"
+            >
               <Plug className="h-3.5 w-3.5" /> Connect
             </Button>
           )}
@@ -716,7 +572,7 @@ function KafkaClient() {
             <Button
               variant="destructive"
               size="sm"
-              onClick={handleDisconnect}
+              onClick={kafkaConnection.disconnect}
               className="h-7 min-w-[88px] text-xs font-medium rounded-sp-btn"
             >
               <PlugZap className="h-3.5 w-3.5 mr-1.5" /> Disconnect
@@ -1000,216 +856,7 @@ function KafkaClient() {
             </div>
           </TabsContent>
 
-          {/* Connection tab */}
-          <TabsContent value="connection" className="flex-1 overflow-auto m-0">
-            <Floater radius="panel" className="p-3 space-y-4">
-              <div className="space-y-2">
-                <Label className="text-xs sp-label">Connection name</Label>
-                <Input
-                  value={connection.name}
-                  onChange={(e) => updateConnection(connection.id, { name: e.target.value })}
-                  className="h-8 text-xs"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs sp-label">Client ID</Label>
-                <Input
-                  value={connection.clientId}
-                  onChange={(e) => updateConnection(connection.id, { clientId: e.target.value })}
-                  className="h-8 text-xs"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-xs sp-label">Bootstrap brokers</Label>
-                <div className="flex flex-wrap gap-1">
-                  {connection.bootstrapBrokers.map((b, idx) => (
-                    <Badge key={`${b}-${idx}`} variant="secondary" className="gap-1 font-mono">
-                      {b}
-                      <button
-                        onClick={() => handleRemoveBroker(idx)}
-                        aria-label={`Remove broker ${b}`}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </button>
-                    </Badge>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <Input
-                    value={brokerDraft}
-                    onChange={(e) => setBrokerDraft(e.target.value)}
-                    placeholder="host:port"
-                    className="h-8 text-xs font-mono"
-                  />
-                  <Button size="sm" variant="secondary" onClick={handleAddBroker}>
-                    Add
-                  </Button>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-xs sp-label">Security protocol</Label>
-                <Select
-                  value={connection.auth.securityProtocol}
-                  onValueChange={(v) => setSecurityProtocol(v as KafkaSecurityProtocol)}
-                >
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SECURITY_PROTOCOLS.map((sp) => (
-                      <SelectItem key={sp} value={sp}>
-                        {sp}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {(connection.auth.securityProtocol === 'SASL_PLAINTEXT' ||
-                connection.auth.securityProtocol === 'SASL_SSL') &&
-                connection.auth.sasl && (
-                  <div className="space-y-2 rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
-                    <Label className="text-xs sp-label">SASL</Label>
-                    <Select
-                      value={connection.auth.sasl.mechanism}
-                      onValueChange={(v) =>
-                        updateAuth(connection.id, {
-                          ...connection.auth,
-                          sasl: { ...connection.auth.sasl!, mechanism: v as KafkaSaslMechanism },
-                        })
-                      }
-                    >
-                      <SelectTrigger className="h-8 text-xs">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {SASL_MECHANISMS.map((m) => (
-                          <SelectItem key={m} value={m}>
-                            {m}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Input
-                      value={connection.auth.sasl.username}
-                      onChange={(e) =>
-                        updateAuth(connection.id, {
-                          ...connection.auth,
-                          sasl: { ...connection.auth.sasl!, username: e.target.value },
-                        })
-                      }
-                      placeholder="Username"
-                      className="h-8 text-xs font-mono"
-                    />
-                    <Input
-                      type="password"
-                      value={saslPasswordDraft}
-                      onChange={(e) => setSaslPasswordDraft(e.target.value)}
-                      placeholder={
-                        connection.auth.sasl.password === KAFKA_SECRET_SENTINEL
-                          ? 'Password (stored — leave blank to keep)'
-                          : 'Password'
-                      }
-                      className="h-8 text-xs font-mono"
-                    />
-                  </div>
-                )}
-
-              {(connection.auth.securityProtocol === 'SASL_SSL' ||
-                connection.auth.securityProtocol === 'SSL') && (
-                <div className="space-y-2 rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
-                  <Label className="text-xs sp-label">TLS</Label>
-                  {(['caPath', 'certPath', 'keyPath'] as const).map((field) => (
-                    <div key={field} className="flex gap-2">
-                      <Input
-                        value={connection.auth.tls?.[field] ?? ''}
-                        readOnly
-                        placeholder={field}
-                        className="h-8 text-xs font-mono"
-                      />
-                      <Button size="sm" variant="secondary" onClick={() => pickTlsFile(field)}>
-                        Browse
-                      </Button>
-                    </div>
-                  ))}
-                  <Input
-                    type="password"
-                    value={tlsPassphraseDraft}
-                    onChange={(e) => setTlsPassphraseDraft(e.target.value)}
-                    placeholder={
-                      connection.auth.tls?.passphrase === KAFKA_SECRET_SENTINEL
-                        ? 'Key passphrase (stored — leave blank to keep)'
-                        : 'Key passphrase (optional)'
-                    }
-                    className="h-8 text-xs font-mono"
-                  />
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      checked={connection.auth.tls?.rejectUnauthorized !== false}
-                      onCheckedChange={(checked) =>
-                        updateAuth(connection.id, {
-                          ...connection.auth,
-                          tls: { ...(connection.auth.tls ?? {}), rejectUnauthorized: checked },
-                        })
-                      }
-                    />
-                    <Label className="text-xs">Verify server certificate</Label>
-                  </div>
-                </div>
-              )}
-
-              {/* Schema Registry (optional) — decodes Avro/Protobuf/JSON on consume */}
-              <div className="space-y-2 rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
-                <div className="flex items-center justify-between">
-                  <Label className="text-xs sp-label">Schema Registry</Label>
-                  <Switch
-                    checked={!!connection.registry}
-                    onCheckedChange={(checked) =>
-                      updateConnection(connection.id, {
-                        registry: checked ? (connection.registry ?? { url: '' }) : undefined,
-                      })
-                    }
-                  />
-                </div>
-                {connection.registry && (
-                  <>
-                    <Input
-                      value={connection.registry.url}
-                      onChange={(e) => patchRegistry({ url: e.target.value })}
-                      placeholder="https://schema-registry:8081"
-                      className="h-8 text-xs font-mono"
-                    />
-                    <Input
-                      value={connection.registry.auth?.username ?? ''}
-                      onChange={(e) =>
-                        patchRegistry({
-                          auth: { ...(connection.registry!.auth ?? {}), username: e.target.value },
-                        })
-                      }
-                      placeholder="Username (optional)"
-                      className="h-8 text-xs font-mono"
-                    />
-                    <Input
-                      type="password"
-                      value={registryPasswordDraft}
-                      onChange={(e) => setRegistryPasswordDraft(e.target.value)}
-                      placeholder={
-                        connection.registry.auth?.password === KAFKA_SECRET_SENTINEL
-                          ? 'Password (stored — leave blank to keep)'
-                          : 'Password (optional)'
-                      }
-                      className="h-8 text-xs font-mono"
-                    />
-                    <p className="text-sp-11 text-sp-muted">
-                      Decodes Avro / Protobuf / JSON messages on consume.
-                    </p>
-                  </>
-                )}
-              </div>
-            </Floater>
-          </TabsContent>
+          <KafkaConnectionForm connection={connection} controller={kafkaConnection} />
 
           {/* Produce tab */}
           <KafkaProducerPanel
