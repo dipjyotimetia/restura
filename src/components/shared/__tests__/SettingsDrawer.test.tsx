@@ -113,6 +113,14 @@ describe('SettingsDrawer', () => {
     expect(screen.queryByText(/vault overview is coming/i)).not.toBeInTheDocument();
   });
 
+  it('renders the network security controls from the feature-owned section', () => {
+    render(<SettingsDrawer open onOpenChange={vi.fn()} initialSection="security" />);
+
+    expect(screen.getByLabelText('Allow localhost')).toBeInTheDocument();
+    expect(screen.getByLabelText('Allow private and internal IP addresses')).toBeInTheDocument();
+    expect(screen.getAllByText(/cloud-metadata endpoints/i)).not.toHaveLength(0);
+  });
+
   it('shows published release notes inside the Updates section', async () => {
     const user = userEvent.setup();
     vi.stubGlobal(
