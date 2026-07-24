@@ -2,12 +2,12 @@
 
 ## Phase 1: Correctness and test signal
 
-- [ ] Task 1: Make tab actions valid, independently keyboard-accessible controls.
+- [x] Task 1: Make tab actions valid, independently keyboard-accessible controls.
   - Acceptance: save-back and close are sibling native buttons, can receive focus, activate with Enter/Space, and retain the existing mouse/context-menu behaviour.
   - Verify: `npx vitest run src/components/shared/__tests__/TabStrip.test.tsx src/components/shared/__tests__/accessibility.smoke.test.tsx`.
   - Files: `src/components/shared/TabBar.tsx`, `src/components/shared/__tests__/TabStrip.test.tsx`, `src/components/shared/__tests__/accessibility.smoke.test.tsx`.
 
-- [ ] Task 2: Remove React `act(...)` warnings from the affected shared-component tests.
+- [x] Task 2: Remove React `act(...)` warnings from the affected shared-component tests.
   - Acceptance: stream, updater, and onboarding asynchronous state changes are awaited or scoped in `act`; the three suites emit no React warnings.
   - Verify: `npx vitest run src/components/shared/__tests__/StreamingResponseViewer.test.tsx src/components/shared/__tests__/UpdateNotification.test.tsx src/components/shared/__tests__/WelcomeOnboarding.test.tsx`.
   - Files: `src/components/shared/__tests__/StreamingResponseViewer.test.tsx`, `src/components/shared/__tests__/UpdateNotification.test.tsx`, `src/components/shared/__tests__/WelcomeOnboarding.test.tsx`.
