@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -19,7 +19,9 @@ async function advanceToPrivacyStep(user: ReturnType<typeof userEvent.setup>) {
 describe('WelcomeOnboarding privacy step', () => {
   afterEach(() => {
     // Restore the default so the mutation doesn't leak into other tests.
-    useSettingsStore.getState().updateSettings({ telemetry: { errorsEnabled: true } });
+    act(() => {
+      useSettingsStore.getState().updateSettings({ telemetry: { errorsEnabled: true } });
+    });
     localStorage.clear();
   });
 
@@ -38,9 +40,11 @@ describe('WelcomeOnboarding privacy step', () => {
     render(<WelcomeOnboarding />);
 
     await advanceToPrivacyStep(user);
-    await user.click(screen.getByRole('switch', { name: 'Send crash and error reports' }));
+    const toggle = screen.getByRole('switch', { name: 'Send crash and error reports' });
+    await user.click(toggle);
 
     await waitFor(() => {
+      expect(toggle).toHaveAttribute('aria-checked', 'false');
       expect(useSettingsStore.getState().settings.telemetry?.errorsEnabled).toBe(false);
     });
   });
