@@ -3,7 +3,6 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import {
-  Check,
   Database,
   Download,
   Info,
@@ -11,18 +10,15 @@ import {
   KeyRound,
   type LucideIcon,
   Network,
-  Palette,
   Plus,
   RefreshCw,
   Send,
   ShieldAlert,
   ShieldCheck,
-  Sliders,
   Trash2,
   Upload,
   X,
 } from 'lucide-react';
-import { useTheme } from 'next-themes';
 import * as React from 'react';
 import { useCallback, useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -50,7 +46,6 @@ import { looksLikePemCertificate } from '@/lib/shared/pemValidation';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { parseReleaseNoteContent, type ReleaseNotesChannel } from '@/lib/shared/release-notes';
 import { cn } from '@/lib/shared/utils';
-import { withViewTransition } from '@/lib/shared/viewTransition';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import {
   type ClientCert,
@@ -58,10 +53,11 @@ import {
   DEFAULT_JUDGE_SETTINGS,
   type MinTlsVersion,
   type ProxyType,
-  SPATIAL_ACCENT_PRESETS,
-  type SpatialAccent,
 } from '@/types';
 import { SettingsNavigation } from './components/SettingsNavigation';
+import { FieldGroup, FieldRow, SectionHeader, SectionLabel } from './components/SettingsSectionPrimitives';
+import { AppearanceSection } from './sections/AppearanceSection';
+import { GeneralSection } from './sections/GeneralSection';
 import type { SectionId, SettingsDrawerProps } from './types';
 
 export type { SectionId, SettingsDrawerProps } from './types';
@@ -231,249 +227,6 @@ export default function SettingsDrawer({
 /*  Section helpers                                                            */
 /* -------------------------------------------------------------------------- */
 
-interface SectionHeaderProps {
-  icon: LucideIcon;
-  title: string;
-  description: React.ReactNode;
-}
-
-function SectionHeader({ icon: Icon, title, description }: SectionHeaderProps) {
-  return (
-    <div className="flex items-start gap-3 mb-6">
-      <div
-        aria-hidden="true"
-        className="shrink-0 flex items-center justify-center size-9 rounded-sp-btn border border-sp-line"
-        style={{
-          background:
-            'linear-gradient(135deg, var(--sp-accent-glow-33), transparent 70%), var(--sp-surface-lo)',
-          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
-        }}
-      >
-        <Icon size={16} className="text-sp-accent" />
-      </div>
-      <div className="min-w-0">
-        <h1 className="text-sp-22 font-bold text-sp-text leading-tight">{title}</h1>
-        <p className="text-sp-13 text-sp-muted mt-0.5">{description}</p>
-      </div>
-    </div>
-  );
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <div className="sp-label mt-6 mb-2">{children}</div>;
-}
-
-interface FieldGroupProps {
-  label: React.ReactNode;
-  children: React.ReactNode;
-}
-
-/**
- * Frames a labelled cluster of FieldRows in a Floater so the eye reads each
- * settings group as one card. Removes the visual noise of free-floating
- * border-bottom dividers between unrelated rows.
- */
-function FieldGroup({ label, children }: FieldGroupProps) {
-  return (
-    <section className="mt-5 first:mt-0">
-      <SectionLabel>{label}</SectionLabel>
-      <Floater radius="panel" elevation="inset" className="px-4 divide-y divide-sp-line">
-        {children}
-      </Floater>
-    </section>
-  );
-}
-
-interface FieldRowProps {
-  label: React.ReactNode;
-  hint?: React.ReactNode;
-  control: React.ReactNode;
-}
-
-function FieldRow({ label, hint, control }: FieldRowProps) {
-  return (
-    <div className="grid grid-cols-[1fr_auto] items-center gap-4 py-3">
-      <div className="min-w-0">
-        <div className="text-sp-13 font-semibold text-sp-text">{label}</div>
-        {hint && <div className="text-sp-11-5 text-sp-muted mt-0.5">{hint}</div>}
-      </div>
-      <div className="justify-self-end">{control}</div>
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/*  General                                                                    */
-/* -------------------------------------------------------------------------- */
-
-function GeneralSection() {
-  const settings = useSettingsStore((s) => s.settings);
-  const updateSettings = useSettingsStore((s) => s.updateSettings);
-  const { theme, setTheme } = useTheme();
-
-  const currentTheme = (theme ?? settings.theme ?? 'system') as 'light' | 'dark' | 'system';
-
-  return (
-    <>
-      <SectionHeader
-        icon={Sliders}
-        title="General"
-        description="Workspace defaults that apply to every request."
-      />
-
-      <FieldGroup label="Appearance">
-        <FieldRow
-          label="Theme"
-          hint="Choose how Restura looks. System follows your OS preference."
-          control={
-            <Segmented<'light' | 'dark' | 'system'>
-              value={currentTheme}
-              onChange={(v) => {
-                withViewTransition(() => {
-                  setTheme(v);
-                  updateSettings({ theme: v });
-                });
-              }}
-              options={[
-                { value: 'light', label: 'Light' },
-                { value: 'dark', label: 'Dark' },
-                { value: 'system', label: 'System' },
-              ]}
-            />
-          }
-        />
-        <FieldRow
-          label="Layout orientation"
-          hint="Side-by-side or stacked request/response."
-          control={
-            <Segmented<'vertical' | 'horizontal'>
-              value={settings.layoutOrientation ?? 'horizontal'}
-              onChange={(v) => updateSettings({ layoutOrientation: v })}
-              options={[
-                { value: 'horizontal', label: 'Horizontal' },
-                { value: 'vertical', label: 'Vertical' },
-              ]}
-            />
-          }
-        />
-      </FieldGroup>
-
-      <FieldGroup label="History">
-        <FieldRow
-          label="Auto-save history"
-          hint="Automatically record every executed request."
-          control={
-            <ToggleField
-              checked={settings.autoSaveHistory ?? true}
-              onChange={(v) => updateSettings({ autoSaveHistory: v })}
-              ariaLabel="Auto-save history"
-            />
-          }
-        />
-      </FieldGroup>
-
-      <FieldGroup label="Privacy">
-        <FieldRow
-          label="Send crash & error reports"
-          hint="Helps fix bugs. Only the error message, stack, app version, and browser/OS info are sent — never request payloads, URLs, headers, or response bodies."
-          control={
-            <ToggleField
-              checked={settings.telemetry?.errorsEnabled ?? true}
-              onChange={(v) => updateSettings({ telemetry: { errorsEnabled: v } })}
-              ariaLabel="Send crash and error reports"
-            />
-          }
-        />
-      </FieldGroup>
-    </>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Appearance — accent picker                                                 */
-/* -------------------------------------------------------------------------- */
-
-function AppearanceSection() {
-  const accent = useSettingsStore((s) => s.settings.accent ?? '#2e91ff');
-  const updateSettings = useSettingsStore((s) => s.updateSettings);
-  const { theme, setTheme } = useTheme();
-  const currentTheme = (theme ?? 'system') as 'light' | 'dark' | 'system';
-
-  return (
-    <>
-      <SectionHeader
-        icon={Palette}
-        title="Appearance"
-        description="Pick your accent color and theme."
-      />
-
-      <section className="mt-5 first:mt-0">
-        <SectionLabel>Accent</SectionLabel>
-        <Floater radius="panel" elevation="inset" className="p-4">
-          <div className="text-sp-13 font-semibold text-sp-text mb-1">Accent color</div>
-          <div className="text-sp-11-5 text-sp-muted mb-4">
-            Used for active highlights, focus rings, and the Send button.
-          </div>
-          <div className="flex items-center gap-3">
-            {SPATIAL_ACCENT_PRESETS.map((preset) => {
-              const isActive = preset === accent;
-              return (
-                <button
-                  key={preset}
-                  type="button"
-                  aria-label={`Accent ${preset}`}
-                  aria-pressed={isActive}
-                  onClick={() => updateSettings({ accent: preset as SpatialAccent })}
-                  className={cn(
-                    'relative inline-flex items-center justify-center',
-                    'w-8 h-8 rounded-full border border-sp-line transition-all',
-                    'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent',
-                    isActive && 'scale-110'
-                  )}
-                  style={{
-                    background: preset,
-                    boxShadow: isActive
-                      ? `0 0 0 2px var(--sp-surface-hi), 0 0 0 4px ${preset}, 0 0 16px ${preset}66`
-                      : 'inset 0 1px 0 rgba(255,255,255,0.2)',
-                  }}
-                >
-                  {isActive && <Check size={14} className="text-white drop-shadow" />}
-                </button>
-              );
-            })}
-          </div>
-        </Floater>
-      </section>
-
-      <FieldGroup label="Theme">
-        <FieldRow
-          label="Color scheme"
-          hint="Dark mode applies the full Spatial Depth glass palette."
-          control={
-            <Segmented<'light' | 'dark' | 'system'>
-              value={currentTheme}
-              onChange={(v) =>
-                withViewTransition(() => {
-                  // Persist to settings as well as next-themes so this control
-                  // and the General → Theme control share one source of truth.
-                  setTheme(v);
-                  updateSettings({ theme: v });
-                })
-              }
-              options={[
-                { value: 'light', label: 'Light' },
-                { value: 'dark', label: 'Dark' },
-                { value: 'system', label: 'System' },
-              ]}
-            />
-          }
-        />
-      </FieldGroup>
-    </>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
 /*  Requests                                                                   */
 /* -------------------------------------------------------------------------- */
 
