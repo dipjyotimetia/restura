@@ -16,14 +16,14 @@ This wiki is an in-repo map for humans and future coding agents. It links out to
 
 | If you want to...                                                   | Start here                                                              |
 | ------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Run the app, type-check, test, or build                             | [Operations — Development setup](operations/index.md#development-setup) |
+| Run the app, type-check, test, or build                             | [Operations — Development setup](operations/overview.md#development-setup) |
 | Understand the renderer/backends/shared protocol layer              | [Architecture overview](architecture/overview.md)                       |
 | Work on a protocol feature (HTTP, gRPC, WS, SSE, MCP, AI)           | [Protocol features](features/protocols.md)                              |
-| Work on OWS workflows or collection batch runners                   | [Workflows](workflows/index.md)                                         |
+| Work on OWS workflows or collection batch runners                   | [Workflows](workflows/overview.md)                                         |
 | Work on scripts, variables, environments, secrets, or persistence   | [Scripts, variables & storage](features/scripts-variables-storage.md)   |
-| Import/export, OpenCollection, Postman parity, file/Git collections | [Integrations](integrations/index.md)                                   |
-| CI/CD, Docker self-host, packaging, telemetry, security             | [Operations](operations/index.md)                                       |
-| Test strategy, e2e, contract and security tests                     | [Testing](testing/index.md)                                             |
+| Import/export, OpenCollection, Postman parity, file/Git collections | [Integrations](integrations/overview.md)                                   |
+| CI/CD, Docker self-host, packaging, telemetry, security             | [Operations](operations/overview.md)                                       |
+| Test strategy, e2e, contract and security tests                     | [Testing](testing/overview.md)                                             |
 
 The repo also maintains `/CLAUDE.md` (Claude Code) and `/AGENTS.md` (Codex) as concise agent handbooks. This wiki is the deeper navigation layer.
 
@@ -114,9 +114,9 @@ npm run validate                    # static policy -> all tests/workspaces -> p
 
 - [Architecture overview](architecture/overview.md) — renderer, backends, shared protocol layer, Fetcher pattern.
 - [Protocol features](features/protocols.md) — registry, request types, streaming vs execution, per-protocol notes.
-- [Workflows](workflows/index.md) — bounded OWS execution, workspace artifacts, editor, and collection runner.
+- [Workflows](workflows/overview.md) — bounded OWS execution, workspace artifacts, editor, and collection runner.
 - [Scripts, variables & storage](features/scripts-variables-storage.md) — QuickJS sandbox, variable scopes, persistence, secrets.
 - [AI and MCP](features/ai-mcp.md) — AI chat, AI Lab eval workbench, Restura-as-MCP-server, MCP client.
-- [Integrations](integrations/index.md) — import/export, OpenCollection, Postman parity, file/Git collections.
-- [Operations](operations/index.md) — CLI, CI/CD, Docker, telemetry, security.
-- [Testing](testing/index.md) — test pyramid, e2e, contract, parity, and security tests.
+- [Integrations](integrations/overview.md) — import/export, OpenCollection, Postman parity, file/Git collections.
+- [Operations](operations/overview.md) — CLI, CI/CD, Docker, telemetry, security.
+- [Testing](testing/overview.md) — test pyramid, e2e, contract, parity, and security tests.

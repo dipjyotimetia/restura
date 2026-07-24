@@ -20,6 +20,22 @@ User-written pre-request and test scripts run inside a QuickJS WASM VM (`quickjs
 - 64 MB memory
 - Async APIs (`pm.sendRequest`, vault, cookies, AI judge) require bridge calls
 
+```mermaid
+flowchart TD
+    subgraph ScriptVM [QuickJS WASM VM]
+        USER[pre-request or test script]
+        PM[pm.* API object]
+        RS[rs.* extensions]
+    end
+    HOST[shared/scripts/script-executor.ts host]
+    USER -->|reads and writes| PM
+    USER -->|reads and writes| RS
+    PM -->|bridge calls| HOST
+    RS -->|bridge calls| HOST
+    HOST -->|mutating result| RESULT[ScriptResult]
+```
+_Scripts run in a QuickJS VM with no DOM, filesystem, or direct network; the host exposes `pm.*` and `rs.*` APIs via bridge calls and returns a `ScriptResult`._
+
 ### Postman-compatible API
 
 `shared/scripts/script-executor.ts` exposes a `pm`-style object; the renderer path is a compatibility re-export:
@@ -62,6 +78,14 @@ The result shape (`ScriptResult`) is in `shared/types/scripts.ts` and includes:
 ### Scope precedence
 
 `src/lib/shared/variableScopes.ts`:
+
+```mermaid
+flowchart LR
+    G([global]) --> ENV([environment])
+    ENV --> COLL([collection])
+    COLL --> DATA([dataRow])
+```
+_Lower-precedence scopes are shadowed by higher-precedence scopes, so a collection variable overrides an environment variable._
 
 ```
 globals < environment < collection < dataRow
@@ -117,6 +141,23 @@ Restura is migrating secret-bearing auth fields from plaintext strings to `Secre
 
 - `inline` — still a plaintext value, but typed.
 - `handle` — `{ kind: 'handle'; id; label? }`. The renderer never sees the plaintext.
+
+```mermaid
+sequenceDiagram
+    participant UI as renderer request builder
+    participant STORE as Zustand + persistence
+    participant MAIN as electron/main/security/secret-handle-store.ts
+    participant KEY as OS keychain via safeStorage
+    participant SIGN as auth-signer
+
+    UI->>STORE: save auth config with SecretRef handle
+    STORE->>MAIN: handle only no plaintext
+    MAIN->>KEY: encrypt/decrypt handle value
+    SIGN->>MAIN: resolve handle at wire time
+    MAIN-->>SIGN: plaintext value
+    SIGN->>SIGN: sign request after body construction
+```
+_`handle` references keep plaintext secrets out of stores, exports, crash logs, and MCP-server surfaces; values are resolved only in the main process at wire-signing time._
 
 On desktop, actual values live in `electron/main/security/secret-handle-store.ts` (encrypted store + OS keychain). They are resolved only in the main process at wire-signing time.
 

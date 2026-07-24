@@ -24,29 +24,31 @@ Restura is built around one constraint: a single React SPA renderer serves three
 
 ## High-level data flow
 
+```mermaid
+flowchart TD
+    subgraph Renderer [React SPA /src]
+        R[useRequestRunner.ts]
+        PROTO[Protocol modules]
+    end
+    subgraph WebBackend [Web / self-hosted backend worker/]
+        HONO[createApp Hono app]
+        WSH[API handlers]
+    end
+    subgraph DesktopBackend [Desktop backend electron/main/]
+        IPCM[IPC handlers]
+    end
+    subgraph Core [Shared core shared/protocol/]
+        ORCH[HTTP/gRPC/MCP/WS/SSE/AI orchestrators]
+        FETCH[Fetcher adapter]
+    end
+    TARGET[target API / service]
+    Renderer -->|"HTTP fetch /api/*"| WebBackend
+    Renderer -->|"window.electron.* IPC"| DesktopBackend
+    WebBackend -->|delegates execution| Core
+    DesktopBackend -->|delegates execution| Core
+    Core -->|validated request| TARGET
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                         React SPA                            │
-│              /src  →  registry / feature modules               │
-└───────────────┬────────────────────────┬───────────────────────┘
-                │ Web / self-host        │ Electron
-                ▼                        ▼
-        Cloudflare Worker          Electron main process
-        /worker/index.ts            /electron/main/main.ts
-        Hono routes                 IPC handlers
-                \                  /
-                 ▼                ▼
-          shared/protocol    shared/protocol
-          (orchestrator)     (orchestrator)
-                 \              /
-                  ▼            ▼
-                 Fetcher    Fetcher
-                   │          │
-                   ▼          ▼
-              target API / service
-```
-
-Key point: the backend-specific code is limited to a thin `Fetcher` adapter plus transport-specific plumbing (WebSocket upgrades, native TCP, IPC channels). All validation, body construction, header sanitisation, auth signing, redirect following, and response shaping live in `/shared/protocol`.
+_Key point: the backend-specific code is limited to a thin `Fetcher` adapter plus transport-specific plumbing. All validation, body construction, header sanitisation, auth signing, redirect following, and response shaping live in `/shared/protocol`._
 
 ---
 
@@ -131,6 +133,41 @@ Stores of note:
 - `useFileCollectionStore` — Electron filesystem-backed collections and git sync.
 
 ---
+
+## Runtime request flow
+
+```mermaid
+sequenceDiagram
+    participant UI as React SPA /src/features/*/protocol.ts
+    participant Registry as ProtocolRegistry useRequestRunner.ts
+    participant Worker as Worker createApp /worker/app.ts
+    participant Electron as Electron main IPC handlers
+    participant Shared as shared/protocol/*
+    participant Upstream as Target service
+
+    UI->>Registry: runRequest(request context variables)
+    Registry->>Registry: resolve auth, inject variables, abort prior
+
+    alt Web or self-hosted
+        Registry->>Worker: POST /api/proxy or /api/grpc etc
+        Worker->>Shared: executeHttpProxy / grpc-proxy / mcp-proxy
+    else Desktop
+        Registry->>Electron: window.electron.* call
+        Electron->>Shared: executeHttpProxy / grpc-proxy / etc
+    end
+
+    Shared->>Shared: body-builder, auth-signer, url-validation, header-policy
+    Shared->>Fetcher: Fetcher(req)
+    Fetcher->>Upstream: wire request
+    Upstream-->>Fetcher: raw response
+    Fetcher-->>Shared: FetcherResponse
+    Shared-->>Worker: ExecuteResult
+    Shared-->>Electron: ExecuteResult
+    Worker-->>Registry: response payload
+    Electron-->>Registry: response payload
+    Registry-->>UI: rendered response + history entry
+```
+_The protocol registry dispatches a single call through whichever transport the active platform provides; shared orchestration and platform-specific fetcher adapters handle everything below it._
 
 ## Backends in detail
 
@@ -238,6 +275,22 @@ The preload script is bundled separately (`npm run electron:bundle-preload`).
 ## Capability-driven gating
 
 Because web and desktop have different sandboxes, features use the capability matrix in `src/lib/shared/capabilities.ts`. UI gates with `CapabilityBadge`; logic gates with `isCapableHere('feature.name', platform)`. The markdown matrix in `docs/CAPABILITY_MATRIX.md` is generated from `capabilities.ts` and checked in CI.
+
+```mermaid
+stateDiagram-v2
+    [*] --> WebMode : browser / self-host
+    [*] --> DesktopMode : isElectron
+
+    WebMode --> CapabilityGate : render feature UI
+    DesktopMode --> CapabilityGate
+
+    CapabilityGate --> Enabled : isCapableHere(feature, platform)
+    CapabilityGate --> Hidden : not capable
+
+    Enabled --> [*] : user runs request
+    Hidden --> [*]
+```
+_The capability matrix gates UI and logic so the same renderer can run on web, self-hosted, and desktop without platform forks._
 
 Examples of capability-only features:
 
