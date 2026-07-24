@@ -46,13 +46,21 @@ Connection-based UI modes (GraphQL, WebSocket, Socket.IO, Kafka, MQTT) live as a
 
 ### Execution flow in `useRequestRunner.ts`
 
-1. Resolves inherited auth from collection → folder → request.
-2. Builds the active-request variable map (globals, active environment, collection variables).
-3. Injects variables into the request.
-4. Aborts any prior in-flight request for the tab.
-5. Runs the protocol's `runRequest` or `startStream`.
-6. Persists the result to history.
-7. Forwards script results (test logs, mutations) to the active tab.
+```mermaid
+flowchart TD
+    START([User clicks Send]) --> AUTH[Resolve inherited auth collection to folder to request]
+    AUTH --> VARS[Build variable map globals active env collection vars]
+    VARS --> INJECT[Inject variables into URL headers params body]
+    INJECT --> ABORT[Abort prior in-flight request for tab]
+    ABORT --> EXEC{Protocol module}
+    EXEC -->|one-shot| RUN[runRequest]
+    EXEC -->|interactive stream| STREAM[startStream]
+    RUN --> HIST[Persist result to history]
+    STREAM --> HIST
+    HIST --> SCRIPT[Forward script results tests logs mutations to tab]
+    SCRIPT --> END([Render response])
+```
+_The same runner path handles every protocol; each protocol module decides whether to return a one-shot result or a long-lived stream handle._
 
 ---
 
@@ -99,7 +107,9 @@ Connection-based UI modes (GraphQL, WebSocket, Socket.IO, Kafka, MQTT) live as a
 
 - Desktop-only (no browser TCP).
 - Protocol stubs; Electron IPC managers and topic/partition UI.
-- Kafka: producer/consumer, SASL + TLS, Avro/JSON schema registry support.
+- Kafka: producer/consumer, SASL + TLS, and Confluent Schema Registry support for independently encoded keys and values. The [desktop handler](../architecture/overview.md) probes broker metadata before reporting a connection as ready.
+- The Kafka producer accepts UTF-8 text, locally validated JSON text, or arbitrary bytes as canonical Base64. UI validation rejects blank or duplicate enabled header names, invalid non-negative partitions, and invalid schema IDs; the Electron wire boundary revalidates IPC payloads and rejects non-canonical Base64 rather than silently changing bytes.
+- On consume, registry-framed fields decode through the configured registry; raw valid UTF-8 stays text, while raw non-UTF-8 fields return as Base64 so they can be republished without byte loss. A field cannot use both raw Base64 and a Schema Registry schema ID.
 - MQTT: publish/subscribe, QoS, TLS.
 
 ### MCP client (`src/features/mcp/`)
@@ -112,6 +122,27 @@ Connection-based UI modes (GraphQL, WebSocket, Socket.IO, Kafka, MQTT) live as a
 ---
 
 ## Streaming vs one-shot execution
+
+```mermaid
+stateDiagram-v2
+    [*] --> RequestBuilt : user clicks Send
+
+    RequestBuilt --> OneShot : protocol runRequest
+    RequestBuilt --> Stream : protocol startStream
+    RequestBuilt --> NotSupported : no registry path
+
+    OneShot --> Result : buffered ExecuteResult
+    Result --> History : persisted
+
+    Stream --> StreamHandle : returned handle/async iterable
+    StreamHandle --> History : stream events recorded
+
+    NotSupported --> Error : thrown or stub
+
+    History --> [*]
+    Error --> [*]
+```
+_Protocol modules declare themselves as one-shot runners, stream sources, or unsupported in the registry; the shared HTTP proxy additionally chooses a buffered or streaming implementation depending on the response._
 
 | Protocol     | UI interaction                     | Registry execution        | OWS workflow usage                              |
 | ------------ | ---------------------------------- | ------------------------- | ----------------------------------------------- |
@@ -130,6 +161,33 @@ Connection-based UI modes (GraphQL, WebSocket, Socket.IO, Kafka, MQTT) live as a
 - `executeHttpProxyStreaming` — returns a `ReadableStream` for SSE/NDJSON/gRPC-web streaming.
 
 The Worker proxy handler (`worker/handlers/proxy.ts`) chooses buffered vs streaming based on exact media types or an explicit `streamingMode`, to avoid MIME smuggling.
+
+```mermaid
+sequenceDiagram
+    participant UI as useRequestRunner.ts
+    participant HTTP as shared/protocol/http-proxy.ts
+    participant ProxyH as worker/handlers/proxy.ts
+    participant Fetcher as platform fetcher
+    participant Svc as upstream service
+
+    UI->>HTTP: executeHttpProxy or executeHttpProxyStreaming
+    HTTP->>HTTP: sanitize headers, apply URL validation, sign auth after body
+
+    alt web/self-host
+        HTTP->>ProxyH: through Hono route
+        ProxyH->>ProxyH: detect media type and streamingMode
+    else desktop
+        HTTP->>Fetcher: directly via electron main IPC
+    end
+
+    ProxyH->>Fetcher: fetch with redirect manual
+    Fetcher->>Svc: wire request
+    Svc-->>Fetcher: response
+    Fetcher-->>ProxyH: raw response
+    ProxyH-->>HTTP: streaming or buffered result
+    HTTP-->>UI: ExecuteResult
+```
+_The HTTP proxy is the same orchestrator on every platform; on web/self-host the Worker handler chooses a buffered or streaming response path before returning it to the renderer._
 
 ---
 

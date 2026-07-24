@@ -29,6 +29,20 @@ A chat assistant that reads the active request and response as context. It is cu
 - `src/features/ai/lib/streamConsumer.ts` — converts Electron IPC chunk/end events into an async iterable. Subscribe **before** invoking `ai.chat()` or early events are lost.
 - `src/features/ai/agent/tools.ts` — proposed tools: `create_http_request`, `update_http_request`, `set_test_script`, `enrich_docs`. `runAgentTool` mutates stores only after user approval.
 - `src/features/ai/agent/agentSession.ts` — state machine: `running` → turn complete → `awaiting-apply` or `done`. Hard cap `AGENT_MAX_STEPS = 8`.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Running : user sends agent message
+    Running --> TurnComplete : model response
+    TurnComplete --> AwaitingApply : proposes tool with mutations
+    TurnComplete --> Done : no tool / final answer
+    AwaitingApply --> Running : user approves and continues
+    AwaitingApply --> Done : user rejects / step limit
+    Done --> Idle
+```
+_The agent loop hard-caps steps at `AGENT_MAX_STEPS = 8`; proposed store mutations are gated on explicit user approval._
+
 - `src/features/ai/lib/inlineActions.ts` — one-shot "Fix request / Generate tests / Enrich docs" prompts, forcing tools on for that send.
 
 ### UI
@@ -36,6 +50,28 @@ A chat assistant that reads the active request and response as context. It is cu
 - `src/features/ai/components/ChatPanel.tsx` — streaming, tool-proposal cards, apply/lock logic, agent-mode loop orchestration.
 
 The AI chat path in the main process is `electron/main/handlers/ai-handler.ts` → `shared/protocol/ai/ai-proxy.ts`. There is **no `/api/ai` Worker route**; web does not support the inline chat.
+
+```mermaid
+sequenceDiagram
+    participant CHAT as src/features/ai/components/ChatPanel.tsx
+    participant STORE as src/features/ai/store.ts
+    participant PRE as electron/main/preload.ts
+    participant HANDLER as electron/main/handlers/ai-handler.ts
+    participant PROXY as shared/protocol/ai/ai-proxy.ts
+    participant LLM as configured provider
+
+    CHAT->>STORE: send message / run agent
+    STORE->>PRE: window.electron.ai.chat(prompt context)
+    PRE->>HANDLER: IPC invoke
+    HANDLER->>PROXY: build and dispatch request
+    PROXY->>LLM: streaming completion
+    LLM-->>PROXY: chunks
+    PROXY-->>HANDLER: chunk events
+    HANDLER-->>PRE: IPC on chunk
+    PRE-->>STORE: streamConsumer pushes events
+    STORE-->>CHAT: render streaming response
+```
+_AI chat is Electron-only because it relies on the configured provider key or secret handle resolved in the main process; there is no Worker proxy path for it._
 
 ---
 
@@ -64,6 +100,29 @@ An Electron-only LLM evaluation workbench accessible as `/ai-lab` route. It uses
 - Stores: `src/features/ai-lab/store/useAiLabStore.ts`, `useEvalRunStore.ts`, `useArenaStore.ts`.
 - Main process handler: `electron/main/handlers/ai-lab-handler.ts` (kept separate from `ai-handler.ts`).
 - Agent core: `shared/agent-lab/` (suite schema, provider registry, runner, MCP/sandbox contracts, graders, OTLP/OpenInference export).
+
+### Eval run lifecycle
+
+```mermaid
+sequenceDiagram
+    participant UI as Eval UI
+    participant RUNNER as src/features/ai-lab/lib/evalRunner.ts
+    participant POOL as concurrencyPool.ts
+    participant LLM as provider
+    participant SCORER as src/features/ai-lab/lib/scorers.ts
+    participant STORE as useEvalRunStore.ts
+
+    UI->>RUNNER: runEval(dataset, models, scorers)
+    RUNNER->>POOL: bounded case x model cells
+    POOL->>LLM: batched completions
+    LLM-->>POOL: responses
+    POOL-->>RUNNER: cell outputs
+    RUNNER->>SCORER: score each output
+    SCORER-->>RUNNER: scores
+    RUNNER->>STORE: persist run results
+    STORE-->>UI: render grid / report
+```
+_Eval runs sweep `case × model` cells with bounded concurrency; scoring happens after all completions return, then results are persisted to the eval-run store._
 - Desktop agent bridge: `src/features/ai-lab/lib/agentRuntime.ts`; saved HTTP request tools use `agentTools.ts` and the normal request executor.
 - Headless CI: `restura agent eval <suite.json> --output report.json`.
 
