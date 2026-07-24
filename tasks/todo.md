@@ -19,7 +19,7 @@
   - Verify: focused SettingsDrawer tests and `npm run architecture:check`.
   - Files: `src/components/shared/SettingsDrawer.tsx`, `src/features/settings/SettingsDrawer.tsx`, `src/features/settings/types.ts`, `src/features/settings/components/SettingsNavigation.tsx`, `src/components/shared/__tests__/SettingsDrawer.test.tsx`.
 
-- [ ] Task 4: Extract general, appearance, request, and proxy settings sections.
+- [x] Task 4: Extract general, appearance, request, and proxy settings sections.
   - Acceptance: each section owns its settings reads/writes and has no behavioural change; the legacy wrapper shrinks materially.
   - Verify: focused settings tests, `npm run type-check`, and `npm run architecture:check`.
   - Files: `src/features/settings/sections/GeneralSection.tsx`, `src/features/settings/sections/AppearanceSection.tsx`, `src/features/settings/sections/RequestsSection.tsx`, `src/features/settings/sections/ProxySection.tsx`, `src/features/settings/SettingsDrawer.tsx`.

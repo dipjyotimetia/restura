@@ -51,7 +51,7 @@ export const architecturePolicy: ArchitecturePolicy = {
   allowedDependencies: [],
   maxNewProductionFileLines: 800,
   grandfatheredFileLines: {
-    'src/features/settings/SettingsDrawer.tsx': 2_075,
+    'src/features/settings/SettingsDrawer.tsx': 1_670,
     'src/features/kafka/components/KafkaClient.tsx': 1_554,
     'src/features/collections/components/Sidebar.tsx': 1_581,
     'shared/scripts/script-executor.ts': 1_537,

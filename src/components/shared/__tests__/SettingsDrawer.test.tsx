@@ -53,6 +53,19 @@ describe('SettingsDrawer', () => {
     expect(headings.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('keeps request and proxy controls available through the feature-owned sections', () => {
+    const { rerender } = render(
+      <SettingsDrawer open onOpenChange={vi.fn()} initialSection="requests" />
+    );
+    expect(screen.getAllByLabelText('Default timeout in seconds')).not.toHaveLength(0);
+    expect(screen.getByLabelText('Verify SSL')).toBeInTheDocument();
+
+    rerender(<SettingsDrawer open onOpenChange={vi.fn()} initialSection="proxy" />);
+    expect(screen.getByLabelText('Enable proxy')).toBeInTheDocument();
+    expect(screen.getByLabelText('Proxy type')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('internal.example.com')).toBeInTheDocument();
+  });
+
   it('Accent picker: clicking a preset updates the settings store', async () => {
     const user = userEvent.setup();
     render(<SettingsDrawer open onOpenChange={vi.fn()} initialSection="appearance" />);
