@@ -82,12 +82,13 @@ describe('StreamingResponseViewer', () => {
     await user.click(pauseBtn);
 
     // Release the blocker so the iterable produces 'second'
-    act(() => {
+    await act(async () => {
       resolve();
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
     // 'second' should NOT yet be rendered while paused (it's buffered)
-    await new Promise((r) => setTimeout(r, 50));
     expect(screen.queryByText('second')).toBeNull();
 
     // Resume should drain

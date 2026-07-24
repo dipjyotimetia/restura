@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import FeatureSettingsDrawer from '@/features/settings/SettingsDrawer';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import SettingsDrawer from '../SettingsDrawer';
 
@@ -34,6 +35,10 @@ describe('SettingsDrawer', () => {
     vi.unstubAllGlobals();
   });
 
+  it('keeps the shared import as a compatibility wrapper for the feature-owned drawer', () => {
+    expect(SettingsDrawer).toBe(FeatureSettingsDrawer);
+  });
+
   it('lands on the General section by default', () => {
     render(<SettingsDrawer open onOpenChange={vi.fn()} />);
     // H1 text "General" is in the rendered section.
@@ -46,6 +51,19 @@ describe('SettingsDrawer', () => {
     const headings = screen.getAllByText('Shortcuts');
     // At least the H1 in the section content + the nav rail label.
     expect(headings.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('keeps request and proxy controls available through the feature-owned sections', () => {
+    const { rerender } = render(
+      <SettingsDrawer open onOpenChange={vi.fn()} initialSection="requests" />
+    );
+    expect(screen.getAllByLabelText('Default timeout in seconds')).not.toHaveLength(0);
+    expect(screen.getByLabelText('Verify SSL')).toBeInTheDocument();
+
+    rerender(<SettingsDrawer open onOpenChange={vi.fn()} initialSection="proxy" />);
+    expect(screen.getByLabelText('Enable proxy')).toBeInTheDocument();
+    expect(screen.getByLabelText('Proxy type')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('internal.example.com')).toBeInTheDocument();
   });
 
   it('Accent picker: clicking a preset updates the settings store', async () => {
@@ -93,6 +111,14 @@ describe('SettingsDrawer', () => {
     expect(screen.getByText('Desktop only')).toBeInTheDocument();
     // The old "coming soon" stub must be gone.
     expect(screen.queryByText(/vault overview is coming/i)).not.toBeInTheDocument();
+  });
+
+  it('renders the network security controls from the feature-owned section', () => {
+    render(<SettingsDrawer open onOpenChange={vi.fn()} initialSection="security" />);
+
+    expect(screen.getByLabelText('Allow localhost')).toBeInTheDocument();
+    expect(screen.getByLabelText('Allow private and internal IP addresses')).toBeInTheDocument();
+    expect(screen.getAllByText(/cloud-metadata endpoints/i)).not.toHaveLength(0);
   });
 
   it('shows published release notes inside the Updates section', async () => {

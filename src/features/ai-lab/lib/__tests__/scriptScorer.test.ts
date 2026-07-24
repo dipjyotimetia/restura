@@ -39,8 +39,8 @@ describe('runScriptScorer (QuickJS, synthetic response)', () => {
     expect(res.passed).toBe(false);
   });
 
-  it("the EvalBuilder default 'script' snippet passes on non-empty output", async () => {
-    // Keep in sync with defaultScorer('script') in EvalBuilder.tsx.
+  it("the ScorerEditor default 'script' snippet passes on non-empty output", async () => {
+    // Keep in sync with defaultScorer('script') in ScorerEditor.tsx.
     const res = await runScriptScorer({
       code: "pm.test('non-empty', () => pm.expect(pm.response.text().length).to.be.above(0));",
       output: 'some answer',
