@@ -55,6 +55,5 @@ export const architecturePolicy: ArchitecturePolicy = {
     'electron/main/handlers/http-handler.ts': 1_240,
     'electron/main/handlers/kafka-handler.ts': 867,
     'electron/main/handlers/grpc-connect.ts': 819,
-    'src/components/shared/ImportDialog.tsx': 816,
   },
 };

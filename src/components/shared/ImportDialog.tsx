@@ -1,6 +1,6 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import * as yaml from 'js-yaml';
-import { AlertCircle, Check, CheckCircle2, Download, Lock, Upload, X } from 'lucide-react';
+import { Check, Download, Lock, Upload, X } from 'lucide-react';
 import { type ChangeEvent, type DragEvent, useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Floater } from '@/components/ui/spatial';
@@ -25,6 +25,7 @@ import { convertCollectionSecretsToHandles } from '@/lib/shared/secretRef-migrat
 import { cn } from '@/lib/shared/utils';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { ImportStatusBanner } from './ImportStatusBanner';
 
 type ImportType =
   | 'postman'
@@ -188,29 +189,6 @@ const IMPORTERS: Record<ImportType, (data: unknown) => Promise<ImportResult>> = 
     }),
   http: async (data) => importHttpFile(typeof data === 'string' ? data : String(data)),
 };
-
-function describeWarning(w: ImportWarning): string {
-  switch (w.kind) {
-    case 'unrecognized-body':
-      return `Unknown body shape in "${w.requestName}" — preserved on round-trip but not editable`;
-    case 'unrecognized-script-type':
-      return `Script type "${w.scriptType}" dropped from "${w.requestName}"`;
-    case 'unsupported-auth':
-      return `Auth "${w.authType}" not supported in "${w.requestName}"`;
-    case 'unsupported-method':
-      return `Method "${w.method}" not supported — "${w.requestName}" imported as GET`;
-    case 'unknown-dynamic-var':
-      return `{{$${w.varName}}} referenced ${w.count}× but not implemented`;
-    case 'bruno-syntax':
-      return `Bruno-specific syntax "${w.pattern}" in "${w.requestName}"`;
-    case 'platform-unsupported':
-      return `${w.feature} not available on this platform (${w.requestName})`;
-    case 'schema-version':
-      return `${w.format} v${w.version}: ${w.note}`;
-    default:
-      return 'Unknown warning';
-  }
-}
 
 interface FormatCardProps {
   format: FormatMeta;
@@ -581,7 +559,7 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
 
           {/* Body */}
           <div className="flex-1 min-h-0 overflow-y-auto px-6 py-5 space-y-5">
-            <StatusBanner
+            <ImportStatusBanner
               status={importStatus}
               warnings={warnings}
               environmentOnlyName={environmentOnlyName}
@@ -718,99 +696,5 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
-  );
-}
-
-interface StatusBannerProps {
-  status: 'idle' | 'success' | 'error';
-  warnings: ImportWarning[];
-  environmentOnlyName: string | null;
-  errorMessage: string;
-  onDismiss: () => void;
-}
-
-function StatusBanner({
-  status,
-  warnings,
-  environmentOnlyName,
-  errorMessage,
-  onDismiss,
-}: StatusBannerProps) {
-  if (status === 'idle') return null;
-
-  if (status === 'success' && warnings.length === 0) {
-    return (
-      <Floater
-        radius="panel"
-        elevation="inset"
-        className="p-3.5 flex items-center gap-2.5 border border-emerald-500/30"
-        style={{ background: 'rgba(16,185,129,0.08)' }}
-      >
-        <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
-        <span className="text-sp-13 text-emerald-300 font-medium">
-          {environmentOnlyName
-            ? `Imported environment: ${environmentOnlyName}`
-            : 'Collection imported successfully'}
-        </span>
-      </Floater>
-    );
-  }
-
-  if (status === 'success' && warnings.length > 0) {
-    return (
-      <Floater
-        radius="panel"
-        elevation="inset"
-        className="p-3.5 border border-amber-500/30"
-        style={{ background: 'rgba(245,158,11,0.08)' }}
-      >
-        <div className="flex items-center justify-between gap-3 mb-2">
-          <div className="flex items-center gap-2 text-amber-300 font-medium text-sp-13">
-            <AlertCircle size={16} className="shrink-0" />
-            <span>
-              Imported with {warnings.length} warning{warnings.length === 1 ? '' : 's'}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={onDismiss}
-            className={cn(
-              'inline-flex items-center h-7 px-3 rounded-sp-btn',
-              'bg-sp-surface border border-sp-line text-sp-text text-sp-11 font-medium',
-              'hover:bg-sp-hover transition-colors'
-            )}
-          >
-            Dismiss
-          </button>
-        </div>
-        <ul className="space-y-1 text-sp-12 text-sp-muted max-h-40 overflow-y-auto pr-1">
-          {warnings.slice(0, 20).map((w, i) => (
-            <li key={i} className="flex gap-2">
-              <span className="text-amber-400/70 shrink-0">›</span>
-              <span>{describeWarning(w)}</span>
-            </li>
-          ))}
-          {warnings.length > 20 && (
-            <li className="text-sp-muted italic">… and {warnings.length - 20} more</li>
-          )}
-        </ul>
-      </Floater>
-    );
-  }
-
-  // error
-  return (
-    <Floater
-      radius="panel"
-      elevation="inset"
-      className="p-3.5 flex items-start gap-2.5 border border-rose-500/30"
-      style={{ background: 'rgba(244,63,94,0.08)' }}
-    >
-      <AlertCircle size={16} className="text-rose-400 shrink-0 mt-0.5" />
-      <div className="min-w-0">
-        <div className="text-sp-13 text-rose-300 font-medium">Import failed</div>
-        <p className="text-sp-12 text-rose-300/80 mt-0.5 break-words">{errorMessage}</p>
-      </div>
-    </Floater>
   );
 }

@@ -93,12 +93,12 @@
   - Verify: ProviderManager tests, secret-handling tests, and `npm run architecture:check`.
   - Files: `src/features/ai-lab/components/ProviderManager.tsx`, `src/features/ai-lab/components/ProviderCatalog.tsx`, `src/features/ai-lab/components/ProviderCredentialEditor.tsx`, `src/features/ai-lab/components/CapabilityOverrides.tsx`, `scripts/architecture.config.mts`.
 
-- [ ] Task 18: Split evaluation report browsing, summary, and matrix/detail views.
+- [x] Task 18: Split evaluation report browsing, summary, and matrix/detail views.
   - Acceptance: report calculation helpers remain pure, selection and export behaviour are covered, and report components are below the cap.
   - Verify: ReportView tests, `npm run test:coverage`, and `npm run architecture:check`.
   - Files: `src/features/ai-lab/components/ReportView.tsx`, `src/features/ai-lab/components/ReportSummary.tsx`, `src/features/ai-lab/components/ReportRunList.tsx`, `src/features/ai-lab/components/ReportMatrix.tsx`, `scripts/architecture.config.mts`.
 
-- [ ] Task 19: Review and proactively split the near-limit controller watchlist where a clear boundary exists.
+- [x] Task 19: Review and proactively split the near-limit controller watchlist where a clear boundary exists.
   - Acceptance: EnvironmentManager, GrpcRequestBuilder, ResponseViewer, SocketIOClient, CommandPalette, CollectionTree, WebSocketClient, WorkflowCanvas, DatasetEditor, AgentWorkbench, and GraphQLRequestBuilder remain at or below 800 lines with no speculative micro-components.
   - Verify: `npm run architecture:check`, focused feature tests, and a fresh component review.
   - Files: one selected controller, up to three new feature-owned modules, its focused test file, and `scripts/architecture.config.mts` only if required.
