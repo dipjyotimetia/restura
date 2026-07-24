@@ -29,7 +29,7 @@
   - Verify: focused settings tests, security-relevant tests, and `npm run architecture:check`.
   - Files: `src/features/settings/sections/JudgeSection.tsx`, `src/features/settings/sections/CertificatesSection.tsx`, `src/features/settings/sections/SecuritySection.tsx`, `src/features/settings/sections/SecretsSection.tsx`, `src/features/settings/SettingsDrawer.tsx`.
 
-- [ ] Task 6: Extract remaining settings sections and remove the SettingsDrawer exemption.
+- [x] Task 6: Extract remaining settings sections and remove the SettingsDrawer exemption.
   - Acceptance: data, shortcuts, updates, and about sections are feature-owned; no settings component exceeds 800 lines; the React grandfathered entry is removed.
   - Verify: `npm run architecture:check`, focused settings tests, and `npm run build`.
   - Files: `src/features/settings/sections/DataSection.tsx`, `src/features/settings/sections/ShortcutsSection.tsx`, `src/features/settings/sections/UpdatesSection.tsx`, `src/features/settings/sections/AboutSection.tsx`, `scripts/architecture.config.mts`.
