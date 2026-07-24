@@ -1,13 +1,11 @@
 'use client';
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import {
   Database,
   Download,
   Info,
   Keyboard as KeyboardIcon,
-  KeyRound,
   type LucideIcon,
   RefreshCw,
   ShieldCheck,
@@ -26,7 +24,7 @@ import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { Logo } from '@/components/shared/Logo';
 import { useReleaseNotes } from '@/components/shared/settings/useReleaseNotes';
 import { Badge } from '@/components/ui/badge';
-import { Floater, Kbd, Segmented, TextField, ToggleField } from '@/components/ui/spatial';
+import { Floater, Kbd, Segmented, ToggleField } from '@/components/ui/spatial';
 import { CertificateOverride } from '@/features/http/components/CertificateOverride';
 import { useStorageMonitor } from '@/hooks/useStorageMonitor';
 import {
@@ -42,7 +40,7 @@ import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { parseReleaseNoteContent, type ReleaseNotesChannel } from '@/lib/shared/release-notes';
 import { cn } from '@/lib/shared/utils';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import { type ClientCert, DEFAULT_AUTO_UPDATE_SETTINGS, DEFAULT_JUDGE_SETTINGS } from '@/types';
+import { type ClientCert, DEFAULT_AUTO_UPDATE_SETTINGS } from '@/types';
 import { SettingsNavigation } from './components/SettingsNavigation';
 import {
   FieldGroup,
@@ -52,6 +50,7 @@ import {
 } from './components/SettingsSectionPrimitives';
 import { AppearanceSection } from './sections/AppearanceSection';
 import { GeneralSection } from './sections/GeneralSection';
+import { JudgeSettingsSection } from './sections/JudgeSettingsSection';
 import { ProxySection, RequestsSection } from './sections/NetworkSections';
 import { SecretsSection, SecuritySection } from './sections/SecuritySections';
 import type { SectionId, SettingsDrawerProps } from './types';
@@ -224,156 +223,6 @@ export default function SettingsDrawer({
 /* -------------------------------------------------------------------------- */
 
 /*  Semantic-assertion judge (rs.judge)                                        */
-/* -------------------------------------------------------------------------- */
-
-const JUDGE_PROVIDERS: ReadonlyArray<{ value: Provider; label: string }> = [
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'anthropic', label: 'Anthropic' },
-  { value: 'openrouter', label: 'OpenRouter' },
-  { value: 'ollama', label: 'Ollama' },
-  { value: 'openai-compatible', label: 'Compatible' },
-];
-
-function JudgeSettingsSection() {
-  const judge = useSettingsStore((s) => s.settings.judge) ?? DEFAULT_JUDGE_SETTINGS;
-  const updateJudge = useSettingsStore((s) => s.updateJudge);
-  const isLocal = isLocalProvider(judge.provider);
-  const [pendingKey, setPendingKey] = useState('');
-
-  // The plaintext key never lands in the store — it's stored in the OS keychain
-  // (same path as the AI assistant) and only its handle id is persisted.
-  const saveJudgeKey = async () => {
-    const value = pendingKey.trim();
-    if (!value) return;
-    const api = getElectronAPI()?.secrets;
-    if (!api) return;
-    const result = await api.store({ scope: 'ai:judge', value, label: 'judge key' });
-    if (!result.ok) {
-      toast.error(`Failed to store key: ${result.error}`);
-      return;
-    }
-    updateJudge({ apiKeyHandleId: result.id });
-    setPendingKey('');
-    toast.success('Judge API key stored');
-  };
-
-  const clearJudgeKey = async () => {
-    const api = getElectronAPI()?.secrets;
-    if (judge.apiKeyHandleId && api) {
-      await api.delete(judge.apiKeyHandleId);
-    }
-    updateJudge({ apiKeyHandleId: undefined });
-  };
-
-  return (
-    <FieldGroup label="Semantic assertions (rs.judge)">
-      <FieldRow
-        label="Enable LLM judge"
-        hint="Lets test scripts call rs.judge(output, { rubric }) to assert on response meaning."
-        control={
-          <ToggleField
-            checked={judge.enabled}
-            onChange={(v) => updateJudge({ enabled: v })}
-            ariaLabel="Enable LLM judge"
-          />
-        }
-      />
-      <FieldRow
-        label="Judge provider"
-        control={
-          <Segmented<Provider>
-            value={judge.provider}
-            onChange={(v) => updateJudge({ provider: v })}
-            options={JUDGE_PROVIDERS}
-          />
-        }
-      />
-      <FieldRow
-        label="Judge model"
-        hint="e.g. gpt-4o-mini, claude-3-5-haiku, or a local Ollama model."
-        control={
-          <TextField
-            mono
-            placeholder="gpt-4o-mini"
-            value={judge.model}
-            onChange={(e) => updateJudge({ model: e.target.value })}
-            disabled={!judge.enabled}
-            className="w-[260px]"
-          />
-        }
-      />
-      {isLocal && (
-        <FieldRow
-          label="Base URL"
-          hint="Required for local runtimes (e.g. http://localhost:11434)."
-          control={
-            <TextField
-              mono
-              placeholder="http://localhost:11434"
-              value={judge.baseUrl ?? ''}
-              onChange={(e) => updateJudge({ baseUrl: e.target.value })}
-              disabled={!judge.enabled}
-              className="w-[260px]"
-            />
-          }
-        />
-      )}
-      <FieldRow
-        label="API key"
-        hint={
-          isLocal
-            ? 'Optional for local runtimes (only if your gateway requires auth).'
-            : 'Required for cloud providers. Stored in the OS keychain; the renderer never sees it.'
-        }
-        control={
-          judge.apiKeyHandleId ? (
-            <div className="flex items-center gap-2">
-              <span className="text-sp-12 font-mono text-sp-muted">
-                handle {judge.apiKeyHandleId.slice(0, 8)}…
-              </span>
-              <DataButton icon={Trash2} danger onClick={() => void clearJudgeKey()}>
-                Clear
-              </DataButton>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <TextField
-                type="password"
-                mono
-                placeholder="sk-…"
-                value={pendingKey}
-                onChange={(e) => setPendingKey(e.target.value)}
-                disabled={!judge.enabled}
-                className="w-[200px]"
-              />
-              <DataButton
-                icon={KeyRound}
-                disabled={!judge.enabled || !pendingKey.trim()}
-                onClick={() => void saveJudgeKey()}
-              >
-                Save
-              </DataButton>
-            </div>
-          )
-        }
-      />
-      <FieldRow
-        label="Redact before judging"
-        hint="Strip secret-looking tokens from the response before it is sent to the judge. For sensitive APIs, prefer a local Ollama judge so responses never leave your machine."
-        control={
-          <ToggleField
-            checked={judge.redactBeforeJudge}
-            onChange={(v) => updateJudge({ redactBeforeJudge: v })}
-            ariaLabel="Redact before judging"
-          />
-        }
-      />
-    </FieldGroup>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Certificates                                                               */
 /* -------------------------------------------------------------------------- */
 
 function CertificatesSection() {
