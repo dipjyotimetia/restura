@@ -107,7 +107,9 @@ _The same runner path handles every protocol; each protocol module decides wheth
 
 - Desktop-only (no browser TCP).
 - Protocol stubs; Electron IPC managers and topic/partition UI.
-- Kafka: producer/consumer, SASL + TLS, Avro/JSON schema registry support.
+- Kafka: producer/consumer, SASL + TLS, and Confluent Schema Registry support for independently encoded keys and values. The [desktop handler](../architecture/overview.md) probes broker metadata before reporting a connection as ready.
+- The Kafka producer accepts UTF-8 text, locally validated JSON text, or arbitrary bytes as canonical Base64. UI validation rejects blank or duplicate enabled header names, invalid non-negative partitions, and invalid schema IDs; the Electron wire boundary revalidates IPC payloads and rejects non-canonical Base64 rather than silently changing bytes.
+- On consume, registry-framed fields decode through the configured registry; raw valid UTF-8 stays text, while raw non-UTF-8 fields return as Base64 so they can be republished without byte loss. A field cannot use both raw Base64 and a Schema Registry schema ID.
 - MQTT: publish/subscribe, QoS, TLS.
 
 ### MCP client (`src/features/mcp/`)

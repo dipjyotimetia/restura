@@ -65,6 +65,7 @@ _Fast unit and integration tests run first; contract, parity, security, and e2e 
 - **Collections**: `src/features/collections/lib/__tests__/*`, `src/features/collections/hooks/__tests__/*`, and `src/lib/opencollection/__tests__/*` cover runner scope/outcomes, coordinated deletion, format round-trips, and managed-file reconciliation.
 - **AI Lab**: `src/features/ai-lab/lib/__tests__/*`.
 - **MCP**: `src/features/mcp-server/__tests__/*`, `src/features/mcp/lib/__tests__/*`.
+- **Desktop Kafka producer**: `src/features/kafka/lib/__tests__/kafkaProducerValidation.test.ts`, `electron/main/__tests__/{kafka-handler,kafka-serde,kafka-validators}.test.ts`, and `src/features/kafka/lib/__tests__/kafkaManager.electron.test.ts` cover client-side payload/header/schema validation, strict Base64 wire decoding and byte-preserving consume display, IPC schema validation, and manager routing. These tests protect the desktop behavior described in [Protocol features](../features/protocols.md#kafka--mqtt).
 
 Run selectively:
 
@@ -118,7 +119,7 @@ Run them after touching `shared/protocol/url-validation.ts`, `redirect-follower.
 - Runs against the unpacked production build `dist/electron/`.
 - Needs a prior build (`npm run test:e2e:electron:build` or manual equivalent).
 - Native gRPC tests need `npm run grpc:server`.
-- Kafka/MQTT tests spin up Docker brokers via `echo-local/docker-compose.yml`; they auto-skip if Docker is missing.
+- Kafka/MQTT tests spin up Docker brokers via `echo-local/docker-compose.yml`; they auto-skip if Docker is missing. `e2e-electron/specs/kafka.spec.ts` specifically round-trips a Base64 binary payload through a live Redpanda broker, checking that the received value and text header survive the renderer → IPC → broker → renderer path.
 
 ### Browser extension
 

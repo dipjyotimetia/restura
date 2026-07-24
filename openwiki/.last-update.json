@@ -1,6 +1,6 @@
 {
-  "updatedAt": "2026-07-23T23:36:50.829Z",
+  "updatedAt": "2026-07-24T09:23:04.850Z",
   "command": "update",
-  "gitHead": "6d99289c6d76f79b9360f9c4dfb373316871a3b0",
-  "model": "moonshotai/kimi-k2.7-code"
+  "gitHead": "84f41b70a445a839812a8d7b8d95331871716727",
+  "model": "gpt-5.6-terra"
 }
