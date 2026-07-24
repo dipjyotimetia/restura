@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -40,7 +40,9 @@ describe('WelcomeOnboarding privacy step', () => {
     await advanceToPrivacyStep(user);
     await user.click(screen.getByRole('switch', { name: 'Send crash and error reports' }));
 
-    expect(useSettingsStore.getState().settings.telemetry?.errorsEnabled).toBe(false);
+    await waitFor(() => {
+      expect(useSettingsStore.getState().settings.telemetry?.errorsEnabled).toBe(false);
+    });
   });
 
   it('shows the multi-protocol step but hides the desktop-only AI step on web', async () => {
