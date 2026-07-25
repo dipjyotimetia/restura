@@ -36,7 +36,7 @@ alongside the smallest production change.
 - Files: sse-handler.ts, mcp-handler.ts, two focused test files
 - Scope: M
 
-### Task 4: Enforce ownership for Kafka and MQTT
+### Task 4: Enforce ownership for Kafka and MQTT — complete
 
 - Acceptance: produce/publish, subscription administration, disconnect, and
   reconnect are owner-aware.
