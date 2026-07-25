@@ -24,19 +24,46 @@ export function useInspectorFetch(
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const loadRef = useRef(load);
+  const mountedRef = useRef(false);
+  const requestIdRef = useRef(0);
   loadRef.current = load;
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      requestIdRef.current += 1;
+    };
+  }, []);
+
   const run = useCallback(async <R extends AsyncResult>(action: () => Promise<R>): Promise<R> => {
-    setBusy(true);
-    setError(null);
-    const result = await action();
-    if (!result.ok) setError(result.error);
-    setBusy(false);
-    return result;
+    const requestId = ++requestIdRef.current;
+    const isCurrent = () => mountedRef.current && requestId === requestIdRef.current;
+
+    if (isCurrent()) {
+      setBusy(true);
+      setError(null);
+    }
+
+    try {
+      const result = await action();
+      if (isCurrent() && !result.ok) setError(result.error);
+      return result;
+    } catch (cause) {
+      if (isCurrent()) setError(cause instanceof Error ? cause.message : String(cause));
+      throw cause;
+    } finally {
+      if (isCurrent()) setBusy(false);
+    }
   }, []);
 
   const refresh = useCallback(async () => {
-    await run(() => loadRef.current());
+    try {
+      await run(() => loadRef.current());
+    } catch {
+      // `run` has already surfaced the failure; refresh is fire-and-forget on mount
+      // and from inspector controls, so do not leak an unhandled rejection.
+    }
   }, [run]);
 
   useEffect(() => {
