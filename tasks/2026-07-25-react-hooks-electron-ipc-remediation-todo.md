@@ -139,7 +139,7 @@ alongside the smallest production change.
 
 ## Phase 4: Hook lifecycle and latest-result safety
 
-### Task 12: Make Kafka inspector refresh failure-safe
+### Task 12: Make Kafka inspector refresh failure-safe — complete
 
 - Acceptance: rejected initial/manual loads clear busy state, surface an error,
   and cannot let a stale/unmounted refresh overwrite state.
