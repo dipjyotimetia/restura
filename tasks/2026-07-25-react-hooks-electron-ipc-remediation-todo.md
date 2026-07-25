@@ -111,7 +111,7 @@ alongside the smallest production change.
 - Files: useRequestStore.ts/test, useHttpRequestPage.ts, useRequestRunner.ts/test
 - Scope: M
 
-### Task 10: Reconcile MCP store state with client teardown
+### Task 10: Reconcile MCP store state with client teardown — complete
 
 - Acceptance: connection switch/unmount clears client status/capabilities and
   a late prior completion cannot revive it.
