@@ -87,7 +87,7 @@ alongside the smallest production change.
   useFileCollectionStore.ts, focused test
 - Scope: M
 
-### Task 8: Make IPC channel registration mechanically rename-safe
+### Task 8: Make IPC channel registration mechanically rename-safe — complete
 
 - Acceptance: command registrations/teardown use IPC constants and preserve
   exact current channel values.
