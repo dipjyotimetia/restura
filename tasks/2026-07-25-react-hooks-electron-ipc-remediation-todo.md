@@ -26,7 +26,7 @@ alongside the smallest production change.
 - Files: websocket-handler.ts, socketio-handler.ts, their two focused tests
 - Scope: M
 
-### Task 3: Enforce ownership for SSE and MCP
+### Task 3: Enforce ownership for SSE and MCP — complete
 
 - Acceptance: SSE disconnect and MCP request/disconnect/reconnect use the
   creator window identity.
