@@ -397,6 +397,10 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
       return new Promise<{ success: boolean; error?: string }>((resolve) => {
         entry.client.subscribe(cfg.topicFilter, { qos: cfg.qos }, (err, granted) => {
+          if (activeConnections.get(cfg.connectionId) !== entry) {
+            resolve({ success: false, error: 'Not connected' });
+            return;
+          }
           if (err) {
             resolve({ success: false, error: errorMessage(err) });
             return;
@@ -426,6 +430,10 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
       return new Promise<{ success: boolean; error?: string }>((resolve) => {
         entry.client.unsubscribe(cfg.topicFilter, (err) => {
+          if (activeConnections.get(cfg.connectionId) !== entry) {
+            resolve({ success: false, error: 'Not connected' });
+            return;
+          }
           if (err) {
             resolve({ success: false, error: errorMessage(err) });
             return;

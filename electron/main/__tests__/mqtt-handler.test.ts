@@ -320,6 +320,73 @@ describe('mqtt-handler', () => {
     });
   });
 
+  it('suppresses a stale subscribe acknowledgement after same-id replacement', async () => {
+    const { event, senderId } = makeEvent();
+    await handlerFor(IPC.mqtt.connect)(event, validConnect('shared'));
+    const previous = FakeMqttClient.instances[0]!;
+    let acknowledge!: () => void;
+    previous.subscribe.mockImplementationOnce((topic: string, opts: { qos: number }, cb?: Cb) => {
+      acknowledge = () => cb?.(null, [{ topic, qos: opts.qos }]);
+      return previous;
+    });
+
+    const staleSubscribe = handlerFor(IPC.mqtt.subscribe)(event, {
+      connectionId: 'shared',
+      topicFilter: 'devices/+',
+      qos: 1,
+    });
+    await handlerFor(IPC.mqtt.connect)(event, validConnect('shared'));
+
+    mockEmitTo.mockClear();
+    acknowledge();
+    await expect(staleSubscribe).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(mockEmitTo).not.toHaveBeenCalled();
+
+    await expect(
+      handlerFor(IPC.mqtt.subscribe)(event, {
+        connectionId: 'shared',
+        topicFilter: 'current/+',
+        qos: 1,
+      })
+    ).resolves.toEqual({ success: true });
+    expect(mockEmitTo).toHaveBeenCalledWith(senderId, 'mqtt:subscribed:shared', {
+      topicFilter: 'current/+',
+      grantedQos: 1,
+    });
+  });
+
+  it('suppresses a stale unsubscribe acknowledgement after same-id replacement', async () => {
+    const { event, senderId } = makeEvent();
+    await handlerFor(IPC.mqtt.connect)(event, validConnect('shared'));
+    const previous = FakeMqttClient.instances[0]!;
+    let acknowledge!: () => void;
+    previous.unsubscribe.mockImplementationOnce((_topic: string, cb?: Cb) => {
+      acknowledge = () => cb?.(null);
+      return previous;
+    });
+
+    const staleUnsubscribe = handlerFor(IPC.mqtt.unsubscribe)(event, {
+      connectionId: 'shared',
+      topicFilter: 'devices/+',
+    });
+    await handlerFor(IPC.mqtt.connect)(event, validConnect('shared'));
+
+    mockEmitTo.mockClear();
+    acknowledge();
+    await expect(staleUnsubscribe).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(mockEmitTo).not.toHaveBeenCalled();
+
+    await expect(
+      handlerFor(IPC.mqtt.unsubscribe)(event, {
+        connectionId: 'shared',
+        topicFilter: 'current/+',
+      })
+    ).resolves.toEqual({ success: true });
+    expect(mockEmitTo).toHaveBeenCalledWith(senderId, 'mqtt:unsubscribed:shared', {
+      topicFilter: 'current/+',
+    });
+  });
+
   it('explicit disconnect ends the client gracefully, emits close, and drops the entry', async () => {
     const { event, senderId } = makeEvent();
     await handlerFor(IPC.mqtt.connect)(event, validConnect('c1'));
