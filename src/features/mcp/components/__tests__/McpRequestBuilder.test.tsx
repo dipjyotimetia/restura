@@ -134,12 +134,6 @@ const FIRST_CAPABILITIES: McpServerCapabilities = {
   prompts: [],
 };
 
-const REFRESHED_CAPABILITIES: McpServerCapabilities = {
-  tools: [{ name: 'late-tool' }],
-  resources: [],
-  prompts: [],
-};
-
 function connection(id: string): McpConnection {
   return {
     id,
@@ -167,22 +161,15 @@ describe('McpRequestBuilder client ownership', () => {
     });
   });
 
-  it('clears a switched connection and ignores its late refresh completion', async () => {
-    const lateRefresh = deferred<McpServerCapabilities>();
-    clientMocks.discoveryResults.push(Promise.resolve(FIRST_CAPABILITIES), lateRefresh.promise);
+  it('disconnects a pending client on switch and ignores its late connect completion', async () => {
+    const lateConnect = deferred<{ ok: true }>();
+    clientMocks.connectResults.push(lateConnect.promise);
     render(<McpRequestBuilder />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
     await waitFor(() => {
-      expect(useMcpStore.getState().connections.first).toMatchObject({
-        status: 'connected',
-        capabilities: FIRST_CAPABILITIES,
-      });
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
-    await waitFor(() => {
-      expect(clientMocks.instances[0]?.discoverCapabilities).toHaveBeenCalledTimes(2);
+      expect(clientMocks.instances[0]?.connect).toHaveBeenCalledTimes(1);
+      expect(useMcpStore.getState().connections.first?.status).toBe('connecting');
     });
 
     act(() => {
@@ -196,14 +183,15 @@ describe('McpRequestBuilder client ownership', () => {
     expect(clientMocks.instances[0]?.disconnect).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      lateRefresh.resolve(REFRESHED_CAPABILITIES);
-      await lateRefresh.promise;
+      lateConnect.resolve({ ok: true });
+      await lateConnect.promise;
     });
 
     expect(useMcpStore.getState().connections.first).toMatchObject({
       status: 'disconnected',
       capabilities: null,
     });
+    expect(clientMocks.instances[0]?.discoverCapabilities).not.toHaveBeenCalled();
   });
 
   it('requires the remounted connection to reconnect before invoking with a current client', async () => {

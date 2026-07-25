@@ -132,6 +132,21 @@ function releaseMcpClaim(connectionId: string, claim: PendingMcpClaim): void {
   }
 }
 
+function cancelPendingMcpClaimForOwner(connectionId: string, webContentsId: number): boolean {
+  const claim = pendingSessions.get(connectionId);
+  if (!claim || claim.webContentsId !== webContentsId) return false;
+
+  // Invalidate the claim before closing its in-flight transport. If the close
+  // settles connect synchronously, the stale attempt still cannot commit.
+  pendingSessions.delete(connectionId);
+  try {
+    disposePendingMcpClaim(claim);
+  } catch {
+    // Match StreamRegistry cancellation: teardown is best-effort and idempotent.
+  }
+  return true;
+}
+
 export function registerMcpHandlerIPC(): void {
   ipcMain.handle(IPC.mcp.connect, async (event, rawConfig: unknown) => {
     assertTrustedSender(IPC.mcp.connect, event);
@@ -364,6 +379,7 @@ export function registerMcpHandlerIPC(): void {
     IPC.mcp.disconnect,
     createValidatedEventHandler(IPC.mcp.disconnect, McpDisconnectSchema, async (config, event) => {
       // Missing and wrong-owner ids are deliberately indistinguishable.
+      cancelPendingMcpClaimForOwner(config.connectionId, event.sender.id);
       sessions.cancelForOwner(config.connectionId, event.sender.id);
       return { success: true };
     })

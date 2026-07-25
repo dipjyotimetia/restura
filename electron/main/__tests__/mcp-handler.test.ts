@@ -468,6 +468,71 @@ describe('mcp-handler (SDK-backed)', () => {
     ).resolves.toMatchObject({ success: true });
   });
 
+  it('lets only the owner disconnect a pending connect and rejects its late completion', async () => {
+    const creator = makeTrustedEvent(45);
+    const nonOwner = makeTrustedEvent(46);
+    const successor = makeTrustedEvent(47);
+    const connectGate = deferred<void>();
+    sdkState.connectGates.push(connectGate.promise);
+
+    const staleConnect = handlerFor('mcp:connect')(creator.event, {
+      connectionId: 'disconnected-pending',
+      url: 'https://mcp.example.com/mcp',
+      transport: 'streamable-http',
+    });
+    await vi.waitFor(() => expect(sdkState.clients).toHaveLength(1));
+    const staleClient = sdkState.clients[0]!;
+    const staleTransport = sdkState.streamables[0] as unknown as {
+      terminateSession: ReturnType<typeof vi.fn>;
+    };
+
+    await expect(
+      handlerFor('mcp:disconnect')(nonOwner.event, {
+        connectionId: 'disconnected-pending',
+      })
+    ).resolves.toEqual({ success: true });
+    expect(staleClient.close).not.toHaveBeenCalled();
+
+    await expect(
+      handlerFor('mcp:disconnect')(creator.event, {
+        connectionId: 'disconnected-pending',
+      })
+    ).resolves.toEqual({ success: true });
+    expect(staleClient.close).toHaveBeenCalledTimes(1);
+    expect(staleTransport.terminateSession).toHaveBeenCalledTimes(1);
+
+    await expect(
+      handlerFor('mcp:connect')(successor.event, {
+        connectionId: 'disconnected-pending',
+        url: 'https://successor.example/mcp',
+        transport: 'streamable-http',
+      })
+    ).resolves.toEqual({ success: true });
+
+    mockEmitTo.mockClear();
+    connectGate.resolve();
+
+    await expect(staleConnect).resolves.toEqual({
+      success: false,
+      error: 'Connection closed during initialization',
+    });
+    expect(staleClient.close).toHaveBeenCalledTimes(1);
+    expect(mockEmitTo).not.toHaveBeenCalled();
+
+    await expect(
+      handlerFor('mcp:request')(creator.event, {
+        connectionId: 'disconnected-pending',
+        method: 'tools/list',
+      })
+    ).resolves.toEqual({ success: false, error: 'Not connected' });
+    await expect(
+      handlerFor('mcp:request')(successor.event, {
+        connectionId: 'disconnected-pending',
+        method: 'tools/list',
+      })
+    ).resolves.toMatchObject({ success: true });
+  });
+
   it('immediately disposes a pending connect during module teardown', async () => {
     const creator = makeTrustedEvent(51);
     const successor = makeTrustedEvent(52);
