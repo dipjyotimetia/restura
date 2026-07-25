@@ -35,6 +35,14 @@ import {
   stopKafkaCleanup,
 } from '../handlers/kafka-handler';
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 // Fake @platformatic/kafka. NOT injectable via vi.mock — the handler loads the
 // lib through a lazy bare `require('@platformatic/kafka')`, which vitest's
 // ESM-level mocking does not intercept — so it goes in through the module's
@@ -42,9 +50,14 @@ import {
 // assert construction, send/close forwarding, and teardown symmetry.
 class FakeProducer {
   static instances: FakeProducer[] = [];
+  static metadataGates: Array<Promise<void>> = [];
   options: unknown;
   send = vi.fn(async () => ({ offsets: [{ topic: 'orders', partition: 0, offset: 7n }] }));
-  metadata = vi.fn(async () => new Map());
+  metadata = vi.fn(async () => {
+    const gate = FakeProducer.metadataGates.shift();
+    if (gate) await gate;
+    return new Map();
+  });
   close = vi.fn(async () => {});
   constructor(options: unknown) {
     this.options = options;
@@ -132,6 +145,7 @@ describe('kafka-handler', () => {
     mockBrokersSafe.mockClear();
     mockRegistryUrlSafe.mockClear();
     FakeProducer.instances.length = 0;
+    FakeProducer.metadataGates.length = 0;
     FakeAdmin.instances.length = 0;
     __setKafkaForTests(fakeKafkaLib);
     registerKafkaHandlerIPC();
@@ -326,6 +340,132 @@ describe('kafka-handler', () => {
     const [first, second] = FakeProducer.instances;
     expect(first!.close).toHaveBeenCalledWith(true);
     expect(second!.close).not.toHaveBeenCalled();
+  });
+
+  it('prevents a second renderer from operating or replacing the owner connection', async () => {
+    const owner = makeEvent();
+    const other = makeEvent();
+    await handlerFor(IPC.kafka.connect)(owner.event, validConnect('shared'));
+    const producer = FakeProducer.instances[0]!;
+    mockBrokersSafe.mockClear();
+
+    await expect(
+      handlerFor(IPC.kafka.produce)(other.event, validProduce('shared'))
+    ).resolves.toEqual({ success: false, error: 'Not connected' });
+    await expect(
+      handlerFor(IPC.kafka.subscribe)(other.event, {
+        connectionId: 'shared',
+        topics: ['orders'],
+        groupId: 'other-group',
+        fromBeginning: false,
+      })
+    ).resolves.toEqual({ success: false, error: 'Not connected' });
+    await expect(
+      handlerFor(IPC.kafka.unsubscribe)(other.event, { connectionId: 'shared' })
+    ).resolves.toEqual({ success: false, error: 'Not connected' });
+    await expect(
+      handlerFor(IPC.kafka.listTopics)(other.event, { connectionId: 'shared' })
+    ).resolves.toEqual({ success: false, error: 'Not connected' });
+    await expect(
+      handlerFor(IPC.kafka.disconnect)(other.event, { connectionId: 'shared' })
+    ).resolves.toEqual({ success: true });
+    await expect(
+      handlerFor(IPC.kafka.connect)(
+        other.event,
+        validConnect('shared', {
+          bootstrapBrokers: ['other.example.com:9092'],
+          auth: {
+            securityProtocol: 'SASL_PLAINTEXT',
+            sasl: { mechanism: 'PLAIN', username: 'other', password: 'secret' },
+          },
+        })
+      )
+    ).resolves.toEqual({ success: false, error: 'Not connected' });
+
+    expect(producer.send).not.toHaveBeenCalled();
+    expect(producer.close).not.toHaveBeenCalled();
+    expect(FakeAdmin.instances).toHaveLength(0);
+    expect(FakeProducer.instances).toHaveLength(1);
+    expect(mockBrokersSafe).not.toHaveBeenCalled();
+
+    await expect(
+      handlerFor(IPC.kafka.produce)(owner.event, validProduce('shared'))
+    ).resolves.toMatchObject({ success: true });
+    expect(producer.send).toHaveBeenCalledTimes(1);
+  });
+
+  it('reserves a same-id connect before broker setup and keeps the first completion', async () => {
+    const first = makeEvent();
+    const second = makeEvent();
+    const metadataGate = deferred<void>();
+    FakeProducer.metadataGates.push(metadataGate.promise);
+
+    const firstConnect = handlerFor(IPC.kafka.connect)(first.event, validConnect('raced'));
+    await vi.waitFor(() => expect(FakeProducer.instances).toHaveLength(1));
+    const secondConnect = handlerFor(IPC.kafka.connect)(second.event, validConnect('raced'));
+
+    await expect(secondConnect).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(mockBrokersSafe).toHaveBeenCalledTimes(1);
+    expect(FakeProducer.instances).toHaveLength(1);
+
+    metadataGate.resolve();
+    await expect(firstConnect).resolves.toEqual({ success: true });
+    await expect(
+      handlerFor(IPC.kafka.produce)(first.event, validProduce('raced'))
+    ).resolves.toMatchObject({ success: true });
+    await expect(
+      handlerFor(IPC.kafka.produce)(second.event, validProduce('raced'))
+    ).resolves.toEqual({ success: false, error: 'Not connected' });
+  });
+
+  it('disposes a destroyed renderer pending producer and rejects its late completion', async () => {
+    const first = makeEvent();
+    const successor = makeEvent();
+    const metadataGate = deferred<void>();
+    FakeProducer.metadataGates.push(metadataGate.promise);
+
+    const staleConnect = handlerFor(IPC.kafka.connect)(first.event, validConnect('released'));
+    await vi.waitFor(() => expect(FakeProducer.instances).toHaveLength(1));
+    const staleProducer = FakeProducer.instances[0]!;
+
+    first.destroy();
+    await vi.waitFor(() => expect(staleProducer.close).toHaveBeenCalledWith(true));
+    await expect(
+      handlerFor(IPC.kafka.connect)(successor.event, validConnect('released'))
+    ).resolves.toEqual({ success: true });
+    const winner = FakeProducer.instances[1]!;
+
+    mockEmitTo.mockClear();
+    metadataGate.resolve();
+    await expect(staleConnect).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(staleProducer.close).toHaveBeenCalledTimes(1);
+    expect(winner.close).not.toHaveBeenCalled();
+    expect(mockEmitTo).not.toHaveBeenCalled();
+  });
+
+  it('disposes a pending producer during module teardown and rejects its late completion', async () => {
+    const first = makeEvent();
+    const successor = makeEvent();
+    const metadataGate = deferred<void>();
+    FakeProducer.metadataGates.push(metadataGate.promise);
+
+    const staleConnect = handlerFor(IPC.kafka.connect)(first.event, validConnect('teardown'));
+    await vi.waitFor(() => expect(FakeProducer.instances).toHaveLength(1));
+    const staleProducer = FakeProducer.instances[0]!;
+
+    await stopKafkaCleanup();
+    expect(staleProducer.close).toHaveBeenCalledWith(true);
+    await expect(
+      handlerFor(IPC.kafka.connect)(successor.event, validConnect('teardown'))
+    ).resolves.toEqual({ success: true });
+    const winner = FakeProducer.instances[1]!;
+
+    mockEmitTo.mockClear();
+    metadataGate.resolve();
+    await expect(staleConnect).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(staleProducer.close).toHaveBeenCalledTimes(1);
+    expect(winner.close).not.toHaveBeenCalled();
+    expect(mockEmitTo).not.toHaveBeenCalled();
   });
 
   it('tears the connection down when its renderer is destroyed', async () => {
