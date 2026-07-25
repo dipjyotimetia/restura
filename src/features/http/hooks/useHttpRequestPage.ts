@@ -43,10 +43,11 @@ function captureSentHeaders(
 export function useHttpRequestPage() {
   const httpRequest = useActiveRequest('http');
   const updateRequest = useRequestStore((s) => s.updateRequest);
+  const updateRequestForTab = useRequestStore((s) => s.updateRequestForTab);
   const setLoading = useRequestStore((s) => s.setLoading);
-  const setCurrentResponse = useRequestStore((s) => s.setCurrentResponse);
+  const setCurrentResponseForTab = useRequestStore((s) => s.setCurrentResponseForTab);
   const isLoading = useRequestStore((s) => s.isLoading);
-  const setScriptResult = useRequestStore((s) => s.setScriptResult);
+  const setScriptResultForTab = useRequestStore((s) => s.setScriptResultForTab);
   const addHistoryItem = useHistoryStore((s) => s.addHistoryItem);
   const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const globalSettings = useSettingsStore((s) => s.settings);
@@ -79,6 +80,8 @@ export function useHttpRequestPage() {
   // history, console, persisting refreshed auth / collection var mutations).
   const sendRequest = useCallback(async () => {
     if (!httpRequest || !httpRequest.url || isLoading) return;
+    const originTabId = useRequestStore.getState().activeTabId;
+    if (!originTabId) return;
 
     setLoading(true);
     const startTime = Date.now();
@@ -97,7 +100,9 @@ export function useHttpRequestPage() {
       // Resolve the owning collection (if this request is saved in one) so
       // scripts get a real `pm.collectionVariables` namespace + `pm.info`,
       // and mutations can be persisted back after the run.
-      const savedRequestId = useRequestStore.getState().getActiveTab()?.savedRequestId;
+      const savedRequestId = useRequestStore
+        .getState()
+        .tabs.find((tab) => tab.id === originTabId)?.savedRequestId;
       const collection = savedRequestId
         ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)
         : undefined;
@@ -135,7 +140,7 @@ export function useHttpRequestPage() {
 
       const { scriptResult } = result;
       if (scriptResult && (scriptResult.preRequest || scriptResult.test)) {
-        setScriptResult(scriptResult);
+        setScriptResultForTab(originTabId, scriptResult);
       }
 
       if (collection && result.collectionVarsMutations) {
@@ -148,11 +153,11 @@ export function useHttpRequestPage() {
       // this request; a refreshed *inherited* auth must not be materialised
       // onto the request.
       if (result.refreshedAuth && httpRequest.auth?.type === 'oauth2') {
-        updateRequest({ auth: result.refreshedAuth });
+        updateRequestForTab(originTabId, { auth: result.refreshedAuth });
       }
 
       const responseData = result.response;
-      setCurrentResponse(responseData);
+      setCurrentResponseForTab(originTabId, responseData);
       // `httpRequest.url` (kept as-is) preserves the `{{var}}` template so
       // reopening/replaying this entry still targets whichever environment is
       // active; `resolvedUrl` is recorded alongside for accurate history/
@@ -199,7 +204,7 @@ export function useHttpRequestPage() {
         time: endTime - startTime,
         timestamp: Date.now(),
       };
-      setCurrentResponse(errorResponse);
+      setCurrentResponseForTab(originTabId, errorResponse);
       // Same as the success path: log the resolved URL alongside the
       // template-preserving `httpRequest`, not in place of it.
       addHistoryItem(httpRequest, errorResponse, resolvedUrl);
@@ -223,12 +228,13 @@ export function useHttpRequestPage() {
     isLoading,
     setLoading,
     resolveVariables,
-    setScriptResult,
-    setCurrentResponse,
+    setScriptResultForTab,
+    setCurrentResponseForTab,
     addHistoryItem,
     globalSettings,
     addEntry,
     updateRequest,
+    updateRequestForTab,
   ]);
 
   const changeSettings = useCallback(

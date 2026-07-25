@@ -139,6 +139,138 @@ describe('useRequestRunner', () => {
     expect(activeTab?.scriptResult?.test?.tests?.[0]?.name).toBe('status is 200');
   });
 
+  it('forwards a delayed script result to the tab that started the run', async () => {
+    const { protocolRegistry } = await import('../registry');
+    const { useRequestStore } = await import('@/store/useRequestStore');
+    let releaseProtocol: (() => void) | undefined;
+    const waitForRelease = new Promise<void>((resolve) => {
+      releaseProtocol = resolve;
+    });
+
+    protocolRegistry.register({
+      id: 'fake-origin-tab-scripts-test',
+      label: 'Fake',
+      tabType: 'http',
+      defaultRequest: () => ({}) as never,
+      runRequest: async (_req, ctx) => {
+        await waitForRelease;
+        ctx.onScriptResult?.({
+          preRequest: {
+            success: true,
+            logs: [],
+            errors: [],
+            variables: { destination: 'origin' },
+          },
+        });
+        return {
+          id: 'resp-origin',
+          requestId: 'req-origin',
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: '',
+          size: 0,
+          time: 0,
+          timestamp: Date.now(),
+        };
+      },
+    });
+
+    const originRequest = { id: 'req-origin', name: 'Origin', type: 'http' } as never;
+    const otherRequest = { id: 'req-other', name: 'Other', type: 'http' } as never;
+    useRequestStore.setState({
+      tabs: [
+        { id: 'tab-origin', request: originRequest, isDirty: false },
+        { id: 'tab-other', request: otherRequest, isDirty: false },
+      ],
+      activeTabId: 'tab-origin',
+      isLoading: false,
+    });
+
+    const { useRequestRunner } = await import('../useRequestRunner');
+    const { result } = renderHook(() => useRequestRunner());
+    let runPromise: ReturnType<typeof result.current.run> | undefined;
+    act(() => {
+      runPromise = result.current.run(originRequest, 'fake-origin-tab-scripts-test');
+    });
+    act(() => {
+      useRequestStore.getState().switchTab('tab-other');
+      releaseProtocol?.();
+    });
+    await act(async () => {
+      await runPromise;
+    });
+
+    const state = useRequestStore.getState();
+    expect(state.tabs.find((tab) => tab.id === 'tab-origin')?.scriptResult).toMatchObject({
+      preRequest: { variables: { destination: 'origin' } },
+    });
+    expect(state.tabs.find((tab) => tab.id === 'tab-other')?.scriptResult).toBeUndefined();
+  });
+
+  it('drops a delayed script result when the tab that started the run has closed', async () => {
+    const { protocolRegistry } = await import('../registry');
+    const { useRequestStore } = await import('@/store/useRequestStore');
+    let releaseProtocol: (() => void) | undefined;
+    const waitForRelease = new Promise<void>((resolve) => {
+      releaseProtocol = resolve;
+    });
+
+    protocolRegistry.register({
+      id: 'fake-closed-origin-tab-scripts-test',
+      label: 'Fake',
+      tabType: 'http',
+      defaultRequest: () => ({}) as never,
+      runRequest: async (_req, ctx) => {
+        await waitForRelease;
+        ctx.onScriptResult?.({
+          test: { success: true, logs: [], errors: [], variables: {} },
+        });
+        return {
+          id: 'resp-closed',
+          requestId: 'req-closed',
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: '',
+          size: 0,
+          time: 0,
+          timestamp: Date.now(),
+        };
+      },
+    });
+
+    const originRequest = { id: 'req-closed', name: 'Closing', type: 'http' } as never;
+    const otherRequest = { id: 'req-stays', name: 'Stays', type: 'http' } as never;
+    useRequestStore.setState({
+      tabs: [
+        { id: 'tab-closing', request: originRequest, isDirty: false },
+        { id: 'tab-stays', request: otherRequest, isDirty: false },
+      ],
+      activeTabId: 'tab-closing',
+      isLoading: false,
+    });
+
+    const { useRequestRunner } = await import('../useRequestRunner');
+    const { result } = renderHook(() => useRequestRunner());
+    let runPromise: ReturnType<typeof result.current.run> | undefined;
+    act(() => {
+      runPromise = result.current.run(originRequest, 'fake-closed-origin-tab-scripts-test');
+    });
+    act(() => {
+      useRequestStore.getState().closeTab('tab-closing');
+      releaseProtocol?.();
+    });
+    await act(async () => {
+      await runPromise;
+    });
+
+    const state = useRequestStore.getState();
+    expect(state.activeTabId).toBe('tab-stays');
+    expect(state.tabs).toHaveLength(1);
+    expect(state.tabs[0]?.scriptResult).toBeUndefined();
+  });
+
   it('omits scriptResult on RunResult when the protocol never calls onScriptResult', async () => {
     const { protocolRegistry } = await import('../registry');
     protocolRegistry.register({

@@ -143,6 +143,48 @@ describe('useRequestStore — tabs', () => {
       expect((tab.request as HttpRequest).url).toBe('https://a.com');
       expect((tab.request as HttpRequest).method).toBe('GET'); // unchanged
     });
+
+    it('updates a specified extant tab without changing the active tab', () => {
+      const originTabId = useRequestStore
+        .getState()
+        .openTab(makeHttp({ url: 'https://origin.example' }));
+      const activeTabId = useRequestStore
+        .getState()
+        .openTab(makeHttp({ url: 'https://active.example' }));
+
+      expect(
+        useRequestStore
+          .getState()
+          .updateRequestForTab(originTabId, { url: 'https://origin-updated.example' })
+      ).toBe(true);
+
+      const state = useRequestStore.getState();
+      expect(state.activeTabId).toBe(activeTabId);
+      expect((state.tabs.find((tab) => tab.id === originTabId)?.request as HttpRequest).url).toBe(
+        'https://origin-updated.example'
+      );
+      expect((state.tabs.find((tab) => tab.id === activeTabId)?.request as HttpRequest).url).toBe(
+        'https://active.example'
+      );
+    });
+
+    it('does not update the active tab when a specified origin tab has closed', () => {
+      const closedTabId = useRequestStore.getState().openTab(makeHttp());
+      const activeTabId = useRequestStore
+        .getState()
+        .openTab(makeHttp({ url: 'https://active.example' }));
+      useRequestStore.getState().closeTab(closedTabId);
+
+      expect(
+        useRequestStore
+          .getState()
+          .updateRequestForTab(closedTabId, { url: 'https://wrong.example' })
+      ).toBe(false);
+
+      const state = useRequestStore.getState();
+      expect(state.activeTabId).toBe(activeTabId);
+      expect((state.tabs[0]?.request as HttpRequest).url).toBe('https://active.example');
+    });
   });
 
   describe('setCurrentResponse / setScriptResult', () => {
@@ -173,6 +215,44 @@ describe('useRequestStore — tabs', () => {
       const tabA = useRequestStore.getState().tabs.find((t) => t.id === a)!;
       expect(tabA.scriptResult).toBeUndefined();
       expect(useRequestStore.getState().getActiveTab()!.scriptResult).toBeDefined();
+    });
+
+    it('sets response and script results on a specified tab without changing the active tab', () => {
+      const originTabId = useRequestStore.getState().openTab(makeHttp());
+      const activeTabId = useRequestStore.getState().openTab(makeGrpc());
+      const response = makeResponse('origin-request');
+      const scriptResult = {
+        preRequest: { success: true, logs: [], errors: [], variables: { origin: 'true' } },
+      };
+
+      useRequestStore.getState().setCurrentResponseForTab(originTabId, response);
+      useRequestStore.getState().setScriptResultForTab(originTabId, scriptResult);
+
+      const state = useRequestStore.getState();
+      const originTab = state.tabs.find((tab) => tab.id === originTabId);
+      const activeTab = state.tabs.find((tab) => tab.id === activeTabId);
+      expect(state.activeTabId).toBe(activeTabId);
+      expect(originTab?.response).toEqual(response);
+      expect(originTab?.scriptResult).toEqual(scriptResult);
+      expect(activeTab?.response).toBeUndefined();
+      expect(activeTab?.scriptResult).toBeUndefined();
+    });
+
+    it('does not write a response or script result when the specified tab has closed', () => {
+      const closedTabId = useRequestStore.getState().openTab(makeHttp());
+      const activeTabId = useRequestStore.getState().openTab(makeGrpc());
+      useRequestStore.getState().closeTab(closedTabId);
+
+      useRequestStore.getState().setCurrentResponseForTab(closedTabId, makeResponse('closed'));
+      useRequestStore.getState().setScriptResultForTab(closedTabId, {
+        test: { success: true, logs: [], errors: [], variables: {} },
+      });
+
+      const state = useRequestStore.getState();
+      expect(state.activeTabId).toBe(activeTabId);
+      expect(state.tabs).toHaveLength(1);
+      expect(state.tabs[0]?.response).toBeUndefined();
+      expect(state.tabs[0]?.scriptResult).toBeUndefined();
     });
   });
 
