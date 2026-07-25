@@ -5,7 +5,7 @@ alongside the smallest production change.
 
 ## Phase 1: Electron ownership boundary
 
-### Task 1: Define and test owner-aware stream registry operations
+### Task 1: Define and test owner-aware stream registry operations — complete
 
 - Acceptance: owner-aware lookup, cancellation, and replacement are internal,
   typed, and preserve renderer-destruction cleanup.
