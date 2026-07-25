@@ -2,10 +2,11 @@ import { Agent as HttpAgent } from 'node:http';
 import { Agent as HttpsAgent } from 'node:https';
 import { createLogger } from '@shared/runtime/logger';
 import { SOCKETIO_RESERVED_EVENTS, socketioChannels } from '@shared/socketio-constants';
-import { ipcMain } from 'electron';
+import { ipcMain, type WebContents } from 'electron';
 import type * as SocketIoClient from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
 import { IPC } from '../../shared/channels';
+import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo } from '../ipc/ipc-utils';
 import {
@@ -87,6 +88,41 @@ function disposeSocketIo(entry: ActiveSocketIO): void {
 // registry is used purely for bookkeeping here.
 const activeConnections = new StreamRegistry<ActiveSocketIO>({ dispose: disposeSocketIo });
 
+interface PendingSocketIoClaim {
+  webContentsId: number;
+  token: symbol;
+  ownerEntry?: ActiveSocketIO;
+}
+
+const pendingConnections = new Map<string, PendingSocketIoClaim>();
+
+function reserveSocketIoClaim(
+  connectionId: string,
+  webContents: WebContents
+): PendingSocketIoClaim | undefined {
+  if (pendingConnections.has(connectionId)) return undefined;
+
+  const ownerEntry = activeConnections.getForOwner(connectionId, webContents.id);
+  if (activeConnections.has(connectionId) && !ownerEntry) return undefined;
+
+  const claim: PendingSocketIoClaim = {
+    webContentsId: webContents.id,
+    token: Symbol(connectionId),
+    ownerEntry,
+  };
+  pendingConnections.set(connectionId, claim);
+  bindRendererCleanup(pendingConnections, webContents, (deadId) =>
+    disposeByOwner(pendingConnections, deadId, () => {})
+  );
+  return pendingConnections.get(connectionId) === claim ? claim : undefined;
+}
+
+function releaseSocketIoClaim(connectionId: string, claim: PendingSocketIoClaim): void {
+  if (pendingConnections.get(connectionId)?.token === claim.token) {
+    pendingConnections.delete(connectionId);
+  }
+}
+
 function buildConnectUrl(rawUrl: string, namespace: string | undefined): string {
   // Socket.IO joins the namespace by appending it to the URL's pathname.
   // The io() client accepts either url + { path } or url-with-namespace-suffix.
@@ -130,129 +166,147 @@ export function registerSocketIoHandlerIPC(): void {
       return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
     }
 
-    if (activeConnections.size() >= MAX_CONCURRENT_SOCKETIO_CONNECTIONS) {
+    if (activeConnections.size() + pendingConnections.size >= MAX_CONCURRENT_SOCKETIO_CONNECTIONS) {
       return { success: false, error: 'Too many open Socket.IO connections.' };
     }
 
-    // Snapshot only an owner-visible entry. Missing and wrong-owner ids take
-    // the same new-claim path after awaited setup, avoiding an ownership oracle.
-    const ownerEntryAtStart = activeConnections.getForOwner(connectionId, webContentsId);
-
-    // Resolve + validate once, then PIN every transport to that IP. socket.io
-    // re-resolves DNS on connect (and on each reconnect), so a one-shot
-    // pre-flight check leaves a rebind/TOCTOU window open — matching the WS and
-    // gRPC handlers, we close it. engine.io-client forwards `agent` to both the
-    // `ws` (websocket) and `xmlhttprequest-ssl` (polling) transports, so a single
-    // agent carrying a pinned `lookup` covers both. The URL keeps the original
-    // hostname so SNI + Host header stay correct.
-    let pinned: Awaited<ReturnType<typeof resolveSafeAddress>>;
-    try {
-      pinned = await resolveSafeAddress(config.url, {
-        ...getExecutionPolicy().security,
-        allowedSchemes: ['http:', 'https:', 'ws:', 'wss:'],
-      });
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : 'URL rejected by SSRF policy',
-      };
-    }
+    // Reserve synchronously before DNS or transport construction. Existing and
+    // pending wrong-owner ids are rejected without dialing.
+    const claim = reserveSocketIoClaim(connectionId, event.sender);
+    if (!claim) return { success: false, error: 'Not connected' };
 
     try {
-      const connectUrl = buildConnectUrl(config.url, config.namespace);
-      const secure = /^(https|wss):/i.test(config.url);
-      const lookup = createPinnedLookup(pinned.host, pinned.ip);
-      const agent = secure ? new HttpsAgent({ lookup }) : new HttpAgent({ lookup });
+      // Resolve + validate once, then PIN every transport to that IP. socket.io
+      // re-resolves DNS on connect (and on each reconnect), so a one-shot
+      // pre-flight check leaves a rebind/TOCTOU window open — matching the WS and
+      // gRPC handlers, we close it. engine.io-client forwards `agent` to both the
+      // `ws` (websocket) and `xmlhttprequest-ssl` (polling) transports, so a single
+      // agent carrying a pinned `lookup` covers both. The URL keeps the original
+      // hostname so SNI + Host header stay correct.
+      let pinned: Awaited<ReturnType<typeof resolveSafeAddress>>;
+      try {
+        pinned = await resolveSafeAddress(config.url, {
+          ...getExecutionPolicy().security,
+          allowedSchemes: ['http:', 'https:', 'ws:', 'wss:'],
+        });
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'URL rejected by SSRF policy',
+        };
+      }
 
-      const socket = (await getIo())(connectUrl, {
-        path: config.path ?? '/socket.io',
-        auth: config.auth ?? {},
-        query: config.query ?? {},
-        extraHeaders: config.extraHeaders ?? {},
-        transports: config.transports ?? ['websocket', 'polling'],
-        reconnection: config.reconnection ?? true,
-        reconnectionAttempts: config.reconnectionAttempts ?? 5,
-        reconnectionDelay: config.reconnectionDelay ?? 1_000,
-        timeout: policyConfig.timeout,
-        rejectUnauthorized: policyConfig.verifySsl,
-        forceNew: config.forceNew ?? false,
-        autoConnect: true,
-        // engine.io types `agent` as string|boolean for historical reasons, but
-        // at runtime it forwards the value straight to ws / http(s).request,
-        // both of which accept an http(s).Agent. Cast at the boundary.
-        agent: agent as unknown as boolean,
-      });
-
-      const entry: ActiveSocketIO = {
-        socket,
-        connectionId,
-        url: connectUrl,
-        createdAt: Date.now(),
-        webContentsId,
-        explicitlyClosed: false,
-        pendingAcks: new Map(),
-        agent,
-      };
-
-      socket.on('connect', () => {
-        if (activeConnections.get(connectionId) !== entry) return;
-        emitTo(webContentsId, socketioChannels.open(connectionId), { socketId: socket.id });
-      });
-
-      socket.on('disconnect', (reason: string) => {
-        if (activeConnections.get(connectionId) !== entry) return;
-        if (!entry.explicitlyClosed) {
-          emitTo(webContentsId, socketioChannels.close(connectionId), { reason });
-        }
-      });
-
-      socket.on('connect_error', (err: Error) => {
-        if (activeConnections.get(connectionId) !== entry) return;
-        log.warn('connect error', { connectionId, error: err.message });
-        emitTo(webContentsId, socketioChannels.error(connectionId), { message: err.message });
-      });
-
-      const manager = socket.io;
-      manager.on('reconnect_attempt', (attempt: number) => {
-        if (activeConnections.get(connectionId) !== entry) return;
-        emitTo(webContentsId, socketioChannels.reconnectAttempt(connectionId), { attempt });
-      });
-      manager.on('reconnect', (attempt: number) => {
-        if (activeConnections.get(connectionId) !== entry) return;
-        emitTo(webContentsId, socketioChannels.reconnect(connectionId), { attempt });
-      });
-      manager.on('reconnect_failed', () => {
-        if (activeConnections.get(connectionId) !== entry) return;
-        emitTo(webContentsId, socketioChannels.reconnectFailed(connectionId));
-      });
-
-      // Forwards application events; lifecycle events above already cover SOCKETIO_RESERVED_EVENTS.
-      socket.onAny((eventName: string, ...args: unknown[]) => {
-        if (activeConnections.get(connectionId) !== entry) return;
-        if (SOCKETIO_RESERVED_EVENTS.has(eventName)) return;
-        emitTo(webContentsId, socketioChannels.event(connectionId), { eventName, args });
-      });
-
-      // Claim only after every awaited setup step. tryAdd() atomically wins a
-      // new id; replaceForOwner() permits only the renderer that owned the
-      // snapshotted connection to replace it. A losing transport is torn down
-      // without disturbing whichever renderer currently owns the id.
-      const claimed = ownerEntryAtStart
-        ? activeConnections.replaceForOwner(connectionId, webContentsId, entry)
-        : activeConnections.tryAdd(connectionId, event.sender, entry);
-      if (!claimed) {
-        disposeSocketIo(entry);
+      // Renderer destruction/module teardown may invalidate the reservation
+      // while DNS is pending. Never load/start a transport for a stale claim.
+      if (pendingConnections.get(connectionId)?.token !== claim.token) {
         return { success: false, error: 'Not connected' };
       }
 
-      return { success: true };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to connect';
-      log.warn('connect failed', { connectionId, error: message });
-      return {
-        success: false,
-        error: message,
-      };
+      try {
+        const connectUrl = buildConnectUrl(config.url, config.namespace);
+        const secure = /^(https|wss):/i.test(config.url);
+        const lookup = createPinnedLookup(pinned.host, pinned.ip);
+        const io = await getIo();
+        if (pendingConnections.get(connectionId)?.token !== claim.token) {
+          return { success: false, error: 'Not connected' };
+        }
+        const agent = secure ? new HttpsAgent({ lookup }) : new HttpAgent({ lookup });
+
+        const socket = io(connectUrl, {
+          path: config.path ?? '/socket.io',
+          auth: config.auth ?? {},
+          query: config.query ?? {},
+          extraHeaders: config.extraHeaders ?? {},
+          transports: config.transports ?? ['websocket', 'polling'],
+          reconnection: config.reconnection ?? true,
+          reconnectionAttempts: config.reconnectionAttempts ?? 5,
+          reconnectionDelay: config.reconnectionDelay ?? 1_000,
+          timeout: policyConfig.timeout,
+          rejectUnauthorized: policyConfig.verifySsl,
+          forceNew: config.forceNew ?? false,
+          autoConnect: true,
+          // engine.io types `agent` as string|boolean for historical reasons, but
+          // at runtime it forwards the value straight to ws / http(s).request,
+          // both of which accept an http(s).Agent. Cast at the boundary.
+          agent: agent as unknown as boolean,
+        });
+
+        const entry: ActiveSocketIO = {
+          socket,
+          connectionId,
+          url: connectUrl,
+          createdAt: Date.now(),
+          webContentsId,
+          explicitlyClosed: false,
+          pendingAcks: new Map(),
+          agent,
+        };
+
+        socket.on('connect', () => {
+          if (activeConnections.get(connectionId) !== entry) return;
+          emitTo(webContentsId, socketioChannels.open(connectionId), { socketId: socket.id });
+        });
+
+        socket.on('disconnect', (reason: string) => {
+          if (activeConnections.get(connectionId) !== entry) return;
+          if (!entry.explicitlyClosed) {
+            emitTo(webContentsId, socketioChannels.close(connectionId), { reason });
+          }
+        });
+
+        socket.on('connect_error', (err: Error) => {
+          if (activeConnections.get(connectionId) !== entry) return;
+          log.warn('connect error', { connectionId, error: err.message });
+          emitTo(webContentsId, socketioChannels.error(connectionId), { message: err.message });
+        });
+
+        const manager = socket.io;
+        manager.on('reconnect_attempt', (attempt: number) => {
+          if (activeConnections.get(connectionId) !== entry) return;
+          emitTo(webContentsId, socketioChannels.reconnectAttempt(connectionId), { attempt });
+        });
+        manager.on('reconnect', (attempt: number) => {
+          if (activeConnections.get(connectionId) !== entry) return;
+          emitTo(webContentsId, socketioChannels.reconnect(connectionId), { attempt });
+        });
+        manager.on('reconnect_failed', () => {
+          if (activeConnections.get(connectionId) !== entry) return;
+          emitTo(webContentsId, socketioChannels.reconnectFailed(connectionId));
+        });
+
+        // Forwards application events; lifecycle events above already cover
+        // SOCKETIO_RESERVED_EVENTS.
+        socket.onAny((eventName: string, ...args: unknown[]) => {
+          if (activeConnections.get(connectionId) !== entry) return;
+          if (SOCKETIO_RESERVED_EVENTS.has(eventName)) return;
+          emitTo(webContentsId, socketioChannels.event(connectionId), { eventName, args });
+        });
+
+        // Commit only the exact live reservation. For reconnects, also require
+        // the original owner entry to still be current so stale work cannot
+        // replace a newer connection.
+        const claimed =
+          pendingConnections.get(connectionId)?.token === claim.token &&
+          (claim.ownerEntry
+            ? activeConnections.get(connectionId) === claim.ownerEntry &&
+              activeConnections.replaceForOwner(connectionId, webContentsId, entry)
+            : activeConnections.tryAdd(connectionId, event.sender, entry));
+        if (!claimed) {
+          disposeSocketIo(entry);
+          return { success: false, error: 'Not connected' };
+        }
+
+        return { success: true };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to connect';
+        log.warn('connect failed', { connectionId, error: message });
+        return {
+          success: false,
+          error: message,
+        };
+      }
+    } finally {
+      releaseSocketIoClaim(connectionId, claim);
     }
   });
 
@@ -319,5 +373,6 @@ export function registerSocketIoHandlerIPC(): void {
 }
 
 export function stopSocketIoCleanup(): void {
+  pendingConnections.clear();
   activeConnections.disposeAll();
 }
