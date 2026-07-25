@@ -46,8 +46,29 @@ vi.mock('electron', () => {
 });
 
 import { mkdir, rm, symlink } from 'node:fs/promises';
-import { app } from 'electron';
-import { isPathRealSafe, isPathSafe } from '../storage/file-operations';
+import { app, ipcMain } from 'electron';
+import { IPC } from '../../shared/channels';
+import { isPathRealSafe, isPathSafe, registerFileOperationsIPC } from '../storage/file-operations';
+
+describe('file operations IPC surface', () => {
+  it('registers exactly the canonical file-operation channels', () => {
+    vi.mocked(ipcMain.handle).mockClear();
+
+    registerFileOperationsIPC(() => null);
+
+    const channels = vi.mocked(ipcMain.handle).mock.calls.map(([channel]) => channel);
+    expect(channels.sort()).toEqual(
+      [
+        ...Object.values(IPC.dialog),
+        ...Object.values(IPC.fs),
+        ...Object.values(IPC.app).filter(
+          (channel) => channel === IPC.app.getPath || channel === IPC.app.getVersion
+        ),
+        ...Object.values(IPC.shell),
+      ].sort()
+    );
+  });
+});
 
 describe('isPathSafe', () => {
   it('path inside userData returns true', () => {
