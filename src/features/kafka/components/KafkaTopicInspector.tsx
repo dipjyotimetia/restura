@@ -29,14 +29,17 @@ export function KafkaTopicInspector({
   const [config, setConfig] = useState<KafkaTopicConfigEntry[] | null>(null);
   const [showDefaults, setShowDefaults] = useState(false);
 
-  const { busy, error, refresh } = useInspectorFetch(`${connectionId}:${topic}`, async () => {
-    const result = await kafkaManager.inspectTopic(connectionId, topic);
-    if (result.ok) {
-      setPartitions(result.partitions);
-      setConfig(result.config);
+  const { busy, error, refresh } = useInspectorFetch(
+    `${connectionId}:${topic}`,
+    async (isCurrent) => {
+      const result = await kafkaManager.inspectTopic(connectionId, topic);
+      if (result.ok && isCurrent()) {
+        setPartitions(result.partitions);
+        setConfig(result.config);
+      }
+      return result;
     }
-    return result;
-  });
+  );
 
   const totalMessages = (partitions ?? []).reduce((sum, p) => sum + Number(p.count), 0);
   const visibleConfig = (config ?? []).filter((c) => showDefaults || !c.isDefault);

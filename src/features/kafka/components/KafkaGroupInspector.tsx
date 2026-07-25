@@ -62,9 +62,9 @@ export function KafkaGroupInspector({
 
   const { busy, error, refresh, run } = useInspectorFetch(
     `${connectionId}:${groupId}`,
-    async () => {
+    async (isCurrent) => {
       const result = await kafkaManager.inspectGroup(connectionId, groupId);
-      if (result.ok) {
+      if (result.ok && isCurrent()) {
         setGroup(result.group);
         setOffsets(result.offsets);
       }

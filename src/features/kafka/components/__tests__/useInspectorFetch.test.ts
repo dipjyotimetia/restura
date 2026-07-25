@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { useInspectorFetch } from '../useInspectorFetch';
 
 type InspectorResult = { ok: true } | { ok: false; error: string };
+type PublishedResult = { ok: true; value: string };
+type CurrentGuard = () => boolean;
 
 function deferred<T>(): {
   promise: Promise<T>;
@@ -97,6 +99,48 @@ describe('useInspectorFetch', () => {
     expect(result.current.error).toBe('latest failure');
   });
 
+  it('lets only the newest successful refresh publish its result', async () => {
+    const older = deferred<PublishedResult>();
+    const newer = deferred<PublishedResult>();
+    const responses: Array<Promise<PublishedResult>> = [
+      Promise.resolve({ ok: true, value: 'initial' }),
+      older.promise,
+      newer.promise,
+    ];
+    const publish = vi.fn();
+    const load = vi.fn(async (...guards: CurrentGuard[]): Promise<InspectorResult> => {
+      const response = responses.shift();
+      if (!response) throw new Error('unexpected load');
+      const result = await response;
+      if (guards[0]?.() ?? true) publish(result.value);
+      return result;
+    });
+    const { result } = renderHook(() => useInspectorFetch('topic-a', load));
+    await waitFor(() => expect(publish).toHaveBeenCalledWith('initial'));
+    publish.mockClear();
+
+    let olderRefresh!: Promise<void>;
+    let newerRefresh!: Promise<void>;
+    act(() => {
+      olderRefresh = result.current.refresh();
+      newerRefresh = result.current.refresh();
+    });
+
+    await act(async () => {
+      newer.resolve({ ok: true, value: 'newer' });
+      await newerRefresh;
+    });
+    expect(publish).toHaveBeenCalledOnce();
+    expect(publish).toHaveBeenLastCalledWith('newer');
+
+    await act(async () => {
+      older.resolve({ ok: true, value: 'older' });
+      await olderRefresh;
+    });
+    expect(publish).toHaveBeenCalledOnce();
+    expect(publish).toHaveBeenLastCalledWith('newer');
+  });
+
   it('settles a rejected refresh without publishing after unmount', async () => {
     const late = deferred<InspectorResult>();
     const load = vi
@@ -114,5 +158,34 @@ describe('useInspectorFetch', () => {
     late.reject(new Error('too late'));
 
     await expect(refresh).resolves.toBeUndefined();
+  });
+
+  it('does not let a successful refresh publish after unmount', async () => {
+    const late = deferred<PublishedResult>();
+    const responses: Array<Promise<PublishedResult>> = [
+      Promise.resolve({ ok: true, value: 'initial' }),
+      late.promise,
+    ];
+    const publish = vi.fn();
+    const load = vi.fn(async (...guards: CurrentGuard[]): Promise<InspectorResult> => {
+      const response = responses.shift();
+      if (!response) throw new Error('unexpected load');
+      const result = await response;
+      if (guards[0]?.() ?? true) publish(result.value);
+      return result;
+    });
+    const { result, unmount } = renderHook(() => useInspectorFetch('topic-a', load));
+    await waitFor(() => expect(publish).toHaveBeenCalledWith('initial'));
+    publish.mockClear();
+
+    let refresh!: Promise<void>;
+    act(() => {
+      refresh = result.current.refresh();
+    });
+    unmount();
+    late.resolve({ ok: true, value: 'too late' });
+    await refresh;
+
+    expect(publish).not.toHaveBeenCalled();
   });
 });
