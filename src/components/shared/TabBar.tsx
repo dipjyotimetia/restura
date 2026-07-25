@@ -185,54 +185,19 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
             return (
               <ContextMenu key={tab.id}>
                 <ContextMenuTrigger asChild>
-                  <button
-                    ref={isActive ? activeTabRef : undefined}
-                    type="button"
-                    role="tab"
-                    aria-selected={isActive}
-                    aria-label={displayName}
-                    tabIndex={isActive ? 0 : -1}
-                    onClick={() => switchTab(tab.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        switchTab(tab.id);
-                      }
-                    }}
-                    draggable={!isRenaming}
-                    onDragStart={(e) => {
-                      setDraggingId(tab.id);
-                      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
-                    }}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      if (!draggingId || draggingId === tab.id) return;
-                      const ids = tabs.map((t) => t.id);
-                      const fromIdx = ids.indexOf(draggingId);
-                      const toIdx = ids.indexOf(tab.id);
-                      if (fromIdx === -1 || toIdx === -1) return;
-                      ids.splice(fromIdx, 1);
-                      ids.splice(toIdx, 0, draggingId);
-                      reorderTabs(ids);
-                      setDraggingId(null);
-                    }}
-                    onDragEnd={() => setDraggingId(null)}
+                  <div
                     className={cn(
                       'group inline-flex items-center gap-2 shrink-0',
                       'rounded-sp-btn px-3 py-1.5 transition-colors',
                       // Mount-only scale-in: plays when a tab is opened (and once
                       // on strip mount); reorders/renames keep keys so no replay.
-                      'animate-scale-in',
-                      'font-mono text-sp-11-5',
+                      'animate-scale-in font-mono text-sp-11-5',
                       isActive
                         ? // Active uses a clean raised fill — no glow ring.
                           'text-sp-text bg-sp-surface-hi border border-sp-line-strong'
                         : 'text-sp-muted hover:text-sp-text hover:bg-sp-hover border border-transparent'
                     )}
                   >
-                    <ProtoChip protocol={tab.modeOverride ?? tab.request.type} />
-
                     {isRenaming ? (
                       <input
                         ref={renameInputRef}
@@ -240,11 +205,9 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                         onChange={(e) => setRenameValue(e.target.value)}
                         onBlur={commitRename}
                         onKeyDown={(e) => {
-                          e.stopPropagation();
                           if (e.key === 'Enter') commitRename();
                           if (e.key === 'Escape') cancelRename();
                         }}
-                        onClick={(e) => e.stopPropagation()}
                         className={cn(
                           'bg-transparent outline-none border-b border-sp-accent',
                           'text-sp-text text-sp-12 font-sans',
@@ -253,81 +216,94 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                         aria-label="Rename request"
                       />
                     ) : (
-                      <span
-                        className="truncate font-sans text-sp-12"
-                        style={{ maxWidth: 130 }}
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
-                          switchTab(tab.id);
-                          startRename(tab.id, tab.request.name);
+                      <button
+                        ref={isActive ? activeTabRef : undefined}
+                        type="button"
+                        role="tab"
+                        aria-selected={isActive}
+                        aria-label={displayName}
+                        tabIndex={isActive ? 0 : -1}
+                        onClick={() => switchTab(tab.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            switchTab(tab.id);
+                          }
                         }}
-                        title={displayName}
+                        draggable
+                        onDragStart={(e) => {
+                          setDraggingId(tab.id);
+                          if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+                        }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (!draggingId || draggingId === tab.id) return;
+                          const ids = tabs.map((t) => t.id);
+                          const fromIdx = ids.indexOf(draggingId);
+                          const toIdx = ids.indexOf(tab.id);
+                          if (fromIdx === -1 || toIdx === -1) return;
+                          ids.splice(fromIdx, 1);
+                          ids.splice(toIdx, 0, draggingId);
+                          reorderTabs(ids);
+                          setDraggingId(null);
+                        }}
+                        onDragEnd={() => setDraggingId(null)}
+                        className="inline-flex min-w-0 items-center gap-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
                       >
-                        {displayName}
-                      </span>
-                    )}
+                        <ProtoChip protocol={tab.modeOverride ?? tab.request.type} />
+                        <span
+                          className="truncate font-sans text-sp-12"
+                          style={{ maxWidth: 130 }}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            switchTab(tab.id);
+                            startRename(tab.id, tab.request.name);
+                          }}
+                          title={displayName}
+                        >
+                          {displayName}
+                        </span>
 
-                    {/* Dirty dot — only when truly unsaved (no bound saved
-                        request). When there *is* a bound request we still want
-                        to fall back to the save-back affordance so users can
-                        push dirty changes without the context menu. */}
-                    {tab.isDirty && !tab.savedRequestId && (
-                      <span
-                        aria-label="unsaved changes"
-                        className="block size-[5px] rounded-full sp-accent-glow shrink-0"
-                        style={{ background: 'var(--sp-accent)' }}
-                      />
+                        {/* Dirty dot — only when truly unsaved (no bound saved
+                            request). When there is a bound request, the adjacent
+                            save button exposes that action independently. */}
+                        {tab.isDirty && !tab.savedRequestId && (
+                          <span
+                            aria-label="unsaved changes"
+                            className="block size-[5px] rounded-full sp-accent-glow shrink-0"
+                            style={{ background: 'var(--sp-accent)' }}
+                          />
+                        )}
+                      </button>
                     )}
 
                     {tab.isDirty && tab.savedRequestId && (
-                      <span
-                        role="button"
+                      <button
+                        type="button"
                         aria-label="Save changes to collection"
-                        tabIndex={-1}
                         title="Save changes"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleSaveBack(tab.id, tab.savedRequestId!);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.stopPropagation();
-                            handleSaveBack(tab.id, tab.savedRequestId!);
-                          }
-                        }}
-                        className={cn(
-                          'block size-[5px] rounded-full sp-accent-glow shrink-0',
-                          'cursor-pointer'
-                        )}
+                        onClick={() => handleSaveBack(tab.id, tab.savedRequestId!)}
+                        className="block size-[5px] rounded-full sp-accent-glow shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
                         style={{ background: 'var(--sp-accent)' }}
                       />
                     )}
 
-                    <span
-                      role="button"
+                    <button
+                      type="button"
                       aria-label={`close ${displayName}`}
-                      tabIndex={-1}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        closeTab(tab.id);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.stopPropagation();
-                          closeTab(tab.id);
-                        }
-                      }}
+                      onClick={() => closeTab(tab.id)}
                       className={cn(
                         'inline-flex items-center justify-center size-4 rounded-[5px]',
-                        'opacity-0 group-hover:opacity-100',
+                        'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
                         'hover:bg-sp-hover text-sp-muted hover:text-sp-text',
-                        'transition-colors cursor-pointer',
+                        'transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent',
                         isActive && 'opacity-70'
                       )}
                     >
                       <X className="size-3" aria-hidden="true" />
-                    </span>
-                  </button>
+                    </button>
+                  </div>
                 </ContextMenuTrigger>
                 <ContextMenuContent>
                   <ContextMenuItem

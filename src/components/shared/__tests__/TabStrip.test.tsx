@@ -85,6 +85,39 @@ describe('TabStrip', () => {
     );
   });
 
+  it('keeps save and close tab actions in the keyboard tab order', async () => {
+    const user = userEvent.setup();
+    const tabId = useRequestStore.getState().createNewRequest('http');
+    useRequestStore.setState((state) => ({
+      ...state,
+      tabs: state.tabs.map((tab) =>
+        tab.id === tabId ? { ...tab, isDirty: true, savedRequestId: 'saved-request' } : tab
+      ),
+    }));
+    render(<TabStrip />);
+
+    const tab = screen.getByRole('tab');
+    const save = screen.getByRole('button', { name: 'Save changes to collection' });
+    const close = screen.getByRole('button', { name: /close new request/i });
+
+    await user.tab();
+    expect(tab).toHaveFocus();
+    await user.tab();
+    expect(save).toHaveFocus();
+    await user.tab();
+    expect(close).toHaveFocus();
+  });
+
+  it('renders tab actions as native buttons', () => {
+    useRequestStore.getState().createNewRequest('http');
+    render(<TabStrip />);
+
+    expect(screen.getByRole('button', { name: /close new request/i })).toHaveAttribute(
+      'type',
+      'button'
+    );
+  });
+
   it('exposes role="tablist" with a descriptive aria-label', () => {
     useRequestStore.getState().createNewRequest('http');
     render(<TabStrip />);

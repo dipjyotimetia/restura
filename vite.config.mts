@@ -2,6 +2,7 @@ import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwind from '@tailwindcss/vite';
 import { cloudflare } from '@cloudflare/vite-plugin';
+import { realpathSync } from 'node:fs';
 import path from 'path';
 import { sandboxLibsPlugin } from './scripts/vite-plugin-sandbox-libs';
 
@@ -52,6 +53,10 @@ function electronCspMetaPlugin(): Plugin {
 // is built separately and serves the SPA + /api).
 const isDockerBuild = process.env.VITE_IS_DOCKER_BUILD === 'true';
 const skipCloudflare = isElectronBuild || isDockerBuild;
+// Worktrees commonly symlink node_modules to the primary checkout. Vite resolves
+// symlinks before applying server.fs.allow, so permit the canonical dependency
+// directory as well as this worktree's root for dev and Playwright runs.
+const resolvedNodeModules = realpathSync(path.resolve(__dirname, 'node_modules'));
 
 export default defineConfig({
   plugins: [
@@ -82,6 +87,9 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    fs: {
+      allow: [__dirname, resolvedNodeModules],
+    },
   },
   build: {
     outDir: 'dist/web',

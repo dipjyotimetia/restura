@@ -212,6 +212,40 @@ describe('ProviderManager capability overrides', () => {
     expect(parallel).not.toBeChecked();
   });
 
+  it('prevents opening another credential editor while a save is pending', async () => {
+    let resolveReplacement: (value: { ok: true; handleId: string }) => void;
+    mocks.replaceSecretHandle.mockReturnValue(
+      new Promise<{ ok: true; handleId: string }>((resolve) => {
+        resolveReplacement = resolve;
+      })
+    );
+    useAiLabStore.setState((state) => ({
+      providers: {
+        ...state.providers,
+        other: {
+          id: 'other',
+          provider: 'openai',
+          label: 'Other gateway',
+          pricingKnown: false,
+          isLocal: false,
+          models: [],
+          createdAt: 1,
+        },
+      },
+    }));
+    render(<ProviderManager />);
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]!);
+    fireEvent.change(screen.getByLabelText('Replace API key'), { target: { value: 'new-key' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(mocks.replaceSecretHandle).toHaveBeenCalledOnce());
+    expect(screen.getAllByRole('button', { name: 'Edit' })[1]).toBeDisabled();
+
+    resolveReplacement!({ ok: true, handleId: 'new-handle' });
+    await waitFor(() => expect(screen.queryByLabelText('Provider name')).not.toBeInTheDocument());
+  });
+
   it('surfaces thrown provider operations and closes advanced cost editing', async () => {
     mocks.testConnection.mockRejectedValue(new Error('test exploded'));
     mocks.listModels.mockRejectedValue('refresh exploded');

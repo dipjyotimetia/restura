@@ -18,7 +18,10 @@ let statusCb: ((s: UpdaterStatus) => void) | null = null;
 
 const updater = {
   check: vi.fn(async () => ({ updateAvailable: false })),
-  getStatus: vi.fn<() => Promise<UpdaterStatus>>(async () => ({ state: 'idle' })),
+  // Keep the default snapshot pending. Most tests exercise a pushed updater
+  // state, while the snapshot-specific test resolves it explicitly. This keeps
+  // a late async state update inside the test that owns it.
+  getStatus: vi.fn<() => Promise<UpdaterStatus>>(() => new Promise(() => undefined)),
   download: vi.fn(async () => ({ ok: true })),
   cancel: vi.fn(async () => ({ ok: true })),
   restart: vi.fn(async () => undefined),

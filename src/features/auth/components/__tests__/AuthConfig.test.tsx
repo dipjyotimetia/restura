@@ -20,6 +20,7 @@ vi.mock('@/features/auth/lib/oauth2', () => ({
 }));
 
 import * as platform from '@/lib/shared/platform';
+import * as oauth2 from '@/features/auth/lib/oauth2';
 import AuthConfiguration from '../AuthConfig';
 
 const noneAuth: AuthConfigType = { type: 'none' };
@@ -153,12 +154,58 @@ describe('AuthConfiguration — new auth variants', () => {
     });
   });
 
+  describe('OAuth 2.0 editor lifecycle', () => {
+    it('keeps token acquisition feedback while another scheme is temporarily selected', async () => {
+      const onChange = vi.fn();
+      const user = userEvent.setup();
+      const oauth2Auth: AuthConfigType = {
+        type: 'oauth2',
+        oauth2: {
+          grantType: 'client_credentials',
+          clientId: 'client-id',
+          clientSecret: '',
+          tokenUrl: 'https://auth.example.com/token',
+          accessToken: '',
+        },
+      };
+      vi.mocked(oauth2.fetchClientCredentialsToken).mockRejectedValueOnce(
+        new Error('Token endpoint unavailable')
+      );
+      const { rerender } = render(<AuthConfiguration auth={oauth2Auth} onChange={onChange} />);
+
+      await user.click(screen.getByRole('button', { name: 'Get New Access Token' }));
+      expect(await screen.findByRole('alert')).toHaveTextContent('Token endpoint unavailable');
+
+      rerender(<AuthConfiguration auth={{ type: 'none' }} onChange={onChange} />);
+      rerender(<AuthConfiguration auth={oauth2Auth} onChange={onChange} />);
+
+      expect(screen.getByRole('alert')).toHaveTextContent('Token endpoint unavailable');
+    });
+  });
+
   // Regression: basic/api-key/aws-signature must seed their full sub-object on
   // the first field edit. Without it, the partial object (e.g. basic with a
   // username but no password) fails the request schema and updateRequest()
   // rejects the whole edit, so the field can never be filled. Each field-type's
   // first keystroke must emit an object with every required key present.
   describe('seeds full sub-objects so partial entry stays schema-valid', () => {
+    it('basic: preserves an existing SecretRef handle when the username changes', async () => {
+      const onChange = vi.fn();
+      const user = userEvent.setup();
+      const password = { kind: 'handle' as const, id: 'basic-password', label: 'Basic password' };
+      render(
+        <AuthConfiguration
+          auth={{ type: 'basic', basic: { username: '', password } }}
+          onChange={onChange}
+        />
+      );
+
+      await user.type(screen.getByPlaceholderText('Enter username'), 'a');
+
+      const last = onChange.mock.calls.at(-1)?.[0] as AuthConfigType;
+      expect(last.basic).toEqual({ username: 'a', password });
+    });
+
     it('basic: typing a username emits both username and password', async () => {
       const onChange = vi.fn();
       const user = userEvent.setup();
