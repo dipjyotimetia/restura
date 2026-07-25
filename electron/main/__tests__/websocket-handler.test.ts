@@ -224,6 +224,41 @@ describe('websocket-handler', () => {
     expect(second!.terminate).not.toHaveBeenCalled();
   });
 
+  it('prevents a second renderer from operating or replacing the owner connection', async () => {
+    const owner = makeEvent();
+    const nonOwner = makeEvent();
+    await handlerFor(IPC.ws.connect)(owner.event, validConnect('shared'));
+    const ownerSocket = wsMock.FakeWebSocket.instances[0]!;
+
+    const send = await handlerFor(IPC.ws.send)(nonOwner.event, {
+      connectionId: 'shared',
+      message: 'intruder',
+    });
+    expect(send).toEqual({ success: false, error: 'Not connected' });
+    expect(ownerSocket.send).not.toHaveBeenCalled();
+
+    const disconnect = await handlerFor(IPC.ws.disconnect)(nonOwner.event, {
+      connectionId: 'shared',
+    });
+    expect(disconnect).toEqual({ success: true });
+    expect(ownerSocket.close).not.toHaveBeenCalled();
+
+    const reconnect = await handlerFor(IPC.ws.connect)(nonOwner.event, validConnect('shared'));
+    expect(reconnect).toEqual({
+      success: false,
+      error: 'Connection ID is already in use',
+    });
+    expect(ownerSocket.terminate).not.toHaveBeenCalled();
+    expect(wsMock.FakeWebSocket.instances).toHaveLength(1);
+
+    const ownerSend = await handlerFor(IPC.ws.send)(owner.event, {
+      connectionId: 'shared',
+      message: 'owner',
+    });
+    expect(ownerSend).toEqual({ success: true });
+    expect(ownerSocket.send).toHaveBeenCalledWith('owner');
+  });
+
   it('tears down the connection when its renderer is destroyed', async () => {
     const { event, destroy } = makeEvent();
     await handlerFor(IPC.ws.connect)(event, validConnect('c1'));

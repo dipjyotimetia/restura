@@ -1,18 +1,16 @@
 import { Agent as HttpAgent } from 'node:http';
 import { Agent as HttpsAgent } from 'node:https';
+import { createLogger } from '@shared/runtime/logger';
 import { SOCKETIO_RESERVED_EVENTS, socketioChannels } from '@shared/socketio-constants';
 import { ipcMain } from 'electron';
-
 import type * as SocketIoClient from 'socket.io-client';
-
 import type { Socket } from 'socket.io-client';
-import { createLogger } from '@shared/runtime/logger';
 import { IPC } from '../../shared/channels';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo } from '../ipc/ipc-utils';
 import {
   assertTrustedSender,
-  createValidatedHandler,
+  createValidatedEventHandler,
   SocketIoConnectSchema,
   SocketIoDisconnectSchema,
   SocketIoEmitSchema,
@@ -136,8 +134,13 @@ export function registerSocketIoHandlerIPC(): void {
       return { success: false, error: 'Too many open Socket.IO connections.' };
     }
 
-    // Close an existing connection with the same id (dispose tears it down).
-    activeConnections.cancel(connectionId);
+    // Only the owning renderer may reconnect with the same id. A different
+    // renderer must not tear down or replace the owner's live socket.
+    if (activeConnections.has(connectionId)) {
+      if (!activeConnections.cancelForOwner(connectionId, webContentsId)) {
+        return { success: false, error: 'Connection ID is already in use' };
+      }
+    }
 
     // Resolve + validate once, then PIN every transport to that IP. socket.io
     // re-resolves DNS on connect (and on each reconnect), so a one-shot
@@ -244,8 +247,8 @@ export function registerSocketIoHandlerIPC(): void {
 
   ipcMain.handle(
     IPC.socketio.emit,
-    createValidatedHandler(IPC.socketio.emit, SocketIoEmitSchema, async (config) => {
-      const entry = activeConnections.get(config.connectionId);
+    createValidatedEventHandler(IPC.socketio.emit, SocketIoEmitSchema, async (config, event) => {
+      const entry = activeConnections.getForOwner(config.connectionId, event.sender.id);
       if (!entry) {
         return { success: false, error: 'Not connected' };
       }
@@ -293,10 +296,14 @@ export function registerSocketIoHandlerIPC(): void {
 
   ipcMain.handle(
     IPC.socketio.disconnect,
-    createValidatedHandler(IPC.socketio.disconnect, SocketIoDisconnectSchema, async (config) => {
-      activeConnections.cancel(config.connectionId);
-      return { success: true };
-    })
+    createValidatedEventHandler(
+      IPC.socketio.disconnect,
+      SocketIoDisconnectSchema,
+      async (config, event) => {
+        activeConnections.cancelForOwner(config.connectionId, event.sender.id);
+        return { success: true };
+      }
+    )
   );
 }
 

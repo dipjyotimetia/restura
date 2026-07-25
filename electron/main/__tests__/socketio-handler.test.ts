@@ -281,6 +281,46 @@ describe('socketio-handler', () => {
     expect(second!.disconnect).not.toHaveBeenCalled();
   });
 
+  it('prevents a second renderer from operating or replacing the owner connection', async () => {
+    const owner = makeEvent();
+    const nonOwner = makeEvent();
+    await handlerFor(IPC.socketio.connect)(owner.event, validConnect('shared'));
+    const ownerSocket = sioMock.FakeSocket.instances[0]!;
+
+    const emit = await handlerFor(IPC.socketio.emit)(nonOwner.event, {
+      connectionId: 'shared',
+      eventName: 'intruder',
+      args: [],
+    });
+    expect(emit).toEqual({ success: false, error: 'Not connected' });
+    expect(ownerSocket.emit).not.toHaveBeenCalled();
+
+    const disconnect = await handlerFor(IPC.socketio.disconnect)(nonOwner.event, {
+      connectionId: 'shared',
+    });
+    expect(disconnect).toEqual({ success: true });
+    expect(ownerSocket.disconnect).not.toHaveBeenCalled();
+
+    const reconnect = await handlerFor(IPC.socketio.connect)(
+      nonOwner.event,
+      validConnect('shared')
+    );
+    expect(reconnect).toEqual({
+      success: false,
+      error: 'Connection ID is already in use',
+    });
+    expect(ownerSocket.disconnect).not.toHaveBeenCalled();
+    expect(sioMock.FakeSocket.instances).toHaveLength(1);
+
+    const ownerEmit = await handlerFor(IPC.socketio.emit)(owner.event, {
+      connectionId: 'shared',
+      eventName: 'owner',
+      args: ['value'],
+    });
+    expect(ownerEmit).toEqual({ success: true });
+    expect(ownerSocket.emit).toHaveBeenCalledWith('owner', 'value');
+  });
+
   it('tears down the connection when its renderer is destroyed', async () => {
     const { event, destroy } = makeEvent();
     await handlerFor(IPC.socketio.connect)(event, validConnect('c1'));

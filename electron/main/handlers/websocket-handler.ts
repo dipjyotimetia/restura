@@ -1,11 +1,11 @@
+import { createLogger } from '@shared/runtime/logger';
 import { ipcMain } from 'electron';
 import WebSocket from 'ws';
-import { createLogger } from '@shared/runtime/logger';
 import { EVENT_PREFIX, IPC } from '../../shared/channels';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import {
   assertTrustedSender,
-  createValidatedHandler,
+  createValidatedEventHandler,
   validateIpcInput,
   WsConnectSchema,
   WsDisconnectSchema,
@@ -92,8 +92,13 @@ export function registerWebSocketHandlerIPC(): void {
       return { success: false, error: 'Too many open connections.' };
     }
 
-    // Close an existing connection with the same id (dispose terminates it).
-    connections.cancel(connectionId);
+    // Only the owning renderer may reconnect with the same id. A different
+    // renderer must not terminate or replace the owner's live socket.
+    if (connections.has(connectionId)) {
+      if (!connections.cancelForOwner(connectionId, webContentsId)) {
+        return { success: false, error: 'Connection ID is already in use' };
+      }
+    }
 
     // Resolve + validate once, then PIN the handshake to that IP via a Node
     // `lookup` hook (closes the DNS-rebind window pre-flight validation alone
@@ -195,9 +200,9 @@ export function registerWebSocketHandlerIPC(): void {
 
   ipcMain.handle(
     IPC.ws.send,
-    createValidatedHandler(IPC.ws.send, WsSendSchema, async (config) => {
+    createValidatedEventHandler(IPC.ws.send, WsSendSchema, async (config, event) => {
       const connectionId = config.connectionId;
-      const entry = connections.get(connectionId);
+      const entry = connections.getForOwner(connectionId, event.sender.id);
 
       if (!entry || entry.ws.readyState !== WebSocket.OPEN) {
         return { success: false, error: 'Not connected' };
@@ -223,9 +228,9 @@ export function registerWebSocketHandlerIPC(): void {
 
   ipcMain.handle(
     IPC.ws.disconnect,
-    createValidatedHandler(IPC.ws.disconnect, WsDisconnectSchema, async (config) => {
+    createValidatedEventHandler(IPC.ws.disconnect, WsDisconnectSchema, async (config, event) => {
       const connectionId = config.connectionId;
-      const entry = connections.get(connectionId);
+      const entry = connections.getForOwner(connectionId, event.sender.id);
       if (entry) {
         // Graceful close (1000) for an explicit disconnect — distinct from the
         // hard terminate() that dispose() uses for teardown. The entry stays
