@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import {
   Dialog,
   DialogContent,
@@ -13,7 +14,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { useGit } from '@/hooks/useGit';
 import { cn } from '@/lib/shared/utils';
 
@@ -29,6 +29,9 @@ interface GitDialogProps {
  * stay with system Git (SSH agent / credential manager), never in Restura.
  */
 export function GitDialog({ collectionName, directoryPath, open, onClose }: GitDialogProps) {
+  // Nulling the active directory on close is part of useGit's request lifecycle:
+  // pending reads from this dialog session are invalidated before it can reopen.
+  const activeDirectoryPath = open ? directoryPath : null;
   const {
     status,
     branches,
@@ -48,7 +51,7 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
     fetch,
     pull,
     push,
-  } = useGit(open ? directoryPath : null);
+  } = useGit(activeDirectoryPath);
   const [message, setMessage] = useState('');
   const [newBranch, setNewBranch] = useState('');
   const [busy, setBusy] = useState(false);

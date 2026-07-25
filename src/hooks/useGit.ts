@@ -1,5 +1,5 @@
 import type { GitBranch, GitCommit, GitStatus, GitStatusFile } from '@shared/git-types';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getElectronAPI } from '@/lib/shared/platform';
 import { loadCollectionFromDirectory } from '@/store/useFileCollectionStore';
 
@@ -30,20 +30,43 @@ export function useGit(directoryPath: string | null) {
     error: null,
     notARepo: false,
   });
+  const mountedRef = useRef(false);
+  const activeDirectoryRef = useRef(directoryPath);
+  const requestIdRef = useRef(0);
+  activeDirectoryRef.current = directoryPath;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      requestIdRef.current += 1;
+    };
+  }, []);
 
   const refresh = useCallback(async () => {
+    // A callback retained by an earlier directory action must not start a new
+    // refresh after the dialog has closed or moved to another directory.
+    if (!mountedRef.current || activeDirectoryRef.current !== directoryPath) return;
+    const requestId = ++requestIdRef.current;
+    const isCurrent = () =>
+      mountedRef.current &&
+      activeDirectoryRef.current === directoryPath &&
+      requestId === requestIdRef.current;
     const api = getElectronAPI();
     if (!api?.git || !directoryPath) {
-      setState((s) => ({ ...s, error: 'Git is only available in the desktop app' }));
+      if (isCurrent()) {
+        setState((s) => ({ ...s, error: 'Git is only available in the desktop app' }));
+      }
       return;
     }
-    setState((s) => ({ ...s, loading: true, error: null }));
+    if (isCurrent()) setState((s) => ({ ...s, loading: true, error: null }));
     try {
       const [statusRes, branchRes, logRes] = await Promise.all([
         api.git.status(directoryPath),
         api.git.branchList(directoryPath),
         api.git.log(directoryPath, 20),
       ]);
+      if (!isCurrent()) return;
       const statusError = statusRes.ok ? null : statusRes.error;
       // The main process tags the "outside a repo" failure with a stable code,
       // so we branch on that instead of matching git's (localized) message.
@@ -61,11 +84,13 @@ export function useGit(directoryPath: string | null) {
     } catch (err) {
       // An IPC invoke can reject during teardown / missing handler — never leave
       // the spinner stuck.
-      setState((s) => ({
-        ...s,
-        loading: false,
-        error: err instanceof Error ? err.message : 'Git operation failed',
-      }));
+      if (isCurrent()) {
+        setState((s) => ({
+          ...s,
+          loading: false,
+          error: err instanceof Error ? err.message : 'Git operation failed',
+        }));
+      }
     }
   }, [directoryPath]);
 
