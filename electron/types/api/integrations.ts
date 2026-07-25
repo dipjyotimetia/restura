@@ -174,8 +174,7 @@ export interface ElectronCaptureAPI {
   >;
   // A captured session arrived over the loopback bridge, already converted to an
   // OpenCollection document the renderer should confirm-and-import.
-  onReceived: (callback: (doc: unknown) => void) => void;
-  removeReceivedListener: () => void;
+  onReceived: (callback: (doc: unknown) => void) => () => void;
 }
 
 export interface LogEntry {
@@ -238,8 +237,7 @@ export interface ElectronCollectionsAPI {
   getFileInfo: (
     filePath: string
   ) => Promise<{ exists: boolean; lastModified?: number; size?: number; error?: string }>;
-  onFileChanged: (callback: (event: FileChangedEvent) => void) => void;
-  removeFileChangedListener: () => void;
+  onFileChanged: (callback: (event: FileChangedEvent) => void) => () => void;
 }
 
 export interface ElectronOwsWorkspaceAPI {

@@ -26,11 +26,10 @@ export function CaptureImportListener() {
     const api = getElectronAPI();
     if (!api?.capture) return;
 
-    api.capture.onReceived((doc) => {
+    return api.capture.onReceived((doc) => {
       const items = (doc as { items?: unknown[] })?.items;
       setPending({ doc, itemCount: Array.isArray(items) ? items.length : 0 });
     });
-    return () => api.capture.removeReceivedListener();
   }, []);
 
   const confirmImport = () => {

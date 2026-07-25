@@ -609,6 +609,7 @@ export async function restoreFileCollectionWatchers(): Promise<void> {
 // Initialize file watcher event handler
 let unsubscribeCollectionChanges: (() => void) | null = null;
 let unsubscribeWorkflowChanges: (() => void) | null = null;
+let unsubscribeFileChanges: (() => void) | null = null;
 const externalReloads = new Map<string, Promise<unknown>>();
 const pendingExternalReloads = new Set<string>();
 const workflowReloadCollections = new Set<string>();
@@ -642,6 +643,7 @@ export function initFileCollectionWatcher(): void {
 
   unsubscribeCollectionChanges?.();
   unsubscribeWorkflowChanges?.();
+  unsubscribeFileChanges?.();
   unsubscribeCollectionChanges = useCollectionStore.subscribe((state, previous) => {
     const fileStore = useFileCollectionStore.getState();
     for (const info of Object.values(fileStore.fileCollections)) {
@@ -665,7 +667,7 @@ export function initFileCollectionWatcher(): void {
     }
   });
 
-  electron.onFileChanged((event) => {
+  unsubscribeFileChanges = electron.onFileChanged((event) => {
     const fileStore = useFileCollectionStore.getState();
 
     // Find which collection this file belongs to
@@ -725,10 +727,8 @@ export function initFileCollectionWatcher(): void {
 export function cleanupFileCollectionWatcher(): void {
   unsubscribeCollectionChanges?.();
   unsubscribeCollectionChanges = null;
+  unsubscribeFileChanges?.();
+  unsubscribeFileChanges = null;
   externalReloads.clear();
   pendingExternalReloads.clear();
-  const electron = getElectronCollections();
-  if (electron) {
-    electron.removeFileChangedListener();
-  }
 }

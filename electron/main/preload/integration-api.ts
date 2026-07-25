@@ -64,10 +64,7 @@ export const integrationApi: IntegrationApi = {
     startBridge: invoke<ElectronAPI['capture']['startBridge']>(IPC.captureBridge.start),
     stopBridge: invoke<ElectronAPI['capture']['stopBridge']>(IPC.captureBridge.stop),
     bridgeStatus: invoke<ElectronAPI['capture']['bridgeStatus']>(IPC.captureBridge.status),
-    onReceived: (callback) => {
-      ipcRenderer.on(EVENT.captureReceived, (_event, document) => callback(document));
-    },
-    removeReceivedListener: () => ipcRenderer.removeAllListeners(EVENT.captureReceived),
+    onReceived: (callback) => subscribe(EVENT.captureReceived, callback),
   },
   secrets: {
     store: invoke<ElectronAPI['secrets']['store']>(IPC.secret.store),
@@ -130,10 +127,7 @@ export const integrationApi: IntegrationApi = {
       IPC.collection.openInExplorer
     ),
     getFileInfo: invoke<ElectronAPI['collections']['getFileInfo']>(IPC.collection.getFileInfo),
-    onFileChanged: (callback) => {
-      ipcRenderer.on(EVENT.collectionFileChanged, (_event, data) => callback(data));
-    },
-    removeFileChangedListener: () => ipcRenderer.removeAllListeners(EVENT.collectionFileChanged),
+    onFileChanged: (callback) => subscribe(EVENT.collectionFileChanged, callback),
   },
   owsWorkspace: {
     list: (directoryPath) => ipcRenderer.invoke(IPC.owsWorkspace.list, { directoryPath }),
