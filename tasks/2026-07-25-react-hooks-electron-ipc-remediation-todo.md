@@ -157,7 +157,7 @@ alongside the smallest production change.
 - Files: useCollectionRun.ts/test, useLoadTest.ts/test
 - Scope: M
 
-### Task 14: Invalidate stale Git dialog refreshes
+### Task 14: Invalidate stale Git dialog refreshes — complete
 
 - Acceptance: closing/changing directory invalidates prior requests and late A
   results cannot overwrite active B state.
