@@ -46,6 +46,7 @@ interface ActiveCall {
   cancel: () => void;
   write: (msg: unknown) => void;
   end: () => void;
+  generation: symbol;
   createdAt: number; // Timestamp for stale connection detection
   requestId: string; // Request ID for tracking
   /** webContents.id of the renderer that started the stream — used for renderer-destroyed teardown. */
@@ -230,8 +231,10 @@ const addActiveCall = (
 };
 
 // Safe method to remove a stream
-const removeActiveCall = (id: string): void => {
-  activeCalls.remove(id);
+const removeActiveCall = (id: string, generation: symbol): void => {
+  if (activeCalls.get(id)?.generation === generation) {
+    activeCalls.remove(id);
+  }
 };
 
 // Pull the TLS trust / mTLS material out of a request config for the
@@ -483,6 +486,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         // (below), once the call is registered. The isDestroyed bail above already
         // covers a renderer that died during the DNS lookup.
         const streamStartTime = Date.now();
+        const generation = Symbol(requestId);
 
         try {
           let accumulatedSize = 0;
@@ -491,8 +495,9 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           let finalized = false;
 
           const cleanup = () => {
-            removeActiveCall(requestId);
+            removeActiveCall(requestId, generation);
           };
+          const isCurrentCall = () => activeCalls.get(requestId)?.generation === generation;
 
           // Emit the single terminal event for the stream, carrying the captured
           // response headers + trailers and the real gRPC status. OK → `status`
@@ -501,7 +506,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           // (status/error), a size-limit trip, or a deadline. Previously this hardcoded
           // status 0 and dropped headers/trailers on every streaming call.
           const finalize = (code: number, details: string) => {
-            if (finalized) return;
+            if (finalized || !isCurrentCall()) return;
             finalized = true;
             if (code === 0) {
               safeSend(eventChannel(EVENT_PREFIX.grpc.status, requestId), {
@@ -533,12 +538,14 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           };
 
           const handleData = (data: unknown) => {
-            if (finalized) return;
+            if (finalized || !isCurrentCall()) return;
             accumulatedSize += estimateSize(data);
             if (accumulatedSize > MAX_RESPONSE_SIZE) {
               // Cancel the still-registered call first; finalize() then sets the
               // guard so the CANCELLED status the cancel triggers is ignored.
-              activeCalls.get(requestId)?.cancel();
+              const current = activeCalls.get(requestId);
+              if (current?.generation !== generation) return;
+              current.cancel();
               finalize(
                 8, // RESOURCE_EXHAUSTED
                 `Response size exceeded maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`
@@ -553,11 +560,15 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           // handleData / emit plumbing above.
           const controls = runConnectStream(toConnectArgs(policyConfig, grpcDial), {
             onMessage: handleData,
-            onHeaders: (h) => Object.assign(capturedHeaders, h),
-            onTrailers: (t) => Object.assign(capturedTrailers, t),
+            onHeaders: (h) => {
+              if (isCurrentCall()) Object.assign(capturedHeaders, h);
+            },
+            onTrailers: (t) => {
+              if (isCurrentCall()) Object.assign(capturedTrailers, t);
+            },
             onClose: finalize,
             onCancelled: () => {
-              if (!finalized) {
+              if (!finalized && isCurrentCall()) {
                 finalized = true;
                 cleanup();
               }
@@ -570,6 +581,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
               cancel: controls.cancel,
               write: controls.write,
               end: controls.end,
+              generation,
               webContentsId: event.sender.id,
             },
             claim
@@ -588,7 +600,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
             status: 2,
             details: sanitizeErrorMessage(error.message),
           });
-          removeActiveCall(requestId);
+          removeActiveCall(requestId, generation);
         }
       }
     )
