@@ -22,8 +22,8 @@ import { listModels, testConnection } from '@shared/protocol/ai/model-discovery'
 import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
 import { type ChatRequestSpec, isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import type { Fetcher } from '@shared/protocol/types';
-import { ipcMain } from 'electron';
 import { createLogger } from '@shared/runtime/logger';
+import { ipcMain } from 'electron';
 import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
 import { bindRendererCleanup } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
@@ -32,14 +32,14 @@ import {
   AiLabCompleteCancelSchema,
   AiLabCompleteSchema,
   AiLabDiscoverSchema,
-  AiLabTelemetryExportSchema,
   AiLabStreamCancelSchema,
   AiLabStreamSchema,
+  AiLabTelemetryExportSchema,
   assertTrustedSender,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
-import { resolveSecretHandle } from '../security/secret-handle-store';
 import { createAgentTelemetryService } from '../lifecycle/agent-telemetry';
+import { resolveSecretHandle } from '../security/secret-handle-store';
 import { makePinnedFetcher } from './fetch-fetcher';
 
 const log = createLogger('ai-lab');
@@ -178,32 +178,41 @@ async function runStream(
   spec: ChatRequestSpec,
   fetcher: Fetcher,
   streamId: string,
-  webContentsId: number,
-  abort: AbortController
+  activeStream: ActiveAbort & { streamId: string }
 ): Promise<void> {
   const chunkChannel = eventChannel(EVENT_PREFIX.aiLab.chunk, streamId);
   const endChannel = eventChannel(EVENT_PREFIX.aiLab.end, streamId);
+  const isCurrent = () =>
+    activeStreams.getForOwner(streamId, activeStream.webContentsId) === activeStream;
   try {
     for await (const ev of executeAiChat(
-      { ...spec, signal: abort.signal },
+      { ...spec, signal: activeStream.abort.signal },
       fetcher,
       resolveSecretFn
     )) {
-      emitTo(webContentsId, chunkChannel, ev);
+      if (!isCurrent()) return;
+      emitTo(activeStream.webContentsId, chunkChannel, ev);
       if (ev.type === 'done') {
-        emitTo(webContentsId, endChannel, { reason: 'done' });
+        emitTo(activeStream.webContentsId, endChannel, { reason: 'done' });
         return;
       }
     }
-    emitTo(webContentsId, endChannel, { reason: 'done' });
+    if (isCurrent()) {
+      emitTo(activeStream.webContentsId, endChannel, { reason: 'done' });
+    }
   } catch (e) {
+    if (!isCurrent()) return;
     const msg = e instanceof Error ? e.message : String(e);
     // Persist the main-process trace — the renderer only sees the error event.
     log.warn('stream failed', { streamId, provider: spec.provider, error: msg });
-    emitTo(webContentsId, chunkChannel, { type: 'error', code: 'network', message: msg });
-    emitTo(webContentsId, endChannel, { reason: 'error' });
+    emitTo(activeStream.webContentsId, chunkChannel, {
+      type: 'error',
+      code: 'network',
+      message: msg,
+    });
+    emitTo(activeStream.webContentsId, endChannel, { reason: 'error' });
   } finally {
-    activeStreams.remove(streamId);
+    if (isCurrent()) activeStreams.remove(streamId);
   }
 }
 
@@ -231,7 +240,11 @@ export function registerAiLabHandlers(): void {
     const data = parsed.data;
     const abort = new AbortController();
     const activeComplete = { webContentsId: senderId, abort };
-    if (activeCompletes.has(data.operationId)) {
+    const existing = activeCompletes.get(data.operationId);
+    if (existing && existing.webContentsId !== senderId) {
+      return { ok: false as const, error: 'Operation does not belong to this renderer.' };
+    }
+    if (existing) {
       return {
         ok: false as const,
         error: 'A completion with this operation ID is already active.',
@@ -295,19 +308,29 @@ export function registerAiLabHandlers(): void {
       return { ok: false as const, error: 'Too many concurrent AI Lab streams.' };
     }
     const data = parsed.data;
+    const existing = activeStreams.get(data.streamId);
+    if (existing && existing.webContentsId !== senderId) {
+      return { ok: false as const, error: 'Stream does not belong to this renderer.' };
+    }
+    const activeStream = {
+      streamId: data.streamId,
+      webContentsId: senderId,
+      abort: new AbortController(),
+    };
+    activeStreams.add(data.streamId, event.sender, activeStream);
     let fetcher: Fetcher;
     try {
       fetcher = await buildSafeFetcher(data.provider, data.baseUrlOverride);
     } catch (e) {
+      if (activeStreams.getForOwner(data.streamId, senderId) === activeStream) {
+        activeStreams.remove(data.streamId);
+      }
       return { ok: false as const, error: (e as Error).message };
     }
-    const abort = new AbortController();
-    activeStreams.add(data.streamId, event.sender, {
-      streamId: data.streamId,
-      webContentsId: senderId,
-      abort,
-    });
-    void runStream(buildSpec(data), fetcher, data.streamId, senderId, abort);
+    if (activeStreams.getForOwner(data.streamId, senderId) !== activeStream) {
+      return { ok: false as const, error: 'Renderer closed before stream started.' };
+    }
+    void runStream(buildSpec(data), fetcher, data.streamId, activeStream);
     return { ok: true as const, streamId: data.streamId };
   });
 
@@ -317,10 +340,13 @@ export function registerAiLabHandlers(): void {
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
     const entry = activeStreams.get(parsed.data.streamId);
     if (!entry) return { ok: true as const, alreadyDone: true };
+    if (entry.webContentsId !== event.sender.id) {
+      return { ok: false as const, error: 'Stream does not belong to this renderer.' };
+    }
     // cancel() disposes (aborts) + removes; capture webContentsId first so the
     // end event still reaches the renderer after the entry is gone.
     const { webContentsId } = entry;
-    activeStreams.cancel(parsed.data.streamId);
+    activeStreams.cancelForOwner(parsed.data.streamId, event.sender.id);
     emitTo(webContentsId, eventChannel(EVENT_PREFIX.aiLab.end, parsed.data.streamId), {
       reason: 'cancelled',
     });

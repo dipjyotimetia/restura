@@ -17,8 +17,8 @@ import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
 import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
 import { type ChatRequestSpec, isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import type { Fetcher } from '@shared/protocol/types';
-import { ipcMain } from 'electron';
 import { createLogger } from '@shared/runtime/logger';
+import { ipcMain } from 'electron';
 import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo } from '../ipc/ipc-utils';
@@ -70,33 +70,41 @@ async function runChat(
   spec: ChatRequestSpec,
   fetcher: Fetcher,
   streamId: string,
-  webContentsId: number,
-  abort: AbortController
+  activeStream: ActiveStream
 ): Promise<void> {
   const chunkChannel = eventChannel(EVENT_PREFIX.ai.chunk, streamId);
   const endChannel = eventChannel(EVENT_PREFIX.ai.end, streamId);
+  const isCurrent = () => active.getForOwner(streamId, activeStream.webContentsId) === activeStream;
   try {
     for await (const ev of executeAiChat(
-      { ...spec, signal: abort.signal },
+      { ...spec, signal: activeStream.abort.signal },
       fetcher,
       resolveSecretFn
     )) {
-      emitTo(webContentsId, chunkChannel, ev);
+      if (!isCurrent()) return;
+      emitTo(activeStream.webContentsId, chunkChannel, ev);
       if (ev.type === 'done') {
-        emitTo(webContentsId, endChannel, { reason: 'done' });
+        emitTo(activeStream.webContentsId, endChannel, { reason: 'done' });
         return;
       }
     }
-    emitTo(webContentsId, endChannel, { reason: 'done' });
+    if (isCurrent()) {
+      emitTo(activeStream.webContentsId, endChannel, { reason: 'done' });
+    }
   } catch (e) {
+    if (!isCurrent()) return;
     const msg = e instanceof Error ? e.message : String(e);
     // Persist the main-process trace — the renderer only sees the error event,
     // so without this an upstream/provider failure leaves nothing in main.log.
     log.warn('chat stream failed', { streamId, provider: spec.provider, error: msg });
-    emitTo(webContentsId, chunkChannel, { type: 'error', code: 'network', message: msg });
-    emitTo(webContentsId, endChannel, { reason: 'error' });
+    emitTo(activeStream.webContentsId, chunkChannel, {
+      type: 'error',
+      code: 'network',
+      message: msg,
+    });
+    emitTo(activeStream.webContentsId, endChannel, { reason: 'error' });
   } finally {
-    active.remove(streamId);
+    if (isCurrent()) active.remove(streamId);
   }
 }
 
@@ -116,17 +124,21 @@ export function registerAiHandlers(): void {
     }
 
     const data = parsed.data;
+    const existing = active.get(data.streamId);
+    if (existing && existing.webContentsId !== senderId) {
+      return { ok: false as const, error: 'Stream does not belong to this renderer.' };
+    }
 
     // Register the stream + renderer-cleanup listener BEFORE the async
     // buildSafeFetcher await (which does a DNS resolve). add() binds the
     // renderer-destroyed cleanup — as sse-handler does — closing the window
     // where a renderer destroyed mid-connect would leave no teardown attached.
-    const abort = new AbortController();
-    active.add(data.streamId, event.sender, {
+    const activeStream: ActiveStream = {
       streamId: data.streamId,
       webContentsId: senderId,
-      abort,
-    });
+      abort: new AbortController(),
+    };
+    active.add(data.streamId, event.sender, activeStream);
 
     // Validate + DNS-pin the (default or overridden) provider host and get a
     // fetcher locked to it. Replaces the old pre-flight-only string check, which
@@ -136,13 +148,15 @@ export function registerAiHandlers(): void {
     try {
       fetcher = await buildSafeFetcher(data.provider, data.baseUrlOverride);
     } catch (e) {
-      active.remove(data.streamId);
+      if (active.getForOwner(data.streamId, senderId) === activeStream) {
+        active.remove(data.streamId);
+      }
       return { ok: false as const, error: (e as Error).message };
     }
 
     // If the renderer went away during the await, the cleanup listener already
     // aborted + removed the entry — don't start the stream.
-    if (!active.has(data.streamId)) {
+    if (active.getForOwner(data.streamId, senderId) !== activeStream) {
       return { ok: false as const, error: 'Renderer closed before stream started.' };
     }
 
@@ -160,7 +174,7 @@ export function registerAiHandlers(): void {
     };
 
     // Kick off the stream — do NOT await; the renderer receives events via channels.
-    void runChat(spec, fetcher, data.streamId, senderId, abort);
+    void runChat(spec, fetcher, data.streamId, activeStream);
 
     return { ok: true as const, streamId: data.streamId };
   });
@@ -171,10 +185,13 @@ export function registerAiHandlers(): void {
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
     const entry = active.get(parsed.data.streamId);
     if (!entry) return { ok: true as const, alreadyDone: true };
+    if (entry.webContentsId !== event.sender.id) {
+      return { ok: false as const, error: 'Stream does not belong to this renderer.' };
+    }
     // cancel() disposes (aborts) + removes; capture webContentsId first so the
     // end event still reaches the renderer after the entry is gone.
     const { webContentsId } = entry;
-    active.cancel(parsed.data.streamId);
+    active.cancelForOwner(parsed.data.streamId, event.sender.id);
     emitTo(webContentsId, eventChannel(EVENT_PREFIX.ai.end, parsed.data.streamId), {
       reason: 'cancelled',
     });
