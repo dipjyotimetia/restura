@@ -47,6 +47,7 @@ interface McpState {
 
   setStatus: (id: string, status: McpConnectionStatus, error?: string) => void;
   setCapabilities: (id: string, caps: McpServerCapabilities | null) => void;
+  resetConnectionSession: (id: string) => void;
   appendLog: (id: string, entry: Omit<McpInvocationLog, 'id' | 'timestamp'>) => void;
   clearLog: (id: string) => void;
 
@@ -154,6 +155,23 @@ export const useMcpStore = create<McpState>()(
           const c = s.connections[id];
           if (!c) return s;
           return { connections: { ...s.connections, [id]: { ...c, capabilities: caps } } };
+        }),
+
+      resetConnectionSession: (id) =>
+        set((s) => {
+          const c = s.connections[id];
+          if (!c) return s;
+          return {
+            connections: {
+              ...s.connections,
+              [id]: {
+                ...c,
+                status: 'disconnected',
+                capabilities: null,
+                lastError: undefined,
+              },
+            },
+          };
         }),
 
       appendLog: (id, entry) =>
