@@ -100,7 +100,7 @@ alongside the smallest production change.
 
 ## Phase 3: Renderer correctness and response isolation
 
-### Task 9: Route request and script completion to the origin tab
+### Task 9: Route request and script completion to the origin tab — complete
 
 - Acceptance: target-tab mutations update only an extant origin tab; active-tab
   mutations retain existing semantics.
