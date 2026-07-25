@@ -47,7 +47,7 @@ alongside the smallest production change.
 - Files: kafka-handler.ts, mqtt-handler.ts, their two handler tests
 - Scope: M
 
-### Task 5: Enforce ownership for gRPC stream controls
+### Task 5: Enforce ownership for gRPC stream controls — complete
 
 - Acceptance: message/end/cancel/pending-buffer paths bind stream IDs to their
   creator; a non-owner fire-and-forget call is ignored before mutation.
