@@ -80,6 +80,10 @@ const OTHER_SENDER = {
   sender: { id: 2, isDestroyed: () => false },
   senderFrame: { url: 'file:///app/dist/web/index.html' },
 };
+const THIRD_SENDER = {
+  sender: { id: 3, isDestroyed: () => false },
+  senderFrame: { url: 'file:///app/dist/web/index.html' },
+};
 const OPERATION_ID = '66666666-6666-4666-8666-666666666666';
 const STREAM_ID = '77777777-7777-4777-8777-777777777777';
 const STREAM_REQUEST = {
@@ -268,7 +272,7 @@ describe('ai-lab-handler', () => {
     });
   });
 
-  it('refuses cancellation from another renderer', async () => {
+  it('makes another renderer completion cancellation indistinguishable from missing', async () => {
     let resolveComplete!: (value: { ok: true; text: string; toolCalls: never[] }) => void;
     mockRunToCompletion.mockImplementationOnce(
       () =>
@@ -286,15 +290,19 @@ describe('ai-lab-handler', () => {
     });
     await vi.waitFor(() => expect(mockRunToCompletion).toHaveBeenCalledOnce());
 
+    const missingCancel = await handlerFor('ai-lab:complete:cancel')(OTHER_SENDER, {
+      operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    });
     await expect(
       handlerFor('ai-lab:complete:cancel')(OTHER_SENDER, { operationId: OPERATION_ID })
-    ).resolves.toEqual({ ok: false, error: 'Operation does not belong to this renderer.' });
+    ).resolves.toEqual(missingCancel);
+    expect(missingCancel).toEqual({ ok: true, alreadyDone: true });
 
     resolveComplete({ ok: true, text: 'done', toolCalls: [] });
     await pending;
   });
 
-  it('refuses another renderer reusing an active completion operation ID', async () => {
+  it('returns the same active-ID response to either renderer', async () => {
     let resolveComplete!: (value: { ok: true; text: string; toolCalls: never[] }) => void;
     mockRunToCompletion.mockImplementationOnce(
       () =>
@@ -313,14 +321,55 @@ describe('ai-lab-handler', () => {
     const pending = handlerFor('ai-lab:complete')(TRUSTED, args);
     await vi.waitFor(() => expect(mockRunToCompletion).toHaveBeenCalledOnce());
 
-    await expect(handlerFor('ai-lab:complete')(OTHER_SENDER, args)).resolves.toEqual({
+    const ownerDuplicate = await handlerFor('ai-lab:complete')(TRUSTED, args);
+    await expect(handlerFor('ai-lab:complete')(OTHER_SENDER, args)).resolves.toEqual(
+      ownerDuplicate
+    );
+    expect(ownerDuplicate).toEqual({
       ok: false,
-      error: 'Operation does not belong to this renderer.',
+      error: 'A completion with this operation ID is already active.',
     });
     expect(mockRunToCompletion).toHaveBeenCalledOnce();
 
     resolveComplete({ ok: true, text: 'done', toolCalls: [] });
     await pending;
+  });
+
+  it('clears a destroyed DNS-pending completion without late deletion of its successor', async () => {
+    const safeAddress = deferSafeAddress();
+    let resolveReplacement!: (value: { ok: true; text: string; toolCalls: never[] }) => void;
+    mockRunToCompletion.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveReplacement = resolve;
+        })
+    );
+    const args = {
+      operationId: OPERATION_ID,
+      provider: 'ollama',
+      model: 'm',
+      messages: [{ role: 'user', content: 'hi' }],
+      rawMode: false,
+      baseUrlOverride: 'http://localhost:11434',
+    };
+    const original = handlerFor('ai-lab:complete')(TRUSTED, args);
+    await vi.waitFor(() => expect(mockResolveSafe).toHaveBeenCalledOnce());
+    expect(mockBindCleanup).toHaveBeenCalledOnce();
+
+    const teardown = mockBindCleanup.mock.calls[0]?.[2] as (deadId: number) => void;
+    teardown(TRUSTED.sender.id);
+    const replacement = handlerFor('ai-lab:complete')(OTHER_SENDER, args);
+    await vi.waitFor(() => expect(mockRunToCompletion).toHaveBeenCalledOnce());
+
+    safeAddress.finish();
+    await expect(original).resolves.toEqual({ ok: false, error: 'Operation cancelled.' });
+    await expect(handlerFor('ai-lab:complete')(THIRD_SENDER, args)).resolves.toEqual({
+      ok: false,
+      error: 'A completion with this operation ID is already active.',
+    });
+
+    resolveReplacement({ ok: true, text: 'done', toolCalls: [] });
+    await replacement;
   });
 
   it('rejects a duplicate active completion operation ID', async () => {
@@ -390,8 +439,9 @@ describe('ai-lab-handler', () => {
     expect(queuedResult).toEqual({ ok: false, error: 'Operation cancelled.' });
   });
 
-  it('refuses another renderer replacing or cancelling the creator stream', async () => {
+  it('treats another renderer stream ID as missing without crossing ownership', async () => {
     const ownerStream = deferLabStream();
+    const otherStream = deferLabStream();
     await expect(handlerFor('ai-lab:stream')(TRUSTED, STREAM_REQUEST)).resolves.toMatchObject({
       ok: true,
       streamId: STREAM_ID,
@@ -399,39 +449,48 @@ describe('ai-lab-handler', () => {
     await vi.waitFor(() => expect(ownerStream.getSignal()).toBeDefined());
 
     await expect(handlerFor('ai-lab:stream')(OTHER_SENDER, STREAM_REQUEST)).resolves.toEqual({
-      ok: false,
-      error: 'Stream does not belong to this renderer.',
+      ok: true,
+      streamId: STREAM_ID,
+    });
+    await vi.waitFor(() => expect(otherStream.getSignal()).toBeDefined());
+
+    const missingCancel = await handlerFor('ai-lab:stream:cancel')(THIRD_SENDER, {
+      streamId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     });
     await expect(
-      handlerFor('ai-lab:stream:cancel')(OTHER_SENDER, { streamId: STREAM_ID })
-    ).resolves.toEqual({
-      ok: false,
-      error: 'Stream does not belong to this renderer.',
-    });
+      handlerFor('ai-lab:stream:cancel')(THIRD_SENDER, { streamId: STREAM_ID })
+    ).resolves.toEqual(missingCancel);
+    expect(missingCancel).toEqual({ ok: true, alreadyDone: true });
     expect(ownerStream.getSignal()?.aborted).toBe(false);
-    expect(mockExecuteAiChat).toHaveBeenCalledOnce();
+    expect(otherStream.getSignal()?.aborted).toBe(false);
 
     await expect(
       handlerFor('ai-lab:stream:cancel')(TRUSTED, { streamId: STREAM_ID })
     ).resolves.toEqual({ ok: true });
     expect(ownerStream.getSignal()?.aborted).toBe(true);
+    expect(otherStream.getSignal()?.aborted).toBe(false);
     expect(mockEmitTo).toHaveBeenCalledWith(1, `ai-lab:end:${STREAM_ID}`, {
       reason: 'cancelled',
     });
+    await expect(
+      handlerFor('ai-lab:stream:cancel')(OTHER_SENDER, { streamId: STREAM_ID })
+    ).resolves.toEqual({ ok: true });
+    expect(otherStream.getSignal()?.aborted).toBe(true);
     ownerStream.finish();
+    otherStream.finish();
   });
 
-  it('reserves a pending stream before another renderer can resolve the same ID', async () => {
+  it('scopes a DNS-pending stream reservation to its renderer', async () => {
     const safeAddress = deferSafeAddress();
     mockExecuteAiChat.mockImplementation(() => (async function* () {})());
     const ownerPending = handlerFor('ai-lab:stream')(TRUSTED, STREAM_REQUEST);
     await vi.waitFor(() => expect(mockResolveSafe).toHaveBeenCalledOnce());
 
     await expect(handlerFor('ai-lab:stream')(OTHER_SENDER, STREAM_REQUEST)).resolves.toEqual({
-      ok: false,
-      error: 'Stream does not belong to this renderer.',
+      ok: true,
+      streamId: STREAM_ID,
     });
-    expect(mockResolveSafe).toHaveBeenCalledOnce();
+    expect(mockResolveSafe).toHaveBeenCalledTimes(2);
 
     safeAddress.finish();
     await expect(ownerPending).resolves.toMatchObject({ ok: true, streamId: STREAM_ID });

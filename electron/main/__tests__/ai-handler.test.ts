@@ -42,6 +42,10 @@ const OTHER_SENDER = {
   sender: { id: 2, isDestroyed: () => false },
   senderFrame: { url: 'file:///app/dist/web/index.html' },
 };
+const THIRD_SENDER = {
+  sender: { id: 3, isDestroyed: () => false },
+  senderFrame: { url: 'file:///app/dist/web/index.html' },
+};
 
 function handlerFor(channel: string) {
   const call = mockHandle.mock.calls.find((candidate) => candidate[0] === channel);
@@ -139,8 +143,9 @@ describe('ai-handler', () => {
     });
   });
 
-  it('refuses another renderer replacing or cancelling the creator chat', async () => {
+  it('treats another renderer chat ID as missing without crossing ownership', async () => {
     const ownerStream = deferChatStream();
+    const otherStream = deferChatStream();
     await expect(handlerFor('ai:chat')(TRUSTED, CHAT_REQUEST)).resolves.toMatchObject({
       ok: true,
       streamId: STREAM_ID,
@@ -148,26 +153,36 @@ describe('ai-handler', () => {
     await vi.waitFor(() => expect(ownerStream.getSignal()).toBeDefined());
 
     await expect(handlerFor('ai:chat')(OTHER_SENDER, CHAT_REQUEST)).resolves.toEqual({
-      ok: false,
-      error: 'Stream does not belong to this renderer.',
+      ok: true,
+      streamId: STREAM_ID,
+    });
+    await vi.waitFor(() => expect(otherStream.getSignal()).toBeDefined());
+    expect(ownerStream.getSignal()?.aborted).toBe(false);
+
+    const missingCancel = await handlerFor('ai:chat:cancel')(THIRD_SENDER, {
+      streamId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     });
     await expect(
-      handlerFor('ai:chat:cancel')(OTHER_SENDER, { streamId: STREAM_ID })
-    ).resolves.toEqual({
-      ok: false,
-      error: 'Stream does not belong to this renderer.',
-    });
+      handlerFor('ai:chat:cancel')(THIRD_SENDER, { streamId: STREAM_ID })
+    ).resolves.toEqual(missingCancel);
+    expect(missingCancel).toEqual({ ok: true, alreadyDone: true });
     expect(ownerStream.getSignal()?.aborted).toBe(false);
-    expect(mockExecuteAiChat).toHaveBeenCalledOnce();
+    expect(otherStream.getSignal()?.aborted).toBe(false);
 
     await expect(handlerFor('ai:chat:cancel')(TRUSTED, { streamId: STREAM_ID })).resolves.toEqual({
       ok: true,
     });
     expect(ownerStream.getSignal()?.aborted).toBe(true);
+    expect(otherStream.getSignal()?.aborted).toBe(false);
     expect(mockEmitTo).toHaveBeenCalledWith(1, `ai:chat:end:${STREAM_ID}`, {
       reason: 'cancelled',
     });
+    await expect(
+      handlerFor('ai:chat:cancel')(OTHER_SENDER, { streamId: STREAM_ID })
+    ).resolves.toEqual({ ok: true });
+    expect(otherStream.getSignal()?.aborted).toBe(true);
     ownerStream.finish();
+    otherStream.finish();
   });
 
   it('ignores a replaced chat late completion without deleting its successor', async () => {
