@@ -61,8 +61,11 @@ interface RequestState {
    * `ResponseViewer` dispatches to `StreamingResponseViewer`.
    */
   setStreamingEvents: (events: AsyncIterable<StreamEventLike>) => void;
+  setStreamingEventsForTab: (tabId: string, events: AsyncIterable<StreamEventLike>) => void;
   /** Drop the streaming events from the active tab (no-op if none). */
   clearStreamingEvents: () => void;
+  /** Drop streaming events from a specified extant tab (no-op if none). */
+  clearStreamingEventsForTab: (tabId: string) => void;
 
   // Convenience
   createNewRequest: (type: RequestType) => string;
@@ -351,11 +354,31 @@ export const useRequestStore = create<RequestState>()(
           }));
         },
 
+        setStreamingEventsForTab: (tabId, events) => {
+          set((s) => ({
+            tabs: patchTab(s.tabs, tabId, (tab) => ({
+              ...tab,
+              streamingEvents: events,
+              response: null,
+            })),
+          }));
+        },
+
         clearStreamingEvents: () => {
           set((s) => ({
             tabs: patchActiveTab(s, (t) => {
               if (!t.streamingEvents) return t;
               const { streamingEvents: _drop, ...rest } = t;
+              return rest;
+            }),
+          }));
+        },
+
+        clearStreamingEventsForTab: (tabId) => {
+          set((s) => ({
+            tabs: patchTab(s.tabs, tabId, (tab) => {
+              if (!tab.streamingEvents) return tab;
+              const { streamingEvents: _drop, ...rest } = tab;
               return rest;
             }),
           }));

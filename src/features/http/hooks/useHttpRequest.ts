@@ -38,9 +38,11 @@ export function useHttpRequest(): UseHttpRequestReturn {
     useRequestAnnouncements();
   const storeUpdateRequest = useRequestStore((s) => s.updateRequest);
   const setLoading = useRequestStore((s) => s.setLoading);
-  const setCurrentResponse = useRequestStore((s) => s.setCurrentResponse);
+  const setCurrentResponseForTab = useRequestStore((s) => s.setCurrentResponseForTab);
   const isLoading = useRequestStore((s) => s.isLoading);
-  const setScriptResult = useRequestStore((s) => s.setScriptResult);
+  const setScriptResultForTab = useRequestStore((s) => s.setScriptResultForTab);
+  const setStreamingEventsForTab = useRequestStore((s) => s.setStreamingEventsForTab);
+  const clearStreamingEventsForTab = useRequestStore((s) => s.clearStreamingEventsForTab);
 
   const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const globalSettings = useSettingsStore((s) => s.settings);
@@ -136,12 +138,14 @@ export function useHttpRequest(): UseHttpRequestReturn {
 
   const sendRequest = useCallback(async () => {
     if (!httpRequest) return;
+    const originTabId = useRequestStore.getState().activeTabId;
+    if (!originTabId) return;
 
     setLoading(true);
     announceRequestSent();
     // Always wipe any prior streaming state so a previous SSE/NDJSON run
     // doesn't bleed into this request — even if this one is buffered.
-    useRequestStore.getState().clearStreamingEvents();
+    clearStreamingEventsForTab(originTabId);
 
     try {
       // Detect streaming Accept and dispatch through the streaming pipeline.
@@ -178,9 +182,9 @@ export function useHttpRequest(): UseHttpRequestReturn {
           resolveVariables,
         });
         // Clear any buffered response from a prior run and attach the stream.
-        setCurrentResponse(null);
-        setScriptResult(null);
-        useRequestStore.getState().setStreamingEvents(events);
+        setCurrentResponseForTab(originTabId, null);
+        setScriptResultForTab(originTabId, null);
+        setStreamingEventsForTab(originTabId, events);
         // The stream renders incrementally; flip loading off so the viewer
         // becomes interactive immediately. The status pill inside
         // StreamingResponseViewer reflects ongoing/closed/error state.
@@ -193,7 +197,7 @@ export function useHttpRequest(): UseHttpRequestReturn {
       // results into the active tab so the Console panel updates.
       const { response } = await runViaRegistry(httpRequest, 'http');
 
-      setCurrentResponse(response);
+      setCurrentResponseForTab(originTabId, response);
       announceRequestComplete(response.status, response.time);
     } catch (error: unknown) {
       // Error handling is mostly done in executeRequest but if it throws, we catch here
@@ -206,9 +210,11 @@ export function useHttpRequest(): UseHttpRequestReturn {
   }, [
     httpRequest,
     setLoading,
-    setScriptResult,
+    setScriptResultForTab,
+    setStreamingEventsForTab,
+    clearStreamingEventsForTab,
     resolveVariables,
-    setCurrentResponse,
+    setCurrentResponseForTab,
     globalSettings,
     runViaRegistry,
     announceRequestSent,
