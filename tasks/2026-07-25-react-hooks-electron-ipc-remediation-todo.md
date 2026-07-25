@@ -148,7 +148,7 @@ alongside the smallest production change.
 - Files: useInspectorFetch.ts and new focused hook test
 - Scope: S
 
-### Task 13: Abort collection and load-test runs on unmount
+### Task 13: Abort collection and load-test runs on unmount — complete
 
 - Acceptance: dialog unmount aborts live work and late callbacks cannot commit.
 - Acceptance: explicit stop and normal completion retain current result semantics.
