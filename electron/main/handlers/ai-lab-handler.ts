@@ -144,13 +144,17 @@ const activeStreams = new StreamRegistry<ActiveStream>({
 // The exact explicitly-cancelled generation may emit its established abort
 // error until a successor reserves the same owner-scoped key or it settles.
 const cancelledStreamGenerations = new Map<string, ActiveStream>();
-// Cancellation aborts but deliberately keeps this tombstone until the owning
-// handler settles. Otherwise cancel -> same-ID reuse lets the old finally block
-// remove a newer operation with the same ID.
+// Creator-scoped keys keep equal renderer-generated operation IDs independent.
+// Cancellation aborts but deliberately keeps the owner's tombstone until its
+// handler settles so same-owner reuse cannot race the old finally block.
 const activeCompletes = new Map<string, ActiveAbort>();
 
 function streamRegistryKey(webContentsId: number, streamId: string): string {
   return `${webContentsId}:${streamId}`;
+}
+
+function completionRegistryKey(webContentsId: number, operationId: string): string {
+  return `${webContentsId}:${operationId}`;
 }
 
 /**
@@ -263,20 +267,21 @@ export function registerAiLabHandlers(): void {
     const data = parsed.data;
     const abort = new AbortController();
     const activeComplete = { webContentsId: senderId, abort };
-    const existing = activeCompletes.get(data.operationId);
+    const registryKey = completionRegistryKey(senderId, data.operationId);
+    const existing = activeCompletes.get(registryKey);
     if (existing) {
       return {
         ok: false as const,
         error: 'A completion with this operation ID is already active.',
       };
     }
-    activeCompletes.set(data.operationId, activeComplete);
+    activeCompletes.set(registryKey, activeComplete);
     bindRendererCleanup(activeCompletes, event.sender, (deadId) => {
-      for (const [operationId, active] of activeCompletes) {
+      for (const [key, active] of activeCompletes) {
         if (active.webContentsId !== deadId) continue;
         active.abort.abort();
-        if (activeCompletes.get(operationId) === active) {
-          activeCompletes.delete(operationId);
+        if (activeCompletes.get(key) === active) {
+          activeCompletes.delete(key);
         }
       }
     });
@@ -300,8 +305,8 @@ export function registerAiLabHandlers(): void {
       return { ok: false as const, error: msg };
     } finally {
       if (slotAcquired) completeSlots.release();
-      if (activeCompletes.get(data.operationId) === activeComplete) {
-        activeCompletes.delete(data.operationId);
+      if (activeCompletes.get(registryKey) === activeComplete) {
+        activeCompletes.delete(registryKey);
       }
     }
   });
@@ -310,8 +315,9 @@ export function registerAiLabHandlers(): void {
     assertTrustedSender(IPC.aiLab.completeCancel, event);
     const parsed = AiLabCompleteCancelSchema.safeParse(raw);
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
-    const active = activeCompletes.get(parsed.data.operationId);
-    if (!active || active.webContentsId !== event.sender.id) {
+    const registryKey = completionRegistryKey(event.sender.id, parsed.data.operationId);
+    const active = activeCompletes.get(registryKey);
+    if (!active) {
       return { ok: true as const, alreadyDone: true };
     }
     active.abort.abort();

@@ -316,12 +316,15 @@ describe('ai-lab-handler', () => {
     await pending;
   });
 
-  it('returns the same active-ID response to either renderer', async () => {
-    let resolveComplete!: (value: { ok: true; text: string; toolCalls: never[] }) => void;
-    mockRunToCompletion.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolveComplete = resolve;
+  it('scopes the same completion operation ID per renderer and isolates cancellation', async () => {
+    const completions: Array<{
+      signal?: AbortSignal;
+      reject: (error: Error) => void;
+    }> = [];
+    mockRunToCompletion.mockImplementation(
+      (spec?: { signal?: AbortSignal }) =>
+        new Promise<{ ok: true; text: string; toolCalls: never[] }>((_resolve, reject) => {
+          completions.push({ signal: spec?.signal, reject });
         })
     );
     const args = {
@@ -332,21 +335,34 @@ describe('ai-lab-handler', () => {
       rawMode: false,
       baseUrlOverride: 'http://localhost:11434',
     };
-    const pending = handlerFor('ai-lab:complete')(TRUSTED, args);
-    await vi.waitFor(() => expect(mockRunToCompletion).toHaveBeenCalledOnce());
+    const ownerPending = handlerFor('ai-lab:complete')(TRUSTED, args);
+    const otherPending = handlerFor('ai-lab:complete')(OTHER_SENDER, args);
+    await vi.waitFor(() => expect(mockRunToCompletion).toHaveBeenCalledTimes(2));
 
-    const ownerDuplicate = await handlerFor('ai-lab:complete')(TRUSTED, args);
-    await expect(handlerFor('ai-lab:complete')(OTHER_SENDER, args)).resolves.toEqual(
-      ownerDuplicate
-    );
-    expect(ownerDuplicate).toEqual({
-      ok: false,
-      error: 'A completion with this operation ID is already active.',
+    const missingCancel = await handlerFor('ai-lab:complete:cancel')(THIRD_SENDER, {
+      operationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     });
-    expect(mockRunToCompletion).toHaveBeenCalledOnce();
+    await expect(
+      handlerFor('ai-lab:complete:cancel')(THIRD_SENDER, { operationId: OPERATION_ID })
+    ).resolves.toEqual(missingCancel);
+    expect(completions[0]?.signal?.aborted).toBe(false);
+    expect(completions[1]?.signal?.aborted).toBe(false);
 
-    resolveComplete({ ok: true, text: 'done', toolCalls: [] });
-    await pending;
+    await handlerFor('ai-lab:complete:cancel')(TRUSTED, { operationId: OPERATION_ID });
+    expect(completions[0]?.signal?.aborted).toBe(true);
+    expect(completions[1]?.signal?.aborted).toBe(false);
+    completions[0]?.reject(new Error('aborted'));
+    await ownerPending;
+
+    await expect(
+      handlerFor('ai-lab:complete:cancel')(TRUSTED, { operationId: OPERATION_ID })
+    ).resolves.toEqual({ ok: true, alreadyDone: true });
+    expect(completions[1]?.signal?.aborted).toBe(false);
+
+    await handlerFor('ai-lab:complete:cancel')(OTHER_SENDER, { operationId: OPERATION_ID });
+    expect(completions[1]?.signal?.aborted).toBe(true);
+    completions[1]?.reject(new Error('aborted'));
+    await otherPending;
   });
 
   it('clears a destroyed DNS-pending completion without late deletion of its successor', async () => {
@@ -377,7 +393,7 @@ describe('ai-lab-handler', () => {
 
     safeAddress.finish();
     await expect(original).resolves.toEqual({ ok: false, error: 'Operation cancelled.' });
-    await expect(handlerFor('ai-lab:complete')(THIRD_SENDER, args)).resolves.toEqual({
+    await expect(handlerFor('ai-lab:complete')(OTHER_SENDER, args)).resolves.toEqual({
       ok: false,
       error: 'A completion with this operation ID is already active.',
     });
