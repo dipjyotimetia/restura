@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useCollectionRunStore } from '@/store/useCollectionRunStore';
 import {
@@ -96,14 +96,29 @@ export function useCollectionRun() {
   const [progress, setProgress] = useState<RunProgress | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const lastEmit = useRef(0);
+  const mountedRef = useRef(false);
+  const runGenerationRef = useRef(0);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      runGenerationRef.current += 1;
+      const controller = abortRef.current;
+      abortRef.current = null;
+      controller?.abort();
+    };
+  }, []);
 
   const start = useCallback((args: StartRunArgs) => {
-    if (abortRef.current) return;
+    if (!mountedRef.current || abortRef.current) return;
     setProgress(null);
     setRunning(true);
     lastEmit.current = 0;
     const ac = new AbortController();
     abortRef.current = ac;
+    const runGeneration = ++runGenerationRef.current;
+    const isCurrent = () => mountedRef.current && runGeneration === runGenerationRef.current;
 
     const env =
       useEnvironmentStore.getState().environments.find((e) => e.id === args.environmentId) ?? null;
@@ -128,6 +143,7 @@ export function useCollectionRun() {
         stopOnFailure: args.stopOnFailure,
       },
       (p) => {
+        if (!isCurrent()) return;
         const now = performance.now();
         if (p.done || now - lastEmit.current > 100) {
           lastEmit.current = now;
@@ -135,19 +151,23 @@ export function useCollectionRun() {
         }
       },
       ac.signal,
-      pushConsoleEntry
+      (info) => {
+        if (isCurrent()) pushConsoleEntry(info);
+      }
     )
       .then((result: CollectionRunResult) => {
-        useCollectionRunStore.getState().addRun(result);
+        if (isCurrent()) useCollectionRunStore.getState().addRun(result);
       })
       .catch((error: unknown) => {
-        toast.error('Collection run failed', {
-          description: error instanceof Error ? error.message : String(error),
-        });
+        if (isCurrent()) {
+          toast.error('Collection run failed', {
+            description: error instanceof Error ? error.message : String(error),
+          });
+        }
       })
       .finally(() => {
-        abortRef.current = null;
-        setRunning(false);
+        if (abortRef.current === ac) abortRef.current = null;
+        if (isCurrent()) setRunning(false);
       });
   }, []);
 

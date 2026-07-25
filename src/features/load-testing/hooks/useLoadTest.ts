@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { HttpRequest } from '@/types';
 import { type LoadProgress, type LoadTestOptions, runLoadTest } from '../lib/loadTestRunner';
 
@@ -12,18 +12,34 @@ export function useLoadTest() {
   const [progress, setProgress] = useState<LoadProgress | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const lastEmit = useRef(0);
+  const mountedRef = useRef(false);
+  const runGenerationRef = useRef(0);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      runGenerationRef.current += 1;
+      const controller = abortRef.current;
+      abortRef.current = null;
+      controller?.abort();
+    };
+  }, []);
 
   const start = useCallback((request: HttpRequest, options: LoadTestOptions) => {
-    if (abortRef.current) return;
+    if (!mountedRef.current || abortRef.current) return;
     setProgress(null);
     setRunning(true);
     lastEmit.current = 0;
     const ac = new AbortController();
     abortRef.current = ac;
+    const runGeneration = ++runGenerationRef.current;
+    const isCurrent = () => mountedRef.current && runGeneration === runGenerationRef.current;
     void runLoadTest(
       request,
       options,
       (p) => {
+        if (!isCurrent()) return;
         const now = performance.now();
         if (p.done || now - lastEmit.current > 100) {
           lastEmit.current = now;
@@ -32,8 +48,8 @@ export function useLoadTest() {
       },
       ac.signal
     ).finally(() => {
-      abortRef.current = null;
-      setRunning(false);
+      if (abortRef.current === ac) abortRef.current = null;
+      if (isCurrent()) setRunning(false);
     });
   }, []);
 
