@@ -1,7 +1,8 @@
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
-import { ipcMain } from 'electron';
 import { createLogger } from '@shared/runtime/logger';
+import { ipcMain, type WebContents } from 'electron';
 import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
+import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import type { GrpcRequestConfig } from '../ipc/ipc-validators';
 import {
@@ -63,11 +64,16 @@ const activeCalls = new StreamRegistry<ActiveCall>({ dispose: (c) => c.cancel() 
 // ahead of that registration would otherwise be dropped silently — losing the
 // first client/bidi message or a premature half-close. Buffer those per
 // requestId and flush them in addActiveCall. Bounded (per-id + map size) so a
-// renderer that sends to an id that never registers can't grow this unbounded.
-const pendingStreamMessages = new Map<
-  string,
-  { writes: unknown[]; end: boolean; createdAt: number }
->();
+// renderer that starts streams which never finish DNS can't grow this unbounded.
+interface PendingStreamClaim {
+  webContentsId: number;
+  token: symbol;
+  writes: unknown[];
+  end: boolean;
+  createdAt: number;
+}
+
+const pendingStreamMessages = new Map<string, PendingStreamClaim>();
 const MAX_PENDING_WRITES = 256;
 const MAX_PENDING_STREAMS = 100;
 // A pending buffer only bridges the start-stream DNS pre-flight (seconds); one
@@ -75,19 +81,40 @@ const MAX_PENDING_STREAMS = 100;
 // register (renderer bug or dead renderer) and is evicted by the stale sweep.
 const PENDING_TTL_MS = 60 * 1000;
 
-// Get (or create, if room) the pending buffer for a not-yet-registered stream.
-// Returns null when the map is at capacity so callers drop the message rather
-// than grow the buffer unbounded for an id that may never register.
-const getOrCreatePending = (
-  id: string
-): { writes: unknown[]; end: boolean; createdAt: number } | null => {
-  let pending = pendingStreamMessages.get(id);
-  if (!pending) {
-    if (pendingStreamMessages.size >= MAX_PENDING_STREAMS) return null;
-    pending = { writes: [], end: false, createdAt: Date.now() };
-    pendingStreamMessages.set(id, pending);
+// Reserve a stream id synchronously before start-stream awaits DNS. Controls
+// may buffer only against this creator-owned claim; an unknown or wrong-owner
+// id is indistinguishable and remains a no-op.
+const reservePendingStream = (id: string, sender: WebContents): PendingStreamClaim | undefined => {
+  if (
+    pendingStreamMessages.has(id) ||
+    activeCalls.has(id) ||
+    pendingStreamMessages.size >= MAX_PENDING_STREAMS
+  ) {
+    return undefined;
   }
-  return pending;
+  const claim: PendingStreamClaim = {
+    webContentsId: sender.id,
+    token: Symbol(id),
+    writes: [],
+    end: false,
+    createdAt: Date.now(),
+  };
+  pendingStreamMessages.set(id, claim);
+  bindRendererCleanup(pendingStreamMessages, sender, (deadId) =>
+    disposeByOwner(pendingStreamMessages, deadId, () => {})
+  );
+  return pendingStreamMessages.get(id) === claim ? claim : undefined;
+};
+
+const pendingForOwner = (id: string, webContentsId: number): PendingStreamClaim | undefined => {
+  const pending = pendingStreamMessages.get(id);
+  return pending?.webContentsId === webContentsId ? pending : undefined;
+};
+
+const releasePendingStream = (id: string, claim: PendingStreamClaim): void => {
+  if (pendingStreamMessages.get(id)?.token === claim.token) {
+    pendingStreamMessages.delete(id);
+  }
 };
 
 // Timeout for stale streams (5 minutes)
@@ -179,8 +206,10 @@ export function stopStreamCleanup(): void {
 const addActiveCall = (
   id: string,
   sender: Electron.WebContents,
-  call: Omit<ActiveCall, 'createdAt' | 'requestId'>
+  call: Omit<ActiveCall, 'createdAt' | 'requestId'>,
+  claim: PendingStreamClaim
 ): boolean => {
+  if (pendingStreamMessages.get(id)?.token !== claim.token) return false;
   const entry: ActiveCall = { ...call, createdAt: Date.now(), requestId: id };
   // tryAdd rejects a duplicate id (a renderer bug) rather than replacing.
   if (!activeCalls.tryAdd(id, sender, entry)) {
@@ -188,18 +217,15 @@ const addActiveCall = (
     // Drop any writes/half-close that raced in under this id — the stream was
     // rejected, so they'd otherwise orphan in pendingStreamMessages until the
     // size cap or stopStreamCleanup evicts them.
-    pendingStreamMessages.delete(id);
+    releasePendingStream(id, claim);
     return false;
   }
   // Flush any writes / half-close that raced ahead of registration (see
   // pendingStreamMessages). For server-streaming write/end are no-ops, so this
   // is harmless there.
-  const pending = pendingStreamMessages.get(id);
-  if (pending) {
-    pendingStreamMessages.delete(id);
-    for (const msg of pending.writes) call.write(msg);
-    if (pending.end) call.end();
-  }
+  releasePendingStream(id, claim);
+  for (const msg of claim.writes) call.write(msg);
+  if (claim.end) call.end();
   return true;
 };
 
@@ -391,7 +417,6 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         };
 
         if (!grpcRateLimiter.check(event.sender.id)) {
-          pendingStreamMessages.delete(requestId);
           safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
             status: 14,
             details: 'Rate limit exceeded',
@@ -403,7 +428,6 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         try {
           policyConfig = resolveGrpcExecutionPolicy(config);
         } catch (err) {
-          pendingStreamMessages.delete(requestId);
           safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
             status: 2,
             details: `gRPC setup failed: ${sanitizeErrorMessage(
@@ -413,14 +437,29 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           return;
         }
 
-        // SSRF guard before any cleanup binding so a rejected URL doesn't leave a
-        // renderer-destroy listener behind. Resolve + validate + pin the address
-        // here (closes the rebind window).
+        // Claim the id synchronously before the first await. A second renderer
+        // gets the same silent no-op as an unknown id, while an owner duplicate
+        // retains the existing duplicate-stream error contract.
+        const ownedPending = pendingForOwner(requestId, event.sender.id);
+        const ownedActive = activeCalls.getForOwner(requestId, event.sender.id);
+        const claim = reservePendingStream(requestId, event.sender);
+        if (!claim) {
+          if (ownedPending || ownedActive) {
+            safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
+              status: 13,
+              details: `Stream with ID ${requestId} already exists`,
+            });
+          }
+          return;
+        }
+
+        // Resolve + validate + pin the address before opening a transport
+        // (closes the DNS-rebind window).
         let grpcDial: PinnedDial;
         try {
           grpcDial = await resolveGrpcDialAddress(policyConfig.url);
         } catch (err) {
-          pendingStreamMessages.delete(requestId);
+          releasePendingStream(requestId, claim);
           safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
             status: 3,
             details:
@@ -432,8 +471,11 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
         // Renderer may have been destroyed during the DNS lookup; bail out
         // before allocating cleanup listeners and temp directories.
-        if (event.sender.isDestroyed()) {
-          pendingStreamMessages.delete(requestId);
+        if (
+          event.sender.isDestroyed() ||
+          pendingStreamMessages.get(requestId)?.token !== claim.token
+        ) {
+          releasePendingStream(requestId, claim);
           return;
         }
 
@@ -521,12 +563,17 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
               }
             },
           });
-          const added = addActiveCall(requestId, event.sender, {
-            cancel: controls.cancel,
-            write: controls.write,
-            end: controls.end,
-            webContentsId: event.sender.id,
-          });
+          const added = addActiveCall(
+            requestId,
+            event.sender,
+            {
+              cancel: controls.cancel,
+              write: controls.write,
+              end: controls.end,
+              webContentsId: event.sender.id,
+            },
+            claim
+          );
           if (!added) {
             controls.cancel();
             safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
@@ -535,7 +582,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
             });
           }
         } catch (err: unknown) {
-          pendingStreamMessages.delete(requestId);
+          releasePendingStream(requestId, claim);
           const error = err instanceof Error ? err : new Error(String(err));
           safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
             status: 2,
@@ -552,15 +599,15 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
     createValidatedListener(
       IPC.grpc.sendMessage,
       GrpcSendMessageSchema,
-      (_event, [requestId, message]) => {
-        const call = activeCalls.get(requestId);
+      (event, [requestId, message]) => {
+        const call = activeCalls.getForOwner(requestId, event.sender.id);
         if (call) {
           call.write(message);
           return;
         }
         // Stream not registered yet — start-stream is still resolving DNS.
-        // Buffer so the write isn't lost to the race; addActiveCall flushes it.
-        const pending = getOrCreatePending(requestId);
+        // Buffer only for the renderer that reserved the stream id.
+        const pending = pendingForOwner(requestId, event.sender.id);
         if (pending && pending.writes.length < MAX_PENDING_WRITES) pending.writes.push(message);
       }
     )
@@ -571,14 +618,14 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
     createValidatedListener(
       IPC.grpc.endStream,
       GrpcStreamRequestIdSchema,
-      (_event, requestId: string) => {
-        const call = activeCalls.get(requestId);
+      (event, requestId: string) => {
+        const call = activeCalls.getForOwner(requestId, event.sender.id);
         if (call) {
           call.end();
           return;
         }
         // Half-close raced ahead of registration — record it for the flush.
-        const pending = getOrCreatePending(requestId);
+        const pending = pendingForOwner(requestId, event.sender.id);
         if (pending) pending.end = true;
       }
     )
@@ -589,13 +636,10 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
     createValidatedListener(
       IPC.grpc.cancelStream,
       GrpcStreamRequestIdSchema,
-      (_event, requestId: string) => {
-        pendingStreamMessages.delete(requestId);
-        const call = activeCalls.get(requestId);
-        if (call) {
-          call.cancel();
-          removeActiveCall(requestId); // cleanup immediately; the stream's onCancelled path also calls cleanup but Map.delete is idempotent
-        }
+      (event, requestId: string) => {
+        const pending = pendingForOwner(requestId, event.sender.id);
+        if (pending) releasePendingStream(requestId, pending);
+        activeCalls.cancelForOwner(requestId, event.sender.id);
       }
     )
   );
