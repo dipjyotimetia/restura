@@ -140,6 +140,7 @@ export function ProviderCatalog({
               <Button
                 variant="ghost"
                 size="sm"
+                disabled={savingCredentials}
                 onClick={() => setEditingProviderId(isEditing ? null : config.id)}
               >
                 <Pencil className="h-3 w-3" /> Edit
