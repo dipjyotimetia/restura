@@ -73,6 +73,7 @@ interface McpSession {
 }
 
 function disposeSession(s: McpSession): void {
+  if (s.disposed) return;
   s.disposed = true;
   if (s.transport instanceof StreamableHTTPClientTransport) {
     // Best-effort DELETE so well-behaved servers can free the session.
@@ -93,9 +94,16 @@ interface PendingMcpClaim {
   webContentsId: number;
   token: symbol;
   ownerEntry?: McpSession;
+  pendingSession?: McpSession;
 }
 
 const pendingSessions = new Map<string, PendingMcpClaim>();
+
+function disposePendingMcpClaim(claim: PendingMcpClaim): void {
+  if (!claim.pendingSession) return;
+  disposeSession(claim.pendingSession);
+  claim.pendingSession = undefined;
+}
 
 function reserveMcpClaim(
   connectionId: string,
@@ -113,7 +121,7 @@ function reserveMcpClaim(
   };
   pendingSessions.set(connectionId, claim);
   bindRendererCleanup(pendingSessions, webContents, (deadId) =>
-    disposeByOwner(pendingSessions, deadId, () => {})
+    disposeByOwner(pendingSessions, deadId, disposePendingMcpClaim)
   );
   return pendingSessions.get(connectionId) === claim ? claim : undefined;
 }
@@ -224,6 +232,12 @@ export function registerMcpHandlerIPC(): void {
         }
       };
 
+      if (pendingSessions.get(config.connectionId)?.token !== claim.token) {
+        disposeSession(session);
+        return { success: false, error: 'Not connected' };
+      }
+      claim.pendingSession = session;
+
       try {
         // Performs the full initialize handshake (and, for streamable-http,
         // opens the optional standalone SSE stream). Auth/connectivity errors
@@ -249,7 +263,9 @@ export function registerMcpHandlerIPC(): void {
         // the renderer a dead connection is live (every later request fails, with
         // no close ever sent). Treat it as a failed connect instead.
         if (session.disposed) {
-          void client.close().catch(() => {});
+          if (pendingSessions.get(config.connectionId)?.token === claim.token) {
+            void client.close().catch(() => {});
+          }
           log.warn('connect closed during initialization', {
             connectionId: config.connectionId,
           });
@@ -271,8 +287,10 @@ export function registerMcpHandlerIPC(): void {
         emitTo(webContentsId, eventChannel(EVENT_PREFIX.mcp.open, config.connectionId));
         return { success: true };
       } catch (err) {
-        session.disposed = true;
-        void client.close().catch(() => {});
+        if (!session.disposed) {
+          session.disposed = true;
+          void client.close().catch(() => {});
+        }
         const message = errorMessage(err);
         log.warn('connect failed', { connectionId: config.connectionId, error: message });
         return { success: false, error: message };
@@ -353,6 +371,9 @@ export function registerMcpHandlerIPC(): void {
 }
 
 export function stopMcpCleanup(): void {
+  for (const claim of pendingSessions.values()) {
+    disposePendingMcpClaim(claim);
+  }
   pendingSessions.clear();
   sessions.disposeAll();
 }
