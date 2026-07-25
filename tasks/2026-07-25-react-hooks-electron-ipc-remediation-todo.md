@@ -57,7 +57,7 @@ alongside the smallest production change.
 - Files: grpc-handler.ts and its test
 - Scope: S
 
-### Task 6: Enforce ownership for AI and AI Lab cancellation
+### Task 6: Enforce ownership for AI and AI Lab cancellation — complete
 
 - Acceptance: every AI chat/AI Lab cancellation and run lookup is owner-aware.
 - Acceptance: the existing correct AI Lab completion cancel remains the model;
