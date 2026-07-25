@@ -121,7 +121,7 @@ alongside the smallest production change.
 - Files: McpRequestBuilder.tsx, MCP store module, focused component test
 - Scope: S
 
-### Task 11: Apply a network-denying CSP to response previews
+### Task 11: Apply a network-denying CSP to response previews — complete
 
 - Acceptance: response srcDoc remains sandboxed; scripts, fetch/XHR/WebSocket,
   forms, navigation, image/font/media loads are denied by default.
