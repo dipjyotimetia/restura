@@ -134,13 +134,9 @@ export function registerSocketIoHandlerIPC(): void {
       return { success: false, error: 'Too many open Socket.IO connections.' };
     }
 
-    // Only the owning renderer may reconnect with the same id. A different
-    // renderer must not tear down or replace the owner's live socket.
-    if (activeConnections.has(connectionId)) {
-      if (!activeConnections.cancelForOwner(connectionId, webContentsId)) {
-        return { success: false, error: 'Connection ID is already in use' };
-      }
-    }
+    // Snapshot only an owner-visible entry. Missing and wrong-owner ids take
+    // the same new-claim path after awaited setup, avoiding an ownership oracle.
+    const ownerEntryAtStart = activeConnections.getForOwner(connectionId, webContentsId);
 
     // Resolve + validate once, then PIN every transport to that IP. socket.io
     // re-resolves DNS on connect (and on each reconnect), so a one-shot
@@ -199,40 +195,55 @@ export function registerSocketIoHandlerIPC(): void {
       };
 
       socket.on('connect', () => {
+        if (activeConnections.get(connectionId) !== entry) return;
         emitTo(webContentsId, socketioChannels.open(connectionId), { socketId: socket.id });
       });
 
       socket.on('disconnect', (reason: string) => {
+        if (activeConnections.get(connectionId) !== entry) return;
         if (!entry.explicitlyClosed) {
           emitTo(webContentsId, socketioChannels.close(connectionId), { reason });
         }
       });
 
       socket.on('connect_error', (err: Error) => {
+        if (activeConnections.get(connectionId) !== entry) return;
         log.warn('connect error', { connectionId, error: err.message });
         emitTo(webContentsId, socketioChannels.error(connectionId), { message: err.message });
       });
 
       const manager = socket.io;
       manager.on('reconnect_attempt', (attempt: number) => {
+        if (activeConnections.get(connectionId) !== entry) return;
         emitTo(webContentsId, socketioChannels.reconnectAttempt(connectionId), { attempt });
       });
       manager.on('reconnect', (attempt: number) => {
+        if (activeConnections.get(connectionId) !== entry) return;
         emitTo(webContentsId, socketioChannels.reconnect(connectionId), { attempt });
       });
       manager.on('reconnect_failed', () => {
+        if (activeConnections.get(connectionId) !== entry) return;
         emitTo(webContentsId, socketioChannels.reconnectFailed(connectionId));
       });
 
       // Forwards application events; lifecycle events above already cover SOCKETIO_RESERVED_EVENTS.
       socket.onAny((eventName: string, ...args: unknown[]) => {
+        if (activeConnections.get(connectionId) !== entry) return;
         if (SOCKETIO_RESERVED_EVENTS.has(eventName)) return;
         emitTo(webContentsId, socketioChannels.event(connectionId), { eventName, args });
       });
 
-      // add() stores the entry and wires renderer-destroyed cleanup (dispose
-      // tears the transport/timers/agent down).
-      activeConnections.add(connectionId, event.sender, entry);
+      // Claim only after every awaited setup step. tryAdd() atomically wins a
+      // new id; replaceForOwner() permits only the renderer that owned the
+      // snapshotted connection to replace it. A losing transport is torn down
+      // without disturbing whichever renderer currently owns the id.
+      const claimed = ownerEntryAtStart
+        ? activeConnections.replaceForOwner(connectionId, webContentsId, entry)
+        : activeConnections.tryAdd(connectionId, event.sender, entry);
+      if (!claimed) {
+        disposeSocketIo(entry);
+        return { success: false, error: 'Not connected' };
+      }
 
       return { success: true };
     } catch (err) {

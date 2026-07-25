@@ -98,6 +98,14 @@ const validConnect = (connectionId: string) => ({
   url: 'wss://echo.example.com/socket',
 });
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 describe('websocket-handler', () => {
   beforeEach(() => {
     setExecutionPolicy({
@@ -246,10 +254,11 @@ describe('websocket-handler', () => {
     const reconnect = await handlerFor(IPC.ws.connect)(nonOwner.event, validConnect('shared'));
     expect(reconnect).toEqual({
       success: false,
-      error: 'Connection ID is already in use',
+      error: 'Not connected',
     });
     expect(ownerSocket.terminate).not.toHaveBeenCalled();
-    expect(wsMock.FakeWebSocket.instances).toHaveLength(1);
+    expect(wsMock.FakeWebSocket.instances).toHaveLength(2);
+    expect(wsMock.FakeWebSocket.instances[1]!.terminate).toHaveBeenCalled();
 
     const ownerSend = await handlerFor(IPC.ws.send)(owner.event, {
       connectionId: 'shared',
@@ -257,6 +266,59 @@ describe('websocket-handler', () => {
     });
     expect(ownerSend).toEqual({ success: true });
     expect(ownerSocket.send).toHaveBeenCalledWith('owner');
+  });
+
+  it('atomically assigns concurrent same-id connects to the first completed renderer', async () => {
+    const first = makeEvent();
+    const second = makeEvent();
+    const firstDns = deferred<{
+      host: string;
+      ip: string;
+      port: number;
+      family: 4;
+    }>();
+    const secondDns = deferred<{
+      host: string;
+      ip: string;
+      port: number;
+      family: 4;
+    }>();
+    const pinned = {
+      host: 'echo.example.com',
+      ip: '203.0.113.1',
+      port: 443,
+      family: 4 as const,
+    };
+    mockResolveSafe
+      .mockImplementationOnce(() => firstDns.promise)
+      .mockImplementationOnce(() => secondDns.promise);
+
+    const firstConnect = handlerFor(IPC.ws.connect)(first.event, validConnect('raced'));
+    const secondConnect = handlerFor(IPC.ws.connect)(second.event, validConnect('raced'));
+
+    secondDns.resolve(pinned);
+    await expect(secondConnect).resolves.toEqual({ success: true });
+    const winner = wsMock.FakeWebSocket.instances[0]!;
+    winner.fire('open');
+    expect(mockEmitTo).toHaveBeenCalledWith(second.senderId, 'ws:open:raced', { protocol: '' });
+
+    mockEmitTo.mockClear();
+    firstDns.resolve(pinned);
+    await expect(firstConnect).resolves.toEqual({ success: false, error: 'Not connected' });
+    const loser = wsMock.FakeWebSocket.instances[1]!;
+    expect(winner.terminate).not.toHaveBeenCalled();
+    expect(loser.terminate).toHaveBeenCalled();
+
+    loser.fire('open');
+    loser.fire('message', Buffer.from('stale'), false);
+    loser.fire('error', new Error('stale'));
+    expect(mockEmitTo).not.toHaveBeenCalled();
+
+    winner.fire('message', Buffer.from('current'), false);
+    expect(mockEmitTo).toHaveBeenCalledWith(second.senderId, 'ws:message:raced', {
+      type: 'text',
+      data: 'current',
+    });
   });
 
   it('tears down the connection when its renderer is destroyed', async () => {

@@ -41,16 +41,18 @@ interface ActiveWebSocket {
 // hard-terminates the socket — used for same-id replace, renderer-destroyed
 // cleanup, and disposeAll. Explicit ws:disconnect is handled separately with a
 // graceful close(1000).
+function disposeWebSocket(entry: ActiveWebSocket): void {
+  entry.setExplicitlyClosed?.();
+  try {
+    entry.ws.terminate();
+  } catch {
+    /* ignore */
+  }
+}
+
 const connections = new StreamRegistry<ActiveWebSocket>({
   prefixes: EVENT_PREFIX.ws,
-  dispose: (e) => {
-    e.setExplicitlyClosed?.();
-    try {
-      e.ws.terminate();
-    } catch {
-      /* ignore */
-    }
-  },
+  dispose: disposeWebSocket,
 });
 
 // Maximum message size (1MB)
@@ -92,13 +94,9 @@ export function registerWebSocketHandlerIPC(): void {
       return { success: false, error: 'Too many open connections.' };
     }
 
-    // Only the owning renderer may reconnect with the same id. A different
-    // renderer must not terminate or replace the owner's live socket.
-    if (connections.has(connectionId)) {
-      if (!connections.cancelForOwner(connectionId, webContentsId)) {
-        return { success: false, error: 'Connection ID is already in use' };
-      }
-    }
+    // Snapshot only an owner-visible entry. Missing and wrong-owner ids take
+    // the same new-claim path after awaited setup, avoiding an ownership oracle.
+    const ownerEntryAtStart = connections.getForOwner(connectionId, webContentsId);
 
     // Resolve + validate once, then PIN the handshake to that IP via a Node
     // `lookup` hook (closes the DNS-rebind window pre-flight validation alone
@@ -145,12 +143,14 @@ export function registerWebSocketHandlerIPC(): void {
       };
 
       ws.on('open', () => {
+        if (connections.get(connectionId) !== entry) return;
         // Surface the negotiated subprotocol so the renderer can satisfy callers
         // that verify it (graphql-transport-ws requires socket.protocol to match).
         connections.emit(connectionId, 'open', { protocol: ws.protocol ?? '' });
       });
 
       ws.on('message', (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
+        if (connections.get(connectionId) !== entry) return;
         if (isBinary) {
           // Binary frames are encoded as base64 for IPC transport
           const b64 = Buffer.isBuffer(data)
@@ -164,6 +164,7 @@ export function registerWebSocketHandlerIPC(): void {
 
       ws.on('error', (err: Error) => {
         log.warn('socket error', { connectionId, error: err.message });
+        if (connections.get(connectionId) !== entry) return;
         connections.emit(connectionId, 'error', { message: err.message });
       });
 
@@ -184,8 +185,18 @@ export function registerWebSocketHandlerIPC(): void {
       entry.setExplicitlyClosed = () => {
         explicitlyClosed = true;
       };
-      // add() stores the entry and wires renderer-destroyed cleanup (dispose terminates).
-      connections.add(connectionId, event.sender, entry);
+
+      // Claim only after every awaited setup step. tryAdd() atomically wins a
+      // new id; replaceForOwner() permits only the renderer that owned the
+      // snapshotted connection to replace it. A losing transport is torn down
+      // without disturbing whichever renderer currently owns the id.
+      const claimed = ownerEntryAtStart
+        ? connections.replaceForOwner(connectionId, webContentsId, entry)
+        : connections.tryAdd(connectionId, event.sender, entry);
+      if (!claimed) {
+        disposeWebSocket(entry);
+        return { success: false, error: 'Not connected' };
+      }
 
       return { success: true };
     } catch (err) {
