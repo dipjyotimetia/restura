@@ -48,6 +48,9 @@ interface ActiveStream {
 // stream IDs in different windows remain independent and cannot act as an
 // existence oracle for each other.
 const active = new StreamRegistry<ActiveStream>({ dispose: (s) => s.abort.abort() });
+// The exact explicitly-cancelled generation may emit its established abort
+// error until a successor reserves the same owner-scoped key or it settles.
+const cancelledGenerations = new Map<string, ActiveStream>();
 
 function streamRegistryKey(webContentsId: number, streamId: string): string {
   return `${webContentsId}:${streamId}`;
@@ -101,7 +104,9 @@ async function runChat(
     // Explicit cancellation removes the live entry before abort rejection
     // reaches this catch. Preserve the existing error event for that exact
     // cancelled generation, while replaced/destroyed generations stay silent.
-    if (!isCurrent() && !activeStream.cancelled) return;
+    const isLatestCancellation =
+      activeStream.cancelled && cancelledGenerations.get(activeStream.registryKey) === activeStream;
+    if (!isCurrent() && !isLatestCancellation) return;
     const msg = e instanceof Error ? e.message : String(e);
     // Persist the main-process trace — the renderer only sees the error event,
     // so without this an upstream/provider failure leaves nothing in main.log.
@@ -114,6 +119,9 @@ async function runChat(
     emitTo(activeStream.webContentsId, endChannel, { reason: 'error' });
   } finally {
     if (isCurrent()) active.remove(activeStream.registryKey);
+    if (cancelledGenerations.get(activeStream.registryKey) === activeStream) {
+      cancelledGenerations.delete(activeStream.registryKey);
+    }
   }
 }
 
@@ -134,6 +142,7 @@ export function registerAiHandlers(): void {
 
     const data = parsed.data;
     const registryKey = streamRegistryKey(senderId, data.streamId);
+    cancelledGenerations.delete(registryKey);
 
     // Register the stream + renderer-cleanup listener BEFORE the async
     // buildSafeFetcher await (which does a DNS resolve). add() binds the
@@ -198,6 +207,7 @@ export function registerAiHandlers(): void {
     // end event still reaches the renderer after the entry is gone.
     const { webContentsId } = entry;
     entry.cancelled = true;
+    cancelledGenerations.set(registryKey, entry);
     active.cancelForOwner(registryKey, event.sender.id);
     emitTo(webContentsId, eventChannel(EVENT_PREFIX.ai.end, parsed.data.streamId), {
       reason: 'cancelled',
@@ -210,6 +220,7 @@ export function unregisterAiHandlers(): void {
   ipcMain.removeHandler(IPC.ai.chat);
   ipcMain.removeHandler(IPC.ai.chatCancel);
   active.disposeAll();
+  cancelledGenerations.clear();
 }
 
 export const __testing = { resolveSecretFn };

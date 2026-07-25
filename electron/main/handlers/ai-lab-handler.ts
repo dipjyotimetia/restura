@@ -141,6 +141,9 @@ interface ActiveStream extends ActiveAbort {
 const activeStreams = new StreamRegistry<ActiveStream>({
   dispose: (s) => s.abort.abort(),
 });
+// The exact explicitly-cancelled generation may emit its established abort
+// error until a successor reserves the same owner-scoped key or it settles.
+const cancelledStreamGenerations = new Map<string, ActiveStream>();
 // Cancellation aborts but deliberately keeps this tombstone until the owning
 // handler settles. Otherwise cancel -> same-ID reuse lets the old finally block
 // remove a newer operation with the same ID.
@@ -215,7 +218,10 @@ async function runStream(
     // Explicit cancellation removes the live entry before abort rejection
     // reaches this catch. Preserve the existing error event for that exact
     // cancelled generation, while replaced/destroyed generations stay silent.
-    if (!isCurrent() && !activeStream.cancelled) return;
+    const isLatestCancellation =
+      activeStream.cancelled &&
+      cancelledStreamGenerations.get(activeStream.registryKey) === activeStream;
+    if (!isCurrent() && !isLatestCancellation) return;
     const msg = e instanceof Error ? e.message : String(e);
     // Persist the main-process trace — the renderer only sees the error event.
     log.warn('stream failed', { streamId, provider: spec.provider, error: msg });
@@ -227,6 +233,9 @@ async function runStream(
     emitTo(activeStream.webContentsId, endChannel, { reason: 'error' });
   } finally {
     if (isCurrent()) activeStreams.remove(activeStream.registryKey);
+    if (cancelledStreamGenerations.get(activeStream.registryKey) === activeStream) {
+      cancelledStreamGenerations.delete(activeStream.registryKey);
+    }
   }
 }
 
@@ -323,6 +332,7 @@ export function registerAiLabHandlers(): void {
     }
     const data = parsed.data;
     const registryKey = streamRegistryKey(senderId, data.streamId);
+    cancelledStreamGenerations.delete(registryKey);
     const activeStream: ActiveStream = {
       streamId: data.streamId,
       registryKey,
@@ -358,6 +368,7 @@ export function registerAiLabHandlers(): void {
     // end event still reaches the renderer after the entry is gone.
     const { webContentsId } = entry;
     entry.cancelled = true;
+    cancelledStreamGenerations.set(registryKey, entry);
     activeStreams.cancelForOwner(registryKey, event.sender.id);
     emitTo(webContentsId, eventChannel(EVENT_PREFIX.aiLab.end, parsed.data.streamId), {
       reason: 'cancelled',
@@ -431,6 +442,7 @@ export function unregisterAiLabHandlers(): void {
   ipcMain.removeHandler(IPC.aiLab.listModels);
   ipcMain.removeHandler(IPC.aiLab.testConnection);
   activeStreams.disposeAll();
+  cancelledStreamGenerations.clear();
   for (const active of activeCompletes.values()) active.abort.abort();
   activeCompletes.clear();
   void agentTelemetry.shutdown();

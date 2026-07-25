@@ -115,6 +115,20 @@ function deferLabStream() {
   return { finish, getSignal: () => signal };
 }
 
+function deferLabAbortFailure() {
+  let fail!: () => void;
+  let signal: AbortSignal | undefined;
+  mockExecuteAiChat.mockImplementationOnce((spec: { signal?: AbortSignal }) => {
+    signal = spec.signal;
+    return (async function* () {
+      await new Promise<void>((_resolve, reject) => {
+        fail = () => reject(new Error('aborted'));
+      });
+    })();
+  });
+  return { fail: () => fail(), getSignal: () => signal, isReady: () => Boolean(fail) };
+}
+
 function deferSafeAddress() {
   let finish!: () => void;
   const pending = new Promise<{
@@ -537,5 +551,28 @@ describe('ai-lab-handler', () => {
     ).resolves.toEqual({ ok: true });
     expect(secondStream.getSignal()?.aborted).toBe(true);
     secondStream.finish();
+  });
+
+  it('suppresses a cancelled stream late error after same-ID reuse', async () => {
+    const cancelledStream = deferLabAbortFailure();
+    const successorStream = deferLabStream();
+    await handlerFor('ai-lab:stream')(TRUSTED, STREAM_REQUEST);
+    await vi.waitFor(() => expect(cancelledStream.isReady()).toBe(true));
+
+    await handlerFor('ai-lab:stream:cancel')(TRUSTED, { streamId: STREAM_ID });
+    expect(cancelledStream.getSignal()?.aborted).toBe(true);
+    await handlerFor('ai-lab:stream')(TRUSTED, STREAM_REQUEST);
+    await vi.waitFor(() => expect(successorStream.getSignal()).toBeDefined());
+
+    mockEmitTo.mockClear();
+    cancelledStream.fail();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockEmitTo).not.toHaveBeenCalled();
+
+    await expect(
+      handlerFor('ai-lab:stream:cancel')(TRUSTED, { streamId: STREAM_ID })
+    ).resolves.toEqual({ ok: true });
+    expect(successorStream.getSignal()?.aborted).toBe(true);
+    successorStream.finish();
   });
 });
