@@ -75,7 +75,7 @@ alongside the smallest production change.
 
 ## Phase 2: IPC bridge integrity
 
-### Task 7: Return individual unsubscribers for capture and collection events
+### Task 7: Return individual unsubscribers for capture and collection events — complete
 
 - Acceptance: capture.onReceived and collections.onFileChanged return an
   individual disposer; no obsolete global removal API remains.
