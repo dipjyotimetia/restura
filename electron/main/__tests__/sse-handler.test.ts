@@ -24,6 +24,10 @@ vi.mock('../ipc/ipc-validators', () => ({
   createValidatedHandler:
     (_c: unknown, _s: unknown, fn: (cfg: unknown) => unknown) => (_e: unknown, raw: unknown) =>
       fn(raw),
+  createValidatedEventHandler:
+    (_c: unknown, _s: unknown, fn: (cfg: unknown, event: unknown) => unknown) =>
+    (event: unknown, raw: unknown) =>
+      fn(raw, event),
   assertTrustedSender: () => {},
 }));
 vi.mock('@shared/protocol/http-proxy', () => ({ executeHttpProxyStreaming: mockStreaming }));
@@ -62,6 +66,14 @@ function singleEventBody(): ReadableStream<Uint8Array> {
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 5));
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
 
 describe('sse-handler (StreamRegistry-backed)', () => {
   beforeEach(() => {
@@ -152,6 +164,83 @@ describe('sse-handler (StreamRegistry-backed)', () => {
     await flush();
     // explicitlyClosed ⇒ no close event emitted for an explicit disconnect.
     expect(mockEmitTo.mock.calls.some((c) => c[1] === 'sse:close:c3')).toBe(false);
+  });
+
+  it('prevents a second renderer from disconnecting or replacing the owner connection', async () => {
+    mockStreaming.mockImplementation(async () => ({
+      ok: true,
+      response: { status: 200, statusText: 'OK', body: new ReadableStream({ start() {} }) },
+    }));
+    const owner = makeEvent(7);
+    const nonOwner = makeEvent(8);
+
+    await handlerFor('sse:connect')(owner.event, {
+      connectionId: 'shared',
+      url: 'https://owner.example/stream',
+    });
+
+    await expect(
+      handlerFor('sse:disconnect')(nonOwner.event, { connectionId: 'shared' })
+    ).resolves.toEqual({ success: true });
+
+    mockResolveSafe.mockClear();
+    mockStreaming.mockClear();
+    await expect(
+      handlerFor('sse:connect')(nonOwner.event, {
+        connectionId: 'shared',
+        url: 'https://attacker.example/stream',
+      })
+    ).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(mockResolveSafe).not.toHaveBeenCalled();
+    expect(mockStreaming).not.toHaveBeenCalled();
+
+    await expect(
+      handlerFor('sse:connect')(owner.event, {
+        connectionId: 'shared',
+        url: 'https://owner.example/reconnected',
+      })
+    ).resolves.toEqual({ success: true });
+    expect(mockResolveSafe).toHaveBeenCalledTimes(1);
+    expect(mockStreaming).toHaveBeenCalledTimes(1);
+  });
+
+  it('reserves a concurrent same-id connect for the first renderer before DNS', async () => {
+    const first = makeEvent(10);
+    const second = makeEvent(11);
+    const firstDns = deferred<{
+      host: string;
+      ip: string;
+      port: number;
+      family: 4;
+    }>();
+    mockResolveSafe.mockImplementationOnce(() => firstDns.promise);
+    mockStreaming.mockResolvedValue({
+      ok: true,
+      response: { status: 200, statusText: 'OK', body: new ReadableStream({ start() {} }) },
+    });
+
+    const firstConnect = handlerFor('sse:connect')(first.event, {
+      connectionId: 'raced',
+      url: 'https://first.example/stream',
+    });
+    const secondConnect = handlerFor('sse:connect')(second.event, {
+      connectionId: 'raced',
+      url: 'https://second.example/stream',
+    });
+
+    expect(mockResolveSafe).toHaveBeenCalledTimes(1);
+    await expect(secondConnect).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(mockStreaming).not.toHaveBeenCalled();
+
+    firstDns.resolve({
+      host: 'first.example',
+      ip: '203.0.113.1',
+      port: 443,
+      family: 4,
+    });
+    await expect(firstConnect).resolves.toEqual({ success: true });
+    expect(mockStreaming).toHaveBeenCalledTimes(1);
+    expect(mockEmitTo).toHaveBeenCalledWith(10, 'sse:open:raced', undefined);
   });
 
   it('tears down a connection when its renderer is destroyed', async () => {
