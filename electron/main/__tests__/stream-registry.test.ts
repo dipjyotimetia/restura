@@ -79,6 +79,16 @@ describe('StreamRegistry', () => {
     expect(registry.countForSender(2)).toBe(1);
   });
 
+  it('returns an entry only to its owner', () => {
+    const { registry, entry } = env;
+    const owner = makeWc(1);
+    registry.add('c1', owner.wc as never, entry('c1', 1));
+
+    expect(registry.getForOwner('c1', 1)?.connectionId).toBe('c1');
+    expect(registry.getForOwner('c1', 2)).toBeUndefined();
+    expect(registry.getForOwner('missing', 2)).toBeUndefined();
+  });
+
   it('replaces (and disposes) an existing entry registered under the same id', () => {
     const { registry, disposed, entry } = env;
     const wc = makeWc(1);
@@ -89,6 +99,42 @@ describe('StreamRegistry', () => {
     expect(first.disposed).toBe(true);
     expect(disposed).toEqual(['c1']);
     expect(registry.size()).toBe(1); // not duplicated
+  });
+
+  it('replaces only the owner entry and hides non-owner entries as missing', () => {
+    const { registry, disposed, entry } = env;
+    const owner = makeWc(1);
+    const first = entry('c1', 1);
+    registry.add('c1', owner.wc as never, first);
+
+    const nonOwnerReplacement = entry('c1', 2);
+    expect(registry.replaceForOwner('c1', 2, nonOwnerReplacement)).toBe(false);
+    expect(registry.replaceForOwner('missing', 2, nonOwnerReplacement)).toBe(false);
+    expect(registry.get('c1')).toBe(first);
+    expect(first.disposed).toBe(false);
+    expect(disposed).toEqual([]);
+
+    const ownerReplacement = entry('c1', 1);
+    expect(registry.replaceForOwner('c1', 1, ownerReplacement)).toBe(true);
+    expect(registry.get('c1')).toBe(ownerReplacement);
+    expect(first.disposed).toBe(true);
+    expect(disposed).toEqual(['c1']);
+
+    owner.destroy();
+    expect(ownerReplacement.disposed).toBe(true);
+    expect(registry.has('c1')).toBe(false);
+  });
+
+  it('rejects a replacement entry tagged to a different owner', () => {
+    const { registry, disposed, entry } = env;
+    const owner = makeWc(1);
+    const first = entry('c1', 1);
+    registry.add('c1', owner.wc as never, first);
+
+    expect(registry.replaceForOwner('c1', 1, entry('c1', 2))).toBe(false);
+    expect(registry.get('c1')).toBe(first);
+    expect(first.disposed).toBe(false);
+    expect(disposed).toEqual([]);
   });
 
   it('tryAdd() stores a new id but rejects a duplicate without disposing', () => {
@@ -121,6 +167,21 @@ describe('StreamRegistry', () => {
     expect(registry.has('c1')).toBe(false);
     expect(disposed).toEqual(['c1']);
     expect(registry.cancel('missing')).toBe(false);
+  });
+
+  it('cancels only the owner entry and hides non-owner entries as missing', () => {
+    const { registry, disposed, entry } = env;
+    const owner = makeWc(1);
+    registry.add('c1', owner.wc as never, entry('c1', 1));
+
+    expect(registry.cancelForOwner('c1', 2)).toBe(false);
+    expect(registry.cancelForOwner('missing', 2)).toBe(false);
+    expect(registry.get('c1')?.webContentsId).toBe(1);
+    expect(disposed).toEqual([]);
+
+    expect(registry.cancelForOwner('c1', 1)).toBe(true);
+    expect(registry.has('c1')).toBe(false);
+    expect(disposed).toEqual(['c1']);
   });
 
   it('emit() targets the owning renderer with a templated channel; no-ops when gone', () => {

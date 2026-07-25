@@ -95,6 +95,25 @@ export class StreamRegistry<E extends StreamEntryBase> {
     return this.map.get(connectionId);
   }
 
+  /** Return an entry only when it belongs to the given renderer. */
+  getForOwner(connectionId: string, webContentsId: number): E | undefined {
+    const entry = this.map.get(connectionId);
+    return entry?.webContentsId === webContentsId ? entry : undefined;
+  }
+
+  /**
+   * Replace an existing entry only when it belongs to the given renderer.
+   * Missing and wrong-owner entries both return false.
+   */
+  replaceForOwner(connectionId: string, webContentsId: number, entry: E): boolean {
+    if (entry.webContentsId !== webContentsId) return false;
+    const existing = this.getForOwner(connectionId, webContentsId);
+    if (!existing) return false;
+    this.safeDispose(existing);
+    this.map.set(connectionId, entry);
+    return true;
+  }
+
   has(connectionId: string): boolean {
     return this.map.has(connectionId);
   }
@@ -143,6 +162,18 @@ export class StreamRegistry<E extends StreamEntryBase> {
    */
   cancel(connectionId: string): boolean {
     const entry = this.map.get(connectionId);
+    if (!entry) return false;
+    this.safeDispose(entry);
+    this.map.delete(connectionId);
+    return true;
+  }
+
+  /**
+   * Dispose and remove an entry only when it belongs to the given renderer.
+   * Missing and wrong-owner entries both return false.
+   */
+  cancelForOwner(connectionId: string, webContentsId: number): boolean {
+    const entry = this.getForOwner(connectionId, webContentsId);
     if (!entry) return false;
     this.safeDispose(entry);
     this.map.delete(connectionId);
