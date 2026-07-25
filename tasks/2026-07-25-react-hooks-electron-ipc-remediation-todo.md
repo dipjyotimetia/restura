@@ -16,7 +16,7 @@ alongside the smallest production change.
 - Files: electron/main/ipc/stream-registry.ts and its test
 - Scope: S
 
-### Task 2: Enforce ownership for WebSocket and Socket.IO
+### Task 2: Enforce ownership for WebSocket and Socket.IO — complete
 
 - Acceptance: send/emit/disconnect/reconnect reject a non-owner; the owner
   retains current events and behaviour.
