@@ -185,6 +185,12 @@ function installMqttElectronBridge(): void {
       readFile: async () => ({ success: true, content: '' }),
       writeFile: async () => ({ success: true }),
     },
+    // CaptureImportListener uses the return value from onReceived as its
+    // React effect cleanup. Keep this explicit because the generic fallback
+    // below returns async functions, which would make cleanup a Promise.
+    capture: {
+      onReceived: () => () => {},
+    },
     on: () => {},
     removeListener: () => {},
   };
