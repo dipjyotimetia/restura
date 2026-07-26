@@ -48,8 +48,11 @@ interface RequestState {
   // Returns true when the update was validated and applied, false when it was
   // rejected (no active tab, or the merged request failed validation).
   updateRequest: (updates: Partial<Request>) => boolean;
+  updateRequestForTab: (tabId: string, updates: Partial<Request>) => boolean;
   setCurrentResponse: (response: Response | null) => void;
+  setCurrentResponseForTab: (tabId: string, response: Response | null) => void;
   setScriptResult: (result: ScriptResults | null) => void;
+  setScriptResultForTab: (tabId: string, result: ScriptResults | null) => void;
   setLoading: (loading: boolean) => void;
   setDirty: (dirty: boolean) => void;
   /**
@@ -58,8 +61,11 @@ interface RequestState {
    * `ResponseViewer` dispatches to `StreamingResponseViewer`.
    */
   setStreamingEvents: (events: AsyncIterable<StreamEventLike>) => void;
+  setStreamingEventsForTab: (tabId: string, events: AsyncIterable<StreamEventLike>) => void;
   /** Drop the streaming events from the active tab (no-op if none). */
   clearStreamingEvents: () => void;
+  /** Drop streaming events from a specified extant tab (no-op if none). */
+  clearStreamingEventsForTab: (tabId: string) => void;
 
   // Convenience
   createNewRequest: (type: RequestType) => string;
@@ -167,7 +173,16 @@ function patchActiveTab(
   patch: (tab: RequestTab) => RequestTab
 ): RequestTab[] {
   if (!state.activeTabId) return state.tabs;
-  return state.tabs.map((t) => (t.id === state.activeTabId ? patch(t) : t));
+  return patchTab(state.tabs, state.activeTabId, patch);
+}
+
+function patchTab(
+  tabs: RequestTab[],
+  tabId: string,
+  patch: (tab: RequestTab) => RequestTab
+): RequestTab[] {
+  if (!tabs.some((tab) => tab.id === tabId)) return tabs;
+  return tabs.map((tab) => (tab.id === tabId ? patch(tab) : tab));
 }
 
 /**
@@ -293,9 +308,37 @@ export const useRequestStore = create<RequestState>()(
           return true;
         },
 
+        updateRequestForTab: (tabId, updates) => {
+          const tab = get().tabs.find((candidate) => candidate.id === tabId);
+          if (!tab) return false;
+          let next: Request;
+          try {
+            next = validateRequestUpdate(tab.request, updates);
+          } catch (error) {
+            const msg = error instanceof Error ? error.message : 'Invalid request update';
+            console.warn('Request update rejected:', msg, updates);
+            toast.error('Invalid input', { description: msg });
+            return false;
+          }
+          set((s) => ({
+            tabs: patchTab(s.tabs, tabId, (target) => ({
+              ...target,
+              request: next,
+              isDirty: true,
+            })),
+          }));
+          return true;
+        },
+
         setCurrentResponse: (response) => {
           set((s) => ({
             tabs: patchActiveTab(s, (t) => ({ ...t, response })),
+          }));
+        },
+
+        setCurrentResponseForTab: (tabId, response) => {
+          set((s) => ({
+            tabs: patchTab(s.tabs, tabId, (tab) => ({ ...tab, response })),
           }));
         },
 
@@ -311,6 +354,16 @@ export const useRequestStore = create<RequestState>()(
           }));
         },
 
+        setStreamingEventsForTab: (tabId, events) => {
+          set((s) => ({
+            tabs: patchTab(s.tabs, tabId, (tab) => ({
+              ...tab,
+              streamingEvents: events,
+              response: null,
+            })),
+          }));
+        },
+
         clearStreamingEvents: () => {
           set((s) => ({
             tabs: patchActiveTab(s, (t) => {
@@ -321,9 +374,25 @@ export const useRequestStore = create<RequestState>()(
           }));
         },
 
+        clearStreamingEventsForTab: (tabId) => {
+          set((s) => ({
+            tabs: patchTab(s.tabs, tabId, (tab) => {
+              if (!tab.streamingEvents) return tab;
+              const { streamingEvents: _drop, ...rest } = tab;
+              return rest;
+            }),
+          }));
+        },
+
         setScriptResult: (result) => {
           set((s) => ({
             tabs: patchActiveTab(s, (t) => ({ ...t, scriptResult: result })),
+          }));
+        },
+
+        setScriptResultForTab: (tabId, result) => {
+          set((s) => ({
+            tabs: patchTab(s.tabs, tabId, (tab) => ({ ...tab, scriptResult: result })),
           }));
         },
 

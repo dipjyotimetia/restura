@@ -32,6 +32,14 @@ import {
   stopMqttCleanup,
 } from '../handlers/mqtt-handler';
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 // Fake `mqtt` client: records instances, captures lifecycle listeners so tests
 // can fire connect/message/error/close, and acks publish/subscribe/unsubscribe
 // through their callbacks. NOT injectable via vi.mock — the handler loads the
@@ -118,7 +126,7 @@ function makeEvent(frameUrl = TRUSTED_URL) {
   };
 }
 
-const validConnect = (connectionId: string) => ({
+const validConnect = (connectionId: string, extra: Record<string, unknown> = {}) => ({
   connectionId,
   brokerUrl: 'mqtt://broker.example.com:1883',
   protocolVersion: 4 as const,
@@ -127,6 +135,7 @@ const validConnect = (connectionId: string) => ({
   cleanStart: true,
   connectTimeout: 30_000,
   autoReconnect: false,
+  ...extra,
 });
 
 const validPublish = (connectionId: string) => ({
@@ -311,6 +320,73 @@ describe('mqtt-handler', () => {
     });
   });
 
+  it('suppresses a stale subscribe acknowledgement after same-id replacement', async () => {
+    const { event, senderId } = makeEvent();
+    await handlerFor(IPC.mqtt.connect)(event, validConnect('shared'));
+    const previous = FakeMqttClient.instances[0]!;
+    let acknowledge!: () => void;
+    previous.subscribe.mockImplementationOnce((topic: string, opts: { qos: number }, cb?: Cb) => {
+      acknowledge = () => cb?.(null, [{ topic, qos: opts.qos }]);
+      return previous;
+    });
+
+    const staleSubscribe = handlerFor(IPC.mqtt.subscribe)(event, {
+      connectionId: 'shared',
+      topicFilter: 'devices/+',
+      qos: 1,
+    });
+    await handlerFor(IPC.mqtt.connect)(event, validConnect('shared'));
+
+    mockEmitTo.mockClear();
+    acknowledge();
+    await expect(staleSubscribe).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(mockEmitTo).not.toHaveBeenCalled();
+
+    await expect(
+      handlerFor(IPC.mqtt.subscribe)(event, {
+        connectionId: 'shared',
+        topicFilter: 'current/+',
+        qos: 1,
+      })
+    ).resolves.toEqual({ success: true });
+    expect(mockEmitTo).toHaveBeenCalledWith(senderId, 'mqtt:subscribed:shared', {
+      topicFilter: 'current/+',
+      grantedQos: 1,
+    });
+  });
+
+  it('suppresses a stale unsubscribe acknowledgement after same-id replacement', async () => {
+    const { event, senderId } = makeEvent();
+    await handlerFor(IPC.mqtt.connect)(event, validConnect('shared'));
+    const previous = FakeMqttClient.instances[0]!;
+    let acknowledge!: () => void;
+    previous.unsubscribe.mockImplementationOnce((_topic: string, cb?: Cb) => {
+      acknowledge = () => cb?.(null);
+      return previous;
+    });
+
+    const staleUnsubscribe = handlerFor(IPC.mqtt.unsubscribe)(event, {
+      connectionId: 'shared',
+      topicFilter: 'devices/+',
+    });
+    await handlerFor(IPC.mqtt.connect)(event, validConnect('shared'));
+
+    mockEmitTo.mockClear();
+    acknowledge();
+    await expect(staleUnsubscribe).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(mockEmitTo).not.toHaveBeenCalled();
+
+    await expect(
+      handlerFor(IPC.mqtt.unsubscribe)(event, {
+        connectionId: 'shared',
+        topicFilter: 'current/+',
+      })
+    ).resolves.toEqual({ success: true });
+    expect(mockEmitTo).toHaveBeenCalledWith(senderId, 'mqtt:unsubscribed:shared', {
+      topicFilter: 'current/+',
+    });
+  });
+
   it('explicit disconnect ends the client gracefully, emits close, and drops the entry', async () => {
     const { event, senderId } = makeEvent();
     await handlerFor(IPC.mqtt.connect)(event, validConnect('c1'));
@@ -333,6 +409,147 @@ describe('mqtt-handler', () => {
     const [first, second] = FakeMqttClient.instances;
     expect(first!.end).toHaveBeenCalledWith(true, undefined, expect.any(Function));
     expect(second!.end).not.toHaveBeenCalled();
+  });
+
+  it('lets two renderers independently use the same id and cleans up only the destroyed owner', async () => {
+    const first = makeEvent();
+    const second = makeEvent();
+    await expect(
+      handlerFor(IPC.mqtt.connect)(first.event, validConnect('shared'))
+    ).resolves.toEqual({ success: true });
+    const firstClient = FakeMqttClient.instances[0]!;
+    await expect(
+      handlerFor(IPC.mqtt.publish)(second.event, validPublish('shared'))
+    ).resolves.toEqual({ success: false, error: 'Not connected' });
+    await expect(
+      handlerFor(IPC.mqtt.disconnect)(second.event, { connectionId: 'shared' })
+    ).resolves.toEqual({ success: true });
+    expect(firstClient.publish).not.toHaveBeenCalled();
+    expect(firstClient.end).not.toHaveBeenCalled();
+
+    await expect(
+      handlerFor(IPC.mqtt.connect)(second.event, validConnect('shared'))
+    ).resolves.toEqual({ success: true });
+    const secondClient = FakeMqttClient.instances[1]!;
+
+    await expect(
+      handlerFor(IPC.mqtt.publish)(first.event, validPublish('shared'))
+    ).resolves.toMatchObject({ success: true });
+    await expect(
+      handlerFor(IPC.mqtt.publish)(second.event, validPublish('shared'))
+    ).resolves.toMatchObject({ success: true });
+    expect(firstClient.publish).toHaveBeenCalledOnce();
+    expect(secondClient.publish).toHaveBeenCalledOnce();
+
+    first.destroy();
+    await vi.waitFor(() =>
+      expect(firstClient.end).toHaveBeenCalledWith(true, undefined, expect.any(Function))
+    );
+    expect(secondClient.end).not.toHaveBeenCalled();
+    await expect(
+      handlerFor(IPC.mqtt.publish)(second.event, validPublish('shared'))
+    ).resolves.toMatchObject({ success: true });
+    expect(secondClient.publish).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a same-id reservation private to its renderer during reconnect teardown', async () => {
+    const first = makeEvent();
+    const second = makeEvent();
+    await handlerFor(IPC.mqtt.connect)(first.event, validConnect('shared'));
+    const previous = FakeMqttClient.instances[0]!;
+    const endGate = deferred<void>();
+    previous.end.mockImplementationOnce((_force, _opts, cb?: () => void) => {
+      void endGate.promise.then(() => cb?.());
+      return previous;
+    });
+
+    const reconnect = handlerFor(IPC.mqtt.connect)(first.event, validConnect('shared'));
+    await vi.waitFor(() => expect(previous.end).toHaveBeenCalledTimes(1));
+    await expect(
+      handlerFor(IPC.mqtt.connect)(second.event, validConnect('shared'))
+    ).resolves.toEqual({ success: true });
+
+    endGate.resolve();
+    await expect(reconnect).resolves.toEqual({ success: true });
+    expect(FakeMqttClient.instances).toHaveLength(3);
+    expect(FakeMqttClient.instances[1]!.end).not.toHaveBeenCalled();
+    expect(FakeMqttClient.instances[2]!.end).not.toHaveBeenCalled();
+  });
+
+  it('reserves a same-id reconnect before awaiting teardown or broker setup', async () => {
+    const owner = makeEvent();
+    await handlerFor(IPC.mqtt.connect)(owner.event, validConnect('shared'));
+    const previous = FakeMqttClient.instances[0]!;
+    const endGate = deferred<void>();
+    previous.end.mockImplementationOnce((_force, _opts, cb?: () => void) => {
+      void endGate.promise.then(() => cb?.());
+      return previous;
+    });
+    mockBrokerSafe.mockClear();
+
+    const firstReconnect = handlerFor(IPC.mqtt.connect)(owner.event, validConnect('shared'));
+    await vi.waitFor(() => expect(previous.end).toHaveBeenCalledTimes(1));
+    const secondReconnect = handlerFor(IPC.mqtt.connect)(owner.event, validConnect('shared'));
+
+    await expect(secondReconnect).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(mockBrokerSafe).not.toHaveBeenCalled();
+    expect(FakeMqttClient.instances).toHaveLength(1);
+
+    endGate.resolve();
+    await expect(firstReconnect).resolves.toEqual({ success: true });
+    expect(mockBrokerSafe).toHaveBeenCalledTimes(1);
+    expect(FakeMqttClient.instances).toHaveLength(2);
+    expect(FakeMqttClient.instances[1]!.end).not.toHaveBeenCalled();
+  });
+
+  it('releases a destroyed renderer pending reconnect and rejects its late setup', async () => {
+    const owner = makeEvent();
+    const successor = makeEvent();
+    await handlerFor(IPC.mqtt.connect)(owner.event, validConnect('released'));
+    const previous = FakeMqttClient.instances[0]!;
+    const endGate = deferred<void>();
+    previous.end.mockImplementationOnce((_force, _opts, cb?: () => void) => {
+      void endGate.promise.then(() => cb?.());
+      return previous;
+    });
+
+    const staleReconnect = handlerFor(IPC.mqtt.connect)(owner.event, validConnect('released'));
+    await vi.waitFor(() => expect(previous.end).toHaveBeenCalledTimes(1));
+    owner.destroy();
+    await expect(
+      handlerFor(IPC.mqtt.connect)(successor.event, validConnect('released'))
+    ).resolves.toEqual({ success: true });
+    const winner = FakeMqttClient.instances[1]!;
+
+    endGate.resolve();
+    await expect(staleReconnect).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(FakeMqttClient.instances).toHaveLength(2);
+    expect(winner.end).not.toHaveBeenCalled();
+  });
+
+  it('releases a pending reconnect during module teardown and rejects its late setup', async () => {
+    const owner = makeEvent();
+    const successor = makeEvent();
+    await handlerFor(IPC.mqtt.connect)(owner.event, validConnect('teardown'));
+    const previous = FakeMqttClient.instances[0]!;
+    const endGate = deferred<void>();
+    previous.end.mockImplementationOnce((_force, _opts, cb?: () => void) => {
+      void endGate.promise.then(() => cb?.());
+      return previous;
+    });
+
+    const staleReconnect = handlerFor(IPC.mqtt.connect)(owner.event, validConnect('teardown'));
+    await vi.waitFor(() => expect(previous.end).toHaveBeenCalledTimes(1));
+    await stopMqttCleanup();
+    await expect(
+      handlerFor(IPC.mqtt.connect)(successor.event, validConnect('teardown'))
+    ).resolves.toEqual({ success: true });
+    const winner = FakeMqttClient.instances[1]!;
+
+    endGate.resolve();
+    await expect(staleReconnect).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(FakeMqttClient.instances).toHaveLength(2);
+    expect(winner.end).not.toHaveBeenCalled();
   });
 
   it('tears the connection down when its renderer is destroyed', async () => {

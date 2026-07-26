@@ -1,9 +1,15 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const toastMock = vi.hoisted(() => ({ error: vi.fn(), success: vi.fn() }));
+const electronApiMock = vi.hoisted(() => ({ current: null as unknown }));
+const useGitMock = vi.hoisted(() => vi.fn());
 
 vi.mock('sonner', () => ({ toast: toastMock }));
+vi.mock('@/lib/shared/platform', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/shared/platform')>()),
+  getElectronAPI: () => electronApiMock.current,
+}));
 
 const git = {
   status: {
@@ -42,12 +48,17 @@ const git = {
   push: vi.fn().mockResolvedValue(null),
 };
 
-vi.mock('@/hooks/useGit', () => ({ useGit: () => git }));
+vi.mock('@/hooks/useGit', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/hooks/useGit')>()),
+  useGit: useGitMock,
+}));
 
 import { GitDialog } from '../GitDialog';
 
 describe('GitDialog', () => {
   beforeEach(() => {
+    electronApiMock.current = null;
+    useGitMock.mockReset().mockImplementation(() => git);
     toastMock.error.mockReset();
     toastMock.success.mockReset();
     Object.assign(git, {
@@ -181,4 +192,91 @@ describe('GitDialog', () => {
       expect(toastMock.error).toHaveBeenCalledWith('push failed: remote rejected the branch')
     );
   });
+
+  it('keeps the reopened directory visible when the closed directory resolves last', async () => {
+    const { useGit: useActualGit } =
+      await vi.importActual<typeof import('@/hooks/useGit')>('@/hooks/useGit');
+    const directoryA = deferred<GitStatusResult>();
+    const directoryB = deferred<GitStatusResult>();
+    const status = vi.fn((directoryPath: string) =>
+      directoryPath === '/workspace-a' ? directoryA.promise : directoryB.promise
+    );
+    electronApiMock.current = {
+      git: {
+        status,
+        branchList: vi.fn(async (directoryPath: string) => ({
+          ok: true as const,
+          branches: [
+            {
+              name: directoryPath === '/workspace-a' ? 'branch-a' : 'branch-b',
+              isCurrent: true,
+              isRemote: false,
+            },
+          ],
+        })),
+        log: vi.fn(async () => ({ ok: true as const, commits: [] })),
+      },
+    };
+    useGitMock.mockImplementation(useActualGit);
+
+    const { rerender } = render(
+      <GitDialog collectionName="Workspace A" directoryPath="/workspace-a" open onClose={vi.fn()} />
+    );
+    await waitFor(() => expect(status).toHaveBeenCalledWith('/workspace-a'));
+
+    rerender(
+      <GitDialog
+        collectionName="Workspace A"
+        directoryPath="/workspace-a"
+        open={false}
+        onClose={vi.fn()}
+      />
+    );
+    rerender(
+      <GitDialog collectionName="Workspace B" directoryPath="/workspace-b" open onClose={vi.fn()} />
+    );
+    await waitFor(() => expect(status).toHaveBeenCalledWith('/workspace-b'));
+
+    await act(async () => {
+      directoryB.resolve(statusResult('branch-b'));
+      await directoryB.promise;
+    });
+    expect(await screen.findAllByText('branch-b')).toHaveLength(2);
+
+    await act(async () => {
+      directoryA.resolve(statusResult('branch-a'));
+      await directoryA.promise;
+    });
+    expect(screen.getAllByText('branch-b')).toHaveLength(2);
+    expect(screen.queryAllByText('branch-a')).toHaveLength(0);
+  });
 });
+
+type GitStatusResult = {
+  ok: true;
+  status: {
+    branch: string;
+    ahead: number;
+    behind: number;
+    clean: boolean;
+    files: [];
+  };
+};
+
+function statusResult(branch: string): GitStatusResult {
+  return {
+    ok: true,
+    status: { branch, ahead: 0, behind: 0, clean: true, files: [] },
+  };
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+} {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}

@@ -1,17 +1,18 @@
 import { executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
 import { RedirectPolicyError } from '@shared/protocol/redirect-follower';
-import { ipcMain } from 'electron';
 import { createLogger } from '@shared/runtime/logger';
+import { ipcMain, type WebContents } from 'electron';
 import { EVENT_PREFIX, IPC } from '../../shared/channels';
+import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import {
   assertTrustedSender,
-  createValidatedHandler,
+  createValidatedEventHandler,
   SseConnectSchema,
   SseDisconnectSchema,
   validateIpcInput,
 } from '../ipc/ipc-validators';
-import { StreamRegistry } from '../ipc/stream-registry';
+import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import { getExecutionPolicy } from '../security/execution-policy';
 import {
   assertPinnedFetchCanHonorPolicy,
@@ -56,13 +57,52 @@ const connections = new StreamRegistry<ActiveSse>({
   },
 });
 
+interface PendingSseClaim {
+  webContentsId: number;
+  token: symbol;
+  ownerEntry?: ActiveSse;
+}
+
+const pendingConnections = new Map<string, PendingSseClaim>();
+
+function reserveSseClaim(
+  connectionId: string,
+  webContents: WebContents
+): PendingSseClaim | undefined {
+  const key = ownerScopedKey(connectionId, webContents.id);
+  if (pendingConnections.has(key)) return undefined;
+
+  const ownerEntry = connections.getForOwner(connectionId, webContents.id);
+
+  const claim: PendingSseClaim = {
+    webContentsId: webContents.id,
+    token: Symbol(connectionId),
+    ownerEntry,
+  };
+  pendingConnections.set(key, claim);
+  bindRendererCleanup(pendingConnections, webContents, (deadId) =>
+    disposeByOwner(pendingConnections, deadId, () => {})
+  );
+  return pendingConnections.get(key) === claim ? claim : undefined;
+}
+
+function releaseSseClaim(connectionId: string, claim: PendingSseClaim): void {
+  const key = ownerScopedKey(connectionId, claim.webContentsId);
+  if (pendingConnections.get(key)?.token === claim.token) {
+    pendingConnections.delete(key);
+  }
+}
+
 async function readStream(
   entry: ActiveSse,
   body: ReadableStream<Uint8Array> | null
 ): Promise<void> {
+  const { connectionId, webContentsId } = entry;
   if (!body) {
-    connections.emit(entry.connectionId, 'error', { message: 'No response body' });
-    connections.emitAndRemove(entry.connectionId, 'close', { reason: 'no body' });
+    if (connections.get(connectionId, webContentsId) === entry) {
+      connections.emit(connectionId, webContentsId, 'error', { message: 'No response body' });
+      connections.emitAndRemove(connectionId, webContentsId, 'close', { reason: 'no body' });
+    }
     return;
   }
 
@@ -71,7 +111,8 @@ async function readStream(
   const reader = body.getReader();
 
   const onEvent = (e: ParsedSseEvent) => {
-    connections.emit(entry.connectionId, 'event', e);
+    if (connections.get(connectionId, webContentsId) !== entry) return;
+    connections.emit(connectionId, webContentsId, 'event', e);
   };
 
   try {
@@ -85,7 +126,7 @@ async function readStream(
     if (!entry.explicitlyClosed) {
       const message = err instanceof Error ? err.message : 'Stream read error';
       log.warn('stream read error', { connectionId: entry.connectionId, error: message });
-      connections.emit(entry.connectionId, 'error', { message });
+      connections.emit(connectionId, webContentsId, 'error', { message });
     }
   } finally {
     // Releasing the reader lets the underlying socket be closed promptly instead
@@ -95,10 +136,11 @@ async function readStream(
     } catch {
       /* already done */
     }
+    if (connections.get(connectionId, webContentsId) !== entry) return;
     if (!entry.explicitlyClosed) {
-      connections.emitAndRemove(entry.connectionId, 'close', { reason: 'stream ended' });
+      connections.emitAndRemove(connectionId, webContentsId, 'close', { reason: 'stream ended' });
     } else {
-      connections.remove(entry.connectionId);
+      connections.remove(connectionId, webContentsId);
     }
   }
 }
@@ -125,54 +167,78 @@ export function registerSseHandlerIPC(): void {
     if (!sseRateLimiter.check(webContentsId)) {
       return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
     }
-    if (connections.size() >= MAX_CONCURRENT_SSE_CONNECTIONS) {
+    if (connections.size() + pendingConnections.size >= MAX_CONCURRENT_SSE_CONNECTIONS) {
       return { success: false, error: 'Too many open connections.' };
     }
 
-    // Close an existing connection with the same id (dispose aborts it) before
-    // we start a new one — frees the socket promptly.
-    connections.cancel(connectionId);
+    // Reserve this renderer's id synchronously before DNS or transport
+    // construction. Another renderer may independently use the same external id.
+    const claim = reserveSseClaim(connectionId, event.sender);
+    if (!claim) return { success: false, error: 'Not connected' };
 
-    // Resolve + validate once, then PIN the connection to that IP (closes the
-    // DNS-rebind window a pre-flight-only check leaves open). createPinnedFetch
-    // keeps SNI + Host header on the original hostname for TLS correctness.
-    let pinned: Awaited<ReturnType<typeof resolveSafeAddress>>;
+    let claimedEntry: ActiveSse | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
-      pinned = await resolveSafeAddress(policyConfig.url, { ...getExecutionPolicy().security });
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : 'URL rejected by SSRF policy',
+      // Resolve + validate once, then PIN the connection to that IP (closes the
+      // DNS-rebind window a pre-flight-only check leaves open). createPinnedFetch
+      // keeps SNI + Host header on the original hostname for TLS correctness.
+      let pinned: Awaited<ReturnType<typeof resolveSafeAddress>>;
+      try {
+        pinned = await resolveSafeAddress(policyConfig.url, { ...getExecutionPolicy().security });
+      } catch (err) {
+        return {
+          success: false,
+          error: err instanceof Error ? err.message : 'URL rejected by SSRF policy',
+        };
+      }
+
+      // Renderer destruction/module teardown may invalidate the reservation
+      // while DNS is pending. Never construct a transport for a stale claim.
+      const key = ownerScopedKey(connectionId, webContentsId);
+      if (pendingConnections.get(key)?.token !== claim.token) {
+        return { success: false, error: 'Not connected' };
+      }
+
+      const abortController = new AbortController();
+      timeoutId = setTimeout(
+        () => abortController.abort(),
+        policyConfig.timeout ?? CONNECTION_TIMEOUT_MS
+      );
+
+      const entry: ActiveSse = {
+        connectionId,
+        url: config.url,
+        abortController,
+        webContentsId,
+        createdAt: Date.now(),
+        explicitlyClosed: false,
       };
-    }
 
-    const abortController = new AbortController();
-    const timeoutId = setTimeout(
-      () => abortController.abort(),
-      policyConfig.timeout ?? CONNECTION_TIMEOUT_MS
-    );
+      // Commit only the exact live reservation. A reconnect may replace only
+      // the same renderer's still-current entry.
+      const claimed =
+        pendingConnections.get(key)?.token === claim.token &&
+        (claim.ownerEntry
+          ? connections.get(connectionId, webContentsId) === claim.ownerEntry &&
+            connections.replaceForOwner(connectionId, webContentsId, entry)
+          : connections.tryAdd(connectionId, event.sender, entry));
+      if (!claimed) {
+        entry.explicitlyClosed = true;
+        abortController.abort();
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+        return { success: false, error: 'Not connected' };
+      }
+      claimedEntry = entry;
 
-    const entry: ActiveSse = {
-      connectionId,
-      url: config.url,
-      abortController,
-      webContentsId,
-      createdAt: Date.now(),
-      explicitlyClosed: false,
-    };
-    // add() stores the entry and wires renderer-destroyed cleanup (dispose aborts).
-    connections.add(connectionId, event.sender, entry);
+      // `redirect: 'manual'` so followRedirects can validate every hop (matches
+      // the Worker proxy's policy — Location pointing at metadata IPs etc. is
+      // rejected before we connect). `fetchImpl` is DNS-pinned to the address we
+      // just validated so the connect can't be rebound out from under us.
+      const sseFetcher = makeFetchFetcher({
+        redirect: 'manual',
+        fetchImpl: createPolicyPinnedFetch(policyConfig, pinned),
+      });
 
-    // `redirect: 'manual'` so followRedirects can validate every hop (matches
-    // the Worker proxy's policy — Location pointing at metadata IPs etc. is
-    // rejected before we connect). `fetchImpl` is DNS-pinned to the address we
-    // just validated so the connect can't be rebound out from under us.
-    const sseFetcher = makeFetchFetcher({
-      redirect: 'manual',
-      fetchImpl: createPolicyPinnedFetch(policyConfig, pinned),
-    });
-
-    try {
       // Same orchestrator as the HTTP handler so SSE inherits the SSRF /
       // header / redirect / auth pipeline. resolveSafeAddress above validated
       // the address and the pinned fetcher dials it directly, so the rebind
@@ -189,30 +255,45 @@ export function registerSseHandlerIPC(): void {
         // (Settings → Security), so localhost/private-IP rules stay consistent.
         { ...getExecutionPolicy().security }
       );
-      clearTimeout(timeoutId);
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
 
       if (!result.ok) {
-        connections.emit(connectionId, 'error', { message: result.payload.error });
-        connections.emitAndRemove(connectionId, 'close', { reason: result.payload.error });
+        if (connections.get(connectionId, webContentsId) === entry) {
+          connections.emit(connectionId, webContentsId, 'error', {
+            message: result.payload.error,
+          });
+          connections.emitAndRemove(connectionId, webContentsId, 'close', {
+            reason: result.payload.error,
+          });
+        }
         return { success: false, error: result.payload.error };
       }
 
       const response = result.response;
       if (response.status < 200 || response.status >= 300) {
-        connections.emit(connectionId, 'error', {
-          message: `HTTP ${response.status} ${response.statusText}`,
-        });
-        connections.emitAndRemove(connectionId, 'close', { reason: `HTTP ${response.status}` });
+        if (connections.get(connectionId, webContentsId) === entry) {
+          connections.emit(connectionId, webContentsId, 'error', {
+            message: `HTTP ${response.status} ${response.statusText}`,
+          });
+          connections.emitAndRemove(connectionId, webContentsId, 'close', {
+            reason: `HTTP ${response.status}`,
+          });
+        }
         return { success: false, error: `HTTP ${response.status} ${response.statusText}` };
       }
 
-      connections.emit(connectionId, 'open');
+      if (connections.get(connectionId, webContentsId) !== entry) {
+        return { success: false, error: 'Not connected' };
+      }
+      connections.emit(connectionId, webContentsId, 'open');
       // Drain the stream in the background — we already returned success.
       void readStream(entry, response.body ?? null);
       return { success: true };
     } catch (err) {
-      clearTimeout(timeoutId);
-      connections.remove(connectionId);
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      if (claimedEntry && connections.get(connectionId, webContentsId) === claimedEntry) {
+        connections.remove(connectionId, webContentsId);
+      }
       if (err instanceof RedirectPolicyError) {
         log.warn('connect rejected by redirect policy', { connectionId, error: err.message });
         return { success: false, error: err.message };
@@ -220,19 +301,22 @@ export function registerSseHandlerIPC(): void {
       const message = err instanceof Error ? err.message : 'Connection failed';
       log.warn('connect failed', { connectionId, error: message });
       return { success: false, error: message };
+    } finally {
+      releaseSseClaim(connectionId, claim);
     }
   });
 
   ipcMain.handle(
     IPC.sse.disconnect,
-    createValidatedHandler(IPC.sse.disconnect, SseDisconnectSchema, async (config) => {
-      // cancel() disposes (sets explicitlyClosed + aborts) and removes the entry.
-      connections.cancel(config.connectionId);
+    createValidatedEventHandler(IPC.sse.disconnect, SseDisconnectSchema, async (config, event) => {
+      // Missing and wrong-owner ids are deliberately indistinguishable.
+      connections.cancelForOwner(config.connectionId, event.sender.id);
       return { success: true };
     })
   );
 }
 
 export function stopSseCleanup(): void {
+  pendingConnections.clear();
   connections.disposeAll();
 }

@@ -36,10 +36,12 @@ vi.mock('electron', () => ({
   ipcMain: { handle: mockIpcHandle, removeHandler: mockIpcRemoveHandler },
 }));
 
+import { IPC } from '../../shared/channels';
 import {
   __setSecretStoreForTests,
   registerSecretHandleIPC,
   secretRateLimiter,
+  unregisterSecretHandleIPC,
   unwrapSecretValueMain,
 } from '../security/secret-handle-store';
 
@@ -130,13 +132,17 @@ describe('secret-handle-store', () => {
     });
 
     it('registers all five channels and no others', () => {
-      expect([...handlers.keys()].sort()).toEqual([
-        'secret:clear',
-        'secret:delete',
-        'secret:describe',
-        'secret:list',
-        'secret:store',
-      ]);
+      expect([...handlers.keys()].sort()).toEqual(Object.values(IPC.secret).sort());
+    });
+
+    it('tears down exactly the canonical secret channels', () => {
+      mockIpcRemoveHandler.mockClear();
+
+      unregisterSecretHandleIPC();
+
+      expect(mockIpcRemoveHandler.mock.calls.map(([channel]) => channel).sort()).toEqual(
+        Object.values(IPC.secret).sort()
+      );
     });
 
     it('store → describe → list → delete round-trip preserves the renderer contract', async () => {

@@ -61,8 +61,8 @@ function GraphQLRequestBuilder() {
   const activeTabId = useActiveTab()?.id;
   const updateRequest = useRequestStore((s) => s.updateRequest);
   const setLoading = useRequestStore((s) => s.setLoading);
-  const setCurrentResponse = useRequestStore((s) => s.setCurrentResponse);
-  const setScriptResult = useRequestStore((s) => s.setScriptResult);
+  const setCurrentResponseForTab = useRequestStore((s) => s.setCurrentResponseForTab);
+  const setScriptResultForTab = useRequestStore((s) => s.setScriptResultForTab);
   const isLoading = useRequestStore((s) => s.isLoading);
   const url = currentRequest?.url ?? '';
   const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
@@ -180,6 +180,8 @@ function GraphQLRequestBuilder() {
   };
 
   const handleSendRequest = async () => {
+    const originTabId = activeTabId;
+    if (!originTabId) return;
     if (!httpRequest.url) {
       toast.error('URL required');
       return;
@@ -194,7 +196,7 @@ function GraphQLRequestBuilder() {
     }
 
     setLoading(true);
-    setScriptResult(null);
+    setScriptResultForTab(originTabId, null);
 
     const wireBody = JSON.stringify(buildGraphQLRequestBody(query, parsedVariables));
     const wireHeaders = httpRequest.headers.slice();
@@ -218,7 +220,7 @@ function GraphQLRequestBuilder() {
 
     try {
       const { response, scriptResult: runScripts } = await runViaRegistry(wireRequest, 'graphql');
-      setCurrentResponse(response);
+      setCurrentResponseForTab(originTabId, response);
 
       // Mirror interactive GraphQL sends into the unified console (previously
       // only collection runs landed there).

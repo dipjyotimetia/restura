@@ -247,11 +247,11 @@ export function registerSecretHandleIPC(): void {
 
 /** Tear down IPC handlers; idempotent. */
 export function unregisterSecretHandleIPC(): void {
-  ipcMain.removeHandler('secret:store');
-  ipcMain.removeHandler('secret:delete');
-  ipcMain.removeHandler('secret:describe');
-  ipcMain.removeHandler('secret:list');
-  ipcMain.removeHandler('secret:clear');
+  ipcMain.removeHandler(IPC.secret.store);
+  ipcMain.removeHandler(IPC.secret.delete);
+  ipcMain.removeHandler(IPC.secret.describe);
+  ipcMain.removeHandler(IPC.secret.list);
+  ipcMain.removeHandler(IPC.secret.clear);
 }
 
 // ---------------------------------------------------------------------------

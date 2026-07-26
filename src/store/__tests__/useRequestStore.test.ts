@@ -143,6 +143,74 @@ describe('useRequestStore — tabs', () => {
       expect((tab.request as HttpRequest).url).toBe('https://a.com');
       expect((tab.request as HttpRequest).method).toBe('GET'); // unchanged
     });
+
+    it('updates a specified extant tab without changing the active tab', () => {
+      const originTabId = useRequestStore
+        .getState()
+        .openTab(makeHttp({ url: 'https://origin.example' }));
+      const activeTabId = useRequestStore
+        .getState()
+        .openTab(makeHttp({ url: 'https://active.example' }));
+
+      expect(
+        useRequestStore
+          .getState()
+          .updateRequestForTab(originTabId, { url: 'https://origin-updated.example' })
+      ).toBe(true);
+
+      const state = useRequestStore.getState();
+      expect(state.activeTabId).toBe(activeTabId);
+      expect((state.tabs.find((tab) => tab.id === originTabId)?.request as HttpRequest).url).toBe(
+        'https://origin-updated.example'
+      );
+      expect((state.tabs.find((tab) => tab.id === activeTabId)?.request as HttpRequest).url).toBe(
+        'https://active.example'
+      );
+    });
+
+    it('does not update the active tab when a specified origin tab has closed', () => {
+      const closedTabId = useRequestStore.getState().openTab(makeHttp());
+      const activeTabId = useRequestStore
+        .getState()
+        .openTab(makeHttp({ url: 'https://active.example' }));
+      useRequestStore.getState().closeTab(closedTabId);
+
+      expect(
+        useRequestStore
+          .getState()
+          .updateRequestForTab(closedTabId, { url: 'https://wrong.example' })
+      ).toBe(false);
+
+      const state = useRequestStore.getState();
+      expect(state.activeTabId).toBe(activeTabId);
+      expect((state.tabs[0]?.request as HttpRequest).url).toBe('https://active.example');
+    });
+
+    it('rejects an invalid update for a specified tab without mutating either tab', () => {
+      const originTabId = useRequestStore
+        .getState()
+        .openTab(makeHttp({ url: 'https://origin.example', method: 'GET' }));
+      const activeTabId = useRequestStore
+        .getState()
+        .openTab(makeHttp({ url: 'https://active.example' }));
+
+      expect(
+        useRequestStore
+          .getState()
+          .updateRequestForTab(originTabId, { method: 'NOTAVERB' as unknown as 'GET' })
+      ).toBe(false);
+
+      const state = useRequestStore.getState();
+      expect(state.activeTabId).toBe(activeTabId);
+      expect(state.tabs.find((tab) => tab.id === originTabId)?.request).toMatchObject({
+        url: 'https://origin.example',
+        method: 'GET',
+      });
+      expect(state.tabs.find((tab) => tab.id === originTabId)?.isDirty).toBe(false);
+      expect((state.tabs.find((tab) => tab.id === activeTabId)?.request as HttpRequest).url).toBe(
+        'https://active.example'
+      );
+    });
   });
 
   describe('setCurrentResponse / setScriptResult', () => {
@@ -173,6 +241,44 @@ describe('useRequestStore — tabs', () => {
       const tabA = useRequestStore.getState().tabs.find((t) => t.id === a)!;
       expect(tabA.scriptResult).toBeUndefined();
       expect(useRequestStore.getState().getActiveTab()!.scriptResult).toBeDefined();
+    });
+
+    it('sets response and script results on a specified tab without changing the active tab', () => {
+      const originTabId = useRequestStore.getState().openTab(makeHttp());
+      const activeTabId = useRequestStore.getState().openTab(makeGrpc());
+      const response = makeResponse('origin-request');
+      const scriptResult = {
+        preRequest: { success: true, logs: [], errors: [], variables: { origin: 'true' } },
+      };
+
+      useRequestStore.getState().setCurrentResponseForTab(originTabId, response);
+      useRequestStore.getState().setScriptResultForTab(originTabId, scriptResult);
+
+      const state = useRequestStore.getState();
+      const originTab = state.tabs.find((tab) => tab.id === originTabId);
+      const activeTab = state.tabs.find((tab) => tab.id === activeTabId);
+      expect(state.activeTabId).toBe(activeTabId);
+      expect(originTab?.response).toEqual(response);
+      expect(originTab?.scriptResult).toEqual(scriptResult);
+      expect(activeTab?.response).toBeUndefined();
+      expect(activeTab?.scriptResult).toBeUndefined();
+    });
+
+    it('does not write a response or script result when the specified tab has closed', () => {
+      const closedTabId = useRequestStore.getState().openTab(makeHttp());
+      const activeTabId = useRequestStore.getState().openTab(makeGrpc());
+      useRequestStore.getState().closeTab(closedTabId);
+
+      useRequestStore.getState().setCurrentResponseForTab(closedTabId, makeResponse('closed'));
+      useRequestStore.getState().setScriptResultForTab(closedTabId, {
+        test: { success: true, logs: [], errors: [], variables: {} },
+      });
+
+      const state = useRequestStore.getState();
+      expect(state.activeTabId).toBe(activeTabId);
+      expect(state.tabs).toHaveLength(1);
+      expect(state.tabs[0]?.response).toBeUndefined();
+      expect(state.tabs[0]?.scriptResult).toBeUndefined();
     });
   });
 
@@ -351,6 +457,52 @@ describe('useRequestStore — tabs', () => {
       useRequestStore.getState().setStreamingEvents(second);
       expect(useRequestStore.getState().getActiveTab()!.streamingEvents).toBe(second);
       expect(useRequestStore.getState().getActiveTab()!.streamingEvents).not.toBe(first);
+    });
+
+    it('sets and clears streaming events on a specified inactive tab', () => {
+      const originTabId = useRequestStore.getState().openTab(makeHttp());
+      useRequestStore.getState().setCurrentResponseForTab(originTabId, makeResponse('origin'));
+      const activeTabId = useRequestStore.getState().openTab(makeGrpc());
+      const events = emptyEvents();
+
+      useRequestStore.getState().setStreamingEventsForTab(originTabId, events);
+
+      let state = useRequestStore.getState();
+      expect(state.activeTabId).toBe(activeTabId);
+      expect(state.tabs.find((tab) => tab.id === originTabId)).toMatchObject({
+        streamingEvents: events,
+        response: null,
+      });
+      expect(state.tabs.find((tab) => tab.id === activeTabId)?.streamingEvents).toBeUndefined();
+
+      useRequestStore.getState().clearStreamingEventsForTab(originTabId);
+
+      state = useRequestStore.getState();
+      expect(state.tabs.find((tab) => tab.id === originTabId)?.streamingEvents).toBeUndefined();
+      expect(state.activeTabId).toBe(activeTabId);
+    });
+
+    it('preserves tab identity when targeted streaming cleanup has nothing to clear', () => {
+      const tabId = useRequestStore.getState().openTab(makeHttp());
+      const before = useRequestStore.getState().tabs.find((tab) => tab.id === tabId);
+
+      useRequestStore.getState().clearStreamingEventsForTab(tabId);
+
+      expect(useRequestStore.getState().tabs.find((tab) => tab.id === tabId)).toBe(before);
+    });
+
+    it('does not attach targeted streaming events after the origin tab closes', () => {
+      const closedTabId = useRequestStore.getState().openTab(makeHttp());
+      const activeTabId = useRequestStore.getState().openTab(makeGrpc());
+      useRequestStore.getState().closeTab(closedTabId);
+
+      useRequestStore.getState().setStreamingEventsForTab(closedTabId, emptyEvents());
+      useRequestStore.getState().clearStreamingEventsForTab(closedTabId);
+
+      const state = useRequestStore.getState();
+      expect(state.tabs).toHaveLength(1);
+      expect(state.activeTabId).toBe(activeTabId);
+      expect(state.tabs[0]?.streamingEvents).toBeUndefined();
     });
 
     it('streamingEvents is JSON-serializable safe via partialize-style stripping', () => {

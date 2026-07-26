@@ -71,8 +71,8 @@ function GrpcRequestBuilder() {
   const activeTabId = useActiveTab()?.id;
   const updateRequest = useRequestStore((s) => s.updateRequest);
   const setLoading = useRequestStore((s) => s.setLoading);
-  const setCurrentResponse = useRequestStore((s) => s.setCurrentResponse);
-  const setScriptResult = useRequestStore((s) => s.setScriptResult);
+  const setCurrentResponseForTab = useRequestStore((s) => s.setCurrentResponseForTab);
+  const setScriptResultForTab = useRequestStore((s) => s.setScriptResultForTab);
   const isLoading = useRequestStore((s) => s.isLoading);
   const addHistoryItem = useHistoryStore((s) => s.addHistoryItem);
   const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
@@ -288,6 +288,8 @@ function GrpcRequestBuilder() {
   };
 
   const handleSendRequest = async () => {
+    const originTabId = activeTabId;
+    if (!originTabId) return;
     const urlValid = validateUrl(grpcRequest.url);
     const serviceValid = validateService(grpcRequest.service);
     const methodValid = validateMethod(grpcRequest.method);
@@ -320,7 +322,7 @@ function GrpcRequestBuilder() {
 
     setLoading(true);
     setStreamingMessages([]);
-    setScriptResult(null);
+    setScriptResultForTab(originTabId, null);
     const startTime = Date.now();
 
     try {
@@ -470,7 +472,7 @@ function GrpcRequestBuilder() {
         grpcResponse = response as GrpcResponse;
       }
 
-      setCurrentResponse(grpcResponse);
+      setCurrentResponseForTab(originTabId, grpcResponse);
 
       // Mirror the final attempt into the unified console (interactive sends
       // previously only appeared when run via a collection). Retried attempts
@@ -516,7 +518,7 @@ function GrpcRequestBuilder() {
       setLoading(false);
       setStreamControl(null);
       const errorResponse = createErrorResponse(grpcRequest.id, error, startTime);
-      setCurrentResponse(errorResponse);
+      setCurrentResponseForTab(originTabId, errorResponse);
       addHistoryItem(grpcRequest, errorResponse);
 
       if (error instanceof GrpcClientError) {

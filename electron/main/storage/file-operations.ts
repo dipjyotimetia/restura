@@ -211,7 +211,7 @@ async function resolveFromExistingAncestor(target: string): Promise<string> {
 export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | null): void {
   // Dialog handlers
   ipcMain.handle(
-    'dialog:openFile',
+    IPC.dialog.openFile,
     createValidatedHandler(IPC.dialog.openFile, DialogOptionsSchema.optional(), async (options) => {
       const mainWindow = getMainWindow();
       if (!mainWindow) return null;
@@ -228,7 +228,7 @@ export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | n
   );
 
   ipcMain.handle(
-    'dialog:saveFile',
+    IPC.dialog.saveFile,
     createValidatedHandler(IPC.dialog.saveFile, DialogOptionsSchema.optional(), async (options) => {
       const mainWindow = getMainWindow();
       if (!mainWindow) return null;
@@ -246,7 +246,7 @@ export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | n
   // File system handlers (async fs so the main thread stays responsive when
   // import/export touches a 50 MB collection).
   ipcMain.handle(
-    'fs:readFile',
+    IPC.fs.readFile,
     createValidatedHandler(IPC.fs.readFile, FilePathSchema, async (filePath: string) => {
       try {
         if (!isPathSafe(filePath)) {
@@ -270,7 +270,7 @@ export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | n
   );
 
   ipcMain.handle(
-    'fs:writeFile',
+    IPC.fs.writeFile,
     createValidatedHandler(
       IPC.fs.writeFile,
       WriteFileSchema,
@@ -298,21 +298,21 @@ export function registerFileOperationsIPC(getMainWindow: () => BrowserWindow | n
 
   // App info handlers
   ipcMain.handle(
-    'app:getPath',
+    IPC.app.getPath,
     createValidatedHandler(IPC.app.getPath, AppPathNameSchema, (name) => {
       return app.getPath(name as Parameters<typeof app.getPath>[0]);
     })
   );
 
   ipcMain.handle(
-    'app:getVersion',
+    IPC.app.getVersion,
     createValidatedHandler(IPC.app.getVersion, NoInputSchema, () => {
       return app.getVersion();
     })
   );
 
   ipcMain.handle(
-    'shell:openExternal',
+    IPC.shell.openExternal,
     createValidatedHandler(IPC.shell.openExternal, ShellUrlSchema, async (url: string) => {
       await shell.openExternal(url);
     })

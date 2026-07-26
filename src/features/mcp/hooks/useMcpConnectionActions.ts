@@ -12,6 +12,7 @@ export function useMcpConnectionActions() {
       removeHeader: state.removeHeader,
       setStatus: state.setStatus,
       setCapabilities: state.setCapabilities,
+      resetConnectionSession: state.resetConnectionSession,
       appendLog: state.appendLog,
       clearLog: state.clearLog,
     }))

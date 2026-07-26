@@ -18,10 +18,6 @@ export function useStoreHydration() {
   const [isHydrated, setIsHydrated] = useState(false);
 
   useEffect(() => {
-    // Rehydrate all stores
-    const unsubscribers: (() => void)[] = [];
-
-    // Trigger rehydration for each store
     const stores = [
       useRequestStore,
       useEnvironmentStore,
@@ -30,35 +26,16 @@ export function useStoreHydration() {
       useHistoryStore,
     ];
 
-    stores.forEach((store) => {
-      // Check if the store has persist middleware with rehydrate method
-      const persistedStore = store as unknown as {
-        persist?: {
-          rehydrate: () => Promise<void> | void;
-          onFinishHydration?: (callback: () => void) => () => void;
-        };
-      };
+    let cancelled = false;
 
-      if (persistedStore.persist?.rehydrate) {
-        persistedStore.persist.rehydrate();
-      }
-
-      if (persistedStore.persist?.onFinishHydration) {
-        const unsub = persistedStore.persist.onFinishHydration(() => {
-          // Store finished hydrating
-        });
-        unsubscribers.push(unsub);
+    void Promise.all(stores.map((store) => store.persist.rehydrate())).then(() => {
+      if (!cancelled) {
+        setIsHydrated(true);
       }
     });
 
-    // Mark as hydrated after a small delay to ensure all stores are ready
-    const timer = setTimeout(() => {
-      setIsHydrated(true);
-    }, 0);
-
     return () => {
-      clearTimeout(timer);
-      unsubscribers.forEach((unsub) => unsub());
+      cancelled = true;
     };
   }, []);
 

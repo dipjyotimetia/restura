@@ -6,11 +6,12 @@ import { ipcMain, webContents } from 'electron';
 import type { ZodSchema } from 'zod';
 import { IPC } from '../../shared/channels';
 import { KAFKA_CHANNEL, kafkaChannel } from '../../shared/kafka-channels';
+import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import {
   assertTrustedSender,
-  createValidatedHandler,
+  createValidatedEventHandler,
   type KafkaConnectConfig,
   KafkaConnectSchema,
   KafkaCreateTopicSchema,
@@ -28,7 +29,7 @@ import {
   KafkaUnsubscribeSchema,
   validateIpcInput,
 } from '../ipc/ipc-validators';
-import { StreamRegistry } from '../ipc/stream-registry';
+import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
 import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
 import {
@@ -42,8 +43,6 @@ import {
 } from './kafka-serde';
 
 const log = createLogger('kafka');
-
-// Type-only aliases for the lazily loaded client libraries.
 type SchemaRegistry = SchemaRegistryLib.SchemaRegistry;
 type Admin = KafkaLib.Admin;
 type AdminOptions = KafkaLib.AdminOptions;
@@ -54,26 +53,14 @@ type MessagesStream<K, V, HK, HV> = KafkaLib.MessagesStream<K, V, HK, HV>;
 type Producer<K, V, HK, HV> = KafkaLib.Producer<K, V, HK, HV>;
 type ProducerOptions<K, V, HK, HV> = KafkaLib.ProducerOptions<K, V, HK, HV>;
 type TopicWithPartitionAndOffset = KafkaLib.TopicWithPartitionAndOffset;
-
-// @platformatic/kafka is heavy to evaluate and most sessions never open a Kafka
-// connection. Load it lazily on first use rather than at module load (which ran
-// before app.whenReady via main.ts, delaying window creation). The named types
-// imported above are erased at compile time, so importing them type-only costs
-// nothing.
+// Keep the heavy Kafka package lazy so it does not delay window creation.
 let _kafka: typeof KafkaLib | undefined;
 const getKafka = (): typeof KafkaLib => (_kafka ??= require('@platformatic/kafka'));
 
-/**
- * Test-only seam. The lazy bare `require('@platformatic/kafka')` above is not
- * interceptable by vitest's ESM-level `vi.mock` (same constraint documented in
- * secret-handle-store's `__setSecretStoreForTests`), so tests inject a fake
- * lib here. Pass `undefined` to restore the real lazy load.
- */
+/** Test seam for the lazy bare require. */
 export function __setKafkaForTests(lib: typeof KafkaLib | undefined): void {
   _kafka = lib;
 }
-
-// Construct a Schema Registry client only for connections that use one.
 let _schemaRegistryLib: typeof SchemaRegistryLib | undefined;
 const getSchemaRegistryLib = (): typeof SchemaRegistryLib =>
   (_schemaRegistryLib ??= require('@kafkajs/confluent-schema-registry'));
@@ -87,9 +74,7 @@ const rawDeserializer = (data: Buffer): Buffer | undefined =>
 const stringFieldDeserializer = (data: Buffer): string | undefined =>
   Buffer.isBuffer(data) ? data.toString('utf-8') : undefined;
 export const kafkaRateLimiter = createKeyedRateLimiter(120, 60_000);
-
 const MAX_CONCURRENT_KAFKA_CONNECTIONS = 20;
-
 type ProduceKV = string | Buffer;
 type AppProducer = Producer<ProduceKV, ProduceKV, string, string>;
 type AppConsumer = Consumer<Buffer, Buffer, string, string>;
@@ -103,26 +88,11 @@ interface ActiveKafka {
   clientOptions: KafkaClientOptions;
   connectionId: string;
   webContentsId: number;
-  /**
-   * Idempotent producer flag. Stored separately from `clientOptions` because
-   * `idempotent` is a producer-only option — `clientOptions` is also spread
-   * into the Consumer and Admin clients, which don't accept it. When set, the
-   * produce path forces acks=-1 (idempotent delivery requires all-ISR acks).
-   */
+  /** Producer-only option; the shared client options also feed Consumer/Admin. */
   idempotent: boolean;
-  /**
-   * Confluent Schema Registry client, built at connect when a registry URL is
-   * configured. Encodes the key/value on produce (by schema id) and decodes them
-   * on consume (key + value symmetrically, off the Confluent wire framing).
-   */
   registry?: SchemaRegistry;
-  /**
-   * Serializes consumed-message emits. Decode is async (registry HTTP/CPU) but
-   * `stream.on('data')` is sync, so we chain emits through this promise to
-   * preserve message order.
-   */
+  /** Serializes async decode/emission in arrival order. */
   emitChain: Promise<void>;
-  /** Cached at connect — avoids a `webContents.fromId()` lookup per message. */
   wc?: WebContents;
   createdAt: number;
 }
@@ -143,22 +113,63 @@ interface KafkaClientOptions {
     rejectUnauthorized?: boolean;
   };
 }
-
-// Shared connection bookkeeping (map + renderer-destroyed cleanup). Kafka keeps
-// its own cached-WebContents emit (emitToEntry) and awaited async teardown
-// (closeConnection) — those don't fit the registry's sync emit/dispose seam — so
-// same-id replace, explicit disconnect, and stopKafkaCleanup stay manual (awaited)
-// loops over get()/values(). dispose() here serves ONLY the renderer-destroyed
-// path, where fire-and-forget close matches the previous `void closeConnection(e)`.
+// Awaited teardown stays in this handler; registry disposal covers renderer death.
 const activeConnections = new StreamRegistry<ActiveKafka>({
   dispose: (e) => {
     void closeConnection(e);
   },
 });
 
+interface PendingKafkaClaim {
+  webContentsId: number;
+  token: symbol;
+  ownerEntry?: ActiveKafka;
+  pendingProducer?: AppProducer;
+}
+const pendingConnections = new Map<string, PendingKafkaClaim>();
+
+async function closeProducerQuietly(producer: AppProducer): Promise<void> {
+  try {
+    await Promise.resolve(producer.close(true));
+  } catch {
+    /* ignore */
+  }
+}
+
+function disposePendingKafkaClaim(claim: PendingKafkaClaim): void {
+  if (!claim.pendingProducer) return;
+  void closeProducerQuietly(claim.pendingProducer);
+  claim.pendingProducer = undefined;
+}
+
+function reserveKafkaClaim(
+  connectionId: string,
+  sender: WebContents
+): PendingKafkaClaim | undefined {
+  const key = ownerScopedKey(connectionId, sender.id);
+  if (pendingConnections.has(key)) return undefined;
+  const ownerEntry = activeConnections.getForOwner(connectionId, sender.id);
+  const claim: PendingKafkaClaim = {
+    webContentsId: sender.id,
+    token: Symbol(connectionId),
+    ownerEntry,
+  };
+  pendingConnections.set(key, claim);
+  bindRendererCleanup(pendingConnections, sender, (deadId) =>
+    disposeByOwner(pendingConnections, deadId, disposePendingKafkaClaim)
+  );
+  return pendingConnections.get(key) === claim ? claim : undefined;
+}
+
+function releaseKafkaClaim(connectionId: string, claim: PendingKafkaClaim): void {
+  const key = ownerScopedKey(connectionId, claim.webContentsId);
+  if (pendingConnections.get(key)?.token === claim.token) {
+    pendingConnections.delete(key);
+  }
+}
+
 function emitToEntry(entry: ActiveKafka, channel: string, ...args: unknown[]): void {
-  // Prefer the cached WebContents (faster than `webContents.fromId` per call);
-  // fall back to the shared util when the cache is missing or destroyed.
+  // Prefer the cached renderer for high-throughput message delivery.
   if (entry.wc && !entry.wc.isDestroyed()) {
     entry.wc.send(channel, ...args);
     return;
@@ -203,7 +214,6 @@ function headersFromMap(map: Map<string, string> | undefined): Record<string, st
   }
   return out;
 }
-
 async function closeConsumerAndStream(entry: ActiveKafka): Promise<void> {
   if (entry.stream) {
     try {
@@ -223,9 +233,7 @@ async function closeConsumerAndStream(entry: ActiveKafka): Promise<void> {
   }
 }
 
-// Best-effort close of a consumer that was created but not yet tracked on the
-// entry (e.g. a subscribe that bails before assigning entry.consumer), so it
-// doesn't leak a broker socket.
+// Releases consumers that fail before being attached to an active entry.
 async function closeConsumerQuietly(consumer: AppConsumer): Promise<void> {
   try {
     await Promise.resolve(consumer.close(true));
@@ -249,6 +257,7 @@ async function emitConsumedMessage(entry: ActiveKafka, msg: AppMessage): Promise
     msg.value == null
       ? { value: '', encoding: 'utf8' as const }
       : await decodeDisplayField(entry.registry, msg.value);
+  if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
   emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.MESSAGE, entry.connectionId), {
     topic: msg.topic,
     partition: msg.partition,
@@ -260,15 +269,14 @@ async function emitConsumedMessage(entry: ActiveKafka, msg: AppMessage): Promise
     timestamp: typeof msg.timestamp === 'bigint' ? Number(msg.timestamp) : Date.now(),
   });
 }
-
 function bindStreamListeners(entry: ActiveKafka, stream: AppStream): void {
   stream.on('data', (msg: AppMessage) => {
-    // Chain so async decodes emit in arrival order; swallow per-message failures
-    // so one bad message can't wedge the chain.
+    // One bad decode must not wedge the ordered emission chain.
     entry.emitChain = entry.emitChain.then(() => emitConsumedMessage(entry, msg)).catch(() => {});
   });
 
   stream.on('error', (err: Error) => {
+    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
     emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.ERROR, entry.connectionId), {
       scope: 'consumer',
       message: err.message,
@@ -276,6 +284,7 @@ function bindStreamListeners(entry: ActiveKafka, stream: AppStream): void {
   });
 
   stream.on('close', () => {
+    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
     emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, entry.connectionId), {});
   });
 }
@@ -287,9 +296,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
     const { connectionId } = cfg;
     const webContentsId = event.sender.id;
     const startTime = Date.now();
-    // Log entries record the connect attempt only — metadata, not message
-    // bodies. Per-message logging is intentionally omitted to keep the .jsonl
-    // size bounded for high-throughput Kafka topics.
+    // Connection metadata only; message bodies are never logged.
     const logEntry = (status: number, error?: string): void => {
       if (!onComplete) return;
       onComplete({
@@ -309,127 +316,151 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
     }
 
-    if (activeConnections.size() >= MAX_CONCURRENT_KAFKA_CONNECTIONS) {
+    if (activeConnections.size() + pendingConnections.size >= MAX_CONCURRENT_KAFKA_CONNECTIONS) {
       logEntry(503, 'Too many open connections');
       return { success: false, error: 'Too many open Kafka connections.' };
     }
 
-    const existing = activeConnections.get(connectionId);
-    if (existing) {
-      // A same-ID reconnect replaces and records the old connection.
-      if (onComplete) {
-        onComplete({
-          ts: Date.now(),
-          method: 'CLOSE',
-          url: existing.clientOptions.bootstrapBrokers.join(','),
-          status: 0,
-          durationMs: Date.now() - existing.createdAt,
-          protocol: 'kafka',
-          requestId: connectionId,
-        });
-      }
-      await closeConnection(existing);
-      activeConnections.remove(connectionId);
-    }
-
+    // Reserve this renderer's id; other renderers may independently use the same external id.
+    const claim = reserveKafkaClaim(connectionId, event.sender);
+    if (!claim) return { success: false, error: 'Not connected' };
+    const key = ownerScopedKey(connectionId, webContentsId);
     try {
-      assertKafkaBrokersSafe(cfg.bootstrapBrokers);
-      if (cfg.registry) assertRegistryUrlSafe(cfg.registry.url);
-    } catch (err) {
-      const msg = errorMessage(err);
-      log.warn('connection rejected by transport guard', { connectionId });
-      logEntry(400, msg);
-      return { success: false, error: msg };
-    }
-
-    try {
-      const clientOptions = buildClientOptions(cfg);
-      const kafka = getKafka();
-
-      // Registry encodes/decodes both fields; IPC accepts HTTP Basic only.
-      let registry: SchemaRegistry | undefined;
-      if (cfg.registry) {
-        const auth = cfg.registry.auth;
-        registry = new (getSchemaRegistryLib().SchemaRegistry)({
-          host: cfg.registry.url,
-          ...(auth?.username
-            ? { auth: { username: auth.username, password: auth.password ?? '' } }
-            : {}),
-        });
+      if (claim.ownerEntry) {
+        const existing = claim.ownerEntry;
+        if (onComplete) {
+          onComplete({
+            ts: Date.now(),
+            method: 'CLOSE',
+            url: existing.clientOptions.bootstrapBrokers.join(','),
+            status: 0,
+            durationMs: Date.now() - existing.createdAt,
+            protocol: 'kafka',
+            requestId: connectionId,
+          });
+        }
+        await closeConnection(existing);
+        if (
+          pendingConnections.get(key)?.token !== claim.token ||
+          activeConnections.get(connectionId, webContentsId) !== existing
+        ) {
+          return { success: false, error: 'Not connected' };
+        }
+        activeConnections.remove(connectionId, webContentsId);
       }
 
-      // Registry payloads are encoded here; plain strings are UTF-8 encoded.
-      const producerOptions = {
-        ...clientOptions,
-        serializers: {
-          key: bufferOrStringSerializer,
-          value: bufferOrStringSerializer,
-          headerKey: stringFieldSerializer,
-          headerValue: stringFieldSerializer,
-        },
-        // Idempotent producer dedups retries per-partition. The broker requires
-        // acks=all(-1) for it; the produce handler enforces that override.
-        ...(cfg.idempotent ? { idempotent: true } : {}),
-      } as unknown as ProducerOptions<ProduceKV, ProduceKV, string, string>;
-      const producer = new kafka.Producer<ProduceKV, ProduceKV, string, string>(producerOptions);
+      try {
+        assertKafkaBrokersSafe(cfg.bootstrapBrokers);
+        if (cfg.registry) assertRegistryUrlSafe(cfg.registry.url);
+      } catch (err) {
+        const msg = errorMessage(err);
+        log.warn('connection rejected by transport guard', { connectionId });
+        logEntry(400, msg);
+        return { success: false, error: msg };
+      }
 
-      // Probe metadata before reporting connected; this stays read-only.
-      await producer.metadata({ autocreateTopics: false, forceUpdate: true });
-      const wc = webContents.fromId(webContentsId) ?? undefined;
-      const entry: ActiveKafka = {
-        producer,
-        clientOptions,
-        connectionId,
-        webContentsId,
-        idempotent: cfg.idempotent ?? false,
-        emitChain: Promise.resolve(),
-        ...(registry ? { registry } : {}),
-        ...(wc ? { wc } : {}),
-        createdAt: Date.now(),
-      };
-      // add() stores the entry and wires renderer-destroyed cleanup: if the
-      // renderer dies without disconnecting, dispose() fire-and-forget closes the
-      // producer/consumer so their broker sockets don't leak until process exit
-      // (a real leak under hot-reload). Dedupes the destroyed-listener across
-      // reconnects and centralises the owner→dispose walk (ADR-0006).
-      activeConnections.add(connectionId, event.sender, entry);
+      try {
+        const clientOptions = buildClientOptions(cfg);
+        const kafka = getKafka();
 
-      emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONNECTED, connectionId), {
-        timestamp: Date.now(),
-      });
-      log.info('connected', {
-        connectionId,
-        idempotent: entry.idempotent,
-        schemaRegistry: Boolean(entry.registry),
-      });
-      logEntry(0);
-      return { success: true };
-    } catch (err) {
-      const msg = errorMessage(err);
-      log.warn('connect failed', { connectionId });
-      logEntry(500, msg);
-      return { success: false, error: msg };
+        // Registry encodes/decodes both fields; IPC accepts HTTP Basic only.
+        let registry: SchemaRegistry | undefined;
+        if (cfg.registry) {
+          const auth = cfg.registry.auth;
+          registry = new (getSchemaRegistryLib().SchemaRegistry)({
+            host: cfg.registry.url,
+            ...(auth?.username
+              ? { auth: { username: auth.username, password: auth.password ?? '' } }
+              : {}),
+          });
+        }
+
+        // Registry payloads are encoded here; plain strings are UTF-8 encoded.
+        const producerOptions = {
+          ...clientOptions,
+          serializers: {
+            key: bufferOrStringSerializer,
+            value: bufferOrStringSerializer,
+            headerKey: stringFieldSerializer,
+            headerValue: stringFieldSerializer,
+          },
+          // Idempotent producer dedups retries per-partition. The broker requires
+          // acks=all(-1) for it; the produce handler enforces that override.
+          ...(cfg.idempotent ? { idempotent: true } : {}),
+        } as unknown as ProducerOptions<ProduceKV, ProduceKV, string, string>;
+        const producer = new kafka.Producer<ProduceKV, ProduceKV, string, string>(producerOptions);
+        claim.pendingProducer = producer;
+
+        // Probe metadata before reporting connected; this stays read-only.
+        await producer.metadata({ autocreateTopics: false, forceUpdate: true });
+        if (pendingConnections.get(key)?.token !== claim.token) {
+          if (claim.pendingProducer === producer) {
+            claim.pendingProducer = undefined;
+            await closeProducerQuietly(producer);
+          }
+          return { success: false, error: 'Not connected' };
+        }
+
+        const wc = webContents.fromId(webContentsId) ?? undefined;
+        const entry: ActiveKafka = {
+          producer,
+          clientOptions,
+          connectionId,
+          webContentsId,
+          idempotent: cfg.idempotent ?? false,
+          emitChain: Promise.resolve(),
+          ...(registry ? { registry } : {}),
+          ...(wc ? { wc } : {}),
+          createdAt: Date.now(),
+        };
+        const claimed = activeConnections.tryAdd(connectionId, event.sender, entry);
+        if (!claimed) {
+          claim.pendingProducer = undefined;
+          await closeProducerQuietly(producer);
+          return { success: false, error: 'Not connected' };
+        }
+        claim.pendingProducer = undefined;
+
+        emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONNECTED, connectionId), {
+          timestamp: Date.now(),
+        });
+        log.info('connected', {
+          connectionId,
+          idempotent: entry.idempotent,
+          schemaRegistry: Boolean(entry.registry),
+        });
+        logEntry(0);
+        return { success: true };
+      } catch (err) {
+        if (claim.pendingProducer) {
+          const producer = claim.pendingProducer;
+          claim.pendingProducer = undefined;
+          await closeProducerQuietly(producer);
+        }
+        const msg = errorMessage(err);
+        log.warn('connect failed', { connectionId });
+        logEntry(500, msg);
+        return { success: false, error: msg };
+      }
+    } finally {
+      releaseKafkaClaim(connectionId, claim);
     }
   });
 
   ipcMain.handle(
     IPC.kafka.produce,
-    createValidatedHandler(
+    createValidatedEventHandler(
       IPC.kafka.produce,
       KafkaProduceSchema,
-      async (cfg: KafkaProduceConfig) => {
-        const entry = activeConnections.get(cfg.connectionId);
+      async (cfg: KafkaProduceConfig, event) => {
+        const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
         if (!entry) {
           return { success: false, error: 'Not connected' };
         }
-        // An idempotent producer requires acks=all(-1) at the broker. Force it
-        // regardless of the per-send `acks` so the send always succeeds (the UI
-        // also locks the acks picker to -1 when idempotent is on).
+        // Idempotent delivery requires all-ISR acknowledgements.
         const acks = entry.idempotent ? -1 : cfg.acks;
 
-        // Schema-encode the key and/or value when a schema id is supplied — the
-        // registry returns a Confluent-framed Buffer; plain fields pass through as
-        // strings (the producer serializer utf8-encodes them).
+        // Registry fields become Confluent-framed buffers; plain fields stay strings.
         const { registry } = entry;
         if ((cfg.valueSchemaId !== undefined || cfg.keySchemaId !== undefined) && !registry) {
           return {
@@ -465,8 +496,6 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
             messages: [
               {
                 topic: cfg.topic,
-                // string (plain) or Buffer (registry-encoded) — the producer's
-                // Buffer-or-string serializer handles both.
                 ...(cfg.key !== undefined ? { key: messageKey } : {}),
                 value: messageValue,
                 ...(cfg.partition !== undefined ? { partition: cfg.partition } : {}),
@@ -516,23 +545,19 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
 
   ipcMain.handle(
     IPC.kafka.subscribe,
-    createValidatedHandler(IPC.kafka.subscribe, KafkaSubscribeSchema, async (cfg) => {
-      const entry = activeConnections.get(cfg.connectionId);
+    createValidatedEventHandler(IPC.kafka.subscribe, KafkaSubscribeSchema, async (cfg, event) => {
+      const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
       if (!entry) {
         return { success: false, error: 'Not connected' };
       }
       if (entry.consumer) {
         return { success: false, error: 'Already subscribed — unsubscribe first' };
       }
-      // Hoisted so the catch can release a consumer that threw before it was
-      // attached to `entry` (the timestamp path connects to a broker via
-      // listOffsetsWithTimestamps before consume(), widening that window).
+      // Hoisted so failures before attachment can still close the consumer.
       let consumer: AppConsumer | undefined;
       try {
         const kafka = getKafka();
-        // Always hand back raw Buffers for key/value; the handler decodes them via
-        // the registry (off the Confluent wire framing) in bindStreamListeners, so
-        // key and value are decoded symmetrically (headers stay UTF-8 strings).
+        // Keep key/value raw for symmetric registry decoding.
         const consumerOptions = {
           ...entry.clientOptions,
           groupId: cfg.groupId,
@@ -545,14 +570,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         } as unknown as ConsumerOptions<Buffer, Buffer, string, string>;
         consumer = new kafka.Consumer<Buffer, Buffer, string, string>(consumerOptions);
 
-        // Start-position precedence:
-        //   1. explicit per-partition `offsets` → MANUAL seek (offset is bigint)
-        //   2. 'timestamp' → resolve each partition's first offset at/after the
-        //      timestamp, then MANUAL seek (the lib has no live seek())
-        //   3. explicit `mode` (latest/earliest/manual)
-        //   4. legacy `fromBeginning` (EARLIEST vs LATEST)
-        // MANUAL requires the caller to know partition numbers; the lib seeks to
-        // each (topic, partition) → offset triple supplied in `offsets`.
+        // Explicit offsets, timestamp, mode, then legacy fromBeginning take precedence.
         const M = kafka.MessagesStreamModes;
         let mode: (typeof M)[keyof typeof M];
         let offsets: TopicWithPartitionAndOffset[] | undefined;
@@ -568,9 +586,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
             await closeConsumerQuietly(consumer);
             return { success: false, error: 'A timestamp is required for timestamp mode' };
           }
-          // Resolve the first offset at/after the timestamp for every partition of
-          // the subscribed topics, then seek there via the MANUAL path. Partitions
-          // with no message at/after the timestamp return offset -1 and are skipped.
+          // Resolve the first available offset at/after the timestamp per partition.
           const resolved = await consumer.listOffsetsWithTimestamps({
             topics: cfg.topics,
             timestamp: BigInt(cfg.timestamp),
@@ -590,7 +606,6 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           }
           mode = M.MANUAL;
         } else if (cfg.mode === 'manual') {
-          // 'manual' with no offsets is meaningless — fall back to LATEST.
           mode = M.LATEST;
         } else if (cfg.mode === 'earliest') {
           mode = M.EARLIEST;
@@ -606,13 +621,15 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           ...(offsets ? { offsets } : {}),
         }) as Promise<AppStream>);
 
+        if (activeConnections.get(cfg.connectionId, event.sender.id) !== entry || entry.consumer) {
+          await closeConsumerQuietly(consumer);
+          return { success: false, error: 'Not connected' };
+        }
         bindStreamListeners(entry, stream);
         entry.consumer = consumer;
         entry.stream = stream;
         return { success: true };
       } catch (err) {
-        // Release the consumer if it threw before being attached to `entry`
-        // (otherwise it's unreachable by bindRendererCleanup/disposeByOwner).
         if (consumer) await closeConsumerQuietly(consumer);
         return { success: false, error: errorMessage(err) };
       }
@@ -621,44 +638,43 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
 
   ipcMain.handle(
     IPC.kafka.unsubscribe,
-    createValidatedHandler(IPC.kafka.unsubscribe, KafkaUnsubscribeSchema, async (cfg) => {
-      const entry = activeConnections.get(cfg.connectionId);
-      if (!entry) return { success: false, error: 'Not connected' };
-      await closeConsumerAndStream(entry);
-      return { success: true };
-    })
+    createValidatedEventHandler(
+      IPC.kafka.unsubscribe,
+      KafkaUnsubscribeSchema,
+      async (cfg, event) => {
+        const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
+        if (!entry) return { success: false, error: 'Not connected' };
+        await closeConsumerAndStream(entry);
+        return { success: true };
+      }
+    )
   );
 
   ipcMain.handle(
     IPC.kafka.disconnect,
-    createValidatedHandler(IPC.kafka.disconnect, KafkaDisconnectSchema, async (cfg) => {
-      const entry = activeConnections.get(cfg.connectionId);
+    createValidatedEventHandler(IPC.kafka.disconnect, KafkaDisconnectSchema, async (cfg, event) => {
+      const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
       if (entry) {
         await closeConnection(entry);
-        activeConnections.remove(cfg.connectionId);
-        emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CLOSE, cfg.connectionId), {});
+        if (activeConnections.get(cfg.connectionId, entry.webContentsId) === entry) {
+          activeConnections.remove(cfg.connectionId, entry.webContentsId);
+          emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CLOSE, cfg.connectionId), {});
+        }
       }
       return { success: true };
     })
   );
 
-  // ---- Admin (topic + consumer-group management) -------------------------
-  // Each op builds a short-lived Admin client from the connection's already-
-  // validated clientOptions (auth/TLS reused), runs the call, and closes it in
-  // a finally so broker sockets are released. Brokers were SSRF-guarded at
-  // connect, so we don't re-run assertKafkaBrokersSafe here.
+  // Admin calls reuse guarded connection options and always close their short-lived client.
 
-  // Every admin op goes through adminHandle → per-webContents rate limit + Zod
-  // validation, so the whole admin surface is throttled uniformly (vs. wiring
-  // rateLimited per op). Each builds a short-lived Admin from the connection's
-  // already-validated auth/TLS via withAdmin and closes it in a finally.
-
-  adminHandle(IPC.kafka.listTopics, KafkaListTopicsSchema, (cfg) =>
-    withAdmin(cfg.connectionId, async (admin) => ({ topics: await admin.listTopics() }))
+  adminHandle(IPC.kafka.listTopics, KafkaListTopicsSchema, (cfg, event) =>
+    withAdmin(cfg.connectionId, event.sender.id, async (admin) => ({
+      topics: await admin.listTopics(),
+    }))
   );
 
-  adminHandle(IPC.kafka.createTopic, KafkaCreateTopicSchema, (cfg) =>
-    withAdmin(cfg.connectionId, async (admin) => {
+  adminHandle(IPC.kafka.createTopic, KafkaCreateTopicSchema, (cfg, event) =>
+    withAdmin(cfg.connectionId, event.sender.id, async (admin) => {
       await admin.createTopics({
         topics: [cfg.topic],
         partitions: cfg.partitions,
@@ -668,18 +684,16 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
     })
   );
 
-  adminHandle(IPC.kafka.deleteTopic, KafkaDeleteTopicSchema, (cfg) =>
-    withAdmin(cfg.connectionId, async (admin) => {
+  adminHandle(IPC.kafka.deleteTopic, KafkaDeleteTopicSchema, (cfg, event) =>
+    withAdmin(cfg.connectionId, event.sender.id, async (admin) => {
       await admin.deleteTopics({ topics: [cfg.topic] });
       return {};
     })
   );
 
-  adminHandle(IPC.kafka.listGroups, KafkaListGroupsSchema, (cfg) =>
-    withAdmin(cfg.connectionId, async (admin) => {
+  adminHandle(IPC.kafka.listGroups, KafkaListGroupsSchema, (cfg, event) =>
+    withAdmin(cfg.connectionId, event.sender.id, async (admin) => {
       const groupsMap = await admin.listGroups();
-      // listGroups returns a Map keyed by group id — flatten to a serializable
-      // array for the renderer (Maps don't survive structured clone usefully).
       const groups = Array.from(groupsMap.values()).map((g) => ({
         id: g.id,
         state: String(g.state),
@@ -690,12 +704,9 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
     })
   );
 
-  // Topic inspector: per-partition earliest/latest watermarks + topic config.
-  adminHandle(IPC.kafka.inspectTopic, KafkaInspectTopicSchema, (cfg) =>
-    withAdmin(cfg.connectionId, async (admin) => {
+  adminHandle(IPC.kafka.inspectTopic, KafkaInspectTopicSchema, (cfg, event) =>
+    withAdmin(cfg.connectionId, event.sender.id, async (admin) => {
       const kafka = getKafka();
-      // Partition discovery (metadata) and config don't depend on each other —
-      // one round-trip. listOffsets then needs the discovered partition indexes.
       const [indexes, configs] = await Promise.all([
         topicPartitionIndexes(admin, cfg.topic),
         admin.describeConfigs({
@@ -715,10 +726,8 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
     })
   );
 
-  // Consumer-group inspector: members/state + committed offsets + computed lag
-  // (lag = topic LATEST watermark − committed offset, per partition).
-  adminHandle(IPC.kafka.inspectGroup, KafkaInspectGroupSchema, (cfg) =>
-    withAdmin(cfg.connectionId, async (admin) => {
+  adminHandle(IPC.kafka.inspectGroup, KafkaInspectGroupSchema, (cfg, event) =>
+    withAdmin(cfg.connectionId, event.sender.id, async (admin) => {
       const kafka = getKafka();
       const [describeMap, committedGroups] = await Promise.all([
         admin.describeGroups({ groups: [cfg.groupId] }),
@@ -743,10 +752,8 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
     })
   );
 
-  // Reset a consumer group's committed offsets for one topic. Kafka rejects this
-  // unless the group is inactive (no members) — that error surfaces to the UI.
-  adminHandle(IPC.kafka.resetGroupOffsets, KafkaResetGroupOffsetsSchema, (cfg) =>
-    withAdmin(cfg.connectionId, async (admin) => {
+  adminHandle(IPC.kafka.resetGroupOffsets, KafkaResetGroupOffsetsSchema, (cfg, event) =>
+    withAdmin(cfg.connectionId, event.sender.id, async (admin) => {
       const kafka = getKafka();
       let partitionOffsets: { partition: number; offset: bigint }[];
       if (cfg.to === 'specific') {
@@ -777,31 +784,25 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
     })
   );
 
-  // Delete a consumer group. Kafka rejects this unless the group is empty/inactive
-  // — that error surfaces to the UI.
-  adminHandle(IPC.kafka.deleteGroup, KafkaDeleteGroupSchema, (cfg) =>
-    withAdmin(cfg.connectionId, async (admin) => {
+  adminHandle(IPC.kafka.deleteGroup, KafkaDeleteGroupSchema, (cfg, event) =>
+    withAdmin(cfg.connectionId, event.sender.id, async (admin) => {
       await admin.deleteGroups({ groups: [cfg.groupId] });
       return {};
     })
   );
 }
 
-// Register an admin IPC op behind the per-webContents rate limiter + Zod
-// validation, so the whole admin surface is throttled uniformly by construction.
 function adminHandle<TInput, TOutput>(
   channel: string,
   schema: ZodSchema<TInput>,
-  handler: (input: TInput) => Promise<TOutput> | TOutput
+  handler: (input: TInput, event: Electron.IpcMainInvokeEvent) => Promise<TOutput> | TOutput
 ): void {
   ipcMain.handle(
     channel,
-    rateLimited(kafkaRateLimiter, createValidatedHandler(channel, schema, handler))
+    rateLimited(kafkaRateLimiter, createValidatedEventHandler(channel, schema, handler))
   );
 }
 
-// Resolve a topic's partition indexes [0..count-1] from broker metadata — the
-// shared first step of the topic inspector and offset-reset listOffsets calls.
 async function topicPartitionIndexes(admin: Admin, topic: string): Promise<number[]> {
   const meta = await admin.metadata({
     topics: [topic],
@@ -812,8 +813,6 @@ async function topicPartitionIndexes(admin: Admin, topic: string): Promise<numbe
   return Array.from({ length: count }, (_, i) => i);
 }
 
-// Build an Admin.listOffsets request for the given partitions at one timestamp
-// sentinel (ListOffsetTimestamps.EARLIEST/LATEST).
 function listOffsetsRequest(topic: string, indexes: number[], timestamp: bigint) {
   return {
     topics: [
@@ -822,17 +821,12 @@ function listOffsetsRequest(topic: string, indexes: number[], timestamp: bigint)
   };
 }
 
-/**
- * Run an admin op against a short-lived Admin client for `connectionId`,
- * reusing the connection's validated auth/TLS. Owns the not-connected guard and
- * the finally-close so each call site can't leak a broker socket. `fn` returns
- * only the success payload; the wrapper stamps `success: true`.
- */
 async function withAdmin<T extends object>(
   connectionId: string,
+  webContentsId: number,
   fn: (admin: Admin) => Promise<T>
 ): Promise<({ success: true } & T) | { success: false; error: string }> {
-  const entry = activeConnections.get(connectionId);
+  const entry = activeConnections.getForOwner(connectionId, webContentsId);
   if (!entry) return { success: false, error: 'Not connected' };
   const admin = newAdmin(entry);
   try {
@@ -846,8 +840,6 @@ async function withAdmin<T extends object>(
 
 function newAdmin(entry: ActiveKafka): Admin {
   const kafka = getKafka();
-  // AdminOptions extends BaseOptions (clientId, bootstrapBrokers, sasl, tls) —
-  // the same shape KafkaClientOptions carries. No serializers needed.
   return new kafka.Admin(entry.clientOptions as AdminOptions);
 }
 
@@ -860,6 +852,14 @@ async function closeAdmin(admin: Admin): Promise<void> {
 }
 
 export async function stopKafkaCleanup(): Promise<void> {
+  const pending = Array.from(pendingConnections.values());
+  pendingConnections.clear();
+  for (const claim of pending) {
+    if (!claim.pendingProducer) continue;
+    const producer = claim.pendingProducer;
+    claim.pendingProducer = undefined;
+    await closeProducerQuietly(producer);
+  }
   for (const entry of activeConnections.values()) {
     await closeConnection(entry);
   }

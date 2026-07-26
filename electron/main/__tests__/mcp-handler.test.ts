@@ -4,8 +4,6 @@ import type * as IpcUtils from '../ipc/ipc-utils';
 
 const mockHandle = vi.hoisted(() => vi.fn());
 const mockEmitTo = vi.hoisted(() => vi.fn());
-const mockBindCleanup = vi.hoisted(() => vi.fn());
-const mockDisposeByOwner = vi.hoisted(() => vi.fn());
 const mockResolveSafeAddress = vi.hoisted(() =>
   vi.fn(async () => ({ host: 'mcp.example.com', ip: '93.184.216.34', port: 443, family: 4 }))
 );
@@ -19,10 +17,6 @@ vi.mock('../ipc/ipc-utils', async (importOriginal) => {
   const actual = await importOriginal<typeof IpcUtils>();
   return { ...actual, emitTo: mockEmitTo };
 });
-vi.mock('../ipc/connection-cleanup', () => ({
-  bindRendererCleanup: mockBindCleanup,
-  disposeByOwner: mockDisposeByOwner,
-}));
 vi.mock('../security/safe-connect', () => ({
   resolveSafeAddress: mockResolveSafeAddress,
   createPinnedFetch: mockCreatePinnedFetch,
@@ -38,7 +32,16 @@ const sdkState = vi.hoisted(() => ({
   // When true, the next connect() fires the client's onclose mid-handshake
   // (server closed during initialize) to exercise the connect-time race guard.
   fireCloseOnConnect: false,
+  connectGates: [] as Array<Promise<void>>,
 }));
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
 
 interface MockClientShape {
   info: unknown;
@@ -60,6 +63,8 @@ vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
     onclose?: () => void;
     onerror?: (err: Error) => void;
     connect = vi.fn(async () => {
+      const gate = sdkState.connectGates.shift();
+      if (gate) await gate;
       if (sdkState.nextConnectError) {
         const err = sdkState.nextConnectError;
         sdkState.nextConnectError = undefined;
@@ -116,10 +121,33 @@ import { setExecutionPolicy } from '../security/execution-policy';
 
 type IpcHandler = (event: unknown, payload: unknown) => Promise<Record<string, unknown>>;
 
-const trustedEvent = (senderId = 1) => ({
-  sender: { id: senderId, isDestroyed: () => false, once: vi.fn() },
-  senderFrame: { url: 'file:///app/dist/web/index.html' },
-});
+const createdRenderers: Array<{ destroy: () => void }> = [];
+
+function makeTrustedEvent(senderId = 1) {
+  let destroyed = false;
+  const destroyedListeners: Array<() => void> = [];
+  const renderer = {
+    event: {
+      sender: {
+        id: senderId,
+        isDestroyed: () => destroyed,
+        once: (name: string, listener: () => void) => {
+          if (name === 'destroyed') destroyedListeners.push(listener);
+        },
+      },
+      senderFrame: { url: 'file:///app/dist/web/index.html' },
+    },
+    destroy: () => {
+      if (destroyed) return;
+      destroyed = true;
+      for (const listener of destroyedListeners.splice(0)) listener();
+    },
+  };
+  createdRenderers.push(renderer);
+  return renderer;
+}
+
+const trustedEvent = (senderId = 1) => makeTrustedEvent(senderId).event;
 
 function handlerFor(channel: string): IpcHandler {
   const call = mockHandle.mock.calls.find((c) => c[0] === channel);
@@ -154,7 +182,6 @@ describe('mcp-handler (SDK-backed)', () => {
     });
     mockHandle.mockClear();
     mockEmitTo.mockClear();
-    mockBindCleanup.mockClear();
     mockResolveSafeAddress.mockClear();
     mockCreatePinnedFetch.mockClear();
     sdkState.clients.length = 0;
@@ -162,11 +189,13 @@ describe('mcp-handler (SDK-backed)', () => {
     sdkState.sses.length = 0;
     sdkState.nextConnectError = undefined;
     sdkState.fireCloseOnConnect = false;
+    sdkState.connectGates.length = 0;
     registerMcpHandlerIPC();
   });
 
   afterEach(() => {
     stopMcpCleanup();
+    for (const renderer of createdRenderers.splice(0)) renderer.destroy();
   });
 
   it('registers mcp:connect, mcp:request, mcp:disconnect', () => {
@@ -195,7 +224,6 @@ describe('mcp-handler (SDK-backed)', () => {
 
     expect(sdkState.clients[0]!.connect).toHaveBeenCalledWith(transport);
     expect(mockEmitTo).toHaveBeenCalledWith(1, 'mcp:open:conn-1');
-    expect(mockBindCleanup).toHaveBeenCalled();
   });
 
   it('uses SSEClientTransport for the legacy http-sse transport', async () => {
@@ -290,6 +318,279 @@ describe('mcp-handler (SDK-backed)', () => {
     expect(req).toEqual({ method: 'tools/list', params: { cursor: 'abc' } });
     expect(schema).toBeDefined(); // ResultSchema passthrough
     expect(opts).toEqual({ timeout: 5000 });
+  });
+
+  it('lets two renderers independently use the same id and cleans up only the destroyed owner', async () => {
+    const first = makeTrustedEvent(21);
+    const second = makeTrustedEvent(22);
+    await expect(
+      handlerFor('mcp:connect')(first.event, {
+        connectionId: 'shared',
+        url: 'https://mcp.example.com/mcp',
+        transport: 'streamable-http',
+      })
+    ).resolves.toEqual({ success: true });
+    const firstClient = sdkState.clients[0]!;
+    await expect(
+      handlerFor('mcp:request')(second.event, {
+        connectionId: 'shared',
+        method: 'tools/list',
+      })
+    ).resolves.toEqual({ success: false, error: 'Not connected' });
+    await expect(
+      handlerFor('mcp:disconnect')(second.event, { connectionId: 'shared' })
+    ).resolves.toEqual({ success: true });
+    expect(firstClient.request).not.toHaveBeenCalled();
+    expect(firstClient.close).not.toHaveBeenCalled();
+
+    await expect(
+      handlerFor('mcp:connect')(second.event, {
+        connectionId: 'shared',
+        url: 'https://second.example.com/mcp',
+        transport: 'streamable-http',
+      })
+    ).resolves.toEqual({ success: true });
+    const secondClient = sdkState.clients[1]!;
+    firstClient.request.mockResolvedValueOnce({ owner: 'first' });
+    secondClient.request.mockResolvedValueOnce({ owner: 'second' });
+
+    await expect(
+      handlerFor('mcp:request')(first.event, {
+        connectionId: 'shared',
+        method: 'tools/list',
+      })
+    ).resolves.toEqual({ success: true, result: { owner: 'first' } });
+    await expect(
+      handlerFor('mcp:request')(second.event, {
+        connectionId: 'shared',
+        method: 'tools/list',
+      })
+    ).resolves.toEqual({ success: true, result: { owner: 'second' } });
+
+    first.destroy();
+    expect(firstClient.close).toHaveBeenCalled();
+    expect(secondClient.close).not.toHaveBeenCalled();
+    secondClient.request.mockResolvedValueOnce({ owner: 'still-second' });
+    await expect(
+      handlerFor('mcp:request')(second.event, {
+        connectionId: 'shared',
+        method: 'tools/list',
+      })
+    ).resolves.toEqual({ success: true, result: { owner: 'still-second' } });
+    expect(sdkState.clients).toHaveLength(2);
+  });
+
+  it('reserves concurrent same-id connects independently per renderer before DNS', async () => {
+    const first = trustedEvent(31);
+    const second = trustedEvent(32);
+    const firstDns = deferred<{
+      host: string;
+      ip: string;
+      port: number;
+      family: 4;
+    }>();
+    mockResolveSafeAddress.mockImplementationOnce(() => firstDns.promise);
+
+    const firstConnect = handlerFor('mcp:connect')(first, {
+      connectionId: 'raced',
+      url: 'https://first.example/mcp',
+      transport: 'streamable-http',
+    });
+    const secondConnect = handlerFor('mcp:connect')(second, {
+      connectionId: 'raced',
+      url: 'https://second.example/mcp',
+      transport: 'streamable-http',
+    });
+
+    expect(mockResolveSafeAddress).toHaveBeenCalledTimes(2);
+    await expect(secondConnect).resolves.toEqual({ success: true });
+    expect(sdkState.clients).toHaveLength(1);
+
+    firstDns.resolve({
+      host: 'first.example',
+      ip: '203.0.113.1',
+      port: 443,
+      family: 4,
+    });
+    await expect(firstConnect).resolves.toEqual({ success: true });
+    expect(sdkState.clients).toHaveLength(2);
+    expect(mockEmitTo).toHaveBeenCalledWith(31, 'mcp:open:raced');
+    expect(mockEmitTo).toHaveBeenCalledWith(32, 'mcp:open:raced');
+  });
+
+  it('immediately disposes a pending connect when its renderer is destroyed', async () => {
+    const creator = makeTrustedEvent(41);
+    const successor = makeTrustedEvent(42);
+    const connectGate = deferred<void>();
+    sdkState.connectGates.push(connectGate.promise);
+
+    const staleConnect = handlerFor('mcp:connect')(creator.event, {
+      connectionId: 'destroyed-pending',
+      url: 'https://mcp.example.com/mcp',
+      transport: 'streamable-http',
+    });
+    await vi.waitFor(() => expect(sdkState.clients).toHaveLength(1));
+    const staleClient = sdkState.clients[0]!;
+
+    creator.destroy();
+    const closeCallsAfterDestroy = staleClient.close.mock.calls.length;
+
+    await expect(
+      handlerFor('mcp:connect')(successor.event, {
+        connectionId: 'destroyed-pending',
+        url: 'https://successor.example/mcp',
+        transport: 'streamable-http',
+      })
+    ).resolves.toEqual({ success: true });
+
+    mockEmitTo.mockClear();
+    await staleClient.fallbackNotificationHandler?.({
+      method: 'notifications/progress',
+      params: { stale: true },
+    });
+    staleClient.onerror?.(new Error('stale error'));
+    staleClient.onclose?.();
+    connectGate.resolve();
+
+    await expect(staleConnect).resolves.toEqual({
+      success: false,
+      error: 'Connection closed during initialization',
+    });
+    expect(closeCallsAfterDestroy).toBe(1);
+    expect(mockEmitTo).not.toHaveBeenCalled();
+
+    await expect(
+      handlerFor('mcp:request')(creator.event, {
+        connectionId: 'destroyed-pending',
+        method: 'tools/list',
+      })
+    ).resolves.toEqual({ success: false, error: 'Not connected' });
+    await expect(
+      handlerFor('mcp:request')(successor.event, {
+        connectionId: 'destroyed-pending',
+        method: 'tools/list',
+      })
+    ).resolves.toMatchObject({ success: true });
+  });
+
+  it('lets only the owner disconnect a pending connect and rejects its late completion', async () => {
+    const creator = makeTrustedEvent(45);
+    const nonOwner = makeTrustedEvent(46);
+    const successor = makeTrustedEvent(47);
+    const connectGate = deferred<void>();
+    sdkState.connectGates.push(connectGate.promise);
+
+    const staleConnect = handlerFor('mcp:connect')(creator.event, {
+      connectionId: 'disconnected-pending',
+      url: 'https://mcp.example.com/mcp',
+      transport: 'streamable-http',
+    });
+    await vi.waitFor(() => expect(sdkState.clients).toHaveLength(1));
+    const staleClient = sdkState.clients[0]!;
+    const staleTransport = sdkState.streamables[0] as unknown as {
+      terminateSession: ReturnType<typeof vi.fn>;
+    };
+
+    await expect(
+      handlerFor('mcp:disconnect')(nonOwner.event, {
+        connectionId: 'disconnected-pending',
+      })
+    ).resolves.toEqual({ success: true });
+    expect(staleClient.close).not.toHaveBeenCalled();
+
+    await expect(
+      handlerFor('mcp:disconnect')(creator.event, {
+        connectionId: 'disconnected-pending',
+      })
+    ).resolves.toEqual({ success: true });
+    expect(staleClient.close).toHaveBeenCalledTimes(1);
+    expect(staleTransport.terminateSession).toHaveBeenCalledTimes(1);
+
+    await expect(
+      handlerFor('mcp:connect')(successor.event, {
+        connectionId: 'disconnected-pending',
+        url: 'https://successor.example/mcp',
+        transport: 'streamable-http',
+      })
+    ).resolves.toEqual({ success: true });
+
+    mockEmitTo.mockClear();
+    connectGate.resolve();
+
+    await expect(staleConnect).resolves.toEqual({
+      success: false,
+      error: 'Connection closed during initialization',
+    });
+    expect(staleClient.close).toHaveBeenCalledTimes(1);
+    expect(mockEmitTo).not.toHaveBeenCalled();
+
+    await expect(
+      handlerFor('mcp:request')(creator.event, {
+        connectionId: 'disconnected-pending',
+        method: 'tools/list',
+      })
+    ).resolves.toEqual({ success: false, error: 'Not connected' });
+    await expect(
+      handlerFor('mcp:request')(successor.event, {
+        connectionId: 'disconnected-pending',
+        method: 'tools/list',
+      })
+    ).resolves.toMatchObject({ success: true });
+  });
+
+  it('immediately disposes a pending connect during module teardown', async () => {
+    const creator = makeTrustedEvent(51);
+    const successor = makeTrustedEvent(52);
+    const connectGate = deferred<void>();
+    sdkState.connectGates.push(connectGate.promise);
+
+    const staleConnect = handlerFor('mcp:connect')(creator.event, {
+      connectionId: 'teardown-pending',
+      url: 'https://mcp.example.com/mcp',
+      transport: 'streamable-http',
+    });
+    await vi.waitFor(() => expect(sdkState.clients).toHaveLength(1));
+    const staleClient = sdkState.clients[0]!;
+
+    stopMcpCleanup();
+    const closeCallsAfterTeardown = staleClient.close.mock.calls.length;
+
+    await expect(
+      handlerFor('mcp:connect')(successor.event, {
+        connectionId: 'teardown-pending',
+        url: 'https://successor.example/mcp',
+        transport: 'streamable-http',
+      })
+    ).resolves.toEqual({ success: true });
+
+    mockEmitTo.mockClear();
+    await staleClient.fallbackNotificationHandler?.({
+      method: 'notifications/progress',
+      params: { stale: true },
+    });
+    staleClient.onerror?.(new Error('stale error'));
+    staleClient.onclose?.();
+    connectGate.resolve();
+
+    await expect(staleConnect).resolves.toEqual({
+      success: false,
+      error: 'Connection closed during initialization',
+    });
+    expect(closeCallsAfterTeardown).toBe(1);
+    expect(mockEmitTo).not.toHaveBeenCalled();
+
+    await expect(
+      handlerFor('mcp:request')(creator.event, {
+        connectionId: 'teardown-pending',
+        method: 'tools/list',
+      })
+    ).resolves.toEqual({ success: false, error: 'Not connected' });
+    await expect(
+      handlerFor('mcp:request')(successor.event, {
+        connectionId: 'teardown-pending',
+        method: 'tools/list',
+      })
+    ).resolves.toMatchObject({ success: true });
   });
 
   it('synthesizes initialize from negotiated SDK state instead of re-sending it', async () => {

@@ -6,7 +6,7 @@
  * `ProtocolModule` by id from the registry and invoke `run()` here; the hook
  * handles AbortController lifecycle, environment variable extraction,
  * history persistence, and (Task 4.4) forwarding script results from the
- * protocol to the active tab so the Console panel renders pre-request and
+ * protocol to the originating tab so the Console panel renders pre-request and
  * test script logs.
  *
  * Protocols opt into the script-result side-channel by calling
@@ -31,7 +31,7 @@ export interface RegistryRunResult {
   /**
    * Pre-request and test script results produced by the protocol, if any.
    * Mirrors `useRequestStore.setScriptResult`'s payload — the runner has
-   * already forwarded these to the active tab, this field exists so
+   * already forwarded these to the originating tab, this field exists so
    * Builders can react to them (e.g. early-exit on test failure) without
    * subscribing to the store.
    */
@@ -61,6 +61,7 @@ export function useRequestRunner() {
       if (!protocol) {
         throw new Error(`Unknown protocol: ${protocolId}`);
       }
+      const originTabId = useRequestStore.getState().activeTabId;
 
       // Folder/collection auth inheritance for single sends. A request whose
       // own auth is 'none' picks up the nearest configured ancestor auth —
@@ -86,7 +87,7 @@ export function useRequestRunner() {
       const variables = buildActiveRequestValueMap();
 
       // Capture script results emitted by the protocol so we can both push
-      // them to the active tab (so the Console panel updates) AND surface
+      // them to the originating tab (so the Console panel updates) AND surface
       // them on `RegistryRunResult` for callers that want to react synchronously.
       let collectedScripts: ProtocolScriptResult | undefined;
       const onScriptResult = (result: ProtocolScriptResult) => {
@@ -95,7 +96,9 @@ export function useRequestRunner() {
         // soon as scripts finish — even if the caller never inspects
         // `RegistryRunResult.scriptResult`. Mirrors the inline pipeline that
         // useHttpRequest used to drive directly.
-        useRequestStore.getState().setScriptResult(result);
+        if (originTabId) {
+          useRequestStore.getState().setScriptResultForTab(originTabId, result);
+        }
       };
 
       const startedAt = performance.now();

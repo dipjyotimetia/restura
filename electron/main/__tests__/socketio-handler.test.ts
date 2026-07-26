@@ -129,6 +129,14 @@ const validConnect = (connectionId: string) => ({
   url: 'https://echo.example.com',
 });
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 describe('socketio-handler', () => {
   beforeEach(() => {
     setExecutionPolicy({
@@ -279,6 +287,191 @@ describe('socketio-handler', () => {
     const [first, second] = sioMock.FakeSocket.instances;
     expect(first!.disconnect).toHaveBeenCalled();
     expect(second!.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('lets two renderers independently use the same id and cleans up only the destroyed owner', async () => {
+    const first = makeEvent();
+    const second = makeEvent();
+    await expect(
+      handlerFor(IPC.socketio.connect)(first.event, validConnect('shared'))
+    ).resolves.toEqual({ success: true });
+    const firstSocket = sioMock.FakeSocket.instances[0]!;
+    await expect(
+      handlerFor(IPC.socketio.emit)(second.event, {
+        connectionId: 'shared',
+        eventName: 'not-owned',
+        args: [],
+      })
+    ).resolves.toEqual({ success: false, error: 'Not connected' });
+    await expect(
+      handlerFor(IPC.socketio.disconnect)(second.event, { connectionId: 'shared' })
+    ).resolves.toEqual({ success: true });
+    expect(firstSocket.emit).not.toHaveBeenCalled();
+    expect(firstSocket.disconnect).not.toHaveBeenCalled();
+
+    await expect(
+      handlerFor(IPC.socketio.connect)(second.event, validConnect('shared'))
+    ).resolves.toEqual({ success: true });
+    const secondSocket = sioMock.FakeSocket.instances[1]!;
+
+    await expect(
+      handlerFor(IPC.socketio.emit)(first.event, {
+        connectionId: 'shared',
+        eventName: 'first',
+        args: ['one'],
+      })
+    ).resolves.toEqual({ success: true });
+    await expect(
+      handlerFor(IPC.socketio.emit)(second.event, {
+        connectionId: 'shared',
+        eventName: 'second',
+        args: ['two'],
+      })
+    ).resolves.toEqual({ success: true });
+    expect(firstSocket.emit).toHaveBeenCalledWith('first', 'one');
+    expect(secondSocket.emit).toHaveBeenCalledWith('second', 'two');
+
+    first.destroy();
+    expect(firstSocket.disconnect).toHaveBeenCalled();
+    expect(secondSocket.disconnect).not.toHaveBeenCalled();
+    await expect(
+      handlerFor(IPC.socketio.emit)(second.event, {
+        connectionId: 'shared',
+        eventName: 'still-live',
+        args: [],
+      })
+    ).resolves.toEqual({ success: true });
+    expect(secondSocket.emit).toHaveBeenCalledWith('still-live');
+  });
+
+  it('reserves concurrent same-id connects independently per renderer before DNS', async () => {
+    const first = makeEvent();
+    const second = makeEvent();
+    const firstDns = deferred<{
+      host: string;
+      ip: string;
+      port: number;
+      family: 4;
+    }>();
+    const pinned = {
+      host: 'echo.example.com',
+      ip: '203.0.113.1',
+      port: 443,
+      family: 4 as const,
+    };
+    mockResolveSafe.mockImplementationOnce(() => firstDns.promise);
+
+    const firstConnect = handlerFor(IPC.socketio.connect)(first.event, validConnect('raced'));
+    const secondConnect = handlerFor(IPC.socketio.connect)(second.event, validConnect('raced'));
+
+    expect(mockResolveSafe).toHaveBeenCalledTimes(2);
+    await expect(secondConnect).resolves.toEqual({ success: true });
+    expect(sioMock.FakeSocket.instances).toHaveLength(1);
+
+    firstDns.resolve(pinned);
+    await expect(firstConnect).resolves.toEqual({ success: true });
+    expect(sioMock.FakeSocket.instances).toHaveLength(2);
+    const firstSocket = sioMock.FakeSocket.instances[1]!;
+    expect(firstSocket.disconnect).not.toHaveBeenCalled();
+
+    firstSocket.fireAny('current-event', 'value');
+    expect(mockEmitTo).toHaveBeenCalledWith(first.senderId, socketioChannels.event('raced'), {
+      eventName: 'current-event',
+      args: ['value'],
+    });
+  });
+
+  it('keeps the first pending owner reconnect and suppresses stale socket events', async () => {
+    const owner = makeEvent();
+    await handlerFor(IPC.socketio.connect)(owner.event, validConnect('shared'));
+    const previous = sioMock.FakeSocket.instances[0]!;
+    const reconnectDns = deferred<{
+      host: string;
+      ip: string;
+      port: number;
+      family: 4;
+    }>();
+    mockResolveSafe.mockClear();
+    sioMock.io.mockClear();
+    mockResolveSafe.mockImplementationOnce(() => reconnectDns.promise);
+
+    const firstReconnect = handlerFor(IPC.socketio.connect)(owner.event, validConnect('shared'));
+    const secondReconnect = handlerFor(IPC.socketio.connect)(owner.event, validConnect('shared'));
+
+    expect(mockResolveSafe).toHaveBeenCalledTimes(1);
+    await expect(secondReconnect).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(sioMock.io).not.toHaveBeenCalled();
+    expect(sioMock.FakeSocket.instances).toHaveLength(1);
+
+    reconnectDns.resolve({
+      host: 'echo.example.com',
+      ip: '203.0.113.1',
+      port: 443,
+      family: 4,
+    });
+    await expect(firstReconnect).resolves.toEqual({ success: true });
+    const current = sioMock.FakeSocket.instances[1]!;
+    expect(previous.disconnect).toHaveBeenCalled();
+    expect(current.disconnect).not.toHaveBeenCalled();
+
+    mockEmitTo.mockClear();
+    previous.fire('connect');
+    previous.fire('connect_error', new Error('stale'));
+    previous.fireAny('stale-event', 'value');
+    previous.io.fire('reconnect_attempt', 1);
+    expect(mockEmitTo).not.toHaveBeenCalled();
+
+    current.fireAny('current-event', 'value');
+    expect(mockEmitTo).toHaveBeenCalledWith(owner.senderId, socketioChannels.event('shared'), {
+      eventName: 'current-event',
+      args: ['value'],
+    });
+  });
+
+  it('releases a failed pending claim so another renderer can connect', async () => {
+    const first = makeEvent();
+    const second = makeEvent();
+    mockResolveSafe.mockRejectedValueOnce(new Error('dns failed'));
+
+    await expect(
+      handlerFor(IPC.socketio.connect)(first.event, validConnect('retryable'))
+    ).resolves.toEqual({
+      success: false,
+      error: 'dns failed',
+    });
+    await expect(
+      handlerFor(IPC.socketio.connect)(second.event, validConnect('retryable'))
+    ).resolves.toEqual({ success: true });
+    expect(sioMock.FakeSocket.instances).toHaveLength(1);
+  });
+
+  it('releases a destroyed renderer pending claim and rejects its late setup', async () => {
+    const first = makeEvent();
+    const second = makeEvent();
+    const firstDns = deferred<{
+      host: string;
+      ip: string;
+      port: number;
+      family: 4;
+    }>();
+    mockResolveSafe.mockImplementationOnce(() => firstDns.promise);
+
+    const firstConnect = handlerFor(IPC.socketio.connect)(first.event, validConnect('released'));
+    first.destroy();
+    await expect(
+      handlerFor(IPC.socketio.connect)(second.event, validConnect('released'))
+    ).resolves.toEqual({ success: true });
+    const winner = sioMock.FakeSocket.instances[0]!;
+
+    firstDns.resolve({
+      host: 'echo.example.com',
+      ip: '203.0.113.1',
+      port: 443,
+      family: 4,
+    });
+    await expect(firstConnect).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(sioMock.FakeSocket.instances).toHaveLength(1);
+    expect(winner.disconnect).not.toHaveBeenCalled();
   });
 
   it('tears down the connection when its renderer is destroyed', async () => {

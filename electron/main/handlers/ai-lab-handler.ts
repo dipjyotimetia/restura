@@ -22,8 +22,8 @@ import { listModels, testConnection } from '@shared/protocol/ai/model-discovery'
 import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
 import { type ChatRequestSpec, isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import type { Fetcher } from '@shared/protocol/types';
-import { ipcMain } from 'electron';
 import { createLogger } from '@shared/runtime/logger';
+import { ipcMain } from 'electron';
 import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
 import { bindRendererCleanup } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
@@ -32,14 +32,14 @@ import {
   AiLabCompleteCancelSchema,
   AiLabCompleteSchema,
   AiLabDiscoverSchema,
-  AiLabTelemetryExportSchema,
   AiLabStreamCancelSchema,
   AiLabStreamSchema,
+  AiLabTelemetryExportSchema,
   assertTrustedSender,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
-import { resolveSecretHandle } from '../security/secret-handle-store';
 import { createAgentTelemetryService } from '../lifecycle/agent-telemetry';
+import { resolveSecretHandle } from '../security/secret-handle-store';
 import { makePinnedFetcher } from './fetch-fetcher';
 
 const log = createLogger('ai-lab');
@@ -129,16 +129,33 @@ interface ActiveAbort {
   abort: AbortController;
 }
 
+interface ActiveStream extends ActiveAbort {
+  streamId: string;
+  registryKey: string;
+  cancelled: boolean;
+}
+
 // Shared connection bookkeeping (map + renderer-destroyed cleanup + disposeAll).
 // Emits use emitTo with the captured webContentsId, so the registries are used
 // for bookkeeping only — dispose aborts the in-flight call.
-const activeStreams = new StreamRegistry<ActiveAbort & { streamId: string }>({
+const activeStreams = new StreamRegistry<ActiveStream>({
   dispose: (s) => s.abort.abort(),
 });
-// Cancellation aborts but deliberately keeps this tombstone until the owning
-// handler settles. Otherwise cancel -> same-ID reuse lets the old finally block
-// remove a newer operation with the same ID.
+// The exact explicitly-cancelled generation may emit its established abort
+// error until a successor reserves the same owner-scoped key or it settles.
+const cancelledStreamGenerations = new Map<string, ActiveStream>();
+// Creator-scoped keys keep equal renderer-generated operation IDs independent.
+// Cancellation aborts but deliberately keeps the owner's tombstone until its
+// handler settles so same-owner reuse cannot race the old finally block.
 const activeCompletes = new Map<string, ActiveAbort>();
+
+function streamRegistryKey(webContentsId: number, streamId: string): string {
+  return `${webContentsId}:${streamId}`;
+}
+
+function completionRegistryKey(webContentsId: number, operationId: string): string {
+  return `${webContentsId}:${operationId}`;
+}
 
 /**
  * Resolve the provider's base URL and return a DNS-pinned, manual-redirect
@@ -178,32 +195,53 @@ async function runStream(
   spec: ChatRequestSpec,
   fetcher: Fetcher,
   streamId: string,
-  webContentsId: number,
-  abort: AbortController
+  activeStream: ActiveStream
 ): Promise<void> {
   const chunkChannel = eventChannel(EVENT_PREFIX.aiLab.chunk, streamId);
   const endChannel = eventChannel(EVENT_PREFIX.aiLab.end, streamId);
+  const isCurrent = () =>
+    activeStreams.getForOwner(activeStream.registryKey, activeStream.webContentsId) ===
+    activeStream;
   try {
     for await (const ev of executeAiChat(
-      { ...spec, signal: abort.signal },
+      { ...spec, signal: activeStream.abort.signal },
       fetcher,
       resolveSecretFn
     )) {
-      emitTo(webContentsId, chunkChannel, ev);
+      if (!isCurrent()) return;
+      emitTo(activeStream.webContentsId, chunkChannel, ev);
       if (ev.type === 'done') {
-        emitTo(webContentsId, endChannel, { reason: 'done' });
+        emitTo(activeStream.webContentsId, endChannel, { reason: 'done' });
         return;
       }
     }
-    emitTo(webContentsId, endChannel, { reason: 'done' });
+    if (isCurrent()) {
+      emitTo(activeStream.webContentsId, endChannel, { reason: 'done' });
+    }
   } catch (e) {
+    // Explicit cancellation removes the live entry before abort rejection
+    // reaches this catch. Preserve the existing error event for that exact
+    // cancelled generation, while replaced/destroyed generations stay silent.
+    const isLatestCancellation =
+      activeStream.cancelled &&
+      cancelledStreamGenerations.get(activeStream.registryKey) === activeStream;
+    if (!isCurrent() && !isLatestCancellation) return;
     const msg = e instanceof Error ? e.message : String(e);
     // Persist the main-process trace — the renderer only sees the error event.
     log.warn('stream failed', { streamId, provider: spec.provider, error: msg });
-    emitTo(webContentsId, chunkChannel, { type: 'error', code: 'network', message: msg });
-    emitTo(webContentsId, endChannel, { reason: 'error' });
+    emitTo(activeStream.webContentsId, chunkChannel, {
+      type: 'error',
+      code: 'network',
+      message: msg,
+    });
+    emitTo(activeStream.webContentsId, endChannel, { reason: 'error' });
   } finally {
-    activeStreams.remove(streamId);
+    if (isCurrent()) {
+      activeStreams.remove(activeStream.registryKey, activeStream.webContentsId);
+    }
+    if (cancelledStreamGenerations.get(activeStream.registryKey) === activeStream) {
+      cancelledStreamGenerations.delete(activeStream.registryKey);
+    }
   }
 }
 
@@ -231,16 +269,22 @@ export function registerAiLabHandlers(): void {
     const data = parsed.data;
     const abort = new AbortController();
     const activeComplete = { webContentsId: senderId, abort };
-    if (activeCompletes.has(data.operationId)) {
+    const registryKey = completionRegistryKey(senderId, data.operationId);
+    const existing = activeCompletes.get(registryKey);
+    if (existing) {
       return {
         ok: false as const,
         error: 'A completion with this operation ID is already active.',
       };
     }
-    activeCompletes.set(data.operationId, activeComplete);
+    activeCompletes.set(registryKey, activeComplete);
     bindRendererCleanup(activeCompletes, event.sender, (deadId) => {
-      for (const active of activeCompletes.values()) {
-        if (active.webContentsId === deadId) active.abort.abort();
+      for (const [key, active] of activeCompletes) {
+        if (active.webContentsId !== deadId) continue;
+        active.abort.abort();
+        if (activeCompletes.get(key) === active) {
+          activeCompletes.delete(key);
+        }
       }
     });
 
@@ -263,8 +307,8 @@ export function registerAiLabHandlers(): void {
       return { ok: false as const, error: msg };
     } finally {
       if (slotAcquired) completeSlots.release();
-      if (activeCompletes.get(data.operationId) === activeComplete) {
-        activeCompletes.delete(data.operationId);
+      if (activeCompletes.get(registryKey) === activeComplete) {
+        activeCompletes.delete(registryKey);
       }
     }
   });
@@ -273,10 +317,10 @@ export function registerAiLabHandlers(): void {
     assertTrustedSender(IPC.aiLab.completeCancel, event);
     const parsed = AiLabCompleteCancelSchema.safeParse(raw);
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
-    const active = activeCompletes.get(parsed.data.operationId);
-    if (!active) return { ok: true as const, alreadyDone: true };
-    if (active.webContentsId !== event.sender.id) {
-      return { ok: false as const, error: 'Operation does not belong to this renderer.' };
+    const registryKey = completionRegistryKey(event.sender.id, parsed.data.operationId);
+    const active = activeCompletes.get(registryKey);
+    if (!active) {
+      return { ok: true as const, alreadyDone: true };
     }
     active.abort.abort();
     return { ok: true as const };
@@ -295,19 +339,29 @@ export function registerAiLabHandlers(): void {
       return { ok: false as const, error: 'Too many concurrent AI Lab streams.' };
     }
     const data = parsed.data;
+    const registryKey = streamRegistryKey(senderId, data.streamId);
+    cancelledStreamGenerations.delete(registryKey);
+    const activeStream: ActiveStream = {
+      streamId: data.streamId,
+      registryKey,
+      webContentsId: senderId,
+      abort: new AbortController(),
+      cancelled: false,
+    };
+    activeStreams.add(registryKey, event.sender, activeStream);
     let fetcher: Fetcher;
     try {
       fetcher = await buildSafeFetcher(data.provider, data.baseUrlOverride);
     } catch (e) {
+      if (activeStreams.getForOwner(registryKey, senderId) === activeStream) {
+        activeStreams.remove(registryKey, senderId);
+      }
       return { ok: false as const, error: (e as Error).message };
     }
-    const abort = new AbortController();
-    activeStreams.add(data.streamId, event.sender, {
-      streamId: data.streamId,
-      webContentsId: senderId,
-      abort,
-    });
-    void runStream(buildSpec(data), fetcher, data.streamId, senderId, abort);
+    if (activeStreams.getForOwner(registryKey, senderId) !== activeStream) {
+      return { ok: false as const, error: 'Renderer closed before stream started.' };
+    }
+    void runStream(buildSpec(data), fetcher, data.streamId, activeStream);
     return { ok: true as const, streamId: data.streamId };
   });
 
@@ -315,12 +369,15 @@ export function registerAiLabHandlers(): void {
     assertTrustedSender(IPC.aiLab.streamCancel, event);
     const parsed = AiLabStreamCancelSchema.safeParse(raw);
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
-    const entry = activeStreams.get(parsed.data.streamId);
+    const registryKey = streamRegistryKey(event.sender.id, parsed.data.streamId);
+    const entry = activeStreams.getForOwner(registryKey, event.sender.id);
     if (!entry) return { ok: true as const, alreadyDone: true };
     // cancel() disposes (aborts) + removes; capture webContentsId first so the
     // end event still reaches the renderer after the entry is gone.
     const { webContentsId } = entry;
-    activeStreams.cancel(parsed.data.streamId);
+    entry.cancelled = true;
+    cancelledStreamGenerations.set(registryKey, entry);
+    activeStreams.cancelForOwner(registryKey, event.sender.id);
     emitTo(webContentsId, eventChannel(EVENT_PREFIX.aiLab.end, parsed.data.streamId), {
       reason: 'cancelled',
     });
@@ -393,6 +450,7 @@ export function unregisterAiLabHandlers(): void {
   ipcMain.removeHandler(IPC.aiLab.listModels);
   ipcMain.removeHandler(IPC.aiLab.testConnection);
   activeStreams.disposeAll();
+  cancelledStreamGenerations.clear();
   for (const active of activeCompletes.values()) active.abort.abort();
   activeCompletes.clear();
   void agentTelemetry.shutdown();

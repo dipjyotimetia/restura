@@ -1,5 +1,6 @@
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type * as requestExecutorModule from '@/features/http/lib/requestExecutor';
 import type * as platformModule from '@/lib/shared/platform';
 
 vi.mock('@/lib/shared/platform', async (importOriginal) => ({
@@ -250,5 +251,161 @@ describe('useHttpRequestPage — resolved URL persistence', () => {
     expect(lastConsoleEntry).toBeDefined();
     const replayed = entryToHttpRequest(lastConsoleEntry!);
     expect(replayed.url).toBe('{{baseUrl}}/anything');
+  });
+
+  it('writes a delayed response and script result only to the tab that sent the request', async () => {
+    let resolveExecution:
+      | ((value: requestExecutorModule.RequestExecutionResult) => void)
+      | undefined;
+    const execution = new Promise<requestExecutorModule.RequestExecutionResult>((resolve) => {
+      resolveExecution = resolve;
+    });
+    vi.doMock('@/features/http/lib/requestExecutor', async (importOriginal) => ({
+      ...(await importOriginal<typeof requestExecutorModule>()),
+      executeRequest: vi.fn(() => execution),
+    }));
+
+    const { useRequestStore } = await import('@/store/useRequestStore');
+    const originRequest = {
+      id: 'req-origin',
+      name: 'Origin',
+      type: 'http' as const,
+      method: 'GET' as const,
+      url: 'https://origin.example',
+      headers: [],
+      params: [],
+      body: { type: 'none' as const },
+      auth: {
+        type: 'oauth2' as const,
+        oauth2: { accessToken: 'expired', refreshToken: 'refresh-token' },
+      },
+    };
+    const otherRequest = { ...originRequest, id: 'req-other', name: 'Other' };
+    useRequestStore.setState({
+      tabs: [
+        { id: 'tab-origin', request: originRequest, isDirty: false },
+        { id: 'tab-other', request: otherRequest, isDirty: false },
+      ],
+      activeTabId: 'tab-origin',
+      isLoading: false,
+    });
+
+    const response = {
+      id: 'resp-origin',
+      requestId: originRequest.id,
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      body: 'origin response',
+      size: 15,
+      time: 10,
+      timestamp: Date.now(),
+    };
+    const scriptResult = {
+      preRequest: {
+        success: true,
+        logs: [],
+        errors: [],
+        variables: { destination: 'origin' },
+      },
+    };
+
+    const { useHttpRequestPage } = await import('../useHttpRequestPage');
+    const { result } = renderHook(() => useHttpRequestPage());
+    let sendPromise: Promise<void> | undefined;
+    act(() => {
+      sendPromise = result.current.handlers.sendRequest();
+      useRequestStore.getState().switchTab('tab-other');
+    });
+    await act(async () => {
+      resolveExecution?.({
+        response,
+        transportOk: true,
+        sentHeaders: {},
+        scriptResult,
+        refreshedAuth: {
+          type: 'oauth2',
+          oauth2: { accessToken: 'refreshed', refreshToken: 'refresh-token' },
+        },
+      });
+      await sendPromise;
+    });
+
+    const state = useRequestStore.getState();
+    expect(state.activeTabId).toBe('tab-other');
+    expect(state.tabs.find((tab) => tab.id === 'tab-origin')?.response).toEqual(response);
+    expect(state.tabs.find((tab) => tab.id === 'tab-origin')?.scriptResult).toEqual(scriptResult);
+    expect(
+      (
+        state.tabs.find((tab) => tab.id === 'tab-origin')?.request.auth as {
+          oauth2?: { accessToken?: string };
+        }
+      ).oauth2?.accessToken
+    ).toBe('refreshed');
+    expect(state.tabs.find((tab) => tab.id === 'tab-other')?.response).toBeUndefined();
+    expect(state.tabs.find((tab) => tab.id === 'tab-other')?.scriptResult).toBeUndefined();
+    expect(
+      (
+        state.tabs.find((tab) => tab.id === 'tab-other')?.request.auth as {
+          oauth2?: { accessToken?: string };
+        }
+      ).oauth2?.accessToken
+    ).toBe('expired');
+  });
+
+  it('writes a delayed thrown error only to the tab that sent the request', async () => {
+    let rejectExecution: ((reason: Error) => void) | undefined;
+    const execution = new Promise<requestExecutorModule.RequestExecutionResult>(
+      (_resolve, reject) => {
+        rejectExecution = reject;
+      }
+    );
+    vi.doMock('@/features/http/lib/requestExecutor', async (importOriginal) => ({
+      ...(await importOriginal<typeof requestExecutorModule>()),
+      executeRequest: vi.fn(() => execution),
+    }));
+
+    const { useRequestStore } = await import('@/store/useRequestStore');
+    const originRequest = {
+      id: 'req-error-origin',
+      name: 'Error origin',
+      type: 'http' as const,
+      method: 'GET' as const,
+      url: 'https://origin.example',
+      headers: [],
+      params: [],
+      body: { type: 'none' as const },
+      auth: { type: 'none' as const },
+    };
+    const otherRequest = { ...originRequest, id: 'req-error-other', name: 'Other' };
+    useRequestStore.setState({
+      tabs: [
+        { id: 'tab-error-origin', request: originRequest, isDirty: false },
+        { id: 'tab-error-other', request: otherRequest, isDirty: false },
+      ],
+      activeTabId: 'tab-error-origin',
+      isLoading: false,
+    });
+
+    const { useHttpRequestPage } = await import('../useHttpRequestPage');
+    const { result } = renderHook(() => useHttpRequestPage());
+    let sendPromise: Promise<void> | undefined;
+    act(() => {
+      sendPromise = result.current.handlers.sendRequest();
+      useRequestStore.getState().switchTab('tab-error-other');
+    });
+    await act(async () => {
+      rejectExecution?.(new Error('delayed failure'));
+      await sendPromise;
+    });
+
+    const state = useRequestStore.getState();
+    expect(state.activeTabId).toBe('tab-error-other');
+    expect(state.tabs.find((tab) => tab.id === 'tab-error-origin')?.response).toMatchObject({
+      requestId: 'req-error-origin',
+      status: 0,
+      body: 'delayed failure',
+    });
+    expect(state.tabs.find((tab) => tab.id === 'tab-error-other')?.response).toBeUndefined();
   });
 });

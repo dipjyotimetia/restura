@@ -14,6 +14,11 @@ import { keyValuePairsToRecord } from '@/lib/shared/utils';
 import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 
+interface McpClientSession {
+  connectionId: string;
+  client: McpClient;
+}
+
 /**
  * MCP workspace coordinator. It owns the connection-scoped client and the
  * console/log side effects; presentation modules receive callbacks only.
@@ -33,11 +38,13 @@ export default function McpRequestBuilder() {
     removeHeader,
     setStatus,
     setCapabilities,
+    resetConnectionSession,
     appendLog,
     clearLog,
   } = useMcpConnectionActions();
   const resolveVariables = useEnvironmentStore((state) => state.resolveVariables);
-  const clientRef = useRef<McpClient | null>(null);
+  const clientRef = useRef<McpClientSession | null>(null);
+  const clientGenerationRef = useRef(0);
   const [showCatalog, setShowCatalog] = useState(false);
   const [selectedToolName, setSelectedToolName] = useState<string | null>(null);
   const [selectedPromptName, setSelectedPromptName] = useState<string | null>(null);
@@ -50,10 +57,15 @@ export default function McpRequestBuilder() {
   const activeIdForCleanup = active?.id;
   useEffect(() => {
     return () => {
-      void clientRef.current?.disconnect();
-      clientRef.current = null;
+      clientGenerationRef.current += 1;
+      const session = clientRef.current;
+      if (session && session.connectionId === activeIdForCleanup) {
+        clientRef.current = null;
+        void session.client.disconnect();
+      }
+      if (activeIdForCleanup) resetConnectionSession(activeIdForCleanup);
     };
-  }, [activeIdForCleanup]);
+  }, [activeIdForCleanup, resetConnectionSession]);
 
   if (!active) return null;
 
@@ -116,17 +128,26 @@ export default function McpRequestBuilder() {
   };
 
   const handleConnect = async () => {
+    const generation = clientGenerationRef.current + 1;
+    clientGenerationRef.current = generation;
+    const previousSession = clientRef.current;
+    clientRef.current = null;
+    void previousSession?.client.disconnect();
+    resetConnectionSession(active.id);
     setStatus(active.id, 'connecting');
-    void clientRef.current?.disconnect();
     const client = buildClient();
-    clientRef.current = client;
+    clientRef.current = { connectionId: active.id, client };
+    const isCurrent = () =>
+      clientGenerationRef.current === generation && clientRef.current?.client === client;
 
     const open = await client.connect();
+    if (!isCurrent()) return;
     if (!open.ok) {
       setStatus(active.id, 'error', open.error);
       return;
     }
     const capabilities = await client.discoverCapabilities();
+    if (!isCurrent()) return;
     if ('error' in capabilities) {
       setStatus(active.id, 'error', capabilities.error);
       return;
@@ -136,22 +157,39 @@ export default function McpRequestBuilder() {
   };
 
   const handleDisconnect = async () => {
-    await clientRef.current?.disconnect();
-    clientRef.current = null;
-    setStatus(active.id, 'disconnected');
-    setCapabilities(active.id, null);
+    clientGenerationRef.current += 1;
+    const session = clientRef.current;
+    if (session?.connectionId === active.id) clientRef.current = null;
+    resetConnectionSession(active.id);
+    if (session?.connectionId === active.id) await session.client.disconnect();
   };
 
   const handleRefresh = async () => {
-    if (!clientRef.current) return;
+    const session = clientRef.current;
+    if (active.status !== 'connected' || session?.connectionId !== active.id) return;
+    const generation = clientGenerationRef.current + 1;
+    clientGenerationRef.current = generation;
+    resetConnectionSession(active.id);
     setStatus(active.id, 'connecting');
-    const capabilities = await clientRef.current.discoverCapabilities();
+    const capabilities = await session.client.discoverCapabilities();
+    if (
+      clientGenerationRef.current !== generation ||
+      clientRef.current?.client !== session.client
+    ) {
+      return;
+    }
     if ('error' in capabilities) {
       setStatus(active.id, 'error', capabilities.error);
       return;
     }
     setCapabilities(active.id, capabilities);
     setStatus(active.id, 'connected');
+  };
+
+  const getCurrentClient = (): McpClient | null => {
+    const session = clientRef.current;
+    if (active.status !== 'connected' || session?.connectionId !== active.id) return null;
+    return session.client;
   };
 
   return (
@@ -182,8 +220,9 @@ export default function McpRequestBuilder() {
             onToolSelect={setSelectedToolName}
             onPromptSelect={setSelectedPromptName}
             onReadResource={async (uri) => {
-              if (!clientRef.current) return;
-              const result = await clientRef.current.readResource(uri);
+              const client = getCurrentClient();
+              if (!client) return;
+              const result = await client.readResource(uri);
               logCall('resources/read', { uri }, result);
             }}
             onClearLog={() => clearLog(active.id)}
@@ -203,13 +242,15 @@ export default function McpRequestBuilder() {
             tool={tools.find((tool) => tool.name === selectedToolName) ?? null}
             prompt={prompts.find((prompt) => prompt.name === selectedPromptName) ?? null}
             onCall={async (tool, args) => {
-              if (!clientRef.current) return;
-              const result = await clientRef.current.callTool(tool.name, args);
+              const client = getCurrentClient();
+              if (!client) return;
+              const result = await client.callTool(tool.name, args);
               logCall(`tools/call:${tool.name}`, args, result);
             }}
             onGet={async (prompt, args) => {
-              if (!clientRef.current) return;
-              const result = await clientRef.current.getPrompt(prompt.name, args);
+              const client = getCurrentClient();
+              if (!client) return;
+              const result = await client.getPrompt(prompt.name, args);
               logCall(`prompts/get:${prompt.name}`, args, result);
             }}
           />

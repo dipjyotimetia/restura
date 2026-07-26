@@ -13,7 +13,6 @@ type WindowWithElectron = {
 function installElectronCollections(collections: Partial<ElectronAPI['collections']>): void {
   (window as unknown as { electron: { collections: ElectronAPI['collections'] } }).electron = {
     collections: {
-      removeFileChangedListener: vi.fn(),
       ...collections,
     } as ElectronAPI['collections'],
   };
@@ -466,6 +465,21 @@ describe('file collection operations', () => {
     expect(initFileCollectionWatcher()).toBeUndefined();
   });
 
+  it('disposes its file-change subscription during watcher cleanup', async () => {
+    const { initFileCollectionWatcher, cleanupFileCollectionWatcher } = await import(
+      '../useFileCollectionStore'
+    );
+    const disposeFileChanges = vi.fn();
+    installElectronCollections({
+      onFileChanged: vi.fn(() => disposeFileChanges),
+    });
+
+    initFileCollectionWatcher();
+    cleanupFileCollectionWatcher();
+
+    expect(disposeFileChanges).toHaveBeenCalledOnce();
+  });
+
   it('saves, syncs, exports, selects, and opens Electron file collections', async () => {
     const {
       useFileCollectionStore,
@@ -538,8 +552,8 @@ describe('file collection operations', () => {
     installElectronCollections({
       onFileChanged: vi.fn((listener) => {
         onFileChanged = listener;
+        return vi.fn();
       }),
-      removeFileChangedListener: vi.fn(),
     });
     useCollectionStore.setState({ collections: [{ id: 'c1', name: 'Demo', items: [] }] });
     useWorkflowStore.setState({ workflows: [] });
@@ -584,8 +598,8 @@ describe('file collection operations', () => {
     installElectronCollections({
       onFileChanged: vi.fn((listener) => {
         onFileChanged = listener;
+        return vi.fn();
       }),
-      removeFileChangedListener: vi.fn(),
     });
     useCollectionStore.setState({ collections: [{ id: 'c1', name: 'Demo', items: [] }] });
     useWorkflowStore.setState({ workflows: [] });
@@ -646,6 +660,7 @@ describe('file collection operations', () => {
       watchDirectory: vi.fn().mockResolvedValue({ success: true }),
       onFileChanged: vi.fn((listener) => {
         onFileChanged = listener;
+        return vi.fn();
       }),
     });
     useCollectionStore.setState({ collections: [{ id: 'c1', name: 'Demo', items: [] }] });
@@ -705,6 +720,7 @@ describe('file collection operations', () => {
       watchDirectory: vi.fn().mockResolvedValue({ success: false }),
       onFileChanged: vi.fn((listener) => {
         onFileChanged = listener;
+        return vi.fn();
       }),
     });
     useCollectionStore.setState({ collections: [{ id: 'c1', name: 'Demo', items: [] }] });

@@ -8,6 +8,7 @@ const mockBindCleanup = vi.hoisted(() => vi.fn());
 const mockDispose = vi.hoisted(() => vi.fn());
 const mockMakePinnedFetcher = vi.hoisted(() => vi.fn(async () => vi.fn()));
 const mockResolveBaseUrl = vi.hoisted(() => vi.fn(() => 'https://api.openai.com/v1'));
+const mockExecuteAiChat = vi.hoisted(() => vi.fn());
 
 vi.mock('electron', () => ({
   ipcMain: { handle: mockHandle, removeHandler: mockRemoveHandler },
@@ -20,9 +21,65 @@ vi.mock('../ipc/connection-cleanup', () => ({
 }));
 vi.mock('../handlers/fetch-fetcher', () => ({ makePinnedFetcher: mockMakePinnedFetcher }));
 vi.mock('@shared/protocol/ai/provider-routes', () => ({ resolveBaseUrl: mockResolveBaseUrl }));
-vi.mock('@shared/protocol/ai/ai-proxy', () => ({ executeAiChat: vi.fn() }));
+vi.mock('@shared/protocol/ai/ai-proxy', () => ({ executeAiChat: mockExecuteAiChat }));
 
 import { __testing, registerAiHandlers, unregisterAiHandlers } from '../handlers/ai-handler';
+
+const STREAM_ID = '00000000-0000-4000-8000-000000000000';
+const CHAT_REQUEST = {
+  streamId: STREAM_ID,
+  provider: 'openai',
+  model: 'gpt-4o',
+  messages: [{ role: 'user', content: 'hi' }],
+  apiKeyHandleId: '00000000-0000-4000-8000-000000000001',
+  rawMode: false,
+};
+const TRUSTED = {
+  sender: { id: 1, isDestroyed: () => false },
+  senderFrame: { url: 'file:///app/dist/web/index.html' },
+};
+const OTHER_SENDER = {
+  sender: { id: 2, isDestroyed: () => false },
+  senderFrame: { url: 'file:///app/dist/web/index.html' },
+};
+const THIRD_SENDER = {
+  sender: { id: 3, isDestroyed: () => false },
+  senderFrame: { url: 'file:///app/dist/web/index.html' },
+};
+
+function handlerFor(channel: string) {
+  const call = mockHandle.mock.calls.find((candidate) => candidate[0] === channel);
+  return call?.[1] as (event: unknown, payload: unknown) => Promise<Record<string, unknown>>;
+}
+
+function deferChatStream() {
+  let finish!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  let signal: AbortSignal | undefined;
+  mockExecuteAiChat.mockImplementationOnce((spec: { signal?: AbortSignal }) => {
+    signal = spec.signal;
+    return (async function* () {
+      await gate;
+    })();
+  });
+  return { finish, getSignal: () => signal };
+}
+
+function deferChatAbortFailure() {
+  let fail!: () => void;
+  let signal: AbortSignal | undefined;
+  mockExecuteAiChat.mockImplementationOnce((spec: { signal?: AbortSignal }) => {
+    signal = spec.signal;
+    return (async function* () {
+      await new Promise<void>((_resolve, reject) => {
+        fail = () => reject(new Error('aborted'));
+      });
+    })();
+  });
+  return { fail: () => fail(), getSignal: () => signal, isReady: () => Boolean(fail) };
+}
 
 describe('ai-handler', () => {
   beforeEach(() => {
@@ -34,6 +91,7 @@ describe('ai-handler', () => {
     mockDispose.mockClear();
     mockMakePinnedFetcher.mockClear();
     mockResolveBaseUrl.mockClear();
+    mockExecuteAiChat.mockReset();
     registerAiHandlers();
   });
   afterEach(() => unregisterAiHandlers());
@@ -97,5 +155,95 @@ describe('ai-handler', () => {
     expect(mockMakePinnedFetcher).toHaveBeenCalledWith('https://api.openai.com/v1', {
       allowLocalhost: false,
     });
+  });
+
+  it('treats another renderer chat ID as missing without crossing ownership', async () => {
+    const ownerStream = deferChatStream();
+    const otherStream = deferChatStream();
+    await expect(handlerFor('ai:chat')(TRUSTED, CHAT_REQUEST)).resolves.toMatchObject({
+      ok: true,
+      streamId: STREAM_ID,
+    });
+    await vi.waitFor(() => expect(ownerStream.getSignal()).toBeDefined());
+
+    await expect(handlerFor('ai:chat')(OTHER_SENDER, CHAT_REQUEST)).resolves.toEqual({
+      ok: true,
+      streamId: STREAM_ID,
+    });
+    await vi.waitFor(() => expect(otherStream.getSignal()).toBeDefined());
+    expect(ownerStream.getSignal()?.aborted).toBe(false);
+
+    const missingCancel = await handlerFor('ai:chat:cancel')(THIRD_SENDER, {
+      streamId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    });
+    await expect(
+      handlerFor('ai:chat:cancel')(THIRD_SENDER, { streamId: STREAM_ID })
+    ).resolves.toEqual(missingCancel);
+    expect(missingCancel).toEqual({ ok: true, alreadyDone: true });
+    expect(ownerStream.getSignal()?.aborted).toBe(false);
+    expect(otherStream.getSignal()?.aborted).toBe(false);
+
+    await expect(handlerFor('ai:chat:cancel')(TRUSTED, { streamId: STREAM_ID })).resolves.toEqual({
+      ok: true,
+    });
+    expect(ownerStream.getSignal()?.aborted).toBe(true);
+    expect(otherStream.getSignal()?.aborted).toBe(false);
+    expect(mockEmitTo).toHaveBeenCalledWith(1, `ai:chat:end:${STREAM_ID}`, {
+      reason: 'cancelled',
+    });
+    await expect(
+      handlerFor('ai:chat:cancel')(OTHER_SENDER, { streamId: STREAM_ID })
+    ).resolves.toEqual({ ok: true });
+    expect(otherStream.getSignal()?.aborted).toBe(true);
+    ownerStream.finish();
+    otherStream.finish();
+  });
+
+  it('ignores a replaced chat late completion without deleting its successor', async () => {
+    const firstStream = deferChatStream();
+    const secondStream = deferChatStream();
+    await handlerFor('ai:chat')(TRUSTED, CHAT_REQUEST);
+    await vi.waitFor(() => expect(firstStream.getSignal()).toBeDefined());
+
+    await expect(handlerFor('ai:chat')(TRUSTED, CHAT_REQUEST)).resolves.toMatchObject({
+      ok: true,
+      streamId: STREAM_ID,
+    });
+    await vi.waitFor(() => expect(secondStream.getSignal()).toBeDefined());
+    expect(firstStream.getSignal()?.aborted).toBe(true);
+
+    mockEmitTo.mockClear();
+    firstStream.finish();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockEmitTo).not.toHaveBeenCalled();
+
+    await expect(handlerFor('ai:chat:cancel')(TRUSTED, { streamId: STREAM_ID })).resolves.toEqual({
+      ok: true,
+    });
+    expect(secondStream.getSignal()?.aborted).toBe(true);
+    secondStream.finish();
+  });
+
+  it('suppresses a cancelled chat late error after same-ID reuse', async () => {
+    const cancelledStream = deferChatAbortFailure();
+    const successorStream = deferChatStream();
+    await handlerFor('ai:chat')(TRUSTED, CHAT_REQUEST);
+    await vi.waitFor(() => expect(cancelledStream.isReady()).toBe(true));
+
+    await handlerFor('ai:chat:cancel')(TRUSTED, { streamId: STREAM_ID });
+    expect(cancelledStream.getSignal()?.aborted).toBe(true);
+    await handlerFor('ai:chat')(TRUSTED, CHAT_REQUEST);
+    await vi.waitFor(() => expect(successorStream.getSignal()).toBeDefined());
+
+    mockEmitTo.mockClear();
+    cancelledStream.fail();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockEmitTo).not.toHaveBeenCalled();
+
+    await expect(handlerFor('ai:chat:cancel')(TRUSTED, { streamId: STREAM_ID })).resolves.toEqual({
+      ok: true,
+    });
+    expect(successorStream.getSignal()?.aborted).toBe(true);
+    successorStream.finish();
   });
 });

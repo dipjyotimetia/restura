@@ -98,6 +98,14 @@ const validConnect = (connectionId: string) => ({
   url: 'wss://echo.example.com/socket',
 });
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 describe('websocket-handler', () => {
   beforeEach(() => {
     setExecutionPolicy({
@@ -222,6 +230,184 @@ describe('websocket-handler', () => {
     const [first, second] = wsMock.FakeWebSocket.instances;
     expect(first!.terminate).toHaveBeenCalled();
     expect(second!.terminate).not.toHaveBeenCalled();
+  });
+
+  it('lets two renderers independently use the same id and cleans up only the destroyed owner', async () => {
+    const first = makeEvent();
+    const second = makeEvent();
+    await expect(handlerFor(IPC.ws.connect)(first.event, validConnect('shared'))).resolves.toEqual({
+      success: true,
+    });
+    const firstSocket = wsMock.FakeWebSocket.instances[0]!;
+    await expect(
+      handlerFor(IPC.ws.send)(second.event, {
+        connectionId: 'shared',
+        message: 'not-owned',
+      })
+    ).resolves.toEqual({ success: false, error: 'Not connected' });
+    await expect(
+      handlerFor(IPC.ws.disconnect)(second.event, { connectionId: 'shared' })
+    ).resolves.toEqual({ success: true });
+    expect(firstSocket.send).not.toHaveBeenCalled();
+    expect(firstSocket.close).not.toHaveBeenCalled();
+
+    await expect(handlerFor(IPC.ws.connect)(second.event, validConnect('shared'))).resolves.toEqual(
+      { success: true }
+    );
+    const secondSocket = wsMock.FakeWebSocket.instances[1]!;
+
+    await expect(
+      handlerFor(IPC.ws.send)(first.event, {
+        connectionId: 'shared',
+        message: 'first',
+      })
+    ).resolves.toEqual({ success: true });
+    await expect(
+      handlerFor(IPC.ws.send)(second.event, {
+        connectionId: 'shared',
+        message: 'second',
+      })
+    ).resolves.toEqual({ success: true });
+    expect(firstSocket.send).toHaveBeenCalledWith('first');
+    expect(secondSocket.send).toHaveBeenCalledWith('second');
+
+    first.destroy();
+    expect(firstSocket.terminate).toHaveBeenCalled();
+    expect(secondSocket.terminate).not.toHaveBeenCalled();
+    await expect(
+      handlerFor(IPC.ws.send)(second.event, {
+        connectionId: 'shared',
+        message: 'still-live',
+      })
+    ).resolves.toEqual({ success: true });
+    expect(secondSocket.send).toHaveBeenCalledWith('still-live');
+  });
+
+  it('reserves concurrent same-id connects independently per renderer before DNS', async () => {
+    const first = makeEvent();
+    const second = makeEvent();
+    const firstDns = deferred<{
+      host: string;
+      ip: string;
+      port: number;
+      family: 4;
+    }>();
+    const pinned = {
+      host: 'echo.example.com',
+      ip: '203.0.113.1',
+      port: 443,
+      family: 4 as const,
+    };
+    mockResolveSafe.mockImplementationOnce(() => firstDns.promise);
+
+    const firstConnect = handlerFor(IPC.ws.connect)(first.event, validConnect('raced'));
+    const secondConnect = handlerFor(IPC.ws.connect)(second.event, validConnect('raced'));
+
+    expect(mockResolveSafe).toHaveBeenCalledTimes(2);
+    await expect(secondConnect).resolves.toEqual({ success: true });
+    expect(wsMock.FakeWebSocket.instances).toHaveLength(1);
+
+    firstDns.resolve(pinned);
+    await expect(firstConnect).resolves.toEqual({ success: true });
+    expect(wsMock.FakeWebSocket.instances).toHaveLength(2);
+    const firstSocket = wsMock.FakeWebSocket.instances[1]!;
+    expect(firstSocket.terminate).not.toHaveBeenCalled();
+
+    firstSocket.fire('message', Buffer.from('current'), false);
+    expect(mockEmitTo).toHaveBeenCalledWith(first.senderId, 'ws:message:raced', {
+      type: 'text',
+      data: 'current',
+    });
+  });
+
+  it('keeps the first pending owner reconnect and suppresses stale socket events', async () => {
+    const owner = makeEvent();
+    await handlerFor(IPC.ws.connect)(owner.event, validConnect('shared'));
+    const previous = wsMock.FakeWebSocket.instances[0]!;
+    const reconnectDns = deferred<{
+      host: string;
+      ip: string;
+      port: number;
+      family: 4;
+    }>();
+    mockResolveSafe.mockClear();
+    mockResolveSafe.mockImplementationOnce(() => reconnectDns.promise);
+
+    const firstReconnect = handlerFor(IPC.ws.connect)(owner.event, validConnect('shared'));
+    const secondReconnect = handlerFor(IPC.ws.connect)(owner.event, validConnect('shared'));
+
+    expect(mockResolveSafe).toHaveBeenCalledTimes(1);
+    await expect(secondReconnect).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(wsMock.FakeWebSocket.instances).toHaveLength(1);
+
+    reconnectDns.resolve({
+      host: 'echo.example.com',
+      ip: '203.0.113.1',
+      port: 443,
+      family: 4,
+    });
+    await expect(firstReconnect).resolves.toEqual({ success: true });
+    const current = wsMock.FakeWebSocket.instances[1]!;
+    expect(previous.terminate).toHaveBeenCalled();
+    expect(current.terminate).not.toHaveBeenCalled();
+
+    mockEmitTo.mockClear();
+    previous.fire('open');
+    previous.fire('message', Buffer.from('stale'), false);
+    previous.fire('error', new Error('stale'));
+    expect(mockEmitTo).not.toHaveBeenCalled();
+
+    current.fire('message', Buffer.from('current'), false);
+    expect(mockEmitTo).toHaveBeenCalledWith(owner.senderId, 'ws:message:shared', {
+      type: 'text',
+      data: 'current',
+    });
+  });
+
+  it('releases a failed pending claim so another renderer can connect', async () => {
+    const first = makeEvent();
+    const second = makeEvent();
+    mockResolveSafe.mockRejectedValueOnce(new Error('dns failed'));
+
+    await expect(
+      handlerFor(IPC.ws.connect)(first.event, validConnect('retryable'))
+    ).resolves.toEqual({
+      success: false,
+      error: 'dns failed',
+    });
+    await expect(
+      handlerFor(IPC.ws.connect)(second.event, validConnect('retryable'))
+    ).resolves.toEqual({ success: true });
+    expect(wsMock.FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it('releases a destroyed renderer pending claim and rejects its late setup', async () => {
+    const first = makeEvent();
+    const second = makeEvent();
+    const firstDns = deferred<{
+      host: string;
+      ip: string;
+      port: number;
+      family: 4;
+    }>();
+    mockResolveSafe.mockImplementationOnce(() => firstDns.promise);
+
+    const firstConnect = handlerFor(IPC.ws.connect)(first.event, validConnect('released'));
+    first.destroy();
+    await expect(
+      handlerFor(IPC.ws.connect)(second.event, validConnect('released'))
+    ).resolves.toEqual({ success: true });
+    const winner = wsMock.FakeWebSocket.instances[0]!;
+
+    firstDns.resolve({
+      host: 'echo.example.com',
+      ip: '203.0.113.1',
+      port: 443,
+      family: 4,
+    });
+    await expect(firstConnect).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(wsMock.FakeWebSocket.instances).toHaveLength(1);
+    expect(winner.terminate).not.toHaveBeenCalled();
   });
 
   it('tears down the connection when its renderer is destroyed', async () => {

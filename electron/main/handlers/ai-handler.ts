@@ -17,8 +17,8 @@ import { executeAiChat } from '@shared/protocol/ai/ai-proxy';
 import { resolveBaseUrl } from '@shared/protocol/ai/provider-routes';
 import { type ChatRequestSpec, isLocalProvider, type Provider } from '@shared/protocol/ai/types';
 import type { Fetcher } from '@shared/protocol/types';
-import { ipcMain } from 'electron';
 import { createLogger } from '@shared/runtime/logger';
+import { ipcMain } from 'electron';
 import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo } from '../ipc/ipc-utils';
@@ -38,15 +38,23 @@ const MAX_CONCURRENT_STREAMS = 5;
 
 interface ActiveStream {
   streamId: string;
+  registryKey: string;
   webContentsId: number;
   abort: AbortController;
+  cancelled: boolean;
 }
 
-// Shared connection bookkeeping (map + same-id replace + renderer-destroyed
-// cleanup + disposeAll). Chat emits go through emitTo with the captured
-// webContentsId (an end event fires after the entry is removed on cancel), so
-// the registry is used for bookkeeping only — dispose aborts the in-flight stream.
+// Registry keys include the creator webContents so equal renderer-generated
+// stream IDs in different windows remain independent and cannot act as an
+// existence oracle for each other.
 const active = new StreamRegistry<ActiveStream>({ dispose: (s) => s.abort.abort() });
+// The exact explicitly-cancelled generation may emit its established abort
+// error until a successor reserves the same owner-scoped key or it settles.
+const cancelledGenerations = new Map<string, ActiveStream>();
+
+function streamRegistryKey(webContentsId: number, streamId: string): string {
+  return `${webContentsId}:${streamId}`;
+}
 
 /**
  * Resolve the chat provider's base URL and return a DNS-pinned, manual-redirect
@@ -70,33 +78,50 @@ async function runChat(
   spec: ChatRequestSpec,
   fetcher: Fetcher,
   streamId: string,
-  webContentsId: number,
-  abort: AbortController
+  activeStream: ActiveStream
 ): Promise<void> {
   const chunkChannel = eventChannel(EVENT_PREFIX.ai.chunk, streamId);
   const endChannel = eventChannel(EVENT_PREFIX.ai.end, streamId);
+  const isCurrent = () =>
+    active.getForOwner(activeStream.registryKey, activeStream.webContentsId) === activeStream;
   try {
     for await (const ev of executeAiChat(
-      { ...spec, signal: abort.signal },
+      { ...spec, signal: activeStream.abort.signal },
       fetcher,
       resolveSecretFn
     )) {
-      emitTo(webContentsId, chunkChannel, ev);
+      if (!isCurrent()) return;
+      emitTo(activeStream.webContentsId, chunkChannel, ev);
       if (ev.type === 'done') {
-        emitTo(webContentsId, endChannel, { reason: 'done' });
+        emitTo(activeStream.webContentsId, endChannel, { reason: 'done' });
         return;
       }
     }
-    emitTo(webContentsId, endChannel, { reason: 'done' });
+    if (isCurrent()) {
+      emitTo(activeStream.webContentsId, endChannel, { reason: 'done' });
+    }
   } catch (e) {
+    // Explicit cancellation removes the live entry before abort rejection
+    // reaches this catch. Preserve the existing error event for that exact
+    // cancelled generation, while replaced/destroyed generations stay silent.
+    const isLatestCancellation =
+      activeStream.cancelled && cancelledGenerations.get(activeStream.registryKey) === activeStream;
+    if (!isCurrent() && !isLatestCancellation) return;
     const msg = e instanceof Error ? e.message : String(e);
     // Persist the main-process trace — the renderer only sees the error event,
     // so without this an upstream/provider failure leaves nothing in main.log.
     log.warn('chat stream failed', { streamId, provider: spec.provider, error: msg });
-    emitTo(webContentsId, chunkChannel, { type: 'error', code: 'network', message: msg });
-    emitTo(webContentsId, endChannel, { reason: 'error' });
+    emitTo(activeStream.webContentsId, chunkChannel, {
+      type: 'error',
+      code: 'network',
+      message: msg,
+    });
+    emitTo(activeStream.webContentsId, endChannel, { reason: 'error' });
   } finally {
-    active.remove(streamId);
+    if (isCurrent()) active.remove(activeStream.registryKey, activeStream.webContentsId);
+    if (cancelledGenerations.get(activeStream.registryKey) === activeStream) {
+      cancelledGenerations.delete(activeStream.registryKey);
+    }
   }
 }
 
@@ -116,17 +141,21 @@ export function registerAiHandlers(): void {
     }
 
     const data = parsed.data;
+    const registryKey = streamRegistryKey(senderId, data.streamId);
+    cancelledGenerations.delete(registryKey);
 
     // Register the stream + renderer-cleanup listener BEFORE the async
     // buildSafeFetcher await (which does a DNS resolve). add() binds the
     // renderer-destroyed cleanup — as sse-handler does — closing the window
     // where a renderer destroyed mid-connect would leave no teardown attached.
-    const abort = new AbortController();
-    active.add(data.streamId, event.sender, {
+    const activeStream: ActiveStream = {
       streamId: data.streamId,
+      registryKey,
       webContentsId: senderId,
-      abort,
-    });
+      abort: new AbortController(),
+      cancelled: false,
+    };
+    active.add(registryKey, event.sender, activeStream);
 
     // Validate + DNS-pin the (default or overridden) provider host and get a
     // fetcher locked to it. Replaces the old pre-flight-only string check, which
@@ -136,13 +165,15 @@ export function registerAiHandlers(): void {
     try {
       fetcher = await buildSafeFetcher(data.provider, data.baseUrlOverride);
     } catch (e) {
-      active.remove(data.streamId);
+      if (active.getForOwner(registryKey, senderId) === activeStream) {
+        active.remove(registryKey, senderId);
+      }
       return { ok: false as const, error: (e as Error).message };
     }
 
     // If the renderer went away during the await, the cleanup listener already
     // aborted + removed the entry — don't start the stream.
-    if (!active.has(data.streamId)) {
+    if (active.getForOwner(registryKey, senderId) !== activeStream) {
       return { ok: false as const, error: 'Renderer closed before stream started.' };
     }
 
@@ -160,7 +191,7 @@ export function registerAiHandlers(): void {
     };
 
     // Kick off the stream — do NOT await; the renderer receives events via channels.
-    void runChat(spec, fetcher, data.streamId, senderId, abort);
+    void runChat(spec, fetcher, data.streamId, activeStream);
 
     return { ok: true as const, streamId: data.streamId };
   });
@@ -169,12 +200,15 @@ export function registerAiHandlers(): void {
     assertTrustedSender(IPC.ai.chatCancel, event);
     const parsed = AiChatCancelSchema.safeParse(raw);
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
-    const entry = active.get(parsed.data.streamId);
+    const registryKey = streamRegistryKey(event.sender.id, parsed.data.streamId);
+    const entry = active.getForOwner(registryKey, event.sender.id);
     if (!entry) return { ok: true as const, alreadyDone: true };
     // cancel() disposes (aborts) + removes; capture webContentsId first so the
     // end event still reaches the renderer after the entry is gone.
     const { webContentsId } = entry;
-    active.cancel(parsed.data.streamId);
+    entry.cancelled = true;
+    cancelledGenerations.set(registryKey, entry);
+    active.cancelForOwner(registryKey, event.sender.id);
     emitTo(webContentsId, eventChannel(EVENT_PREFIX.ai.end, parsed.data.streamId), {
       reason: 'cancelled',
     });
@@ -186,6 +220,7 @@ export function unregisterAiHandlers(): void {
   ipcMain.removeHandler(IPC.ai.chat);
   ipcMain.removeHandler(IPC.ai.chatCancel);
   active.disposeAll();
+  cancelledGenerations.clear();
 }
 
 export const __testing = { resolveSecretFn };

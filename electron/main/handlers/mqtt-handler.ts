@@ -1,17 +1,16 @@
+import { createLogger } from '@shared/runtime/logger';
 import type { WebContents } from 'electron';
 import { ipcMain, webContents } from 'electron';
-
 import type * as MqttLib from 'mqtt';
-
 import type { IClientOptions, IConnackPacket, IPublishPacket, MqttClient } from 'mqtt';
-import { createLogger } from '@shared/runtime/logger';
 import { IPC } from '../../shared/channels';
 import { MQTT_CHANNEL, mqttChannel } from '../../shared/mqtt-channels';
+import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import {
   assertTrustedSender,
-  createValidatedHandler,
+  createValidatedEventHandler,
   type MqttConnectConfig,
   MqttConnectSchema,
   MqttDisconnectSchema,
@@ -20,7 +19,7 @@ import {
   MqttUnsubscribeSchema,
   validateIpcInput,
 } from '../ipc/ipc-validators';
-import { StreamRegistry } from '../ipc/stream-registry';
+import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
 import { assertMqttBrokerSafe } from '../security/mqtt-broker-guard';
 
@@ -69,6 +68,39 @@ const activeConnections = new StreamRegistry<ActiveMqtt>({
     void endClient(e);
   },
 });
+
+interface PendingMqttClaim {
+  webContentsId: number;
+  token: symbol;
+  ownerEntry?: ActiveMqtt;
+}
+
+const pendingConnections = new Map<string, PendingMqttClaim>();
+
+function reserveMqttClaim(connectionId: string, sender: WebContents): PendingMqttClaim | undefined {
+  const key = ownerScopedKey(connectionId, sender.id);
+  if (pendingConnections.has(key)) return undefined;
+
+  const ownerEntry = activeConnections.getForOwner(connectionId, sender.id);
+
+  const claim: PendingMqttClaim = {
+    webContentsId: sender.id,
+    token: Symbol(connectionId),
+    ownerEntry,
+  };
+  pendingConnections.set(key, claim);
+  bindRendererCleanup(pendingConnections, sender, (deadId) =>
+    disposeByOwner(pendingConnections, deadId, () => {})
+  );
+  return pendingConnections.get(key) === claim ? claim : undefined;
+}
+
+function releaseMqttClaim(connectionId: string, claim: PendingMqttClaim): void {
+  const key = ownerScopedKey(connectionId, claim.webContentsId);
+  if (pendingConnections.get(key)?.token === claim.token) {
+    pendingConnections.delete(key);
+  }
+}
 
 function emitToEntry(entry: ActiveMqtt, channel: string, ...args: unknown[]): void {
   if (entry.wc && !entry.wc.isDestroyed()) {
@@ -128,6 +160,7 @@ function bindClientListeners(entry: ActiveMqtt): void {
   const { client } = entry;
 
   client.on('connect', (connack: IConnackPacket) => {
+    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
     emitToEntry(entry, mqttChannel(MQTT_CHANNEL.CONNECTED, entry.connectionId), {
       timestamp: Date.now(),
       sessionPresent: connack.sessionPresent ?? false,
@@ -136,6 +169,7 @@ function bindClientListeners(entry: ActiveMqtt): void {
   });
 
   client.on('message', (topic: string, payload: Buffer, packet: IPublishPacket) => {
+    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
     const props = packet.properties ?? {};
     emitToEntry(entry, mqttChannel(MQTT_CHANNEL.MESSAGE, entry.connectionId), {
       topic,
@@ -162,6 +196,7 @@ function bindClientListeners(entry: ActiveMqtt): void {
   });
 
   client.on('error', (err: Error) => {
+    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
     const code = (err as NodeJS.ErrnoException).code;
     log.warn('client error', {
       connectionId: entry.connectionId,
@@ -175,6 +210,7 @@ function bindClientListeners(entry: ActiveMqtt): void {
   });
 
   client.on('close', () => {
+    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
     emitToEntry(entry, mqttChannel(MQTT_CHANNEL.CLOSE, entry.connectionId), {});
   });
 }
@@ -218,75 +254,88 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
     }
 
-    if (activeConnections.size() >= MAX_CONCURRENT_MQTT_CONNECTIONS) {
+    if (activeConnections.size() + pendingConnections.size >= MAX_CONCURRENT_MQTT_CONNECTIONS) {
       logEntry(503, 'Too many open connections');
       return { success: false, error: 'Too many open MQTT connections.' };
     }
 
-    const existing = activeConnections.get(connectionId);
-    if (existing) {
-      // Renderer reconnected with the same connectionId — tear down the old
-      // client first. Emit a CLOSE log entry so the audit trail records the
-      // implicit disconnect (matches the explicit mqtt:disconnect path).
-      if (onComplete) {
-        onComplete({
-          ts: Date.now(),
-          method: 'CLOSE',
-          url: existing.brokerUrl,
-          status: 0,
-          durationMs: Date.now() - existing.createdAt,
-          protocol: 'mqtt',
-          requestId: connectionId,
-        });
+    // Reserve synchronously before closing an owner reconnect, inspecting broker
+    // credentials, running the guard, or constructing a client.
+    const claim = reserveMqttClaim(connectionId, event.sender);
+    if (!claim) return { success: false, error: 'Not connected' };
+    const key = ownerScopedKey(connectionId, webContentsId);
+    try {
+      if (claim.ownerEntry) {
+        const existing = claim.ownerEntry;
+        if (onComplete) {
+          onComplete({
+            ts: Date.now(),
+            method: 'CLOSE',
+            url: existing.brokerUrl,
+            status: 0,
+            durationMs: Date.now() - existing.createdAt,
+            protocol: 'mqtt',
+            requestId: connectionId,
+          });
+        }
+        await endClient(existing);
+        if (
+          pendingConnections.get(key)?.token !== claim.token ||
+          activeConnections.get(connectionId, webContentsId) !== existing
+        ) {
+          return { success: false, error: 'Not connected' };
+        }
+        activeConnections.remove(connectionId, webContentsId);
       }
-      await endClient(existing);
-      activeConnections.remove(connectionId);
-    }
 
-    try {
-      assertMqttBrokerSafe(cfg.brokerUrl);
-    } catch (err) {
-      const msg = errorMessage(err);
-      logEntry(400, msg);
-      return { success: false, error: msg };
-    }
+      try {
+        assertMqttBrokerSafe(cfg.brokerUrl);
+      } catch (err) {
+        const msg = errorMessage(err);
+        logEntry(400, msg);
+        return { success: false, error: msg };
+      }
 
-    try {
-      const mqtt = getMqtt();
-      const client = mqtt.connect(cfg.brokerUrl, buildClientOptions(cfg));
-      const wc = webContents.fromId(webContentsId) ?? undefined;
-      const entry: ActiveMqtt = {
-        client,
-        connectionId,
-        webContentsId,
-        ...(wc ? { wc } : {}),
-        subscriptions: new Set<string>(),
-        brokerUrl: cfg.brokerUrl,
-        createdAt: Date.now(),
-      };
-      // add() stores the entry and wires renderer-destroyed cleanup: if the
-      // renderer dies without disconnecting, dispose() fire-and-forget ends the
-      // client so the broker socket doesn't leak until process exit (a real leak
-      // under hot-reload). Dedupes the destroyed-listener across reconnects and
-      // centralises the owner→dispose walk (ADR-0006).
-      activeConnections.add(connectionId, event.sender, entry);
-      bindClientListeners(entry);
+      try {
+        if (pendingConnections.get(key)?.token !== claim.token) {
+          return { success: false, error: 'Not connected' };
+        }
+        const mqtt = getMqtt();
+        const client = mqtt.connect(cfg.brokerUrl, buildClientOptions(cfg));
+        const wc = webContents.fromId(webContentsId) ?? undefined;
+        const entry: ActiveMqtt = {
+          client,
+          connectionId,
+          webContentsId,
+          ...(wc ? { wc } : {}),
+          subscriptions: new Set<string>(),
+          brokerUrl: cfg.brokerUrl,
+          createdAt: Date.now(),
+        };
+        if (!activeConnections.tryAdd(connectionId, event.sender, entry)) {
+          await endClient(entry);
+          return { success: false, error: 'Not connected' };
+        }
+        bindClientListeners(entry);
 
-      // CONNACK arrives asynchronously via the 'connect' event → CONNECTED
-      // channel; we only confirm the client was constructed here.
-      logEntry(0);
-      return { success: true };
-    } catch (err) {
-      const msg = errorMessage(err);
-      logEntry(500, msg);
-      return { success: false, error: msg };
+        // CONNACK arrives asynchronously via the 'connect' event → CONNECTED
+        // channel; we only confirm the client was constructed here.
+        logEntry(0);
+        return { success: true };
+      } catch (err) {
+        const msg = errorMessage(err);
+        logEntry(500, msg);
+        return { success: false, error: msg };
+      }
+    } finally {
+      releaseMqttClaim(connectionId, claim);
     }
   });
 
   ipcMain.handle(
     IPC.mqtt.publish,
-    createValidatedHandler(IPC.mqtt.publish, MqttPublishSchema, async (cfg) => {
-      const entry = activeConnections.get(cfg.connectionId);
+    createValidatedEventHandler(IPC.mqtt.publish, MqttPublishSchema, async (cfg, event) => {
+      const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
       if (!entry) return { success: false, error: 'Not connected' };
 
       const properties: NonNullable<Parameters<MqttClient['publish']>[2]>['properties'] = {};
@@ -344,12 +393,16 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
   ipcMain.handle(
     IPC.mqtt.subscribe,
-    createValidatedHandler(IPC.mqtt.subscribe, MqttSubscribeSchema, async (cfg) => {
-      const entry = activeConnections.get(cfg.connectionId);
+    createValidatedEventHandler(IPC.mqtt.subscribe, MqttSubscribeSchema, async (cfg, event) => {
+      const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
       if (!entry) return { success: false, error: 'Not connected' };
 
       return new Promise<{ success: boolean; error?: string }>((resolve) => {
         entry.client.subscribe(cfg.topicFilter, { qos: cfg.qos }, (err, granted) => {
+          if (activeConnections.get(cfg.connectionId, entry.webContentsId) !== entry) {
+            resolve({ success: false, error: 'Not connected' });
+            return;
+          }
           if (err) {
             resolve({ success: false, error: errorMessage(err) });
             return;
@@ -373,12 +426,16 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
   ipcMain.handle(
     IPC.mqtt.unsubscribe,
-    createValidatedHandler(IPC.mqtt.unsubscribe, MqttUnsubscribeSchema, async (cfg) => {
-      const entry = activeConnections.get(cfg.connectionId);
+    createValidatedEventHandler(IPC.mqtt.unsubscribe, MqttUnsubscribeSchema, async (cfg, event) => {
+      const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
       if (!entry) return { success: false, error: 'Not connected' };
 
       return new Promise<{ success: boolean; error?: string }>((resolve) => {
         entry.client.unsubscribe(cfg.topicFilter, (err) => {
+          if (activeConnections.get(cfg.connectionId, entry.webContentsId) !== entry) {
+            resolve({ success: false, error: 'Not connected' });
+            return;
+          }
           if (err) {
             resolve({ success: false, error: errorMessage(err) });
             return;
@@ -395,12 +452,14 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
   ipcMain.handle(
     IPC.mqtt.disconnect,
-    createValidatedHandler(IPC.mqtt.disconnect, MqttDisconnectSchema, async (cfg) => {
-      const entry = activeConnections.get(cfg.connectionId);
+    createValidatedEventHandler(IPC.mqtt.disconnect, MqttDisconnectSchema, async (cfg, event) => {
+      const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
       if (entry) {
         await endClient(entry, false);
-        activeConnections.remove(cfg.connectionId);
-        emitTo(entry.webContentsId, mqttChannel(MQTT_CHANNEL.CLOSE, cfg.connectionId), {});
+        if (activeConnections.get(cfg.connectionId, entry.webContentsId) === entry) {
+          activeConnections.remove(cfg.connectionId, entry.webContentsId);
+          emitTo(entry.webContentsId, mqttChannel(MQTT_CHANNEL.CLOSE, cfg.connectionId), {});
+        }
       }
       return { success: true };
     })
@@ -408,6 +467,7 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 }
 
 export async function stopMqttCleanup(): Promise<void> {
+  pendingConnections.clear();
   for (const entry of activeConnections.values()) {
     await endClient(entry);
   }

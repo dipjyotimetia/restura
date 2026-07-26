@@ -439,11 +439,10 @@ describe('ai-lab-handler E2E: complete', () => {
       ok: false,
       error: 'A completion with this operation ID is already active.',
     });
-    await expect(handlerFor('ai-lab:complete')(OTHER_SENDER, base)).resolves.toEqual({
-      ok: false,
-      error: 'A completion with this operation ID is already active.',
-    });
-    expect(runToCompletion).toHaveBeenCalledOnce();
+    await expect(handlerFor('ai-lab:complete')(OTHER_SENDER, base)).resolves.toEqual(
+      expect.objectContaining({ ok: true })
+    );
+    expect(runToCompletion).toHaveBeenCalledTimes(2);
 
     rejectFirst(new Error('aborted'));
     await expect(first).resolves.toEqual(expect.objectContaining({ ok: false }));
