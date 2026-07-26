@@ -175,7 +175,7 @@ alongside the smallest production change.
 - Files: useReleaseNotes.ts and new focused hook test
 - Scope: S
 
-### Task 16: Make hydration readiness wait for every store
+### Task 16: Make hydration readiness wait for every store — complete
 
 - Acceptance: hydration stays false until all selected stores resolve and
   unmount blocks late React state updates.
