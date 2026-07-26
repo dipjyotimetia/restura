@@ -411,54 +411,69 @@ describe('mqtt-handler', () => {
     expect(second!.end).not.toHaveBeenCalled();
   });
 
-  it('prevents a second renderer from operating or replacing the owner connection', async () => {
-    const owner = makeEvent();
-    const other = makeEvent();
-    await handlerFor(IPC.mqtt.connect)(owner.event, validConnect('shared'));
-    const client = FakeMqttClient.instances[0]!;
-    mockBrokerSafe.mockClear();
-
+  it('lets two renderers independently use the same id and cleans up only the destroyed owner', async () => {
+    const first = makeEvent();
+    const second = makeEvent();
     await expect(
-      handlerFor(IPC.mqtt.publish)(other.event, validPublish('shared'))
-    ).resolves.toEqual({ success: false, error: 'Not connected' });
-    await expect(
-      handlerFor(IPC.mqtt.subscribe)(other.event, {
-        connectionId: 'shared',
-        topicFilter: 'private/#',
-        qos: 1,
-      })
-    ).resolves.toEqual({ success: false, error: 'Not connected' });
-    await expect(
-      handlerFor(IPC.mqtt.unsubscribe)(other.event, {
-        connectionId: 'shared',
-        topicFilter: 'private/#',
-      })
-    ).resolves.toEqual({ success: false, error: 'Not connected' });
-    await expect(
-      handlerFor(IPC.mqtt.disconnect)(other.event, { connectionId: 'shared' })
+      handlerFor(IPC.mqtt.connect)(first.event, validConnect('shared'))
     ).resolves.toEqual({ success: true });
+    const firstClient = FakeMqttClient.instances[0]!;
     await expect(
-      handlerFor(IPC.mqtt.connect)(
-        other.event,
-        validConnect('shared', {
-          brokerUrl: 'mqtts://other.example.com:8883',
-          username: 'other',
-          password: 'secret',
-        })
-      )
+      handlerFor(IPC.mqtt.publish)(second.event, validPublish('shared'))
     ).resolves.toEqual({ success: false, error: 'Not connected' });
-
-    expect(client.publish).not.toHaveBeenCalled();
-    expect(client.subscribe).not.toHaveBeenCalled();
-    expect(client.unsubscribe).not.toHaveBeenCalled();
-    expect(client.end).not.toHaveBeenCalled();
-    expect(FakeMqttClient.instances).toHaveLength(1);
-    expect(mockBrokerSafe).not.toHaveBeenCalled();
+    await expect(
+      handlerFor(IPC.mqtt.disconnect)(second.event, { connectionId: 'shared' })
+    ).resolves.toEqual({ success: true });
+    expect(firstClient.publish).not.toHaveBeenCalled();
+    expect(firstClient.end).not.toHaveBeenCalled();
 
     await expect(
-      handlerFor(IPC.mqtt.publish)(owner.event, validPublish('shared'))
+      handlerFor(IPC.mqtt.connect)(second.event, validConnect('shared'))
+    ).resolves.toEqual({ success: true });
+    const secondClient = FakeMqttClient.instances[1]!;
+
+    await expect(
+      handlerFor(IPC.mqtt.publish)(first.event, validPublish('shared'))
     ).resolves.toMatchObject({ success: true });
-    expect(client.publish).toHaveBeenCalledTimes(1);
+    await expect(
+      handlerFor(IPC.mqtt.publish)(second.event, validPublish('shared'))
+    ).resolves.toMatchObject({ success: true });
+    expect(firstClient.publish).toHaveBeenCalledOnce();
+    expect(secondClient.publish).toHaveBeenCalledOnce();
+
+    first.destroy();
+    await vi.waitFor(() =>
+      expect(firstClient.end).toHaveBeenCalledWith(true, undefined, expect.any(Function))
+    );
+    expect(secondClient.end).not.toHaveBeenCalled();
+    await expect(
+      handlerFor(IPC.mqtt.publish)(second.event, validPublish('shared'))
+    ).resolves.toMatchObject({ success: true });
+    expect(secondClient.publish).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a same-id reservation private to its renderer during reconnect teardown', async () => {
+    const first = makeEvent();
+    const second = makeEvent();
+    await handlerFor(IPC.mqtt.connect)(first.event, validConnect('shared'));
+    const previous = FakeMqttClient.instances[0]!;
+    const endGate = deferred<void>();
+    previous.end.mockImplementationOnce((_force, _opts, cb?: () => void) => {
+      void endGate.promise.then(() => cb?.());
+      return previous;
+    });
+
+    const reconnect = handlerFor(IPC.mqtt.connect)(first.event, validConnect('shared'));
+    await vi.waitFor(() => expect(previous.end).toHaveBeenCalledTimes(1));
+    await expect(
+      handlerFor(IPC.mqtt.connect)(second.event, validConnect('shared'))
+    ).resolves.toEqual({ success: true });
+
+    endGate.resolve();
+    await expect(reconnect).resolves.toEqual({ success: true });
+    expect(FakeMqttClient.instances).toHaveLength(3);
+    expect(FakeMqttClient.instances[1]!.end).not.toHaveBeenCalled();
+    expect(FakeMqttClient.instances[2]!.end).not.toHaveBeenCalled();
   });
 
   it('reserves a same-id reconnect before awaiting teardown or broker setup', async () => {

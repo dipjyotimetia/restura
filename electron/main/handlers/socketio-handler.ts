@@ -17,7 +17,7 @@ import {
   SocketIoEmitSchema,
   validateIpcInput,
 } from '../ipc/ipc-validators';
-import { StreamRegistry } from '../ipc/stream-registry';
+import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import { getExecutionPolicy } from '../security/execution-policy';
 import {
   assertPinnedFetchCanHonorPolicy,
@@ -100,26 +100,27 @@ function reserveSocketIoClaim(
   connectionId: string,
   webContents: WebContents
 ): PendingSocketIoClaim | undefined {
-  if (pendingConnections.has(connectionId)) return undefined;
+  const key = ownerScopedKey(connectionId, webContents.id);
+  if (pendingConnections.has(key)) return undefined;
 
   const ownerEntry = activeConnections.getForOwner(connectionId, webContents.id);
-  if (activeConnections.has(connectionId) && !ownerEntry) return undefined;
 
   const claim: PendingSocketIoClaim = {
     webContentsId: webContents.id,
     token: Symbol(connectionId),
     ownerEntry,
   };
-  pendingConnections.set(connectionId, claim);
+  pendingConnections.set(key, claim);
   bindRendererCleanup(pendingConnections, webContents, (deadId) =>
     disposeByOwner(pendingConnections, deadId, () => {})
   );
-  return pendingConnections.get(connectionId) === claim ? claim : undefined;
+  return pendingConnections.get(key) === claim ? claim : undefined;
 }
 
 function releaseSocketIoClaim(connectionId: string, claim: PendingSocketIoClaim): void {
-  if (pendingConnections.get(connectionId)?.token === claim.token) {
-    pendingConnections.delete(connectionId);
+  const key = ownerScopedKey(connectionId, claim.webContentsId);
+  if (pendingConnections.get(key)?.token === claim.token) {
+    pendingConnections.delete(key);
   }
 }
 
@@ -170,8 +171,8 @@ export function registerSocketIoHandlerIPC(): void {
       return { success: false, error: 'Too many open Socket.IO connections.' };
     }
 
-    // Reserve synchronously before DNS or transport construction. Existing and
-    // pending wrong-owner ids are rejected without dialing.
+    // Reserve this renderer's id synchronously before DNS or transport
+    // construction. Another renderer may independently use the same external id.
     const claim = reserveSocketIoClaim(connectionId, event.sender);
     if (!claim) return { success: false, error: 'Not connected' };
 
@@ -198,7 +199,8 @@ export function registerSocketIoHandlerIPC(): void {
 
       // Renderer destruction/module teardown may invalidate the reservation
       // while DNS is pending. Never load/start a transport for a stale claim.
-      if (pendingConnections.get(connectionId)?.token !== claim.token) {
+      const key = ownerScopedKey(connectionId, webContentsId);
+      if (pendingConnections.get(key)?.token !== claim.token) {
         return { success: false, error: 'Not connected' };
       }
 
@@ -207,7 +209,7 @@ export function registerSocketIoHandlerIPC(): void {
         const secure = /^(https|wss):/i.test(config.url);
         const lookup = createPinnedLookup(pinned.host, pinned.ip);
         const io = await getIo();
-        if (pendingConnections.get(connectionId)?.token !== claim.token) {
+        if (pendingConnections.get(key)?.token !== claim.token) {
           return { success: false, error: 'Not connected' };
         }
         const agent = secure ? new HttpsAgent({ lookup }) : new HttpAgent({ lookup });
@@ -243,41 +245,41 @@ export function registerSocketIoHandlerIPC(): void {
         };
 
         socket.on('connect', () => {
-          if (activeConnections.get(connectionId) !== entry) return;
+          if (activeConnections.get(connectionId, webContentsId) !== entry) return;
           emitTo(webContentsId, socketioChannels.open(connectionId), { socketId: socket.id });
         });
 
         socket.on('disconnect', (reason: string) => {
-          if (activeConnections.get(connectionId) !== entry) return;
+          if (activeConnections.get(connectionId, webContentsId) !== entry) return;
           if (!entry.explicitlyClosed) {
             emitTo(webContentsId, socketioChannels.close(connectionId), { reason });
           }
         });
 
         socket.on('connect_error', (err: Error) => {
-          if (activeConnections.get(connectionId) !== entry) return;
+          if (activeConnections.get(connectionId, webContentsId) !== entry) return;
           log.warn('connect error', { connectionId, error: err.message });
           emitTo(webContentsId, socketioChannels.error(connectionId), { message: err.message });
         });
 
         const manager = socket.io;
         manager.on('reconnect_attempt', (attempt: number) => {
-          if (activeConnections.get(connectionId) !== entry) return;
+          if (activeConnections.get(connectionId, webContentsId) !== entry) return;
           emitTo(webContentsId, socketioChannels.reconnectAttempt(connectionId), { attempt });
         });
         manager.on('reconnect', (attempt: number) => {
-          if (activeConnections.get(connectionId) !== entry) return;
+          if (activeConnections.get(connectionId, webContentsId) !== entry) return;
           emitTo(webContentsId, socketioChannels.reconnect(connectionId), { attempt });
         });
         manager.on('reconnect_failed', () => {
-          if (activeConnections.get(connectionId) !== entry) return;
+          if (activeConnections.get(connectionId, webContentsId) !== entry) return;
           emitTo(webContentsId, socketioChannels.reconnectFailed(connectionId));
         });
 
         // Forwards application events; lifecycle events above already cover
         // SOCKETIO_RESERVED_EVENTS.
         socket.onAny((eventName: string, ...args: unknown[]) => {
-          if (activeConnections.get(connectionId) !== entry) return;
+          if (activeConnections.get(connectionId, webContentsId) !== entry) return;
           if (SOCKETIO_RESERVED_EVENTS.has(eventName)) return;
           emitTo(webContentsId, socketioChannels.event(connectionId), { eventName, args });
         });
@@ -286,9 +288,9 @@ export function registerSocketIoHandlerIPC(): void {
         // the original owner entry to still be current so stale work cannot
         // replace a newer connection.
         const claimed =
-          pendingConnections.get(connectionId)?.token === claim.token &&
+          pendingConnections.get(key)?.token === claim.token &&
           (claim.ownerEntry
-            ? activeConnections.get(connectionId) === claim.ownerEntry &&
+            ? activeConnections.get(connectionId, webContentsId) === claim.ownerEntry &&
               activeConnections.replaceForOwner(connectionId, webContentsId, entry)
             : activeConnections.tryAdd(connectionId, event.sender, entry));
         if (!claimed) {

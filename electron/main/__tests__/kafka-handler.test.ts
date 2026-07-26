@@ -342,59 +342,46 @@ describe('kafka-handler', () => {
     expect(second!.close).not.toHaveBeenCalled();
   });
 
-  it('prevents a second renderer from operating or replacing the owner connection', async () => {
-    const owner = makeEvent();
-    const other = makeEvent();
-    await handlerFor(IPC.kafka.connect)(owner.event, validConnect('shared'));
-    const producer = FakeProducer.instances[0]!;
-    mockBrokersSafe.mockClear();
-
+  it('lets two renderers independently use the same id and cleans up only the destroyed owner', async () => {
+    const first = makeEvent();
+    const second = makeEvent();
     await expect(
-      handlerFor(IPC.kafka.produce)(other.event, validProduce('shared'))
-    ).resolves.toEqual({ success: false, error: 'Not connected' });
-    await expect(
-      handlerFor(IPC.kafka.subscribe)(other.event, {
-        connectionId: 'shared',
-        topics: ['orders'],
-        groupId: 'other-group',
-        fromBeginning: false,
-      })
-    ).resolves.toEqual({ success: false, error: 'Not connected' });
-    await expect(
-      handlerFor(IPC.kafka.unsubscribe)(other.event, { connectionId: 'shared' })
-    ).resolves.toEqual({ success: false, error: 'Not connected' });
-    await expect(
-      handlerFor(IPC.kafka.listTopics)(other.event, { connectionId: 'shared' })
-    ).resolves.toEqual({ success: false, error: 'Not connected' });
-    await expect(
-      handlerFor(IPC.kafka.disconnect)(other.event, { connectionId: 'shared' })
+      handlerFor(IPC.kafka.connect)(first.event, validConnect('shared'))
     ).resolves.toEqual({ success: true });
+    const firstProducer = FakeProducer.instances[0]!;
     await expect(
-      handlerFor(IPC.kafka.connect)(
-        other.event,
-        validConnect('shared', {
-          bootstrapBrokers: ['other.example.com:9092'],
-          auth: {
-            securityProtocol: 'SASL_PLAINTEXT',
-            sasl: { mechanism: 'PLAIN', username: 'other', password: 'secret' },
-          },
-        })
-      )
+      handlerFor(IPC.kafka.produce)(second.event, validProduce('shared'))
     ).resolves.toEqual({ success: false, error: 'Not connected' });
-
-    expect(producer.send).not.toHaveBeenCalled();
-    expect(producer.close).not.toHaveBeenCalled();
-    expect(FakeAdmin.instances).toHaveLength(0);
-    expect(FakeProducer.instances).toHaveLength(1);
-    expect(mockBrokersSafe).not.toHaveBeenCalled();
+    await expect(
+      handlerFor(IPC.kafka.disconnect)(second.event, { connectionId: 'shared' })
+    ).resolves.toEqual({ success: true });
+    expect(firstProducer.send).not.toHaveBeenCalled();
+    expect(firstProducer.close).not.toHaveBeenCalled();
 
     await expect(
-      handlerFor(IPC.kafka.produce)(owner.event, validProduce('shared'))
+      handlerFor(IPC.kafka.connect)(second.event, validConnect('shared'))
+    ).resolves.toEqual({ success: true });
+    const secondProducer = FakeProducer.instances[1]!;
+
+    await expect(
+      handlerFor(IPC.kafka.produce)(first.event, validProduce('shared'))
     ).resolves.toMatchObject({ success: true });
-    expect(producer.send).toHaveBeenCalledTimes(1);
+    await expect(
+      handlerFor(IPC.kafka.produce)(second.event, validProduce('shared'))
+    ).resolves.toMatchObject({ success: true });
+    expect(firstProducer.send).toHaveBeenCalledOnce();
+    expect(secondProducer.send).toHaveBeenCalledOnce();
+
+    first.destroy();
+    await vi.waitFor(() => expect(firstProducer.close).toHaveBeenCalledWith(true));
+    expect(secondProducer.close).not.toHaveBeenCalled();
+    await expect(
+      handlerFor(IPC.kafka.produce)(second.event, validProduce('shared'))
+    ).resolves.toMatchObject({ success: true });
+    expect(secondProducer.send).toHaveBeenCalledTimes(2);
   });
 
-  it('reserves a same-id connect before broker setup and keeps the first completion', async () => {
+  it('reserves concurrent same-id connects independently per renderer before broker setup', async () => {
     const first = makeEvent();
     const second = makeEvent();
     const metadataGate = deferred<void>();
@@ -404,9 +391,9 @@ describe('kafka-handler', () => {
     await vi.waitFor(() => expect(FakeProducer.instances).toHaveLength(1));
     const secondConnect = handlerFor(IPC.kafka.connect)(second.event, validConnect('raced'));
 
-    await expect(secondConnect).resolves.toEqual({ success: false, error: 'Not connected' });
-    expect(mockBrokersSafe).toHaveBeenCalledTimes(1);
-    expect(FakeProducer.instances).toHaveLength(1);
+    await expect(secondConnect).resolves.toEqual({ success: true });
+    expect(mockBrokersSafe).toHaveBeenCalledTimes(2);
+    expect(FakeProducer.instances).toHaveLength(2);
 
     metadataGate.resolve();
     await expect(firstConnect).resolves.toEqual({ success: true });
@@ -415,7 +402,7 @@ describe('kafka-handler', () => {
     ).resolves.toMatchObject({ success: true });
     await expect(
       handlerFor(IPC.kafka.produce)(second.event, validProduce('raced'))
-    ).resolves.toEqual({ success: false, error: 'Not connected' });
+    ).resolves.toMatchObject({ success: true });
   });
 
   it('disposes a destroyed renderer pending producer and rejects its late completion', async () => {

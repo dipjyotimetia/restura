@@ -22,7 +22,7 @@ import {
   McpRequestSchema,
   validateIpcInput,
 } from '../ipc/ipc-validators';
-import { StreamRegistry } from '../ipc/stream-registry';
+import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import { getExecutionPolicy } from '../security/execution-policy';
 import {
   assertPinnedFetchCanHonorPolicy,
@@ -109,36 +109,38 @@ function reserveMcpClaim(
   connectionId: string,
   webContents: WebContents
 ): PendingMcpClaim | undefined {
-  if (pendingSessions.has(connectionId)) return undefined;
+  const key = ownerScopedKey(connectionId, webContents.id);
+  if (pendingSessions.has(key)) return undefined;
 
   const ownerEntry = sessions.getForOwner(connectionId, webContents.id);
-  if (sessions.has(connectionId) && !ownerEntry) return undefined;
 
   const claim: PendingMcpClaim = {
     webContentsId: webContents.id,
     token: Symbol(connectionId),
     ownerEntry,
   };
-  pendingSessions.set(connectionId, claim);
+  pendingSessions.set(key, claim);
   bindRendererCleanup(pendingSessions, webContents, (deadId) =>
     disposeByOwner(pendingSessions, deadId, disposePendingMcpClaim)
   );
-  return pendingSessions.get(connectionId) === claim ? claim : undefined;
+  return pendingSessions.get(key) === claim ? claim : undefined;
 }
 
 function releaseMcpClaim(connectionId: string, claim: PendingMcpClaim): void {
-  if (pendingSessions.get(connectionId)?.token === claim.token) {
-    pendingSessions.delete(connectionId);
+  const key = ownerScopedKey(connectionId, claim.webContentsId);
+  if (pendingSessions.get(key)?.token === claim.token) {
+    pendingSessions.delete(key);
   }
 }
 
 function cancelPendingMcpClaimForOwner(connectionId: string, webContentsId: number): boolean {
-  const claim = pendingSessions.get(connectionId);
-  if (!claim || claim.webContentsId !== webContentsId) return false;
+  const key = ownerScopedKey(connectionId, webContentsId);
+  const claim = pendingSessions.get(key);
+  if (!claim) return false;
 
   // Invalidate the claim before closing its in-flight transport. If the close
   // settles connect synchronously, the stale attempt still cannot commit.
-  pendingSessions.delete(connectionId);
+  pendingSessions.delete(key);
   try {
     disposePendingMcpClaim(claim);
   } catch {
@@ -168,10 +170,11 @@ export function registerMcpHandlerIPC(): void {
       return { success: false, error: 'Too many open MCP connections.' };
     }
 
-    // Reserve synchronously before DNS or client construction. Existing and
-    // pending wrong-owner ids are rejected without dialing.
+    // Reserve this renderer's id synchronously before DNS or client construction.
+    // Another renderer may independently use the same external id.
     const claim = reserveMcpClaim(config.connectionId, event.sender);
     if (!claim) return { success: false, error: 'Not connected' };
+    const key = ownerScopedKey(config.connectionId, webContentsId);
 
     try {
       // SSRF guard: resolve once, validate every record, and pin the connection
@@ -190,7 +193,7 @@ export function registerMcpHandlerIPC(): void {
 
       // Renderer destruction/module teardown may invalidate the reservation
       // while DNS is pending. Never construct a transport for a stale claim.
-      if (pendingSessions.get(config.connectionId)?.token !== claim.token) {
+      if (pendingSessions.get(key)?.token !== claim.token) {
         return { success: false, error: 'Not connected' };
       }
 
@@ -239,15 +242,15 @@ export function registerMcpHandlerIPC(): void {
       client.onclose = () => {
         if (session.disposed) return;
         session.disposed = true;
-        if (sessions.get(config.connectionId) === session) {
-          sessions.remove(config.connectionId);
+        if (sessions.get(config.connectionId, webContentsId) === session) {
+          sessions.remove(config.connectionId, webContentsId);
           emitTo(webContentsId, eventChannel(EVENT_PREFIX.mcp.close, config.connectionId), {
             reason: 'stream ended',
           });
         }
       };
 
-      if (pendingSessions.get(config.connectionId)?.token !== claim.token) {
+      if (pendingSessions.get(key)?.token !== claim.token) {
         disposeSession(session);
         return { success: false, error: 'Not connected' };
       }
@@ -278,7 +281,7 @@ export function registerMcpHandlerIPC(): void {
         // the renderer a dead connection is live (every later request fails, with
         // no close ever sent). Treat it as a failed connect instead.
         if (session.disposed) {
-          if (pendingSessions.get(config.connectionId)?.token === claim.token) {
+          if (pendingSessions.get(key)?.token === claim.token) {
             void client.close().catch(() => {});
           }
           log.warn('connect closed during initialization', {
@@ -290,9 +293,9 @@ export function registerMcpHandlerIPC(): void {
         // Commit only the exact live reservation. A reconnect may replace only
         // the same renderer's still-current session.
         const claimed =
-          pendingSessions.get(config.connectionId)?.token === claim.token &&
+          pendingSessions.get(key)?.token === claim.token &&
           (claim.ownerEntry
-            ? sessions.get(config.connectionId) === claim.ownerEntry &&
+            ? sessions.get(config.connectionId, webContentsId) === claim.ownerEntry &&
               sessions.replaceForOwner(config.connectionId, webContentsId, session)
             : sessions.tryAdd(config.connectionId, event.sender, session));
         if (!claimed) {

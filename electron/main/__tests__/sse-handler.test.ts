@@ -152,10 +152,10 @@ describe('sse-handler (StreamRegistry-backed)', () => {
 
   it('disconnect suppresses the trailing close event (explicitlyClosed)', async () => {
     // A body that never closes, so the only close would come from disconnect.
-    mockStreaming.mockResolvedValue({
+    mockStreaming.mockImplementation(async () => ({
       ok: true,
       response: { status: 200, statusText: 'OK', body: new ReadableStream({ start() {} }) },
-    });
+    }));
     const { event } = makeEvent(7);
     await handlerFor('sse:connect')(event, { connectionId: 'c3', url: 'https://x' });
     await flush();
@@ -166,45 +166,66 @@ describe('sse-handler (StreamRegistry-backed)', () => {
     expect(mockEmitTo.mock.calls.some((c) => c[1] === 'sse:close:c3')).toBe(false);
   });
 
-  it('prevents a second renderer from disconnecting or replacing the owner connection', async () => {
+  it('lets two renderers independently use the same id and clean up their own connection', async () => {
+    const controllers: Array<ReadableStreamDefaultController<Uint8Array>> = [];
     mockStreaming.mockImplementation(async () => ({
       ok: true,
-      response: { status: 200, statusText: 'OK', body: new ReadableStream({ start() {} }) },
+      response: {
+        status: 200,
+        statusText: 'OK',
+        body: new ReadableStream({
+          start(controller) {
+            controllers.push(controller);
+          },
+        }),
+      },
     }));
-    const owner = makeEvent(7);
-    const nonOwner = makeEvent(8);
-
-    await handlerFor('sse:connect')(owner.event, {
-      connectionId: 'shared',
-      url: 'https://owner.example/stream',
-    });
+    const first = makeEvent(7);
+    const second = makeEvent(8);
 
     await expect(
-      handlerFor('sse:disconnect')(nonOwner.event, { connectionId: 'shared' })
-    ).resolves.toEqual({ success: true });
-
-    mockResolveSafe.mockClear();
-    mockStreaming.mockClear();
-    await expect(
-      handlerFor('sse:connect')(nonOwner.event, {
+      handlerFor('sse:connect')(first.event, {
         connectionId: 'shared',
-        url: 'https://attacker.example/stream',
-      })
-    ).resolves.toEqual({ success: false, error: 'Not connected' });
-    expect(mockResolveSafe).not.toHaveBeenCalled();
-    expect(mockStreaming).not.toHaveBeenCalled();
-
-    await expect(
-      handlerFor('sse:connect')(owner.event, {
-        connectionId: 'shared',
-        url: 'https://owner.example/reconnected',
+        url: 'https://first.example/stream',
       })
     ).resolves.toEqual({ success: true });
-    expect(mockResolveSafe).toHaveBeenCalledTimes(1);
-    expect(mockStreaming).toHaveBeenCalledTimes(1);
+    await expect(
+      handlerFor('sse:disconnect')(second.event, { connectionId: 'shared' })
+    ).resolves.toEqual({ success: true });
+    controllers[0]!.enqueue(new TextEncoder().encode('data: first-still-live\n\n'));
+    await flush();
+    expect(mockEmitTo).toHaveBeenCalledWith(
+      7,
+      'sse:event:shared',
+      expect.objectContaining({ data: 'first-still-live' })
+    );
+
+    await expect(
+      handlerFor('sse:connect')(second.event, {
+        connectionId: 'shared',
+        url: 'https://second.example/stream',
+      })
+    ).resolves.toEqual({ success: true });
+    expect(mockResolveSafe).toHaveBeenCalledTimes(2);
+    expect(mockStreaming).toHaveBeenCalledTimes(2);
+    expect(mockEmitTo).toHaveBeenCalledWith(7, 'sse:open:shared', undefined);
+    expect(mockEmitTo).toHaveBeenCalledWith(8, 'sse:open:shared', undefined);
+
+    first.destroy();
+    mockEmitTo.mockClear();
+    controllers[1]!.enqueue(new TextEncoder().encode('data: second-still-live\n\n'));
+    await flush();
+    expect(mockEmitTo).toHaveBeenCalledWith(
+      8,
+      'sse:event:shared',
+      expect.objectContaining({ data: 'second-still-live' })
+    );
+    await expect(
+      handlerFor('sse:disconnect')(second.event, { connectionId: 'shared' })
+    ).resolves.toEqual({ success: true });
   });
 
-  it('reserves a concurrent same-id connect for the first renderer before DNS', async () => {
+  it('reserves concurrent same-id connects independently per renderer before DNS', async () => {
     const first = makeEvent(10);
     const second = makeEvent(11);
     const firstDns = deferred<{
@@ -214,10 +235,10 @@ describe('sse-handler (StreamRegistry-backed)', () => {
       family: 4;
     }>();
     mockResolveSafe.mockImplementationOnce(() => firstDns.promise);
-    mockStreaming.mockResolvedValue({
+    mockStreaming.mockImplementation(async () => ({
       ok: true,
       response: { status: 200, statusText: 'OK', body: new ReadableStream({ start() {} }) },
-    });
+    }));
 
     const firstConnect = handlerFor('sse:connect')(first.event, {
       connectionId: 'raced',
@@ -228,9 +249,9 @@ describe('sse-handler (StreamRegistry-backed)', () => {
       url: 'https://second.example/stream',
     });
 
-    expect(mockResolveSafe).toHaveBeenCalledTimes(1);
-    await expect(secondConnect).resolves.toEqual({ success: false, error: 'Not connected' });
-    expect(mockStreaming).not.toHaveBeenCalled();
+    expect(mockResolveSafe).toHaveBeenCalledTimes(2);
+    await expect(secondConnect).resolves.toEqual({ success: true });
+    expect(mockStreaming).toHaveBeenCalledTimes(1);
 
     firstDns.resolve({
       host: 'first.example',
@@ -239,8 +260,9 @@ describe('sse-handler (StreamRegistry-backed)', () => {
       family: 4,
     });
     await expect(firstConnect).resolves.toEqual({ success: true });
-    expect(mockStreaming).toHaveBeenCalledTimes(1);
+    expect(mockStreaming).toHaveBeenCalledTimes(2);
     expect(mockEmitTo).toHaveBeenCalledWith(10, 'sse:open:raced', undefined);
+    expect(mockEmitTo).toHaveBeenCalledWith(11, 'sse:open:raced', undefined);
   });
 
   it('tears down a connection when its renderer is destroyed', async () => {

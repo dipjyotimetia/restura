@@ -8,9 +8,10 @@ import { emitTo } from './ipc-utils';
  * Socket.IO, Kafka, MQTT, gRPC streams, MCP). Before this, each handler hand-rolled
  * the same five things and they drifted:
  *
- *   1. a `Map<connectionId, Entry>` of live connections (every Entry carrying a
- *      `webContentsId` so it can be torn down when its renderer dies),
- *   2. "a reconnect with the same id replaces the old connection" (dispose old, store new),
+ *   1. a `Map<owner+connectionId, Entry>` of live connections (every Entry carrying
+ *      a `webContentsId` so it can be torn down when its renderer dies),
+ *   2. "a reconnect with the same owner + id replaces the old connection"
+ *      (dispose old, store new), while another renderer may use the same external id,
  *   3. one `bindRendererCleanup` + `disposeByOwner` wiring so a destroyed renderer
  *      kills exactly its own connections (not another window's),
  *   4. templated per-connection event emission (`emitTo(id, eventChannel(prefix, id), …)`),
@@ -45,6 +46,11 @@ export interface StreamRegistryOptions<E extends StreamEntryBase> {
   dispose: (entry: E) => void;
 }
 
+/** Scope a renderer-provided resource id to the renderer that owns it. */
+export function ownerScopedKey(externalId: string, webContentsId: number): string {
+  return `${webContentsId}:${externalId}`;
+}
+
 export class StreamRegistry<E extends StreamEntryBase> {
   private readonly map = new Map<string, E>();
   private readonly prefixes?: Record<string, string>;
@@ -56,8 +62,8 @@ export class StreamRegistry<E extends StreamEntryBase> {
   }
 
   /**
-   * Register `entry` under `connectionId`, owned by `webContents`. If an entry
-   * already exists for that id (a reconnect), it is disposed and replaced. Binds
+   * Register `entry` under the owner-scoped `connectionId`. If an entry already
+   * exists for that owner + id (a reconnect), it is disposed and replaced. Binds
    * the renderer-cleanup listener so a destroyed `webContents` disposes exactly
    * its own entries — idempotent across calls (deduped per webContents).
    *
@@ -65,11 +71,12 @@ export class StreamRegistry<E extends StreamEntryBase> {
    * state-keeping, not the policy.
    */
   add(connectionId: string, webContents: WebContents, entry: E): void {
-    const existing = this.map.get(connectionId);
+    const key = ownerScopedKey(connectionId, webContents.id);
+    const existing = this.map.get(key);
     if (existing) {
       this.safeDispose(existing);
     }
-    this.map.set(connectionId, entry);
+    this.map.set(key, entry);
     // `this` is a stable per-registry key, so bindRendererCleanup dedupes the
     // 'destroyed' listener across every add from the same webContents.
     bindRendererCleanup(this, webContents, (deadId) =>
@@ -79,26 +86,27 @@ export class StreamRegistry<E extends StreamEntryBase> {
 
   /**
    * Like {@link add}, but REJECTS (returns false) when an entry already exists
-   * for `connectionId` instead of disposing+replacing it. For handlers where a
-   * duplicate id is a caller bug rather than a reconnect (gRPC stream ids).
+   * for this owner + `connectionId` instead of disposing+replacing it. For
+   * handlers where a same-owner duplicate id is a caller bug rather than a
+   * reconnect (gRPC stream ids).
    */
   tryAdd(connectionId: string, webContents: WebContents, entry: E): boolean {
-    if (this.map.has(connectionId)) return false;
-    this.map.set(connectionId, entry);
+    const key = ownerScopedKey(connectionId, webContents.id);
+    if (this.map.has(key)) return false;
+    this.map.set(key, entry);
     bindRendererCleanup(this, webContents, (deadId) =>
       disposeByOwner(this.map, deadId, (e) => this.safeDispose(e))
     );
     return true;
   }
 
-  get(connectionId: string): E | undefined {
-    return this.map.get(connectionId);
+  get(connectionId: string, webContentsId: number): E | undefined {
+    return this.map.get(ownerScopedKey(connectionId, webContentsId));
   }
 
   /** Return an entry only when it belongs to the given renderer. */
   getForOwner(connectionId: string, webContentsId: number): E | undefined {
-    const entry = this.map.get(connectionId);
-    return entry?.webContentsId === webContentsId ? entry : undefined;
+    return this.get(connectionId, webContentsId);
   }
 
   /**
@@ -110,12 +118,12 @@ export class StreamRegistry<E extends StreamEntryBase> {
     const existing = this.getForOwner(connectionId, webContentsId);
     if (!existing) return false;
     this.safeDispose(existing);
-    this.map.set(connectionId, entry);
+    this.map.set(ownerScopedKey(connectionId, webContentsId), entry);
     return true;
   }
 
-  has(connectionId: string): boolean {
-    return this.map.has(connectionId);
+  has(connectionId: string, webContentsId: number): boolean {
+    return this.map.has(ownerScopedKey(connectionId, webContentsId));
   }
 
   size(): number {
@@ -152,19 +160,20 @@ export class StreamRegistry<E extends StreamEntryBase> {
    * already ended on its own (the read loop drained, the socket closed) and the
    * handler only needs to drop the bookkeeping. Mirrors the old `map.delete(id)`.
    */
-  remove(connectionId: string): void {
-    this.map.delete(connectionId);
+  remove(connectionId: string, webContentsId: number): void {
+    this.map.delete(ownerScopedKey(connectionId, webContentsId));
   }
 
   /**
    * Dispose AND remove an entry — for explicit disconnect/cancel channels.
    * Returns true if an entry existed.
    */
-  cancel(connectionId: string): boolean {
-    const entry = this.map.get(connectionId);
+  cancel(connectionId: string, webContentsId: number): boolean {
+    const key = ownerScopedKey(connectionId, webContentsId);
+    const entry = this.map.get(key);
     if (!entry) return false;
     this.safeDispose(entry);
-    this.map.delete(connectionId);
+    this.map.delete(key);
     return true;
   }
 
@@ -173,11 +182,7 @@ export class StreamRegistry<E extends StreamEntryBase> {
    * Missing and wrong-owner entries both return false.
    */
   cancelForOwner(connectionId: string, webContentsId: number): boolean {
-    const entry = this.getForOwner(connectionId, webContentsId);
-    if (!entry) return false;
-    this.safeDispose(entry);
-    this.map.delete(connectionId);
-    return true;
+    return this.cancel(connectionId, webContentsId);
   }
 
   /**
@@ -189,8 +194,8 @@ export class StreamRegistry<E extends StreamEntryBase> {
    * {@link emitAndRemove} instead — `emit` resolves the renderer from the live
    * map entry, so emitting after a bare {@link remove} would silently no-op.
    */
-  emit(connectionId: string, eventName: string, payload?: unknown): void {
-    const entry = this.map.get(connectionId);
+  emit(connectionId: string, webContentsId: number, eventName: string, payload?: unknown): void {
+    const entry = this.get(connectionId, webContentsId);
     if (!entry || !this.prefixes) return;
     const prefix = this.prefixes[eventName];
     if (prefix === undefined) return;
@@ -203,9 +208,14 @@ export class StreamRegistry<E extends StreamEntryBase> {
    * can't accidentally remove first and silently no-op the final event (the
    * foot-gun that {@link emit}'s live-entry lookup creates).
    */
-  emitAndRemove(connectionId: string, eventName: string, payload?: unknown): void {
-    this.emit(connectionId, eventName, payload);
-    this.map.delete(connectionId);
+  emitAndRemove(
+    connectionId: string,
+    webContentsId: number,
+    eventName: string,
+    payload?: unknown
+  ): void {
+    this.emit(connectionId, webContentsId, eventName, payload);
+    this.map.delete(ownerScopedKey(connectionId, webContentsId));
   }
 
   /** Dispose every entry and clear the map — for the handler's `stop*Cleanup()`. */

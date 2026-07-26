@@ -12,7 +12,7 @@ import {
   WsDisconnectSchema,
   WsSendSchema,
 } from '../ipc/ipc-validators';
-import { StreamRegistry } from '../ipc/stream-registry';
+import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import { getExecutionPolicy } from '../security/execution-policy';
 import {
   assertPinnedFetchCanHonorPolicy,
@@ -68,26 +68,27 @@ function reserveWebSocketClaim(
   connectionId: string,
   webContents: WebContents
 ): PendingWebSocketClaim | undefined {
-  if (pendingConnections.has(connectionId)) return undefined;
+  const key = ownerScopedKey(connectionId, webContents.id);
+  if (pendingConnections.has(key)) return undefined;
 
   const ownerEntry = connections.getForOwner(connectionId, webContents.id);
-  if (connections.has(connectionId) && !ownerEntry) return undefined;
 
   const claim: PendingWebSocketClaim = {
     webContentsId: webContents.id,
     token: Symbol(connectionId),
     ownerEntry,
   };
-  pendingConnections.set(connectionId, claim);
+  pendingConnections.set(key, claim);
   bindRendererCleanup(pendingConnections, webContents, (deadId) =>
     disposeByOwner(pendingConnections, deadId, () => {})
   );
-  return pendingConnections.get(connectionId) === claim ? claim : undefined;
+  return pendingConnections.get(key) === claim ? claim : undefined;
 }
 
 function releaseWebSocketClaim(connectionId: string, claim: PendingWebSocketClaim): void {
-  if (pendingConnections.get(connectionId)?.token === claim.token) {
-    pendingConnections.delete(connectionId);
+  const key = ownerScopedKey(connectionId, claim.webContentsId);
+  if (pendingConnections.get(key)?.token === claim.token) {
+    pendingConnections.delete(key);
   }
 }
 
@@ -130,8 +131,8 @@ export function registerWebSocketHandlerIPC(): void {
       return { success: false, error: 'Too many open connections.' };
     }
 
-    // Reserve synchronously before DNS or transport construction. Existing and
-    // pending wrong-owner ids are rejected without dialing.
+    // Reserve this renderer's id synchronously before DNS or transport
+    // construction. Another renderer may independently use the same external id.
     const claim = reserveWebSocketClaim(connectionId, event.sender);
     if (!claim) return { success: false, error: 'Not connected' };
 
@@ -155,7 +156,8 @@ export function registerWebSocketHandlerIPC(): void {
 
       // Renderer destruction/module teardown may invalidate the reservation
       // while DNS is pending. Never construct a transport for a stale claim.
-      if (pendingConnections.get(connectionId)?.token !== claim.token) {
+      const key = ownerScopedKey(connectionId, webContentsId);
+      if (pendingConnections.get(key)?.token !== claim.token) {
         return { success: false, error: 'Not connected' };
       }
 
@@ -187,29 +189,35 @@ export function registerWebSocketHandlerIPC(): void {
         };
 
         ws.on('open', () => {
-          if (connections.get(connectionId) !== entry) return;
+          if (connections.get(connectionId, webContentsId) !== entry) return;
           // Surface the negotiated subprotocol so the renderer can satisfy callers
           // that verify it (graphql-transport-ws requires socket.protocol to match).
-          connections.emit(connectionId, 'open', { protocol: ws.protocol ?? '' });
+          connections.emit(connectionId, webContentsId, 'open', { protocol: ws.protocol ?? '' });
         });
 
         ws.on('message', (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
-          if (connections.get(connectionId) !== entry) return;
+          if (connections.get(connectionId, webContentsId) !== entry) return;
           if (isBinary) {
             // Binary frames are encoded as base64 for IPC transport
             const b64 = Buffer.isBuffer(data)
               ? data.toString('base64')
               : Buffer.from(data as ArrayBuffer).toString('base64');
-            connections.emit(connectionId, 'message', { type: 'binary', data: b64 });
+            connections.emit(connectionId, webContentsId, 'message', {
+              type: 'binary',
+              data: b64,
+            });
           } else {
-            connections.emit(connectionId, 'message', { type: 'text', data: data.toString() });
+            connections.emit(connectionId, webContentsId, 'message', {
+              type: 'text',
+              data: data.toString(),
+            });
           }
         });
 
         ws.on('error', (err: Error) => {
           log.warn('socket error', { connectionId, error: err.message });
-          if (connections.get(connectionId) !== entry) return;
-          connections.emit(connectionId, 'error', { message: err.message });
+          if (connections.get(connectionId, webContentsId) !== entry) return;
+          connections.emit(connectionId, webContentsId, 'error', { message: err.message });
         });
 
         ws.on('close', (code: number, reason: Buffer) => {
@@ -218,11 +226,14 @@ export function registerWebSocketHandlerIPC(): void {
           // Identity check: a same-id reconnect may have replaced this entry while
           // the old socket was still finishing its close handshake — don't remove
           // the successor.
-          if (connections.get(connectionId) !== entry) return;
+          if (connections.get(connectionId, webContentsId) !== entry) return;
           if (!explicitlyClosed) {
-            connections.emitAndRemove(connectionId, 'close', { code, reason: reason.toString() });
+            connections.emitAndRemove(connectionId, webContentsId, 'close', {
+              code,
+              reason: reason.toString(),
+            });
           } else {
-            connections.remove(connectionId);
+            connections.remove(connectionId, webContentsId);
           }
         });
 
@@ -234,9 +245,9 @@ export function registerWebSocketHandlerIPC(): void {
         // the original owner entry to still be current so stale work cannot
         // replace a newer connection.
         const claimed =
-          pendingConnections.get(connectionId)?.token === claim.token &&
+          pendingConnections.get(key)?.token === claim.token &&
           (claim.ownerEntry
-            ? connections.get(connectionId) === claim.ownerEntry &&
+            ? connections.get(connectionId, webContentsId) === claim.ownerEntry &&
               connections.replaceForOwner(connectionId, webContentsId, entry)
             : connections.tryAdd(connectionId, event.sender, entry));
         if (!claimed) {

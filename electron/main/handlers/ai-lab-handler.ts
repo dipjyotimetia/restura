@@ -236,7 +236,9 @@ async function runStream(
     });
     emitTo(activeStream.webContentsId, endChannel, { reason: 'error' });
   } finally {
-    if (isCurrent()) activeStreams.remove(activeStream.registryKey);
+    if (isCurrent()) {
+      activeStreams.remove(activeStream.registryKey, activeStream.webContentsId);
+    }
     if (cancelledStreamGenerations.get(activeStream.registryKey) === activeStream) {
       cancelledStreamGenerations.delete(activeStream.registryKey);
     }
@@ -352,7 +354,7 @@ export function registerAiLabHandlers(): void {
       fetcher = await buildSafeFetcher(data.provider, data.baseUrlOverride);
     } catch (e) {
       if (activeStreams.getForOwner(registryKey, senderId) === activeStream) {
-        activeStreams.remove(registryKey);
+        activeStreams.remove(registryKey, senderId);
       }
       return { ok: false as const, error: (e as Error).message };
     }

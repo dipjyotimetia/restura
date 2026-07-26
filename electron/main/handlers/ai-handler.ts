@@ -118,7 +118,7 @@ async function runChat(
     });
     emitTo(activeStream.webContentsId, endChannel, { reason: 'error' });
   } finally {
-    if (isCurrent()) active.remove(activeStream.registryKey);
+    if (isCurrent()) active.remove(activeStream.registryKey, activeStream.webContentsId);
     if (cancelledGenerations.get(activeStream.registryKey) === activeStream) {
       cancelledGenerations.delete(activeStream.registryKey);
     }
@@ -166,7 +166,7 @@ export function registerAiHandlers(): void {
       fetcher = await buildSafeFetcher(data.provider, data.baseUrlOverride);
     } catch (e) {
       if (active.getForOwner(registryKey, senderId) === activeStream) {
-        active.remove(registryKey);
+        active.remove(registryKey, senderId);
       }
       return { ok: false as const, error: (e as Error).message };
     }

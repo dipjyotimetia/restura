@@ -29,7 +29,7 @@ import {
   KafkaUnsubscribeSchema,
   validateIpcInput,
 } from '../ipc/ipc-validators';
-import { StreamRegistry } from '../ipc/stream-registry';
+import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
 import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
 import {
@@ -146,24 +146,25 @@ function reserveKafkaClaim(
   connectionId: string,
   sender: WebContents
 ): PendingKafkaClaim | undefined {
-  if (pendingConnections.has(connectionId)) return undefined;
+  const key = ownerScopedKey(connectionId, sender.id);
+  if (pendingConnections.has(key)) return undefined;
   const ownerEntry = activeConnections.getForOwner(connectionId, sender.id);
-  if (activeConnections.has(connectionId) && !ownerEntry) return undefined;
   const claim: PendingKafkaClaim = {
     webContentsId: sender.id,
     token: Symbol(connectionId),
     ownerEntry,
   };
-  pendingConnections.set(connectionId, claim);
+  pendingConnections.set(key, claim);
   bindRendererCleanup(pendingConnections, sender, (deadId) =>
     disposeByOwner(pendingConnections, deadId, disposePendingKafkaClaim)
   );
-  return pendingConnections.get(connectionId) === claim ? claim : undefined;
+  return pendingConnections.get(key) === claim ? claim : undefined;
 }
 
 function releaseKafkaClaim(connectionId: string, claim: PendingKafkaClaim): void {
-  if (pendingConnections.get(connectionId)?.token === claim.token) {
-    pendingConnections.delete(connectionId);
+  const key = ownerScopedKey(connectionId, claim.webContentsId);
+  if (pendingConnections.get(key)?.token === claim.token) {
+    pendingConnections.delete(key);
   }
 }
 
@@ -256,7 +257,7 @@ async function emitConsumedMessage(entry: ActiveKafka, msg: AppMessage): Promise
     msg.value == null
       ? { value: '', encoding: 'utf8' as const }
       : await decodeDisplayField(entry.registry, msg.value);
-  if (activeConnections.get(entry.connectionId) !== entry) return;
+  if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
   emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.MESSAGE, entry.connectionId), {
     topic: msg.topic,
     partition: msg.partition,
@@ -275,7 +276,7 @@ function bindStreamListeners(entry: ActiveKafka, stream: AppStream): void {
   });
 
   stream.on('error', (err: Error) => {
-    if (activeConnections.get(entry.connectionId) !== entry) return;
+    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
     emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.ERROR, entry.connectionId), {
       scope: 'consumer',
       message: err.message,
@@ -283,7 +284,7 @@ function bindStreamListeners(entry: ActiveKafka, stream: AppStream): void {
   });
 
   stream.on('close', () => {
-    if (activeConnections.get(entry.connectionId) !== entry) return;
+    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
     emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, entry.connectionId), {});
   });
 }
@@ -320,11 +321,10 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       return { success: false, error: 'Too many open Kafka connections.' };
     }
 
-    // Reserve synchronously before closing an owner reconnect, running broker
-    // guards, loading credentials, or constructing a producer. Existing and
-    // pending wrong-owner ids are indistinguishable from missing connections.
+    // Reserve this renderer's id; other renderers may independently use the same external id.
     const claim = reserveKafkaClaim(connectionId, event.sender);
     if (!claim) return { success: false, error: 'Not connected' };
+    const key = ownerScopedKey(connectionId, webContentsId);
     try {
       if (claim.ownerEntry) {
         const existing = claim.ownerEntry;
@@ -341,12 +341,12 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         }
         await closeConnection(existing);
         if (
-          pendingConnections.get(connectionId)?.token !== claim.token ||
-          activeConnections.get(connectionId) !== existing
+          pendingConnections.get(key)?.token !== claim.token ||
+          activeConnections.get(connectionId, webContentsId) !== existing
         ) {
           return { success: false, error: 'Not connected' };
         }
-        activeConnections.remove(connectionId);
+        activeConnections.remove(connectionId, webContentsId);
       }
 
       try {
@@ -393,7 +393,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
 
         // Probe metadata before reporting connected; this stays read-only.
         await producer.metadata({ autocreateTopics: false, forceUpdate: true });
-        if (pendingConnections.get(connectionId)?.token !== claim.token) {
+        if (pendingConnections.get(key)?.token !== claim.token) {
           if (claim.pendingProducer === producer) {
             claim.pendingProducer = undefined;
             await closeProducerQuietly(producer);
@@ -621,7 +621,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           ...(offsets ? { offsets } : {}),
         }) as Promise<AppStream>);
 
-        if (activeConnections.get(cfg.connectionId) !== entry || entry.consumer) {
+        if (activeConnections.get(cfg.connectionId, event.sender.id) !== entry || entry.consumer) {
           await closeConsumerQuietly(consumer);
           return { success: false, error: 'Not connected' };
         }
@@ -656,8 +656,8 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
       if (entry) {
         await closeConnection(entry);
-        if (activeConnections.get(cfg.connectionId) === entry) {
-          activeConnections.remove(cfg.connectionId);
+        if (activeConnections.get(cfg.connectionId, entry.webContentsId) === entry) {
+          activeConnections.remove(cfg.connectionId, entry.webContentsId);
           emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CLOSE, cfg.connectionId), {});
         }
       }

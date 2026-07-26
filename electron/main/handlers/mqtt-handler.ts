@@ -19,7 +19,7 @@ import {
   MqttUnsubscribeSchema,
   validateIpcInput,
 } from '../ipc/ipc-validators';
-import { StreamRegistry } from '../ipc/stream-registry';
+import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
 import { assertMqttBrokerSafe } from '../security/mqtt-broker-guard';
 
@@ -78,26 +78,27 @@ interface PendingMqttClaim {
 const pendingConnections = new Map<string, PendingMqttClaim>();
 
 function reserveMqttClaim(connectionId: string, sender: WebContents): PendingMqttClaim | undefined {
-  if (pendingConnections.has(connectionId)) return undefined;
+  const key = ownerScopedKey(connectionId, sender.id);
+  if (pendingConnections.has(key)) return undefined;
 
   const ownerEntry = activeConnections.getForOwner(connectionId, sender.id);
-  if (activeConnections.has(connectionId) && !ownerEntry) return undefined;
 
   const claim: PendingMqttClaim = {
     webContentsId: sender.id,
     token: Symbol(connectionId),
     ownerEntry,
   };
-  pendingConnections.set(connectionId, claim);
+  pendingConnections.set(key, claim);
   bindRendererCleanup(pendingConnections, sender, (deadId) =>
     disposeByOwner(pendingConnections, deadId, () => {})
   );
-  return pendingConnections.get(connectionId) === claim ? claim : undefined;
+  return pendingConnections.get(key) === claim ? claim : undefined;
 }
 
 function releaseMqttClaim(connectionId: string, claim: PendingMqttClaim): void {
-  if (pendingConnections.get(connectionId)?.token === claim.token) {
-    pendingConnections.delete(connectionId);
+  const key = ownerScopedKey(connectionId, claim.webContentsId);
+  if (pendingConnections.get(key)?.token === claim.token) {
+    pendingConnections.delete(key);
   }
 }
 
@@ -159,7 +160,7 @@ function bindClientListeners(entry: ActiveMqtt): void {
   const { client } = entry;
 
   client.on('connect', (connack: IConnackPacket) => {
-    if (activeConnections.get(entry.connectionId) !== entry) return;
+    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
     emitToEntry(entry, mqttChannel(MQTT_CHANNEL.CONNECTED, entry.connectionId), {
       timestamp: Date.now(),
       sessionPresent: connack.sessionPresent ?? false,
@@ -168,7 +169,7 @@ function bindClientListeners(entry: ActiveMqtt): void {
   });
 
   client.on('message', (topic: string, payload: Buffer, packet: IPublishPacket) => {
-    if (activeConnections.get(entry.connectionId) !== entry) return;
+    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
     const props = packet.properties ?? {};
     emitToEntry(entry, mqttChannel(MQTT_CHANNEL.MESSAGE, entry.connectionId), {
       topic,
@@ -195,7 +196,7 @@ function bindClientListeners(entry: ActiveMqtt): void {
   });
 
   client.on('error', (err: Error) => {
-    if (activeConnections.get(entry.connectionId) !== entry) return;
+    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
     const code = (err as NodeJS.ErrnoException).code;
     log.warn('client error', {
       connectionId: entry.connectionId,
@@ -209,7 +210,7 @@ function bindClientListeners(entry: ActiveMqtt): void {
   });
 
   client.on('close', () => {
-    if (activeConnections.get(entry.connectionId) !== entry) return;
+    if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
     emitToEntry(entry, mqttChannel(MQTT_CHANNEL.CLOSE, entry.connectionId), {});
   });
 }
@@ -262,6 +263,7 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
     // credentials, running the guard, or constructing a client.
     const claim = reserveMqttClaim(connectionId, event.sender);
     if (!claim) return { success: false, error: 'Not connected' };
+    const key = ownerScopedKey(connectionId, webContentsId);
     try {
       if (claim.ownerEntry) {
         const existing = claim.ownerEntry;
@@ -278,12 +280,12 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         }
         await endClient(existing);
         if (
-          pendingConnections.get(connectionId)?.token !== claim.token ||
-          activeConnections.get(connectionId) !== existing
+          pendingConnections.get(key)?.token !== claim.token ||
+          activeConnections.get(connectionId, webContentsId) !== existing
         ) {
           return { success: false, error: 'Not connected' };
         }
-        activeConnections.remove(connectionId);
+        activeConnections.remove(connectionId, webContentsId);
       }
 
       try {
@@ -295,7 +297,7 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       }
 
       try {
-        if (pendingConnections.get(connectionId)?.token !== claim.token) {
+        if (pendingConnections.get(key)?.token !== claim.token) {
           return { success: false, error: 'Not connected' };
         }
         const mqtt = getMqtt();
@@ -397,7 +399,7 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
       return new Promise<{ success: boolean; error?: string }>((resolve) => {
         entry.client.subscribe(cfg.topicFilter, { qos: cfg.qos }, (err, granted) => {
-          if (activeConnections.get(cfg.connectionId) !== entry) {
+          if (activeConnections.get(cfg.connectionId, entry.webContentsId) !== entry) {
             resolve({ success: false, error: 'Not connected' });
             return;
           }
@@ -430,7 +432,7 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
 
       return new Promise<{ success: boolean; error?: string }>((resolve) => {
         entry.client.unsubscribe(cfg.topicFilter, (err) => {
-          if (activeConnections.get(cfg.connectionId) !== entry) {
+          if (activeConnections.get(cfg.connectionId, entry.webContentsId) !== entry) {
             resolve({ success: false, error: 'Not connected' });
             return;
           }
@@ -454,8 +456,8 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
       const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
       if (entry) {
         await endClient(entry, false);
-        if (activeConnections.get(cfg.connectionId) === entry) {
-          activeConnections.remove(cfg.connectionId);
+        if (activeConnections.get(cfg.connectionId, entry.webContentsId) === entry) {
+          activeConnections.remove(cfg.connectionId, entry.webContentsId);
           emitTo(entry.webContentsId, mqttChannel(MQTT_CHANNEL.CLOSE, cfg.connectionId), {});
         }
       }

@@ -12,7 +12,7 @@ import {
   SseDisconnectSchema,
   validateIpcInput,
 } from '../ipc/ipc-validators';
-import { StreamRegistry } from '../ipc/stream-registry';
+import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import { getExecutionPolicy } from '../security/execution-policy';
 import {
   assertPinnedFetchCanHonorPolicy,
@@ -69,26 +69,27 @@ function reserveSseClaim(
   connectionId: string,
   webContents: WebContents
 ): PendingSseClaim | undefined {
-  if (pendingConnections.has(connectionId)) return undefined;
+  const key = ownerScopedKey(connectionId, webContents.id);
+  if (pendingConnections.has(key)) return undefined;
 
   const ownerEntry = connections.getForOwner(connectionId, webContents.id);
-  if (connections.has(connectionId) && !ownerEntry) return undefined;
 
   const claim: PendingSseClaim = {
     webContentsId: webContents.id,
     token: Symbol(connectionId),
     ownerEntry,
   };
-  pendingConnections.set(connectionId, claim);
+  pendingConnections.set(key, claim);
   bindRendererCleanup(pendingConnections, webContents, (deadId) =>
     disposeByOwner(pendingConnections, deadId, () => {})
   );
-  return pendingConnections.get(connectionId) === claim ? claim : undefined;
+  return pendingConnections.get(key) === claim ? claim : undefined;
 }
 
 function releaseSseClaim(connectionId: string, claim: PendingSseClaim): void {
-  if (pendingConnections.get(connectionId)?.token === claim.token) {
-    pendingConnections.delete(connectionId);
+  const key = ownerScopedKey(connectionId, claim.webContentsId);
+  if (pendingConnections.get(key)?.token === claim.token) {
+    pendingConnections.delete(key);
   }
 }
 
@@ -96,10 +97,11 @@ async function readStream(
   entry: ActiveSse,
   body: ReadableStream<Uint8Array> | null
 ): Promise<void> {
+  const { connectionId, webContentsId } = entry;
   if (!body) {
-    if (connections.get(entry.connectionId) === entry) {
-      connections.emit(entry.connectionId, 'error', { message: 'No response body' });
-      connections.emitAndRemove(entry.connectionId, 'close', { reason: 'no body' });
+    if (connections.get(connectionId, webContentsId) === entry) {
+      connections.emit(connectionId, webContentsId, 'error', { message: 'No response body' });
+      connections.emitAndRemove(connectionId, webContentsId, 'close', { reason: 'no body' });
     }
     return;
   }
@@ -109,8 +111,8 @@ async function readStream(
   const reader = body.getReader();
 
   const onEvent = (e: ParsedSseEvent) => {
-    if (connections.get(entry.connectionId) !== entry) return;
-    connections.emit(entry.connectionId, 'event', e);
+    if (connections.get(connectionId, webContentsId) !== entry) return;
+    connections.emit(connectionId, webContentsId, 'event', e);
   };
 
   try {
@@ -124,7 +126,7 @@ async function readStream(
     if (!entry.explicitlyClosed) {
       const message = err instanceof Error ? err.message : 'Stream read error';
       log.warn('stream read error', { connectionId: entry.connectionId, error: message });
-      connections.emit(entry.connectionId, 'error', { message });
+      connections.emit(connectionId, webContentsId, 'error', { message });
     }
   } finally {
     // Releasing the reader lets the underlying socket be closed promptly instead
@@ -134,11 +136,11 @@ async function readStream(
     } catch {
       /* already done */
     }
-    if (connections.get(entry.connectionId) !== entry) return;
+    if (connections.get(connectionId, webContentsId) !== entry) return;
     if (!entry.explicitlyClosed) {
-      connections.emitAndRemove(entry.connectionId, 'close', { reason: 'stream ended' });
+      connections.emitAndRemove(connectionId, webContentsId, 'close', { reason: 'stream ended' });
     } else {
-      connections.remove(entry.connectionId);
+      connections.remove(connectionId, webContentsId);
     }
   }
 }
@@ -169,8 +171,8 @@ export function registerSseHandlerIPC(): void {
       return { success: false, error: 'Too many open connections.' };
     }
 
-    // Reserve synchronously before DNS or transport construction. Existing and
-    // pending wrong-owner ids are rejected without dialing.
+    // Reserve this renderer's id synchronously before DNS or transport
+    // construction. Another renderer may independently use the same external id.
     const claim = reserveSseClaim(connectionId, event.sender);
     if (!claim) return { success: false, error: 'Not connected' };
 
@@ -192,7 +194,8 @@ export function registerSseHandlerIPC(): void {
 
       // Renderer destruction/module teardown may invalidate the reservation
       // while DNS is pending. Never construct a transport for a stale claim.
-      if (pendingConnections.get(connectionId)?.token !== claim.token) {
+      const key = ownerScopedKey(connectionId, webContentsId);
+      if (pendingConnections.get(key)?.token !== claim.token) {
         return { success: false, error: 'Not connected' };
       }
 
@@ -214,9 +217,9 @@ export function registerSseHandlerIPC(): void {
       // Commit only the exact live reservation. A reconnect may replace only
       // the same renderer's still-current entry.
       const claimed =
-        pendingConnections.get(connectionId)?.token === claim.token &&
+        pendingConnections.get(key)?.token === claim.token &&
         (claim.ownerEntry
-          ? connections.get(connectionId) === claim.ownerEntry &&
+          ? connections.get(connectionId, webContentsId) === claim.ownerEntry &&
             connections.replaceForOwner(connectionId, webContentsId, entry)
           : connections.tryAdd(connectionId, event.sender, entry));
       if (!claimed) {
@@ -255,35 +258,41 @@ export function registerSseHandlerIPC(): void {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
 
       if (!result.ok) {
-        if (connections.get(connectionId) === entry) {
-          connections.emit(connectionId, 'error', { message: result.payload.error });
-          connections.emitAndRemove(connectionId, 'close', { reason: result.payload.error });
+        if (connections.get(connectionId, webContentsId) === entry) {
+          connections.emit(connectionId, webContentsId, 'error', {
+            message: result.payload.error,
+          });
+          connections.emitAndRemove(connectionId, webContentsId, 'close', {
+            reason: result.payload.error,
+          });
         }
         return { success: false, error: result.payload.error };
       }
 
       const response = result.response;
       if (response.status < 200 || response.status >= 300) {
-        if (connections.get(connectionId) === entry) {
-          connections.emit(connectionId, 'error', {
+        if (connections.get(connectionId, webContentsId) === entry) {
+          connections.emit(connectionId, webContentsId, 'error', {
             message: `HTTP ${response.status} ${response.statusText}`,
           });
-          connections.emitAndRemove(connectionId, 'close', { reason: `HTTP ${response.status}` });
+          connections.emitAndRemove(connectionId, webContentsId, 'close', {
+            reason: `HTTP ${response.status}`,
+          });
         }
         return { success: false, error: `HTTP ${response.status} ${response.statusText}` };
       }
 
-      if (connections.get(connectionId) !== entry) {
+      if (connections.get(connectionId, webContentsId) !== entry) {
         return { success: false, error: 'Not connected' };
       }
-      connections.emit(connectionId, 'open');
+      connections.emit(connectionId, webContentsId, 'open');
       // Drain the stream in the background — we already returned success.
       void readStream(entry, response.body ?? null);
       return { success: true };
     } catch (err) {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
-      if (claimedEntry && connections.get(connectionId) === claimedEntry) {
-        connections.remove(connectionId);
+      if (claimedEntry && connections.get(connectionId, webContentsId) === claimedEntry) {
+        connections.remove(connectionId, webContentsId);
       }
       if (err instanceof RedirectPolicyError) {
         log.warn('connect rejected by redirect policy', { connectionId, error: err.message });

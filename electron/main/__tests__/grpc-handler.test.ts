@@ -140,31 +140,34 @@ describe('grpc stream ownership', () => {
     vi.clearAllTimers();
   });
 
-  it('ignores live-stream message, end, and cancel calls from a non-owner', async () => {
-    const owner = makeEvent();
-    const nonOwner = makeEvent();
-    const controls = makeControls();
-    mockRunConnectStream.mockReturnValueOnce(controls);
+  it('lets two renderers independently use the same stream id and cleans up only one owner', async () => {
+    const first = makeEvent();
+    const second = makeEvent();
+    const firstControls = makeControls();
+    const secondControls = makeControls();
+    mockRunConnectStream.mockReturnValueOnce(firstControls).mockReturnValueOnce(secondControls);
 
-    listenerFor(IPC.grpc.startStream)(owner.event, validStream('shared'));
+    listenerFor(IPC.grpc.startStream)(first.event, validStream('shared'));
     await waitForStreamCount(1);
+    listenerFor(IPC.grpc.sendMessage)(second.event, 'shared', { text: 'not-owned' });
+    listenerFor(IPC.grpc.endStream)(second.event, 'shared');
+    listenerFor(IPC.grpc.cancelStream)(second.event, 'shared');
+    expect(firstControls.write).not.toHaveBeenCalled();
+    expect(firstControls.end).not.toHaveBeenCalled();
+    expect(firstControls.cancel).not.toHaveBeenCalled();
 
-    listenerFor(IPC.grpc.sendMessage)(nonOwner.event, 'shared', { text: 'intruder' });
-    listenerFor(IPC.grpc.endStream)(nonOwner.event, 'shared');
-    listenerFor(IPC.grpc.cancelStream)(nonOwner.event, 'shared');
+    listenerFor(IPC.grpc.startStream)(second.event, validStream('shared'));
+    await waitForStreamCount(2);
+    listenerFor(IPC.grpc.sendMessage)(first.event, 'shared', { text: 'first' });
+    listenerFor(IPC.grpc.sendMessage)(second.event, 'shared', { text: 'second' });
+    expect(firstControls.write).toHaveBeenCalledWith({ text: 'first' });
+    expect(secondControls.write).toHaveBeenCalledWith({ text: 'second' });
 
-    expect(controls.write).not.toHaveBeenCalled();
-    expect(controls.end).not.toHaveBeenCalled();
-    expect(controls.cancel).not.toHaveBeenCalled();
-    expect(nonOwner.send).not.toHaveBeenCalled();
-
-    listenerFor(IPC.grpc.sendMessage)(owner.event, 'shared', { text: 'owner' });
-    listenerFor(IPC.grpc.endStream)(owner.event, 'shared');
-    listenerFor(IPC.grpc.cancelStream)(owner.event, 'shared');
-
-    expect(controls.write).toHaveBeenCalledWith({ text: 'owner' });
-    expect(controls.end).toHaveBeenCalledOnce();
-    expect(controls.cancel).toHaveBeenCalledOnce();
+    first.destroy();
+    expect(firstControls.cancel).toHaveBeenCalledOnce();
+    expect(secondControls.cancel).not.toHaveBeenCalled();
+    listenerFor(IPC.grpc.endStream)(second.event, 'shared');
+    expect(secondControls.end).toHaveBeenCalledOnce();
   });
 
   it('buffers only the pending creator messages and half-close while DNS is in flight', async () => {
@@ -210,21 +213,22 @@ describe('grpc stream ownership', () => {
     expect(attacker.send).not.toHaveBeenCalled();
   });
 
-  it('reserves a pending stream id for its creator before DNS without disclosing it', async () => {
-    const owner = makeEvent();
-    const nonOwner = makeEvent();
-    const dns = deferred<typeof pinnedDial>();
-    mockResolveGrpcDialAddress.mockReturnValueOnce(dns.promise);
+  it('reserves the same pending stream id independently for each renderer', async () => {
+    const first = makeEvent();
+    const second = makeEvent();
+    const firstDns = deferred<typeof pinnedDial>();
+    mockResolveGrpcDialAddress.mockReturnValueOnce(firstDns.promise);
 
-    listenerFor(IPC.grpc.startStream)(owner.event, validStream('reserved'));
-    listenerFor(IPC.grpc.startStream)(nonOwner.event, validStream('reserved'));
+    listenerFor(IPC.grpc.startStream)(first.event, validStream('reserved'));
+    listenerFor(IPC.grpc.startStream)(second.event, validStream('reserved'));
 
-    expect(mockResolveGrpcDialAddress).toHaveBeenCalledTimes(1);
-    expect(nonOwner.send).not.toHaveBeenCalled();
-
-    dns.resolve(pinnedDial);
+    expect(mockResolveGrpcDialAddress).toHaveBeenCalledTimes(2);
     await waitForStreamCount(1);
-    expect(nonOwner.send).not.toHaveBeenCalled();
+
+    firstDns.resolve(pinnedDial);
+    await waitForStreamCount(2);
+    expect(first.send).not.toHaveBeenCalled();
+    expect(second.send).not.toHaveBeenCalled();
   });
 
   it('releases a destroyed pending owner and rejects its late stream setup', async () => {

@@ -320,63 +320,67 @@ describe('mcp-handler (SDK-backed)', () => {
     expect(opts).toEqual({ timeout: 5000 });
   });
 
-  it('prevents a second renderer from requesting, disconnecting, or reconnecting the owner session', async () => {
-    const owner = trustedEvent(21);
-    const nonOwner = trustedEvent(22);
+  it('lets two renderers independently use the same id and cleans up only the destroyed owner', async () => {
+    const first = makeTrustedEvent(21);
+    const second = makeTrustedEvent(22);
     await expect(
-      handlerFor('mcp:connect')(owner, {
+      handlerFor('mcp:connect')(first.event, {
         connectionId: 'shared',
         url: 'https://mcp.example.com/mcp',
         transport: 'streamable-http',
       })
     ).resolves.toEqual({ success: true });
-    const ownerClient = sdkState.clients[0]!;
-    ownerClient.request.mockResolvedValueOnce({ tools: [{ name: 'owner-tool' }] });
-
+    const firstClient = sdkState.clients[0]!;
     await expect(
-      handlerFor('mcp:request')(nonOwner, {
+      handlerFor('mcp:request')(second.event, {
         connectionId: 'shared',
         method: 'tools/list',
       })
     ).resolves.toEqual({ success: false, error: 'Not connected' });
-    expect(ownerClient.request).not.toHaveBeenCalled();
-
     await expect(
-      handlerFor('mcp:disconnect')(nonOwner, { connectionId: 'shared' })
+      handlerFor('mcp:disconnect')(second.event, { connectionId: 'shared' })
     ).resolves.toEqual({ success: true });
-    expect(ownerClient.close).not.toHaveBeenCalled();
+    expect(firstClient.request).not.toHaveBeenCalled();
+    expect(firstClient.close).not.toHaveBeenCalled();
 
-    mockResolveSafeAddress.mockClear();
     await expect(
-      handlerFor('mcp:connect')(nonOwner, {
+      handlerFor('mcp:connect')(second.event, {
         connectionId: 'shared',
-        url: 'https://attacker.example/mcp',
+        url: 'https://second.example.com/mcp',
         transport: 'streamable-http',
       })
-    ).resolves.toEqual({ success: false, error: 'Not connected' });
-    expect(mockResolveSafeAddress).not.toHaveBeenCalled();
-    expect(sdkState.clients).toHaveLength(1);
-    expect(ownerClient.close).not.toHaveBeenCalled();
+    ).resolves.toEqual({ success: true });
+    const secondClient = sdkState.clients[1]!;
+    firstClient.request.mockResolvedValueOnce({ owner: 'first' });
+    secondClient.request.mockResolvedValueOnce({ owner: 'second' });
 
     await expect(
-      handlerFor('mcp:request')(owner, {
+      handlerFor('mcp:request')(first.event, {
         connectionId: 'shared',
         method: 'tools/list',
       })
-    ).resolves.toEqual({ success: true, result: { tools: [{ name: 'owner-tool' }] } });
-
+    ).resolves.toEqual({ success: true, result: { owner: 'first' } });
     await expect(
-      handlerFor('mcp:connect')(owner, {
+      handlerFor('mcp:request')(second.event, {
         connectionId: 'shared',
-        url: 'https://mcp.example.com/reconnected',
-        transport: 'streamable-http',
+        method: 'tools/list',
       })
-    ).resolves.toEqual({ success: true });
-    expect(ownerClient.close).toHaveBeenCalled();
+    ).resolves.toEqual({ success: true, result: { owner: 'second' } });
+
+    first.destroy();
+    expect(firstClient.close).toHaveBeenCalled();
+    expect(secondClient.close).not.toHaveBeenCalled();
+    secondClient.request.mockResolvedValueOnce({ owner: 'still-second' });
+    await expect(
+      handlerFor('mcp:request')(second.event, {
+        connectionId: 'shared',
+        method: 'tools/list',
+      })
+    ).resolves.toEqual({ success: true, result: { owner: 'still-second' } });
     expect(sdkState.clients).toHaveLength(2);
   });
 
-  it('reserves a concurrent same-id connect for the first renderer before DNS', async () => {
+  it('reserves concurrent same-id connects independently per renderer before DNS', async () => {
     const first = trustedEvent(31);
     const second = trustedEvent(32);
     const firstDns = deferred<{
@@ -398,9 +402,9 @@ describe('mcp-handler (SDK-backed)', () => {
       transport: 'streamable-http',
     });
 
-    expect(mockResolveSafeAddress).toHaveBeenCalledTimes(1);
-    await expect(secondConnect).resolves.toEqual({ success: false, error: 'Not connected' });
-    expect(sdkState.clients).toHaveLength(0);
+    expect(mockResolveSafeAddress).toHaveBeenCalledTimes(2);
+    await expect(secondConnect).resolves.toEqual({ success: true });
+    expect(sdkState.clients).toHaveLength(1);
 
     firstDns.resolve({
       host: 'first.example',
@@ -409,8 +413,9 @@ describe('mcp-handler (SDK-backed)', () => {
       family: 4,
     });
     await expect(firstConnect).resolves.toEqual({ success: true });
-    expect(sdkState.clients).toHaveLength(1);
+    expect(sdkState.clients).toHaveLength(2);
     expect(mockEmitTo).toHaveBeenCalledWith(31, 'mcp:open:raced');
+    expect(mockEmitTo).toHaveBeenCalledWith(32, 'mcp:open:raced');
   });
 
   it('immediately disposes a pending connect when its renderer is destroyed', async () => {
