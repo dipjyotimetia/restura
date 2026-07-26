@@ -680,8 +680,10 @@ describe('useRequestStore — tabs', () => {
     });
 
     it('repairs an invalid active tab and reseeds an empty rehydrated store', () => {
-      const onRehydrateStorage = useRequestStore.persist.getOptions().onRehydrateStorage!;
-      const afterRehydrate = onRehydrateStorage();
+      const onRehydrateStorage = useRequestStore.persist.getOptions().onRehydrateStorage as (
+        state?: unknown
+      ) => (state?: unknown, error?: unknown) => void;
+      const afterRehydrate = onRehydrateStorage(undefined);
       const first = {
         id: 'first',
         request: makeHttp({ id: 'first-request' }),

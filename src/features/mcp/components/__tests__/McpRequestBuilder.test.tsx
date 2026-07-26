@@ -97,7 +97,7 @@ vi.mock('@/features/mcp/components/McpConnectionPanel', () => ({
       <button type="button" onClick={() => onUrlChange('https://changed.example/mcp')}>
         Change URL
       </button>
-      <button type="button" onClick={() => onTransportChange('sse')}>
+      <button type="button" onClick={() => onTransportChange('http-sse')}>
         Change transport
       </button>
       <button type="button" onClick={onAddHeader}>
@@ -380,7 +380,7 @@ describe('McpRequestBuilder client ownership', () => {
 
     expect(useMcpStore.getState().connections.first).toMatchObject({
       url: 'https://changed.example/mcp',
-      transport: 'sse',
+      transport: 'http-sse',
       headers: [{ id: headerId, key: 'x-token' }],
     });
   });
