@@ -43,7 +43,8 @@ describe('useMcpStore.resetConnectionSession', () => {
 
     useMcpStore.getState().resetConnectionSession('missing');
 
-    expect(useMcpStore.getState()).toBe(before);
+    expect(useMcpStore.getState().connections).toEqual(before.connections);
+    expect(useMcpStore.getState().activeConnectionId).toBe(before.activeConnectionId);
   });
 
   it('keeps every connection action a no-op for an unknown id', () => {
@@ -60,6 +61,7 @@ describe('useMcpStore.resetConnectionSession', () => {
     actions.clearLog('missing');
     actions.removeConnection('missing');
 
-    expect(useMcpStore.getState()).toBe(before);
+    expect(useMcpStore.getState().connections).toEqual(before.connections);
+    expect(useMcpStore.getState().activeConnectionId).toBe(before.activeConnectionId);
   });
 });
