@@ -193,4 +193,44 @@ describe('useReleaseNotes', () => {
     expect(result.current.releases).toEqual([release(2, 'v1.1.0'), release(1, 'v1.0.0')]);
     expect(result.current.loadingMore).toBe(false);
   });
+
+  it('surfaces initial-load failures and supports an empty page', async () => {
+    mockFetchReleaseNotesPage.mockRejectedValueOnce(new Error('GitHub unavailable'));
+    const { result } = renderHook(() => useReleaseNotes('stable'));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBe('GitHub unavailable');
+    expect(result.current.releases).toEqual([]);
+    expect(result.current.selectedId).toBeNull();
+    expect(result.current.nextPage).toBeNull();
+  });
+
+  it('uses the fallback message for non-Error pagination failures', async () => {
+    mockFetchReleaseNotesPage
+      .mockResolvedValueOnce(page([release(2, 'v1.1.0')], 2))
+      .mockRejectedValueOnce('offline');
+    const { result } = renderHook(() => useReleaseNotes('stable'));
+    await waitFor(() => expect(result.current.nextPage).toBe(2));
+
+    await act(async () => {
+      await result.current.loadMore();
+    });
+
+    expect(result.current.error).toBe('Release notes are unavailable right now.');
+    expect(result.current.loadingMore).toBe(false);
+    expect(result.current.releases).toEqual([release(2, 'v1.1.0')]);
+  });
+
+  it('does nothing when there is no next page', async () => {
+    mockFetchReleaseNotesPage.mockResolvedValueOnce(page([]));
+    const { result } = renderHook(() => useReleaseNotes('stable'));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.loadMore();
+    });
+
+    expect(mockFetchReleaseNotesPage).toHaveBeenCalledTimes(1);
+    expect(result.current.loadingMore).toBe(false);
+  });
 });
