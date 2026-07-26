@@ -29,4 +29,10 @@ describe('CaptureImportListener', () => {
 
     expect(disposeCaptureSubscription).toHaveBeenCalledOnce();
   });
+
+  it('tolerates a bridge that does not return a disposer', () => {
+    capture.onReceived.mockReturnValueOnce(undefined as never);
+
+    expect(() => render(<CaptureImportListener />)).not.toThrow();
+  });
 });

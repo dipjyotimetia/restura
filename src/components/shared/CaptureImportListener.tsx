@@ -26,10 +26,14 @@ export function CaptureImportListener() {
     const api = getElectronAPI();
     if (!api?.capture) return;
 
-    return api.capture.onReceived((doc) => {
+    const dispose = api.capture.onReceived((doc) => {
       const items = (doc as { items?: unknown[] })?.items;
       setPending({ doc, itemCount: Array.isArray(items) ? items.length : 0 });
     });
+    // A mocked/older bridge may not return the disposer promised by the
+    // current preload contract. Never return a non-function from an effect —
+    // React treats it as a cleanup callback and throws during unmount.
+    return typeof dispose === 'function' ? dispose : undefined;
   }, []);
 
   const confirmImport = () => {
