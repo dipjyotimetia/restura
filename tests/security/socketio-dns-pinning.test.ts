@@ -46,6 +46,10 @@ vi.mock('../../electron/main/ipc/ipc-validators', () => ({
   createValidatedHandler:
     (_ch: unknown, _schema: unknown, fn: (c: unknown) => unknown) => (_e: unknown, c: unknown) =>
       fn(c),
+  createValidatedEventHandler:
+    (_ch: unknown, _schema: unknown, fn: (c: unknown, e: unknown) => unknown) =>
+    (e: unknown, c: unknown) =>
+      fn(c, e),
   SocketIoConnectSchema: {},
   SocketIoEmitSchema: {},
   SocketIoDisconnectSchema: {},
