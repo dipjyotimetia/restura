@@ -71,30 +71,6 @@ export default defineConfig({
         // Radix UI wrapper primitives — mostly wrappers, branch-heavy Radix internals
         'src/components/ui/context-menu.tsx',
         'src/components/ui/motion.tsx',
-        // Protocol request builders and the response viewer are exercised through
-        // browser/Electron interaction tests; their UI state machines are too
-        // branch-heavy for meaningful unit-level global budgeting.
-        'src/components/shared/ResponseViewer.tsx',
-        'src/features/graphql/components/GraphQLRequestBuilder.tsx',
-        'src/features/grpc/components/GrpcRequestBuilder.tsx',
-        'src/features/mcp/components/McpRequestBuilder.tsx',
-        // These long-lived UI/store coordinators are validated with focused
-        // lifecycle tests plus browser/Electron flows; counting every defensive
-        // no-op branch in the global budget makes the budget track test wiring
-        // rather than production regressions.
-        'src/components/shared/GitDialog.tsx',
-        'src/components/shared/CaptureImportListener.tsx',
-        'src/features/http/hooks/useHttpRequest.ts',
-        'src/features/http/hooks/useHttpRequestPage.ts',
-        'src/features/collections/hooks/useCollectionRun.ts',
-        'src/features/load-testing/hooks/useLoadTest.ts',
-        'src/features/registry/useRequestRunner.ts',
-        'src/features/kafka/components/useInspectorFetch.ts',
-        'src/store/useFileCollectionStore.ts',
-        'src/store/useRequestStore.ts',
-        'src/features/mcp/store/useMcpStore.ts',
-        'src/components/shared/settings/useReleaseNotes.ts',
-        'src/hooks/useGit.ts',
       ],
       thresholds: {
         // Global coverage spans the renderer, stores, protocol managers, and
