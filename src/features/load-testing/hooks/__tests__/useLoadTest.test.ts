@@ -132,4 +132,60 @@ describe('useLoadTest lifecycle', () => {
     expect(result.current.running).toBe(false);
     expect(result.current.progress).toEqual(final);
   });
+
+  it('ignores duplicate starts and progress from an unmounted run', async () => {
+    const pending = deferred<LoadProgress>();
+    let onProgress: ((value: LoadProgress) => void) | undefined;
+    mocks.runLoadTest.mockImplementation(
+      (
+        _request: HttpRequest,
+        _options: unknown,
+        progressCallback: (value: LoadProgress) => void
+      ) => {
+        onProgress = progressCallback;
+        return pending.promise;
+      }
+    );
+    const { result, unmount } = renderHook(() => useLoadTest());
+
+    act(() => {
+      result.current.start(request, { iterations: 1, concurrency: 1 });
+      result.current.start(request, { iterations: 1, concurrency: 1 });
+    });
+    expect(mocks.runLoadTest).toHaveBeenCalledTimes(1);
+
+    unmount();
+    await act(async () => {
+      onProgress?.(progress(true));
+      pending.resolve(progress(true));
+      await pending.promise;
+    });
+  });
+
+  it('throttles non-final progress samples', () => {
+    const pending = deferred<LoadProgress>();
+    let onProgress: ((value: LoadProgress) => void) | undefined;
+    mocks.runLoadTest.mockImplementation(
+      (
+        _request: HttpRequest,
+        _options: unknown,
+        progressCallback: (value: LoadProgress) => void
+      ) => {
+        onProgress = progressCallback;
+        return pending.promise;
+      }
+    );
+    const now = vi.spyOn(performance, 'now');
+    now.mockReturnValueOnce(101).mockReturnValueOnce(150);
+    const { result } = renderHook(() => useLoadTest());
+
+    act(() => {
+      result.current.start(request, { iterations: 1, concurrency: 1 });
+      onProgress?.(progress(false));
+      onProgress?.({ ...progress(false), completed: 1 });
+    });
+
+    expect(result.current.progress?.completed).toBe(0);
+    now.mockRestore();
+  });
 });

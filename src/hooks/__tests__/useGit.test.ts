@@ -161,6 +161,30 @@ describe('useGit', () => {
 
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBe('Git operation failed');
+
+    mocks.git.status.mockRejectedValueOnce(new Error('IPC unavailable'));
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(result.current.error).toBe('IPC unavailable');
+  });
+
+  it('ignores a retained refresh after unmount and swallows a failed pull reload', async () => {
+    const { result, unmount } = renderHook(() => useGit(DIRECTORY));
+    await waitFor(() => expect(result.current.status).toEqual(STATUS));
+    mocks.loadCollectionFromDirectory.mockRejectedValueOnce(new Error('disk changed'));
+
+    await act(async () => {
+      await expect(result.current.pull()).resolves.toBeNull();
+    });
+    expect(mocks.loadCollectionFromDirectory).toHaveBeenCalledWith(DIRECTORY);
+
+    mocks.git.status.mockClear();
+    unmount();
+    await act(async () => {
+      await result.current.refresh();
+    });
+    expect(mocks.git.status).not.toHaveBeenCalled();
   });
 
   it('executes successful actions, refreshes writes, and reloads changed collections', async () => {
