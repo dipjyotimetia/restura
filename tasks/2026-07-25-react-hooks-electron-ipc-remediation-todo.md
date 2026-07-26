@@ -166,7 +166,7 @@ alongside the smallest production change.
 - Files: useGit.ts, GitDialog.tsx, focused dialog test
 - Scope: S
 
-### Task 15: Make release-note loading latest-request-safe
+### Task 15: Make release-note loading latest-request-safe — complete
 
 - Acceptance: channel change, refresh, and pagination cannot commit stale
   releases/selection/loading; repeated load-more is serialized or deduplicated.
