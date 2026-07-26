@@ -45,4 +45,21 @@ describe('useMcpStore.resetConnectionSession', () => {
 
     expect(useMcpStore.getState()).toBe(before);
   });
+
+  it('keeps every connection action a no-op for an unknown id', () => {
+    const before = useMcpStore.getState();
+    const actions = before;
+    actions.setUrl('missing', 'https://other.example.com');
+    actions.setTransport('missing', 'sse');
+    actions.addHeader('missing');
+    actions.updateHeader('missing', 'header', { key: 'x' });
+    actions.removeHeader('missing', 'header');
+    actions.setStatus('missing', 'connected');
+    actions.setCapabilities('missing', null);
+    actions.appendLog('missing', { method: 'tools/list', durationMs: 1 });
+    actions.clearLog('missing');
+    actions.removeConnection('missing');
+
+    expect(useMcpStore.getState()).toBe(before);
+  });
 });
