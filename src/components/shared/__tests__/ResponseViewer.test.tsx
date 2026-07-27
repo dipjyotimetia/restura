@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { HttpRequest, Response } from '@/types';
@@ -89,31 +89,37 @@ describe('ResponseViewer HTML preview', () => {
   });
 
   it('renders empty, loading, and response metadata states without a stale response', () => {
-    useRequestStore.setState({ tabs: [], activeTabId: null, isLoading: false });
+    act(() => {
+      useRequestStore.setState({ tabs: [], activeTabId: null, isLoading: false });
+    });
     const { rerender } = render(<ResponseViewer />);
     expect(screen.getByText('Send a request to see the response')).toBeInTheDocument();
 
-    useRequestStore.setState({ isLoading: true });
+    act(() => {
+      useRequestStore.setState({ isLoading: true });
+    });
     rerender(<ResponseViewer />);
     expect(document.querySelectorAll('[class*="animate"]').length).toBeGreaterThan(0);
 
-    useRequestStore.setState({
-      tabs: [
-        {
-          id: 'tab-response',
-          request: htmlRequest,
-          response: {
-            ...htmlResponse,
-            id: 'response-status',
-            status: 503,
-            statusText: 'Unavailable',
-            negotiatedAlpn: 'h2',
+    act(() => {
+      useRequestStore.setState({
+        tabs: [
+          {
+            id: 'tab-response',
+            request: htmlRequest,
+            response: {
+              ...htmlResponse,
+              id: 'response-status',
+              status: 503,
+              statusText: 'Unavailable',
+              negotiatedAlpn: 'h2',
+            },
+            isDirty: false,
           },
-          isDirty: false,
-        },
-      ],
-      activeTabId: 'tab-response',
-      isLoading: false,
+        ],
+        activeTabId: 'tab-response',
+        isLoading: false,
+      });
     });
     rerender(<ResponseViewer />);
     expect(screen.getByText('Unavailable')).toBeInTheDocument();
@@ -186,22 +192,24 @@ describe('ResponseViewer HTML preview', () => {
     const { rerender } = render(<ResponseViewer />);
     expect(screen.getByRole('button', { name: 'Download response' })).toBeInTheDocument();
 
-    useRequestStore.setState({
-      tabs: [
-        {
-          id: 'tab-binary',
-          request: htmlRequest,
-          response: {
-            ...htmlResponse,
-            id: 'response-binary',
-            headers: { 'content-type': 'application/pdf' },
-            body: 'cGRm',
-            bodyEncoding: 'base64',
+    act(() => {
+      useRequestStore.setState({
+        tabs: [
+          {
+            id: 'tab-binary',
+            request: htmlRequest,
+            response: {
+              ...htmlResponse,
+              id: 'response-binary',
+              headers: { 'content-type': 'application/pdf' },
+              body: 'cGRm',
+              bodyEncoding: 'base64',
+            },
+            isDirty: false,
           },
-          isDirty: false,
-        },
-      ],
-      activeTabId: 'tab-binary',
+        ],
+        activeTabId: 'tab-binary',
+      });
     });
     rerender(<ResponseViewer />);
     expect(screen.getByText(/Binary response/)).toBeInTheDocument();

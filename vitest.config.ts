@@ -9,6 +9,12 @@ export default defineConfig({
   // files or wrapper scripts can repair it.
   plugins: [sandboxLibsPlugin(), react()],
   test: {
+    // Root tests intentionally retain Vitest's safest parallel model: isolated
+    // forked workers run files concurrently while each file's tests stay in
+    // declaration order. CI adds a second level through file-based sharding.
+    pool: 'forks',
+    isolate: true,
+    fileParallelism: true,
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./tests/setup.ts'],
@@ -38,6 +44,9 @@ export default defineConfig({
     exclude: ['node_modules', 'dist', 'out', '.next'],
     coverage: {
       provider: 'v8',
+      // A failed shard must still upload data that the CI merge job can turn
+      // into one actionable coverage report.
+      reportOnFailure: true,
       reporter: ['text', 'json', 'json-summary', 'html'],
       exclude: [
         'node_modules/',

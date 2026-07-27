@@ -280,7 +280,10 @@ describe('McpRequestBuilder client ownership', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Choose first tool' }));
     expect(screen.getByRole('button', { name: 'Invoke current tool' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Invoke current tool' }));
-    expect(clientMocks.instances[0]?.callTool).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(clientMocks.instances[0]?.callTool).toHaveBeenCalledTimes(1);
+      expect(useMcpStore.getState().connections.first?.log).toHaveLength(1);
+    });
 
     firstRender.unmount();
 
@@ -306,9 +309,12 @@ describe('McpRequestBuilder client ownership', () => {
     expect(screen.getByRole('button', { name: 'Invoke current tool' })).toBeEnabled();
     fireEvent.click(screen.getByRole('button', { name: 'Invoke current tool' }));
 
-    expect(clientMocks.instances[0]?.callTool).toHaveBeenCalledTimes(1);
-    expect(clientMocks.instances[1]?.connectionId).toBe('first');
-    expect(clientMocks.instances[1]?.callTool).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(clientMocks.instances[0]?.callTool).toHaveBeenCalledTimes(1);
+      expect(clientMocks.instances[1]?.connectionId).toBe('first');
+      expect(clientMocks.instances[1]?.callTool).toHaveBeenCalledTimes(1);
+      expect(useMcpStore.getState().connections.first?.log).toHaveLength(1);
+    });
   });
 
   it('records connect/discovery failures and does not refresh without a live session', async () => {
@@ -369,14 +375,18 @@ describe('McpRequestBuilder client ownership', () => {
 
   it('updates connection settings through the panel callbacks before connecting', () => {
     render(<McpRequestBuilder />);
-    fireEvent.click(screen.getByRole('button', { name: 'Change URL' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Change transport' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add header' }));
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Change URL' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Change transport' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Add header' }));
+    });
     const headerId = useMcpStore.getState().connections.first?.headers[0]?.id;
     expect(headerId).toBeDefined();
     if (!headerId) throw new Error('Expected header');
-    useMcpStore.getState().updateHeader('first', headerId, { key: 'x-token' });
-    fireEvent.click(screen.getByRole('button', { name: 'Remove header' }));
+    act(() => {
+      useMcpStore.getState().updateHeader('first', headerId, { key: 'x-token' });
+      fireEvent.click(screen.getByRole('button', { name: 'Remove header' }));
+    });
 
     expect(useMcpStore.getState().connections.first).toMatchObject({
       url: 'https://changed.example/mcp',

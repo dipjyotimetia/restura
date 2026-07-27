@@ -38,6 +38,8 @@
     "test:run": "node scripts/ensure-sandbox-libs.mjs && vitest run",
     "test:coverage": "vitest run --coverage",
     "test:ci": "vitest run --coverage",
+    "test:ci:shard": "vitest run --coverage --reporter=default --reporter=blob",
+    "test:ci:merge": "vitest --merge-reports .vitest-reports --coverage",
     "test:watch": "vitest --watch",
     "test:ui": "vitest --ui",
     "test:e2e": "playwright test",

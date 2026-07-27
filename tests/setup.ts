@@ -101,11 +101,18 @@ if (isBrowser) {
     })),
   });
 
-  global.ResizeObserver = vi.fn().mockImplementation(() => ({
-    observe: vi.fn(),
-    unobserve: vi.fn(),
-    disconnect: vi.fn(),
-  }));
+  // Components construct this with `new`. A `vi.fn` backed by an arrow
+  // function triggers Vitest's constructor warning even though the observer is
+  // otherwise usable, so provide a small constructible test double instead.
+  class ResizeObserverMock {
+    observe = vi.fn();
+    unobserve = vi.fn();
+    disconnect = vi.fn();
+
+    constructor(_callback: ResizeObserverCallback) {}
+  }
+
+  global.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
 
   beforeAll(() => {
     localStorageMock.clear();
