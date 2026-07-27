@@ -274,6 +274,23 @@ describe('mqtt-handler', () => {
     expect(missing).toEqual({ success: false, error: 'Not connected' });
   });
 
+  it('suppresses a stale publish acknowledgement after same-id replacement', async () => {
+    const { event } = makeEvent();
+    await handlerFor(IPC.mqtt.connect)(event, validConnect('shared'));
+    const previous = FakeMqttClient.instances[0]!;
+    let acknowledge!: () => void;
+    previous.publish.mockImplementationOnce((_topic: string, _payload: string, _opts, cb?: Cb) => {
+      acknowledge = () => cb?.(null, { messageId: 42 });
+      return previous;
+    });
+
+    const stalePublish = handlerFor(IPC.mqtt.publish)(event, validPublish('shared'));
+    await handlerFor(IPC.mqtt.connect)(event, validConnect('shared'));
+
+    acknowledge();
+    await expect(stalePublish).resolves.toEqual({ success: false, error: 'Not connected' });
+  });
+
   it('mqtt:subscribe emits SUBSCRIBED on grant and surfaces a broker rejection (qos 128)', async () => {
     const { event, senderId } = makeEvent();
     await handlerFor(IPC.mqtt.connect)(event, validConnect('c1'));

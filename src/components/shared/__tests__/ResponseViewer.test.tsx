@@ -87,4 +87,124 @@ describe('ResponseViewer HTML preview', () => {
     expect(document.querySelector('a')?.hasAttribute('href')).toBe(false);
     expect(document.querySelector('form')?.hasAttribute('action')).toBe(false);
   });
+
+  it('renders empty, loading, and response metadata states without a stale response', () => {
+    useRequestStore.setState({ tabs: [], activeTabId: null, isLoading: false });
+    const { rerender } = render(<ResponseViewer />);
+    expect(screen.getByText('Send a request to see the response')).toBeInTheDocument();
+
+    useRequestStore.setState({ isLoading: true });
+    rerender(<ResponseViewer />);
+    expect(document.querySelectorAll('[class*="animate"]').length).toBeGreaterThan(0);
+
+    useRequestStore.setState({
+      tabs: [
+        {
+          id: 'tab-response',
+          request: htmlRequest,
+          response: {
+            ...htmlResponse,
+            id: 'response-status',
+            status: 503,
+            statusText: 'Unavailable',
+            negotiatedAlpn: 'h2',
+          },
+          isDirty: false,
+        },
+      ],
+      activeTabId: 'tab-response',
+      isLoading: false,
+    });
+    rerender(<ResponseViewer />);
+    expect(screen.getByText('Unavailable')).toBeInTheDocument();
+    expect(screen.getByText('HTTP')).toBeInTheDocument();
+    expect(screen.getByText('HTTP/2')).toBeInTheDocument();
+  });
+
+  it('renders filtered headers, parsed cookies, and server timing details', () => {
+    const headers = Object.fromEntries(
+      Array.from({ length: 9 }, (_, index) => [`x-header-${index}`, `value-${index}`])
+    );
+    useRequestStore.setState({
+      tabs: [
+        {
+          id: 'tab-details',
+          request: htmlRequest,
+          response: {
+            ...htmlResponse,
+            id: 'response-details',
+            headers: {
+              ...headers,
+              'set-cookie': ['session=abc; HttpOnly; Secure', 'flag'],
+              'server-timing': 'db;dur=12.5;desc="primary", cache;desc="warm"',
+            },
+          },
+          isDirty: false,
+        },
+      ],
+      activeTabId: 'tab-details',
+      isLoading: false,
+    });
+    render(<ResponseViewer />);
+
+    fireEvent.click(screen.getByRole('tab', { name: /Headers/ }));
+    const filter = screen.getByRole('textbox', { name: 'Filter response headers' });
+    fireEvent.change(filter, { target: { value: 'x-header-2' } });
+    expect(screen.getByText('x-header-2')).toBeInTheDocument();
+    expect(screen.queryByText('x-header-3')).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: /Cookies/ }));
+    expect(screen.getByText('session')).toBeInTheDocument();
+    expect(screen.getByText('abc')).toBeInTheDocument();
+    expect(screen.getByText('HttpOnly · Secure')).toBeInTheDocument();
+    expect(screen.getByText('flag')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Timeline' }));
+    expect(screen.getByText('primary')).toBeInTheDocument();
+    expect(screen.getByText('12.5 ms')).toBeInTheDocument();
+    expect(screen.getByText('warm')).toBeInTheDocument();
+  });
+
+  it('selects CSV tables and binary download affordances from response metadata', () => {
+    useRequestStore.setState({
+      tabs: [
+        {
+          id: 'tab-csv',
+          request: htmlRequest,
+          response: {
+            ...htmlResponse,
+            id: 'response-csv',
+            headers: { 'content-type': 'text/csv' },
+            body: 'name,value\nfirst,1',
+          },
+          isDirty: false,
+        },
+      ],
+      activeTabId: 'tab-csv',
+      isLoading: false,
+    });
+    const { rerender } = render(<ResponseViewer />);
+    expect(screen.getByRole('button', { name: 'Download response' })).toBeInTheDocument();
+
+    useRequestStore.setState({
+      tabs: [
+        {
+          id: 'tab-binary',
+          request: htmlRequest,
+          response: {
+            ...htmlResponse,
+            id: 'response-binary',
+            headers: { 'content-type': 'application/pdf' },
+            body: 'cGRm',
+            bodyEncoding: 'base64',
+          },
+          isDirty: false,
+        },
+      ],
+      activeTabId: 'tab-binary',
+    });
+    rerender(<ResponseViewer />);
+    expect(screen.getByText(/Binary response/)).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Download file' }).length).toBeGreaterThan(0);
+  });
 });

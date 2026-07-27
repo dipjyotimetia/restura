@@ -16,14 +16,17 @@ vi.mock('@/lib/shared/release-notes', () => ({
 interface Deferred<T> {
   promise: Promise<T>;
   resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
 }
 
 function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((promiseResolve) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((promiseResolve, promiseReject) => {
     resolve = promiseResolve;
+    reject = promiseReject;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function release(id: number, tag: string, isPrerelease = false): ReleaseNote {
@@ -232,5 +235,53 @@ describe('useReleaseNotes', () => {
 
     expect(mockFetchReleaseNotesPage).toHaveBeenCalledTimes(1);
     expect(result.current.loadingMore).toBe(false);
+  });
+
+  it('keeps a newer channel state when the old request fails', async () => {
+    const stable = deferred<ReleaseNotesPage>();
+    mockFetchReleaseNotesPage
+      .mockReturnValueOnce(stable.promise)
+      .mockResolvedValueOnce(page([release(2, 'v1.1.0-beta.1', true)]));
+    const { result, rerender } = renderHook(({ channel }) => useReleaseNotes(channel), {
+      initialProps: { channel: 'stable' as ReleaseNotesChannel },
+    });
+    await waitFor(() => expect(mockFetchReleaseNotesPage).toHaveBeenCalledTimes(1));
+
+    rerender({ channel: 'beta' });
+    await waitFor(() => expect(result.current.selectedId).toBe(2));
+    await act(async () => {
+      stable.reject(new Error('obsolete'));
+      await stable.promise.catch(() => undefined);
+    });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.releases).toEqual([release(2, 'v1.1.0-beta.1', true)]);
+  });
+
+  it('reports Error pagination failures and ignores obsolete pagination failures', async () => {
+    const stale = deferred<ReleaseNotesPage>();
+    mockFetchReleaseNotesPage
+      .mockResolvedValueOnce(page([release(2, 'v1.1.0')], 2))
+      .mockReturnValueOnce(stale.promise)
+      .mockResolvedValueOnce(page([release(3, 'v1.2.0')], 3))
+      .mockRejectedValueOnce(new Error('network unavailable'));
+    const { result } = renderHook(() => useReleaseNotes('stable'));
+    await waitFor(() => expect(result.current.nextPage).toBe(2));
+
+    let staleLoad!: Promise<void>;
+    act(() => {
+      staleLoad = result.current.loadMore();
+      void result.current.reload();
+    });
+    await waitFor(() => expect(result.current.nextPage).toBe(3));
+    await act(async () => {
+      stale.reject('obsolete');
+      await staleLoad;
+    });
+
+    await act(async () => {
+      await result.current.loadMore();
+    });
+    expect(result.current.error).toBe('network unavailable');
   });
 });

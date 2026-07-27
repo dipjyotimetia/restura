@@ -405,6 +405,59 @@ describe('useRequestStore — tabs', () => {
     });
   });
 
+  describe('tab naming and saved-request links', () => {
+    it('renames an existing tab once and keeps unknown or unchanged tabs intact', () => {
+      const tabId = useRequestStore.getState().openTab(makeHttp({ name: 'Original' }));
+      useRequestStore.getState().renameTab(tabId, 'Renamed');
+      expect(useRequestStore.getState().getActiveTab()).toMatchObject({
+        isDirty: true,
+        request: { name: 'Renamed' },
+      });
+
+      const renamed = useRequestStore.getState().getActiveTab();
+      useRequestStore.getState().renameTab(tabId, 'Renamed');
+      useRequestStore.getState().renameTab('missing', 'Ignored');
+      expect(useRequestStore.getState().getActiveTab()).toBe(renamed);
+    });
+
+    it('links, detaches, and clears saved-request tab state without changing unrelated tabs', () => {
+      const linkedId = useRequestStore.getState().openTab(makeHttp());
+      const otherId = useRequestStore.getState().openTab(makeGrpc());
+      useRequestStore.getState().linkTabToSavedRequest(linkedId, 'saved-1');
+      expect(useRequestStore.getState().tabs.find((tab) => tab.id === linkedId)).toMatchObject({
+        savedRequestId: 'saved-1',
+        isDirty: false,
+      });
+
+      const linked = useRequestStore.getState().tabs.find((tab) => tab.id === linkedId)!;
+      useRequestStore.getState().linkTabToSavedRequest(linkedId, 'saved-1');
+      useRequestStore.getState().linkTabToSavedRequest('missing', 'saved-2');
+      expect(useRequestStore.getState().tabs.find((tab) => tab.id === linkedId)).toBe(linked);
+
+      useRequestStore.getState().detachTabsFromSavedRequests(new Set(['saved-1']));
+      expect(useRequestStore.getState().tabs.find((tab) => tab.id === linkedId)).toMatchObject({
+        isDirty: true,
+      });
+      expect(
+        useRequestStore.getState().tabs.find((tab) => tab.id === linkedId)?.savedRequestId
+      ).toBeUndefined();
+      expect(useRequestStore.getState().tabs.find((tab) => tab.id === otherId)?.request.type).toBe(
+        'grpc'
+      );
+
+      const detached = useRequestStore.getState().tabs.find((tab) => tab.id === linkedId)!;
+      useRequestStore.getState().detachTabsFromSavedRequests(new Set(['saved-1']));
+      expect(useRequestStore.getState().tabs.find((tab) => tab.id === linkedId)).toBe(detached);
+
+      useRequestStore.getState().clearTabDirty(linkedId);
+      expect(useRequestStore.getState().tabs.find((tab) => tab.id === linkedId)?.isDirty).toBe(
+        false
+      );
+      useRequestStore.getState().clearTabDirty(linkedId);
+      useRequestStore.getState().clearTabDirty('missing');
+    });
+  });
+
   describe('setStreamingEvents / clearStreamingEvents', () => {
     async function* emptyEvents(): AsyncIterable<{ type: 'sse'; payload: { data: string } }> {
       yield { type: 'sse', payload: { data: 'a' } };
@@ -583,6 +636,68 @@ describe('useRequestStore — tabs', () => {
       expect(persisted.tabs[0]!.savedRequestId).toBe('saved-1');
       expect(persisted.tabs[0]!.isDirty).toBe(true);
       expect(persisted.tabs[0]!.request.url).toBe('https://example.com');
+    });
+  });
+
+  describe('persist migration and rehydration', () => {
+    it('migrates the legacy active request without retaining a stale response', () => {
+      const migrate = useRequestStore.persist.getOptions().migrate!;
+      const response = makeResponse('current');
+      const migrated = migrate(
+        {
+          currentRequest: makeHttp({ id: 'current' }),
+          httpRequest: makeHttp({ id: 'http' }),
+          grpcRequest: makeGrpc({ id: 'grpc' }),
+          currentResponse: response,
+        },
+        2
+      ) as { tabs: Array<{ request: HttpRequest | GrpcRequest; response: unknown }> };
+
+      expect(migrated.tabs.map((tab) => tab.request.id)).toEqual(['current']);
+      expect(migrated.tabs[0]?.response).toEqual(response);
+    });
+
+    it('migrates pre-SecretRef auth while preserving tabs without auth fields', () => {
+      const migrate = useRequestStore.persist.getOptions().migrate!;
+      const migrated = migrate(
+        {
+          tabs: [
+            {
+              id: 'plain',
+              request: makeHttp({ auth: { type: 'bearer', bearer: { token: 'secret' } } }),
+            },
+            { id: 'without-auth', request: { id: 'opaque' } },
+          ],
+        },
+        3
+      ) as { tabs: Array<{ id: string; request: { auth?: unknown } | undefined }> };
+
+      expect(migrated.tabs[0]?.request?.auth).toMatchObject({
+        type: 'bearer',
+        bearer: { token: { kind: 'inline', value: 'secret' } },
+      });
+      expect(migrated.tabs[1]?.request).toEqual({ id: 'opaque' });
+    });
+
+    it('repairs an invalid active tab and reseeds an empty rehydrated store', () => {
+      const onRehydrateStorage = useRequestStore.persist.getOptions().onRehydrateStorage as (
+        state?: unknown
+      ) => (state?: unknown, error?: unknown) => void;
+      const afterRehydrate = onRehydrateStorage(undefined);
+      const first = {
+        id: 'first',
+        request: makeHttp({ id: 'first-request' }),
+        isDirty: false,
+      };
+      const invalidActive = { activeTabId: 'missing', tabs: [first] };
+      afterRehydrate(invalidActive as never, undefined);
+      expect(invalidActive.activeTabId).toBe('first');
+
+      const empty = { activeTabId: 'missing', tabs: [] as typeof invalidActive.tabs };
+      afterRehydrate(empty as never, undefined);
+      expect(empty.tabs).toHaveLength(1);
+      expect(empty.activeTabId).toBe(empty.tabs[0]?.id);
+      afterRehydrate(undefined, undefined);
     });
   });
 

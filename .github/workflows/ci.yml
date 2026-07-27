@@ -27,18 +27,12 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version-file: '.nvmrc'
-          cache: 'npm'
+          node-version-file: ".nvmrc"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
 
-      # Kick the test suite off in the background (it's the long pole — ~3× the
-      # next-slowest gate) so the type-check/lint/format/build gates below run
-      # concurrently underneath it on the same runner, with no extra `npm ci`.
-      # The `wait: tests` step further down blocks until it finishes; the
-      # test-result consumers (PR comment, coverage report) live after that wait
-      # because a background step's outcome/outputs aren't readable until then.
       - name: Run tests with coverage
         # `electron`'s package index.js calls `downloadElectron()` at
         # module-load time when `path.txt` is missing. On GitHub-hosted runners
@@ -53,44 +47,12 @@ jobs:
         # `test:ci` runs the full coverage report and enforces the same
         # non-regression and protocol-core thresholds as local coverage runs.
         id: tests
-        background: true
         env:
           ELECTRON_OVERRIDE_DIST_PATH: /tmp
         # Emit JUnit XML (unit + integration — vitest's `include` already covers
         # tests/contract + tests/security) alongside the console reporter so the
         # next step can summarize results on the PR.
         run: npm run test:ci -- --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml
-
-      - name: Static validation
-        # Shared with local `npm run validate`: all product/tooling tsconfigs,
-        # Biome, formatting, generated artifacts, capabilities, and architecture.
-        run: npm run validate:static
-
-      # Dependency auditing moved to the scheduled, non-blocking security-audit
-      # workflow. A newly-disclosed transitive critical advisory used to fail
-      # `validate` on every unrelated PR (blocking all merges until patched);
-      # dependabot security PRs remain the remediation path.
-
-      - name: Production build validation
-        # Renderer/Worker, self-host Node/Docker, CLI, browser/VS Code extension
-        # bundles, Electron main/preload compilation, and renderer bundle budgets.
-        run: npm run validate:build
-
-      # The cli workspace has its own vitest suite that root `test:ci` does not
-      # cover (root vitest `include` omits cli/**). Gate it here so a published
-      # `restura-cli` regression can't slip through. `pretest` regenerates the
-      # sandbox bundle on a clean checkout.
-      - name: Run workspace tests
-        # CLI and VS Code suites are outside root Vitest coverage. The extension
-        # also exercises shared protocol and OpenCollection modules.
-        run: npm run test:workspaces
-
-      # Block until the background test step (kicked off right after install)
-      # finishes. The job fails here if the suite failed; the test-result
-      # consumers below can only read `steps.tests.outcome` / the JUnit + coverage
-      # artifacts after this wait.
-      - name: Wait for tests
-        wait: tests
 
       - name: Comment test results on PR
         # Parses the JUnit report and upserts a single PR comment with separate
@@ -188,6 +150,45 @@ jobs:
           path: coverage/
           retention-days: 14
 
+  validate-static-build:
+    name: Static, build, and workspace validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
+
+      - name: Static validation
+        # Shared with local `npm run validate`: all product/tooling tsconfigs,
+        # Biome, formatting, generated artifacts, capabilities, and architecture.
+        run: npm run validate:static
+
+      # Dependency auditing moved to the scheduled, non-blocking security-audit
+      # workflow. A newly-disclosed transitive critical advisory used to fail
+      # `validate` on every unrelated PR (blocking all merges until patched);
+      # dependabot security PRs remain the remediation path.
+
+      - name: Production build validation
+        # Renderer/Worker, self-host Node/Docker, CLI, browser/VS Code extension
+        # bundles, Electron main/preload compilation, and renderer bundle budgets.
+        run: npm run validate:build
+
+      # The cli workspace has its own Vitest suite that root `test:ci` does not
+      # cover (root Vitest `include` omits cli/**). Gate it here so a published
+      # `restura-cli` regression can't slip through. `pretest` regenerates the
+      # sandbox bundle on a clean checkout.
+      - name: Run workspace tests
+        # CLI and VS Code suites are outside root Vitest coverage. The extension
+        # also exercises shared protocol and OpenCollection modules.
+        run: npm run test:workspaces
+
   electron-smoke:
     name: Electron pack smoke (${{ matrix.os }})
     # Skip for Dependabot: this job needs the `electron-builder install-app-deps`
@@ -195,7 +196,7 @@ jobs:
     # via --ignore-scripts. Electron dep bumps still get desktop coverage at
     # release-preflight time. Not a required check, so skipping never blocks merge.
     if: ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' }}
-    needs: [validate]
+    needs: [validate, validate-static-build]
     strategy:
       fail-fast: false
       matrix:
@@ -207,8 +208,8 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version-file: '.nvmrc'
-          cache: 'npm'
+          node-version-file: ".nvmrc"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
@@ -224,14 +225,14 @@ jobs:
 
       - name: Build renderer (Electron mode)
         env:
-          VITE_IS_ELECTRON_BUILD: 'true'
+          VITE_IS_ELECTRON_BUILD: "true"
         run: npm run electron:build:web
 
       - name: Pack unsigned (smoke only)
         env:
           # Skip signing/notarization for smoke; this catches packaging regressions
           # without needing certs in CI.
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npx electron-builder --dir --publish never
 
       - name: Verify renderer is bundled into the app
@@ -260,14 +261,14 @@ jobs:
       matrix:
         shard: [1, 2]
     env:
-      CI: 'true'
+      CI: "true"
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
-          node-version-file: '.nvmrc'
-          cache: 'npm'
+          node-version-file: ".nvmrc"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
@@ -329,14 +330,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      CI: 'true'
+      CI: "true"
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v6
         with:
-          node-version-file: '.nvmrc'
-          cache: 'npm'
+          node-version-file: ".nvmrc"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
@@ -386,7 +387,7 @@ jobs:
     # builds a different target (electron:compile, not the SPA + Worker) and
     # needs a virtual display.
     name: Electron desktop E2E
-    needs: [validate]
+    needs: [validate, validate-static-build]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -394,8 +395,8 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version-file: '.nvmrc'
-          cache: 'npm'
+          node-version-file: ".nvmrc"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
@@ -444,7 +445,7 @@ jobs:
     # check, so a flaky download never blocks merge.
     name: VS Code extension integration
     if: ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' }}
-    needs: [validate]
+    needs: [validate, validate-static-build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -452,8 +453,8 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version-file: '.nvmrc'
-          cache: 'npm'
+          node-version-file: ".nvmrc"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
@@ -488,7 +489,7 @@ jobs:
 
   deploy-preview:
     name: Deploy preview
-    needs: [validate, e2e]
+    needs: [validate, validate-static-build, e2e]
     # Same-repo PRs only. Forked PRs receive neither the Cloudflare secrets nor a
     # writable token, so every step here would fail — skip the job for forks.
     # Dependabot is also excluded: its runs get no secrets (deploy would fail)
@@ -507,8 +508,8 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version-file: '.nvmrc'
-          cache: 'npm'
+          node-version-file: ".nvmrc"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
@@ -653,8 +654,8 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version-file: '.nvmrc'
-          cache: 'npm'
+          node-version-file: ".nvmrc"
+          cache: "npm"
           cache-dependency-path: docs-site/package-lock.json
 
       - name: Install docs-site dependencies

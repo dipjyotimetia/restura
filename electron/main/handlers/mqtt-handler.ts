@@ -367,6 +367,10 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
             ...(Object.keys(properties).length > 0 ? { properties } : {}),
           },
           (err, packet) => {
+            if (activeConnections.get(cfg.connectionId, entry.webContentsId) !== entry) {
+              resolve({ success: false, error: 'Not connected' });
+              return;
+            }
             if (err) {
               resolve({ success: false, error: errorMessage(err) });
               return;
