@@ -95,7 +95,7 @@ jobs:
         id: tests
         env:
           ELECTRON_OVERRIDE_DIST_PATH: /tmp
-        run: npm run test:ci:merge -- --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml
+        run: npm run test:ci:merge -- --reporter=default --reporter=junit --reporter=github-actions --outputFile.junit=test-results/junit.xml
 
       - name: Comment test results on PR
         # Parses the JUnit report and upserts a single PR comment with separate
