@@ -13,6 +13,8 @@ tmp/*
 # testing
 /coverage
 /test-results/
+/.vitest-reports/
+/.vitest-attachments/
 /playwright-report/
 /playwright/.cache/
 

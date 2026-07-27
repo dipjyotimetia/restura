@@ -3,12 +3,20 @@ import path from 'path';
 import { defineConfig } from 'vitest/config';
 import { sandboxLibsPlugin } from './scripts/vite-plugin-sandbox-libs';
 
+const isVitestShard = process.env.VITEST_SHARD === 'true';
+
 export default defineConfig({
   // Direct `npx vitest` must be as fresh-checkout safe as npm test. The
   // ignored QuickJS bundle is imported during Vite transform, before setup
   // files or wrapper scripts can repair it.
   plugins: [sandboxLibsPlugin(), react()],
   test: {
+    // Root tests intentionally retain Vitest's safest parallel model: isolated
+    // forked workers run files concurrently while each file's tests stay in
+    // declaration order. CI adds a second level through file-based sharding.
+    pool: 'forks',
+    isolate: true,
+    fileParallelism: true,
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./tests/setup.ts'],
@@ -38,7 +46,13 @@ export default defineConfig({
     exclude: ['node_modules', 'dist', 'out', '.next'],
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'json-summary', 'html'],
+      // A failed shard must still upload data that the CI merge job can turn
+      // into one actionable coverage report.
+      reportOnFailure: true,
+      // Blob reports already carry raw coverage from each shard. Generating
+      // standalone reports there wastes CI work and cannot satisfy a global
+      // budget until all blobs are merged.
+      reporter: isVitestShard ? [] : ['text', 'json', 'json-summary', 'html'],
       exclude: [
         'node_modules/',
         'tests/',
@@ -96,24 +110,26 @@ export default defineConfig({
         'src/components/shared/settings/useReleaseNotes.ts',
         'src/hooks/useGit.ts',
       ],
-      thresholds: {
-        // Global coverage spans the renderer, stores, protocol managers, and
-        // Worker. Use an uncovered-item budget so the gate is enforceable and
-        // any newly added untested production code fails it. Percentage targets
-        // had drifted below their 2026 snapshot and CI silently disabled them.
-        lines: -4378,
-        functions: -1344,
-        branches: -5226,
-        statements: -5321,
-        // The backend-agnostic protocol core is the security/parity boundary;
-        // keep substantially stronger percentage guarantees here.
-        'shared/protocol/**': {
-          lines: 90,
-          functions: 88,
-          branches: 75,
-          statements: 88,
-        },
-      },
+      thresholds: isVitestShard
+        ? undefined
+        : {
+            // Global coverage spans the renderer, stores, protocol managers, and
+            // Worker. Use an uncovered-item budget so the gate is enforceable and
+            // any newly added untested production code fails it. Percentage targets
+            // had drifted below their 2026 snapshot and CI silently disabled them.
+            lines: -4378,
+            functions: -1344,
+            branches: -5226,
+            statements: -5321,
+            // The backend-agnostic protocol core is the security/parity boundary;
+            // keep substantially stronger percentage guarantees here.
+            'shared/protocol/**': {
+              lines: 90,
+              functions: 88,
+              branches: 75,
+              statements: 88,
+            },
+          },
     },
   },
   resolve: {

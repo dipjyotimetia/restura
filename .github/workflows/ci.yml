@@ -14,10 +14,59 @@ permissions:
   contents: read
 
 jobs:
-  validate:
-    name: validate
+  vitest-shards:
+    name: Vitest (shard ${{ matrix.shard }}/2)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
+
+      - name: Run Vitest shard with coverage
+        # `electron`'s package index.js calls `downloadElectron()` at
+        # module-load time when `path.txt` is missing. On GitHub-hosted runners
+        # the postinstall download intermittently exits 0 without writing
+        # `path.txt`, then EVERY test that `import 'electron'` (six suites)
+        # crashes on module load with ENOENT — even though those tests
+        # `vi.mock('electron')` and never touch the real binary. Setting
+        # ELECTRON_OVERRIDE_DIST_PATH short-circuits the download check in
+        # `node_modules/electron/index.js`: the module returns a stub path and
+        # the test's mock takes over from there. Local dev is unaffected.
+        #
+        # Each runner retains Vitest's isolated forked file parallelism. Blob
+        # reports carry test and V8 coverage data to the merge job below.
+        env:
+          ELECTRON_OVERRIDE_DIST_PATH: /tmp
+        run: npm run test:ci:shard -- --shard=${{ matrix.shard }}/2
+
+      - name: Upload Vitest blob report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: vitest-blob-report-${{ matrix.shard }}
+          path: .vitest-reports/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 1
+
+  validate:
+    # Keep the required check name stable while publishing one merged report.
+    name: validate
+    if: ${{ always() && !cancelled() }}
+    needs: [vitest-shards]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       # Needed to post/update the test-results comment on the PR.
@@ -33,26 +82,20 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
 
-      - name: Run tests with coverage
-        # `electron`'s package index.js calls `downloadElectron()` at
-        # module-load time when `path.txt` is missing. On GitHub-hosted runners
-        # the postinstall download intermittently exits 0 without writing
-        # `path.txt`, then EVERY test that `import 'electron'` (six suites)
-        # crashes on module load with ENOENT — even though those tests
-        # `vi.mock('electron')` and never touch the real binary. Setting
-        # ELECTRON_OVERRIDE_DIST_PATH short-circuits the download check in
-        # `node_modules/electron/index.js`: the module returns a stub path and
-        # the test's mock takes over from there. Local dev is unaffected.
-        #
-        # `test:ci` runs the full coverage report and enforces the same
-        # non-regression and protocol-core thresholds as local coverage runs.
+      - name: Download Vitest blob reports
+        uses: actions/download-artifact@v7
+        with:
+          path: .vitest-reports
+          pattern: vitest-blob-report-*
+          merge-multiple: true
+
+      - name: Merge Vitest reports and coverage
+        # Merge reports from both shards before emitting JUnit. This preserves
+        # the existing PR summary and coverage-comment contracts as one result.
         id: tests
         env:
           ELECTRON_OVERRIDE_DIST_PATH: /tmp
-        # Emit JUnit XML (unit + integration — vitest's `include` already covers
-        # tests/contract + tests/security) alongside the console reporter so the
-        # next step can summarize results on the PR.
-        run: npm run test:ci -- --reporter=default --reporter=junit --outputFile.junit=test-results/junit.xml
+        run: npm run test:ci:merge -- --reporter=default --reporter=junit --reporter=github-actions --outputFile.junit=test-results/junit.xml
 
       - name: Comment test results on PR
         # Parses the JUnit report and upserts a single PR comment with separate
@@ -149,6 +192,10 @@ jobs:
           name: coverage
           path: coverage/
           retention-days: 14
+
+      - name: Preserve shard failure
+        if: ${{ always() && needs.vitest-shards.result != 'success' }}
+        run: exit 1
 
   validate-static-build:
     name: Static, build, and workspace validation
