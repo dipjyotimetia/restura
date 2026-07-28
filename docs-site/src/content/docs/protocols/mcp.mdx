@@ -16,6 +16,7 @@ Point Restura at any MCP server and explore it like any other request target.
 - **List tools** — see the server's exposed tool catalogue with schemas.
 - **Invoke a tool** — fill in the JSON schema, send, watch the streamed result.
 - **List prompts / list resources** — for servers that expose them.
+- **Desktop SDK compatibility** — desktop connections use the current MCP v2 client with automatic modern/legacy protocol negotiation. If a server rejects that protocol or transport handshake, Restura retries once through the retained v1 SDK; authentication, TLS, network, timeout, and security-policy failures are never retried.
 
 ## As an MCP server
 
