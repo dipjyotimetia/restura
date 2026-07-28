@@ -1,8 +1,8 @@
 import {
-  createAgentToolResolver,
-  createFixtureToolSourceAdapter,
   type AgentBundle,
   type AgentSuite,
+  createAgentToolResolver,
+  createFixtureToolSourceAdapter,
 } from '@shared/agent-lab';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AiLabProviderConfig } from '../../types';
@@ -380,25 +380,28 @@ describe('desktop agent provider bridge', () => {
       },
       'continuation',
     ],
-  ])('rejects unsupported %s before calling the Electron completion transport', async (_label, patch, message) => {
-    const registry = createDesktopAgentProviders({ cfg: provider('cfg', 'model') }, completeLlm);
-    const adapter = registry.require('cfg');
+  ])(
+    'rejects unsupported %s before calling the Electron completion transport',
+    async (_label, patch, message) => {
+      const registry = createDesktopAgentProviders({ cfg: provider('cfg', 'model') }, completeLlm);
+      const adapter = registry.require('cfg');
 
-    await expect(
-      adapter.generate(
-        {
-          model: { providerId: 'cfg', model: 'model' },
-          ...patch,
-        },
-        {
-          async resolveCredential() {
-            return undefined;
+      await expect(
+        adapter.generate(
+          {
+            model: { providerId: 'cfg', model: 'model' },
+            ...patch,
           },
-        }
-      )
-    ).rejects.toThrow(message);
-    expect(completeLlm).not.toHaveBeenCalled();
-  });
+          {
+            async resolveCredential() {
+              return undefined;
+            },
+          }
+        )
+      ).rejects.toThrow(message);
+      expect(completeLlm).not.toHaveBeenCalled();
+    }
+  );
 
   it('retains successful judge votes, records failures, and includes full task context', async () => {
     const prompts: string[] = [];

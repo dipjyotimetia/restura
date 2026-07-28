@@ -52,13 +52,10 @@ describe('OWS runtime expressions', () => {
     expect(readOwsPath(context, '${.input.name} trailing')).toBeUndefined();
   });
 
-  it.each([
-    '',
-    'true trailing',
-    '(',
-    'true &&',
-    '${.input.name} + 1',
-  ])('rejects incomplete or unsupported expression %j', (source) => {
-    expect(() => evaluateOwsCondition(source, context)).toThrow(/OWS condition/);
-  });
+  it.each(['', 'true trailing', '(', 'true &&', '${.input.name} + 1'])(
+    'rejects incomplete or unsupported expression %j',
+    (source) => {
+      expect(() => evaluateOwsCondition(source, context)).toThrow(/OWS condition/);
+    }
+  );
 });

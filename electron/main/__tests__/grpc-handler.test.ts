@@ -274,39 +274,42 @@ describe('grpc stream ownership', () => {
       (callbacks: StreamCallbacks) =>
         callbacks.onMessage({ payload: 'x'.repeat(10 * 1024 * 1024) }),
     ],
-  ])('ignores stale %s callbacks after a successor reuses the stream id', async (_label, fireStaleCallback) => {
-    const first = makeEvent();
-    const successor = makeEvent();
-    const firstControls = makeControls();
-    const successorControls = makeControls();
-    const callbackSets: StreamCallbacks[] = [];
-    mockRunConnectStream.mockImplementation((_args: unknown, callbacks: StreamCallbacks) => {
-      callbackSets.push(callbacks);
-      return callbackSets.length === 1 ? firstControls : successorControls;
-    });
+  ])(
+    'ignores stale %s callbacks after a successor reuses the stream id',
+    async (_label, fireStaleCallback) => {
+      const first = makeEvent();
+      const successor = makeEvent();
+      const firstControls = makeControls();
+      const successorControls = makeControls();
+      const callbackSets: StreamCallbacks[] = [];
+      mockRunConnectStream.mockImplementation((_args: unknown, callbacks: StreamCallbacks) => {
+        callbackSets.push(callbacks);
+        return callbackSets.length === 1 ? firstControls : successorControls;
+      });
 
-    listenerFor(IPC.grpc.startStream)(first.event, validStream('reused'));
-    await waitForStreamCount(1);
-    listenerFor(IPC.grpc.cancelStream)(first.event, 'reused');
+      listenerFor(IPC.grpc.startStream)(first.event, validStream('reused'));
+      await waitForStreamCount(1);
+      listenerFor(IPC.grpc.cancelStream)(first.event, 'reused');
 
-    listenerFor(IPC.grpc.startStream)(successor.event, validStream('reused'));
-    await waitForStreamCount(2);
-    first.send.mockClear();
+      listenerFor(IPC.grpc.startStream)(successor.event, validStream('reused'));
+      await waitForStreamCount(2);
+      first.send.mockClear();
 
-    fireStaleCallback(callbackSets[0]!);
+      fireStaleCallback(callbackSets[0]!);
 
-    expect(first.send).not.toHaveBeenCalled();
-    expect(successorControls.cancel).not.toHaveBeenCalled();
+      expect(first.send).not.toHaveBeenCalled();
+      expect(successorControls.cancel).not.toHaveBeenCalled();
 
-    listenerFor(IPC.grpc.sendMessage)(successor.event, 'reused', {
-      text: 'still-current',
-    });
-    listenerFor(IPC.grpc.endStream)(successor.event, 'reused');
-    expect(successorControls.write).toHaveBeenCalledWith({
-      text: 'still-current',
-    });
-    expect(successorControls.end).toHaveBeenCalledOnce();
-  });
+      listenerFor(IPC.grpc.sendMessage)(successor.event, 'reused', {
+        text: 'still-current',
+      });
+      listenerFor(IPC.grpc.endStream)(successor.event, 'reused');
+      expect(successorControls.write).toHaveBeenCalledWith({
+        text: 'still-current',
+      });
+      expect(successorControls.end).toHaveBeenCalledOnce();
+    }
+  );
 
   it('retains trusted-sender validation on fire-and-forget stream controls', async () => {
     const owner = makeEvent();

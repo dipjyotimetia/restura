@@ -45,11 +45,14 @@ describe('OWS workflow profile', () => {
     ['an empty set assignment', { do: [{ seed: { set: {} } }] }],
     ['an empty wait duration', { do: [{ pause: { wait: {} } }] }],
     ['a prototype task name', { do: [JSON.parse('{"__proto__":{"wait":{"milliseconds":0}}}')] }],
-  ])('rejects %s in the CSP-safe renderer profile before persistence or execution', (_name, change) => {
-    expect(() => parseOwsWorkflowJson(JSON.stringify({ ...supportedWorkflow, ...change }))).toThrow(
-      /OWS|Restura/
-    );
-  });
+  ])(
+    'rejects %s in the CSP-safe renderer profile before persistence or execution',
+    (_name, change) => {
+      expect(() =>
+        parseOwsWorkflowJson(JSON.stringify({ ...supportedWorkflow, ...change }))
+      ).toThrow(/OWS|Restura/);
+    }
+  );
 
   it('serializes renderer-approved OWS JSON deterministically regardless of object insertion order', () => {
     const reordered = {

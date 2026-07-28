@@ -21,17 +21,13 @@ describe('Button', () => {
   });
 
   describe('variants', () => {
-    it.each([
-      'default',
-      'destructive',
-      'outline',
-      'secondary',
-      'ghost',
-      'link',
-    ] as const)('renders %s variant', (variant) => {
-      render(<Button variant={variant}>Button</Button>);
-      expect(screen.getByRole('button')).toBeInTheDocument();
-    });
+    it.each(['default', 'destructive', 'outline', 'secondary', 'ghost', 'link'] as const)(
+      'renders %s variant',
+      (variant) => {
+        render(<Button variant={variant}>Button</Button>);
+        expect(screen.getByRole('button')).toBeInTheDocument();
+      }
+    );
   });
 
   describe('sizes', () => {

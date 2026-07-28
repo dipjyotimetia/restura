@@ -14,18 +14,15 @@ describe('validateOptionalSchemaId', () => {
     expect(validateOptionalSchemaId('42', 'Key')).toEqual({ valid: true, value: 42 });
   });
 
-  it.each([
-    '0',
-    '-1',
-    '1.5',
-    'invalid',
-    '9007199254740992',
-  ])('rejects an invalid non-empty schema id: %s', (raw) => {
-    expect(validateOptionalSchemaId(raw, 'Value')).toEqual({
-      valid: false,
-      error: 'Value schema ID must be a positive safe integer.',
-    });
-  });
+  it.each(['0', '-1', '1.5', 'invalid', '9007199254740992'])(
+    'rejects an invalid non-empty schema id: %s',
+    (raw) => {
+      expect(validateOptionalSchemaId(raw, 'Value')).toEqual({
+        valid: false,
+        error: 'Value schema ID must be a positive safe integer.',
+      });
+    }
+  );
 });
 
 describe('validateKafkaHeaders', () => {

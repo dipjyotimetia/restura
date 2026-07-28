@@ -172,44 +172,50 @@ describe('EvalBuilder parts', () => {
       'pairwise',
       { judgeModel: FIRST_MODEL, baseline: 'reference', passThreshold: 0.5, swapPositions: true },
     ],
-  ] as Array<
-    [ScorerKind, Record<string, unknown>]
-  >)('adds a %s scorer with its runnable defaults', (kind, defaults) => {
-    const onChange = vi.fn();
-    render(
-      <ScorerEditor
-        scorers={[]}
-        modelOptions={MODEL_OPTIONS}
-        firstModelRef={FIRST_MODEL}
-        onChange={onChange}
-      />
-    );
+  ] as Array<[ScorerKind, Record<string, unknown>]>)(
+    'adds a %s scorer with its runnable defaults',
+    (kind, defaults) => {
+      const onChange = vi.fn();
+      render(
+        <ScorerEditor
+          scorers={[]}
+          modelOptions={MODEL_OPTIONS}
+          firstModelRef={FIRST_MODEL}
+          onChange={onChange}
+        />
+      );
 
-    addScorer(kind);
+      addScorer(kind);
 
-    expect(onChange).toHaveBeenCalledWith([
-      expect.objectContaining({ id: expect.any(String), kind, ...defaults }),
-    ]);
-  });
+      expect(onChange).toHaveBeenCalledWith([
+        expect.objectContaining({ id: expect.any(String), kind, ...defaults }),
+      ]);
+    }
+  );
 
-  it.each([
-    'judge',
-    'pairwise',
-  ] as const)('uses an empty model reference when adding %s without selected models', (kind) => {
-    const onChange = vi.fn();
-    render(
-      <ScorerEditor scorers={[]} modelOptions={[]} firstModelRef={undefined} onChange={onChange} />
-    );
+  it.each(['judge', 'pairwise'] as const)(
+    'uses an empty model reference when adding %s without selected models',
+    (kind) => {
+      const onChange = vi.fn();
+      render(
+        <ScorerEditor
+          scorers={[]}
+          modelOptions={[]}
+          firstModelRef={undefined}
+          onChange={onChange}
+        />
+      );
 
-    addScorer(kind);
+      addScorer(kind);
 
-    expect(onChange).toHaveBeenCalledWith([
-      expect.objectContaining({
-        kind,
-        judgeModel: { providerConfigId: '', model: '' },
-      }),
-    ]);
-  });
+      expect(onChange).toHaveBeenCalledWith([
+        expect.objectContaining({
+          kind,
+          judgeModel: { providerConfigId: '', model: '' },
+        }),
+      ]);
+    }
+  );
 
   it('updates every non-judge scorer input with the user-entered configuration', () => {
     const onChange = vi.fn();
