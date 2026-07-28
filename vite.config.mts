@@ -70,6 +70,10 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@shared': path.resolve(__dirname, './shared'),
+      // Monaco 0.56's package export patterns do not correctly map its
+      // `esm/vs/*` deep imports. Resolve the actual ESM directory so Rolldown
+      // can bundle the explicit `.js` entrypoints used by monaco-setup.
+      'monaco-editor/esm/vs': path.resolve(__dirname, './node_modules/monaco-editor/esm/vs'),
       // `@usebruno/lang` does `const ohm = require('ohm-js'); ohm.grammar(...)`.
       // ohm-js's ESM build (`module: dist/ohm.esm.js`) exports `ohm` as the
       // default export, so Vite's ESM interop hands back `{ default, extras }`

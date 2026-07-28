@@ -11,13 +11,13 @@
 // per-feature `src/features/http/tsconfig.json` globs only its own dir, so it
 // adds `../../types/**/*.d.ts` to its `include` to see this file.
 
-declare module 'monaco-editor/esm/vs/editor/editor.api' {
+declare module 'monaco-editor/editor' {
   export * from 'monaco-editor';
 }
-declare module 'monaco-editor/esm/vs/editor/editor.all.js';
-declare module 'monaco-editor/esm/vs/language/json/monaco.contribution';
-declare module 'monaco-editor/esm/vs/language/typescript/monaco.contribution';
-declare module 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution';
-declare module 'monaco-editor/esm/vs/language/html/monaco.contribution';
-declare module 'monaco-editor/esm/vs/language/css/monaco.contribution';
-declare module 'monaco-editor/esm/vs/basic-languages/xml/xml.contribution';
+declare module 'monaco-editor/features/register.all';
+declare module 'monaco-editor/languages/features/json/register';
+declare module 'monaco-editor/languages/features/typescript/register';
+declare module 'monaco-editor/languages/definitions/javascript/register';
+declare module 'monaco-editor/languages/features/html/register';
+declare module 'monaco-editor/languages/features/css/register';
+declare module 'monaco-editor/languages/definitions/xml/register';

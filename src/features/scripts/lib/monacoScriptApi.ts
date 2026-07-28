@@ -1,3 +1,3 @@
-import { javascriptDefaults } from 'monaco-editor/esm/vs/language/typescript/monaco.contribution';
+import { javascriptDefaults } from 'monaco-editor/languages/features/typescript/register';
 
 export { javascriptDefaults };
