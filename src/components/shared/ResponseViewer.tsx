@@ -624,7 +624,6 @@ function ResponseViewer() {
                             responseEditorRef.current = editor;
                           }}
                           path={activeTabId ? `tab-${activeTabId}-response` : undefined}
-                          {...(activeTabId ? { modelOwner: activeTabId } : {})}
                         />
                       ) : (
                         <div className="flex flex-col items-center justify-center h-full gap-3 text-sp-dim">

@@ -69,7 +69,7 @@ describe('CodeEditor Monaco lifecycle', () => {
     expect(onModelChange).toHaveBeenLastCalledWith(editor, monaco, secondModel);
   });
 
-  it('retains a named model for its request-tab owner', () => {
+  it('retains a writable named model for its request-tab owner', () => {
     render(
       <CodeEditor
         value="{}"
@@ -81,6 +81,22 @@ describe('CodeEditor Monaco lifecycle', () => {
     expect(mocks.editorProps).toMatchObject({
       path: 'inmemory://restura-tabs/tab-1/body.json',
       keepCurrentModel: true,
+    });
+  });
+
+  it('does not retain a read-only result model', () => {
+    render(
+      <CodeEditor
+        value={'{"hello":"world"}'}
+        readOnly
+        path="inmemory://restura-tabs/tab-1/response.json"
+        {...({ modelOwner: 'tab-1' } as object)}
+      />
+    );
+
+    expect(mocks.editorProps).toMatchObject({
+      path: 'inmemory://restura-tabs/tab-1/response.json',
+      keepCurrentModel: false,
     });
   });
 

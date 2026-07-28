@@ -294,7 +294,11 @@ export default function CodeEditor({
         onChange={handleChange}
         onMount={handleEditorDidMount}
         {...(path !== undefined && { path })}
-        keepCurrentModel={path !== undefined && modelOwner !== undefined}
+        // Response/diff viewers replace their value on every result. Keeping
+        // their read-only model would retain the previous response text even
+        // after the application state has advanced, so only editable request
+        // models opt into cross-mount retention.
+        keepCurrentModel={path !== undefined && modelOwner !== undefined && !readOnly}
         options={{
           readOnly,
           minimap: { enabled: minimap },
