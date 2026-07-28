@@ -2,9 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Response as ApiResponse, GrpcRequest, HttpRequest } from '@/types';
 import { useRequestStore } from '../useRequestStore';
 
+const monacoLifecycleMocks = vi.hoisted(() => ({
+  disposeRetainedMonacoModelsForOwner: vi.fn(),
+}));
+
 vi.mock('sonner', () => ({
   toast: { error: vi.fn(), success: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }));
+
+vi.mock('@/lib/shared/monacoModelLifecycle', () => monacoLifecycleMocks);
 
 const makeHttp = (overrides: Partial<HttpRequest> = {}): HttpRequest => ({
   id: 'r-' + Math.random().toString(36).slice(2),
@@ -47,6 +53,7 @@ const makeResponse = (requestId: string): ApiResponse => ({
 
 describe('useRequestStore — tabs', () => {
   beforeEach(() => {
+    monacoLifecycleMocks.disposeRetainedMonacoModelsForOwner.mockReset();
     useRequestStore.setState({
       tabs: [],
       activeTabId: null,
@@ -108,6 +115,14 @@ describe('useRequestStore — tabs', () => {
       useRequestStore.getState().closeTab(a);
       expect(useRequestStore.getState().tabs).toHaveLength(0);
       expect(useRequestStore.getState().activeTabId).toBeNull();
+    });
+
+    it('releases retained Monaco models when a tab closes', () => {
+      const tabId = useRequestStore.getState().openTab(makeHttp());
+
+      useRequestStore.getState().closeTab(tabId);
+
+      expect(monacoLifecycleMocks.disposeRetainedMonacoModelsForOwner).toHaveBeenCalledWith(tabId);
     });
   });
 

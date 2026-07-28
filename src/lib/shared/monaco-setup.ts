@@ -22,7 +22,35 @@
    side-effect language contributions must register in this exact sequence
    (see the inline notes), so import/order's alphabetical grouping is wrong. */
 import * as monaco from 'monaco-editor/editor';
-import 'monaco-editor/features/register.all';
+// Core API-client editing surface. `features/register.all` also bundles
+// diffing, rename, CodeLens, reference search and other IDE-only features.
+import 'monaco-editor/features/bracketMatching/register';
+import 'monaco-editor/features/caretOperations/register';
+import 'monaco-editor/features/clipboard/register';
+import 'monaco-editor/features/codeEditor/register';
+import 'monaco-editor/features/contextmenu/register';
+import 'monaco-editor/features/cursorUndo/register';
+import 'monaco-editor/features/find/register';
+import 'monaco-editor/features/folding/register';
+import 'monaco-editor/features/format/register';
+import 'monaco-editor/features/gotoError/register';
+import 'monaco-editor/features/hover/register';
+import 'monaco-editor/features/linesOperations/register';
+import 'monaco-editor/features/multicursor/register';
+import 'monaco-editor/features/readOnlyMessage/register';
+import 'monaco-editor/features/snippet/register';
+// Monaco 0.56's public suggest entry registers inline suggestions only. The
+// API editor also needs the standard Ctrl/Cmd+Space suggestion controller.
+import 'monaco-editor/esm/vs/editor/contrib/suggest/browser/suggestController.js';
+import 'monaco-editor/features/suggest/register';
+import 'monaco-editor/features/unicodeHighlighter/register';
+import 'monaco-editor/features/wordHighlighter/register';
+import 'monaco-editor/features/wordOperations/register';
+// Monaco 0.56 language-service workers register their shared editor
+// contributions internally. Register the two standalone services those
+// contributions require without opting into their UI features.
+import 'monaco-editor/esm/vs/editor/contrib/codelens/browser/codeLensCache.js';
+import 'monaco-editor/esm/vs/editor/common/services/treeViewsDndService.js';
 import { jsonDefaults } from 'monaco-editor/languages/features/json/register';
 import 'monaco-editor/languages/features/typescript/register';
 // The typescript *language-service* contribution above wires the worker +

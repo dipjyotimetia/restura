@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { registerGraphQLLanguage } from '@/features/graphql/lib/monacoGraphql';
 import { jsonDefaults } from '@/lib/shared/monaco-setup';
+import { retainMonacoModel } from '@/lib/shared/monacoModelLifecycle';
 import { findVariableTokens } from '@/lib/shared/variableTokens';
 
 interface CodeEditorProps {
@@ -42,6 +43,8 @@ interface CodeEditorProps {
    * editor role (e.g. `tab-<id>-body`).
    */
   path?: string;
+  /** Request-tab id that owns a retained Monaco model. */
+  modelOwner?: string;
   /**
    * When provided, `{{var}}` tokens in the content are decorated inline:
    * resolved → accent token style, unresolved → warning style with a hover.
@@ -64,6 +67,7 @@ export default function CodeEditor({
   ariaLabel,
   formatOnMount = true,
   path,
+  modelOwner,
   getVariableStatus,
 }: CodeEditorProps) {
   const { theme } = useTheme();
@@ -77,6 +81,8 @@ export default function CodeEditor({
   // listener without re-subscribing on every render.
   const getVariableStatusRef = useRef(getVariableStatus);
   const onModelChangeRef = useRef(onModelChange);
+  const modelOwnerRef = useRef(modelOwner);
+  const modelPathRef = useRef(path);
   const [copied, setCopied] = useState(false);
 
   // Recompute the {{var}} decorations from the current model contents. Resolved
@@ -93,6 +99,12 @@ export default function CodeEditor({
       return;
     }
     const text = model.getValue();
+    // Most request bodies do not interpolate variables. Avoid a full regex scan
+    // (and decoration allocation) on every keystroke in those large documents.
+    if (!text.includes('{{')) {
+      decorationsRef.current?.clear();
+      return;
+    }
     const decorations: Monaco.editor.IModelDeltaDecoration[] = findVariableTokens(text).map(
       (token) => {
         const startPos = model.getPositionAt(token.start);
@@ -131,6 +143,9 @@ export default function CodeEditor({
     (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => {
       const model = editor.getModel();
       if (!model) return;
+      const owner = modelOwnerRef.current;
+      const modelPath = modelPathRef.current;
+      if (owner && modelPath) retainMonacoModel(owner, modelPath, model);
       applyVariableDecorations();
       onModelChangeRef.current?.(editor, monaco, model);
     },
@@ -195,6 +210,13 @@ export default function CodeEditor({
   useEffect(() => {
     onModelChangeRef.current = onModelChange;
   }, [onModelChange]);
+
+  useEffect(() => {
+    modelOwnerRef.current = modelOwner;
+    modelPathRef.current = path;
+    const model = editorRef.current?.getModel();
+    if (model && modelOwner && path) retainMonacoModel(modelOwner, path, model);
+  }, [modelOwner, path]);
 
   // @monaco-editor/react updates a model's language when the prop changes.
   // Register GraphQL first, then explicitly reapply the language so a model
@@ -272,6 +294,7 @@ export default function CodeEditor({
         onChange={handleChange}
         onMount={handleEditorDidMount}
         {...(path !== undefined && { path })}
+        keepCurrentModel={path !== undefined && modelOwner !== undefined}
         options={{
           readOnly,
           minimap: { enabled: minimap },

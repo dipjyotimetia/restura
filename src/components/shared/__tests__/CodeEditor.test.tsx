@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
     onMount: (editor: unknown, monaco: unknown) => void;
   } | null,
   registerGraphQLLanguage: vi.fn(),
+  findVariableTokens: vi.fn(() => []),
 }));
 
 vi.mock('@monaco-editor/react', () => ({
@@ -18,7 +19,7 @@ vi.mock('@monaco-editor/react', () => ({
 
 vi.mock('next-themes', () => ({ useTheme: () => ({ theme: 'dark' }) }));
 vi.mock('@/lib/shared/monaco-setup', () => ({ jsonDefaults: {} }));
-vi.mock('@/lib/shared/variableTokens', () => ({ findVariableTokens: () => [] }));
+vi.mock('@/lib/shared/variableTokens', () => ({ findVariableTokens: mocks.findVariableTokens }));
 vi.mock('@/features/graphql/lib/monacoGraphql', () => ({
   registerGraphQLLanguage: mocks.registerGraphQLLanguage,
 }));
@@ -29,6 +30,8 @@ describe('CodeEditor Monaco lifecycle', () => {
   beforeEach(() => {
     mocks.editorProps = null;
     mocks.registerGraphQLLanguage.mockReset();
+    mocks.findVariableTokens.mockReset();
+    mocks.findVariableTokens.mockReturnValue([]);
   });
 
   it('registers GraphQL before mount and reports each active path model', () => {
@@ -64,5 +67,41 @@ describe('CodeEditor Monaco lifecycle', () => {
     act(() => onDidChangeModel?.());
 
     expect(onModelChange).toHaveBeenLastCalledWith(editor, monaco, secondModel);
+  });
+
+  it('retains a named model for its request-tab owner', () => {
+    render(
+      <CodeEditor
+        value="{}"
+        path="inmemory://restura-tabs/tab-1/body.json"
+        {...({ modelOwner: 'tab-1' } as object)}
+      />
+    );
+
+    expect(mocks.editorProps).toMatchObject({
+      path: 'inmemory://restura-tabs/tab-1/body.json',
+      keepCurrentModel: true,
+    });
+  });
+
+  it('does not scan content without a variable-token prefix', () => {
+    const model = { getValue: () => 'plain JSON without variables' };
+    const editor = {
+      getModel: () => model,
+      updateOptions: vi.fn(),
+      layout: vi.fn(),
+      createDecorationsCollection: vi.fn(() => ({ clear: vi.fn(), set: vi.fn() })),
+      onDidChangeModelContent: () => ({ dispose: vi.fn() }),
+      onDidChangeModel: () => ({ dispose: vi.fn() }),
+      getAction: () => undefined,
+    };
+    const monaco = { Range: class {} };
+
+    render(
+      <CodeEditor value="plain JSON without variables" getVariableStatus={() => 'resolved'} />
+    );
+    act(() => mocks.editorProps?.onMount(editor, monaco));
+
+    expect(mocks.findVariableTokens).not.toHaveBeenCalled();
   });
 });

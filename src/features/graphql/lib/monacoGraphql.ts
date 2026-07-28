@@ -1,7 +1,14 @@
 import type * as Monaco from 'monaco-editor';
 
+// Monaco language registrations are process-wide. Reinstalling the tokenizer
+// and configuration for every editor mount creates redundant provider work.
+const configuredMonacoInstances = new WeakSet<object>();
+
 // Register GraphQL language with Monaco
 export function registerGraphQLLanguage(monaco: typeof Monaco) {
+  if (configuredMonacoInstances.has(monaco)) return;
+  configuredMonacoInstances.add(monaco);
+
   // A host integration may already own the language id. Still install our
   // tokenizer and language configuration so GraphQL remains fully usable.
   const languages = monaco.languages.getLanguages();

@@ -31,8 +31,7 @@ import { useActiveResponse, useActiveStreamingEvents, useActiveTab } from '@/sto
 import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 
-// Bodies above this size skip pretty-print to avoid freezing the main thread
-// on multi-MB responses; raw text still renders fine through Monaco.
+// Bodies above this size skip pretty-print to avoid freezing the main thread; raw text still renders fine through Monaco.
 const PRETTY_PRINT_MAX_BYTES = 1_000_000;
 
 const RESPONSE_PREVIEW_CSP =
@@ -625,6 +624,7 @@ function ResponseViewer() {
                             responseEditorRef.current = editor;
                           }}
                           path={activeTabId ? `tab-${activeTabId}-response` : undefined}
+                          {...(activeTabId ? { modelOwner: activeTabId } : {})}
                         />
                       ) : (
                         <div className="flex flex-col items-center justify-center h-full gap-3 text-sp-dim">

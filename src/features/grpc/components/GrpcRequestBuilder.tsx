@@ -690,6 +690,7 @@ function GrpcRequestBuilder() {
                   error={validation.message.error}
                   isValid={validation.message.valid}
                   {...(activeTabId ? { editorPath: `tab-${activeTabId}-grpc-message` } : {})}
+                  {...(activeTabId ? { modelOwner: activeTabId } : {})}
                 />
               </div>
             )}
