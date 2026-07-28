@@ -16,7 +16,20 @@ Point Restura at any MCP server and explore it like any other request target.
 - **List tools** — see the server's exposed tool catalogue with schemas.
 - **Invoke a tool** — fill in the JSON schema, send, watch the streamed result.
 - **List prompts / list resources** — for servers that expose them.
-- **Desktop SDK compatibility** — desktop connections use the current MCP v2 client with automatic modern/legacy protocol negotiation. If a server rejects that protocol or transport handshake, Restura retries once through the retained v1 SDK; authentication, TLS, network, timeout, and security-policy failures are never retried.
+
+### Desktop protocol compatibility
+
+The desktop app connects with the current MCP v2 client first. It automatically negotiates a modern v2 server or a legacy MCP server during the connection handshake, so saved MCP requests do not need a protocol-version setting.
+
+If that v2 handshake is rejected specifically because the server or transport is incompatible, Restura makes one clean retry through the retained v1 SDK. It does **not** retry authentication, TLS, DNS/SSRF policy, network, or timeout failures; those errors remain visible rather than being masked by a second connection attempt.
+
+This compatibility path is desktop-only. The web and self-hosted clients retain their existing stateless Worker proxy behavior, and `http-sse` remains desktop-only.
+
+### Modern server coverage
+
+Restura's v2 test server exercises modern discovery alongside tools, prompts, resources, cache hints, schema-declared request headers, multi-round `input_required` responses, and change subscriptions. The MCP workspace currently presents the core catalogue and request operations; it does not yet provide dedicated UI flows for interactive `input_required` prompts or managing subscriptions.
+
+The same URL validation, DNS pinning, header policy, and Electron IPC validation apply before either SDK is allowed to connect.
 
 ## As an MCP server
 
