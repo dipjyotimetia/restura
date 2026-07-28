@@ -50,7 +50,7 @@ export function inspectSource(
   const ast = parse(sourceText, {
     sourceType: 'unambiguous',
     createImportExpressions: true,
-    plugins: ['typescript', 'jsx', 'importAttributes'],
+    plugins: filePath.endsWith('.tsx') ? ['typescript', 'jsx'] : ['typescript'],
   });
   const imports: ArchitectureImport[] = [];
 
