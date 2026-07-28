@@ -1,13 +1,4 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import {
-  type ClientNotification,
-  type ClientRequest,
-  LATEST_PROTOCOL_VERSION,
-  McpError,
-  ResultSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
 import { createLogger } from '@shared/runtime/logger';
 import { ipcMain, type WebContents } from 'electron';
 import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
@@ -31,13 +22,14 @@ import {
   resolvePolicyTransport,
 } from '../security/policy-transport';
 import { resolveSafeAddress } from '../security/safe-connect';
+import { connectMcpSdkClient, type McpSdkClient } from './mcp-sdk-client';
 
 const log = createLogger('mcp');
 
 /**
- * MCP IPC handler, backed by the official `@modelcontextprotocol/sdk` client.
- * The SDK owns the wire protocol — JSON-RPC framing, the initialize handshake,
- * `Mcp-Session-Id` tracking, and SSE demuxing — for both HTTP transports:
+ * MCP IPC handler, backed by the official v2 MCP client with a narrow v1
+ * compatibility fallback. The selected SDK owns JSON-RPC framing, its
+ * initialize/discover handshake, session tracking, and SSE demuxing:
  *
  * - **streamable-http**: `StreamableHTTPClientTransport` (single endpoint;
  *   POSTs for requests, optional GET SSE stream for server pushes).
@@ -58,16 +50,12 @@ export function resolveMcpExecutionPolicy<T extends PolicyTransportConfig>(confi
   return resolvePolicyTransport(config);
 }
 
-// Matches the clientInfo the renderer historically sent in its initialize call.
-const CLIENT_INFO = { name: 'restura', version: '1.0.0' };
-
 interface McpSession {
   connectionId: string;
   url: string;
   webContentsId: number;
   createdAt: number;
-  client: Client;
-  transport: StreamableHTTPClientTransport | SSEClientTransport;
+  client?: McpSdkClient;
   /** Set before an intentional close so onclose/onerror don't emit events. */
   disposed: boolean;
 }
@@ -75,12 +63,10 @@ interface McpSession {
 function disposeSession(s: McpSession): void {
   if (s.disposed) return;
   s.disposed = true;
-  if (s.transport instanceof StreamableHTTPClientTransport) {
-    // Best-effort DELETE so well-behaved servers can free the session.
-    void s.transport.terminateSession().catch(() => {});
-  }
-  // client.close() also closes the transport.
-  void s.client.close().catch(() => {});
+  // Best-effort DELETE so well-behaved streamable-HTTP servers can free the session.
+  void s.client?.terminateSession().catch(() => {});
+  // close() also closes the selected client transport.
+  void s.client?.close().catch(() => {});
 }
 
 // Shared connection bookkeeping. MCP keeps direct `emitTo` for its events (a
@@ -204,50 +190,41 @@ export function registerMcpHandlerIPC(): void {
         fetch: pinnedFetch as (url: string | URL, init?: RequestInit) => Promise<Response>,
         requestInit: { headers: config.headers ?? {} },
       };
-      const url = new URL(policyConfig.url);
-      const transport =
-        config.transport === 'streamable-http'
-          ? new StreamableHTTPClientTransport(url, transportOptions)
-          : new SSEClientTransport(url, transportOptions);
-
-      const client = new Client(CLIENT_INFO, { capabilities: {} });
       const session: McpSession = {
         connectionId: config.connectionId,
         url: policyConfig.url,
         webContentsId,
         createdAt: Date.now(),
-        client,
-        transport,
         disposed: false,
       };
 
-      // Handlers go on the Client — Protocol.connect() overwrites the
-      // transport's own onclose/onerror.
-      client.fallbackNotificationHandler = async (notification) => {
-        if (session.disposed) return;
-        emitTo(
-          webContentsId,
-          eventChannel(EVENT_PREFIX.mcp.notification, config.connectionId),
-          notification
-        );
-      };
-      client.onerror = (err) => {
-        if (session.disposed) return;
-        const message = errorMessage(err);
-        log.warn('client error', { connectionId: config.connectionId, error: message });
-        emitTo(webContentsId, eventChannel(EVENT_PREFIX.mcp.error, config.connectionId), {
-          message,
-        });
-      };
-      client.onclose = () => {
-        if (session.disposed) return;
-        session.disposed = true;
-        if (sessions.get(config.connectionId, webContentsId) === session) {
-          sessions.remove(config.connectionId, webContentsId);
-          emitTo(webContentsId, eventChannel(EVENT_PREFIX.mcp.close, config.connectionId), {
-            reason: 'stream ended',
+      const events = {
+        onNotification: async (notification: unknown) => {
+          if (session.disposed) return;
+          emitTo(
+            webContentsId,
+            eventChannel(EVENT_PREFIX.mcp.notification, config.connectionId),
+            notification
+          );
+        },
+        onError: (err: Error) => {
+          if (session.disposed) return;
+          const message = errorMessage(err);
+          log.warn('client error', { connectionId: config.connectionId, error: message });
+          emitTo(webContentsId, eventChannel(EVENT_PREFIX.mcp.error, config.connectionId), {
+            message,
           });
-        }
+        },
+        onClose: () => {
+          if (session.disposed) return;
+          session.disposed = true;
+          if (sessions.get(config.connectionId, webContentsId) === session) {
+            sessions.remove(config.connectionId, webContentsId);
+            emitTo(webContentsId, eventChannel(EVENT_PREFIX.mcp.close, config.connectionId), {
+              reason: 'stream ended',
+            });
+          }
+        },
       };
 
       if (pendingSessions.get(key)?.token !== claim.token) {
@@ -257,13 +234,24 @@ export function registerMcpHandlerIPC(): void {
       claim.pendingSession = session;
 
       try {
-        // Performs the full initialize handshake (and, for streamable-http,
-        // opens the optional standalone SSE stream). Auth/connectivity errors
-        // surface here rather than on the first request.
+        // v2 probes for modern protocol support and falls back to its legacy
+        // handshake. The adapter retries with v1 only for protocol/transport
+        // incompatibility, never for policy, auth, timeout, or network errors.
         let connectTimeoutId: ReturnType<typeof setTimeout> | undefined;
         try {
           await Promise.race([
-            client.connect(transport),
+            connectMcpSdkClient({
+              url: new URL(policyConfig.url),
+              transport: config.transport,
+              transportOptions,
+              events,
+              onClientCreated: (client) => {
+                session.client = client;
+              },
+              isCancelled: () => session.disposed,
+            }).then((client) => {
+              session.client = client;
+            }),
             new Promise<never>((_resolve, reject) => {
               connectTimeoutId = setTimeout(
                 () => reject(new Error(`Connection timeout after ${policyConfig.timeout}ms`)),
@@ -282,7 +270,7 @@ export function registerMcpHandlerIPC(): void {
         // no close ever sent). Treat it as a failed connect instead.
         if (session.disposed) {
           if (pendingSessions.get(key)?.token === claim.token) {
-            void client.close().catch(() => {});
+            void session.client?.close().catch(() => {});
           }
           log.warn('connect closed during initialization', {
             connectionId: config.connectionId,
@@ -307,7 +295,7 @@ export function registerMcpHandlerIPC(): void {
       } catch (err) {
         if (!session.disposed) {
           session.disposed = true;
-          void client.close().catch(() => {});
+          void session.client?.close().catch(() => {});
         }
         const message = errorMessage(err);
         log.warn('connect failed', { connectionId: config.connectionId, error: message });
@@ -324,7 +312,7 @@ export function registerMcpHandlerIPC(): void {
       mcpRateLimiter,
       createValidatedEventHandler(IPC.mcp.request, McpRequestSchema, async (config, event) => {
         const session = sessions.getForOwner(config.connectionId, event.sender.id);
-        if (!session) {
+        if (!session?.client) {
           return { success: false, error: 'Not connected' };
         }
         const timeoutMs = config.timeout ?? DEFAULT_REQUEST_TIMEOUT_MS;
@@ -334,10 +322,7 @@ export function registerMcpHandlerIPC(): void {
           // would be a protocol violation. Synthesize the result the renderer's
           // discovery flow expects from the negotiated state.
           if (config.method === 'initialize') {
-            const protocolVersion =
-              session.transport instanceof StreamableHTTPClientTransport
-                ? (session.transport.protocolVersion ?? LATEST_PROTOCOL_VERSION)
-                : LATEST_PROTOCOL_VERSION;
+            const protocolVersion = session.client.getProtocolVersion() ?? LATEST_PROTOCOL_VERSION;
             return {
               success: true,
               result: {
@@ -349,27 +334,25 @@ export function registerMcpHandlerIPC(): void {
           }
 
           if (config.method.startsWith('notifications/')) {
-            await session.client.notification({
-              method: config.method,
-              params: config.params,
-            } as ClientNotification);
+            await session.client.notification(config.method, config.params);
             return { success: true, result: undefined };
           }
 
-          // ResultSchema is the spec's passthrough result shape — arbitrary
-          // renderer-chosen methods forward without a method-specific schema.
-          // The renderer's requestId is ignored: the SDK owns JSON-RPC ids.
-          const result = await session.client.request(
-            { method: config.method, params: config.params } as ClientRequest,
-            ResultSchema,
-            { timeout: timeoutMs }
-          );
+          // The adapter's v1 and v2 clients own their respective request schemas
+          // and JSON-RPC ids; the renderer only receives the normalized result.
+          const result = await session.client.request(config.method, config.params, timeoutMs);
           return { success: true, result };
         } catch (err) {
-          if (err instanceof McpError) {
+          if (
+            err &&
+            typeof err === 'object' &&
+            typeof (err as { code?: unknown }).code === 'number' &&
+            typeof (err as { message?: unknown }).message === 'string'
+          ) {
+            const typed = err as { code: number; message: string; data?: unknown };
             return {
               success: false,
-              jsonRpcError: { code: err.code, message: err.message, data: err.data },
+              jsonRpcError: { code: typed.code, message: typed.message, data: typed.data },
             };
           }
           return { success: false, error: errorMessage(err) };

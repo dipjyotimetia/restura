@@ -3,6 +3,7 @@ import { createServer } from 'node:net';
 import path from 'node:path';
 import { type MockHttpServerHandle, startMockHttpServer } from '../../e2e/mocks/httpServer';
 import { type MockMcpServerHandle, startMockMcpServer } from '../../e2e/mocks/mcpServer';
+import { type MockMcpV2ServerHandle, startMockMcpV2Server } from '../../e2e/mocks/mcpV2Server';
 import {
   type MockSocketIOServerHandle,
   startMockSocketIOServer,
@@ -78,6 +79,7 @@ export interface DesktopMockServers {
   http: MockHttpServerHandle;
   ws: MockWsServerHandle;
   mcp: MockMcpServerHandle;
+  mcpV2: MockMcpV2ServerHandle;
   socketio: MockSocketIOServerHandle;
   grpc: NativeGrpcServerHandle;
 }
@@ -91,15 +93,23 @@ export const test = electronTest.extend<ServerFixtures, { _servers: DesktopMockS
   _servers: [
     // biome-ignore lint/correctness/noEmptyPattern: legacy type boundary
     async ({}, use) => {
-      const [http, ws, mcp, socketio, grpc] = await Promise.all([
+      const [http, ws, mcp, mcpV2, socketio, grpc] = await Promise.all([
         startMockHttpServer(),
         startMockWsServer(),
         startMockMcpServer(),
+        startMockMcpV2Server(),
         startMockSocketIOServer(),
         startNativeGrpcServer(),
       ]);
-      await use({ http, ws, mcp, socketio, grpc });
-      await Promise.all([http.close(), ws.close(), mcp.close(), socketio.close(), grpc.close()]);
+      await use({ http, ws, mcp, mcpV2, socketio, grpc });
+      await Promise.all([
+        http.close(),
+        ws.close(),
+        mcp.close(),
+        mcpV2.close(),
+        socketio.close(),
+        grpc.close(),
+      ]);
     },
     { scope: 'worker' },
   ],
