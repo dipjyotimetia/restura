@@ -107,7 +107,7 @@
   "dependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",
     "@aws-crypto/sha256-js": "^5.2.0",
-    "@bufbuild/protobuf": "^2.12.1",
+    "@bufbuild/protobuf": "^2.13.0",
     "@connectrpc/connect": "^2.1.2",
     "@connectrpc/connect-node": "^2.1.2",
     "@connectrpc/connect-web": "^2.1.2",
@@ -194,7 +194,7 @@
   "devDependencies": {
     "@babel/parser": "^7.29.7",
     "@biomejs/biome": "^2.5.3",
-    "@bufbuild/protoc-gen-es": "^2.12.1",
+    "@bufbuild/protoc-gen-es": "^2.13.0",
     "@cloudflare/vite-plugin": "^1.44.0",
     "@cloudflare/workers-types": "^5.20260714.1",
     "@commitlint/cli": "^21.2.1",
