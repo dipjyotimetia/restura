@@ -83,21 +83,22 @@ export default function GraphQLBodyEditor({
     [query, executableSchema]
   );
 
-  const handleQueryEditorMount = useCallback(
-    (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => {
+  const handleQueryModelChange = useCallback(
+    (
+      _editor: Monaco.editor.IStandaloneCodeEditor,
+      monaco: typeof Monaco,
+      model: Monaco.editor.ITextModel
+    ) => {
       if (!completionProviderRegistered) {
         registerGraphQLCompletionProvider(monaco, () => schemaRef.current?.schema ?? null);
         completionProviderRegistered = true;
       }
-      const model = editor.getModel();
-      if (model) {
-        diagnosticsRef.current?.dispose();
-        diagnosticsRef.current = setupDebouncedDiagnostics(
-          monaco,
-          model,
-          () => executableSchemaRef.current
-        );
-      }
+      diagnosticsRef.current?.dispose();
+      diagnosticsRef.current = setupDebouncedDiagnostics(
+        monaco,
+        model,
+        () => executableSchemaRef.current
+      );
     },
     []
   );
@@ -149,7 +150,7 @@ export default function GraphQLBodyEditor({
             onChange={onQueryChange}
             language="graphql"
             height="100%"
-            onEditorMount={handleQueryEditorMount}
+            onModelChange={handleQueryModelChange}
             {...(activeTabId ? { path: `tab-${activeTabId}-graphql-query` } : {})}
           />
         </div>

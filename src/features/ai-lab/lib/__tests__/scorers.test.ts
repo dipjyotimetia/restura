@@ -274,25 +274,28 @@ describe('scorer edge cases', () => {
   it.each([
     ['B', 0.1, '', 'baseline wins'],
     ['tie', 0.5, 'same', 'tie — same'],
-  ] as const)('maps pairwise %s verdicts and forwards optional controls', async (winner, score, reasoning, detail) => {
-    const pairwise = vi.fn(async () => ({ winner, score, reasoning }));
-    const scorer: ScorerConfig = {
-      id: 'pair',
-      kind: 'pairwise',
-      judgeModel: { providerConfigId: 'judge', model: 'm' },
-      baseline: 'reference',
-      passThreshold: 0.6,
-      criteria: [{ name: 'quality', rubric: 'good', weight: 1 }],
-      swapPositions: false,
-    };
+  ] as const)(
+    'maps pairwise %s verdicts and forwards optional controls',
+    async (winner, score, reasoning, detail) => {
+      const pairwise = vi.fn(async () => ({ winner, score, reasoning }));
+      const scorer: ScorerConfig = {
+        id: 'pair',
+        kind: 'pairwise',
+        judgeModel: { providerConfigId: 'judge', model: 'm' },
+        baseline: 'reference',
+        passThreshold: 0.6,
+        criteria: [{ name: 'quality', rubric: 'good', weight: 1 }],
+        swapPositions: false,
+      };
 
-    await expect(runScorer(scorer, ctx({ pairwise }))).resolves.toMatchObject({
-      passed: false,
-      score,
-      detail,
-    });
-    expect(pairwise).toHaveBeenCalledWith(expect.objectContaining({ swapPositions: false }));
-  });
+      await expect(runScorer(scorer, ctx({ pairwise }))).resolves.toMatchObject({
+        passed: false,
+        score,
+        detail,
+      });
+      expect(pairwise).toHaveBeenCalledWith(expect.objectContaining({ swapPositions: false }));
+    }
+  );
 
   it('fails closed when pairwise and judge runners throw non-Error values', async () => {
     const pairwiseScorer: ScorerConfig = {

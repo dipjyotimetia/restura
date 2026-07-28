@@ -1,6 +1,6 @@
 'use client';
 
-import type { OnMount } from '@monaco-editor/react';
+import type { BeforeMount, OnMount } from '@monaco-editor/react';
 import Editor from '@monaco-editor/react';
 import { Check, Copy } from 'lucide-react';
 import type * as Monaco from 'monaco-editor';
@@ -24,6 +24,12 @@ interface CodeEditorProps {
     editor: Monaco.editor.IStandaloneCodeEditor,
     monaco: typeof Monaco,
     defaults: typeof jsonDefaults
+  ) => void;
+  /** Runs for the initial Monaco model and each later path/model switch. */
+  onModelChange?: (
+    editor: Monaco.editor.IStandaloneCodeEditor,
+    monaco: typeof Monaco,
+    model: Monaco.editor.ITextModel
   ) => void;
   /** Accessible name for Monaco's input textarea. */
   ariaLabel?: string;
@@ -54,6 +60,7 @@ export default function CodeEditor({
   minimap = false,
   showCopyButton = true,
   onEditorMount,
+  onModelChange,
   ariaLabel,
   formatOnMount = true,
   path,
@@ -65,9 +72,11 @@ export default function CodeEditor({
   const containerRef = useRef<HTMLDivElement>(null);
   const decorationsRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null);
   const contentListenerRef = useRef<Monaco.IDisposable | null>(null);
+  const modelListenerRef = useRef<Monaco.IDisposable | null>(null);
   // Keep the latest classifier reachable from the (once-bound) content-change
   // listener without re-subscribing on every render.
   const getVariableStatusRef = useRef(getVariableStatus);
+  const onModelChangeRef = useRef(onModelChange);
   const [copied, setCopied] = useState(false);
 
   // Recompute the {{var}} decorations from the current model contents. Resolved
@@ -112,15 +121,25 @@ export default function CodeEditor({
     }
   }, []);
 
-  const handleEditorDidMount: OnMount = (editor, monaco) => {
-    editorRef.current = editor;
-    monacoRef.current = monaco;
-    onEditorMount?.(editor, monaco, jsonDefaults);
-
-    // Register GraphQL language if needed
+  const handleBeforeEditorMount: BeforeMount = (monaco) => {
     if (language === 'graphql') {
       registerGraphQLLanguage(monaco);
     }
+  };
+
+  const notifyModelChange = useCallback(
+    (editor: Monaco.editor.IStandaloneCodeEditor, monaco: typeof Monaco) => {
+      const model = editor.getModel();
+      if (!model) return;
+      applyVariableDecorations();
+      onModelChangeRef.current?.(editor, monaco, model);
+    },
+    [applyVariableDecorations]
+  );
+
+  const handleEditorDidMount: OnMount = (editor, monaco) => {
+    editorRef.current = editor;
+    monacoRef.current = monaco;
 
     // Configure editor options
     editor.updateOptions({
@@ -130,7 +149,7 @@ export default function CodeEditor({
       scrollBeyondLastLine: false,
       wordWrap: 'on',
       wrappingIndent: 'indent',
-      automaticLayout: false, // We will handle layout manually with ResizeObserver for better performance/reliability
+      automaticLayout: false,
       tabSize: 2,
       readOnly,
     });
@@ -149,8 +168,10 @@ export default function CodeEditor({
 
     // Variable highlighting: paint once, then on every model edit (covers both
     // typing and external value-prop updates, which Monaco applies as edits).
-    applyVariableDecorations();
     contentListenerRef.current = editor.onDidChangeModelContent(() => applyVariableDecorations());
+    modelListenerRef.current = editor.onDidChangeModel(() => notifyModelChange(editor, monaco));
+    onEditorMount?.(editor, monaco, jsonDefaults);
+    notifyModelChange(editor, monaco);
   };
 
   // Dispose the content-change listener and decorations on unmount. (Monaco
@@ -159,6 +180,7 @@ export default function CodeEditor({
   useEffect(() => {
     return () => {
       contentListenerRef.current?.dispose();
+      modelListenerRef.current?.dispose();
       decorationsRef.current?.clear();
     };
   }, []);
@@ -169,6 +191,22 @@ export default function CodeEditor({
     getVariableStatusRef.current = getVariableStatus;
     applyVariableDecorations();
   }, [getVariableStatus, applyVariableDecorations]);
+
+  useEffect(() => {
+    onModelChangeRef.current = onModelChange;
+  }, [onModelChange]);
+
+  // @monaco-editor/react updates a model's language when the prop changes.
+  // Register GraphQL first, then explicitly reapply the language so a model
+  // that starts as JSON/plaintext can safely become GraphQL at runtime.
+  useEffect(() => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    const model = editor?.getModel();
+    if (!editor || !monaco || !model) return;
+    if (language === 'graphql') registerGraphQLLanguage(monaco);
+    monaco.editor.setModelLanguage(model, language);
+  }, [language]);
 
   // Handle resizing
   useEffect(() => {
@@ -230,6 +268,7 @@ export default function CodeEditor({
           </div>
         }
         theme={theme === 'dark' ? 'restura-dark' : 'restura-light'}
+        beforeMount={handleBeforeEditorMount}
         onChange={handleChange}
         onMount={handleEditorDidMount}
         {...(path !== undefined && { path })}
@@ -241,7 +280,7 @@ export default function CodeEditor({
           fontFamily: '"JetBrains Mono", "SF Mono", Menlo, ui-monospace, monospace',
           lineNumbers: 'on',
           wordWrap: 'on',
-          automaticLayout: true,
+          automaticLayout: false,
           ...(ariaLabel ? { ariaLabel } : {}),
         }}
       />

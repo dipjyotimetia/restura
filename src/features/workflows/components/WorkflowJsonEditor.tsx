@@ -76,6 +76,7 @@ export function WorkflowJsonEditor({
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
   const workflowSourceRef = useRef(workflowSource);
+  const documentRef = useRef(document);
   const validateRef = useRef<(() => void) | null>(null);
   const scheduleValidationRef = useRef<(() => void) | null>(null);
   const mountCleanupRef = useRef<(() => void) | null>(null);
@@ -85,6 +86,11 @@ export function WorkflowJsonEditor({
     workflowSourceRef.current = workflowSource;
     scheduleValidationRef.current?.();
   }, [workflowSource]);
+
+  useEffect(() => {
+    documentRef.current = document;
+    scheduleValidationRef.current?.();
+  }, [document]);
 
   useEffect(
     () => () => {
@@ -112,23 +118,31 @@ export function WorkflowJsonEditor({
     );
   }, []);
 
-  const handleMount = useCallback(
+  const handleEditorMount = useCallback(
+    (
+      _editor: Monaco.editor.IStandaloneCodeEditor,
+      _monaco: typeof Monaco,
+      jsonDefaults: MonacoJsonDefaults
+    ) => {
+      registerWorkflowEditorSchemas(jsonDefaults);
+    },
+    []
+  );
+
+  const handleModelChange = useCallback(
     (
       editor: Monaco.editor.IStandaloneCodeEditor,
       monaco: typeof Monaco,
-      jsonDefaults: MonacoJsonDefaults
+      model: Monaco.editor.ITextModel
     ) => {
       mountCleanupRef.current?.();
-      registerWorkflowEditorSchemas(jsonDefaults);
       editorRef.current = editor;
       monacoRef.current = monaco;
-      const model = editor.getModel();
-      if (!model) return;
 
       const validate = () => {
         const source = model.getValue();
         const diagnostics =
-          document === 'workflow'
+          documentRef.current === 'workflow'
             ? getWorkflowProfileDiagnostics(source)
             : getWorkflowBindingsDiagnostics(source, workflowSourceRef.current);
         monaco.editor.setModelMarkers(model, MARKER_OWNER, toMarkers(monaco, model, diagnostics));
@@ -158,7 +172,7 @@ export function WorkflowJsonEditor({
         scheduleValidationRef.current = null;
       };
     },
-    [document, updateProblems]
+    [updateProblems]
   );
 
   const focusProblem = (problem: Problem) => {
@@ -187,7 +201,8 @@ export function WorkflowJsonEditor({
         path={modelPath}
         ariaLabel={ariaLabel}
         formatOnMount={false}
-        onEditorMount={handleMount}
+        onEditorMount={handleEditorMount}
+        onModelChange={handleModelChange}
       />
       <section
         aria-label={`${ariaLabel} problems`}

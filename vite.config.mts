@@ -70,6 +70,10 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
       '@shared': path.resolve(__dirname, './shared'),
+      // Monaco 0.56's package export patterns do not correctly map its
+      // `esm/vs/*` deep imports. Resolve the actual ESM directory so Rolldown
+      // can bundle the explicit `.js` entrypoints used by monaco-setup.
+      'monaco-editor/esm/vs': path.resolve(__dirname, './node_modules/monaco-editor/esm/vs'),
       // `@usebruno/lang` does `const ohm = require('ohm-js'); ohm.grammar(...)`.
       // ohm-js's ESM build (`module: dist/ohm.esm.js`) exports `ohm` as the
       // default export, so Vite's ESM interop hands back `{ default, extras }`
@@ -165,6 +169,9 @@ export default defineConfig({
   },
   ...(isElectronBuild && { base: './' }),
   optimizeDeps: {
-    exclude: ['quickjs-emscripten'],
+    // Monaco's `?worker` imports must reach Vite's worker plugin unchanged.
+    // Prebundling its ESM worker modules turns them into ordinary modules and
+    // drops the default Worker-constructor export used by monaco-setup.
+    exclude: ['monaco-editor', 'quickjs-emscripten'],
   },
 });

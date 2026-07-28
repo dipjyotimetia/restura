@@ -21,26 +21,26 @@
 /* eslint-disable import/order -- the imports below are hand-ordered: the
    side-effect language contributions must register in this exact sequence
    (see the inline notes), so import/order's alphabetical grouping is wrong. */
-import * as monaco from 'monaco-editor/esm/vs/editor/editor.api';
-import 'monaco-editor/esm/vs/editor/editor.all.js';
-import { jsonDefaults } from 'monaco-editor/esm/vs/language/json/monaco.contribution';
-import 'monaco-editor/esm/vs/language/typescript/monaco.contribution';
+import * as monaco from 'monaco-editor/editor';
+import 'monaco-editor/features/register.all';
+import { jsonDefaults } from 'monaco-editor/languages/features/json/register';
+import 'monaco-editor/languages/features/typescript/register';
 // The typescript *language-service* contribution above wires the worker +
 // javascriptDefaults and an onLanguage('javascript') hook, but it does NOT
 // register the `javascript` language id itself (unlike json, whose service
 // contribution self-registers). Without this basic-language registration the
 // id never exists, so the scripts editor falls back to plaintext — no
 // highlighting, no worker, no IntelliSense. Register it so onLanguage fires.
-import 'monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution';
-import 'monaco-editor/esm/vs/language/html/monaco.contribution';
-import 'monaco-editor/esm/vs/language/css/monaco.contribution';
-import 'monaco-editor/esm/vs/basic-languages/xml/xml.contribution';
+import 'monaco-editor/languages/definitions/javascript/register';
+import 'monaco-editor/languages/features/html/register';
+import 'monaco-editor/languages/features/css/register';
+import 'monaco-editor/languages/definitions/xml/register';
 import { loader } from '@monaco-editor/react';
-import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
-import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker';
-import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker';
-import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker';
-import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker';
+import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker.js?worker';
+import CssWorker from 'monaco-editor/esm/vs/language/css/css.worker.js?worker';
+import HtmlWorker from 'monaco-editor/esm/vs/language/html/html.worker.js?worker';
+import JsonWorker from 'monaco-editor/esm/vs/language/json/json.worker.js?worker';
+import TsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker.js?worker';
 
 export { jsonDefaults };
 

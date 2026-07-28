@@ -100,7 +100,7 @@ function walkAst(value: unknown, visit: (node: AstRecord) => void): void {
 function parseTypeScript(source: string): AstRecord {
   return parse(source, {
     sourceType: 'unambiguous',
-    plugins: ['typescript', 'jsx', 'importAttributes'],
+    plugins: ['typescript'],
   }).program as unknown as AstRecord;
 }
 

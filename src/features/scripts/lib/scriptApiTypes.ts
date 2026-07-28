@@ -299,15 +299,14 @@ interface JsLanguageDefaults {
  * The curated Monaco ESM build (see monaco-setup.ts) trims the full barrel, so
  * `monaco.languages.typescript` is NEVER assigned — that only happens in
  * `editor.main.js`. The `javascriptDefaults` we need is a named export of the
- * typescript contribution module instead. monaco-setup already imports that
- * module for its side-effects, so this dynamic import resolves to the cached
- * module (no extra fetch) while keeping Monaco out of the eager ScriptsEditor
- * chunk.
+ * typescript contribution module instead. The local lazy wrapper imports that
+ * module statically, avoiding Vite's dynamic deep-package resolution issue
+ * while keeping Monaco out of the eager ScriptsEditor chunk.
  */
 export async function registerScriptIntellisense(): Promise<void> {
   if (registered) return;
   registered = true;
-  const mod = (await import('monaco-editor/esm/vs/language/typescript/monaco.contribution')) as {
+  const mod = (await import('./monacoScriptApi')) as {
     javascriptDefaults: JsLanguageDefaults;
   };
   mod.javascriptDefaults.addExtraLib(SCRIPT_API_DTS, 'ts:restura-scripts.d.ts');

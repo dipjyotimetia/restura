@@ -2,19 +2,17 @@ import type * as Monaco from 'monaco-editor';
 
 // Register GraphQL language with Monaco
 export function registerGraphQLLanguage(monaco: typeof Monaco) {
-  // Check if already registered
+  // A host integration may already own the language id. Still install our
+  // tokenizer and language configuration so GraphQL remains fully usable.
   const languages = monaco.languages.getLanguages();
-  if (languages.some((lang) => lang.id === 'graphql')) {
-    return;
+  if (!languages.some((lang) => lang.id === 'graphql')) {
+    monaco.languages.register({
+      id: 'graphql',
+      extensions: ['.graphql', '.gql'],
+      aliases: ['GraphQL', 'graphql'],
+      mimetypes: ['application/graphql'],
+    });
   }
-
-  // Register the language
-  monaco.languages.register({
-    id: 'graphql',
-    extensions: ['.graphql', '.gql'],
-    aliases: ['GraphQL', 'graphql'],
-    mimetypes: ['application/graphql'],
-  });
 
   // Define tokens for syntax highlighting
   monaco.languages.setMonarchTokensProvider('graphql', {
