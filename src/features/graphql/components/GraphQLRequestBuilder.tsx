@@ -513,7 +513,9 @@ function GraphQLRequestBuilder() {
                     onChange={handleVariablesChange}
                     language="json"
                     height="100%"
+                    ariaLabel="GraphQL variables"
                     {...(activeTabId ? { path: `tab-${activeTabId}-graphql-variables-full` } : {})}
+                    {...(activeTabId ? { modelOwner: activeTabId } : {})}
                   />
                 </div>
               </div>

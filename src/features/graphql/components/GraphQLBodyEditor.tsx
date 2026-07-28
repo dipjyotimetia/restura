@@ -150,8 +150,10 @@ export default function GraphQLBodyEditor({
             onChange={onQueryChange}
             language="graphql"
             height="100%"
+            ariaLabel="GraphQL query"
             onModelChange={handleQueryModelChange}
             {...(activeTabId ? { path: `tab-${activeTabId}-graphql-query` } : {})}
+            {...(activeTabId ? { modelOwner: activeTabId } : {})}
           />
         </div>
       </div>
@@ -202,7 +204,9 @@ export default function GraphQLBodyEditor({
                 onChange={onVariablesChange}
                 language="json"
                 height="140px"
+                ariaLabel="GraphQL variables"
                 {...(activeTabId ? { path: `tab-${activeTabId}-graphql-variables` } : {})}
+                {...(activeTabId ? { modelOwner: activeTabId } : {})}
               />
             </div>
           </div>

@@ -86,8 +86,16 @@ export default function RequestBodyEditor({
       onChange={onBodyContentChange}
       language={body.type === 'json' ? 'json' : body.type === 'xml' ? 'xml' : 'plaintext'}
       height="100%"
+      ariaLabel={
+        body.type === 'json'
+          ? 'JSON request body'
+          : body.type === 'xml'
+            ? 'XML request body'
+            : 'Raw request body'
+      }
       getVariableStatus={getVariableStatus}
       {...(activeTabId ? { path: `tab-${activeTabId}-body` } : {})}
+      {...(activeTabId ? { modelOwner: activeTabId } : {})}
     />
   );
 }
