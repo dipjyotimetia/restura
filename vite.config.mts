@@ -169,6 +169,9 @@ export default defineConfig({
   },
   ...(isElectronBuild && { base: './' }),
   optimizeDeps: {
-    exclude: ['quickjs-emscripten'],
+    // Monaco's `?worker` imports must reach Vite's worker plugin unchanged.
+    // Prebundling its ESM worker modules turns them into ordinary modules and
+    // drops the default Worker-constructor export used by monaco-setup.
+    exclude: ['monaco-editor', 'quickjs-emscripten'],
   },
 });
