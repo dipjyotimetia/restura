@@ -14,6 +14,8 @@ interface GrpcMessageEditorProps {
   isValid: boolean;
   /** Stable Monaco model path so editor state survives tab switches */
   editorPath?: string | undefined;
+  /** Request tab responsible for disposing the retained model. */
+  modelOwner?: string | undefined;
 }
 
 /**
@@ -28,6 +30,7 @@ export function GrpcMessageEditor({
   error,
   isValid,
   editorPath,
+  modelOwner,
 }: GrpcMessageEditorProps) {
   return (
     <div className="flex flex-col gap-2">
@@ -58,7 +61,9 @@ export function GrpcMessageEditor({
           onChange={onChange}
           language="json"
           height="360px"
+          ariaLabel="gRPC request message"
           {...(editorPath ? { path: editorPath } : {})}
+          {...(modelOwner ? { modelOwner } : {})}
         />
       </div>
     </div>

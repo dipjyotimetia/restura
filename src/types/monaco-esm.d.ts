@@ -21,3 +21,6 @@ declare module 'monaco-editor/languages/definitions/javascript/register';
 declare module 'monaco-editor/languages/features/html/register';
 declare module 'monaco-editor/languages/features/css/register';
 declare module 'monaco-editor/languages/definitions/xml/register';
+declare module 'monaco-editor/esm/vs/editor/contrib/codelens/browser/codeLensCache.js';
+declare module 'monaco-editor/esm/vs/editor/contrib/suggest/browser/suggestController.js';
+declare module 'monaco-editor/esm/vs/editor/common/services/treeViewsDndService.js';

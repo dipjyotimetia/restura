@@ -9,6 +9,7 @@ import { cleanupWebSocketConnectionForTab } from '@/features/websocket/lib/conne
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { migrateAuthConfigToSecretRef } from '@/lib/shared/secretRef-migrations';
+import { disposeRetainedMonacoModelsForOwner } from '@/lib/shared/monacoModelLifecycle';
 import { validateRequestUpdate } from '@/lib/shared/store-validators';
 import type {
   GrpcRequest,
@@ -192,6 +193,7 @@ function patchTab(
 function dispatchTabCleanup(closedTabIds: string[]): void {
   if (closedTabIds.length === 0) return;
   for (const id of closedTabIds) {
+    disposeRetainedMonacoModelsForOwner(id);
     cleanupWebSocketConnectionForTab(id);
     cleanupSocketIOConnectionForTab(id);
     cleanupKafkaConnectionForTab(id);
