@@ -22,6 +22,11 @@ describe('v2 MCP mock server', () => {
     await client.connect(new StreamableHTTPClientTransport(new URL(server.url)));
 
     expect(client.getProtocolEra()).toBe('modern');
+    const discovered = await client.discover();
+    expect(client.getDiscoverResult()).toEqual(discovered);
+    await expect(client.ping()).rejects.toMatchObject({
+      code: 'METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION',
+    });
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       'add',
@@ -99,6 +104,32 @@ describe('v2 MCP mock server', () => {
     await toolsChanged;
 
     await subscription.close();
+    await client.close();
+  });
+
+  it('exercises modern completion and verifies legacy requests are era-gated', async () => {
+    server = await startMockMcpV2Server();
+    const client = new Client(
+      { name: 'restura-v2-mock-test', version: '1.0.0' },
+      { versionNegotiation: { mode: 'auto' } }
+    );
+    await client.connect(new StreamableHTTPClientTransport(new URL(server.url)));
+
+    const completion = await client.complete({
+      ref: { type: 'ref/prompt', name: 'greet' },
+      argument: { name: 'name', value: 'A' },
+    });
+    expect(completion.completion.values).toEqual(['Ada', 'Alan']);
+    await expect(client.setLoggingLevel('debug')).rejects.toMatchObject({
+      code: 'METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION',
+    });
+    await expect(client.subscribeResource({ uri: 'restura-v2://readme' })).rejects.toMatchObject({
+      code: 'METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION',
+    });
+    await expect(client.unsubscribeResource({ uri: 'restura-v2://readme' })).rejects.toMatchObject({
+      code: 'METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION',
+    });
+
     await client.close();
   });
 });

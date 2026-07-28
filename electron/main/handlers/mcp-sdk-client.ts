@@ -13,6 +13,7 @@ import {
   type ClientNotification as V2ClientNotification,
   type ClientRequest as V2ClientRequest,
 } from '@modelcontextprotocol/client';
+import { z } from 'zod';
 
 export type McpSdkVersion = 'v1' | 'v2';
 export type McpSdkTransport = 'streamable-http' | 'http-sse';
@@ -51,6 +52,11 @@ export interface McpSdkConnectOptions {
 }
 
 const CLIENT_INFO = { name: 'restura', version: '1.0.0' };
+// Standard MCP methods are dispatched through the SDK's typed APIs below.
+// The renderer may also inspect a server extension. v2 requires an explicit
+// result schema for that opt-in path so a remote JSON-RPC error still reaches
+// the caller instead of failing local request validation.
+const V2ExtensionResultSchema = z.unknown();
 
 abstract class BaseMcpSdkClient implements McpSdkClient {
   abstract readonly sdkVersion: McpSdkVersion;
@@ -94,9 +100,54 @@ class V1McpSdkClient extends BaseMcpSdkClient {
   }
 
   request(method: string, params: unknown, timeoutMs: number): Promise<unknown> {
-    return this.client.request({ method, params } as V1ClientRequest, V1ResultSchema, {
-      timeout: timeoutMs,
-    });
+    const options = { timeout: timeoutMs };
+    switch (method) {
+      case 'ping':
+        return this.client.ping(options);
+      case 'completion/complete':
+        return this.client.complete(params as Parameters<V1Client['complete']>[0], options);
+      case 'logging/setLevel':
+        return this.client.setLoggingLevel(
+          (params as { level: Parameters<V1Client['setLoggingLevel']>[0] }).level,
+          options
+        );
+      case 'tools/list':
+        return this.client.listTools(params as Parameters<V1Client['listTools']>[0], options);
+      case 'tools/call':
+        return this.client.callTool(
+          params as Parameters<V1Client['callTool']>[0],
+          undefined,
+          options
+        );
+      case 'resources/list':
+        return this.client.listResources(
+          params as Parameters<V1Client['listResources']>[0],
+          options
+        );
+      case 'resources/templates/list':
+        return this.client.listResourceTemplates(
+          params as Parameters<V1Client['listResourceTemplates']>[0],
+          options
+        );
+      case 'resources/read':
+        return this.client.readResource(params as Parameters<V1Client['readResource']>[0], options);
+      case 'resources/subscribe':
+        return this.client.subscribeResource(
+          params as Parameters<V1Client['subscribeResource']>[0],
+          options
+        );
+      case 'resources/unsubscribe':
+        return this.client.unsubscribeResource(
+          params as Parameters<V1Client['unsubscribeResource']>[0],
+          options
+        );
+      case 'prompts/list':
+        return this.client.listPrompts(params as Parameters<V1Client['listPrompts']>[0], options);
+      case 'prompts/get':
+        return this.client.getPrompt(params as Parameters<V1Client['getPrompt']>[0], options);
+      default:
+        return this.client.request({ method, params } as V1ClientRequest, V1ResultSchema, options);
+    }
   }
 
   notification(method: string, params: unknown): Promise<void> {
@@ -156,7 +207,54 @@ class V2McpSdkClient extends BaseMcpSdkClient {
   }
 
   request(method: string, params: unknown, timeoutMs: number): Promise<unknown> {
-    return this.client.request({ method, params } as V2ClientRequest, { timeout: timeoutMs });
+    const options = { timeout: timeoutMs };
+    switch (method) {
+      case 'ping':
+        return this.client.ping(options);
+      case 'server/discover':
+        return this.client.discover(options);
+      case 'completion/complete':
+        return this.client.complete(params as Parameters<V2Client['complete']>[0], options);
+      case 'logging/setLevel':
+        return this.client.setLoggingLevel(
+          (params as { level: Parameters<V2Client['setLoggingLevel']>[0] }).level,
+          options
+        );
+      case 'tools/list':
+        return this.client.listTools(params as Parameters<V2Client['listTools']>[0], options);
+      case 'tools/call':
+        return this.client.callTool(params as Parameters<V2Client['callTool']>[0], options);
+      case 'resources/list':
+        return this.client.listResources(
+          params as Parameters<V2Client['listResources']>[0],
+          options
+        );
+      case 'resources/templates/list':
+        return this.client.listResourceTemplates(
+          params as Parameters<V2Client['listResourceTemplates']>[0],
+          options
+        );
+      case 'resources/read':
+        return this.client.readResource(params as Parameters<V2Client['readResource']>[0], options);
+      case 'resources/subscribe':
+        return this.client.subscribeResource(
+          params as Parameters<V2Client['subscribeResource']>[0],
+          options
+        );
+      case 'resources/unsubscribe':
+        return this.client.unsubscribeResource(
+          params as Parameters<V2Client['unsubscribeResource']>[0],
+          options
+        );
+      case 'prompts/list':
+        return this.client.listPrompts(params as Parameters<V2Client['listPrompts']>[0], options);
+      case 'prompts/get':
+        return this.client.getPrompt(params as Parameters<V2Client['getPrompt']>[0], options);
+      default:
+        return this.client.request({ method, params } as V2ClientRequest, V2ExtensionResultSchema, {
+          timeout: timeoutMs,
+        });
+    }
   }
 
   notification(method: string, params: unknown): Promise<void> {

@@ -56,6 +56,13 @@ interface MockClientShape {
   close: ReturnType<typeof vi.fn>;
   request: ReturnType<typeof vi.fn>;
   notification: ReturnType<typeof vi.fn>;
+  listTools: ReturnType<typeof vi.fn>;
+  listResources: ReturnType<typeof vi.fn>;
+  listResourceTemplates: ReturnType<typeof vi.fn>;
+  listPrompts: ReturnType<typeof vi.fn>;
+  readResource: ReturnType<typeof vi.fn>;
+  getPrompt: ReturnType<typeof vi.fn>;
+  callTool: ReturnType<typeof vi.fn>;
   getServerCapabilities: ReturnType<typeof vi.fn>;
   getServerVersion: ReturnType<typeof vi.fn>;
 }
@@ -85,6 +92,13 @@ vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
     close = vi.fn(async () => undefined);
     request = vi.fn(async () => ({}));
     notification = vi.fn(async () => undefined);
+    listTools = vi.fn(async () => ({ tools: [] }));
+    listResources = vi.fn(async () => ({ resources: [] }));
+    listResourceTemplates = vi.fn(async () => ({ resourceTemplates: [] }));
+    listPrompts = vi.fn(async () => ({ prompts: [] }));
+    readResource = vi.fn(async () => ({ contents: [] }));
+    getPrompt = vi.fn(async () => ({ messages: [] }));
+    callTool = vi.fn(async () => ({ content: [] }));
     getServerCapabilities = vi.fn(() => ({ tools: {} }));
     getServerVersion = vi.fn(() => ({ name: 'mock-server', version: '9.9.9' }));
     constructor(info: unknown) {
@@ -141,6 +155,13 @@ vi.mock('@modelcontextprotocol/client', () => ({
     close = vi.fn(async () => undefined);
     request = vi.fn(async () => ({}));
     notification = vi.fn(async () => undefined);
+    listTools = vi.fn(async () => ({ tools: [] }));
+    listResources = vi.fn(async () => ({ resources: [] }));
+    listResourceTemplates = vi.fn(async () => ({ resourceTemplates: [] }));
+    listPrompts = vi.fn(async () => ({ prompts: [] }));
+    readResource = vi.fn(async () => ({ contents: [] }));
+    getPrompt = vi.fn(async () => ({ messages: [] }));
+    callTool = vi.fn(async () => ({ content: [] }));
     getServerCapabilities = vi.fn(() => ({ tools: {} }));
     getServerVersion = vi.fn(() => ({ name: 'mock-server', version: '9.9.9' }));
     getProtocolEra = vi.fn(() => 'modern');
@@ -368,10 +389,10 @@ describe('mcp-handler (SDK-backed)', () => {
     expect(res).toEqual({ success: false, error: 'Not connected' });
   });
 
-  it('forwards requests to client.request with passthrough schema and timeout', async () => {
+  it('uses the v2 SDK catalogue API with its native timeout option', async () => {
     await connect();
     const client = sdkState.clients[0]!;
-    client.request.mockResolvedValueOnce({ tools: [{ name: 'echo' }] });
+    client.listTools.mockResolvedValueOnce({ tools: [{ name: 'echo' }] });
 
     const res = await handlerFor('mcp:request')(trustedEvent(), {
       connectionId: 'conn-1',
@@ -383,9 +404,26 @@ describe('mcp-handler (SDK-backed)', () => {
 
     expect(res.success).toBe(true);
     expect(res.result).toEqual({ tools: [{ name: 'echo' }] });
-    const [req, opts] = client.request.mock.calls[0]!;
-    expect(req).toEqual({ method: 'tools/list', params: { cursor: 'abc' } });
-    expect(opts).toEqual({ timeout: 5000 });
+    expect(client.listTools).toHaveBeenCalledWith({ cursor: 'abc' }, { timeout: 5000 });
+    expect(client.request).not.toHaveBeenCalled();
+  });
+
+  it('uses the v1 SDK catalogue API with its native timeout option after compatibility fallback', async () => {
+    sdkState.nextConnectError = Object.assign(new Error('Unsupported protocol'), { code: -32601 });
+    await expect(connect()).resolves.toEqual({ success: true });
+    const client = sdkState.v1Clients[0]!;
+    client.listTools.mockResolvedValueOnce({ tools: [{ name: 'legacy-echo' }] });
+
+    const res = await handlerFor('mcp:request')(trustedEvent(), {
+      connectionId: 'conn-1',
+      method: 'tools/list',
+      params: { cursor: 'legacy' },
+      timeout: 5000,
+    });
+
+    expect(res).toEqual({ success: true, result: { tools: [{ name: 'legacy-echo' }] } });
+    expect(client.listTools).toHaveBeenCalledWith({ cursor: 'legacy' }, { timeout: 5000 });
+    expect(client.request).not.toHaveBeenCalled();
   });
 
   it('lets two renderers independently use the same id and cleans up only the destroyed owner', async () => {
@@ -419,8 +457,8 @@ describe('mcp-handler (SDK-backed)', () => {
       })
     ).resolves.toEqual({ success: true });
     const secondClient = sdkState.clients[1]!;
-    firstClient.request.mockResolvedValueOnce({ owner: 'first' });
-    secondClient.request.mockResolvedValueOnce({ owner: 'second' });
+    firstClient.listTools.mockResolvedValueOnce({ owner: 'first' });
+    secondClient.listTools.mockResolvedValueOnce({ owner: 'second' });
 
     await expect(
       handlerFor('mcp:request')(first.event, {
@@ -438,7 +476,7 @@ describe('mcp-handler (SDK-backed)', () => {
     first.destroy();
     expect(firstClient.close).toHaveBeenCalled();
     expect(secondClient.close).not.toHaveBeenCalled();
-    secondClient.request.mockResolvedValueOnce({ owner: 'still-second' });
+    secondClient.listTools.mockResolvedValueOnce({ owner: 'still-second' });
     await expect(
       handlerFor('mcp:request')(second.event, {
         connectionId: 'shared',

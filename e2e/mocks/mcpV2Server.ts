@@ -1,6 +1,7 @@
 import { createServer, type Server } from 'node:http';
 import {
   acceptedContent,
+  completable,
   createMcpHandler,
   inputRequired,
   McpServer,
@@ -123,7 +124,13 @@ export async function startMockMcpV2Server(
       {
         title: 'Greet',
         description: 'Returns a modern greeting prompt',
-        argsSchema: z.object({ name: z.string() }),
+        argsSchema: z.object({
+          name: completable(z.string(), (value) =>
+            ['Ada', 'Alan', 'Grace'].filter((candidate) =>
+              candidate.toLowerCase().startsWith(value.toLowerCase())
+            )
+          ),
+        }),
       },
       ({ name }) => ({
         messages: [{ role: 'user', content: { type: 'text', text: `Hello ${name} from ${era}` } }],

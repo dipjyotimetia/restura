@@ -25,6 +25,8 @@ If that v2 handshake is rejected specifically because the server or transport is
 
 This compatibility path is desktop-only. The web and self-hosted clients retain their existing stateless Worker proxy behavior, and `http-sse` remains desktop-only.
 
+After connecting, Restura uses the SDKs' typed operations for every standard request supported by the negotiated protocol era: ping, completion, legacy logging level, tools, prompts, resources (including subscriptions), and v2 server discovery. That preserves each SDK's protocol-era validation, pagination, caching, and modern HTTP behavior instead of treating a production MCP server as an untyped JSON-RPC endpoint. Non-standard server extensions remain explicit requests so their server-provided JSON-RPC errors can still be inspected.
+
 ### Modern server coverage
 
 Restura's v2 test server exercises modern discovery alongside tools, prompts, resources, cache hints, schema-declared request headers, multi-round `input_required` responses, and change subscriptions. The MCP workspace currently presents the core catalogue and request operations; it does not yet provide dedicated UI flows for interactive `input_required` prompts or managing subscriptions.
