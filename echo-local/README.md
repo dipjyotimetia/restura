@@ -57,6 +57,7 @@ npm run echo:local -- manifest                # write + print the manifest, exit
 | HTTPS            | `https://localhost:8443`                           | CA-signed server cert                                                        |
 | HTTPS mTLS       | `https://localhost:8444`                           | requires a client cert; `GET /mtls/whoami` confirms it                       |
 | HTTP proxy       | `http://localhost:8888`                            | forward + CONNECT                                                            |
+| Enterprise PAC   | `https://localhost:8890/proxy.pac`                 | dead first proxy → Basic-auth fallback `:8892`; SOCKS5 route `:8893`          |
 | gRPC             | `grpc://localhost:50051`                           | `echo.v1.EchoService`, reflection on                                         |
 | WebSocket        | `ws://localhost:8085/echo`                         | also `/chat` `/graphql` `/ping` `/close`                                     |
 | Secure WebSocket | `wss://localhost:8543/echo`                        | same paths over TLS (CA-signed); the packaged desktop CSP allows `wss:` only |
@@ -74,6 +75,24 @@ servers validate:
 - User (password/basic/digest): `alice` / `wonderland`
 - AWS SigV4: `AKIDEXAMPLE` / `wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY`, region `us-east-1`, service `execute-api`
 - API key sample: header `X-API-Key: secret123` (or query `?api_key=secret123`)
+- Enterprise fallback proxy: `enterprise-user` / `enterprise-password`
+
+## Enterprise PAC Electron E2E
+
+The enterprise fixture keeps the production policy trust boundary intact. On
+macOS/Linux, prepare the root-owned policy and CA once, then build and run the
+desktop suite:
+
+```bash
+npm run test:e2e:electron:enterprise:prepare
+npm run test:e2e:electron:build
+npm run test:e2e:electron -- --grep "Managed enterprise PAC routing"
+```
+
+The PAC returns an unavailable first HTTP proxy, an authenticated fallback, and
+a host-selected SOCKS5 route. The Electron suite verifies HTTP, GraphQL, SSE,
+MCP, secure WebSocket, Socket.IO, gRPC, AI-provider streaming, plus fail-closed
+Kafka/MQTT raw-socket exceptions. CI always runs the preparation step.
 
 ## TLS / mTLS / custom-CA
 

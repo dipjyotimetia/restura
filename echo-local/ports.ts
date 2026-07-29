@@ -14,6 +14,14 @@ export const PORTS = {
   mtls: 8444,
   /** Forward + CONNECT HTTP proxy. */
   proxy: 8888,
+  /** HTTPS PAC endpoint for the enterprise-policy harness. */
+  enterprisePac: 8890,
+  /** Deliberately unbound first PAC candidate, proving ordered fallback. */
+  enterpriseProxyUnavailable: 8891,
+  /** Authenticated second PAC candidate. */
+  enterpriseProxy: 8892,
+  /** SOCKS5 PAC route for protocol parity checks. */
+  enterpriseSocks: 8893,
   /** Native gRPC (h2c) + server reflection — what the DESKTOP client dials. */
   grpc: 50051,
   /** WebSocket (/echo /chat /graphql /ping /close). */
@@ -49,6 +57,7 @@ export const IN_PROCESS_SERVICES = [
   'https',
   'mtls',
   'proxy',
+  'enterprise-proxy',
   'grpc',
   'ws',
   'wss',
@@ -61,6 +70,11 @@ export type ServiceId = (typeof IN_PROCESS_SERVICES)[number];
 /**
  * Services skipped entirely when `--no-tls` is passed (they need cert material).
  */
-export const TLS_SERVICES: ReadonlySet<ServiceId> = new Set(['https', 'mtls', 'wss']);
+export const TLS_SERVICES: ReadonlySet<ServiceId> = new Set([
+  'https',
+  'mtls',
+  'wss',
+  'enterprise-proxy',
+]);
 
 export const DEFAULT_HOST = 'localhost';

@@ -19,6 +19,7 @@ import { startMockProxyServer } from '../e2e/mocks/proxyServer';
 import { startMockSocketIOServer } from '../e2e/mocks/socketioServer';
 import { startMockWsServer } from '../e2e/mocks/wsServer';
 import type { EchoCerts } from './certs';
+import { type EnterpriseProxyStack, startEnterpriseProxyStack } from './enterprise-proxy';
 import { PORTS, type ServiceId, TLS_SERVICES } from './ports';
 
 export interface StartedService {
@@ -39,6 +40,8 @@ export interface LaunchResult {
   started: ServiceId[];
   /** Present when the local HTTP echo service was started. */
   http?: MockHttpServerHandle;
+  /** Present when the enterprise PAC/proxy fixture was started. */
+  enterpriseProxy?: EnterpriseProxyStack;
   shutdown: () => Promise<void>;
 }
 
@@ -89,6 +92,7 @@ export async function launch(opts: LaunchOptions): Promise<LaunchResult> {
 
   const services: StartedService[] = [];
   let http: MockHttpServerHandle | undefined;
+  let enterpriseProxy: EnterpriseProxyStack | undefined;
 
   if (wanted('http')) {
     const h = await startMockHttpServer({ port: PORTS.http });
@@ -113,6 +117,10 @@ export async function launch(opts: LaunchOptions): Promise<LaunchResult> {
   if (wanted('proxy')) {
     const h = await startMockProxyServer({ port: PORTS.proxy });
     services.push({ id: 'proxy', close: h.close });
+  }
+  if (wanted('enterprise-proxy') && opts.certs) {
+    enterpriseProxy = await startEnterpriseProxyStack(opts.certs);
+    services.push({ id: 'enterprise-proxy', close: enterpriseProxy.close });
   }
   if (wanted('ws')) {
     const h = await startMockWsServer({ port: PORTS.ws });
@@ -140,6 +148,7 @@ export async function launch(opts: LaunchOptions): Promise<LaunchResult> {
   return {
     started: services.map((s) => s.id),
     http,
+    enterpriseProxy,
     shutdown: async () => {
       await Promise.allSettled(services.map((s) => s.close()));
     },

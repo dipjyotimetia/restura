@@ -18,6 +18,7 @@ interface ElectronFixtures {
 
 interface ElectronWorkerFixtures {
   _electronApp: { electronApp: ElectronApplication; page: Page };
+  electronEnv: NodeJS.ProcessEnv;
 }
 
 /**
@@ -32,9 +33,9 @@ interface ElectronWorkerFixtures {
  *   than the Vite dev server.
  */
 export const test = base.extend<ElectronFixtures, ElectronWorkerFixtures>({
+  electronEnv: [{}, { scope: 'worker', option: true }],
   _electronApp: [
-    // biome-ignore lint/correctness/noEmptyPattern: legacy type boundary
-    async ({}, use) => {
+    async ({ electronEnv }, use) => {
       // macOS's os.tmpdir() is /var/folders/...; the desktop file boundary
       // correctly rejects system-root paths, including that location. Keep
       // the isolated profile under /tmp on POSIX so file-workspace IPC can be
@@ -55,6 +56,7 @@ export const test = base.extend<ElectronFixtures, ElectronWorkerFixtures>({
           NODE_ENV: 'production',
           RESTURA_DISABLE_AUTO_UPDATE: 'true',
           RESTURA_USER_DATA_DIR: userDataDir,
+          ...electronEnv,
         },
       });
 

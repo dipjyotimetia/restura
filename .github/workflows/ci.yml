@@ -461,6 +461,9 @@ jobs:
       - name: Build desktop app (renderer + main)
         run: npm run test:e2e:electron:build
 
+      - name: Prepare protected enterprise proxy fixtures
+        run: npm run test:e2e:electron:enterprise:prepare
+
       # Fail fast with a clear message if the electron binary didn't install.
       # `_electron.launch` resolves it via `require('electron')`, which reads the
       # path.txt that electron's postinstall download intermittently fails to

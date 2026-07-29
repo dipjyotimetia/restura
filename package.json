@@ -48,6 +48,7 @@
     "test:e2e:headed": "playwright test --headed",
     "test:e2e:report": "playwright show-report",
     "test:e2e:electron": "playwright test --config e2e-electron/playwright.config.ts",
+    "test:e2e:electron:enterprise:prepare": "bash scripts/prepare-enterprise-proxy-e2e.sh",
     "test:e2e:electron:build": "npm run electron:build:web && npm run electron:compile",
     "test:contract": "vitest run tests/contract",
     "proto:gen": "buf generate",

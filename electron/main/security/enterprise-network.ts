@@ -1,11 +1,12 @@
 import { X509Certificate } from 'node:crypto';
 import { rootCertificates } from 'node:tls';
-import { createPacProxyAgent, type PacProxyAgent } from '@vscode/proxy-agent/out/agent';
+import type { PacProxyAgent } from '@vscode/proxy-agent/out/agent';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import {
   assertManagedOutboundAllowed,
   type ManagedPolicyLoadResult,
 } from './managed-enterprise-policy';
+import { createOrderedPacProxyAgent } from './ordered-pac-agent';
 import { isProxyBypassed } from './proxy-bypass';
 import { unwrapSecretValueMain } from './secret-handle-store';
 
@@ -536,7 +537,7 @@ export async function createEnterpriseProxyAgent(
     const resolution =
       proxy.resolution ??
       `${proxy.type === 'https' ? 'HTTPS' : 'PROXY'} ${proxy.host}:${proxy.port}`;
-    return createPacProxyAgent(async () => resolution, {
+    return createOrderedPacProxyAgent(async () => resolution, {
       fallbackToDirect: false,
       originalAgent: false,
       lookupProxyAuthorization: createEnterpriseProxyAuthorizationLookup(managed),

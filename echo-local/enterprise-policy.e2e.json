@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "network": {
+    "mode": "pac",
+    "requireProxy": true,
+    "pacUrl": "https://localhost:8890/proxy.pac",
+    "bypassList": [],
+    "proxyAuthentication": {
+      "basic": [
+        {
+          "proxyUrl": "http://127.0.0.1:8892",
+          "usernameEnv": "RESTURA_E2E_PROXY_USERNAME",
+          "passwordEnv": "RESTURA_E2E_PROXY_PASSWORD"
+        }
+      ],
+      "integratedDomains": []
+    },
+    "caCertificatePaths": ["/tmp/restura-enterprise-e2e/ca.crt"],
+    "requireCertificateVerification": true,
+    "minimumTlsVersion": "TLSv1.2",
+    "directProtocols": []
+  },
+  "updates": {
+    "mode": "disabled",
+    "channel": "stable",
+    "requestHeaderEnv": {}
+  }
+}

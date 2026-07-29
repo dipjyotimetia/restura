@@ -41,6 +41,7 @@ export function buildManifest(opts: { host: string; certs?: EchoCerts | undefine
       graphql: `${http}/graphql  (POST query/mutation — Query.users, hello, user, boom; introspection / "Refresh Schema" works on desktop)`,
       sse: `${http}/stream/sse  (also /stream/sse-named /stream/sse-resume /stream/sse-comments; structured auth + per-connection event-name filter configurable in the UI — local routes are open, no auth required)`,
       proxy: `http://${host}:${PORTS.proxy}  (HTTP forward + CONNECT)`,
+      enterprisePac: `https://${host}:${PORTS.enterprisePac}/proxy.pac  (first proxy unavailable, authenticated fallback :${PORTS.enterpriseProxy})`,
       grpc: `grpc://${host}:${PORTS.grpc}  (echo.v1.EchoService, reflection on)`,
       ws: `ws://${host}:${PORTS.ws}/echo  (also /chat /graphql sub /ping /close)`,
       wss: `wss://${host}:${PORTS.wss}/echo  (same paths over TLS — what the packaged desktop CSP allows)`,
