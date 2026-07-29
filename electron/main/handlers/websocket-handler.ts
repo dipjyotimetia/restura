@@ -117,6 +117,7 @@ export function registerWebSocketHandlerIPC(): void {
   ipcMain.handle(IPC.ws.connect, async (event, rawConfig: unknown) => {
     assertTrustedSender(IPC.ws.connect, event);
     const config = validateIpcInput(WsConnectSchema, rawConfig, IPC.ws.connect);
+    const managedMode = getManagedEnterprisePolicy().status.state !== 'unmanaged';
     let policyConfig: ReturnType<typeof applyWebSocketPolicyConfig>;
     try {
       const managed = getManagedEnterprisePolicy();
@@ -153,12 +154,14 @@ export function registerWebSocketHandlerIPC(): void {
       // `lookup` hook (closes the DNS-rebind window pre-flight validation alone
       // leaves open). The URL keeps the original hostname so SNI + Host header
       // stay correct for TLS.
-      let pinned: Awaited<ReturnType<typeof resolveSafeAddress>>;
+      let pinned: Awaited<ReturnType<typeof resolveSafeAddress>> | undefined;
       try {
-        pinned = await resolveSafeAddress(config.url, {
-          ...getExecutionPolicy().security,
-          allowedSchemes: ['ws:', 'wss:'],
-        });
+        if (!policyConfig.proxy?.enabled) {
+          pinned = await resolveSafeAddress(config.url, {
+            ...getExecutionPolicy().security,
+            allowedSchemes: ['ws:', 'wss:'],
+          });
+        }
       } catch (err) {
         return {
           success: false,
@@ -190,11 +193,14 @@ export function registerWebSocketHandlerIPC(): void {
           // than the validated one (an attacker can't 3xx into an internal/metadata
           // target). Cross-host handshake redirects are rare and not supported by
           // design; the abort surfaces as a normal `ws` 'error' event below.
-          followRedirects: true,
+          // A redirect can select a different PAC/bypass route. The ws client
+          // accepts only one static agent, so managed mode fails closed instead
+          // of silently reusing the initial destination's route.
+          followRedirects: !managedMode,
           handshakeTimeout: policyConfig.timeout,
           ...(proxyAgent
             ? { agent: proxyAgent }
-            : { lookup: createPinnedLookup(pinned.host, pinned.ip) }),
+            : { lookup: createPinnedLookup(pinned!.host, pinned!.ip) }),
           ...buildTlsClientMaterial(policyConfig),
           ...(policyConfig.serverCipherOrder ? { honorCipherOrder: true } : {}),
           ...(policyConfig.minTlsVersion ? { minVersion: policyConfig.minTlsVersion } : {}),

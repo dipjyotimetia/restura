@@ -152,6 +152,7 @@ export function registerSocketIoHandlerIPC(): void {
   ipcMain.handle(IPC.socketio.connect, async (event, rawConfig: unknown) => {
     assertTrustedSender(IPC.socketio.connect, event);
     const config = validateIpcInput(SocketIoConnectSchema, rawConfig, IPC.socketio.connect);
+    const managedMode = getManagedEnterprisePolicy().status.state !== 'unmanaged';
     const connectionId = config.connectionId;
     const webContentsId = event.sender.id;
 
@@ -196,12 +197,14 @@ export function registerSocketIoHandlerIPC(): void {
       // `ws` (websocket) and `xmlhttprequest-ssl` (polling) transports, so a single
       // agent carrying a pinned `lookup` covers both. The URL keeps the original
       // hostname so SNI + Host header stay correct.
-      let pinned: Awaited<ReturnType<typeof resolveSafeAddress>>;
+      let pinned: Awaited<ReturnType<typeof resolveSafeAddress>> | undefined;
       try {
-        pinned = await resolveSafeAddress(config.url, {
-          ...getExecutionPolicy().security,
-          allowedSchemes: ['http:', 'https:', 'ws:', 'wss:'],
-        });
+        if (!policyConfig.proxy?.enabled) {
+          pinned = await resolveSafeAddress(config.url, {
+            ...getExecutionPolicy().security,
+            allowedSchemes: ['http:', 'https:', 'ws:', 'wss:'],
+          });
+        }
       } catch (err) {
         return {
           success: false,
@@ -219,7 +222,7 @@ export function registerSocketIoHandlerIPC(): void {
       try {
         const connectUrl = buildConnectUrl(config.url, config.namespace);
         const secure = /^(https|wss):/i.test(config.url);
-        const lookup = createPinnedLookup(pinned.host, pinned.ip);
+        const lookup = pinned ? createPinnedLookup(pinned.host, pinned.ip) : undefined;
         const io = await getIo();
         if (pendingConnections.get(key)?.token !== claim.token) {
           return { success: false, error: 'Not connected' };
@@ -230,8 +233,8 @@ export function registerSocketIoHandlerIPC(): void {
           (policyConfig.proxy.type === 'http' || policyConfig.proxy.type === 'https')
             ? await createEnterpriseProxyAgent(policyConfig.proxy, policyConfig)
             : secure
-              ? new HttpsAgent({ lookup, ...tlsMaterial })
-              : new HttpAgent({ lookup });
+              ? new HttpsAgent({ lookup: lookup!, ...tlsMaterial })
+              : new HttpAgent({ lookup: lookup! });
 
         const socket = io(connectUrl, {
           path: config.path ?? '/socket.io',
@@ -239,7 +242,10 @@ export function registerSocketIoHandlerIPC(): void {
           query: config.query ?? {},
           extraHeaders: config.extraHeaders ?? {},
           transports: config.transports ?? ['websocket', 'polling'],
-          reconnection: config.reconnection ?? true,
+          // Reconnection may receive a different PAC result, but engine.io
+          // accepts only one static agent. Fail closed until a new IPC connect
+          // re-resolves the managed route.
+          reconnection: managedMode ? false : (config.reconnection ?? true),
           reconnectionAttempts: config.reconnectionAttempts ?? 5,
           reconnectionDelay: config.reconnectionDelay ?? 1_000,
           timeout: policyConfig.timeout,

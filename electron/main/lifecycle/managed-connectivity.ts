@@ -15,6 +15,23 @@ export interface ManagedConnectivityTargets {
   updater: ManagedUpdaterTarget;
 }
 
+interface BlockableSession {
+  webRequest: {
+    onBeforeRequest(
+      filter: { urls: string[] },
+      listener: (details: unknown, callback: (response: { cancel: boolean }) => void) => void
+    ): void;
+  };
+}
+
+/** Deny renderer/updater session egress after managed policy fails to apply. */
+export function blockManagedSessionOutbound(electronSession: BlockableSession): void {
+  electronSession.webRequest.onBeforeRequest(
+    { urls: ['http://*/*', 'https://*/*', 'ws://*/*', 'wss://*/*'] },
+    (_details, callback) => callback({ cancel: true })
+  );
+}
+
 /**
  * Apply the selected machine policy to every native desktop network boundary.
  * Kept as one orchestration seam so startup and integration tests exercise the

@@ -70,12 +70,15 @@ export function applyManagedUpdaterPolicy(
   if (result.status.state === 'unmanaged') return { managed: false, enabled: true };
   target.autoDownload = false;
   target.autoInstallOnAppQuit = false;
-  target.allowDowngrade = false;
   if (result.status.state !== 'managed' || !result.policy) {
+    target.allowDowngrade = false;
     return { managed: true, enabled: false };
   }
   const updates = result.policy.updates;
-  if (updates.mode === 'disabled') return { managed: true, enabled: false };
+  if (updates.mode === 'disabled') {
+    target.allowDowngrade = false;
+    return { managed: true, enabled: false };
+  }
 
   const requestHeaders: Record<string, string> = {};
   for (const [header, envName] of Object.entries(updates.requestHeaderEnv)) {
@@ -95,6 +98,8 @@ export function applyManagedUpdaterPolicy(
   target.autoInstallOnAppQuit = updates.mode === 'install-on-quit';
   target.allowPrerelease = updates.channel === 'beta';
   target.channel = updates.channel === 'beta' ? 'beta' : null;
+  // electron-updater's channel setter enables downgrades as a side effect.
+  target.allowDowngrade = false;
   return { managed: true, enabled: true };
 }
 

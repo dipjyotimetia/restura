@@ -7,7 +7,11 @@ import {
 } from '../ipc/ipc-validators';
 import { resolveManagedProxyForUrl } from '../security/enterprise-network';
 import { getManagedEnterprisePolicy } from '../security/managed-enterprise-policy';
-import { executeConnectReflection, resolveGrpcDialAddress } from './grpc-connect';
+import {
+  executeConnectReflection,
+  resolveGrpcDialAddress,
+  unresolvedGrpcProxyDialAddress,
+} from './grpc-connect';
 import { resolveGrpcReflectionExecutionPolicy } from './grpc-credentials';
 
 /** The subset of ServerReflectionResponse the renderer consumes. */
@@ -58,7 +62,10 @@ async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawRe
     managed.status.state === 'unmanaged'
       ? undefined
       : await resolveManagedProxyForUrl(proxyTarget.toString(), session.defaultSession, managed);
-  const dial = await resolveGrpcDialAddress(urlWithScheme);
+  const dial =
+    proxy?.type === 'http' || proxy?.type === 'https'
+      ? unresolvedGrpcProxyDialAddress(urlWithScheme)
+      : await resolveGrpcDialAddress(urlWithScheme);
 
   return executeConnectReflection({
     url: urlWithScheme,

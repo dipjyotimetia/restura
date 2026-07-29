@@ -71,6 +71,25 @@ describe('managed updater feed', () => {
     expect(target.allowDowngrade).toBe(false);
   });
 
+  it('disables downgrades after the updater channel setter re-enables them', () => {
+    let channel: string | null = null;
+    const target = updater();
+    Object.defineProperty(target, 'channel', {
+      get: () => channel,
+      set: (value: string | null) => {
+        channel = value;
+        target.allowDowngrade = true;
+      },
+    });
+
+    applyManagedUpdaterPolicy(target, managedUpdates({ channel: 'beta' }), {
+      RESTURA_UPDATE_AUTHORIZATION: 'Bearer update-token',
+    });
+
+    expect(channel).toBe('beta');
+    expect(target.allowDowngrade).toBe(false);
+  });
+
   it('never falls back to the public feed when managed setup is invalid', () => {
     const target = updater();
 

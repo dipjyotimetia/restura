@@ -105,9 +105,7 @@ export async function configureManagedDesktopSessions(
   const verifier = managedCaBundle ? createManagedCertificateVerifyProc(managedCaBundle) : null;
   const integratedDomains =
     result.status.state === 'managed'
-      ? (result.policy?.network.proxyAuthentication?.integratedDomains ?? [])
-          .map((domain) => (domain.startsWith('*.') ? `*${domain.slice(2)}` : domain))
-          .join(',')
+      ? (result.policy?.network.proxyAuthentication?.integratedDomains ?? []).join(',')
       : '';
   sessions.application.allowNTLMCredentialsForDomains?.(integratedDomains);
   sessions.application.setCertificateVerifyProc?.(verifier);
@@ -179,6 +177,8 @@ export function createManagedCertificateVerifyProc(managedCaBundle: string) {
           const issuer = chain[index + 1] ?? certificate;
           return certificate.verify(issuer.publicKey);
         }) &&
+        chain.slice(1).every((certificate) => certificate.ca) &&
+        anchor.ca &&
         trusted.has(anchor.fingerprint256);
       callback(valid ? 0 : request.errorCode);
     } catch {

@@ -26,6 +26,7 @@ import {
   type PinnedDial,
   resolveGrpcDialAddress,
   runConnectStream,
+  unresolvedGrpcProxyDialAddress,
 } from './grpc-connect';
 import { type GrpcTlsConfig, resolveGrpcExecutionPolicy } from './grpc-credentials';
 
@@ -333,7 +334,11 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
   // legitimately returns INVALID_ARGUMENT for a malformed request body.
   let grpcDial: PinnedDial;
   try {
-    grpcDial = await resolveGrpcDialAddress(policyConfig.url);
+    grpcDial =
+      policyConfig.enterpriseProxy?.type === 'http' ||
+      policyConfig.enterpriseProxy?.type === 'https'
+        ? unresolvedGrpcProxyDialAddress(policyConfig.url)
+        : await resolveGrpcDialAddress(policyConfig.url);
   } catch (err) {
     const detail = sanitizeErrorMessage(err instanceof Error ? err.message : String(err));
     return {
@@ -504,7 +509,11 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         // (closes the DNS-rebind window).
         let grpcDial: PinnedDial;
         try {
-          grpcDial = await resolveGrpcDialAddress(policyConfig.url);
+          grpcDial =
+            policyConfig.enterpriseProxy?.type === 'http' ||
+            policyConfig.enterpriseProxy?.type === 'https'
+              ? unresolvedGrpcProxyDialAddress(policyConfig.url)
+              : await resolveGrpcDialAddress(policyConfig.url);
         } catch (err) {
           releasePendingStream(requestId, claim);
           safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {

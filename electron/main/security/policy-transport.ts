@@ -93,10 +93,46 @@ export function assertPinnedFetchCanHonorPolicy(config: PolicyTransportConfig): 
   }
 }
 
+function closeDispatcherAfterBody(response: Response, dispatcher: ProxyAgent): Response {
+  if (!response.body) {
+    void dispatcher.close();
+    return response;
+  }
+  const reader = response.body.getReader();
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const chunk = await reader.read();
+        if (chunk.done) {
+          controller.close();
+          void dispatcher.close();
+        } else {
+          controller.enqueue(chunk.value);
+        }
+      } catch (error) {
+        controller.error(error);
+        dispatcher.destroy(error instanceof Error ? error : new Error(String(error)));
+      }
+    },
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason);
+      } finally {
+        void dispatcher.close();
+      }
+    },
+  });
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
 /** Build a direct, DNS-pinned fetch that still applies the resolved TLS policy. */
 export function createPolicyPinnedFetch(
   config: PolicyTransportConfig,
-  pinned: SafeAddress
+  pinned?: SafeAddress
 ): typeof globalThis.fetch {
   assertPinnedFetchCanHonorPolicy(config);
   if (config.proxy?.enabled && ['http', 'https'].includes(config.proxy.type)) {
@@ -123,14 +159,23 @@ export function createPolicyPinnedFetch(
       const authorization = await enterpriseProxyAuthorization(config.proxy!);
       if (authorization) proxyOptions.token = authorization;
       const dispatcher = new ProxyAgent(proxyOptions);
-      return (await undiciFetch(
-        input as Parameters<typeof undiciFetch>[0],
-        {
-          ...(init as UndiciRequestInit | undefined),
-          dispatcher,
-        } as UndiciRequestInit
-      )) as unknown as Response;
+      try {
+        const response = (await undiciFetch(
+          input as Parameters<typeof undiciFetch>[0],
+          {
+            ...(init as UndiciRequestInit | undefined),
+            dispatcher,
+          } as UndiciRequestInit
+        )) as unknown as Response;
+        return closeDispatcherAfterBody(response, dispatcher);
+      } catch (error) {
+        dispatcher.destroy(error instanceof Error ? error : new Error(String(error)));
+        throw error;
+      }
     }) as typeof globalThis.fetch;
+  }
+  if (!pinned) {
+    throw new Error('A DNS-pinned address is required for a direct managed connection');
   }
   return createPinnedFetch(pinned.host, pinned.ip, {
     rejectUnauthorized: config.verifySsl,

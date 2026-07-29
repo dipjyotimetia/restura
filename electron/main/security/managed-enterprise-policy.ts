@@ -264,6 +264,9 @@ function validateTrustedFile(
   isWindowsFileTrusted: (filePath: string) => boolean,
   env: NodeJS.ProcessEnv
 ): void {
+  if (stat.isSymbolicLink || stat.isFile === false) {
+    throw new PolicyTrustError('Policy must be a protected regular file');
+  }
   if (stat.size > MAX_POLICY_BYTES) {
     throw new PolicyTrustError('Policy exceeds the 256 KiB size limit');
   }
@@ -287,6 +290,52 @@ function validateTrustedFile(
   if (stat.uid !== 0) throw new PolicyTrustError('Policy file must be administrator-owned');
   if ((stat.mode & 0o022) !== 0) {
     throw new PolicyTrustError('Policy file must not be group or world writable');
+  }
+}
+
+function readProtectedPolicyFile(
+  filePath: string,
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv,
+  isWindowsFileTrusted: (filePath: string) => boolean
+): string {
+  const before = lstatSync(filePath);
+  const beforeStat: FileStat = {
+    uid: before.uid,
+    mode: before.mode,
+    size: before.size,
+    dev: before.dev,
+    ino: before.ino,
+    isFile: before.isFile(),
+    isSymbolicLink: before.isSymbolicLink(),
+  };
+  validateTrustedFile(platform, filePath, beforeStat, isWindowsFileTrusted, env);
+
+  const flags = constants.O_RDONLY | (platform === 'win32' ? 0 : (constants.O_NOFOLLOW ?? 0));
+  const descriptor = openSync(filePath, flags);
+  try {
+    const after = fstatSync(descriptor);
+    validateTrustedFile(
+      platform,
+      filePath,
+      {
+        uid: after.uid,
+        mode: after.mode,
+        size: after.size,
+        dev: after.dev,
+        ino: after.ino,
+        isFile: after.isFile(),
+        isSymbolicLink: false,
+      },
+      isWindowsFileTrusted,
+      env
+    );
+    if (before.dev !== after.dev || before.ino !== after.ino) {
+      throw new PolicyTrustError('Policy changed while it was being loaded');
+    }
+    return readFileSync(descriptor, 'utf8');
+  } finally {
+    closeSync(descriptor);
   }
 }
 
@@ -355,14 +404,22 @@ export function loadManagedEnterprisePolicy(
   const native = (options.readNativePolicy ?? readNativePolicy)(platform);
   if (native !== undefined) return parseSelectedSource(native, 'native');
 
-  const readFile = options.readFile ?? ((filePath) => readFileSync(filePath, 'utf8'));
+  const isWindowsFileTrusted = options.isWindowsFileTrusted ?? isWindowsFileAdminControlled;
+  const readFile =
+    options.readFile ??
+    ((filePath) => readProtectedPolicyFile(filePath, platform, env, isWindowsFileTrusted));
   const statFile =
     options.statFile ??
     ((filePath) => {
       const stat = statSync(filePath);
-      return { uid: stat.uid, mode: stat.mode, size: stat.size };
+      return {
+        uid: stat.uid,
+        mode: stat.mode,
+        size: stat.size,
+        isFile: stat.isFile(),
+        isSymbolicLink: stat.isSymbolicLink(),
+      };
     });
-  const isWindowsFileTrusted = options.isWindowsFileTrusted ?? isWindowsFileAdminControlled;
   const selectedFile = env.RESTURA_ENTERPRISE_POLICY_FILE;
 
   if (selectedFile) {

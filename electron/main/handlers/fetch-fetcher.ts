@@ -93,10 +93,13 @@ export async function makePinnedFetcher(
   }
 
   return makeRouteAwareFetcher(async (destination) => {
-    const pinned = await resolveSafeAddress(destination, {
-      allowLocalhost: options.allowLocalhost,
-    });
     const proxy = await resolveManagedProxyForUrl(destination, session.defaultSession, managed);
+    const pinned =
+      proxy?.type === 'http' || proxy?.type === 'https'
+        ? undefined
+        : await resolveSafeAddress(destination, {
+            allowLocalhost: options.allowLocalhost,
+          });
     const transport = applyManagedTransportPolicy(
       {
         ...(options.managedTransport ?? {}),
@@ -127,10 +130,13 @@ export function makeManagedRouteAwareFetch(
     const destination =
       typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     const managed = getManagedEnterprisePolicy();
-    const pinned = await resolveSafeAddress(destination, {
-      allowLocalhost: options.allowLocalhost,
-    });
     const proxy = await resolveManagedProxyForUrl(destination, session.defaultSession, managed);
+    const pinned =
+      proxy?.type === 'http' || proxy?.type === 'https'
+        ? undefined
+        : await resolveSafeAddress(destination, {
+            allowLocalhost: options.allowLocalhost,
+          });
     const transport = applyManagedTransportPolicy(
       { ...baseConfig, url: destination, proxy, verifySsl: true },
       managed,

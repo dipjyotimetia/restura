@@ -30,7 +30,10 @@ import { registerWebSocketHandlerIPC, stopWebSocketCleanup } from './handlers/we
 import { registerAutoUpdaterIPC, setupAutoUpdater } from './lifecycle/auto-updater';
 import { registerDeepLinkHandler } from './lifecycle/deep-link-handler';
 import { initLogging } from './lifecycle/logging';
-import { applyManagedDesktopConnectivity } from './lifecycle/managed-connectivity';
+import {
+  applyManagedDesktopConnectivity,
+  blockManagedSessionOutbound,
+} from './lifecycle/managed-connectivity';
 import { logRequest, registerRequestLoggerIPC } from './lifecycle/request-logger';
 import { initSentry } from './lifecycle/sentry';
 import { createSystemTray, destroyTray } from './lifecycle/system-tray';
@@ -77,13 +80,6 @@ const isMcpServerMode = process.argv.includes('--mcp-server');
 initLogging(isDev, { mcpServerMode: isMcpServerMode });
 
 const log = createLogger('main');
-
-// Initialize Sentry as early as possible — before window creation — so native
-// crashes and main-process errors are armed from line one. @sentry/electron/main
-// owns the native crashReporter (minidumps); it only inits when the user has
-// opted in (read synchronously from the plain consent mirror), so opted-out
-// users upload nothing. See electron/main/lifecycle/sentry.ts.
-initSentry({ enabled: readConsentSync() });
 
 app.on('login', (event, _webContents, _details, authInfo, callback) => {
   let response: ReturnType<typeof managedProxyChallengeResponse>;
@@ -333,6 +329,31 @@ function setupSecurityMeasures(): void {
 
 // Initialize the application
 app.whenReady().then(async () => {
+  try {
+    // Validate managed trust and configure both native network stacks before
+    // any renderer, MCP tool, telemetry, or update request can leave the process.
+    await applyManagedDesktopConnectivity({
+      applicationSession: session.defaultSession,
+      updaterSession: autoUpdater.netSession,
+      updater: autoUpdater,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    markManagedPolicyRuntimeInvalid(message);
+    blockManagedSessionOutbound(session.defaultSession);
+    if (autoUpdater.netSession !== session.defaultSession) {
+      blockManagedSessionOutbound(autoUpdater.netSession);
+    }
+    log.error('managed network policy setup failed', { message });
+  }
+
+  // Sentry's Node transport does not inherit Electron session proxy policy.
+  // Keep it disabled for managed/invalid installations; unmanaged consent
+  // behavior remains unchanged.
+  initSentry({
+    enabled: getManagedEnterprisePolicy().status.state === 'unmanaged' && readConsentSync(),
+  });
+
   if (isMcpServerMode) {
     // Headless: no window, no tray, no auto-updater. The MCP SDK owns stdio.
     // Anything that would log to stdout (`console.log`, banners) corrupts the
@@ -370,20 +391,6 @@ app.whenReady().then(async () => {
       app.quit();
     }
     return;
-  }
-
-  try {
-    // Validate managed trust and configure both native network stacks before
-    // any renderer or update request can leave the process.
-    await applyManagedDesktopConnectivity({
-      applicationSession: session.defaultSession,
-      updaterSession: autoUpdater.netSession,
-      updater: autoUpdater,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    markManagedPolicyRuntimeInvalid(message);
-    log.error('managed network policy setup failed', { message });
   }
 
   setupContentSecurityPolicy();

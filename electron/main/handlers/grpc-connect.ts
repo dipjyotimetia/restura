@@ -64,6 +64,18 @@ export async function resolveGrpcDialAddress(url: string): Promise<PinnedDial> {
   return { ip: chosen.address, port, family: chosen.family === 6 ? 6 : 4 };
 }
 
+/** Dial metadata for a CONNECT route where the managed proxy resolves the target hostname. */
+export function unresolvedGrpcProxyDialAddress(url: string): PinnedDial {
+  const parsed = new URL(url);
+  const useTls = parsed.protocol === 'https:' || parsed.protocol === 'grpcs:';
+  return {
+    // `createGrpcProxyTunnel` owns the socket; this sentinel is never dialled.
+    ip: '0.0.0.0',
+    port: parsed.port ? Number(parsed.port) : useTls ? 443 : 80,
+    family: 4,
+  };
+}
+
 /** Result shape compatible with the grpc-handler GrpcResponse (sans `messages`). */
 export interface ConnectCallResult {
   status: number;

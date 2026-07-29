@@ -103,8 +103,8 @@ describe('enterprise network service', () => {
     expect(updater.setProxy).toHaveBeenCalledWith(expected);
     expect(application.setSSLConfig).toHaveBeenCalledWith({ minVersion: 'tls1.2' });
     expect(updater.setSSLConfig).toHaveBeenCalledWith({ minVersion: 'tls1.2' });
-    expect(application.allowNTLMCredentialsForDomains).toHaveBeenCalledWith('*corp.example');
-    expect(updater.allowNTLMCredentialsForDomains).toHaveBeenCalledWith('*corp.example');
+    expect(application.allowNTLMCredentialsForDomains).toHaveBeenCalledWith('*.corp.example');
+    expect(updater.allowNTLMCredentialsForDomains).toHaveBeenCalledWith('*.corp.example');
     expect(application.setCertificateVerifyProc).toHaveBeenCalledWith(expect.any(Function));
     expect(updater.setCertificateVerifyProc).toHaveBeenCalledWith(expect.any(Function));
     expect(application.setCertificateVerifyProc.mock.invocationCallOrder[0]).toBeLessThan(
