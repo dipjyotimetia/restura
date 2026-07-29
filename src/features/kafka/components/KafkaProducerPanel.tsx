@@ -458,14 +458,16 @@ export function KafkaProducerPanel({
                 variant="secondary"
                 disabled={!api || !streamOpen || sessionBusy}
                 onClick={() =>
-                  void (async () => {
+                  void run(async () => {
                     for (const record of parseRecords()) {
-                      const ok = await run(() =>
-                        api!.writeProducerStream({ connectionId: connection.id, record })
-                      );
-                      if (!ok) break;
+                      const result = await api!.writeProducerStream({
+                        connectionId: connection.id,
+                        record,
+                      });
+                      if (!result.success) return result;
                     }
-                  })()
+                    return { success: true };
+                  })
                 }
               >
                 Write batch to stream

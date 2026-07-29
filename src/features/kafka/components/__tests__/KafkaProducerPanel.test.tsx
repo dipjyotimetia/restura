@@ -177,6 +177,24 @@ describe('KafkaProducerPanel', () => {
     });
   });
 
+  it('reports invalid stream batch JSON without writing a record', async () => {
+    api.openProducerStream.mockResolvedValueOnce({ success: true });
+    api.writeProducerStream.mockClear();
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(screen.getByRole('tab', { name: 'Stream' }));
+    fireEvent.change(screen.getByLabelText('Kafka typed record batch'), {
+      target: { value: '{' },
+    });
+    await user.click(screen.getByRole('button', { name: 'Open stream' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Close stream' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Write batch to stream' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent(/JSON/);
+    expect(api.writeProducerStream).not.toHaveBeenCalled();
+  });
+
   it('renders encoding, registry, tombstone, idempotence, and error guidance', () => {
     renderPanel({
       connection: {
