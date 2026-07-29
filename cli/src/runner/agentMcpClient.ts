@@ -1,6 +1,8 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import {
+  Client,
+  SSEClientTransport,
+  StreamableHTTPClientTransport,
+} from '@modelcontextprotocol/client';
 import { validateMcpSpec } from '@shared/protocol/mcp-proxy';
 import type { AgentMcpClient, ContentBlock, McpToolDescriptor } from '@shared/agent-lab';
 import type { AgentRuntimeSource } from '../commands/agentRuntime.js';
@@ -57,7 +59,10 @@ export async function connectCliMcpClient(
     source.transport === 'streamable-http'
       ? new StreamableHTTPClientTransport(new URL(source.url), transportOptions)
       : new SSEClientTransport(new URL(source.url), transportOptions);
-  const client = new Client({ name: 'restura-cli', version: '1.0.0' }, { capabilities: {} });
+  const client = new Client(
+    { name: 'restura-cli', version: '1.0.0' },
+    { capabilities: {}, versionNegotiation: { mode: 'auto' } }
+  );
   const abort = () => {
     void client.close().catch(() => {});
     void pinnedSession.dispose();
@@ -103,7 +108,6 @@ export async function connectCliMcpClient(
     async callTool(name, arguments_, signal): Promise<ContentBlock[]> {
       const result = await client.callTool(
         { name, arguments: arguments_ as Record<string, unknown> },
-        undefined,
         { signal, timeout: options.timeoutMs }
       );
       return [{ type: 'json', value: result }];

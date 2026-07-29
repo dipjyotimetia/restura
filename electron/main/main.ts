@@ -307,7 +307,7 @@ app.whenReady().then(async () => {
     // JSON-RPC stream — keep this branch minimal and route everything else to
     // stderr (which Claude Desktop captures into its log file).
     try {
-      const handle = await startStdioMcpServer(() => loadMcpDispatchContext());
+      const handle = startStdioMcpServer(() => loadMcpDispatchContext());
       // Tear the server down on quit so the parent process sees a clean EOF.
       // `preventDefault` + `app.exit()` after `handle.stop()` resolves
       // guarantees the stdio transport flushes before process exit — a

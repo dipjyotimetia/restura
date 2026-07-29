@@ -1,24 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const v1State = vi.hoisted(() => ({
-  clients: [] as Array<{
-    connect: ReturnType<typeof vi.fn>;
-    close: ReturnType<typeof vi.fn>;
-    request: ReturnType<typeof vi.fn>;
-    ping: ReturnType<typeof vi.fn>;
-    complete: ReturnType<typeof vi.fn>;
-    setLoggingLevel: ReturnType<typeof vi.fn>;
-    listTools: ReturnType<typeof vi.fn>;
-    callTool: ReturnType<typeof vi.fn>;
-    listResources: ReturnType<typeof vi.fn>;
-    listResourceTemplates: ReturnType<typeof vi.fn>;
-    readResource: ReturnType<typeof vi.fn>;
-    subscribeResource: ReturnType<typeof vi.fn>;
-    unsubscribeResource: ReturnType<typeof vi.fn>;
-    listPrompts: ReturnType<typeof vi.fn>;
-    getPrompt: ReturnType<typeof vi.fn>;
-  }>,
-}));
 const v2State = vi.hoisted(() => ({
   clients: [] as Array<{
     connect: ReturnType<typeof vi.fn>;
@@ -39,41 +20,8 @@ const v2State = vi.hoisted(() => ({
     getPrompt: ReturnType<typeof vi.fn>;
   }>,
   connectError: undefined as Error | undefined,
-}));
-
-vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
-  Client: class {
-    connect = vi.fn(async () => undefined);
-    close = vi.fn(async () => undefined);
-    request = vi.fn(async () => ({}));
-    ping = vi.fn(async () => ({}));
-    complete = vi.fn(async () => ({ completion: { values: [] } }));
-    setLoggingLevel = vi.fn(async () => ({}));
-    listTools = vi.fn(async () => ({ tools: [] }));
-    callTool = vi.fn(async () => ({ content: [] }));
-    listResources = vi.fn(async () => ({ resources: [] }));
-    listResourceTemplates = vi.fn(async () => ({ resourceTemplates: [] }));
-    readResource = vi.fn(async () => ({ contents: [] }));
-    subscribeResource = vi.fn(async () => ({}));
-    unsubscribeResource = vi.fn(async () => ({}));
-    listPrompts = vi.fn(async () => ({ prompts: [] }));
-    getPrompt = vi.fn(async () => ({ messages: [] }));
-    notification = vi.fn(async () => undefined);
-    getServerCapabilities = vi.fn(() => ({ tools: {} }));
-    getServerVersion = vi.fn(() => ({ name: 'v1-server', version: '1.0.0' }));
-    constructor() {
-      v1State.clients.push(this);
-    }
-  },
-}));
-vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
-  StreamableHTTPClientTransport: class {
-    protocolVersion = '2025-03-26';
-    terminateSession = vi.fn(async () => undefined);
-  },
-}));
-vi.mock('@modelcontextprotocol/sdk/client/sse.js', () => ({
-  SSEClientTransport: class {},
+  clientOptions: [] as unknown[],
+  negotiatedProtocolVersion: '2026-07-28' as string | undefined,
 }));
 
 vi.mock('@modelcontextprotocol/client', () => ({
@@ -99,8 +47,10 @@ vi.mock('@modelcontextprotocol/client', () => ({
     notification = vi.fn(async () => undefined);
     getServerCapabilities = vi.fn(() => ({ tools: {} }));
     getServerVersion = vi.fn(() => ({ name: 'v2-server', version: '2.0.0' }));
+    getNegotiatedProtocolVersion = vi.fn(() => v2State.negotiatedProtocolVersion);
     getProtocolEra = vi.fn(() => 'modern');
-    constructor() {
+    constructor(_clientInfo: unknown, options: unknown) {
+      v2State.clientOptions.push(options);
       v2State.clients.push(this);
     }
   },
@@ -123,9 +73,10 @@ const options = {
 };
 
 afterEach(() => {
-  v1State.clients.length = 0;
   v2State.clients.length = 0;
+  v2State.clientOptions.length = 0;
   v2State.connectError = undefined;
+  v2State.negotiatedProtocolVersion = '2026-07-28';
 });
 
 describe('connectMcpSdkClient', () => {
@@ -184,46 +135,9 @@ describe('connectMcpSdkClient', () => {
       { timeout: 5000 }
     );
     expect(sdk.request).not.toHaveBeenCalled();
-  });
-
-  it('uses all native v1 client operations after a protocol compatibility fallback', async () => {
-    v2State.connectError = Object.assign(new Error('Method not found'), { code: -32601 });
-    const client = await connectMcpSdkClient(options);
-    await nativeRequests(client);
-    const sdk = v1State.clients[0]!;
-
-    expect(sdk.ping).toHaveBeenCalledWith({ timeout: 5000 });
-    expect(sdk.complete).toHaveBeenCalledWith(
-      { ref: { type: 'ref/prompt', name: 'greet' }, argument: { name: 'name', value: 'Ada' } },
-      { timeout: 5000 }
-    );
-    expect(sdk.setLoggingLevel).toHaveBeenCalledWith('debug', { timeout: 5000 });
-    expect(sdk.listTools).toHaveBeenCalledWith({ cursor: 'tools' }, { timeout: 5000 });
-    expect(sdk.callTool).toHaveBeenCalledWith(
-      { name: 'echo', arguments: { text: 'hello' } },
-      undefined,
-      { timeout: 5000 }
-    );
-    expect(sdk.listResources).toHaveBeenCalledWith({ cursor: 'resources' }, { timeout: 5000 });
-    expect(sdk.listResourceTemplates).toHaveBeenCalledWith(
-      { cursor: 'templates' },
-      { timeout: 5000 }
-    );
-    expect(sdk.readResource).toHaveBeenCalledWith({ uri: 'restura://readme' }, { timeout: 5000 });
-    expect(sdk.subscribeResource).toHaveBeenCalledWith(
-      { uri: 'restura://readme' },
-      { timeout: 5000 }
-    );
-    expect(sdk.unsubscribeResource).toHaveBeenCalledWith(
-      { uri: 'restura://readme' },
-      { timeout: 5000 }
-    );
-    expect(sdk.listPrompts).toHaveBeenCalledWith({ cursor: 'prompts' }, { timeout: 5000 });
-    expect(sdk.getPrompt).toHaveBeenCalledWith(
-      { name: 'greet', arguments: { name: 'Ada' } },
-      { timeout: 5000 }
-    );
-    expect(sdk.request).not.toHaveBeenCalled();
+    expect(v2State.clientOptions).toEqual([
+      { capabilities: {}, versionNegotiation: { mode: 'auto' } },
+    ]);
   });
 
   it('uses v2 server discovery for the current protocol revision', async () => {
@@ -235,37 +149,39 @@ describe('connectMcpSdkClient', () => {
     expect(v2State.clients[0]!.request).not.toHaveBeenCalled();
   });
 
-  it('disposes an incompatible v2 handshake before connecting through v1', async () => {
-    v2State.connectError = Object.assign(new Error('Method not found'), { code: -32601 });
-
+  it('reports the protocol version negotiated by the v2 client', async () => {
+    v2State.negotiatedProtocolVersion = '2025-11-25';
     const client = await connectMcpSdkClient(options);
 
-    expect(client.sdkVersion).toBe('v1');
-    expect(v2State.clients).toHaveLength(1);
-    expect(v2State.clients[0]!.close).toHaveBeenCalledOnce();
-    expect(v1State.clients).toHaveLength(1);
-    expect(v1State.clients[0]!.connect).toHaveBeenCalledOnce();
+    expect(client.getProtocolVersion()).toBe('2025-11-25');
   });
 
-  it('preserves authentication failures without retrying through v1', async () => {
+  it('does not invent a protocol version when negotiation produced none', async () => {
+    v2State.negotiatedProtocolVersion = undefined;
+    const client = await connectMcpSdkClient(options);
+
+    expect(() => client.getProtocolVersion()).toThrow(
+      'MCP client connected without a negotiated protocol version'
+    );
+  });
+
+  it('preserves authentication failures without a second connection attempt', async () => {
     v2State.connectError = Object.assign(new Error('Unauthorized'), { status: 401 });
 
     await expect(connectMcpSdkClient(options)).rejects.toThrow('Unauthorized');
 
     expect(v2State.clients).toHaveLength(1);
     expect(v2State.clients[0]!.close).toHaveBeenCalledOnce();
-    expect(v1State.clients).toHaveLength(0);
   });
 
-  it('does not start a v1 fallback when its owner was cancelled', async () => {
-    v2State.connectError = Object.assign(new Error('Method not found'), { code: -32601 });
+  it('surfaces protocol negotiation failures without constructing a second SDK client', async () => {
+    v2State.connectError = Object.assign(new Error('Unsupported protocol version'), {
+      code: -32022,
+    });
 
-    await expect(connectMcpSdkClient({ ...options, isCancelled: () => true })).rejects.toThrow(
-      'Connection cancelled'
-    );
+    await expect(connectMcpSdkClient(options)).rejects.toThrow('Unsupported protocol version');
 
     expect(v2State.clients).toHaveLength(1);
     expect(v2State.clients[0]!.close).toHaveBeenCalledOnce();
-    expect(v1State.clients).toHaveLength(0);
   });
 });

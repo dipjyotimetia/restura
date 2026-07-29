@@ -8,9 +8,9 @@ async function showCatalog(page: Parameters<typeof switchMode>[0]): Promise<void
 
 /**
  * Desktop MCP: renderer → IPC → mcp-handler → official
- * @modelcontextprotocol/sdk Client (StreamableHTTPClientTransport, pinned
- * fetch) → the SDK's own McpServer fixture. End-to-end validation of the
- * SDK-backed client migration: real initialize handshake, tools discovery,
+ * @modelcontextprotocol/client (StreamableHTTPClientTransport, pinned fetch)
+ * → the v2 server fixture. End-to-end validation of the client migration:
+ * real initialize handshake, tools discovery,
  * and tool invocation over the live wire.
  */
 test.describe('Desktop MCP (official SDK client)', () => {

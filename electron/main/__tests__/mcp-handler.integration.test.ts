@@ -64,7 +64,9 @@ describe('mcp-handler integration (SDK client ↔ SDK server over real HTTP)', (
     });
     expect(connectRes).toEqual({ success: true });
     expect(mockEmitTo).toHaveBeenCalledWith(1, 'mcp:open:integ-1');
-    // The SDK ran the real initialize handshake during connect.
+    // Auto negotiation probes the modern protocol, then the v2 client falls
+    // back internally to the legacy initialize handshake this fixture serves.
+    expect(server.methodsReceived().slice(0, 2)).toEqual(['server/discover', 'initialize']);
     expect(server.initializeCount()).toBe(1);
 
     // The renderer's discovery flow re-sends `initialize`; the handler must
