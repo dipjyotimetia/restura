@@ -254,7 +254,6 @@ async function emitConsumedMessage(entry: ActiveKafka, msg: AppMessage): Promise
     msg.value == null
       ? { value: '', encoding: 'utf8' as const }
       : await decodeDisplayField(entry.registry, msg.value);
-  const headers = msg.headers ?? new Map<Buffer, Buffer>();
   if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
   let commitToken: string | undefined;
   if (entry.manualCommit) {
@@ -274,8 +273,8 @@ async function emitConsumedMessage(entry: ActiveKafka, msg: AppMessage): Promise
     value: value.value,
     valueEncoding: value.encoding,
     ...(msg.value == null ? { tombstone: true } : {}),
-    headers: headersFromMap(headers),
-    binaryHeaders: Array.from(headers, ([headerKey, headerValue]) => ({
+    headers: headersFromMap(msg.headers),
+    binaryHeaders: Array.from(msg.headers ?? [], ([headerKey, headerValue]) => ({
       key: headerKey.toString('base64'),
       value: headerValue.toString('base64'),
     })),
