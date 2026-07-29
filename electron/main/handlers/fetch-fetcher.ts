@@ -8,8 +8,21 @@ import {
   getManagedCaCertificateBundle,
   getManagedEnterprisePolicy,
 } from '../security/managed-enterprise-policy';
-import { createPolicyPinnedFetch } from '../security/policy-transport';
+import { createPolicyPinnedFetch, type PolicyTransportConfig } from '../security/policy-transport';
 import { createPinnedFetch, resolveSafeAddress } from '../security/safe-connect';
+
+/**
+ * Resolve transport state from the URL supplied by the shared redirect
+ * follower. Managed PAC, bypass, TLS, and DNS pinning decisions are
+ * destination-specific, so a transport selected for the first hop must never
+ * be reused for a later origin.
+ */
+export function makeRouteAwareFetcher(createFetcher: (url: string) => Promise<Fetcher>): Fetcher {
+  return async (request) => {
+    const fetcher = await createFetcher(request.url);
+    return fetcher(request);
+  };
+}
 
 /**
  * Build a Node-`fetch`-backed {@link Fetcher} adapter mapping native `fetch`
@@ -65,24 +78,67 @@ export function makeFetchFetcher(
  */
 export async function makePinnedFetcher(
   url: string,
-  options: { allowLocalhost: boolean }
+  options: {
+    allowLocalhost: boolean;
+    managedTransport?: Omit<PolicyTransportConfig, 'url' | 'proxy'>;
+  }
 ): Promise<Fetcher> {
   const managed = getManagedEnterprisePolicy();
-  const pinned = await resolveSafeAddress(url, { allowLocalhost: options.allowLocalhost });
   if (managed.status.state === 'unmanaged') {
+    const pinned = await resolveSafeAddress(url, { allowLocalhost: options.allowLocalhost });
     return makeFetchFetcher({
       redirect: 'manual',
       fetchImpl: createPinnedFetch(pinned.host, pinned.ip),
     });
   }
-  const proxy = await resolveManagedProxyForUrl(url, session.defaultSession, managed);
-  const transport = applyManagedTransportPolicy(
-    { url, proxy, verifySsl: true },
-    managed,
-    getManagedCaCertificateBundle()
-  );
-  return makeFetchFetcher({
-    redirect: 'manual',
-    fetchImpl: createPolicyPinnedFetch(transport, pinned),
+
+  return makeRouteAwareFetcher(async (destination) => {
+    const pinned = await resolveSafeAddress(destination, {
+      allowLocalhost: options.allowLocalhost,
+    });
+    const proxy = await resolveManagedProxyForUrl(destination, session.defaultSession, managed);
+    const transport = applyManagedTransportPolicy(
+      {
+        ...(options.managedTransport ?? {}),
+        url: destination,
+        proxy,
+        verifySsl: true,
+      },
+      managed,
+      getManagedCaCertificateBundle()
+    );
+    return makeFetchFetcher({
+      redirect: 'manual',
+      fetchImpl: createPolicyPinnedFetch(transport, pinned),
+    });
   });
+}
+
+/**
+ * Fetch implementation for SDKs that own their request lifecycle (MCP). Each
+ * invocation receives a fresh DNS pin and managed route. Redirects remain
+ * manual so an SDK cannot follow a second URL behind this policy boundary.
+ */
+export function makeManagedRouteAwareFetch(
+  baseConfig: Omit<PolicyTransportConfig, 'url' | 'proxy'>,
+  options: { allowLocalhost: boolean }
+): typeof globalThis.fetch {
+  return (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const destination =
+      typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    const managed = getManagedEnterprisePolicy();
+    const pinned = await resolveSafeAddress(destination, {
+      allowLocalhost: options.allowLocalhost,
+    });
+    const proxy = await resolveManagedProxyForUrl(destination, session.defaultSession, managed);
+    const transport = applyManagedTransportPolicy(
+      { ...baseConfig, url: destination, proxy, verifySsl: true },
+      managed,
+      getManagedCaCertificateBundle()
+    );
+    return createPolicyPinnedFetch(transport, pinned)(input, {
+      ...init,
+      redirect: 'manual',
+    });
+  }) as typeof globalThis.fetch;
 }

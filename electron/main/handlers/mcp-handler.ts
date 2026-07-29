@@ -23,6 +23,7 @@ import {
   resolvePolicyTransport,
 } from '../security/policy-transport';
 import { resolveSafeAddress } from '../security/safe-connect';
+import { makeManagedRouteAwareFetch } from './fetch-fetcher';
 import { connectMcpSdkClient, type McpSdkClient } from './mcp-sdk-client';
 
 const log = createLogger('mcp');
@@ -174,10 +175,16 @@ export function registerMcpHandlerIPC(): void {
       // locally). SNI/Host stay on the original hostname.
       let pinnedFetch: typeof globalThis.fetch;
       try {
-        const pinned = await resolveSafeAddress(policyConfig.url, {
-          ...getExecutionPolicy().security,
-        });
-        pinnedFetch = createPolicyPinnedFetch(policyConfig, pinned);
+        if (getManagedEnterprisePolicy().status.state === 'unmanaged') {
+          const pinned = await resolveSafeAddress(policyConfig.url, {
+            ...getExecutionPolicy().security,
+          });
+          pinnedFetch = createPolicyPinnedFetch(policyConfig, pinned);
+        } else {
+          pinnedFetch = makeManagedRouteAwareFetch(policyConfig, {
+            ...getExecutionPolicy().security,
+          });
+        }
       } catch (err) {
         return { success: false, error: errorMessage(err) };
       }

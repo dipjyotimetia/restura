@@ -50,6 +50,7 @@ import {
 import { isProxyBypassed } from '../security/proxy-bypass';
 import { unwrapSecretValueMain } from '../security/secret-handle-store';
 import { buildTlsClientMaterial } from '../security/tls-material';
+import { makeRouteAwareFetcher } from './fetch-fetcher';
 import { resolveHttpEnvironmentProxy, resolveHttpRequestProxy } from './http-proxy-resolution';
 import { interceptorRegistry } from './interceptor-registry';
 
@@ -986,13 +987,18 @@ async function makeHttpRequest(
     );
   }
 
-  const resolvedConfig = await resolveHttpRequestProxy(policyConfig);
+  const managed = getManagedEnterprisePolicy();
+  const resolvedConfig =
+    managed.status.state === 'unmanaged'
+      ? await resolveHttpRequestProxy(policyConfig)
+      : policyConfig;
 
   const interceptedConfig = await interceptorRegistry.runRequest(resolvedConfig);
 
   // Pre-establish SOCKS tunnel (must be async, before invoking the fetcher)
   let socksSocket: net.Socket | null = null;
   if (
+    managed.status.state === 'unmanaged' &&
     interceptedConfig.proxy?.enabled &&
     (interceptedConfig.proxy.type === 'socks4' || interceptedConfig.proxy.type === 'socks5')
   ) {
@@ -1023,7 +1029,33 @@ async function makeHttpRequest(
       ...mainApplied.params,
     };
 
-    const fetcher = buildElectronFetcher(interceptedConfig, socksSocket);
+    const fetcher =
+      managed.status.state === 'unmanaged'
+        ? buildElectronFetcher(interceptedConfig, socksSocket)
+        : makeRouteAwareFetcher(async (destination) => {
+            const routedConfig = await resolveHttpRequestProxy({
+              ...interceptedConfig,
+              url: destination,
+            });
+            let routedSocksSocket: net.Socket | null = null;
+            if (
+              routedConfig.proxy?.enabled &&
+              (routedConfig.proxy.type === 'socks4' || routedConfig.proxy.type === 'socks5')
+            ) {
+              const routedUrl = new URL(destination);
+              const routedPort = parseInt(
+                routedUrl.port || (routedUrl.protocol === 'https:' ? '443' : '80'),
+                10
+              );
+              routedSocksSocket = await openSocksSocket(
+                routedConfig.proxy,
+                routedUrl.hostname,
+                routedPort,
+                routedConfig.signal
+              );
+            }
+            return buildElectronFetcher(routedConfig, routedSocksSocket);
+          });
     const redirectPolicy: {
       followOriginalMethod?: boolean;
       followAuthHeader?: boolean;

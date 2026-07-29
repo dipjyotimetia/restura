@@ -23,7 +23,7 @@ import {
   resolvePolicyTransport,
 } from '../security/policy-transport';
 import { resolveSafeAddress } from '../security/safe-connect';
-import { makeFetchFetcher } from './fetch-fetcher';
+import { makeFetchFetcher, makePinnedFetcher } from './fetch-fetcher';
 import { type ParsedSseEvent, SseParser } from './sse-parser';
 
 const log = createLogger('sse');
@@ -189,9 +189,22 @@ export function registerSseHandlerIPC(): void {
       // Resolve + validate once, then PIN the connection to that IP (closes the
       // DNS-rebind window a pre-flight-only check leaves open). createPinnedFetch
       // keeps SNI + Host header on the original hostname for TLS correctness.
-      let pinned: Awaited<ReturnType<typeof resolveSafeAddress>>;
+      let sseFetcher: ReturnType<typeof makeFetchFetcher>;
       try {
-        pinned = await resolveSafeAddress(policyConfig.url, { ...getExecutionPolicy().security });
+        if (getManagedEnterprisePolicy().status.state === 'unmanaged') {
+          const pinned = await resolveSafeAddress(policyConfig.url, {
+            ...getExecutionPolicy().security,
+          });
+          sseFetcher = makeFetchFetcher({
+            redirect: 'manual',
+            fetchImpl: createPolicyPinnedFetch(policyConfig, pinned),
+          });
+        } else {
+          sseFetcher = await makePinnedFetcher(policyConfig.url, {
+            ...getExecutionPolicy().security,
+            managedTransport: policyConfig,
+          });
+        }
       } catch (err) {
         return {
           success: false,
@@ -236,15 +249,6 @@ export function registerSseHandlerIPC(): void {
         return { success: false, error: 'Not connected' };
       }
       claimedEntry = entry;
-
-      // `redirect: 'manual'` so followRedirects can validate every hop (matches
-      // the Worker proxy's policy — Location pointing at metadata IPs etc. is
-      // rejected before we connect). `fetchImpl` is DNS-pinned to the address we
-      // just validated so the connect can't be rebound out from under us.
-      const sseFetcher = makeFetchFetcher({
-        redirect: 'manual',
-        fetchImpl: createPolicyPinnedFetch(policyConfig, pinned),
-      });
 
       // Same orchestrator as the HTTP handler so SSE inherits the SSRF /
       // header / redirect / auth pipeline. resolveSafeAddress above validated
