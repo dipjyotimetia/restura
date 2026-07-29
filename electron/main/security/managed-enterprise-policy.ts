@@ -197,8 +197,9 @@ function machinePolicyPath(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): s
 function isWindowsFileAdminControlled(filePath: string): boolean {
   const script = [
     '$acl = Get-Acl -LiteralPath $args[0]',
-    "if ($acl.Owner -notmatch '(?i)(^|\\\\)(Administrators|SYSTEM)$') { exit 2 }",
-    "$unsafe = $acl.Access | Where-Object { $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -match '(?i)(^|\\\\)(Users|Authenticated Users|Everyone)$' -and $_.FileSystemRights.ToString() -match 'Write|Modify|FullControl|Create|Delete|TakeOwnership|ChangePermissions' }",
+    '$ownerSid = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value',
+    "if (@('S-1-5-18', 'S-1-5-32-544') -notcontains $ownerSid) { exit 2 }",
+    "$unsafe = $acl.Access | Where-Object { $sid = $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value; $_.AccessControlType -eq 'Allow' -and @('S-1-1-0', 'S-1-5-11', 'S-1-5-32-545') -contains $sid -and $_.FileSystemRights.ToString() -match 'Write|Modify|FullControl|Create|Delete|TakeOwnership|ChangePermissions' }",
     'if ($unsafe) { exit 3 }',
   ].join('; ');
   try {
