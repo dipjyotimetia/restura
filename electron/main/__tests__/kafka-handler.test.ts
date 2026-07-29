@@ -539,6 +539,44 @@ describe('kafka-handler', () => {
     expect(commit).toHaveBeenCalled();
   });
 
+  it('emits consumed messages when the native message omits headers', async () => {
+    const { event } = makeEvent();
+    await handlerFor(IPC.kafka.connect)(event, validConnect('headerless'));
+    await handlerFor(IPC.kafka.subscribe)(event, {
+      connectionId: 'headerless',
+      groupId: 'g',
+      topics: ['orders'],
+      mode: 'committed',
+      fallbackMode: 'latest',
+      commitPolicy: 'auto',
+      isolation: 'read-uncommitted',
+      groupProtocol: 'classic',
+    });
+
+    FakeConsumer.instances[0]!.stream.emit('data', {
+      topic: 'orders',
+      partition: 0,
+      offset: 1n,
+      key: undefined,
+      value: Buffer.from('headerless'),
+      timestamp: 1n,
+      metadata: {},
+      commit: vi.fn(async () => {}),
+    });
+
+    await vi.waitFor(() => {
+      expect(mockEmitTo).toHaveBeenCalledWith(
+        expect.any(Number),
+        'kafka:message:headerless',
+        expect.objectContaining({
+          value: 'headerless',
+          headers: {},
+          binaryHeaders: [],
+        })
+      );
+    });
+  });
+
   it('forwards guarded topic, ACL, quota, and cluster admin operations to the native client', async () => {
     const { event } = makeEvent();
     await handlerFor(IPC.kafka.connect)(event, validConnect('admin'));
