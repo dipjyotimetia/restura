@@ -276,7 +276,7 @@
     "*.{ts,tsx,js,mjs,cjs}": [
       "biome check --write"
     ],
-    "*.{json,css}": [
+    "!(*-lock).{json,css}": [
       "biome format --write"
     ]
   },
