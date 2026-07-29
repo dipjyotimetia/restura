@@ -60,36 +60,7 @@ import { interceptorRegistry } from './interceptor-registry';
 
 const log = createLogger('http');
 
-// =============================================================================
-// Migration map (Plan 4 / Task 9): node:http/https → undici
-// -----------------------------------------------------------------------------
-//   node:http/https request                  → undici.request(url, options)
-//   requestOptions.lookup (DNS rebind guard) → Agent({ connect: { lookup } })
-//   requestOptions.rejectUnauthorized        → Agent({ connect: { rejectUnauthorized } })
-//   requestOptions.{pfx,cert,key,passphrase} → Agent({ connect: { … } })  (mTLS)
-//   requestOptions.ca                        → Agent({ connect: { ca } })
-//   HTTP proxy                               → undici.ProxyAgent
-//   SOCKS proxy (pre-established socket)     → custom Agent({ connect }) factory that
-//                                              hands back the existing socket (with TLS
-//                                              wrapping for HTTPS targets)
-//   AbortSignal forwarding                   → passed through as `signal` to request
-//   Connection timeout                       → Agent({ connect: { timeout } })
-//   Manual req.write + req.end               → body: BodyInit (string | Uint8Array | …)
-//   Buffered chunks via res.on('data')       → response.body.text()
-//   Manual redirects (301/302/etc)           → makeHttpRequest wrapper handles it
-//                                              (maxRedirections: 0 on undici call)
-//   ALPN visibility                          → custom connector wraps default and
-//                                              snapshots socket.alpnProtocol; surfaced
-//                                              via response.negotiatedAlpn for HTTP/2
-//                                              indication in the response viewer.
-// =============================================================================
-
-// 6000/min (~100 rps) rather than a per-click budget: the collection runner and
-// the load tester drive this channel in bursts, and a lower cap turns their
-// results into self-inflicted "Rate limit exceeded" errors (the renderer is a
-// trusted surface — the limiter only backstops runaway loops).
 export const httpRateLimiter = createKeyedRateLimiter(6000, 60_000);
-
 /**
  * Bring the undici fetcher to parity with the `fetch`-based backends (Worker /
  * Node self-host), which auto-decompress responses. `undici.request` does NOT —
@@ -660,10 +631,6 @@ function createSocksDispatcher(
   });
 }
 
-// Build the Electron-side fetcher closure that the shared core invokes after URL validation,
-// header sanitisation, and body building. All Electron-specific transport concerns
-// (undici dispatcher choice, SOCKS tunnel splice, mTLS, CA, connection timer, abort
-// propagation, ALPN capture) live inside this closure.
 // Exported as a test seam so the full form-data/binary/gzip round-trip can be
 // exercised against a local mock upstream without standing up IPC.
 export function buildElectronFetcher(
