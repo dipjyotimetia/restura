@@ -1,14 +1,8 @@
-import { Pause, Play, Plug, PlugZap, Trash2 } from 'lucide-react';
+import { Plug, PlugZap, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { Button } from '@/components/ui/button';
-import {
-  Floater,
-  ConnectionBadge,
-  ProtoChip,
-  Segmented,
-  VariableText,
-} from '@/components/ui/spatial';
+import { Floater, ConnectionBadge, ProtoChip, VariableText } from '@/components/ui/spatial';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { isValidManualOffset } from '@/features/kafka/lib/kafkaConsumerValidation';
 import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
@@ -20,7 +14,7 @@ import {
 import { useKafkaConnection } from '../hooks/useKafkaConnection';
 import { KafkaAdminPanel } from './KafkaAdminPanel';
 import { KafkaConnectionForm } from './KafkaConnectionForm';
-import { KafkaConsumerPanel, CONSUME_MODE_OPTIONS, type ConsumeMode } from './KafkaConsumerPanel';
+import { KafkaConsumerPanel, type ConsumeMode } from './KafkaConsumerPanel';
 import { KafkaMessagesPanel } from './KafkaMessagesPanel';
 import { KafkaProducerPanel, type ProducePayloadMode } from './KafkaProducerPanel';
 import { KAFKA_PINK } from './shared';
@@ -39,7 +33,7 @@ function DesktopOnlyPanel() {
   );
 }
 
-function KafkaClient() {
+export function KafkaClient() {
   const kafkaConnection = useKafkaConnection();
   const {
     isDesktop,
@@ -212,6 +206,14 @@ function KafkaClient() {
     consumeMode === 'from-offset' && !isValidManualOffset(offsetPartition, offsetValue);
   const timestampInvalid =
     consumeMode === 'from-timestamp' && Number.isNaN(new Date(timestampDraft).getTime());
+  const connectionBadge =
+    connection?.status === 'connected'
+      ? { label: 'Connected', tone: 'success' as const }
+      : connection?.status === 'connecting'
+        ? { label: 'Connecting', tone: 'warning' as const }
+        : connection?.status === 'error'
+          ? { label: 'Connection error', tone: 'danger' as const }
+          : { label: 'Disconnected', tone: 'neutral' as const };
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden gap-2.5 p-3 bg-transparent">
@@ -236,40 +238,9 @@ function KafkaClient() {
           </>
         )}
         <div className="ml-auto flex items-center gap-2">
-          <Segmented<ConsumeMode>
-            options={CONSUME_MODE_OPTIONS}
-            value={consumeMode}
-            onChange={handleConsumeModeChange}
-            size="sm"
-            ariaLabel="Consume mode"
-          />
-          {connection?.consumer.status === 'subscribed' ? (
-            <ConnectionBadge label="Subscribed" tone="success" />
-          ) : connection?.consumer.status === 'subscribing' ? (
-            <ConnectionBadge label="Subscribing" tone="warning" />
-          ) : connection?.consumer.status === 'error' ? (
-            <ConnectionBadge label="Error" tone="danger" />
-          ) : (
-            <ConnectionBadge label="Idle" tone="neutral" />
+          {connection && (
+            <ConnectionBadge label={connectionBadge.label} tone={connectionBadge.tone} />
           )}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setPaused((current) => !current)}
-            className="h-7 px-2.5 text-xs font-mono rounded-sp-btn"
-            disabled={!connection}
-            title={paused ? 'Unfreeze message view' : 'Freeze message view'}
-          >
-            {paused ? (
-              <>
-                <Play className="h-3 w-3 mr-1.5" /> Unfreeze
-              </>
-            ) : (
-              <>
-                <Pause className="h-3 w-3 mr-1.5" /> Freeze view
-              </>
-            )}
-          </Button>
           {connection && (
             <Button
               size="sm"
@@ -323,7 +294,7 @@ function KafkaClient() {
             <TabsTrigger value="admin">Admin</TabsTrigger>
             <TabsTrigger value="connection">Connection</TabsTrigger>
           </TabsList>
-          <KafkaMessagesPanel key={connection.id} connection={connection} paused={paused} />
+          <KafkaMessagesPanel connection={connection} paused={paused} />
           <KafkaConnectionForm connection={connection} controller={kafkaConnection} />
           <KafkaProducerPanel
             connection={connection}
@@ -384,7 +355,7 @@ function KafkaClient() {
             }}
             consumerPaused={consumerPaused}
           />
-          <KafkaAdminPanel key={connection.id} connection={connection} />
+          <KafkaAdminPanel connection={connection} />
         </Tabs>
       )}
     </div>
