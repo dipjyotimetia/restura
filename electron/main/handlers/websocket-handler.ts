@@ -178,7 +178,7 @@ export function registerWebSocketHandlerIPC(): void {
         const proxyAgent =
           policyConfig.proxy?.enabled &&
           (policyConfig.proxy.type === 'http' || policyConfig.proxy.type === 'https')
-            ? createEnterpriseProxyAgent(policyConfig.proxy, policyConfig)
+            ? await createEnterpriseProxyAgent(policyConfig.proxy, policyConfig)
             : undefined;
 
         const ws = new WebSocket(config.url, config.protocols ?? [], {

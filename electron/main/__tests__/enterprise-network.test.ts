@@ -4,6 +4,7 @@ import {
   configureManagedDesktopSessions,
   createEnterpriseProxyAgent,
   createManagedCertificateVerifyProc,
+  enterpriseProxyAuthorization,
   managedProxyChallengeResponse,
   resolveManagedProxyForUrl,
 } from '../security/enterprise-network';
@@ -73,15 +74,26 @@ describe('enterprise network service', () => {
       resolveProxy: vi.fn(),
       setSSLConfig: vi.fn(),
       setCertificateVerifyProc: vi.fn(),
+      allowNTLMCredentialsForDomains: vi.fn(),
     };
     const updater = {
       setProxy: vi.fn(),
       resolveProxy: vi.fn(),
       setSSLConfig: vi.fn(),
       setCertificateVerifyProc: vi.fn(),
+      allowNTLMCredentialsForDomains: vi.fn(),
     };
 
-    await configureManagedDesktopSessions({ application, updater }, managed(), MANAGED_CA);
+    await configureManagedDesktopSessions(
+      { application, updater },
+      managed({
+        proxyAuthentication: {
+          basic: [],
+          integratedDomains: ['*.corp.example'],
+        },
+      }),
+      MANAGED_CA
+    );
 
     const expected = {
       mode: 'fixed_servers',
@@ -91,6 +103,8 @@ describe('enterprise network service', () => {
     expect(updater.setProxy).toHaveBeenCalledWith(expected);
     expect(application.setSSLConfig).toHaveBeenCalledWith({ minVersion: 'tls1.2' });
     expect(updater.setSSLConfig).toHaveBeenCalledWith({ minVersion: 'tls1.2' });
+    expect(application.allowNTLMCredentialsForDomains).toHaveBeenCalledWith('*corp.example');
+    expect(updater.allowNTLMCredentialsForDomains).toHaveBeenCalledWith('*corp.example');
     expect(application.setCertificateVerifyProc).toHaveBeenCalledWith(expect.any(Function));
     expect(updater.setCertificateVerifyProc).toHaveBeenCalledWith(expect.any(Function));
     expect(application.setCertificateVerifyProc.mock.invocationCallOrder[0]).toBeLessThan(
@@ -117,8 +131,16 @@ describe('enterprise network service', () => {
 
   it('resolves fixed Basic credentials only from named environment variables', async () => {
     const policy = managed({
-      usernameEnv: 'RESTURA_PROXY_USERNAME',
-      passwordEnv: 'RESTURA_PROXY_PASSWORD',
+      proxyAuthentication: {
+        basic: [
+          {
+            proxyUrl: 'http://proxy.corp.example:8080',
+            usernameEnv: 'RESTURA_PROXY_USERNAME',
+            passwordEnv: 'RESTURA_PROXY_PASSWORD',
+          },
+        ],
+        integratedDomains: [],
+      },
     });
 
     await expect(
@@ -173,13 +195,63 @@ describe('enterprise network service', () => {
     expect(resolved.caCert?.pem).toMatch(/MANAGED-CA\nREQUEST-CA$/);
   });
 
-  it('enforces the managed TLS floor on the HTTPS proxy connection', () => {
-    const agent = createEnterpriseProxyAgent(
+  it('enforces the managed TLS floor on the HTTPS proxy connection', async () => {
+    const agent = (await createEnterpriseProxyAgent(
       { type: 'https', host: 'proxy.corp.example', port: 8443 },
       { verifySsl: true, minTlsVersion: 'TLSv1.3' }
-    ) as unknown as { connectOpts: { minVersion?: string } };
+    )) as unknown as { connectOpts: { minVersion?: string } };
 
     expect(agent.connectOpts.minVersion).toBe('TLSv1.3');
+  });
+
+  it('builds origin-selected Basic proxy authorization without invoking Kerberos', async () => {
+    const initializeClient = vi.fn();
+
+    await expect(
+      enterpriseProxyAuthorization(
+        {
+          type: 'http',
+          host: 'proxy.corp.example',
+          port: 8080,
+          auth: { username: 'managed-user', password: 'managed-password' },
+        },
+        initializeClient
+      )
+    ).resolves.toBe(`Basic ${Buffer.from('managed-user:managed-password').toString('base64')}`);
+    expect(initializeClient).not.toHaveBeenCalled();
+  });
+
+  it('uses the OS credential cache only for an integrated-auth allowlisted proxy', async () => {
+    const step = vi.fn().mockResolvedValue('spnego-token');
+    const initializeClient = vi.fn().mockResolvedValue({ step });
+
+    await expect(
+      enterpriseProxyAuthorization(
+        {
+          type: 'https',
+          host: 'proxy.corp.example',
+          port: 8443,
+          integratedAuth: true,
+        },
+        initializeClient
+      )
+    ).resolves.toBe('Negotiate spnego-token');
+    expect(initializeClient).toHaveBeenCalledWith(
+      process.platform === 'win32' ? 'HTTP/proxy.corp.example' : 'HTTP@proxy.corp.example'
+    );
+    expect(step).toHaveBeenCalledWith('');
+  });
+
+  it('does not access the OS credential cache for an unmarked proxy', async () => {
+    const initializeClient = vi.fn();
+
+    await expect(
+      enterpriseProxyAuthorization(
+        { type: 'http', host: 'public-proxy.example', port: 8080 },
+        initializeClient
+      )
+    ).resolves.toBeUndefined();
+    expect(initializeClient).not.toHaveBeenCalled();
   });
 
   it('trusts a configured CA only for unknown-authority errors and matching hosts', () => {
@@ -224,8 +296,16 @@ describe('enterprise network service', () => {
 
   it('answers Basic proxy challenges and rejects integrated authentication', () => {
     const policy = managed({
-      usernameEnv: 'RESTURA_PROXY_USERNAME',
-      passwordEnv: 'RESTURA_PROXY_PASSWORD',
+      proxyAuthentication: {
+        basic: [
+          {
+            proxyUrl: 'http://proxy.corp.example:8080',
+            usernameEnv: 'RESTURA_PROXY_USERNAME',
+            passwordEnv: 'RESTURA_PROXY_PASSWORD',
+          },
+        ],
+        integratedDomains: ['*.corp.example'],
+      },
     });
     const env = {
       RESTURA_PROXY_USERNAME: 'proxy-user',
@@ -249,6 +329,6 @@ describe('enterprise network service', () => {
         policy,
         env
       )
-    ).toEqual({ kind: 'unsupported', scheme: 'ntlm' });
+    ).toEqual({ kind: 'integrated', scheme: 'ntlm' });
   });
 });

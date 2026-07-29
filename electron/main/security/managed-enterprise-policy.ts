@@ -45,6 +45,58 @@ const AbsoluteFilePathSchema = z
     'Absolute file path required'
   );
 
+const IntegratedDomainSchema = z
+  .string()
+  .min(1)
+  .max(253)
+  .transform((value) => value.toLowerCase())
+  .refine((value) => {
+    const hostname = value.startsWith('*.') ? value.slice(2) : value;
+    if (!hostname || hostname.includes('://') || hostname.includes(':')) return false;
+    return hostname
+      .split('.')
+      .every(
+        (label) =>
+          label.length > 0 && label.length <= 63 && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label)
+      );
+  }, 'DNS hostname or leading wildcard required');
+
+const ProxyAuthenticationSchema = z
+  .object({
+    basic: z
+      .array(
+        z
+          .object({
+            proxyUrl: ProxyUrlSchema,
+            usernameEnv: z.string().regex(ENV_NAME),
+            passwordEnv: z.string().regex(ENV_NAME),
+          })
+          .strict()
+      )
+      .max(20),
+    integratedDomains: z.array(IntegratedDomainSchema).max(100),
+  })
+  .strict()
+  .superRefine((authentication, ctx) => {
+    const origins = authentication.basic.map((entry) => new URL(entry.proxyUrl).origin);
+    if (new Set(origins).size !== origins.length) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['basic'],
+        message: 'Basic proxy credential mappings must use unique proxy origins',
+      });
+    }
+    if (
+      new Set(authentication.integratedDomains).size !== authentication.integratedDomains.length
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['integratedDomains'],
+        message: 'Integrated authentication domains must be unique',
+      });
+    }
+  });
+
 const ManagedNetworkPolicySchema = z
   .object({
     mode: z.enum(['system', 'fixed', 'pac', 'direct']),
@@ -52,8 +104,7 @@ const ManagedNetworkPolicySchema = z
     proxyUrl: ProxyUrlSchema.optional(),
     pacUrl: HttpsUrlSchema.optional(),
     bypassList: z.array(z.string().min(1).max(253)).max(100),
-    usernameEnv: z.string().regex(ENV_NAME).optional(),
-    passwordEnv: z.string().regex(ENV_NAME).optional(),
+    proxyAuthentication: ProxyAuthenticationSchema.optional(),
     caCertificatePaths: z.array(AbsoluteFilePathSchema).max(20),
     requireCertificateVerification: z.literal(true),
     minimumTlsVersion: z.enum(['TLSv1.2', 'TLSv1.3']),
@@ -72,20 +123,6 @@ const ManagedNetworkPolicySchema = z
         code: 'custom',
         path: ['requireProxy'],
         message: 'Direct mode cannot require a proxy',
-      });
-    }
-    if ((network.usernameEnv === undefined) !== (network.passwordEnv === undefined)) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['usernameEnv'],
-        message: 'Proxy username and password environment references must be configured together',
-      });
-    }
-    if (network.usernameEnv && network.mode !== 'fixed') {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['usernameEnv'],
-        message: 'Proxy credential environment references require fixed proxy mode',
       });
     }
   });

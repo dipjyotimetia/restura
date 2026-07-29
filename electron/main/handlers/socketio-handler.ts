@@ -67,7 +67,7 @@ interface ActiveSocketIO {
   explicitlyClosed: boolean;
   pendingAcks: Map<string, NodeJS.Timeout>;
   /** Pinned-DNS agent backing every transport for this connection; destroyed on teardown. */
-  agent: HttpAgent | HttpsAgent | ReturnType<typeof createEnterpriseProxyAgent>;
+  agent: HttpAgent | HttpsAgent | Awaited<ReturnType<typeof createEnterpriseProxyAgent>>;
 }
 
 /** Tear down a connection's transport + timers + pinned agent. */
@@ -228,7 +228,7 @@ export function registerSocketIoHandlerIPC(): void {
         const agent =
           policyConfig.proxy?.enabled &&
           (policyConfig.proxy.type === 'http' || policyConfig.proxy.type === 'https')
-            ? createEnterpriseProxyAgent(policyConfig.proxy, policyConfig)
+            ? await createEnterpriseProxyAgent(policyConfig.proxy, policyConfig)
             : secure
               ? new HttpsAgent({ lookup, ...tlsMaterial })
               : new HttpAgent({ lookup });

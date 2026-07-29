@@ -17,6 +17,7 @@ export interface EnterpriseSessionProxy {
   }): Promise<void>;
   resolveProxy(url: string): Promise<string>;
   setSSLConfig?(config: { minVersion: 'tls1.2' | 'tls1.3' }): void;
+  allowNTLMCredentialsForDomains?(domains: string): void;
   setCertificateVerifyProc?(
     proc:
       | ((
@@ -44,7 +45,14 @@ export interface ResolvedEnterpriseProxy {
   host: string;
   port: number;
   auth?: { username: string; password: string };
+  integratedAuth?: true;
 }
+
+interface KerberosClient {
+  step(challenge: string): Promise<string>;
+}
+
+type InitializeKerberosClient = (servicePrincipal: string) => Promise<KerberosClient>;
 
 export interface ManagedTransportPolicy {
   verifySsl?: boolean;
@@ -95,8 +103,16 @@ export async function configureManagedDesktopSessions(
   managedCaBundle?: string
 ): Promise<void> {
   const verifier = managedCaBundle ? createManagedCertificateVerifyProc(managedCaBundle) : null;
+  const integratedDomains =
+    result.status.state === 'managed'
+      ? (result.policy?.network.proxyAuthentication?.integratedDomains ?? [])
+          .map((domain) => (domain.startsWith('*.') ? `*${domain.slice(2)}` : domain))
+          .join(',')
+      : '';
+  sessions.application.allowNTLMCredentialsForDomains?.(integratedDomains);
   sessions.application.setCertificateVerifyProc?.(verifier);
   if (sessions.updater !== sessions.application) {
+    sessions.updater.allowNTLMCredentialsForDomains?.(integratedDomains);
     sessions.updater.setCertificateVerifyProc?.(verifier);
   }
   await applyManagedSessionProxy(sessions.application, result);
@@ -171,18 +187,38 @@ export function createManagedCertificateVerifyProc(managedCaBundle: string) {
   };
 }
 
-function proxyAuth(
+function matchesIntegratedDomain(hostname: string, pattern: string): boolean {
+  const host = hostname.toLowerCase();
+  const normalized = pattern.toLowerCase();
+  if (!normalized.startsWith('*.')) return host === normalized;
+  const suffix = normalized.slice(1);
+  return host.endsWith(suffix) && host.length > suffix.length;
+}
+
+function proxyAuthentication(
+  proxy: Pick<ResolvedEnterpriseProxy, 'type' | 'host' | 'port'>,
   result: ManagedPolicyLoadResult,
   env: NodeJS.ProcessEnv
-): ResolvedEnterpriseProxy['auth'] {
-  const network = result.policy?.network;
-  if (!network?.usernameEnv || !network.passwordEnv) return undefined;
-  const username = env[network.usernameEnv];
-  const password = env[network.passwordEnv];
-  if (username === undefined || password === undefined) {
-    throw new Error('Managed proxy credential environment variables are not available');
+): Pick<ResolvedEnterpriseProxy, 'auth' | 'integratedAuth'> {
+  const authentication = result.policy?.network.proxyAuthentication;
+  if (!authentication || (proxy.type !== 'http' && proxy.type !== 'https')) return {};
+
+  const origin = new URL(proxyServerUrl(proxy)).origin;
+  const basic = authentication.basic.find((entry) => new URL(entry.proxyUrl).origin === origin);
+  if (basic) {
+    const username = env[basic.usernameEnv];
+    const password = env[basic.passwordEnv];
+    if (username === undefined || password === undefined) {
+      throw new Error('Managed proxy credential environment variables are not available');
+    }
+    return { auth: { username, password } };
   }
-  return { username, password };
+  if (
+    authentication.integratedDomains.some((domain) => matchesIntegratedDomain(proxy.host, domain))
+  ) {
+    return { integratedAuth: true };
+  }
+  return {};
 }
 
 function parseProxyAddress(value: string): { host: string; port?: number } {
@@ -197,10 +233,7 @@ function parseProxyAddress(value: string): { host: string; port?: number } {
   return { host: value.slice(0, colon), port };
 }
 
-function parseResolvedProxy(
-  resolution: string,
-  auth: ResolvedEnterpriseProxy['auth']
-): ResolvedEnterpriseProxy | undefined {
+function parseResolvedProxy(resolution: string): ResolvedEnterpriseProxy | undefined {
   for (const candidate of resolution.split(';').map((entry) => entry.trim())) {
     if (!candidate) continue;
     if (candidate === 'DIRECT') return undefined;
@@ -221,7 +254,6 @@ function parseResolvedProxy(
       type,
       host: address.host,
       port: address.port ?? (type === 'https' ? 443 : type === 'http' ? 8080 : 1080),
-      ...(auth ? { auth } : {}),
     };
   }
   throw new Error('Unsupported enterprise proxy directive');
@@ -242,7 +274,6 @@ export async function resolveManagedProxyForUrl(
     return undefined;
   }
 
-  const auth = proxyAuth(result, env);
   let proxy: ResolvedEnterpriseProxy | undefined;
   if (network.mode === 'fixed') {
     const configured = new URL(network.proxyUrl!);
@@ -251,16 +282,15 @@ export async function resolveManagedProxyForUrl(
       type: configured.protocol === 'https:' ? 'https' : 'http',
       host: configured.hostname,
       port: configured.port ? Number(configured.port) : configured.protocol === 'https:' ? 443 : 80,
-      ...(auth ? { auth } : {}),
     };
   } else {
-    proxy = parseResolvedProxy(await electronSession.resolveProxy(target), auth);
+    proxy = parseResolvedProxy(await electronSession.resolveProxy(target));
   }
 
   if (!proxy && network.requireProxy) {
     throw new Error('Managed enterprise policy requires a proxy for this destination');
   }
-  return proxy;
+  return proxy ? { ...proxy, ...proxyAuthentication(proxy, result, env) } : undefined;
 }
 
 const TLS_VERSION_ORDER = ['TLSv1', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3'] as const;
@@ -294,6 +324,7 @@ export function applyManagedTransportPolicy<T extends ManagedTransportPolicy>(
 export type ProxyChallengeResponse =
   | { kind: 'ignore' }
   | { kind: 'unsupported'; scheme: string }
+  | { kind: 'integrated'; scheme: 'ntlm' | 'negotiate' }
   | { kind: 'credentials'; username: string; password: string };
 
 export function managedProxyChallengeResponse(
@@ -304,43 +335,103 @@ export function managedProxyChallengeResponse(
   if (result.status.state !== 'managed' || !result.policy || !challenge.isProxy) {
     return { kind: 'ignore' };
   }
-  const auth = proxyAuth(result, env);
-  if (!auth) return { kind: 'ignore' };
-  if (challenge.scheme.toLowerCase() !== 'basic') {
-    return { kind: 'unsupported', scheme: challenge.scheme.toLowerCase() };
+  const authentication = result.policy.network.proxyAuthentication;
+  if (!authentication) return { kind: 'ignore' };
+  const scheme = challenge.scheme.toLowerCase();
+  if (scheme === 'ntlm' || scheme === 'negotiate') {
+    return authentication.integratedDomains.some((domain) =>
+      matchesIntegratedDomain(challenge.host, domain)
+    )
+      ? { kind: 'integrated', scheme }
+      : { kind: 'ignore' };
   }
-  if (result.policy.network.mode === 'fixed') {
-    const configured = new URL(result.policy.network.proxyUrl!);
-    const configuredPort = Number(configured.port || (configured.protocol === 'https:' ? 443 : 80));
-    if (configured.hostname !== challenge.host || configuredPort !== challenge.port) {
-      return { kind: 'ignore' };
+  if (scheme === 'basic') {
+    const basic = authentication.basic.find((entry) => {
+      const configured = new URL(entry.proxyUrl);
+      const configuredPort = Number(
+        configured.port || (configured.protocol === 'https:' ? 443 : 80)
+      );
+      return configured.hostname === challenge.host && configuredPort === challenge.port;
+    });
+    if (!basic) return { kind: 'ignore' };
+    const username = env[basic.usernameEnv];
+    const password = env[basic.passwordEnv];
+    if (username === undefined || password === undefined) {
+      throw new Error('Managed proxy credential environment variables are not available');
     }
+    return { kind: 'credentials', username, password };
   }
-  return { kind: 'credentials', ...auth };
+  return { kind: 'unsupported', scheme };
 }
 
-export function createEnterpriseProxyAgent(
+async function initializeSystemKerberosClient(servicePrincipal: string): Promise<KerberosClient> {
+  const kerberosModule = await import('kerberos');
+  return kerberosModule.initializeClient(servicePrincipal);
+}
+
+/**
+ * Resolve the proxy authorization header at the last possible moment.
+ *
+ * Basic credentials remain origin-bound by policy. Integrated authentication
+ * uses the OS credential cache through GSSAPI/SSPI and is only attempted for a
+ * proxy that the managed policy explicitly marked with `integratedAuth`.
+ */
+export async function enterpriseProxyAuthorization(
+  proxy: {
+    type: 'none' | 'http' | 'https' | 'pac' | 'socks4' | 'socks5';
+    host: string;
+    port: number;
+    auth?: { username: string; password: unknown };
+    integratedAuth?: true;
+  },
+  initializeClient: InitializeKerberosClient = initializeSystemKerberosClient
+): Promise<string | undefined> {
+  if (proxy.auth) {
+    const password = unwrapSecretValueMain(proxy.auth.password) ?? '';
+    return `Basic ${Buffer.from(`${proxy.auth.username}:${password}`).toString('base64')}`;
+  }
+  if (!proxy.integratedAuth) return undefined;
+  if (proxy.type !== 'http' && proxy.type !== 'https') {
+    throw new Error(`Integrated authentication is unsupported for ${proxy.type} proxies`);
+  }
+
+  const servicePrincipal =
+    process.platform === 'win32' ? `HTTP/${proxy.host}` : `HTTP@${proxy.host}`;
+  try {
+    const client = await initializeClient(servicePrincipal);
+    const token = await client.step('');
+    if (!token) throw new Error('The operating system returned an empty authentication token');
+    return `Negotiate ${token}`;
+  } catch (error) {
+    throw new Error(
+      `Managed integrated proxy authentication failed for ${proxy.host}: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+}
+
+export async function createEnterpriseProxyAgent(
   proxy: {
     type: 'none' | 'http' | 'https' | 'socks4' | 'socks5';
     host: string;
     port: number;
     auth?: { username: string; password: unknown };
+    integratedAuth?: true;
   },
   tls: {
     verifySsl?: boolean;
     caCert?: { pem: string };
     minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
   }
-): HttpsProxyAgent<string> {
+): Promise<HttpsProxyAgent<string>> {
   if (proxy.type !== 'http' && proxy.type !== 'https') {
     throw new Error(`Managed ${proxy.type.toUpperCase()} proxy is unsupported for this protocol`);
   }
   const proxyUrl = new URL(proxyServerUrl(proxy));
-  if (proxy.auth) {
-    proxyUrl.username = proxy.auth.username;
-    proxyUrl.password = unwrapSecretValueMain(proxy.auth.password) ?? '';
-  }
+  const authorization = await enterpriseProxyAuthorization(proxy);
   return new HttpsProxyAgent(proxyUrl, {
+    ...(authorization ? { headers: { 'Proxy-Authorization': authorization } } : {}),
     rejectUnauthorized: tls.verifySsl,
     ...(tls.caCert?.pem ? { ca: tls.caCert.pem } : {}),
     ...(tls.minTlsVersion ? { minVersion: tls.minTlsVersion } : {}),

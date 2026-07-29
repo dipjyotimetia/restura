@@ -84,18 +84,19 @@ export function createGrpcProxyTunnel(url: string, tls: GrpcTlsConfig): Duplex {
   request.once('proxyConnect', (response: { statusCode: number }) => {
     proxyStatus = response.statusCode;
   });
-  const agent = createEnterpriseProxyAgent(proxy, tls);
-  void agent
-    .connect(request as never, {
-      host: parsed.hostname,
-      port,
-      secureEndpoint,
-      servername: parsed.hostname,
-      rejectUnauthorized: tls.verifySsl !== false,
-      ...(tls.minTlsVersion ? { minVersion: tls.minTlsVersion } : {}),
-      ALPNProtocols: ['h2'],
-      ...buildTlsClientMaterial(tls),
-    })
+  void createEnterpriseProxyAgent(proxy, tls)
+    .then((agent) =>
+      agent.connect(request as never, {
+        host: parsed.hostname,
+        port,
+        secureEndpoint,
+        servername: parsed.hostname,
+        rejectUnauthorized: tls.verifySsl !== false,
+        ...(tls.minTlsVersion ? { minVersion: tls.minTlsVersion } : {}),
+        ALPNProtocols: ['h2'],
+        ...buildTlsClientMaterial(tls),
+      })
+    )
     .then((socket) => {
       if (proxyStatus !== 200) {
         socket.destroy();

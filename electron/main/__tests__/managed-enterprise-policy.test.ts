@@ -17,8 +17,16 @@ const validPolicy = JSON.stringify({
     requireProxy: true,
     proxyUrl: 'http://proxy.corp.example:8080',
     bypassList: ['localhost'],
-    usernameEnv: 'RESTURA_PROXY_USERNAME',
-    passwordEnv: 'RESTURA_PROXY_PASSWORD',
+    proxyAuthentication: {
+      basic: [
+        {
+          proxyUrl: 'http://proxy.corp.example:8080',
+          usernameEnv: 'RESTURA_PROXY_USERNAME',
+          passwordEnv: 'RESTURA_PROXY_PASSWORD',
+        },
+      ],
+      integratedDomains: [],
+    },
     caCertificatePaths: ['/etc/restura/corporate-ca.pem'],
     requireCertificateVerification: true,
     minimumTlsVersion: 'TLSv1.2',
@@ -80,6 +88,26 @@ describe('managed enterprise connectivity policy', () => {
       loadManagedEnterprisePolicy(options({ readNativePolicy: () => JSON.stringify(relative) }))
         .status
     ).toMatchObject({ state: 'invalid', source: 'native' });
+  });
+
+  it('accepts origin-bound Basic credentials and integrated-auth domain allowlists', () => {
+    const authenticated = JSON.parse(validPolicy);
+    authenticated.network.proxyAuthentication = {
+      basic: [
+        {
+          proxyUrl: 'http://proxy.corp.example:8080',
+          usernameEnv: 'RESTURA_PROXY_USERNAME',
+          passwordEnv: 'RESTURA_PROXY_PASSWORD',
+        },
+      ],
+      integratedDomains: ['proxy.corp.example', '*.regional.corp.example'],
+    };
+
+    expect(
+      loadManagedEnterprisePolicy(
+        options({ readNativePolicy: () => JSON.stringify(authenticated) })
+      ).status
+    ).toMatchObject({ state: 'managed', source: 'native' });
   });
 
   it('uses native policy before a selected file and never falls back after invalid input', () => {

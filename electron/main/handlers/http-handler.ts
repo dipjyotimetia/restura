@@ -37,7 +37,11 @@ import {
 import type { LogEntry } from '../lifecycle/request-logger';
 import { applyNonSignAtWireAuth } from '../security/auth-applier';
 import { smithySigV4Signer } from '../security/aws-sigv4-smithy';
-import { applyManagedTransportPolicy, proxyServerUrl } from '../security/enterprise-network';
+import {
+  applyManagedTransportPolicy,
+  enterpriseProxyAuthorization,
+  proxyServerUrl,
+} from '../security/enterprise-network';
 import {
   assertExecutionPolicyReady,
   type ExecutionPolicy,
@@ -722,13 +726,8 @@ export function buildElectronFetcher(
             ...(electronConfig.minTlsVersion ? { minVersion: electronConfig.minTlsVersion } : {}),
           },
         };
-        const proxyPassword = unwrapSecretValueMain(electronConfig.proxy.auth?.password);
-        if (electronConfig.proxy.auth?.username && proxyPassword) {
-          const auth = Buffer.from(
-            `${electronConfig.proxy.auth.username}:${proxyPassword}`
-          ).toString('base64');
-          proxyOpts.token = `Basic ${auth}`;
-        }
+        const authorization = await enterpriseProxyAuthorization(electronConfig.proxy);
+        if (authorization) proxyOpts.token = authorization;
         dispatcher = new ProxyAgent(proxyOpts);
         // ProxyAgent builds the upstream connector internally from `requestTls`,
         // so we can't wrap it directly. Instead we subscribe to undici's

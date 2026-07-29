@@ -104,7 +104,7 @@ app.on('login', (event, _webContents, _details, authInfo, callback) => {
     event.preventDefault();
     log.error('managed proxy authentication scheme is unsupported', {
       scheme: response.scheme,
-      supported: 'basic',
+      supported: 'basic, negotiate, ntlm',
     });
     callback();
   }

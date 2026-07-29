@@ -1,6 +1,10 @@
 import { selectCertForUrl } from '@shared/protocol/cert-matcher';
 import { ProxyAgent, type RequestInit as UndiciRequestInit, fetch as undiciFetch } from 'undici';
-import { applyManagedTransportPolicy, proxyServerUrl } from './enterprise-network';
+import {
+  applyManagedTransportPolicy,
+  enterpriseProxyAuthorization,
+  proxyServerUrl,
+} from './enterprise-network';
 import { assertExecutionPolicyReady, getExecutionPolicy } from './execution-policy';
 import {
   getManagedCaCertificateBundle,
@@ -8,7 +12,6 @@ import {
 } from './managed-enterprise-policy';
 import { isProxyBypassed } from './proxy-bypass';
 import { createPinnedFetch, type SafeAddress } from './safe-connect';
-import { unwrapSecretValueMain } from './secret-handle-store';
 import { buildTlsClientMaterial } from './tls-material';
 
 export interface PolicyTransportProxy {
@@ -17,6 +20,7 @@ export interface PolicyTransportProxy {
   host: string;
   port: number;
   auth?: { username: string; password: unknown };
+  integratedAuth?: true;
 }
 
 export interface PolicyTransportConfig {
@@ -96,40 +100,37 @@ export function createPolicyPinnedFetch(
 ): typeof globalThis.fetch {
   assertPinnedFetchCanHonorPolicy(config);
   if (config.proxy?.enabled && ['http', 'https'].includes(config.proxy.type)) {
-    const proxyOptions: ProxyAgent.Options = {
-      uri: proxyServerUrl({
-        type: config.proxy.type,
-        host: config.proxy.host,
-        port: config.proxy.port,
-      }),
-      requestTls: {
-        rejectUnauthorized: config.verifySsl,
-        ...buildTlsClientMaterial(config),
-        ...(config.serverCipherOrder ? { honorCipherOrder: true } : {}),
-        ...(config.minTlsVersion ? { minVersion: config.minTlsVersion } : {}),
-        ...(config.cipherSuites ? { ciphers: config.cipherSuites } : {}),
-      },
-      proxyTls: {
-        rejectUnauthorized: config.verifySsl,
-        ...(config.caCert?.pem ? { ca: config.caCert.pem } : {}),
-        ...(config.minTlsVersion ? { minVersion: config.minTlsVersion } : {}),
-      },
-    };
-    const password = unwrapSecretValueMain(config.proxy.auth?.password);
-    if (config.proxy.auth?.username && password) {
-      proxyOptions.token = `Basic ${Buffer.from(
-        `${config.proxy.auth.username}:${password}`
-      ).toString('base64')}`;
-    }
-    const dispatcher = new ProxyAgent(proxyOptions);
-    return ((input: RequestInfo | URL, init?: RequestInit) =>
-      undiciFetch(
+    return (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const proxyOptions: ProxyAgent.Options = {
+        uri: proxyServerUrl({
+          type: config.proxy!.type,
+          host: config.proxy!.host,
+          port: config.proxy!.port,
+        }),
+        requestTls: {
+          rejectUnauthorized: config.verifySsl,
+          ...buildTlsClientMaterial(config),
+          ...(config.serverCipherOrder ? { honorCipherOrder: true } : {}),
+          ...(config.minTlsVersion ? { minVersion: config.minTlsVersion } : {}),
+          ...(config.cipherSuites ? { ciphers: config.cipherSuites } : {}),
+        },
+        proxyTls: {
+          rejectUnauthorized: config.verifySsl,
+          ...(config.caCert?.pem ? { ca: config.caCert.pem } : {}),
+          ...(config.minTlsVersion ? { minVersion: config.minTlsVersion } : {}),
+        },
+      };
+      const authorization = await enterpriseProxyAuthorization(config.proxy!);
+      if (authorization) proxyOptions.token = authorization;
+      const dispatcher = new ProxyAgent(proxyOptions);
+      return (await undiciFetch(
         input as Parameters<typeof undiciFetch>[0],
         {
           ...(init as UndiciRequestInit | undefined),
           dispatcher,
         } as UndiciRequestInit
-      ) as unknown as Promise<Response>) as typeof globalThis.fetch;
+      )) as unknown as Response;
+    }) as typeof globalThis.fetch;
   }
   return createPinnedFetch(pinned.host, pinned.ip, {
     rejectUnauthorized: config.verifySsl,

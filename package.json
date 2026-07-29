@@ -168,6 +168,7 @@
     "js-yaml": "^5.2.2",
     "jsonc-parser": "3.3.1",
     "jsonpath-plus": "^10.4.0",
+    "kerberos": "7.0.0",
     "lucide-react": "^1.27.0",
     "monaco-editor": "^0.56.0",
     "mqtt": "^5.15.2",

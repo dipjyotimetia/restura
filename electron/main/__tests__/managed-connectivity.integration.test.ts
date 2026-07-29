@@ -13,8 +13,6 @@ const policyJson = JSON.stringify({
     requireProxy: true,
     pacUrl: 'https://config.corp.example/restura.pac',
     bypassList: [],
-    usernameEnv: undefined,
-    passwordEnv: undefined,
     caCertificatePaths: [],
     requireCertificateVerification: true,
     minimumTlsVersion: 'TLSv1.2',
