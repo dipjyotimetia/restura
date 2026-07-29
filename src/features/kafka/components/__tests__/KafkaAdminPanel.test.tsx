@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { Tabs } from '@/components/ui/tabs';
@@ -54,6 +54,12 @@ describe('KafkaAdminPanel', () => {
       ok: true,
       topics: ['orders', 'payments', 'audit'],
     });
+    manager.listGroups.mockResolvedValue({
+      ok: true,
+      groups: [{ id: 'orders-workers', state: 'STABLE', protocolType: 'consumer' }],
+    });
+    manager.createTopic.mockResolvedValue({ ok: true });
+    manager.deleteTopic.mockResolvedValue({ ok: true });
   });
 
   it('counts and filters loaded topics with a meaningful no-match state', async () => {
@@ -108,5 +114,55 @@ describe('KafkaAdminPanel', () => {
     await user.click(screen.getByRole('button', { name: 'List topics' }));
 
     expect(screen.getByRole('status')).toHaveTextContent('Loading topics');
+  });
+
+  it('creates and deletes topics through confirmation, then discovers consumer groups', async () => {
+    const user = userEvent.setup();
+    render(
+      <Tabs value="admin">
+        <KafkaAdminPanel connection={connection} />
+      </Tabs>
+    );
+
+    await user.type(screen.getByLabelText('Topic name'), 'new-orders');
+    await user.clear(screen.getByLabelText('Partitions'));
+    await user.type(screen.getByLabelText('Partitions'), '0');
+    await user.clear(screen.getByLabelText('Replication factor'));
+    await user.type(screen.getByLabelText('Replication factor'), 'invalid');
+    await user.click(screen.getByRole('button', { name: 'Create' }));
+    await waitFor(() =>
+      expect(manager.createTopic).toHaveBeenCalledWith({
+        connectionId: connection.id,
+        topic: 'new-orders',
+        partitions: 1,
+        replicationFactor: 1,
+      })
+    );
+
+    await user.click(await screen.findByRole('button', { name: 'Delete topic orders' }));
+    await user.click(screen.getByRole('button', { name: 'Delete topic' }));
+    await waitFor(() => expect(manager.deleteTopic).toHaveBeenCalledWith(connection.id, 'orders'));
+
+    await user.click(screen.getByRole('button', { name: 'List groups' }));
+    expect(await screen.findByText('1 group')).toBeVisible();
+    expect(screen.getByText('orders-workers')).toBeVisible();
+    expect(screen.getByText('consumer')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Inspect group orders-workers' }));
+  });
+
+  it('surfaces native topic and group errors without stale loading state', async () => {
+    manager.listTopics.mockResolvedValueOnce({ ok: false, error: 'topic lookup failed' });
+    manager.listGroups.mockResolvedValueOnce({ ok: false, error: 'group lookup failed' });
+    const user = userEvent.setup();
+    render(
+      <Tabs value="admin">
+        <KafkaAdminPanel connection={connection} />
+      </Tabs>
+    );
+
+    await user.click(screen.getByRole('button', { name: 'List topics' }));
+    expect(await screen.findByText('topic lookup failed')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'List groups' }));
+    expect(await screen.findByText('group lookup failed')).toBeVisible();
   });
 });
