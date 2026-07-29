@@ -17,13 +17,18 @@ vi.mock('electron', () => ({
 
 // Spy on the Sentry gate without loading the real SDK.
 vi.mock('../lifecycle/sentry', () => ({ setSentryEnabled: vi.fn() }));
+vi.mock('../security/managed-enterprise-policy', () => ({
+  isManagedTelemetryAllowed: vi.fn(() => true),
+}));
 
 import { ipcMain } from 'electron';
 import { setSentryEnabled } from '../lifecycle/sentry';
+import { isManagedTelemetryAllowed } from '../security/managed-enterprise-policy';
 import { readConsentSync, registerTelemetryConsentIPC } from '../lifecycle/telemetry-consent';
 
 const handleMock = ipcMain.handle as unknown as Mock;
 const setEnabledMock = setSentryEnabled as unknown as Mock;
+const managedTelemetryMock = isManagedTelemetryAllowed as unknown as Mock;
 
 const trustedEvent = { senderFrame: { url: 'http://localhost:5173' } } as never;
 
@@ -39,6 +44,8 @@ describe('telemetry-consent', () => {
     mkdirSync(tmpDir, { recursive: true });
     handleMock.mockClear();
     setEnabledMock.mockClear();
+    managedTelemetryMock.mockReset();
+    managedTelemetryMock.mockReturnValue(true);
   });
 
   it('readConsentSync defaults to true (opt-out) when no file exists', () => {
@@ -63,6 +70,16 @@ describe('telemetry-consent', () => {
     const handler = getRegisteredHandler();
     await expect(handler(trustedEvent, 'yes')).rejects.toThrow();
     expect(setEnabledMock).not.toHaveBeenCalled();
+  });
+
+  it('does not enable Sentry when enterprise policy disables error reporting', async () => {
+    managedTelemetryMock.mockReturnValue(false);
+    registerTelemetryConsentIPC();
+
+    await getRegisteredHandler()(trustedEvent, true);
+
+    expect(setEnabledMock).toHaveBeenCalledWith(false);
+    expect(readConsentSync()).toBe(true);
   });
 
   it('rejects an untrusted sender frame', async () => {

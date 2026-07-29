@@ -119,6 +119,23 @@ describe('buildConnectTransport', () => {
     buildConnectTransport('grpc://api.example.com:50051', DIAL, undefined, true);
     expect(lastOptions().sendCompression).toEqual({ name: 'gzip' });
   });
+
+  it('uses an HTTP CONNECT tunnel instead of direct DNS when a managed proxy is present', () => {
+    buildConnectTransport('grpcs://api.example.com:50051', DIAL, {
+      verifySsl: true,
+      proxy: {
+        enabled: true,
+        type: 'http',
+        host: 'proxy.corp.example',
+        port: 8080,
+        auth: { username: 'proxy-user', password: 'proxy-password' },
+      },
+    });
+    const { nodeOptions } = lastOptions();
+
+    expect(nodeOptions.lookup).toBeUndefined();
+    expect(nodeOptions.createConnection).toEqual(expect.any(Function));
+  });
 });
 
 describe('buildConnectFallbackTransport', () => {

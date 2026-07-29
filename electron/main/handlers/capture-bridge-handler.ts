@@ -17,6 +17,7 @@ import { type BrowserWindow, ipcMain } from 'electron';
 import { EVENT, IPC } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { createValidatedHandler, NoInputSchema } from '../ipc/ipc-validators';
+import { assertManagedFeatureAllowed } from '../security/managed-enterprise-policy';
 import { bridgePayloadSchema, isAuthorized, isLoopbackRequest } from './capture-bridge-protocol';
 
 /** Hard cap on the request body before we even parse it (matches the Zod bounds). */
@@ -152,6 +153,7 @@ export function registerCaptureBridgeIPC(getMainWindow: () => BrowserWindow | nu
       bridgeRateLimiter,
       createValidatedHandler(IPC.captureBridge.start, NoInputSchema, async () => {
         try {
+          assertManagedFeatureAllowed('mockCapture');
           const status = await startCaptureBridge(getMainWindow);
           // The token is returned only to the trusted renderer so it can show the
           // pairing code; it is never exposed over the HTTP surface.

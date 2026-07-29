@@ -15,7 +15,10 @@ warned at startup.
 
 **Persisted state is NOT encrypted at rest by default.** IndexedDB (via
 Dexie) on the web platform is protected only by the browser's same-
-origin policy. Users who require encryption at rest should either use the
+desktop app or enforce endpoint disk encryption and managed browser profiles.
+This also applies to the SPA served by the self-hosted Docker deployment:
+self-hosting does not move collections or secrets into server-side storage.
+Users who require application-layer encryption should either use the
 desktop app or — _once the UI lands_ — opt in via:
 
 ```

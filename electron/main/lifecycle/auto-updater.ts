@@ -1,3 +1,5 @@
+import { createLogger } from '@shared/runtime/logger';
+import type { OutgoingHttpHeaders } from 'node:http';
 import type { BrowserWindow } from 'electron';
 import {
   app,
@@ -8,7 +10,6 @@ import {
 import electronLog from 'electron-log/main';
 import type { UpdateCheckResult, UpdateInfo } from 'electron-updater';
 import { autoUpdater, CancellationToken } from 'electron-updater';
-import { createLogger } from '@shared/runtime/logger';
 import { EVENT, IPC } from '../../shared/channels';
 import type { UpdaterErrorPhase, UpdaterStatus } from '../../types/electron-api';
 import {
@@ -18,6 +19,11 @@ import {
   UpdaterConfigSchema,
 } from '../ipc/ipc-validators';
 import { showNativeNotification } from '../notifications';
+import {
+  getManagedEnterprisePolicy,
+  type ManagedPolicyLoadResult,
+  markManagedPolicyRuntimeInvalid,
+} from '../security/managed-enterprise-policy';
 
 const log = createLogger('updater');
 
@@ -42,9 +48,61 @@ let updaterListenersCleanup: (() => void) | null = null;
 
 const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
 
+interface ManagedUpdaterTarget {
+  setFeedURL(options: { provider: 'generic'; url: string; channel: string }): void;
+  autoDownload: boolean;
+  autoInstallOnAppQuit: boolean;
+  allowPrerelease: boolean;
+  allowDowngrade: boolean;
+  channel: string | null;
+  requestHeaders: OutgoingHttpHeaders | null;
+}
+
+export function applyManagedUpdaterPolicy(
+  target: ManagedUpdaterTarget,
+  result: ManagedPolicyLoadResult,
+  env: NodeJS.ProcessEnv = process.env
+): { managed: boolean; enabled: boolean } {
+  if (result.status.state === 'unmanaged') return { managed: false, enabled: true };
+  target.autoDownload = false;
+  target.autoInstallOnAppQuit = false;
+  target.allowDowngrade = false;
+  if (result.status.state !== 'managed' || !result.policy) {
+    return { managed: true, enabled: false };
+  }
+  const updates = result.policy.updates;
+  if (updates.mode === 'disabled') return { managed: true, enabled: false };
+
+  const requestHeaders: Record<string, string> = {};
+  for (const [header, envName] of Object.entries(updates.requestHeaderEnv)) {
+    const value = env[envName];
+    if (value === undefined) {
+      throw new Error(`Managed update header environment variable "${envName}" is unavailable`);
+    }
+    requestHeaders[header] = value;
+  }
+  target.setFeedURL({
+    provider: 'generic',
+    url: updates.feedUrl!,
+    channel: updates.channel === 'beta' ? 'beta' : 'latest',
+  });
+  target.requestHeaders = requestHeaders;
+  target.autoDownload = updates.mode === 'auto-download' || updates.mode === 'install-on-quit';
+  target.autoInstallOnAppQuit = updates.mode === 'install-on-quit';
+  target.allowPrerelease = updates.channel === 'beta';
+  target.channel = updates.channel === 'beta' ? 'beta' : null;
+  return { managed: true, enabled: true };
+}
+
 /** Updates are off in dev and when an operator opts out for air-gapped deploys. */
 function updatesDisabled(isDev: boolean): boolean {
-  return isDev || process.env.RESTURA_DISABLE_AUTO_UPDATE === 'true';
+  const managed = getManagedEnterprisePolicy();
+  return (
+    isDev ||
+    process.env.RESTURA_DISABLE_AUTO_UPDATE === 'true' ||
+    managed.status.state === 'invalid' ||
+    (managed.status.state === 'managed' && managed.policy?.updates.mode === 'disabled')
+  );
 }
 
 // Resolves the active BrowserWindow lazily on every event firing. The
@@ -126,17 +184,29 @@ export function setupAutoUpdater(getWindow: () => BrowserWindow | null, isDev: b
   updaterListenersCleanup = null;
   updateReadyToInstall = false;
 
-  // Enterprise opt-out / dev: skip all update-check side effects. Distinct
-  // from one another but both mean "never ping GitHub releases".
-  if (updatesDisabled(isDev)) {
+  let managedUpdater: { managed: boolean; enabled: boolean };
+  try {
+    managedUpdater = applyManagedUpdaterPolicy(autoUpdater, getManagedEnterprisePolicy());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    markManagedPolicyRuntimeInvalid(`Managed update setup failed: ${message}`);
+    log.error('managed update setup failed', { message });
+    managedUpdater = { managed: true, enabled: false };
+  }
+
+  // Enterprise opt-out / invalid policy / dev: never contact the compiled
+  // public provider. A selected managed feed has no GitHub fallback.
+  if (updatesDisabled(isDev) || !managedUpdater.enabled) {
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = false;
     return;
   }
 
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.allowDowngrade = false;
+  if (!managedUpdater.managed) {
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.allowDowngrade = false;
+  }
 
   // Persist the full update lifecycle (check/available/progress/downloaded/
   // error) to the log file — the canonical electron-updater integration.
@@ -362,6 +432,7 @@ export function registerAutoUpdaterIPC(isDev: boolean): void {
       UpdaterConfigSchema,
       async (config: UpdaterConfig): Promise<void> => {
         if (updatesDisabled(isDev)) return;
+        if (getManagedEnterprisePolicy().status.state === 'managed') return;
         applyUpdaterConfig(config);
       }
     )

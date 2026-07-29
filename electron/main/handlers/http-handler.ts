@@ -6,6 +6,7 @@ import {
 } from 'node:stream/consumers';
 import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib';
 import type { FormField, ProxyBodyType } from '@shared/protocol/body-builder';
+import { selectCertForUrl } from '@shared/protocol/cert-matcher';
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { executeHttpProxy, MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import type {
@@ -16,14 +17,13 @@ import type {
   ProtocolSecretValue as SecretValue,
 } from '@shared/protocol/types';
 import { assertResolvedAddressAllowed, isPrivateAddress } from '@shared/protocol/url-validation';
+import { createLogger } from '@shared/runtime/logger';
 import * as dns from 'dns';
-import { ipcMain, session } from 'electron';
+import { ipcMain } from 'electron';
 import type * as http from 'http';
 import * as net from 'net';
 import * as tls from 'tls';
 import { Agent, buildConnector, ProxyAgent, request as undiciRequest } from 'undici';
-import { selectCertForUrl } from '@shared/protocol/cert-matcher';
-import { createLogger } from '@shared/runtime/logger';
 import { IPC } from '../../shared/channels';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
@@ -37,16 +37,22 @@ import {
 import type { LogEntry } from '../lifecycle/request-logger';
 import { applyNonSignAtWireAuth } from '../security/auth-applier';
 import { smithySigV4Signer } from '../security/aws-sigv4-smithy';
+import { applyManagedTransportPolicy } from '../security/enterprise-network';
 import { resolveEnvProxy } from '../security/env-proxy';
 import {
   assertExecutionPolicyReady,
   type ExecutionPolicy,
   getExecutionPolicy,
 } from '../security/execution-policy';
+import {
+  getManagedCaCertificateBundle,
+  getManagedEnterprisePolicy,
+} from '../security/managed-enterprise-policy';
 import { isProxyBypassed } from '../security/proxy-bypass';
 import { unwrapSecretValueMain } from '../security/secret-handle-store';
 import { buildTlsClientMaterial } from '../security/tls-material';
 import { interceptorRegistry } from './interceptor-registry';
+import { resolveHttpRequestProxy } from './http-proxy-resolution';
 
 const log = createLogger('http');
 
@@ -262,14 +268,18 @@ function policyProxyForUrl(url: URL, policy: ExecutionPolicy): ElectronProxyConf
 export function resolveHttpExecutionPolicy(config: HttpRequestConfig): HttpRequestConfig {
   assertExecutionPolicyReady();
   const policy = getExecutionPolicy();
+  const managed = getManagedEnterprisePolicy();
   const url = new URL(config.url);
   const hostClientCert = selectCertForUrl(url, policy.certificates.clientCertificates);
   const hostCaCert = selectCertForUrl(url, policy.certificates.caCertificates);
 
-  return {
+  const resolved = {
     ...config,
     timeout: config.timeout ?? policy.timeout,
-    proxy: config.proxy ?? policyProxyForUrl(url, policy),
+    proxy:
+      managed.status.state === 'managed'
+        ? undefined
+        : (config.proxy ?? policyProxyForUrl(url, policy)),
     verifySsl: config.verifySsl ?? policy.tls.verifySsl,
     clientCert: config.clientCert ?? hostClientCert?.cert ?? policy.certificates.clientCert,
     caCert: config.caCert ?? (hostCaCert ? { pem: hostCaCert.pem } : policy.certificates.caCert),
@@ -277,6 +287,7 @@ export function resolveHttpExecutionPolicy(config: HttpRequestConfig): HttpReque
     minTlsVersion: config.minTlsVersion ?? policy.tls.minTlsVersion,
     cipherSuites: config.cipherSuites ?? policy.tls.cipherSuites,
   };
+  return applyManagedTransportPolicy(resolved, managed, getManagedCaCertificateBundle());
 }
 
 // Connection timeout (10 seconds) — operates below the shared core's request timeout.
@@ -965,58 +976,7 @@ async function makeHttpRequest(
     );
   }
 
-  // PAC proxy resolution (Electron-specific — uses Electron's session.resolveProxy)
-  let resolvedConfig = policyConfig;
-  if (
-    policyConfig.proxy?.enabled &&
-    policyConfig.proxy.type === 'pac' &&
-    policyConfig.proxy.pacUrl
-  ) {
-    try {
-      const proxyResult = await session.defaultSession.resolveProxy(policyConfig.url);
-      if (proxyResult.startsWith('PROXY ') || proxyResult.startsWith('HTTPS ')) {
-        const proxyAddr = proxyResult.split(' ')[1];
-        if (proxyAddr) {
-          const colonIdx = proxyAddr.lastIndexOf(':');
-          const host = colonIdx !== -1 ? proxyAddr.substring(0, colonIdx) : proxyAddr;
-          const port = colonIdx !== -1 ? parseInt(proxyAddr.substring(colonIdx + 1), 10) : 8080;
-          resolvedConfig = {
-            ...policyConfig,
-            proxy: { ...policyConfig.proxy, type: 'http', host, port },
-          };
-        }
-      } else if (proxyResult.startsWith('SOCKS5 ')) {
-        const proxyAddr = proxyResult.split(' ')[1];
-        if (proxyAddr) {
-          const colonIdx = proxyAddr.lastIndexOf(':');
-          const host = colonIdx !== -1 ? proxyAddr.substring(0, colonIdx) : proxyAddr;
-          const port = colonIdx !== -1 ? parseInt(proxyAddr.substring(colonIdx + 1), 10) : 1080;
-          resolvedConfig = {
-            ...policyConfig,
-            proxy: { ...policyConfig.proxy!, type: 'socks5', host, port },
-          };
-        }
-      } else if (proxyResult.startsWith('SOCKS ')) {
-        const proxyAddr = proxyResult.split(' ')[1];
-        if (proxyAddr) {
-          const colonIdx = proxyAddr.lastIndexOf(':');
-          const host = colonIdx !== -1 ? proxyAddr.substring(0, colonIdx) : proxyAddr;
-          const port = colonIdx !== -1 ? parseInt(proxyAddr.substring(colonIdx + 1), 10) : 1080;
-          resolvedConfig = {
-            ...policyConfig,
-            proxy: { ...policyConfig.proxy!, type: 'socks4', host, port },
-          };
-        }
-      }
-      // If DIRECT, proceed without proxy
-    } catch (e) {
-      // PAC resolution failed — proceed without proxy, but warn so a user who
-      // configured auto-proxy (PAC) isn't silently bypassed to a direct request.
-      log.warn('PAC proxy resolution failed; proceeding without proxy', {
-        error: e instanceof Error ? e.message : String(e),
-      });
-    }
-  }
+  const resolvedConfig = await resolveHttpRequestProxy(policyConfig);
 
   const interceptedConfig = await interceptorRegistry.runRequest(resolvedConfig);
 

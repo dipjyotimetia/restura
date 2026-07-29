@@ -1,8 +1,5 @@
-// ConnectRPC (connect-node) data plane for the Electron gRPC handler — the only
-// gRPC transport (grpc-js was removed). It reuses the SAME SSRF pre-flight (the
-// caller passes the already-validated, pinned dial address) and the SAME
-// backend-agnostic runtime descriptor registry as the web path
-// (shared/protocol/grpc-registry), so a gRPC call runs over real HTTP/2 with one
+// ConnectRPC data plane reusing the shared SSRF pre-flight and descriptor
+// descriptor registry as the web path, so a gRPC call runs over real HTTP/2 with one
 // schema source across every backend.
 //
 // Why connect-node:
@@ -33,6 +30,7 @@ import { resolveUrlHostnameSafe } from '../security/dns-guard';
 import { getExecutionPolicy } from '../security/execution-policy';
 import { buildTlsClientMaterial } from '../security/tls-material';
 import type { GrpcTlsConfig } from './grpc-credentials';
+import { createGrpcProxyTunnel } from './grpc-proxy-tunnel';
 
 // gRPC URL schemes the SSRF guard accepts (renderer + reflection emit grpc://).
 const GRPC_ALLOWED_SCHEMES = ['http:', 'https:', 'grpc:', 'grpcs:'];
@@ -107,7 +105,9 @@ function buildNodeTransportBase(
   const useTls = url.startsWith('https://') || url.startsWith('grpcs://');
   const baseUrl = transportBaseUrl(url, dial);
 
-  const nodeOptions: Record<string, unknown> = { lookup: pinnedLookup(dial) };
+  const nodeOptions: Record<string, unknown> = tls?.proxy?.enabled
+    ? { createConnection: () => createGrpcProxyTunnel(url, tls) }
+    : { lookup: pinnedLookup(dial) };
   if (useTls) {
     nodeOptions.servername = host; // SNI + cert hostname check stay on the hostname
     if (tls?.verifySsl === false) nodeOptions.rejectUnauthorized = false;

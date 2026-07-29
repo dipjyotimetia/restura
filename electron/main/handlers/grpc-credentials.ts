@@ -1,5 +1,10 @@
 import { selectCertForUrl } from '@shared/protocol/cert-matcher';
+import { applyManagedTransportPolicy } from '../security/enterprise-network';
 import { assertExecutionPolicyReady, getExecutionPolicy } from '../security/execution-policy';
+import {
+  getManagedCaCertificateBundle,
+  getManagedEnterprisePolicy,
+} from '../security/managed-enterprise-policy';
 
 /**
  * TLS material for a gRPC dial over `https://` / `grpcs://`. Mirrors the HTTP
@@ -19,6 +24,13 @@ export interface GrpcTlsConfig {
     passphrase?: unknown; // SecretValue (ADR-0007) — resolved main-side.
   };
   caCert?: { pem: string };
+  proxy?: {
+    enabled: boolean;
+    type: 'none' | 'http' | 'https' | 'socks4' | 'socks5';
+    host: string;
+    port: number;
+    auth?: { username: string; password: unknown };
+  };
 }
 
 type GrpcPolicyTransportConfig = {
@@ -38,17 +50,19 @@ export function resolveGrpcExecutionPolicy<
 >(config: T): T & { timeoutMs: number; verifySsl: boolean } {
   assertExecutionPolicyReady();
   const policy = getExecutionPolicy();
+  const managed = getManagedEnterprisePolicy();
   const url = new URL(config.url);
   const hostClientCert = selectCertForUrl(url, policy.certificates.clientCertificates);
   const hostCaCert = selectCertForUrl(url, policy.certificates.caCertificates);
 
-  return {
+  const resolved = {
     ...config,
     timeoutMs: config.timeoutMs ?? policy.timeout,
     verifySsl: config.verifySsl ?? policy.tls.verifySsl,
     clientCert: config.clientCert ?? hostClientCert?.cert ?? policy.certificates.clientCert,
     caCert: config.caCert ?? (hostCaCert ? { pem: hostCaCert.pem } : policy.certificates.caCert),
   };
+  return applyManagedTransportPolicy(resolved, managed, getManagedCaCertificateBundle());
 }
 
 /** Reflection is a gRPC dial too, but its IPC contract names the deadline `timeout`. */
@@ -57,15 +71,17 @@ export function resolveGrpcReflectionExecutionPolicy<
 >(config: T): T & { timeout: number; verifySsl: boolean } {
   assertExecutionPolicyReady();
   const policy = getExecutionPolicy();
+  const managed = getManagedEnterprisePolicy();
   const url = new URL(config.url);
   const hostClientCert = selectCertForUrl(url, policy.certificates.clientCertificates);
   const hostCaCert = selectCertForUrl(url, policy.certificates.caCertificates);
 
-  return {
+  const resolved = {
     ...config,
     timeout: config.timeout ?? policy.timeout,
     verifySsl: config.verifySsl ?? policy.tls.verifySsl,
     clientCert: config.clientCert ?? hostClientCert?.cert ?? policy.certificates.clientCert,
     caCert: config.caCert ?? (hostCaCert ? { pem: hostCaCert.pem } : policy.certificates.caCert),
   };
+  return applyManagedTransportPolicy(resolved, managed, getManagedCaCertificateBundle());
 }

@@ -35,9 +35,19 @@ import { createSystemTray, destroyTray } from './lifecycle/system-tray';
 import { readConsentSync, registerTelemetryConsentIPC } from './lifecycle/telemetry-consent';
 import { registerWindowControlsIPC } from './lifecycle/window-controls';
 import { registerNotificationIPC } from './notifications';
+import {
+  applyManagedSessionProxy,
+  managedProxyChallengeResponse,
+} from './security/enterprise-network';
 import { registerExecutionPolicyIPC } from './security/execution-policy';
 import { registerKeychainStatusIPC } from './security/keychain-status-handler';
-import { getManagedEnterprisePolicy } from './security/managed-enterprise-policy';
+import {
+  assertManagedFeatureAllowed,
+  getManagedCaCertificateBundle,
+  getManagedEnterprisePolicy,
+  markManagedPolicyRuntimeInvalid,
+  setManagedAppVersion,
+} from './security/managed-enterprise-policy';
 import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './security/secret-handle-store';
 import { registerBrunoExportHandlerIPC } from './storage/bruno-export-handler';
 import {
@@ -78,11 +88,37 @@ const log = createLogger('main');
 // opted in (read synchronously from the plain consent mirror), so opted-out
 // users upload nothing. See electron/main/lifecycle/sentry.ts.
 const managedPolicyAtStartup = getManagedEnterprisePolicy();
+setManagedAppVersion(app.getVersion());
 const managedErrorReporting =
   managedPolicyAtStartup.status.state === 'managed'
     ? managedPolicyAtStartup.policy?.telemetry.errorReporting === true
     : managedPolicyAtStartup.status.state === 'unmanaged';
 initSentry({ enabled: readConsentSync() && managedErrorReporting });
+
+app.on('login', (event, _webContents, _details, authInfo, callback) => {
+  let response: ReturnType<typeof managedProxyChallengeResponse>;
+  try {
+    response = managedProxyChallengeResponse(authInfo, getManagedEnterprisePolicy());
+  } catch (error) {
+    event.preventDefault();
+    log.error('managed proxy credentials are unavailable', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    callback();
+    return;
+  }
+  if (response.kind === 'credentials') {
+    event.preventDefault();
+    callback(response.username, response.password);
+  } else if (response.kind === 'unsupported') {
+    event.preventDefault();
+    log.error('managed proxy authentication scheme is unsupported', {
+      scheme: response.scheme,
+      supported: 'basic',
+    });
+    callback();
+  }
+});
 
 // Sentry's default integrations already capture main-process uncaught
 // exceptions/rejections; these handlers add structured local logging on top so
@@ -313,6 +349,7 @@ app.whenReady().then(async () => {
     // JSON-RPC stream — keep this branch minimal and route everything else to
     // stderr (which Claude Desktop captures into its log file).
     try {
+      assertManagedFeatureAllowed('mcp');
       const handle = startStdioMcpServer(() => loadMcpDispatchContext());
       // Tear the server down on quit so the parent process sees a clean EOF.
       // `preventDefault` + `app.exit()` after `handle.stop()` resolves
@@ -344,6 +381,18 @@ app.whenReady().then(async () => {
       app.quit();
     }
     return;
+  }
+
+  try {
+    // Read and bound managed trust material before any window or outbound
+    // subsystem starts. A missing/oversized bundle invalidates the policy
+    // instead of failing inconsistently on the first request.
+    getManagedCaCertificateBundle();
+    await applyManagedSessionProxy(session.defaultSession, getManagedEnterprisePolicy());
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    markManagedPolicyRuntimeInvalid(`Managed proxy setup failed: ${message}`);
+    log.error('managed proxy setup failed', { message });
   }
 
   setupContentSecurityPolicy();

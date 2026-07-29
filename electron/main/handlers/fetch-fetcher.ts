@@ -1,4 +1,14 @@
 import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
+import { session } from 'electron';
+import {
+  applyManagedTransportPolicy,
+  resolveManagedProxyForUrl,
+} from '../security/enterprise-network';
+import {
+  getManagedCaCertificateBundle,
+  getManagedEnterprisePolicy,
+} from '../security/managed-enterprise-policy';
+import { createPolicyPinnedFetch } from '../security/policy-transport';
 import { createPinnedFetch, resolveSafeAddress } from '../security/safe-connect';
 
 /**
@@ -57,9 +67,22 @@ export async function makePinnedFetcher(
   url: string,
   options: { allowLocalhost: boolean }
 ): Promise<Fetcher> {
+  const managed = getManagedEnterprisePolicy();
   const pinned = await resolveSafeAddress(url, { allowLocalhost: options.allowLocalhost });
+  if (managed.status.state === 'unmanaged') {
+    return makeFetchFetcher({
+      redirect: 'manual',
+      fetchImpl: createPinnedFetch(pinned.host, pinned.ip),
+    });
+  }
+  const proxy = await resolveManagedProxyForUrl(url, session.defaultSession, managed);
+  const transport = applyManagedTransportPolicy(
+    { url, proxy, verifySsl: true },
+    managed,
+    getManagedCaCertificateBundle()
+  );
   return makeFetchFetcher({
     redirect: 'manual',
-    fetchImpl: createPinnedFetch(pinned.host, pinned.ip),
+    fetchImpl: createPolicyPinnedFetch(transport, pinned),
   });
 }

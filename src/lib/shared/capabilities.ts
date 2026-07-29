@@ -93,9 +93,9 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
   'http.proxy.pac': {
     label: 'PAC proxy script resolution',
     web: false,
-    desktop: false,
+    desktop: true,
     notes:
-      'Not wired end-to-end: the renderer ProxyType cannot emit a PAC proxy and the PAC script is never loaded via session.setProxy — only handler scaffolding exists. Marked unsupported until the renderer + setProxy path land.',
+      'Available through administrator-managed desktop policy; Electron resolves the PAC result before app-owned transports connect',
   },
   'http.mtls': {
     label: 'mTLS client certificates',

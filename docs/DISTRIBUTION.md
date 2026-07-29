@@ -103,6 +103,15 @@ Apple requires notarization for apps distributed outside the App Store.
 
 ### Windows Code Signing
 
+Windows signing is currently conditional on `WIN_CSC_LINK` and
+`WIN_CSC_KEY_PASSWORD`. Public or internal artifacts built without those
+secrets are unsigned and are not suitable for broad enterprise rollout:
+SmartScreen warnings and application-control policy may block them. Enterprise
+distributors should sign both installer and portable artifacts with their
+trusted certificate and verify the signature before publishing to their
+software-management system. Restura does not provide a shared project signing
+identity.
+
 1. **Purchase a Code Signing Certificate**
    - Options: DigiCert, Sectigo, GlobalSign
    - EV certificates provide SmartScreen reputation

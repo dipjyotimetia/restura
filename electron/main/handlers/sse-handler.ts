@@ -1,7 +1,7 @@
 import { executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
 import { RedirectPolicyError } from '@shared/protocol/redirect-follower';
 import { createLogger } from '@shared/runtime/logger';
-import { ipcMain, type WebContents } from 'electron';
+import { ipcMain, session, type WebContents } from 'electron';
 import { EVENT_PREFIX, IPC } from '../../shared/channels';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
@@ -13,7 +13,9 @@ import {
   validateIpcInput,
 } from '../ipc/ipc-validators';
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
+import { resolveManagedProxyForUrl } from '../security/enterprise-network';
 import { getExecutionPolicy } from '../security/execution-policy';
+import { getManagedEnterprisePolicy } from '../security/managed-enterprise-policy';
 import {
   assertPinnedFetchCanHonorPolicy,
   createPolicyPinnedFetch,
@@ -155,7 +157,12 @@ export function registerSseHandlerIPC(): void {
 
     let policyConfig: ReturnType<typeof resolveSseExecutionPolicy>;
     try {
-      policyConfig = resolveSseExecutionPolicy(config);
+      const managed = getManagedEnterprisePolicy();
+      const proxy =
+        managed.status.state === 'unmanaged'
+          ? undefined
+          : await resolveManagedProxyForUrl(config.url, session.defaultSession, managed);
+      policyConfig = resolveSseExecutionPolicy({ ...config, proxy });
       assertPinnedFetchCanHonorPolicy(policyConfig);
     } catch (err) {
       return {

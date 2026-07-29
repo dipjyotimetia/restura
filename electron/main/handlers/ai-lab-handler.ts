@@ -39,6 +39,10 @@ import {
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
 import { createAgentTelemetryService } from '../lifecycle/agent-telemetry';
+import {
+  assertManagedAgentTelemetryAllowed,
+  assertManagedAiAllowed,
+} from '../security/managed-enterprise-policy';
 import { resolveSecretHandle } from '../security/secret-handle-store';
 import { makePinnedFetcher } from './fetch-fetcher';
 
@@ -164,7 +168,9 @@ function completionRegistryKey(webContentsId: number, operationId: string): stri
  * (Ollama, openai-compatible), never for cloud providers.
  */
 async function buildSafeFetcher(provider: Provider, baseUrlOverride?: string): Promise<Fetcher> {
-  return makePinnedFetcher(resolveBaseUrl(provider, baseUrlOverride), {
+  const baseUrl = resolveBaseUrl(provider, baseUrlOverride);
+  assertManagedAiAllowed(provider, baseUrl);
+  return makePinnedFetcher(baseUrl, {
     allowLocalhost: isLocalProvider(provider),
   });
 }
@@ -248,6 +254,7 @@ async function runStream(
 export function registerAiLabHandlers(): void {
   ipcMain.handle(IPC.aiLab.exportTelemetry, async (event, raw: unknown) => {
     assertTrustedSender(IPC.aiLab.exportTelemetry, event);
+    assertManagedAgentTelemetryAllowed();
     const parsed = AiLabTelemetryExportSchema.safeParse(raw);
     if (!parsed.success) return { ok: false as const, error: parsed.error.message };
     const delivery = agentTelemetry.enqueue(parsed.data.trace, parsed.data.config);

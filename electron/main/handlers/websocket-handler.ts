@@ -1,5 +1,5 @@
 import { createLogger } from '@shared/runtime/logger';
-import { ipcMain, type WebContents } from 'electron';
+import { ipcMain, session, type WebContents } from 'electron';
 import WebSocket from 'ws';
 import { EVENT_PREFIX, IPC } from '../../shared/channels';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
@@ -13,13 +13,19 @@ import {
   WsSendSchema,
 } from '../ipc/ipc-validators';
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
+import {
+  createEnterpriseProxyAgent,
+  resolveManagedProxyForUrl,
+} from '../security/enterprise-network';
 import { getExecutionPolicy } from '../security/execution-policy';
+import { getManagedEnterprisePolicy } from '../security/managed-enterprise-policy';
 import {
   assertPinnedFetchCanHonorPolicy,
   type PolicyTransportConfig,
   resolvePolicyTransport,
 } from '../security/policy-transport';
 import { createPinnedLookup, resolveSafeAddress } from '../security/safe-connect';
+import { buildTlsClientMaterial } from '../security/tls-material';
 
 const log = createLogger('websocket');
 
@@ -99,8 +105,8 @@ export function resolveWebsocketExecutionPolicy<T extends PolicyTransportConfig>
   return resolvePolicyTransport(config);
 }
 
-function applyWebSocketPolicyConfig(url: string) {
-  const policyConfig = resolveWebsocketExecutionPolicy({ url });
+function applyWebSocketPolicyConfig(url: string, proxy?: PolicyTransportConfig['proxy']) {
+  const policyConfig = resolveWebsocketExecutionPolicy({ url, proxy });
   assertPinnedFetchCanHonorPolicy(policyConfig);
   return policyConfig;
 }
@@ -113,7 +119,13 @@ export function registerWebSocketHandlerIPC(): void {
     const config = validateIpcInput(WsConnectSchema, rawConfig, IPC.ws.connect);
     let policyConfig: ReturnType<typeof applyWebSocketPolicyConfig>;
     try {
-      policyConfig = applyWebSocketPolicyConfig(config.url);
+      const managed = getManagedEnterprisePolicy();
+      if (managed.status.state === 'unmanaged') {
+        policyConfig = applyWebSocketPolicyConfig(config.url);
+      } else {
+        const proxy = await resolveManagedProxyForUrl(config.url, session.defaultSession, managed);
+        policyConfig = applyWebSocketPolicyConfig(config.url, proxy);
+      }
     } catch (err) {
       return {
         success: false,
@@ -163,6 +175,11 @@ export function registerWebSocketHandlerIPC(): void {
 
       try {
         let explicitlyClosed = false;
+        const proxyAgent =
+          policyConfig.proxy?.enabled &&
+          (policyConfig.proxy.type === 'http' || policyConfig.proxy.type === 'https')
+            ? createEnterpriseProxyAgent(policyConfig.proxy, policyConfig)
+            : undefined;
 
         const ws = new WebSocket(config.url, config.protocols ?? [], {
           headers: config.headers ?? {},
@@ -175,7 +192,10 @@ export function registerWebSocketHandlerIPC(): void {
           // design; the abort surfaces as a normal `ws` 'error' event below.
           followRedirects: true,
           handshakeTimeout: policyConfig.timeout,
-          lookup: createPinnedLookup(pinned.host, pinned.ip),
+          ...(proxyAgent
+            ? { agent: proxyAgent }
+            : { lookup: createPinnedLookup(pinned.host, pinned.ip) }),
+          ...buildTlsClientMaterial(policyConfig),
         });
 
         // NOTE: success is returned immediately (handshake in progress).

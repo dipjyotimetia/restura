@@ -11,6 +11,7 @@ import { ipcMain } from 'electron';
 import { z } from 'zod';
 import { IPC } from '../../shared/channels';
 import { assertTrustedSender } from '../ipc/ipc-validators';
+import { assertManagedFeatureAllowed } from '../security/managed-enterprise-policy';
 
 export type { MockRoute, MockServerStatus };
 
@@ -192,6 +193,7 @@ export function registerMockServerIPC(): void {
     const parsed = StartSchema.safeParse(payload);
     if (!parsed.success) return { ok: false, error: parsed.error.message };
     try {
+      assertManagedFeatureAllowed('mockCapture');
       const status = await startMockServer(parsed.data);
       return { ok: true, status };
     } catch (err) {

@@ -20,7 +20,11 @@ const ProxyUrlSchema = z
   .refine(
     (value) => ['http:', 'https:'].includes(new URL(value).protocol),
     'HTTP or HTTPS proxy URL required'
-  );
+  )
+  .refine((value) => {
+    const url = new URL(value);
+    return !url.username && !url.password;
+  }, 'Proxy credentials must use environment references');
 
 const ManagedNetworkPolicySchema = z
   .object({
@@ -129,6 +133,8 @@ export type ManagedPolicyStatus =
       networkMode: EnterprisePolicyV1['network']['mode'];
       updatesMode: EnterprisePolicyV1['updates']['mode'];
       requireProxy: boolean;
+      minimumVersion?: string;
+      upgradeRequired?: boolean;
     }
   | { state: 'invalid'; source: ManagedPolicySource; message: string };
 
@@ -217,6 +223,7 @@ function parseSelectedSource(raw: string, source: ManagedPolicySource): ManagedP
         networkMode: policy.network.mode,
         updatesMode: policy.updates.mode,
         requireProxy: policy.network.requireProxy,
+        ...(policy.updates.minimumVersion ? { minimumVersion: policy.updates.minimumVersion } : {}),
       },
     };
   } catch {
@@ -301,6 +308,7 @@ export function assertManagedOutboundAllowed(result: ManagedPolicyLoadResult): v
 }
 
 let activeManagedPolicy = loadManagedEnterprisePolicy();
+let activeCaBundle: string | undefined;
 
 export function getManagedEnterprisePolicy(): ManagedPolicyLoadResult {
   return activeManagedPolicy.policy
@@ -319,8 +327,136 @@ export function setManagedEnterprisePolicyForTest(result: ManagedPolicyLoadResul
   activeManagedPolicy = result.policy
     ? { policy: EnterprisePolicyV1Schema.parse(result.policy), status: { ...result.status } }
     : { status: { ...result.status } };
+  activeCaBundle = undefined;
 }
 
 export function assertActiveManagedOutboundAllowed(): void {
   assertManagedOutboundAllowed(activeManagedPolicy);
+  if (
+    activeManagedPolicy.status.state === 'managed' &&
+    activeManagedPolicy.status.upgradeRequired
+  ) {
+    throw new Error(
+      `Restura ${activeManagedPolicy.status.minimumVersion} is the minimum required version`
+    );
+  }
+}
+
+export function markManagedPolicyRuntimeInvalid(message: string): void {
+  if (activeManagedPolicy.status.state !== 'managed') return;
+  activeManagedPolicy = {
+    status: {
+      state: 'invalid',
+      source: activeManagedPolicy.status.source,
+      message,
+    },
+  };
+  activeCaBundle = undefined;
+}
+
+function numericVersion(version: string): [number, number, number] {
+  const [major = '0', minor = '0', patch = '0'] = version.split('-', 1)[0]!.split('.');
+  return [Number(major), Number(minor), Number(patch)];
+}
+
+function versionIsBelow(current: string, minimum: string): boolean {
+  const left = numericVersion(current);
+  const right = numericVersion(minimum);
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index]! < right[index]!) return true;
+    if (left[index]! > right[index]!) return false;
+  }
+  return false;
+}
+
+export function setManagedAppVersion(currentVersion: string): void {
+  if (activeManagedPolicy.status.state !== 'managed') return;
+  const minimumVersion = activeManagedPolicy.policy?.updates.minimumVersion;
+  activeManagedPolicy.status = {
+    ...activeManagedPolicy.status,
+    ...(minimumVersion
+      ? {
+          minimumVersion,
+          upgradeRequired: versionIsBelow(currentVersion, minimumVersion),
+        }
+      : {}),
+  };
+}
+
+export function getManagedCaCertificateBundle(
+  readFile: (filePath: string) => string = (filePath) => readFileSync(filePath, 'utf8')
+): string | undefined {
+  if (activeCaBundle !== undefined) return activeCaBundle || undefined;
+  if (activeManagedPolicy.status.state !== 'managed' || !activeManagedPolicy.policy) {
+    return undefined;
+  }
+  const certificates = activeManagedPolicy.policy.network.caCertificatePaths.map(readFile);
+  const bundle = certificates.join('\n');
+  if (Buffer.byteLength(bundle, 'utf8') > 2 * 1024 * 1024) {
+    throw new Error('Managed CA certificate bundle exceeds the 2 MiB size limit');
+  }
+  activeCaBundle = bundle;
+  return bundle || undefined;
+}
+
+export type ManagedFeature = keyof EnterprisePolicyV1['features'];
+export type ManagedDirectProtocol = EnterprisePolicyV1['network']['directProtocols'][number];
+
+export function assertManagedFeatureAllowed(feature: ManagedFeature): void {
+  assertActiveManagedOutboundAllowed();
+  if (
+    activeManagedPolicy.status.state === 'managed' &&
+    activeManagedPolicy.policy?.features[feature] !== true
+  ) {
+    throw new Error(`${feature} is disabled by managed policy`);
+  }
+}
+
+export function assertManagedDirectProtocolAllowed(protocol: ManagedDirectProtocol): void {
+  assertActiveManagedOutboundAllowed();
+  if (
+    activeManagedPolicy.status.state === 'managed' &&
+    activeManagedPolicy.policy?.network.requireProxy &&
+    !activeManagedPolicy.policy.network.directProtocols.includes(protocol)
+  ) {
+    const label = protocol === 'git-ssh' ? 'Git SSH' : protocol === 'kafka' ? 'Kafka' : 'MQTT';
+    throw new Error(`Managed policy blocks direct ${label} connections while a proxy is required`);
+  }
+}
+
+export function managedDirectProtocolError(protocol: ManagedDirectProtocol): string | undefined {
+  try {
+    assertManagedFeatureAllowed(protocol === 'git-ssh' ? 'gitSsh' : protocol);
+    assertManagedDirectProtocolAllowed(protocol);
+    return undefined;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+export function assertManagedAiAllowed(provider: string, baseUrl: string): void {
+  assertActiveManagedOutboundAllowed();
+  if (activeManagedPolicy.status.state !== 'managed' || !activeManagedPolicy.policy) return;
+  const ai = activeManagedPolicy.policy.ai;
+  if (!ai.enabled) throw new Error('AI is disabled by managed policy');
+  if (!ai.providers.includes(provider as (typeof ai.providers)[number])) {
+    throw new Error(`AI provider "${provider}" is disabled by managed policy`);
+  }
+  const origin = new URL(baseUrl).origin;
+  if (!ai.baseOrigins.some((allowed) => new URL(allowed).origin === origin)) {
+    throw new Error(`AI base origin "${origin}" is not allowed by managed policy`);
+  }
+}
+
+export function isManagedTelemetryAllowed(kind: 'errorReporting' | 'agentTelemetry'): boolean {
+  const result = getManagedEnterprisePolicy();
+  if (result.status.state === 'invalid') return false;
+  if (result.status.state === 'unmanaged') return true;
+  return result.policy?.telemetry[kind] === true;
+}
+
+export function assertManagedAgentTelemetryAllowed(): void {
+  if (!isManagedTelemetryAllowed('agentTelemetry')) {
+    throw new Error('Agent telemetry export is disabled by enterprise policy');
+  }
 }

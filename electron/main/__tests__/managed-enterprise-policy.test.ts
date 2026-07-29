@@ -1,8 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  assertManagedAiAllowed,
+  assertManagedDirectProtocolAllowed,
+  assertManagedFeatureAllowed,
   assertManagedOutboundAllowed,
+  getManagedEnterprisePolicy,
   loadManagedEnterprisePolicy,
   type ManagedPolicyLoadOptions,
+  setManagedAppVersion,
+  setManagedEnterprisePolicyForTest,
 } from '../security/managed-enterprise-policy';
 
 const validPolicy = JSON.stringify({
@@ -179,5 +185,42 @@ describe('managed enterprise policy', () => {
     expect(serializedStatus).not.toContain('RESTURA_PROXY');
     expect(serializedStatus).not.toContain('RESTURA_UPDATE');
     expect(serializedStatus).not.toContain('proxy.corp.example');
+  });
+
+  it('enforces managed feature, direct-protocol, and AI allowlists', () => {
+    const result = loadManagedEnterprisePolicy(
+      options({
+        readNativePolicy: () => validPolicy,
+      })
+    );
+    setManagedEnterprisePolicyForTest(result);
+
+    expect(() => assertManagedFeatureAllowed('git')).not.toThrow();
+    expect(() => assertManagedFeatureAllowed('kafka')).toThrow('disabled by managed policy');
+    expect(() => assertManagedDirectProtocolAllowed('mqtt')).not.toThrow();
+    expect(() => assertManagedDirectProtocolAllowed('kafka')).toThrow('direct Kafka connections');
+    expect(() => assertManagedAiAllowed('openai', 'https://api.openai.com/v1')).not.toThrow();
+    expect(() => assertManagedAiAllowed('anthropic', 'https://api.anthropic.com')).toThrow(
+      'AI provider'
+    );
+  });
+
+  it('blocks normal outbound work below the administrator minimum version', () => {
+    const parsed = JSON.parse(validPolicy);
+    parsed.updates.minimumVersion = '2.0.0';
+    setManagedEnterprisePolicyForTest(
+      loadManagedEnterprisePolicy(options({ readNativePolicy: () => JSON.stringify(parsed) }))
+    );
+
+    setManagedAppVersion('1.8.0');
+    expect(getManagedEnterprisePolicy().status).toMatchObject({
+      state: 'managed',
+      minimumVersion: '2.0.0',
+      upgradeRequired: true,
+    });
+    expect(() => assertManagedFeatureAllowed('git')).toThrow('minimum required version');
+
+    setManagedAppVersion('2.0.0');
+    expect(() => assertManagedFeatureAllowed('git')).not.toThrow();
   });
 });

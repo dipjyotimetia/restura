@@ -1,0 +1,13 @@
+{
+  "exceptions": [
+    {
+      "id": "react-router-rsc-csrf",
+      "advisories": ["https://github.com/advisories/GHSA-qwww-vcr4-c8h2"],
+      "owner": "maintainers",
+      "rationale": "The affected React Server Components action mode is not enabled; Restura uses createHashRouter as a client-side SPA.",
+      "reachability": "Not reachable in the renderer, Worker, self-hosted Node server, Electron main process, CLI, or extensions because none exposes React Router RSC server actions.",
+      "created": "2026-07-29",
+      "expires": "2026-10-15"
+    }
+  ]
+}

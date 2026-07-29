@@ -440,6 +440,8 @@ export interface ElectronSecurityAPI {
         networkMode: 'system' | 'fixed' | 'pac' | 'direct';
         updatesMode: 'disabled' | 'notify' | 'auto-download' | 'install-on-quit';
         requireProxy: boolean;
+        minimumVersion?: string;
+        upgradeRequired?: boolean;
       }
     | {
         state: 'invalid';

@@ -267,7 +267,7 @@ describe('mcp-handler (SDK-backed)', () => {
       security: { allowLocalhost: true, allowPrivateIPs: false },
       proxy: {
         enabled: true,
-        type: 'http',
+        type: 'socks5',
         host: 'proxy.example.test',
         port: 3128,
         bypassList: [],
@@ -279,7 +279,7 @@ describe('mcp-handler (SDK-backed)', () => {
 
     await expect(connect()).resolves.toEqual({
       success: false,
-      error: 'Configured HTTP proxy cannot be honored by this DNS-pinned connection',
+      error: 'Configured SOCKS5 proxy cannot be honored by this DNS-pinned connection',
     });
     expect(mockResolveSafeAddress).not.toHaveBeenCalled();
     expect(sdkState.clients).toHaveLength(0);

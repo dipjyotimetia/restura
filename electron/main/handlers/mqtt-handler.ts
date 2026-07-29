@@ -21,6 +21,7 @@ import {
 } from '../ipc/ipc-validators';
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
+import { managedDirectProtocolError } from '../security/managed-enterprise-policy';
 import { assertMqttBrokerSafe } from '../security/mqtt-broker-guard';
 
 const log = createLogger('mqtt');
@@ -248,6 +249,13 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         ...(error !== undefined ? { error } : {}),
       });
     };
+
+    const managedError = managedDirectProtocolError('mqtt');
+    if (managedError) {
+      const message = managedError;
+      logEntry(403, message);
+      return { success: false, error: message };
+    }
 
     if (!mqttRateLimiter.check(webContentsId)) {
       logEntry(429, 'Rate limit exceeded');

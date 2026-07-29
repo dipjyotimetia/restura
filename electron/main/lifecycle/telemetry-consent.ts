@@ -17,6 +17,7 @@ import { z } from 'zod';
 import { createLogger } from '@shared/runtime/logger';
 import { IPC } from '../../shared/channels';
 import { createValidatedHandler } from '../ipc/ipc-validators';
+import { isManagedTelemetryAllowed } from '../security/managed-enterprise-policy';
 import { setSentryEnabled } from './sentry';
 
 const log = createLogger('telemetry-consent');
@@ -58,7 +59,7 @@ export function registerTelemetryConsentIPC(): void {
     IPC.telemetry.setConsent,
     createValidatedHandler(IPC.telemetry.setConsent, ConsentSchema, (enabled): { ok: true } => {
       writeConsent(enabled);
-      setSentryEnabled(enabled);
+      setSentryEnabled(enabled && isManagedTelemetryAllowed('errorReporting'));
       return { ok: true };
     })
   );

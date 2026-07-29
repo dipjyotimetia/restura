@@ -438,7 +438,7 @@ describe('websocket-handler', () => {
       security: { allowLocalhost: true, allowPrivateIPs: false },
       proxy: {
         enabled: true,
-        type: 'http',
+        type: 'socks5',
         host: 'proxy.example.test',
         port: 3128,
         bypassList: [],
@@ -452,7 +452,7 @@ describe('websocket-handler', () => {
     const res = await handlerFor(IPC.ws.connect)(event, validConnect('policy'));
     expect(res).toEqual({
       success: false,
-      error: 'Configured HTTP proxy cannot be honored by this DNS-pinned connection',
+      error: 'Configured SOCKS5 proxy cannot be honored by this DNS-pinned connection',
     });
     expect(mockResolveSafe).not.toHaveBeenCalled();
     expect(wsMock.FakeWebSocket.instances).toHaveLength(0);

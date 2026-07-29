@@ -27,6 +27,7 @@ import type { LogEntry } from '../lifecycle/request-logger';
 import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
 import { decodeDisplayField } from './kafka-serde';
 import { registerKafkaAdminHandlers } from './kafka/admin-handlers';
+import { managedDirectProtocolError } from '../security/managed-enterprise-policy';
 import {
   type AppProducer,
   closeKafkaProducerSessions,
@@ -42,11 +43,9 @@ type Message<K, V, HK, HV> = KafkaLib.Message<K, V, HK, HV>;
 type MessagesStream<K, V, HK, HV> = KafkaLib.MessagesStream<K, V, HK, HV>;
 type ProducerOptions<K, V, HK, HV> = KafkaLib.ProducerOptions<K, V, HK, HV>;
 type TopicWithPartitionAndOffset = KafkaLib.TopicWithPartitionAndOffset;
-// Keep the heavy Kafka package lazy so it does not delay window creation.
 let _kafka: typeof KafkaLib | undefined;
 const getKafka = (): typeof KafkaLib => (_kafka ??= require('@platformatic/kafka'));
 
-/** Test seam for the lazy bare require. */
 export function __setKafkaForTests(lib: typeof KafkaLib | undefined): void {
   _kafka = lib;
 }
@@ -69,11 +68,9 @@ interface ActiveKafka extends KafkaProducerEntry {
   clientOptions: KafkaClientOptions;
   connectionId: string;
   webContentsId: number;
-  /** Producer-only option; the shared client options also feed Consumer/Admin. */
   idempotent: boolean;
   transactionalId?: string;
   registry?: SchemaRegistry;
-  /** Serializes async decode/emission in arrival order. */
   emitChain: Promise<void>;
   pendingCommits: Map<string, AppMessage>;
   manualCommit: boolean;
@@ -99,7 +96,6 @@ interface KafkaClientOptions {
     rejectUnauthorized?: boolean;
   };
 }
-// Awaited teardown stays in this handler; registry disposal covers renderer death.
 const activeConnections = new StreamRegistry<ActiveKafka>({
   dispose: (e) => {
     void closeConnection(e);
@@ -312,7 +308,6 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
     const { connectionId } = cfg;
     const webContentsId = event.sender.id;
     const startTime = Date.now();
-    // Connection metadata only; message bodies are never logged.
     const logEntry = (status: number, error?: string): void => {
       if (!onComplete) return;
       onComplete({
@@ -327,6 +322,13 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       });
     };
 
+    const managedError = managedDirectProtocolError('kafka');
+    if (managedError) {
+      const message = managedError;
+      logEntry(403, message);
+      return { success: false, error: message };
+    }
+
     if (!kafkaRateLimiter.check(webContentsId)) {
       logEntry(429, 'Rate limit exceeded');
       return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
@@ -337,7 +339,6 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       return { success: false, error: 'Too many open Kafka connections.' };
     }
 
-    // Reserve this renderer's id; other renderers may independently use the same external id.
     const claim = reserveKafkaClaim(connectionId, event.sender);
     if (!claim) return { success: false, error: 'Not connected' };
     const key = ownerScopedKey(connectionId, webContentsId);

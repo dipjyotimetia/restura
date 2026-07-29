@@ -101,7 +101,7 @@ These are things that are clearly needed and will happen, roughly in order of ho
 
 ## What we're probably not doing
 
-**Cloud sync and shared workspaces** — the whole point of Restura is that your data stays on your machine. Adding cloud sync would mean becoming the thing we were trying to avoid. If you want to share collections across a team, self-host a Docker instance and share that — that's the intended path.
+**Cloud sync and shared workspaces** — the whole point of Restura is that your data stays on your machine. Adding cloud sync would mean becoming the thing we were trying to avoid. The self-hosted Docker image is a stateless proxy and does not provide shared collections; teams should exchange reviewed collection files through their existing version-control workflow.
 
 **Plugin marketplace** — a plugin system is interesting but a marketplace is a product in itself. Not something we're taking on.
 

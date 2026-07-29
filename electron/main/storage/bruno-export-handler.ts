@@ -11,6 +11,7 @@ import * as path from 'path';
 import { z } from 'zod';
 import { IPC } from '../../shared/channels';
 import { createValidatedHandler, FilePathSchema } from '../ipc/ipc-validators';
+import { assertManagedFeatureAllowed } from '../security/managed-enterprise-policy';
 import { isPathSafe } from './file-operations';
 
 export interface BrunoExportEntry {
@@ -66,7 +67,10 @@ export function registerBrunoExportHandlerIPC(): void {
     createValidatedHandler(
       IPC.collection.saveBrunoDirectory,
       SaveBrunoDirectorySchema,
-      ([entries, directoryPath]) => saveBrunoEntriesToDirectory(directoryPath, entries)
+      ([entries, directoryPath]) => {
+        assertManagedFeatureAllowed('importExport');
+        return saveBrunoEntriesToDirectory(directoryPath, entries);
+      }
     )
   );
 }

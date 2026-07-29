@@ -1,10 +1,12 @@
-import { ipcMain } from 'electron';
+import { ipcMain, session } from 'electron';
 import { IPC } from '../../shared/channels';
 import {
   createValidatedHandler,
   type ReflectionIpcConfig,
   ReflectionIpcConfigSchema,
 } from '../ipc/ipc-validators';
+import { resolveManagedProxyForUrl } from '../security/enterprise-network';
+import { getManagedEnterprisePolicy } from '../security/managed-enterprise-policy';
 import { executeConnectReflection, resolveGrpcDialAddress } from './grpc-connect';
 import { resolveGrpcReflectionExecutionPolicy } from './grpc-credentials';
 
@@ -44,6 +46,14 @@ async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawRe
   // as the call path, then run reflection over a runtime registry via
   // connect-node — no @grpc/reflection / proto-loader.
   const urlWithScheme = url.includes('://') ? url : `grpc://${url}`;
+  const managed = getManagedEnterprisePolicy();
+  const proxyTarget = new URL(urlWithScheme);
+  if (proxyTarget.protocol === 'grpc:') proxyTarget.protocol = 'http:';
+  if (proxyTarget.protocol === 'grpcs:') proxyTarget.protocol = 'https:';
+  const proxy =
+    managed.status.state === 'unmanaged'
+      ? undefined
+      : await resolveManagedProxyForUrl(proxyTarget.toString(), session.defaultSession, managed);
   const dial = await resolveGrpcDialAddress(urlWithScheme);
 
   return executeConnectReflection({
@@ -53,6 +63,7 @@ async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawRe
       verifySsl: policyConfig.verifySsl,
       clientCert: policyConfig.clientCert,
       caCert: policyConfig.caCert,
+      proxy,
     },
     version,
     request: request as Record<string, unknown>,

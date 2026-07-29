@@ -28,6 +28,7 @@ import {
   assertTrustedSender,
 } from '../ipc/ipc-validators';
 import { StreamRegistry } from '../ipc/stream-registry';
+import { assertManagedAiAllowed } from '../security/managed-enterprise-policy';
 import { resolveSecretHandle } from '../security/secret-handle-store';
 import { makePinnedFetcher } from './fetch-fetcher';
 
@@ -64,7 +65,9 @@ function streamRegistryKey(webContentsId: number, streamId: string): string {
  * via a base-URL override, so the override can't smuggle an SSRF.
  */
 async function buildSafeFetcher(provider: Provider, baseUrlOverride?: string): Promise<Fetcher> {
-  return makePinnedFetcher(resolveBaseUrl(provider, baseUrlOverride), {
+  const baseUrl = resolveBaseUrl(provider, baseUrlOverride);
+  assertManagedAiAllowed(provider, baseUrl);
+  return makePinnedFetcher(baseUrl, {
     allowLocalhost: isLocalProvider(provider),
   });
 }

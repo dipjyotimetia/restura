@@ -226,6 +226,9 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
 
+      - name: Audit production dependencies
+        run: npm run dependency:audit
+
       - name: Validate application
         env:
           ELECTRON_OVERRIDE_DIST_PATH: /tmp

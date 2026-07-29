@@ -73,7 +73,14 @@ production or exposed beyond your local machine.
 
 The container is **stateless**. All user data (collections, environments,
 history, settings) lives in IndexedDB in the browser — nothing is persisted
-on the server side.
+on the server side. IndexedDB is plaintext application data protected by the
+browser profile and same-origin boundary; use managed endpoints with encrypted
+disks and controlled browser profiles for sensitive enterprise data.
+
+Self-hosting provides a shared network proxy endpoint, not a shared Restura
+workspace. It has no application accounts, SSO, RBAC, central audit log, or
+server-side collection synchronization. Put an enterprise identity-aware
+reverse proxy in front when access control is required.
 
 The self-hosted server collects **no usage analytics** — Restura runs no
 application-level usage instrumentation anywhere (see
@@ -91,7 +98,7 @@ reports.
 | `WORKER_PROXY_TOKEN` | Yes¹            | _(unset → 503)_             | Shared secret. SPA sends it in `X-Restura-Proxy-Token`.                                      |
 | `REQUIRE_CF_ACCESS`  | Yes¹            | `false`                     | Trust a reverse-proxy `Cf-Access-Authenticated-User-Email` header instead of a Bearer token. |
 | `ENVIRONMENT`        | No              | `production`                | Anything other than `development` enforces full auth + SSRF.                                 |
-| `ALLOWED_ORIGIN`     | No              | _(echo request Origin)_     | Comma-separated CORS allow-list. Supports `*` inside hostnames.                              |
+| `ALLOWED_ORIGIN`     | No              | _(same-origin host)_        | Comma-separated CORS allow-list for additional origins. Supports `*` inside hostnames.       |
 | `ALLOW_PRIVATE_IPS`  | No              | `false`                     | Permit RFC 1918 / link-local / CGNAT upstreams. See _Internal-network access_ below.         |
 | `RATE_LIMITER`       | No              | `map`                       | Always `map` in self-hosted (per-process limiter).                                           |
 | `PORT` / `HOST`      | No              | `3000` / `0.0.0.0`          | Bind address inside the container.                                                           |
@@ -330,6 +337,7 @@ effect.
 
 - **Distributed rate limiting** — single-replica or load-balancer rate-limit only.
 - **Server-side persistence** — no shared collections / shared workspaces; storage is browser-local.
+- **Application identity and governance** — no built-in SSO, RBAC, or central audit log.
 - **Helm chart** — drop the Dockerfile into your existing Helm/K8s tooling.
 - **mTLS for upstreams** — Electron-only; not exposed in the web build.
 
