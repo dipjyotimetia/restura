@@ -25,9 +25,9 @@ const SERVER_INFO = { name: 'restura-mock-mcp-v2', version: '2.0.0' };
  * `server/discover`, cache hints, and subscription streams.
  */
 export async function startMockMcpV2Server(
-  opts: { port?: number } = {}
+  opts: { port?: number; legacy?: 'stateless' | 'reject' } = {}
 ): Promise<MockMcpV2ServerHandle> {
-  const handler = createMcpHandler(({ era }) => {
+  const buildServer: Parameters<typeof createMcpHandler>[0] = ({ era }) => {
     const mcp = new McpServer(SERVER_INFO, {
       cacheHints: { 'tools/list': { ttlMs: 1_000, cacheScope: 'private' } },
     });
@@ -42,7 +42,10 @@ export async function startMockMcpV2Server(
     );
     mcp.registerTool(
       'add',
-      { description: 'Adds two numbers', inputSchema: z.object({ a: z.number(), b: z.number() }) },
+      {
+        description: 'Adds two numbers',
+        inputSchema: z.object({ a: z.number(), b: z.number() }),
+      },
       async ({ a, b }) => ({ content: [{ type: 'text', text: String(a + b) }] })
     );
     mcp.registerTool(
@@ -137,7 +140,8 @@ export async function startMockMcpV2Server(
       })
     );
     return mcp;
-  });
+  };
+  const handler = createMcpHandler(buildServer, opts.legacy ? { legacy: opts.legacy } : undefined);
   const nodeHandler = toNodeHandler(handler);
   const server: Server = createServer((req, res) => {
     applyCors(res, {

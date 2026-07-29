@@ -1,4 +1,3 @@
-import { LATEST_PROTOCOL_VERSION, McpError } from '@modelcontextprotocol/sdk/types.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as IpcUtils from '../ipc/ipc-utils';
 
@@ -22,17 +21,16 @@ vi.mock('../security/safe-connect', () => ({
   createPinnedFetch: mockCreatePinnedFetch,
 }));
 
-// SDK mocks: classes so the handler's `instanceof` branches work. The real
-// types.js module is used (McpError / ResultSchema / LATEST_PROTOCOL_VERSION).
+// SDK mocks: classes so the handler's `instanceof` branches work.
 const sdkState = vi.hoisted(() => ({
   clients: [] as MockClientShape[],
   streamables: [] as Array<{ url: URL; opts: Record<string, unknown> }>,
   sses: [] as Array<{ url: URL; opts: Record<string, unknown> }>,
   v2Clients: [] as MockClientShape[],
-  v1Clients: [] as MockClientShape[],
   v2Streamables: [] as Array<{ url: URL; opts: Record<string, unknown> }>,
   v2Sses: [] as Array<{ url: URL; opts: Record<string, unknown> }>,
   nextConnectError: undefined as Error | undefined,
+  negotiatedProtocolVersion: '2026-07-28',
   // When true, the next connect() fires the client's onclose mid-handshake
   // (server closed during initialize) to exercise the connect-time race guard.
   fireCloseOnConnect: false,
@@ -65,75 +63,9 @@ interface MockClientShape {
   callTool: ReturnType<typeof vi.fn>;
   getServerCapabilities: ReturnType<typeof vi.fn>;
   getServerVersion: ReturnType<typeof vi.fn>;
+  getNegotiatedProtocolVersion: ReturnType<typeof vi.fn>;
 }
 
-vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
-  Client: class {
-    info: unknown;
-    fallbackNotificationHandler?: (n: unknown) => Promise<void>;
-    onclose?: () => void;
-    onerror?: (err: Error) => void;
-    connect = vi.fn(async () => {
-      const gate = sdkState.connectGates.shift();
-      if (gate) await gate;
-      if (sdkState.nextConnectError) {
-        const err = sdkState.nextConnectError;
-        sdkState.nextConnectError = undefined;
-        throw err;
-      }
-      if (sdkState.fireCloseOnConnect) {
-        sdkState.fireCloseOnConnect = false;
-        // Transport closed during the handshake — fires before the session is
-        // registered, so onclose's `sessions.get(...) === session` guard is false.
-        this.onclose?.();
-      }
-      return undefined;
-    });
-    close = vi.fn(async () => undefined);
-    request = vi.fn(async () => ({}));
-    notification = vi.fn(async () => undefined);
-    listTools = vi.fn(async () => ({ tools: [] }));
-    listResources = vi.fn(async () => ({ resources: [] }));
-    listResourceTemplates = vi.fn(async () => ({ resourceTemplates: [] }));
-    listPrompts = vi.fn(async () => ({ prompts: [] }));
-    readResource = vi.fn(async () => ({ contents: [] }));
-    getPrompt = vi.fn(async () => ({ messages: [] }));
-    callTool = vi.fn(async () => ({ content: [] }));
-    getServerCapabilities = vi.fn(() => ({ tools: {} }));
-    getServerVersion = vi.fn(() => ({ name: 'mock-server', version: '9.9.9' }));
-    constructor(info: unknown) {
-      this.info = info;
-      sdkState.clients.push(this as unknown as MockClientShape);
-      sdkState.v1Clients.push(this as unknown as MockClientShape);
-    }
-  },
-}));
-vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
-  StreamableHTTPClientTransport: class {
-    url: URL;
-    opts: Record<string, unknown>;
-    terminateSession = vi.fn(async () => undefined);
-    get protocolVersion(): string {
-      return '2025-03-26';
-    }
-    constructor(url: URL, opts: Record<string, unknown>) {
-      this.url = url;
-      this.opts = opts;
-      sdkState.streamables.push(this);
-    }
-  },
-}));
-vi.mock('@modelcontextprotocol/sdk/client/sse.js', () => ({
-  SSEClientTransport: class {
-    url: URL;
-    opts: Record<string, unknown>;
-    constructor(url: URL, opts: Record<string, unknown>) {
-      this.url = url;
-      this.opts = opts;
-      sdkState.sses.push(this);
-    }
-  },
-}));
 vi.mock('@modelcontextprotocol/client', () => ({
   Client: class {
     fallbackNotificationHandler?: (n: unknown) => Promise<void>;
@@ -164,6 +96,7 @@ vi.mock('@modelcontextprotocol/client', () => ({
     callTool = vi.fn(async () => ({ content: [] }));
     getServerCapabilities = vi.fn(() => ({ tools: {} }));
     getServerVersion = vi.fn(() => ({ name: 'mock-server', version: '9.9.9' }));
+    getNegotiatedProtocolVersion = vi.fn(() => sdkState.negotiatedProtocolVersion);
     getProtocolEra = vi.fn(() => 'modern');
     constructor() {
       const client = this as unknown as MockClientShape;
@@ -267,10 +200,10 @@ describe('mcp-handler (SDK-backed)', () => {
     sdkState.streamables.length = 0;
     sdkState.sses.length = 0;
     sdkState.v2Clients.length = 0;
-    sdkState.v1Clients.length = 0;
     sdkState.v2Streamables.length = 0;
     sdkState.v2Sses.length = 0;
     sdkState.nextConnectError = undefined;
+    sdkState.negotiatedProtocolVersion = '2026-07-28';
     sdkState.fireCloseOnConnect = false;
     sdkState.connectGates.length = 0;
     registerMcpHandlerIPC();
@@ -309,11 +242,10 @@ describe('mcp-handler (SDK-backed)', () => {
     expect(mockEmitTo).toHaveBeenCalledWith(1, 'mcp:open:conn-1');
   });
 
-  it('prefers the v2 SDK client for a new MCP connection', async () => {
+  it('constructs one v2 SDK client for a new MCP connection', async () => {
     await expect(connect()).resolves.toEqual({ success: true });
 
     expect(sdkState.v2Clients).toHaveLength(1);
-    expect(sdkState.v1Clients).toHaveLength(0);
   });
 
   it('uses SSEClientTransport for the legacy http-sse transport', async () => {
@@ -405,24 +337,6 @@ describe('mcp-handler (SDK-backed)', () => {
     expect(res.success).toBe(true);
     expect(res.result).toEqual({ tools: [{ name: 'echo' }] });
     expect(client.listTools).toHaveBeenCalledWith({ cursor: 'abc' }, { timeout: 5000 });
-    expect(client.request).not.toHaveBeenCalled();
-  });
-
-  it('uses the v1 SDK catalogue API with its native timeout option after compatibility fallback', async () => {
-    sdkState.nextConnectError = Object.assign(new Error('Unsupported protocol'), { code: -32601 });
-    await expect(connect()).resolves.toEqual({ success: true });
-    const client = sdkState.v1Clients[0]!;
-    client.listTools.mockResolvedValueOnce({ tools: [{ name: 'legacy-echo' }] });
-
-    const res = await handlerFor('mcp:request')(trustedEvent(), {
-      connectionId: 'conn-1',
-      method: 'tools/list',
-      params: { cursor: 'legacy' },
-      timeout: 5000,
-    });
-
-    expect(res).toEqual({ success: true, result: { tools: [{ name: 'legacy-echo' }] } });
-    expect(client.listTools).toHaveBeenCalledWith({ cursor: 'legacy' }, { timeout: 5000 });
     expect(client.request).not.toHaveBeenCalled();
   });
 
@@ -718,21 +632,22 @@ describe('mcp-handler (SDK-backed)', () => {
     });
   });
 
-  it('initialize over http-sse falls back to the latest protocol version', async () => {
+  it('synthesizes the negotiated legacy protocol version over http-sse', async () => {
+    sdkState.negotiatedProtocolVersion = '2025-11-25';
     await connect({ transport: 'http-sse' });
     const res = await handlerFor('mcp:request')(trustedEvent(), {
       connectionId: 'conn-1',
       method: 'initialize',
     });
-    expect((res.result as { protocolVersion: string }).protocolVersion).toBe(
-      LATEST_PROTOCOL_VERSION
-    );
+    expect((res.result as { protocolVersion: string }).protocolVersion).toBe('2025-11-25');
   });
 
-  it('maps McpError to a jsonRpcError payload', async () => {
+  it('maps protocol errors to a jsonRpcError payload', async () => {
     await connect();
     const client = sdkState.clients[0]!;
-    client.request.mockRejectedValueOnce(new McpError(-32601, 'Method not found', { hint: 'x' }));
+    client.request.mockRejectedValueOnce(
+      Object.assign(new Error('Method not found'), { code: -32601, data: { hint: 'x' } })
+    );
 
     const res = await handlerFor('mcp:request')(trustedEvent(), {
       connectionId: 'conn-1',

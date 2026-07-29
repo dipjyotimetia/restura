@@ -45,28 +45,23 @@ function generateTypeScriptSdk(opts: McpGenerateOptions): string {
   const params =
     opts.params ??
     (opts.request.defaultParams ? JSON.parse(opts.request.defaultParams) : undefined);
-  // The transport class to import depends on the chosen MCP transport
   const transportClass =
     opts.request.transport === 'http-sse' ? 'SSEClientTransport' : 'StreamableHTTPClientTransport';
-  const transportImport =
-    opts.request.transport === 'http-sse'
-      ? '@modelcontextprotocol/sdk/client/sse.js'
-      : '@modelcontextprotocol/sdk/client/streamableHttp.js';
-  return `// npm i @modelcontextprotocol/sdk
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { ${transportClass} } from '${transportImport}';
+  return `// npm i @modelcontextprotocol/client zod
+import { Client, ${transportClass} } from '@modelcontextprotocol/client';
+import { z } from 'zod';
 
 const transport = new ${transportClass}(new URL(${JSON.stringify(opts.request.url)}));
 const client = new Client(
   { name: 'restura-generated', version: '1.0.0' },
-  { capabilities: {} }
+  { capabilities: {}, versionNegotiation: { mode: 'auto' } }
 );
 
 await client.connect(transport);
 
 const result = await client.request(
   { method: ${JSON.stringify(method)}${params !== undefined ? `, params: ${JSON.stringify(params)}` : ''} },
-  { /* result schema */ } as any
+  z.unknown()
 );
 console.log(result);
 
@@ -76,7 +71,7 @@ await client.close();`;
 export const mcpCodeGenerators = {
   curl: { name: 'cURL (raw JSON-RPC)', generate: generateCurl },
   typescriptSdk: {
-    name: 'TypeScript (@modelcontextprotocol/sdk)',
+    name: 'TypeScript (@modelcontextprotocol/client)',
     generate: generateTypeScriptSdk,
   },
 };
