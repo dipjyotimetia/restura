@@ -3,6 +3,7 @@ import {
   applyManagedTransportPolicy,
   configureManagedDesktopSessions,
   createEnterpriseProxyAgent,
+  createEnterpriseProxyAuthorizationLookup,
   createManagedCertificateVerifyProc,
   enterpriseProxyAuthorization,
   managedProxyChallengeResponse,
@@ -103,7 +104,7 @@ describe('enterprise network service', () => {
     expect(updater.setProxy).toHaveBeenCalledWith(expected);
     expect(application.setSSLConfig).toHaveBeenCalledWith({ minVersion: 'tls1.2' });
     expect(updater.setSSLConfig).toHaveBeenCalledWith({ minVersion: 'tls1.2' });
-    expect(application.allowNTLMCredentialsForDomains).toHaveBeenCalledWith('*.corp.example');
+    expect(application.allowNTLMCredentialsForDomains).toHaveBeenCalledWith('');
     expect(updater.allowNTLMCredentialsForDomains).toHaveBeenCalledWith('*.corp.example');
     expect(application.setCertificateVerifyProc).toHaveBeenCalledWith(expect.any(Function));
     expect(updater.setCertificateVerifyProc).toHaveBeenCalledWith(expect.any(Function));
@@ -178,6 +179,26 @@ describe('enterprise network service', () => {
     });
   });
 
+  it('retains ordered PAC fallbacks and treats SOCKS as SOCKS5', async () => {
+    const policy = managed({ mode: 'pac', requireProxy: false });
+    const electronSession = {
+      setProxy: vi.fn(),
+      resolveProxy: vi
+        .fn()
+        .mockResolvedValue(
+          'PROXY primary.corp.example:8080; SOCKS backup.corp.example:1080; DIRECT'
+        ),
+    };
+
+    await expect(
+      resolveManagedProxyForUrl('https://api.example.test', electronSession, policy)
+    ).resolves.toMatchObject({
+      type: 'http',
+      host: 'primary.corp.example',
+      resolution: 'PROXY primary.corp.example:8080; SOCKS backup.corp.example:1080; DIRECT',
+    });
+  });
+
   it('forces certificate verification, minimum TLS, and managed CA trust', () => {
     const resolved = applyManagedTransportPolicy(
       {
@@ -240,6 +261,29 @@ describe('enterprise network service', () => {
       process.platform === 'win32' ? 'HTTP/proxy.corp.example' : 'HTTP@proxy.corp.example'
     );
     expect(step).toHaveBeenCalledWith('');
+  });
+
+  it('advances one Kerberos client across repeated proxy challenges', async () => {
+    const policy = managed({
+      proxyAuthentication: {
+        basic: [],
+        integratedDomains: ['proxy.corp.example'],
+      },
+    });
+    const step = vi.fn().mockResolvedValueOnce('initial-token').mockResolvedValueOnce('next-token');
+    const initializeClient = vi.fn().mockResolvedValue({ step });
+    const lookup = createEnterpriseProxyAuthorizationLookup(policy, {}, initializeClient);
+    const state = {};
+
+    await expect(lookup('http://proxy.corp.example:8080', undefined, state)).resolves.toBe(
+      'Negotiate initial-token'
+    );
+    await expect(
+      lookup('http://proxy.corp.example:8080', 'Negotiate server-token', state)
+    ).resolves.toBe('Negotiate next-token');
+    expect(initializeClient).toHaveBeenCalledTimes(1);
+    expect(step).toHaveBeenNthCalledWith(1, '');
+    expect(step).toHaveBeenNthCalledWith(2, 'server-token');
   });
 
   it('does not access the OS credential cache for an unmarked proxy', async () => {

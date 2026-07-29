@@ -95,7 +95,7 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: false,
     desktop: false,
     notes:
-      'Not wired end-to-end: the renderer ProxyType cannot emit a PAC proxy and the PAC script is never loaded via session.setProxy — only handler scaffolding exists. Marked unsupported until the renderer + setProxy path land.',
+      'User-selectable PAC remains unavailable in the renderer; administrators can enforce PAC end-to-end through protected desktop enterprise policy.',
   },
   'http.mtls': {
     label: 'mTLS client certificates',

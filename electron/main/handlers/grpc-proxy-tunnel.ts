@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import type { Socket } from 'node:net';
 import { Duplex } from 'node:stream';
 import { createEnterpriseProxyAgent } from '../security/enterprise-network';
+import { getManagedEnterprisePolicy } from '../security/managed-enterprise-policy';
 import { buildTlsClientMaterial } from '../security/tls-material';
 import type { GrpcTlsConfig } from './grpc-credentials';
 
@@ -72,7 +73,7 @@ class DeferredProxyDuplex extends Duplex {
 export function createGrpcProxyTunnel(url: string, tls: GrpcTlsConfig): Duplex {
   const proxy = tls.proxy;
   if (!proxy || !proxy.enabled) throw new Error('Managed gRPC proxy is unavailable');
-  if (proxy.type !== 'http' && proxy.type !== 'https') {
+  if (proxy.type !== 'http' && proxy.type !== 'https' && !proxy.resolution) {
     throw new Error(`Managed ${proxy.type.toUpperCase()} proxy is unsupported for gRPC`);
   }
   const parsed = new URL(url);
@@ -84,7 +85,7 @@ export function createGrpcProxyTunnel(url: string, tls: GrpcTlsConfig): Duplex {
   request.once('proxyConnect', (response: { statusCode: number }) => {
     proxyStatus = response.statusCode;
   });
-  void createEnterpriseProxyAgent(proxy, tls)
+  void createEnterpriseProxyAgent(proxy, tls, getManagedEnterprisePolicy())
     .then((agent) =>
       agent.connect(request as never, {
         host: parsed.hostname,
@@ -102,7 +103,7 @@ export function createGrpcProxyTunnel(url: string, tls: GrpcTlsConfig): Duplex {
         socket.destroy();
         throw new Error(`Managed proxy CONNECT failed with status ${proxyStatus ?? 'unknown'}`);
       }
-      deferred.attach(socket);
+      deferred.attach(socket as Socket);
     })
     .catch((error) => deferred.destroy(error instanceof Error ? error : new Error(String(error))));
   return deferred;

@@ -29,52 +29,16 @@ import {
 import { GrpcStatusCodeName } from '@shared/protocol/grpc-status';
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
-import { resolveUrlHostnameSafe } from '../security/dns-guard';
-import { getExecutionPolicy } from '../security/execution-policy';
 import { buildTlsClientMaterial } from '../security/tls-material';
 import type { GrpcTlsConfig } from './grpc-credentials';
+import type { PinnedDial } from './grpc-dial';
 import { createGrpcProxyTunnel } from './grpc-proxy-tunnel';
 
-// gRPC URL schemes the SSRF guard accepts (renderer + reflection emit grpc://).
-const GRPC_ALLOWED_SCHEMES = ['http:', 'https:', 'grpc:', 'grpcs:'];
-
-/** A DNS-validated, pinned dial target. */
-export interface PinnedDial {
-  ip: string;
-  port: number;
-  family: 4 | 6;
-}
-
-/**
- * SSRF pre-flight: resolve + validate the hostname and return a pinned dial (IP
- * literal + port). Dialing this pinned IP (via buildConnectTransport's
- * nodeOptions.lookup) closes the TTL=0 DNS-rebind window. `url` must carry a
- * scheme. See docs/adr/0006-electron-connection-and-dns-hardening.md.
- */
-export async function resolveGrpcDialAddress(url: string): Promise<PinnedDial> {
-  const records = await resolveUrlHostnameSafe(url, {
-    ...getExecutionPolicy().security,
-    allowedSchemes: GRPC_ALLOWED_SCHEMES,
-  });
-  const chosen = records[0];
-  if (!chosen) throw new Error(`DNS resolution returned no records for ${new URL(url).hostname}`);
-  const parsed = new URL(url);
-  const useTls = url.startsWith('https://') || url.startsWith('grpcs://');
-  const port = parsed.port ? parseInt(parsed.port, 10) : useTls ? 443 : 80;
-  return { ip: chosen.address, port, family: chosen.family === 6 ? 6 : 4 };
-}
-
-/** Dial metadata for a CONNECT route where the managed proxy resolves the target hostname. */
-export function unresolvedGrpcProxyDialAddress(url: string): PinnedDial {
-  const parsed = new URL(url);
-  const useTls = parsed.protocol === 'https:' || parsed.protocol === 'grpcs:';
-  return {
-    // `createGrpcProxyTunnel` owns the socket; this sentinel is never dialled.
-    ip: '0.0.0.0',
-    port: parsed.port ? Number(parsed.port) : useTls ? 443 : 80,
-    family: 4,
-  };
-}
+export {
+  type PinnedDial,
+  resolveGrpcDialAddress,
+  unresolvedGrpcProxyDialAddress,
+} from './grpc-dial';
 
 /** Result shape compatible with the grpc-handler GrpcResponse (sans `messages`). */
 export interface ConnectCallResult {

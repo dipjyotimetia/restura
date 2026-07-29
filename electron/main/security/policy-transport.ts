@@ -1,10 +1,8 @@
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
+import { Readable } from 'node:stream';
 import { selectCertForUrl } from '@shared/protocol/cert-matcher';
-import { ProxyAgent, type RequestInit as UndiciRequestInit, fetch as undiciFetch } from 'undici';
-import {
-  applyManagedTransportPolicy,
-  enterpriseProxyAuthorization,
-  proxyServerUrl,
-} from './enterprise-network';
+import { applyManagedTransportPolicy, createEnterpriseProxyAgent } from './enterprise-network';
 import { assertExecutionPolicyReady, getExecutionPolicy } from './execution-policy';
 import {
   getManagedCaCertificateBundle,
@@ -21,6 +19,7 @@ export interface PolicyTransportProxy {
   port: number;
   auth?: { username: string; password: unknown };
   integratedAuth?: true;
+  resolution?: string;
 }
 
 export interface PolicyTransportConfig {
@@ -85,7 +84,7 @@ export function assertPinnedFetchCanHonorPolicy(config: PolicyTransportConfig): 
   if (
     config.proxy?.enabled &&
     config.proxy.type !== 'none' &&
-    (!managed || !['http', 'https'].includes(config.proxy.type))
+    (!managed || (!['http', 'https'].includes(config.proxy.type) && !config.proxy.resolution))
   ) {
     throw new Error(
       `Configured ${config.proxy.type.toUpperCase()} proxy cannot be honored by this DNS-pinned connection`
@@ -93,39 +92,71 @@ export function assertPinnedFetchCanHonorPolicy(config: PolicyTransportConfig): 
   }
 }
 
-function closeDispatcherAfterBody(response: Response, dispatcher: ProxyAgent): Response {
-  if (!response.body) {
-    void dispatcher.close();
-    return response;
-  }
-  const reader = response.body.getReader();
-  const body = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const chunk = await reader.read();
-        if (chunk.done) {
-          controller.close();
-          void dispatcher.close();
-        } else {
-          controller.enqueue(chunk.value);
+async function requestBodyBuffer(body: BodyInit | null | undefined): Promise<Buffer | undefined> {
+  if (body == null) return undefined;
+  if (typeof body === 'string') return Buffer.from(body);
+  if (body instanceof URLSearchParams) return Buffer.from(body.toString());
+  if (body instanceof ArrayBuffer) return Buffer.from(body);
+  if (ArrayBuffer.isView(body)) return Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+  return Buffer.from(await new Response(body).arrayBuffer());
+}
+
+async function fetchThroughEnterpriseProxy(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  config: PolicyTransportConfig
+): Promise<Response> {
+  const url =
+    typeof input === 'string' ? new URL(input) : input instanceof URL ? input : new URL(input.url);
+  const managed = getManagedEnterprisePolicy();
+  const agent = await createEnterpriseProxyAgent(config.proxy!, config, managed);
+  const body = await requestBodyBuffer(init?.body);
+  return new Promise<Response>((resolve, reject) => {
+    const request = (url.protocol === 'https:' ? httpsRequest : httpRequest)(
+      url,
+      {
+        method: init?.method,
+        headers: init?.headers as Record<string, string>,
+        agent,
+        signal: init?.signal ?? undefined,
+        rejectUnauthorized: config.verifySsl,
+        ...buildTlsClientMaterial(config),
+        ...(config.serverCipherOrder ? { honorCipherOrder: true } : {}),
+        ...(config.minTlsVersion ? { minVersion: config.minTlsVersion } : {}),
+        ...(config.cipherSuites ? { ciphers: config.cipherSuites } : {}),
+      },
+      (incoming) => {
+        const headers = new Headers();
+        for (const [header, value] of Object.entries(incoming.headers)) {
+          if (Array.isArray(value)) {
+            for (const item of value) headers.append(header, item);
+          } else if (value !== undefined) {
+            headers.set(header, value);
+          }
         }
-      } catch (error) {
-        controller.error(error);
-        dispatcher.destroy(error instanceof Error ? error : new Error(String(error)));
+        const noBody =
+          init?.method === 'HEAD' ||
+          incoming.statusCode === 204 ||
+          incoming.statusCode === 205 ||
+          incoming.statusCode === 304;
+        const cleanup = () => agent.destroy();
+        incoming.once('end', cleanup);
+        incoming.once('close', cleanup);
+        resolve(
+          new Response(noBody ? null : (Readable.toWeb(incoming) as ReadableStream<Uint8Array>), {
+            status: incoming.statusCode ?? 500,
+            statusText: incoming.statusMessage,
+            headers,
+          })
+        );
       }
-    },
-    async cancel(reason) {
-      try {
-        await reader.cancel(reason);
-      } finally {
-        void dispatcher.close();
-      }
-    },
-  });
-  return new Response(body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
+    );
+    request.once('error', (error) => {
+      agent.destroy();
+      reject(error);
+    });
+    if (body) request.end(body);
+    else request.end();
   });
 }
 
@@ -135,44 +166,12 @@ export function createPolicyPinnedFetch(
   pinned?: SafeAddress
 ): typeof globalThis.fetch {
   assertPinnedFetchCanHonorPolicy(config);
-  if (config.proxy?.enabled && ['http', 'https'].includes(config.proxy.type)) {
-    return (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const proxyOptions: ProxyAgent.Options = {
-        uri: proxyServerUrl({
-          type: config.proxy!.type,
-          host: config.proxy!.host,
-          port: config.proxy!.port,
-        }),
-        requestTls: {
-          rejectUnauthorized: config.verifySsl,
-          ...buildTlsClientMaterial(config),
-          ...(config.serverCipherOrder ? { honorCipherOrder: true } : {}),
-          ...(config.minTlsVersion ? { minVersion: config.minTlsVersion } : {}),
-          ...(config.cipherSuites ? { ciphers: config.cipherSuites } : {}),
-        },
-        proxyTls: {
-          rejectUnauthorized: config.verifySsl,
-          ...(config.caCert?.pem ? { ca: config.caCert.pem } : {}),
-          ...(config.minTlsVersion ? { minVersion: config.minTlsVersion } : {}),
-        },
-      };
-      const authorization = await enterpriseProxyAuthorization(config.proxy!);
-      if (authorization) proxyOptions.token = authorization;
-      const dispatcher = new ProxyAgent(proxyOptions);
-      try {
-        const response = (await undiciFetch(
-          input as Parameters<typeof undiciFetch>[0],
-          {
-            ...(init as UndiciRequestInit | undefined),
-            dispatcher,
-          } as UndiciRequestInit
-        )) as unknown as Response;
-        return closeDispatcherAfterBody(response, dispatcher);
-      } catch (error) {
-        dispatcher.destroy(error instanceof Error ? error : new Error(String(error)));
-        throw error;
-      }
-    }) as typeof globalThis.fetch;
+  if (
+    config.proxy?.enabled &&
+    (['http', 'https'].includes(config.proxy.type) || config.proxy.resolution)
+  ) {
+    return ((input: RequestInfo | URL, init?: RequestInit) =>
+      fetchThroughEnterpriseProxy(input, init, config)) as typeof globalThis.fetch;
   }
   if (!pinned) {
     throw new Error('A DNS-pinned address is required for a direct managed connection');

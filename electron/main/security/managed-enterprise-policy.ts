@@ -242,7 +242,7 @@ function isWindowsFileAdminControlled(filePath: string): boolean {
     '$acl = Get-Acl -LiteralPath $args[0]',
     '$ownerSid = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value',
     "if (@('S-1-5-18', 'S-1-5-32-544') -notcontains $ownerSid) { exit 2 }",
-    "$unsafe = $acl.Access | Where-Object { $sid = $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value; $_.AccessControlType -eq 'Allow' -and @('S-1-1-0', 'S-1-5-11', 'S-1-5-32-545') -contains $sid -and $_.FileSystemRights.ToString() -match 'Write|Modify|FullControl|Create|Delete|TakeOwnership|ChangePermissions' }",
+    "$unsafe = $acl.Access | Where-Object { $sid = $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value; $_.AccessControlType -eq 'Allow' -and @('S-1-5-18', 'S-1-5-32-544') -notcontains $sid -and $_.FileSystemRights.ToString() -match 'Write|Modify|FullControl|Create|Delete|TakeOwnership|ChangePermissions' }",
     'if ($unsafe) { exit 3 }',
   ].join('; ');
   try {

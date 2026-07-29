@@ -116,6 +116,52 @@ export async function assertManagedUpdaterProxyRoute(
   }
 }
 
+/**
+ * Re-resolve every updater request through managed PAC/system policy and keep
+ * environment-backed feed secrets on the administrator-selected origin.
+ * Redirects to a CDN remain possible, but never inherit privileged headers.
+ */
+export function configureManagedUpdaterRequestBoundary(
+  updaterSession: EnterpriseSessionProxy,
+  managed: ManagedPolicyLoadResult = getManagedEnterprisePolicy()
+): void {
+  if (
+    managed.status.state !== 'managed' ||
+    !managed.policy ||
+    managed.policy.updates.mode === 'disabled'
+  ) {
+    return;
+  }
+  const webRequest = updaterSession.webRequest;
+  if (!webRequest) {
+    throw new Error('Managed updater session cannot enforce per-request network policy');
+  }
+  const feedOrigin = new URL(managed.policy.updates.feedUrl!).origin;
+  const protectedHeaders = new Set(
+    Object.keys(managed.policy.updates.requestHeaderEnv).map((header) => header.toLowerCase())
+  );
+  const filter = { urls: ['http://*/*', 'https://*/*'] };
+
+  webRequest.onBeforeRequest(filter, (details, callback) => {
+    void resolveManagedProxyForUrl(details.url, updaterSession, managed).then(
+      () => callback({}),
+      () => callback({ cancel: true })
+    );
+  });
+  webRequest.onBeforeSendHeaders(filter, (details, callback) => {
+    if (new URL(details.url).origin === feedOrigin || protectedHeaders.size === 0) {
+      callback({ requestHeaders: details.requestHeaders });
+      return;
+    }
+    const requestHeaders = Object.fromEntries(
+      Object.entries(details.requestHeaders).filter(
+        ([header]) => !protectedHeaders.has(header.toLowerCase())
+      )
+    );
+    callback({ requestHeaders });
+  });
+}
+
 async function checkForUpdatesThroughManagedProxy(): Promise<UpdateCheckResult | null> {
   await assertManagedUpdaterProxyRoute();
   return autoUpdater.checkForUpdates();

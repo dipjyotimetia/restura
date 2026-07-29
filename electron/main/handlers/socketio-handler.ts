@@ -230,8 +230,14 @@ export function registerSocketIoHandlerIPC(): void {
         const tlsMaterial = buildTlsClientMaterial(policyConfig);
         const agent =
           policyConfig.proxy?.enabled &&
-          (policyConfig.proxy.type === 'http' || policyConfig.proxy.type === 'https')
-            ? await createEnterpriseProxyAgent(policyConfig.proxy, policyConfig)
+          (policyConfig.proxy.type === 'http' ||
+            policyConfig.proxy.type === 'https' ||
+            policyConfig.proxy.resolution)
+            ? await createEnterpriseProxyAgent(
+                policyConfig.proxy,
+                policyConfig,
+                getManagedEnterprisePolicy()
+              )
             : secure
               ? new HttpsAgent({ lookup: lookup!, ...tlsMaterial })
               : new HttpAgent({ lookup: lookup! });

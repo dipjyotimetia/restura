@@ -7,7 +7,11 @@ import {
   getManagedEnterprisePolicy,
   type ManagedPolicyLoadResult,
 } from '../security/managed-enterprise-policy';
-import { applyManagedUpdaterPolicy, type ManagedUpdaterTarget } from './auto-updater';
+import {
+  applyManagedUpdaterPolicy,
+  configureManagedUpdaterRequestBoundary,
+  type ManagedUpdaterTarget,
+} from './auto-updater';
 
 export interface ManagedConnectivityTargets {
   applicationSession: EnterpriseSessionProxy;
@@ -55,5 +59,8 @@ export async function applyManagedDesktopConnectivity(
     managedCaBundle
   );
   const updater = applyManagedUpdaterPolicy(targets.updater, policy, options.env);
+  if (updater.enabled && updater.managed) {
+    configureManagedUpdaterRequestBoundary(targets.updaterSession, policy);
+  }
   return { managed: updater.managed, updatesEnabled: updater.enabled };
 }

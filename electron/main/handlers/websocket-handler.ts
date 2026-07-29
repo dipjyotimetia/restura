@@ -180,8 +180,14 @@ export function registerWebSocketHandlerIPC(): void {
         let explicitlyClosed = false;
         const proxyAgent =
           policyConfig.proxy?.enabled &&
-          (policyConfig.proxy.type === 'http' || policyConfig.proxy.type === 'https')
-            ? await createEnterpriseProxyAgent(policyConfig.proxy, policyConfig)
+          (policyConfig.proxy.type === 'http' ||
+            policyConfig.proxy.type === 'https' ||
+            policyConfig.proxy.resolution)
+            ? await createEnterpriseProxyAgent(
+                policyConfig.proxy,
+                policyConfig,
+                getManagedEnterprisePolicy()
+              )
             : undefined;
 
         const ws = new WebSocket(config.url, config.protocols ?? [], {

@@ -58,6 +58,10 @@ describe('managed desktop connectivity integration', () => {
     const updaterSession = {
       setProxy: vi.fn().mockResolvedValue(undefined),
       resolveProxy: vi.fn().mockResolvedValue('HTTPS proxy.corp.example:8443'),
+      webRequest: {
+        onBeforeRequest: vi.fn(),
+        onBeforeSendHeaders: vi.fn(),
+      },
     };
     const updater = updaterStub();
 

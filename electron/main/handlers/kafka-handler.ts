@@ -33,6 +33,7 @@ import {
   type KafkaProducerEntry,
   registerKafkaProducerHandlers,
 } from './kafka/producer-handlers';
+import { managedSchemaRegistryAgent } from './kafka-schema-registry-network';
 import { decodeDisplayField } from './kafka-serde';
 
 const log = createLogger('kafka');
@@ -43,11 +44,9 @@ type Message<K, V, HK, HV> = KafkaLib.Message<K, V, HK, HV>;
 type MessagesStream<K, V, HK, HV> = KafkaLib.MessagesStream<K, V, HK, HV>;
 type ProducerOptions<K, V, HK, HV> = KafkaLib.ProducerOptions<K, V, HK, HV>;
 type TopicWithPartitionAndOffset = KafkaLib.TopicWithPartitionAndOffset;
-// Keep the heavy Kafka package lazy so it does not delay window creation.
 let _kafka: typeof KafkaLib | undefined;
 const getKafka = (): typeof KafkaLib => (_kafka ??= require('@platformatic/kafka'));
 
-/** Test seam for the lazy bare require. */
 export function __setKafkaForTests(lib: typeof KafkaLib | undefined): void {
   _kafka = lib;
 }
@@ -379,12 +378,13 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         const clientOptions = buildClientOptions(cfg);
         const kafka = getKafka();
 
-        // Registry encodes/decodes both fields; IPC accepts HTTP Basic only.
         let registry: SchemaRegistry | undefined;
         if (cfg.registry) {
           const auth = cfg.registry.auth;
+          const agent = await managedSchemaRegistryAgent(cfg.registry.url);
           registry = new (getSchemaRegistryLib().SchemaRegistry)({
             host: cfg.registry.url,
+            ...(agent ? { agent } : {}),
             ...(auth?.username
               ? { auth: { username: auth.username, password: auth.password ?? '' } }
               : {}),

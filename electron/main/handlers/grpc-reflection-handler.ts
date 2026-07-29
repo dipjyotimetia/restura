@@ -63,7 +63,7 @@ async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawRe
       ? undefined
       : await resolveManagedProxyForUrl(proxyTarget.toString(), session.defaultSession, managed);
   const dial =
-    proxy?.type === 'http' || proxy?.type === 'https'
+    proxy?.type === 'http' || proxy?.type === 'https' || proxy?.resolution
       ? unresolvedGrpcProxyDialAddress(urlWithScheme)
       : await resolveGrpcDialAddress(urlWithScheme);
 

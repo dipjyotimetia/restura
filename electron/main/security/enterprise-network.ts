@@ -1,5 +1,6 @@
 import { X509Certificate } from 'node:crypto';
 import { rootCertificates } from 'node:tls';
+import { createPacProxyAgent, type PacProxyAgent } from '@vscode/proxy-agent/out/agent';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import {
   assertManagedOutboundAllowed,
@@ -32,6 +33,25 @@ export interface EnterpriseSessionProxy {
         ) => void)
       | null
   ): void;
+  webRequest?: {
+    onBeforeRequest(
+      filter: { urls: string[] },
+      listener: (
+        details: { url: string },
+        callback: (response: { cancel?: boolean }) => void
+      ) => void
+    ): void;
+    onBeforeSendHeaders(
+      filter: { urls: string[] },
+      listener: (
+        details: { url: string; requestHeaders: Record<string, string | string[]> },
+        callback: (response: {
+          cancel?: boolean;
+          requestHeaders?: Record<string, string | string[]>;
+        }) => void
+      ) => void
+    ): void;
+  };
 }
 
 interface EnterpriseCertificate {
@@ -46,6 +66,8 @@ export interface ResolvedEnterpriseProxy {
   port: number;
   auth?: { username: string; password: string };
   integratedAuth?: true;
+  /** Ordered Chromium/PAC directives retained for connection fallback. */
+  resolution?: string;
 }
 
 interface KerberosClient {
@@ -53,6 +75,12 @@ interface KerberosClient {
 }
 
 type InitializeKerberosClient = (servicePrincipal: string) => Promise<KerberosClient>;
+
+type ProxyAuthorizationLookup = (
+  proxyUrl: string,
+  proxyAuthenticate: string | string[] | undefined,
+  state: Record<string, unknown>
+) => Promise<string | undefined>;
 
 export interface ManagedTransportPolicy {
   verifySsl?: boolean;
@@ -107,7 +135,10 @@ export async function configureManagedDesktopSessions(
     result.status.state === 'managed'
       ? (result.policy?.network.proxyAuthentication?.integratedDomains ?? []).join(',')
       : '';
-  sessions.application.allowNTLMCredentialsForDomains?.(integratedDomains);
+  // Renderer traffic never needs Chromium origin authentication: protocol
+  // executors authenticate proxy CONNECTs in Node. Keeping this empty prevents
+  // a proxy allowlist from also granting ambient credentials to web origins.
+  sessions.application.allowNTLMCredentialsForDomains?.('');
   sessions.application.setCertificateVerifyProc?.(verifier);
   if (sessions.updater !== sessions.application) {
     sessions.updater.allowNTLMCredentialsForDomains?.(integratedDomains);
@@ -233,27 +264,46 @@ function parseProxyAddress(value: string): { host: string; port?: number } {
   return { host: value.slice(0, colon), port };
 }
 
+function normalizedProxyResolution(resolution: string, requireProxy: boolean): string {
+  const candidates = resolution
+    .split(';')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  const supported = /^(DIRECT|(?:PROXY|HTTP|HTTPS|SOCKS|SOCKS4|SOCKS5)\s+\S+)$/i;
+  if (candidates.length === 0 || candidates.some((candidate) => !supported.test(candidate))) {
+    throw new Error('Unsupported enterprise proxy directive');
+  }
+  const permitted = requireProxy
+    ? candidates.filter((candidate) => candidate.toUpperCase() !== 'DIRECT')
+    : candidates;
+  if (permitted.length === 0) {
+    throw new Error('Managed enterprise policy requires a proxy for this destination');
+  }
+  return permitted.join('; ');
+}
+
 function parseResolvedProxy(resolution: string): ResolvedEnterpriseProxy | undefined {
   for (const candidate of resolution.split(';').map((entry) => entry.trim())) {
     if (!candidate) continue;
     if (candidate === 'DIRECT') return undefined;
-    const match = /^(PROXY|HTTPS|SOCKS|SOCKS5)\s+(.+)$/i.exec(candidate);
+    const match = /^(PROXY|HTTP|HTTPS|SOCKS|SOCKS4|SOCKS5)\s+(.+)$/i.exec(candidate);
     if (!match) continue;
     const directive = match[1]!.toUpperCase();
     const address = parseProxyAddress(match[2]!);
     const type =
-      directive === 'PROXY'
+      directive === 'PROXY' || directive === 'HTTP'
         ? 'http'
         : directive === 'HTTPS'
           ? 'https'
-          : directive === 'SOCKS5'
-            ? 'socks5'
-            : 'socks4';
+          : directive === 'SOCKS4'
+            ? 'socks4'
+            : 'socks5';
     return {
       enabled: true,
       type,
       host: address.host,
       port: address.port ?? (type === 'https' ? 443 : type === 'http' ? 8080 : 1080),
+      ...(resolution.includes(';') || type === 'socks4' || type === 'socks5' ? { resolution } : {}),
     };
   }
   throw new Error('Unsupported enterprise proxy directive');
@@ -284,7 +334,9 @@ export async function resolveManagedProxyForUrl(
       port: configured.port ? Number(configured.port) : configured.protocol === 'https:' ? 443 : 80,
     };
   } else {
-    proxy = parseResolvedProxy(await electronSession.resolveProxy(target));
+    proxy = parseResolvedProxy(
+      normalizedProxyResolution(await electronSession.resolveProxy(target), network.requireProxy)
+    );
   }
 
   if (!proxy && network.requireProxy) {
@@ -411,6 +463,56 @@ export async function enterpriseProxyAuthorization(
   }
 }
 
+/**
+ * Stateful challenge lookup used by CONNECT agents. The state is scoped to one
+ * connection attempt by the agent, allowing SPNEGO negotiation to advance
+ * across repeated 407 responses without sharing tokens between destinations.
+ */
+export function createEnterpriseProxyAuthorizationLookup(
+  result: ManagedPolicyLoadResult,
+  env: NodeJS.ProcessEnv = process.env,
+  initializeClient: InitializeKerberosClient = initializeSystemKerberosClient
+): ProxyAuthorizationLookup {
+  return async (proxyUrl, proxyAuthenticate, state) => {
+    const parsed = new URL(proxyUrl);
+    const proxy = {
+      type: parsed.protocol === 'https:' ? ('https' as const) : ('http' as const),
+      host: parsed.hostname,
+      port: Number(parsed.port || (parsed.protocol === 'https:' ? 443 : 80)),
+    };
+    const selected = { ...proxy, ...proxyAuthentication(proxy, result, env) };
+    if (selected.auth) {
+      return enterpriseProxyAuthorization(selected, initializeClient);
+    }
+    if (!selected.integratedAuth) return undefined;
+
+    const challenges = Array.isArray(proxyAuthenticate)
+      ? proxyAuthenticate
+      : proxyAuthenticate
+        ? [proxyAuthenticate]
+        : [];
+    const negotiate = challenges
+      .flatMap((value) => value.split(','))
+      .map((value) => value.trim())
+      .find((value) => /^Negotiate(?:\s|$)/i.test(value));
+    if (proxyAuthenticate && !negotiate) {
+      throw new Error('Managed proxy did not offer Negotiate authentication');
+    }
+    const attempt = typeof state.attempt === 'number' ? state.attempt : 0;
+    if (attempt >= 8) throw new Error('Managed proxy authentication exceeded 8 challenge rounds');
+    state.attempt = attempt + 1;
+    const servicePrincipal =
+      process.platform === 'win32' ? `HTTP/${proxy.host}` : `HTTP@${proxy.host}`;
+    const client =
+      (state.client as KerberosClient | undefined) ?? (await initializeClient(servicePrincipal));
+    state.client = client;
+    const challenge = negotiate?.replace(/^Negotiate\s*/i, '') ?? '';
+    const token = await client.step(challenge);
+    if (!token) throw new Error('The operating system returned an empty authentication token');
+    return `Negotiate ${token}`;
+  };
+}
+
 export async function createEnterpriseProxyAgent(
   proxy: {
     type: 'none' | 'http' | 'https' | 'socks4' | 'socks5';
@@ -418,13 +520,31 @@ export async function createEnterpriseProxyAgent(
     port: number;
     auth?: { username: string; password: unknown };
     integratedAuth?: true;
+    resolution?: string;
   },
   tls: {
     verifySsl?: boolean;
     caCert?: { pem: string };
     minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
+  },
+  managed?: ManagedPolicyLoadResult
+): Promise<HttpsProxyAgent<string> | PacProxyAgent> {
+  if (proxy.resolution || proxy.integratedAuth) {
+    if (!managed) {
+      throw new Error('Managed proxy policy is required for authenticated PAC routing');
+    }
+    const resolution =
+      proxy.resolution ??
+      `${proxy.type === 'https' ? 'HTTPS' : 'PROXY'} ${proxy.host}:${proxy.port}`;
+    return createPacProxyAgent(async () => resolution, {
+      fallbackToDirect: false,
+      originalAgent: false,
+      lookupProxyAuthorization: createEnterpriseProxyAuthorizationLookup(managed),
+      rejectUnauthorized: tls.verifySsl,
+      ...(tls.caCert?.pem ? { ca: tls.caCert.pem } : {}),
+      ...(tls.minTlsVersion ? { minVersion: tls.minTlsVersion } : {}),
+    });
   }
-): Promise<HttpsProxyAgent<string>> {
   if (proxy.type !== 'http' && proxy.type !== 'https') {
     throw new Error(`Managed ${proxy.type.toUpperCase()} proxy is unsupported for this protocol`);
   }

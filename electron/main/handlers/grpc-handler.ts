@@ -336,7 +336,8 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
   try {
     grpcDial =
       policyConfig.enterpriseProxy?.type === 'http' ||
-      policyConfig.enterpriseProxy?.type === 'https'
+      policyConfig.enterpriseProxy?.type === 'https' ||
+      policyConfig.enterpriseProxy?.resolution
         ? unresolvedGrpcProxyDialAddress(policyConfig.url)
         : await resolveGrpcDialAddress(policyConfig.url);
   } catch (err) {
@@ -511,7 +512,8 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         try {
           grpcDial =
             policyConfig.enterpriseProxy?.type === 'http' ||
-            policyConfig.enterpriseProxy?.type === 'https'
+            policyConfig.enterpriseProxy?.type === 'https' ||
+            policyConfig.enterpriseProxy?.resolution
               ? unresolvedGrpcProxyDialAddress(policyConfig.url)
               : await resolveGrpcDialAddress(policyConfig.url);
         } catch (err) {

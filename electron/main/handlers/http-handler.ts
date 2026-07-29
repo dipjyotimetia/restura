@@ -1,14 +1,13 @@
 import * as diagnosticsChannel from 'node:diagnostics_channel';
-import { pipeline, Readable, Transform } from 'node:stream';
+import { Readable } from 'node:stream';
 import {
   arrayBuffer as readStreamArrayBuffer,
   text as readStreamText,
 } from 'node:stream/consumers';
-import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib';
 import type { FormField, ProxyBodyType } from '@shared/protocol/body-builder';
 import { selectCertForUrl } from '@shared/protocol/cert-matcher';
 import { flattenHeaders } from '@shared/protocol/header-utils';
-import { executeHttpProxy, MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
+import { executeHttpProxy } from '@shared/protocol/http-proxy';
 import type {
   Fetcher,
   FetcherRequest,
@@ -51,85 +50,18 @@ import {
   getManagedCaCertificateBundle,
   getManagedEnterprisePolicy,
 } from '../security/managed-enterprise-policy';
+import { createPolicyPinnedFetch, type PolicyTransportProxy } from '../security/policy-transport';
 import { isProxyBypassed } from '../security/proxy-bypass';
 import { unwrapSecretValueMain } from '../security/secret-handle-store';
 import { buildTlsClientMaterial } from '../security/tls-material';
 import { makeRouteAwareFetcher } from './fetch-fetcher';
 import { resolveHttpEnvironmentProxy, resolveHttpRequestProxy } from './http-proxy-resolution';
+import { capBodyStream, decodeBodyStream } from './http-response-stream';
 import { interceptorRegistry } from './interceptor-registry';
 
 const log = createLogger('http');
 
 export const httpRateLimiter = createKeyedRateLimiter(6000, 60_000);
-/**
- * Bring the undici fetcher to parity with the `fetch`-based backends (Worker /
- * Node self-host), which auto-decompress responses. `undici.request` does NOT —
- * it hands back the raw compressed bytes — so without this the renderer shows
- * garbage for any `Content-Encoding: gzip|br|deflate` upstream.
- *
- * The cap is enforced on the DECOMPRESSED output as it streams (a small gzip
- * bomb expands to gigabytes): bytes are counted through the chain and it is torn
- * down past MAX_RESPONSE_SIZE, so the decompressed body is never fully buffered
- * before the limit fires. Returns the source unchanged when there is nothing to
- * decode, leaving non-encoded bodies on their existing (shared-proxy) cap path.
- */
-export function decodeBodyStream(source: Readable, encoding: string | undefined): Readable {
-  const enc = encoding?.trim().toLowerCase();
-  const decompressor =
-    enc === 'gzip' || enc === 'x-gzip'
-      ? createGunzip()
-      : enc === 'br'
-        ? createBrotliDecompress()
-        : enc === 'deflate'
-          ? createInflate()
-          : undefined;
-  if (!decompressor) return source;
-
-  // pipeline tears down every stream (incl. the undici source, firing its
-  // 'close' → dispatcher cleanup) if decompression or the cap errors; the error
-  // surfaces on `cap`, so text()/arrayBuffer()/body all reject.
-  const cap = createSizeCapTransform();
-  pipeline(source, decompressor, cap, () => {
-    /* errors surface on `cap`; nothing to do here */
-  });
-  return cap;
-}
-
-/**
- * A Transform that counts bytes and errors (tearing the pipeline down) once the
- * total exceeds MAX_RESPONSE_SIZE. Shared by the decode path and the
- * never-encoded body path so the cap logic + error string live in one place.
- */
-function createSizeCapTransform(): Transform {
-  let total = 0;
-  return new Transform({
-    transform(chunk: Buffer, _enc, cb) {
-      total += chunk.length;
-      if (total > MAX_RESPONSE_SIZE) {
-        cb(new Error(`Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`));
-        return;
-      }
-      cb(null, chunk);
-    },
-  });
-}
-
-/**
- * Enforce MAX_RESPONSE_SIZE on an already-decoded (or never-encoded) body as it
- * streams. Without this, the non-`Content-Encoding` path returns the raw source
- * to text()/arrayBuffer() (node:stream/consumers), which buffer the WHOLE body
- * before the post-hoc `text.length > MAX_RESPONSE_SIZE` check in http-proxy can
- * fire — a chunked response with no Content-Length OOMs the main process. This
- * tears the stream down mid-flight, mirroring decodeBodyStream's cap.
- */
-function capBodyStream(source: Readable): Readable {
-  const cap = createSizeCapTransform();
-  pipeline(source, cap, () => {
-    /* errors surface on `cap` */
-  });
-  return cap;
-}
-
 export interface ElectronProxyConfig {
   enabled: boolean;
   type: 'http' | 'https' | 'socks4' | 'socks5' | 'pac';
@@ -142,6 +74,8 @@ export interface ElectronProxyConfig {
     // unwrapSecretValueMain just before the proxy auth header / SOCKS5 handshake.
     password: SecretValue;
   };
+  integratedAuth?: true;
+  resolution?: string;
 }
 
 interface ClientCert {
@@ -638,6 +572,49 @@ export function buildElectronFetcher(
   socksSocket: net.Socket | null
 ): Fetcher {
   return async (req: FetcherRequest): Promise<FetcherResponse> => {
+    if (
+      getManagedEnterprisePolicy().status.state === 'managed' &&
+      electronConfig.proxy?.enabled &&
+      (electronConfig.proxy.integratedAuth || electronConfig.proxy.resolution)
+    ) {
+      const response = await createPolicyPinnedFetch({
+        ...electronConfig,
+        proxy: electronConfig.proxy as PolicyTransportProxy,
+      })(req.url, {
+        method: req.method,
+        headers: req.headers as HeadersInit,
+        body: req.body,
+        signal: electronConfig.signal
+          ? AbortSignal.any([req.signal, electronConfig.signal])
+          : req.signal,
+        redirect: 'manual',
+      });
+      const headersOut: Record<string, string> = {};
+      response.headers.forEach((value, header) => {
+        headersOut[header.toLowerCase()] = value;
+      });
+      const source = response.body
+        ? Readable.fromWeb(response.body as never)
+        : Readable.from(Buffer.alloc(0));
+      const contentEncoding = headersOut['content-encoding'];
+      const bodyStream = decodeBodyStream(source, contentEncoding);
+      const decoded = bodyStream !== source;
+      if (decoded) {
+        delete headersOut['content-encoding'];
+        delete headersOut['content-length'];
+      }
+      const cappedBody = decoded ? bodyStream : capBodyStream(bodyStream);
+      return {
+        status: response.status,
+        statusText: response.statusText,
+        headers: headersOut,
+        text: () => readStreamText(cappedBody),
+        arrayBuffer: () => readStreamArrayBuffer(cappedBody),
+        contentLengthHeader: decoded ? null : (response.headers.get('content-length') ?? null),
+        body: Readable.toWeb(cappedBody) as ReadableStream<Uint8Array>,
+      };
+    }
+
     const url = new URL(req.url);
     const isHttps = url.protocol === 'https:';
     const verifySsl = electronConfig.verifySsl !== false;
@@ -685,8 +662,6 @@ export function buildElectronFetcher(
           allowH2,
           // requestTls applies to the upstream TLS handshake — that's where mTLS and ALPN matter.
           requestTls: { ...connectOpts } as ProxyAgent.Options['requestTls'],
-          // Trust the managed CA for an HTTPS proxy without forwarding the
-          // upstream client certificate to the proxy itself.
           proxyTls: {
             rejectUnauthorized: verifySsl,
             ...(electronConfig.caCert?.pem ? { ca: electronConfig.caCert.pem } : {}),

@@ -95,7 +95,7 @@ export async function makePinnedFetcher(
   return makeRouteAwareFetcher(async (destination) => {
     const proxy = await resolveManagedProxyForUrl(destination, session.defaultSession, managed);
     const pinned =
-      proxy?.type === 'http' || proxy?.type === 'https'
+      proxy?.type === 'http' || proxy?.type === 'https' || proxy?.resolution
         ? undefined
         : await resolveSafeAddress(destination, {
             allowLocalhost: options.allowLocalhost,
@@ -132,7 +132,7 @@ export function makeManagedRouteAwareFetch(
     const managed = getManagedEnterprisePolicy();
     const proxy = await resolveManagedProxyForUrl(destination, session.defaultSession, managed);
     const pinned =
-      proxy?.type === 'http' || proxy?.type === 'https'
+      proxy?.type === 'http' || proxy?.type === 'https' || proxy?.resolution
         ? undefined
         : await resolveSafeAddress(destination, {
             allowLocalhost: options.allowLocalhost,

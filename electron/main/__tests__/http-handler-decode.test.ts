@@ -10,7 +10,7 @@ vi.mock('electron', () => ({
 }));
 
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
-import { decodeBodyStream } from '../handlers/http-handler';
+import { decodeBodyStream } from '../handlers/http-response-stream';
 
 const fromBuffer = (buf: Buffer): Readable => Readable.from([buf]);
 

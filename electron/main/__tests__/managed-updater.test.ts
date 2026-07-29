@@ -3,6 +3,7 @@ import {
   applyManagedUpdaterPolicy,
   assertManagedUpdaterProxyRoute,
   checkForUpdatesWithPolicy,
+  configureManagedUpdaterRequestBoundary,
 } from '../lifecycle/auto-updater';
 import type { ManagedPolicyLoadResult } from '../security/managed-enterprise-policy';
 
@@ -121,6 +122,57 @@ describe('managed updater feed', () => {
         resolveProxy: vi.fn().mockResolvedValue('DIRECT'),
       })
     ).rejects.toThrow('requires a proxy');
+  });
+
+  it('re-evaluates every update redirect and strips feed secrets cross-origin', async () => {
+    let beforeRequest:
+      | ((details: { url: string }, callback: (response: { cancel?: boolean }) => void) => void)
+      | undefined;
+    let beforeHeaders:
+      | ((
+          details: { url: string; requestHeaders: Record<string, string | string[]> },
+          callback: (response: { requestHeaders?: Record<string, string | string[]> }) => void
+        ) => void)
+      | undefined;
+    const updaterSession = {
+      setProxy: vi.fn(),
+      resolveProxy: vi.fn().mockResolvedValue('PROXY proxy.corp.example:8080'),
+      webRequest: {
+        onBeforeRequest: vi.fn((_filter, listener) => {
+          beforeRequest = listener;
+        }),
+        onBeforeSendHeaders: vi.fn((_filter, listener) => {
+          beforeHeaders = listener;
+        }),
+      },
+    };
+    const policy = managedUpdates();
+
+    configureManagedUpdaterRequestBoundary(updaterSession, policy);
+
+    const routeResult = await new Promise<{ cancel?: boolean }>((resolve) =>
+      beforeRequest!({ url: 'https://cdn.example.test/restura.zip' }, resolve)
+    );
+    expect(routeResult).toEqual({});
+    expect(updaterSession.resolveProxy).toHaveBeenCalledWith(
+      'https://cdn.example.test/restura.zip'
+    );
+
+    const headerResult = await new Promise<{
+      requestHeaders?: Record<string, string | string[]>;
+    }>((resolve) =>
+      beforeHeaders!(
+        {
+          url: 'https://cdn.example.test/restura.zip',
+          requestHeaders: {
+            Authorization: 'Bearer update-token',
+            Accept: 'application/octet-stream',
+          },
+        },
+        resolve
+      )
+    );
+    expect(headerResult.requestHeaders).toEqual({ Accept: 'application/octet-stream' });
   });
 
   it('does not contact any update feed when managed updates are disabled', async () => {

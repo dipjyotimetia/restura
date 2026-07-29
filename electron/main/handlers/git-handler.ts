@@ -1,8 +1,8 @@
 /**
  * Git-native collections main-process handler. Every operation is allowlist
  * gated, serialised per workspace, shell-free, and neutralises repo-local
- * fsmonitor. System Git handles SSH-agent and credential-manager auth; Restura
- * never accepts, stores, or exposes Git credentials. Hooks remain enabled.
+ * fsmonitor and repository hooks. System Git retains SSH-agent and destination
+ * credential-manager authentication.
  */
 
 import type { GitBranch, GitCommit, GitStatus, GitStatusFile } from '@shared/git-types';
@@ -18,7 +18,7 @@ import { IPC } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { assertTrustedSender } from '../ipc/ipc-validators';
 import { isPathRealSafe } from '../storage/file-operations';
-import { managedGitEnvironment } from './git-enterprise-policy';
+import { type ManagedGitInvocation, prepareManagedGitInvocation } from './git-managed-invocation';
 
 const log = createLogger('git');
 
@@ -278,34 +278,28 @@ export class GitError extends Error {
 }
 
 async function runGit(cwd: string, args: string[], options: { remoteUrl?: string } = {}) {
+  let managedGit: ManagedGitInvocation | undefined;
   try {
     const isSshRemote =
       options.remoteUrl !== undefined &&
       (SCP_STYLE_GIT_URL.test(options.remoteUrl) || new URL(options.remoteUrl).protocol === 'ssh:');
-    // An inherited GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, GIT_CONFIG_*, or
-    // GIT_SSH_COMMAND can redirect Git outside the allowlisted cwd or cause it
-    // to run an unexpected helper. System credential helpers remain available
-    // because they are configured by Git itself, not passed through `GIT_*`.
-    const safeEnv = await managedGitEnvironment(options.remoteUrl, isSshRemote);
-    const { stdout } = await execFileAsync(
-      'git',
-      ['-c', 'core.fsmonitor=', '-c', 'core.sshCommand=', ...args],
-      {
-        cwd,
-        maxBuffer: MAX_OUTPUT_BYTES,
-        timeout: ['clone', 'fetch', 'push'].includes(args[0] ?? '')
-          ? REMOTE_COMMAND_TIMEOUT_MS
-          : COMMAND_TIMEOUT_MS,
-        env: {
-          ...safeEnv,
-          LANG: 'C.UTF-8',
-          GIT_PAGER: 'cat',
-          PAGER: 'cat',
-          GIT_ALLOW_PROTOCOL: 'https:ssh',
-          GIT_LITERAL_PATHSPECS: '1',
-        },
-      }
-    );
+    // Strip inherited Git controls while retaining system credential helpers.
+    managedGit = await prepareManagedGitInvocation(options.remoteUrl, isSshRemote);
+    const { stdout } = await execFileAsync('git', [...managedGit.configArgs, ...args], {
+      cwd,
+      maxBuffer: MAX_OUTPUT_BYTES,
+      timeout: ['clone', 'fetch', 'push'].includes(args[0] ?? '')
+        ? REMOTE_COMMAND_TIMEOUT_MS
+        : COMMAND_TIMEOUT_MS,
+      env: {
+        ...managedGit.env,
+        LANG: 'C.UTF-8',
+        GIT_PAGER: 'cat',
+        PAGER: 'cat',
+        GIT_ALLOW_PROTOCOL: 'https:ssh',
+        GIT_LITERAL_PATHSPECS: '1',
+      },
+    });
     return stdout;
   } catch (err) {
     if (err && typeof err === 'object') {
@@ -329,6 +323,8 @@ async function runGit(cwd: string, args: string[], options: { remoteUrl?: string
       throw new GitError(message, 'git-error');
     }
     throw new GitError(String(err), 'git-error');
+  } finally {
+    await managedGit?.cleanup();
   }
 }
 

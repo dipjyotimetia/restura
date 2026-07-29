@@ -31,6 +31,8 @@ export interface GrpcTlsConfig {
     host: string;
     port: number;
     auth?: { username: string; password: unknown };
+    integratedAuth?: true;
+    resolution?: string;
   };
 }
 
