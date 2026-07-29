@@ -110,8 +110,10 @@ destination matches `bypassList`. HTTP and HTTPS proxies are supported across
 HTTP, GraphQL, WebSocket, Socket.IO, SSE, MCP, AI, gRPC, Git HTTPS, and the
 managed update feed.
 
-Proxy authentication supports **Basic** credentials supplied by environment
-references. NTLM, Kerberos, Negotiate, and interactive authentication are not
+Fixed-proxy authentication supports **Basic** credentials supplied by
+environment references. Credentials are rejected for system and PAC modes so
+they cannot be disclosed to an unexpected dynamically resolved proxy. NTLM,
+Kerberos, Negotiate, and interactive authentication are not
 implemented. Enterprises requiring those schemes should place an approved
 local forward proxy in front of them or use an operating-system proxy setup
 that does not expose interactive credentials to Restura.
@@ -155,10 +157,12 @@ installer. Validate its code signature and update metadata in a pilot ring.
 ## Feature and destination controls
 
 The feature flags control Git, Git SSH, MCP (including headless MCP-server
-mode), import/export, local mock/capture, Kafka, and MQTT. AI additionally
-requires an enabled provider and an exact allowed HTTPS origin. Error reporting
-and agent telemetry can only be disabled by policy; user consent is still
-required when policy permits them.
+mode), native Bruno directory export, local mock/capture, Kafka, and MQTT.
+Browser-local import and JSON download transformations do not cross the main
+process and are not an enterprise security boundary. AI additionally requires
+an enabled provider and an exact allowed HTTPS origin. Error reporting and
+agent telemetry can only be disabled by policy; user consent is still required
+when policy permits them.
 
 Managed settings are shown read-only in the renderer. Enforcement remains in
 the Electron main process so renderer state cannot bypass it.
@@ -185,6 +189,7 @@ user profiles wholesale; request only the relevant log entries.
   workspace.
 - Browser and self-hosted SPA data is local to each browser profile and is
   plaintext in IndexedDB unless protected by endpoint/browser controls.
+- Browser-local collection imports and JSON downloads are not disabled by
+  desktop managed policy.
 - Deploy a single self-hosted replica unless an external distributed
   rate-limiter is added.
-

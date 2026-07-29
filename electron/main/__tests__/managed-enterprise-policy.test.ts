@@ -6,6 +6,7 @@ import {
   assertManagedOutboundAllowed,
   getManagedEnterprisePolicy,
   loadManagedEnterprisePolicy,
+  markManagedPolicyRuntimeInvalid,
   type ManagedPolicyLoadOptions,
   setManagedAppVersion,
   setManagedEnterprisePolicyForTest,
@@ -171,6 +172,41 @@ describe('managed enterprise policy', () => {
     });
   });
 
+  it('requires an administrator-controlled ACL for Windows policy files', () => {
+    const policyPath = 'C:\\ProgramData\\Restura\\policy.json';
+    const base = {
+      platform: 'win32' as const,
+      env: { ProgramData: 'C:\\ProgramData', RESTURA_ENTERPRISE_POLICY_FILE: policyPath },
+      readFile: () => validPolicy,
+      statFile: () => ({ mode: 0, size: validPolicy.length }),
+    };
+
+    expect(
+      loadManagedEnterprisePolicy(options({ ...base, isWindowsFileTrusted: () => false })).status
+    ).toMatchObject({
+      state: 'invalid',
+      message: expect.stringContaining('writable only by administrators'),
+    });
+    expect(
+      loadManagedEnterprisePolicy(options({ ...base, isWindowsFileTrusted: () => true })).status
+    ).toMatchObject({ state: 'managed', source: 'environment-file' });
+  });
+
+  it('accepts credential references only for a fixed proxy', () => {
+    const parsed = JSON.parse(validPolicy);
+    parsed.network.mode = 'pac';
+    parsed.network.pacUrl = 'https://config.corp.example/proxy.pac';
+
+    const result = loadManagedEnterprisePolicy(
+      options({ readNativePolicy: () => JSON.stringify(parsed) })
+    );
+
+    expect(result.status).toMatchObject({
+      state: 'invalid',
+      message: expect.stringContaining('strict EnterprisePolicyV1'),
+    });
+  });
+
   it('does not expose policy paths, credentials, or update header references in status', () => {
     const result = loadManagedEnterprisePolicy(
       options({
@@ -222,5 +258,47 @@ describe('managed enterprise policy', () => {
 
     setManagedAppVersion('2.0.0');
     expect(() => assertManagedFeatureAllowed('git')).not.toThrow();
+  });
+
+  it('treats a prerelease as older than the matching stable minimum', () => {
+    const parsed = JSON.parse(validPolicy);
+    parsed.updates.minimumVersion = '2.0.0';
+    setManagedEnterprisePolicyForTest(
+      loadManagedEnterprisePolicy(options({ readNativePolicy: () => JSON.stringify(parsed) }))
+    );
+
+    setManagedAppVersion('2.0.0-beta.2');
+    expect(getManagedEnterprisePolicy().status).toMatchObject({ upgradeRequired: true });
+
+    setManagedAppVersion('2.0.0');
+    expect(getManagedEnterprisePolicy().status).toMatchObject({ upgradeRequired: false });
+  });
+
+  it('orders numeric and text prerelease identifiers for a prerelease minimum', () => {
+    const parsed = JSON.parse(validPolicy);
+    parsed.updates.minimumVersion = '2.0.0-beta.3';
+    setManagedEnterprisePolicyForTest(
+      loadManagedEnterprisePolicy(options({ readNativePolicy: () => JSON.stringify(parsed) }))
+    );
+
+    setManagedAppVersion('2.0.0-beta.2');
+    expect(getManagedEnterprisePolicy().status).toMatchObject({ upgradeRequired: true });
+
+    setManagedAppVersion('2.0.0-rc.1');
+    expect(getManagedEnterprisePolicy().status).toMatchObject({ upgradeRequired: false });
+  });
+
+  it('redacts runtime application failures from renderer-visible status', () => {
+    setManagedEnterprisePolicyForTest(
+      loadManagedEnterprisePolicy(options({ readNativePolicy: () => validPolicy }))
+    );
+
+    markManagedPolicyRuntimeInvalid(
+      'Managed update header environment variable "RESTURA_SECRET_HEADER" is unavailable'
+    );
+
+    const serialized = JSON.stringify(getManagedEnterprisePolicy().status);
+    expect(serialized).not.toContain('RESTURA_SECRET_HEADER');
+    expect(serialized).toContain('Contact your administrator');
   });
 });

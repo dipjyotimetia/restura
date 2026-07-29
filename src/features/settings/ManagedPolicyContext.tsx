@@ -24,6 +24,9 @@ export function ManagedPolicyProvider({
       ?.security.getManagedPolicyStatus()
       .then((next) => {
         if (current) setStatus(next);
+      })
+      .catch(() => {
+        if (current) setStatus({ state: 'unmanaged' });
       });
     return () => {
       current = false;

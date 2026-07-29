@@ -62,6 +62,13 @@ const ManagedNetworkPolicySchema = z
         message: 'Proxy username and password environment references must be configured together',
       });
     }
+    if (network.usernameEnv && network.mode !== 'fixed') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['usernameEnv'],
+        message: 'Proxy credential environment references require fixed proxy mode',
+      });
+    }
   });
 
 const ManagedUpdatesPolicySchema = z
@@ -151,6 +158,7 @@ export interface ManagedPolicyLoadOptions {
   readNativePolicy?: (platform: NodeJS.Platform) => string | undefined;
   readFile?: (filePath: string) => string;
   statFile?: (filePath: string) => FileStat;
+  isWindowsFileTrusted?: (filePath: string) => boolean;
 }
 
 function readNativePolicy(platform: NodeJS.Platform): string | undefined {
@@ -186,16 +194,47 @@ function machinePolicyPath(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): s
   return '/etc/restura/policy.json';
 }
 
-function validateTrustedFile(platform: NodeJS.Platform, filePath: string, stat: FileStat): void {
+function isWindowsFileAdminControlled(filePath: string): boolean {
+  const script = [
+    '$acl = Get-Acl -LiteralPath $args[0]',
+    "if ($acl.Owner -notmatch '(?i)(^|\\\\)(Administrators|SYSTEM)$') { exit 2 }",
+    "$unsafe = $acl.Access | Where-Object { $_.AccessControlType -eq 'Allow' -and $_.IdentityReference.Value -match '(?i)(^|\\\\)(Users|Authenticated Users|Everyone)$' -and $_.FileSystemRights.ToString() -match 'Write|Modify|FullControl|Create|Delete|TakeOwnership|ChangePermissions' }",
+    'if ($unsafe) { exit 3 }',
+  ].join('; ');
+  try {
+    execFileSync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', script, filePath],
+      { windowsHide: true, stdio: 'ignore' }
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function validateTrustedFile(
+  platform: NodeJS.Platform,
+  filePath: string,
+  stat: FileStat,
+  isWindowsFileTrusted: (filePath: string) => boolean,
+  env: NodeJS.ProcessEnv
+): void {
   if (stat.size > MAX_POLICY_BYTES) {
     throw new Error('Policy exceeds the 256 KiB size limit');
   }
   if (platform === 'win32') {
-    const programData = path.resolve(process.env.ProgramData ?? 'C:\\ProgramData');
+    const programData = path.win32.resolve(env.ProgramData ?? 'C:\\ProgramData');
     if (
-      !path.resolve(filePath).toLowerCase().startsWith(`${programData.toLowerCase()}${path.sep}`)
+      !path.win32
+        .resolve(filePath)
+        .toLowerCase()
+        .startsWith(`${programData.toLowerCase()}${path.win32.sep}`)
     ) {
       throw new Error('Windows policy files must be stored under ProgramData');
+    }
+    if (!isWindowsFileTrusted(filePath)) {
+      throw new Error('Windows policy file must be owned and writable only by administrators');
     }
     return;
   }
@@ -242,11 +281,13 @@ function loadPolicyFile(
   source: ManagedPolicySource,
   platform: NodeJS.Platform,
   readFile: (filePath: string) => string,
-  statFile: (filePath: string) => FileStat
+  statFile: (filePath: string) => FileStat,
+  isWindowsFileTrusted: (filePath: string) => boolean,
+  env: NodeJS.ProcessEnv
 ): ManagedPolicyLoadResult | undefined {
   try {
     const stat = statFile(filePath);
-    validateTrustedFile(platform, filePath, stat);
+    validateTrustedFile(platform, filePath, stat, isWindowsFileTrusted, env);
     return parseSelectedSource(readFile(filePath), source);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
@@ -276,11 +317,20 @@ export function loadManagedEnterprisePolicy(
       const stat = statSync(filePath);
       return { uid: stat.uid, mode: stat.mode, size: stat.size };
     });
+  const isWindowsFileTrusted = options.isWindowsFileTrusted ?? isWindowsFileAdminControlled;
 
   const selectedFile = env.RESTURA_ENTERPRISE_POLICY_FILE;
   if (selectedFile) {
     return (
-      loadPolicyFile(selectedFile, 'environment-file', platform, readFile, statFile) ?? {
+      loadPolicyFile(
+        selectedFile,
+        'environment-file',
+        platform,
+        readFile,
+        statFile,
+        isWindowsFileTrusted,
+        env
+      ) ?? {
         status: {
           state: 'invalid',
           source: 'environment-file',
@@ -296,7 +346,9 @@ export function loadManagedEnterprisePolicy(
       'machine-file',
       platform,
       readFile,
-      statFile
+      statFile,
+      isWindowsFileTrusted,
+      env
     ) ?? { status: { state: 'unmanaged' } }
   );
 }
@@ -342,29 +394,54 @@ export function assertActiveManagedOutboundAllowed(): void {
   }
 }
 
-export function markManagedPolicyRuntimeInvalid(message: string): void {
+export function markManagedPolicyRuntimeInvalid(_message: string): void {
   if (activeManagedPolicy.status.state !== 'managed') return;
   activeManagedPolicy = {
     status: {
       state: 'invalid',
       source: activeManagedPolicy.status.source,
-      message,
+      message: 'Managed enterprise policy could not be applied. Contact your administrator.',
     },
   };
   activeCaBundle = undefined;
 }
 
-function numericVersion(version: string): [number, number, number] {
-  const [major = '0', minor = '0', patch = '0'] = version.split('-', 1)[0]!.split('.');
-  return [Number(major), Number(minor), Number(patch)];
+function parsedVersion(version: string): {
+  core: [number, number, number];
+  prerelease: string[] | undefined;
+} {
+  const [core = '0.0.0', prerelease] = version.split('-', 2);
+  const [major = '0', minor = '0', patch = '0'] = core.split('.');
+  return {
+    core: [Number(major), Number(minor), Number(patch)],
+    prerelease: prerelease?.split('.'),
+  };
 }
 
 function versionIsBelow(current: string, minimum: string): boolean {
-  const left = numericVersion(current);
-  const right = numericVersion(minimum);
-  for (let index = 0; index < left.length; index += 1) {
-    if (left[index]! < right[index]!) return true;
-    if (left[index]! > right[index]!) return false;
+  const left = parsedVersion(current);
+  const right = parsedVersion(minimum);
+  for (let index = 0; index < left.core.length; index += 1) {
+    if (left.core[index]! < right.core[index]!) return true;
+    if (left.core[index]! > right.core[index]!) return false;
+  }
+  if (!left.prerelease) return false;
+  if (!right.prerelease) return true;
+  const length = Math.max(left.prerelease.length, right.prerelease.length);
+  for (let index = 0; index < length; index += 1) {
+    const currentId = left.prerelease[index];
+    const minimumId = right.prerelease[index];
+    if (currentId === undefined) return true;
+    if (minimumId === undefined) return false;
+    if (currentId === minimumId) continue;
+    const currentNumber = /^\d+$/.test(currentId) ? Number(currentId) : undefined;
+    const minimumNumber = /^\d+$/.test(minimumId) ? Number(minimumId) : undefined;
+    if (currentNumber !== undefined && minimumNumber !== undefined) {
+      return currentNumber < minimumNumber;
+    }
+    if (currentNumber !== undefined) return true;
+    if (minimumNumber !== undefined) return false;
+    return currentId < minimumId;
   }
   return false;
 }

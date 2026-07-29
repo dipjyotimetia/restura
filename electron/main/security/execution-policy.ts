@@ -2,7 +2,7 @@ import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema'
 import { ipcMain } from 'electron';
 import { z } from 'zod';
 import { IPC } from '../../shared/channels';
-import { createValidatedHandler } from '../ipc/ipc-validators';
+import { createValidatedHandler, NoInputSchema } from '../ipc/ipc-validators';
 import {
   assertActiveManagedOutboundAllowed,
   getManagedEnterprisePolicy,
@@ -169,9 +169,14 @@ export function setExecutionPolicy(next: unknown): ExecutionPolicy {
 }
 
 export function registerExecutionPolicyIPC(): void {
-  ipcMain.handle(IPC.security.getManagedPolicyStatus, () => {
-    return getManagedEnterprisePolicy().status;
-  });
+  ipcMain.handle(
+    IPC.security.getManagedPolicyStatus,
+    createValidatedHandler(
+      IPC.security.getManagedPolicyStatus,
+      NoInputSchema,
+      () => getManagedEnterprisePolicy().status
+    )
+  );
   ipcMain.handle(
     IPC.security.setExecutionPolicy,
     createValidatedHandler(

@@ -13,15 +13,20 @@ for (const exception of exceptions.exceptions) {
     !exception.owner ||
     !exception.rationale ||
     !exception.reachability ||
+    !exception.created ||
     !exception.expires
   ) {
     throw new Error(
-      'Every dependency-audit exception needs id, owner, rationale, reachability, and expires'
+      'Every dependency-audit exception needs id, owner, rationale, reachability, created, and expires'
     );
   }
+  const created = new Date(`${exception.created}T00:00:00Z`);
   const expiry = new Date(`${exception.expires}T00:00:00Z`);
-  if (!Number.isFinite(expiry.valueOf()) || expiry < now) {
+  if (!Number.isFinite(created.valueOf()) || !Number.isFinite(expiry.valueOf()) || expiry < now) {
     throw new Error(`Dependency-audit exception ${exception.id} expired on ${exception.expires}`);
+  }
+  if (expiry.valueOf() - created.valueOf() > 90 * 24 * 60 * 60 * 1000) {
+    throw new Error(`Dependency-audit exception ${exception.id} exceeds the 90-day maximum`);
   }
   for (const advisory of exception.advisories) allowedAdvisories.add(advisory);
 }
