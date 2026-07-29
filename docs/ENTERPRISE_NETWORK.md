@@ -36,6 +36,16 @@ must live under `ProgramData` and be writable only by administrators.
     "requireProxy": true,
     "pacUrl": "https://config.example.com/restura.pac",
     "bypassList": ["localhost", "*.internal.example.com"],
+    "proxyAuthentication": {
+      "basic": [
+        {
+          "proxyUrl": "https://proxy.corp.example:8443",
+          "usernameEnv": "RESTURA_PROXY_USERNAME",
+          "passwordEnv": "RESTURA_PROXY_PASSWORD"
+        }
+      ],
+      "integratedDomains": ["proxy.corp.example", "*.proxy.corp.example"]
+    },
     "caCertificatePaths": ["/etc/restura/corporate-ca.pem"],
     "requireCertificateVerification": true,
     "minimumTlsVersion": "TLSv1.2",
@@ -71,14 +81,27 @@ use the managed route. Raw Git SSH, Kafka, and MQTT connections require an
 explicit `directProtocols` exception because these protocols cannot traverse an
 HTTP CONNECT policy generically.
 
-Fixed-proxy Basic credentials may be read from environment variables named by
-`usernameEnv` and `passwordEnv`. Inline credentials are rejected. Integrated
-proxy authentication schemes such as NTLM and Kerberos are not currently
-supported.
+`proxyAuthentication.basic` binds each Basic credential pair to one exact
+HTTP(S) proxy origin. Credentials are read from the named environment variables
+in the main process; inline credentials and duplicate proxy origins are
+rejected. This mapping works for fixed proxies and for matching proxies returned
+by PAC or system resolution.
+
+`proxyAuthentication.integratedDomains` is an explicit proxy-host allowlist for
+Negotiate authentication. Exact DNS names and leading wildcards such as
+`*.proxy.corp.example` are accepted. Electron sessions enable native
+NTLM/Negotiate for those domains. Node-based desktop transports use the
+operating-system GSSAPI/SSPI credential cache to create a SPNEGO token, so no
+domain password is stored in the policy or renderer. Integrated credentials are
+never requested for a proxy outside this allowlist.
 
 Managed certificate verification cannot be disabled by renderer settings.
 Managed CA bundles are bounded to 2 MiB and the configured minimum TLS version
-is enforced while preserving any stricter per-request value.
+is enforced for both the destination and an HTTPS proxy while preserving any
+stricter per-request value. CA paths must be absolute, regular non-symlink
+files under administrator control, and each certificate must be parseable and
+currently valid. The bundle is applied to Electron sessions (including updates)
+and to Node-based desktop protocol transports.
 
 ## Managed update feed
 
@@ -93,7 +116,8 @@ returned through the renderer status API.
 
 Update modes are `disabled`, `notify`, `auto-download`, and `install-on-quit`.
 Channels are `stable` and `beta`. When managed, local proxy and automatic-update
-controls are locked, while a manual update check still uses the managed feed.
+controls are locked. A manual check uses the managed feed only when updates are
+enabled; disabled or invalid managed policy cannot fall back to a public feed.
 
 ## Failure behavior
 

@@ -113,7 +113,10 @@
     "releaseType": "release"
   },
   "asar": true,
-  "asarUnpack": ["node_modules/@grpc/reflection/build/proto/**"],
+  "asarUnpack": [
+    "node_modules/@grpc/reflection/build/proto/**",
+    "node_modules/kerberos/build/Release/*.node"
+  ],
   "electronFuses": {
     "runAsNode": false,
     "enableCookieEncryption": true,
