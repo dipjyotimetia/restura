@@ -25,17 +25,17 @@ export async function applyManagedDesktopConnectivity(
   options: {
     policy?: ManagedPolicyLoadResult;
     env?: NodeJS.ProcessEnv;
-    readCaFile?: (filePath: string) => string;
   } = {}
 ): Promise<{ managed: boolean; updatesEnabled: boolean }> {
   const policy = options.policy ?? getManagedEnterprisePolicy();
-  getManagedCaCertificateBundle(options.readCaFile);
+  const managedCaBundle = getManagedCaCertificateBundle();
   await configureManagedDesktopSessions(
     {
       application: targets.applicationSession,
       updater: targets.updaterSession,
     },
-    policy
+    policy,
+    managedCaBundle
   );
   const updater = applyManagedUpdaterPolicy(targets.updater, policy, options.env);
   return { managed: updater.managed, updatesEnabled: updater.enabled };

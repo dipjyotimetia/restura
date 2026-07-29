@@ -1,5 +1,6 @@
-import { HttpsProxyAgent } from 'https-proxy-agent';
+import { X509Certificate } from 'node:crypto';
 import { rootCertificates } from 'node:tls';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 import {
   assertManagedOutboundAllowed,
   type ManagedPolicyLoadResult,
@@ -16,6 +17,25 @@ export interface EnterpriseSessionProxy {
   }): Promise<void>;
   resolveProxy(url: string): Promise<string>;
   setSSLConfig?(config: { minVersion: 'tls1.2' | 'tls1.3' }): void;
+  setCertificateVerifyProc?(
+    proc:
+      | ((
+          request: {
+            hostname: string;
+            certificate: EnterpriseCertificate;
+            validatedCertificate?: EnterpriseCertificate;
+            verificationResult: string;
+            errorCode: number;
+          },
+          callback: (result: number) => void
+        ) => void)
+      | null
+  ): void;
+}
+
+interface EnterpriseCertificate {
+  data: string;
+  issuerCert?: EnterpriseCertificate;
 }
 
 export interface ResolvedEnterpriseProxy {
@@ -71,12 +91,84 @@ export async function applyManagedSessionProxy(
 
 export async function configureManagedDesktopSessions(
   sessions: { application: EnterpriseSessionProxy; updater: EnterpriseSessionProxy },
-  result: ManagedPolicyLoadResult
+  result: ManagedPolicyLoadResult,
+  managedCaBundle?: string
 ): Promise<void> {
+  const verifier = managedCaBundle ? createManagedCertificateVerifyProc(managedCaBundle) : null;
+  sessions.application.setCertificateVerifyProc?.(verifier);
+  if (sessions.updater !== sessions.application) {
+    sessions.updater.setCertificateVerifyProc?.(verifier);
+  }
   await applyManagedSessionProxy(sessions.application, result);
   if (sessions.updater !== sessions.application) {
     await applyManagedSessionProxy(sessions.updater, result);
   }
+}
+
+function certificateChain(certificate: EnterpriseCertificate): X509Certificate[] {
+  const chain: X509Certificate[] = [];
+  const seen = new Set<string>();
+  let current: EnterpriseCertificate | undefined = certificate;
+  while (current && chain.length < 20) {
+    const parsed = new X509Certificate(current.data);
+    if (seen.has(parsed.fingerprint256)) break;
+    seen.add(parsed.fingerprint256);
+    chain.push(parsed);
+    current = current.issuerCert;
+  }
+  return chain;
+}
+
+export function createManagedCertificateVerifyProc(managedCaBundle: string) {
+  const trusted = new Set(
+    (
+      managedCaBundle.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) ?? []
+    ).map((pem) => new X509Certificate(pem).fingerprint256)
+  );
+  if (trusted.size === 0) {
+    throw new Error('Managed CA bundle does not contain a valid X.509 certificate');
+  }
+
+  return (
+    request: {
+      hostname: string;
+      certificate: EnterpriseCertificate;
+      validatedCertificate?: EnterpriseCertificate;
+      verificationResult: string;
+      errorCode: number;
+    },
+    callback: (result: number) => void
+  ): void => {
+    if (
+      request.errorCode !== -202 &&
+      request.verificationResult !== 'net::ERR_CERT_AUTHORITY_INVALID'
+    ) {
+      callback(request.errorCode);
+      return;
+    }
+    try {
+      const chain = certificateChain(request.validatedCertificate ?? request.certificate);
+      const leaf = chain[0];
+      const anchor = chain.at(-1);
+      const now = Date.now();
+      const valid =
+        leaf !== undefined &&
+        anchor !== undefined &&
+        leaf.checkHost(request.hostname) !== undefined &&
+        chain.every(
+          (certificate) =>
+            Date.parse(certificate.validFrom) <= now && Date.parse(certificate.validTo) >= now
+        ) &&
+        chain.every((certificate, index) => {
+          const issuer = chain[index + 1] ?? certificate;
+          return certificate.verify(issuer.publicKey);
+        }) &&
+        trusted.has(anchor.fingerprint256);
+      callback(valid ? 0 : request.errorCode);
+    } catch {
+      callback(request.errorCode);
+    }
+  };
 }
 
 function proxyAuth(
@@ -234,7 +326,11 @@ export function createEnterpriseProxyAgent(
     port: number;
     auth?: { username: string; password: unknown };
   },
-  tls: { verifySsl?: boolean; caCert?: { pem: string } }
+  tls: {
+    verifySsl?: boolean;
+    caCert?: { pem: string };
+    minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
+  }
 ): HttpsProxyAgent<string> {
   if (proxy.type !== 'http' && proxy.type !== 'https') {
     throw new Error(`Managed ${proxy.type.toUpperCase()} proxy is unsupported for this protocol`);
@@ -247,5 +343,6 @@ export function createEnterpriseProxyAgent(
   return new HttpsProxyAgent(proxyUrl, {
     rejectUnauthorized: tls.verifySsl,
     ...(tls.caCert?.pem ? { ca: tls.caCert.pem } : {}),
+    ...(tls.minTlsVersion ? { minVersion: tls.minTlsVersion } : {}),
   });
 }

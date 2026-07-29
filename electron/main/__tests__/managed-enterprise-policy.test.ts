@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   assertManagedDirectProtocolAllowed,
   assertManagedOutboundAllowed,
+  getManagedCaCertificateBundle,
   getManagedEnterprisePolicy,
   loadManagedEnterprisePolicy,
   type ManagedPolicyLoadOptions,
@@ -67,6 +68,16 @@ describe('managed enterprise connectivity policy', () => {
     broadened.telemetry = { errorReporting: false };
     expect(
       loadManagedEnterprisePolicy(options({ readNativePolicy: () => JSON.stringify(broadened) }))
+        .status
+    ).toMatchObject({ state: 'invalid', source: 'native' });
+  });
+
+  it('requires absolute managed CA certificate paths', () => {
+    const relative = JSON.parse(validPolicy);
+    relative.network.caCertificatePaths = ['corporate-ca.pem'];
+
+    expect(
+      loadManagedEnterprisePolicy(options({ readNativePolicy: () => JSON.stringify(relative) }))
         .status
     ).toMatchObject({ state: 'invalid', source: 'native' });
   });
@@ -159,5 +170,65 @@ describe('managed enterprise connectivity policy', () => {
     expect(serialized).not.toContain('RESTURA_UPDATE_AUTHORIZATION');
     expect(serialized).not.toContain('updates.corp.example');
     expect(serialized).toContain('Contact your administrator');
+  });
+
+  it('rejects managed CA files that are not protected regular files', () => {
+    setManagedEnterprisePolicyForTest(
+      loadManagedEnterprisePolicy(options({ readNativePolicy: () => validPolicy }))
+    );
+
+    expect(() =>
+      getManagedCaCertificateBundle({
+        platform: 'linux',
+        env: {},
+        readFile: () => 'not reached',
+        statFile: () => ({
+          uid: 501,
+          mode: 0o100644,
+          size: 100,
+          isFile: true,
+          isSymbolicLink: false,
+        }),
+      })
+    ).toThrow('administrator-owned');
+
+    setManagedEnterprisePolicyForTest(
+      loadManagedEnterprisePolicy(options({ readNativePolicy: () => validPolicy }))
+    );
+    expect(() =>
+      getManagedCaCertificateBundle({
+        platform: 'linux',
+        env: {},
+        readFile: () => 'not reached',
+        statFile: () => ({
+          uid: 0,
+          mode: 0o100600,
+          size: 100,
+          isFile: false,
+          isSymbolicLink: true,
+        }),
+      })
+    ).toThrow('regular file');
+  });
+
+  it('rejects malformed managed CA certificate material', () => {
+    setManagedEnterprisePolicyForTest(
+      loadManagedEnterprisePolicy(options({ readNativePolicy: () => validPolicy }))
+    );
+
+    expect(() =>
+      getManagedCaCertificateBundle({
+        platform: 'linux',
+        env: {},
+        readFile: () => 'not a certificate',
+        statFile: () => ({
+          uid: 0,
+          mode: 0o100600,
+          size: 17,
+          isFile: true,
+          isSymbolicLink: false,
+        }),
+      })
+    ).toThrow('valid X.509');
   });
 });

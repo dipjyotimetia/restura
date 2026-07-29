@@ -15,7 +15,7 @@ const policyJson = JSON.stringify({
     bypassList: [],
     usernameEnv: undefined,
     passwordEnv: undefined,
-    caCertificatePaths: ['/etc/restura/corporate-ca.pem'],
+    caCertificatePaths: [],
     requireCertificateVerification: true,
     minimumTlsVersion: 'TLSv1.2',
     directProtocols: [],
@@ -69,7 +69,6 @@ describe('managed desktop connectivity integration', () => {
         {
           policy,
           env: { RESTURA_UPDATE_AUTHORIZATION: 'Bearer managed-feed-token' },
-          readCaFile: () => 'CORPORATE-CA',
         }
       )
     ).resolves.toEqual({ managed: true, updatesEnabled: true });

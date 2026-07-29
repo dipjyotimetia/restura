@@ -1,5 +1,14 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync, statSync } from 'node:fs';
+import { X509Certificate } from 'node:crypto';
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  statSync,
+} from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 
@@ -27,6 +36,15 @@ const ProxyUrlSchema = z
     return !url.username && !url.password;
   }, 'Proxy credentials must use environment references');
 
+const AbsoluteFilePathSchema = z
+  .string()
+  .min(1)
+  .max(4096)
+  .refine(
+    (value) => path.posix.isAbsolute(value) || path.win32.isAbsolute(value),
+    'Absolute file path required'
+  );
+
 const ManagedNetworkPolicySchema = z
   .object({
     mode: z.enum(['system', 'fixed', 'pac', 'direct']),
@@ -36,7 +54,7 @@ const ManagedNetworkPolicySchema = z
     bypassList: z.array(z.string().min(1).max(253)).max(100),
     usernameEnv: z.string().regex(ENV_NAME).optional(),
     passwordEnv: z.string().regex(ENV_NAME).optional(),
-    caCertificatePaths: z.array(z.string().min(1).max(4096)).max(20),
+    caCertificatePaths: z.array(AbsoluteFilePathSchema).max(20),
     requireCertificateVerification: z.literal(true),
     minimumTlsVersion: z.enum(['TLSv1.2', 'TLSv1.3']),
     directProtocols: z.array(z.enum(['git-ssh', 'kafka', 'mqtt'])).max(3),
@@ -120,7 +138,15 @@ export type ManagedPolicyLoadResult = {
   policy?: EnterprisePolicyV1;
 };
 
-type FileStat = { uid?: number; mode: number; size: number };
+type FileStat = {
+  uid?: number;
+  mode: number;
+  size: number;
+  dev?: number;
+  ino?: number;
+  isFile?: boolean;
+  isSymbolicLink?: boolean;
+};
 
 class PolicyTrustError extends Error {}
 
@@ -128,6 +154,14 @@ export interface ManagedPolicyLoadOptions {
   platform?: NodeJS.Platform;
   env?: NodeJS.ProcessEnv;
   readNativePolicy?: (platform: NodeJS.Platform) => string | undefined;
+  readFile?: (filePath: string) => string;
+  statFile?: (filePath: string) => FileStat;
+  isWindowsFileTrusted?: (filePath: string) => boolean;
+}
+
+export interface ManagedCaLoadOptions {
+  platform?: NodeJS.Platform;
+  env?: NodeJS.ProcessEnv;
   readFile?: (filePath: string) => string;
   statFile?: (filePath: string) => FileStat;
   isWindowsFileTrusted?: (filePath: string) => boolean;
@@ -367,19 +401,145 @@ export function markManagedPolicyRuntimeInvalid(_message: string): void {
   activeCaBundle = undefined;
 }
 
+function validateTrustedCaFile(
+  platform: NodeJS.Platform,
+  filePath: string,
+  stat: FileStat,
+  isWindowsFileTrusted: (filePath: string) => boolean,
+  env: NodeJS.ProcessEnv
+): void {
+  if (stat.isSymbolicLink || stat.isFile === false) {
+    throw new PolicyTrustError('Managed CA certificate must be a protected regular file');
+  }
+  if (stat.size > MAX_CA_BUNDLE_BYTES) {
+    throw new PolicyTrustError('Managed CA certificate exceeds the 2 MiB size limit');
+  }
+  if (platform === 'win32') {
+    const programData = path.win32.resolve(env.ProgramData ?? 'C:\\ProgramData');
+    const resolved = path.win32.resolve(filePath);
+    if (!resolved.toLowerCase().startsWith(`${programData.toLowerCase()}${path.win32.sep}`)) {
+      throw new PolicyTrustError(
+        'Windows managed CA certificates must be stored under ProgramData'
+      );
+    }
+    if (!isWindowsFileTrusted(filePath)) {
+      throw new PolicyTrustError(
+        'Windows managed CA certificate must be owned and writable only by administrators'
+      );
+    }
+    return;
+  }
+  if (stat.uid !== 0) {
+    throw new PolicyTrustError('Managed CA certificate must be administrator-owned');
+  }
+  if ((stat.mode & 0o022) !== 0) {
+    throw new PolicyTrustError('Managed CA certificate must not be group or world writable');
+  }
+}
+
+function readProtectedCaFile(
+  filePath: string,
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv,
+  isWindowsFileTrusted: (filePath: string) => boolean
+): string {
+  const before = lstatSync(filePath);
+  const beforeStat: FileStat = {
+    uid: before.uid,
+    mode: before.mode,
+    size: before.size,
+    dev: before.dev,
+    ino: before.ino,
+    isFile: before.isFile(),
+    isSymbolicLink: before.isSymbolicLink(),
+  };
+  validateTrustedCaFile(platform, filePath, beforeStat, isWindowsFileTrusted, env);
+
+  const flags = constants.O_RDONLY | (platform === 'win32' ? 0 : (constants.O_NOFOLLOW ?? 0));
+  const descriptor = openSync(filePath, flags);
+  try {
+    const after = fstatSync(descriptor);
+    const afterStat: FileStat = {
+      uid: after.uid,
+      mode: after.mode,
+      size: after.size,
+      dev: after.dev,
+      ino: after.ino,
+      isFile: after.isFile(),
+      isSymbolicLink: false,
+    };
+    validateTrustedCaFile(platform, filePath, afterStat, isWindowsFileTrusted, env);
+    if (before.dev !== after.dev || before.ino !== after.ino) {
+      throw new PolicyTrustError('Managed CA certificate changed while it was being loaded');
+    }
+    return readFileSync(descriptor, 'utf8');
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+function parseManagedCaCertificates(bundle: string): string {
+  const blocks =
+    bundle.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) ?? [];
+  if (blocks.length === 0) {
+    throw new Error('Managed CA bundle does not contain a valid X.509 certificate');
+  }
+
+  const now = Date.now();
+  const unique = new Map<string, string>();
+  try {
+    for (const block of blocks) {
+      const certificate = new X509Certificate(block);
+      if (Date.parse(certificate.validFrom) > now || Date.parse(certificate.validTo) < now) {
+        throw new Error('Managed CA bundle contains an expired or not-yet-valid certificate');
+      }
+      unique.set(certificate.fingerprint256, block);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Managed CA bundle')) throw error;
+    throw new Error('Managed CA bundle does not contain a valid X.509 certificate');
+  }
+  return [...unique.values()].join('\n');
+}
+
 export function getManagedCaCertificateBundle(
-  readFile: (filePath: string) => string = (filePath) => readFileSync(filePath, 'utf8')
+  options: ManagedCaLoadOptions = {}
 ): string | undefined {
   if (activeCaBundle !== undefined) return activeCaBundle || undefined;
   if (activeManagedPolicy.status.state !== 'managed' || !activeManagedPolicy.policy) {
     return undefined;
   }
-  const bundle = activeManagedPolicy.policy.network.caCertificatePaths.map(readFile).join('\n');
+  const platform = options.platform ?? process.platform;
+  const env = options.env ?? process.env;
+  const isWindowsFileTrusted = options.isWindowsFileTrusted ?? isWindowsFileAdminControlled;
+  const readFile = options.readFile;
+  const statFile = options.statFile;
+  const bundle = activeManagedPolicy.policy.network.caCertificatePaths
+    .map((filePath) => {
+      if (!readFile) {
+        return readProtectedCaFile(filePath, platform, env, isWindowsFileTrusted);
+      }
+      const stat =
+        statFile?.(filePath) ??
+        (() => {
+          const value = lstatSync(filePath);
+          return {
+            uid: value.uid,
+            mode: value.mode,
+            size: value.size,
+            isFile: value.isFile(),
+            isSymbolicLink: value.isSymbolicLink(),
+          };
+        })();
+      validateTrustedCaFile(platform, filePath, stat, isWindowsFileTrusted, env);
+      return readFile(filePath);
+    })
+    .join('\n');
   if (Buffer.byteLength(bundle, 'utf8') > MAX_CA_BUNDLE_BYTES) {
     throw new Error('Managed CA certificate bundle exceeds the 2 MiB size limit');
   }
-  activeCaBundle = bundle;
-  return bundle || undefined;
+  activeCaBundle = bundle ? parseManagedCaCertificates(bundle) : '';
+  return activeCaBundle || undefined;
 }
 
 export function assertManagedDirectProtocolAllowed(protocol: ManagedDirectProtocol): void {

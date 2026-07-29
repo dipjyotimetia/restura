@@ -2,10 +2,33 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   applyManagedTransportPolicy,
   configureManagedDesktopSessions,
+  createEnterpriseProxyAgent,
+  createManagedCertificateVerifyProc,
   managedProxyChallengeResponse,
   resolveManagedProxyForUrl,
 } from '../security/enterprise-network';
 import type { ManagedPolicyLoadResult } from '../security/managed-enterprise-policy';
+
+const MANAGED_CA = `-----BEGIN CERTIFICATE-----
+MIIDNDCCAhygAwIBAgIUUGeWuq5SKopY4kN0KN2xvpWh778wDQYJKoZIhvcNAQEL
+BQAwGzEZMBcGA1UEAwwQYXBpLmV4YW1wbGUudGVzdDAeFw0yNjA3MjkxMzU0MDBa
+Fw0zNjA3MjYxMzU0MDBaMBsxGTAXBgNVBAMMEGFwaS5leGFtcGxlLnRlc3QwggEi
+MA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQDWVKoLOJZUZKdWfu+YJFtZRuwn
+BT1rByhBUB+QIjLoJlNLMlnyvPr+dFA/KlplExPnC2yIlNQ071m6eZ4SJLMRtZ9M
+2hxBSUFE5avXXSrMHhJzhSOJiF8kcy+IcX9SmVQkB/O7SeHjGE3xUc0vXBukkzvg
+ftvTYPB0WfT+5ZBxAD5bQNye8f+9j8Cxgmze4CiFCXqOlcnJ+zrUg4gBYLttDJBc
+2IzvBZPPq1kqWVwOByu9noL1KEPZxOsr1OrbUeqiZ56gTp+3wT97XzWEPyHM/sUQ
+n5om0NM91MIIzPY1r+Fgq7d7MGj4G9cEE3LmlToZICZG1xUG27JGgpxf9e6dAgMB
+AAGjcDBuMB0GA1UdDgQWBBTHnKTROFr7KL2NSl2F7TRn7EJu0DAfBgNVHSMEGDAW
+gBTHnKTROFr7KL2NSl2F7TRn7EJu0DAbBgNVHREEFDASghBhcGkuZXhhbXBsZS50
+ZXN0MA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQELBQADggEBAB42zFkVzJzB
+6N8j73Wcr/TbX214bx1TwZTvvB93iO8P+/HEeARaQKgU4/pvb9oALsSU1Jp5tnpe
+RL0/KSBEwbk2jCrBE82VFei6rXzdv2Z03C1V+uNzNwkDsKvqW2B1FjacraDn8qAi
+Jf0VECP2EFH9XToMZOCx4nue62TkfvPeWcoYt3GTl7b72juwD/EP7vKlmbzkEGMs
+F9yv73JG6CCN9My9ArskUbskWpKaKD2uSxBNsYNRpmKvWUf0qM+NcuedB5Lr7aX9
+wd5yzWaw3QfCb/OcBusoIeWdqz6D1yoEJRYVJNBsQdg/a64tzgf7sSEYLPefOK/x
+spxknCrO4Gc=
+-----END CERTIFICATE-----`;
 
 function managed(
   network: Partial<NonNullable<ManagedPolicyLoadResult['policy']>['network']> = {}
@@ -45,10 +68,20 @@ function managed(
 
 describe('enterprise network service', () => {
   it('configures both application and updater sessions before outbound work', async () => {
-    const application = { setProxy: vi.fn(), resolveProxy: vi.fn(), setSSLConfig: vi.fn() };
-    const updater = { setProxy: vi.fn(), resolveProxy: vi.fn(), setSSLConfig: vi.fn() };
+    const application = {
+      setProxy: vi.fn(),
+      resolveProxy: vi.fn(),
+      setSSLConfig: vi.fn(),
+      setCertificateVerifyProc: vi.fn(),
+    };
+    const updater = {
+      setProxy: vi.fn(),
+      resolveProxy: vi.fn(),
+      setSSLConfig: vi.fn(),
+      setCertificateVerifyProc: vi.fn(),
+    };
 
-    await configureManagedDesktopSessions({ application, updater }, managed());
+    await configureManagedDesktopSessions({ application, updater }, managed(), MANAGED_CA);
 
     const expected = {
       mode: 'fixed_servers',
@@ -58,6 +91,11 @@ describe('enterprise network service', () => {
     expect(updater.setProxy).toHaveBeenCalledWith(expected);
     expect(application.setSSLConfig).toHaveBeenCalledWith({ minVersion: 'tls1.2' });
     expect(updater.setSSLConfig).toHaveBeenCalledWith({ minVersion: 'tls1.2' });
+    expect(application.setCertificateVerifyProc).toHaveBeenCalledWith(expect.any(Function));
+    expect(updater.setCertificateVerifyProc).toHaveBeenCalledWith(expect.any(Function));
+    expect(application.setCertificateVerifyProc.mock.invocationCallOrder[0]).toBeLessThan(
+      application.setProxy.mock.invocationCallOrder[0]!
+    );
   });
 
   it('uses PAC in mandatory mode and fails closed on a direct result', async () => {
@@ -133,6 +171,55 @@ describe('enterprise network service', () => {
     expect(resolved.minTlsVersion).toBe('TLSv1.3');
     expect(resolved.caCert?.pem).toContain('MANAGED-CA');
     expect(resolved.caCert?.pem).toMatch(/MANAGED-CA\nREQUEST-CA$/);
+  });
+
+  it('enforces the managed TLS floor on the HTTPS proxy connection', () => {
+    const agent = createEnterpriseProxyAgent(
+      { type: 'https', host: 'proxy.corp.example', port: 8443 },
+      { verifySsl: true, minTlsVersion: 'TLSv1.3' }
+    ) as unknown as { connectOpts: { minVersion?: string } };
+
+    expect(agent.connectOpts.minVersion).toBe('TLSv1.3');
+  });
+
+  it('trusts a configured CA only for unknown-authority errors and matching hosts', () => {
+    const verify = createManagedCertificateVerifyProc(MANAGED_CA);
+    const trusted = vi.fn();
+    const wrongHost = vi.fn();
+    const expiredOrRevoked = vi.fn();
+    const certificate = { data: MANAGED_CA };
+
+    verify(
+      {
+        hostname: 'api.example.test',
+        certificate,
+        verificationResult: 'net::ERR_CERT_AUTHORITY_INVALID',
+        errorCode: -202,
+      },
+      trusted
+    );
+    verify(
+      {
+        hostname: 'other.example.test',
+        certificate,
+        verificationResult: 'net::ERR_CERT_AUTHORITY_INVALID',
+        errorCode: -202,
+      },
+      wrongHost
+    );
+    verify(
+      {
+        hostname: 'api.example.test',
+        certificate,
+        verificationResult: 'net::ERR_CERT_DATE_INVALID',
+        errorCode: -201,
+      },
+      expiredOrRevoked
+    );
+
+    expect(trusted).toHaveBeenCalledWith(0);
+    expect(wrongHost).toHaveBeenCalledWith(-202);
+    expect(expiredOrRevoked).toHaveBeenCalledWith(-201);
   });
 
   it('answers Basic proxy challenges and rejects integrated authentication', () => {
