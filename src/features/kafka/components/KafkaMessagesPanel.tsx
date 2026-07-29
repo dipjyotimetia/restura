@@ -1,5 +1,6 @@
-import { RefreshCw, Search } from 'lucide-react';
+import { Activity, Pause, Play, RefreshCw, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -67,9 +68,11 @@ function tryFormatJson(value: string): string {
 export function KafkaMessagesPanel({
   connection,
   paused,
+  onPausedChange,
 }: {
   connection: KafkaConnection;
   paused: boolean;
+  onPausedChange: (paused: boolean) => void;
 }) {
   const messageFilter = useKafkaStore((state) => state.messageFilter);
   const searchQuery = useKafkaStore((state) => state.searchQuery);
@@ -154,7 +157,7 @@ export function KafkaMessagesPanel({
           </>
         )}
       </Floater>
-      <div className="flex-1 min-h-0 grid gap-2.5" style={{ gridTemplateColumns: '1.6fr 1fr' }}>
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-2.5 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
         <Floater radius="panel" className="flex flex-col min-h-0 overflow-hidden">
           <div className="flex items-center gap-2 px-3 py-2 border-b border-sp-line shrink-0">
             <Select
@@ -182,7 +185,25 @@ export function KafkaMessagesPanel({
                 className="h-7 pl-7 text-xs bg-sp-surface-lo border-sp-line font-mono"
               />
             </div>
-            {paused && <ConnectionBadge label="Paused" tone="warning" />}
+            {paused && <ConnectionBadge label="Frozen" tone="warning" />}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => onPausedChange(!paused)}
+              className="h-7 px-2.5 text-xs font-mono rounded-sp-btn"
+              aria-label={paused ? 'Resume live message view' : 'Freeze message view'}
+              title={paused ? 'Resume live message view' : 'Freeze message view'}
+            >
+              {paused ? (
+                <>
+                  <Play className="h-3 w-3 mr-1.5" /> Live
+                </>
+              ) : (
+                <>
+                  <Pause className="h-3 w-3 mr-1.5" /> Freeze
+                </>
+              )}
+            </Button>
             <Button
               size="sm"
               variant="ghost"
@@ -207,11 +228,46 @@ export function KafkaMessagesPanel({
             <ul className="text-xs" data-stream-rapid={rapidStream || undefined}>
               {visibleMessages.map((message) => {
                 const selected = message.id === selectedMessageId;
+                if (message.direction === 'system') {
+                  return (
+                    <li
+                      key={message.id}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Activity: ${message.value}`}
+                      onClick={() => setSelectedMessageId(message.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setSelectedMessageId(message.id);
+                        }
+                      }}
+                      className={cn(
+                        'flex items-center gap-2 border-l-2 px-3 py-2 font-mono transition-colors sp-stream-row cursor-pointer',
+                        selected
+                          ? 'bg-sp-active border-l-sp-accent'
+                          : 'border-l-transparent hover:bg-sp-hover'
+                      )}
+                    >
+                      <Activity className="h-3.5 w-3.5 shrink-0 text-sp-muted" aria-hidden="true" />
+                      <Badge variant="outline" className="shrink-0 text-sp-9">
+                        Activity
+                      </Badge>
+                      <span className="truncate text-sp-text">{message.value}</span>
+                      <time className="ml-auto shrink-0 text-sp-dim tabular-nums">
+                        {new Date(message.timestamp).toLocaleTimeString()}
+                      </time>
+                    </li>
+                  );
+                }
                 return (
                   <li
                     key={message.id}
                     role="button"
                     tabIndex={0}
+                    aria-label={`Kafka record in ${message.topic}, partition ${
+                      message.partition ?? 'unknown'
+                    }, offset ${message.offset ?? 'unknown'}`}
                     onClick={() => setSelectedMessageId(message.id)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
@@ -345,6 +401,14 @@ export function KafkaMessagesPanel({
                         ? 'Offset committed'
                         : 'Commit this message'}
                     </Button>
+                  )}
+                  {selectedMessage.tombstone && (
+                    <div className="space-y-1">
+                      <Badge variant="outline">Tombstone</Badge>
+                      <p className="text-sp-11 text-sp-muted">
+                        Kafka null value. Consumers may interpret this as a delete marker.
+                      </p>
+                    </div>
                   )}
                   <div className="space-y-1">
                     <div className="sp-label">

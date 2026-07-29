@@ -294,7 +294,11 @@ export function KafkaClient() {
             <TabsTrigger value="admin">Admin</TabsTrigger>
             <TabsTrigger value="connection">Connection</TabsTrigger>
           </TabsList>
-          <KafkaMessagesPanel connection={connection} paused={paused} />
+          <KafkaMessagesPanel
+            connection={connection}
+            paused={paused}
+            onPausedChange={setPaused}
+          />
           <KafkaConnectionForm connection={connection} controller={kafkaConnection} />
           <KafkaProducerPanel
             connection={connection}
