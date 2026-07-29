@@ -385,7 +385,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
               {isElectron() && (
                 <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('kafka')}>
                   <ProtoChip protocol="KAFKA" className="w-12 justify-center" />
-                  Kafka consumer
+                  Kafka client
                 </DropdownMenuItem>
               )}
               {isElectron() && (

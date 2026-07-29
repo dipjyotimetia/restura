@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   KafkaConnectSchema,
+  KafkaAlterQuotasSchema,
+  KafkaAlterTopicConfigsSchema,
+  KafkaCreateAclSchema,
+  KafkaCreatePartitionsSchema,
+  KafkaDeleteAclsSchema,
+  KafkaDeleteRecordsSchema,
   KafkaCreateTopicSchema,
   KafkaDeleteGroupSchema,
   KafkaDeleteTopicSchema,
@@ -10,6 +16,11 @@ import {
   KafkaListGroupsSchema,
   KafkaListTopicsSchema,
   KafkaProduceSchema,
+  KafkaProduceBatchSchema,
+  KafkaProducerStreamOpenSchema,
+  KafkaProducerStreamWriteSchema,
+  KafkaTransactionBeginSchema,
+  KafkaTransactionEndSchema,
   KafkaResetGroupOffsetsSchema,
   KafkaSubscribeSchema,
   KafkaUnsubscribeSchema,
@@ -64,18 +75,20 @@ describe('Kafka IPC validators', () => {
     it('accepts an optional valueSchemaId on produce', () => {
       const ok = KafkaProduceSchema.safeParse({
         connectionId: 'abc',
-        topic: 't',
-        value: '{"id":1}',
+        record: {
+          topic: 't',
+          value: { encoding: 'schema', schemaId: 7, data: '{"id":1}' },
+        },
         acks: 1,
-        valueSchemaId: 7,
       });
       expect(ok.success).toBe(true);
       const bad = KafkaProduceSchema.safeParse({
         connectionId: 'abc',
-        topic: 't',
-        value: '{}',
+        record: {
+          topic: 't',
+          value: { encoding: 'schema', schemaId: 0, data: '{}' },
+        },
         acks: 1,
-        valueSchemaId: 0,
       });
       expect(bad.success).toBe(false);
     });
@@ -114,6 +127,32 @@ describe('Kafka IPC validators', () => {
         },
       });
       expect(result.success).toBe(false);
+    });
+
+    it('accepts OAUTHBEARER with a static token and rejects username/password shape', () => {
+      const base = {
+        connectionId: 'abc',
+        clientId: 'r',
+        bootstrapBrokers: ['localhost:9092'],
+      };
+      expect(
+        KafkaConnectSchema.safeParse({
+          ...base,
+          auth: {
+            securityProtocol: 'SASL_SSL',
+            sasl: { mechanism: 'OAUTHBEARER', token: 'signed-token' },
+          },
+        }).success
+      ).toBe(true);
+      expect(
+        KafkaConnectSchema.safeParse({
+          ...base,
+          auth: {
+            securityProtocol: 'SASL_SSL',
+            sasl: { mechanism: 'OAUTHBEARER', username: 'u', password: 'p' },
+          },
+        }).success
+      ).toBe(false);
     });
 
     it('rejects bad broker syntax', () => {
@@ -195,8 +234,10 @@ describe('Kafka IPC validators', () => {
   describe('KafkaProduceSchema', () => {
     const base = {
       connectionId: 'c',
-      topic: 'orders',
-      value: 'hello',
+      record: {
+        topic: 'orders',
+        value: { encoding: 'utf8' as const, data: 'hello' },
+      },
       acks: 1 as const,
     };
 
@@ -208,26 +249,78 @@ describe('Kafka IPC validators', () => {
     it('accepts key, headers, partition, compression', () => {
       const result = KafkaProduceSchema.safeParse({
         ...base,
-        key: 'order-1',
-        headers: { source: 'web' },
-        partition: 2,
+        record: {
+          topic: 'orders',
+          key: { encoding: 'utf8', data: 'order-1' },
+          value: { encoding: 'base64', data: 'AA==' },
+          headers: [
+            {
+              key: { encoding: 'utf8', data: 'source' },
+              value: { encoding: 'base64', data: 'd2Vi' },
+            },
+          ],
+          partition: 2,
+          timestamp: '1722222222000',
+        },
         compression: 'snappy',
       });
       expect(result.success).toBe(true);
     });
 
+    it('accepts empty and tombstone values without conflating them', () => {
+      expect(
+        KafkaProduceSchema.safeParse({
+          ...base,
+          record: { topic: 'orders', value: { encoding: 'utf8', data: '' } },
+        }).success
+      ).toBe(true);
+      expect(
+        KafkaProduceSchema.safeParse({
+          ...base,
+          record: { topic: 'orders', value: { encoding: 'null' } },
+        }).success
+      ).toBe(true);
+    });
+
+    it('accepts schema fields and rejects malformed Base64', () => {
+      expect(
+        KafkaProduceSchema.safeParse({
+          ...base,
+          record: {
+            topic: 'orders',
+            value: { encoding: 'schema', schemaId: 7, data: '{"id":1}' },
+          },
+        }).success
+      ).toBe(true);
+      expect(
+        KafkaProduceSchema.safeParse({
+          ...base,
+          record: { topic: 'orders', value: { encoding: 'base64', data: '@@' } },
+        }).success
+      ).toBe(false);
+    });
+
     it('rejects empty topic', () => {
-      const result = KafkaProduceSchema.safeParse({ ...base, topic: '' });
+      const result = KafkaProduceSchema.safeParse({
+        ...base,
+        record: { ...base.record, topic: '' },
+      });
       expect(result.success).toBe(false);
     });
 
     it('rejects topic with invalid characters', () => {
-      const result = KafkaProduceSchema.safeParse({ ...base, topic: 'has spaces' });
+      const result = KafkaProduceSchema.safeParse({
+        ...base,
+        record: { ...base.record, topic: 'has spaces' },
+      });
       expect(result.success).toBe(false);
     });
 
     it('rejects negative partition', () => {
-      const result = KafkaProduceSchema.safeParse({ ...base, partition: -1 });
+      const result = KafkaProduceSchema.safeParse({
+        ...base,
+        record: { ...base.record, partition: -1 },
+      });
       expect(result.success).toBe(false);
     });
 
@@ -239,9 +332,68 @@ describe('Kafka IPC validators', () => {
     it('rejects oversized value (>10MB)', () => {
       const result = KafkaProduceSchema.safeParse({
         ...base,
-        value: 'a'.repeat(11 * 1024 * 1024),
+        record: {
+          topic: 'orders',
+          value: { encoding: 'utf8', data: 'a'.repeat(11 * 1024 * 1024) },
+        },
       });
       expect(result.success).toBe(false);
+    });
+
+    it('bounds interactive batches', () => {
+      const record = base.record;
+      expect(
+        KafkaProduceBatchSchema.safeParse({
+          connectionId: 'c',
+          records: [record, record],
+          acks: -1,
+        }).success
+      ).toBe(true);
+      expect(
+        KafkaProduceBatchSchema.safeParse({
+          connectionId: 'c',
+          records: [],
+          acks: -1,
+        }).success
+      ).toBe(false);
+    });
+
+    it('validates producer stream lifecycle inputs', () => {
+      expect(
+        KafkaProducerStreamOpenSchema.safeParse({
+          connectionId: 'c',
+          batchSize: 50,
+          batchTime: 250,
+          highWaterMark: 100,
+          acks: 1,
+        }).success
+      ).toBe(true);
+      expect(
+        KafkaProducerStreamWriteSchema.safeParse({
+          connectionId: 'c',
+          record: base.record,
+        }).success
+      ).toBe(true);
+    });
+
+    it('validates transaction begin and end actions', () => {
+      expect(
+        KafkaTransactionBeginSchema.safeParse({
+          connectionId: 'c',
+        }).success
+      ).toBe(true);
+      expect(
+        KafkaTransactionEndSchema.safeParse({
+          connectionId: 'c',
+          action: 'commit',
+        }).success
+      ).toBe(true);
+      expect(
+        KafkaTransactionEndSchema.safeParse({
+          connectionId: 'c',
+          action: 'discard',
+        }).success
+      ).toBe(false);
     });
   });
 
@@ -251,7 +403,8 @@ describe('Kafka IPC validators', () => {
         connectionId: 'c',
         groupId: 'restura-g',
         topics: ['orders', 'logs'],
-        fromBeginning: true,
+        mode: 'committed',
+        fallbackMode: 'latest',
       });
       expect(result.success).toBe(true);
     });
@@ -261,7 +414,7 @@ describe('Kafka IPC validators', () => {
         connectionId: 'c',
         groupId: 'g',
         topics: [],
-        fromBeginning: false,
+        mode: 'committed',
       });
       expect(result.success).toBe(false);
     });
@@ -271,20 +424,19 @@ describe('Kafka IPC validators', () => {
         connectionId: 'c',
         groupId: 'g',
         topics: Array.from({ length: 51 }, (_, i) => `t${i}`),
-        fromBeginning: false,
+        mode: 'committed',
       });
       expect(result.success).toBe(false);
     });
 
-    it('accepts an explicit mode', () => {
+    it('requires offsets for manual mode', () => {
       const result = KafkaSubscribeSchema.safeParse({
         connectionId: 'c',
         groupId: 'g',
         topics: ['orders'],
-        fromBeginning: false,
         mode: 'manual',
       });
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
     });
 
     it('rejects an unknown mode', () => {
@@ -292,7 +444,6 @@ describe('Kafka IPC validators', () => {
         connectionId: 'c',
         groupId: 'g',
         topics: ['orders'],
-        fromBeginning: false,
         mode: 'tail',
       });
       expect(result.success).toBe(false);
@@ -303,7 +454,6 @@ describe('Kafka IPC validators', () => {
         connectionId: 'c',
         groupId: 'g',
         topics: ['orders'],
-        fromBeginning: false,
         mode: 'manual',
         offsets: [{ topic: 'orders', partition: 0, offset: '42' }],
       });
@@ -315,7 +465,7 @@ describe('Kafka IPC validators', () => {
         connectionId: 'c',
         groupId: 'g',
         topics: ['orders'],
-        fromBeginning: false,
+        mode: 'manual',
         offsets: [{ topic: 'orders', partition: 0, offset: 'latest' }],
       });
       expect(result.success).toBe(false);
@@ -326,7 +476,7 @@ describe('Kafka IPC validators', () => {
         connectionId: 'c',
         groupId: 'g',
         topics: ['orders'],
-        fromBeginning: false,
+        mode: 'manual',
         offsets: [{ topic: 'orders', partition: -1, offset: '0' }],
       });
       expect(result.success).toBe(false);
@@ -337,7 +487,6 @@ describe('Kafka IPC validators', () => {
         connectionId: 'c',
         groupId: 'g',
         topics: ['orders'],
-        fromBeginning: false,
         mode: 'timestamp',
         timestamp: '1718800000000',
       });
@@ -349,11 +498,29 @@ describe('Kafka IPC validators', () => {
         connectionId: 'c',
         groupId: 'g',
         topics: ['orders'],
-        fromBeginning: false,
         mode: 'timestamp',
         timestamp: 'yesterday',
       });
       expect(result.success).toBe(false);
+    });
+
+    it('accepts manual commit, read-committed isolation, consumer protocol, and fetch tuning', () => {
+      expect(
+        KafkaSubscribeSchema.safeParse({
+          connectionId: 'c',
+          groupId: 'g',
+          topics: ['orders'],
+          mode: 'committed',
+          fallbackMode: 'earliest',
+          commitPolicy: 'manual',
+          isolation: 'read-committed',
+          groupProtocol: 'consumer',
+          groupRemoteAssignor: 'uniform',
+          maxBytes: 1_048_576,
+          highWaterMark: 100,
+          lagIntervalMs: 1000,
+        }).success
+      ).toBe(true);
     });
   });
 
@@ -368,6 +535,84 @@ describe('Kafka IPC validators', () => {
     it('accepts list-topics / list-groups by connection id', () => {
       expect(KafkaListTopicsSchema.safeParse({ connectionId: 'c' }).success).toBe(true);
       expect(KafkaListGroupsSchema.safeParse({ connectionId: 'c' }).success).toBe(true);
+    });
+
+    it('defaults topic mutations to validate-only and requires typed confirmation to apply', () => {
+      expect(
+        KafkaCreatePartitionsSchema.safeParse({
+          connectionId: 'c',
+          topic: 'orders',
+          count: 8,
+        }).success
+      ).toBe(true);
+      expect(
+        KafkaAlterTopicConfigsSchema.safeParse({
+          connectionId: 'c',
+          topic: 'orders',
+          configs: [{ name: 'retention.ms', operation: 'set', value: '60000' }],
+          validateOnly: false,
+          confirmation: 'wrong',
+        }).success
+      ).toBe(false);
+      expect(
+        KafkaAlterTopicConfigsSchema.safeParse({
+          connectionId: 'c',
+          topic: 'orders',
+          configs: [{ name: 'retention.ms', operation: 'set', value: '60000' }],
+          validateOnly: false,
+          confirmation: 'ALTER orders',
+        }).success
+      ).toBe(true);
+    });
+
+    it('requires topic-specific confirmation before deleting records', () => {
+      const base = {
+        connectionId: 'c',
+        topic: 'orders',
+        partitions: [{ partition: 0, offset: '42' }],
+      };
+      expect(
+        KafkaDeleteRecordsSchema.safeParse({
+          ...base,
+          confirmation: 'DELETE RECORDS orders',
+        }).success
+      ).toBe(true);
+      expect(KafkaDeleteRecordsSchema.safeParse({ ...base, confirmation: 'orders' }).success).toBe(
+        false
+      );
+    });
+
+    it('guards ACL and quota changes with typed confirmation or validate-only', () => {
+      const acl = {
+        resourceType: 2,
+        resourceName: 'orders',
+        resourcePatternType: 3,
+        principal: 'User:restura',
+        host: '*',
+        operation: 3,
+        permissionType: 3,
+      };
+      expect(
+        KafkaCreateAclSchema.safeParse({
+          connectionId: 'c',
+          acl,
+          confirmation: 'CREATE ACL',
+        }).success
+      ).toBe(true);
+      expect(
+        KafkaDeleteAclsSchema.safeParse({
+          connectionId: 'c',
+          filter: acl,
+          confirmation: 'no',
+        }).success
+      ).toBe(false);
+      expect(
+        KafkaAlterQuotasSchema.safeParse({
+          connectionId: 'c',
+          entities: [{ entityType: 'user', entityName: 'restura' }],
+          operations: [{ key: 'producer_byte_rate', value: 1024 }],
+        }).success
+      ).toBe(true);
     });
 
     it('accepts a valid create-topic config', () => {

@@ -35,6 +35,7 @@ beforeEach(() => {
 // this routing guard at once.
 const KAFKA_FIELDS: Record<KafkaSecretField, true> = {
   'sasl-password': true,
+  'oauth-token': true,
   'tls-passphrase': true,
   'registry-password': true,
 };

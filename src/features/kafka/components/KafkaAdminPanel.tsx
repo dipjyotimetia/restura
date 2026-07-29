@@ -10,6 +10,7 @@ import { TabsContent } from '@/components/ui/tabs';
 import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
 import type { KafkaConnection } from '@/features/kafka/store/useKafkaStore';
 import type { KafkaGroupInfo } from '../../../../electron/types/electron-api';
+import { KafkaAdvancedAdmin } from './KafkaAdvancedAdmin';
 import { KafkaGroupInspector } from './KafkaGroupInspector';
 import { KafkaTopicInspector } from './KafkaTopicInspector';
 import { KAFKA_PINK } from './shared';
@@ -19,10 +20,12 @@ export function KafkaAdminPanel({ connection }: { connection: KafkaConnection })
   const [topics, setTopics] = useState<string[] | null>(null);
   const [groups, setGroups] = useState<KafkaGroupInfo[] | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loadingResource, setLoadingResource] = useState<'topics' | 'groups' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [newTopicName, setNewTopicName] = useState('');
   const [newTopicPartitions, setNewTopicPartitions] = useState('1');
   const [newTopicReplication, setNewTopicReplication] = useState('1');
+  const [topicFilter, setTopicFilter] = useState('');
   const [inspectTopicName, setInspectTopicName] = useState<string | null>(null);
   const [inspectGroupId, setInspectGroupId] = useState<string | null>(null);
   const [pendingTopicDelete, setPendingTopicDelete] = useState<string | null>(null);
@@ -31,7 +34,9 @@ export function KafkaAdminPanel({ connection }: { connection: KafkaConnection })
     setTopics(null);
     setGroups(null);
     setError(null);
+    setLoadingResource(null);
     setNewTopicName('');
+    setTopicFilter('');
     setInspectTopicName(null);
     setInspectGroupId(null);
     setPendingTopicDelete(null);
@@ -39,18 +44,22 @@ export function KafkaAdminPanel({ connection }: { connection: KafkaConnection })
 
   const refreshTopics = async (): Promise<void> => {
     setBusy(true);
+    setLoadingResource('topics');
     setError(null);
     const result = await kafkaManager.listTopics(connection.id);
     if (result.ok) setTopics(result.topics.slice().sort());
     else setError(result.error);
+    setLoadingResource(null);
     setBusy(false);
   };
   const refreshGroups = async (): Promise<void> => {
     setBusy(true);
+    setLoadingResource('groups');
     setError(null);
     const result = await kafkaManager.listGroups(connection.id);
     if (result.ok) setGroups(result.groups);
     else setError(result.error);
+    setLoadingResource(null);
     setBusy(false);
   };
   const createTopic = async (): Promise<void> => {
@@ -83,6 +92,9 @@ export function KafkaAdminPanel({ connection }: { connection: KafkaConnection })
     if (inspectTopicName === topic) setInspectTopicName(null);
     await refreshTopics();
   };
+  const normalizedTopicFilter = topicFilter.trim().toLowerCase();
+  const filteredTopics =
+    topics?.filter((topic) => topic.toLowerCase().includes(normalizedTopicFilter)) ?? [];
 
   return (
     <TabsContent value="admin" className="flex-1 overflow-auto m-0">
@@ -112,31 +124,46 @@ export function KafkaAdminPanel({ connection }: { connection: KafkaConnection })
         )}
         {error && <div className="font-mono text-sp-12 text-red-400 break-all">{error}</div>}
         <div className="space-y-2 rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
-          <Label className="text-xs sp-label">Create topic</Label>
-          <div className="grid grid-cols-[1fr_auto_auto] gap-2">
-            <Input
-              value={newTopicName}
-              onChange={(event) => setNewTopicName(event.target.value)}
-              placeholder="topic-name"
-              className="h-8 text-xs font-mono"
-            />
-            <Input
-              value={newTopicPartitions}
-              onChange={(event) => setNewTopicPartitions(event.target.value)}
-              inputMode="numeric"
-              title="Partitions"
-              className="h-8 w-20 text-xs font-mono"
-            />
-            <Input
-              value={newTopicReplication}
-              onChange={(event) => setNewTopicReplication(event.target.value)}
-              inputMode="numeric"
-              title="Replication factor"
-              className="h-8 w-20 text-xs font-mono"
-            />
+          <h3 className="text-xs font-medium">Create topic</h3>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-[minmax(0,1fr)_8rem_10rem]">
+            <div className="space-y-1">
+              <Label htmlFor="kafka-admin-topic-name" className="text-xs sp-label">
+                Topic name
+              </Label>
+              <Input
+                id="kafka-admin-topic-name"
+                value={newTopicName}
+                onChange={(event) => setNewTopicName(event.target.value)}
+                placeholder="topic-name"
+                className="h-8 text-xs font-mono"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="kafka-admin-topic-partitions" className="text-xs sp-label">
+                Partitions
+              </Label>
+              <Input
+                id="kafka-admin-topic-partitions"
+                value={newTopicPartitions}
+                onChange={(event) => setNewTopicPartitions(event.target.value)}
+                inputMode="numeric"
+                className="h-8 text-xs font-mono"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="kafka-admin-topic-replication" className="text-xs sp-label">
+                Replication factor
+              </Label>
+              <Input
+                id="kafka-admin-topic-replication"
+                value={newTopicReplication}
+                onChange={(event) => setNewTopicReplication(event.target.value)}
+                inputMode="numeric"
+                className="h-8 text-xs font-mono"
+              />
+            </div>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sp-11 text-sp-dim">name · partitions · replication</span>
+          <div className="flex justify-end">
             <Button
               size="sm"
               onClick={createTopic}
@@ -148,7 +175,16 @@ export function KafkaAdminPanel({ connection }: { connection: KafkaConnection })
         </div>
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <Label className="text-xs sp-label">Topics</Label>
+            <div className="flex items-center gap-2">
+              <Label className="text-xs sp-label">Topics</Label>
+              {topics !== null && (
+                <Badge variant="outline">
+                  {normalizedTopicFilter
+                    ? `${filteredTopics.length} of ${topics.length} topics`
+                    : `${topics.length} ${topics.length === 1 ? 'topic' : 'topics'}`}
+                </Badge>
+              )}
+            </div>
             <Button
               size="sm"
               variant="secondary"
@@ -158,51 +194,75 @@ export function KafkaAdminPanel({ connection }: { connection: KafkaConnection })
               <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> List topics
             </Button>
           </div>
-          {topics === null ? (
+          {loadingResource === 'topics' ? (
+            <p role="status" className="text-xs text-sp-muted">
+              Loading topics…
+            </p>
+          ) : topics === null ? (
             <p className="text-xs text-sp-dim">Click "List topics" to load.</p>
           ) : topics.length === 0 ? (
-            <p className="text-xs text-sp-dim">No topics.</p>
+            <p className="text-xs text-sp-dim">This cluster has no topics.</p>
           ) : (
-            <ul className="space-y-1">
-              {topics.map((topic) => (
-                <li
-                  key={topic}
-                  className="flex items-center justify-between rounded-sp-btn border border-sp-line px-2.5 py-1.5"
-                >
-                  <span
-                    className="font-mono text-sp-12 truncate"
-                    style={{ color: KAFKA_PINK }}
-                    title={topic}
-                  >
-                    {topic}
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() =>
-                      setInspectTopicName((current) => (current === topic ? null : topic))
-                    }
-                    disabled={connection.status !== 'connected'}
-                    className="h-6 w-6 p-0 ml-auto"
-                    title={`Inspect topic ${topic}`}
-                    aria-label={`Inspect topic ${topic}`}
-                  >
-                    <Search className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setPendingTopicDelete(topic)}
-                    disabled={busy}
-                    className="h-6 w-6 p-0"
-                    title={`Delete topic ${topic}`}
-                    aria-label={`Delete topic ${topic}`}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </li>
-              ))}
-            </ul>
+            <>
+              <Input
+                type="search"
+                aria-label="Filter topics"
+                value={topicFilter}
+                onChange={(event) => setTopicFilter(event.target.value)}
+                placeholder="Filter topics"
+                className="h-8 text-xs font-mono"
+              />
+              <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 px-2.5 text-sp-10 text-sp-dim">
+                <span>Topic</span>
+                <span>Actions</span>
+              </div>
+              {filteredTopics.length === 0 ? (
+                <p className="rounded-sp-btn border border-dashed border-sp-line px-3 py-6 text-center text-xs text-sp-dim">
+                  No topics match “{topicFilter.trim()}”.
+                </p>
+              ) : (
+                <ul className="space-y-1">
+                  {filteredTopics.map((topic) => (
+                    <li
+                      key={topic}
+                      className="flex items-center justify-between rounded-sp-btn border border-sp-line px-2.5 py-1.5"
+                    >
+                      <span
+                        className="font-mono text-sp-12 truncate"
+                        style={{ color: KAFKA_PINK }}
+                        title={topic}
+                      >
+                        {topic}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() =>
+                          setInspectTopicName((current) => (current === topic ? null : topic))
+                        }
+                        disabled={connection.status !== 'connected'}
+                        className="h-6 w-6 p-0 ml-auto"
+                        title={`Inspect topic ${topic}`}
+                        aria-label={`Inspect topic ${topic}`}
+                      >
+                        <Search className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => setPendingTopicDelete(topic)}
+                        disabled={busy}
+                        className="h-6 w-6 p-0"
+                        title={`Delete topic ${topic}`}
+                        aria-label={`Delete topic ${topic}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
           )}
           {inspectTopicName !== null && (
             <KafkaTopicInspector
@@ -214,7 +274,14 @@ export function KafkaAdminPanel({ connection }: { connection: KafkaConnection })
         </div>
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <Label className="text-xs sp-label">Consumer groups</Label>
+            <div className="flex items-center gap-2">
+              <Label className="text-xs sp-label">Consumer groups</Label>
+              {groups !== null && (
+                <Badge variant="outline">
+                  {groups.length} {groups.length === 1 ? 'group' : 'groups'}
+                </Badge>
+              )}
+            </div>
             <Button
               size="sm"
               variant="secondary"
@@ -224,7 +291,11 @@ export function KafkaAdminPanel({ connection }: { connection: KafkaConnection })
               <Users className="h-3.5 w-3.5 mr-1.5" /> List groups
             </Button>
           </div>
-          {groups === null ? (
+          {loadingResource === 'groups' ? (
+            <p role="status" className="text-xs text-sp-muted">
+              Loading consumer groups…
+            </p>
+          ) : groups === null ? (
             <p className="text-xs text-sp-dim">Click "List groups" to load.</p>
           ) : groups.length === 0 ? (
             <p className="text-xs text-sp-dim">No consumer groups.</p>
@@ -274,6 +345,10 @@ export function KafkaAdminPanel({ connection }: { connection: KafkaConnection })
               }}
             />
           )}
+        </div>
+        <div className="space-y-2">
+          <Label className="text-xs sp-label">Advanced administration</Label>
+          <KafkaAdvancedAdmin connectionId={connection.id} />
         </div>
       </Floater>
     </TabsContent>

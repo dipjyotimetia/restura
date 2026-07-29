@@ -50,7 +50,14 @@ describe('framework-adopted store versioning', () => {
 
     it(`${label} migrate adopts a version-0 blob unchanged (no data loss on the bump)`, async () => {
       const opts = store.persist.getOptions();
-      const sample = { connections: { x: { id: 'x' } }, activeConnectionId: 'x' };
+      // Kafka has a real v1 → v2 shape migration whose connection records
+      // require a consumer object. Its dedicated store tests cover that
+      // transformation; use an empty-but-valid persisted shell here to retain
+      // this framework-level pass-through assertion.
+      const sample =
+        label === 'kafka'
+          ? { connections: {}, activeConnectionId: null }
+          : { connections: { x: { id: 'x' } }, activeConnectionId: 'x' };
       // The factory migrate is async (runMigrations + telemetry); with steps: []
       // it returns the persisted state unchanged.
       await expect(Promise.resolve(opts.migrate?.(sample, 0))).resolves.toEqual(sample);

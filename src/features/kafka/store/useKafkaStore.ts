@@ -6,7 +6,7 @@ import { createPersistedStore } from '@/lib/shared/persistence/createPersistedSt
 import { useConsoleStore } from '@/store/useConsoleStore';
 
 export type KafkaSecurityProtocol = 'PLAINTEXT' | 'SASL_PLAINTEXT' | 'SASL_SSL' | 'SSL';
-export type KafkaSaslMechanism = 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512';
+export type KafkaSaslMechanism = 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512' | 'OAUTHBEARER';
 export type KafkaCompression = 'none' | 'gzip' | 'snappy' | 'lz4' | 'zstd';
 export type KafkaAcks = 0 | 1 | -1;
 
@@ -17,12 +17,19 @@ export type KafkaAcks = 0 | 1 | -1;
  */
 export const KAFKA_SECRET_SENTINEL = '__restura_secret__';
 
-export interface KafkaSasl {
-  mechanism: KafkaSaslMechanism;
-  username: string;
-  /** Persisted as the sentinel; real value comes from secureStorage */
-  password: string;
-}
+export type KafkaSasl =
+  | {
+      mechanism: Exclude<KafkaSaslMechanism, 'OAUTHBEARER'>;
+      username: string;
+      /** Persisted as the sentinel; real value comes from secureStorage */
+      password: string;
+    }
+  | {
+      mechanism: 'OAUTHBEARER';
+      /** Persisted as the sentinel; real value comes from secureStorage */
+      token: string;
+      extensions?: Record<string, string>;
+    };
 
 export interface KafkaTls {
   caPath?: string;
@@ -73,7 +80,10 @@ export interface KafkaMessage {
   keyEncoding?: KafkaPayloadEncoding;
   value: string;
   valueEncoding?: KafkaPayloadEncoding;
+  tombstone?: boolean;
   headers?: Record<string, string>;
+  binaryHeaders?: { key: string; value: string }[];
+  commitToken?: string;
   timestamp: number;
   error?: string;
 }
@@ -82,6 +92,24 @@ export interface KafkaConsumerState {
   groupId: string;
   topics: string[];
   fromBeginning: boolean;
+  mode: 'committed' | 'latest' | 'earliest' | 'manual' | 'timestamp';
+  fallbackMode: 'latest' | 'earliest' | 'fail';
+  commitPolicy: 'auto' | 'manual';
+  isolation: 'read-uncommitted' | 'read-committed';
+  groupProtocol: 'classic' | 'consumer';
+  groupState?: string;
+  lag?: { topic: string; offsets: string[] }[];
+  groupInstanceId?: string;
+  groupRemoteAssignor?: string;
+  sessionTimeoutMs?: number;
+  rebalanceTimeoutMs?: number;
+  heartbeatIntervalMs?: number;
+  autoCommitIntervalMs?: number;
+  minBytes?: number;
+  maxBytes?: number;
+  maxBytesPerPartition?: number;
+  maxWaitTimeMs?: number;
+  highWaterMark?: number;
   status: 'idle' | 'subscribing' | 'subscribed' | 'error';
 }
 
@@ -98,6 +126,7 @@ export interface KafkaConnection {
   compression: KafkaCompression;
   /** Idempotent producer — exactly-once-per-partition dedup; forces acks=-1. */
   idempotent: boolean;
+  transactionalId?: string;
   /** Optional Confluent Schema Registry — enables Avro/Protobuf/JSON decode. */
   registry?: KafkaRegistry;
   consumer: KafkaConsumerState;
@@ -174,10 +203,40 @@ function makeDefaultConnection(
       groupId: `restura-${id.slice(0, 8)}`,
       topics: [],
       fromBeginning: false,
+      mode: 'committed',
+      fallbackMode: 'latest',
+      commitPolicy: 'auto',
+      isolation: 'read-uncommitted',
+      groupProtocol: 'classic',
       status: 'idle',
     },
     messages: [],
     createdAt: Date.now(),
+  };
+}
+
+export function migrateKafkaV1ToV2(state: unknown): unknown {
+  if (!state || typeof state !== 'object') return state;
+  const root = state as { connections?: Record<string, KafkaConnection> };
+  if (!root.connections) return state;
+  return {
+    ...root,
+    connections: Object.fromEntries(
+      Object.entries(root.connections).map(([id, connection]) => [
+        id,
+        {
+          ...connection,
+          consumer: {
+            ...connection.consumer,
+            mode: connection.consumer.fromBeginning ? 'earliest' : 'latest',
+            fallbackMode: 'latest',
+            commitPolicy: 'auto',
+            isolation: 'read-uncommitted',
+            groupProtocol: 'classic',
+          },
+        },
+      ])
+    ),
   };
 }
 
@@ -352,8 +411,14 @@ export const useKafkaStore = create<KafkaState>()(
     createPersistedStore<KafkaState>({
       store: 'kafkaConnections',
       persistName: 'kafka-storage',
-      version: 1,
-      steps: [],
+      version: 2,
+      steps: [
+        {
+          name: 'kafka-consumer-v2-committed-defaults',
+          fromVersion: 1,
+          apply: (state) => ({ state: migrateKafkaV1ToV2(state) }),
+        },
+      ],
       partialize: (state) => ({
         connections: Object.fromEntries(
           Object.entries(state.connections).map(([id, conn]) => [
@@ -380,11 +445,18 @@ export const useKafkaStore = create<KafkaState>()(
 function redactSecrets(auth: KafkaAuth): KafkaAuth {
   const next: KafkaAuth = { securityProtocol: auth.securityProtocol };
   if (auth.sasl) {
-    next.sasl = {
-      mechanism: auth.sasl.mechanism,
-      username: auth.sasl.username,
-      password: auth.sasl.password ? KAFKA_SECRET_SENTINEL : '',
-    };
+    next.sasl =
+      auth.sasl.mechanism === 'OAUTHBEARER'
+        ? {
+            mechanism: 'OAUTHBEARER',
+            token: auth.sasl.token ? KAFKA_SECRET_SENTINEL : '',
+            ...(auth.sasl.extensions ? { extensions: auth.sasl.extensions } : {}),
+          }
+        : {
+            mechanism: auth.sasl.mechanism,
+            username: auth.sasl.username,
+            password: auth.sasl.password ? KAFKA_SECRET_SENTINEL : '',
+          };
   }
   if (auth.tls) {
     const tls: KafkaTls = {};

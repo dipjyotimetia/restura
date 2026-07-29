@@ -49,7 +49,22 @@ export const protocolApi: ProtocolApi = {
   kafka: {
     connect: invoke<ElectronAPI['kafka']['connect']>(IPC.kafka.connect),
     produce: invoke<ElectronAPI['kafka']['produce']>(IPC.kafka.produce),
+    produceBatch: invoke<ElectronAPI['kafka']['produceBatch']>(IPC.kafka.produceBatch),
+    openProducerStream: invoke<ElectronAPI['kafka']['openProducerStream']>(
+      IPC.kafka.openProducerStream
+    ),
+    writeProducerStream: invoke<ElectronAPI['kafka']['writeProducerStream']>(
+      IPC.kafka.writeProducerStream
+    ),
+    closeProducerStream: invoke<ElectronAPI['kafka']['closeProducerStream']>(
+      IPC.kafka.closeProducerStream
+    ),
+    beginTransaction: invoke<ElectronAPI['kafka']['beginTransaction']>(IPC.kafka.beginTransaction),
+    endTransaction: invoke<ElectronAPI['kafka']['endTransaction']>(IPC.kafka.endTransaction),
     subscribe: invoke<ElectronAPI['kafka']['subscribe']>(IPC.kafka.subscribe),
+    pauseConsumer: invoke<ElectronAPI['kafka']['pauseConsumer']>(IPC.kafka.pauseConsumer),
+    resumeConsumer: invoke<ElectronAPI['kafka']['resumeConsumer']>(IPC.kafka.resumeConsumer),
+    commitMessage: invoke<ElectronAPI['kafka']['commitMessage']>(IPC.kafka.commitMessage),
     unsubscribe: invoke<ElectronAPI['kafka']['unsubscribe']>(IPC.kafka.unsubscribe),
     disconnect: invoke<ElectronAPI['kafka']['disconnect']>(IPC.kafka.disconnect),
     listTopics: invoke<ElectronAPI['kafka']['listTopics']>(IPC.kafka.listTopics),
@@ -62,6 +77,17 @@ export const protocolApi: ProtocolApi = {
       IPC.kafka.resetGroupOffsets
     ),
     deleteGroup: invoke<ElectronAPI['kafka']['deleteGroup']>(IPC.kafka.deleteGroup),
+    createPartitions: invoke<ElectronAPI['kafka']['createPartitions']>(IPC.kafka.createPartitions),
+    alterTopicConfigs: invoke<ElectronAPI['kafka']['alterTopicConfigs']>(
+      IPC.kafka.alterTopicConfigs
+    ),
+    deleteRecords: invoke<ElectronAPI['kafka']['deleteRecords']>(IPC.kafka.deleteRecords),
+    describeCluster: invoke<ElectronAPI['kafka']['describeCluster']>(IPC.kafka.describeCluster),
+    describeAcls: invoke<ElectronAPI['kafka']['describeAcls']>(IPC.kafka.describeAcls),
+    createAcl: invoke<ElectronAPI['kafka']['createAcl']>(IPC.kafka.createAcl),
+    deleteAcls: invoke<ElectronAPI['kafka']['deleteAcls']>(IPC.kafka.deleteAcls),
+    describeQuotas: invoke<ElectronAPI['kafka']['describeQuotas']>(IPC.kafka.describeQuotas),
+    alterQuotas: invoke<ElectronAPI['kafka']['alterQuotas']>(IPC.kafka.alterQuotas),
     ...channelEventBridge(CHANNEL_PREFIXES.kafka),
   },
   mqtt: {

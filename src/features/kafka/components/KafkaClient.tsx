@@ -1,14 +1,8 @@
-import { Pause, Play, Plug, PlugZap, Trash2 } from 'lucide-react';
+import { Plug, PlugZap, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { Button } from '@/components/ui/button';
-import {
-  Floater,
-  ConnectionBadge,
-  ProtoChip,
-  Segmented,
-  VariableText,
-} from '@/components/ui/spatial';
+import { ConnectionBadge, Floater, ProtoChip, VariableText } from '@/components/ui/spatial';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { isValidManualOffset } from '@/features/kafka/lib/kafkaConsumerValidation';
 import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
@@ -20,7 +14,7 @@ import {
 import { useKafkaConnection } from '../hooks/useKafkaConnection';
 import { KafkaAdminPanel } from './KafkaAdminPanel';
 import { KafkaConnectionForm } from './KafkaConnectionForm';
-import { KafkaConsumerPanel, CONSUME_MODE_OPTIONS, type ConsumeMode } from './KafkaConsumerPanel';
+import { type ConsumeMode, KafkaConsumerPanel } from './KafkaConsumerPanel';
 import { KafkaMessagesPanel } from './KafkaMessagesPanel';
 import { KafkaProducerPanel, type ProducePayloadMode } from './KafkaProducerPanel';
 import { KAFKA_PINK } from './shared';
@@ -39,7 +33,7 @@ function DesktopOnlyPanel() {
   );
 }
 
-function KafkaClient() {
+export function KafkaClient() {
   const kafkaConnection = useKafkaConnection();
   const {
     isDesktop,
@@ -51,7 +45,8 @@ function KafkaClient() {
   } = kafkaConnection;
   const [activeTab, setActiveTab] = useState('messages');
   const [paused, setPaused] = useState(false);
-  const [consumeMode, setConsumeMode] = useState<ConsumeMode>('latest');
+  const [consumerPaused, setConsumerPaused] = useState(false);
+  const [consumeMode, setConsumeMode] = useState<ConsumeMode>('committed');
   const [topicDraft, setTopicDraft] = useState('');
   const [offsetPartition, setOffsetPartition] = useState('0');
   const [offsetValue, setOffsetValue] = useState('0');
@@ -59,6 +54,7 @@ function KafkaClient() {
   const [produceKey, setProduceKey] = useState('');
   const [produceKeyEncoding, setProduceKeyEncoding] = useState<ProducePayloadMode>('utf8');
   const [produceValue, setProduceValue] = useState('');
+  const [produceTombstone, setProduceTombstone] = useState(false);
   const [produceValueEncoding, setProduceValueEncoding] = useState<ProducePayloadMode>('utf8');
   const [produceHeaders, setProduceHeaders] = useState<
     Array<{ id: string; key: string; value: string; enabled: boolean }>
@@ -70,12 +66,14 @@ function KafkaClient() {
 
   useEffect(() => {
     setPaused(false);
-    setConsumeMode('latest');
+    setConsumeMode('committed');
+    setConsumerPaused(false);
     setTopicDraft('');
     setTimestampDraft('');
     setProduceKey('');
     setProduceKeyEncoding('utf8');
     setProduceValue('');
+    setProduceTombstone(false);
     setProduceValueEncoding('utf8');
     setProduceHeaders([]);
     setProducePartition('');
@@ -83,13 +81,18 @@ function KafkaClient() {
   }, [activeConnectionId]);
 
   useEffect(() => {
-    if (connection) setConsumeMode(connection.consumer.fromBeginning ? 'earliest' : 'latest');
-  }, [connection?.id, connection?.consumer.fromBeginning]);
+    if (connection) {
+      const mode = connection.consumer.mode;
+      setConsumeMode(
+        mode === 'manual' ? 'from-offset' : mode === 'timestamp' ? 'from-timestamp' : mode
+      );
+    }
+  }, [connection?.id, connection?.consumer.mode]);
 
   if (!isDesktop) return <DesktopOnlyPanel />;
 
   const handleProduce = async (): Promise<void> => {
-    if (!connection || !produceValue || !connection.defaultTopic) return;
+    if (!connection || !connection.defaultTopic) return;
     const valueSchema = connection.registry
       ? validateOptionalSchemaId(produceSchemaId, 'Value')
       : { valid: true as const, value: undefined };
@@ -104,7 +107,7 @@ function KafkaClient() {
       setProduceError(keySchema.error);
       return;
     }
-    if (produceValueEncoding === 'json') {
+    if (!produceTombstone && produceValueEncoding === 'json') {
       const json = validateJsonPayload(produceValue, 'Value');
       if (!json.valid) {
         setProduceError(json.error);
@@ -142,7 +145,7 @@ function KafkaClient() {
       topic: connection.defaultTopic,
       ...(produceKey ? { key: produceKey } : {}),
       ...(produceKey ? { keyEncoding: produceKeyEncoding === 'base64' ? 'base64' : 'utf8' } : {}),
-      value: produceValue,
+      value: produceTombstone ? null : produceValue,
       valueEncoding: produceValueEncoding === 'base64' ? 'base64' : 'utf8',
       acks: connection.acks,
       ...(connection.compression !== 'none' ? { compression: connection.compression } : {}),
@@ -157,11 +160,10 @@ function KafkaClient() {
   const handleConsumeModeChange = (mode: ConsumeMode): void => {
     setConsumeMode(mode);
     if (!connection) return;
-    if (mode === 'earliest' && !connection.consumer.fromBeginning) {
-      updateConsumer(connection.id, { fromBeginning: true });
-    } else if (mode === 'latest' && connection.consumer.fromBeginning) {
-      updateConsumer(connection.id, { fromBeginning: false });
-    }
+    updateConsumer(connection.id, {
+      mode: mode === 'from-offset' ? 'manual' : mode === 'from-timestamp' ? 'timestamp' : mode,
+      fromBeginning: mode === 'earliest',
+    });
   };
   const handleSubscribe = async (): Promise<void> => {
     if (!connection || connection.consumer.topics.length === 0) return;
@@ -169,13 +171,7 @@ function KafkaClient() {
     const useTimestamp = consumeMode === 'from-timestamp';
     const offsetsValid = useManual && isValidManualOffset(offsetPartition, offsetValue);
     const timestampMs = useTimestamp ? new Date(timestampDraft).getTime() : NaN;
-    const mode = useManual
-      ? 'manual'
-      : useTimestamp
-        ? 'timestamp'
-        : connection.consumer.fromBeginning
-          ? 'earliest'
-          : 'latest';
+    const mode = useManual ? 'manual' : useTimestamp ? 'timestamp' : consumeMode;
     await kafkaManager.subscribe({
       connectionId: connection.id,
       groupId: connection.consumer.groupId,
@@ -210,6 +206,12 @@ function KafkaClient() {
     consumeMode === 'from-offset' && !isValidManualOffset(offsetPartition, offsetValue);
   const timestampInvalid =
     consumeMode === 'from-timestamp' && Number.isNaN(new Date(timestampDraft).getTime());
+  const connectionBadge =
+    connection?.status === 'connected'
+      ? { label: 'Connected', tone: 'success' as const }
+      : connection?.status === 'connecting'
+        ? { label: 'Connecting', tone: 'warning' as const }
+        : { label: 'Disconnected', tone: 'neutral' as const };
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden gap-2.5 p-3 bg-transparent">
@@ -234,40 +236,14 @@ function KafkaClient() {
           </>
         )}
         <div className="ml-auto flex items-center gap-2">
-          <Segmented<ConsumeMode>
-            options={CONSUME_MODE_OPTIONS}
-            value={consumeMode}
-            onChange={handleConsumeModeChange}
-            size="sm"
-            ariaLabel="Consume mode"
-          />
-          {connection?.consumer.status === 'subscribed' ? (
-            <ConnectionBadge label="Subscribed" tone="success" />
-          ) : connection?.consumer.status === 'subscribing' ? (
-            <ConnectionBadge label="Subscribing" tone="warning" />
-          ) : connection?.consumer.status === 'error' ? (
-            <ConnectionBadge label="Error" tone="danger" />
-          ) : (
-            <ConnectionBadge label="Idle" tone="neutral" />
+          {connection && (
+            <ConnectionBadge
+              label={connectionBadge.label}
+              tone={connectionBadge.tone}
+              role="status"
+              aria-label={`Kafka connection status: ${connectionBadge.label}`}
+            />
           )}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setPaused((current) => !current)}
-            className="h-7 px-2.5 text-xs font-mono rounded-sp-btn"
-            disabled={!connection}
-            title={paused ? 'Resume log' : 'Pause log'}
-          >
-            {paused ? (
-              <>
-                <Play className="h-3 w-3 mr-1.5" /> Resume
-              </>
-            ) : (
-              <>
-                <Pause className="h-3 w-3 mr-1.5" /> Pause
-              </>
-            )}
-          </Button>
           {connection && (
             <Button
               size="sm"
@@ -321,7 +297,7 @@ function KafkaClient() {
             <TabsTrigger value="admin">Admin</TabsTrigger>
             <TabsTrigger value="connection">Connection</TabsTrigger>
           </TabsList>
-          <KafkaMessagesPanel key={connection.id} connection={connection} paused={paused} />
+          <KafkaMessagesPanel connection={connection} paused={paused} onPausedChange={setPaused} />
           <KafkaConnectionForm connection={connection} controller={kafkaConnection} />
           <KafkaProducerPanel
             connection={connection}
@@ -343,6 +319,8 @@ function KafkaClient() {
             produceKeySchemaId={produceKeySchemaId}
             setProduceKeySchemaId={setProduceKeySchemaId}
             produceError={produceError}
+            produceTombstone={produceTombstone}
+            setProduceTombstone={setProduceTombstone}
             onPublish={handleProduce}
           />
           <KafkaConsumerPanel
@@ -364,8 +342,23 @@ function KafkaClient() {
             onRemoveTopic={handleRemoveTopic}
             onSubscribe={handleSubscribe}
             onUnsubscribe={() => void kafkaManager.unsubscribe(connection.id)}
+            onPause={() => {
+              void window.electron?.kafka
+                .pauseConsumer({ connectionId: connection.id })
+                .then((result) => {
+                  if (result?.success) setConsumerPaused(true);
+                });
+            }}
+            onResume={() => {
+              void window.electron?.kafka
+                .resumeConsumer({ connectionId: connection.id })
+                .then((result) => {
+                  if (result?.success) setConsumerPaused(false);
+                });
+            }}
+            consumerPaused={consumerPaused}
           />
-          <KafkaAdminPanel key={connection.id} connection={connection} />
+          <KafkaAdminPanel connection={connection} />
         </Tabs>
       )}
     </div>
