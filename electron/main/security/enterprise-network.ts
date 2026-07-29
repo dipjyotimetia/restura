@@ -1,15 +1,14 @@
 import { X509Certificate } from 'node:crypto';
 import { once } from 'node:events';
-import { connect as connectTcp } from 'node:net';
+import { connect as connectTcp, isIP } from 'node:net';
 import { connect as connectTls, rootCertificates } from 'node:tls';
-import type { PacProxyAgent } from '@vscode/proxy-agent/out/agent';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { getExecutionPolicy } from './execution-policy';
 import {
   assertManagedOutboundAllowed,
   type ManagedPolicyLoadResult,
 } from './managed-enterprise-policy';
-import { createOrderedPacProxyAgent } from './ordered-pac-agent';
+import { createOrderedPacProxyAgent, type OrderedPacProxyAgent } from './ordered-pac-agent';
 import { isProxyBypassed } from './proxy-bypass';
 import { resolveSafeAddress } from './safe-connect';
 import { unwrapSecretValueMain } from './secret-handle-store';
@@ -548,7 +547,7 @@ export async function createEnterpriseProxyAgent(
     minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
   },
   managed?: ManagedPolicyLoadResult
-): Promise<HttpsProxyAgent<string> | PacProxyAgent> {
+): Promise<HttpsProxyAgent<string> | OrderedPacProxyAgent> {
   if (proxy.resolution || proxy.integratedAuth) {
     if (!managed) {
       throw new Error('Managed proxy policy is required for authenticated PAC routing');
@@ -569,8 +568,10 @@ export async function createEnterpriseProxyAgent(
       managed.policy?.network.requireProxy === false
         ? async (request, options) => {
             const protocol = options.secureEndpoint ? 'https:' : 'http:';
+            const host = String(options.host);
+            const targetHost = isIP(host) === 6 ? `[${host}]` : host;
             const safe = await resolveSafeAddress(
-              `${protocol}//${options.host}:${options.port}`,
+              `${protocol}//${targetHost}:${options.port}`,
               getExecutionPolicy().security
             );
             const { secureEndpoint: _secureEndpoint, ...connectOptions } = options;

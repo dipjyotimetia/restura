@@ -9,6 +9,10 @@ export interface ManagedGitInvocation {
   cleanup(): Promise<void>;
 }
 
+export function normalizeGitConfigPath(filePath: string): string {
+  return filePath.replaceAll('\\', '/');
+}
+
 /** Materialize managed Git network settings without placing secrets in argv or env. */
 export async function prepareManagedGitInvocation(
   remoteUrl: string | undefined,
@@ -32,12 +36,18 @@ export async function prepareManagedGitInvocation(
     if (managed.caBundle) {
       const caPath = path.join(directory, 'managed-ca.pem');
       await writeFile(caPath, managed.caBundle, { mode: 0o600 });
-      lines.push(`\tsslCAInfo = ${caPath}`);
+      lines.push(`\tsslCAInfo = ${normalizeGitConfigPath(caPath)}`);
     }
     await writeFile(configPath, `${lines.join('\n')}\n`, { mode: 0o600 });
     return {
       env: managed.env,
-      configArgs: [...baseConfigArgs, '-c', `include.path=${configPath}`],
+      configArgs: [
+        ...baseConfigArgs,
+        '-c',
+        `core.hooksPath=${process.platform === 'win32' ? 'NUL' : '/dev/null'}`,
+        '-c',
+        `include.path=${normalizeGitConfigPath(configPath)}`,
+      ],
       cleanup: () => rm(directory, { recursive: true, force: true }),
     };
   } catch (error) {

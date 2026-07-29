@@ -5,7 +5,6 @@ import { get as httpsGet } from 'node:https';
 import { connect as connectTcp } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import type { PacProxyAgent } from '@vscode/proxy-agent/out/agent';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type MockHttpServerHandle, startMockHttpServer } from '../../e2e/mocks/httpServer';
 import { startMockProxyServer } from '../../e2e/mocks/proxyServer';
@@ -17,9 +16,12 @@ import {
   startEnterpriseProxyStack,
 } from '../../echo-local/enterprise-proxy';
 import { PORTS } from '../../echo-local/ports';
-import { createOrderedPacProxyAgent } from '../../electron/main/security/ordered-pac-agent';
+import {
+  createOrderedPacProxyAgent,
+  type OrderedPacProxyAgent,
+} from '../../electron/main/security/ordered-pac-agent';
 
-function request(url: string, agent: PacProxyAgent): Promise<number> {
+function request(url: string, agent: OrderedPacProxyAgent): Promise<number> {
   return new Promise((resolve, reject) => {
     const req = httpGet(url, { agent }, (response) => {
       response.resume();

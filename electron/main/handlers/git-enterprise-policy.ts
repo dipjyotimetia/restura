@@ -1,8 +1,8 @@
-import { once } from 'node:events';
-import { connect as connectTcp } from 'node:net';
-import { connect as connectTls, rootCertificates } from 'node:tls';
+import { EventEmitter } from 'node:events';
+import { rootCertificates } from 'node:tls';
 import { session } from 'electron';
 import {
+  createEnterpriseProxyAgent,
   type EnterpriseSessionProxy,
   enterpriseProxyCandidates,
   proxyServerUrl,
@@ -24,32 +24,65 @@ const PROXY_ENV_KEYS = new Set([
   'no_proxy',
 ]);
 
+export function combineGitCaBundle(managedCaBundle: string | undefined): string | undefined {
+  return managedCaBundle ? [...rootCertificates, managedCaBundle].join('\n') : undefined;
+}
+
 async function assertProxyReachable(
   proxy: ResolvedEnterpriseProxy,
+  remoteUrl: string,
   caBundle: string | undefined,
-  minimumTlsVersion: 'TLSv1.2' | 'TLSv1.3'
+  minimumTlsVersion: 'TLSv1.2' | 'TLSv1.3',
+  managed: ReturnType<typeof getManagedEnterprisePolicy>
 ): Promise<void> {
-  const socket =
-    proxy.type === 'https'
-      ? connectTls({
-          host: proxy.host,
-          port: proxy.port,
-          servername: proxy.host,
-          rejectUnauthorized: true,
-          minVersion: minimumTlsVersion,
-          ...(caBundle ? { ca: [...rootCertificates, caBundle] } : {}),
-        })
-      : connectTcp({ host: proxy.host, port: proxy.port });
-  socket.setTimeout(5_000, () => socket.destroy(new Error('Managed Git proxy probe timed out')));
+  const target = new URL(remoteUrl);
+  const targetPort = Number(target.port || (target.protocol === 'https:' ? 443 : 80));
+  const host =
+    proxy.host.includes(':') && !proxy.host.startsWith('[') ? `[${proxy.host}]` : proxy.host;
+  const directiveType =
+    proxy.type === 'http' ? 'PROXY' : proxy.type === 'https' ? 'HTTPS' : proxy.type.toUpperCase();
+  const agent = await createEnterpriseProxyAgent(
+    { ...proxy, resolution: `${directiveType} ${host}:${proxy.port}` },
+    {
+      verifySsl: true,
+      ...(caBundle ? { caCert: { pem: caBundle } } : {}),
+      minTlsVersion: minimumTlsVersion,
+    },
+    managed
+  );
+  const request = new EventEmitter();
+  let proxyStatus: number | undefined;
+  request.once('proxyConnect', (response: { statusCode?: number }) => {
+    proxyStatus = response.statusCode;
+  });
+  const timeout = AbortSignal.timeout(5_000);
   try {
-    await once(socket, proxy.type === 'https' ? 'secureConnect' : 'connect');
+    const socket = await Promise.race([
+      agent.connect(request as never, {
+        host: target.hostname,
+        port: targetPort,
+        secureEndpoint: false,
+      }),
+      new Promise<never>((_, reject) => {
+        timeout.addEventListener(
+          'abort',
+          () => reject(new Error('Managed Git proxy probe timed out')),
+          { once: true }
+        );
+      }),
+    ]);
+    if ((proxy.type === 'http' || proxy.type === 'https') && proxyStatus !== 200) {
+      throw new Error(`Managed Git proxy CONNECT failed with status ${proxyStatus ?? 'unknown'}`);
+    }
+    if ('destroy' in socket) socket.destroy();
   } finally {
-    socket.destroy();
+    agent.destroy();
   }
 }
 
 async function selectGitProxy(
   proxy: ResolvedEnterpriseProxy,
+  remoteUrl: string,
   caBundle: string | undefined,
   minimumTlsVersion: 'TLSv1.2' | 'TLSv1.3',
   managed: ReturnType<typeof getManagedEnterprisePolicy>
@@ -60,7 +93,7 @@ async function selectGitProxy(
   for (const candidate of candidates) {
     if (!candidate) return undefined;
     try {
-      await assertProxyReachable(candidate, caBundle, minimumTlsVersion);
+      await assertProxyReachable(candidate, remoteUrl, caBundle, minimumTlsVersion, managed);
       return candidate;
     } catch (error) {
       failures.push(error);
@@ -117,10 +150,10 @@ export async function managedGitEnvironment(
     electronSession ?? session.defaultSession,
     managed
   );
-  const caBundle = getManagedCaCertificateBundle();
+  const caBundle = combineGitCaBundle(getManagedCaCertificateBundle());
   const minimumTlsVersion = managed.policy!.network.minimumTlsVersion;
   const proxy = resolvedProxy
-    ? await selectGitProxy(resolvedProxy, caBundle, minimumTlsVersion, managed)
+    ? await selectGitProxy(resolvedProxy, remoteUrl, caBundle, minimumTlsVersion, managed)
     : undefined;
   if (!proxy) {
     return {

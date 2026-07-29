@@ -2,6 +2,7 @@ import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { Readable } from 'node:stream';
 import { selectCertForUrl } from '@shared/protocol/cert-matcher';
+import { assertProxyTargetUrlSafe } from './dns-guard';
 import { applyManagedTransportPolicy, createEnterpriseProxyAgent } from './enterprise-network';
 import { assertExecutionPolicyReady, getExecutionPolicy } from './execution-policy';
 import {
@@ -119,6 +120,7 @@ async function fetchThroughEnterpriseProxy(
 ): Promise<Response> {
   const url =
     typeof input === 'string' ? new URL(input) : input instanceof URL ? input : new URL(input.url);
+  assertProxyTargetUrlSafe(url.toString(), getExecutionPolicy().security);
   const managed = getManagedEnterprisePolicy();
   const agent = await createEnterpriseProxyAgent(config.proxy!, config, managed);
   const serialized = await serializeRequestBody(init?.body);

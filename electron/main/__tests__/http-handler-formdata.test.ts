@@ -144,6 +144,18 @@ describe('Electron fetcher — form-data + binary send', () => {
       expect(result.ok).toBe(true);
       if (result.ok) expect(result.response.status).toBe(200);
       expect(proxy.connectCount()).toBeGreaterThan(0);
+
+      const beforeBlockedTarget = proxy.connectCount();
+      await expect(
+        fetcher({
+          url: 'http://169.254.169.254/latest/meta-data',
+          method: 'GET',
+          headers: {},
+          body: undefined,
+          signal: new AbortController().signal,
+        })
+      ).rejects.toThrow(/blocked|private|metadata|address/i);
+      expect(proxy.connectCount()).toBe(beforeBlockedTarget);
     } finally {
       setManagedEnterprisePolicyForTest({ status: { state: 'unmanaged' } });
     }
