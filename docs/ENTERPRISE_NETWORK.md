@@ -84,8 +84,13 @@ HTTP CONNECT policy generically.
 PAC/system results retain their ordered proxy fallbacks. HTTP, HTTPS, SOCKS4,
 and SOCKS5 directives are supported; a bare `SOCKS` directive means SOCKS5.
 When a proxy performs destination DNS, Restura does not require the desktop to
-resolve that destination locally. `DIRECT` candidates are removed when
-`requireProxy` is true.
+resolve that destination locally. Restura still validates the scheme, hostname,
+literal IP, localhost/private-IP setting, and cloud-metadata denylist before
+opening the proxy route. DNS-resolved destination enforcement then belongs to
+the managed proxy, which is an explicit enterprise trust boundary. `DIRECT`
+candidates are DNS-validated and pinned locally, and are removed when
+`requireProxy` is true. Git HTTPS probes ordered PAC candidates and selects the
+first reachable HTTP(S), SOCKS4a, or SOCKS5h route before launching Git.
 
 `proxyAuthentication.basic` binds each Basic credential pair to one exact
 HTTP(S) proxy origin. Credentials are read from the named environment variables

@@ -92,13 +92,24 @@ export function assertPinnedFetchCanHonorPolicy(config: PolicyTransportConfig): 
   }
 }
 
-async function requestBodyBuffer(body: BodyInit | null | undefined): Promise<Buffer | undefined> {
-  if (body == null) return undefined;
-  if (typeof body === 'string') return Buffer.from(body);
-  if (body instanceof URLSearchParams) return Buffer.from(body.toString());
-  if (body instanceof ArrayBuffer) return Buffer.from(body);
-  if (ArrayBuffer.isView(body)) return Buffer.from(body.buffer, body.byteOffset, body.byteLength);
-  return Buffer.from(await new Response(body).arrayBuffer());
+async function serializeRequestBody(
+  body: BodyInit | null | undefined
+): Promise<{ body?: Buffer; headers: Headers }> {
+  const headers = new Headers();
+  if (body == null) return { headers };
+  if (typeof body === 'string') return { body: Buffer.from(body), headers };
+  if (body instanceof URLSearchParams) return { body: Buffer.from(body.toString()), headers };
+  if (body instanceof ArrayBuffer) return { body: Buffer.from(body), headers };
+  if (ArrayBuffer.isView(body)) {
+    return {
+      body: Buffer.from(body.buffer, body.byteOffset, body.byteLength),
+      headers,
+    };
+  }
+  const serialized = new Response(body);
+  const contentType = serialized.headers.get('content-type');
+  if (contentType) headers.set('content-type', contentType);
+  return { body: Buffer.from(await serialized.arrayBuffer()), headers };
 }
 
 async function fetchThroughEnterpriseProxy(
@@ -110,13 +121,17 @@ async function fetchThroughEnterpriseProxy(
     typeof input === 'string' ? new URL(input) : input instanceof URL ? input : new URL(input.url);
   const managed = getManagedEnterprisePolicy();
   const agent = await createEnterpriseProxyAgent(config.proxy!, config, managed);
-  const body = await requestBodyBuffer(init?.body);
+  const serialized = await serializeRequestBody(init?.body);
+  const requestHeaders = new Headers(init?.headers);
+  for (const [name, value] of serialized.headers) {
+    if (!requestHeaders.has(name)) requestHeaders.set(name, value);
+  }
   return new Promise<Response>((resolve, reject) => {
     const request = (url.protocol === 'https:' ? httpsRequest : httpRequest)(
       url,
       {
         method: init?.method,
-        headers: init?.headers as Record<string, string>,
+        headers: Object.fromEntries(requestHeaders),
         agent,
         signal: init?.signal ?? undefined,
         rejectUnauthorized: config.verifySsl,
@@ -155,7 +170,7 @@ async function fetchThroughEnterpriseProxy(
       agent.destroy();
       reject(error);
     });
-    if (body) request.end(body);
+    if (serialized.body) request.end(serialized.body);
     else request.end();
   });
 }

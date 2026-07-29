@@ -15,14 +15,7 @@ export async function prepareManagedGitInvocation(
   isSshRemote: boolean
 ): Promise<ManagedGitInvocation> {
   const managed = await managedGitEnvironment(remoteUrl, isSshRemote);
-  const baseConfigArgs = [
-    '-c',
-    'core.fsmonitor=',
-    '-c',
-    'core.sshCommand=',
-    '-c',
-    `core.hooksPath=${process.platform === 'win32' ? 'NUL' : '/dev/null'}`,
-  ];
+  const baseConfigArgs = ['-c', 'core.fsmonitor=', '-c', 'core.sshCommand='];
   if (!managed.proxyUrl && !managed.caBundle && !managed.minimumTlsVersion) {
     return { env: managed.env, configArgs: baseConfigArgs, cleanup: async () => undefined };
   }

@@ -13,6 +13,10 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 type PacProxyAgentOptions = NonNullable<ConstructorParameters<typeof PacProxyAgent>[1]>;
 type PacResolver = ConstructorParameters<typeof PacProxyAgent>[0];
 type ProxyAuthState = Record<string, unknown>;
+export type DirectPacConnector = (
+  request: ClientRequest,
+  options: AgentConnectOpts
+) => Promise<Duplex | Agent>;
 
 class AuthenticatedTunnelProxyAgent extends HttpsProxyAgent<string> {
   private readonly addedHeaders: OutgoingHttpHeaders = {};
@@ -53,14 +57,27 @@ class AuthenticatedTunnelProxyAgent extends HttpsProxyAgent<string> {
     const socket = await super.connect(proxyRequest as ClientRequest, options);
     const challenge = response?.headers['proxy-authenticate'];
     if (this.lookupProxyAuthorization && response?.statusCode === 407 && challenge) {
+      const attempts = typeof state.authAttempts === 'number' ? state.authAttempts : 0;
+      if (attempts >= 8) {
+        socket.destroy();
+        throw new Error('Managed proxy authentication exceeded 8 challenge rounds');
+      }
+      state.authAttempts = attempts + 1;
       const authorization = await this.lookupProxyAuthorization(this.proxy.href, challenge, state);
-      if (authorization) {
+      if (authorization && authorization !== this.addedHeaders['Proxy-Authorization']) {
         this.addedHeaders['Proxy-Authorization'] = authorization;
         socket.destroy();
         return this.connect(request, options, state);
       }
     }
 
+    if (response?.statusCode !== 200) {
+      socket.destroy();
+      throw new Error(
+        `Managed proxy CONNECT failed with status ${response?.statusCode ?? 'unknown'}`
+      );
+    }
+    request.emit('proxyConnect', response);
     request.once('socket', (connectedSocket) => {
       setImmediate(() => proxyRequest.emit('socket', connectedSocket));
     });
@@ -74,6 +91,14 @@ class AuthenticatedTunnelProxyAgent extends HttpsProxyAgent<string> {
  * independently while preserving the same TLS and authentication policy.
  */
 export class OrderedPacProxyAgent extends PacProxyAgent {
+  constructor(
+    resolver: PacResolver,
+    options: PacProxyAgentOptions,
+    private readonly connectDirect?: DirectPacConnector
+  ) {
+    super(resolver, options);
+  }
+
   override async connect(
     request: ClientRequest,
     options: AgentConnectOpts
@@ -87,8 +112,17 @@ export class OrderedPacProxyAgent extends PacProxyAgent {
 
     for (const candidate of candidates) {
       const parsed = getProxyURLFromResolverResult(candidate);
-      // Never turn an unrecognized or DIRECT PAC directive into unpinned egress.
-      if (!parsed.url && this.opts.originalAgent === false) continue;
+      if (parsed.type === 'DIRECT' && this.connectDirect) {
+        try {
+          return await this.connectDirect(request, options);
+        } catch (error) {
+          failures.push(error);
+          continue;
+        }
+      }
+      // Never turn an unrecognized or disallowed DIRECT directive into
+      // unpinned egress.
+      if (!parsed.url) continue;
 
       try {
         if (
@@ -117,7 +151,8 @@ export class OrderedPacProxyAgent extends PacProxyAgent {
 
 export function createOrderedPacProxyAgent(
   resolver: PacResolver,
-  options: PacProxyAgentOptions
+  options: PacProxyAgentOptions,
+  connectDirect?: DirectPacConnector
 ): OrderedPacProxyAgent {
-  return new OrderedPacProxyAgent(resolver, options);
+  return new OrderedPacProxyAgent(resolver, options, connectDirect);
 }

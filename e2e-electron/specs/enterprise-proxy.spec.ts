@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import { fillFirstMonacoEditor, switchMode } from '../../e2e/utils/selectors';
 import type { EnterpriseProxyStack } from '../../echo-local/enterprise-proxy';
 import {
@@ -14,6 +15,27 @@ test.skip(
 
 function proxyTraffic(stack: EnterpriseProxyStack): number {
   return stack.proxy.connectCount() + stack.proxy.forwardCount();
+}
+
+async function setGrpcRequestMessage(page: Page, json: string): Promise<void> {
+  const editor = page.locator('.monaco-editor').filter({ visible: true }).first();
+  const changed = await editor.evaluate((node: Element, value: string) => {
+    const host = node.parentElement ?? node;
+    const fiberKey = Object.keys(host).find((key) => key.startsWith('__reactFiber$'));
+    let fiber: unknown = fiberKey
+      ? (host as unknown as Record<string, unknown>)[fiberKey]
+      : undefined;
+    while (fiber) {
+      const props = (fiber as { memoizedProps?: { onChange?: unknown } }).memoizedProps;
+      if (typeof props?.onChange === 'function') {
+        (props.onChange as (next: string) => void)(value);
+        return true;
+      }
+      fiber = (fiber as { return?: unknown }).return;
+    }
+    return false;
+  }, json);
+  if (!changed) throw new Error('Could not reach the gRPC Monaco onChange handler');
 }
 
 test.describe('Managed enterprise PAC routing', () => {
@@ -148,7 +170,7 @@ test.describe('Managed enterprise PAC routing', () => {
       .click();
   });
 
-  test('gRPC reflection traverses the managed CONNECT route', async ({
+  test('gRPC reflection and unary calls traverse managed CONNECT', async ({
     app: page,
     enterpriseEcho,
   }) => {
@@ -158,6 +180,11 @@ test.describe('Managed enterprise PAC routing', () => {
     await page.getByRole('button', { name: 'Discover', exact: true }).click();
 
     await expect(page.getByText('echo.v1.EchoService').first()).toBeVisible({ timeout: 15_000 });
+    await setGrpcRequestMessage(page, '{"message":"enterprise-grpc","count":1}');
+    await page.getByRole('button', { name: /Invoke gRPC method/i }).click();
+    await expect(page.getByText(/echo:\s*enterprise-grpc/).first()).toBeVisible({
+      timeout: 15_000,
+    });
     expect(enterpriseEcho.proxy.proxy.connectCount()).toBeGreaterThan(before);
   });
 

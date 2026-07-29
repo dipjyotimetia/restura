@@ -13,6 +13,7 @@ import {
   WsSendSchema,
 } from '../ipc/ipc-validators';
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
+import { assertProxyTargetUrlSafe } from '../security/dns-guard';
 import {
   createEnterpriseProxyAgent,
   resolveManagedProxyForUrl,
@@ -156,7 +157,12 @@ export function registerWebSocketHandlerIPC(): void {
       // stay correct for TLS.
       let pinned: Awaited<ReturnType<typeof resolveSafeAddress>> | undefined;
       try {
-        if (!policyConfig.proxy?.enabled) {
+        if (policyConfig.proxy?.enabled) {
+          assertProxyTargetUrlSafe(config.url, {
+            ...getExecutionPolicy().security,
+            allowedSchemes: ['ws:', 'wss:'],
+          });
+        } else {
           pinned = await resolveSafeAddress(config.url, {
             ...getExecutionPolicy().security,
             allowedSchemes: ['ws:', 'wss:'],

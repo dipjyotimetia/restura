@@ -85,6 +85,23 @@ export async function assertUrlHostnameSafe(url: string, options: DnsGuardOption
 }
 
 /**
+ * Validate everything decidable without resolving the destination locally.
+ * Managed proxy routes deliberately leave hostname resolution to the proxy,
+ * but schemes, blocked hostnames, literal IPs, and metadata targets remain
+ * enforceable before any proxy connection is opened.
+ */
+export function assertProxyTargetUrlSafe(url: string, options: DnsGuardOptions): void {
+  const result = validateURL(url, {
+    allowLocalhost: options.allowLocalhost,
+    allowPrivateIPs: options.allowPrivateIPs === true,
+    ...(options.allowedSchemes ? { allowedSchemes: options.allowedSchemes } : {}),
+  });
+  if (!result.valid) {
+    throw new Error(result.error ?? `URL rejected by policy: ${url}`);
+  }
+}
+
+/**
  * Resolve + validate in one call, returning the records so callers can pin
  * an IP without a second `dns.lookup`. Used by `safe-connect.ts`.
  */

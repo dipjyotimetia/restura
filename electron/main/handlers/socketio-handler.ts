@@ -18,6 +18,7 @@ import {
   validateIpcInput,
 } from '../ipc/ipc-validators';
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
+import { assertProxyTargetUrlSafe } from '../security/dns-guard';
 import {
   createEnterpriseProxyAgent,
   resolveManagedProxyForUrl,
@@ -199,7 +200,12 @@ export function registerSocketIoHandlerIPC(): void {
       // hostname so SNI + Host header stay correct.
       let pinned: Awaited<ReturnType<typeof resolveSafeAddress>> | undefined;
       try {
-        if (!policyConfig.proxy?.enabled) {
+        if (policyConfig.proxy?.enabled) {
+          assertProxyTargetUrlSafe(config.url, {
+            ...getExecutionPolicy().security,
+            allowedSchemes: ['http:', 'https:', 'ws:', 'wss:'],
+          });
+        } else {
           pinned = await resolveSafeAddress(config.url, {
             ...getExecutionPolicy().security,
             allowedSchemes: ['http:', 'https:', 'ws:', 'wss:'],

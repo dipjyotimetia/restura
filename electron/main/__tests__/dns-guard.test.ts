@@ -11,9 +11,30 @@ vi.mock('node:dns/promises', () => ({
   lookup: mockLookup,
 }));
 
-import { assertHostnameSafe, assertUrlHostnameSafe } from '../security/dns-guard';
+import {
+  assertHostnameSafe,
+  assertProxyTargetUrlSafe,
+  assertUrlHostnameSafe,
+} from '../security/dns-guard';
 
 describe('dns-guard', () => {
+  describe('assertProxyTargetUrlSafe', () => {
+    it('blocks metadata literals without resolving proxy-only DNS names', () => {
+      expect(() =>
+        assertProxyTargetUrlSafe('wss://169.254.169.254/socket', {
+          allowLocalhost: true,
+          allowPrivateIPs: true,
+          allowedSchemes: ['ws:', 'wss:'],
+        })
+      ).toThrow(/metadata|blocked|private/i);
+      expect(() =>
+        assertProxyTargetUrlSafe('wss://proxy-only.corp.example/socket', {
+          allowLocalhost: false,
+          allowedSchemes: ['ws:', 'wss:'],
+        })
+      ).not.toThrow();
+    });
+  });
   beforeEach(() => {
     mockLookup.mockReset();
   });

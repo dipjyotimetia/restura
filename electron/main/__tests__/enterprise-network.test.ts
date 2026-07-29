@@ -257,9 +257,7 @@ describe('enterprise network service', () => {
         initializeClient
       )
     ).resolves.toBe('Negotiate spnego-token');
-    expect(initializeClient).toHaveBeenCalledWith(
-      process.platform === 'win32' ? 'HTTP/proxy.corp.example' : 'HTTP@proxy.corp.example'
-    );
+    expect(initializeClient).toHaveBeenCalledWith('HTTP@proxy.corp.example');
     expect(step).toHaveBeenCalledWith('');
   });
 

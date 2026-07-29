@@ -19,6 +19,7 @@ interface ElectronFixtures {
 interface ElectronWorkerFixtures {
   _electronApp: { electronApp: ElectronApplication; page: Page };
   electronEnv: NodeJS.ProcessEnv;
+  ignoreCertificateErrors: boolean;
 }
 
 /**
@@ -34,8 +35,9 @@ interface ElectronWorkerFixtures {
  */
 export const test = base.extend<ElectronFixtures, ElectronWorkerFixtures>({
   electronEnv: [{}, { scope: 'worker', option: true }],
+  ignoreCertificateErrors: [true, { scope: 'worker', option: true }],
   _electronApp: [
-    async ({ electronEnv }, use) => {
+    async ({ electronEnv, ignoreCertificateErrors }, use) => {
       // macOS's os.tmpdir() is /var/folders/...; the desktop file boundary
       // correctly rejects system-root paths, including that location. Keep
       // the isolated profile under /tmp on POSIX so file-workspace IPC can be
@@ -49,7 +51,7 @@ export const test = base.extend<ElectronFixtures, ElectronWorkerFixtures>({
         // test hit the local https mock's self-/private-CA cert. The undici-based
         // transports (customCa/mTLS/etc. run in the main process) are unaffected,
         // so their cert-verification assertions still hold.
-        args: [MAIN_JS, '--ignore-certificate-errors'],
+        args: [MAIN_JS, ...(ignoreCertificateErrors ? ['--ignore-certificate-errors'] : [])],
         cwd: ROOT,
         env: {
           ...process.env,

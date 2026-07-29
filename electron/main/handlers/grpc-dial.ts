@@ -1,4 +1,4 @@
-import { resolveUrlHostnameSafe } from '../security/dns-guard';
+import { assertProxyTargetUrlSafe, resolveUrlHostnameSafe } from '../security/dns-guard';
 import { getExecutionPolicy } from '../security/execution-policy';
 
 const GRPC_ALLOWED_SCHEMES = ['http:', 'https:', 'grpc:', 'grpcs:'];
@@ -28,6 +28,10 @@ export async function resolveGrpcDialAddress(url: string): Promise<PinnedDial> {
 
 /** Dial metadata for a CONNECT route where the proxy resolves the destination. */
 export function unresolvedGrpcProxyDialAddress(url: string): PinnedDial {
+  assertProxyTargetUrlSafe(url, {
+    ...getExecutionPolicy().security,
+    allowedSchemes: GRPC_ALLOWED_SCHEMES,
+  });
   const parsed = new URL(url);
   const useTls = parsed.protocol === 'https:' || parsed.protocol === 'grpcs:';
   return {

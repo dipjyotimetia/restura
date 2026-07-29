@@ -981,6 +981,7 @@ async function makeHttpRequest(
             let routedSocksSocket: net.Socket | null = null;
             if (
               routedConfig.proxy?.enabled &&
+              !routedConfig.proxy.resolution &&
               (routedConfig.proxy.type === 'socks4' || routedConfig.proxy.type === 'socks5')
             ) {
               const routedUrl = new URL(destination);

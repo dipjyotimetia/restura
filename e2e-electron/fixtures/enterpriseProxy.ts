@@ -34,6 +34,7 @@ export const test = electronTest.extend<
   NonNullable<unknown>,
   { enterpriseEcho: EnterpriseEchoStack }
 >({
+  ignoreCertificateErrors: [false, { scope: 'worker' }],
   enterpriseEcho: [
     async ({}, use) => {
       const certs = ensureCerts({ dir: path.resolve('echo-local/certs') });

@@ -1,13 +1,17 @@
 import { X509Certificate } from 'node:crypto';
-import { rootCertificates } from 'node:tls';
+import { once } from 'node:events';
+import { connect as connectTcp } from 'node:net';
+import { connect as connectTls, rootCertificates } from 'node:tls';
 import type { PacProxyAgent } from '@vscode/proxy-agent/out/agent';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import { getExecutionPolicy } from './execution-policy';
 import {
   assertManagedOutboundAllowed,
   type ManagedPolicyLoadResult,
 } from './managed-enterprise-policy';
 import { createOrderedPacProxyAgent } from './ordered-pac-agent';
 import { isProxyBypassed } from './proxy-bypass';
+import { resolveSafeAddress } from './safe-connect';
 import { unwrapSecretValueMain } from './secret-handle-store';
 
 export interface EnterpriseSessionProxy {
@@ -310,6 +314,23 @@ function parseResolvedProxy(resolution: string): ResolvedEnterpriseProxy | undef
   throw new Error('Unsupported enterprise proxy directive');
 }
 
+/** Expand a retained PAC chain and apply credentials to each proxy origin. */
+export function enterpriseProxyCandidates(
+  proxy: ResolvedEnterpriseProxy,
+  result: ManagedPolicyLoadResult,
+  env: NodeJS.ProcessEnv = process.env
+): Array<ResolvedEnterpriseProxy | undefined> {
+  if (!proxy.resolution) return [proxy];
+  return proxy.resolution
+    .split(';')
+    .map((candidate) => candidate.trim())
+    .filter(Boolean)
+    .map((candidate) => {
+      const parsed = parseResolvedProxy(candidate);
+      return parsed ? { ...parsed, ...proxyAuthentication(parsed, result, env) } : undefined;
+    });
+}
+
 export async function resolveManagedProxyForUrl(
   target: string,
   electronSession: EnterpriseSessionProxy,
@@ -448,8 +469,7 @@ export async function enterpriseProxyAuthorization(
     throw new Error(`Integrated authentication is unsupported for ${proxy.type} proxies`);
   }
 
-  const servicePrincipal =
-    process.platform === 'win32' ? `HTTP/${proxy.host}` : `HTTP@${proxy.host}`;
+  const servicePrincipal = `HTTP@${proxy.host}`;
   try {
     const client = await initializeClient(servicePrincipal);
     const token = await client.step('');
@@ -502,8 +522,7 @@ export function createEnterpriseProxyAuthorizationLookup(
     const attempt = typeof state.attempt === 'number' ? state.attempt : 0;
     if (attempt >= 8) throw new Error('Managed proxy authentication exceeded 8 challenge rounds');
     state.attempt = attempt + 1;
-    const servicePrincipal =
-      process.platform === 'win32' ? `HTTP/${proxy.host}` : `HTTP@${proxy.host}`;
+    const servicePrincipal = `HTTP@${proxy.host}`;
     const client =
       (state.client as KerberosClient | undefined) ?? (await initializeClient(servicePrincipal));
     state.client = client;
@@ -537,14 +556,38 @@ export async function createEnterpriseProxyAgent(
     const resolution =
       proxy.resolution ??
       `${proxy.type === 'https' ? 'HTTPS' : 'PROXY'} ${proxy.host}:${proxy.port}`;
-    return createOrderedPacProxyAgent(async () => resolution, {
-      fallbackToDirect: false,
-      originalAgent: false,
-      lookupProxyAuthorization: createEnterpriseProxyAuthorizationLookup(managed),
-      rejectUnauthorized: tls.verifySsl,
-      ...(tls.caCert?.pem ? { ca: tls.caCert.pem } : {}),
-      ...(tls.minTlsVersion ? { minVersion: tls.minTlsVersion } : {}),
-    });
+    return createOrderedPacProxyAgent(
+      async () => resolution,
+      {
+        fallbackToDirect: false,
+        originalAgent: false,
+        lookupProxyAuthorization: createEnterpriseProxyAuthorizationLookup(managed),
+        rejectUnauthorized: tls.verifySsl,
+        ...(tls.caCert?.pem ? { ca: tls.caCert.pem } : {}),
+        ...(tls.minTlsVersion ? { minVersion: tls.minTlsVersion } : {}),
+      },
+      managed.policy?.network.requireProxy === false
+        ? async (request, options) => {
+            const protocol = options.secureEndpoint ? 'https:' : 'http:';
+            const safe = await resolveSafeAddress(
+              `${protocol}//${options.host}:${options.port}`,
+              getExecutionPolicy().security
+            );
+            const { secureEndpoint: _secureEndpoint, ...connectOptions } = options;
+            const socket = options.secureEndpoint
+              ? connectTls({
+                  ...connectOptions,
+                  host: safe.ip,
+                  port: safe.port,
+                  servername: safe.host,
+                })
+              : connectTcp({ ...connectOptions, host: safe.ip, port: safe.port });
+            await once(socket, options.secureEndpoint ? 'secureConnect' : 'connect');
+            request.emit('proxyConnect', { statusCode: 200, headers: {}, direct: true });
+            return socket;
+          }
+        : undefined
+    );
   }
   if (proxy.type !== 'http' && proxy.type !== 'https') {
     throw new Error(`Managed ${proxy.type.toUpperCase()} proxy is unsupported for this protocol`);

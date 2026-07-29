@@ -1,11 +1,14 @@
+import { once } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { get as httpGet } from 'node:http';
 import { get as httpsGet } from 'node:https';
+import { connect as connectTcp } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { PacProxyAgent } from '@vscode/proxy-agent/out/agent';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type MockHttpServerHandle, startMockHttpServer } from '../../e2e/mocks/httpServer';
+import { startMockProxyServer } from '../../e2e/mocks/proxyServer';
 import { type EchoCerts, ensureCerts } from '../../echo-local/certs';
 import {
   ENTERPRISE_PROXY_PASSWORD,
@@ -78,6 +81,49 @@ describe('Echo Local enterprise PAC stack', () => {
       request(`http://enterprise-target.localhost:${upstream.port}/json`, agent)
     ).resolves.toBe(200);
     expect(stack.proxy.connectCount()).toBeGreaterThanOrEqual(1);
+    agent.destroy();
+  });
+
+  it('bounds a rejected Basic challenge and advances to the next proxy', async () => {
+    const wrongProxy = await startMockProxyServer({ port: 0 });
+    wrongProxy.setBasicAuth('different-user', 'different-password');
+    const authorization = `Basic ${Buffer.from(
+      `${ENTERPRISE_PROXY_USERNAME}:${ENTERPRISE_PROXY_PASSWORD}`
+    ).toString('base64')}`;
+    const agent = createOrderedPacProxyAgent(
+      async () => `PROXY 127.0.0.1:${wrongProxy.port}; PROXY 127.0.0.1:${PORTS.enterpriseProxy}`,
+      {
+        fallbackToDirect: false,
+        originalAgent: false,
+        lookupProxyAuthorization: async () => authorization,
+      }
+    );
+
+    try {
+      await expect(
+        request(`http://enterprise-target.localhost:${upstream.port}/json`, agent)
+      ).resolves.toBe(200);
+      expect(wrongProxy.authChallengeCount()).toBe(1);
+    } finally {
+      agent.destroy();
+      await wrongProxy.close();
+    }
+  });
+
+  it('uses an explicitly pinned DIRECT fallback when policy permits it', async () => {
+    const agent = createOrderedPacProxyAgent(
+      async () => `PROXY 127.0.0.1:${PORTS.enterpriseProxyUnavailable}; DIRECT`,
+      { fallbackToDirect: false, originalAgent: false },
+      async (_request, options) => {
+        const socket = connectTcp({ host: '127.0.0.1', port: options.port });
+        await once(socket, 'connect');
+        return socket;
+      }
+    );
+
+    await expect(
+      request(`http://enterprise-target.localhost:${upstream.port}/json`, agent)
+    ).resolves.toBe(200);
     agent.destroy();
   });
 
