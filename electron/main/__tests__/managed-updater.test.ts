@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   applyManagedUpdaterPolicy,
   assertManagedUpdaterProxyRoute,
+  checkForUpdatesWithPolicy,
 } from '../lifecycle/auto-updater';
 import type { ManagedPolicyLoadResult } from '../security/managed-enterprise-policy';
 
@@ -101,5 +102,45 @@ describe('managed updater feed', () => {
         resolveProxy: vi.fn().mockResolvedValue('DIRECT'),
       })
     ).rejects.toThrow('requires a proxy');
+  });
+
+  it('does not contact any update feed when managed updates are disabled', async () => {
+    const check = vi.fn();
+
+    await expect(
+      checkForUpdatesWithPolicy({
+        isDev: false,
+        managed: managedUpdates({ mode: 'disabled', feedUrl: undefined }),
+        currentVersion: '1.9.0',
+        check,
+      })
+    ).resolves.toEqual({
+      updateAvailable: false,
+      message: 'Updates are disabled by managed policy',
+    });
+    expect(check).not.toHaveBeenCalled();
+  });
+
+  it('does not contact the public feed when managed policy is invalid', async () => {
+    const check = vi.fn();
+
+    await expect(
+      checkForUpdatesWithPolicy({
+        isDev: false,
+        managed: {
+          status: {
+            state: 'invalid',
+            source: 'machine-file',
+            message: 'Managed enterprise policy could not be applied.',
+          },
+        },
+        currentVersion: '1.9.0',
+        check,
+      })
+    ).resolves.toEqual({
+      updateAvailable: false,
+      message: 'Updates are blocked because managed policy is invalid',
+    });
+    expect(check).not.toHaveBeenCalled();
   });
 });

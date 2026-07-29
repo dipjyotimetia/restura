@@ -31,7 +31,7 @@ import {
 
 const log = createLogger('updater');
 
-interface UpdateCheckResponse {
+export interface UpdateCheckResponse {
   updateAvailable: boolean;
   version?: string;
   message?: string;
@@ -116,15 +116,53 @@ async function checkForUpdatesThroughManagedProxy(): Promise<UpdateCheckResult |
   return autoUpdater.checkForUpdates();
 }
 
+function updaterUnavailableMessage(
+  isDev: boolean,
+  managed: ManagedPolicyLoadResult,
+  env: NodeJS.ProcessEnv = process.env
+): string | undefined {
+  if (env.RESTURA_DISABLE_AUTO_UPDATE === 'true') {
+    return 'Updates disabled by RESTURA_DISABLE_AUTO_UPDATE';
+  }
+  if (isDev) return 'Updates disabled in development';
+  if (managed.status.state === 'invalid') {
+    return 'Updates are blocked because managed policy is invalid';
+  }
+  if (managed.status.state === 'managed' && managed.policy?.updates.mode === 'disabled') {
+    return 'Updates are disabled by managed policy';
+  }
+  return undefined;
+}
+
+export async function checkForUpdatesWithPolicy(options: {
+  isDev: boolean;
+  managed: ManagedPolicyLoadResult;
+  currentVersion: string;
+  check: () => Promise<UpdateCheckResult | null>;
+  env?: NodeJS.ProcessEnv;
+}): Promise<UpdateCheckResponse> {
+  const unavailable = updaterUnavailableMessage(
+    options.isDev,
+    options.managed,
+    options.env ?? process.env
+  );
+  if (unavailable) return { updateAvailable: false, message: unavailable };
+
+  try {
+    const result = await options.check();
+    const latestVersion = result?.updateInfo?.version;
+    return {
+      updateAvailable: latestVersion != null && latestVersion !== options.currentVersion,
+      version: latestVersion,
+    };
+  } catch {
+    return { updateAvailable: false, error: safeErrorMessage('check') };
+  }
+}
+
 /** Updates are off in dev and when an operator opts out for air-gapped deploys. */
 function updatesDisabled(isDev: boolean): boolean {
-  const managed = getManagedEnterprisePolicy();
-  return (
-    isDev ||
-    process.env.RESTURA_DISABLE_AUTO_UPDATE === 'true' ||
-    managed.status.state === 'invalid' ||
-    (managed.status.state === 'managed' && managed.policy?.updates.mode === 'disabled')
-  );
+  return updaterUnavailableMessage(isDev, getManagedEnterprisePolicy()) !== undefined;
 }
 
 // Resolves the active BrowserWindow lazily on every event firing. The
@@ -343,26 +381,12 @@ export function registerAutoUpdaterIPC(isDev: boolean): void {
   // Legacy single-shot check (kept for backwards compatibility; superseded by
   // IPC.updater.check which shares the same response shape).
   const handleCheck = async (): Promise<UpdateCheckResponse> => {
-    if (process.env.RESTURA_DISABLE_AUTO_UPDATE === 'true') {
-      return { updateAvailable: false, message: 'Updates disabled by RESTURA_DISABLE_AUTO_UPDATE' };
-    }
-    if (isDev) {
-      return { updateAvailable: false, message: 'Updates disabled in development' };
-    }
-    try {
-      const result = await checkForUpdatesThroughManagedProxy();
-      const latestVersion = result?.updateInfo?.version;
-      const updateAvailable = latestVersion != null && latestVersion !== app.getVersion();
-      return {
-        updateAvailable,
-        version: latestVersion,
-      };
-    } catch (error) {
-      log.error('renderer update check failed', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return { updateAvailable: false, error: safeErrorMessage('check') };
-    }
+    return checkForUpdatesWithPolicy({
+      isDev,
+      managed: getManagedEnterprisePolicy(),
+      currentVersion: app.getVersion(),
+      check: checkForUpdatesThroughManagedProxy,
+    });
   };
 
   // Wrapped in createValidatedHandler — input is empty but the wrapper still

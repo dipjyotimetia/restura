@@ -244,6 +244,9 @@ export function UpdatesSection() {
   const autoUpdate = settings.autoUpdate ?? DEFAULT_AUTO_UPDATE_SETTINGS;
   const managedPolicy = useManagedPolicyStatus();
   const settingsLocked = managedPolicy.state !== 'unmanaged';
+  const updatesBlocked =
+    managedPolicy.state === 'invalid' ||
+    (managedPolicy.state === 'managed' && managedPolicy.updatesMode === 'disabled');
 
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<string | null>(null);
@@ -344,15 +347,19 @@ export function UpdatesSection() {
           label="Check for updates"
           hint={
             checkResult ??
-            (settingsLocked
-              ? 'Check the administrator-configured update feed.'
-              : 'Fetch the latest release from GitHub.')
+            (managedPolicy.state === 'invalid'
+              ? 'Updates are blocked until your administrator repairs the managed policy.'
+              : updatesBlocked
+                ? 'Updates are disabled by your administrator.'
+                : settingsLocked
+                  ? 'Check the administrator-configured update feed.'
+                  : 'Fetch the latest release from GitHub.')
           }
           control={
             <button
               type="button"
               onClick={() => void handleCheck()}
-              disabled={checking}
+              disabled={checking || updatesBlocked}
               className={cn(
                 'inline-flex items-center gap-1.5 h-8 px-3 rounded-sp-btn shrink-0',
                 'bg-sp-surface border border-sp-line text-sp-text text-sp-12 font-medium',
