@@ -51,7 +51,8 @@ function KafkaClient() {
   } = kafkaConnection;
   const [activeTab, setActiveTab] = useState('messages');
   const [paused, setPaused] = useState(false);
-  const [consumeMode, setConsumeMode] = useState<ConsumeMode>('latest');
+  const [consumerPaused, setConsumerPaused] = useState(false);
+  const [consumeMode, setConsumeMode] = useState<ConsumeMode>('committed');
   const [topicDraft, setTopicDraft] = useState('');
   const [offsetPartition, setOffsetPartition] = useState('0');
   const [offsetValue, setOffsetValue] = useState('0');
@@ -59,6 +60,7 @@ function KafkaClient() {
   const [produceKey, setProduceKey] = useState('');
   const [produceKeyEncoding, setProduceKeyEncoding] = useState<ProducePayloadMode>('utf8');
   const [produceValue, setProduceValue] = useState('');
+  const [produceTombstone, setProduceTombstone] = useState(false);
   const [produceValueEncoding, setProduceValueEncoding] = useState<ProducePayloadMode>('utf8');
   const [produceHeaders, setProduceHeaders] = useState<
     Array<{ id: string; key: string; value: string; enabled: boolean }>
@@ -70,12 +72,14 @@ function KafkaClient() {
 
   useEffect(() => {
     setPaused(false);
-    setConsumeMode('latest');
+    setConsumeMode('committed');
+    setConsumerPaused(false);
     setTopicDraft('');
     setTimestampDraft('');
     setProduceKey('');
     setProduceKeyEncoding('utf8');
     setProduceValue('');
+    setProduceTombstone(false);
     setProduceValueEncoding('utf8');
     setProduceHeaders([]);
     setProducePartition('');
@@ -83,13 +87,18 @@ function KafkaClient() {
   }, [activeConnectionId]);
 
   useEffect(() => {
-    if (connection) setConsumeMode(connection.consumer.fromBeginning ? 'earliest' : 'latest');
-  }, [connection?.id, connection?.consumer.fromBeginning]);
+    if (connection) {
+      const mode = connection.consumer.mode;
+      setConsumeMode(
+        mode === 'manual' ? 'from-offset' : mode === 'timestamp' ? 'from-timestamp' : mode
+      );
+    }
+  }, [connection?.id, connection?.consumer.mode]);
 
   if (!isDesktop) return <DesktopOnlyPanel />;
 
   const handleProduce = async (): Promise<void> => {
-    if (!connection || !produceValue || !connection.defaultTopic) return;
+    if (!connection || !connection.defaultTopic) return;
     const valueSchema = connection.registry
       ? validateOptionalSchemaId(produceSchemaId, 'Value')
       : { valid: true as const, value: undefined };
@@ -104,7 +113,7 @@ function KafkaClient() {
       setProduceError(keySchema.error);
       return;
     }
-    if (produceValueEncoding === 'json') {
+    if (!produceTombstone && produceValueEncoding === 'json') {
       const json = validateJsonPayload(produceValue, 'Value');
       if (!json.valid) {
         setProduceError(json.error);
@@ -142,7 +151,7 @@ function KafkaClient() {
       topic: connection.defaultTopic,
       ...(produceKey ? { key: produceKey } : {}),
       ...(produceKey ? { keyEncoding: produceKeyEncoding === 'base64' ? 'base64' : 'utf8' } : {}),
-      value: produceValue,
+      value: produceTombstone ? null : produceValue,
       valueEncoding: produceValueEncoding === 'base64' ? 'base64' : 'utf8',
       acks: connection.acks,
       ...(connection.compression !== 'none' ? { compression: connection.compression } : {}),
@@ -157,11 +166,10 @@ function KafkaClient() {
   const handleConsumeModeChange = (mode: ConsumeMode): void => {
     setConsumeMode(mode);
     if (!connection) return;
-    if (mode === 'earliest' && !connection.consumer.fromBeginning) {
-      updateConsumer(connection.id, { fromBeginning: true });
-    } else if (mode === 'latest' && connection.consumer.fromBeginning) {
-      updateConsumer(connection.id, { fromBeginning: false });
-    }
+    updateConsumer(connection.id, {
+      mode: mode === 'from-offset' ? 'manual' : mode === 'from-timestamp' ? 'timestamp' : mode,
+      fromBeginning: mode === 'earliest',
+    });
   };
   const handleSubscribe = async (): Promise<void> => {
     if (!connection || connection.consumer.topics.length === 0) return;
@@ -169,13 +177,7 @@ function KafkaClient() {
     const useTimestamp = consumeMode === 'from-timestamp';
     const offsetsValid = useManual && isValidManualOffset(offsetPartition, offsetValue);
     const timestampMs = useTimestamp ? new Date(timestampDraft).getTime() : NaN;
-    const mode = useManual
-      ? 'manual'
-      : useTimestamp
-        ? 'timestamp'
-        : connection.consumer.fromBeginning
-          ? 'earliest'
-          : 'latest';
+    const mode = useManual ? 'manual' : useTimestamp ? 'timestamp' : consumeMode;
     await kafkaManager.subscribe({
       connectionId: connection.id,
       groupId: connection.consumer.groupId,
@@ -256,15 +258,15 @@ function KafkaClient() {
             onClick={() => setPaused((current) => !current)}
             className="h-7 px-2.5 text-xs font-mono rounded-sp-btn"
             disabled={!connection}
-            title={paused ? 'Resume log' : 'Pause log'}
+            title={paused ? 'Unfreeze message view' : 'Freeze message view'}
           >
             {paused ? (
               <>
-                <Play className="h-3 w-3 mr-1.5" /> Resume
+                <Play className="h-3 w-3 mr-1.5" /> Unfreeze
               </>
             ) : (
               <>
-                <Pause className="h-3 w-3 mr-1.5" /> Pause
+                <Pause className="h-3 w-3 mr-1.5" /> Freeze view
               </>
             )}
           </Button>
@@ -343,6 +345,8 @@ function KafkaClient() {
             produceKeySchemaId={produceKeySchemaId}
             setProduceKeySchemaId={setProduceKeySchemaId}
             produceError={produceError}
+            produceTombstone={produceTombstone}
+            setProduceTombstone={setProduceTombstone}
             onPublish={handleProduce}
           />
           <KafkaConsumerPanel
@@ -364,6 +368,21 @@ function KafkaClient() {
             onRemoveTopic={handleRemoveTopic}
             onSubscribe={handleSubscribe}
             onUnsubscribe={() => void kafkaManager.unsubscribe(connection.id)}
+            onPause={() => {
+              void window.electron?.kafka
+                .pauseConsumer({ connectionId: connection.id })
+                .then((result) => {
+                  if (result?.success) setConsumerPaused(true);
+                });
+            }}
+            onResume={() => {
+              void window.electron?.kafka
+                .resumeConsumer({ connectionId: connection.id })
+                .then((result) => {
+                  if (result?.success) setConsumerPaused(false);
+                });
+            }}
+            consumerPaused={consumerPaused}
           />
           <KafkaAdminPanel key={connection.id} connection={connection} />
         </Tabs>

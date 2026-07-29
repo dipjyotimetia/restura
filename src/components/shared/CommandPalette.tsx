@@ -332,7 +332,7 @@ export default function CommandPalette({
       { proto: 'MCP', type: 'mcp', label: 'New MCP request' },
       ...(isElectron()
         ? [
-            { proto: 'KAFKA', type: 'kafka' as const, label: 'New Kafka consumer' },
+            { proto: 'KAFKA', type: 'kafka' as const, label: 'New Kafka client' },
             { proto: 'MQTT', type: 'mqtt' as const, label: 'New MQTT client' },
           ]
         : []),

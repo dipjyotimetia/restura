@@ -12,7 +12,7 @@ test.describe('Desktop-only protocol surfaces', () => {
     // accessible name, so the real names are "MQTT MQTT client" / "Kafka Kafka
     // consumer". Match on the descriptive label as a substring rather than exact.
     await expect(page.getByRole('menuitem', { name: /MQTT client/ })).toBeVisible();
-    await expect(page.getByRole('menuitem', { name: /Kafka consumer/ })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /Kafka client/ })).toBeVisible();
     await page.keyboard.press('Escape');
   });
 });

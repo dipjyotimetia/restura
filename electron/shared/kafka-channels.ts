@@ -1,7 +1,7 @@
 /**
  * Kafka IPC channel prefixes. Kept as a thin compatibility shim over the
  * unified registry in `./channels.ts` (the single source of truth) so existing
- * `KAFKA_CHANNEL` / `kafkaChannel` call sites — in `kafka-handler.ts` and the
+ * `KAFKA_CHANNEL` / `kafkaChannel` call sites — in the Kafka handlers and the
  * renderer's `kafkaManager.ts` — keep working without churn.
  *
  * Each prefix is suffixed at runtime with the connection id, e.g.
@@ -18,6 +18,10 @@ export const KAFKA_CHANNEL = {
   ERROR: EVENT_PREFIX.kafka.error,
   /** The consumer stream closed but the producer is still alive. */
   CONSUMER_CLOSED: EVENT_PREFIX.kafka.consumerClosed,
+  /** Consumer pause/resume and group rebalance lifecycle. */
+  CONSUMER_STATUS: EVENT_PREFIX.kafka.consumerStatus,
+  /** Periodic per-topic/partition group lag. */
+  CONSUMER_LAG: EVENT_PREFIX.kafka.consumerLag,
   /** The whole connection (producer + consumer) was torn down. */
   CLOSE: EVENT_PREFIX.kafka.close,
 } as const;

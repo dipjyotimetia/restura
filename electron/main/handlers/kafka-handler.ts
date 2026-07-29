@@ -1,30 +1,23 @@
 import type * as SchemaRegistryLib from '@kafkajs/confluent-schema-registry';
 import type * as KafkaLib from '@platformatic/kafka';
 import { createLogger } from '@shared/runtime/logger';
+import { randomUUID } from 'node:crypto';
 import type { WebContents } from 'electron';
 import { ipcMain, webContents } from 'electron';
-import type { ZodSchema } from 'zod';
 import { IPC } from '../../shared/channels';
 import { KAFKA_CHANNEL, kafkaChannel } from '../../shared/kafka-channels';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
-import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
+import { createKeyedRateLimiter } from '../ipc/ipc-rate-limiter';
 import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import {
   assertTrustedSender,
   createValidatedEventHandler,
   type KafkaConnectConfig,
   KafkaConnectSchema,
-  KafkaCreateTopicSchema,
-  KafkaDeleteGroupSchema,
-  KafkaDeleteTopicSchema,
+  type KafkaCommitMessageConfig,
+  KafkaCommitMessageSchema,
+  KafkaConsumerControlSchema,
   KafkaDisconnectSchema,
-  KafkaInspectGroupSchema,
-  KafkaInspectTopicSchema,
-  KafkaListGroupsSchema,
-  KafkaListTopicsSchema,
-  type KafkaProduceConfig,
-  KafkaProduceSchema,
-  KafkaResetGroupOffsetsSchema,
   KafkaSubscribeSchema,
   KafkaUnsubscribeSchema,
   validateIpcInput,
@@ -32,25 +25,21 @@ import {
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
 import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
+import { decodeDisplayField } from './kafka-serde';
+import { registerKafkaAdminHandlers } from './kafka/admin-handlers';
 import {
-  computeGroupLag,
-  decodeDisplayField,
-  decodeWirePayload,
-  encodeSchemaField,
-  flattenConfigDescriptions,
-  flattenGroup,
-  topicWatermarks,
-} from './kafka-serde';
+  type AppProducer,
+  closeKafkaProducerSessions,
+  type KafkaProducerEntry,
+  registerKafkaProducerHandlers,
+} from './kafka/producer-handlers';
 
 const log = createLogger('kafka');
 type SchemaRegistry = SchemaRegistryLib.SchemaRegistry;
-type Admin = KafkaLib.Admin;
-type AdminOptions = KafkaLib.AdminOptions;
 type Consumer<K, V, HK, HV> = KafkaLib.Consumer<K, V, HK, HV>;
 type ConsumerOptions<K, V, HK, HV> = KafkaLib.ConsumerOptions<K, V, HK, HV>;
 type Message<K, V, HK, HV> = KafkaLib.Message<K, V, HK, HV>;
 type MessagesStream<K, V, HK, HV> = KafkaLib.MessagesStream<K, V, HK, HV>;
-type Producer<K, V, HK, HV> = KafkaLib.Producer<K, V, HK, HV>;
 type ProducerOptions<K, V, HK, HV> = KafkaLib.ProducerOptions<K, V, HK, HV>;
 type TopicWithPartitionAndOffset = KafkaLib.TopicWithPartitionAndOffset;
 // Keep the heavy Kafka package lazy so it does not delay window creation.
@@ -65,24 +54,16 @@ let _schemaRegistryLib: typeof SchemaRegistryLib | undefined;
 const getSchemaRegistryLib = (): typeof SchemaRegistryLib =>
   (_schemaRegistryLib ??= require('@kafkajs/confluent-schema-registry'));
 
-const bufferOrStringSerializer = (data: string | Buffer | undefined): Buffer | undefined =>
-  data == null ? undefined : Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf-8');
-const stringFieldSerializer = (data: string | undefined): Buffer | undefined =>
-  typeof data === 'string' ? Buffer.from(data, 'utf-8') : undefined;
+const rawSerializer = (data: Buffer | undefined): Buffer | undefined => data;
 const rawDeserializer = (data: Buffer): Buffer | undefined =>
   Buffer.isBuffer(data) ? data : undefined;
-const stringFieldDeserializer = (data: Buffer): string | undefined =>
-  Buffer.isBuffer(data) ? data.toString('utf-8') : undefined;
 export const kafkaRateLimiter = createKeyedRateLimiter(120, 60_000);
 const MAX_CONCURRENT_KAFKA_CONNECTIONS = 20;
-type ProduceKV = string | Buffer;
-type AppProducer = Producer<ProduceKV, ProduceKV, string, string>;
-type AppConsumer = Consumer<Buffer, Buffer, string, string>;
-type AppStream = MessagesStream<Buffer, Buffer, string, string>;
-type AppMessage = Message<Buffer, Buffer, string, string>;
+type AppConsumer = Consumer<Buffer, Buffer, Buffer, Buffer>;
+type AppStream = MessagesStream<Buffer, Buffer, Buffer, Buffer>;
+type AppMessage = Message<Buffer, Buffer, Buffer, Buffer>;
 
-interface ActiveKafka {
-  producer: AppProducer;
+interface ActiveKafka extends KafkaProducerEntry {
   consumer?: AppConsumer;
   stream?: AppStream;
   clientOptions: KafkaClientOptions;
@@ -90,9 +71,12 @@ interface ActiveKafka {
   webContentsId: number;
   /** Producer-only option; the shared client options also feed Consumer/Admin. */
   idempotent: boolean;
+  transactionalId?: string;
   registry?: SchemaRegistry;
   /** Serializes async decode/emission in arrival order. */
   emitChain: Promise<void>;
+  pendingCommits: Map<string, AppMessage>;
+  manualCommit: boolean;
   wc?: WebContents;
   createdAt: number;
 }
@@ -101,9 +85,11 @@ interface KafkaClientOptions {
   clientId: string;
   bootstrapBrokers: string[];
   sasl?: {
-    mechanism: 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512';
-    username: string;
-    password: string;
+    mechanism: 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512' | 'OAUTHBEARER';
+    username?: string;
+    password?: string;
+    token?: string;
+    oauthBearerExtensions?: Record<string, string>;
   };
   tls?: {
     ca?: string;
@@ -186,11 +172,20 @@ function buildClientOptions(cfg: KafkaConnectConfig): KafkaClientOptions {
   const useTls = cfg.auth.securityProtocol === 'SSL' || cfg.auth.securityProtocol === 'SASL_SSL';
 
   if (cfg.auth.securityProtocol !== 'PLAINTEXT' && 'sasl' in cfg.auth && cfg.auth.sasl) {
-    opts.sasl = {
-      mechanism: cfg.auth.sasl.mechanism,
-      username: cfg.auth.sasl.username,
-      password: cfg.auth.sasl.password,
-    };
+    opts.sasl =
+      cfg.auth.sasl.mechanism === 'OAUTHBEARER'
+        ? {
+            mechanism: 'OAUTHBEARER',
+            token: cfg.auth.sasl.token,
+            ...(cfg.auth.sasl.extensions
+              ? { oauthBearerExtensions: cfg.auth.sasl.extensions }
+              : {}),
+          }
+        : {
+            mechanism: cfg.auth.sasl.mechanism,
+            username: cfg.auth.sasl.username,
+            password: cfg.auth.sasl.password,
+          };
   }
 
   if (useTls) {
@@ -206,11 +201,11 @@ function buildClientOptions(cfg: KafkaConnectConfig): KafkaClientOptions {
   return opts;
 }
 
-function headersFromMap(map: Map<string, string> | undefined): Record<string, string> {
+function headersFromMap(map: Map<Buffer, Buffer> | undefined): Record<string, string> {
   if (!map) return {};
   const out: Record<string, string> = {};
   for (const [k, v] of map) {
-    out[String(k)] = String(v);
+    out[k.toString('utf8')] = v.toString('utf8');
   }
   return out;
 }
@@ -231,6 +226,7 @@ async function closeConsumerAndStream(entry: ActiveKafka): Promise<void> {
     }
     entry.consumer = undefined;
   }
+  entry.pendingCommits.clear();
 }
 
 // Releases consumers that fail before being attached to an active entry.
@@ -244,6 +240,7 @@ async function closeConsumerQuietly(consumer: AppConsumer): Promise<void> {
 
 async function closeConnection(entry: ActiveKafka): Promise<void> {
   await closeConsumerAndStream(entry);
+  await closeKafkaProducerSessions(entry);
   try {
     await Promise.resolve(entry.producer.close(true));
   } catch {
@@ -258,6 +255,16 @@ async function emitConsumedMessage(entry: ActiveKafka, msg: AppMessage): Promise
       ? { value: '', encoding: 'utf8' as const }
       : await decodeDisplayField(entry.registry, msg.value);
   if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
+  let commitToken: string | undefined;
+  if (entry.manualCommit) {
+    commitToken = randomUUID();
+    entry.pendingCommits.set(commitToken, msg);
+    while (entry.pendingCommits.size > 1000) {
+      const oldest = entry.pendingCommits.keys().next().value;
+      if (oldest) entry.pendingCommits.delete(oldest);
+      else break;
+    }
+  }
   emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.MESSAGE, entry.connectionId), {
     topic: msg.topic,
     partition: msg.partition,
@@ -265,8 +272,14 @@ async function emitConsumedMessage(entry: ActiveKafka, msg: AppMessage): Promise
     ...(key ? { key: key.value, keyEncoding: key.encoding } : {}),
     value: value.value,
     valueEncoding: value.encoding,
-    headers: headersFromMap(msg.headers as Map<string, string> | undefined),
+    ...(msg.value == null ? { tombstone: true } : {}),
+    headers: headersFromMap(msg.headers),
+    binaryHeaders: Array.from(msg.headers, ([headerKey, headerValue]) => ({
+      key: headerKey.toString('base64'),
+      value: headerValue.toString('base64'),
+    })),
     timestamp: typeof msg.timestamp === 'bigint' ? Number(msg.timestamp) : Date.now(),
+    ...(commitToken ? { commitToken } : {}),
   });
 }
 function bindStreamListeners(entry: ActiveKafka, stream: AppStream): void {
@@ -290,6 +303,9 @@ function bindStreamListeners(entry: ActiveKafka, stream: AppStream): void {
 }
 
 export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
+  registerKafkaProducerHandlers((connectionId, ownerId) =>
+    activeConnections.getForOwner(connectionId, ownerId)
+  );
   ipcMain.handle(IPC.kafka.connect, async (event, rawConfig: unknown) => {
     assertTrustedSender(IPC.kafka.connect, event);
     const cfg = validateIpcInput(KafkaConnectSchema, rawConfig, IPC.kafka.connect);
@@ -302,7 +318,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       onComplete({
         ts: startTime,
         method: 'CONNECT',
-        url: cfg.bootstrapBrokers.join(','),
+        url: `kafka://connection/${encodeURIComponent(connectionId)}`,
         status,
         durationMs: Date.now() - startTime,
         protocol: 'kafka',
@@ -332,7 +348,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           onComplete({
             ts: Date.now(),
             method: 'CLOSE',
-            url: existing.clientOptions.bootstrapBrokers.join(','),
+            url: `kafka://connection/${encodeURIComponent(connectionId)}`,
             status: 0,
             durationMs: Date.now() - existing.createdAt,
             protocol: 'kafka',
@@ -379,16 +395,17 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         const producerOptions = {
           ...clientOptions,
           serializers: {
-            key: bufferOrStringSerializer,
-            value: bufferOrStringSerializer,
-            headerKey: stringFieldSerializer,
-            headerValue: stringFieldSerializer,
+            key: rawSerializer,
+            value: rawSerializer,
+            headerKey: rawSerializer,
+            headerValue: rawSerializer,
           },
           // Idempotent producer dedups retries per-partition. The broker requires
           // acks=all(-1) for it; the produce handler enforces that override.
           ...(cfg.idempotent ? { idempotent: true } : {}),
-        } as unknown as ProducerOptions<ProduceKV, ProduceKV, string, string>;
-        const producer = new kafka.Producer<ProduceKV, ProduceKV, string, string>(producerOptions);
+          ...(cfg.transactionalId ? { transactionalId: cfg.transactionalId } : {}),
+        } as ProducerOptions<Buffer, Buffer, Buffer, Buffer>;
+        const producer = new kafka.Producer<Buffer, Buffer, Buffer, Buffer>(producerOptions);
         claim.pendingProducer = producer;
 
         // Probe metadata before reporting connected; this stays read-only.
@@ -408,7 +425,10 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           connectionId,
           webContentsId,
           idempotent: cfg.idempotent ?? false,
+          ...(cfg.transactionalId ? { transactionalId: cfg.transactionalId } : {}),
           emitChain: Promise.resolve(),
+          pendingCommits: new Map(),
+          manualCommit: false,
           ...(registry ? { registry } : {}),
           ...(wc ? { wc } : {}),
           createdAt: Date.now(),
@@ -448,102 +468,6 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
   });
 
   ipcMain.handle(
-    IPC.kafka.produce,
-    createValidatedEventHandler(
-      IPC.kafka.produce,
-      KafkaProduceSchema,
-      async (cfg: KafkaProduceConfig, event) => {
-        const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
-        if (!entry) {
-          return { success: false, error: 'Not connected' };
-        }
-        // Idempotent delivery requires all-ISR acknowledgements.
-        const acks = entry.idempotent ? -1 : cfg.acks;
-
-        // Registry fields become Confluent-framed buffers; plain fields stay strings.
-        const { registry } = entry;
-        if ((cfg.valueSchemaId !== undefined || cfg.keySchemaId !== undefined) && !registry) {
-          return {
-            success: false,
-            error: 'A schema ID requires a Schema Registry on this connection.',
-          };
-        }
-        let messageKey: ProduceKV | undefined;
-        let messageValue: ProduceKV;
-        if (registry && cfg.valueSchemaId !== undefined) {
-          const r = await encodeSchemaField(registry, cfg.valueSchemaId, cfg.value, 'value');
-          if ('error' in r) return { success: false, error: r.error };
-          messageValue = r.value;
-        } else {
-          const r = decodeWirePayload(cfg.value, cfg.valueEncoding ?? 'utf8', 'value');
-          if ('error' in r) return { success: false, error: r.error };
-          messageValue = r.value;
-        }
-        if (registry && cfg.keySchemaId !== undefined) {
-          if (cfg.key === undefined) {
-            return { success: false, error: 'A key schema ID requires a message key.' };
-          }
-          const r = await encodeSchemaField(registry, cfg.keySchemaId, cfg.key, 'key');
-          if ('error' in r) return { success: false, error: r.error };
-          messageKey = r.value;
-        } else if (cfg.key !== undefined) {
-          const r = decodeWirePayload(cfg.key, cfg.keyEncoding ?? 'utf8', 'key');
-          if ('error' in r) return { success: false, error: r.error };
-          messageKey = r.value;
-        }
-        try {
-          const result = await entry.producer.send({
-            messages: [
-              {
-                topic: cfg.topic,
-                ...(cfg.key !== undefined ? { key: messageKey } : {}),
-                value: messageValue,
-                ...(cfg.partition !== undefined ? { partition: cfg.partition } : {}),
-                ...(cfg.headers
-                  ? {
-                      headers: Object.entries(cfg.headers).reduce<Map<string, string>>(
-                        (m, [k, v]) => m.set(k, v),
-                        new Map()
-                      ),
-                    }
-                  : {}),
-              },
-            ],
-            acks,
-            ...(cfg.compression && cfg.compression !== 'none'
-              ? { compression: cfg.compression }
-              : {}),
-          });
-
-          const first = result.offsets?.[0];
-          if (!first) {
-            return {
-              success: true,
-              ack: {
-                topic: cfg.topic,
-                partition: cfg.partition ?? -1,
-                offset: '-1',
-                timestamp: Date.now(),
-              },
-            };
-          }
-          return {
-            success: true,
-            ack: {
-              topic: first.topic,
-              partition: first.partition,
-              offset: first.offset.toString(),
-              timestamp: Date.now(),
-            },
-          };
-        } catch (err) {
-          return { success: false, error: errorMessage(err) };
-        }
-      }
-    )
-  );
-
-  ipcMain.handle(
     IPC.kafka.subscribe,
     createValidatedEventHandler(IPC.kafka.subscribe, KafkaSubscribeSchema, async (cfg, event) => {
       const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
@@ -561,20 +485,42 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         const consumerOptions = {
           ...entry.clientOptions,
           groupId: cfg.groupId,
+          groupProtocol:
+            cfg.groupProtocol === 'consumer'
+              ? kafka.GroupProtocols.CONSUMER
+              : kafka.GroupProtocols.CLASSIC,
+          ...(cfg.groupInstanceId ? { groupInstanceId: cfg.groupInstanceId } : {}),
+          ...(cfg.groupProtocol === 'consumer' && cfg.groupRemoteAssignor
+            ? { groupRemoteAssignor: cfg.groupRemoteAssignor }
+            : {}),
+          ...(cfg.sessionTimeoutMs ? { sessionTimeout: cfg.sessionTimeoutMs } : {}),
+          ...(cfg.rebalanceTimeoutMs ? { rebalanceTimeout: cfg.rebalanceTimeoutMs } : {}),
+          ...(cfg.groupProtocol !== 'consumer' && cfg.heartbeatIntervalMs
+            ? { heartbeatInterval: cfg.heartbeatIntervalMs }
+            : {}),
+          autocommit: cfg.commitPolicy === 'manual' ? false : (cfg.autoCommitIntervalMs ?? true),
+          isolationLevel: cfg.isolation === 'read-committed' ? 1 : 0,
+          ...(cfg.minBytes !== undefined ? { minBytes: cfg.minBytes } : {}),
+          ...(cfg.maxBytes !== undefined ? { maxBytes: cfg.maxBytes } : {}),
+          ...(cfg.maxBytesPerPartition !== undefined
+            ? { maxBytesPerPartition: cfg.maxBytesPerPartition }
+            : {}),
+          ...(cfg.maxWaitTimeMs !== undefined ? { maxWaitTime: cfg.maxWaitTimeMs } : {}),
+          ...(cfg.highWaterMark !== undefined ? { highWaterMark: cfg.highWaterMark } : {}),
           deserializers: {
             key: rawDeserializer,
             value: rawDeserializer,
-            headerKey: stringFieldDeserializer,
-            headerValue: stringFieldDeserializer,
+            headerKey: rawDeserializer,
+            headerValue: rawDeserializer,
           },
-        } as unknown as ConsumerOptions<Buffer, Buffer, string, string>;
-        consumer = new kafka.Consumer<Buffer, Buffer, string, string>(consumerOptions);
+        } as unknown as ConsumerOptions<Buffer, Buffer, Buffer, Buffer>;
+        consumer = new kafka.Consumer<Buffer, Buffer, Buffer, Buffer>(consumerOptions);
 
         // Explicit offsets, timestamp, mode, then legacy fromBeginning take precedence.
         const M = kafka.MessagesStreamModes;
         let mode: (typeof M)[keyof typeof M];
         let offsets: TopicWithPartitionAndOffset[] | undefined;
-        if (cfg.offsets && cfg.offsets.length > 0) {
+        if (cfg.mode === 'manual' && cfg.offsets && cfg.offsets.length > 0) {
           mode = M.MANUAL;
           offsets = cfg.offsets.map((o) => ({
             topic: o.topic,
@@ -606,18 +552,28 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           }
           mode = M.MANUAL;
         } else if (cfg.mode === 'manual') {
-          mode = M.LATEST;
+          mode = M.MANUAL;
+        } else if (cfg.mode === 'committed') {
+          mode = M.COMMITTED;
         } else if (cfg.mode === 'earliest') {
           mode = M.EARLIEST;
         } else if (cfg.mode === 'latest') {
           mode = M.LATEST;
-        } else {
-          mode = cfg.fromBeginning ? M.EARLIEST : M.LATEST;
-        }
+        } else mode = M.COMMITTED;
 
         const stream = await (consumer.consume({
           topics: cfg.topics,
           mode,
+          ...(cfg.fallbackMode
+            ? {
+                fallbackMode:
+                  cfg.fallbackMode === 'earliest'
+                    ? kafka.MessagesStreamFallbackModes.EARLIEST
+                    : cfg.fallbackMode === 'fail'
+                      ? kafka.MessagesStreamFallbackModes.FAIL
+                      : kafka.MessagesStreamFallbackModes.LATEST,
+              }
+            : {}),
           ...(offsets ? { offsets } : {}),
         }) as Promise<AppStream>);
 
@@ -628,12 +584,97 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         bindStreamListeners(entry, stream);
         entry.consumer = consumer;
         entry.stream = stream;
+        entry.manualCommit = cfg.commitPolicy === 'manual';
+        consumer.on('consumer:group:join', (payload) => {
+          emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, entry.connectionId), {
+            state: 'joined',
+            ...payload,
+          });
+        });
+        consumer.on('consumer:group:rebalance', (payload) => {
+          emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, entry.connectionId), {
+            state: 'rebalancing',
+            ...payload,
+          });
+        });
+        consumer.on('consumer:group:leave', (payload) => {
+          emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, entry.connectionId), {
+            state: 'left',
+            ...payload,
+          });
+        });
+        consumer.on('consumer:lag', (lag) => {
+          emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_LAG, entry.connectionId), {
+            lag: Array.from(lag, ([topic, offsets]) => ({
+              topic,
+              offsets: offsets.map(String),
+            })),
+          });
+        });
+        if (cfg.lagIntervalMs) {
+          consumer.startLagMonitoring({ topics: cfg.topics }, cfg.lagIntervalMs);
+        }
         return { success: true };
       } catch (err) {
         if (consumer) await closeConsumerQuietly(consumer);
         return { success: false, error: errorMessage(err) };
       }
     })
+  );
+
+  ipcMain.handle(
+    IPC.kafka.pauseConsumer,
+    createValidatedEventHandler(
+      IPC.kafka.pauseConsumer,
+      KafkaConsumerControlSchema,
+      async (cfg, event) => {
+        const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
+        if (!entry?.stream) return { success: false, error: 'No consumer is active.' };
+        entry.stream.pause();
+        emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, entry.connectionId), {
+          state: 'paused',
+        });
+        return { success: true };
+      }
+    )
+  );
+
+  ipcMain.handle(
+    IPC.kafka.resumeConsumer,
+    createValidatedEventHandler(
+      IPC.kafka.resumeConsumer,
+      KafkaConsumerControlSchema,
+      async (cfg, event) => {
+        const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
+        if (!entry?.stream) return { success: false, error: 'No consumer is active.' };
+        entry.stream.resume();
+        emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, entry.connectionId), {
+          state: 'resumed',
+        });
+        return { success: true };
+      }
+    )
+  );
+
+  ipcMain.handle(
+    IPC.kafka.commitMessage,
+    createValidatedEventHandler(
+      IPC.kafka.commitMessage,
+      KafkaCommitMessageSchema,
+      async (cfg: KafkaCommitMessageConfig, event) => {
+        const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
+        if (!entry?.consumer) return { success: false, error: 'No consumer is active.' };
+        const message = entry.pendingCommits.get(cfg.commitToken);
+        if (!message) return { success: false, error: 'Commit token is unknown or expired.' };
+        try {
+          await Promise.resolve(message.commit());
+          entry.pendingCommits.delete(cfg.commitToken);
+          return { success: true };
+        } catch (err) {
+          return { success: false, error: errorMessage(err) };
+        }
+      }
+    )
   );
 
   ipcMain.handle(
@@ -665,190 +706,11 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
     })
   );
 
-  // Admin calls reuse guarded connection options and always close their short-lived client.
-
-  adminHandle(IPC.kafka.listTopics, KafkaListTopicsSchema, (cfg, event) =>
-    withAdmin(cfg.connectionId, event.sender.id, async (admin) => ({
-      topics: await admin.listTopics(),
-    }))
-  );
-
-  adminHandle(IPC.kafka.createTopic, KafkaCreateTopicSchema, (cfg, event) =>
-    withAdmin(cfg.connectionId, event.sender.id, async (admin) => {
-      await admin.createTopics({
-        topics: [cfg.topic],
-        partitions: cfg.partitions,
-        replicas: cfg.replicationFactor,
-      });
-      return {};
-    })
-  );
-
-  adminHandle(IPC.kafka.deleteTopic, KafkaDeleteTopicSchema, (cfg, event) =>
-    withAdmin(cfg.connectionId, event.sender.id, async (admin) => {
-      await admin.deleteTopics({ topics: [cfg.topic] });
-      return {};
-    })
-  );
-
-  adminHandle(IPC.kafka.listGroups, KafkaListGroupsSchema, (cfg, event) =>
-    withAdmin(cfg.connectionId, event.sender.id, async (admin) => {
-      const groupsMap = await admin.listGroups();
-      const groups = Array.from(groupsMap.values()).map((g) => ({
-        id: g.id,
-        state: String(g.state),
-        groupType: g.groupType,
-        protocolType: g.protocolType,
-      }));
-      return { groups };
-    })
-  );
-
-  adminHandle(IPC.kafka.inspectTopic, KafkaInspectTopicSchema, (cfg, event) =>
-    withAdmin(cfg.connectionId, event.sender.id, async (admin) => {
-      const kafka = getKafka();
-      const [indexes, configs] = await Promise.all([
-        topicPartitionIndexes(admin, cfg.topic),
-        admin.describeConfigs({
-          resources: [{ resourceType: kafka.ConfigResourceTypes.TOPIC, resourceName: cfg.topic }],
-        }),
-      ]);
-      let partitions: ReturnType<typeof topicWatermarks> = [];
-      if (indexes.length > 0) {
-        const T = kafka.ListOffsetTimestamps;
-        const [earliest, latest] = await Promise.all([
-          admin.listOffsets(listOffsetsRequest(cfg.topic, indexes, T.EARLIEST)),
-          admin.listOffsets(listOffsetsRequest(cfg.topic, indexes, T.LATEST)),
-        ]);
-        partitions = topicWatermarks(earliest[0]?.partitions ?? [], latest[0]?.partitions ?? []);
-      }
-      return { partitions, config: flattenConfigDescriptions(configs) };
-    })
-  );
-
-  adminHandle(IPC.kafka.inspectGroup, KafkaInspectGroupSchema, (cfg, event) =>
-    withAdmin(cfg.connectionId, event.sender.id, async (admin) => {
-      const kafka = getKafka();
-      const [describeMap, committedGroups] = await Promise.all([
-        admin.describeGroups({ groups: [cfg.groupId] }),
-        admin.listConsumerGroupOffsets({ groups: [{ groupId: cfg.groupId }] }),
-      ]);
-      const raw = describeMap.get(cfg.groupId);
-      const group = raw ? flattenGroup(raw) : null;
-
-      const committed = committedGroups.find((g) => g.groupId === cfg.groupId)?.topics ?? [];
-      const T = kafka.ListOffsetTimestamps;
-      const latestReq = committed
-        .filter((t) => t.partitions.length > 0)
-        .map((t) => ({
-          name: t.name,
-          partitions: t.partitions.map((p) => ({
-            partitionIndex: p.partitionIndex,
-            timestamp: T.LATEST,
-          })),
-        }));
-      const latest = latestReq.length > 0 ? await admin.listOffsets({ topics: latestReq }) : [];
-      return { group, offsets: computeGroupLag(committed, latest) };
-    })
-  );
-
-  adminHandle(IPC.kafka.resetGroupOffsets, KafkaResetGroupOffsetsSchema, (cfg, event) =>
-    withAdmin(cfg.connectionId, event.sender.id, async (admin) => {
-      const kafka = getKafka();
-      let partitionOffsets: { partition: number; offset: bigint }[];
-      if (cfg.to === 'specific') {
-        partitionOffsets = (cfg.partitions ?? []).map((p) => ({
-          partition: p.partition,
-          offset: BigInt(p.offset),
-        }));
-      } else {
-        const indexes = await topicPartitionIndexes(admin, cfg.topic);
-        if (indexes.length === 0) {
-          throw new Error(`Topic "${cfg.topic}" has no partitions or does not exist.`);
-        }
-        const ts =
-          cfg.to === 'earliest'
-            ? kafka.ListOffsetTimestamps.EARLIEST
-            : kafka.ListOffsetTimestamps.LATEST;
-        const listed = await admin.listOffsets(listOffsetsRequest(cfg.topic, indexes, ts));
-        partitionOffsets = (listed[0]?.partitions ?? []).map((p) => ({
-          partition: p.partitionIndex,
-          offset: p.offset,
-        }));
-      }
-      await admin.alterConsumerGroupOffsets({
-        groupId: cfg.groupId,
-        topics: [{ name: cfg.topic, partitionOffsets }],
-      });
-      return {};
-    })
-  );
-
-  adminHandle(IPC.kafka.deleteGroup, KafkaDeleteGroupSchema, (cfg, event) =>
-    withAdmin(cfg.connectionId, event.sender.id, async (admin) => {
-      await admin.deleteGroups({ groups: [cfg.groupId] });
-      return {};
-    })
-  );
-}
-
-function adminHandle<TInput, TOutput>(
-  channel: string,
-  schema: ZodSchema<TInput>,
-  handler: (input: TInput, event: Electron.IpcMainInvokeEvent) => Promise<TOutput> | TOutput
-): void {
-  ipcMain.handle(
-    channel,
-    rateLimited(kafkaRateLimiter, createValidatedEventHandler(channel, schema, handler))
-  );
-}
-
-async function topicPartitionIndexes(admin: Admin, topic: string): Promise<number[]> {
-  const meta = await admin.metadata({
-    topics: [topic],
-    autocreateTopics: false,
-    forceUpdate: true,
+  registerKafkaAdminHandlers({
+    getEntry: (connectionId, ownerId) => activeConnections.getForOwner(connectionId, ownerId),
+    getKafka,
+    rateLimiter: kafkaRateLimiter,
   });
-  const count = meta.topics.get(topic)?.partitionsCount ?? 0;
-  return Array.from({ length: count }, (_, i) => i);
-}
-
-function listOffsetsRequest(topic: string, indexes: number[], timestamp: bigint) {
-  return {
-    topics: [
-      { name: topic, partitions: indexes.map((partitionIndex) => ({ partitionIndex, timestamp })) },
-    ],
-  };
-}
-
-async function withAdmin<T extends object>(
-  connectionId: string,
-  webContentsId: number,
-  fn: (admin: Admin) => Promise<T>
-): Promise<({ success: true } & T) | { success: false; error: string }> {
-  const entry = activeConnections.getForOwner(connectionId, webContentsId);
-  if (!entry) return { success: false, error: 'Not connected' };
-  const admin = newAdmin(entry);
-  try {
-    return { success: true, ...(await fn(admin)) };
-  } catch (err) {
-    return { success: false, error: errorMessage(err) };
-  } finally {
-    await closeAdmin(admin);
-  }
-}
-
-function newAdmin(entry: ActiveKafka): Admin {
-  const kafka = getKafka();
-  return new kafka.Admin(entry.clientOptions as AdminOptions);
-}
-
-async function closeAdmin(admin: Admin): Promise<void> {
-  try {
-    await Promise.resolve(admin.close());
-  } catch {
-    /* ignore — best-effort socket release */
-  }
 }
 
 export async function stopKafkaCleanup(): Promise<void> {

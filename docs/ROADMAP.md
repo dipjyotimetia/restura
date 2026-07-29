@@ -16,7 +16,7 @@ This is an honest picture of what's done, what's being worked on, and what's nex
 - WebSocket — connect, send/receive, full message history
 - Socket.IO — emit/listen, acks, full transcript (desktop)
 - Server-Sent Events — live stream viewer with reconnection
-- Kafka — produce/consume, SASL + TLS (desktop)
+- Kafka — typed produce/consume, batching, streams, transactions, guarded admin, SASL/OAuth + TLS (desktop)
 - MQTT — publish/subscribe, QoS levels, TLS (desktop)
 - MCP — proxy to any MCP server, and Restura can expose itself as one
 

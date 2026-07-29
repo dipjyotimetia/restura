@@ -1,8 +1,14 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { HttpRequest } from '@/types';
 import { TabBar } from './TabBar';
+
+vi.mock('@/lib/shared/platform', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/shared/platform')>();
+  return { ...actual, isElectron: () => true };
+});
 
 const makeHttp = (overrides: Partial<HttpRequest> = {}): HttpRequest => ({
   id: 'r-' + Math.random().toString(36).slice(2),
@@ -26,6 +32,16 @@ describe('TabBar', () => {
     render(<TabBar />);
     expect(screen.queryAllByRole('tab')).toHaveLength(0);
     expect(screen.getByRole('button', { name: /new request/i })).toBeInTheDocument();
+  });
+
+  it('describes the desktop Kafka surface as a client', async () => {
+    const user = userEvent.setup();
+    render(<TabBar />);
+
+    await user.click(screen.getByRole('button', { name: /new request/i }));
+
+    expect(screen.getByRole('menuitem', { name: /Kafka client/i })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: /Kafka consumer/i })).not.toBeInTheDocument();
   });
 
   it('renders one button per open tab with the request name', () => {

@@ -1,10 +1,12 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
 
 const mockHandle = vi.hoisted(() => vi.fn());
 const mockEmitTo = vi.hoisted(() => vi.fn());
 const mockBrokersSafe = vi.hoisted(() => vi.fn());
 const mockRegistryUrlSafe = vi.hoisted(() => vi.fn());
+const mockOnComplete = vi.hoisted(() => vi.fn());
 
 vi.mock('electron', () => ({
   ipcMain: { handle: mockHandle, removeHandler: vi.fn() },
@@ -52,38 +54,97 @@ class FakeProducer {
   static instances: FakeProducer[] = [];
   static metadataGates: Array<Promise<void>> = [];
   options: unknown;
-  send = vi.fn(async () => ({ offsets: [{ topic: 'orders', partition: 0, offset: 7n }] }));
+  send = vi.fn(async (_options: { messages: Array<Record<string, unknown>>; acks?: number }) => ({
+    offsets: [{ topic: 'orders', partition: 0, offset: 7n }],
+  }));
   metadata = vi.fn(async () => {
     const gate = FakeProducer.metadataGates.shift();
     if (gate) await gate;
     return new Map();
   });
   close = vi.fn(async () => {});
+  stream = new FakeProducerStream();
+  transaction = new FakeTransaction();
+  asStream = vi.fn(() => this.stream);
+  beginTransaction = vi.fn(async () => this.transaction);
   constructor(options: unknown) {
     this.options = options;
     FakeProducer.instances.push(this);
   }
 }
+class FakeProducerStream extends EventEmitter {
+  write = vi.fn(() => true);
+  end = vi.fn(() => this.emit('finish'));
+}
+class FakeTransaction {
+  id = 'txn-1';
+  completed = false;
+  send = vi.fn(async () => ({ offsets: [{ topic: 'orders', partition: 0, offset: 8n }] }));
+  commit = vi.fn(async () => {
+    this.completed = true;
+  });
+  abort = vi.fn(async () => {
+    this.completed = true;
+  });
+}
 class FakeAdmin {
   static instances: FakeAdmin[] = [];
   listTopics = vi.fn(async () => ['orders', 'payments']);
+  createPartitions = vi.fn(async () => {});
+  incrementalAlterConfigs = vi.fn(async () => {});
+  deleteRecords = vi.fn(async () => [
+    { name: 'orders', partitions: [{ partition: 0, lowWatermark: 42n }] },
+  ]);
+  createAcls = vi.fn(async () => {});
+  describeAcls = vi.fn(async () => []);
+  deleteAcls = vi.fn(async () => []);
+  describeClientQuotas = vi.fn(async () => []);
+  alterClientQuotas = vi.fn(async () => []);
+  metadata = vi.fn(async () => ({
+    id: 'cluster-1',
+    controllerId: 1,
+    brokers: new Map([[1, { host: 'broker', port: 9092, rack: null }]]),
+    topics: new Map([['orders', { partitionsCount: 3 }]]),
+  }));
   close = vi.fn(async () => {});
   constructor(_options: unknown) {
     FakeAdmin.instances.push(this);
   }
 }
-class FakeConsumer {
-  constructor(_options: unknown) {
-    throw new Error('No test here should construct a Consumer');
+class FakeConsumer extends EventEmitter {
+  static instances: FakeConsumer[] = [];
+  options: unknown;
+  stream = new FakeConsumerStream();
+  consume = vi.fn(async () => this.stream);
+  close = vi.fn(async () => {});
+  startLagMonitoring = vi.fn();
+  constructor(options: unknown) {
+    super();
+    this.options = options;
+    FakeConsumer.instances.push(this);
   }
+}
+class FakeConsumerStream extends EventEmitter {
+  pause = vi.fn(() => this);
+  resume = vi.fn(() => this);
+  close = vi.fn(async () => {});
 }
 const fakeKafkaLib = {
   Producer: FakeProducer,
   Admin: FakeAdmin,
   Consumer: FakeConsumer,
-  MessagesStreamModes: { LATEST: 'LATEST', EARLIEST: 'EARLIEST', MANUAL: 'MANUAL' },
+  MessagesStreamModes: {
+    LATEST: 'LATEST',
+    EARLIEST: 'EARLIEST',
+    COMMITTED: 'COMMITTED',
+    MANUAL: 'MANUAL',
+  },
+  MessagesStreamFallbackModes: { LATEST: 'LATEST', EARLIEST: 'EARLIEST', FAIL: 'FAIL' },
+  GroupProtocols: { CLASSIC: 'classic', CONSUMER: 'consumer' },
   ListOffsetTimestamps: { EARLIEST: -2n, LATEST: -1n },
   ConfigResourceTypes: { TOPIC: 2 },
+  IncrementalAlterConfigOperationTypes: { SET: 0, DELETE: 1, APPEND: 2, SUBTRACT: 3 },
+  ClientQuotaMatchTypes: { EXACT: 0, DEFAULT: 1, ANY: 2 },
 } as unknown as typeof KafkaLib;
 
 type IpcHandler = (
@@ -132,10 +193,13 @@ const validConnect = (connectionId: string, extra: Record<string, unknown> = {})
 
 const validProduce = (connectionId: string, extra: Record<string, unknown> = {}) => ({
   connectionId,
-  topic: 'orders',
-  value: 'hello',
+  record: {
+    topic: 'orders',
+    value: { encoding: 'utf8', data: 'hello' },
+    ...('record' in extra ? (extra.record as object) : {}),
+  },
   acks: 1,
-  ...extra,
+  ...Object.fromEntries(Object.entries(extra).filter(([key]) => key !== 'record')),
 });
 
 describe('kafka-handler', () => {
@@ -144,11 +208,13 @@ describe('kafka-handler', () => {
     mockEmitTo.mockClear();
     mockBrokersSafe.mockClear();
     mockRegistryUrlSafe.mockClear();
+    mockOnComplete.mockClear();
     FakeProducer.instances.length = 0;
     FakeProducer.metadataGates.length = 0;
     FakeAdmin.instances.length = 0;
+    FakeConsumer.instances.length = 0;
     __setKafkaForTests(fakeKafkaLib);
-    registerKafkaHandlerIPC();
+    registerKafkaHandlerIPC(mockOnComplete);
   });
   afterEach(async () => {
     await stopKafkaCleanup();
@@ -234,6 +300,15 @@ describe('kafka-handler', () => {
       })
     );
     expect(JSON.stringify(records)).not.toContain('broker.example.com');
+    expect(mockOnComplete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'CONNECT',
+        url: 'kafka://connection/c-log',
+        protocol: 'kafka',
+        requestId: 'c-log',
+      })
+    );
+    expect(JSON.stringify(mockOnComplete.mock.calls)).not.toContain('broker.example.com');
   });
 
   it('maps a broker-guard rejection to { success: false } without constructing a producer', async () => {
@@ -262,7 +337,7 @@ describe('kafka-handler', () => {
     expect(producer.send).toHaveBeenCalledWith(
       expect.objectContaining({
         acks: 1,
-        messages: [expect.objectContaining({ topic: 'orders', value: 'hello' })],
+        messages: [expect.objectContaining({ topic: 'orders', value: Buffer.from('hello') })],
       })
     );
 
@@ -278,7 +353,7 @@ describe('kafka-handler', () => {
     await expect(
       handlerFor(IPC.kafka.produce)(
         event,
-        validProduce('c1', { value: '/4AB', valueEncoding: 'base64' })
+        validProduce('c1', { record: { value: { encoding: 'base64', data: '/4AB' } } })
       )
     ).resolves.toEqual(expect.objectContaining({ success: true }));
     expect(producer.send).toHaveBeenLastCalledWith(
@@ -290,9 +365,9 @@ describe('kafka-handler', () => {
     await expect(
       handlerFor(IPC.kafka.produce)(
         event,
-        validProduce('c1', { value: 'not base64', valueEncoding: 'base64' })
+        validProduce('c1', { record: { value: { encoding: 'base64', data: 'not base64' } } })
       )
-    ).resolves.toEqual({ success: false, error: 'Binary value must be canonical Base64.' });
+    ).rejects.toThrow('Invalid IPC payload');
     expect(producer.send).toHaveBeenCalledTimes(1);
   });
 
@@ -303,6 +378,229 @@ describe('kafka-handler', () => {
     expect(FakeProducer.instances[0]!.send).toHaveBeenCalledWith(
       expect.objectContaining({ acks: -1 })
     );
+  });
+
+  it('keeps empty bytes, tombstones, binary headers, and timestamps distinct', async () => {
+    const { event } = makeEvent();
+    await handlerFor(IPC.kafka.connect)(event, validConnect('typed'));
+    const producer = FakeProducer.instances[0]!;
+    await handlerFor(IPC.kafka.produce)(
+      event,
+      validProduce('typed', {
+        record: {
+          topic: 'orders',
+          value: { encoding: 'utf8', data: '' },
+          headers: [
+            {
+              key: { encoding: 'base64', data: '/w==' },
+              value: { encoding: 'base64', data: 'AA==' },
+            },
+          ],
+          timestamp: '1722222222000',
+        },
+      })
+    );
+    expect(producer.send).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        messages: [
+          expect.objectContaining({
+            value: Buffer.alloc(0),
+            timestamp: 1722222222000n,
+            headers: new Map([[Buffer.from([0xff]), Buffer.from([0])]]),
+          }),
+        ],
+      })
+    );
+
+    await handlerFor(IPC.kafka.produce)(
+      event,
+      validProduce('typed', {
+        record: { topic: 'orders', value: { encoding: 'null' } },
+      })
+    );
+    expect(producer.send.mock.calls.at(-1)?.[0].messages[0]).not.toHaveProperty('value');
+  });
+
+  it('supports interactive batches, producer streams, and transaction sessions', async () => {
+    const { event } = makeEvent();
+    await handlerFor(IPC.kafka.connect)(
+      event,
+      validConnect('sessions', { idempotent: true, transactionalId: 'restura-txn' })
+    );
+    const producer = FakeProducer.instances[0]!;
+    const record = { topic: 'orders', value: { encoding: 'utf8', data: 'hello' } };
+
+    await expect(
+      handlerFor(IPC.kafka.produceBatch)(event, {
+        connectionId: 'sessions',
+        records: [record, record],
+        acks: -1,
+      })
+    ).resolves.toMatchObject({ success: true, acks: expect.any(Array) });
+    expect(producer.send.mock.calls.at(-1)?.[0].messages).toHaveLength(2);
+
+    await expect(
+      handlerFor(IPC.kafka.openProducerStream)(event, {
+        connectionId: 'sessions',
+        acks: -1,
+        batchSize: 10,
+      })
+    ).resolves.toEqual({ success: true });
+    await handlerFor(IPC.kafka.writeProducerStream)(event, {
+      connectionId: 'sessions',
+      record,
+    });
+    expect(producer.stream.write).toHaveBeenCalledWith(
+      expect.objectContaining({ topic: 'orders', value: Buffer.from('hello') })
+    );
+    await handlerFor(IPC.kafka.closeProducerStream)(event, { connectionId: 'sessions' });
+
+    await expect(
+      handlerFor(IPC.kafka.beginTransaction)(event, { connectionId: 'sessions' })
+    ).resolves.toEqual({ success: true, transactionId: 'txn-1' });
+    await handlerFor(IPC.kafka.produce)(event, validProduce('sessions'));
+    expect(producer.transaction.send).toHaveBeenCalled();
+    await handlerFor(IPC.kafka.endTransaction)(event, {
+      connectionId: 'sessions',
+      action: 'commit',
+    });
+    expect(producer.transaction.commit).toHaveBeenCalled();
+  });
+
+  it('uses native committed consumption, manual commits, lag monitoring, and pause/resume', async () => {
+    const { event } = makeEvent();
+    await handlerFor(IPC.kafka.connect)(event, validConnect('consumer'));
+    await expect(
+      handlerFor(IPC.kafka.subscribe)(event, {
+        connectionId: 'consumer',
+        groupId: 'g',
+        topics: ['orders'],
+        mode: 'committed',
+        fallbackMode: 'latest',
+        commitPolicy: 'manual',
+        isolation: 'read-committed',
+        groupProtocol: 'consumer',
+        lagIntervalMs: 1000,
+      })
+    ).resolves.toEqual({ success: true });
+    const consumer = FakeConsumer.instances[0]!;
+    expect(consumer.consume).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'COMMITTED', fallbackMode: 'LATEST' })
+    );
+    expect(consumer.startLagMonitoring).toHaveBeenCalledWith({ topics: ['orders'] }, 1000);
+
+    await handlerFor(IPC.kafka.pauseConsumer)(event, { connectionId: 'consumer' });
+    await handlerFor(IPC.kafka.resumeConsumer)(event, { connectionId: 'consumer' });
+    expect(consumer.stream.pause).toHaveBeenCalled();
+    expect(consumer.stream.resume).toHaveBeenCalled();
+
+    const commit = vi.fn(async () => {});
+    consumer.stream.emit('data', {
+      topic: 'orders',
+      partition: 0,
+      offset: 4n,
+      key: Buffer.from('k'),
+      value: Buffer.from('v'),
+      headers: new Map(),
+      timestamp: 1n,
+      metadata: {},
+      commit,
+    });
+    await vi.waitFor(() => {
+      expect(mockEmitTo).toHaveBeenCalledWith(
+        expect.any(Number),
+        'kafka:message:consumer',
+        expect.objectContaining({ commitToken: expect.any(String) })
+      );
+    });
+    consumer.stream.emit('data', {
+      topic: 'orders',
+      partition: 0,
+      offset: 5n,
+      key: undefined,
+      value: undefined,
+      headers: new Map(),
+      timestamp: 2n,
+      metadata: {},
+      commit: vi.fn(async () => {}),
+    });
+    await vi.waitFor(() => {
+      expect(mockEmitTo).toHaveBeenCalledWith(
+        expect.any(Number),
+        'kafka:message:consumer',
+        expect.objectContaining({ offset: '5', tombstone: true, value: '' })
+      );
+    });
+    const payload = mockEmitTo.mock.calls.find((call) => call[1] === 'kafka:message:consumer')?.[2];
+    await handlerFor(IPC.kafka.commitMessage)(event, {
+      connectionId: 'consumer',
+      commitToken: payload.commitToken,
+    });
+    expect(commit).toHaveBeenCalled();
+  });
+
+  it('forwards guarded topic, ACL, quota, and cluster admin operations to the native client', async () => {
+    const { event } = makeEvent();
+    await handlerFor(IPC.kafka.connect)(event, validConnect('admin'));
+
+    await handlerFor(IPC.kafka.createPartitions)(event, {
+      connectionId: 'admin',
+      topic: 'orders',
+      count: 6,
+      validateOnly: true,
+    });
+    await handlerFor(IPC.kafka.alterTopicConfigs)(event, {
+      connectionId: 'admin',
+      topic: 'orders',
+      configs: [{ name: 'retention.ms', operation: 'set', value: '60000' }],
+      validateOnly: true,
+    });
+    await handlerFor(IPC.kafka.deleteRecords)(event, {
+      connectionId: 'admin',
+      topic: 'orders',
+      partitions: [{ partition: 0, offset: '42' }],
+      confirmation: 'DELETE RECORDS orders',
+    });
+    const admin = FakeAdmin.instances.at(-1)!;
+    expect(admin.deleteRecords).toHaveBeenCalledWith({
+      topics: [{ name: 'orders', partitions: [{ partition: 0, offset: 42n }] }],
+    });
+
+    const cluster = await handlerFor(IPC.kafka.describeCluster)(event, {
+      connectionId: 'admin',
+    });
+    expect(cluster).toMatchObject({
+      success: true,
+      cluster: { id: 'cluster-1', controllerId: 1 },
+    });
+
+    const acl = {
+      resourceType: 2,
+      resourceName: 'orders',
+      resourcePatternType: 3,
+      principal: 'User:restura',
+      host: '*',
+      operation: 3,
+      permissionType: 3,
+    };
+    await handlerFor(IPC.kafka.createAcl)(event, {
+      connectionId: 'admin',
+      acl,
+      confirmation: 'CREATE ACL',
+    });
+    await handlerFor(IPC.kafka.alterQuotas)(event, {
+      connectionId: 'admin',
+      entities: [{ entityType: 'user', entityName: 'restura' }],
+      operations: [{ key: 'producer_byte_rate', value: 1024, remove: false }],
+      validateOnly: false,
+      confirmation: 'ALTER QUOTAS',
+    });
+    expect(FakeAdmin.instances.some((instance) => instance.createAcls.mock.calls.length > 0)).toBe(
+      true
+    );
+    expect(
+      FakeAdmin.instances.some((instance) => instance.alterClientQuotas.mock.calls.length > 0)
+    ).toBe(true);
   });
 
   it('admin ops run through withAdmin: short-lived Admin, finally-closed, Not connected otherwise', async () => {

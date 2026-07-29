@@ -19,7 +19,11 @@ import type {
   KafkaTopicConfigEntry,
 } from '../../../../electron/types/electron-api';
 
-export type KafkaSecretField = 'sasl-password' | 'tls-passphrase' | 'registry-password';
+export type KafkaSecretField =
+  | 'sasl-password'
+  | 'oauth-token'
+  | 'tls-passphrase'
+  | 'registry-password';
 
 export function kafkaSecretKey(connectionId: string, field: KafkaSecretField): string {
   // Every field name matches a secureStorage sensitive-key pattern
@@ -118,16 +122,30 @@ async function resolveAuth(connectionId: string, auth: KafkaAuth): Promise<Kafka
   }
 
   if (!auth.sasl) return null;
-  const saslPassword = await (auth.sasl.password === KAFKA_SECRET_SENTINEL
-    ? readSecret(connectionId, 'sasl-password')
-    : Promise.resolve(auth.sasl.password));
-  if (!saslPassword) return null;
-
-  const sasl = {
-    mechanism: auth.sasl.mechanism,
-    username: auth.sasl.username,
-    password: saslPassword,
-  };
+  const sasl: Extract<KafkaAuthIpc, { securityProtocol: 'SASL_PLAINTEXT' }>['sasl'] =
+    auth.sasl.mechanism === 'OAUTHBEARER'
+      ? {
+          mechanism: 'OAUTHBEARER',
+          token:
+            auth.sasl.token === KAFKA_SECRET_SENTINEL
+              ? ((await readSecret(connectionId, 'oauth-token')) ?? '')
+              : auth.sasl.token,
+          ...(auth.sasl.extensions ? { extensions: auth.sasl.extensions } : {}),
+        }
+      : {
+          mechanism: auth.sasl.mechanism,
+          username: auth.sasl.username,
+          password:
+            auth.sasl.password === KAFKA_SECRET_SENTINEL
+              ? ((await readSecret(connectionId, 'sasl-password')) ?? '')
+              : auth.sasl.password,
+        };
+  if (
+    (sasl.mechanism === 'OAUTHBEARER' && !sasl.token) ||
+    (sasl.mechanism !== 'OAUTHBEARER' && !sasl.password)
+  ) {
+    return null;
+  }
 
   if (auth.securityProtocol === 'SASL_PLAINTEXT') {
     return { securityProtocol: 'SASL_PLAINTEXT', sasl };
@@ -179,6 +197,7 @@ class KafkaManager {
         bootstrapBrokers: connection.bootstrapBrokers,
         auth: ipcAuth,
         ...(connection.idempotent ? { idempotent: true } : {}),
+        ...(connection.transactionalId ? { transactionalId: connection.transactionalId } : {}),
         ...(registry ? { registry } : {}),
       });
     } catch (err) {
@@ -211,7 +230,7 @@ class KafkaManager {
     topic: string;
     key?: string;
     keyEncoding?: 'utf8' | 'base64';
-    value: string;
+    value: string | null;
     valueEncoding?: 'utf8' | 'base64';
     headers?: Record<string, string>;
     partition?: number;
@@ -230,19 +249,46 @@ class KafkaManager {
     const store = useKafkaStore.getState();
     const result = await api.kafka.produce({
       connectionId: params.connectionId,
-      topic: params.topic,
-      ...(params.key !== undefined ? { key: params.key } : {}),
-      ...(params.keyEncoding !== undefined ? { keyEncoding: params.keyEncoding } : {}),
-      value: params.value,
-      ...(params.valueEncoding !== undefined ? { valueEncoding: params.valueEncoding } : {}),
-      ...(params.headers ? { headers: params.headers } : {}),
-      ...(params.partition !== undefined ? { partition: params.partition } : {}),
+      record: {
+        topic: params.topic,
+        ...(params.key !== undefined
+          ? {
+              key:
+                params.keySchemaId !== undefined
+                  ? { encoding: 'schema' as const, schemaId: params.keySchemaId, data: params.key }
+                  : {
+                      encoding: params.keyEncoding ?? ('utf8' as const),
+                      data: params.key,
+                    },
+            }
+          : {}),
+        value:
+          params.value === null
+            ? { encoding: 'null' }
+            : params.valueSchemaId !== undefined
+              ? {
+                  encoding: 'schema',
+                  schemaId: params.valueSchemaId,
+                  data: params.value,
+                }
+              : {
+                  encoding: params.valueEncoding ?? 'utf8',
+                  data: params.value,
+                },
+        ...(params.headers
+          ? {
+              headers: Object.entries(params.headers).map(([key, value]) => ({
+                key: { encoding: 'utf8' as const, data: key },
+                value: { encoding: 'utf8' as const, data: value },
+              })),
+            }
+          : {}),
+        ...(params.partition !== undefined ? { partition: params.partition } : {}),
+      },
       acks: params.acks,
       ...(params.compression && params.compression !== 'none'
         ? { compression: params.compression }
         : {}),
-      ...(params.valueSchemaId !== undefined ? { valueSchemaId: params.valueSchemaId } : {}),
-      ...(params.keySchemaId !== undefined ? { keySchemaId: params.keySchemaId } : {}),
     });
 
     if (!result.success || !result.ack) {
@@ -263,7 +309,8 @@ class KafkaManager {
       offset: result.ack.offset,
       ...(params.key !== undefined ? { key: params.key } : {}),
       ...(params.keyEncoding !== undefined ? { keyEncoding: params.keyEncoding } : {}),
-      value: params.value,
+      value: params.value ?? '<tombstone>',
+      ...(params.value === null ? { tombstone: true } : {}),
       ...(params.valueEncoding !== undefined ? { valueEncoding: params.valueEncoding } : {}),
       ...(params.headers ? { headers: params.headers } : {}),
     });
@@ -275,7 +322,7 @@ class KafkaManager {
     groupId: string;
     topics: string[];
     fromBeginning: boolean;
-    mode?: 'latest' | 'earliest' | 'manual' | 'timestamp';
+    mode?: 'committed' | 'latest' | 'earliest' | 'manual' | 'timestamp';
     offsets?: Array<{ topic: string; partition: number; offset: string }>;
     timestamp?: string;
   }): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -294,7 +341,39 @@ class KafkaManager {
     });
     this.bindMessageListener(params.connectionId);
 
-    const result = await api.kafka.subscribe(params);
+    const consumer = store.connections[params.connectionId]?.consumer;
+    const result = await api.kafka.subscribe({
+      connectionId: params.connectionId,
+      groupId: params.groupId,
+      topics: params.topics,
+      mode: params.mode ?? consumer?.mode ?? (params.fromBeginning ? 'earliest' : 'latest'),
+      fallbackMode: consumer?.fallbackMode ?? 'latest',
+      commitPolicy: consumer?.commitPolicy ?? 'auto',
+      isolation: consumer?.isolation ?? 'read-uncommitted',
+      groupProtocol: consumer?.groupProtocol ?? 'classic',
+      lagIntervalMs: 1000,
+      ...(consumer?.groupInstanceId ? { groupInstanceId: consumer.groupInstanceId } : {}),
+      ...(consumer?.groupRemoteAssignor
+        ? { groupRemoteAssignor: consumer.groupRemoteAssignor }
+        : {}),
+      ...(consumer?.sessionTimeoutMs ? { sessionTimeoutMs: consumer.sessionTimeoutMs } : {}),
+      ...(consumer?.rebalanceTimeoutMs ? { rebalanceTimeoutMs: consumer.rebalanceTimeoutMs } : {}),
+      ...(consumer?.heartbeatIntervalMs
+        ? { heartbeatIntervalMs: consumer.heartbeatIntervalMs }
+        : {}),
+      ...(consumer?.autoCommitIntervalMs
+        ? { autoCommitIntervalMs: consumer.autoCommitIntervalMs }
+        : {}),
+      ...(consumer?.minBytes !== undefined ? { minBytes: consumer.minBytes } : {}),
+      ...(consumer?.maxBytes ? { maxBytes: consumer.maxBytes } : {}),
+      ...(consumer?.maxBytesPerPartition
+        ? { maxBytesPerPartition: consumer.maxBytesPerPartition }
+        : {}),
+      ...(consumer?.maxWaitTimeMs !== undefined ? { maxWaitTimeMs: consumer.maxWaitTimeMs } : {}),
+      ...(consumer?.highWaterMark ? { highWaterMark: consumer.highWaterMark } : {}),
+      ...(params.offsets ? { offsets: params.offsets } : {}),
+      ...(params.timestamp ? { timestamp: params.timestamp } : {}),
+    });
     if (!result.success) {
       store.updateConsumer(params.connectionId, { status: 'error' });
       const msg = result.error ?? 'Subscribe failed';
@@ -478,6 +557,16 @@ class KafkaManager {
       store.updateConsumer(connectionId, { status: 'idle' });
       store.addMessage(connectionId, { direction: 'system', topic: '', value: 'Consumer closed' });
     });
+    api.kafka.on(kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, connectionId), (payload: unknown) => {
+      const status = payload as { state?: string };
+      useKafkaStore
+        .getState()
+        .updateConsumer(connectionId, { groupState: status.state ?? 'unknown' });
+    });
+    api.kafka.on(kafkaChannel(KAFKA_CHANNEL.CONSUMER_LAG, connectionId), (payload: unknown) => {
+      const event = payload as { lag?: { topic: string; offsets: string[] }[] };
+      if (event.lag) useKafkaStore.getState().updateConsumer(connectionId, { lag: event.lag });
+    });
   }
 
   private unbindLifecycleListeners(connectionId: string): void {
@@ -487,6 +576,8 @@ class KafkaManager {
     api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.ERROR, connectionId));
     api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, connectionId));
     api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.CONNECTED, connectionId));
+    api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, connectionId));
+    api.kafka.removeAllListeners(kafkaChannel(KAFKA_CHANNEL.CONSUMER_LAG, connectionId));
   }
 
   private bindMessageListener(connectionId: string): void {
@@ -501,7 +592,10 @@ class KafkaManager {
         keyEncoding?: 'utf8' | 'base64';
         value: string;
         valueEncoding?: 'utf8' | 'base64';
+        tombstone?: boolean;
         headers?: Record<string, string>;
+        binaryHeaders?: { key: string; value: string }[];
+        commitToken?: string;
         timestamp: number;
       };
       useKafkaStore.getState().addMessage(connectionId, {
@@ -511,9 +605,12 @@ class KafkaManager {
         offset: msg.offset,
         ...(msg.key !== undefined ? { key: msg.key } : {}),
         ...(msg.keyEncoding !== undefined ? { keyEncoding: msg.keyEncoding } : {}),
-        value: msg.value,
+        value: msg.tombstone ? '<tombstone>' : msg.value,
+        ...(msg.tombstone ? { tombstone: true } : {}),
         ...(msg.valueEncoding !== undefined ? { valueEncoding: msg.valueEncoding } : {}),
         ...(msg.headers ? { headers: msg.headers } : {}),
+        ...(msg.binaryHeaders ? { binaryHeaders: msg.binaryHeaders } : {}),
+        ...(msg.commitToken ? { commitToken: msg.commitToken } : {}),
         timestamp: msg.timestamp,
       });
     });

@@ -27,7 +27,12 @@ const SECURITY_PROTOCOLS: KafkaSecurityProtocol[] = [
   'SASL_SSL',
   'SSL',
 ];
-const SASL_MECHANISMS: KafkaSaslMechanism[] = ['PLAIN', 'SCRAM-SHA-256', 'SCRAM-SHA-512'];
+const SASL_MECHANISMS: KafkaSaslMechanism[] = [
+  'PLAIN',
+  'SCRAM-SHA-256',
+  'SCRAM-SHA-512',
+  'OAUTHBEARER',
+];
 
 interface KafkaConnectionFormProps {
   connection: KafkaConnection;
@@ -125,15 +130,16 @@ export function KafkaConnectionForm({ connection, controller }: KafkaConnectionF
               <Label className="text-xs sp-label">SASL</Label>
               <Select
                 value={connection.auth.sasl.mechanism}
-                onValueChange={(value) =>
+                onValueChange={(value) => {
+                  const mechanism = value as KafkaSaslMechanism;
                   updateAuth(connection.id, {
                     ...connection.auth,
-                    sasl: {
-                      ...connection.auth.sasl!,
-                      mechanism: value as KafkaSaslMechanism,
-                    },
-                  })
-                }
+                    sasl:
+                      mechanism === 'OAUTHBEARER'
+                        ? { mechanism, token: '' }
+                        : { mechanism, username: '', password: '' },
+                  });
+                }}
               >
                 <SelectTrigger className="h-8 text-xs">
                   <SelectValue />
@@ -146,25 +152,37 @@ export function KafkaConnectionForm({ connection, controller }: KafkaConnectionF
                   ))}
                 </SelectContent>
               </Select>
-              <Input
-                value={connection.auth.sasl.username}
-                onChange={(event) =>
-                  updateAuth(connection.id, {
-                    ...connection.auth,
-                    sasl: { ...connection.auth.sasl!, username: event.target.value },
-                  })
-                }
-                placeholder="Username"
-                className="h-8 text-xs font-mono"
-              />
+              {connection.auth.sasl.mechanism !== 'OAUTHBEARER' && (
+                <Input
+                  value={connection.auth.sasl.username}
+                  onChange={(event) => {
+                    const current = connection.auth.sasl;
+                    if (!current || current.mechanism === 'OAUTHBEARER') return;
+                    updateAuth(connection.id, {
+                      ...connection.auth,
+                      sasl: {
+                        mechanism: current.mechanism,
+                        password: current.password,
+                        username: event.target.value,
+                      },
+                    });
+                  }}
+                  placeholder="Username"
+                  className="h-8 text-xs font-mono"
+                />
+              )}
               <Input
                 type="password"
                 value={saslPasswordDraft}
                 onChange={(event) => setSaslPasswordDraft(event.target.value)}
                 placeholder={
-                  connection.auth.sasl.password === KAFKA_SECRET_SENTINEL
-                    ? 'Password (stored — leave blank to keep)'
-                    : 'Password'
+                  (connection.auth.sasl.mechanism === 'OAUTHBEARER'
+                    ? connection.auth.sasl.token
+                    : connection.auth.sasl.password) === KAFKA_SECRET_SENTINEL
+                    ? `${connection.auth.sasl.mechanism === 'OAUTHBEARER' ? 'Token' : 'Password'} (stored — leave blank to keep)`
+                    : connection.auth.sasl.mechanism === 'OAUTHBEARER'
+                      ? 'Bearer token'
+                      : 'Password'
                 }
                 className="h-8 text-xs font-mono"
               />

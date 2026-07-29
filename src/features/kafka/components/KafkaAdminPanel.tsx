@@ -10,6 +10,7 @@ import { TabsContent } from '@/components/ui/tabs';
 import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
 import type { KafkaConnection } from '@/features/kafka/store/useKafkaStore';
 import type { KafkaGroupInfo } from '../../../../electron/types/electron-api';
+import { KafkaAdvancedAdmin } from './KafkaAdvancedAdmin';
 import { KafkaGroupInspector } from './KafkaGroupInspector';
 import { KafkaTopicInspector } from './KafkaTopicInspector';
 import { KAFKA_PINK } from './shared';
@@ -274,6 +275,10 @@ export function KafkaAdminPanel({ connection }: { connection: KafkaConnection })
               }}
             />
           )}
+        </div>
+        <div className="space-y-2">
+          <Label className="text-xs sp-label">Advanced administration</Label>
+          <KafkaAdvancedAdmin connectionId={connection.id} />
         </div>
       </Floater>
     </TabsContent>

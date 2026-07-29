@@ -22,6 +22,11 @@ const connection: KafkaConnection = {
     groupId: 'restura-test',
     topics: ['orders'],
     fromBeginning: false,
+    mode: 'committed',
+    fallbackMode: 'latest',
+    commitPolicy: 'auto',
+    isolation: 'read-uncommitted',
+    groupProtocol: 'classic',
     status: 'idle',
   },
   messages: [],
@@ -55,6 +60,9 @@ function ConsumerPanel({ offsetSpecInvalid = false }: { offsetSpecInvalid?: bool
         onRemoveTopic={vi.fn()}
         onSubscribe={vi.fn()}
         onUnsubscribe={vi.fn()}
+        onPause={vi.fn()}
+        onResume={vi.fn()}
+        consumerPaused={false}
       />
     </Tabs>
   );

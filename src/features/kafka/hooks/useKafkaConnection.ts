@@ -55,11 +55,27 @@ export function useKafkaConnection() {
     if (!connection) return;
     let nextAuth = connection.auth;
     if (saslPasswordDraft && nextAuth.sasl) {
-      secureStorage.set(kafkaSecretKey(connection.id, 'sasl-password'), saslPasswordDraft);
-      nextAuth = {
-        ...nextAuth,
-        sasl: { ...nextAuth.sasl, password: KAFKA_SECRET_SENTINEL },
-      };
+      const currentSasl = nextAuth.sasl;
+      const isOAuth = currentSasl.mechanism === 'OAUTHBEARER';
+      secureStorage.set(
+        kafkaSecretKey(connection.id, isOAuth ? 'oauth-token' : 'sasl-password'),
+        saslPasswordDraft
+      );
+      if (currentSasl.mechanism === 'OAUTHBEARER') {
+        nextAuth = {
+          ...nextAuth,
+          sasl: {
+            mechanism: 'OAUTHBEARER',
+            token: KAFKA_SECRET_SENTINEL,
+            ...(currentSasl.extensions ? { extensions: currentSasl.extensions } : {}),
+          },
+        };
+      } else {
+        nextAuth = {
+          ...nextAuth,
+          sasl: { ...currentSasl, password: KAFKA_SECRET_SENTINEL },
+        };
+      }
       setSaslPasswordDraft('');
     }
     if (tlsPassphraseDraft) {

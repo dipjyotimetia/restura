@@ -1,5 +1,5 @@
 import { Send } from 'lucide-react';
-import type { Dispatch, SetStateAction } from 'react';
+import { type Dispatch, type SetStateAction, useState } from 'react';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,6 +22,8 @@ import type {
   KafkaPayloadEncoding,
 } from '@/features/kafka/store/useKafkaStore';
 import type { KeyValue } from '@/types';
+import { getElectronAPI } from '@/lib/shared/platform';
+import type { KafkaRecordIpc } from '../../../../electron/types/electron-api';
 import { KAFKA_PINK } from './shared';
 
 export type ProducePayloadMode = KafkaPayloadEncoding | 'json';
@@ -48,6 +50,8 @@ interface KafkaProducerPanelProps {
   produceKeySchemaId: string;
   setProduceKeySchemaId: Dispatch<SetStateAction<string>>;
   produceError: string | null;
+  produceTombstone: boolean;
+  setProduceTombstone: Dispatch<SetStateAction<boolean>>;
   onPublish: () => void;
 }
 
@@ -101,8 +105,36 @@ export function KafkaProducerPanel({
   produceKeySchemaId,
   setProduceKeySchemaId,
   produceError,
+  produceTombstone,
+  setProduceTombstone,
   onPublish,
 }: KafkaProducerPanelProps) {
+  const [batchJson, setBatchJson] = useState('[]');
+  const [sessionMessage, setSessionMessage] = useState<string | null>(null);
+  const [streamOpen, setStreamOpen] = useState(false);
+  const [transactionActive, setTransactionActive] = useState(false);
+  const [sessionBusy, setSessionBusy] = useState(false);
+  const api = getElectronAPI()?.kafka;
+  const parseRecords = (): KafkaRecordIpc[] => {
+    const parsed = JSON.parse(batchJson) as unknown;
+    if (!Array.isArray(parsed)) throw new Error('Batch JSON must be an array of typed records.');
+    return parsed as KafkaRecordIpc[];
+  };
+  const run = async (operation: () => Promise<{ success: boolean; error?: string }>) => {
+    setSessionBusy(true);
+    try {
+      const result = await operation();
+      setSessionMessage(
+        result.success ? 'Operation completed.' : (result.error ?? 'Operation failed.')
+      );
+      return result.success;
+    } catch (error) {
+      setSessionMessage(error instanceof Error ? error.message : String(error));
+      return false;
+    } finally {
+      setSessionBusy(false);
+    }
+  };
   return (
     <TabsContent value="produce" className="flex-1 overflow-auto m-0">
       <Floater radius="panel" className="p-3 space-y-3">
@@ -237,10 +269,22 @@ export function KafkaProducerPanel({
             aria-label="Kafka message value"
             value={produceValue}
             onChange={(e) => setProduceValue(e.target.value)}
+            disabled={produceTombstone}
             placeholder={payloadPlaceholder(produceValueEncoding)}
             className="font-mono text-xs"
             rows={8}
           />
+          <div className="flex items-center gap-2">
+            <Switch
+              id="kafka-produce-tombstone"
+              aria-label="Tombstone (Kafka null value)"
+              checked={produceTombstone}
+              onCheckedChange={setProduceTombstone}
+            />
+            <Label htmlFor="kafka-produce-tombstone" className="text-xs">
+              Tombstone (Kafka null value)
+            </Label>
+          </div>
           {produceValueEncoding === 'base64' && (
             <p className="text-sp-11 text-sp-muted">
               Sent as exact decoded bytes. Whitespace, URL-safe Base64, and malformed padding are
@@ -292,10 +336,143 @@ export function KafkaProducerPanel({
         {produceError && <p className="text-xs text-red-400">{produceError}</p>}
         <Button
           onClick={onPublish}
-          disabled={connection.status !== 'connected' || !produceValue || !connection.defaultTopic}
+          disabled={connection.status !== 'connected' || !connection.defaultTopic}
         >
           <Send className="h-3.5 w-3.5 mr-1.5" /> Publish
         </Button>
+        <details className="rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
+          <summary className="cursor-pointer text-xs font-medium">
+            Batches, streams, and transactions
+          </summary>
+          <div className="space-y-3 pt-3">
+            <Label className="text-xs sp-label">Typed record array</Label>
+            <Textarea
+              aria-label="Kafka typed record batch"
+              value={batchJson}
+              onChange={(event) => setBatchJson(event.target.value)}
+              className="font-mono text-xs"
+              rows={6}
+              placeholder='[{"topic":"orders","value":{"encoding":"utf8","data":"hello"}}]'
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={!api || connection.status !== 'connected' || sessionBusy}
+                onClick={() =>
+                  void run(() =>
+                    api!.produceBatch({
+                      connectionId: connection.id,
+                      records: parseRecords(),
+                      acks: connection.acks,
+                      compression: connection.compression,
+                    })
+                  )
+                }
+              >
+                Publish batch
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={!api || transactionActive || sessionBusy}
+                onClick={async () => {
+                  if (streamOpen) {
+                    if (
+                      await run(() => api!.closeProducerStream({ connectionId: connection.id }))
+                    ) {
+                      setStreamOpen(false);
+                    }
+                  } else if (
+                    await run(() =>
+                      api!.openProducerStream({
+                        connectionId: connection.id,
+                        acks: connection.acks,
+                        compression: connection.compression,
+                        batchSize: 100,
+                        batchTime: 250,
+                      })
+                    )
+                  ) {
+                    setStreamOpen(true);
+                  }
+                }}
+              >
+                {streamOpen ? 'Close stream' : 'Open stream'}
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={!api || !streamOpen || sessionBusy}
+                onClick={() =>
+                  void (async () => {
+                    for (const record of parseRecords()) {
+                      const ok = await run(() =>
+                        api!.writeProducerStream({ connectionId: connection.id, record })
+                      );
+                      if (!ok) break;
+                    }
+                  })()
+                }
+              >
+                Write batch to stream
+              </Button>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs sp-label">Transactional ID</Label>
+              <Input
+                value={connection.transactionalId ?? ''}
+                onChange={(event) =>
+                  updateConnection(connection.id, {
+                    transactionalId: event.target.value || undefined,
+                    idempotent: Boolean(event.target.value) || connection.idempotent,
+                  })
+                }
+                placeholder="Stable ID; reconnect to apply"
+              />
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={
+                    !api ||
+                    !connection.transactionalId ||
+                    streamOpen ||
+                    transactionActive ||
+                    sessionBusy
+                  }
+                  onClick={async () => {
+                    if (await run(() => api!.beginTransaction({ connectionId: connection.id }))) {
+                      setTransactionActive(true);
+                    }
+                  }}
+                >
+                  Begin transaction
+                </Button>
+                {(['commit', 'abort'] as const).map((action) => (
+                  <Button
+                    key={action}
+                    size="sm"
+                    variant={action === 'abort' ? 'destructive' : 'secondary'}
+                    disabled={!api || !transactionActive || sessionBusy}
+                    onClick={async () => {
+                      if (
+                        await run(() =>
+                          api!.endTransaction({ connectionId: connection.id, action })
+                        )
+                      ) {
+                        setTransactionActive(false);
+                      }
+                    }}
+                  >
+                    {action === 'commit' ? 'Commit' : 'Abort'}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            {sessionMessage && <p className="text-sp-11 text-sp-muted">{sessionMessage}</p>}
+          </div>
+        </details>
       </Floater>
     </TabsContent>
   );

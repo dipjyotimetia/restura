@@ -72,7 +72,7 @@ services:
         chown -R 101:101 /etc/redpanda
 
   kafka:
-    image: redpandadata/redpanda:latest
+    image: redpandadata/redpanda:v26.1.10
     container_name: kafka
     depends_on:
       kafka-certs:
@@ -100,13 +100,14 @@ services:
       timeout: 5s
       retries: 24
 
-  # Creates the SASL user once the broker is healthy. The Admin API (:9644) needs
+  # Creates deterministic Kafka fixtures and the SASL user once the broker is healthy.
+  # The Admin API (:9644) needs
   # no auth, so this runs without credentials. Redpanda stores a single SCRAM
   # credential per user (create/update set one mechanism, not both), so we
   # provision SCRAM-SHA-256 — the broker still advertises SCRAM-SHA-512, but this
   # user authenticates with 256.
   kafka-setup:
-    image: redpandadata/redpanda:latest
+    image: redpandadata/redpanda:v26.1.10
     container_name: restura-echo-kafka-setup
     depends_on:
       kafka:
@@ -118,6 +119,9 @@ services:
       - |
         rpk security user create restura -p restura-secret \
           --mechanism SCRAM-SHA-256 -X admin.hosts=kafka:9644 || true
+        rpk topic create echo --partitions 3 --replicas 1 --brokers kafka:29092 || true
+        rpk topic create echo-compacted --partitions 1 --replicas 1 \
+          --topic-config cleanup.policy=compact --brokers kafka:29092 || true
 
   # Full MQTT 5 broker (also speaks 3.1.1). Anonymous connections are allowed on
   # both listeners so the desktop client connects with no credentials. Dashboard

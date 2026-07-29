@@ -16,6 +16,7 @@ import type { KafkaMessage } from '@/features/kafka/store/useKafkaStore';
 import { useKafkaStore } from '@/features/kafka/store/useKafkaStore';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn } from '@/lib/shared/utils';
+import { getElectronAPI } from '@/lib/shared/platform';
 import type { KafkaConnection } from '../store/useKafkaStore';
 import { KAFKA_PINK, partitionColor } from './shared';
 
@@ -78,6 +79,7 @@ export function KafkaMessagesPanel({
   const getFilteredMessages = useKafkaStore((state) => state.getFilteredMessages);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [pausedSnapshot, setPausedSnapshot] = useState<KafkaMessage[] | null>(null);
+  const [committedTokens, setCommittedTokens] = useState<Set<string>>(() => new Set());
 
   const filteredMessages = useMemo(
     () => getFilteredMessages(connection.id),
@@ -101,6 +103,15 @@ export function KafkaMessagesPanel({
     );
     return Math.round((recent.length / 5) * 10) / 10;
   }, [connection.messages]);
+  const totalLag = useMemo(
+    () =>
+      (connection.consumer.lag ?? []).reduce(
+        (total, topic) =>
+          topic.offsets.reduce((subtotal, offset) => subtotal + BigInt(offset), total),
+        0n
+      ),
+    [connection.consumer.lag]
+  );
   const selectedMessage = useMemo(
     () => connection.messages.find((message) => message.id === selectedMessageId) ?? null,
     [connection.messages, selectedMessageId]
@@ -110,6 +121,7 @@ export function KafkaMessagesPanel({
   useEffect(() => {
     setSelectedMessageId(null);
     setPausedSnapshot(null);
+    setCommittedTokens(new Set());
   }, [connection.id]);
   useEffect(() => {
     setPausedSnapshot(paused ? filteredMessages : null);
@@ -127,21 +139,9 @@ export function KafkaMessagesPanel({
         <Stat label="Consumer ID" value={connection.consumer.groupId || '—'} />
         <Stat
           label="Lag"
-          value={
-            <span
-              style={{
-                color:
-                  partitionCounts.length === 0 ? 'var(--color-success)' : 'var(--color-warning)',
-              }}
-            >
-              {connection.consumer.status === 'subscribed' ? '—' : '0'}
-            </span>
-          }
+          value={<span>{connection.consumer.lag ? totalLag.toString() : '—'}</span>}
         />
-        <Stat
-          label="Offset Reset"
-          value={connection.consumer.fromBeginning ? 'earliest' : 'latest'}
-        />
+        <Stat label="Offset Reset" value={connection.consumer.mode} />
         <Stat label="Msg/Sec" value={msgPerSec.toFixed(1)} />
         {partitionCounts.length > 0 && (
           <>
@@ -245,9 +245,13 @@ export function KafkaMessagesPanel({
                     </span>
                     <span
                       className={cn('truncate', message.error ? 'text-red-400' : 'text-sp-text')}
-                      title={message.value}
+                      title={message.tombstone ? '<tombstone>' : message.value}
                     >
-                      {message.error ? message.error : message.value}
+                      {message.error
+                        ? message.error
+                        : message.tombstone
+                          ? '<tombstone>'
+                          : message.value}
                     </span>
                   </li>
                 );
@@ -312,12 +316,49 @@ export function KafkaMessagesPanel({
                       <div className="text-sp-dim text-sp-11-5 italic">No headers</div>
                     )}
                   </div>
+                  {selectedMessage.binaryHeaders && selectedMessage.binaryHeaders.length > 0 && (
+                    <details className="text-sp-11">
+                      <summary className="cursor-pointer sp-label">Raw headers · Base64</summary>
+                      <pre className="mt-1 whitespace-pre-wrap break-all font-mono text-sp-muted">
+                        {JSON.stringify(selectedMessage.binaryHeaders, null, 2)}
+                      </pre>
+                    </details>
+                  )}
+                  {selectedMessage.commitToken && (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={committedTokens.has(selectedMessage.commitToken)}
+                      onClick={() => {
+                        const token = selectedMessage.commitToken;
+                        if (!token) return;
+                        void getElectronAPI()
+                          ?.kafka.commitMessage({ connectionId: connection.id, commitToken: token })
+                          .then((result) => {
+                            if (result.success) {
+                              setCommittedTokens((current) => new Set(current).add(token));
+                            }
+                          });
+                      }}
+                    >
+                      {committedTokens.has(selectedMessage.commitToken)
+                        ? 'Offset committed'
+                        : 'Commit this message'}
+                    </Button>
+                  )}
                   <div className="space-y-1">
                     <div className="sp-label">
-                      Value{selectedMessage.valueEncoding === 'base64' ? ' · Base64' : ''}
+                      Value
+                      {selectedMessage.tombstone
+                        ? ' · Tombstone'
+                        : selectedMessage.valueEncoding === 'base64'
+                          ? ' · Base64'
+                          : ''}
                     </div>
                     {(() => {
-                      const formatted = tryFormatJson(selectedMessage.value);
+                      const formatted = selectedMessage.tombstone
+                        ? '<tombstone>'
+                        : tryFormatJson(selectedMessage.value);
                       return (
                         <CodeEditorFrame lineCount={formatted.split('\n').length}>
                           <pre className="whitespace-pre-wrap break-all text-sp-text">

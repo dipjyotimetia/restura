@@ -59,7 +59,7 @@ It started because I was tired of juggling four tools to debug one service, each
 |  `WS`  | WebSocket              | Connect, send/receive, full message history                                |
 |  `IO`  | Socket.IO              | Connect, emit/listen events, acks                                          |
 | `SSE`  | Server-Sent Events     | Live event stream viewer with reconnection                                 |
-| `KFK`  | Kafka                  | Produce / consume, SASL + TLS · _desktop only_                             |
+| `KFK`  | Kafka                  | Produce, consume, transactions, admin, SASL/OAuth + TLS · _desktop only_   |
 | `MQT`  | MQTT                   | Publish / subscribe, QoS, TLS · _desktop only_                             |
 | `MCP`  | Model Context Protocol | Proxy to any MCP server — and Restura _can be_ one                         |
 

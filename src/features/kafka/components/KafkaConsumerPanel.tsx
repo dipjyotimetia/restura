@@ -5,14 +5,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Floater, Segmented } from '@/components/ui/spatial';
-import { Switch } from '@/components/ui/switch';
 import { TabsContent } from '@/components/ui/tabs';
 import type { KafkaConnection, KafkaConsumerState } from '@/features/kafka/store/useKafkaStore';
 import { KAFKA_PINK } from './shared';
 
-export type ConsumeMode = 'latest' | 'earliest' | 'from-offset' | 'from-timestamp';
+export type ConsumeMode = 'committed' | 'latest' | 'earliest' | 'from-offset' | 'from-timestamp';
 
 export const CONSUME_MODE_OPTIONS = [
+  { value: 'committed' as const, label: 'committed' },
   { value: 'latest' as const, label: 'latest' },
   { value: 'earliest' as const, label: 'earliest' },
   { value: 'from-offset' as const, label: 'from-offset' },
@@ -38,6 +38,9 @@ interface KafkaConsumerPanelProps {
   onRemoveTopic: (index: number) => void;
   onSubscribe: () => void;
   onUnsubscribe: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  consumerPaused: boolean;
 }
 
 /** Subscription configuration and controls kept separate from the shell. */
@@ -60,6 +63,9 @@ export function KafkaConsumerPanel({
   onRemoveTopic,
   onSubscribe,
   onUnsubscribe,
+  onPause,
+  onResume,
+  consumerPaused,
 }: KafkaConsumerPanelProps) {
   return (
     <TabsContent value="consume" className="flex-1 overflow-auto m-0">
@@ -100,14 +106,6 @@ export function KafkaConsumerPanel({
               Add
             </Button>
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Switch
-            checked={connection.consumer.fromBeginning}
-            onCheckedChange={(checked) => updateConsumer(connection.id, { fromBeginning: checked })}
-            disabled={consumeMode === 'from-offset' || consumeMode === 'from-timestamp'}
-          />
-          <Label className="text-xs">Read from beginning (EARLIEST)</Label>
         </div>
         <div className="space-y-2">
           <Label className="text-xs sp-label">Start mode</Label>
@@ -160,6 +158,135 @@ export function KafkaConsumerPanel({
             </div>
           )}
         </div>
+        <details className="rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
+          <summary className="cursor-pointer text-xs font-medium">
+            Delivery and group options
+          </summary>
+          <div className="grid grid-cols-2 gap-3 pt-3">
+            <div className="space-y-1">
+              <Label className="text-xs sp-label">Commit policy</Label>
+              <select
+                className="h-8 w-full rounded border border-sp-line bg-sp-surface px-2 text-xs"
+                value={connection.consumer.commitPolicy}
+                onChange={(event) =>
+                  updateConsumer(connection.id, {
+                    commitPolicy: event.target.value as KafkaConsumerState['commitPolicy'],
+                  })
+                }
+              >
+                <option value="auto">Automatic</option>
+                <option value="manual">Manual per message</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs sp-label">Isolation</Label>
+              <select
+                className="h-8 w-full rounded border border-sp-line bg-sp-surface px-2 text-xs"
+                value={connection.consumer.isolation}
+                onChange={(event) =>
+                  updateConsumer(connection.id, {
+                    isolation: event.target.value as KafkaConsumerState['isolation'],
+                  })
+                }
+              >
+                <option value="read-uncommitted">Read uncommitted</option>
+                <option value="read-committed">Read committed</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs sp-label">Group protocol</Label>
+              <select
+                className="h-8 w-full rounded border border-sp-line bg-sp-surface px-2 text-xs"
+                value={connection.consumer.groupProtocol}
+                onChange={(event) =>
+                  updateConsumer(connection.id, {
+                    groupProtocol: event.target.value as KafkaConsumerState['groupProtocol'],
+                  })
+                }
+              >
+                <option value="classic">Classic</option>
+                <option value="consumer">Consumer</option>
+              </select>
+            </div>
+            {consumeMode === 'committed' && (
+              <div className="space-y-1">
+                <Label className="text-xs sp-label">Missing commit fallback</Label>
+                <select
+                  className="h-8 w-full rounded border border-sp-line bg-sp-surface px-2 text-xs"
+                  value={connection.consumer.fallbackMode}
+                  onChange={(event) =>
+                    updateConsumer(connection.id, {
+                      fallbackMode: event.target.value as KafkaConsumerState['fallbackMode'],
+                    })
+                  }
+                >
+                  <option value="latest">Latest</option>
+                  <option value="earliest">Earliest</option>
+                  <option value="fail">Fail</option>
+                </select>
+              </div>
+            )}
+            <div className="space-y-1">
+              <Label className="text-xs sp-label">Static member ID</Label>
+              <Input
+                value={connection.consumer.groupInstanceId ?? ''}
+                onChange={(event) =>
+                  updateConsumer(connection.id, {
+                    groupInstanceId: event.target.value || undefined,
+                  })
+                }
+                placeholder="Optional"
+              />
+            </div>
+            {connection.consumer.groupProtocol === 'consumer' && (
+              <div className="space-y-1">
+                <Label className="text-xs sp-label">Remote assignor</Label>
+                <Input
+                  value={connection.consumer.groupRemoteAssignor ?? ''}
+                  onChange={(event) =>
+                    updateConsumer(connection.id, {
+                      groupRemoteAssignor: event.target.value || undefined,
+                    })
+                  }
+                  placeholder="uniform"
+                />
+              </div>
+            )}
+            {(
+              [
+                ['sessionTimeoutMs', 'Session timeout ms'],
+                ['rebalanceTimeoutMs', 'Rebalance timeout ms'],
+                ['heartbeatIntervalMs', 'Heartbeat interval ms'],
+                ['autoCommitIntervalMs', 'Auto-commit interval ms'],
+                ['minBytes', 'Minimum fetch bytes'],
+                ['maxBytes', 'Maximum fetch bytes'],
+                ['maxBytesPerPartition', 'Max bytes per partition'],
+                ['maxWaitTimeMs', 'Maximum wait ms'],
+                ['highWaterMark', 'Stream high-water mark'],
+              ] as const
+            ).map(([field, label]) => (
+              <div key={field} className="space-y-1">
+                <Label className="text-xs sp-label">{label}</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  value={connection.consumer[field] ?? ''}
+                  disabled={
+                    (field === 'heartbeatIntervalMs' &&
+                      connection.consumer.groupProtocol === 'consumer') ||
+                    (field === 'autoCommitIntervalMs' &&
+                      connection.consumer.commitPolicy === 'manual')
+                  }
+                  onChange={(event) =>
+                    updateConsumer(connection.id, {
+                      [field]: event.target.value ? Number(event.target.value) : undefined,
+                    })
+                  }
+                />
+              </div>
+            ))}
+          </div>
+        </details>
         <div className="flex gap-2">
           {connection.consumer.status !== 'subscribed' ? (
             <Button
@@ -176,6 +303,11 @@ export function KafkaConsumerPanel({
           ) : (
             <Button variant="secondary" onClick={onUnsubscribe}>
               Unsubscribe
+            </Button>
+          )}
+          {connection.consumer.status === 'subscribed' && (
+            <Button variant="outline" onClick={consumerPaused ? onResume : onPause}>
+              {consumerPaused ? 'Resume consumer' : 'Pause consumer'}
             </Button>
           )}
           <Badge variant="outline" className="font-mono">

@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { KAFKA_SECRET_SENTINEL, useKafkaStore } from '@/features/kafka/store/useKafkaStore';
+import {
+  KAFKA_SECRET_SENTINEL,
+  migrateKafkaV1ToV2,
+  useKafkaStore,
+} from '@/features/kafka/store/useKafkaStore';
 
 function resetStore(): void {
   useKafkaStore.setState({
@@ -13,6 +17,25 @@ function resetStore(): void {
 describe('useKafkaStore', () => {
   beforeEach(() => {
     resetStore();
+  });
+
+  it('preserves legacy earliest/latest intent while new connections default committed/latest', () => {
+    const migrated = migrateKafkaV1ToV2({
+      connections: {
+        earliest: { consumer: { fromBeginning: true } },
+        latest: { consumer: { fromBeginning: false } },
+      },
+    }) as {
+      connections: Record<string, { consumer: { mode: string; fallbackMode: string } }>;
+    };
+    expect(migrated.connections.earliest!.consumer.mode).toBe('earliest');
+    expect(migrated.connections.latest!.consumer.mode).toBe('latest');
+
+    const id = useKafkaStore.getState().createConnection();
+    expect(useKafkaStore.getState().connections[id]!.consumer).toMatchObject({
+      mode: 'committed',
+      fallbackMode: 'latest',
+    });
   });
 
   it('creates a connection with sensible defaults and makes it active', () => {
@@ -91,7 +114,10 @@ describe('useKafkaStore', () => {
       tls: { passphrase: 'tls-passphrase-here' },
     });
     const conn = useKafkaStore.getState().connections[id]!;
-    expect(conn.auth.sasl?.password).toBe('super-secret-pw');
+    expect(conn.auth.sasl?.mechanism).toBe('PLAIN');
+    if (conn.auth.sasl?.mechanism !== 'OAUTHBEARER') {
+      expect(conn.auth.sasl?.password).toBe('super-secret-pw');
+    }
     // partialize is exercised by Zustand persist's setItem call; in unit tests
     // the dexie mock returns immediately. The key behaviour we care about is
     // that the in-memory state still holds the plaintext (so the UI can pass
