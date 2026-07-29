@@ -64,7 +64,9 @@ describe('KafkaClient shell', () => {
   it('keeps connection-wide status in the header without consumer or view controls', () => {
     render(<KafkaClient />);
 
-    expect(screen.getByText('Connected')).toBeVisible();
+    expect(
+      screen.getByRole('status', { name: 'Kafka connection status: Connected' })
+    ).toBeVisible();
     expect(screen.queryByLabelText('Consume start position')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /freeze/i })).not.toBeInTheDocument();
     expect(screen.queryByText('Subscribed')).not.toBeInTheDocument();

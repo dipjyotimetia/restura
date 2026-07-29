@@ -18,6 +18,28 @@ vi.mock('@/lib/shared/platform', () => ({
   getElectronAPI: () => ({ kafka: api }),
 }));
 
+vi.mock('@/components/shared/CodeEditor', () => ({
+  default: ({
+    value,
+    onChange,
+    language,
+    ariaLabel,
+  }: {
+    value: string;
+    onChange?: (value: string) => void;
+    language?: string;
+    ariaLabel?: string;
+  }) => (
+    <textarea
+      aria-label={ariaLabel}
+      data-editor="monaco"
+      data-language={language}
+      value={value}
+      onChange={(event) => onChange?.(event.target.value)}
+    />
+  ),
+}));
+
 const connection: KafkaConnection = {
   id: 'connection-1',
   name: 'Kafka connection',
@@ -187,9 +209,27 @@ describe('KafkaProducerPanel', () => {
     );
     await user.click(screen.getByRole('tab', { name: 'Batch' }));
     expect(screen.getByRole('button', { name: 'Publish batch' })).toBeVisible();
+    expect(await screen.findByLabelText('Kafka typed record batch')).toHaveAttribute(
+      'data-editor',
+      'monaco'
+    );
+    expect(screen.getByLabelText('Kafka typed record batch')).toHaveAttribute(
+      'data-language',
+      'json'
+    );
     await user.click(screen.getByRole('tab', { name: 'Stream' }));
     expect(screen.getByRole('button', { name: 'Open stream' })).toBeVisible();
     await user.click(screen.getByRole('tab', { name: 'Transaction' }));
     expect(screen.getByRole('button', { name: 'Begin transaction' })).toBeVisible();
+  });
+
+  it('uses Monaco when a single-record value is structured JSON', async () => {
+    renderPanel({ produceValueEncoding: 'json' });
+
+    expect(await screen.findByLabelText('Kafka message value')).toHaveAttribute(
+      'data-editor',
+      'monaco'
+    );
+    expect(screen.getByLabelText('Kafka message value')).toHaveAttribute('data-language', 'json');
   });
 });

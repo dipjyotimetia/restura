@@ -1,10 +1,16 @@
 import { useState } from 'react';
+import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { getElectronAPI } from '@/lib/shared/platform';
 import type { KafkaAclIpc } from '../../../../electron/types/electron-api';
+
+const CodeEditor = lazyComponent(
+  () => import('@/components/shared/CodeEditor'),
+  <CodeEditorSkeleton className="h-56" />
+);
 
 interface OperationResult {
   label: string;
@@ -13,6 +19,7 @@ interface OperationResult {
 
 function Result({ result }: { result: OperationResult | null }) {
   if (result === null) return null;
+  const formatted = JSON.stringify(result.value, null, 2);
   return (
     <section
       role="status"
@@ -20,9 +27,13 @@ function Result({ result }: { result: OperationResult | null }) {
       className="space-y-2 rounded border border-sp-line bg-sp-surface p-2"
     >
       <h3 className="text-xs font-medium">{result.label} result</h3>
-      <pre className="max-h-56 overflow-auto text-sp-11">
-        {JSON.stringify(result.value, null, 2)}
-      </pre>
+      <CodeEditor
+        value={formatted}
+        language="json"
+        readOnly
+        height="224px"
+        ariaLabel={`${result.label} result JSON`}
+      />
     </section>
   );
 }
@@ -227,13 +238,15 @@ export function KafkaAdvancedAdmin({ connectionId }: { connectionId: string }) {
       <details className="rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
         <summary className="cursor-pointer text-xs font-medium">ACLs</summary>
         <div className="space-y-2 pt-3">
-          <Label htmlFor="kafka-admin-acl-json" className="text-xs sp-label">
-            Typed ACL/filter JSON
-          </Label>
-          <Textarea
-            id="kafka-admin-acl-json"
+          <Label className="text-xs sp-label">Typed ACL/filter JSON</Label>
+          <CodeEditor
             value={aclJson}
-            onChange={(event) => setAclJson(event.target.value)}
+            onChange={setAclJson}
+            language="json"
+            height="224px"
+            showCopyButton={false}
+            ariaLabel="Typed ACL/filter JSON"
+            formatOnMount={false}
           />
           <Input
             value={aclConfirmation}

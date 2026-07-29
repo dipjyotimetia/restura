@@ -17,12 +17,41 @@ vi.mock('@/lib/shared/platform', () => ({
   getElectronAPI: () => ({ kafka: api }),
 }));
 
+vi.mock('@/components/shared/CodeEditor', () => ({
+  default: ({
+    value,
+    onChange,
+    language,
+    readOnly,
+    ariaLabel,
+  }: {
+    value: string;
+    onChange?: (value: string) => void;
+    language?: string;
+    readOnly?: boolean;
+    ariaLabel?: string;
+  }) => (
+    <textarea
+      aria-label={ariaLabel}
+      data-editor="monaco"
+      data-language={language}
+      value={value}
+      readOnly={readOnly}
+      onChange={(event) => onChange?.(event.target.value)}
+    />
+  ),
+}));
+
 describe('KafkaAdvancedAdmin', () => {
   it('keeps read-only inspection available and destructive actions confirmation-gated', async () => {
     const user = userEvent.setup();
     render(<KafkaAdvancedAdmin connectionId="connection-1" />);
 
     await user.click(screen.getByText('ACLs'));
+    expect(await screen.findByLabelText('Typed ACL/filter JSON')).toHaveAttribute(
+      'data-editor',
+      'monaco'
+    );
     expect(screen.getByRole('button', { name: 'Describe ACLs' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Create ACL' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Delete matching ACLs' })).toBeDisabled();
@@ -41,7 +70,11 @@ describe('KafkaAdvancedAdmin', () => {
     const result = await screen.findByRole('status');
     expect(result).toHaveTextContent('Describe cluster result');
     expect(result).toHaveAttribute('aria-live', 'polite');
-    expect(result).toHaveTextContent('"controllerId": 1');
+    expect(screen.getByLabelText('Describe cluster result JSON')).toHaveAttribute(
+      'data-editor',
+      'monaco'
+    );
+    expect(screen.getByLabelText('Describe cluster result JSON')).toHaveAttribute('readonly');
   });
 
   it('reports malformed ACL JSON without escaping the operation boundary', async () => {

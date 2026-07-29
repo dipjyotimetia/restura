@@ -1,5 +1,6 @@
 import { Send } from 'lucide-react';
 import { type Dispatch, type SetStateAction, useState } from 'react';
+import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,10 +22,16 @@ import type {
   KafkaConnection,
   KafkaPayloadEncoding,
 } from '@/features/kafka/store/useKafkaStore';
+import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { getElectronAPI } from '@/lib/shared/platform';
 import type { KeyValue } from '@/types';
 import type { KafkaRecordIpc } from '../../../../electron/types/electron-api';
 import { KAFKA_PINK } from './shared';
+
+const CodeEditor = lazyComponent(
+  () => import('@/components/shared/CodeEditor'),
+  <CodeEditorSkeleton className="h-[200px]" />
+);
 
 export type ProducePayloadMode = KafkaPayloadEncoding | 'json';
 type ProducerMode = 'single' | 'batch' | 'stream' | 'transaction';
@@ -95,14 +102,18 @@ function TypedRecordBatchEditor({
   return (
     <div className="space-y-2">
       <Label className="text-xs sp-label">Typed record array</Label>
-      <Textarea
-        aria-label="Kafka typed record batch"
+      <CodeEditor
+        ariaLabel="Kafka typed record batch"
         value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="font-mono text-xs"
-        rows={6}
-        placeholder='[{"topic":"orders","value":{"encoding":"utf8","data":"hello"}}]'
+        onChange={onChange}
+        language="json"
+        height="200px"
+        showCopyButton={false}
+        formatOnMount={false}
       />
+      <p className="text-sp-11 text-sp-dim">
+        JSON array of typed records. Monaco highlights malformed JSON before it reaches Kafka.
+      </p>
     </div>
   );
 }
@@ -297,15 +308,27 @@ export function KafkaProducerPanel({
                   onChange={setProduceValueEncoding}
                 />
               </div>
-              <Textarea
-                aria-label="Kafka message value"
-                value={produceValue}
-                onChange={(e) => setProduceValue(e.target.value)}
-                disabled={produceTombstone}
-                placeholder={payloadPlaceholder(produceValueEncoding)}
-                className="font-mono text-xs"
-                rows={8}
-              />
+              {produceValueEncoding === 'json' && !produceTombstone ? (
+                <CodeEditor
+                  ariaLabel="Kafka message value"
+                  value={produceValue}
+                  onChange={setProduceValue}
+                  language="json"
+                  height="220px"
+                  showCopyButton={false}
+                  formatOnMount={false}
+                />
+              ) : (
+                <Textarea
+                  aria-label="Kafka message value"
+                  value={produceValue}
+                  onChange={(e) => setProduceValue(e.target.value)}
+                  disabled={produceTombstone}
+                  placeholder={payloadPlaceholder(produceValueEncoding)}
+                  className="font-mono text-xs"
+                  rows={8}
+                />
+              )}
               <div className="flex items-center gap-2">
                 <Switch
                   id="kafka-produce-tombstone"

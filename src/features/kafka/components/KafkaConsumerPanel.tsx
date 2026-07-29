@@ -333,8 +333,8 @@ export function KafkaConsumerPanel({
               </div>
             ))}
             <p className="text-sp-11 text-sp-dim md:col-span-2">
-              Blank values use the native Kafka client defaults. Tune these only when your broker
-              or workload requires it.
+              Blank values use the native Kafka client defaults. Tune these only when your broker or
+              workload requires it.
             </p>
           </div>
         </details>

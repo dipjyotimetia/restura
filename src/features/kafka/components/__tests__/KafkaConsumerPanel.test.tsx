@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { Tabs } from '@/components/ui/tabs';
 import type { KafkaConnection } from '../../store/useKafkaStore';
-import { KafkaConsumerPanel, type ConsumeMode } from '../KafkaConsumerPanel';
+import { type ConsumeMode, KafkaConsumerPanel } from '../KafkaConsumerPanel';
 
 const connection: KafkaConnection = {
   id: 'connection-1',
@@ -102,9 +102,7 @@ describe('KafkaConsumerPanel', () => {
       'placeholder',
       'Client default'
     );
-    expect(
-      screen.getByText(/Blank values use the native Kafka client defaults/)
-    ).toBeVisible();
+    expect(screen.getByText(/Blank values use the native Kafka client defaults/)).toBeVisible();
   });
 
   it('shows one resume action and no duplicate raw subscription status while paused', () => {

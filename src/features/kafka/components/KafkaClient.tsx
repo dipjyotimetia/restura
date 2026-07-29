@@ -237,7 +237,12 @@ export function KafkaClient() {
         )}
         <div className="ml-auto flex items-center gap-2">
           {connection && (
-            <ConnectionBadge label={connectionBadge.label} tone={connectionBadge.tone} />
+            <ConnectionBadge
+              label={connectionBadge.label}
+              tone={connectionBadge.tone}
+              role="status"
+              aria-label={`Kafka connection status: ${connectionBadge.label}`}
+            />
           )}
           {connection && (
             <Button
