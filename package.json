@@ -262,6 +262,9 @@
     },
     "@hono/node-ws": {
       "@hono/node-server": "$@hono/node-server"
+    },
+    "@rolldown/binding-wasm32-wasi": {
+      "@napi-rs/wasm-runtime": "1.1.6"
     }
   },
   "engines": {
