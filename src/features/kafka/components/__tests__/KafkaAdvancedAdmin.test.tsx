@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { KafkaAdvancedAdmin } from '../KafkaAdvancedAdmin';
@@ -38,6 +38,23 @@ describe('KafkaAdvancedAdmin', () => {
     await user.click(screen.getByText('Cluster metadata'));
     await user.click(screen.getByRole('button', { name: 'Describe cluster' }));
 
-    expect(await screen.findByText(/"controllerId": 1/)).toBeVisible();
+    const result = await screen.findByRole('status');
+    expect(result).toHaveTextContent('Describe cluster result');
+    expect(result).toHaveAttribute('aria-live', 'polite');
+    expect(result).toHaveTextContent('"controllerId": 1');
+  });
+
+  it('reports malformed ACL JSON without escaping the operation boundary', async () => {
+    const user = userEvent.setup();
+    render(<KafkaAdvancedAdmin connectionId="connection-1" />);
+
+    await user.click(screen.getByText('ACLs'));
+    const acl = screen.getByLabelText('Typed ACL/filter JSON');
+    fireEvent.change(acl, { target: { value: '{invalid' } });
+    await user.click(screen.getByRole('button', { name: 'Describe ACLs' }));
+
+    const result = await screen.findByRole('status');
+    expect(result).toHaveTextContent('Describe ACLs result');
+    expect(result).toHaveTextContent(/JSON|Unexpected/i);
   });
 });

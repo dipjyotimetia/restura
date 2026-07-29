@@ -6,12 +6,24 @@ import { Textarea } from '@/components/ui/textarea';
 import { getElectronAPI } from '@/lib/shared/platform';
 import type { KafkaAclIpc } from '../../../../electron/types/electron-api';
 
-function Result({ value }: { value: unknown }) {
-  if (value === null) return null;
+interface OperationResult {
+  label: string;
+  value: unknown;
+}
+
+function Result({ result }: { result: OperationResult | null }) {
+  if (result === null) return null;
   return (
-    <pre className="max-h-56 overflow-auto rounded border border-sp-line bg-sp-surface p-2 text-sp-11">
-      {JSON.stringify(value, null, 2)}
-    </pre>
+    <section
+      role="status"
+      aria-live="polite"
+      className="space-y-2 rounded border border-sp-line bg-sp-surface p-2"
+    >
+      <h3 className="text-xs font-medium">{result.label} result</h3>
+      <pre className="max-h-56 overflow-auto text-sp-11">
+        {JSON.stringify(result.value, null, 2)}
+      </pre>
+    </section>
   );
 }
 
@@ -31,14 +43,20 @@ export function KafkaAdvancedAdmin({ connectionId }: { connectionId: string }) {
   );
   const [quotaEntity, setQuotaEntity] = useState('restura');
   const [quotaValue, setQuotaValue] = useState('1048576');
-  const [result, setResult] = useState<unknown>(null);
+  const [result, setResult] = useState<OperationResult | null>(null);
 
   const api = getElectronAPI()?.kafka;
-  const run = async (operation: () => Promise<unknown>): Promise<void> => {
+  const run = async (label: string, operation: () => Promise<unknown>): Promise<void> => {
     try {
-      setResult(await operation());
+      setResult({ label, value: await operation() });
     } catch (error) {
-      setResult({ success: false, error: error instanceof Error ? error.message : String(error) });
+      setResult({
+        label,
+        value: {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      });
     }
   };
   const parseAcl = (): KafkaAclIpc => JSON.parse(aclJson) as KafkaAclIpc;
@@ -52,13 +70,15 @@ export function KafkaAdvancedAdmin({ connectionId }: { connectionId: string }) {
             size="sm"
             variant="secondary"
             disabled={!api}
-            onClick={() => void run(() => api!.describeCluster({ connectionId }))}
+            onClick={() =>
+              void run('Describe cluster', () => api!.describeCluster({ connectionId }))
+            }
           >
             Describe cluster
           </Button>
         </div>
       </details>
-      <Result value={result} />
+      <Result result={result} />
 
       <details className="rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
         <summary className="cursor-pointer text-xs font-medium">Advanced topic operations</summary>
@@ -68,7 +88,7 @@ export function KafkaAdvancedAdmin({ connectionId }: { connectionId: string }) {
             onChange={(event) => setTopic(event.target.value)}
             placeholder="topic"
           />
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
             <Input
               value={partitionCount}
               onChange={(event) => setPartitionCount(event.target.value)}
@@ -79,7 +99,7 @@ export function KafkaAdvancedAdmin({ connectionId }: { connectionId: string }) {
               variant="secondary"
               disabled={!api || !topic}
               onClick={() =>
-                void run(() =>
+                void run('Validate partitions', () =>
                   api!.createPartitions({
                     connectionId,
                     topic,
@@ -95,7 +115,7 @@ export function KafkaAdvancedAdmin({ connectionId }: { connectionId: string }) {
               size="sm"
               disabled={!api || topicConfirmation !== `ALTER ${topic}`}
               onClick={() =>
-                void run(() =>
+                void run('Apply partitions', () =>
                   api!.createPartitions({
                     connectionId,
                     topic,
@@ -109,7 +129,7 @@ export function KafkaAdvancedAdmin({ connectionId }: { connectionId: string }) {
               Apply partitions
             </Button>
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
             <Input
               value={configName}
               onChange={(event) => setConfigName(event.target.value)}
@@ -126,7 +146,7 @@ export function KafkaAdvancedAdmin({ connectionId }: { connectionId: string }) {
             variant="secondary"
             disabled={!api || !topic || !configName}
             onClick={() =>
-              void run(() =>
+              void run('Validate config', () =>
                 api!.alterTopicConfigs({
                   connectionId,
                   topic,
@@ -147,7 +167,7 @@ export function KafkaAdvancedAdmin({ connectionId }: { connectionId: string }) {
             size="sm"
             disabled={!api || !configName || topicConfirmation !== `ALTER ${topic}`}
             onClick={() =>
-              void run(() =>
+              void run('Apply config', () =>
                 api!.alterTopicConfigs({
                   connectionId,
                   topic,
@@ -160,7 +180,7 @@ export function KafkaAdvancedAdmin({ connectionId }: { connectionId: string }) {
           >
             Apply config
           </Button>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
             <Input
               aria-label="Partition to truncate"
               value={partition}
@@ -184,7 +204,7 @@ export function KafkaAdvancedAdmin({ connectionId }: { connectionId: string }) {
             variant="destructive"
             disabled={!api || !topic || recordConfirmation !== `DELETE RECORDS ${topic}`}
             onClick={() =>
-              void run(() =>
+              void run('Delete records', () =>
                 api!.deleteRecords({
                   connectionId,
                   topic,
@@ -207,8 +227,14 @@ export function KafkaAdvancedAdmin({ connectionId }: { connectionId: string }) {
       <details className="rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
         <summary className="cursor-pointer text-xs font-medium">ACLs</summary>
         <div className="space-y-2 pt-3">
-          <Label className="text-xs sp-label">Typed ACL/filter JSON</Label>
-          <Textarea value={aclJson} onChange={(event) => setAclJson(event.target.value)} />
+          <Label htmlFor="kafka-admin-acl-json" className="text-xs sp-label">
+            Typed ACL/filter JSON
+          </Label>
+          <Textarea
+            id="kafka-admin-acl-json"
+            value={aclJson}
+            onChange={(event) => setAclJson(event.target.value)}
+          />
           <Input
             value={aclConfirmation}
             onChange={(event) => setAclConfirmation(event.target.value)}
@@ -220,7 +246,7 @@ export function KafkaAdvancedAdmin({ connectionId }: { connectionId: string }) {
               variant="secondary"
               disabled={!api}
               onClick={() =>
-                void run(() =>
+                void run('Describe ACLs', () =>
                   api!.describeAcls({
                     connectionId,
                     filter: parseAcl(),
@@ -234,7 +260,7 @@ export function KafkaAdvancedAdmin({ connectionId }: { connectionId: string }) {
               size="sm"
               disabled={!api || aclConfirmation !== 'CREATE ACL'}
               onClick={() =>
-                void run(() =>
+                void run('Create ACL', () =>
                   api!.createAcl({
                     connectionId,
                     acl: parseAcl(),
@@ -250,7 +276,7 @@ export function KafkaAdvancedAdmin({ connectionId }: { connectionId: string }) {
               variant="destructive"
               disabled={!api || aclConfirmation !== 'DELETE ACLS'}
               onClick={() =>
-                void run(() =>
+                void run('Delete matching ACLs', () =>
                   api!.deleteAcls({
                     connectionId,
                     filter: parseAcl(),
@@ -267,7 +293,7 @@ export function KafkaAdvancedAdmin({ connectionId }: { connectionId: string }) {
 
       <details className="rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
         <summary className="cursor-pointer text-xs font-medium">Client quotas</summary>
-        <div className="grid grid-cols-2 gap-2 pt-3">
+        <div className="grid grid-cols-1 gap-2 pt-3 md:grid-cols-2">
           <Input
             value={quotaEntity}
             onChange={(event) => setQuotaEntity(event.target.value)}
@@ -283,7 +309,7 @@ export function KafkaAdvancedAdmin({ connectionId }: { connectionId: string }) {
             variant="secondary"
             disabled={!api}
             onClick={() =>
-              void run(() =>
+              void run('Describe quotas', () =>
                 api!.describeQuotas({
                   connectionId,
                   entities: [{ entityType: 'user', entityName: quotaEntity }],
@@ -298,7 +324,7 @@ export function KafkaAdvancedAdmin({ connectionId }: { connectionId: string }) {
             variant="secondary"
             disabled={!api}
             onClick={() =>
-              void run(() =>
+              void run('Validate quota', () =>
                 api!.alterQuotas({
                   connectionId,
                   entities: [{ entityType: 'user', entityName: quotaEntity }],
@@ -325,7 +351,7 @@ export function KafkaAdvancedAdmin({ connectionId }: { connectionId: string }) {
             size="sm"
             disabled={!api || quotaConfirmation !== 'ALTER QUOTAS'}
             onClick={() =>
-              void run(() =>
+              void run('Apply quota', () =>
                 api!.alterQuotas({
                   connectionId,
                   entities: [{ entityType: 'user', entityName: quotaEntity }],
