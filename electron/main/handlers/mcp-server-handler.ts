@@ -1,7 +1,7 @@
 /**
  * Restura-as-MCP-server — Electron main-process handler.
  *
- * Wires the @modelcontextprotocol/sdk transport to the pure dispatcher in
+ * Wires the @modelcontextprotocol/server transport to the pure dispatcher in
  * src/features/mcp-server/dispatch.ts. The dispatcher is where validation,
  * consent gating, and redaction live; this file is just SDK glue.
  *
@@ -29,8 +29,8 @@
  *    crossing back to the client.
  */
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { McpServer } from '@modelcontextprotocol/server';
+import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import {
   dispatchTool,
   type McpDispatchContext,
@@ -38,25 +38,23 @@ import {
   TOOLS,
   type ToolResult,
 } from '@shared/mcp-server/dispatch';
+import { createLogger } from '@shared/runtime/logger';
+
+const log = createLogger('mcp-server');
 
 export interface McpServerHandle {
   /** Stop the server and free the transport. Idempotent. */
   stop: () => Promise<void>;
-  /** The SDK server instance, in case the host needs to register more tools. */
-  server: McpServer;
 }
 
 export type ContextProvider = () => Promise<McpDispatchContext> | McpDispatchContext;
 
 /**
- * Start an MCP server over stdio. The returned handle's `stop()` tears the
- * transport down cleanly. Throws if SDK transport setup fails.
- *
- * Idempotent at the caller level: track the handle and refuse a second
- * `startStdioMcpServer` call if one is already running (the SDK does not
- * multiplex two transports on the same stdio).
+ * Build a fresh Restura MCP server. `serveStdio` calls this factory once per
+ * negotiated protocol transport, so modern and legacy clients never share
+ * SDK session state.
  */
-export async function startStdioMcpServer(getContext: ContextProvider): Promise<McpServerHandle> {
+export function createResturaMcpServer(getContext: ContextProvider): McpServer {
   const server = new McpServer({
     name: 'restura',
     version: '0.1.0',
@@ -86,17 +84,22 @@ export async function startStdioMcpServer(getContext: ContextProvider): Promise<
     );
   }
 
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  return server;
+}
 
-  let stopped = false;
-  return {
-    server,
-    stop: async () => {
-      if (stopped) return;
-      stopped = true;
-      await server.close();
+/**
+ * Start the v2 stdio server with the SDK's built-in legacy protocol support.
+ */
+export function startStdioMcpServer(getContext: ContextProvider): McpServerHandle {
+  const handle = serveStdio(() => createResturaMcpServer(getContext), {
+    legacy: 'serve',
+    onerror: (error) => {
+      log.error('stdio server error', { message: error.message });
     },
+  });
+
+  return {
+    stop: () => handle.close(),
   };
 }
 

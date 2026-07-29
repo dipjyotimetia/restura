@@ -1,4 +1,3 @@
-import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js';
 import { createLogger } from '@shared/runtime/logger';
 import { ipcMain, type WebContents } from 'electron';
 import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
@@ -27,8 +26,7 @@ import { connectMcpSdkClient, type McpSdkClient } from './mcp-sdk-client';
 const log = createLogger('mcp');
 
 /**
- * MCP IPC handler, backed by the official v2 MCP client with a narrow v1
- * compatibility fallback. The selected SDK owns JSON-RPC framing, its
+ * MCP IPC handler, backed by the official v2 MCP client. The SDK owns JSON-RPC framing, its
  * initialize/discover handshake, session tracking, and SSE demuxing:
  *
  * - **streamable-http**: `StreamableHTTPClientTransport` (single endpoint;
@@ -234,9 +232,8 @@ export function registerMcpHandlerIPC(): void {
       claim.pendingSession = session;
 
       try {
-        // v2 probes for modern protocol support and falls back to its legacy
-        // handshake. The adapter retries with v1 only for protocol/transport
-        // incompatibility, never for policy, auth, timeout, or network errors.
+        // v2 probes for modern protocol support and falls back internally to
+        // the legacy initialize handshake when the peer is 2025-era.
         let connectTimeoutId: ReturnType<typeof setTimeout> | undefined;
         try {
           await Promise.race([
@@ -248,7 +245,6 @@ export function registerMcpHandlerIPC(): void {
               onClientCreated: (client) => {
                 session.client = client;
               },
-              isCancelled: () => session.disposed,
             }).then((client) => {
               session.client = client;
             }),
@@ -322,7 +318,7 @@ export function registerMcpHandlerIPC(): void {
           // would be a protocol violation. Synthesize the result the renderer's
           // discovery flow expects from the negotiated state.
           if (config.method === 'initialize') {
-            const protocolVersion = session.client.getProtocolVersion() ?? LATEST_PROTOCOL_VERSION;
+            const protocolVersion = session.client.getProtocolVersion();
             return {
               success: true,
               result: {
@@ -338,8 +334,8 @@ export function registerMcpHandlerIPC(): void {
             return { success: true, result: undefined };
           }
 
-          // The adapter's v1 and v2 clients own their respective request schemas
-          // and JSON-RPC ids; the renderer only receives the normalized result.
+          // The v2 client owns request schemas and JSON-RPC ids; the renderer
+          // only receives the normalized result.
           const result = await session.client.request(config.method, config.params, timeoutMs);
           return { success: true, result };
         } catch (err) {
