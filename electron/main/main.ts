@@ -37,6 +37,7 @@ import { registerWindowControlsIPC } from './lifecycle/window-controls';
 import { registerNotificationIPC } from './notifications';
 import { registerExecutionPolicyIPC } from './security/execution-policy';
 import { registerKeychainStatusIPC } from './security/keychain-status-handler';
+import { getManagedEnterprisePolicy } from './security/managed-enterprise-policy';
 import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './security/secret-handle-store';
 import { registerBrunoExportHandlerIPC } from './storage/bruno-export-handler';
 import {
@@ -76,7 +77,12 @@ const log = createLogger('main');
 // owns the native crashReporter (minidumps); it only inits when the user has
 // opted in (read synchronously from the plain consent mirror), so opted-out
 // users upload nothing. See electron/main/lifecycle/sentry.ts.
-initSentry({ enabled: readConsentSync() });
+const managedPolicyAtStartup = getManagedEnterprisePolicy();
+const managedErrorReporting =
+  managedPolicyAtStartup.status.state === 'managed'
+    ? managedPolicyAtStartup.policy?.telemetry.errorReporting === true
+    : managedPolicyAtStartup.status.state === 'unmanaged';
+initSentry({ enabled: readConsentSync() && managedErrorReporting });
 
 // Sentry's default integrations already capture main-process uncaught
 // exceptions/rejections; these handlers add structured local logging on top so

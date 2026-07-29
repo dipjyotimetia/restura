@@ -99,6 +99,9 @@ export const platformApi: PlatformApi = {
     setConsent: invoke<ElectronAPI['telemetry']['setConsent']>(IPC.telemetry.setConsent),
   },
   security: {
+    getManagedPolicyStatus: invoke<ElectronAPI['security']['getManagedPolicyStatus']>(
+      IPC.security.getManagedPolicyStatus
+    ),
     setExecutionPolicy: invoke<ElectronAPI['security']['setExecutionPolicy']>(
       IPC.security.setExecutionPolicy
     ),

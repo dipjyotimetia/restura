@@ -219,6 +219,7 @@ export const IPC = {
   },
   security: {
     setExecutionPolicy: 'security:setExecutionPolicy',
+    getManagedPolicyStatus: 'security:getManagedPolicyStatus',
   },
 } as const;
 

@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   assertExecutionPolicyReady,
   getExecutionPolicy,
   isExecutionPolicyReady,
   setExecutionPolicy,
 } from '../security/execution-policy';
+import { setManagedEnterprisePolicyForTest } from '../security/managed-enterprise-policy';
 
 const handle = { kind: 'handle' as const, id: 'secret-id', label: 'Production secret' };
 
@@ -47,6 +48,10 @@ const policy = {
 };
 
 describe('execution policy', () => {
+  afterEach(() => {
+    setManagedEnterprisePolicyForTest({ status: { state: 'unmanaged' } });
+  });
+
   it('is not ready until the renderer acknowledgement is accepted', () => {
     expect(isExecutionPolicyReady()).toBe(false);
     expect(() => assertExecutionPolicyReady()).toThrow(
@@ -98,5 +103,18 @@ describe('execution policy', () => {
         },
       })
     ).toThrow('pfx');
+  });
+
+  it('blocks outbound execution when the selected managed policy is invalid', () => {
+    setExecutionPolicy(policy);
+    setManagedEnterprisePolicyForTest({
+      status: {
+        state: 'invalid',
+        source: 'machine-file',
+        message: 'Policy does not match the strict EnterprisePolicyV1 schema',
+      },
+    });
+
+    expect(() => assertExecutionPolicyReady()).toThrow('Managed enterprise policy is invalid');
   });
 });

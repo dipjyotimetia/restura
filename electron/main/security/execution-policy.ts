@@ -3,6 +3,10 @@ import { ipcMain } from 'electron';
 import { z } from 'zod';
 import { IPC } from '../../shared/channels';
 import { createValidatedHandler } from '../ipc/ipc-validators';
+import {
+  assertActiveManagedOutboundAllowed,
+  getManagedEnterprisePolicy,
+} from './managed-enterprise-policy';
 
 const ClientCertSchema = z
   .object({
@@ -151,6 +155,7 @@ export function isExecutionPolicyReady(): boolean {
  * the renderer's hydrated settings have been accepted by the main process.
  */
 export function assertExecutionPolicyReady(): void {
+  assertActiveManagedOutboundAllowed();
   if (!acknowledged) {
     throw new Error('Execution policy has not been acknowledged by the renderer');
   }
@@ -164,6 +169,9 @@ export function setExecutionPolicy(next: unknown): ExecutionPolicy {
 }
 
 export function registerExecutionPolicyIPC(): void {
+  ipcMain.handle(IPC.security.getManagedPolicyStatus, () => {
+    return getManagedEnterprisePolicy().status;
+  });
   ipcMain.handle(
     IPC.security.setExecutionPolicy,
     createValidatedHandler(
