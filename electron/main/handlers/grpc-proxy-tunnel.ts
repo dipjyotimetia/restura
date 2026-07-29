@@ -80,6 +80,10 @@ export function createGrpcProxyTunnel(url: string, tls: GrpcTlsConfig): Duplex {
   const port = parsed.port ? Number(parsed.port) : secureEndpoint ? 443 : 80;
   const deferred = new DeferredProxyDuplex();
   const request = new EventEmitter();
+  let proxyStatus: number | undefined;
+  request.once('proxyConnect', (response: { statusCode: number }) => {
+    proxyStatus = response.statusCode;
+  });
   const agent = createEnterpriseProxyAgent(proxy, tls);
   void agent
     .connect(request as never, {
@@ -92,6 +96,10 @@ export function createGrpcProxyTunnel(url: string, tls: GrpcTlsConfig): Duplex {
       ...buildTlsClientMaterial(tls),
     })
     .then((socket) => {
+      if (proxyStatus !== 200) {
+        socket.destroy();
+        throw new Error(`Managed proxy CONNECT failed with status ${proxyStatus ?? 'unknown'}`);
+      }
       request.emit('socket', socket);
       deferred.attach(socket);
     })
