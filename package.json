@@ -254,7 +254,6 @@
     "xml2js": "^0.6.2"
   },
   "optionalDependencies": {
-    "@rollup/rollup-linux-x64-gnu": "4.62.2",
     "png-to-ico": "^3.0.2",
     "sharp": "^0.35.3"
   },
@@ -264,9 +263,6 @@
     },
     "@hono/node-ws": {
       "@hono/node-server": "$@hono/node-server"
-    },
-    "@rolldown/binding-wasm32-wasi": {
-      "@napi-rs/wasm-runtime": "1.1.6"
     }
   },
   "engines": {
@@ -277,7 +273,7 @@
     "*.{ts,tsx,js,mjs,cjs}": [
       "biome check --write"
     ],
-    "!(*-lock).{json,css}": [
+    "*.{json,css}": [
       "biome format --write"
     ]
   },
