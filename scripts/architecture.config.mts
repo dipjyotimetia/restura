@@ -52,8 +52,8 @@ export const architecturePolicy: ArchitecturePolicy = {
   maxNewProductionFileLines: 800,
   grandfatheredFileLines: {
     'shared/scripts/script-executor.ts': 1_537,
-    'electron/main/handlers/http-handler.ts': 1_240,
+    'electron/main/handlers/http-handler.ts': 1_210,
     'electron/main/handlers/kafka-handler.ts': 729,
-    'electron/main/handlers/grpc-connect.ts': 819,
+    'electron/main/handlers/grpc-connect.ts': 823,
   },
 };

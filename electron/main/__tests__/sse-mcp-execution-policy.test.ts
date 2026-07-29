@@ -2,11 +2,14 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { resolveMcpExecutionPolicy } from '../handlers/mcp-handler';
 import { resolveSseExecutionPolicy } from '../handlers/sse-handler';
 import { setExecutionPolicy } from '../security/execution-policy';
+import { assertPinnedFetchCanHonorPolicy } from '../security/policy-transport';
+import { setManagedEnterprisePolicyForTest } from '../security/managed-enterprise-policy';
 
 const globalClientCert = { format: 'pfx' as const, pfx: 'Z2xvYmFs' };
 const hostClientCert = { format: 'pem' as const, cert: 'HOST-CERT', key: 'HOST-KEY' };
 
 beforeEach(() => {
+  setManagedEnterprisePolicyForTest({ status: { state: 'unmanaged' } });
   setExecutionPolicy({
     security: { allowLocalhost: true, allowPrivateIPs: false },
     proxy: {
@@ -93,6 +96,14 @@ describe.each([
     });
   });
 
+  it('preserves the existing unmanaged rejection for proxy-incompatible pinned streams', () => {
+    expect(() =>
+      assertPinnedFetchCanHonorPolicy(
+        resolveSseExecutionPolicy({ url: 'https://api.example.test/events' })
+      )
+    ).toThrow('cannot be honored');
+  });
+
   it('does not bypass the policy proxy for hosts that only match regex metacharacters', () => {
     setExecutionPolicy({
       security: { allowLocalhost: true, allowPrivateIPs: false },
@@ -119,6 +130,44 @@ describe.each([
       type: 'https',
       host: 'policy-proxy.example.test',
       port: 8443,
+    });
+  });
+
+  it('applies managed TLS while retaining the asynchronously resolved enterprise proxy', () => {
+    setManagedEnterprisePolicyForTest({
+      status: {
+        state: 'managed',
+        source: 'native',
+        networkMode: 'fixed',
+        updatesMode: 'disabled',
+        requireProxy: true,
+      },
+      policy: {
+        version: 1,
+        network: {
+          mode: 'fixed',
+          requireProxy: true,
+          proxyUrl: 'http://managed-proxy.example.test:8080',
+          bypassList: [],
+          caCertificatePaths: [],
+          requireCertificateVerification: true,
+          minimumTlsVersion: 'TLSv1.3',
+          directProtocols: [],
+        },
+        updates: { mode: 'disabled', channel: 'stable', requestHeaderEnv: {} },
+      },
+    });
+    const proxy = {
+      enabled: true,
+      type: 'http' as const,
+      host: 'managed-proxy.example.test',
+      port: 8080,
+    };
+
+    expect(resolve({ url: 'https://api.example.test/events', proxy })).toMatchObject({
+      proxy,
+      verifySsl: true,
+      minTlsVersion: 'TLSv1.3',
     });
   });
 });

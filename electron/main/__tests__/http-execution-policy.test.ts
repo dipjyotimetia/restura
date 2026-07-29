@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { resolveHttpExecutionPolicy } from '../handlers/http-handler';
+import { resolveHttpEnvironmentProxy } from '../handlers/http-proxy-resolution';
 import { setExecutionPolicy } from '../security/execution-policy';
+import { setManagedEnterprisePolicyForTest } from '../security/managed-enterprise-policy';
 
 const globalClientCert = { format: 'pfx' as const, pfx: 'Z2xvYmFs' };
 const hostClientCert = { format: 'pem' as const, cert: 'HOST-CERT', key: 'HOST-KEY' };
 
 beforeEach(() => {
+  setManagedEnterprisePolicyForTest({ status: { state: 'unmanaged' } });
   setExecutionPolicy({
     security: { allowLocalhost: true, allowPrivateIPs: false },
     proxy: {
@@ -119,5 +122,85 @@ describe('HTTP execution policy', () => {
       host: 'policy-proxy.example.test',
       port: 3128,
     });
+  });
+
+  it('keeps managed TLS and proxy selection above renderer request overrides', () => {
+    setManagedEnterprisePolicyForTest({
+      status: {
+        state: 'managed',
+        source: 'native',
+        networkMode: 'fixed',
+        updatesMode: 'disabled',
+        requireProxy: true,
+      },
+      policy: {
+        version: 1,
+        network: {
+          mode: 'fixed',
+          requireProxy: true,
+          proxyUrl: 'http://managed-proxy.example.test:8080',
+          bypassList: [],
+          caCertificatePaths: [],
+          requireCertificateVerification: true,
+          minimumTlsVersion: 'TLSv1.3',
+          directProtocols: [],
+        },
+        updates: { mode: 'disabled', channel: 'stable', requestHeaderEnv: {} },
+      },
+    });
+
+    expect(
+      resolveHttpExecutionPolicy({
+        method: 'GET',
+        url: 'https://api.example.test/v1',
+        proxy: {
+          enabled: true,
+          type: 'http',
+          host: 'renderer-proxy.example.test',
+          port: 3128,
+        },
+        verifySsl: false,
+        minTlsVersion: 'TLSv1',
+      })
+    ).toMatchObject({
+      proxy: undefined,
+      verifySsl: true,
+      minTlsVersion: 'TLSv1.3',
+    });
+  });
+
+  it('does not let inherited proxy variables override a managed direct route', () => {
+    setManagedEnterprisePolicyForTest({
+      status: {
+        state: 'managed',
+        source: 'native',
+        networkMode: 'direct',
+        updatesMode: 'disabled',
+        requireProxy: false,
+      },
+      policy: {
+        version: 1,
+        network: {
+          mode: 'direct',
+          requireProxy: false,
+          bypassList: [],
+          caCertificatePaths: [],
+          requireCertificateVerification: true,
+          minimumTlsVersion: 'TLSv1.2',
+          directProtocols: [],
+        },
+        updates: {
+          mode: 'disabled',
+          channel: 'stable',
+          requestHeaderEnv: {},
+        },
+      },
+    });
+
+    expect(
+      resolveHttpEnvironmentProxy(new URL('https://api.example.test'), undefined, {
+        HTTPS_PROXY: 'http://unmanaged-proxy.example:3128',
+      })
+    ).toBeUndefined();
   });
 });

@@ -431,6 +431,22 @@ export interface ElectronTelemetryAPI {
 }
 
 export interface ElectronSecurityAPI {
+  /** Redacted machine-policy diagnostics. Never contains paths or secret references. */
+  getManagedPolicyStatus: () => Promise<
+    | { state: 'unmanaged' }
+    | {
+        state: 'managed';
+        source: 'native' | 'environment-file' | 'machine-file';
+        networkMode: 'system' | 'fixed' | 'pac' | 'direct';
+        updatesMode: 'disabled' | 'notify' | 'auto-download' | 'install-on-quit';
+        requireProxy: boolean;
+      }
+    | {
+        state: 'invalid';
+        source: 'native' | 'environment-file' | 'machine-file';
+        message: string;
+      }
+  >;
   /** Push the hydrated renderer policy to main before execution begins. */
   setExecutionPolicy: (policy: {
     security: { allowLocalhost: boolean; allowPrivateIPs: boolean };

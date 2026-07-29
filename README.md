@@ -80,7 +80,7 @@ It started because I was tired of juggling four tools to debug one service, each
 
 Restura signs auth **at the wire** and guards every outbound request — on both the web Worker and the desktop main process.
 
-- **Desktop (Electron)** — Keys wrapped by the OS keychain via `safeStorage` (macOS Keychain / Windows Credential Manager / libsecret), data sealed with AES-256-GCM. mTLS, custom CA certs, SOCKS proxies, and TLS-verify-off use Node's TLS / `net` stack. PAC proxy scripts are not currently wired on any target.
+- **Desktop (Electron)** — Keys wrapped by the OS keychain via `safeStorage` (macOS Keychain / Windows Credential Manager / libsecret), data sealed with AES-256-GCM. mTLS, custom CA certs, SOCKS proxies, and TLS-verify-off use Node's TLS / `net` stack. Administrators can enforce system, fixed, or PAC proxying and a managed update feed with a protected machine policy; see [Enterprise desktop networking](docs/ENTERPRISE_NETWORK.md).
 - **Web** — Keys default to ephemeral in-memory (regenerated per session) so the key never sits beside the ciphertext; encrypted data won't survive a reload. mTLS, custom CA, SOCKS, and TLS-verify-off aren't available in the browser sandbox.
 - **Network** — SSRF guards (RFC 1918, CGNAT, link-local, cloud-metadata, IPv6 ULA, IPv4-mapped IPv6) on every path; desktop adds a DNS-rebind guard at lookup time. AWS SigV4 is signed in the Worker / Electron handler — never the renderer — so the signature matches the exact bytes upstream receives.
 - **Sandbox** — User scripts run in a [QuickJS](https://bellard.org/quickjs/) WASM VM with memory and time limits. No host bridge, no filesystem, no network.

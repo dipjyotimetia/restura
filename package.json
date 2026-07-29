@@ -164,6 +164,7 @@
     "graphql": "^17.0.2",
     "graphql-ws": "^6.2.0",
     "hono": "^4.12.32",
+    "https-proxy-agent": "7.0.6",
     "js-yaml": "^5.2.2",
     "jsonc-parser": "3.3.1",
     "jsonpath-plus": "^10.4.0",

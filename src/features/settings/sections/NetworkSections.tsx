@@ -13,10 +13,13 @@ import {
   SectionHeader,
   SectionLabel,
 } from '../components/SettingsSectionPrimitives';
+import { useManagedPolicyStatus } from '../ManagedPolicyContext';
 
 export function RequestsSection() {
   const settings = useSettingsStore((s) => s.settings);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
+  const policyStatus = useManagedPolicyStatus();
+  const tlsLocked = policyStatus.state !== 'unmanaged';
 
   return (
     <>
@@ -117,6 +120,7 @@ export function RequestsSection() {
               checked={settings.verifySsl ?? true}
               onChange={(value) => updateSettings({ verifySsl: value })}
               ariaLabel="Verify SSL"
+              disabled={tlsLocked}
             />
           }
         />
@@ -145,65 +149,67 @@ export function RequestsSection() {
           }
         />
       </FieldGroup>
-      <section className="mt-5">
-        <SectionLabel>
-          <span className="inline-flex items-center">
-            TLS (advanced)
-            <DesktopOnlyBadge title="TLS handshake parameters can't be controlled from a browser/Worker. Desktop only." />
-          </span>
-        </SectionLabel>
-        <Floater radius="panel" elevation="inset" className="px-4 divide-y divide-sp-line">
-          <FieldRow
-            label="Use server cipher suite order"
-            hint="Honour the server's cipher preference order during handshake."
-            control={
-              <ToggleField
-                checked={settings.serverCipherOrder === true}
-                onChange={(value) => updateSettings({ serverCipherOrder: value })}
-                ariaLabel="Use server cipher order"
-              />
-            }
-          />
-          <FieldRow
-            label="Minimum TLS version"
-            hint="Reject handshakes below this protocol version."
-            control={
-              <Segmented<'default' | MinTlsVersion>
-                value={settings.minTlsVersion ?? 'default'}
-                onChange={(value) =>
-                  updateSettings(
-                    value === 'default'
-                      ? ({ minTlsVersion: undefined } as Partial<typeof settings>)
-                      : { minTlsVersion: value }
-                  )
-                }
-                size="sm"
-                options={[
-                  { value: 'default', label: 'Default' },
-                  { value: 'TLSv1', label: '1.0' },
-                  { value: 'TLSv1.1', label: '1.1' },
-                  { value: 'TLSv1.2', label: '1.2' },
-                  { value: 'TLSv1.3', label: '1.3' },
-                ]}
-                ariaLabel="Minimum TLS version"
-              />
-            }
-          />
-          <FieldRow
-            label="Cipher suites"
-            hint="OpenSSL-format colon-separated list. Leave blank for default."
-            control={
-              <TextField
-                mono
-                placeholder="ECDHE-RSA-AES128-GCM-SHA256"
-                value={settings.cipherSuites ?? ''}
-                onChange={(event) => updateSettings({ cipherSuites: event.target.value })}
-                className="w-[260px]"
-              />
-            }
-          />
-        </Floater>
-      </section>
+      <fieldset disabled={tlsLocked}>
+        <section className="mt-5">
+          <SectionLabel>
+            <span className="inline-flex items-center">
+              TLS (advanced)
+              <DesktopOnlyBadge title="TLS handshake parameters can't be controlled from a browser/Worker. Desktop only." />
+            </span>
+          </SectionLabel>
+          <Floater radius="panel" elevation="inset" className="px-4 divide-y divide-sp-line">
+            <FieldRow
+              label="Use server cipher suite order"
+              hint="Honour the server's cipher preference order during handshake."
+              control={
+                <ToggleField
+                  checked={settings.serverCipherOrder === true}
+                  onChange={(value) => updateSettings({ serverCipherOrder: value })}
+                  ariaLabel="Use server cipher order"
+                />
+              }
+            />
+            <FieldRow
+              label="Minimum TLS version"
+              hint="Reject handshakes below this protocol version."
+              control={
+                <Segmented<'default' | MinTlsVersion>
+                  value={settings.minTlsVersion ?? 'default'}
+                  onChange={(value) =>
+                    updateSettings(
+                      value === 'default'
+                        ? ({ minTlsVersion: undefined } as Partial<typeof settings>)
+                        : { minTlsVersion: value }
+                    )
+                  }
+                  size="sm"
+                  options={[
+                    { value: 'default', label: 'Default' },
+                    { value: 'TLSv1', label: '1.0' },
+                    { value: 'TLSv1.1', label: '1.1' },
+                    { value: 'TLSv1.2', label: '1.2' },
+                    { value: 'TLSv1.3', label: '1.3' },
+                  ]}
+                  ariaLabel="Minimum TLS version"
+                />
+              }
+            />
+            <FieldRow
+              label="Cipher suites"
+              hint="OpenSSL-format colon-separated list. Leave blank for default."
+              control={
+                <TextField
+                  mono
+                  placeholder="ECDHE-RSA-AES128-GCM-SHA256"
+                  value={settings.cipherSuites ?? ''}
+                  onChange={(event) => updateSettings({ cipherSuites: event.target.value })}
+                  className="w-[260px]"
+                />
+              }
+            />
+          </Floater>
+        </section>
+      </fieldset>
       <FieldGroup label="History">
         <FieldRow
           label="Max history items"
@@ -233,6 +239,8 @@ export function ProxySection() {
   const removeBypassHost = useSettingsStore((s) => s.removeBypassHost);
   const proxy = settings.proxy;
   const bypassList = proxy.bypassList ?? [];
+  const policyStatus = useManagedPolicyStatus();
+  const settingsLocked = policyStatus.state !== 'unmanaged';
   const [newBypass, setNewBypass] = useState('');
   const commitBypass = () => {
     const host = newBypass.trim();
@@ -253,146 +261,153 @@ export function ProxySection() {
           </>
         }
       />
-      <FieldGroup label="Outbound proxy">
-        <FieldRow
-          label="Enable proxy"
-          hint="When off, requests go directly to the upstream host."
-          control={
-            <ToggleField
-              checked={settings.proxy.enabled}
-              onChange={setProxyEnabled}
-              ariaLabel="Enable proxy"
-            />
-          }
-        />
-        <FieldRow
-          label="Type"
-          hint="HTTP(S) proxies tunnel via CONNECT; SOCKS4/5 open a raw TCP tunnel."
-          control={
-            <Segmented<Exclude<ProxyType, 'none'>>
-              options={[
-                { value: 'http', label: 'HTTP' },
-                { value: 'https', label: 'HTTPS' },
-                { value: 'socks4', label: 'SOCKS4' },
-                { value: 'socks5', label: 'SOCKS5' },
-              ]}
-              value={settings.proxy.type === 'none' ? 'http' : settings.proxy.type}
-              onChange={(type) => updateProxy({ type })}
-              size="sm"
-              ariaLabel="Proxy type"
-            />
-          }
-        />
-        <FieldRow
-          label="Host"
-          control={
-            <TextField
-              mono
-              placeholder="proxy.example.com"
-              value={settings.proxy.host}
-              onChange={(event) => updateProxy({ host: event.target.value })}
-              disabled={!settings.proxy.enabled}
-              className="w-[260px]"
-            />
-          }
-        />
-        <FieldRow
-          label="Port"
-          control={
-            <Stepper
-              value={settings.proxy.port}
-              onChange={(value) => updateProxy({ port: value })}
-              min={1}
-              max={65535}
-              ariaLabel="Proxy port"
-            />
-          }
-        />
-      </FieldGroup>
-      <FieldGroup label="Authentication">
-        <FieldRow
-          label="Username"
-          hint="Leave blank for an unauthenticated proxy."
-          control={
-            <TextField
-              mono
-              placeholder="proxy-user"
-              value={proxy.auth?.username ?? ''}
-              onChange={(event) => updateProxyAuth({ username: event.target.value })}
-              disabled={!proxy.enabled}
-              className="w-[260px]"
-            />
-          }
-        />
-        <FieldRow
-          label="Password"
-          hint="Stored as a keychain handle on desktop; the renderer never sees the plaintext."
-          control={
-            <div className="w-[260px]">
-              <SecretInput
-                value={proxy.auth?.password}
-                onChange={(password) => updateProxyAuth({ password })}
-                placeholder="Proxy password"
-                storageLabel="Proxy password"
-                disabled={!proxy.enabled}
-              />
-            </div>
-          }
-        />
-      </FieldGroup>
-      <section className="mt-5">
-        <SectionLabel>Bypass list</SectionLabel>
-        <Floater radius="panel" elevation="inset" className="p-4 space-y-3">
-          <p className="text-sp-11 text-sp-muted">
-            Hosts that skip the proxy and connect directly. Supports wildcards like{' '}
-            <span className="font-mono">*.example.com</span> and{' '}
-            <span className="font-mono">192.168.*</span>.
+      <fieldset disabled={settingsLocked}>
+        {settingsLocked && (
+          <p className="mb-3 text-sp-11 text-sp-muted">
+            Proxy mode, credentials, and bypasses are controlled by managed network policy.
           </p>
-          {bypassList.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {bypassList.map((host) => (
-                <Badge
-                  key={host}
-                  variant="mono"
-                  className="gap-1.5 h-7 pl-2.5 pr-1.5 rounded-sp-pill text-sp-11-5 text-sp-text"
-                >
-                  {host}
-                  <button
-                    type="button"
-                    onClick={() => removeBypassHost(host)}
-                    aria-label={`Remove ${host} from bypass list`}
-                    className={cn(
-                      'inline-flex items-center justify-center w-4 h-4 rounded-full',
-                      'text-sp-muted hover:text-rose-400 transition-colors',
-                      'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
-                    )}
+        )}
+        <FieldGroup label="Outbound proxy">
+          <FieldRow
+            label="Enable proxy"
+            hint="When off, requests go directly to the upstream host."
+            control={
+              <ToggleField
+                checked={settings.proxy.enabled}
+                onChange={setProxyEnabled}
+                ariaLabel="Enable proxy"
+              />
+            }
+          />
+          <FieldRow
+            label="Type"
+            hint="HTTP(S) proxies tunnel via CONNECT; SOCKS4/5 open a raw TCP tunnel."
+            control={
+              <Segmented<Exclude<ProxyType, 'none'>>
+                options={[
+                  { value: 'http', label: 'HTTP' },
+                  { value: 'https', label: 'HTTPS' },
+                  { value: 'socks4', label: 'SOCKS4' },
+                  { value: 'socks5', label: 'SOCKS5' },
+                ]}
+                value={settings.proxy.type === 'none' ? 'http' : settings.proxy.type}
+                onChange={(type) => updateProxy({ type })}
+                size="sm"
+                ariaLabel="Proxy type"
+              />
+            }
+          />
+          <FieldRow
+            label="Host"
+            control={
+              <TextField
+                mono
+                placeholder="proxy.example.com"
+                value={settings.proxy.host}
+                onChange={(event) => updateProxy({ host: event.target.value })}
+                disabled={!settings.proxy.enabled}
+                className="w-[260px]"
+              />
+            }
+          />
+          <FieldRow
+            label="Port"
+            control={
+              <Stepper
+                value={settings.proxy.port}
+                onChange={(value) => updateProxy({ port: value })}
+                min={1}
+                max={65535}
+                ariaLabel="Proxy port"
+              />
+            }
+          />
+        </FieldGroup>
+        <FieldGroup label="Authentication">
+          <FieldRow
+            label="Username"
+            hint="Leave blank for an unauthenticated proxy."
+            control={
+              <TextField
+                mono
+                placeholder="proxy-user"
+                value={proxy.auth?.username ?? ''}
+                onChange={(event) => updateProxyAuth({ username: event.target.value })}
+                disabled={!proxy.enabled}
+                className="w-[260px]"
+              />
+            }
+          />
+          <FieldRow
+            label="Password"
+            hint="Stored as a keychain handle on desktop; the renderer never sees the plaintext."
+            control={
+              <div className="w-[260px]">
+                <SecretInput
+                  value={proxy.auth?.password}
+                  onChange={(password) => updateProxyAuth({ password })}
+                  placeholder="Proxy password"
+                  storageLabel="Proxy password"
+                  disabled={!proxy.enabled}
+                />
+              </div>
+            }
+          />
+        </FieldGroup>
+        <section className="mt-5">
+          <SectionLabel>Bypass list</SectionLabel>
+          <Floater radius="panel" elevation="inset" className="p-4 space-y-3">
+            <p className="text-sp-11 text-sp-muted">
+              Hosts that skip the proxy and connect directly. Supports wildcards like{' '}
+              <span className="font-mono">*.example.com</span> and{' '}
+              <span className="font-mono">192.168.*</span>.
+            </p>
+            {bypassList.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {bypassList.map((host) => (
+                  <Badge
+                    key={host}
+                    variant="mono"
+                    className="gap-1.5 h-7 pl-2.5 pr-1.5 rounded-sp-pill text-sp-11-5 text-sp-text"
                   >
-                    <X size={11} />
-                  </button>
-                </Badge>
-              ))}
+                    {host}
+                    <button
+                      type="button"
+                      onClick={() => removeBypassHost(host)}
+                      aria-label={`Remove ${host} from bypass list`}
+                      className={cn(
+                        'inline-flex items-center justify-center w-4 h-4 rounded-full',
+                        'text-sp-muted hover:text-rose-400 transition-colors',
+                        'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
+                      )}
+                    >
+                      <X size={11} />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <TextField
+                mono
+                placeholder="internal.example.com"
+                value={newBypass}
+                onChange={(event) => setNewBypass(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    commitBypass();
+                  }
+                }}
+                className="flex-1"
+              />
+              <ProxyActionButton icon={Plus} onClick={commitBypass} disabled={!newBypass.trim()}>
+                Add
+              </ProxyActionButton>
             </div>
-          )}
-          <div className="flex items-center gap-2">
-            <TextField
-              mono
-              placeholder="internal.example.com"
-              value={newBypass}
-              onChange={(event) => setNewBypass(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  commitBypass();
-                }
-              }}
-              className="flex-1"
-            />
-            <ProxyActionButton icon={Plus} onClick={commitBypass} disabled={!newBypass.trim()}>
-              Add
-            </ProxyActionButton>
-          </div>
-        </Floater>
-      </section>
+          </Floater>
+        </section>
+      </fieldset>
     </>
   );
 }

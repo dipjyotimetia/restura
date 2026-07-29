@@ -1,5 +1,6 @@
 import { createLogger } from '@shared/runtime/logger';
 import { app, BrowserWindow, session } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import { registerAiHandlers, unregisterAiHandlers } from './handlers/ai-handler';
 import { registerAiLabHandlers, unregisterAiLabHandlers } from './handlers/ai-lab-handler';
 import { registerBugReportIPC } from './handlers/bug-report-handler';
@@ -29,14 +30,20 @@ import { registerWebSocketHandlerIPC, stopWebSocketCleanup } from './handlers/we
 import { registerAutoUpdaterIPC, setupAutoUpdater } from './lifecycle/auto-updater';
 import { registerDeepLinkHandler } from './lifecycle/deep-link-handler';
 import { initLogging } from './lifecycle/logging';
+import { applyManagedDesktopConnectivity } from './lifecycle/managed-connectivity';
 import { logRequest, registerRequestLoggerIPC } from './lifecycle/request-logger';
 import { initSentry } from './lifecycle/sentry';
 import { createSystemTray, destroyTray } from './lifecycle/system-tray';
 import { readConsentSync, registerTelemetryConsentIPC } from './lifecycle/telemetry-consent';
 import { registerWindowControlsIPC } from './lifecycle/window-controls';
 import { registerNotificationIPC } from './notifications';
+import { managedProxyChallengeResponse } from './security/enterprise-network';
 import { registerExecutionPolicyIPC } from './security/execution-policy';
 import { registerKeychainStatusIPC } from './security/keychain-status-handler';
+import {
+  getManagedEnterprisePolicy,
+  markManagedPolicyRuntimeInvalid,
+} from './security/managed-enterprise-policy';
 import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './security/secret-handle-store';
 import { registerBrunoExportHandlerIPC } from './storage/bruno-export-handler';
 import {
@@ -77,6 +84,31 @@ const log = createLogger('main');
 // opted in (read synchronously from the plain consent mirror), so opted-out
 // users upload nothing. See electron/main/lifecycle/sentry.ts.
 initSentry({ enabled: readConsentSync() });
+
+app.on('login', (event, _webContents, _details, authInfo, callback) => {
+  let response: ReturnType<typeof managedProxyChallengeResponse>;
+  try {
+    response = managedProxyChallengeResponse(authInfo, getManagedEnterprisePolicy());
+  } catch (error) {
+    event.preventDefault();
+    log.error('managed proxy credentials are unavailable', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    callback();
+    return;
+  }
+  if (response.kind === 'credentials') {
+    event.preventDefault();
+    callback(response.username, response.password);
+  } else if (response.kind === 'unsupported') {
+    event.preventDefault();
+    log.error('managed proxy authentication scheme is unsupported', {
+      scheme: response.scheme,
+      supported: 'basic',
+    });
+    callback();
+  }
+});
 
 // Sentry's default integrations already capture main-process uncaught
 // exceptions/rejections; these handlers add structured local logging on top so
@@ -338,6 +370,20 @@ app.whenReady().then(async () => {
       app.quit();
     }
     return;
+  }
+
+  try {
+    // Validate managed trust and configure both native network stacks before
+    // any renderer or update request can leave the process.
+    await applyManagedDesktopConnectivity({
+      applicationSession: session.defaultSession,
+      updaterSession: autoUpdater.netSession,
+      updater: autoUpdater,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    markManagedPolicyRuntimeInvalid(message);
+    log.error('managed network policy setup failed', { message });
   }
 
   setupContentSecurityPolicy();

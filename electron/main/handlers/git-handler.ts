@@ -6,18 +6,19 @@
  */
 
 import type { GitBranch, GitCommit, GitStatus, GitStatusFile } from '@shared/git-types';
+import { loadCollectionDirectory } from '@shared/opencollection/node/fs-reader';
+import { createLogger } from '@shared/runtime/logger';
 import { execFile } from 'child_process';
 import { ipcMain } from 'electron';
 import { existsSync } from 'fs';
 import * as path from 'path';
 import { promisify } from 'util';
 import { z } from 'zod';
-import { createLogger } from '@shared/runtime/logger';
-import { loadCollectionDirectory } from '@shared/opencollection/node/fs-reader';
 import { IPC } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { assertTrustedSender } from '../ipc/ipc-validators';
 import { isPathRealSafe } from '../storage/file-operations';
+import { managedGitEnvironment } from './git-enterprise-policy';
 
 const log = createLogger('git');
 
@@ -276,15 +277,16 @@ export class GitError extends Error {
   }
 }
 
-async function runGit(cwd: string, args: string[]): Promise<string> {
+async function runGit(cwd: string, args: string[], options: { remoteUrl?: string } = {}) {
   try {
+    const isSshRemote =
+      options.remoteUrl !== undefined &&
+      (SCP_STYLE_GIT_URL.test(options.remoteUrl) || new URL(options.remoteUrl).protocol === 'ssh:');
     // An inherited GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, GIT_CONFIG_*, or
     // GIT_SSH_COMMAND can redirect Git outside the allowlisted cwd or cause it
     // to run an unexpected helper. System credential helpers remain available
     // because they are configured by Git itself, not passed through `GIT_*`.
-    const safeEnv = Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))
-    );
+    const safeEnv = await managedGitEnvironment(options.remoteUrl, isSshRemote);
     const { stdout } = await execFileAsync(
       'git',
       ['-c', 'core.fsmonitor=', '-c', 'core.sshCommand=', ...args],
@@ -546,8 +548,8 @@ async function defaultRemote(dir: string): Promise<string> {
   return sanitiseRefName(remote);
 }
 
-async function validatedRemote(dir: string, remote: string, push = false): Promise<void> {
-  sanitiseRemoteUrl(
+async function validatedRemote(dir: string, remote: string, push = false): Promise<string> {
+  return sanitiseRemoteUrl(
     (await runGit(dir, ['remote', 'get-url', ...(push ? ['--push'] : []), remote])).trim()
   );
 }
@@ -556,8 +558,8 @@ export async function gitFetch(directoryPath: string): Promise<{ remote: string 
   const dir = ensureDirectoryAllowed(directoryPath);
   return withLock(dir, async () => {
     const remote = await defaultRemote(dir);
-    await validatedRemote(dir, remote);
-    await runGit(dir, ['fetch', '--prune', remote]);
+    const remoteUrl = await validatedRemote(dir, remote);
+    await runGit(dir, ['fetch', '--prune', remote], { remoteUrl });
     return { remote };
   });
 }
@@ -574,8 +576,8 @@ export async function gitPullFastForward(directoryPath: string): Promise<{ updat
     }
     const { upstream } = await currentBranchAndUpstream(dir);
     const remote = remoteNameFromUpstream(upstream);
-    await validatedRemote(dir, remote);
-    await runGit(dir, ['fetch', '--prune', remote]);
+    const remoteUrl = await validatedRemote(dir, remote);
+    await runGit(dir, ['fetch', '--prune', remote], { remoteUrl });
     try {
       await runGit(dir, ['merge', '--ff-only', upstream]);
     } catch (error) {
@@ -613,14 +615,15 @@ export async function gitPush(directoryPath: string): Promise<{ remote: string; 
       remote = await defaultRemote(dir);
       hasUpstream = false;
     }
-    await validatedRemote(dir, remote, true);
+    const remoteUrl = await validatedRemote(dir, remote, true);
     try {
       const remoteBranch = upstream?.slice(remote.length + 1);
       await runGit(
         dir,
         hasUpstream && remoteBranch
           ? ['push', remote, `refs/heads/${safeBranch}:refs/heads/${sanitiseRefName(remoteBranch)}`]
-          : ['push', '--set-upstream', remote, safeBranch]
+          : ['push', '--set-upstream', remote, safeBranch],
+        { remoteUrl }
       );
     } catch (error) {
       if (
@@ -663,7 +666,8 @@ export async function gitCloneWorkspace(
       'invalid-input'
     );
   }
-  await runGit(parent, ['clone', '--', sanitiseRemoteUrl(remoteUrl), destination]);
+  const safeRemoteUrl = sanitiseRemoteUrl(remoteUrl);
+  await runGit(parent, ['clone', '--', safeRemoteUrl, destination], { remoteUrl: safeRemoteUrl });
   try {
     await loadCollectionDirectory(destination);
   } catch {

@@ -10,8 +10,9 @@ import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import { SettingsNavigation } from './components/SettingsNavigation';
-import { AppearanceSection } from './sections/AppearanceSection';
+import { ManagedPolicyBanner, ManagedPolicyProvider } from './ManagedPolicyContext';
 import { AboutSection } from './sections/AboutSection';
+import { AppearanceSection } from './sections/AppearanceSection';
 import { CertificatesSection } from './sections/CertificatesSection';
 import { DataSection } from './sections/DataSection';
 import { GeneralSection } from './sections/GeneralSection';
@@ -150,33 +151,36 @@ export default function SettingsDrawer({
 
             {/* Section content */}
             <div className="flex-1 overflow-y-auto px-7 py-6">
-              {activeSection === 'general' && <GeneralSection />}
-              {activeSection === 'appearance' && <AppearanceSection />}
-              {activeSection === 'requests' && <RequestsSection />}
-              {activeSection === 'proxy' && <ProxySection />}
-              {activeSection === 'certificates' && <CertificatesSection />}
-              {activeSection === 'security' && <SecuritySection />}
-              {activeSection === 'secrets' && <SecretsSection />}
-              {activeSection === 'ai' && isElectron() && (
-                <>
-                  <ProviderSettings />
-                  <JudgeSettingsSection />
-                </>
-              )}
-              {activeSection === 'ai' && !isElectron() && (
-                <div className="text-sm text-muted-foreground">
-                  AI features are available in the desktop app only.
-                </div>
-              )}
-              {activeSection === 'data' && (
-                <>
-                  <DataSection />
-                  <CaptureBridgeCard />
-                </>
-              )}
-              {activeSection === 'updates' && <UpdatesSection />}
-              {activeSection === 'shortcuts' && <ShortcutsSection groups={SHORTCUT_GROUPS} />}
-              {activeSection === 'about' && <AboutSection />}
+              <ManagedPolicyProvider active={open}>
+                <ManagedPolicyBanner />
+                {activeSection === 'general' && <GeneralSection />}
+                {activeSection === 'appearance' && <AppearanceSection />}
+                {activeSection === 'requests' && <RequestsSection />}
+                {activeSection === 'proxy' && <ProxySection />}
+                {activeSection === 'certificates' && <CertificatesSection />}
+                {activeSection === 'security' && <SecuritySection />}
+                {activeSection === 'secrets' && <SecretsSection />}
+                {activeSection === 'ai' && isElectron() && (
+                  <>
+                    <ProviderSettings />
+                    <JudgeSettingsSection />
+                  </>
+                )}
+                {activeSection === 'ai' && !isElectron() && (
+                  <div className="text-sm text-muted-foreground">
+                    AI features are available in the desktop app only.
+                  </div>
+                )}
+                {activeSection === 'data' && (
+                  <>
+                    <DataSection />
+                    <CaptureBridgeCard />
+                  </>
+                )}
+                {activeSection === 'updates' && <UpdatesSection />}
+                {activeSection === 'shortcuts' && <ShortcutsSection groups={SHORTCUT_GROUPS} />}
+                {activeSection === 'about' && <AboutSection />}
+              </ManagedPolicyProvider>
             </div>
           </div>
         </DialogPrimitive.Content>

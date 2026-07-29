@@ -1,5 +1,5 @@
 import { createLogger } from '@shared/runtime/logger';
-import { ipcMain, type WebContents } from 'electron';
+import { ipcMain, session, type WebContents } from 'electron';
 import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
@@ -13,7 +13,9 @@ import {
   validateIpcInput,
 } from '../ipc/ipc-validators';
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
+import { resolveManagedProxyForUrl } from '../security/enterprise-network';
 import { getExecutionPolicy } from '../security/execution-policy';
+import { getManagedEnterprisePolicy } from '../security/managed-enterprise-policy';
 import {
   assertPinnedFetchCanHonorPolicy,
   createPolicyPinnedFetch,
@@ -141,7 +143,12 @@ export function registerMcpHandlerIPC(): void {
 
     let policyConfig: ReturnType<typeof resolveMcpExecutionPolicy>;
     try {
-      policyConfig = resolveMcpExecutionPolicy(config);
+      const managed = getManagedEnterprisePolicy();
+      const proxy =
+        managed.status.state === 'unmanaged'
+          ? undefined
+          : await resolveManagedProxyForUrl(config.url, session.defaultSession, managed);
+      policyConfig = resolveMcpExecutionPolicy({ ...config, proxy });
       assertPinnedFetchCanHonorPolicy(policyConfig);
     } catch (err) {
       return { success: false, error: errorMessage(err) };

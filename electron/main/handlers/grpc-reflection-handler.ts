@@ -1,10 +1,12 @@
-import { ipcMain } from 'electron';
+import { ipcMain, session } from 'electron';
 import { IPC } from '../../shared/channels';
 import {
   createValidatedHandler,
   type ReflectionIpcConfig,
   ReflectionIpcConfigSchema,
 } from '../ipc/ipc-validators';
+import { resolveManagedProxyForUrl } from '../security/enterprise-network';
+import { getManagedEnterprisePolicy } from '../security/managed-enterprise-policy';
 import { executeConnectReflection, resolveGrpcDialAddress } from './grpc-connect';
 import { resolveGrpcReflectionExecutionPolicy } from './grpc-credentials';
 
@@ -26,7 +28,11 @@ export function parseTargetAddress(url: string): { address: string; useTls: bool
 }
 
 async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawReflectionResponse> {
-  let policyConfig: ReflectionIpcConfig & { timeout: number; verifySsl: boolean };
+  let policyConfig: ReflectionIpcConfig & {
+    timeout: number;
+    verifySsl: boolean;
+    minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
+  };
   try {
     policyConfig = resolveGrpcReflectionExecutionPolicy(config);
   } catch (err) {
@@ -44,6 +50,14 @@ async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawRe
   // as the call path, then run reflection over a runtime registry via
   // connect-node — no @grpc/reflection / proto-loader.
   const urlWithScheme = url.includes('://') ? url : `grpc://${url}`;
+  const managed = getManagedEnterprisePolicy();
+  const proxyTarget = new URL(urlWithScheme);
+  if (proxyTarget.protocol === 'grpc:') proxyTarget.protocol = 'http:';
+  if (proxyTarget.protocol === 'grpcs:') proxyTarget.protocol = 'https:';
+  const proxy =
+    managed.status.state === 'unmanaged'
+      ? undefined
+      : await resolveManagedProxyForUrl(proxyTarget.toString(), session.defaultSession, managed);
   const dial = await resolveGrpcDialAddress(urlWithScheme);
 
   return executeConnectReflection({
@@ -51,8 +65,10 @@ async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawRe
     dial,
     tls: {
       verifySsl: policyConfig.verifySsl,
+      minTlsVersion: policyConfig.minTlsVersion,
       clientCert: policyConfig.clientCert,
       caCert: policyConfig.caCert,
+      proxy,
     },
     version,
     request: request as Record<string, unknown>,

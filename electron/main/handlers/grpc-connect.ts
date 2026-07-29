@@ -33,6 +33,7 @@ import { resolveUrlHostnameSafe } from '../security/dns-guard';
 import { getExecutionPolicy } from '../security/execution-policy';
 import { buildTlsClientMaterial } from '../security/tls-material';
 import type { GrpcTlsConfig } from './grpc-credentials';
+import { createGrpcProxyTunnel } from './grpc-proxy-tunnel';
 
 // gRPC URL schemes the SSRF guard accepts (renderer + reflection emit grpc://).
 const GRPC_ALLOWED_SCHEMES = ['http:', 'https:', 'grpc:', 'grpcs:'];
@@ -107,10 +108,13 @@ function buildNodeTransportBase(
   const useTls = url.startsWith('https://') || url.startsWith('grpcs://');
   const baseUrl = transportBaseUrl(url, dial);
 
-  const nodeOptions: Record<string, unknown> = { lookup: pinnedLookup(dial) };
+  const nodeOptions: Record<string, unknown> = tls?.proxy?.enabled
+    ? { createConnection: () => createGrpcProxyTunnel(url, tls) }
+    : { lookup: pinnedLookup(dial) };
   if (useTls) {
     nodeOptions.servername = host; // SNI + cert hostname check stay on the hostname
     if (tls?.verifySsl === false) nodeOptions.rejectUnauthorized = false;
+    if (tls?.minTlsVersion) nodeOptions.minVersion = tls.minTlsVersion;
     // mTLS client cert (PKCS#12 or cert+key, with a main-resolved passphrase) +
     // custom CA. Shared with the HTTP handler so cert/CA handling can't drift.
     if (tls) Object.assign(nodeOptions, buildTlsClientMaterial(tls));

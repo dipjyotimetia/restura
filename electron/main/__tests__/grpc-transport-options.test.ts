@@ -74,12 +74,14 @@ describe('buildConnectTransport', () => {
     buildConnectTransport('grpcs://api.example.com:50051', DIAL, {
       caCert: { pem: 'CA-PEM' },
       verifySsl: false,
+      minTlsVersion: 'TLSv1.2',
     });
     const { nodeOptions, baseUrl } = lastOptions();
     expect(baseUrl).toBe('https://api.example.com:50051');
     expect(nodeOptions.servername).toBe('api.example.com');
     expect(nodeOptions.ca).toBe('CA-PEM');
     expect(nodeOptions.rejectUnauthorized).toBe(false);
+    expect(nodeOptions.minVersion).toBe('TLSv1.2');
   });
 
   it('maps a PEM client cert + key + passphrase for mTLS', () => {
@@ -118,6 +120,23 @@ describe('buildConnectTransport', () => {
   it('enables gzip send compression when useCompression is set', () => {
     buildConnectTransport('grpc://api.example.com:50051', DIAL, undefined, true);
     expect(lastOptions().sendCompression).toEqual({ name: 'gzip' });
+  });
+
+  it('uses an HTTP CONNECT tunnel instead of direct DNS when a managed proxy is present', () => {
+    buildConnectTransport('grpcs://api.example.com:50051', DIAL, {
+      verifySsl: true,
+      proxy: {
+        enabled: true,
+        type: 'http',
+        host: 'proxy.corp.example',
+        port: 8080,
+        auth: { username: 'proxy-user', password: 'proxy-password' },
+      },
+    });
+    const { nodeOptions } = lastOptions();
+
+    expect(nodeOptions.lookup).toBeUndefined();
+    expect(nodeOptions.createConnection).toEqual(expect.any(Function));
   });
 });
 

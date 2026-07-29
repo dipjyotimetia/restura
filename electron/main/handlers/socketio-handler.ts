@@ -2,7 +2,7 @@ import { Agent as HttpAgent } from 'node:http';
 import { Agent as HttpsAgent } from 'node:https';
 import { createLogger } from '@shared/runtime/logger';
 import { SOCKETIO_RESERVED_EVENTS, socketioChannels } from '@shared/socketio-constants';
-import { ipcMain, type WebContents } from 'electron';
+import { ipcMain, session, type WebContents } from 'electron';
 import type * as SocketIoClient from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
 import { IPC } from '../../shared/channels';
@@ -18,13 +18,19 @@ import {
   validateIpcInput,
 } from '../ipc/ipc-validators';
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
+import {
+  createEnterpriseProxyAgent,
+  resolveManagedProxyForUrl,
+} from '../security/enterprise-network';
 import { getExecutionPolicy } from '../security/execution-policy';
+import { getManagedEnterprisePolicy } from '../security/managed-enterprise-policy';
 import {
   assertPinnedFetchCanHonorPolicy,
   type PolicyTransportConfig,
   resolvePolicyTransport,
 } from '../security/policy-transport';
 import { createPinnedLookup, resolveSafeAddress } from '../security/safe-connect';
+import { buildTlsClientMaterial } from '../security/tls-material';
 
 const log = createLogger('socketio');
 
@@ -61,7 +67,7 @@ interface ActiveSocketIO {
   explicitlyClosed: boolean;
   pendingAcks: Map<string, NodeJS.Timeout>;
   /** Pinned-DNS agent backing every transport for this connection; destroyed on teardown. */
-  agent: HttpAgent | HttpsAgent;
+  agent: HttpAgent | HttpsAgent | ReturnType<typeof createEnterpriseProxyAgent>;
 }
 
 /** Tear down a connection's transport + timers + pinned agent. */
@@ -151,9 +157,15 @@ export function registerSocketIoHandlerIPC(): void {
 
     let policyConfig: ReturnType<typeof resolveSocketIoExecutionPolicy>;
     try {
+      const managed = getManagedEnterprisePolicy();
+      const proxy =
+        managed.status.state === 'unmanaged'
+          ? undefined
+          : await resolveManagedProxyForUrl(config.url, session.defaultSession, managed);
       policyConfig = resolveSocketIoExecutionPolicy({
         url: config.url,
         timeout: config.timeout,
+        proxy,
       });
       assertPinnedFetchCanHonorPolicy(policyConfig);
     } catch (err) {
@@ -212,7 +224,14 @@ export function registerSocketIoHandlerIPC(): void {
         if (pendingConnections.get(key)?.token !== claim.token) {
           return { success: false, error: 'Not connected' };
         }
-        const agent = secure ? new HttpsAgent({ lookup }) : new HttpAgent({ lookup });
+        const tlsMaterial = buildTlsClientMaterial(policyConfig);
+        const agent =
+          policyConfig.proxy?.enabled &&
+          (policyConfig.proxy.type === 'http' || policyConfig.proxy.type === 'https')
+            ? createEnterpriseProxyAgent(policyConfig.proxy, policyConfig)
+            : secure
+              ? new HttpsAgent({ lookup, ...tlsMaterial })
+              : new HttpAgent({ lookup });
 
         const socket = io(connectUrl, {
           path: config.path ?? '/socket.io',
@@ -225,6 +244,10 @@ export function registerSocketIoHandlerIPC(): void {
           reconnectionDelay: config.reconnectionDelay ?? 1_000,
           timeout: policyConfig.timeout,
           rejectUnauthorized: policyConfig.verifySsl,
+          ...tlsMaterial,
+          ...(policyConfig.serverCipherOrder ? { honorCipherOrder: true } : {}),
+          ...(policyConfig.minTlsVersion ? { minVersion: policyConfig.minTlsVersion } : {}),
+          ...(policyConfig.cipherSuites ? { ciphers: policyConfig.cipherSuites } : {}),
           forceNew: config.forceNew ?? false,
           autoConnect: true,
           // engine.io types `agent` as string|boolean for historical reasons, but

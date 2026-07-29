@@ -1,7 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import type * as SchemaRegistryLib from '@kafkajs/confluent-schema-registry';
 import type * as KafkaLib from '@platformatic/kafka';
 import { createLogger } from '@shared/runtime/logger';
-import { randomUUID } from 'node:crypto';
 import type { WebContents } from 'electron';
 import { ipcMain, webContents } from 'electron';
 import { IPC } from '../../shared/channels';
@@ -12,10 +12,10 @@ import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import {
   assertTrustedSender,
   createValidatedEventHandler,
-  type KafkaConnectConfig,
-  KafkaConnectSchema,
   type KafkaCommitMessageConfig,
   KafkaCommitMessageSchema,
+  type KafkaConnectConfig,
+  KafkaConnectSchema,
   KafkaConsumerControlSchema,
   KafkaDisconnectSchema,
   KafkaSubscribeSchema,
@@ -25,7 +25,7 @@ import {
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
 import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
-import { decodeDisplayField } from './kafka-serde';
+import { assertManagedDirectProtocolAllowed } from '../security/managed-enterprise-policy';
 import { registerKafkaAdminHandlers } from './kafka/admin-handlers';
 import {
   type AppProducer,
@@ -33,6 +33,7 @@ import {
   type KafkaProducerEntry,
   registerKafkaProducerHandlers,
 } from './kafka/producer-handlers';
+import { decodeDisplayField } from './kafka-serde';
 
 const log = createLogger('kafka');
 type SchemaRegistry = SchemaRegistryLib.SchemaRegistry;
@@ -364,8 +365,8 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         }
         activeConnections.remove(connectionId, webContentsId);
       }
-
       try {
+        assertManagedDirectProtocolAllowed('kafka');
         assertKafkaBrokersSafe(cfg.bootstrapBrokers);
         if (cfg.registry) assertRegistryUrlSafe(cfg.registry.url);
       } catch (err) {
@@ -374,7 +375,6 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
         logEntry(400, msg);
         return { success: false, error: msg };
       }
-
       try {
         const clientOptions = buildClientOptions(cfg);
         const kafka = getKafka();

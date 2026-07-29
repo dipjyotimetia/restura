@@ -349,7 +349,7 @@ Some Restura features depend on capabilities the browser doesn't expose. They're
 - **mTLS** (client certificates): browsers don't allow JavaScript to present a client certificate. Electron uses Node TLS via undici.
 - **Custom CA certificates**: same restriction — the browser uses the system trust store and doesn't let pages override it. Electron honours a user-supplied PEM via undici's `Agent.connect.ca`.
 - **SOCKS proxies** (SOCKS4 / SOCKS5): browsers can't open raw TCP. Electron tunnels via Node `net` and a custom undici dispatcher.
-- **PAC files** (Proxy Auto-Config): **not wired end-to-end** — the renderer `ProxyType` cannot emit a PAC proxy and the PAC script is never loaded via `session.setProxy()`. Marked `❌ / ❌` in the capability matrix; tracked as future work.
+- **PAC files** (Proxy Auto-Config): administrator-managed desktop policy loads PAC through Electron's application and updater sessions. A user-editable renderer PAC setting is still not exposed and remains marked `❌ / ❌` in the capability matrix.
 - **System proxy detection**: Electron reads OS proxy settings; browsers only honour what the OS configures globally and don't let pages introspect.
 - **"Verify SSL = off"**: browsers always validate TLS regardless of any app toggle. Only Electron can opt out (`rejectUnauthorized: false`) for self-signed dev certificates.
 - **Hardware-backed encryption**: Electron uses `safeStorage` (macOS Keychain, Windows Credential Manager, Linux libsecret); web defaults to in-memory ephemeral encryption per session.

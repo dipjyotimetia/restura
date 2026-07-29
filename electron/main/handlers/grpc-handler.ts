@@ -1,6 +1,6 @@
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { createLogger } from '@shared/runtime/logger';
-import { ipcMain, type WebContents } from 'electron';
+import { ipcMain, session, type WebContents } from 'electron';
 import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
@@ -15,6 +15,11 @@ import {
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
 import { applyNonSignAtWireAuth } from '../security/auth-applier';
+import {
+  type ResolvedEnterpriseProxy,
+  resolveManagedProxyForUrl,
+} from '../security/enterprise-network';
+import { getManagedEnterprisePolicy } from '../security/managed-enterprise-policy';
 import {
   executeConnectServerStreamCollect,
   executeConnectUnary,
@@ -244,11 +249,18 @@ const removeActiveCall = (id: string, webContentsId: number, generation: symbol)
 
 // Pull the TLS trust / mTLS material out of a request config for the
 // connect-node transport builder (shared by the unary + streaming call paths).
-function tlsFromConfig(config: GrpcRequestConfig): GrpcTlsConfig {
+type GrpcPolicyConfig = GrpcRequestConfig & {
+  enterpriseProxy?: ResolvedEnterpriseProxy;
+  minTlsVersion?: GrpcTlsConfig['minTlsVersion'];
+};
+
+function tlsFromConfig(config: GrpcPolicyConfig): GrpcTlsConfig {
   return {
     verifySsl: config.verifySsl,
+    minTlsVersion: config.minTlsVersion,
     clientCert: config.clientCert,
     caCert: config.caCert,
+    proxy: config.enterpriseProxy,
   };
 }
 
@@ -273,7 +285,7 @@ export function mergeMainSideAuth(
 
 // Build the connect-node call args (shared by the unary / streaming executors)
 // from a request config + its SSRF-validated dial.
-function toConnectArgs(config: GrpcRequestConfig, dial: PinnedDial) {
+function toConnectArgs(config: GrpcPolicyConfig, dial: PinnedDial) {
   return {
     url: config.url,
     dial,
@@ -289,10 +301,22 @@ function toConnectArgs(config: GrpcRequestConfig, dial: PinnedDial) {
   };
 }
 
+async function resolveEnterpriseGrpcProxy(
+  url: string
+): Promise<ResolvedEnterpriseProxy | undefined> {
+  const managed = getManagedEnterprisePolicy();
+  if (managed.status.state === 'unmanaged') return undefined;
+  const parsed = new URL(url);
+  if (parsed.protocol === 'grpc:') parsed.protocol = 'http:';
+  if (parsed.protocol === 'grpcs:') parsed.protocol = 'https:';
+  return resolveManagedProxyForUrl(parsed.toString(), session.defaultSession, managed);
+}
+
 async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse> {
-  let policyConfig: GrpcRequestConfig;
+  let policyConfig: GrpcPolicyConfig;
   try {
     policyConfig = resolveGrpcExecutionPolicy(config);
+    policyConfig.enterpriseProxy = await resolveEnterpriseGrpcProxy(policyConfig.url);
   } catch (err) {
     const detail = sanitizeErrorMessage(err instanceof Error ? err.message : String(err));
     return {
@@ -432,7 +456,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           return;
         }
 
-        let policyConfig: GrpcRequestConfig;
+        let policyConfig: GrpcPolicyConfig;
         try {
           policyConfig = resolveGrpcExecutionPolicy(config);
         } catch (err) {
@@ -459,6 +483,21 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
             });
           }
           return;
+        }
+
+        if (getManagedEnterprisePolicy().status.state !== 'unmanaged') {
+          try {
+            policyConfig.enterpriseProxy = await resolveEnterpriseGrpcProxy(policyConfig.url);
+          } catch (err) {
+            releasePendingStream(requestId, claim);
+            safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
+              status: 2,
+              details: `gRPC setup failed: ${sanitizeErrorMessage(
+                err instanceof Error ? err.message : String(err)
+              )}`,
+            });
+            return;
+          }
         }
 
         // Resolve + validate + pin the address before opening a transport

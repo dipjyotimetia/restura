@@ -1,8 +1,8 @@
 import { Download, RefreshCw } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
-import { Badge } from '@/components/ui/badge';
 import { useReleaseNotes } from '@/components/shared/settings/useReleaseNotes';
+import { Badge } from '@/components/ui/badge';
 import { Segmented, ToggleField } from '@/components/ui/spatial';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { parseReleaseNoteContent, type ReleaseNotesChannel } from '@/lib/shared/release-notes';
@@ -10,6 +10,7 @@ import { cn } from '@/lib/shared/utils';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { DEFAULT_AUTO_UPDATE_SETTINGS } from '@/types';
 import { FieldGroup, FieldRow, SectionHeader } from '../components/SettingsSectionPrimitives';
+import { useManagedPolicyStatus } from '../ManagedPolicyContext';
 import { formatReleaseDate, ReleaseNoteMarkdown } from './ShortcutsSection';
 
 function ReleaseNotesPanel({ channel }: { channel: ReleaseNotesChannel }) {
@@ -241,6 +242,8 @@ export function UpdatesSection() {
   const settings = useSettingsStore((s) => s.settings);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
   const autoUpdate = settings.autoUpdate ?? DEFAULT_AUTO_UPDATE_SETTINGS;
+  const managedPolicy = useManagedPolicyStatus();
+  const settingsLocked = managedPolicy.state !== 'unmanaged';
 
   const [checking, setChecking] = useState(false);
   const [checkResult, setCheckResult] = useState<string | null>(null);
@@ -294,33 +297,43 @@ export function UpdatesSection() {
         description="Keep Restura up to date automatically, or check on demand."
       />
 
-      <FieldGroup label="Automatic updates">
-        <FieldRow
-          label="Download updates automatically"
-          hint="When on, new versions download in the background and prompt you to restart."
-          control={
-            <ToggleField
-              checked={autoUpdate.autoDownload}
-              onChange={(v) => updateSettings({ autoUpdate: { ...autoUpdate, autoDownload: v } })}
-              ariaLabel="Download updates automatically"
-            />
-          }
-        />
-        <FieldRow
-          label="Release channel"
-          hint="Stable is recommended. Beta receives pre-releases earlier."
-          control={
-            <Segmented<'stable' | 'beta'>
-              value={autoUpdate.channel}
-              onChange={(v) => updateSettings({ autoUpdate: { ...autoUpdate, channel: v } })}
-              options={[
-                { value: 'stable', label: 'Stable' },
-                { value: 'beta', label: 'Beta' },
-              ]}
-            />
-          }
-        />
-      </FieldGroup>
+      <fieldset disabled={settingsLocked}>
+        <FieldGroup label="Automatic updates">
+          <FieldRow
+            label="Download updates automatically"
+            hint={
+              settingsLocked
+                ? 'This setting is controlled by managed update policy.'
+                : 'When on, new versions download in the background and prompt you to restart.'
+            }
+            control={
+              <ToggleField
+                checked={autoUpdate.autoDownload}
+                onChange={(v) => updateSettings({ autoUpdate: { ...autoUpdate, autoDownload: v } })}
+                ariaLabel="Download updates automatically"
+              />
+            }
+          />
+          <FieldRow
+            label="Release channel"
+            hint={
+              settingsLocked
+                ? 'The administrator-selected feed controls the release channel.'
+                : 'Stable is recommended. Beta receives pre-releases earlier.'
+            }
+            control={
+              <Segmented<'stable' | 'beta'>
+                value={autoUpdate.channel}
+                onChange={(v) => updateSettings({ autoUpdate: { ...autoUpdate, channel: v } })}
+                options={[
+                  { value: 'stable', label: 'Stable' },
+                  { value: 'beta', label: 'Beta' },
+                ]}
+              />
+            }
+          />
+        </FieldGroup>
+      </fieldset>
 
       <FieldGroup label="Check">
         <FieldRow
@@ -329,7 +342,12 @@ export function UpdatesSection() {
         />
         <FieldRow
           label="Check for updates"
-          hint={checkResult ?? 'Fetch the latest release from GitHub.'}
+          hint={
+            checkResult ??
+            (settingsLocked
+              ? 'Check the administrator-configured update feed.'
+              : 'Fetch the latest release from GitHub.')
+          }
           control={
             <button
               type="button"
@@ -349,7 +367,7 @@ export function UpdatesSection() {
           }
         />
       </FieldGroup>
-      <ReleaseNotesPanel channel={autoUpdate.channel} />
+      {managedPolicy.state === 'unmanaged' && <ReleaseNotesPanel channel={autoUpdate.channel} />}
     </>
   );
 }
