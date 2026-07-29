@@ -1,11 +1,10 @@
-import { createServer } from 'node:https';
+import { createServer } from 'node:http';
 import type { MockProxyServerHandle } from '../e2e/mocks/proxyServer';
 import { startMockProxyServer } from '../e2e/mocks/proxyServer';
 import {
   type MockSocksProxyHandle,
   startMockSocksProxyServer,
 } from '../e2e/mocks/socksProxyServer';
-import type { EchoCerts } from './certs';
 import { PORTS } from './ports';
 
 export const ENTERPRISE_PROXY_USERNAME = 'enterprise-user';
@@ -20,32 +19,29 @@ export interface EnterpriseProxyStack {
 }
 
 /**
- * HTTPS PAC server plus an authenticated fallback proxy. The first PAC proxy
+ * PAC server plus an authenticated fallback proxy. The first PAC proxy
  * port is deliberately unbound, so a successful request proves ordered
  * failover reached the second proxy.
  */
-export async function startEnterpriseProxyStack(certs: EchoCerts): Promise<EnterpriseProxyStack> {
+export async function startEnterpriseProxyStack(): Promise<EnterpriseProxyStack> {
   let requests = 0;
-  const pac = createServer(
-    { key: certs.serverKey, cert: certs.serverCert },
-    (request, response) => {
-      if (request.url !== '/proxy.pac') {
-        response.writeHead(404).end();
-        return;
-      }
-      requests++;
-      response.writeHead(200, {
-        'content-type': 'application/x-ns-proxy-autoconfig',
-        'cache-control': 'no-store',
-      });
-      response.end(
-        `function FindProxyForURL(url, host) {
+  const pac = createServer((request, response) => {
+    if (request.url !== '/proxy.pac') {
+      response.writeHead(404).end();
+      return;
+    }
+    requests++;
+    response.writeHead(200, {
+      'content-type': 'application/x-ns-proxy-autoconfig',
+      'cache-control': 'no-store',
+    });
+    response.end(
+      `function FindProxyForURL(url, host) {
   if (shExpMatch(host, "socks-target.localhost")) return "SOCKS5 127.0.0.1:${PORTS.enterpriseSocks}";
   return "PROXY 127.0.0.1:${PORTS.enterpriseProxyUnavailable}; PROXY 127.0.0.1:${PORTS.enterpriseProxy}";
 }\n`
-      );
-    }
-  );
+    );
+  });
   await new Promise<void>((resolve, reject) => {
     pac.once('error', reject);
     pac.listen(PORTS.enterprisePac, '127.0.0.1', resolve);
@@ -64,7 +60,7 @@ export async function startEnterpriseProxyStack(certs: EchoCerts): Promise<Enter
     return {
       proxy,
       socks,
-      pacUrl: `https://localhost:${PORTS.enterprisePac}/proxy.pac`,
+      pacUrl: `http://localhost:${PORTS.enterprisePac}/proxy.pac`,
       pacRequestCount: () => requests,
       close: async () => {
         await Promise.all([

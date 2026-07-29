@@ -23,6 +23,19 @@ const HttpsUrlSchema = z
   .max(2048)
   .refine((value) => new URL(value).protocol === 'https:', 'HTTPS URL required');
 
+const PacUrlSchema = z
+  .string()
+  .url()
+  .max(2048)
+  .refine(
+    (value) => ['http:', 'https:'].includes(new URL(value).protocol),
+    'HTTP or HTTPS PAC URL required'
+  )
+  .refine((value) => {
+    const url = new URL(value);
+    return !url.username && !url.password;
+  }, 'PAC URL must not contain credentials');
+
 const ProxyUrlSchema = z
   .string()
   .url()
@@ -102,7 +115,7 @@ const ManagedNetworkPolicySchema = z
     mode: z.enum(['system', 'fixed', 'pac', 'direct']),
     requireProxy: z.boolean(),
     proxyUrl: ProxyUrlSchema.optional(),
-    pacUrl: HttpsUrlSchema.optional(),
+    pacUrl: PacUrlSchema.optional(),
     bypassList: z.array(z.string().min(1).max(253)).max(100),
     proxyAuthentication: ProxyAuthenticationSchema.optional(),
     caCertificatePaths: z.array(AbsoluteFilePathSchema).max(20),

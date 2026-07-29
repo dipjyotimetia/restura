@@ -90,6 +90,22 @@ describe('managed enterprise connectivity policy', () => {
     ).toMatchObject({ state: 'invalid', source: 'native' });
   });
 
+  it('accepts credential-free HTTP PAC endpoints used during proxy bootstrap', () => {
+    const pac = JSON.parse(validPolicy);
+    pac.network.mode = 'pac';
+    delete pac.network.proxyUrl;
+    pac.network.pacUrl = 'http://config.corp.example/restura.pac';
+
+    expect(
+      loadManagedEnterprisePolicy(options({ readNativePolicy: () => JSON.stringify(pac) })).status
+    ).toMatchObject({ state: 'managed', networkMode: 'pac' });
+
+    pac.network.pacUrl = 'http://user:password@config.corp.example/restura.pac';
+    expect(
+      loadManagedEnterprisePolicy(options({ readNativePolicy: () => JSON.stringify(pac) })).status
+    ).toMatchObject({ state: 'invalid' });
+  });
+
   it('accepts origin-bound Basic credentials and integrated-auth domain allowlists', () => {
     const authenticated = JSON.parse(validPolicy);
     authenticated.network.proxyAuthentication = {

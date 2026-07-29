@@ -1,14 +1,9 @@
 import { once } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
 import { get as httpGet } from 'node:http';
-import { get as httpsGet } from 'node:https';
-import { connect as connectTcp } from 'node:net';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
+import { connect as connectTcp, createServer, type Socket } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { type MockHttpServerHandle, startMockHttpServer } from '../../e2e/mocks/httpServer';
 import { startMockProxyServer } from '../../e2e/mocks/proxyServer';
-import { type EchoCerts, ensureCerts } from '../../echo-local/certs';
 import {
   ENTERPRISE_PROXY_PASSWORD,
   ENTERPRISE_PROXY_USERNAME,
@@ -31,28 +26,90 @@ function request(url: string, agent: OrderedPacProxyAgent): Promise<number> {
   });
 }
 
+async function startMultiRoundNegotiateProxy(): Promise<{
+  port: number;
+  connectionCount: () => number;
+  authorizations: () => string[];
+  close: () => Promise<void>;
+}> {
+  let connectionCount = 0;
+  const authorizations: string[] = [];
+  const sockets = new Set<Socket>();
+  const server = createServer((client) => {
+    connectionCount += 1;
+    sockets.add(client);
+    client.once('close', () => sockets.delete(client));
+    let buffered = Buffer.alloc(0);
+    let rounds = 0;
+    let upstreamSocket: Socket | undefined;
+    client.on('data', (chunk) => {
+      if (upstreamSocket) {
+        upstreamSocket.write(chunk);
+        return;
+      }
+      buffered = Buffer.concat([buffered, Buffer.from(chunk)]);
+      const headerEnd = buffered.indexOf('\r\n\r\n');
+      if (headerEnd < 0) return;
+      const header = buffered.subarray(0, headerEnd).toString('latin1');
+      buffered = buffered.subarray(headerEnd + 4);
+      authorizations.push(/^Proxy-Authorization:\s*(.+)$/im.exec(header)?.[1] ?? '');
+      rounds += 1;
+      if (rounds < 3) {
+        client.write(
+          `HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Negotiate server-${rounds}\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n`
+        );
+        return;
+      }
+      const target = /^CONNECT\s+[^:]+:(\d+)\s+/i.exec(header);
+      if (!target) {
+        client.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+        return;
+      }
+      upstreamSocket = connectTcp({ host: '127.0.0.1', port: Number(target[1]) });
+      sockets.add(upstreamSocket);
+      upstreamSocket.once('close', () => sockets.delete(upstreamSocket!));
+      upstreamSocket.once('connect', () => {
+        client.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+        if (buffered.length) upstreamSocket?.write(buffered);
+        upstreamSocket?.pipe(client);
+      });
+    });
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Negotiate proxy did not bind');
+  return {
+    port: address.port,
+    connectionCount: () => connectionCount,
+    authorizations: () => [...authorizations],
+    close: async () => {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve()))
+      );
+    },
+  };
+}
+
 describe('Echo Local enterprise PAC stack', () => {
-  const certDir = mkdtempSync(path.join(tmpdir(), 'restura-enterprise-certs-'));
-  let certs: EchoCerts;
   let upstream: MockHttpServerHandle;
   let stack: EnterpriseProxyStack;
 
   beforeAll(async () => {
-    certs = ensureCerts({ dir: certDir });
     [upstream, stack] = await Promise.all([
       startMockHttpServer({ host: '::' }),
-      startEnterpriseProxyStack(certs),
+      startEnterpriseProxyStack(),
     ]);
   });
 
   afterAll(async () => {
     await Promise.all([upstream.close(), stack.close()]);
-    rmSync(certDir, { recursive: true, force: true });
   });
 
-  it('serves its PAC over the generated enterprise CA', async () => {
+  it('serves its PAC from the deterministic enterprise endpoint', async () => {
     const body = await new Promise<string>((resolve, reject) => {
-      httpsGet(stack.pacUrl, { ca: certs.caPem }, (response) => {
+      httpGet(stack.pacUrl, (response) => {
         const chunks: Buffer[] = [];
         response.on('data', (chunk: Buffer) => chunks.push(chunk));
         response.once('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
@@ -109,6 +166,31 @@ describe('Echo Local enterprise PAC stack', () => {
     } finally {
       agent.destroy();
       await wrongProxy.close();
+    }
+  });
+
+  it('completes multi-round Negotiate challenges on one proxy connection', async () => {
+    const negotiateProxy = await startMultiRoundNegotiateProxy();
+    let token = 0;
+    const agent = createOrderedPacProxyAgent(async () => `PROXY 127.0.0.1:${negotiateProxy.port}`, {
+      fallbackToDirect: false,
+      originalAgent: false,
+      lookupProxyAuthorization: async () => `Negotiate client-${(token += 1)}`,
+    });
+
+    try {
+      await expect(
+        request(`http://enterprise-target.localhost:${upstream.port}/json`, agent)
+      ).resolves.toBe(200);
+      expect(negotiateProxy.connectionCount()).toBe(1);
+      expect(negotiateProxy.authorizations()).toEqual([
+        'Negotiate client-1',
+        'Negotiate client-2',
+        'Negotiate client-3',
+      ]);
+    } finally {
+      agent.destroy();
+      await negotiateProxy.close();
     }
   });
 

@@ -3,7 +3,7 @@
   "network": {
     "mode": "pac",
     "requireProxy": true,
-    "pacUrl": "https://localhost:8890/proxy.pac",
+    "pacUrl": "http://localhost:8890/proxy.pac",
     "bypassList": [],
     "proxyAuthentication": {
       "basic": [

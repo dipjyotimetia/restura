@@ -1,5 +1,6 @@
 import type { Fetcher, FetcherResponse } from '@shared/protocol/types';
 import { session } from 'electron';
+import { assertProxyTargetUrlSafe } from '../security/dns-guard';
 import {
   applyManagedTransportPolicy,
   resolveManagedProxyForUrl,
@@ -93,6 +94,8 @@ export async function makePinnedFetcher(
   }
 
   return makeRouteAwareFetcher(async (destination) => {
+    const proxyTargetPolicy = { allowLocalhost: options.allowLocalhost };
+    assertProxyTargetUrlSafe(destination, proxyTargetPolicy);
     const proxy = await resolveManagedProxyForUrl(destination, session.defaultSession, managed);
     const pinned =
       proxy?.type === 'http' || proxy?.type === 'https' || proxy?.resolution
@@ -105,6 +108,7 @@ export async function makePinnedFetcher(
         ...(options.managedTransport ?? {}),
         url: destination,
         proxy,
+        proxyTargetPolicy,
         verifySsl: true,
       },
       managed,
@@ -130,6 +134,8 @@ export function makeManagedRouteAwareFetch(
     const destination =
       typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     const managed = getManagedEnterprisePolicy();
+    const proxyTargetPolicy = { allowLocalhost: options.allowLocalhost };
+    assertProxyTargetUrlSafe(destination, proxyTargetPolicy);
     const proxy = await resolveManagedProxyForUrl(destination, session.defaultSession, managed);
     const pinned =
       proxy?.type === 'http' || proxy?.type === 'https' || proxy?.resolution
@@ -138,7 +144,7 @@ export function makeManagedRouteAwareFetch(
             allowLocalhost: options.allowLocalhost,
           });
     const transport = applyManagedTransportPolicy(
-      { ...baseConfig, url: destination, proxy, verifySsl: true },
+      { ...baseConfig, url: destination, proxy, proxyTargetPolicy, verifySsl: true },
       managed,
       getManagedCaCertificateBundle()
     );

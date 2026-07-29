@@ -16,6 +16,7 @@ import { type MockHttpServerHandle, startMockHttpServer } from '../../../e2e/moc
 import { type MockProxyServerHandle, startMockProxyServer } from '../../../e2e/mocks/proxyServer';
 import { buildElectronFetcher, type HttpRequestConfig } from '../handlers/http-handler';
 import { setManagedEnterprisePolicyForTest } from '../security/managed-enterprise-policy';
+import { createPolicyPinnedFetch } from '../security/policy-transport';
 
 // Proves the full form-data + binary SEND chain through the REAL Electron undici
 // fetcher: shared body-builder → FormData serialization + boundary'd Content-Type
@@ -156,6 +157,33 @@ describe('Electron fetcher — form-data + binary send', () => {
         })
       ).rejects.toThrow(/blocked|private|metadata|address/i);
       expect(proxy.connectCount()).toBe(beforeBlockedTarget);
+
+      const proxyConfig = {
+        enabled: true,
+        type: 'http' as const,
+        host: '127.0.0.1',
+        port: proxy.port,
+        resolution: `PROXY 127.0.0.1:${proxy.port}`,
+      };
+      const cloudProviderFetch = createPolicyPinnedFetch({
+        url: `${server.url}/json`,
+        proxy: proxyConfig,
+        verifySsl: true,
+        proxyTargetPolicy: { allowLocalhost: false },
+      });
+      const beforeCloudTarget = proxy.connectCount();
+      await expect(cloudProviderFetch(`${server.url}/json`)).rejects.toThrow(/localhost|blocked/i);
+      expect(proxy.connectCount()).toBe(beforeCloudTarget);
+
+      const localProviderFetch = createPolicyPinnedFetch({
+        url: `${server.url}/json`,
+        proxy: proxyConfig,
+        verifySsl: true,
+        proxyTargetPolicy: { allowLocalhost: true },
+      });
+      const localProviderResponse = await localProviderFetch(`${server.url}/json`);
+      expect(localProviderResponse.status).toBe(200);
+      await localProviderResponse.text();
     } finally {
       setManagedEnterprisePolicyForTest({ status: { state: 'unmanaged' } });
     }

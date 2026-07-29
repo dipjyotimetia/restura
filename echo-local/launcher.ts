@@ -119,7 +119,7 @@ export async function launch(opts: LaunchOptions): Promise<LaunchResult> {
     services.push({ id: 'proxy', close: h.close });
   }
   if (wanted('enterprise-proxy') && opts.certs) {
-    enterpriseProxy = await startEnterpriseProxyStack(opts.certs);
+    enterpriseProxy = await startEnterpriseProxyStack();
     services.push({ id: 'enterprise-proxy', close: enterpriseProxy.close });
   }
   if (wanted('ws')) {

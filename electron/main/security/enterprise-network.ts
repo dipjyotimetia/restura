@@ -287,9 +287,13 @@ function normalizedProxyResolution(resolution: string, requireProxy: boolean): s
 }
 
 function parseResolvedProxy(resolution: string): ResolvedEnterpriseProxy | undefined {
+  let sawDirect = false;
   for (const candidate of resolution.split(';').map((entry) => entry.trim())) {
     if (!candidate) continue;
-    if (candidate === 'DIRECT') return undefined;
+    if (candidate.toUpperCase() === 'DIRECT') {
+      sawDirect = true;
+      continue;
+    }
     const match = /^(PROXY|HTTP|HTTPS|SOCKS|SOCKS4|SOCKS5)\s+(.+)$/i.exec(candidate);
     if (!match) continue;
     const directive = match[1]!.toUpperCase();
@@ -310,6 +314,7 @@ function parseResolvedProxy(resolution: string): ResolvedEnterpriseProxy | undef
       ...(resolution.includes(';') || type === 'socks4' || type === 'socks5' ? { resolution } : {}),
     };
   }
+  if (sawDirect) return undefined;
   throw new Error('Unsupported enterprise proxy directive');
 }
 

@@ -6,6 +6,7 @@ import {
   createEnterpriseProxyAuthorizationLookup,
   createManagedCertificateVerifyProc,
   enterpriseProxyAuthorization,
+  enterpriseProxyCandidates,
   managedProxyChallengeResponse,
   resolveManagedProxyForUrl,
 } from '../security/enterprise-network';
@@ -197,6 +198,26 @@ describe('enterprise network service', () => {
       host: 'primary.corp.example',
       resolution: 'PROXY primary.corp.example:8080; SOCKS backup.corp.example:1080; DIRECT',
     });
+  });
+
+  it('expands mixed-case DIRECT candidates consistently', () => {
+    const policy = managed({ mode: 'pac', requireProxy: false });
+
+    expect(
+      enterpriseProxyCandidates(
+        {
+          enabled: true,
+          type: 'http',
+          host: 'proxy.corp.example',
+          port: 8080,
+          resolution: 'PROXY proxy.corp.example:8080; direct',
+        },
+        policy
+      )
+    ).toEqual([
+      expect.objectContaining({ type: 'http', host: 'proxy.corp.example', port: 8080 }),
+      undefined,
+    ]);
   });
 
   it('forces certificate verification, minimum TLS, and managed CA trust', () => {

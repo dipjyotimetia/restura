@@ -1,6 +1,8 @@
-import { EventEmitter } from 'node:events';
-import { rootCertificates } from 'node:tls';
+import { EventEmitter, once } from 'node:events';
+import { connect as connectTcp } from 'node:net';
+import { connect as connectTls, rootCertificates } from 'node:tls';
 import { session } from 'electron';
+import { assertProxyTargetUrlSafe } from '../security/dns-guard';
 import {
   createEnterpriseProxyAgent,
   type EnterpriseSessionProxy,
@@ -9,11 +11,13 @@ import {
   type ResolvedEnterpriseProxy,
   resolveManagedProxyForUrl,
 } from '../security/enterprise-network';
+import { getExecutionPolicy } from '../security/execution-policy';
 import {
   assertManagedDirectProtocolAllowed,
   getManagedCaCertificateBundle,
   getManagedEnterprisePolicy,
 } from '../security/managed-enterprise-policy';
+import { resolveSafeAddress } from '../security/safe-connect';
 
 const PROXY_ENV_KEYS = new Set([
   'HTTP_PROXY',
@@ -91,15 +95,44 @@ async function selectGitProxy(
   if (candidates.length === 1) return candidates[0];
   const failures: unknown[] = [];
   for (const candidate of candidates) {
-    if (!candidate) return undefined;
     try {
+      if (!candidate) {
+        const target = new URL(remoteUrl);
+        const safe = await resolveSafeAddress(remoteUrl, getExecutionPolicy().security);
+        const socket =
+          target.protocol === 'https:'
+            ? connectTls({
+                host: safe.ip,
+                port: safe.port,
+                servername: safe.host,
+                rejectUnauthorized: true,
+                minVersion: minimumTlsVersion,
+                ...(caBundle ? { ca: caBundle } : {}),
+              })
+            : connectTcp({ host: safe.ip, port: safe.port });
+        socket.setTimeout(5_000, () =>
+          socket.destroy(new Error('Managed Git direct probe timed out'))
+        );
+        try {
+          await once(socket, target.protocol === 'https:' ? 'secureConnect' : 'connect');
+        } finally {
+          socket.destroy();
+        }
+        return undefined;
+      }
       await assertProxyReachable(candidate, remoteUrl, caBundle, minimumTlsVersion, managed);
       return candidate;
     } catch (error) {
       failures.push(error);
     }
   }
-  throw new AggregateError(failures, 'No managed Git proxy candidate was reachable');
+  const reasons = failures
+    .map((failure) => (failure instanceof Error ? failure.message : String(failure)))
+    .join('; ');
+  throw new AggregateError(
+    failures,
+    `No managed Git proxy candidate was reachable${reasons ? `: ${reasons}` : ''}`
+  );
 }
 
 function gitProxyUrl(proxy: ResolvedEnterpriseProxy): URL {
@@ -119,6 +152,7 @@ export async function managedGitEnvironment(
   proxyAuthMethod?: 'basic' | 'negotiate';
   caBundle?: string;
   minimumTlsVersion?: 'TLSv1.2' | 'TLSv1.3';
+  managed: boolean;
 }> {
   const managed = getManagedEnterprisePolicy();
   const protectedEnvNames = new Set<string>();
@@ -139,12 +173,14 @@ export async function managedGitEnvironment(
         !(managed.status.state === 'managed' && PROXY_ENV_KEYS.has(key))
     )
   );
-  if (!remoteUrl || managed.status.state === 'unmanaged') return { env: safeEnv };
+  if (managed.status.state === 'unmanaged') return { env: safeEnv, managed: false };
+  if (!remoteUrl) return { env: safeEnv, managed: true };
   if (isSshRemote) {
     assertManagedDirectProtocolAllowed('git-ssh');
-    return { env: safeEnv };
+    return { env: safeEnv, managed: true };
   }
 
+  assertProxyTargetUrlSafe(remoteUrl, getExecutionPolicy().security);
   const resolvedProxy = await resolveManagedProxyForUrl(
     remoteUrl,
     electronSession ?? session.defaultSession,
@@ -158,6 +194,7 @@ export async function managedGitEnvironment(
   if (!proxy) {
     return {
       env: safeEnv,
+      managed: true,
       caBundle,
       minimumTlsVersion,
     };
@@ -169,6 +206,7 @@ export async function managedGitEnvironment(
   }
   return {
     env: safeEnv,
+    managed: true,
     proxyUrl: proxyUrl.toString(),
     proxyAuthMethod: proxy.integratedAuth ? 'negotiate' : proxy.auth ? 'basic' : undefined,
     caBundle,

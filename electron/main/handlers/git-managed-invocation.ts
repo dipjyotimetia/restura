@@ -13,6 +13,15 @@ export function normalizeGitConfigPath(filePath: string): string {
   return filePath.replaceAll('\\', '/');
 }
 
+export function quoteGitConfigValue(value: string): string {
+  const escaped = normalizeGitConfigPath(value)
+    .replaceAll('"', '\\"')
+    .replaceAll('\n', '\\n')
+    .replaceAll('\t', '\\t')
+    .replaceAll('\b', '\\b');
+  return `"${escaped}"`;
+}
+
 /** Materialize managed Git network settings without placing secrets in argv or env. */
 export async function prepareManagedGitInvocation(
   remoteUrl: string | undefined,
@@ -20,8 +29,15 @@ export async function prepareManagedGitInvocation(
 ): Promise<ManagedGitInvocation> {
   const managed = await managedGitEnvironment(remoteUrl, isSshRemote);
   const baseConfigArgs = ['-c', 'core.fsmonitor=', '-c', 'core.sshCommand='];
+  const managedConfigArgs = managed.managed
+    ? [
+        ...baseConfigArgs,
+        '-c',
+        `core.hooksPath=${process.platform === 'win32' ? 'NUL' : '/dev/null'}`,
+      ]
+    : baseConfigArgs;
   if (!managed.proxyUrl && !managed.caBundle && !managed.minimumTlsVersion) {
-    return { env: managed.env, configArgs: baseConfigArgs, cleanup: async () => undefined };
+    return { env: managed.env, configArgs: managedConfigArgs, cleanup: async () => undefined };
   }
 
   const directory = await mkdtemp(path.join(tmpdir(), 'restura-git-'));
@@ -36,15 +52,13 @@ export async function prepareManagedGitInvocation(
     if (managed.caBundle) {
       const caPath = path.join(directory, 'managed-ca.pem');
       await writeFile(caPath, managed.caBundle, { mode: 0o600 });
-      lines.push(`\tsslCAInfo = ${normalizeGitConfigPath(caPath)}`);
+      lines.push(`\tsslCAInfo = ${quoteGitConfigValue(caPath)}`);
     }
     await writeFile(configPath, `${lines.join('\n')}\n`, { mode: 0o600 });
     return {
       env: managed.env,
       configArgs: [
-        ...baseConfigArgs,
-        '-c',
-        `core.hooksPath=${process.platform === 'win32' ? 'NUL' : '/dev/null'}`,
+        ...managedConfigArgs,
         '-c',
         `include.path=${normalizeGitConfigPath(configPath)}`,
       ],

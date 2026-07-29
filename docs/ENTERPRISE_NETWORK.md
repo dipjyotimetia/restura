@@ -71,7 +71,9 @@ The schema is strict. Unknown fields invalidate the policy.
 - `system`: use the operating-system proxy configuration.
 - `fixed`: use `proxyUrl`, which must be an HTTP or HTTPS URL without inline
   credentials.
-- `pac`: use the HTTPS `pacUrl`.
+- `pac`: use the HTTP(S) `pacUrl`. Prefer HTTPS when its issuing CA is already
+  trusted by the operating system; PAC retrieval occurs during Chromium proxy
+  bootstrap, before an application-only custom CA can reliably establish trust.
 - `direct`: connect without a proxy.
 
 When `requireProxy` is true, a PAC or system result of `DIRECT` is rejected

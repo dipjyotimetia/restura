@@ -2,7 +2,7 @@ import { request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { Readable } from 'node:stream';
 import { selectCertForUrl } from '@shared/protocol/cert-matcher';
-import { assertProxyTargetUrlSafe } from './dns-guard';
+import { assertProxyTargetUrlSafe, type DnsGuardOptions } from './dns-guard';
 import { applyManagedTransportPolicy, createEnterpriseProxyAgent } from './enterprise-network';
 import { assertExecutionPolicyReady, getExecutionPolicy } from './execution-policy';
 import {
@@ -33,6 +33,7 @@ export interface PolicyTransportConfig {
   serverCipherOrder?: boolean;
   minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
   cipherSuites?: string;
+  proxyTargetPolicy?: DnsGuardOptions;
 }
 
 function proxyForUrl(url: URL): PolicyTransportProxy | undefined {
@@ -120,7 +121,10 @@ async function fetchThroughEnterpriseProxy(
 ): Promise<Response> {
   const url =
     typeof input === 'string' ? new URL(input) : input instanceof URL ? input : new URL(input.url);
-  assertProxyTargetUrlSafe(url.toString(), getExecutionPolicy().security);
+  assertProxyTargetUrlSafe(
+    url.toString(),
+    config.proxyTargetPolicy ?? getExecutionPolicy().security
+  );
   const managed = getManagedEnterprisePolicy();
   const agent = await createEnterpriseProxyAgent(config.proxy!, config, managed);
   const serialized = await serializeRequestBody(init?.body);
