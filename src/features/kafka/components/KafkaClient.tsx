@@ -2,7 +2,7 @@ import { Plug, PlugZap, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { Button } from '@/components/ui/button';
-import { Floater, ConnectionBadge, ProtoChip, VariableText } from '@/components/ui/spatial';
+import { ConnectionBadge, Floater, ProtoChip, VariableText } from '@/components/ui/spatial';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { isValidManualOffset } from '@/features/kafka/lib/kafkaConsumerValidation';
 import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
@@ -14,7 +14,7 @@ import {
 import { useKafkaConnection } from '../hooks/useKafkaConnection';
 import { KafkaAdminPanel } from './KafkaAdminPanel';
 import { KafkaConnectionForm } from './KafkaConnectionForm';
-import { KafkaConsumerPanel, type ConsumeMode } from './KafkaConsumerPanel';
+import { type ConsumeMode, KafkaConsumerPanel } from './KafkaConsumerPanel';
 import { KafkaMessagesPanel } from './KafkaMessagesPanel';
 import { KafkaProducerPanel, type ProducePayloadMode } from './KafkaProducerPanel';
 import { KAFKA_PINK } from './shared';
@@ -211,9 +211,7 @@ export function KafkaClient() {
       ? { label: 'Connected', tone: 'success' as const }
       : connection?.status === 'connecting'
         ? { label: 'Connecting', tone: 'warning' as const }
-        : connection?.status === 'error'
-          ? { label: 'Connection error', tone: 'danger' as const }
-          : { label: 'Disconnected', tone: 'neutral' as const };
+        : { label: 'Disconnected', tone: 'neutral' as const };
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden gap-2.5 p-3 bg-transparent">
@@ -294,11 +292,7 @@ export function KafkaClient() {
             <TabsTrigger value="admin">Admin</TabsTrigger>
             <TabsTrigger value="connection">Connection</TabsTrigger>
           </TabsList>
-          <KafkaMessagesPanel
-            connection={connection}
-            paused={paused}
-            onPausedChange={setPaused}
-          />
+          <KafkaMessagesPanel connection={connection} paused={paused} onPausedChange={setPaused} />
           <KafkaConnectionForm connection={connection} controller={kafkaConnection} />
           <KafkaProducerPanel
             connection={connection}

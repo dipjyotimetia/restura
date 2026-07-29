@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/select';
 import { Floater } from '@/components/ui/spatial';
 import { Switch } from '@/components/ui/switch';
-import { TabsContent } from '@/components/ui/tabs';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import type {
   KafkaAcks,
@@ -21,12 +21,13 @@ import type {
   KafkaConnection,
   KafkaPayloadEncoding,
 } from '@/features/kafka/store/useKafkaStore';
-import type { KeyValue } from '@/types';
 import { getElectronAPI } from '@/lib/shared/platform';
+import type { KeyValue } from '@/types';
 import type { KafkaRecordIpc } from '../../../../electron/types/electron-api';
 import { KAFKA_PINK } from './shared';
 
 export type ProducePayloadMode = KafkaPayloadEncoding | 'json';
+type ProducerMode = 'single' | 'batch' | 'stream' | 'transaction';
 
 const COMPRESSION: KafkaCompression[] = ['none', 'gzip', 'snappy', 'lz4', 'zstd'];
 
@@ -84,6 +85,28 @@ function PayloadModeSelect({
   );
 }
 
+function TypedRecordBatchEditor({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label className="text-xs sp-label">Typed record array</Label>
+      <Textarea
+        aria-label="Kafka typed record batch"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="font-mono text-xs"
+        rows={6}
+        placeholder='[{"topic":"orders","value":{"encoding":"utf8","data":"hello"}}]'
+      />
+    </div>
+  );
+}
+
 /** Producer controls kept separate from the connection/message controller. */
 export function KafkaProducerPanel({
   connection,
@@ -109,6 +132,7 @@ export function KafkaProducerPanel({
   setProduceTombstone,
   onPublish,
 }: KafkaProducerPanelProps) {
+  const [mode, setMode] = useState<ProducerMode>('single');
   const [batchJson, setBatchJson] = useState('[]');
   const [sessionMessage, setSessionMessage] = useState<string | null>(null);
   const [streamOpen, setStreamOpen] = useState(false);
@@ -148,7 +172,7 @@ export function KafkaProducerPanel({
             style={{ color: connection.defaultTopic ? KAFKA_PINK : undefined }}
           />
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
           <div className="space-y-2">
             <Label className="text-xs sp-label">Acks</Label>
             <Select
@@ -204,174 +228,180 @@ export function KafkaProducerPanel({
             </p>
           </div>
         </div>
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <Label className="text-xs sp-label">Key (optional)</Label>
-            <PayloadModeSelect
-              ariaLabel="Key payload format"
-              value={produceKeyEncoding}
-              onChange={setProduceKeyEncoding}
-            />
-          </div>
-          <Input
-            aria-label="Kafka message key"
-            value={produceKey}
-            onChange={(e) => setProduceKey(e.target.value)}
-            placeholder={payloadPlaceholder(produceKeyEncoding)}
-            className="h-8 text-xs font-mono"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label className="text-xs sp-label">Partition (optional)</Label>
-          <Input
-            aria-label="Kafka partition"
-            value={producePartition}
-            onChange={(e) => setProducePartition(e.target.value)}
-            inputMode="numeric"
-            placeholder="Broker-selected when blank"
-            className="h-8 text-xs font-mono"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label className="text-xs sp-label">Headers</Label>
-          <KeyValueEditor
-            items={produceHeaders}
-            itemType="Kafka header"
-            keyPlaceholder="Header name"
-            valuePlaceholder="Header value"
-            addButtonText="Add header"
-            onAdd={() =>
-              setProduceHeaders((headers) => [
-                ...headers,
-                { id: crypto.randomUUID(), key: '', value: '', enabled: true },
-              ])
-            }
-            onUpdate={(id, patch) =>
-              setProduceHeaders((headers) =>
-                headers.map((header) => (header.id === id ? { ...header, ...patch } : header))
-              )
-            }
-            onDelete={(id) =>
-              setProduceHeaders((headers) => headers.filter((header) => header.id !== id))
-            }
-          />
-        </div>
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <Label className="text-xs sp-label">Value</Label>
-            <PayloadModeSelect
-              ariaLabel="Value payload format"
-              value={produceValueEncoding}
-              onChange={setProduceValueEncoding}
-            />
-          </div>
-          <Textarea
-            aria-label="Kafka message value"
-            value={produceValue}
-            onChange={(e) => setProduceValue(e.target.value)}
-            disabled={produceTombstone}
-            placeholder={payloadPlaceholder(produceValueEncoding)}
-            className="font-mono text-xs"
-            rows={8}
-          />
-          <div className="flex items-center gap-2">
-            <Switch
-              id="kafka-produce-tombstone"
-              aria-label="Tombstone (Kafka null value)"
-              checked={produceTombstone}
-              onCheckedChange={setProduceTombstone}
-            />
-            <Label htmlFor="kafka-produce-tombstone" className="text-xs">
-              Tombstone (Kafka null value)
-            </Label>
-          </div>
-          {produceValueEncoding === 'base64' && (
-            <p className="text-sp-11 text-sp-muted">
-              Sent as exact decoded bytes. Whitespace, URL-safe Base64, and malformed padding are
-              rejected.
-            </p>
-          )}
-          {produceValueEncoding === 'json' && (
-            <p className="text-sp-11 text-sp-muted">
-              Validated locally, then sent as the exact UTF-8 text you entered.
-            </p>
-          )}
-        </div>
-        {connection.registry &&
-          [
-            {
-              label: 'Value schema ID (optional)',
-              value: produceSchemaId,
-              onChange: setProduceSchemaId,
-              placeholder: 'e.g. 1 — encode the value with this registry schema',
-              encodedHint:
-                'Value is parsed as JSON and Confluent-encoded with this schema (decoded on consume).',
-              plainHint: 'No schema ID — the value is sent as a plain string.',
-            },
-            {
-              label: 'Key schema ID (optional)',
-              value: produceKeySchemaId,
-              onChange: setProduceKeySchemaId,
-              placeholder: 'e.g. 2 — encode the key with this registry schema',
-              encodedHint:
-                'Key is parsed as JSON and Confluent-encoded with this schema (requires a key; decoded on consume).',
-              plainHint: 'No schema ID — the key is sent as a plain string.',
-            },
-          ].map((field) => (
-            <div key={field.label} className="space-y-2">
-              <Label className="text-xs sp-label">{field.label}</Label>
+        <Tabs value={mode} onValueChange={(value) => setMode(value as ProducerMode)}>
+          <TabsList className="flex h-auto w-full flex-wrap justify-start">
+            <TabsTrigger value="single">Single record</TabsTrigger>
+            <TabsTrigger value="batch">Batch</TabsTrigger>
+            <TabsTrigger value="stream">Stream</TabsTrigger>
+            <TabsTrigger value="transaction">Transaction</TabsTrigger>
+          </TabsList>
+          <TabsContent value="single" className="mt-3 space-y-3">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-xs sp-label">Key (optional)</Label>
+                <PayloadModeSelect
+                  ariaLabel="Key payload format"
+                  value={produceKeyEncoding}
+                  onChange={setProduceKeyEncoding}
+                />
+              </div>
               <Input
-                type="number"
-                min={1}
-                value={field.value}
-                onChange={(e) => field.onChange(e.target.value)}
-                placeholder={field.placeholder}
+                aria-label="Kafka message key"
+                value={produceKey}
+                onChange={(e) => setProduceKey(e.target.value)}
+                placeholder={payloadPlaceholder(produceKeyEncoding)}
                 className="h-8 text-xs font-mono"
               />
-              <p className="text-sp-11 text-sp-muted">
-                {field.value.trim() ? field.encodedHint : field.plainHint}
-              </p>
             </div>
-          ))}
-        {produceError && <p className="text-xs text-red-400">{produceError}</p>}
-        <Button
-          onClick={onPublish}
-          disabled={connection.status !== 'connected' || !connection.defaultTopic}
-        >
-          <Send className="h-3.5 w-3.5 mr-1.5" /> Publish
-        </Button>
-        <details className="rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
-          <summary className="cursor-pointer text-xs font-medium">
-            Batches, streams, and transactions
-          </summary>
-          <div className="space-y-3 pt-3">
-            <Label className="text-xs sp-label">Typed record array</Label>
-            <Textarea
-              aria-label="Kafka typed record batch"
-              value={batchJson}
-              onChange={(event) => setBatchJson(event.target.value)}
-              className="font-mono text-xs"
-              rows={6}
-              placeholder='[{"topic":"orders","value":{"encoding":"utf8","data":"hello"}}]'
-            />
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={!api || connection.status !== 'connected' || sessionBusy}
-                onClick={() =>
-                  void run(() =>
-                    api!.produceBatch({
-                      connectionId: connection.id,
-                      records: parseRecords(),
-                      acks: connection.acks,
-                      compression: connection.compression,
-                    })
+            <div className="space-y-2">
+              <Label className="text-xs sp-label">Partition (optional)</Label>
+              <Input
+                aria-label="Kafka partition"
+                value={producePartition}
+                onChange={(e) => setProducePartition(e.target.value)}
+                inputMode="numeric"
+                placeholder="Broker-selected when blank"
+                className="h-8 text-xs font-mono"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs sp-label">Headers</Label>
+              <KeyValueEditor
+                items={produceHeaders}
+                itemType="Kafka header"
+                keyPlaceholder="Header name"
+                valuePlaceholder="Header value"
+                addButtonText="Add header"
+                onAdd={() =>
+                  setProduceHeaders((headers) => [
+                    ...headers,
+                    { id: crypto.randomUUID(), key: '', value: '', enabled: true },
+                  ])
+                }
+                onUpdate={(id, patch) =>
+                  setProduceHeaders((headers) =>
+                    headers.map((header) => (header.id === id ? { ...header, ...patch } : header))
                   )
                 }
-              >
-                Publish batch
-              </Button>
+                onDelete={(id) =>
+                  setProduceHeaders((headers) => headers.filter((header) => header.id !== id))
+                }
+              />
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-xs sp-label">Value</Label>
+                <PayloadModeSelect
+                  ariaLabel="Value payload format"
+                  value={produceValueEncoding}
+                  onChange={setProduceValueEncoding}
+                />
+              </div>
+              <Textarea
+                aria-label="Kafka message value"
+                value={produceValue}
+                onChange={(e) => setProduceValue(e.target.value)}
+                disabled={produceTombstone}
+                placeholder={payloadPlaceholder(produceValueEncoding)}
+                className="font-mono text-xs"
+                rows={8}
+              />
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="kafka-produce-tombstone"
+                  aria-label="Tombstone (Kafka null value)"
+                  checked={produceTombstone}
+                  onCheckedChange={setProduceTombstone}
+                />
+                <Label htmlFor="kafka-produce-tombstone" className="text-xs">
+                  Tombstone (Kafka null value)
+                </Label>
+              </div>
+              {produceTombstone && (
+                <p className="text-sp-11 text-sp-muted">
+                  Kafka receives a null value; compacted topics commonly treat this as a delete
+                  marker.
+                </p>
+              )}
+              {produceValueEncoding === 'base64' && (
+                <p className="text-sp-11 text-sp-muted">
+                  Sent as exact decoded bytes. Whitespace, URL-safe Base64, and malformed padding
+                  are rejected.
+                </p>
+              )}
+              {produceValueEncoding === 'json' && (
+                <p className="text-sp-11 text-sp-muted">
+                  Validated locally, then sent as the exact UTF-8 text you entered.
+                </p>
+              )}
+            </div>
+            {connection.registry &&
+              [
+                {
+                  label: 'Value schema ID (optional)',
+                  value: produceSchemaId,
+                  onChange: setProduceSchemaId,
+                  placeholder: 'e.g. 1 — encode the value with this registry schema',
+                  encodedHint:
+                    'Value is parsed as JSON and Confluent-encoded with this schema (decoded on consume).',
+                  plainHint: 'No schema ID — the value is sent as a plain string.',
+                },
+                {
+                  label: 'Key schema ID (optional)',
+                  value: produceKeySchemaId,
+                  onChange: setProduceKeySchemaId,
+                  placeholder: 'e.g. 2 — encode the key with this registry schema',
+                  encodedHint:
+                    'Key is parsed as JSON and Confluent-encoded with this schema (requires a key; decoded on consume).',
+                  plainHint: 'No schema ID — the key is sent as a plain string.',
+                },
+              ].map((field) => (
+                <div key={field.label} className="space-y-2">
+                  <Label className="text-xs sp-label">{field.label}</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    value={field.value}
+                    onChange={(e) => field.onChange(e.target.value)}
+                    placeholder={field.placeholder}
+                    className="h-8 text-xs font-mono"
+                  />
+                  <p className="text-sp-11 text-sp-muted">
+                    {field.value.trim() ? field.encodedHint : field.plainHint}
+                  </p>
+                </div>
+              ))}
+            {produceError && <p className="text-xs text-red-400">{produceError}</p>}
+            <Button
+              onClick={onPublish}
+              disabled={connection.status !== 'connected' || !connection.defaultTopic}
+            >
+              <Send className="h-3.5 w-3.5 mr-1.5" /> Publish
+            </Button>
+          </TabsContent>
+          <TabsContent value="batch" className="mt-3 space-y-3">
+            <TypedRecordBatchEditor value={batchJson} onChange={setBatchJson} />
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={!api || connection.status !== 'connected' || sessionBusy}
+              onClick={() =>
+                void run(() =>
+                  api!.produceBatch({
+                    connectionId: connection.id,
+                    records: parseRecords(),
+                    acks: connection.acks,
+                    compression: connection.compression,
+                  })
+                )
+              }
+            >
+              Publish batch
+            </Button>
+          </TabsContent>
+          <TabsContent value="stream" className="mt-3 space-y-3">
+            <TypedRecordBatchEditor value={batchJson} onChange={setBatchJson} />
+            <div className="flex flex-wrap gap-2">
               <Button
                 size="sm"
                 variant="secondary"
@@ -418,6 +448,8 @@ export function KafkaProducerPanel({
                 Write batch to stream
               </Button>
             </div>
+          </TabsContent>
+          <TabsContent value="transaction" className="mt-3 space-y-3">
             <div className="space-y-2">
               <Label className="text-xs sp-label">Transactional ID</Label>
               <Input
@@ -449,6 +481,23 @@ export function KafkaProducerPanel({
                 >
                   Begin transaction
                 </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={!api || !transactionActive || sessionBusy}
+                  onClick={() =>
+                    void run(() =>
+                      api!.produceBatch({
+                        connectionId: connection.id,
+                        records: parseRecords(),
+                        acks: connection.acks,
+                        compression: connection.compression,
+                      })
+                    )
+                  }
+                >
+                  Send batch in transaction
+                </Button>
                 {(['commit', 'abort'] as const).map((action) => (
                   <Button
                     key={action}
@@ -470,9 +519,14 @@ export function KafkaProducerPanel({
                 ))}
               </div>
             </div>
-            {sessionMessage && <p className="text-sp-11 text-sp-muted">{sessionMessage}</p>}
-          </div>
-        </details>
+            <TypedRecordBatchEditor value={batchJson} onChange={setBatchJson} />
+          </TabsContent>
+        </Tabs>
+        {sessionMessage && (
+          <p className="text-sp-11 text-sp-muted" role="status">
+            {sessionMessage}
+          </p>
+        )}
       </Floater>
     </TabsContent>
   );

@@ -98,14 +98,17 @@ describe('KafkaProducerPanel', () => {
     const user = userEvent.setup();
     renderPanel();
 
-    await user.click(screen.getByText('Batches, streams, and transactions'));
+    await user.click(screen.getByRole('tab', { name: 'Batch' }));
     await user.click(screen.getByRole('button', { name: 'Publish batch' }));
 
     expect(screen.getByRole('button', { name: 'Publish batch' })).toBeDisabled();
+    await user.click(screen.getByRole('tab', { name: 'Transaction' }));
     expect(screen.getByRole('button', { name: 'Begin transaction' })).toBeDisabled();
+    await user.click(screen.getByRole('tab', { name: 'Stream' }));
     expect(screen.getByRole('button', { name: 'Open stream' })).toBeDisabled();
 
     finishBatch?.({ success: true });
+    await user.click(screen.getByRole('tab', { name: 'Transaction' }));
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Begin transaction' })).toBeEnabled()
     );
@@ -120,7 +123,7 @@ describe('KafkaProducerPanel', () => {
     const user = userEvent.setup();
     renderPanel();
 
-    await user.click(screen.getByText('Batches, streams, and transactions'));
+    await user.click(screen.getByRole('tab', { name: 'Stream' }));
     fireEvent.change(screen.getByLabelText('Kafka typed record batch'), {
       target: { value: '[{"topic":"orders","value":{"encoding":"utf8","data":"one"}}]' },
     });
@@ -131,8 +134,11 @@ describe('KafkaProducerPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Close stream' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Open stream' })).toBeEnabled());
 
+    await user.click(screen.getByRole('tab', { name: 'Transaction' }));
     await user.click(screen.getByRole('button', { name: 'Begin transaction' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Commit' })).toBeEnabled());
+    await user.click(screen.getByRole('button', { name: 'Send batch in transaction' }));
+    await waitFor(() => expect(api.produceBatch).toHaveBeenCalled());
     await user.click(screen.getByRole('button', { name: 'Commit' }));
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Begin transaction' })).toBeEnabled()
@@ -168,5 +174,22 @@ describe('KafkaProducerPanel', () => {
     expect(screen.getByText(/Key is parsed as JSON/)).toBeVisible();
     expect(screen.getByText('Malformed payload')).toBeVisible();
     expect(screen.getByLabelText('Kafka message value')).toBeDisabled();
+    expect(screen.getByText(/Kafka receives a null value/)).toBeVisible();
+  });
+
+  it('presents each producer workflow as an explicit mode', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    expect(screen.getByRole('tab', { name: 'Single record' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    await user.click(screen.getByRole('tab', { name: 'Batch' }));
+    expect(screen.getByRole('button', { name: 'Publish batch' })).toBeVisible();
+    await user.click(screen.getByRole('tab', { name: 'Stream' }));
+    expect(screen.getByRole('button', { name: 'Open stream' })).toBeVisible();
+    await user.click(screen.getByRole('tab', { name: 'Transaction' }));
+    expect(screen.getByRole('button', { name: 'Begin transaction' })).toBeVisible();
   });
 });
