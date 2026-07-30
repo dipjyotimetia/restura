@@ -36,6 +36,13 @@ describe('buildValueMap', () => {
     expect(map).toEqual({ on: '1' });
   });
 
+  it('does not substitute request variables marked secret before a SecretRef resolver exists', () => {
+    const map = buildValueMap({
+      request: [{ ...kv('token', 'plaintext'), secret: true }],
+    });
+    expect(map.token).toBeUndefined();
+  });
+
   it('never includes script-set keys (no static value)', () => {
     const map = buildValueMap({ env: [kv('a', '1')], scriptSetKeys: ['token'] });
     expect(map).toEqual({ a: '1' });
@@ -63,5 +70,11 @@ describe('buildKnownNames', () => {
 
   it('is empty for empty inputs', () => {
     expect(buildKnownNames({}).size).toBe(0);
+  });
+
+  it('does not advertise secret request variables as statically resolved', () => {
+    expect(
+      buildKnownNames({ request: [{ ...kv('token', 'plaintext'), secret: true }] }).has('token')
+    ).toBe(false);
   });
 });

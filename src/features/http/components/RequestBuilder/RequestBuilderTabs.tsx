@@ -389,7 +389,6 @@ export function RequestBuilderTabs({
               valuePlaceholder="Variable value or {{reference}}"
               addButtonText="Add variable"
               itemType="variable"
-              enableSecrets
             />
           </div>
         )}

@@ -40,6 +40,18 @@ function enabledEntries(vars: KeyValue[] | undefined): [string, string][] {
 }
 
 /**
+ * Request secrets need a main-process SecretRef resolver before they can be
+ * substituted safely. Until that boundary exists, retain them in persistence
+ * but deliberately do not expose their plaintext to renderer execution.
+ */
+function enabledRequestEntries(vars: KeyValue[] | undefined): [string, string][] {
+  if (!vars) return [];
+  return vars
+    .filter((variable) => variable.enabled && variable.key && !variable.secret)
+    .map((variable) => [variable.key, variable.value]);
+}
+
+/**
  * Merged value map for substitution. Precedence: globals < env < collection <
  * request < dataRow. Script-set keys and dynamic helpers are NOT included (no static value).
  */
@@ -47,7 +59,7 @@ export function buildValueMap(inputs: ScopeInputs): Record<string, string> {
   const out: Record<string, string> = { ...(inputs.globals ?? {}) };
   for (const [k, v] of enabledEntries(inputs.env)) out[k] = v;
   for (const [k, v] of enabledEntries(inputs.collection)) out[k] = v;
-  for (const [k, v] of enabledEntries(inputs.request)) out[k] = v;
+  for (const [k, v] of enabledRequestEntries(inputs.request)) out[k] = v;
   if (inputs.dataRow) Object.assign(out, inputs.dataRow);
   return out;
 }
@@ -61,7 +73,7 @@ export function buildKnownNames(inputs: ScopeInputs): Set<string> {
   const names = new Set<string>();
   for (const [k] of enabledEntries(inputs.env)) names.add(k);
   for (const [k] of enabledEntries(inputs.collection)) names.add(k);
-  for (const [k] of enabledEntries(inputs.request)) names.add(k);
+  for (const [k] of enabledRequestEntries(inputs.request)) names.add(k);
   for (const k of Object.keys(inputs.globals ?? {})) names.add(k);
   for (const k of Object.keys(inputs.dataRow ?? {})) names.add(k);
   for (const k of inputs.scriptSetKeys ?? []) names.add(k);
