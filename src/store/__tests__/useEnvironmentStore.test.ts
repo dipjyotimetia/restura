@@ -85,6 +85,41 @@ describe('useEnvironmentStore', () => {
         expect.objectContaining({ id: 'wrong-owner' }),
       ]);
     });
+
+    it('keeps hierarchy mutations scoped to the targeted environment and variable', () => {
+      const store = useEnvironmentStore.getState();
+      const base = store.createNewEnvironment('Shared');
+      const child = store.createNewEnvironment('Development', { parentId: base.id });
+      store.addEnvironment(base);
+      store.addEnvironment(child);
+      store.addVariable(base.id, {
+        id: 'base-url',
+        key: 'BASE_URL',
+        value: 'https://old.example',
+        enabled: true,
+      });
+      store.addVariable(base.id, {
+        id: 'untouched',
+        key: 'UNCHANGED',
+        value: 'stable',
+        enabled: true,
+      });
+
+      store.updateEnvironment(base.id, { name: 'Shared defaults' });
+      store.updateVariable(base.id, 'base-url', { value: 'https://new.example' });
+
+      expect(useEnvironmentStore.getState().environments).toEqual([
+        expect.objectContaining({
+          id: base.id,
+          name: 'Shared defaults',
+          variables: [
+            expect.objectContaining({ id: 'base-url', value: 'https://new.example' }),
+            expect.objectContaining({ id: 'untouched', value: 'stable' }),
+          ],
+        }),
+        child,
+      ]);
+    });
   });
 
   describe('persist migration', () => {
