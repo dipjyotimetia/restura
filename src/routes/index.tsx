@@ -10,6 +10,7 @@ import Sidebar from '@/components/shared/Sidebar';
 import StatusBar from '@/components/shared/StatusBar';
 import { TabBar } from '@/components/shared/TabBar';
 import TopBar from '@/components/shared/TopBar';
+import { WebNativeDownloadBanner } from '@/components/shared/WebNativeDownloadBanner';
 import WelcomeOnboarding from '@/components/shared/WelcomeOnboarding';
 import { motion } from '@/components/ui/motion';
 import { useAiChatStore } from '@/features/ai/store';
@@ -316,6 +317,7 @@ export default function Home() {
         onToggleAi={enableAi ? () => setAiPanelOpen(!aiPanelOpen) : undefined}
         onOpenBugReport={() => void handleOpenBugReport()}
       />
+      <WebNativeDownloadBanner />
 
       <div className="flex flex-1 overflow-hidden min-h-0">
         <ClientHydration
