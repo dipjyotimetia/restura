@@ -60,6 +60,52 @@ describe('useEnvironmentStore', () => {
       expect(store.removeEnvironment(base.id)).toBe(false);
       expect(useEnvironmentStore.getState().environments).toHaveLength(2);
     });
+
+    it('does not inherit from a missing or mismatched parent', () => {
+      useEnvironmentStore.setState({
+        environments: [
+          { id: 'missing-parent', name: 'Missing parent', parentId: 'gone', variables: [] },
+          { id: 'base', name: 'Base', collectionId: 'c1', variables: [] },
+          {
+            id: 'wrong-owner',
+            name: 'Wrong owner',
+            collectionId: 'c2',
+            parentId: 'base',
+            variables: [],
+          },
+        ],
+        activeEnvironmentId: 'missing-parent',
+      });
+      expect(useEnvironmentStore.getState().getActiveEnvironmentChain()).toEqual([
+        expect.objectContaining({ id: 'missing-parent' }),
+      ]);
+
+      useEnvironmentStore.getState().setActiveEnvironment('wrong-owner');
+      expect(useEnvironmentStore.getState().getActiveEnvironmentChain()).toEqual([
+        expect.objectContaining({ id: 'wrong-owner' }),
+      ]);
+    });
+  });
+
+  describe('persist migration', () => {
+    it('normalizes legacy variables and safely accepts an empty persisted state', () => {
+      const migrate = useEnvironmentStore.persist.getOptions().migrate!;
+      expect(migrate(null, 2)).toBeNull();
+      expect(
+        migrate(
+          {
+            environments: [
+              {
+                id: 'env',
+                name: 'Env',
+                variables: [{ id: 'v', key: 'x', value: '1', enabled: true }],
+              },
+            ],
+          },
+          2
+        )
+      ).toMatchObject({ environments: [{ id: 'env', variables: [{ key: 'x', value: '1' }] }] });
+    });
   });
 
   describe('addEnvironment', () => {

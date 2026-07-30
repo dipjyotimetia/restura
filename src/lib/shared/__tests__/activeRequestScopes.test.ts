@@ -4,7 +4,10 @@ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { HttpRequest } from '@/types/http';
-import { buildActiveRequestValueMap } from '../activeRequestScopes';
+import {
+  buildActiveRequestValueMap,
+  buildActiveRequestVariableResolution,
+} from '../activeRequestScopes';
 
 function makeRequest(overrides: Partial<HttpRequest> = {}): HttpRequest {
   return {
@@ -93,18 +96,16 @@ describe('buildActiveRequestValueMap', () => {
         {
           id: 'base',
           name: 'Base',
-          collectionId: 'c1',
           variables: [{ id: 'base-v', key: 'shared', value: 'base', enabled: true }],
         },
         {
           id: 'sub',
           name: 'Prod',
-          collectionId: 'c1',
           parentId: 'base',
           variables: [{ id: 'sub-v', key: 'shared', value: 'sub', enabled: true }],
         },
       ],
-      activeEnvironmentId: 'sub',
+      activeEnvironmentId: 'base',
     });
     useCollectionStore.setState({
       collections: [
@@ -153,5 +154,44 @@ describe('buildActiveRequestValueMap', () => {
     useRequestStore.getState().openTab(makeRequest(), { savedRequestId: 'item-2' });
 
     expect(buildActiveRequestValueMap()).not.toHaveProperty('host');
+  });
+
+  it('keeps winning SecretRef variables opaque while a later plaintext scope clears them', () => {
+    useEnvironmentStore.setState({
+      environments: [
+        {
+          id: 'base',
+          name: 'Base',
+          variables: [
+            {
+              id: 'secret',
+              key: 'token',
+              value: '',
+              enabled: true,
+              secretRef: { kind: 'inline', value: 'desktop-only' },
+            },
+          ],
+        },
+        {
+          id: 'sub',
+          name: 'Sub',
+          parentId: 'base',
+          variables: [{ id: 'plain', key: 'token', value: 'sub', enabled: true }],
+        },
+      ],
+      activeEnvironmentId: 'base',
+    });
+
+    expect(buildActiveRequestVariableResolution()).toEqual({
+      values: {},
+      secretVariables: { token: { kind: 'inline', value: 'desktop-only' } },
+    });
+
+    useEnvironmentStore.getState().setActiveEnvironment('sub');
+
+    expect(buildActiveRequestVariableResolution()).toEqual({
+      values: { token: 'sub' },
+      secretVariables: {},
+    });
   });
 });

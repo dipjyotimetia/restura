@@ -86,6 +86,7 @@ export function buildActiveRequestVariableResolution(): {
         secretVariables[variable.key] = variable.secretRef;
       } else {
         delete secretVariables[variable.key];
+        values[variable.key] = variable.value;
       }
     }
   }
