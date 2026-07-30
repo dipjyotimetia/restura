@@ -81,7 +81,7 @@ function extractAdditionalEnvironments(oc: OpenCollection, collectionId: string)
   return envs.slice(1).map((e) => {
     const env = e as { name: string; variables?: Array<Record<string, unknown>>; extends?: string };
     return {
-      id: ids.get(env.name) ?? uuid(),
+      id: ids.get(env.name)!,
       name: env.name,
       collectionId,
       ...(typeof env.extends === 'string' && ids.get(env.extends)
