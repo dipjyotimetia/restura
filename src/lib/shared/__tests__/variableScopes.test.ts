@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { KeyValue } from '@/types/common';
-import { buildKnownNames, buildValueMap } from '../variableScopes';
+import { buildKnownNames, buildScopedVariableResolution, buildValueMap } from '../variableScopes';
 
 const kv = (key: string, value: string, enabled = true): KeyValue => ({
   id: key,
@@ -40,6 +40,34 @@ describe('buildValueMap', () => {
 
   it('returns an empty object for empty inputs', () => {
     expect(buildValueMap({})).toEqual({});
+  });
+
+  it('applies the canonical base, sub-environment, collection and folder ordering', () => {
+    expect(
+      buildValueMap({
+        globals: { shared: 'global' },
+        baseEnvironment: [kv('shared', 'base')],
+        subEnvironment: [kv('shared', 'sub')],
+        collection: [kv('shared', 'collection')],
+        folders: [[kv('shared', 'outer')], [kv('shared', 'inner')]],
+        dataRow: { shared: 'row' },
+      })
+    ).toEqual({ shared: 'row' });
+  });
+});
+
+describe('buildScopedVariableResolution', () => {
+  it('reports the winning value and provenance without exposing a losing secret', () => {
+    const result = buildScopedVariableResolution({
+      globals: { host: 'https://global.example' },
+      baseEnvironment: [kv('host', 'https://base.example'), kv('token', 'base-secret')],
+      subEnvironment: [kv('host', 'https://sub.example')],
+      collection: [kv('host', 'https://collection.example')],
+      folders: [[kv('host', 'https://folder.example')]],
+    });
+
+    expect(result.values).toEqual({ host: 'https://folder.example', token: 'base-secret' });
+    expect(result.provenance).toEqual({ host: 'folder', token: 'base-environment' });
   });
 });
 

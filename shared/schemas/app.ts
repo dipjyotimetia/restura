@@ -27,6 +27,12 @@ export const keyValueSchema = z.object({
   description: z.string().optional(),
 });
 
+/** Variables with scope/export metadata. Request headers and params remain KeyValue. */
+export const scopedVariableSchema = keyValueSchema.extend({
+  private: z.boolean().optional(),
+  secretRef: secretValueSchema.optional(),
+});
+
 // Proxy type literal — single source of truth for the ProxyType union (reused
 // by the persisted-settings validator so the enum isn't re-declared per layer).
 export const proxyTypeSchema = z.enum(['none', 'http', 'https', 'socks4', 'socks5']);
@@ -255,7 +261,9 @@ export const mcpRequestSchema = z.object({
 export const environmentSchema = z.object({
   id: z.string(),
   name: z.string().min(1, 'Name is required'),
-  variables: z.array(keyValueSchema),
+  collectionId: z.string().optional(),
+  parentId: z.string().optional(),
+  variables: z.array(scopedVariableSchema),
 });
 
 // Contract Spec Source Schema (pointer only — spec text loads on demand)
@@ -276,7 +284,7 @@ export const collectionSchema: z.ZodType<any> = z.lazy(() =>
     description: z.string().optional(),
     items: z.array(collectionItemSchema),
     auth: authConfigSchema.optional(),
-    variables: z.array(keyValueSchema).optional(),
+    variables: z.array(scopedVariableSchema).optional(),
     contractSpec: contractSpecSourceSchema.optional(),
     preRequestScript: z.string().optional(),
     testScript: z.string().optional(),
@@ -300,6 +308,7 @@ export const collectionItemSchema: z.ZodType<any> = z.lazy(() =>
       ])
       .optional(),
     items: z.array(collectionItemSchema).optional(),
+    variables: z.array(scopedVariableSchema).optional(),
     auth: authConfigSchema.optional(),
     contractSpec: contractSpecSourceSchema.optional(),
     preRequestScript: z.string().optional(),

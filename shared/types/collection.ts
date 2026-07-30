@@ -1,13 +1,26 @@
 import type { AuthConfig } from './auth';
 import type { KeyValue } from './common';
+import type { SecretValue } from '../secrets/secret-ref';
 import type { Response } from './http';
 import type { Request } from './request';
+
+/** A variable that belongs to an environment, collection, or folder scope. */
+export interface ScopedVariable extends KeyValue {
+  /** Private variables stay local and are excluded from normal export/Git sync. */
+  private?: boolean;
+  /** Desktop-only opaque secret handle. Plaintext never enters renderer state. */
+  secretRef?: SecretValue;
+}
 
 // Environment
 export interface Environment {
   id: string;
   name: string;
-  variables: KeyValue[];
+  /** Collection which owns this hierarchy. Absent values are legacy global environments. */
+  collectionId?: string;
+  /** Optional base environment. An environment without this is a base. */
+  parentId?: string;
+  variables: ScopedVariable[];
 }
 
 // Collection Item
@@ -17,6 +30,8 @@ export interface CollectionItem {
   type: 'folder' | 'request';
   request?: Request;
   items?: CollectionItem[];
+  /** Variables inherited by requests nested beneath this folder. */
+  variables?: ScopedVariable[];
   /**
    * Folder-level default auth (only meaningful when type === 'folder').
    * Descendant requests whose own auth is 'none' inherit the nearest
@@ -66,7 +81,7 @@ export interface Collection {
   description?: string;
   items: CollectionItem[];
   auth?: AuthConfig;
-  variables?: KeyValue[];
+  variables?: ScopedVariable[];
   /**
    * Optional OpenAPI spec attached at collection scope. Consumed today by
    * mock-route generation; the contracts validator (`src/features/contracts`)

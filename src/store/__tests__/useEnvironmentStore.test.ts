@@ -31,6 +31,34 @@ describe('useEnvironmentStore', () => {
     });
   });
 
+  describe('environment hierarchy', () => {
+    it('derives a base/sub chain from the active child and keeps selection atomic', () => {
+      const store = useEnvironmentStore.getState();
+      const base = store.createNewEnvironment('Shared');
+      const child = store.createNewEnvironment('Production', { parentId: base.id, collectionId: 'c1' });
+      store.addEnvironment({ ...base, collectionId: 'c1' });
+      store.addEnvironment(child);
+
+      store.setActiveEnvironment(child.id);
+
+      expect(useEnvironmentStore.getState().getActiveEnvironmentChain()).toEqual([
+        { ...base, collectionId: 'c1' },
+        child,
+      ]);
+    });
+
+    it('does not delete a base environment while it still owns sub-environments', () => {
+      const store = useEnvironmentStore.getState();
+      const base = store.createNewEnvironment('Shared');
+      const child = store.createNewEnvironment('Dev', { parentId: base.id });
+      store.addEnvironment(base);
+      store.addEnvironment(child);
+
+      expect(store.removeEnvironment(base.id)).toBe(false);
+      expect(useEnvironmentStore.getState().environments).toHaveLength(2);
+    });
+  });
+
   describe('addEnvironment', () => {
     it('should add environment to list', () => {
       const { createNewEnvironment, addEnvironment } = useEnvironmentStore.getState();
