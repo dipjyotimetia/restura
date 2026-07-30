@@ -86,4 +86,46 @@ describe('buildActiveRequestValueMap', () => {
     expect(map.gVar).toBe('gv');
     expect('colVar' in map).toBe(false);
   });
+
+  it('includes a selected environment chain and only ancestor folder variables', () => {
+    useEnvironmentStore.setState({
+      environments: [
+        {
+          id: 'base',
+          name: 'Base',
+          collectionId: 'c1',
+          variables: [{ id: 'base-v', key: 'shared', value: 'base', enabled: true }],
+        },
+        {
+          id: 'sub',
+          name: 'Prod',
+          collectionId: 'c1',
+          parentId: 'base',
+          variables: [{ id: 'sub-v', key: 'shared', value: 'sub', enabled: true }],
+        },
+      ],
+      activeEnvironmentId: 'sub',
+    });
+    useCollectionStore.setState({
+      collections: [
+        {
+          id: 'c1',
+          name: 'C',
+          variables: [{ id: 'collection-v', key: 'shared', value: 'collection', enabled: true }],
+          items: [
+            {
+              id: 'folder',
+              name: 'Folder',
+              type: 'folder',
+              variables: [{ id: 'folder-v', key: 'shared', value: 'folder', enabled: true }],
+              items: [{ id: 'item-1', name: 'R', type: 'request', request: makeRequest() }],
+            },
+          ],
+        },
+      ],
+    });
+    useRequestStore.getState().openTab(makeRequest(), { savedRequestId: 'item-1' });
+
+    expect(buildActiveRequestValueMap()).toMatchObject({ shared: 'folder' });
+  });
 });

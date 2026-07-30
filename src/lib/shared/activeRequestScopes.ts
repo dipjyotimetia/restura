@@ -12,14 +12,48 @@ import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useRequestStore } from '@/store/useRequestStore';
+import type { CollectionItem, ScopedVariable } from '@/types';
 import { buildValueMap } from './variableScopes';
 
+export function findAncestorFolderVariables(
+  items: CollectionItem[],
+  requestId: string,
+  ancestors: ScopedVariable[][] = []
+): ScopedVariable[][] | undefined {
+  for (const item of items) {
+    if (item.id === requestId) return ancestors;
+    if (item.type === 'folder') {
+      const found = findAncestorFolderVariables(
+        item.items ?? [],
+        requestId,
+        item.variables ? [...ancestors, item.variables] : ancestors
+      );
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
 export function buildActiveRequestValueMap(): Record<string, string> {
-  const env = useEnvironmentStore.getState().getActiveEnvironment()?.variables;
+  const environmentChain = useEnvironmentStore.getState().getActiveEnvironmentChain();
+  const [baseEnvironment, subEnvironment] = environmentChain;
   const globals = useGlobalsStore.getState().vars;
   const savedRequestId = useRequestStore.getState().getActiveTab()?.savedRequestId;
   const collection = savedRequestId
     ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)?.variables
     : undefined;
-  return buildValueMap({ env, globals, collection });
+  const collectionRecord = savedRequestId
+    ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)
+    : undefined;
+  const folders =
+    savedRequestId && collectionRecord
+      ? findAncestorFolderVariables(collectionRecord.items, savedRequestId)
+      : undefined;
+  return buildValueMap({
+    globals,
+    baseEnvironment: baseEnvironment?.variables,
+    subEnvironment: subEnvironment?.variables,
+    collection,
+    folders,
+  });
 }

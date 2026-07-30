@@ -173,19 +173,7 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
       environments: [
         {
           name: 'default',
-          variables: (c.variables ?? []).map((v) => {
-            const common: { description?: string; disabled?: boolean } = {};
-            if (v.description) common.description = v.description;
-            if (v.enabled === false) common.disabled = true;
-            // Secret-flagged variables emit as the spec `secretVariable` shape
-            // — name only, no value — so a credential stashed in a collection
-            // variable never lands in the shared/committed file; the recipient
-            // fills the value in. (Structural: holds for both "redacted" and
-            // "include secrets" exports.)
-            return v.secret
-              ? { secret: true as const, name: v.key, ...common }
-              : { name: v.key, value: v.value, ...common };
-          }),
+          variables: variablesFromInternal(c.variables),
         },
       ],
     };
@@ -615,8 +603,8 @@ function rootStructureUnchanged(c: WithOC<Collection>): boolean {
   return liveNonStream === (cached.items ?? []).length && liveStream === cachedSse + cachedMcp;
 }
 
-function variablesFromInternal(variables: KeyValue[] | undefined) {
-  return (variables ?? []).map((v) => {
+function variablesFromInternal(variables: Array<KeyValue & { private?: boolean }> | undefined) {
+  return (variables ?? []).filter((v) => !v.private).map((v) => {
     const common: { description?: string; disabled?: boolean } = {};
     if (v.description) common.description = v.description;
     if (v.enabled === false) common.disabled = true;
