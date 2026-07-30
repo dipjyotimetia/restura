@@ -29,7 +29,7 @@ test('cold-start restura settings deep link opens the reviewed settings section'
     } catch {
       /* onboarding already dismissed */
     }
-    await expect(page.getByLabel('Settings')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible({ timeout: 15_000 });
     await expect(page.getByText('Security', { exact: true }).last()).toBeVisible();
   } finally {
     await app.close();
