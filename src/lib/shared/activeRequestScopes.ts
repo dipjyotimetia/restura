@@ -35,25 +35,31 @@ export function findAncestorFolderVariables(
 }
 
 export function buildActiveRequestValueMap(): Record<string, string> {
-  const environmentChain = useEnvironmentStore.getState().getActiveEnvironmentChain();
-  const [baseEnvironment, subEnvironment] = environmentChain;
-  const globals = useGlobalsStore.getState().vars;
   const savedRequestId = useRequestStore.getState().getActiveTab()?.savedRequestId;
-  const collection = savedRequestId
+  const collectionRecord = savedRequestId
     ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)?.variables
     : undefined;
-  const collectionRecord = savedRequestId
+  const collectionOwner = savedRequestId
     ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)
     : undefined;
+  const environmentChain = useEnvironmentStore
+    .getState()
+    .getActiveEnvironmentChain()
+    .filter(
+      (environment) =>
+        environment.collectionId === undefined || environment.collectionId === collectionOwner?.id
+    );
+  const [baseEnvironment, subEnvironment] = environmentChain;
+  const globals = useGlobalsStore.getState().vars;
   const folders =
-    savedRequestId && collectionRecord
-      ? findAncestorFolderVariables(collectionRecord.items, savedRequestId)
+    savedRequestId && collectionOwner
+      ? findAncestorFolderVariables(collectionOwner.items, savedRequestId)
       : undefined;
   return buildValueMap({
     globals,
     baseEnvironment: baseEnvironment?.variables,
     subEnvironment: subEnvironment?.variables,
-    collection,
+    collection: collectionRecord,
     folders,
   });
 }

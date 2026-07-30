@@ -89,7 +89,7 @@ describe('importInsomniaCollection', () => {
     expect(req.testScript).toBeUndefined();
   });
 
-  it('places the base environment in Collection.variables and surfaces sub-environments', () => {
+  it('preserves the base environment and its sub-environments', () => {
     const result = importInsomniaCollection(
       makeFixture([
         { _id: 'wrk_1', _type: 'workspace', name: 'WS' },
@@ -117,22 +117,23 @@ describe('importInsomniaCollection', () => {
       ])
     );
 
-    // Base env -> collection.variables (back-compat)
-    const baseVars = result.collection.variables ?? [];
+    // Base and children keep their Insomnia inheritance instead of flattening.
+    const base = result.environments?.find((environment) => environment.name === 'Base Env');
+    const baseVars = base?.variables ?? [];
     expect(baseVars.map((v) => v.key).sort()).toEqual(['apiVersion', 'baseUrl']);
     const baseUrlVar = baseVars.find((v) => v.key === 'baseUrl');
     expect(baseUrlVar?.value).toBe('https://api.example.com');
 
-    // Sub-environments -> standalone Environment records
-    expect(result.environments).toHaveLength(2);
+    expect(result.environments).toHaveLength(3);
     const names = result.environments!.map((e) => e.name).sort();
-    expect(names).toEqual(['Development', 'Production']);
+    expect(names).toEqual(['Base Env', 'Development', 'Production']);
     const dev = result.environments!.find((e) => e.name === 'Development');
     expect(dev?.variables[0]?.key).toBe('baseUrl');
     expect(dev?.variables[0]?.value).toBe('https://dev.example.com');
+    expect(dev?.parentId).toBe(base?.id);
   });
 
-  it('returns environments=undefined when only the base environment exists', () => {
+  it('preserves an Insomnia base environment even when it has no children', () => {
     const result = importInsomniaCollection(
       makeFixture([
         { _id: 'wrk_1', _type: 'workspace', name: 'WS' },
@@ -145,8 +146,10 @@ describe('importInsomniaCollection', () => {
         },
       ])
     );
-    expect(result.collection.variables?.[0]?.key).toBe('foo');
-    expect(result.environments).toBeUndefined();
+    expect(result.collection.variables).toBeUndefined();
+    expect(result.environments).toEqual([
+      expect.objectContaining({ name: 'Base', variables: [expect.objectContaining({ key: 'foo' })] }),
+    ]);
   });
 
   it('preserves every OAuth2 flow field (clientId, secret, tokenUrl, etc.)', () => {
@@ -362,7 +365,7 @@ describe('importInsomniaCollection — v5', () => {
     expect(folderB?.items?.[0]?.request?.name).toBe('Deep Request');
   });
 
-  it('maps base environment to collection variables and subEnvironments to standalone envs', () => {
+  it('maps base and subEnvironments to one collection-owned hierarchy', () => {
     const result = importInsomniaCollection(
       makeV5([{ name: 'R', method: 'GET', url: 'https://x' }], {
         name: 'Base',
@@ -371,13 +374,16 @@ describe('importInsomniaCollection — v5', () => {
       })
     );
 
-    expect(result.collection.variables).toEqual([
+    expect(result.collection.variables).toBeUndefined();
+    const base = result.environments?.find((environment) => environment.name === 'Base');
+    expect(base?.variables).toEqual([
       { id: expect.any(String), key: 'base_url', value: 'https://api.example.com', enabled: true },
       { id: expect.any(String), key: 'token', value: 'abc', enabled: true },
     ]);
-    expect(result.environments).toHaveLength(1);
-    expect(result.environments?.[0]?.name).toBe('Staging');
-    expect(result.environments?.[0]?.variables[0]?.value).toBe('https://staging.example.com');
+    expect(result.environments).toHaveLength(2);
+    const staging = result.environments?.find((environment) => environment.name === 'Staging');
+    expect(staging?.parentId).toBe(base?.id);
+    expect(staging?.variables[0]?.value).toBe('https://staging.example.com');
   });
 
   it('maps v5 request fields: headers, params, json body, auth, and scripts', () => {

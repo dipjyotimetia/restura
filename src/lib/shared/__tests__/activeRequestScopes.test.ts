@@ -128,4 +128,30 @@ describe('buildActiveRequestValueMap', () => {
 
     expect(buildActiveRequestValueMap()).toMatchObject({ shared: 'folder' });
   });
+
+  it('does not apply a collection-owned environment to a different collection', () => {
+    useEnvironmentStore.setState({
+      environments: [
+        {
+          id: 'owned',
+          name: 'Owned',
+          collectionId: 'c1',
+          variables: [{ id: 'owned-v', key: 'host', value: 'wrong-collection', enabled: true }],
+        },
+      ],
+      activeEnvironmentId: 'owned',
+    });
+    useCollectionStore.setState({
+      collections: [
+        {
+          id: 'c2',
+          name: 'Other',
+          items: [{ id: 'item-2', name: 'R', type: 'request', request: makeRequest() }],
+        },
+      ],
+    });
+    useRequestStore.getState().openTab(makeRequest(), { savedRequestId: 'item-2' });
+
+    expect(buildActiveRequestValueMap()).not.toHaveProperty('host');
+  });
 });
