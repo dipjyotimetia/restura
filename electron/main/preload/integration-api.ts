@@ -1,3 +1,4 @@
+import type { DeepLinkPayload } from '@shared/deep-link';
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
 import { ipcRenderer } from 'electron';
 import { EVENT, EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
@@ -6,7 +7,16 @@ import { invoke } from './invoke';
 
 type IntegrationApi = Pick<
   ElectronAPI,
-  'git' | 'mock' | 'capture' | 'secrets' | 'vault' | 'ai' | 'aiLab' | 'collections' | 'owsWorkspace'
+  | 'git'
+  | 'mock'
+  | 'capture'
+  | 'deepLinks'
+  | 'secrets'
+  | 'vault'
+  | 'ai'
+  | 'aiLab'
+  | 'collections'
+  | 'owsWorkspace'
 >;
 
 function subscribe<TPayload>(channel: string, callback: (payload: TPayload) => void): () => void {
@@ -65,6 +75,15 @@ export const integrationApi: IntegrationApi = {
     stopBridge: invoke<ElectronAPI['capture']['stopBridge']>(IPC.captureBridge.stop),
     bridgeStatus: invoke<ElectronAPI['capture']['bridgeStatus']>(IPC.captureBridge.status),
     onReceived: (callback) => subscribe(EVENT.captureReceived, callback),
+  },
+  deepLinks: {
+    subscribe: (callback) => {
+      const unsubscribe = subscribe<DeepLinkPayload>(EVENT.deepLink, callback);
+      void ipcRenderer.invoke(IPC.deepLink.ready);
+      return unsubscribe;
+    },
+    acknowledge: (id) => ipcRenderer.invoke(IPC.deepLink.acknowledge, { id }),
+    fetchImport: (url) => ipcRenderer.invoke(IPC.deepLink.fetchImport, { url }),
   },
   secrets: {
     store: invoke<ElectronAPI['secrets']['store']>(IPC.secret.store),
