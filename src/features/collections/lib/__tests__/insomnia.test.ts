@@ -148,7 +148,10 @@ describe('importInsomniaCollection', () => {
     );
     expect(result.collection.variables).toBeUndefined();
     expect(result.environments).toEqual([
-      expect.objectContaining({ name: 'Base', variables: [expect.objectContaining({ key: 'foo' })] }),
+      expect.objectContaining({
+        name: 'Base',
+        variables: [expect.objectContaining({ key: 'foo' })],
+      }),
     ]);
   });
 

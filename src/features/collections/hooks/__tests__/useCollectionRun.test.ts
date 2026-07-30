@@ -169,7 +169,9 @@ describe('buildBaseVars', () => {
       parentId: 'base',
       variables: [{ id: 'sub-v', key: 'host', value: 'sub', enabled: true }],
     };
-    expect(buildBaseVars({ host: 'global' }, [base, sub], { id: 'c', name: 'C', items: [] })).toEqual({
+    expect(
+      buildBaseVars({ host: 'global' }, [base, sub], { id: 'c', name: 'C', items: [] })
+    ).toEqual({
       host: 'sub',
     });
   });

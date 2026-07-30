@@ -35,7 +35,10 @@ describe('useEnvironmentStore', () => {
     it('derives a base/sub chain from the active child and keeps selection atomic', () => {
       const store = useEnvironmentStore.getState();
       const base = store.createNewEnvironment('Shared');
-      const child = store.createNewEnvironment('Production', { parentId: base.id, collectionId: 'c1' });
+      const child = store.createNewEnvironment('Production', {
+        parentId: base.id,
+        collectionId: 'c1',
+      });
       store.addEnvironment({ ...base, collectionId: 'c1' });
       store.addEnvironment(child);
 

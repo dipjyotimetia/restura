@@ -132,7 +132,10 @@ describe('runCollection', () => {
     };
     await runCollection(
       {
-        collection: { ...collection, variables: [{ id: 'collection-v', key: 'host', value: 'collection', enabled: true }] },
+        collection: {
+          ...collection,
+          variables: [{ id: 'collection-v', key: 'host', value: 'collection', enabled: true }],
+        },
         scopeName: 'C',
         runnables: [nested],
         baseVars: {},

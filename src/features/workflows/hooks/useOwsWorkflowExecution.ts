@@ -88,18 +88,23 @@ export function useOwsWorkflowExecution() {
           `Workflow contains GraphQL mutation steps (${mutations.map((mutation) => mutation.name).join(', ')}). Confirm before running.`
         );
       }
-      const activeEnvironment = environments.find((environment) => environment.id === activeEnvironmentId);
+      const activeEnvironment = environments.find(
+        (environment) => environment.id === activeEnvironmentId
+      );
       const baseEnvironment = activeEnvironment?.parentId
         ? environments.find(
             (environment) =>
-              environment.id === activeEnvironment.parentId && environment.collectionId === collection.id
+              environment.id === activeEnvironment.parentId &&
+              environment.collectionId === collection.id
           )
-        : activeEnvironment?.collectionId === undefined || activeEnvironment.collectionId === collection.id
+        : activeEnvironment?.collectionId === undefined ||
+            activeEnvironment.collectionId === collection.id
           ? activeEnvironment
           : undefined;
-      const subEnvironment = baseEnvironment && activeEnvironment?.id !== baseEnvironment.id
-        ? activeEnvironment
-        : undefined;
+      const subEnvironment =
+        baseEnvironment && activeEnvironment?.id !== baseEnvironment.id
+          ? activeEnvironment
+          : undefined;
       const initialVariables = buildValueMap({
         globals: globalVariables,
         baseEnvironment: baseEnvironment?.variables,

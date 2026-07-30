@@ -36,7 +36,8 @@ export function useVariableStatus(): (name: string) => VariableStatus {
     if (!active) return [];
     if (!active.parentId) return [active];
     const parent = environments.find(
-      (environment) => environment.id === active.parentId && environment.collectionId === active.collectionId
+      (environment) =>
+        environment.id === active.parentId && environment.collectionId === active.collectionId
     );
     return parent ? [parent, active] : [active];
   }, [activeEnvironmentId, environments]);

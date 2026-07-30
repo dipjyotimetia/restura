@@ -604,14 +604,16 @@ function rootStructureUnchanged(c: WithOC<Collection>): boolean {
 }
 
 function variablesFromInternal(variables: Array<KeyValue & { private?: boolean }> | undefined) {
-  return (variables ?? []).filter((v) => !v.private).map((v) => {
-    const common: { description?: string; disabled?: boolean } = {};
-    if (v.description) common.description = v.description;
-    if (v.enabled === false) common.disabled = true;
-    return v.secret
-      ? { secret: true as const, name: v.key, ...common }
-      : { name: v.key, value: v.value, ...common };
-  });
+  return (variables ?? [])
+    .filter((v) => !v.private)
+    .map((v) => {
+      const common: { description?: string; disabled?: boolean } = {};
+      if (v.description) common.description = v.description;
+      if (v.enabled === false) common.disabled = true;
+      return v.secret
+        ? { secret: true as const, name: v.key, ...common }
+        : { name: v.key, value: v.value, ...common };
+    });
 }
 
 function rootMetadataUnchanged(c: WithOC<Collection>): boolean {

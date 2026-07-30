@@ -125,7 +125,8 @@ export function useCollectionRun() {
       useEnvironmentStore.getState().environments.find((e) => e.id === args.environmentId) ?? null;
     const allEnvironments = useEnvironmentStore.getState().environments;
     const baseEnvironment = selectedEnvironment?.parentId
-      ? allEnvironments.find((environment) => environment.id === selectedEnvironment.parentId) ?? null
+      ? (allEnvironments.find((environment) => environment.id === selectedEnvironment.parentId) ??
+        null)
       : selectedEnvironment;
     const environmentChain =
       baseEnvironment && selectedEnvironment && baseEnvironment.id !== selectedEnvironment.id
@@ -133,7 +134,11 @@ export function useCollectionRun() {
         : baseEnvironment
           ? [baseEnvironment]
           : [];
-    const baseVars = buildBaseVars(useGlobalsStore.getState().vars, environmentChain, args.collection);
+    const baseVars = buildBaseVars(
+      useGlobalsStore.getState().vars,
+      environmentChain,
+      args.collection
+    );
     const environmentVars = buildValueMap({
       baseEnvironment: environmentChain[0]?.variables,
       subEnvironment: environmentChain[1]?.variables,
