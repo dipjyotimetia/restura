@@ -25,4 +25,47 @@ describe('exportToOpenCollection', () => {
     const yamlOut = exportToOpenCollection(original.collection);
     expect(yamlOut).toContain('x-restura-sse');
   });
+
+  it('roundtrips collection-owned environment hierarchy without private values', () => {
+    const collection = {
+      id: 'collection-1',
+      name: 'Hierarchy',
+      items: [],
+      variables: [
+        {
+          id: 'collection-private',
+          key: 'COLLECTION_SECRET',
+          value: 'nope',
+          enabled: true,
+          private: true,
+        },
+      ],
+    };
+    const yamlOut = exportToOpenCollection(collection, [
+      {
+        id: 'base',
+        name: 'Base',
+        collectionId: 'collection-1',
+        variables: [{ id: 'base-var', key: 'HOST', value: 'https://api.example', enabled: true }],
+      },
+      {
+        id: 'child',
+        name: 'Child',
+        collectionId: 'collection-1',
+        parentId: 'base',
+        variables: [
+          { id: 'child-private', key: 'TOKEN', value: 'nope', enabled: true, private: true },
+        ],
+      },
+    ]);
+    expect(yamlOut).toContain('extends: "Base"');
+    expect(yamlOut).not.toContain('nope');
+    const imported = importOpenCollection(yaml.load(yamlOut));
+    const base = imported.environments.find((environment) => environment.name === 'Base');
+    const child = imported.environments.find((environment) => environment.name === 'Child');
+    expect(child).toMatchObject({ parentId: base?.id });
+    expect(child?.variables).toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'TOKEN', private: true, value: '' })])
+    );
+  });
 });

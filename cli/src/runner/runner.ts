@@ -65,6 +65,11 @@ export async function runCollection(
       collectionVars[v.key] = v.value;
     }
   }
+  assertCliSecretsAvailable(
+    loaded.requests,
+    baseVars,
+    new Set(loaded.meta.privateVariableNames ?? [])
+  );
   const applyCollectionMutations = (mutations: Record<string, string | null> | undefined) =>
     applyVarMutations(collectionVars, mutations);
 
@@ -281,4 +286,28 @@ export async function runCollection(
   };
   await reporter.onEnd(final);
   return final;
+}
+
+function assertCliSecretsAvailable(
+  requests: readonly { request: unknown }[],
+  vars: Record<string, string>,
+  privateNames: ReadonlySet<string>
+): void {
+  for (const { request } of requests) {
+    const text = JSON.stringify(request);
+    for (const match of text.matchAll(/\{\{\s*([^{}\s]+)\s*\}\}/g)) {
+      const name = match[1];
+      if (!name || name.startsWith('$')) continue;
+      if (name.startsWith('handle:')) {
+        throw new Error(
+          'SecretRef handles are unavailable in the CLI; provide the value with --env.'
+        );
+      }
+      if (privateNames.has(name) && vars[name] === undefined) {
+        throw new Error(
+          `Private variable "${name}" is unavailable in the CLI; provide it with --env.`
+        );
+      }
+    }
+  }
 }

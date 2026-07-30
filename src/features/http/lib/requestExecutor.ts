@@ -1,5 +1,6 @@
 import type { ProxyBodyType } from '@shared/protocol/body-builder';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
+import type { SecretValue } from '@/lib/shared/secretRef';
 import { Cookie } from 'tough-cookie';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -67,6 +68,8 @@ export interface RequestExecutionResult {
 export interface RequestExecutorOptions {
   request: HttpRequest;
   envVars: Record<string, string>;
+  /** Opaque SecretRef values that may cross only to Electron main for wire substitution. */
+  secretVariables?: Record<string, SecretValue>;
   globalSettings: AppSettings;
   resolveVariables: (text: string, vars?: Record<string, string>) => string;
   /** Cancels scripts and transport work owned by the caller. */
@@ -173,7 +176,7 @@ export function buildDesktopTransportConfig(
 // against the exact bytes it sends. Bearer / Basic / API-key / OAuth2 go
 // through `applyAuthHeaders` because they don't depend on body bytes.
 async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<BuiltSpec> {
-  const { request, envVars, globalSettings, resolveVariables } = options;
+  const { request, envVars, globalSettings, resolveVariables, secretVariables } = options;
 
   const resolveLocal = (text: string) => {
     let result = text;
@@ -283,7 +286,11 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
       : {}),
   };
 
-  const desktop = buildDesktopTransportConfig(effectiveSettings, globalSettings, resolvedUrl);
+  const baseDesktop = buildDesktopTransportConfig(effectiveSettings, globalSettings, resolvedUrl);
+  const desktop =
+    secretVariables && Object.keys(secretVariables).length > 0
+      ? { ...(baseDesktop ?? {}), secretVariables }
+      : baseDesktop;
 
   return {
     spec,

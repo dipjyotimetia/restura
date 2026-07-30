@@ -39,7 +39,8 @@ export function importOpenCollection(data: unknown): ImportResult {
   }
   const oc = result.data;
   const collection = ocToInternal(oc) as Collection;
-  const environments = extractAdditionalEnvironments(oc);
+  const environments = extractAdditionalEnvironments(oc, collection.id);
+  applyPrivateVariables(collection, environments, oc);
 
   const warnings: ImportWarning[] = [];
   const bodyCount = getAndResetUnrecognizedBodyCount();
@@ -72,17 +73,48 @@ export function importOpenCollectionDetailed(data: unknown): OpenCollectionImpor
  * already merged into Collection.variables for back-compat). Each becomes
  * a standalone Environment record the caller pushes to useEnvironmentStore.
  */
-function extractAdditionalEnvironments(oc: OpenCollection): Environment[] {
+function extractAdditionalEnvironments(oc: OpenCollection, collectionId: string): Environment[] {
   const envs = oc.config?.environments ?? [];
   if (envs.length <= 1) return [];
+  const ids = new Map<string, string>();
+  for (const environment of envs.slice(1)) ids.set(environment.name, uuid());
   return envs.slice(1).map((e) => {
-    const env = e as { name: string; variables?: Array<Record<string, unknown>> };
+    const env = e as { name: string; variables?: Array<Record<string, unknown>>; extends?: string };
     return {
-      id: uuid(),
+      id: ids.get(env.name) ?? uuid(),
       name: env.name,
+      collectionId,
+      ...(typeof env.extends === 'string' && ids.get(env.extends)
+        ? { parentId: ids.get(env.extends) }
+        : {}),
       // Shared mapper keeps every variable and preserves secret vars value-less
       // (a presence check like `'secret' in v` would wrongly drop `secret:false`).
       variables: (env.variables ?? []).map(ocVariableToKeyValue),
     };
   });
+}
+
+function applyPrivateVariables(
+  collection: Collection,
+  environments: Environment[],
+  oc: OpenCollection
+): void {
+  const entries = (oc.extensions as Record<string, unknown> | undefined)?.[
+    'x-restura-private-variables'
+  ];
+  if (!Array.isArray(entries)) return;
+  const byName = new Map(environments.map((environment) => [environment.name, environment]));
+  for (const entry of entries) {
+    const value = entry as { environment?: unknown; names?: unknown };
+    if (typeof value.environment !== 'string' || !Array.isArray(value.names)) continue;
+    const target =
+      value.environment === 'default'
+        ? (collection.variables ?? (collection.variables = []))
+        : byName.get(value.environment)?.variables;
+    if (!target) continue;
+    for (const name of value.names) {
+      if (typeof name !== 'string' || target.some((variable) => variable.key === name)) continue;
+      target.push({ id: uuid(), key: name, value: '', enabled: true, private: true });
+    }
+  }
 }

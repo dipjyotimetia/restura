@@ -18,4 +18,13 @@ describe('resolveVarsDeep', () => {
   it('runs user vars before dynamic helpers (no double-substitution issues)', () => {
     expect(resolveVarsDeep('{{GREETING}} {{$randomInt}}', { GREETING: 'Hi' })).toMatch(/^Hi \d+$/);
   });
+
+  it('fails clearly for unavailable private values and SecretRef handles', () => {
+    expect(() => resolveVarsDeep('{{TOKEN}}', {}, new Set(['TOKEN']))).toThrow(
+      'Private variable "TOKEN" is unavailable in the CLI'
+    );
+    expect(() => resolveVarsDeep('{{handle:desktop-token}}', {})).toThrow(
+      'SecretRef handles are unavailable in the CLI'
+    );
+  });
 });

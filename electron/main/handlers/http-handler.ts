@@ -206,6 +206,7 @@ export interface HttpRequestConfig {
   serverCipherOrder?: boolean;
   minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
   cipherSuites?: string;
+  secretVariables?: Record<string, SecretValue>;
   /** Main-process-only cancellation signal; never crosses IPC. */
   signal?: AbortSignal;
 }
@@ -950,6 +951,7 @@ async function makeHttpRequest(
   config: HttpRequestConfig,
   redirectCount = 0
 ): Promise<HttpResponse> {
+  config = materializeSecretVariables(config);
   let policyConfig: HttpRequestConfig;
   try {
     policyConfig = resolveHttpExecutionPolicy(config);
@@ -1169,6 +1171,43 @@ async function makeHttpRequest(
   }
 
   return interceptorRegistry.runResponse(rawResult, interceptedConfig);
+}
+
+/** Materialize opaque SecretRef variables only in Electron main, before the wire request. */
+function materializeSecretVariables(config: HttpRequestConfig): HttpRequestConfig {
+  if (!config.secretVariables || Object.keys(config.secretVariables).length === 0) return config;
+  const values: Record<string, string> = {};
+  for (const [name, value] of Object.entries(config.secretVariables)) {
+    const plaintext = unwrapSecretValueMain(value);
+    if (plaintext === undefined)
+      throw new Error(`Secret variable "${name}" is unavailable on this desktop device`);
+    values[name] = plaintext;
+  }
+  const replace = (text: string) =>
+    text.replace(/\{\{\s*([^{}\s]+)\s*\}\}/g, (match, name: string) => values[name] ?? match);
+  return {
+    ...config,
+    url: replace(config.url),
+    ...(config.headers
+      ? {
+          headers: Object.fromEntries(
+            Object.entries(config.headers).map(([k, v]) => [k, replace(v)])
+          ),
+        }
+      : {}),
+    ...(config.params
+      ? {
+          params: Object.fromEntries(
+            Object.entries(config.params).map(([k, v]) => [k, replace(v)])
+          ),
+        }
+      : {}),
+    ...(config.data !== undefined ? { data: replace(config.data) } : {}),
+    ...(config.formData
+      ? { formData: config.formData.map((field) => ({ ...field, value: replace(field.value) })) }
+      : {}),
+    secretVariables: undefined,
+  };
 }
 
 export function registerHttpHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
