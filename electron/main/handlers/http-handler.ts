@@ -1174,7 +1174,7 @@ async function makeHttpRequest(
 }
 
 /** Materialize opaque SecretRef variables only in Electron main, before the wire request. */
-function materializeSecretVariables(config: HttpRequestConfig): HttpRequestConfig {
+export function materializeSecretVariables(config: HttpRequestConfig): HttpRequestConfig {
   if (!config.secretVariables || Object.keys(config.secretVariables).length === 0) return config;
   const values: Record<string, string> = {};
   for (const [name, value] of Object.entries(config.secretVariables)) {
