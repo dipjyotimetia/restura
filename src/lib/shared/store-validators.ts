@@ -1,6 +1,6 @@
 import { AgentSuiteSchema } from '@shared/agent-lab';
-import { z } from 'zod';
 import { AgentTelemetryConfigSchema } from '@shared/agent-lab/telemetry-config';
+import { z } from 'zod';
 import { AiLabReportEnvelopeSchema } from '@/features/ai-lab/run-engine/reportEnvelope';
 import type { Collection, Environment, Request, SpatialAccent } from '@/types';
 import { SPATIAL_ACCENT_PRESETS } from '@/types';
@@ -696,6 +696,7 @@ export const appSettingsSchema = z
       })
       .optional()
       .catch(undefined),
+    nativeAppDownloadBannerDismissedUntil: z.number().int().positive().optional().catch(undefined),
   })
   .passthrough();
 
