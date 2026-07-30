@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { materializeSecretVariables } from '../handlers/http-handler';
+import { materializeSecretVariables } from '../security/secret-variable-materializer';
 
 describe('materializeSecretVariables', () => {
   it('resolves opaque values only at the Electron wire boundary', () => {
