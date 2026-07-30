@@ -8,18 +8,87 @@
  * mutations are layered on top by the caller at send time.
  */
 
+import type { SecretValue } from '@/lib/shared/secretRef';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useRequestStore } from '@/store/useRequestStore';
+import type { CollectionItem, ScopedVariable } from '@/types';
 import { buildValueMap } from './variableScopes';
 
+export function findAncestorFolderVariables(
+  items: CollectionItem[],
+  requestId: string,
+  ancestors: ScopedVariable[][] = []
+): ScopedVariable[][] | undefined {
+  for (const item of items) {
+    if (item.id === requestId) return ancestors;
+    if (item.type === 'folder') {
+      const found = findAncestorFolderVariables(
+        item.items ?? [],
+        requestId,
+        item.variables ? [...ancestors, item.variables] : ancestors
+      );
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
 export function buildActiveRequestValueMap(): Record<string, string> {
-  const env = useEnvironmentStore.getState().getActiveEnvironment()?.variables;
-  const globals = useGlobalsStore.getState().vars;
+  return buildActiveRequestVariableResolution().values;
+}
+
+/** Values safe for the renderer plus opaque desktop-only SecretRef handles. */
+export function buildActiveRequestVariableResolution(): {
+  values: Record<string, string>;
+  secretVariables: Record<string, SecretValue>;
+} {
   const savedRequestId = useRequestStore.getState().getActiveTab()?.savedRequestId;
-  const collection = savedRequestId
+  const collectionRecord = savedRequestId
     ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)?.variables
     : undefined;
-  return buildValueMap({ env, globals, collection });
+  const collectionOwner = savedRequestId
+    ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)
+    : undefined;
+  const environmentChain = useEnvironmentStore
+    .getState()
+    .getActiveEnvironmentChain()
+    .filter(
+      (environment) =>
+        environment.collectionId === undefined || environment.collectionId === collectionOwner?.id
+    );
+  const [baseEnvironment, subEnvironment] = environmentChain;
+  const globals = useGlobalsStore.getState().vars;
+  const folders =
+    savedRequestId && collectionOwner
+      ? findAncestorFolderVariables(collectionOwner.items, savedRequestId)
+      : undefined;
+  const values = buildValueMap({
+    globals,
+    baseEnvironment: baseEnvironment?.variables,
+    subEnvironment: subEnvironment?.variables,
+    collection: collectionRecord,
+    folders,
+  });
+  const secretVariables: Record<string, SecretValue> = {};
+  const scopes = [
+    baseEnvironment?.variables,
+    subEnvironment?.variables,
+    collectionRecord,
+    ...(folders ?? []),
+  ];
+  for (const scope of scopes) {
+    for (const variable of scope ?? []) {
+      if (!variable.enabled || !variable.key) continue;
+      if (variable.secretRef !== undefined) {
+        delete values[variable.key];
+        secretVariables[variable.key] = variable.secretRef;
+      } else {
+        delete secretVariables[variable.key];
+        values[variable.key] = variable.value;
+      }
+    }
+  }
+  return { values, secretVariables };
 }

@@ -7,6 +7,7 @@ import type {
   AuthConfig,
   Collection,
   CollectionItem,
+  Environment,
   HttpRequest,
   InsomniaResource,
   PostmanAuth,
@@ -684,9 +685,58 @@ export function downloadJSON(data: unknown, filename: string): void {
  * document. Uses the `_oc` passthrough bag from the importer to emit
  * byte-stable YAML when nothing has been edited.
  */
-export function exportToOpenCollection(collection: Collection): string {
+export function exportToOpenCollection(
+  collection: Collection,
+  environments: Environment[] = []
+): string {
   const oc = internalToOC(collection as Collection & { _oc?: unknown });
+  const owned = environments.filter((environment) => environment.collectionId === collection.id);
+  if (owned.length > 0 || hasPrivateVariables(collection.variables)) {
+    const names = new Map(owned.map((environment) => [environment.id, environment.name]));
+    const existing = oc.config?.environments?.[0] ?? { name: 'default' };
+    const exported = owned.map((environment) => ({
+      name: environment.name,
+      ...(environment.parentId && names.get(environment.parentId)
+        ? { extends: names.get(environment.parentId) }
+        : {}),
+      ...(portableVariables(environment.variables).length > 0
+        ? { variables: portableVariables(environment.variables) }
+        : {}),
+    }));
+    oc.config = { ...(oc.config ?? {}), environments: [existing, ...exported] };
+    const privateVariables = [
+      privateVariableEntry('default', collection.variables),
+      ...owned.map((environment) => privateVariableEntry(environment.name, environment.variables)),
+    ].filter((entry): entry is { environment: string; names: string[] } => entry !== undefined);
+    const extensions = { ...(oc.extensions ?? {}) } as Record<string, unknown>;
+    if (privateVariables.length > 0) extensions['x-restura-private-variables'] = privateVariables;
+    else delete extensions['x-restura-private-variables'];
+    if (Object.keys(extensions).length > 0) oc.extensions = extensions;
+  }
   return serializeOpenCollectionYAML({ ...oc, bundled: true });
+}
+
+function portableVariables(
+  variables: Collection['variables']
+): Array<{ name: string; value?: string; secret?: true }> {
+  return (variables ?? [])
+    .filter((variable) => !variable.private)
+    .map((variable) =>
+      variable.secret || variable.secretRef
+        ? { name: variable.key, secret: true as const }
+        : { name: variable.key, value: variable.value }
+    );
+}
+
+function hasPrivateVariables(variables: Collection['variables']): boolean {
+  return (variables ?? []).some((variable) => variable.private);
+}
+
+function privateVariableEntry(environment: string, variables: Collection['variables']) {
+  const names = (variables ?? [])
+    .filter((variable) => variable.private)
+    .map((variable) => variable.key);
+  return names.length > 0 ? { environment, names } : undefined;
 }
 
 export function downloadText(content: string, filename: string, mimeType = 'text/plain'): void {

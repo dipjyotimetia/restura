@@ -20,6 +20,31 @@ function req(id: string, name: string, pre?: string, test?: string): CollectionI
 }
 
 describe('flattenRunnables — effective script combining', () => {
+  it('threads outer-to-inner folder variables to each descendant request', () => {
+    const items: CollectionItem[] = [
+      {
+        id: 'outer',
+        name: 'Outer',
+        type: 'folder',
+        variables: [{ id: 'outer-v', key: 'host', value: 'outer', enabled: true }],
+        items: [
+          {
+            id: 'inner',
+            name: 'Inner',
+            type: 'folder',
+            variables: [{ id: 'inner-v', key: 'host', value: 'inner', enabled: true }],
+            items: [req('r1', 'R')],
+          },
+        ],
+      },
+    ];
+
+    expect(flattenRunnables(items)[0]?.folderVariables).toEqual([
+      [{ id: 'outer-v', key: 'host', value: 'outer', enabled: true }],
+      [{ id: 'inner-v', key: 'host', value: 'inner', enabled: true }],
+    ]);
+  });
+
   it('combines collection -> folder -> request pre-request scripts in order', () => {
     const items: CollectionItem[] = [
       {

@@ -5,7 +5,7 @@ import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { applyDynamicVariables } from '@/lib/shared/dynamicVariables';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
-import type { Environment, KeyValue } from '@/types';
+import type { Environment, KeyValue, ScopedVariable } from '@/types';
 
 interface EnvironmentState {
   environments: Environment[];
@@ -20,8 +20,12 @@ interface EnvironmentState {
   updateVariable: (environmentId: string, variableId: string, updates: Partial<KeyValue>) => void;
   removeVariable: (environmentId: string, variableId: string) => void;
   getActiveEnvironment: () => Environment | null;
+  getActiveEnvironmentChain: () => Environment[];
   resolveVariables: (text: string) => string;
-  createNewEnvironment: (name: string) => Environment;
+  createNewEnvironment: (
+    name: string,
+    scope?: Pick<Environment, 'collectionId' | 'parentId'>
+  ) => Environment;
 }
 
 export const useEnvironmentStore = create<EnvironmentState>()(
@@ -42,11 +46,13 @@ export const useEnvironmentStore = create<EnvironmentState>()(
           ),
         })),
 
-      removeEnvironment: (id) =>
-        set((state) => ({
+      removeEnvironment: (id) => {
+        if (get().environments.some((environment) => environment.parentId === id)) return false;
+        return set((state) => ({
           environments: state.environments.filter((env) => env.id !== id),
           activeEnvironmentId: state.activeEnvironmentId === id ? null : state.activeEnvironmentId,
-        })),
+        }));
+      },
 
       setActiveEnvironment: (id) => set({ activeEnvironmentId: id }),
 
@@ -89,6 +95,18 @@ export const useEnvironmentStore = create<EnvironmentState>()(
         return state.environments.find((env) => env.id === state.activeEnvironmentId) || null;
       },
 
+      getActiveEnvironmentChain: () => {
+        const state = get();
+        const active = state.activeEnvironmentId
+          ? state.environments.find((environment) => environment.id === state.activeEnvironmentId)
+          : undefined;
+        if (!active) return [];
+        if (!active.parentId) return [active];
+        const parent = state.environments.find((environment) => environment.id === active.parentId);
+        // Malformed persisted data never receives a partial inheritance chain.
+        return parent && parent.collectionId === active.collectionId ? [parent, active] : [active];
+      },
+
       resolveVariables: (text: string) => {
         // No `{{token}}` anywhere — nothing to substitute (env, globals, or
         // dynamics all require braces), so skip the regex work entirely. This
@@ -127,16 +145,29 @@ export const useEnvironmentStore = create<EnvironmentState>()(
         return applyDynamicVariables(resolved);
       },
 
-      createNewEnvironment: (name) => ({
+      createNewEnvironment: (name, scope) => ({
         id: uuidv4(),
         name,
         variables: [],
+        ...(scope?.collectionId !== undefined ? { collectionId: scope.collectionId } : {}),
+        ...(scope?.parentId !== undefined ? { parentId: scope.parentId } : {}),
       }),
     }),
     {
       name: 'environment-storage',
-      version: 2,
+      version: 3,
       storage: dexieStorageAdapters.environments(),
+      migrate: (persistedState) => {
+        const state = persistedState as Partial<EnvironmentState> | null;
+        if (!state?.environments) return state as EnvironmentState;
+        return {
+          ...state,
+          environments: state.environments.map((environment) => ({
+            ...environment,
+            variables: environment.variables.map((variable): ScopedVariable => ({ ...variable })),
+          })),
+        } as EnvironmentState;
+      },
       onRehydrateStorage: () => (state, error) => {
         if (error) {
           console.error('Environment store rehydration failed:', error);

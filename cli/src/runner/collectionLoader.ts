@@ -1,13 +1,6 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { extname, join, relative } from 'node:path';
-import * as yaml from 'js-yaml';
-import { v4 as uuidv4 } from 'uuid';
 import { isConfiguredAuth, resolveEffectiveAuth } from '@shared/auth/inheritance';
-import {
-  loadCollectionFromDir,
-  loadCollectionFromFile,
-} from '@shared/opencollection/node/fs-reader';
-import { ocToInternal } from '@shared/opencollection/to-internal';
 import {
   fileCollectionMetaSchema,
   fileGrpcRequestSchema,
@@ -16,6 +9,11 @@ import {
   fileSseRequestSchema,
   getRequestTypeFromFilename,
 } from '@shared/collections/legacy-file-schema';
+import {
+  loadCollectionFromDir,
+  loadCollectionFromFile,
+} from '@shared/opencollection/node/fs-reader';
+import { ocToInternal } from '@shared/opencollection/to-internal';
 import type {
   AuthConfig,
   Collection,
@@ -25,6 +23,8 @@ import type {
   McpRequest,
   SseRequest,
 } from '@shared/types';
+import * as yaml from 'js-yaml';
+import { v4 as uuidv4 } from 'uuid';
 
 export interface LoadedRequest {
   /** Absolute path to the source file when loaded from a directory layout. */
@@ -44,6 +44,7 @@ export interface LoadedCollection {
     name: string;
     description?: string;
     variables?: Array<{ key: string; value: string; enabled?: boolean }>;
+    privateVariableNames?: string[];
   };
   requests: LoadedRequest[];
   /** Format detected at load time — used for deprecation warnings and reporters. */
@@ -132,6 +133,16 @@ function extractMeta(c: Collection): LoadedCollection['meta'] {
       };
       if (v.enabled !== undefined) item.enabled = v.enabled;
       return item;
+    });
+  }
+  const privateVariables = (c as Collection & { _oc?: { extensions?: Record<string, unknown> } })
+    ._oc?.extensions?.['x-restura-private-variables'];
+  if (Array.isArray(privateVariables)) {
+    out.privateVariableNames = privateVariables.flatMap((entry) => {
+      const names = (entry as { names?: unknown }).names;
+      return Array.isArray(names)
+        ? names.filter((name): name is string => typeof name === 'string')
+        : [];
     });
   }
   return out;

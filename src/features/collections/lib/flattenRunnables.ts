@@ -1,5 +1,5 @@
 import { isConfiguredAuth } from '@/features/auth/lib/authInheritance';
-import type { AuthConfig, CollectionItem, Request } from '@/types';
+import type { AuthConfig, CollectionItem, Request, ScopedVariable } from '@/types';
 
 /**
  * A single executable leaf extracted from a collection tree, preserving the
@@ -22,6 +22,8 @@ export interface RunnableRequest {
   name: string;
   /** Folder names from the collection root to this request's parent. */
   folderPath?: string[];
+  /** Folder variables in outermost-to-innermost order. */
+  folderVariables?: ScopedVariable[][];
   request: Request;
   inheritedAuth?: AuthConfig;
 }
@@ -63,7 +65,8 @@ function flatten(
   inheritedPre: Array<string | undefined>,
   inheritedTest: Array<string | undefined>,
   inheritedAuth: AuthConfig | undefined,
-  folderPath: string[]
+  folderPath: string[],
+  folderVariables: ScopedVariable[][]
 ): RunnableRequest[] {
   const out: RunnableRequest[] = [];
   for (const item of items) {
@@ -74,6 +77,7 @@ function flatten(
         folderPath,
         request: withEffectiveScripts(item.request, inheritedPre, inheritedTest),
         inheritedAuth,
+        ...(folderVariables.length > 0 ? { folderVariables } : {}),
       });
     } else if (item.items) {
       out.push(
@@ -82,7 +86,8 @@ function flatten(
           [...inheritedPre, item.preRequestScript],
           [...inheritedTest, item.testScript],
           effectiveFolderAuth(item, inheritedAuth),
-          [...folderPath, item.name]
+          [...folderPath, item.name],
+          item.variables ? [...folderVariables, item.variables] : folderVariables
         )
       );
     }
@@ -135,7 +140,7 @@ export function flattenRunnables(
   const rootPre: Array<string | undefined> = [rootScripts?.preRequestScript];
   const rootTest: Array<string | undefined> = [rootScripts?.testScript];
 
-  if (!folderId) return flatten(items, rootPre, rootTest, rootAuth, []);
+  if (!folderId) return flatten(items, rootPre, rootTest, rootAuth, [], []);
 
   const path = findFolderPath(items, folderId);
   if (!path || path.length === 0) return [];
@@ -154,6 +159,7 @@ export function flattenRunnables(
     [...rootPre, ...path.map((f) => f.preRequestScript)],
     [...rootTest, ...path.map((f) => f.testScript)],
     pathAuth,
-    path.map((folder) => folder.name)
+    path.map((folder) => folder.name),
+    path.flatMap((folder) => (folder.variables ? [folder.variables] : []))
   );
 }

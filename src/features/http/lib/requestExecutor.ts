@@ -24,6 +24,7 @@ import { selectCertForUrl } from '@/lib/shared/certMatcher';
 import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { makeRendererJudge } from '@/lib/shared/judgeBridge';
+import type { SecretValue } from '@/lib/shared/secretRef';
 import {
   type DesktopTransportConfig,
   executeProxiedRequest,
@@ -67,6 +68,8 @@ export interface RequestExecutionResult {
 export interface RequestExecutorOptions {
   request: HttpRequest;
   envVars: Record<string, string>;
+  /** Opaque SecretRef values that may cross only to Electron main for wire substitution. */
+  secretVariables?: Record<string, SecretValue>;
   globalSettings: AppSettings;
   resolveVariables: (text: string, vars?: Record<string, string>) => string;
   /** Cancels scripts and transport work owned by the caller. */
@@ -173,7 +176,7 @@ export function buildDesktopTransportConfig(
 // against the exact bytes it sends. Bearer / Basic / API-key / OAuth2 go
 // through `applyAuthHeaders` because they don't depend on body bytes.
 async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<BuiltSpec> {
-  const { request, envVars, globalSettings, resolveVariables } = options;
+  const { request, envVars, globalSettings, resolveVariables, secretVariables } = options;
 
   const resolveLocal = (text: string) => {
     let result = text;
@@ -182,7 +185,21 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
       // the function replacer keeps a value with $ patterns literal.
       result = result.replace(new RegExp(`{{${escapeRegExp(key)}}}`, 'g'), () => value);
     });
-    return resolveVariables(result);
+    // Keep SecretRef tokens opaque in the renderer. The store-level resolver
+    // otherwise sees the variable's placeholder value and would consume the
+    // token before Electron main can materialize its handle at the wire edge.
+    const protectedSecrets = new Map<string, string>();
+    for (const key of Object.keys(secretVariables ?? {})) {
+      const token = `{{${key}}}`;
+      const marker = `__restura_secret_${protectedSecrets.size}__`;
+      if (result.includes(token)) {
+        result = result.replaceAll(token, marker);
+        protectedSecrets.set(marker, token);
+      }
+    }
+    result = resolveVariables(result);
+    for (const [marker, token] of protectedSecrets) result = result.replaceAll(marker, token);
+    return result;
   };
 
   const resolvedUrl = resolveLocal(request.url);
@@ -283,7 +300,11 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
       : {}),
   };
 
-  const desktop = buildDesktopTransportConfig(effectiveSettings, globalSettings, resolvedUrl);
+  const baseDesktop = buildDesktopTransportConfig(effectiveSettings, globalSettings, resolvedUrl);
+  const desktop =
+    secretVariables && Object.keys(secretVariables).length > 0
+      ? { ...(baseDesktop ?? {}), secretVariables }
+      : baseDesktop;
 
   return {
     spec,

@@ -9,6 +9,7 @@ import {
   stopCaptureBridge,
   unregisterCaptureBridgeIPC,
 } from './handlers/capture-bridge-handler';
+import { registerDeepLinkImportIPC } from './handlers/deep-link-import-handler';
 import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './handlers/git-handler';
 import { registerGrpcHandlerIPC, stopStreamCleanup } from './handlers/grpc-handler';
 import { registerGrpcReflectionIPC } from './handlers/grpc-reflection-handler';
@@ -170,6 +171,7 @@ interface IpcModule {
 }
 
 const IPC_MODULES: IpcModule[] = [
+  { register: () => registerDeepLinkImportIPC() },
   { register: () => registerAutoUpdaterIPC(isDev) },
   { register: () => registerFileOperationsIPC(getMainWindow) },
   { register: () => registerBrunoExportHandlerIPC() },

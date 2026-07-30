@@ -277,7 +277,7 @@
       "biome check --write"
     ],
     "*.{json,css}": [
-      "biome format --write"
+      "biome format --write --no-errors-on-unmatched"
     ]
   },
   "build": {

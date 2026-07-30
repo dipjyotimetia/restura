@@ -1,6 +1,6 @@
 import { AgentSuiteSchema } from '@shared/agent-lab';
-import { z } from 'zod';
 import { AgentTelemetryConfigSchema } from '@shared/agent-lab/telemetry-config';
+import { z } from 'zod';
 import { AiLabReportEnvelopeSchema } from '@/features/ai-lab/run-engine/reportEnvelope';
 import type { Collection, Environment, Request, SpatialAccent } from '@/types';
 import { SPATIAL_ACCENT_PRESETS } from '@/types';
@@ -139,11 +139,19 @@ export function validateEnvironment(env: unknown): Environment {
     // EOPT(maintainability): Zod's `.optional()` widens to `T | undefined`,
     // which the EOPT-strict Environment.variables[].description rejects.
     // Strip undefined-valued keys before returning.
+    const { collectionId, parentId, ...environment } = result.data;
     return {
-      ...result.data,
+      ...environment,
+      ...(collectionId !== undefined ? { collectionId } : {}),
+      ...(parentId !== undefined ? { parentId } : {}),
       variables: result.data.variables.map((v) => {
-        const { description, ...rest } = v;
-        return description !== undefined ? { ...rest, description } : rest;
+        const { description, private: isPrivate, secretRef, ...rest } = v;
+        return {
+          ...rest,
+          ...(description !== undefined ? { description } : {}),
+          ...(isPrivate !== undefined ? { private: isPrivate } : {}),
+          ...(secretRef !== undefined ? { secretRef } : {}),
+        };
       }),
     };
   }
@@ -696,6 +704,7 @@ export const appSettingsSchema = z
       })
       .optional()
       .catch(undefined),
+    nativeAppDownloadBannerDismissedUntil: z.number().int().positive().optional().catch(undefined),
   })
   .passthrough();
 

@@ -53,6 +53,7 @@ import {
 import { createPolicyPinnedFetch, type PolicyTransportProxy } from '../security/policy-transport';
 import { isProxyBypassed } from '../security/proxy-bypass';
 import { unwrapSecretValueMain } from '../security/secret-handle-store';
+import { materializeSecretVariables } from '../security/secret-variable-materializer';
 import { buildTlsClientMaterial } from '../security/tls-material';
 import { makeRouteAwareFetcher } from './fetch-fetcher';
 import { resolveHttpEnvironmentProxy, resolveHttpRequestProxy } from './http-proxy-resolution';
@@ -60,7 +61,31 @@ import { capBodyStream, decodeBodyStream } from './http-response-stream';
 import { interceptorRegistry } from './interceptor-registry';
 
 const log = createLogger('http');
+// Migration map: node:http/https → undici.
+//   node:http/https request                  → undici.request(url, options)
+//   requestOptions.lookup (DNS rebind guard) → Agent({ connect: { lookup } })
+//   requestOptions.rejectUnauthorized        → Agent({ connect: { rejectUnauthorized } })
+//   requestOptions.{pfx,cert,key,passphrase} → Agent({ connect: { … } })  (mTLS)
+//   requestOptions.ca                        → Agent({ connect: { ca } })
+//   HTTP proxy                               → undici.ProxyAgent
+//   SOCKS proxy (pre-established socket)     → custom Agent({ connect }) factory that
+//                                              hands back the existing socket (with TLS
+//                                              wrapping for HTTPS targets)
+//   AbortSignal forwarding                   → passed through as `signal` to request
+//   Connection timeout                       → Agent({ connect: { timeout } })
+//   Manual req.write + req.end               → body: BodyInit (string | Uint8Array | …)
+//   Buffered chunks via res.on('data')       → response.body.text()
+//   Manual redirects (301/302/etc)           → makeHttpRequest wrapper handles it
+//                                              (maxRedirections: 0 on undici call)
+//   ALPN visibility                          → custom connector wraps default and
+//                                              snapshots socket.alpnProtocol; surfaced
+//                                              via response.negotiatedAlpn for HTTP/2
+//                                              indication in the response viewer.
 
+// 6000/min (~100 rps) rather than a per-click budget: the collection runner and
+// the load tester drive this channel in bursts, and a lower cap turns their
+// results into self-inflicted "Rate limit exceeded" errors (the renderer is a
+// trusted surface — the limiter only backstops runaway loops).
 export const httpRateLimiter = createKeyedRateLimiter(6000, 60_000);
 export interface ElectronProxyConfig {
   enabled: boolean;
@@ -121,6 +146,7 @@ export interface HttpRequestConfig {
   serverCipherOrder?: boolean;
   minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
   cipherSuites?: string;
+  secretVariables?: Record<string, SecretValue>;
   /** Main-process-only cancellation signal; never crosses IPC. */
   signal?: AbortSignal;
 }
@@ -913,6 +939,7 @@ async function makeHttpRequest(
   config: HttpRequestConfig,
   redirectCount = 0
 ): Promise<HttpResponse> {
+  config = materializeSecretVariables(config);
   let policyConfig: HttpRequestConfig;
   try {
     policyConfig = resolveHttpExecutionPolicy(config);
@@ -1115,6 +1142,7 @@ async function makeHttpRequest(
   return interceptorRegistry.runResponse(rawResult, interceptedConfig);
 }
 
+/** Materialize opaque SecretRef variables only in Electron main, before the wire request. */
 export function registerHttpHandlerIPC(onComplete?: (entry: LogEntry) => void): void {
   ipcMain.handle(
     IPC.http.request,

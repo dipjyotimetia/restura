@@ -5,7 +5,7 @@ import { resolveEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { executeRequest, resolveEffectiveSettings } from '@/features/http/lib/requestExecutor';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
-import { buildActiveRequestValueMap } from '@/lib/shared/activeRequestScopes';
+import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { buildValueMap } from '@/lib/shared/variableScopes';
 import { useActiveRequest } from '@/store/selectors';
@@ -95,7 +95,7 @@ export function useHttpRequestPage() {
       // Active environment + workspace globals + collection vars (precedence
       // globals < env < collection). The executor layers pre-request-script
       // mutations on top and mutates this map in place.
-      const envVars: Record<string, string> = buildActiveRequestValueMap();
+      const { values: envVars, secretVariables } = buildActiveRequestVariableResolution();
 
       // Resolve the owning collection (if this request is saved in one) so
       // scripts get a real `pm.collectionVariables` namespace + `pm.info`,
@@ -119,6 +119,7 @@ export function useHttpRequestPage() {
       const result = await executeRequest({
         request: requestForExec,
         envVars,
+        secretVariables,
         globalSettings,
         resolveVariables: (text) => resolveVariables(text),
         collectionVars,

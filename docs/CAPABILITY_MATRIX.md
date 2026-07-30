@@ -49,7 +49,7 @@ rather than discover it experimentally.
 | AI Lab agents using MCP servers as tools | ❌ | ✅ | Uses saved encrypted MCP profiles with fresh desktop-owned sessions, existing SSRF/DNS pinning and execution policy, allowlists, cancellation, and per-call approval. CLI supports manifest-listed read-only MCP tools when CI explicitly asserts readOnly:true. |
 | AI Lab pluggable code sandboxes | ❌ | ❌ | Unsupported: the provider contract and registry are implemented, but no Docker or hosted sandbox provider ships yet |
 | Filesystem-backed collections | ❌ | ✅ |  |
-| Git operations on collections | ❌ | ✅ |  |
+| Git operations on collections | ❌ | ✅ | System-Git status, diff, staging, commits, branches, fetch/pull/push, and explicit resumable merges for registered OpenCollection directories; structured YAML conflict resolution validates before staging |
 | Workflows | ✅ | ✅ | Safe sequential, guarded, loop, and recovery controls execute with typed data/output, timeout/cancellation, and binding-only HTTP or GraphQL saved-request calls. GraphQL mutations require explicit approval. Other controls, event/process tasks, inline transport configuration, and unsupported transports are rejected before persistence or execution. |
 | Local mock server | ❌ | ✅ | Binds a localhost HTTP listener; no browser TCP |
 | Browser capture desktop bridge | ❌ | ✅ | Loopback receiver for the Restura capture extension; no browser TCP listener |

@@ -31,6 +31,118 @@ describe('useEnvironmentStore', () => {
     });
   });
 
+  describe('environment hierarchy', () => {
+    it('derives a base/sub chain from the active child and keeps selection atomic', () => {
+      const store = useEnvironmentStore.getState();
+      const base = store.createNewEnvironment('Shared');
+      const child = store.createNewEnvironment('Production', {
+        parentId: base.id,
+        collectionId: 'c1',
+      });
+      store.addEnvironment({ ...base, collectionId: 'c1' });
+      store.addEnvironment(child);
+
+      store.setActiveEnvironment(child.id);
+
+      expect(useEnvironmentStore.getState().getActiveEnvironmentChain()).toEqual([
+        { ...base, collectionId: 'c1' },
+        child,
+      ]);
+    });
+
+    it('does not delete a base environment while it still owns sub-environments', () => {
+      const store = useEnvironmentStore.getState();
+      const base = store.createNewEnvironment('Shared');
+      const child = store.createNewEnvironment('Dev', { parentId: base.id });
+      store.addEnvironment(base);
+      store.addEnvironment(child);
+
+      expect(store.removeEnvironment(base.id)).toBe(false);
+      expect(useEnvironmentStore.getState().environments).toHaveLength(2);
+    });
+
+    it('does not inherit from a missing or mismatched parent', () => {
+      useEnvironmentStore.setState({
+        environments: [
+          { id: 'missing-parent', name: 'Missing parent', parentId: 'gone', variables: [] },
+          { id: 'base', name: 'Base', collectionId: 'c1', variables: [] },
+          {
+            id: 'wrong-owner',
+            name: 'Wrong owner',
+            collectionId: 'c2',
+            parentId: 'base',
+            variables: [],
+          },
+        ],
+        activeEnvironmentId: 'missing-parent',
+      });
+      expect(useEnvironmentStore.getState().getActiveEnvironmentChain()).toEqual([
+        expect.objectContaining({ id: 'missing-parent' }),
+      ]);
+
+      useEnvironmentStore.getState().setActiveEnvironment('wrong-owner');
+      expect(useEnvironmentStore.getState().getActiveEnvironmentChain()).toEqual([
+        expect.objectContaining({ id: 'wrong-owner' }),
+      ]);
+    });
+
+    it('keeps hierarchy mutations scoped to the targeted environment and variable', () => {
+      const store = useEnvironmentStore.getState();
+      const base = store.createNewEnvironment('Shared');
+      const child = store.createNewEnvironment('Development', { parentId: base.id });
+      store.addEnvironment(base);
+      store.addEnvironment(child);
+      store.addVariable(base.id, {
+        id: 'base-url',
+        key: 'BASE_URL',
+        value: 'https://old.example',
+        enabled: true,
+      });
+      store.addVariable(base.id, {
+        id: 'untouched',
+        key: 'UNCHANGED',
+        value: 'stable',
+        enabled: true,
+      });
+
+      store.updateEnvironment(base.id, { name: 'Shared defaults' });
+      store.updateVariable(base.id, 'base-url', { value: 'https://new.example' });
+
+      expect(useEnvironmentStore.getState().environments).toEqual([
+        expect.objectContaining({
+          id: base.id,
+          name: 'Shared defaults',
+          variables: [
+            expect.objectContaining({ id: 'base-url', value: 'https://new.example' }),
+            expect.objectContaining({ id: 'untouched', value: 'stable' }),
+          ],
+        }),
+        child,
+      ]);
+    });
+  });
+
+  describe('persist migration', () => {
+    it('normalizes legacy variables and safely accepts an empty persisted state', () => {
+      const migrate = useEnvironmentStore.persist.getOptions().migrate!;
+      expect(migrate(null, 2)).toBeNull();
+      expect(
+        migrate(
+          {
+            environments: [
+              {
+                id: 'env',
+                name: 'Env',
+                variables: [{ id: 'v', key: 'x', value: '1', enabled: true }],
+              },
+            ],
+          },
+          2
+        )
+      ).toMatchObject({ environments: [{ id: 'env', variables: [{ key: 'x', value: '1' }] }] });
+    });
+  });
+
   describe('addEnvironment', () => {
     it('should add environment to list', () => {
       const { createNewEnvironment, addEnvironment } = useEnvironmentStore.getState();

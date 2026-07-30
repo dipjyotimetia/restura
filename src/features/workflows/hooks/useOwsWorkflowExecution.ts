@@ -4,6 +4,7 @@ import { getGraphqlResponseErrors } from '@shared/ows/graphql-operation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { protocolRegistry } from '@/features/registry/registry';
+import { findAncestorFolderVariables } from '@/lib/shared/activeRequestScopes';
 import { buildValueMap } from '@/lib/shared/variableScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
@@ -90,11 +91,26 @@ export function useOwsWorkflowExecution() {
       const activeEnvironment = environments.find(
         (environment) => environment.id === activeEnvironmentId
       );
-      const initialVariables = {
-        ...globalVariables,
-        ...buildValueMap({ env: activeEnvironment?.variables }),
-        ...buildValueMap({ collection: collection.variables }),
-      };
+      const baseEnvironment = activeEnvironment?.parentId
+        ? environments.find(
+            (environment) =>
+              environment.id === activeEnvironment.parentId &&
+              environment.collectionId === collection.id
+          )
+        : activeEnvironment?.collectionId === undefined ||
+            activeEnvironment.collectionId === collection.id
+          ? activeEnvironment
+          : undefined;
+      const subEnvironment =
+        baseEnvironment && activeEnvironment?.id !== baseEnvironment.id
+          ? activeEnvironment
+          : undefined;
+      const initialVariables = buildValueMap({
+        globals: globalVariables,
+        baseEnvironment: baseEnvironment?.variables,
+        subEnvironment: subEnvironment?.variables,
+        collection: collection.variables,
+      });
       const controller = new AbortController();
       controllerRef.current = controller;
       const runGeneration = ++runGenerationRef.current;
@@ -140,7 +156,23 @@ export function useOwsWorkflowExecution() {
                 throw new Error(`${graphql ? 'GraphQL' : 'HTTP'} protocol adapter is unavailable.`);
               }
               const authed = withEffectiveAuth(request, collection.auth);
-              const resolvedVariables = stringVariables(variables);
+              const incomingVariables = stringVariables(variables);
+              const folderVariables = buildValueMap({
+                folders: findAncestorFolderVariables(collection.items, binding.resourceId),
+              });
+              // Workflow state begins with `initialVariables`; only values
+              // changed by prior workflow/script steps are allowed to override
+              // the request's folder scope.
+              const workflowOverrides = Object.fromEntries(
+                Object.entries(incomingVariables).filter(
+                  ([key, value]) => initialVariables[key] !== value
+                )
+              );
+              const resolvedVariables = {
+                ...initialVariables,
+                ...folderVariables,
+                ...workflowOverrides,
+              };
               const injected = protocol.injectVariables
                 ? protocol.injectVariables(authed, resolvedVariables)
                 : authed;

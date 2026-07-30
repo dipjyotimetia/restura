@@ -4,14 +4,14 @@ import type { EventEmitter as EventEmitterType } from 'node:events';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { EVENT } from '../../shared/channels';
 
-const { ee } = vi.hoisted(() => {
+const { ee, invoke } = vi.hoisted(() => {
   const { EventEmitter } = require('node:events');
-  return { ee: new EventEmitter() as EventEmitterType };
+  return { ee: new EventEmitter() as EventEmitterType, invoke: vi.fn() };
 });
 
 vi.mock('electron', () => ({
   ipcRenderer: {
-    invoke: vi.fn(),
+    invoke,
     on: (channel: string, listener: (...args: unknown[]) => void) => ee.on(channel, listener),
     removeListener: (channel: string, listener: (...args: unknown[]) => void) =>
       ee.removeListener(channel, listener),
@@ -65,5 +65,36 @@ describe('integrationApi subscriptions', () => {
 
     disposeSecond();
     expect(ee.listenerCount(EVENT.collectionFileChanged)).toBe(0);
+  });
+});
+
+describe('integrationApi Git merge bridge', () => {
+  beforeEach(() => invoke.mockReset());
+
+  it('passes typed merge commands as single validated payloads', async () => {
+    const resolution = {
+      conflictId: 'b'.repeat(64),
+      kind: 'choice' as const,
+      choice: 'incoming' as const,
+    };
+
+    await integrationApi.git.mergeState('/workspace');
+    await integrationApi.git.startMerge('/workspace', 'origin/main', 'a'.repeat(40));
+    await integrationApi.git.getMergeConflict('/workspace', 'b'.repeat(64));
+    await integrationApi.git.resolveMergeConflict('/workspace', resolution);
+    await integrationApi.git.abortMerge('/workspace');
+    await integrationApi.git.completeMerge('/workspace', 'Merge origin/main');
+
+    expect(invoke.mock.calls).toEqual([
+      ['git:merge:state', { directoryPath: '/workspace' }],
+      [
+        'git:merge:start',
+        { directoryPath: '/workspace', sourceRef: 'origin/main', expectedSha: 'a'.repeat(40) },
+      ],
+      ['git:merge:conflict', { directoryPath: '/workspace', conflictId: 'b'.repeat(64) }],
+      ['git:merge:resolve', { directoryPath: '/workspace', resolution }],
+      ['git:merge:abort', { directoryPath: '/workspace' }],
+      ['git:merge:complete', { directoryPath: '/workspace', message: 'Merge origin/main' }],
+    ]);
   });
 });

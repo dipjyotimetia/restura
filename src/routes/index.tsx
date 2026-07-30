@@ -1,3 +1,4 @@
+import type { DeepLinkImportFormat } from '@shared/deep-link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import type { BugReportScreenshot, BugReportSubmission } from '@/components/shared/BugReportDialog';
@@ -9,6 +10,7 @@ import Sidebar from '@/components/shared/Sidebar';
 import StatusBar from '@/components/shared/StatusBar';
 import { TabBar } from '@/components/shared/TabBar';
 import TopBar from '@/components/shared/TopBar';
+import { WebNativeDownloadBanner } from '@/components/shared/WebNativeDownloadBanner';
 import WelcomeOnboarding from '@/components/shared/WelcomeOnboarding';
 import { motion } from '@/components/ui/motion';
 import { useAiChatStore } from '@/features/ai/store';
@@ -57,6 +59,9 @@ export default function Home() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importDialogLoaded, setImportDialogLoaded] = useState(false);
+  const [deepLinkImport, setDeepLinkImport] = useState<
+    { url: string; format?: DeepLinkImportFormat } | undefined
+  >();
   const [envManagerLoaded, setEnvManagerLoaded] = useState(false);
   const [saveDialogTabId, setSaveDialogTabId] = useState<string | null>(null);
   const [bugReportOpen, setBugReportOpen] = useState(false);
@@ -196,6 +201,26 @@ export default function Home() {
   // mod+, keybinding above covers the web build, where there is no native menu.
   useEffect(() => onMenuEvent('menu:settings', () => openSettings('general')), [openSettings]);
 
+  useEffect(() => {
+    const openEnvironment = () => openEnvironmentManager();
+    const openDeepLinkSettings = (event: Event) =>
+      openSettings((event as CustomEvent<SectionId>).detail);
+    const openDeepLinkImport = (event: Event) => {
+      setDeepLinkImport(
+        (event as CustomEvent<{ url: string; format?: DeepLinkImportFormat }>).detail
+      );
+      openImportDialog();
+    };
+    window.addEventListener('restura:open-environments', openEnvironment);
+    window.addEventListener('restura:open-settings', openDeepLinkSettings);
+    window.addEventListener('restura:deep-link-import', openDeepLinkImport);
+    return () => {
+      window.removeEventListener('restura:open-environments', openEnvironment);
+      window.removeEventListener('restura:open-settings', openDeepLinkSettings);
+      window.removeEventListener('restura:deep-link-import', openDeepLinkImport);
+    };
+  }, [openEnvironmentManager, openImportDialog, openSettings]);
+
   // The desktop updater banner uses this renderer-local event so it can take
   // the user straight to the shared, in-app release history without adding a
   // second Electron-only settings surface.
@@ -292,6 +317,7 @@ export default function Home() {
         onToggleAi={enableAi ? () => setAiPanelOpen(!aiPanelOpen) : undefined}
         onOpenBugReport={() => void handleOpenBugReport()}
       />
+      <WebNativeDownloadBanner />
 
       <div className="flex flex-1 overflow-hidden min-h-0">
         <ClientHydration
@@ -362,7 +388,14 @@ export default function Home() {
         <EnvironmentManager open={envManagerOpen} onOpenChange={setEnvManagerOpen} />
       )}
       {importDialogLoaded && (
-        <ImportDialog open={importDialogOpen} onOpenChange={setImportDialogOpen} />
+        <ImportDialog
+          open={importDialogOpen}
+          onOpenChange={(open) => {
+            setImportDialogOpen(open);
+            if (!open) setDeepLinkImport(undefined);
+          }}
+          deepLinkSource={deepLinkImport}
+        />
       )}
       {bugReportOpen && (
         <BugReportDialog

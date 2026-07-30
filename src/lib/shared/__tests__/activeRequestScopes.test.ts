@@ -4,7 +4,11 @@ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { HttpRequest } from '@/types/http';
-import { buildActiveRequestValueMap } from '../activeRequestScopes';
+import {
+  buildActiveRequestValueMap,
+  buildActiveRequestVariableResolution,
+  findAncestorFolderVariables,
+} from '../activeRequestScopes';
 
 function makeRequest(overrides: Partial<HttpRequest> = {}): HttpRequest {
   return {
@@ -85,5 +89,127 @@ describe('buildActiveRequestValueMap', () => {
     const map = buildActiveRequestValueMap();
     expect(map.gVar).toBe('gv');
     expect('colVar' in map).toBe(false);
+  });
+
+  it('includes a selected environment chain and only ancestor folder variables', () => {
+    useEnvironmentStore.setState({
+      environments: [
+        {
+          id: 'base',
+          name: 'Base',
+          variables: [{ id: 'base-v', key: 'shared', value: 'base', enabled: true }],
+        },
+        {
+          id: 'sub',
+          name: 'Prod',
+          parentId: 'base',
+          variables: [{ id: 'sub-v', key: 'shared', value: 'sub', enabled: true }],
+        },
+      ],
+      activeEnvironmentId: 'base',
+    });
+    useCollectionStore.setState({
+      collections: [
+        {
+          id: 'c1',
+          name: 'C',
+          variables: [{ id: 'collection-v', key: 'shared', value: 'collection', enabled: true }],
+          items: [
+            {
+              id: 'folder',
+              name: 'Folder',
+              type: 'folder',
+              variables: [{ id: 'folder-v', key: 'shared', value: 'folder', enabled: true }],
+              items: [{ id: 'item-1', name: 'R', type: 'request', request: makeRequest() }],
+            },
+          ],
+        },
+      ],
+    });
+    useRequestStore.getState().openTab(makeRequest(), { savedRequestId: 'item-1' });
+
+    expect(buildActiveRequestValueMap()).toMatchObject({ shared: 'folder' });
+  });
+
+  it('does not apply a collection-owned environment to a different collection', () => {
+    useEnvironmentStore.setState({
+      environments: [
+        {
+          id: 'owned',
+          name: 'Owned',
+          collectionId: 'c1',
+          variables: [{ id: 'owned-v', key: 'host', value: 'wrong-collection', enabled: true }],
+        },
+      ],
+      activeEnvironmentId: 'owned',
+    });
+    useCollectionStore.setState({
+      collections: [
+        {
+          id: 'c2',
+          name: 'Other',
+          items: [{ id: 'item-2', name: 'R', type: 'request', request: makeRequest() }],
+        },
+      ],
+    });
+    useRequestStore.getState().openTab(makeRequest(), { savedRequestId: 'item-2' });
+
+    expect(buildActiveRequestValueMap()).not.toHaveProperty('host');
+  });
+
+  it('keeps winning SecretRef variables opaque while a later plaintext scope clears them', () => {
+    useEnvironmentStore.setState({
+      environments: [
+        {
+          id: 'base',
+          name: 'Base',
+          variables: [
+            {
+              id: 'secret',
+              key: 'token',
+              value: '',
+              enabled: true,
+              secretRef: { kind: 'inline', value: 'desktop-only' },
+            },
+            {
+              id: 'disabled',
+              key: 'disabled',
+              value: '',
+              enabled: false,
+              secretRef: { kind: 'inline', value: 'ignored' },
+            },
+            { id: 'empty-key', key: '', value: 'ignored', enabled: true },
+          ],
+        },
+        {
+          id: 'sub',
+          name: 'Sub',
+          parentId: 'base',
+          variables: [{ id: 'plain', key: 'token', value: 'sub', enabled: true }],
+        },
+      ],
+      activeEnvironmentId: 'base',
+    });
+
+    expect(buildActiveRequestVariableResolution()).toEqual({
+      values: {},
+      secretVariables: { token: { kind: 'inline', value: 'desktop-only' } },
+    });
+
+    useEnvironmentStore.getState().setActiveEnvironment('sub');
+
+    expect(buildActiveRequestVariableResolution()).toEqual({
+      values: { token: 'sub' },
+      secretVariables: {},
+    });
+  });
+
+  it('returns no ancestors for an empty folder subtree', () => {
+    expect(
+      findAncestorFolderVariables(
+        [{ id: 'empty-folder', name: 'Empty', type: 'folder', items: undefined }],
+        'missing-request'
+      )
+    ).toBeUndefined();
   });
 });

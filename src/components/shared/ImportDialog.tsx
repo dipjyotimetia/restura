@@ -1,7 +1,8 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
+import type { DeepLinkImportFormat } from '@shared/deep-link';
 import * as yaml from 'js-yaml';
 import { Check, Download, Lock, Upload, X } from 'lucide-react';
-import { type ChangeEvent, type DragEvent, useState } from 'react';
+import { type ChangeEvent, type DragEvent, useEffect, useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Floater } from '@/components/ui/spatial';
 import {
@@ -20,7 +21,7 @@ import {
   isPostmanEnvironment,
   validateImportedCollection,
 } from '@/features/collections/lib/importers';
-import { isElectron } from '@/lib/shared/platform';
+import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { convertCollectionSecretsToHandles } from '@/lib/shared/secretRef-migrations';
 import { cn } from '@/lib/shared/utils';
 import { useCollectionStore } from '@/store/useCollectionStore';
@@ -334,9 +335,11 @@ function DropZone({ format, onFileUpload, onDrop }: DropZoneProps) {
 interface ImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** A deep link is deliberately review-only until the user confirms download. */
+  deepLinkSource?: { url: string; format?: DeepLinkImportFormat };
 }
 
-export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
+export default function ImportDialog({ open, onOpenChange, deepLinkSource }: ImportDialogProps) {
   const addCollection = useCollectionStore((s) => s.addCollection);
   const addEnvironment = useEnvironmentStore((s) => s.addEnvironment);
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -347,6 +350,10 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
   const [storeSecretsAsHandles, setStoreSecretsAsHandles] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
+
+  useEffect(() => {
+    if (deepLinkSource?.format) setActiveFormat(deepLinkSource.format);
+  }, [deepLinkSource]);
 
   const format = FORMATS.find((f) => f.id === activeFormat) ?? FORMATS[0]!;
   const features = FEATURE_LISTS[activeFormat];
@@ -487,6 +494,23 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
     }
   };
 
+  const handleDeepLinkImport = async () => {
+    if (!deepLinkSource) return;
+    const api = getElectronAPI();
+    if (!api?.deepLinks) return;
+    try {
+      const downloaded = await api.deepLinks.fetchImport(deepLinkSource.url);
+      if (!downloaded.ok) throw new Error(downloaded.error);
+      const outcome = await processImportData(
+        parsePastedContent(downloaded.text, activeFormat),
+        activeFormat
+      );
+      await handleImportSuccess(outcome);
+    } catch (error) {
+      handleImportError(error);
+    }
+  };
+
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
@@ -570,6 +594,24 @@ export default function ImportDialog({ open, onOpenChange }: ImportDialogProps) 
                 setWarnings([]);
               }}
             />
+
+            {deepLinkSource && (
+              <section className="rounded-sp-btn border border-sp-line bg-sp-surface-lo p-4">
+                <div className="sp-label">Review deep-link import</div>
+                <p className="mt-1 break-all text-sp-12 text-sp-muted">{deepLinkSource.url}</p>
+                <p className="mt-2 text-sp-12 text-sp-muted">
+                  This source has not been downloaded. Choose a format below, then confirm the
+                  import.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void handleDeepLinkImport()}
+                  className="mt-3 rounded-sp-btn bg-sp-accent px-3 py-2 text-sp-12 font-semibold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+                >
+                  Download and import
+                </button>
+              </section>
+            )}
 
             {/* Format grid */}
             <section>

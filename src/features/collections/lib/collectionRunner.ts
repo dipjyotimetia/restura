@@ -270,11 +270,17 @@ export async function runCollection(
       // Auth inheritance: nearest ancestor folder's auth (threaded by
       // flattenRunnables), falling back to collection-level auth.
       const authed = withEffectiveAuth(runnable.request, runnable.inheritedAuth ?? collection.auth);
+      const requestVars = {
+        ...allVars,
+        ...buildValueMap({ folders: runnable.folderVariables }),
+        ...rows[iter],
+        ...environmentOverrides,
+      };
 
       let scripts: ProtocolScriptResult | undefined;
       const ctx = {
         signal,
-        variables: { ...allVars },
+        variables: requestVars,
         onScriptResult: (r: ProtocolScriptResult) => {
           scripts = r;
         },
@@ -302,7 +308,7 @@ export async function runCollection(
 
       let response: ApiResponse | undefined;
       try {
-        const requestStartVars = { ...allVars };
+        const requestStartVars = { ...requestVars };
         response = await protocol.runRequest(authed, ctx);
         result.durationMs = Date.now() - startedReq;
         result.httpStatus = response.status;

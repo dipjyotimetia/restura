@@ -62,6 +62,8 @@ export interface AppSettings {
   // Semantic-assertion judge (rs.judge in test scripts). Desktop-only for now
   // (web has no /api/ai route). See src/lib/shared/judgeBridge.ts.
   judge?: JudgeSettings;
+  // Web native-app banner dismissal; the banner is shown again after this timestamp.
+  nativeAppDownloadBannerDismissedUntil?: number;
 }
 
 /**

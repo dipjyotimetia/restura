@@ -67,13 +67,14 @@ function EnvDot({ color, size = 10, active }: EnvDot) {
 
 interface EnvRowProps {
   env: Environment;
+  isSubEnvironment?: boolean;
   isSelected: boolean;
   isActive: boolean;
   onSelect: () => void;
   onDelete: () => void;
 }
 
-function EnvRow({ env, isSelected, isActive, onSelect, onDelete }: EnvRowProps) {
+function EnvRow({ env, isSubEnvironment, isSelected, isActive, onSelect, onDelete }: EnvRowProps) {
   const color = envColorFor(env);
   const hint = hostHint(env);
   const stats = getStats(env);
@@ -82,6 +83,7 @@ function EnvRow({ env, isSelected, isActive, onSelect, onDelete }: EnvRowProps) 
     <div
       className={cn(
         'group relative flex items-center gap-2.5 rounded-sp-btn px-2.5 py-2 cursor-pointer',
+        isSubEnvironment && 'ml-3 pl-4',
         'transition-colors',
         isSelected ? 'bg-sp-active' : 'hover:bg-sp-hover'
       )}
@@ -114,6 +116,7 @@ function EnvRow({ env, isSelected, isActive, onSelect, onDelete }: EnvRowProps) 
           >
             {env.name}
           </span>
+          {isSubEnvironment && <span className="text-sp-10 text-sp-dim">sub</span>}
           {isActive && (
             <span
               className="inline-flex items-center px-1.5 h-4 rounded-sp-chip text-[10px] font-semibold text-sp-accent"
@@ -437,9 +440,34 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
     const q = searchQuery.trim().toLowerCase();
     return environments.filter((e) => e.name.toLowerCase().includes(q));
   }, [environments, searchQuery]);
+  const orderedEnvs = useMemo(() => {
+    const byParent = new Map<string, Environment[]>();
+    for (const environment of filteredEnvs) {
+      if (!environment.parentId) continue;
+      const children = byParent.get(environment.parentId) ?? [];
+      children.push(environment);
+      byParent.set(environment.parentId, children);
+    }
+    return filteredEnvs.flatMap((environment) =>
+      environment.parentId ? [] : [environment, ...(byParent.get(environment.id) ?? [])]
+    );
+  }, [filteredEnvs]);
 
   const createEnv = (name: string) => {
     const env = createNewEnvironment(name);
+    addEnvironment(env);
+    setSelectedEnvId(env.id);
+  };
+
+  const createSubEnvironment = () => {
+    if (!selectedEnv) return;
+    const base = selectedEnv.parentId
+      ? (environments.find((environment) => environment.id === selectedEnv.parentId) ?? selectedEnv)
+      : selectedEnv;
+    const env = createNewEnvironment(`${base.name} sub-environment`, {
+      parentId: base.id,
+      ...(base.collectionId ? { collectionId: base.collectionId } : {}),
+    });
     addEnvironment(env);
     setSelectedEnvId(env.id);
   };
@@ -582,10 +610,11 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
                         No matches
                       </div>
                     ) : (
-                      filteredEnvs.map((env) => (
+                      orderedEnvs.map((env) => (
                         <EnvRow
                           key={env.id}
                           env={env}
+                          isSubEnvironment={Boolean(env.parentId)}
                           isSelected={selectedEnvId === env.id}
                           isActive={activeEnvironmentId === env.id}
                           onSelect={() => setSelectedEnvId(env.id)}
@@ -608,6 +637,15 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
                       <Plus size={12} />
                       New environment
                     </button>
+                    {selectedEnv && !selectedEnv.parentId && (
+                      <button
+                        type="button"
+                        onClick={createSubEnvironment}
+                        className="mt-1 inline-flex items-center justify-center gap-1.5 w-full h-8 rounded-sp-btn text-sp-muted text-sp-11-5 hover:bg-sp-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+                      >
+                        <Plus size={12} /> New sub-environment
+                      </button>
+                    )}
                   </div>
                 </nav>
 

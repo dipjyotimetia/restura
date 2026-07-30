@@ -111,15 +111,16 @@ describe('parseBranchList', () => {
   // prefix git never produces, which is exactly why the isRemote bug shipped.
   it('identifies current branch and upstream', () => {
     const raw = [
-      'refs/heads/main\torigin/main',
-      'refs/heads/feature/new\torigin/feature/new',
-      'refs/remotes/origin/main\t',
+      `refs/heads/main\torigin/main\t${'a'.repeat(40)}`,
+      `refs/heads/feature/new\torigin/feature/new\t${'b'.repeat(40)}`,
+      `refs/remotes/origin/main\t\t${'c'.repeat(40)}`,
     ].join('\n');
     const branches = parseBranchList(raw, 'main');
     expect(branches).toHaveLength(3);
     const main = branches.find((b) => b.name === 'main' && !b.isRemote);
     expect(main?.isCurrent).toBe(true);
     expect(main?.upstream).toBe('origin/main');
+    expect(main?.oid).toBe('a'.repeat(40));
   });
 
   it('classifies remote-tracking branches as remote (not local checkout targets)', () => {
