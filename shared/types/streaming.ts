@@ -11,6 +11,8 @@ export interface SseRequest {
   headers: KeyValue[];
   params: KeyValue[];
   auth: AuthConfig;
+  /** Variables owned by this saved request. */
+  variables?: KeyValue[];
   /** Optional client-side filter (event names) — purely UI-side */
   eventFilter?: string[];
   /** Whether to reconnect using Last-Event-ID on disconnect */
@@ -47,6 +49,8 @@ export interface McpRequest {
   transport: McpTransportType;
   headers: KeyValue[];
   auth: AuthConfig;
+  /** Variables owned by this saved request. */
+  variables?: KeyValue[];
   /** Optional default JSON-RPC method to invoke when "Send" is pressed */
   defaultMethod?: string;
   /** Optional default params for the default method */

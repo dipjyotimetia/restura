@@ -30,7 +30,7 @@ describe('buildActiveRequestValueMap', () => {
     localStorage.clear();
   });
 
-  it('merges env + globals + the active tab collection with correct precedence', () => {
+  it('merges env + globals + collection + saved request variables with correct precedence', () => {
     const env = useEnvironmentStore.getState().createNewEnvironment('E');
     useEnvironmentStore.getState().addEnvironment(env);
     useEnvironmentStore
@@ -49,7 +49,19 @@ describe('buildActiveRequestValueMap', () => {
         {
           id: 'c1',
           name: 'C',
-          items: [{ id: 'item-1', name: 'R', type: 'request', request: makeRequest() }],
+          items: [
+            {
+              id: 'item-1',
+              name: 'R',
+              type: 'request',
+              request: makeRequest({
+                variables: [
+                  { id: 'rv', key: 'requestVar', value: 'rv', enabled: true },
+                  { id: 'rd', key: 'dup', value: 'fromRequest', enabled: true },
+                ],
+              }),
+            },
+          ],
           variables: [
             { id: 'cv', key: 'colVar', value: 'cv', enabled: true },
             { id: 'cd', key: 'dup', value: 'fromCollection', enabled: true },
@@ -63,8 +75,9 @@ describe('buildActiveRequestValueMap', () => {
     expect(map.envVar).toBe('ev');
     expect(map.gVar).toBe('gv');
     expect(map.colVar).toBe('cv');
-    // Precedence: collection > env > global.
-    expect(map.dup).toBe('fromCollection');
+    expect(map.requestVar).toBe('rv');
+    // Precedence: request > collection > env > global.
+    expect(map.dup).toBe('fromRequest');
   });
 
   it('omits collection vars when the active tab has no savedRequestId', () => {

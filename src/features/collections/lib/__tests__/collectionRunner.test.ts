@@ -104,6 +104,55 @@ beforeEach(() => {
 });
 
 describe('runCollection', () => {
+  it('layers a request variable above collection values', async () => {
+    const first = runnable('1', 'first');
+    first.request = {
+      ...first.request,
+      variables: [{ id: 'request-token', key: 'token', value: 'request', enabled: true }],
+    };
+    await runCollection(
+      {
+        collection: {
+          ...collection,
+          variables: [{ id: 'collection-token', key: 'token', value: 'collection', enabled: true }],
+        },
+        scopeName: 'C',
+        runnables: [first],
+        baseVars: { token: 'environment' },
+        iterations: 1,
+        dataRows: [],
+        delayMs: 0,
+        stopOnFailure: false,
+      },
+      noop,
+      new AbortController().signal
+    );
+    expect(seenVariables[0]?.token).toBe('request');
+  });
+
+  it('keeps data-row values above request variables', async () => {
+    const first = runnable('1', 'first');
+    first.request = {
+      ...first.request,
+      variables: [{ id: 'request-token', key: 'token', value: 'request', enabled: true }],
+    };
+    await runCollection(
+      {
+        collection,
+        scopeName: 'C',
+        runnables: [first],
+        baseVars: { token: 'environment' },
+        iterations: 1,
+        dataRows: [{ token: 'row' }],
+        delayMs: 0,
+        stopOnFailure: false,
+      },
+      noop,
+      new AbortController().signal
+    );
+    expect(seenVariables[0]?.token).toBe('row');
+  });
+
   it('carries pm.variables.set forward to later requests', async () => {
     behaviors.push({ setVars: { token: 'abc' } }, {});
     await runCollection(

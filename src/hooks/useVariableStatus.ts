@@ -24,6 +24,7 @@ export function useVariableStatus(): (name: string) => VariableStatus {
   const activeEnv = useEnvironmentStore((s) => s.getActiveEnvironment());
   const globals = useGlobalsStore((s) => s.vars);
   const savedRequestId = useRequestStore((s) => s.getActiveTab()?.savedRequestId);
+  const requestVariables = useRequestStore((s) => s.getActiveTab()?.request.variables);
   const preRequestScript = useRequestStore((s) => s.getActiveTab()?.request.preRequestScript);
   const collection = useCollectionStore((s) =>
     savedRequestId ? s.getCollectionByItemId(savedRequestId) : undefined
@@ -35,9 +36,10 @@ export function useVariableStatus(): (name: string) => VariableStatus {
         env: activeEnv?.variables,
         globals,
         collection: collection?.variables,
+        request: requestVariables,
         scriptSetKeys: parseScriptSetKeys(preRequestScript),
       }),
-    [activeEnv, globals, collection, preRequestScript]
+    [activeEnv, globals, collection, requestVariables, preRequestScript]
   );
 
   return useCallback(

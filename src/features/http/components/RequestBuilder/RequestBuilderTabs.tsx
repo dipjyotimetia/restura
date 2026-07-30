@@ -15,6 +15,7 @@ import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import RequestBodyEditor, { bodyEditorFills } from '@/features/http/components/RequestBodyEditor';
 import RequestSettingsEditor from '@/features/http/components/RequestSettingsEditor';
+import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import type { useHttpRequestPage } from '@/features/http/hooks/useHttpRequestPage';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useVariableStatus } from '@/hooks/useVariableStatus';
@@ -36,7 +37,7 @@ function headerValueSuggestionsFor(key: string): ReadonlyArray<string> | undefin
 }
 
 type Handlers = ReturnType<typeof useHttpRequestPage>['handlers'];
-type SubTabKey = 'params' | 'headers' | 'body' | 'auth' | 'scripts' | 'settings';
+type SubTabKey = 'params' | 'headers' | 'body' | 'auth' | 'variables' | 'scripts' | 'settings';
 
 interface RequestBuilderTabsProps {
   request: HttpRequest;
@@ -166,6 +167,7 @@ export function RequestBuilderTabs({
       { value: 'headers', label: 'Headers' },
       { value: 'body', label: 'Body' },
       { value: 'auth', label: 'Auth' },
+      { value: 'variables', label: 'Variables', count: request.variables?.filter((v) => v.enabled && v.key).length },
       { value: 'scripts', label: 'Scripts' },
       { value: 'settings', label: 'Settings' },
     ];
@@ -363,6 +365,25 @@ export function RequestBuilderTabs({
               testScript={request.testScript || ''}
               onPreRequestScriptChange={handlers.changePreRequestScript}
               onTestScriptChange={handlers.changeTestScript}
+            />
+          </div>
+        )}
+
+        {activeTab === 'variables' && (
+          <div className="p-4 space-y-2">
+            <p className="text-xs text-sp-muted">
+              Request variables override collection, environment, and global values.
+            </p>
+            <KeyValueEditor
+              items={request.variables ?? []}
+              onAdd={handlers.addVariable}
+              onUpdate={handlers.updateVariable}
+              onDelete={handlers.removeVariable}
+              keyPlaceholder="Variable name"
+              valuePlaceholder="Variable value or {{reference}}"
+              addButtonText="Add variable"
+              itemType="variable"
+              enableSecrets
             />
           </div>
         )}

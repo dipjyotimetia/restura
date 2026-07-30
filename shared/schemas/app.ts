@@ -25,6 +25,7 @@ export const keyValueSchema = z.object({
   value: z.string(),
   enabled: z.boolean(),
   description: z.string().optional(),
+  secret: z.boolean().optional(),
 });
 
 // Proxy type literal — single source of truth for the ProxyType union (reused
@@ -199,6 +200,7 @@ export const httpRequestSchema = z.object({
     multipartParts: z.array(z.any()).optional(),
   }),
   auth: authConfigSchema,
+  variables: z.array(keyValueSchema).optional(),
   preRequestScript: z.string().optional(),
   testScript: z.string().optional(),
   description: z.string().optional(),
@@ -217,6 +219,7 @@ export const grpcRequestSchema = z.object({
   metadata: z.array(keyValueSchema),
   message: z.string(),
   auth: authConfigSchema,
+  variables: z.array(keyValueSchema).optional(),
   preRequestScript: z.string().optional(),
   testScript: z.string().optional(),
 });
@@ -230,6 +233,7 @@ export const sseRequestSchema = z.object({
   headers: z.array(keyValueSchema),
   params: z.array(keyValueSchema),
   auth: authConfigSchema,
+  variables: z.array(keyValueSchema).optional(),
   eventFilter: z.array(z.string()).optional(),
   reconnectOnResume: z.boolean().optional(),
   preRequestScript: z.string().optional(),
@@ -245,6 +249,7 @@ export const mcpRequestSchema = z.object({
   transport: z.enum(['streamable-http', 'http-sse']),
   headers: z.array(keyValueSchema),
   auth: authConfigSchema,
+  variables: z.array(keyValueSchema).optional(),
   defaultMethod: z.string().optional(),
   defaultParams: z.string().optional(),
   preRequestScript: z.string().optional(),

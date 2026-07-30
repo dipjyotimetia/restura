@@ -49,6 +49,8 @@ export interface HttpRequest {
   params: KeyValue[];
   body: RequestBody;
   auth: AuthConfig;
+  /** Variables owned by this saved request. They override collection and environment values. */
+  variables?: KeyValue[];
   preRequestScript?: string;
   testScript?: string;
   settings?: RequestSettings;

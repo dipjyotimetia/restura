@@ -274,7 +274,13 @@ export async function runCollection(
       let scripts: ProtocolScriptResult | undefined;
       const ctx = {
         signal,
-        variables: { ...allVars },
+        // Rebuild local scope for every runnable. Data rows remain above
+        // request variables, and a jump cannot retain another request's vars.
+        variables: {
+          ...allVars,
+          ...buildValueMap({ request: runnable.request.variables }),
+          ...rows[iter],
+        },
         onScriptResult: (r: ProtocolScriptResult) => {
           scripts = r;
         },

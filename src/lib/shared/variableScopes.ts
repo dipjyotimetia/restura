@@ -13,7 +13,7 @@
  * substitute.
  *
  * Precedence (lowest → highest, later wins on key collision): globals < env <
- * collection < dataRow, with script mutations applied on top at the send site.
+ * collection < request < dataRow, with script mutations applied on top at the send site.
  * This mirrors Restura's existing collection-runner / CLI order (collection
  * overrides env); it is intentionally not strict Postman order.
  */
@@ -26,6 +26,8 @@ export interface ScopeInputs {
   globals?: Record<string, string> | undefined;
   /** Variables from the collection the request belongs to. */
   collection?: KeyValue[] | undefined;
+  /** Variables owned by the saved request itself. */
+  request?: KeyValue[] | undefined;
   /** Data-row variables (collection-runner iterations). */
   dataRow?: Record<string, string> | undefined;
   /** Literal keys statically parsed from a pre-request script (names only). */
@@ -39,12 +41,13 @@ function enabledEntries(vars: KeyValue[] | undefined): [string, string][] {
 
 /**
  * Merged value map for substitution. Precedence: globals < env < collection <
- * dataRow. Script-set keys and dynamic helpers are NOT included (no static value).
+ * request < dataRow. Script-set keys and dynamic helpers are NOT included (no static value).
  */
 export function buildValueMap(inputs: ScopeInputs): Record<string, string> {
   const out: Record<string, string> = { ...(inputs.globals ?? {}) };
   for (const [k, v] of enabledEntries(inputs.env)) out[k] = v;
   for (const [k, v] of enabledEntries(inputs.collection)) out[k] = v;
+  for (const [k, v] of enabledEntries(inputs.request)) out[k] = v;
   if (inputs.dataRow) Object.assign(out, inputs.dataRow);
   return out;
 }
@@ -58,6 +61,7 @@ export function buildKnownNames(inputs: ScopeInputs): Set<string> {
   const names = new Set<string>();
   for (const [k] of enabledEntries(inputs.env)) names.add(k);
   for (const [k] of enabledEntries(inputs.collection)) names.add(k);
+  for (const [k] of enabledEntries(inputs.request)) names.add(k);
   for (const k of Object.keys(inputs.globals ?? {})) names.add(k);
   for (const k of Object.keys(inputs.dataRow ?? {})) names.add(k);
   for (const k of inputs.scriptSetKeys ?? []) names.add(k);

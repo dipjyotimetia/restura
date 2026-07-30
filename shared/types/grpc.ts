@@ -31,6 +31,8 @@ export interface GrpcRequest {
   metadata: KeyValue[];
   message: string;
   auth: AuthConfig;
+  /** Variables owned by this saved request. */
+  variables?: KeyValue[];
   preRequestScript?: string;
   testScript?: string;
 }

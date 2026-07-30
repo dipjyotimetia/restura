@@ -10,19 +10,23 @@ const kv = (key: string, value: string, enabled = true): KeyValue => ({
 });
 
 describe('buildValueMap', () => {
-  it('merges scopes with precedence globals < env < collection < dataRow', () => {
+  it('merges scopes with precedence globals < env < collection < request < dataRow', () => {
     const map = buildValueMap({
       globals: { a: 'g', shared: 'g' },
       env: [kv('b', 'e'), kv('shared', 'e')],
       collection: [kv('c', 'c'), kv('shared', 'c')],
+      request: [kv('r', 'r'), kv('shared', 'r')],
       dataRow: { d: 'd', shared: 'row' },
     });
-    expect(map).toEqual({ a: 'g', b: 'e', c: 'c', d: 'd', shared: 'row' });
+    expect(map).toEqual({ a: 'g', b: 'e', c: 'c', r: 'r', d: 'd', shared: 'row' });
   });
 
-  it('env overrides globals; collection overrides env', () => {
+  it('env overrides globals; collection overrides env; request overrides collection', () => {
     expect(buildValueMap({ globals: { x: 'g' }, env: [kv('x', 'e')] }).x).toBe('e');
     expect(buildValueMap({ env: [kv('x', 'e')], collection: [kv('x', 'c')] }).x).toBe('c');
+    expect(
+      buildValueMap({ collection: [kv('x', 'c')], request: [kv('x', 'r')] }).x
+    ).toBe('r');
   });
 
   it('skips disabled and empty-key entries', () => {
@@ -44,15 +48,16 @@ describe('buildValueMap', () => {
 });
 
 describe('buildKnownNames', () => {
-  it('unions enabled env/collection keys, globals, dataRow, and script-set keys', () => {
+  it('unions enabled env/collection/request keys, globals, dataRow, and script-set keys', () => {
     const names = buildKnownNames({
       env: [kv('e1', 'x'), kv('eOff', 'x', false)],
       collection: [kv('c1', 'x')],
+      request: [kv('r1', 'x')],
       globals: { g1: 'x' },
       dataRow: { d1: 'x' },
       scriptSetKeys: ['s1'],
     });
-    expect([...names].sort()).toEqual(['c1', 'd1', 'e1', 'g1', 's1']);
+    expect([...names].sort()).toEqual(['c1', 'd1', 'e1', 'g1', 'r1', 's1']);
     expect(names.has('eOff')).toBe(false);
   });
 

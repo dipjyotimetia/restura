@@ -16,15 +16,16 @@ const LoadTestDialog = lazyComponent(
   () => import('@/features/load-testing/components/LoadTestDialog')
 );
 
-type SubTabKey = 'params' | 'headers' | 'body' | 'auth' | 'scripts' | 'settings';
+type SubTabKey = 'params' | 'headers' | 'body' | 'auth' | 'variables' | 'scripts' | 'settings';
 
 const TAB_KEYS: Record<string, SubTabKey> = {
   '1': 'params',
   '2': 'headers',
   '3': 'body',
   '4': 'auth',
-  '5': 'scripts',
-  '6': 'settings',
+  '5': 'variables',
+  '6': 'scripts',
+  '7': 'settings',
 };
 
 function RequestBuilder() {

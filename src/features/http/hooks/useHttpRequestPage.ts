@@ -15,7 +15,7 @@ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import type { AuthConfig, FormDataItem, HttpMethod, RequestBody, RequestSettings } from '@/types';
+import type { AuthConfig, FormDataItem, HttpMethod, KeyValue, RequestBody, RequestSettings } from '@/types';
 
 /**
  * Capture the headers the request actually went out with for the Console:
@@ -307,6 +307,21 @@ export function useHttpRequestPage() {
     },
     changePreRequestScript: (script: string) => updateRequest({ preRequestScript: script }),
     changeTestScript: (script: string) => updateRequest({ testScript: script }),
+    addVariable: () =>
+      updateRequest({
+        variables: [
+          ...(httpRequest?.variables ?? []),
+          { id: uuidv4(), key: '', value: '', enabled: true },
+        ],
+      }),
+    updateVariable: (id: string, updates: Partial<KeyValue>) =>
+      updateRequest({
+        variables: (httpRequest?.variables ?? []).map((variable) =>
+          variable.id === id ? { ...variable, ...updates } : variable
+        ),
+      }),
+    removeVariable: (id: string) =>
+      updateRequest({ variables: (httpRequest?.variables ?? []).filter((variable) => variable.id !== id) }),
     addParam,
     updateParam,
     removeParam,

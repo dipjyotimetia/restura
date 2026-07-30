@@ -12,7 +12,19 @@ import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useRequestStore } from '@/store/useRequestStore';
+import type { CollectionItem, Request } from '@/types';
 import { buildValueMap } from './variableScopes';
+
+function findRequest(items: CollectionItem[], itemId: string): Request | undefined {
+  for (const item of items) {
+    if (item.id === itemId) return item.type === 'request' ? item.request : undefined;
+    if (item.items) {
+      const found = findRequest(item.items, itemId);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
 
 export function buildActiveRequestValueMap(): Record<string, string> {
   const env = useEnvironmentStore.getState().getActiveEnvironment()?.variables;
@@ -21,5 +33,9 @@ export function buildActiveRequestValueMap(): Record<string, string> {
   const collection = savedRequestId
     ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)?.variables
     : undefined;
-  return buildValueMap({ env, globals, collection });
+  const request = savedRequestId
+    ? findRequest(useCollectionStore.getState().getCollectionByItemId(savedRequestId)?.items ?? [], savedRequestId)
+        ?.variables
+    : undefined;
+  return buildValueMap({ env, globals, collection, request });
 }
