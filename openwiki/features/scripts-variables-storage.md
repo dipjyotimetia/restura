@@ -81,22 +81,26 @@ The result shape (`ScriptResult`) is in `shared/types/scripts.ts` and includes:
 
 ```mermaid
 flowchart LR
-    G([global]) --> ENV([environment])
-    ENV --> COLL([collection])
-    COLL --> DATA([dataRow])
+    G([global]) --> BASE([base environment])
+    BASE --> SUB([selected sub-environment])
+    SUB --> COLL([collection])
+    COLL --> FOLDER([ancestor folders])
+    FOLDER --> DATA([data row])
+    DATA --> SCRIPT([script-local])
 ```
-_Lower-precedence scopes are shadowed by higher-precedence scopes, so a collection variable overrides an environment variable._
+_Lower-precedence scopes are shadowed by higher-precedence scopes. A folder value applies only to requests below that folder._
 
 ```
-globals < environment < collection < dataRow
+globals < base environment < selected sub-environment < collection < ancestor folders < data row < script-local
 ```
 
 - `buildValueMap` returns the key-value map for substitution.
-- `buildKnownNames` returns all names that can be resolved for validation/autocomplete.
+- `buildScopedVariableResolution` also returns the winning scope for inspector/autocomplete.
+- Private variables are export/sync policy metadata, not encryption: normal exports and Git sync omit them. Desktop secret handles remain opaque to the renderer and must be resolved at the main-process wire boundary.
 
 ### Active-request map
 
-`src/lib/shared/activeRequestScopes.ts` gathers globals, active environment, and the request’s collection variables into the map used by `useRequestRunner.ts`.
+`src/lib/shared/activeRequestScopes.ts` gathers globals, the active base/sub chain, collection variables, and the saved request’s folder ancestry into the map used by `useRequestRunner.ts`.
 
 The collection runner adds iteration data at the highest precedence. Protocol executors own final substitution after pre-request scripts, so `pm.variables` and `pm.collectionVariables` writes can affect the current wire request and subsequent requests without an earlier runner-level injection freezing stale values.
 

@@ -125,6 +125,31 @@ describe('runCollection', () => {
     expect(seenVariables[1]).toEqual({ base: '1', token: 'abc' });
   });
 
+  it('applies folder variables after collection variables for each runnable', async () => {
+    const nested = {
+      ...runnable('1', 'nested'),
+      folderVariables: [[{ id: 'folder-v', key: 'host', value: 'folder', enabled: true }]],
+    };
+    await runCollection(
+      {
+        collection: {
+          ...collection,
+          variables: [{ id: 'collection-v', key: 'host', value: 'collection', enabled: true }],
+        },
+        scopeName: 'C',
+        runnables: [nested],
+        baseVars: {},
+        iterations: 1,
+        dataRows: [],
+        delayMs: 0,
+        stopOnFailure: false,
+      },
+      noop,
+      new AbortController().signal
+    );
+    expect(seenVariables[0]).toMatchObject({ host: 'folder' });
+  });
+
   it('aggregates pm.test assertions into pass/fail', async () => {
     behaviors.push(
       { tests: [{ name: 'ok', passed: true }] },

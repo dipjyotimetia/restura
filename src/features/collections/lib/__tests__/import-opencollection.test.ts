@@ -80,6 +80,31 @@ describe('importOpenCollection', () => {
     expect(result.environments?.map((e) => e.name)).toEqual(['staging', 'prod']);
   });
 
+  it('keeps malformed private metadata inert while preserving portable hierarchy data', () => {
+    const result = importOpenCollection({
+      opencollection: '1.0.0',
+      info: { name: 'Portable hierarchy' },
+      items: [],
+      config: {
+        environments: [{ name: 'default' }, { name: 'Orphan', extends: 'missing-parent' }],
+      },
+      extensions: {
+        'x-restura-private-variables': [
+          {},
+          { environment: 'unknown', names: ['IGNORED'] },
+          { environment: 'default', names: [42, 'TOKEN', 'TOKEN'] },
+        ],
+      },
+    });
+
+    expect(result.environments).toEqual([
+      expect.objectContaining({ name: 'Orphan', collectionId: result.collection.id }),
+    ]);
+    expect(result.collection.variables).toEqual([
+      expect.objectContaining({ key: 'TOKEN', value: '', private: true }),
+    ]);
+  });
+
   it('keeps non-secret vars and preserves secret vars value-less in additional environments', () => {
     const data = {
       opencollection: '1.0.0',

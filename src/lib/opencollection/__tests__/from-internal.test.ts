@@ -53,6 +53,21 @@ describe('internalToOC', () => {
     expect(item.http.url).toBe('https://example.com');
   });
 
+  it('omits private variables from portable OpenCollection output', () => {
+    const oc = internalToOC({
+      id: 'c',
+      name: 'Private',
+      items: [],
+      variables: [
+        { id: 'shared', key: 'HOST', value: 'https://api.example', enabled: true },
+        { id: 'private', key: 'TOKEN', value: 'never-export', enabled: true, private: true },
+      ],
+    });
+    expect(oc.config?.environments?.[0]?.variables).toEqual([
+      { name: 'HOST', value: 'https://api.example' },
+    ]);
+  });
+
   it('rebuilds from internal when one item has been modified (no _oc on that item)', () => {
     const internal: any = {
       id: 'c',

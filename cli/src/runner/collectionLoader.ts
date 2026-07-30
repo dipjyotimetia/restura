@@ -44,6 +44,7 @@ export interface LoadedCollection {
     name: string;
     description?: string;
     variables?: Array<{ key: string; value: string; enabled?: boolean }>;
+    privateVariableNames?: string[];
   };
   requests: LoadedRequest[];
   /** Format detected at load time — used for deprecation warnings and reporters. */
@@ -132,6 +133,16 @@ function extractMeta(c: Collection): LoadedCollection['meta'] {
       };
       if (v.enabled !== undefined) item.enabled = v.enabled;
       return item;
+    });
+  }
+  const privateVariables = (c as Collection & { _oc?: { extensions?: Record<string, unknown> } })
+    ._oc?.extensions?.['x-restura-private-variables'];
+  if (Array.isArray(privateVariables)) {
+    out.privateVariableNames = privateVariables.flatMap((entry) => {
+      const names = (entry as { names?: unknown }).names;
+      return Array.isArray(names)
+        ? names.filter((name): name is string => typeof name === 'string')
+        : [];
     });
   }
   return out;

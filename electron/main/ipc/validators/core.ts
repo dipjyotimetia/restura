@@ -298,6 +298,7 @@ export const HttpRequestConfigSchema = z.object({
   serverCipherOrder: z.boolean().optional(),
   minTlsVersion: z.enum(['TLSv1', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3']).optional(),
   cipherSuites: z.string().optional(),
+  secretVariables: z.record(z.string(), protocolSecretValueSchema).optional(),
 });
 
 export type ValidatedHttpRequestConfig = z.infer<typeof HttpRequestConfigSchema>;

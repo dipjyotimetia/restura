@@ -9,6 +9,7 @@ import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import axios, { type AxiosError } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import type { CaCert, ClientCert, MinTlsVersion, ProxyConfig } from '@/types';
+import type { SecretValue } from '@/lib/shared/secretRef';
 import { getElectronAPI, isElectron, workerAuthHeaders, workerBaseUrl } from './platform';
 
 /** Buffered JSON response shape returned by the Worker's `/api/proxy`. */
@@ -46,6 +47,8 @@ export interface DesktopTransportConfig {
   serverCipherOrder?: boolean;
   minTlsVersion?: MinTlsVersion;
   cipherSuites?: string;
+  /** Opaque variable handles resolved only by the Electron main process. */
+  secretVariables?: Record<string, SecretValue>;
 }
 
 export class ProxyTransportError extends Error {
@@ -212,6 +215,7 @@ async function executeViaElectronIpc(
       : {}),
     ...(desktop?.minTlsVersion !== undefined ? { minTlsVersion: desktop.minTlsVersion } : {}),
     ...(desktop?.cipherSuites !== undefined ? { cipherSuites: desktop.cipherSuites } : {}),
+    ...(desktop?.secretVariables ? { secretVariables: desktop.secretVariables } : {}),
   };
 
   signal?.throwIfAborted();

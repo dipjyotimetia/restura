@@ -141,7 +141,7 @@ export function useCollectionSidebarCommands() {
         downloadJSON(exportToInsomnia(collection), `${collection.name}.insomnia.json`);
       } else if (format === 'opencollection') {
         downloadText(
-          exportToOpenCollection(collection),
+          exportToOpenCollection(collection, useEnvironmentStore.getState().environments),
           `${collection.name}.opencollection.yaml`,
           'application/x-yaml'
         );

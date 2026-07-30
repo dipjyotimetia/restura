@@ -9,7 +9,6 @@ import type {
   FormDataItem,
   HttpRequest,
   InsomniaCollection,
-  InsomniaResource,
   InsomniaV5Document,
   InsomniaV5Item,
   KeyValue,
@@ -82,20 +81,28 @@ function importInsomniaV4(
     (env) => !env.parentId || (workspace && env.parentId === workspace._id)
   );
 
-  const baseVariables: KeyValue[] =
-    baseEnv?.data && typeof baseEnv.data === 'object' ? objectToKeyValues(baseEnv.data) : [];
-
   const collection: Collection = {
     id: uuidv4(),
     name: workspace?.name || 'Imported Collection',
     items: [],
-    variables: baseVariables.length > 0 ? baseVariables : undefined,
   };
 
-  // Convert all non-base environments to standalone Environment records.
-  const standaloneEnvs: Environment[] = environments
-    .filter((env) => env !== baseEnv)
-    .map((env) => convertEnvironment(env));
+  // Preserve Insomnia's environment tree instead of flattening the base into
+  // collection variables. Original resource IDs are only used while mapping
+  // parent links; generated IDs retain Restura's persistence invariant.
+  const environmentIds = new Map(environments.map((environment) => [environment._id, uuidv4()]));
+  const importedEnvironments: Environment[] = environments.map((environment) => ({
+    id: environmentIds.get(environment._id)!,
+    name: environment.name || 'Imported Environment',
+    collectionId: collection.id,
+    ...(environment !== baseEnv && environment.parentId && environmentIds.has(environment.parentId)
+      ? { parentId: environmentIds.get(environment.parentId)! }
+      : {}),
+    variables:
+      environment.data && typeof environment.data === 'object'
+        ? objectToKeyValues(environment.data)
+        : [],
+  }));
 
   const folderMap = new Map<string, CollectionItem>();
   folders.forEach((folder) => {
@@ -136,16 +143,8 @@ function importInsomniaV4(
 
   return {
     collection,
-    environments: standaloneEnvs.length > 0 ? standaloneEnvs : undefined,
+    environments: importedEnvironments.length > 0 ? importedEnvironments : undefined,
     warnings,
-  };
-}
-
-function convertEnvironment(env: InsomniaResource): Environment {
-  return {
-    id: uuidv4(),
-    name: env.name || 'Imported Environment',
-    variables: env.data && typeof env.data === 'object' ? objectToKeyValues(env.data) : [],
   };
 }
 
@@ -160,20 +159,24 @@ function importInsomniaV5(doc: InsomniaV5Document, warnings: ImportWarning[]): I
     id: uuidv4(),
     name: doc.name || 'Imported Collection',
     items,
-    variables: undefined,
   };
 
-  const standaloneEnvs: Environment[] = [];
+  const importedEnvironments: Environment[] = [];
   const env = doc.environments;
   if (env) {
-    if (env.data && typeof env.data === 'object') {
-      const baseVars = objectToKeyValues(env.data);
-      if (baseVars.length > 0) collection.variables = baseVars;
-    }
+    const baseId = uuidv4();
+    importedEnvironments.push({
+      id: baseId,
+      name: env.name || 'Base environment',
+      collectionId: collection.id,
+      variables: env.data && typeof env.data === 'object' ? objectToKeyValues(env.data) : [],
+    });
     for (const sub of env.subEnvironments ?? []) {
-      standaloneEnvs.push({
+      importedEnvironments.push({
         id: uuidv4(),
         name: sub.name || 'Imported Environment',
+        collectionId: collection.id,
+        parentId: baseId,
         variables: sub.data && typeof sub.data === 'object' ? objectToKeyValues(sub.data) : [],
       });
     }
@@ -181,7 +184,7 @@ function importInsomniaV5(doc: InsomniaV5Document, warnings: ImportWarning[]): I
 
   return {
     collection,
-    environments: standaloneEnvs.length > 0 ? standaloneEnvs : undefined,
+    environments: importedEnvironments.length > 0 ? importedEnvironments : undefined,
     warnings,
   };
 }

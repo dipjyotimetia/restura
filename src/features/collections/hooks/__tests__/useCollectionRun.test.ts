@@ -156,6 +156,25 @@ describe('buildBaseVars', () => {
       }
     );
   });
+
+  it('layers a selected sub-environment over its base before collection values', () => {
+    const base: Environment = {
+      id: 'base',
+      name: 'Base',
+      variables: [{ id: 'base-v', key: 'host', value: 'base', enabled: true }],
+    };
+    const sub: Environment = {
+      id: 'sub',
+      name: 'Production',
+      parentId: 'base',
+      variables: [{ id: 'sub-v', key: 'host', value: 'sub', enabled: true }],
+    };
+    expect(
+      buildBaseVars({ host: 'global' }, [base, sub], { id: 'c', name: 'C', items: [] })
+    ).toEqual({
+      host: 'sub',
+    });
+  });
 });
 
 describe('useCollectionRun lifecycle', () => {

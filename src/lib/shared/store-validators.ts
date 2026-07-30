@@ -139,11 +139,19 @@ export function validateEnvironment(env: unknown): Environment {
     // EOPT(maintainability): Zod's `.optional()` widens to `T | undefined`,
     // which the EOPT-strict Environment.variables[].description rejects.
     // Strip undefined-valued keys before returning.
+    const { collectionId, parentId, ...environment } = result.data;
     return {
-      ...result.data,
+      ...environment,
+      ...(collectionId !== undefined ? { collectionId } : {}),
+      ...(parentId !== undefined ? { parentId } : {}),
       variables: result.data.variables.map((v) => {
-        const { description, ...rest } = v;
-        return description !== undefined ? { ...rest, description } : rest;
+        const { description, private: isPrivate, secretRef, ...rest } = v;
+        return {
+          ...rest,
+          ...(description !== undefined ? { description } : {}),
+          ...(isPrivate !== undefined ? { private: isPrivate } : {}),
+          ...(secretRef !== undefined ? { secretRef } : {}),
+        };
       }),
     };
   }
