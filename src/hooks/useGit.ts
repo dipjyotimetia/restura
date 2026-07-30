@@ -1,4 +1,12 @@
-import type { GitBranch, GitCommit, GitStatus, GitStatusFile } from '@shared/git-types';
+import type {
+  GitBranch,
+  GitCommit,
+  GitConflictResolution,
+  GitMergeConflictDetail,
+  GitMergeState,
+  GitStatus,
+  GitStatusFile,
+} from '@shared/git-types';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getElectronAPI } from '@/lib/shared/platform';
 import { loadCollectionFromDirectory } from '@/store/useFileCollectionStore';
@@ -13,6 +21,7 @@ interface GitState {
   error: string | null;
   /** True when the directory isn't a git repo yet — offer `init()`. */
   notARepo: boolean;
+  mergeState: GitMergeState | null;
 }
 
 /**
@@ -29,6 +38,7 @@ export function useGit(directoryPath: string | null) {
     loading: false,
     error: null,
     notARepo: false,
+    mergeState: null,
   });
   const mountedRef = useRef(false);
   const activeDirectoryRef = useRef(directoryPath);
@@ -61,10 +71,11 @@ export function useGit(directoryPath: string | null) {
     }
     if (isCurrent()) setState((s) => ({ ...s, loading: true, error: null }));
     try {
-      const [statusRes, branchRes, logRes] = await Promise.all([
+      const [statusRes, branchRes, logRes, mergeRes] = await Promise.all([
         api.git.status(directoryPath),
         api.git.branchList(directoryPath),
         api.git.log(directoryPath, 20),
+        api.git.mergeState(directoryPath),
       ]);
       if (!isCurrent()) return;
       const statusError = statusRes.ok ? null : statusRes.error;
@@ -80,6 +91,7 @@ export function useGit(directoryPath: string | null) {
         // UI offers Init) rather than as a raw error banner.
         error: notARepo ? null : statusError,
         notARepo,
+        mergeState: mergeRes.ok ? mergeRes.state : null,
       });
     } catch (err) {
       // An IPC invoke can reject during teardown / missing handler — never leave
@@ -222,6 +234,61 @@ export function useGit(directoryPath: string | null) {
     return res.ok ? null : res.error;
   }, [directoryPath, refresh]);
 
+  const startMerge = useCallback(
+    async (sourceRef: string, expectedSha: string): Promise<string | null> => {
+      const api = getElectronAPI();
+      if (!api?.git || !directoryPath) return 'Git unavailable';
+      const res = await api.git.startMerge(directoryPath, sourceRef, expectedSha);
+      if (res.ok && res.outcome.kind === 'fast-forward') await reloadCollection();
+      await refresh();
+      return res.ok ? null : res.error;
+    },
+    [directoryPath, refresh, reloadCollection]
+  );
+
+  const getMergeConflict = useCallback(
+    async (conflictId: string): Promise<GitMergeConflictDetail | string> => {
+      const api = getElectronAPI();
+      if (!api?.git || !directoryPath) return 'Git unavailable';
+      const res = await api.git.getMergeConflict(directoryPath, conflictId);
+      return res.ok ? res.conflict : res.error;
+    },
+    [directoryPath]
+  );
+
+  const resolveMergeConflict = useCallback(
+    async (resolution: GitConflictResolution): Promise<string | null> => {
+      const api = getElectronAPI();
+      if (!api?.git || !directoryPath) return 'Git unavailable';
+      const res = await api.git.resolveMergeConflict(directoryPath, resolution);
+      if (res.ok && res.state.phase === 'ready-to-commit') await reloadCollection();
+      await refresh();
+      return res.ok ? null : res.error;
+    },
+    [directoryPath, refresh, reloadCollection]
+  );
+
+  const abortMerge = useCallback(async (): Promise<string | null> => {
+    const api = getElectronAPI();
+    if (!api?.git || !directoryPath) return 'Git unavailable';
+    const res = await api.git.abortMerge(directoryPath);
+    if (res.ok) await reloadCollection();
+    await refresh();
+    return res.ok ? null : res.error;
+  }, [directoryPath, refresh, reloadCollection]);
+
+  const completeMerge = useCallback(
+    async (message: string): Promise<string | null> => {
+      const api = getElectronAPI();
+      if (!api?.git || !directoryPath) return 'Git unavailable';
+      const res = await api.git.completeMerge(directoryPath, message);
+      if (res.ok) await reloadCollection();
+      await refresh();
+      return res.ok ? null : res.error;
+    },
+    [directoryPath, refresh, reloadCollection]
+  );
+
   return {
     ...state,
     refresh,
@@ -236,5 +303,10 @@ export function useGit(directoryPath: string | null) {
     fetch,
     pull,
     push,
+    startMerge,
+    getMergeConflict,
+    resolveMergeConflict,
+    abortMerge,
+    completeMerge,
   };
 }

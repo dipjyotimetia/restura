@@ -28,6 +28,28 @@ describe('deep-link contract', () => {
     expect(parseDeepLink('restura://attacker?id=anything')).toBeNull();
   });
 
+  it('covers every documented action and rejects malformed action variants', () => {
+    expect(parseDeepLink('')).toBeNull();
+    expect(parseDeepLink('restura://request?id=request_1#fragment')).toBeNull();
+    expect(parseDeepLink('restura://environment?id=environment_1')).toEqual({
+      kind: 'environment',
+      id: 'environment_1',
+    });
+    expect(parseDeepLink('restura://collection?id=collection_1')).toEqual({
+      kind: 'collection',
+      id: 'collection_1',
+    });
+    expect(parseDeepLink('restura://import?format=openapi')).toBeNull();
+    expect(
+      parseDeepLink('restura://import?url=https%3A%2F%2Fexample.com%2Fcollection.json')
+    ).toEqual({
+      kind: 'import',
+      url: 'https://example.com/collection.json',
+    });
+    expect(parseDeepLink('restura://settings?section=security&extra=true')).toBeNull();
+    expect(parseDeepLink('restura://settings?section=unknown')).toBeNull();
+  });
+
   it.each([
     'restura://import?url=http://169.254.169.254/x',
     'restura://import?url=http://localhost:6443/api',

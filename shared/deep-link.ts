@@ -35,7 +35,7 @@ export type DeepLinkPayload = DeepLinkAction & { id: string };
 
 function single(params: URLSearchParams, key: string): string | null {
   const values = params.getAll(key);
-  return values.length === 1 ? (values[0] ?? null) : null;
+  return values.length === 1 ? values[0]! : null;
 }
 function only(params: URLSearchParams, allowed: readonly string[]): boolean {
   return [...params.keys()].every((key) => allowed.includes(key));

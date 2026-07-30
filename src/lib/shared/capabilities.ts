@@ -289,7 +289,13 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
       'Unsupported: the provider contract and registry are implemented, but no Docker or hosted sandbox provider ships yet',
   },
   'collections.file': { label: 'Filesystem-backed collections', web: false, desktop: true },
-  'collections.git': { label: 'Git operations on collections', web: false, desktop: true },
+  'collections.git': {
+    label: 'Git operations on collections',
+    web: false,
+    desktop: true,
+    notes:
+      'System-Git status, diff, staging, commits, branches, fetch/pull/push, and explicit resumable merges for registered OpenCollection directories; structured YAML conflict resolution validates before staging',
+  },
   'workflows.ows': {
     label: 'Workflows',
     web: true,

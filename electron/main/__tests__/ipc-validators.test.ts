@@ -1,11 +1,14 @@
 // @vitest-environment node
+
+import { consoleSink, noopSink, setLogSink } from '@shared/runtime/logger';
 import { afterAll, beforeAll, vi } from 'vitest';
 import { z } from 'zod';
-import { consoleSink, noopSink, setLogSink } from '@shared/runtime/logger';
 import {
   BugReportScreenshotSchema,
   createValidatedHandler,
   FilePathSchema,
+  GitMergeResolutionSchema,
+  GitMergeStartSchema,
   GrpcRequestConfigSchema,
   GrpcSendMessageSchema,
   GrpcStreamRequestIdSchema,
@@ -180,6 +183,48 @@ describe('validateIpcInput', () => {
         validateIpcInput(ShellUrlSchema, 'http://example.com', 'shell:openExternal')
       ).not.toThrow();
     });
+  });
+});
+
+describe('Git merge IPC schemas', () => {
+  it('accepts pinned refs and bounded manual resolutions', () => {
+    expect(
+      GitMergeStartSchema.safeParse({
+        directoryPath: '/workspace',
+        sourceRef: 'origin/feature/merge',
+        expectedSha: 'a'.repeat(40),
+      }).success
+    ).toBe(true);
+    expect(
+      GitMergeResolutionSchema.safeParse({
+        directoryPath: '/workspace',
+        resolution: {
+          conflictId: 'b'.repeat(64),
+          kind: 'content',
+          content: 'info:\n  type: http\n',
+        },
+      }).success
+    ).toBe(true);
+  });
+
+  it('rejects option-like refs, malformed IDs, and resolutions above 2 MiB', () => {
+    expect(
+      GitMergeStartSchema.safeParse({
+        directoryPath: '/workspace',
+        sourceRef: '--upload-pack=evil',
+        expectedSha: 'a'.repeat(40),
+      }).success
+    ).toBe(false);
+    expect(
+      GitMergeResolutionSchema.safeParse({
+        directoryPath: '/workspace',
+        resolution: {
+          conflictId: '../stale',
+          kind: 'content',
+          content: 'x'.repeat(2 * 1024 * 1024 + 1),
+        },
+      }).success
+    ).toBe(false);
   });
 });
 

@@ -166,6 +166,12 @@ export const IPC = {
     pull: 'git:pull',
     push: 'git:push',
     clone: 'git:clone',
+    mergeState: 'git:merge:state',
+    mergeStart: 'git:merge:start',
+    mergeConflict: 'git:merge:conflict',
+    mergeResolve: 'git:merge:resolve',
+    mergeAbort: 'git:merge:abort',
+    mergeComplete: 'git:merge:complete',
   },
   log: {
     getHistory: 'log:getHistory',

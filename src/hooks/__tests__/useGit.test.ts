@@ -19,6 +19,12 @@ const mocks = vi.hoisted(() => ({
     fetch: vi.fn(),
     pull: vi.fn(),
     push: vi.fn(),
+    mergeState: vi.fn(),
+    startMerge: vi.fn(),
+    getMergeConflict: vi.fn(),
+    resolveMergeConflict: vi.fn(),
+    abortMerge: vi.fn(),
+    completeMerge: vi.fn(),
   },
 }));
 
@@ -76,6 +82,43 @@ function useSuccessfulGitResults(): void {
     ok: true,
     result: { remote: 'origin', branch: 'feature' },
   });
+  mocks.git.mergeState.mockResolvedValue({
+    ok: true,
+    state: { phase: 'idle', branch: 'main', dirty: false },
+  });
+  mocks.git.startMerge.mockResolvedValue({
+    ok: true,
+    outcome: { kind: 'fast-forward', head: 'f'.repeat(40) },
+  });
+  mocks.git.getMergeConflict.mockResolvedValue({
+    ok: true,
+    conflict: {
+      id: 'c'.repeat(64),
+      path: 'request.yaml',
+      relatedPaths: ['request.yaml'],
+      status: 'both-modified',
+      kind: 'text',
+      strategy: 'text',
+      base: { present: true, content: 'base' },
+      local: { present: true, content: 'local' },
+      incoming: { present: true, content: 'incoming' },
+      proposedContent: 'local',
+    },
+  });
+  mocks.git.resolveMergeConflict.mockResolvedValue({
+    ok: true,
+    state: {
+      phase: 'ready-to-commit',
+      branch: 'main',
+      mergeHead: 'f'.repeat(40),
+      suggestedMessage: 'Merge incoming',
+    },
+  });
+  mocks.git.abortMerge.mockResolvedValue({ ok: true, result: { aborted: true } });
+  mocks.git.completeMerge.mockResolvedValue({
+    ok: true,
+    commit: { sha: 'f'.repeat(40), abbreviatedSha: 'fffffff' },
+  });
 }
 
 beforeEach(() => {
@@ -123,9 +166,48 @@ describe('useGit', () => {
     expect(result.current.log).toEqual(COMMITS);
     expect(result.current.error).toBeNull();
     expect(result.current.notARepo).toBe(false);
+    expect(result.current.mergeState).toEqual({ phase: 'idle', branch: 'main', dirty: false });
     expect(mocks.git.status).toHaveBeenCalledWith(DIRECTORY);
     expect(mocks.git.branchList).toHaveBeenCalledWith(DIRECTORY);
     expect(mocks.git.log).toHaveBeenCalledWith(DIRECTORY, 20);
+    expect(mocks.git.mergeState).toHaveBeenCalledWith(DIRECTORY);
+  });
+
+  it('starts, inspects, resolves, aborts, and completes merges through the desktop API', async () => {
+    const { result } = renderHook(() => useGit(DIRECTORY));
+    await waitFor(() => expect(result.current.mergeState?.phase).toBe('idle'));
+    mocks.loadCollectionFromDirectory.mockClear();
+
+    await act(async () => {
+      await expect(result.current.startMerge('origin/main', 'a'.repeat(40))).resolves.toBeNull();
+    });
+    expect(mocks.git.startMerge).toHaveBeenCalledWith(DIRECTORY, 'origin/main', 'a'.repeat(40));
+    expect(mocks.loadCollectionFromDirectory).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await expect(result.current.getMergeConflict('c'.repeat(64))).resolves.toMatchObject({
+        path: 'request.yaml',
+        strategy: 'text',
+      });
+      await expect(
+        result.current.resolveMergeConflict({
+          conflictId: 'c'.repeat(64),
+          kind: 'choice',
+          choice: 'incoming',
+        })
+      ).resolves.toBeNull();
+      await expect(result.current.abortMerge()).resolves.toBeNull();
+      await expect(result.current.completeMerge('Merge incoming')).resolves.toBeNull();
+    });
+
+    expect(mocks.git.resolveMergeConflict).toHaveBeenCalledWith(DIRECTORY, {
+      conflictId: 'c'.repeat(64),
+      kind: 'choice',
+      choice: 'incoming',
+    });
+    expect(mocks.git.abortMerge).toHaveBeenCalledWith(DIRECTORY);
+    expect(mocks.git.completeMerge).toHaveBeenCalledWith(DIRECTORY, 'Merge incoming');
+    expect(mocks.loadCollectionFromDirectory).toHaveBeenCalledTimes(4);
   });
 
   it('turns the stable not-a-repo result into initialization state', async () => {
