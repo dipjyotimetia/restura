@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -14,10 +14,11 @@ const MAIN_JS = path.join(ROOT, 'dist/electron/electron/main/main.js');
 
 interface ElectronFixtures {
   app: Page;
+  electronProfileDirectory: string;
 }
 
 interface ElectronWorkerFixtures {
-  _electronApp: { electronApp: ElectronApplication; page: Page };
+  _electronApp: { electronApp: ElectronApplication; page: Page; userDataDir: string };
 }
 
 /**
@@ -33,7 +34,6 @@ interface ElectronWorkerFixtures {
  */
 export const test = base.extend<ElectronFixtures, ElectronWorkerFixtures>({
   _electronApp: [
-    // biome-ignore lint/correctness/noEmptyPattern: legacy type boundary
     async ({}, use) => {
       // macOS's os.tmpdir() is /var/folders/...; the desktop file boundary
       // correctly rejects system-root paths, including that location. Keep
@@ -41,6 +41,8 @@ export const test = base.extend<ElectronFixtures, ElectronWorkerFixtures>({
       // exercised through the same allowlist as a real user-picked project.
       const e2eTempRoot = process.platform === 'win32' ? tmpdir() : '/tmp';
       const userDataDir = mkdtempSync(path.join(e2eTempRoot, 'restura-e2e-'));
+      const xdgConfigHome = path.join(userDataDir, 'xdg-config');
+      mkdirSync(xdgConfigHome, { recursive: true });
       const electronApp = await _electron.launch({
         // `--ignore-certificate-errors` is a test-only Chromium switch (not a
         // source change). It affects ONLY renderer-initiated TLS (the OAuth2
@@ -55,6 +57,7 @@ export const test = base.extend<ElectronFixtures, ElectronWorkerFixtures>({
           NODE_ENV: 'production',
           RESTURA_DISABLE_AUTO_UPDATE: 'true',
           RESTURA_USER_DATA_DIR: userDataDir,
+          XDG_CONFIG_HOME: xdgConfigHome,
         },
       });
 
@@ -76,7 +79,7 @@ export const test = base.extend<ElectronFixtures, ElectronWorkerFixtures>({
         timeout: 15_000,
       });
 
-      await use({ electronApp, page });
+      await use({ electronApp, page, userDataDir });
 
       await electronApp.close();
       rmSync(userDataDir, { recursive: true, force: true });
@@ -86,6 +89,9 @@ export const test = base.extend<ElectronFixtures, ElectronWorkerFixtures>({
 
   app: async ({ _electronApp }, use) => {
     await use(_electronApp.page);
+  },
+  electronProfileDirectory: async ({ _electronApp }, use) => {
+    await use(_electronApp.userDataDir);
   },
 });
 

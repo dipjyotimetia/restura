@@ -6,128 +6,59 @@
  */
 
 import type { GitBranch, GitCommit, GitStatus, GitStatusFile } from '@shared/git-types';
-import { execFile } from 'child_process';
+import { loadCollectionDirectory } from '@shared/opencollection/node/fs-reader';
+import { createLogger } from '@shared/runtime/logger';
 import { ipcMain } from 'electron';
 import { existsSync } from 'fs';
 import * as path from 'path';
-import { promisify } from 'util';
-import { z } from 'zod';
-import { createLogger } from '@shared/runtime/logger';
-import { loadCollectionDirectory } from '@shared/opencollection/node/fs-reader';
+import type { z } from 'zod';
 import { IPC } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
-import { assertTrustedSender } from '../ipc/ipc-validators';
+import {
+  assertTrustedSender,
+  GitAddFilesInputSchema,
+  GitCloneInputSchema,
+  GitCommitInputSchema,
+  GitDiffInputSchema,
+  GitDirectoryInputSchema,
+  GitLogInputSchema,
+  GitMergeCompleteSchema,
+  GitMergeConflictSchema,
+  GitMergeResolutionSchema,
+  GitMergeStartSchema,
+  GitRefInputSchema,
+} from '../ipc/ipc-validators';
 import { isPathRealSafe } from '../storage/file-operations';
+import {
+  gitAbortMerge,
+  gitCompleteMerge,
+  gitGetMergeConflict,
+  gitMergeState,
+  gitResolveMergeConflict,
+  gitStartMerge,
+} from './git-merge-handler';
+import {
+  ensureDirectoryAllowed,
+  GitError,
+  resolveWithin,
+  runGit,
+  sanitiseCloneDirectoryName,
+  sanitiseRefName,
+  sanitiseRemoteUrl,
+  withGitLock as withLock,
+} from './git-runtime';
+
+export {
+  GitError,
+  sanitiseRefName,
+  sanitiseRemoteUrl,
+  setGitDirectoryAllowlist,
+} from './git-runtime';
 
 const log = createLogger('git');
 
-const execFileAsync = promisify(execFile);
-
-const MAX_OUTPUT_BYTES = 2 * 1024 * 1024; // 2MB per command output
-const COMMAND_TIMEOUT_MS = 15_000;
-const REMOTE_COMMAND_TIMEOUT_MS = 60_000;
-
 /** Per-webContents budget; registered for cleanup in window-manager.ts. */
 export const gitRateLimiter = createKeyedRateLimiter(120, 60_000);
-
-let isDirectoryAllowed: (dirPath: string) => boolean = () => false;
-
-/**
- * Configure the directory-allowlist predicate. The Electron app should call
- * this with a checker that consults `useFileCollectionStore` so only
- * registered file-backed collections can be git-driven.
- */
-export function setGitDirectoryAllowlist(check: (dirPath: string) => boolean): void {
-  isDirectoryAllowed = check;
-}
-
-function ensureDirectoryAllowed(rawPath: string): string {
-  const absolute = path.resolve(rawPath);
-  if (!isDirectoryAllowed(absolute)) {
-    throw new GitError(
-      `Directory not allowed: ${absolute} is not registered as a file-backed collection`,
-      'forbidden'
-    );
-  }
-  return absolute;
-}
-
-const DirectoryInputSchema = z.object({
-  directoryPath: z.string().min(1).max(2048),
-});
-const DiffInputSchema = DirectoryInputSchema.extend({
-  filePath: z.string().min(1).max(2048),
-  staged: z.boolean().optional(),
-});
-const LogInputSchema = DirectoryInputSchema.extend({
-  limit: z.number().int().min(1).max(500).optional(),
-});
-const AddFilesInputSchema = DirectoryInputSchema.extend({
-  filePaths: z.array(z.string().min(1).max(2048)).min(1).max(1000),
-});
-const CommitInputSchema = DirectoryInputSchema.extend({
-  message: z.string().min(1).max(5000),
-  all: z.boolean().optional(),
-  paths: z.array(z.string().min(1).max(2048)).max(1000).optional(),
-});
-const RefInputSchema = DirectoryInputSchema.extend({
-  name: z.string().min(1).max(255),
-});
-const CloneInputSchema = z.object({
-  parentDirectory: z.string().min(1).max(2048),
-  remoteUrl: z.string().min(1).max(2048),
-  directoryName: z.string().min(1).max(255),
-});
-
-/**
- * Allow only characters that git refs reliably accept. This is conservative —
- * it rejects perfectly valid refs that contain weird-but-allowed glyphs.
- * Callers should not pass user-typed branch names through this directly.
- */
-const REF_NAME_RE = /^[A-Za-z0-9._\-/]{1,255}$/;
-function sanitiseRefName(name: string): string {
-  if (!REF_NAME_RE.test(name)) {
-    throw new GitError(`Invalid ref name: ${name}`, 'invalid-input');
-  }
-  // Per git's check-ref-format rules, no leading dash, no `..`, no `@{`, no `:`
-  if (name.startsWith('-') || name.includes('..') || name.includes('@{') || name.includes(':')) {
-    throw new GitError(`Invalid ref name: ${name}`, 'invalid-input');
-  }
-  return name;
-}
-
-const SCP_STYLE_GIT_URL = /^git@[A-Za-z0-9.-]+:[A-Za-z0-9._~/-]+(?:\.git)?$/;
-
-/**
- * Allow only credential-free HTTPS and SSH Git remotes. Local paths and
- * `file:` URLs would let a compromised renderer use the clone entry point as
- * an arbitrary local repository reader, so they are intentionally out of
- * scope. Credentials remain with system Git's credential manager / SSH agent.
- */
-function sanitiseRemoteUrl(value: string): string {
-  const remoteUrl = value.trim();
-  if (SCP_STYLE_GIT_URL.test(remoteUrl)) return remoteUrl;
-  try {
-    const url = new URL(remoteUrl);
-    if (url.protocol !== 'https:' && url.protocol !== 'ssh:') {
-      throw new GitError('Remote URL must use HTTPS or SSH.', 'invalid-remote-url');
-    }
-    if (!url.hostname || url.password || (url.username && url.protocol === 'https:')) {
-      throw new GitError('Remote URL must not contain credentials.', 'invalid-remote-url');
-    }
-    return remoteUrl;
-  } catch (error) {
-    if (error instanceof GitError) throw error;
-    throw new GitError('Remote URL must be a valid HTTPS or SSH Git URL.', 'invalid-remote-url');
-  }
-}
-
-function sanitiseCloneDirectoryName(name: string): string {
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/.test(name) || name === '.' || name === '..') {
-    throw new GitError('Choose a simple folder name for the cloned workspace.', 'invalid-input');
-  }
-  return name;
-}
 
 export type { GitBranch, GitCommit, GitStatus, GitStatusFile };
 
@@ -223,7 +154,7 @@ export function parseBranchList(raw: string, currentBranch: string | null): GitB
   const out: GitBranch[] = [];
   for (const line of raw.split('\n')) {
     if (!line) continue;
-    const [refRaw, upstreamRaw] = line.split('\t');
+    const [refRaw, upstreamRaw, oidRaw] = line.split('\t');
     const ref = refRaw?.trim();
     if (!ref) continue;
 
@@ -247,87 +178,10 @@ export function parseBranchList(raw: string, currentBranch: string | null): GitB
       isCurrent: !isRemote && currentBranch !== null && name === currentBranch,
       isRemote,
       ...(upstreamRaw && upstreamRaw.trim() ? { upstream: upstreamRaw.trim() } : {}),
+      ...(oidRaw && oidRaw.trim() ? { oid: oidRaw.trim() } : {}),
     });
   }
   return out;
-}
-
-const dirLocks = new Map<string, Promise<unknown>>();
-
-function withLock<T>(dir: string, fn: () => Promise<T>): Promise<T> {
-  const prev = dirLocks.get(dir) ?? Promise.resolve();
-  const next = prev.catch(() => undefined).then(fn);
-  dirLocks.set(dir, next);
-  void next
-    .catch(() => undefined)
-    .finally(() => {
-      if (dirLocks.get(dir) === next) dirLocks.delete(dir);
-    });
-  return next;
-}
-
-export class GitError extends Error {
-  constructor(
-    message: string,
-    public readonly code: string = 'error'
-  ) {
-    super(message);
-    this.name = 'GitError';
-  }
-}
-
-async function runGit(cwd: string, args: string[]): Promise<string> {
-  try {
-    // An inherited GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, GIT_CONFIG_*, or
-    // GIT_SSH_COMMAND can redirect Git outside the allowlisted cwd or cause it
-    // to run an unexpected helper. System credential helpers remain available
-    // because they are configured by Git itself, not passed through `GIT_*`.
-    const safeEnv = Object.fromEntries(
-      Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_'))
-    );
-    const { stdout } = await execFileAsync(
-      'git',
-      ['-c', 'core.fsmonitor=', '-c', 'core.sshCommand=', ...args],
-      {
-        cwd,
-        maxBuffer: MAX_OUTPUT_BYTES,
-        timeout: ['clone', 'fetch', 'push'].includes(args[0] ?? '')
-          ? REMOTE_COMMAND_TIMEOUT_MS
-          : COMMAND_TIMEOUT_MS,
-        env: {
-          ...safeEnv,
-          LANG: 'C.UTF-8',
-          GIT_PAGER: 'cat',
-          PAGER: 'cat',
-          GIT_ALLOW_PROTOCOL: 'https:ssh',
-          GIT_LITERAL_PATHSPECS: '1',
-        },
-      }
-    );
-    return stdout;
-  } catch (err) {
-    if (err && typeof err === 'object') {
-      const e = err as { code?: string; stderr?: string; message?: string };
-      if (e.code === 'ENOENT') {
-        if (!existsSync(cwd)) {
-          throw new GitError(
-            'Collection directory no longer exists. Re-open it to continue.',
-            'directory-missing'
-          );
-        }
-        throw new GitError(
-          'git is not installed or not on PATH. Install git to use git-native collections.',
-          'git-missing'
-        );
-      }
-      const message = e.stderr?.trim() || e.message || 'git command failed';
-      if (/not a git repository/i.test(message)) {
-        throw new GitError(message, 'not-a-repo');
-      }
-      throw new GitError(message, 'git-error');
-    }
-    throw new GitError(String(err), 'git-error');
-  }
 }
 
 export async function gitStatus(directoryPath: string): Promise<GitStatus> {
@@ -383,7 +237,12 @@ export async function gitBranchList(directoryPath: string): Promise<GitBranch[]>
   return withLock(dir, async () => {
     const [current, list] = await Promise.all([
       runGit(dir, ['branch', '--show-current']).then((s) => s.trim() || null),
-      runGit(dir, ['branch', '--list', '--all', '--format=%(refname)\t%(upstream:short)']),
+      runGit(dir, [
+        'branch',
+        '--list',
+        '--all',
+        '--format=%(refname)\t%(upstream:short)\t%(objectname)',
+      ]),
     ]);
     return parseBranchList(list, current);
   });
@@ -395,15 +254,6 @@ export async function gitInit(directoryPath: string): Promise<true> {
     await runGit(dir, ['init']);
     return true as const;
   });
-}
-
-/** Resolve a file path and assert it stays within the collection directory. */
-function resolveWithin(dir: string, filePath: string): string {
-  const abs = path.resolve(dir, filePath);
-  if (!abs.startsWith(dir + path.sep) && abs !== dir) {
-    throw new GitError(`File path escapes the collection directory: ${filePath}`, 'invalid-input');
-  }
-  return abs;
 }
 
 export async function gitAddFiles(directoryPath: string, filePaths: string[]): Promise<true> {
@@ -709,57 +559,82 @@ export function registerGitHandlerIPC(): void {
     ipcMain.handle(channel, rateLimited(gitRateLimiter, ipcCommand(schema, resultKey, run)));
   };
 
-  handle(IPC.git.init, DirectoryInputSchema, 'initialized', ({ directoryPath }) =>
+  handle(IPC.git.init, GitDirectoryInputSchema, 'initialized', ({ directoryPath }) =>
     gitInit(directoryPath)
   );
-  handle(IPC.git.status, DirectoryInputSchema, 'status', ({ directoryPath }) =>
+  handle(IPC.git.status, GitDirectoryInputSchema, 'status', ({ directoryPath }) =>
     gitStatus(directoryPath)
   );
-  handle(IPC.git.log, LogInputSchema, 'commits', ({ directoryPath, limit }) =>
+  handle(IPC.git.log, GitLogInputSchema, 'commits', ({ directoryPath, limit }) =>
     gitLog(directoryPath, limit ?? 50)
   );
-  handle(IPC.git.diff, DiffInputSchema, 'diff', ({ directoryPath, filePath, staged }) =>
+  handle(IPC.git.diff, GitDiffInputSchema, 'diff', ({ directoryPath, filePath, staged }) =>
     gitDiff(directoryPath, filePath, staged)
   );
-  handle(IPC.git.branchList, DirectoryInputSchema, 'branches', ({ directoryPath }) =>
+  handle(IPC.git.branchList, GitDirectoryInputSchema, 'branches', ({ directoryPath }) =>
     gitBranchList(directoryPath)
   );
-  handle(IPC.git.add, AddFilesInputSchema, 'staged', ({ directoryPath, filePaths }) =>
+  handle(IPC.git.add, GitAddFilesInputSchema, 'staged', ({ directoryPath, filePaths }) =>
     gitAddFiles(directoryPath, filePaths)
   );
-  handle(IPC.git.unstage, AddFilesInputSchema, 'unstaged', ({ directoryPath, filePaths }) =>
+  handle(IPC.git.unstage, GitAddFilesInputSchema, 'unstaged', ({ directoryPath, filePaths }) =>
     gitUnstageFiles(directoryPath, filePaths)
   );
-  handle(IPC.git.discard, AddFilesInputSchema, 'discarded', ({ directoryPath, filePaths }) =>
+  handle(IPC.git.discard, GitAddFilesInputSchema, 'discarded', ({ directoryPath, filePaths }) =>
     gitDiscardFiles(directoryPath, filePaths)
   );
-  handle(IPC.git.commit, CommitInputSchema, 'commit', ({ directoryPath, message, all, paths }) =>
+  handle(IPC.git.commit, GitCommitInputSchema, 'commit', ({ directoryPath, message, all, paths }) =>
     gitCommit(directoryPath, message, {
       ...(all !== undefined ? { all } : {}),
       ...(paths !== undefined ? { paths } : {}),
     })
   );
-  handle(IPC.git.createBranch, RefInputSchema, 'branch', ({ directoryPath, name }) =>
+  handle(IPC.git.createBranch, GitRefInputSchema, 'branch', ({ directoryPath, name }) =>
     gitCreateBranch(directoryPath, name)
   );
-  handle(IPC.git.checkoutBranch, RefInputSchema, 'branch', ({ directoryPath, name }) =>
+  handle(IPC.git.checkoutBranch, GitRefInputSchema, 'branch', ({ directoryPath, name }) =>
     gitCheckoutBranch(directoryPath, name)
   );
-  handle(IPC.git.fetch, DirectoryInputSchema, 'remote', ({ directoryPath }) =>
+  handle(IPC.git.fetch, GitDirectoryInputSchema, 'remote', ({ directoryPath }) =>
     gitFetch(directoryPath)
   );
-  handle(IPC.git.pull, DirectoryInputSchema, 'result', ({ directoryPath }) =>
+  handle(IPC.git.pull, GitDirectoryInputSchema, 'result', ({ directoryPath }) =>
     gitPullFastForward(directoryPath)
   );
-  handle(IPC.git.push, DirectoryInputSchema, 'result', ({ directoryPath }) =>
+  handle(IPC.git.push, GitDirectoryInputSchema, 'result', ({ directoryPath }) =>
     gitPush(directoryPath)
   );
   handle(
     IPC.git.clone,
-    CloneInputSchema,
+    GitCloneInputSchema,
     'workspace',
     ({ parentDirectory, remoteUrl, directoryName }) =>
       gitCloneWorkspace(parentDirectory, remoteUrl, directoryName)
+  );
+  handle(IPC.git.mergeState, GitDirectoryInputSchema, 'state', ({ directoryPath }) =>
+    gitMergeState(directoryPath)
+  );
+  handle(
+    IPC.git.mergeStart,
+    GitMergeStartSchema,
+    'outcome',
+    ({ directoryPath, sourceRef, expectedSha }) =>
+      gitStartMerge(directoryPath, sourceRef, expectedSha)
+  );
+  handle(
+    IPC.git.mergeConflict,
+    GitMergeConflictSchema,
+    'conflict',
+    ({ directoryPath, conflictId }) => gitGetMergeConflict(directoryPath, conflictId)
+  );
+  handle(IPC.git.mergeResolve, GitMergeResolutionSchema, 'state', ({ directoryPath, resolution }) =>
+    gitResolveMergeConflict(directoryPath, resolution)
+  );
+  handle(IPC.git.mergeAbort, GitDirectoryInputSchema, 'result', ({ directoryPath }) =>
+    gitAbortMerge(directoryPath)
+  );
+  handle(IPC.git.mergeComplete, GitMergeCompleteSchema, 'commit', ({ directoryPath, message }) =>
+    gitCompleteMerge(directoryPath, message)
   );
 }
 
@@ -779,6 +654,12 @@ export function unregisterGitHandlerIPC(): void {
   ipcMain.removeHandler(IPC.git.pull);
   ipcMain.removeHandler(IPC.git.push);
   ipcMain.removeHandler(IPC.git.clone);
+  ipcMain.removeHandler(IPC.git.mergeState);
+  ipcMain.removeHandler(IPC.git.mergeStart);
+  ipcMain.removeHandler(IPC.git.mergeConflict);
+  ipcMain.removeHandler(IPC.git.mergeResolve);
+  ipcMain.removeHandler(IPC.git.mergeAbort);
+  ipcMain.removeHandler(IPC.git.mergeComplete);
 }
 
 function errorMessage(err: unknown): string {
@@ -790,6 +671,3 @@ function errorMessage(err: unknown): string {
 function errorCode(err: unknown): string | undefined {
   return err instanceof GitError ? err.code : undefined;
 }
-
-// Surface the sanitiser so tests can exercise it without a real git repo.
-export { sanitiseRefName, sanitiseRemoteUrl };
