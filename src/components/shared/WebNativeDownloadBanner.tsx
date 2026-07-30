@@ -1,9 +1,11 @@
-import { Apple, ChevronDown, Download, Monitor, Terminal } from 'lucide-react';
-import type { ReactElement } from 'react';
+import { Apple, ChevronDown, Download, Monitor, Terminal, X } from 'lucide-react';
+import { type ReactElement, useEffect, useState } from 'react';
 import { isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
+import { useSettingsStore } from '@/store/useSettingsStore';
 
 const releaseUrl = 'https://github.com/dipjyotimetia/restura/releases/latest';
+const dismissalDurationMs = 4 * 60 * 60 * 1000;
 
 const platforms = [
   { label: 'macOS', icon: Apple },
@@ -12,7 +14,19 @@ const platforms = [
 ] as const;
 
 export function WebNativeDownloadBanner(): ReactElement | null {
-  if (isElectron()) return null;
+  const dismissedUntil = useSettingsStore(
+    (state) => state.settings.nativeAppDownloadBannerDismissedUntil
+  );
+  const updateSettings = useSettingsStore((state) => state.updateSettings);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!dismissedUntil || dismissedUntil <= now) return;
+    const timeout = window.setTimeout(() => setNow(Date.now()), dismissedUntil - now);
+    return () => window.clearTimeout(timeout);
+  }, [dismissedUntil, now]);
+
+  if (isElectron() || (dismissedUntil !== undefined && dismissedUntil > now)) return null;
 
   return (
     <aside
@@ -52,6 +66,18 @@ export function WebNativeDownloadBanner(): ReactElement | null {
             ))}
           </div>
         </details>
+        <button
+          type="button"
+          onClick={() =>
+            updateSettings({
+              nativeAppDownloadBannerDismissedUntil: Date.now() + dismissalDurationMs,
+            })
+          }
+          aria-label="Dismiss native app download"
+          className="rounded-sp-btn p-1 text-sp-muted transition hover:bg-sp-hover hover:text-sp-text focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+        >
+          <X className="size-3.5" aria-hidden="true" />
+        </button>
       </div>
     </aside>
   );
