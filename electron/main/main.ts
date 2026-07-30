@@ -28,6 +28,7 @@ import { registerSseHandlerIPC, stopSseCleanup } from './handlers/sse-handler';
 import { registerWebSocketHandlerIPC, stopWebSocketCleanup } from './handlers/websocket-handler';
 import { registerAutoUpdaterIPC, setupAutoUpdater } from './lifecycle/auto-updater';
 import { registerDeepLinkHandler } from './lifecycle/deep-link-handler';
+import { registerDeepLinkImportIPC } from './handlers/deep-link-import-handler';
 import { initLogging } from './lifecycle/logging';
 import { logRequest, registerRequestLoggerIPC } from './lifecycle/request-logger';
 import { initSentry } from './lifecycle/sentry';
@@ -142,6 +143,7 @@ interface IpcModule {
 }
 
 const IPC_MODULES: IpcModule[] = [
+  { register: () => registerDeepLinkImportIPC() },
   { register: () => registerAutoUpdaterIPC(isDev) },
   { register: () => registerFileOperationsIPC(getMainWindow) },
   { register: () => registerBrunoExportHandlerIPC() },
