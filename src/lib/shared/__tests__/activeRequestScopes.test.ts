@@ -7,6 +7,7 @@ import type { HttpRequest } from '@/types/http';
 import {
   buildActiveRequestValueMap,
   buildActiveRequestVariableResolution,
+  findAncestorFolderVariables,
 } from '../activeRequestScopes';
 
 function makeRequest(overrides: Partial<HttpRequest> = {}): HttpRequest {
@@ -170,6 +171,14 @@ describe('buildActiveRequestValueMap', () => {
               enabled: true,
               secretRef: { kind: 'inline', value: 'desktop-only' },
             },
+            {
+              id: 'disabled',
+              key: 'disabled',
+              value: '',
+              enabled: false,
+              secretRef: { kind: 'inline', value: 'ignored' },
+            },
+            { id: 'empty-key', key: '', value: 'ignored', enabled: true },
           ],
         },
         {
@@ -193,5 +202,14 @@ describe('buildActiveRequestValueMap', () => {
       values: { token: 'sub' },
       secretVariables: {},
     });
+  });
+
+  it('returns no ancestors for an empty folder subtree', () => {
+    expect(
+      findAncestorFolderVariables(
+        [{ id: 'empty-folder', name: 'Empty', type: 'folder', items: undefined }],
+        'missing-request'
+      )
+    ).toBeUndefined();
   });
 });
