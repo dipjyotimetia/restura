@@ -1,3 +1,4 @@
+import type { DeepLinkPayload } from '@shared/deep-link';
 import type {
   GitConflictResolution,
   GitMergeConflictDetail,
@@ -221,6 +222,14 @@ export interface ElectronCaptureAPI {
   // A captured session arrived over the loopback bridge, already converted to an
   // OpenCollection document the renderer should confirm-and-import.
   onReceived: (callback: (doc: unknown) => void) => () => void;
+}
+
+export interface ElectronDeepLinkAPI {
+  subscribe: (callback: (payload: DeepLinkPayload) => void) => () => void;
+  acknowledge: (id: string) => Promise<{ ok: true }>;
+  fetchImport: (
+    url: string
+  ) => Promise<{ ok: true; text: string; contentType?: string } | { ok: false; error: string }>;
 }
 
 export interface LogEntry {

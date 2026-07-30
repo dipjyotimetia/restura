@@ -30,6 +30,18 @@ Restura imports from the major API client formats and exports to **OpenCollectio
   </Card>
 </CardGrid>
 
+### Desktop deep-link imports
+
+The desktop app accepts a reviewed `restura://import` link, for example
+`restura://import?url=https%3A%2F%2Fexample.com%2Fcollection.json&format=postman`.
+`format` is optional and may be `postman`, `insomnia`, `openapi`,
+`opencollection`, `hoppscotch`, `bruno`, or `http`.
+
+Restura only accepts public HTTP(S) source URLs without embedded credentials.
+Opening a link displays the source and format first; it does not download or
+import anything until you select **Download and import**. Every redirect and
+target is checked by the normal URL and DNS safety policy.
+
 ## Export
 
 From the collection menu:

@@ -13,6 +13,11 @@
 //   keep it here so the guard is defined once, not copy-pasted per protocol.
 
 export const IPC = {
+  deepLink: {
+    ready: 'deep-link:ready',
+    acknowledge: 'deep-link:acknowledge',
+    fetchImport: 'deep-link:fetch-import',
+  },
   app: {
     checkForUpdates: 'app:checkForUpdates',
     getPath: 'app:getPath',
@@ -235,6 +240,7 @@ export const EVENT = {
   // A captured browser session arrived over the loopback bridge and was
   // converted to an OpenCollection document for the renderer to import.
   captureReceived: 'capture-bridge:received',
+  deepLink: 'deep-link:received',
 } as const;
 
 /**
@@ -328,7 +334,6 @@ export const VALID_EVENT_CHANNELS = [
   'menu:report-bug',
   'app:focus',
   'app:check-updates',
-  'deep-link',
 ] as const;
 
 /** Flat list of every static `ipcMain.handle` / `ipcMain.on` channel. */
