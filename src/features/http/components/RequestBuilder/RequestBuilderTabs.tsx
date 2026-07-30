@@ -167,7 +167,13 @@ export function RequestBuilderTabs({
       { value: 'headers', label: 'Headers' },
       { value: 'body', label: 'Body' },
       { value: 'auth', label: 'Auth' },
-      { value: 'variables', label: 'Variables', count: request.variables?.filter((v) => v.enabled && v.key).length },
+      {
+        value: 'variables',
+        label: 'Variables',
+        ...(request.variables?.filter((v) => v.enabled && v.key).length
+          ? { count: request.variables.filter((v) => v.enabled && v.key).length }
+          : {}),
+      },
       { value: 'scripts', label: 'Scripts' },
       { value: 'settings', label: 'Settings' },
     ];

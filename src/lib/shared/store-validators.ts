@@ -142,8 +142,12 @@ export function validateEnvironment(env: unknown): Environment {
     return {
       ...result.data,
       variables: result.data.variables.map((v) => {
-        const { description, ...rest } = v;
-        return description !== undefined ? { ...rest, description } : rest;
+        const { description, secret, ...rest } = v;
+        return {
+          ...rest,
+          ...(description !== undefined ? { description } : {}),
+          ...(secret !== undefined ? { secret } : {}),
+        };
       }),
     };
   }

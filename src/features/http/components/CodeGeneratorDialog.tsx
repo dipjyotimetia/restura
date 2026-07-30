@@ -14,6 +14,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
 import type { CodeGeneratorType } from '@/lib/shared/codeGenerators';
 import { codeGenerators } from '@/lib/shared/codeGenerators';
+import { buildActiveRequestValueMap } from '@/lib/shared/activeRequestScopes';
+import { injectString } from '@/features/workflows/lib/variableHelpers';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { HttpRequest } from '@/types';
@@ -35,15 +37,18 @@ export default function CodeGeneratorDialog({
   const globalSettings = useSettingsStore((s) => s.settings);
 
   const generatedCode = useMemo(() => {
-    // Resolve environment variables
-    const resolvedUrl = resolveVariables(request.url);
+    const variables = { ...buildActiveRequestValueMap(), ...Object.fromEntries(
+      (request.variables ?? []).filter((v) => v.enabled && v.key).map((v) => [v.key, v.value])
+    ) };
+    const resolve = (text: string) => resolveVariables(injectString(text, variables));
+    const resolvedUrl = resolve(request.url);
 
     // Build query params
     const resolvedParams: Record<string, string> = {};
     request.params
       .filter((p) => p.enabled && p.key)
       .forEach((p) => {
-        resolvedParams[p.key] = resolveVariables(p.value);
+        resolvedParams[p.key] = resolve(p.value);
       });
 
     // Build headers
@@ -51,7 +56,7 @@ export default function CodeGeneratorDialog({
     request.headers
       .filter((h) => h.enabled && h.key)
       .forEach((h) => {
-        resolvedHeaders[h.key] = resolveVariables(h.value);
+        resolvedHeaders[h.key] = resolve(h.value);
       });
 
     const effectiveSettings = resolveEffectiveSettings(request.settings, globalSettings);

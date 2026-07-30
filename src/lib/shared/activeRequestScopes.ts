@@ -29,13 +29,17 @@ function findRequest(items: CollectionItem[], itemId: string): Request | undefin
 export function buildActiveRequestValueMap(): Record<string, string> {
   const env = useEnvironmentStore.getState().getActiveEnvironment()?.variables;
   const globals = useGlobalsStore.getState().vars;
-  const savedRequestId = useRequestStore.getState().getActiveTab()?.savedRequestId;
+  const activeTab = useRequestStore.getState().getActiveTab();
+  const savedRequestId = activeTab?.savedRequestId;
   const collection = savedRequestId
     ? useCollectionStore.getState().getCollectionByItemId(savedRequestId)?.variables
     : undefined;
-  const request = savedRequestId
+  const savedRequestVariables = savedRequestId
     ? findRequest(useCollectionStore.getState().getCollectionByItemId(savedRequestId)?.items ?? [], savedRequestId)
         ?.variables
     : undefined;
+  // Prefer the tab copy so edits take effect before Save; fall back to the
+  // collection record for callers that only provide a savedRequestId.
+  const request = activeTab?.request.variables ?? savedRequestVariables;
   return buildValueMap({ env, globals, collection, request });
 }
