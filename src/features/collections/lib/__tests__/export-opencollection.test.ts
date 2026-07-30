@@ -61,8 +61,9 @@ describe('exportToOpenCollection', () => {
     expect(yamlOut).toContain('extends: "Base"');
     expect(yamlOut).not.toContain('nope');
     const imported = importOpenCollection(yaml.load(yamlOut));
-    const base = imported.environments.find((environment) => environment.name === 'Base');
-    const child = imported.environments.find((environment) => environment.name === 'Child');
+    const environments = imported.environments ?? [];
+    const base = environments.find((environment) => environment.name === 'Base');
+    const child = environments.find((environment) => environment.name === 'Child');
     expect(child).toMatchObject({ parentId: base?.id });
     expect(child?.variables).toEqual(
       expect.arrayContaining([expect.objectContaining({ key: 'TOKEN', private: true, value: '' })])

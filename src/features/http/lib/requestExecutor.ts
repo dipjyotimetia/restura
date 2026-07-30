@@ -185,7 +185,21 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
       // the function replacer keeps a value with $ patterns literal.
       result = result.replace(new RegExp(`{{${escapeRegExp(key)}}}`, 'g'), () => value);
     });
-    return resolveVariables(result);
+    // Keep SecretRef tokens opaque in the renderer. The store-level resolver
+    // otherwise sees the variable's placeholder value and would consume the
+    // token before Electron main can materialize its handle at the wire edge.
+    const protectedSecrets = new Map<string, string>();
+    for (const key of Object.keys(secretVariables ?? {})) {
+      const token = `{{${key}}}`;
+      const marker = `__restura_secret_${protectedSecrets.size}__`;
+      if (result.includes(token)) {
+        result = result.replaceAll(token, marker);
+        protectedSecrets.set(marker, token);
+      }
+    }
+    result = resolveVariables(result);
+    for (const [marker, token] of protectedSecrets) result = result.replaceAll(marker, token);
+    return result;
   };
 
   const resolvedUrl = resolveLocal(request.url);
