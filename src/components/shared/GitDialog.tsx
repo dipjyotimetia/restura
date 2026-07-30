@@ -4,9 +4,10 @@ import {
   GitCommit as GitCommitIcon,
   RefreshCw,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { GitMergeResolver } from '@/components/shared/GitMergeResolver';
 import {
   Dialog,
   DialogContent,
@@ -39,6 +40,7 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
     loading,
     error,
     notARepo,
+    mergeState,
     refresh,
     init,
     stage,
@@ -51,12 +53,20 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
     fetch,
     pull,
     push,
+    startMerge,
+    getMergeConflict,
+    resolveMergeConflict,
+    abortMerge,
+    completeMerge,
   } = useGit(activeDirectoryPath);
   const [message, setMessage] = useState('');
   const [newBranch, setNewBranch] = useState('');
   const [busy, setBusy] = useState(false);
   const [diffText, setDiffText] = useState<string | null>(null);
   const [discardTarget, setDiscardTarget] = useState<string | null>(null);
+  const [mergeSource, setMergeSource] = useState('');
+  const [mergeMessage, setMergeMessage] = useState('');
+  const [confirmAbort, setConfirmAbort] = useState(false);
 
   const changedFiles = useMemo(() => status?.files ?? [], [status]);
 
@@ -64,6 +74,16 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
   const stagedFiles = changedFiles.filter((file) => file.staged !== '.' && file.staged !== '?');
   const unstagedFiles = changedFiles.filter((file) => file.staged === '?' || file.unstaged !== '.');
   const currentBranch = localBranches.find((branch) => branch.isCurrent);
+  const mergeBranches = branches.filter(
+    (branch) => !branch.isCurrent && branch.name !== status?.branch && branch.oid
+  );
+  const mergeActive = mergeState?.phase === 'conflicted' || mergeState?.phase === 'ready-to-commit';
+
+  useEffect(() => {
+    if (mergeState?.phase === 'conflicted' || mergeState?.phase === 'ready-to-commit') {
+      setMergeMessage(mergeState.suggestedMessage);
+    }
+  }, [mergeState]);
 
   const handleCommit = async () => {
     if (!message.trim() || stagedFiles.length === 0) return;
@@ -136,6 +156,37 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
     else toast.success('Initialized Git repository');
   };
 
+  const handleStartMerge = async () => {
+    const source = mergeBranches.find((branch) => branch.name === mergeSource);
+    if (!source?.oid) return;
+    setBusy(true);
+    const err = await startMerge(source.name, source.oid);
+    setBusy(false);
+    if (err) toast.error(`Merge failed: ${err}`);
+    else {
+      toast.success('Merge started');
+      setMergeSource('');
+    }
+  };
+
+  const handleAbortMerge = async () => {
+    setBusy(true);
+    const err = await abortMerge();
+    setBusy(false);
+    if (err) toast.error(`Abort failed: ${err}`);
+    else toast.success('Merge aborted');
+  };
+
+  const handleCompleteMerge = async () => {
+    const commitMessage = mergeMessage.trim();
+    if (!commitMessage) return;
+    setBusy(true);
+    const err = await completeMerge(commitMessage);
+    setBusy(false);
+    if (err) toast.error(`Merge commit failed: ${err}`);
+    else toast.success('Merge committed');
+  };
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-2xl h-[80vh] flex flex-col p-0 gap-0">
@@ -184,6 +235,64 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
             </section>
           ) : (
             <>
+              {mergeState?.phase === 'blocked' && (
+                <section className="rounded-sp-btn border border-amber-500/30 bg-amber-500/5 p-3">
+                  <div className="text-sp-12 font-medium text-amber-400">
+                    Finish the active {mergeState.operation} first
+                  </div>
+                  <p className="mt-1 text-sp-11-5 text-sp-muted">
+                    Restura will not alter a merge while another Git operation is active.
+                  </p>
+                </section>
+              )}
+
+              {mergeState?.phase === 'conflicted' && (
+                <GitMergeResolver
+                  state={mergeState}
+                  busy={busy}
+                  getConflict={getMergeConflict}
+                  resolveConflict={resolveMergeConflict}
+                  onBusyChange={setBusy}
+                />
+              )}
+
+              {mergeActive && (
+                <section className="space-y-2 rounded-sp-btn border border-sp-line p-3">
+                  <div className="sp-label">
+                    {mergeState?.phase === 'ready-to-commit'
+                      ? 'Merge ready to commit'
+                      : 'Merge controls'}
+                  </div>
+                  {mergeState?.phase === 'ready-to-commit' && (
+                    <>
+                      <textarea
+                        value={mergeMessage}
+                        onChange={(event) => setMergeMessage(event.target.value)}
+                        aria-label="Merge commit message"
+                        rows={2}
+                        className="w-full resize-none rounded-sp-btn border border-sp-line bg-sp-surface-lo px-2.5 py-2 font-mono text-sp-12 outline-none focus:border-sp-line-strong"
+                      />
+                      <button
+                        type="button"
+                        disabled={busy || !mergeMessage.trim()}
+                        onClick={() => void handleCompleteMerge()}
+                        className="rounded-sp-btn bg-sp-accent/15 px-3 py-1.5 text-sp-12 font-medium text-sp-accent disabled:opacity-50"
+                      >
+                        Commit merge
+                      </button>
+                    </>
+                  )}
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setConfirmAbort(true)}
+                    className="ml-2 rounded-sp-btn px-3 py-1.5 text-sp-12 text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                  >
+                    Abort merge
+                  </button>
+                </section>
+              )}
+
               <section className="rounded-sp-btn border border-sp-line p-2.5 flex items-center gap-3 text-sp-12 font-mono">
                 <span className="text-sp-text">{status?.branch ?? 'Detached HEAD'}</span>
                 <span className="text-sp-dim">{currentBranch?.upstream ?? 'No upstream'}</span>
@@ -192,7 +301,7 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
                 </span>
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy || mergeActive}
                   onClick={() => void handleSync('fetch')}
                   className="text-sp-accent disabled:opacity-50"
                 >
@@ -200,7 +309,7 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
                 </button>
                 <button
                   type="button"
-                  disabled={busy || !status?.clean}
+                  disabled={busy || mergeActive || !status?.clean}
                   onClick={() => void handleSync('pull')}
                   className="text-sp-accent disabled:opacity-50"
                 >
@@ -208,7 +317,7 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
                 </button>
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy || mergeActive}
                   onClick={() => void handleSync('push')}
                   className="text-sp-accent disabled:opacity-50"
                 >
@@ -249,7 +358,7 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
                     />
                     <button
                       type="button"
-                      disabled={busy || !message.trim() || stagedFiles.length === 0}
+                      disabled={busy || mergeActive || !message.trim() || stagedFiles.length === 0}
                       onClick={handleCommit}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-sp-btn bg-sp-accent/15 text-sp-accent text-sp-12 font-medium hover:bg-sp-accent/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
@@ -277,7 +386,7 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
                     <button
                       key={b.name}
                       type="button"
-                      disabled={busy || b.isCurrent}
+                      disabled={busy || mergeActive || b.isCurrent}
                       onClick={() => handleCheckout(b.name)}
                       className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left hover:bg-sp-hover disabled:cursor-default"
                     >
@@ -298,6 +407,38 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
                   ))}
                 </div>
                 <div className="flex items-center gap-2">
+                  <select
+                    value={mergeSource}
+                    onChange={(event) => setMergeSource(event.target.value)}
+                    aria-label="Merge source"
+                    disabled={
+                      busy || mergeActive || mergeState?.phase === 'blocked' || !status?.clean
+                    }
+                    className="h-7 min-w-0 flex-1 rounded-sp-btn border border-sp-line bg-sp-surface-lo px-2 font-mono text-sp-12 outline-none focus:border-sp-line-strong disabled:opacity-50"
+                  >
+                    <option value="">Select branch to merge</option>
+                    {mergeBranches.map((branch) => (
+                      <option key={branch.name} value={branch.name}>
+                        {branch.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={
+                      busy ||
+                      mergeActive ||
+                      mergeState?.phase === 'blocked' ||
+                      !status?.clean ||
+                      !mergeSource
+                    }
+                    onClick={() => void handleStartMerge()}
+                    className="rounded-sp-btn px-2.5 py-1.5 text-sp-12 text-sp-accent hover:bg-sp-hover disabled:opacity-50"
+                  >
+                    Merge branch
+                  </button>
+                </div>
+                <div className="flex items-center gap-2">
                   <input
                     value={newBranch}
                     onChange={(e) => setNewBranch(e.target.value)}
@@ -307,7 +448,7 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
                   />
                   <button
                     type="button"
-                    disabled={busy || !newBranch.trim()}
+                    disabled={busy || mergeActive || !newBranch.trim()}
                     onClick={handleCreateBranch}
                     className="px-2.5 py-1.5 rounded-sp-btn text-sp-12 text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors disabled:opacity-50"
                   >
@@ -342,6 +483,18 @@ export function GitDialog({ collectionName, directoryPath, open, onClose }: GitD
         onConfirm={() => {
           if (discardTarget) void handleFileAction('discard', discardTarget);
           setDiscardTarget(null);
+        }}
+      />
+      <ConfirmDialog
+        open={confirmAbort}
+        onOpenChange={setConfirmAbort}
+        title="Abort merge?"
+        description="This restores the repository to its exact pre-merge state and discards every resolution made during this merge."
+        confirmText="Abort"
+        variant="destructive"
+        onConfirm={() => {
+          setConfirmAbort(false);
+          void handleAbortMerge();
         }}
       />
     </Dialog>

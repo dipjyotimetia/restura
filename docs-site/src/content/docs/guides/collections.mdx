@@ -30,7 +30,27 @@ Anything you set on a folder cascades to every descendant unless that descendant
 
 Restura imports and exports **OpenCollection** natively (see [reference](/reference/opencollection/)) and supports **Postman v2.1**, **Insomnia**, **Hoppscotch**, **Bruno**, and **OpenAPI / Swagger** import. Export your work to share with teammates or commit to your repo.
 
-On the desktop client, you can also point Restura at a **filesystem-backed workspace** and use git on the directory — see [workflows](/guides/workflows/) and the architecture notes.
+On the desktop client, you can also point Restura at a **filesystem-backed workspace** and use Git on the directory.
+
+## Git collaboration on desktop
+
+Open or clone an OpenCollection directory, then open the collection menu and choose **Git…**. Restura uses your installed Git and its existing SSH agent or credential manager; it does not ask for or store Git credentials.
+
+The Git dialog supports status and diffs, staging, commits, branches, fetch/pull/push, and branch merges:
+
+1. **Fetch** to refresh remote-tracking branches.
+2. Under **Branches**, select a non-current local or remote branch and choose **Merge branch**. Restura pins the merge to the commit shown when you selected it, so a moving remote ref cannot silently change the operation.
+3. If Git reports conflicts, choose each file under **Merge interrupted**:
+   - OpenCollection YAML gets field-level choices for mapping values. Lists remain atomic, avoiding surprising item-by-item merges.
+   - Other text files show base, local, and incoming versions with an editable result.
+   - Binary, oversized, and symlink conflicts offer whole-file choices. Submodules must be resolved with Git outside Restura.
+4. When all conflicts are resolved, review the merge message and choose **Commit merge**. This is an ordinary non-fast-forward Git commit, so configured commit hooks and signing still apply.
+
+You can close the dialog or restart Restura during a conflict; reopening **Git…** reconstructs the merge from Git’s metadata and index. **Abort merge** restores the exact pre-merge state after confirmation.
+
+Merging requires a clean working tree and an attached branch. Restura will not start a merge during a rebase, cherry-pick, or revert. **Pull** remains fast-forward-only; use the explicit merge workflow when histories diverge.
+
+See [workflows](/guides/workflows/) for portable workflows stored alongside collection files.
 
 ## Related
 

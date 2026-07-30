@@ -54,6 +54,16 @@ export const integrationApi: IntegrationApi = {
     push: (directoryPath) => ipcRenderer.invoke(IPC.git.push, { directoryPath }),
     clone: (parentDirectory, remoteUrl, directoryName) =>
       ipcRenderer.invoke(IPC.git.clone, { parentDirectory, remoteUrl, directoryName }),
+    mergeState: (directoryPath) => ipcRenderer.invoke(IPC.git.mergeState, { directoryPath }),
+    startMerge: (directoryPath, sourceRef, expectedSha) =>
+      ipcRenderer.invoke(IPC.git.mergeStart, { directoryPath, sourceRef, expectedSha }),
+    getMergeConflict: (directoryPath, conflictId) =>
+      ipcRenderer.invoke(IPC.git.mergeConflict, { directoryPath, conflictId }),
+    resolveMergeConflict: (directoryPath, resolution) =>
+      ipcRenderer.invoke(IPC.git.mergeResolve, { directoryPath, resolution }),
+    abortMerge: (directoryPath) => ipcRenderer.invoke(IPC.git.mergeAbort, { directoryPath }),
+    completeMerge: (directoryPath, message) =>
+      ipcRenderer.invoke(IPC.git.mergeComplete, { directoryPath, message }),
   },
   mock: {
     start: invoke<ElectronAPI['mock']['start']>(IPC.mock.start),

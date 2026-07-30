@@ -1,3 +1,4 @@
+import type { GitMergeState } from '@shared/git-types';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -34,6 +35,11 @@ const git = {
   loading: false,
   error: null as string | null,
   notARepo: false,
+  mergeState: {
+    phase: 'idle' as const,
+    branch: 'feature/collection',
+    dirty: false,
+  } as GitMergeState,
   refresh: vi.fn(),
   init: vi.fn(),
   stage: vi.fn().mockResolvedValue(null),
@@ -46,6 +52,11 @@ const git = {
   fetch: vi.fn().mockResolvedValue(null),
   pull: vi.fn().mockResolvedValue(null),
   push: vi.fn().mockResolvedValue(null),
+  startMerge: vi.fn().mockResolvedValue(null),
+  getMergeConflict: vi.fn(),
+  resolveMergeConflict: vi.fn().mockResolvedValue(null),
+  abortMerge: vi.fn().mockResolvedValue(null),
+  completeMerge: vi.fn().mockResolvedValue(null),
 };
 
 vi.mock('@/hooks/useGit', async (importOriginal) => ({
@@ -78,8 +89,9 @@ describe('GitDialog', () => {
           isCurrent: true,
           isRemote: false,
           upstream: 'origin/feature/collection',
+          oid: 'a'.repeat(40),
         },
-        { name: 'main', isCurrent: false, isRemote: false },
+        { name: 'main', isCurrent: false, isRemote: false, oid: 'b'.repeat(40) },
       ],
       log: [
         {
@@ -94,6 +106,11 @@ describe('GitDialog', () => {
       loading: false,
       error: null,
       notARepo: false,
+      mergeState: {
+        phase: 'idle',
+        branch: 'feature/collection',
+        dirty: false,
+      },
     });
     for (const fn of [
       git.refresh,
@@ -108,8 +125,13 @@ describe('GitDialog', () => {
       git.fetch,
       git.pull,
       git.push,
+      git.startMerge,
+      git.resolveMergeConflict,
+      git.abortMerge,
+      git.completeMerge,
     ])
       fn.mockReset().mockResolvedValue(null);
+    git.getMergeConflict.mockReset();
   });
 
   it('separates index and working-tree changes and exposes guarded sync controls', async () => {
@@ -193,6 +215,163 @@ describe('GitDialog', () => {
     );
   });
 
+  it('starts a merge from a pinned non-current branch', async () => {
+    git.status = { branch: 'feature/collection', ahead: 0, behind: 0, clean: true, files: [] };
+    render(
+      <GitDialog collectionName="Workspace" directoryPath="/workspace" open onClose={vi.fn()} />
+    );
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Merge source' }), {
+      target: { value: 'main' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Merge branch' }));
+
+    await waitFor(() => expect(git.startMerge).toHaveBeenCalledWith('main', 'b'.repeat(40)));
+    expect(screen.queryByRole('option', { name: 'feature/collection' })).not.toBeInTheDocument();
+  });
+
+  it('resumes a structured OpenCollection conflict and submits resolved YAML', async () => {
+    const conflict = {
+      id: 'conflict-1',
+      path: 'requests/get-user.yml',
+      relatedPaths: ['requests/get-user.yml'],
+      status: 'both-modified' as const,
+      kind: 'text' as const,
+      openCollectionKind: 'request' as const,
+    };
+    git.mergeState = {
+      phase: 'conflicted',
+      branch: 'feature/collection',
+      mergeHead: 'c'.repeat(40),
+      conflicts: [conflict],
+      suggestedMessage: "Merge branch 'main'",
+    };
+    git.getMergeConflict.mockResolvedValue({
+      ...conflict,
+      strategy: 'structured',
+      base: { present: true, content: 'type: http\nname: User\nurl: /v1\n' },
+      local: { present: true, content: 'type: http\nname: User\nurl: /local\n' },
+      incoming: { present: true, content: 'type: http\nname: User\nurl: /incoming\n' },
+      proposedContent: 'type: http\nname: User\nurl: /local\n',
+      structured: {
+        result: { type: 'http', name: 'User', url: '/local' },
+        conflicts: [
+          {
+            path: '/url',
+            base: { present: true, value: '/v1' },
+            local: { present: true, value: '/local' },
+            incoming: { present: true, value: '/incoming' },
+          },
+        ],
+      },
+    });
+
+    render(
+      <GitDialog collectionName="Workspace" directoryPath="/workspace" open onClose={vi.fn()} />
+    );
+    expect(screen.getByText('Merge interrupted')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /requests\/get-user.yml/ }));
+    expect(await screen.findByText('/url')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Use incoming for /url' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve file' }));
+
+    await waitFor(() =>
+      expect(git.resolveMergeConflict).toHaveBeenCalledWith(
+        expect.objectContaining({
+          conflictId: 'conflict-1',
+          kind: 'content',
+          content: expect.stringContaining('/incoming'),
+        })
+      )
+    );
+  });
+
+  it('offers choice-only resolution and marks submodules for external handling', async () => {
+    const binaryConflict = {
+      id: 'binary-1',
+      path: 'asset.bin',
+      relatedPaths: ['asset.bin'],
+      status: 'both-modified' as const,
+      kind: 'binary' as const,
+    };
+    git.mergeState = {
+      phase: 'conflicted',
+      branch: 'feature/collection',
+      mergeHead: 'd'.repeat(40),
+      conflicts: [binaryConflict],
+      suggestedMessage: 'Merge binary',
+    };
+    git.getMergeConflict.mockResolvedValue({
+      ...binaryConflict,
+      strategy: 'choice-only',
+      base: { present: true },
+      local: { present: true },
+      incoming: { present: true },
+    });
+
+    const { rerender } = render(
+      <GitDialog collectionName="Workspace" directoryPath="/workspace" open onClose={vi.fn()} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /asset.bin/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use incoming file' }));
+    await waitFor(() =>
+      expect(git.resolveMergeConflict).toHaveBeenCalledWith({
+        conflictId: 'binary-1',
+        kind: 'choice',
+        choice: 'incoming',
+      })
+    );
+
+    const submoduleConflict = {
+      ...binaryConflict,
+      id: 'submodule-1',
+      path: 'vendor/module',
+      relatedPaths: ['vendor/module'],
+      kind: 'submodule' as const,
+    };
+    git.mergeState = {
+      ...git.mergeState,
+      conflicts: [submoduleConflict],
+    };
+    git.getMergeConflict.mockResolvedValue({
+      ...submoduleConflict,
+      strategy: 'unsupported',
+      base: { present: true },
+      local: { present: true },
+      incoming: { present: true },
+    });
+    rerender(
+      <GitDialog collectionName="Workspace" directoryPath="/workspace" open onClose={vi.fn()} />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /vendor\/module/ }));
+    expect(
+      await screen.findByText(/Resolve this submodule with Git outside Restura/)
+    ).toBeInTheDocument();
+  });
+
+  it('requires confirmation to abort and an explicit message to complete a merge', async () => {
+    git.status = { branch: 'feature/collection', ahead: 0, behind: 0, clean: false, files: [] };
+    git.mergeState = {
+      phase: 'ready-to-commit',
+      branch: 'feature/collection',
+      mergeHead: 'e'.repeat(40),
+      suggestedMessage: "Merge branch 'main'",
+    };
+    render(
+      <GitDialog collectionName="Workspace" directoryPath="/workspace" open onClose={vi.fn()} />
+    );
+
+    const commitButton = screen.getByRole('button', { name: 'Commit merge' });
+    expect(commitButton).toBeEnabled();
+    fireEvent.click(commitButton);
+    await waitFor(() => expect(git.completeMerge).toHaveBeenCalledWith("Merge branch 'main'"));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Abort merge' }));
+    expect(screen.getByText('Abort merge?')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Abort' }));
+    await waitFor(() => expect(git.abortMerge).toHaveBeenCalled());
+  });
+
   it('keeps the reopened directory visible when the closed directory resolves last', async () => {
     const { useGit: useActualGit } =
       await vi.importActual<typeof import('@/hooks/useGit')>('@/hooks/useGit');
@@ -215,6 +394,14 @@ describe('GitDialog', () => {
           ],
         })),
         log: vi.fn(async () => ({ ok: true as const, commits: [] })),
+        mergeState: vi.fn(async (directoryPath: string) => ({
+          ok: true as const,
+          state: {
+            phase: 'idle' as const,
+            branch: directoryPath === '/workspace-a' ? 'branch-a' : 'branch-b',
+            dirty: false,
+          },
+        })),
       },
     };
     useGitMock.mockImplementation(useActualGit);

@@ -1,3 +1,11 @@
+import type {
+  GitConflictResolution,
+  GitMergeConflictDetail,
+  GitMergeOutcome,
+  GitMergeState,
+} from '@shared/git-types';
+import type { ProtocolSecretValue } from './protocols';
+
 export interface ElectronNotificationAPI {
   isSupported: () => Promise<boolean>;
   show: (options: {
@@ -72,7 +80,13 @@ export interface ElectronGitAPI {
   branchList: (directoryPath: string) => Promise<
     | {
         ok: true;
-        branches: Array<{ name: string; isCurrent: boolean; isRemote: boolean; upstream?: string }>;
+        branches: Array<{
+          name: string;
+          isCurrent: boolean;
+          isRemote: boolean;
+          upstream?: string;
+          oid?: string;
+        }>;
       }
     | { ok: false; error: string }
   >;
@@ -126,6 +140,38 @@ export interface ElectronGitAPI {
     directoryName: string
   ) => Promise<
     { ok: true; workspace: { directoryPath: string } } | { ok: false; error: string; code?: string }
+  >;
+  mergeState: (
+    directoryPath: string
+  ) => Promise<{ ok: true; state: GitMergeState } | { ok: false; error: string; code?: string }>;
+  startMerge: (
+    directoryPath: string,
+    sourceRef: string,
+    expectedSha: string
+  ) => Promise<
+    { ok: true; outcome: GitMergeOutcome } | { ok: false; error: string; code?: string }
+  >;
+  getMergeConflict: (
+    directoryPath: string,
+    conflictId: string
+  ) => Promise<
+    { ok: true; conflict: GitMergeConflictDetail } | { ok: false; error: string; code?: string }
+  >;
+  resolveMergeConflict: (
+    directoryPath: string,
+    resolution: GitConflictResolution
+  ) => Promise<{ ok: true; state: GitMergeState } | { ok: false; error: string; code?: string }>;
+  abortMerge: (
+    directoryPath: string
+  ) => Promise<
+    { ok: true; result: { aborted: true } } | { ok: false; error: string; code?: string }
+  >;
+  completeMerge: (
+    directoryPath: string,
+    message: string
+  ) => Promise<
+    | { ok: true; commit: { sha: string; abbreviatedSha: string } }
+    | { ok: false; error: string; code?: string }
   >;
 }
 
@@ -499,5 +545,3 @@ export interface ElectronBugReportAPI {
   >;
   copyScreenshot: (imageDataUrl: string) => Promise<{ ok: true } | { ok: false; error: string }>;
 }
-
-import type { ProtocolSecretValue } from './protocols';
