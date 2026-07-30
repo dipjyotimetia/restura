@@ -191,6 +191,15 @@ function installMqttElectronBridge(): void {
     capture: {
       onReceived: () => () => {},
     },
+    // DeepLinkCoordinator subscribes at the application root on every
+    // Electron renderer. It has the same cleanup contract as capture: the
+    // fixture must return a callable unsubscribe, never the generic async
+    // Proxy fallback (which React would later try to invoke as a disposer).
+    deepLinks: {
+      subscribe: () => () => {},
+      acknowledge: async () => ({ ok: true as const }),
+      fetchImport: async () => ({ ok: false as const, error: 'Not available in MQTT fixture.' }),
+    },
     on: () => {},
     removeListener: () => {},
   };
