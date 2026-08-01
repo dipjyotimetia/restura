@@ -98,6 +98,18 @@ globals < base environment < selected sub-environment < collection < ancestor fo
 - `buildScopedVariableResolution` also returns the winning scope for inspector/autocomplete.
 - Private variables are export/sync policy metadata, not encryption: normal exports and Git sync omit them. Desktop secret handles remain opaque to the renderer and must be resolved at the main-process wire boundary.
 
+### Environment hierarchy model
+
+Environments form an optional two-level parent→child hierarchy. The `Environment` type in `shared/types/collection.ts` carries `parentId` (the base environment) and `collectionId` (the owning collection). An environment without `parentId` is a base; one with `parentId` is a sub-environment that inherits the base's variables at lower precedence.
+
+`useEnvironmentStore` (`src/store/useEnvironmentStore.ts`) manages the hierarchy:
+
+- `createNewEnvironment(name, scope)` accepts optional `parentId` and `collectionId` to anchor a new environment in the tree.
+- `getActiveEnvironmentChain()` walks `parentId` to return `[base, activeChild]`. If `parentId` is absent, the chain is `[active]`. The chain is atomic: a child whose parent is missing from the store or belongs to a different collection resolves as a standalone environment — no partial inheritance.
+- `removeEnvironment(id)` refuses to delete a base environment that still has children (`some(env => env.parentId === id)`).
+
+Inside `variableScopes.ts`, the `env` input is the backward-compatible flat path. Hierarchical callers supply `baseEnvironment` (the resolved base) and `subEnvironment` (the active child) instead; `buildValueMap` and `buildScopedVariableResolution` merge base before sub so the child's values override the parent's.
+
 ### Active-request map
 
 `src/lib/shared/activeRequestScopes.ts` gathers globals, the active base/sub chain, collection variables, and the saved request’s folder ancestry into the map used by `useRequestRunner.ts`.
