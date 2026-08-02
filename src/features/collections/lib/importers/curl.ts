@@ -38,9 +38,10 @@ export function importCurlCommand(source: string): ImportResult {
   let cookie: string | undefined;
   let settings: Partial<RequestSettings> = {};
 
-  const take = (index: number, option: string): string => {
+  const take = (index: number, option: string, allowLeadingDash = false): string => {
     const value = tokens[index + 1];
-    if (!value || value.startsWith('-')) throw new Error(`cURL option ${option} requires a value.`);
+    if (!value || (!allowLeadingDash && value.startsWith('-')))
+      throw new Error(`cURL option ${option} requires a value.`);
     return value;
   };
   const addHeader = (value: string) => {
@@ -140,11 +141,11 @@ export function importCurlCommand(source: string): ImportResult {
         settings.followRedirects = true;
         break;
       case '--max-redirs':
-        settings.maxRedirects = positiveInt(take(i, token), token);
+        settings.maxRedirects = positiveInt(take(i, token, true), token);
         i++;
         break;
       case '--max-time':
-        settings.timeout = positiveSeconds(take(i, token), token);
+        settings.timeout = positiveSeconds(take(i, token, true), token);
         i++;
         break;
       case '-x':

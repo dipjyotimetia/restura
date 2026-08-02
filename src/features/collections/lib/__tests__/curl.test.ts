@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { HttpRequest } from '@/types';
 import { importCurlCommand } from '../importers/curl';
+import { summarizeWarnings } from '../importers/types';
 
 describe('importCurlCommand', () => {
   it('normalizes quoted POSIX input into an HTTP request without evaluating shell syntax', () => {
@@ -67,5 +68,165 @@ describe('importCurlCommand', () => {
       importCurlCommand('curl https://api.example.com; curl https://evil.example')
     ).toThrow(/one cURL command/i);
     expect(() => importCurlCommand('curl "https://api.example.com" `\n')).toThrow(/POSIX/i);
+  });
+
+  it('normalizes form, binary, and repeated option variants while retaining unresolved paths', () => {
+    const form = importCurlCommand(
+      "curl --url https://api.example.com/upload -F title=hello -F empty -F 'asset=@./asset.png;type=image/png'"
+    );
+    const formRequest = form.collection.items[0]!.request as HttpRequest;
+    expect(formRequest.body).toMatchObject({
+      type: 'form-data',
+      formData: [
+        expect.objectContaining({ key: 'title', value: 'hello', type: 'text' }),
+        expect.objectContaining({ key: 'empty', value: '', type: 'text' }),
+        expect.objectContaining({ key: 'asset', value: '', type: 'file' }),
+      ],
+    });
+    expect(form.warnings).toContainEqual(
+      expect.objectContaining({ kind: 'unresolved-file', option: '-F', path: './asset.png' })
+    );
+
+    const binary = importCurlCommand(
+      'curl https://api.example.com/raw --data-binary @./payload.bin --data-urlencode q=hello'
+    );
+    const binaryRequest = binary.collection.items[0]!.request as HttpRequest;
+    expect(binaryRequest.body).toMatchObject({ type: 'x-www-form-urlencoded', raw: 'q=hello' });
+    expect(binary.warnings).toContainEqual(
+      expect.objectContaining({
+        kind: 'unresolved-file',
+        option: '--data-binary',
+        path: './payload.bin',
+      })
+    );
+  });
+
+  it('handles aliases, defaulting, TLS settings, and downgraded methods', () => {
+    const result = importCurlCommand(
+      'curl --url https://api.example.com --header malformed --cookie a=1 --cookie b=2 --user ada --request PURGE --proxy socks5://proxy.example.com --max-redirs 0 --max-time 1.5 --tlsv1.2 --tlsv1.3'
+    );
+    const request = result.collection.items[0]!.request as HttpRequest;
+
+    expect(request).toMatchObject({
+      method: 'GET',
+      auth: { type: 'basic', basic: { username: 'ada', password: '' } },
+      settings: {
+        maxRedirects: 0,
+        timeout: 1500,
+        minTlsVersion: 'TLSv1.3',
+        proxy: expect.objectContaining({ type: 'socks5', host: 'proxy.example.com' }),
+      },
+    });
+    expect(request.headers).toContainEqual(
+      expect.objectContaining({ key: 'Cookie', value: 'a=1; b=2' })
+    );
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'unsupported-option', option: '-H (malformed header)' }),
+        expect.objectContaining({ kind: 'unsupported-method', method: 'PURGE' }),
+      ])
+    );
+  });
+
+  it('reports malformed values without treating them as shell input', () => {
+    expect(() => importCurlCommand('wget https://api.example.com')).toThrow(
+      /beginning with "curl"/i
+    );
+    expect(() => importCurlCommand('curl --request')).toThrow(/requires a value/i);
+    expect(() => importCurlCommand('curl --max-redirs -1 https://api.example.com')).toThrow(
+      /non-negative integer/i
+    );
+    expect(() => importCurlCommand('curl --max-time nope https://api.example.com')).toThrow(
+      /non-negative number/i
+    );
+    expect(() =>
+      importCurlCommand('curl --proxy ftp://proxy.example.com https://api.example.com')
+    ).toThrow(/Unsupported cURL proxy/i);
+    expect(() => importCurlCommand('curl https://api.example.com "unterminated')).toThrow(
+      /Unterminated POSIX/i
+    );
+    expect(() => importCurlCommand('curl definitely-not-a-url')).toThrow(/invalid URL/i);
+  });
+
+  it('covers short cURL aliases without executing shell syntax', () => {
+    const result = importCurlCommand(
+      "curl -X PATCH -d alpha --data beta --data-raw gamma --data-ascii delta --data-urlencode q=hello -x https://proxy.example.com -k --location --cert ./client.pem --key ./client.key -- 'https://api.example.com/path'"
+    );
+    const request = result.collection.items[0]!.request as HttpRequest;
+
+    expect(request).toMatchObject({
+      method: 'PATCH',
+      url: 'https://api.example.com/path',
+      body: { type: 'x-www-form-urlencoded', raw: 'alpha&beta&gamma&delta&q=hello' },
+      settings: {
+        followRedirects: true,
+        verifySsl: false,
+        proxy: expect.objectContaining({ type: 'https', port: 443 }),
+      },
+    });
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'unresolved-file', option: '--cert' }),
+        expect.objectContaining({ kind: 'unresolved-file', option: '--key' }),
+      ])
+    );
+
+    const escaped = importCurlCommand('curl https://api.example.com/escaped');
+    expect((escaped.collection.items[0]!.request as HttpRequest).url).toContain('/escaped');
+  });
+
+  it('rejects every shell command separator and empty positional URLs', () => {
+    for (const separator of ['|', '||', '&', '&&']) {
+      expect(() => importCurlCommand(`curl https://api.example.com ${separator} whoami`)).toThrow(
+        /one cURL command/i
+      );
+    }
+    expect(() => importCurlCommand('curl --')).toThrow(/does not contain a URL/i);
+  });
+
+  it('keeps file-backed data inert while supporting POSIX continuations and escaping', () => {
+    const data = importCurlCommand(
+      'curl https://api.example.com --data @./body.json --data-binary literal trailing-value'
+    );
+    expect(data.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'unresolved-file', option: '--data', path: './body.json' }),
+        expect.objectContaining({ kind: 'unsupported-option', option: 'trailing-value' }),
+      ])
+    );
+    expect((data.collection.items[0]!.request as HttpRequest).body).toMatchObject({
+      type: 'binary',
+      raw: 'literal',
+    });
+
+    const continued = importCurlCommand(
+      ['curl ', '\\', '\nhttps://api.example.com/continued'].join('')
+    );
+    expect((continued.collection.items[0]!.request as HttpRequest).url).toContain('/continued');
+
+    const quoted = importCurlCommand('curl "https://api.example.com/escaped\\ path"');
+    expect((quoted.collection.items[0]!.request as HttpRequest).url).toContain('escaped%20path');
+
+    const implicitProxy = importCurlCommand(
+      'curl https://api.example.com --proxy proxy.example.com'
+    );
+    expect(
+      (implicitProxy.collection.items[0]!.request as HttpRequest).settings?.proxy
+    ).toMatchObject({
+      type: 'http',
+      host: 'proxy.example.com',
+    });
+  });
+
+  it('summarizes cURL-specific warning messages for the review surface', () => {
+    expect(
+      summarizeWarnings([
+        { kind: 'unsupported-option', option: '--compressed' },
+        { kind: 'unresolved-file', option: '--cert', path: './client.pem' },
+      ])
+    ).toEqual([
+      expect.objectContaining({ sample: 'cURL option "--compressed" is not supported' }),
+      expect.objectContaining({ sample: 'Local file "./client.pem" from --cert was not read' }),
+    ]);
   });
 });

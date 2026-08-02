@@ -49,4 +49,34 @@ describe('remote import handler', () => {
     expect(blocked.status).toBe(400);
     expect(fetcher).not.toHaveBeenCalled();
   });
+
+  it('uses the Node hostname guard and keeps unknown failures generic', async () => {
+    const guard = vi.fn().mockResolvedValue(undefined);
+    const app = new Hono();
+    app.post(
+      '/remote-import',
+      createRemoteImportHandler(
+        guard,
+        vi.fn().mockResolvedValue(new Response('ok', { headers: { 'content-type': 'text/plain' } }))
+      )
+    );
+
+    const response = await app.request('/remote-import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com/import.txt' }),
+    });
+    expect(response.status).toBe(200);
+    expect(guard).toHaveBeenCalledWith('example.com', {
+      allowLocalhost: false,
+      allowPrivateIPs: false,
+    });
+
+    const failed = await appFor(vi.fn().mockRejectedValue('unexpected')).request('/remote-import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url: 'https://example.com/import.txt' }),
+    });
+    await expect(failed.json()).resolves.toEqual({ error: 'Remote import failed.' });
+  });
 });

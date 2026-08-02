@@ -92,6 +92,7 @@ async function importCollection(page: Page, buffer: Buffer): Promise<void> {
   await page
     .locator('#file-upload-postman')
     .setInputFiles({ name: 'runner-e2e.json', mimeType: 'application/json', buffer });
+  await importDialog(page).getByRole('button', { name: 'Confirm import' }).click();
   // On a clean happy-path import the dialog closes and the collection appears.
   await expect(importDialog(page)).not.toBeVisible({ timeout: 8_000 });
   await expect(page.getByText('Runner E2E').first()).toBeVisible({ timeout: 8_000 });

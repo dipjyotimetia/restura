@@ -30,7 +30,8 @@ export async function fetchRemoteImport(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REMOTE_IMPORT_TIMEOUT_MS);
   const abort = () => controller.abort(signal?.reason);
-  signal?.addEventListener('abort', abort, { once: true });
+  if (signal?.aborted) abort();
+  else signal?.addEventListener('abort', abort, { once: true });
   try {
     for (let redirects = 0; ; redirects++) {
       await guard?.(url.hostname);

@@ -60,10 +60,10 @@ const IMPORTERS: Record<ParsedImportType, (data: unknown) => Promise<ImportResul
   bruno: async (data) =>
     importBrunoCollection({
       kind: 'single',
-      content: typeof data === 'string' ? data : JSON.stringify(data),
+      content: String(data),
     }),
-  http: async (data) => importHttpFile(typeof data === 'string' ? data : String(data)),
-  curl: async (data) => importCurlCommand(typeof data === 'string' ? data : String(data)),
+  http: async (data) => importHttpFile(String(data)),
+  curl: async (data) => importCurlCommand(String(data)),
 };
 
 interface FormatCardProps {
