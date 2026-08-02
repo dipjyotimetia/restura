@@ -23,7 +23,7 @@ export default defineConfig({
         Footer: './src/components/Footer.astro',
       },
       description:
-        'The API client that speaks every protocol — HTTP, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MCP. Web · Desktop · Self-hosted.',
+        'Free, open-source API client for HTTP, GraphQL, gRPC, WebSocket, Kafka, MQTT, and MCP. Privacy-first: web, desktop, and self-hosted Docker.',
       logo: {
         src: './public/favicon.svg',
         replacesTitle: false,
