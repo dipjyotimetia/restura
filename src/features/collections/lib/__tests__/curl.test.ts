@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { HttpRequest } from '@/types';
 import { importCurlCommand } from '../importers/curl';
-import { summarizeWarnings } from '../importers/types';
+import { coerceHttpMethod, type ImportWarning, summarizeWarnings } from '../importers/types';
 
 describe('importCurlCommand', () => {
   it('normalizes quoted POSIX input into an HTTP request without evaluating shell syntax', () => {
@@ -228,5 +228,38 @@ describe('importCurlCommand', () => {
       expect.objectContaining({ sample: 'cURL option "--compressed" is not supported' }),
       expect.objectContaining({ sample: 'Local file "./client.pem" from --cert was not read' }),
     ]);
+  });
+
+  it('summarizes every shared and HAR warning variant for import reviews', () => {
+    const warnings = [
+      { kind: 'unrecognized-body', requestName: 'Body' },
+      { kind: 'unrecognized-script-type', scriptType: 'test', requestName: 'Script' },
+      { kind: 'unsupported-auth', authType: 'Digest', requestName: 'Auth' },
+      { kind: 'unsupported-method', method: 'PURGE', requestName: 'Method' },
+      { kind: 'unknown-dynamic-var', varName: 'token', count: 1 },
+      { kind: 'bruno-syntax', pattern: 'bru.getEnv', requestName: 'Bruno' },
+      { kind: 'platform-unsupported', feature: 'Kafka', requestName: 'Kafka request' },
+      { kind: 'schema-version', format: 'Postman', version: '3', note: 'newer export' },
+      { kind: 'har-cookies-discarded', requestName: 'Cookies' },
+      { kind: 'har-redirect', requestName: 'Redirect', status: 302 },
+      { kind: 'har-response-discarded', requestName: 'Response' },
+      { kind: 'har-entry-discarded', entry: 'Entry', reason: 'invalid URL' },
+      { kind: 'har-field-discarded', requestName: 'Field', field: 'Header' },
+      { kind: 'har-lossy-body', requestName: 'Body', detail: 'Binary content was discarded' },
+    ] satisfies ImportWarning[];
+
+    expect(summarizeWarnings(warnings)).toHaveLength(warnings.length);
+  });
+
+  it('defaults omitted methods and handles unquoted POSIX escapes without running shell input', () => {
+    expect(coerceHttpMethod(undefined, 'Imported request')).toBe('GET');
+
+    const escapedRequest = importCurlCommand('curl https://api.example.com/escaped\\ path')
+      .collection.items[0]!.request as HttpRequest;
+    expect(escapedRequest).toMatchObject({ url: 'https://api.example.com/escaped%20path' });
+
+    const request = importCurlCommand('curl https://api.example.com\\').collection.items[0]!
+      .request as HttpRequest;
+    expect(request).toMatchObject({ url: 'https://api.example.com/' });
   });
 });

@@ -146,6 +146,69 @@ describe('ImportDialog', () => {
     expect(screen.getByText(/1 warning will be retained/i)).toBeInTheDocument();
   });
 
+  it('keeps HAR captures in a selection review until the chosen requests are confirmed', async () => {
+    const user = userEvent.setup();
+    render(<ImportDialog open onOpenChange={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: /^HAR/ }));
+    fireEvent.change(document.querySelector('#file-upload-har')!, {
+      target: {
+        files: [
+          {
+            name: 'capture.har',
+            text: async () =>
+              JSON.stringify({
+                log: {
+                  version: '1.2',
+                  entries: [
+                    {
+                      startedDateTime: '2026-08-02T00:00:00.000Z',
+                      time: 1,
+                      request: {
+                        method: 'POST',
+                        url: 'https://api.example.com/users',
+                        httpVersion: 'HTTP/1.1',
+                        headers: [],
+                        queryString: [],
+                        cookies: [],
+                        headersSize: -1,
+                        bodySize: 0,
+                      },
+                      response: {
+                        status: 201,
+                        statusText: 'Created',
+                        httpVersion: 'HTTP/1.1',
+                        headers: [],
+                        cookies: [],
+                        content: { size: 0, mimeType: 'application/json' },
+                        redirectURL: '',
+                        headersSize: -1,
+                        bodySize: 0,
+                      },
+                      cache: {},
+                      timings: { send: 0, wait: 1, receive: 0 },
+                    },
+                  ],
+                },
+              }),
+          },
+        ],
+      },
+    });
+
+    expect(await screen.findByRole('region', { name: 'HAR review' })).toBeInTheDocument();
+    expect(useCollectionStore.getState().collections).toHaveLength(0);
+
+    const entry = screen.getByRole('checkbox', { name: /select/i });
+    await user.click(entry);
+    await user.click(entry);
+    await user.click(screen.getByRole('button', { name: /select none/i }));
+    expect(screen.getByRole('button', { name: /import selected requests/i })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: /select all/i }));
+    await user.click(screen.getByRole('button', { name: /import selected requests/i }));
+    expect(useCollectionStore.getState().collections).toHaveLength(1);
+  });
+
   it('parses OpenAPI YAML and Bruno files through their source-specific upload paths', async () => {
     const user = userEvent.setup();
     render(<ImportDialog open onOpenChange={vi.fn()} />);
