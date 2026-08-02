@@ -83,7 +83,7 @@ jobs:
         run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
 
       - name: Download Vitest blob reports
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           path: .vitest-reports
           pattern: vitest-blob-report-*
