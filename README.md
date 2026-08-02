@@ -24,7 +24,11 @@
 
 <br/>
 
-Restura is one API client that speaks every protocol I actually use — HTTP, GraphQL, gRPC, WebSocket, SSE, Kafka, MQTT, and MCP. It stores everything locally, needs no account, and runs in the browser, as a native desktop app (macOS / Windows / Linux), or self-hosted in Docker behind your firewall. Free — not "free tier with the useful stuff locked," just free.
+# Restura — Open-Source Multi-Protocol API Client
+
+Restura is a free, open-source, privacy-first API client for developers. Test REST/HTTP, GraphQL, gRPC, WebSocket, Socket.IO, Server-Sent Events, Kafka, MQTT, and MCP from one app. It stores data locally, needs no account, and runs in the browser, as a native desktop app (macOS / Windows / Linux), or self-hosted with Docker behind your firewall.
+
+If you are looking for a private, open-source Postman alternative that also covers streaming, message-broker, and MCP workflows, [try the web app](https://restura.dev/), [download the desktop app](https://github.com/dipjyotimetia/restura/releases/latest), or read the [Restura documentation](https://docs.restura.dev/).
 
 It started because I was tired of juggling four tools to debug one service, each with its own collection format and auth setup. Then Postman changed its pricing and Insomnia went cloud-first — syncing auth tokens, internal hostnames, and payload bodies to someone's server by default. That felt wrong, so Restura signs auth at the wire and keeps your data on your machine.
 

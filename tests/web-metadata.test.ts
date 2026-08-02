@@ -39,6 +39,7 @@ describe('public web metadata', () => {
   it('describes the complete product offering in metadata and structured data', () => {
     const index = read('index.html');
     const description = attr(index, /<meta[^>]+name="description"[^>]*>/, 'content');
+    const title = index.match(/<title>([^<]+)<\/title>/)?.[1];
     const jsonLd = attr(
       index,
       /<script[^>]+type="application\/ld\+json"[^>]*>[\s\S]*?<\/script>/,
@@ -48,7 +49,10 @@ describe('public web metadata', () => {
       index.match(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/)?.[1] ?? ''
     ) as { '@graph': Array<{ '@type': string; logo?: string }> };
 
-    expect(description).toContain('Socket.IO, SSE, Kafka, MQTT, and MCP');
+    expect(title).toBe('Restura — Open-Source Multi-Protocol API Client');
+    expect(description).toContain('Open-source, privacy-first API client');
+    expect(description).toContain('self-hosted with Docker');
+    expect(index).not.toMatch(/<meta[^>]+name="keywords"[^>]*>/);
     expect(jsonLd).toBe('application/ld+json');
     expect(structuredData['@graph']).toEqual(
       expect.arrayContaining([
