@@ -12,7 +12,9 @@ const SHELL_OPERATORS = new Set([';', '|', '||', '&&', '&']);
 export function importCurlCommand(source: string): ImportResult {
   const tokens = lexPosix(source);
   if (tokens.some((token) => SHELL_OPERATORS.has(token))) {
-    throw new Error('Only one cURL command may be imported; shell command chaining is not supported.');
+    throw new Error(
+      'Only one cURL command may be imported; shell command chaining is not supported.'
+    );
   }
   if (tokens[0]?.toLowerCase() !== 'curl') {
     throw new Error('Expected one POSIX cURL command beginning with "curl".');
@@ -21,7 +23,13 @@ export function importCurlCommand(source: string): ImportResult {
   const warnings: ImportWarning[] = [];
   const headers: KeyValue[] = [];
   const params: KeyValue[] = [];
-  const formData: Array<{ id: string; key: string; value: string; enabled: boolean; type: 'text' | 'file' }> = [];
+  const formData: Array<{
+    id: string;
+    key: string;
+    value: string;
+    enabled: boolean;
+    type: 'text' | 'file';
+  }> = [];
   let method: string | undefined;
   let url: string | undefined;
   let rawBody: string | undefined;
@@ -41,7 +49,12 @@ export function importCurlCommand(source: string): ImportResult {
       warnings.push({ kind: 'unsupported-option', option: '-H (malformed header)' });
       return;
     }
-    headers.push({ id: uuid(), key: value.slice(0, colon).trim(), value: value.slice(colon + 1).trim(), enabled: true });
+    headers.push({
+      id: uuid(),
+      key: value.slice(0, colon).trim(),
+      value: value.slice(colon + 1).trim(),
+      enabled: true,
+    });
   };
 
   for (let i = 1; i < tokens.length; i++) {
@@ -72,7 +85,10 @@ export function importCurlCommand(source: string): ImportResult {
       case '--user': {
         const value = take(i, token);
         const separator = value.indexOf(':');
-        basic = { username: separator === -1 ? value : value.slice(0, separator), password: separator === -1 ? '' : value.slice(separator + 1) };
+        basic = {
+          username: separator === -1 ? value : value.slice(0, separator),
+          password: separator === -1 ? '' : value.slice(separator + 1),
+        };
         i++;
         break;
       }
@@ -82,7 +98,8 @@ export function importCurlCommand(source: string): ImportResult {
       case '--data-ascii':
       case '--data-urlencode': {
         const value = take(i, token);
-        if (value.startsWith('@')) warnings.push({ kind: 'unresolved-file', option: token, path: value.slice(1) });
+        if (value.startsWith('@'))
+          warnings.push({ kind: 'unresolved-file', option: token, path: value.slice(1) });
         rawBody = rawBody === undefined ? value : `${rawBody}&${value}`;
         bodyKind = token === '--data-urlencode' ? 'x-www-form-urlencoded' : 'text';
         i++;
@@ -90,7 +107,8 @@ export function importCurlCommand(source: string): ImportResult {
       }
       case '--data-binary': {
         const value = take(i, token);
-        if (value.startsWith('@')) warnings.push({ kind: 'unresolved-file', option: token, path: value.slice(1) });
+        if (value.startsWith('@'))
+          warnings.push({ kind: 'unresolved-file', option: token, path: value.slice(1) });
         else rawBody = value;
         bodyKind = 'binary';
         i++;
@@ -102,9 +120,17 @@ export function importCurlCommand(source: string): ImportResult {
         const equal = value.indexOf('=');
         const key = equal === -1 ? value : value.slice(0, equal);
         const formValue = equal === -1 ? '' : value.slice(equal + 1);
-        const filePath = formValue.startsWith('@') ? formValue.slice(1).split(';', 1)[0]! : undefined;
+        const filePath = formValue.startsWith('@')
+          ? formValue.slice(1).split(';', 1)[0]!
+          : undefined;
         if (filePath) warnings.push({ kind: 'unresolved-file', option: token, path: filePath });
-        formData.push({ id: uuid(), key, value: filePath ? '' : formValue, enabled: true, type: filePath ? 'file' : 'text' });
+        formData.push({
+          id: uuid(),
+          key,
+          value: filePath ? '' : formValue,
+          enabled: true,
+          type: filePath ? 'file' : 'text',
+        });
         bodyKind = 'form-data';
         i++;
         break;
@@ -166,44 +192,85 @@ export function importCurlCommand(source: string): ImportResult {
   parsedUrl.search = '';
   if (cookie) headers.push({ id: uuid(), key: 'Cookie', value: cookie, enabled: true });
 
-  const contentType = headers.find((header) => header.key.toLowerCase() === 'content-type')?.value.toLowerCase();
+  const contentType = headers
+    .find((header) => header.key.toLowerCase() === 'content-type')
+    ?.value.toLowerCase();
   if (rawBody && contentType?.includes('json')) bodyKind = 'json';
   const requestName = `${(method ?? (rawBody !== undefined || formData.length > 0 ? 'POST' : 'GET')).toUpperCase()} ${parsedUrl.hostname}`;
   const request: HttpRequest = {
-    id: uuid(), name: requestName, type: 'http', method: coerceHttpMethod(method ?? (rawBody !== undefined || formData.length > 0 ? 'POST' : 'GET'), requestName, warnings),
-    url: parsedUrl.toString(), headers, params,
-    body: bodyKind === 'form-data' ? { type: 'form-data', formData } : bodyKind === 'none' ? { type: 'none' } : { type: bodyKind, raw: rawBody },
+    id: uuid(),
+    name: requestName,
+    type: 'http',
+    method: coerceHttpMethod(
+      method ?? (rawBody !== undefined || formData.length > 0 ? 'POST' : 'GET'),
+      requestName,
+      warnings
+    ),
+    url: parsedUrl.toString(),
+    headers,
+    params,
+    body:
+      bodyKind === 'form-data'
+        ? { type: 'form-data', formData }
+        : bodyKind === 'none'
+          ? { type: 'none' }
+          : { type: bodyKind, raw: rawBody },
     auth: basic ? { type: 'basic', basic } : { type: 'none' },
     settings: { timeout: 0, followRedirects: false, maxRedirects: 5, verifySsl: true, ...settings },
   };
-  return { collection: { id: uuid(), name: `cURL: ${parsedUrl.hostname}`, items: [{ id: uuid(), name: requestName, type: 'request', request }] }, warnings };
+  return {
+    collection: {
+      id: uuid(),
+      name: `cURL: ${parsedUrl.hostname}`,
+      items: [{ id: uuid(), name: requestName, type: 'request', request }],
+    },
+    warnings,
+  };
 }
 
 function lexPosix(source: string): string[] {
   const tokens: string[] = [];
   let current = '';
   let quote: "'" | '"' | undefined;
-  const push = () => { if (current) tokens.push(current); current = ''; };
+  const push = () => {
+    if (current) tokens.push(current);
+    current = '';
+  };
   for (let i = 0; i < source.length; i++) {
     const char = source[i]!;
     if (quote) {
-      if (char === quote) { quote = undefined; continue; }
+      if (char === quote) {
+        quote = undefined;
+        continue;
+      }
       if (quote === '"' && char === '\\' && i + 1 < source.length) current += source[++i]!;
       else current += char;
       continue;
     }
-    if (char === "'" || char === '"') { quote = char; continue; }
-    if (char === '`') throw new Error('PowerShell/cmd syntax is not supported; paste POSIX shell cURL syntax.');
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+    if (char === '`')
+      throw new Error('PowerShell/cmd syntax is not supported; paste POSIX shell cURL syntax.');
     if (char === '\\') {
-      if (source[i + 1] === '\n') { i++; continue; }
+      if (source[i + 1] === '\n') {
+        i++;
+        continue;
+      }
       if (i + 1 < source.length) current += source[++i]!;
       continue;
     }
-    if (/\s/.test(char)) { push(); continue; }
+    if (/\s/.test(char)) {
+      push();
+      continue;
+    }
     if (char === ';' || char === '|' || char === '&') {
       push();
       const next = source[i + 1];
-      tokens.push(next === char && (char === '|' || char === '&') ? `${char}${source[++i]!}` : char);
+      tokens.push(
+        next === char && (char === '|' || char === '&') ? `${char}${source[++i]!}` : char
+      );
       continue;
     }
     current += char;
@@ -215,19 +282,27 @@ function lexPosix(source: string): string[] {
 
 function positiveInt(value: string, option: string): number {
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`cURL option ${option} must be a non-negative integer.`);
+  if (!Number.isInteger(parsed) || parsed < 0)
+    throw new Error(`cURL option ${option} must be a non-negative integer.`);
   return parsed;
 }
 
 function positiveSeconds(value: string, option: string): number {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed < 0) throw new Error(`cURL option ${option} must be a non-negative number.`);
+  if (!Number.isFinite(parsed) || parsed < 0)
+    throw new Error(`cURL option ${option} must be a non-negative number.`);
   return Math.round(parsed * 1000);
 }
 
 function parseProxy(value: string): ProxyConfig {
   const url = new URL(value.includes('://') ? value : `http://${value}`);
   const type = url.protocol.slice(0, -1);
-  if (type !== 'http' && type !== 'https' && type !== 'socks4' && type !== 'socks5') throw new Error(`Unsupported cURL proxy protocol: ${url.protocol}`);
-  return { enabled: true, type, host: url.hostname, port: Number(url.port || (type === 'https' ? 443 : 80)) };
+  if (type !== 'http' && type !== 'https' && type !== 'socks4' && type !== 'socks5')
+    throw new Error(`Unsupported cURL proxy protocol: ${url.protocol}`);
+  return {
+    enabled: true,
+    type,
+    host: url.hostname,
+    port: Number(url.port || (type === 'https' ? 443 : 80)),
+  };
 }

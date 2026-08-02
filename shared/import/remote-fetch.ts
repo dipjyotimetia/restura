@@ -37,11 +37,14 @@ export async function fetchRemoteImport(
       const response = await fetcher(url.toString(), {
         method: 'GET',
         redirect: 'manual',
-        headers: { Accept: 'application/json, application/yaml, text/yaml, text/plain;q=0.8, */*;q=0.1' },
+        headers: {
+          Accept: 'application/json, application/yaml, text/yaml, text/plain;q=0.8, */*;q=0.1',
+        },
         signal: controller.signal,
       });
       if (isRedirect(response.status)) {
-        if (redirects >= MAX_REDIRECTS) throw new Error(`Remote import has too many redirects (>${MAX_REDIRECTS}).`);
+        if (redirects >= MAX_REDIRECTS)
+          throw new Error(`Remote import has too many redirects (>${MAX_REDIRECTS}).`);
         const location = response.headers.get('location');
         if (!location) throw new Error('Remote import redirect did not include a Location header.');
         url = validateRemoteImportUrl(new URL(location, url).toString());
@@ -50,19 +53,28 @@ export async function fetchRemoteImport(
       if (!response.ok) throw new Error(`Remote import failed with HTTP ${response.status}.`);
       const declaredSize = Number(response.headers.get('content-length'));
       if (Number.isFinite(declaredSize) && declaredSize > REMOTE_IMPORT_MAX_BYTES) {
-        throw new Error(`Remote import response is too large (max ${REMOTE_IMPORT_MAX_BYTES / 1024 / 1024}MB).`);
+        throw new Error(
+          `Remote import response is too large (max ${REMOTE_IMPORT_MAX_BYTES / 1024 / 1024}MB).`
+        );
       }
       const bytes = await readBounded(response, REMOTE_IMPORT_MAX_BYTES);
-      if (bytes.includes(0)) throw new Error('Remote import must be a text artifact, not binary data.');
+      if (bytes.includes(0))
+        throw new Error('Remote import must be a text artifact, not binary data.');
       return {
         text: new TextDecoder().decode(bytes),
-        contentType: response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() ?? '',
+        contentType:
+          response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() ?? '',
         finalUrl: url.toString(),
       };
     }
   } catch (error) {
-    if (controller.signal.aborted && !(error instanceof Error && error.message.includes('Remote import'))) {
-      throw new Error(signal?.aborted ? 'Remote import was cancelled.' : 'Remote import timed out.');
+    if (
+      controller.signal.aborted &&
+      !(error instanceof Error && error.message.includes('Remote import'))
+    ) {
+      throw new Error(
+        signal?.aborted ? 'Remote import was cancelled.' : 'Remote import timed out.'
+      );
     }
     throw error;
   } finally {
@@ -79,7 +91,8 @@ function validateRemoteImportUrl(input: string): URL {
   });
   if (!validation.valid) throw new Error(validation.error ?? 'Invalid remote import URL.');
   const url = new URL(input);
-  if (url.username || url.password) throw new Error('Remote import URLs must not contain credentials.');
+  if (url.username || url.password)
+    throw new Error('Remote import URLs must not contain credentials.');
   return url;
 }
 

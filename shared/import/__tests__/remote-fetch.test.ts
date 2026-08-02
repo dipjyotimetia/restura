@@ -10,7 +10,10 @@ describe('fetchRemoteImport', () => {
     );
     const guard = vi.fn().mockResolvedValue(undefined);
 
-    const result = await fetchRemoteImport('https://example.com/collection.json', { fetcher, guard });
+    const result = await fetchRemoteImport('https://example.com/collection.json', {
+      fetcher,
+      guard,
+    });
 
     expect(result).toMatchObject({
       text: '{"info":{"name":"Example"}}',
@@ -30,14 +33,18 @@ describe('fetchRemoteImport', () => {
     await expect(fetchRemoteImport('https://user:pass@example.com/a', { fetcher })).rejects.toThrow(
       /credentials/i
     );
-    await expect(fetchRemoteImport('https://127.0.0.1/a', { fetcher })).rejects.toThrow(/private|local/i);
+    await expect(fetchRemoteImport('https://127.0.0.1/a', { fetcher })).rejects.toThrow(
+      /private|local/i
+    );
     expect(fetcher).not.toHaveBeenCalled();
   });
 
   it('revalidates every redirect target and caps the decoded response', async () => {
     const fetcher = vi
       .fn()
-      .mockResolvedValueOnce(new Response('', { status: 302, headers: { location: 'https://next.example/x' } }))
+      .mockResolvedValueOnce(
+        new Response('', { status: 302, headers: { location: 'https://next.example/x' } })
+      )
       .mockResolvedValueOnce(new Response('ok', { headers: { 'content-type': 'text/plain' } }));
     const guard = vi.fn().mockResolvedValue(undefined);
     const result = await fetchRemoteImport('https://example.com/a', { fetcher, guard });
@@ -48,7 +55,11 @@ describe('fetchRemoteImport', () => {
 
     await expect(
       fetchRemoteImport('https://example.com/too-big', {
-        fetcher: vi.fn().mockResolvedValue(new Response('too big', { headers: { 'content-length': '10485761' } })),
+        fetcher: vi
+          .fn()
+          .mockResolvedValue(
+            new Response('too big', { headers: { 'content-length': '10485761' } })
+          ),
       })
     ).rejects.toThrow(/too large/i);
   });

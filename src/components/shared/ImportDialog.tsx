@@ -1,7 +1,7 @@
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import type { DeepLinkImportFormat } from '@shared/deep-link';
 import * as yaml from 'js-yaml';
-import { Check, Download, Lock, Upload, X } from 'lucide-react';
+import { Check, Download, Link, Lock, Upload, X } from 'lucide-react';
 import { type ChangeEvent, type DragEvent, useEffect, useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Floater } from '@/components/ui/spatial';
@@ -11,6 +11,7 @@ import {
   type ImportResult,
   type ImportWarning,
   importBrunoCollection,
+  importCurlCommand,
   importHoppscotchCollection,
   importHoppscotchEnvironment,
   importHttpFile,
@@ -30,156 +31,18 @@ import { cn } from '@/lib/shared/utils';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { HarImportReview } from './HarImportReview';
-import { ImportDropZone, ImportFormatCard, type ImportFormatMeta } from './ImportFormatPicker';
 import { ImportStatusBanner } from './ImportStatusBanner';
+import {
+  detectRemoteFormat,
+  FEATURE_LISTS,
+  FORMATS,
+  type FormatMeta,
+  fetchRemoteArtifact,
+  type ImportType,
+  type ParsedImportType,
+} from './import-dialog-data';
 
-type ImportType =
-  | 'postman'
-  | 'insomnia'
-  | 'openapi'
-  | 'opencollection'
-  | 'hoppscotch'
-  | 'bruno'
-  | 'http'
-  | 'har';
-
-const FORMATS: Array<ImportFormatMeta & { id: ImportType }> = [
-  {
-    id: 'postman',
-    name: 'Postman',
-    tagline: 'v2.1 collections & environments',
-    initials: 'PM',
-    color: '#ff6c37',
-    accept: '.json,.yaml,.yml',
-  },
-  {
-    id: 'insomnia',
-    name: 'Insomnia',
-    tagline: 'v4 & v5 workspaces',
-    initials: 'IN',
-    color: '#7e5cef',
-    accept: '.json,.yaml,.yml',
-  },
-  {
-    id: 'openapi',
-    name: 'OpenAPI',
-    tagline: 'OpenAPI 3.x · Swagger 2.0',
-    initials: 'OA',
-    color: '#6ba539',
-    accept: '.json,.yaml,.yml',
-  },
-  {
-    id: 'opencollection',
-    name: 'OpenCollection',
-    tagline: 'Bruno 3.1+ bundled format',
-    initials: 'OC',
-    color: '#2e91ff',
-    accept: '.json,.yaml,.yml',
-  },
-  {
-    id: 'hoppscotch',
-    name: 'Hoppscotch',
-    tagline: 'Collections & environments',
-    initials: 'HP',
-    color: '#22c55e',
-    accept: '.json,.yaml,.yml',
-  },
-  {
-    id: 'bruno',
-    name: 'Bruno',
-    tagline: 'Legacy .bru text DSL',
-    initials: 'BR',
-    color: '#f06b00',
-    accept: '.bru,.zip',
-  },
-  {
-    id: 'http',
-    name: '.http File',
-    tagline: 'VS Code REST Client · JetBrains HTTP Client',
-    initials: 'HT',
-    color: '#0ea5e9',
-    accept: '.http,.rest',
-  },
-  {
-    id: 'har',
-    name: 'HAR',
-    tagline: 'HTTP Archive 1.2 browser captures',
-    initials: 'HR',
-    color: '#f59e0b',
-    accept: '.har,.json',
-  },
-];
-
-const FEATURE_LISTS: Record<ImportType, string[]> = {
-  postman: [
-    'Collections and folders',
-    'HTTP requests (all methods)',
-    'Query parameters and headers',
-    'Request body (JSON, form-data, etc.)',
-    'Auth (Basic, Bearer, API Key, OAuth2, AWS Sig)',
-    'Pre-request and test scripts',
-    'Environment variables',
-  ],
-  insomnia: [
-    'Workspaces and request groups',
-    'HTTP requests',
-    'Headers and parameters',
-    'Request body',
-    'Auth (Basic, Bearer, API Key, OAuth2)',
-  ],
-  openapi: [
-    'OpenAPI 3.x and Swagger 2.0',
-    'Paths and operations (all methods)',
-    'Query, header, and path parameters',
-    'Request bodies with example generation',
-    'Tag-based folder organisation',
-    'Security schemes',
-    'Server URL configuration',
-  ],
-  opencollection: [
-    'OpenCollection v1.0.0 (Bruno 3.1+)',
-    'HTTP, gRPC, GraphQL, WebSocket',
-    'SSE and MCP via x-restura-* extensions',
-    'Auth (Basic, Bearer, API Key, Digest, OAuth2, AWS SigV4)',
-    'Environment + secret variables',
-    'Folder hierarchy & metadata',
-  ],
-  hoppscotch: [
-    'Hoppscotch JSON exports',
-    'Folders with full hierarchy',
-    'Pre-request & test scripts',
-    'Auth (Basic, Bearer, API Key, OAuth2, AWS SigV4, Digest)',
-    'Environment variables with secret flag',
-    'pw.* / hopp.* script aliases',
-  ],
-  bruno: [
-    'Bruno legacy .bru files (text DSL)',
-    'For Bruno 3.1+, use OpenCollection',
-    'Single .bru: drop or paste the file',
-    'Multi-file workspace: drop a .zip export',
-    'Auth (Basic, Bearer, API Key, Digest, OAuth2, OAuth1, NTLM, WSSE, AWS SigV4)',
-    'Pre-request, test scripts, assertions',
-    'Pre-request and post-response variables',
-  ],
-  http: [
-    '### request separators, one request per block',
-    '@name and file-level @var declarations',
-    'Headers and raw body, {{var}} passthrough',
-    'Query params parsed from the request URL',
-    'JetBrains < {% %} / > {% %} scripts (stored, not executed)',
-    'VS Code {{$guid}} / {{$timestamp}} dynamic vars flagged as unsupported',
-  ],
-  har: [
-    'HAR 1.2 browser capture entries',
-    'Page-first grouping with origin fallback',
-    'Methods, URLs, queries, headers, and request bodies',
-    'Entry review and selection before persistence',
-    'Authorization and token redaction before preview',
-    'Cookies and captured response bodies discarded',
-  ],
-};
-
-const IMPORTERS: Record<Exclude<ImportType, 'har'>, (data: unknown) => Promise<ImportResult>> = {
+const IMPORTERS: Record<ParsedImportType, (data: unknown) => Promise<ImportResult>> = {
   postman: async (data) => {
     const warnings: ImportWarning[] = [];
     // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
@@ -200,7 +63,149 @@ const IMPORTERS: Record<Exclude<ImportType, 'har'>, (data: unknown) => Promise<I
       content: typeof data === 'string' ? data : JSON.stringify(data),
     }),
   http: async (data) => importHttpFile(typeof data === 'string' ? data : String(data)),
+  curl: async (data) => importCurlCommand(typeof data === 'string' ? data : String(data)),
 };
+
+interface FormatCardProps {
+  format: FormatMeta;
+  active: boolean;
+  onClick: () => void;
+}
+
+function FormatCard({ format, active, onClick }: FormatCardProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        'relative flex items-center gap-2.5 p-3 rounded-sp-btn text-left',
+        'border transition-all duration-150',
+        'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent',
+        active
+          ? 'border-sp-accent bg-sp-active'
+          : 'border-sp-line bg-sp-surface-lo hover:bg-sp-hover hover:border-sp-line-strong'
+      )}
+      style={
+        active
+          ? { boxShadow: '0 0 0 1px var(--sp-accent), 0 8px 20px var(--sp-accent-glow-33)' }
+          : undefined
+      }
+    >
+      <span
+        aria-hidden="true"
+        className="flex items-center justify-center size-9 rounded-sp-btn shrink-0 text-sp-11 font-bold text-white tracking-wide"
+        style={{
+          background: format.color,
+          boxShadow: `0 4px 10px ${format.color}55, inset 0 1px 0 rgba(255,255,255,0.2)`,
+        }}
+      >
+        {format.initials}
+      </span>
+      <span className="flex flex-col min-w-0 flex-1">
+        <span className="text-sp-13 font-semibold text-sp-text leading-tight">{format.name}</span>
+        <span className="text-sp-11 text-sp-muted leading-tight mt-0.5 truncate">
+          {format.tagline}
+        </span>
+      </span>
+      {active && <Check size={14} className="text-sp-accent shrink-0" aria-hidden="true" />}
+    </button>
+  );
+}
+
+interface DropZoneProps {
+  format: FormatMeta;
+  onFileUpload: (event: ChangeEvent<HTMLInputElement>) => void;
+  onDrop: (event: DragEvent<HTMLDivElement>) => void;
+}
+
+function DropZone({ format, onFileUpload, onDrop }: DropZoneProps) {
+  const [isDragging, setIsDragging] = useState(false);
+
+  return (
+    <div
+      onDrop={(e) => {
+        setIsDragging(false);
+        onDrop(e);
+      }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (!isDragging) setIsDragging(true);
+      }}
+      onDragLeave={(e) => {
+        // `dragLeave` fires on the parent whenever the cursor crosses into a
+        // child element (icon, heading, "Choose file" button). Only flip
+        // the state when the cursor actually leaves the drop zone itself.
+        const next = e.relatedTarget;
+        if (next instanceof Node && e.currentTarget.contains(next)) return;
+        setIsDragging(false);
+      }}
+      className={cn(
+        'relative rounded-sp-panel border-2 border-dashed p-8',
+        'transition-all duration-150',
+        isDragging
+          ? 'border-sp-accent bg-sp-active'
+          : 'border-sp-line bg-sp-surface-lo hover:border-sp-line-strong hover:bg-sp-hover'
+      )}
+      style={isDragging ? { boxShadow: '0 0 0 4px var(--sp-accent-glow-33)' } : undefined}
+    >
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 pointer-events-none rounded-sp-panel"
+        style={{
+          background: isDragging
+            ? 'radial-gradient(circle at 50% 0%, var(--sp-accent-glow-33), transparent 70%)'
+            : undefined,
+        }}
+      />
+      <input
+        type="file"
+        accept={format.accept}
+        onChange={onFileUpload}
+        aria-label={`Choose ${format.name} file`}
+        className="hidden"
+        id={`file-upload-${format.id}`}
+      />
+      <label
+        htmlFor={`file-upload-${format.id}`}
+        className="relative flex flex-col items-center gap-3 cursor-pointer text-center"
+      >
+        <div
+          className="flex items-center justify-center size-14 rounded-full"
+          style={{
+            background: 'var(--sp-surface)',
+            border: '1px solid var(--sp-line)',
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+          }}
+        >
+          <Download
+            size={22}
+            className={cn('transition-colors', isDragging ? 'text-sp-accent' : 'text-sp-muted')}
+          />
+        </div>
+        <div>
+          <p className="text-sp-14 font-semibold text-sp-text">
+            {isDragging ? `Release to import ${format.name}` : `Drop your ${format.name} file here`}
+          </p>
+          <p className="text-sp-12 text-sp-muted mt-0.5">
+            or click to browse · accepts{' '}
+            <code className="font-mono text-sp-11-5 text-sp-text/80">{format.accept}</code>
+          </p>
+        </div>
+        <span
+          className={cn(
+            'inline-flex items-center gap-1.5 h-8 px-3 rounded-sp-btn pointer-events-none',
+            'bg-sp-surface border border-sp-line-strong text-sp-text text-sp-12 font-medium',
+            'shadow-sm'
+          )}
+        >
+          <Upload size={12} aria-hidden="true" />
+          Choose file
+        </span>
+      </label>
+    </div>
+  );
+}
 
 interface ImportDialogProps {
   open: boolean;
@@ -220,6 +225,9 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
   const [storeSecretsAsHandles, setStoreSecretsAsHandles] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
+  const [remoteUrl, setRemoteUrl] = useState('');
+  const [pendingOutcome, setPendingOutcome] = useState<PendingOutcome | null>(null);
+  const [reviewFormat, setReviewFormat] = useState<ParsedImportType | null>(null);
   const [harPreview, setHarPreview] = useState<HarImportPreview | null>(null);
   const [selectedHarEntries, setSelectedHarEntries] = useState<Set<string>>(new Set());
   const [selectedHarEnvironments, setSelectedHarEnvironments] = useState<Set<string>>(new Set());
@@ -247,8 +255,8 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
   };
 
   /** Pasted text has no filename to sniff — try JSON first, then YAML. */
-  const parsePastedContent = (text: string, type: ImportType): unknown => {
-    if (type === 'bruno' || type === 'http' || type === 'har') return text;
+  const parsePastedContent = (text: string, type: ParsedImportType | 'har'): unknown => {
+    if (type === 'bruno' || type === 'http' || type === 'curl' || type === 'har') return text;
     try {
       return JSON.parse(text);
     } catch {
@@ -258,32 +266,41 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
 
   type ProcessOutcome =
     | ImportResult
-    | { kind: 'environment-only'; environmentName: string }
+    | { kind: 'environment-only'; environment: ReturnType<typeof importPostmanEnvironment> }
     | { kind: 'har-preview'; preview: HarImportPreview };
+  type PendingOutcome =
+    | ImportResult
+    | { kind: 'environment-only'; environment: ReturnType<typeof importPostmanEnvironment> };
 
-  const processImportData = async (data: unknown, type: ImportType): Promise<ProcessOutcome> => {
+  const processImportData = async (
+    data: unknown,
+    type: ParsedImportType | 'har'
+  ): Promise<ProcessOutcome> => {
     if (type === 'har') {
       if (typeof data !== 'string') throw new Error('HAR input must be JSON text');
       return { kind: 'har-preview', preview: parseHarImport(data) };
     }
     if (type === 'postman' && isPostmanEnvironment(data)) {
       const env = importPostmanEnvironment(data);
-      addEnvironment(env);
-      return { kind: 'environment-only', environmentName: env.name };
+      return { kind: 'environment-only', environment: env };
     }
     if (type === 'hoppscotch' && isHoppscotchEnvironment(data)) {
       const env = importHoppscotchEnvironment(data);
-      addEnvironment(env);
-      return { kind: 'environment-only', environmentName: env.name };
+      return { kind: 'environment-only', environment: env };
     }
     return IMPORTERS[type](data);
   };
 
-  const processImportFile = async (file: File, type: ImportType): Promise<ProcessOutcome> => {
+  const processImportFile = async (
+    file: File,
+    type: ParsedImportType | 'har'
+  ): Promise<ProcessOutcome> => {
     if (type === 'har') return processImportData(await file.text(), type);
-    if (type === 'http') {
+    if (type === 'http' || type === 'curl') {
       const text = await file.text();
-      return importHttpFile(text, { fileName: file.name });
+      return type === 'http'
+        ? importHttpFile(text, { fileName: file.name })
+        : importCurlCommand(text);
     }
     if (type === 'bruno' && file.name.toLowerCase().endsWith('.zip')) {
       const { unzipToEntries } = await import('@/lib/shared/zip-utils');
@@ -294,7 +311,10 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
     return processImportData(parseFileContent(text, file.name), type);
   };
 
-  const handleImportSuccess = async (outcome: ProcessOutcome) => {
+  const stageImport = (
+    outcome: ProcessOutcome,
+    sourceFormat: ParsedImportType | 'har' | null = null
+  ) => {
     if ('kind' in outcome && outcome.kind === 'har-preview') {
       setHarPreview(outcome.preview);
       setSelectedHarEntries(
@@ -310,25 +330,39 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
       return;
     }
     if ('kind' in outcome) {
+      setWarnings([]);
+    } else {
+      const validation = validateImportedCollection(outcome.collection);
+      if (!validation.ok) {
+        handleImportError(
+          new Error(`Imported collection failed validation — ${validation.issues.join('; ')}`)
+        );
+        return;
+      }
+      setWarnings(outcome.warnings);
+    }
+    setHarPreview(null);
+    setPendingOutcome(outcome);
+    setReviewFormat(sourceFormat === 'har' ? null : sourceFormat);
+    setImportStatus('idle');
+    setEnvironmentOnlyName(null);
+  };
+
+  const confirmImport = async () => {
+    if (!pendingOutcome) return;
+    const outcome = pendingOutcome;
+    if ('kind' in outcome) {
+      addEnvironment(outcome.environment);
       setImportStatus('success');
       setWarnings((prev) => (prev.length === 0 ? prev : []));
-      setEnvironmentOnlyName(outcome.environmentName);
+      setEnvironmentOnlyName(outcome.environment.name);
+      setPendingOutcome(null);
+      setReviewFormat(null);
       setTimeout(() => {
         onOpenChange(false);
         setImportStatus('idle');
         setEnvironmentOnlyName(null);
       }, 1500);
-      return;
-    }
-    // Gate the converter's output through the same Zod schema the store
-    // validators use — importer bugs surface here instead of corrupting
-    // persisted state. Reject-only: the original object (with passthrough
-    // bags like OpenCollection's `_oc`) is what gets stored.
-    const validation = validateImportedCollection(outcome.collection);
-    if (!validation.ok) {
-      handleImportError(
-        new Error(`Imported collection failed validation — ${validation.issues.join('; ')}`)
-      );
       return;
     }
     const collection =
@@ -342,6 +376,8 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
     setImportStatus('success');
     setWarnings(outcome.warnings);
     setEnvironmentOnlyName(null);
+    setPendingOutcome(null);
+    setReviewFormat(null);
     if (outcome.warnings.length === 0) {
       setTimeout(() => {
         onOpenChange(false);
@@ -403,11 +439,12 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
   };
 
   const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    if (activeFormat === 'url') return;
     const file = event.target.files?.[0];
     if (!file) return;
     try {
       const outcome = await processImportFile(file, activeFormat);
-      await handleImportSuccess(outcome);
+      stageImport(outcome, activeFormat);
     } catch (error: unknown) {
       handleImportError(error);
     }
@@ -416,11 +453,12 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
 
   const handleDrop = async (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
+    if (activeFormat === 'url') return;
     const file = event.dataTransfer.files?.[0];
     if (!file) return;
     try {
       const outcome = await processImportFile(file, activeFormat);
-      await handleImportSuccess(outcome);
+      stageImport(outcome, activeFormat);
     } catch (error: unknown) {
       handleImportError(error);
     }
@@ -429,9 +467,10 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
   const handlePasteImport = async () => {
     if (!pasteText.trim()) return;
     try {
+      if (activeFormat === 'url') return;
       const data = parsePastedContent(pasteText, activeFormat);
       const outcome = await processImportData(data, activeFormat);
-      await handleImportSuccess(outcome);
+      stageImport(outcome, activeFormat);
       setPasteText('');
       setPasteOpen(false);
     } catch (error: unknown) {
@@ -439,8 +478,20 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
     }
   };
 
+  const handleRemoteUrlImport = async () => {
+    if (!remoteUrl.trim()) return;
+    try {
+      const text = await fetchRemoteArtifact(remoteUrl.trim());
+      const detected = detectRemoteFormat(text, remoteUrl.trim());
+      const outcome = await processImportData(parsePastedContent(text, detected), detected);
+      stageImport(outcome, detected);
+    } catch (error) {
+      handleImportError(error);
+    }
+  };
+
   const handleDeepLinkImport = async () => {
-    if (!deepLinkSource) return;
+    if (!deepLinkSource || activeFormat === 'url') return;
     const api = getElectronAPI();
     if (!api?.deepLinks) return;
     try {
@@ -450,7 +501,7 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
         parsePastedContent(downloaded.text, activeFormat),
         activeFormat
       );
-      await handleImportSuccess(outcome);
+      stageImport(outcome, activeFormat);
     } catch (error) {
       handleImportError(error);
     }
@@ -540,25 +591,64 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
               }}
             />
 
-            {deepLinkSource && (
-              <section className="rounded-sp-btn border border-sp-line bg-sp-surface-lo p-4">
-                <div className="sp-label">Review deep-link import</div>
-                <p className="mt-1 break-all text-sp-12 text-sp-muted">{deepLinkSource.url}</p>
-                <p className="mt-2 text-sp-12 text-sp-muted">
-                  This source has not been downloaded. Choose a format below, then confirm the
-                  import.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => void handleDeepLinkImport()}
-                  className="mt-3 rounded-sp-btn bg-sp-accent px-3 py-2 text-sp-12 font-semibold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
-                >
-                  Download and import
-                </button>
+            {pendingOutcome && (
+              <section
+                className="rounded-sp-btn border border-sp-accent/50 bg-sp-active p-4"
+                aria-label="Import preview"
+              >
+                <div className="sp-label">Review before importing</div>
+                {reviewFormat && (
+                  <p className="mt-1 text-sp-12 text-sp-muted">
+                    Detected format:{' '}
+                    {FORMATS.find((candidate) => candidate.id === reviewFormat)?.name}
+                  </p>
+                )}
+                {'kind' in pendingOutcome ? (
+                  <p className="mt-1 text-sp-12 text-sp-text">
+                    Environment: <strong>{pendingOutcome.environment.name}</strong>
+                  </p>
+                ) : (
+                  <>
+                    <p className="mt-1 text-sp-12 text-sp-text">
+                      Collection: <strong>{pendingOutcome.collection.name}</strong> ·{' '}
+                      {pendingOutcome.collection.items.length} top-level item
+                      {pendingOutcome.collection.items.length === 1 ? '' : 's'}
+                    </p>
+                    <p className="mt-1 text-sp-12 text-sp-muted">
+                      Imported scripts and requests are stored only; nothing is executed during
+                      import.
+                    </p>
+                  </>
+                )}
+                {warnings.length > 0 && (
+                  <p className="mt-2 text-sp-12 text-sp-muted">
+                    {warnings.length} warning{warnings.length === 1 ? '' : 's'} will be retained in
+                    the import review.
+                  </p>
+                )}
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void confirmImport()}
+                    className="rounded-sp-btn bg-sp-accent px-3 py-2 text-sp-12 font-semibold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+                  >
+                    Confirm import
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingOutcome(null);
+                      setReviewFormat(null);
+                    }}
+                    className="rounded-sp-btn border border-sp-line px-3 py-2 text-sp-12 text-sp-text"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </section>
             )}
 
-            {harPreview ? (
+            {harPreview && (
               <HarImportReview
                 preview={harPreview}
                 selectedEntries={selectedHarEntries}
@@ -580,30 +670,74 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
                 }}
                 onConfirm={() => void handleConfirmHarImport()}
               />
-            ) : (
-              <>
-                {/* Format grid */}
-                <section>
-                  <div className="sp-label mb-2">Choose a source</div>
-                  <div className="grid grid-cols-3 gap-2.5">
-                    {FORMATS.map((f) => (
-                      <ImportFormatCard
-                        key={f.id}
-                        format={f}
-                        active={f.id === activeFormat}
-                        onClick={() => setActiveFormat(f.id)}
-                      />
-                    ))}
-                  </div>
-                </section>
+            )}
 
-                {/* Drop zone */}
-                <section>
-                  <ImportDropZone
-                    format={format}
-                    onFileUpload={handleFileUpload}
-                    onDrop={handleDrop}
+            {deepLinkSource && (
+              <section className="rounded-sp-btn border border-sp-line bg-sp-surface-lo p-4">
+                <div className="sp-label">Review deep-link import</div>
+                <p className="mt-1 break-all text-sp-12 text-sp-muted">{deepLinkSource.url}</p>
+                <p className="mt-2 text-sp-12 text-sp-muted">
+                  This source has not been downloaded. Choose a format below, then confirm the
+                  import.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void handleDeepLinkImport()}
+                  className="mt-3 rounded-sp-btn bg-sp-accent px-3 py-2 text-sp-12 font-semibold text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+                >
+                  Download preview
+                </button>
+              </section>
+            )}
+
+            {/* Format grid */}
+            <section>
+              <div className="sp-label mb-2">Choose a source</div>
+              <div className="grid grid-cols-3 gap-2.5">
+                {FORMATS.map((f) => (
+                  <FormatCard
+                    key={f.id}
+                    format={f}
+                    active={f.id === activeFormat}
+                    onClick={() => setActiveFormat(f.id)}
                   />
+                ))}
+              </div>
+            </section>
+
+            {/* Source input */}
+            <section>
+              {activeFormat === 'url' ? (
+                <div className="rounded-sp-panel border border-sp-line bg-sp-surface-lo p-4">
+                  <label htmlFor="remote-import-url" className="sp-label">
+                    HTTPS URL
+                  </label>
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      id="remote-import-url"
+                      value={remoteUrl}
+                      onChange={(event) => setRemoteUrl(event.target.value)}
+                      placeholder="https://example.com/collection.json"
+                      inputMode="url"
+                      className="h-9 min-w-0 flex-1 rounded-sp-btn border border-sp-line bg-sp-surface px-3 text-sp-12 text-sp-text focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleRemoteUrlImport()}
+                      disabled={!remoteUrl.trim()}
+                      className="inline-flex items-center gap-1.5 rounded-sp-btn bg-sp-accent px-3 text-sp-12 font-semibold text-white disabled:opacity-50"
+                    >
+                      <Link size={12} aria-hidden="true" /> Fetch preview
+                    </button>
+                  </div>
+                  <p className="mt-2 text-sp-12 text-sp-muted">
+                    Only public, credential-free HTTPS text artifacts are fetched. The result is
+                    parsed for review before any data is saved.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <DropZone format={format} onFileUpload={handleFileUpload} onDrop={handleDrop} />
                   <div className="mt-2">
                     <button
                       type="button"
@@ -622,7 +756,11 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
                               ? 'Paste .bru file contents…'
                               : activeFormat === 'http'
                                 ? 'Paste .http file contents…'
-                                : `Paste ${format.name} JSON or YAML…`
+                                : activeFormat === 'curl'
+                                  ? 'Paste one POSIX-shell cURL command…'
+                                  : activeFormat === 'har'
+                                    ? 'Paste HAR JSON text…'
+                                    : `Paste ${format.name} JSON or YAML…`
                           }
                           aria-label="Paste import content"
                           spellCheck={false}
@@ -645,14 +783,14 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
                           )}
                         >
                           <Upload size={12} aria-hidden="true" />
-                          Import pasted {format.name}
+                          Preview pasted {format.name}
                         </button>
                       </div>
                     )}
                   </div>
-                </section>
-              </>
-            )}
+                </>
+              )}
+            </section>
 
             {/* Supported features */}
             <section>

@@ -48,7 +48,11 @@ describe('importCurlCommand', () => {
     );
 
     expect(result.warnings).toContainEqual(
-      expect.objectContaining({ kind: 'unresolved-file', option: '--form', path: '/tmp/avatar.png' })
+      expect.objectContaining({
+        kind: 'unresolved-file',
+        option: '--form',
+        path: '/tmp/avatar.png',
+      })
     );
     expect(result.warnings).toContainEqual(
       expect.objectContaining({ kind: 'unresolved-file', option: '--cacert', path: './ca.pem' })
@@ -59,9 +63,9 @@ describe('importCurlCommand', () => {
   });
 
   it('rejects chained and non-POSIX commands without executing their metacharacters', () => {
-    expect(() => importCurlCommand('curl https://api.example.com; curl https://evil.example')).toThrow(
-      /one cURL command/i
-    );
+    expect(() =>
+      importCurlCommand('curl https://api.example.com; curl https://evil.example')
+    ).toThrow(/one cURL command/i);
     expect(() => importCurlCommand('curl "https://api.example.com" `\n')).toThrow(/POSIX/i);
   });
 });

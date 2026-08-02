@@ -1,6 +1,6 @@
 import { fetchRemoteImport } from '@shared/import/remote-fetch';
-import { z } from 'zod';
 import type { Context } from 'hono';
+import { z } from 'zod';
 import type { NodeHostnameGuard } from '../adapters';
 import type { Env } from '../env';
 import { parseJsonBody } from '../shared/validate-body';
@@ -28,7 +28,10 @@ export function createRemoteImportHandler(
       });
       return c.json(result);
     } catch (error) {
-      return c.json({ error: error instanceof Error ? error.message : 'Remote import failed.' }, 400);
+      return c.json(
+        { error: error instanceof Error ? error.message : 'Remote import failed.' },
+        400
+      );
     }
   };
 }

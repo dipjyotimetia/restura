@@ -30,7 +30,7 @@ Folder hierarchy, environment variables with `{{variable}}` substitution, collec
 
 ### Import / export
 
-Postman v2.1 (import + export), Insomnia (import + export), OpenAPI / Swagger (import), Bruno (import), Hoppscotch (import), OpenCollection (import + export), cURL (import). HAR import is not done yet.
+Postman v2.1 (import + export), Insomnia (import + export), OpenAPI / Swagger (import), Bruno (import), Hoppscotch (import), OpenCollection (import + export), and one POSIX-shell cURL command (import). Public, credential-free HTTPS URLs can import the existing text collection/spec formats through a bounded backend fetch and mandatory preview. HAR import is not done yet.
 
 ### Scripting
 
