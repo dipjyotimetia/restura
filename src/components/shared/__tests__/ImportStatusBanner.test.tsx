@@ -64,6 +64,12 @@ describe('ImportStatusBanner', () => {
       { kind: 'bruno-syntax', pattern: 'bru.getEnv', requestName: 'Bruno' },
       { kind: 'platform-unsupported', feature: 'Kafka', requestName: 'Kafka request' },
       { kind: 'schema-version', format: 'Postman', version: '3', note: 'newer export' },
+      { kind: 'har-cookies-discarded', requestName: 'HAR cookies' },
+      { kind: 'har-redirect', requestName: 'HAR redirect', status: 302 },
+      { kind: 'har-response-discarded', requestName: 'HAR response' },
+      { kind: 'har-entry-discarded', entry: 'Entry 1', reason: 'invalid HTTP URL' },
+      { kind: 'har-field-discarded', requestName: 'HAR field', field: 'malformed header' },
+      { kind: 'har-lossy-body', requestName: 'HAR body', detail: 'base64 body retained as text' },
       { kind: 'future-warning' },
       ...Array.from({ length: 12 }, (_, index) => ({
         kind: 'unsupported-method' as const,
@@ -82,7 +88,7 @@ describe('ImportStatusBanner', () => {
       />
     );
 
-    expect(screen.getByText('Imported with 21 warnings')).toBeInTheDocument();
+    expect(screen.getByText('Imported with 27 warnings')).toBeInTheDocument();
     expect(screen.getByText(/Unknown body shape in "Body shape"/)).toBeInTheDocument();
     expect(screen.getByText(/Script type "pre-request" dropped/)).toBeInTheDocument();
     expect(screen.getByText(/Auth "Digest" not supported/)).toBeInTheDocument();
@@ -90,8 +96,16 @@ describe('ImportStatusBanner', () => {
     expect(screen.getByText(/Bruno-specific syntax "bru.getEnv"/)).toBeInTheDocument();
     expect(screen.getByText(/Kafka not available on this platform/)).toBeInTheDocument();
     expect(screen.getByText('Postman v3: newer export')).toBeInTheDocument();
+    expect(screen.getByText('Cookies were discarded from "HAR cookies"')).toBeInTheDocument();
+    expect(screen.getByText('Redirect (302) captured for "HAR redirect"')).toBeInTheDocument();
+    expect(
+      screen.getByText('Response content was discarded from "HAR response"')
+    ).toBeInTheDocument();
+    expect(screen.getByText('Entry 1 was discarded: invalid HTTP URL')).toBeInTheDocument();
+    expect(screen.getByText('malformed header was discarded from "HAR field"')).toBeInTheDocument();
+    expect(screen.getByText('base64 body retained as text in "HAR body"')).toBeInTheDocument();
     expect(screen.getByText('Unknown warning')).toBeInTheDocument();
-    expect(screen.getByText('… and 1 more')).toBeInTheDocument();
+    expect(screen.getByText('… and 7 more')).toBeInTheDocument();
   });
 
   it('shows generic success and import failure feedback', () => {

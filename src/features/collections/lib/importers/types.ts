@@ -12,7 +12,13 @@ export type ImportWarning =
   | { kind: 'unknown-dynamic-var'; varName: string; count: number }
   | { kind: 'bruno-syntax'; pattern: string; requestName: string }
   | { kind: 'platform-unsupported'; feature: string; requestName: string }
-  | { kind: 'schema-version'; format: string; version: string; note: string };
+  | { kind: 'schema-version'; format: string; version: string; note: string }
+  | { kind: 'har-cookies-discarded'; requestName: string }
+  | { kind: 'har-redirect'; requestName: string; status: number }
+  | { kind: 'har-response-discarded'; requestName: string }
+  | { kind: 'har-entry-discarded'; entry: string; reason: string }
+  | { kind: 'har-field-discarded'; requestName: string; field: string }
+  | { kind: 'har-lossy-body'; requestName: string; detail: string };
 
 const HTTP_METHODS: ReadonlySet<string> = new Set([
   'GET',
@@ -91,5 +97,17 @@ function describeWarning(w: ImportWarning): string {
       return `${w.feature} not available on this platform (request: ${w.requestName})`;
     case 'schema-version':
       return `${w.format} v${w.version}: ${w.note}`;
+    case 'har-cookies-discarded':
+      return `Cookies were discarded from "${w.requestName}"`;
+    case 'har-redirect':
+      return `Redirect (${w.status}) captured for "${w.requestName}"`;
+    case 'har-response-discarded':
+      return `Response content was discarded from "${w.requestName}"`;
+    case 'har-entry-discarded':
+      return `${w.entry} was discarded: ${w.reason}`;
+    case 'har-field-discarded':
+      return `${w.field} was discarded from "${w.requestName}"`;
+    case 'har-lossy-body':
+      return `${w.detail} in "${w.requestName}"`;
   }
 }

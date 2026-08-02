@@ -114,6 +114,18 @@ function describeWarning(warning: ImportWarning): string {
       return `${warning.feature} not available on this platform (${warning.requestName})`;
     case 'schema-version':
       return `${warning.format} v${warning.version}: ${warning.note}`;
+    case 'har-cookies-discarded':
+      return `Cookies were discarded from "${warning.requestName}"`;
+    case 'har-redirect':
+      return `Redirect (${warning.status}) captured for "${warning.requestName}"`;
+    case 'har-response-discarded':
+      return `Response content was discarded from "${warning.requestName}"`;
+    case 'har-entry-discarded':
+      return `${warning.entry} was discarded: ${warning.reason}`;
+    case 'har-field-discarded':
+      return `${warning.field} was discarded from "${warning.requestName}"`;
+    case 'har-lossy-body':
+      return `${warning.detail} in "${warning.requestName}"`;
     default:
       return 'Unknown warning';
   }

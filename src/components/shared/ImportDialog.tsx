@@ -6,6 +6,8 @@ import { type ChangeEvent, type DragEvent, useEffect, useState } from 'react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Floater } from '@/components/ui/spatial';
 import {
+  buildHarImportCollections,
+  type HarImportPreview,
   type ImportResult,
   type ImportWarning,
   importBrunoCollection,
@@ -19,6 +21,7 @@ import {
   importPostmanEnvironment,
   isHoppscotchEnvironment,
   isPostmanEnvironment,
+  parseHarImport,
   validateImportedCollection,
 } from '@/features/collections/lib/importers';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
@@ -26,6 +29,8 @@ import { convertCollectionSecretsToHandles } from '@/lib/shared/secretRef-migrat
 import { cn } from '@/lib/shared/utils';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { HarImportReview } from './HarImportReview';
+import { ImportDropZone, ImportFormatCard, type ImportFormatMeta } from './ImportFormatPicker';
 import { ImportStatusBanner } from './ImportStatusBanner';
 
 type ImportType =
@@ -35,20 +40,10 @@ type ImportType =
   | 'opencollection'
   | 'hoppscotch'
   | 'bruno'
-  | 'http';
+  | 'http'
+  | 'har';
 
-interface FormatMeta {
-  id: ImportType;
-  name: string;
-  tagline: string;
-  initials: string;
-  /** Brand-ish color used only for the letter badge. Active selection still
-   *  goes through the accent variable so themes stay coherent. */
-  color: string;
-  accept: string;
-}
-
-const FORMATS: FormatMeta[] = [
+const FORMATS: Array<ImportFormatMeta & { id: ImportType }> = [
   {
     id: 'postman',
     name: 'Postman',
@@ -104,6 +99,14 @@ const FORMATS: FormatMeta[] = [
     initials: 'HT',
     color: '#0ea5e9',
     accept: '.http,.rest',
+  },
+  {
+    id: 'har',
+    name: 'HAR',
+    tagline: 'HTTP Archive 1.2 browser captures',
+    initials: 'HR',
+    color: '#f59e0b',
+    accept: '.har,.json',
   },
 ];
 
@@ -166,9 +169,17 @@ const FEATURE_LISTS: Record<ImportType, string[]> = {
     'JetBrains < {% %} / > {% %} scripts (stored, not executed)',
     'VS Code {{$guid}} / {{$timestamp}} dynamic vars flagged as unsupported',
   ],
+  har: [
+    'HAR 1.2 browser capture entries',
+    'Page-first grouping with origin fallback',
+    'Methods, URLs, queries, headers, and request bodies',
+    'Entry review and selection before persistence',
+    'Authorization and token redaction before preview',
+    'Cookies and captured response bodies discarded',
+  ],
 };
 
-const IMPORTERS: Record<ImportType, (data: unknown) => Promise<ImportResult>> = {
+const IMPORTERS: Record<Exclude<ImportType, 'har'>, (data: unknown) => Promise<ImportResult>> = {
   postman: async (data) => {
     const warnings: ImportWarning[] = [];
     // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
@@ -191,147 +202,6 @@ const IMPORTERS: Record<ImportType, (data: unknown) => Promise<ImportResult>> = 
   http: async (data) => importHttpFile(typeof data === 'string' ? data : String(data)),
 };
 
-interface FormatCardProps {
-  format: FormatMeta;
-  active: boolean;
-  onClick: () => void;
-}
-
-function FormatCard({ format, active, onClick }: FormatCardProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        'relative flex items-center gap-2.5 p-3 rounded-sp-btn text-left',
-        'border transition-all duration-150',
-        'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent',
-        active
-          ? 'border-sp-accent bg-sp-active'
-          : 'border-sp-line bg-sp-surface-lo hover:bg-sp-hover hover:border-sp-line-strong'
-      )}
-      style={
-        active
-          ? { boxShadow: '0 0 0 1px var(--sp-accent), 0 8px 20px var(--sp-accent-glow-33)' }
-          : undefined
-      }
-    >
-      <span
-        aria-hidden="true"
-        className="flex items-center justify-center size-9 rounded-sp-btn shrink-0 text-sp-11 font-bold text-white tracking-wide"
-        style={{
-          background: format.color,
-          boxShadow: `0 4px 10px ${format.color}55, inset 0 1px 0 rgba(255,255,255,0.2)`,
-        }}
-      >
-        {format.initials}
-      </span>
-      <span className="flex flex-col min-w-0 flex-1">
-        <span className="text-sp-13 font-semibold text-sp-text leading-tight">{format.name}</span>
-        <span className="text-sp-11 text-sp-muted leading-tight mt-0.5 truncate">
-          {format.tagline}
-        </span>
-      </span>
-      {active && <Check size={14} className="text-sp-accent shrink-0" aria-hidden="true" />}
-    </button>
-  );
-}
-
-interface DropZoneProps {
-  format: FormatMeta;
-  onFileUpload: (event: ChangeEvent<HTMLInputElement>) => void;
-  onDrop: (event: DragEvent<HTMLDivElement>) => void;
-}
-
-function DropZone({ format, onFileUpload, onDrop }: DropZoneProps) {
-  const [isDragging, setIsDragging] = useState(false);
-
-  return (
-    <div
-      onDrop={(e) => {
-        setIsDragging(false);
-        onDrop(e);
-      }}
-      onDragOver={(e) => {
-        e.preventDefault();
-        if (!isDragging) setIsDragging(true);
-      }}
-      onDragLeave={(e) => {
-        // `dragLeave` fires on the parent whenever the cursor crosses into a
-        // child element (icon, heading, "Choose file" button). Only flip
-        // the state when the cursor actually leaves the drop zone itself.
-        const next = e.relatedTarget;
-        if (next instanceof Node && e.currentTarget.contains(next)) return;
-        setIsDragging(false);
-      }}
-      className={cn(
-        'relative rounded-sp-panel border-2 border-dashed p-8',
-        'transition-all duration-150',
-        isDragging
-          ? 'border-sp-accent bg-sp-active'
-          : 'border-sp-line bg-sp-surface-lo hover:border-sp-line-strong hover:bg-sp-hover'
-      )}
-      style={isDragging ? { boxShadow: '0 0 0 4px var(--sp-accent-glow-33)' } : undefined}
-    >
-      <div
-        aria-hidden="true"
-        className="absolute inset-0 pointer-events-none rounded-sp-panel"
-        style={{
-          background: isDragging
-            ? 'radial-gradient(circle at 50% 0%, var(--sp-accent-glow-33), transparent 70%)'
-            : undefined,
-        }}
-      />
-      <input
-        type="file"
-        accept={format.accept}
-        onChange={onFileUpload}
-        aria-label={`Choose ${format.name} file`}
-        className="hidden"
-        id={`file-upload-${format.id}`}
-      />
-      <label
-        htmlFor={`file-upload-${format.id}`}
-        className="relative flex flex-col items-center gap-3 cursor-pointer text-center"
-      >
-        <div
-          className="flex items-center justify-center size-14 rounded-full"
-          style={{
-            background: 'var(--sp-surface)',
-            border: '1px solid var(--sp-line)',
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
-          }}
-        >
-          <Download
-            size={22}
-            className={cn('transition-colors', isDragging ? 'text-sp-accent' : 'text-sp-muted')}
-          />
-        </div>
-        <div>
-          <p className="text-sp-14 font-semibold text-sp-text">
-            {isDragging ? `Release to import ${format.name}` : `Drop your ${format.name} file here`}
-          </p>
-          <p className="text-sp-12 text-sp-muted mt-0.5">
-            or click to browse · accepts{' '}
-            <code className="font-mono text-sp-11-5 text-sp-text/80">{format.accept}</code>
-          </p>
-        </div>
-        <span
-          className={cn(
-            'inline-flex items-center gap-1.5 h-8 px-3 rounded-sp-btn pointer-events-none',
-            'bg-sp-surface border border-sp-line-strong text-sp-text text-sp-12 font-medium',
-            'shadow-sm'
-          )}
-        >
-          <Upload size={12} aria-hidden="true" />
-          Choose file
-        </span>
-      </label>
-    </div>
-  );
-}
-
 interface ImportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -350,6 +220,9 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
   const [storeSecretsAsHandles, setStoreSecretsAsHandles] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState('');
+  const [harPreview, setHarPreview] = useState<HarImportPreview | null>(null);
+  const [selectedHarEntries, setSelectedHarEntries] = useState<Set<string>>(new Set());
+  const [selectedHarEnvironments, setSelectedHarEnvironments] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (deepLinkSource?.format) setActiveFormat(deepLinkSource.format);
@@ -362,7 +235,12 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
     if (fileName.endsWith('.yaml') || fileName.endsWith('.yml')) {
       return yaml.load(text);
     }
-    if (fileName.endsWith('.bru') || fileName.endsWith('.http') || fileName.endsWith('.rest')) {
+    if (
+      fileName.endsWith('.bru') ||
+      fileName.endsWith('.http') ||
+      fileName.endsWith('.rest') ||
+      fileName.endsWith('.har')
+    ) {
       return text;
     }
     return JSON.parse(text);
@@ -370,7 +248,7 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
 
   /** Pasted text has no filename to sniff — try JSON first, then YAML. */
   const parsePastedContent = (text: string, type: ImportType): unknown => {
-    if (type === 'bruno' || type === 'http') return text;
+    if (type === 'bruno' || type === 'http' || type === 'har') return text;
     try {
       return JSON.parse(text);
     } catch {
@@ -378,9 +256,16 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
     }
   };
 
-  type ProcessOutcome = ImportResult | { kind: 'environment-only'; environmentName: string };
+  type ProcessOutcome =
+    | ImportResult
+    | { kind: 'environment-only'; environmentName: string }
+    | { kind: 'har-preview'; preview: HarImportPreview };
 
   const processImportData = async (data: unknown, type: ImportType): Promise<ProcessOutcome> => {
+    if (type === 'har') {
+      if (typeof data !== 'string') throw new Error('HAR input must be JSON text');
+      return { kind: 'har-preview', preview: parseHarImport(data) };
+    }
     if (type === 'postman' && isPostmanEnvironment(data)) {
       const env = importPostmanEnvironment(data);
       addEnvironment(env);
@@ -395,6 +280,7 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
   };
 
   const processImportFile = async (file: File, type: ImportType): Promise<ProcessOutcome> => {
+    if (type === 'har') return processImportData(await file.text(), type);
     if (type === 'http') {
       const text = await file.text();
       return importHttpFile(text, { fileName: file.name });
@@ -409,6 +295,20 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
   };
 
   const handleImportSuccess = async (outcome: ProcessOutcome) => {
+    if ('kind' in outcome && outcome.kind === 'har-preview') {
+      setHarPreview(outcome.preview);
+      setSelectedHarEntries(
+        new Set(
+          outcome.preview.groups.flatMap((group) =>
+            group.entries.filter((entry) => entry.selected).map((entry) => entry.id)
+          )
+        )
+      );
+      setSelectedHarEnvironments(new Set());
+      setWarnings(outcome.preview.warnings);
+      setImportStatus('idle');
+      return;
+    }
     if ('kind' in outcome) {
       setImportStatus('success');
       setWarnings((prev) => (prev.length === 0 ? prev : []));
@@ -448,6 +348,51 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
         setImportStatus('idle');
       }, 1500);
     }
+  };
+
+  const handleConfirmHarImport = async () => {
+    if (!harPreview) return;
+    try {
+      const results = buildHarImportCollections(
+        harPreview,
+        selectedHarEntries,
+        selectedHarEnvironments
+      );
+      if (results.length === 0) throw new Error('Select at least one HAR entry to import');
+      for (const result of results) {
+        const validation = validateImportedCollection(result.collection);
+        if (!validation.ok) {
+          throw new Error(
+            `Imported collection failed validation — ${validation.issues.join('; ')}`
+          );
+        }
+        addCollection(result.collection);
+        for (const environment of result.environments ?? []) addEnvironment(environment);
+      }
+      setWarnings(harPreview.warnings);
+      setHarPreview(null);
+      setImportStatus('success');
+    } catch (error) {
+      handleImportError(error);
+    }
+  };
+
+  const toggleHarEntry = (entryId: string) => {
+    setSelectedHarEntries((current) => {
+      const next = new Set(current);
+      if (next.has(entryId)) next.delete(entryId);
+      else next.add(entryId);
+      return next;
+    });
+  };
+
+  const toggleHarEnvironment = (candidateId: string) => {
+    setSelectedHarEnvironments((current) => {
+      const next = new Set(current);
+      if (next.has(candidateId)) next.delete(candidateId);
+      else next.add(candidateId);
+      return next;
+    });
   };
 
   const handleImportError = (error: unknown) => {
@@ -613,71 +558,101 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
               </section>
             )}
 
-            {/* Format grid */}
-            <section>
-              <div className="sp-label mb-2">Choose a source</div>
-              <div className="grid grid-cols-3 gap-2.5">
-                {FORMATS.map((f) => (
-                  <FormatCard
-                    key={f.id}
-                    format={f}
-                    active={f.id === activeFormat}
-                    onClick={() => setActiveFormat(f.id)}
-                  />
-                ))}
-              </div>
-            </section>
+            {harPreview ? (
+              <HarImportReview
+                preview={harPreview}
+                selectedEntries={selectedHarEntries}
+                selectedEnvironments={selectedHarEnvironments}
+                onSelectAll={() =>
+                  setSelectedHarEntries(
+                    new Set(
+                      harPreview.groups.flatMap((group) => group.entries.map((entry) => entry.id))
+                    )
+                  )
+                }
+                onSelectNone={() => setSelectedHarEntries(new Set())}
+                onToggleEntry={toggleHarEntry}
+                onToggleEnvironment={toggleHarEnvironment}
+                onChooseAnotherFile={() => {
+                  setHarPreview(null);
+                  setSelectedHarEntries(new Set());
+                  setSelectedHarEnvironments(new Set());
+                }}
+                onConfirm={() => void handleConfirmHarImport()}
+              />
+            ) : (
+              <>
+                {/* Format grid */}
+                <section>
+                  <div className="sp-label mb-2">Choose a source</div>
+                  <div className="grid grid-cols-3 gap-2.5">
+                    {FORMATS.map((f) => (
+                      <ImportFormatCard
+                        key={f.id}
+                        format={f}
+                        active={f.id === activeFormat}
+                        onClick={() => setActiveFormat(f.id)}
+                      />
+                    ))}
+                  </div>
+                </section>
 
-            {/* Drop zone */}
-            <section>
-              <DropZone format={format} onFileUpload={handleFileUpload} onDrop={handleDrop} />
-              <div className="mt-2">
-                <button
-                  type="button"
-                  onClick={() => setPasteOpen((v) => !v)}
-                  className="text-sp-12 text-sp-muted hover:text-sp-text transition-colors underline underline-offset-2"
-                >
-                  {pasteOpen ? 'Hide paste area' : 'Or paste the file contents instead'}
-                </button>
-                {pasteOpen && (
-                  <div className="mt-2 space-y-2">
-                    <textarea
-                      value={pasteText}
-                      onChange={(e) => setPasteText(e.target.value)}
-                      placeholder={
-                        activeFormat === 'bruno'
-                          ? 'Paste .bru file contents…'
-                          : activeFormat === 'http'
-                            ? 'Paste .http file contents…'
-                            : `Paste ${format.name} JSON or YAML…`
-                      }
-                      aria-label="Paste import content"
-                      spellCheck={false}
-                      className={cn(
-                        'w-full h-36 p-3 rounded-sp-btn resize-y',
-                        'bg-sp-surface-lo border border-sp-line text-sp-text text-sp-12 font-mono',
-                        'placeholder:text-sp-muted/70',
-                        'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
-                      )}
-                    />
+                {/* Drop zone */}
+                <section>
+                  <ImportDropZone
+                    format={format}
+                    onFileUpload={handleFileUpload}
+                    onDrop={handleDrop}
+                  />
+                  <div className="mt-2">
                     <button
                       type="button"
-                      onClick={handlePasteImport}
-                      disabled={!pasteText.trim()}
-                      className={cn(
-                        'inline-flex items-center gap-1.5 h-8 px-4 rounded-sp-btn',
-                        'bg-sp-surface border border-sp-line-strong text-sp-text text-sp-12 font-medium',
-                        'hover:bg-sp-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
-                        'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
-                      )}
+                      onClick={() => setPasteOpen((v) => !v)}
+                      className="text-sp-12 text-sp-muted hover:text-sp-text transition-colors underline underline-offset-2"
                     >
-                      <Upload size={12} aria-hidden="true" />
-                      Import pasted {format.name}
+                      {pasteOpen ? 'Hide paste area' : 'Or paste the file contents instead'}
                     </button>
+                    {pasteOpen && (
+                      <div className="mt-2 space-y-2">
+                        <textarea
+                          value={pasteText}
+                          onChange={(e) => setPasteText(e.target.value)}
+                          placeholder={
+                            activeFormat === 'bruno'
+                              ? 'Paste .bru file contents…'
+                              : activeFormat === 'http'
+                                ? 'Paste .http file contents…'
+                                : `Paste ${format.name} JSON or YAML…`
+                          }
+                          aria-label="Paste import content"
+                          spellCheck={false}
+                          className={cn(
+                            'w-full h-36 p-3 rounded-sp-btn resize-y',
+                            'bg-sp-surface-lo border border-sp-line text-sp-text text-sp-12 font-mono',
+                            'placeholder:text-sp-muted/70',
+                            'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
+                          )}
+                        />
+                        <button
+                          type="button"
+                          onClick={handlePasteImport}
+                          disabled={!pasteText.trim()}
+                          className={cn(
+                            'inline-flex items-center gap-1.5 h-8 px-4 rounded-sp-btn',
+                            'bg-sp-surface border border-sp-line-strong text-sp-text text-sp-12 font-medium',
+                            'hover:bg-sp-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
+                            'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
+                          )}
+                        >
+                          <Upload size={12} aria-hidden="true" />
+                          Import pasted {format.name}
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            </section>
+                </section>
+              </>
+            )}
 
             {/* Supported features */}
             <section>
