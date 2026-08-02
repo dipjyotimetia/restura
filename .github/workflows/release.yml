@@ -253,7 +253,7 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         id: release-pr-token
         with:
           app-id: ${{ secrets.RELEASE_PR_APP_ID }}
