@@ -53,6 +53,7 @@ _Imports are dispatched by detected format, normalized to the Restura model, and
 - Imported OpenCollection subtrees keep a verbatim `_oc` passthrough cache in `useCollectionStore`.
 - Editing a request strips ancestor `_oc` bags so re-export rebuilds from the live model.
 - Collection variables and script contexts are normalised across importers.
+- **Environment hierarchies on import:** Insomnia v5 `base` + `subEnvironments` array maps to Restura's two-level `parentId` hierarchy. Insomnia v4 resolves flat `parentId` links against the workspace root to identify the base. Postman environments are imported flat (no hierarchy). OpenCollection's `extends` field roundtrips as `Environment.parentId`.
 
 ---
 
