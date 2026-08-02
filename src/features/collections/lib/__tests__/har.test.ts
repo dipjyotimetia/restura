@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { internalToOC } from '@/lib/opencollection';
 import { buildHarImportCollections, parseHarImport } from '../importers/har';
+import { summarizeWarnings } from '../importers/types';
 
 const HAR = JSON.stringify({
   log: {
@@ -333,6 +334,17 @@ describe('HAR importer', () => {
       /10,000/i
     );
     expect(() => parseHarImport(JSON.stringify(deeplyNested))).toThrow(/nesting/i);
+    expect(() => parseHarImport('[]')).toThrow(/HAR document must be an object/i);
+    expect(() =>
+      parseHarImport(
+        JSON.stringify({
+          log: {
+            version: '1.2',
+            entries: [{ request: { method: 'GET', url: 'ftp://example.test/file' } }],
+          },
+        })
+      )
+    ).toThrow(/no importable requests/i);
     expect(() =>
       parseHarImport(
         JSON.stringify({
@@ -352,6 +364,92 @@ describe('HAR importer', () => {
         })
       )
     ).toThrow(/body exceeds/i);
+    expect(() =>
+      parseHarImport(
+        JSON.stringify({
+          log: {
+            version: '1.2',
+            entries: [
+              {
+                request: {
+                  method: 'GET',
+                  url: 'https://api.example.test/many-headers',
+                  headers: Array.from({ length: 201 }, () => ({ name: 'X-Test', value: 'ok' })),
+                },
+              },
+            ],
+          },
+        })
+      )
+    ).toThrow(/exceeds 200 headers/i);
+    expect(() =>
+      parseHarImport(
+        JSON.stringify({
+          log: {
+            version: '1.2',
+            entries: [
+              {
+                request: {
+                  method: 'GET',
+                  url: 'https://api.example.test/large-header',
+                  headers: [{ name: 'X-Test', value: 'x'.repeat(64 * 1024 + 1) }],
+                },
+              },
+            ],
+          },
+        })
+      )
+    ).toThrow(/oversized header/i);
+  });
+
+  it('uses page-reference fallback names and handles headerless plain-text captures', () => {
+    const preview = parseHarImport(
+      JSON.stringify({
+        log: {
+          version: '1.2',
+          entries: [
+            {
+              pageref: 'missing-page',
+              request: {
+                method: 'POST',
+                url: 'https://api.example.test/plain',
+                postData: { text: 'plain capture' },
+              },
+              response: { content: 'not-a-record' },
+            },
+          ],
+        },
+      })
+    );
+
+    expect(preview.groups[0]).toMatchObject({ name: 'missing-page' });
+    expect(preview.groups[0]?.entries[0]?.request).toMatchObject({
+      headers: [],
+      body: { type: 'text', raw: 'plain capture' },
+    });
+  });
+
+  it('summarizes every HAR conversion warning for non-UI consumers', () => {
+    const summaries = summarizeWarnings([
+      { kind: 'har-cookies-discarded', requestName: 'cookies' },
+      { kind: 'har-redirect', requestName: 'redirect', status: 301 },
+      { kind: 'har-response-discarded', requestName: 'response' },
+      { kind: 'har-entry-discarded', entry: 'Entry 1', reason: 'missing URL' },
+      { kind: 'har-field-discarded', requestName: 'field', field: 'bad header' },
+      { kind: 'har-lossy-body', requestName: 'body', detail: 'base64 body retained as text' },
+    ]);
+
+    expect(summaries).toHaveLength(6);
+    expect(summaries.map((summary) => summary.sample)).toEqual(
+      expect.arrayContaining([
+        'Cookies were discarded from "cookies"',
+        'Redirect (301) captured for "redirect"',
+        'Response content was discarded from "response"',
+        'Entry 1 was discarded: missing URL',
+        'bad header was discarded from "field"',
+        'base64 body retained as text in "body"',
+      ])
+    );
   });
 
   it('keeps selected HAR provenance in the OpenCollection round trip', () => {
