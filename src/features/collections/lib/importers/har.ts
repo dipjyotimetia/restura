@@ -298,7 +298,12 @@ function toHttpRequest(
     else if (mimeType.includes('application/x-www-form-urlencoded')) {
       body = {
         type: 'x-www-form-urlencoded',
-        formData: formParts(postData, raw, requestName, warnings),
+        formData: formParts(
+          postData,
+          typeof postData?.text === 'string' ? postData.text : raw,
+          requestName,
+          warnings
+        ),
       };
     } else if (mimeType.includes('multipart/form-data')) {
       body = { type: 'form-data', formData: formParts(postData, raw, requestName, warnings) };
@@ -348,7 +353,7 @@ function formParts(
   return [...new URLSearchParams(raw)].map(([key, value]) => ({
     id: uuid(),
     key,
-    value,
+    value: redactFormValue(key, value),
     enabled: true,
     type: 'text',
   }));

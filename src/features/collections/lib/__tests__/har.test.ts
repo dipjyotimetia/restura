@@ -212,6 +212,148 @@ describe('HAR importer', () => {
     expect(preview.warnings.some((warning) => warning.kind === 'har-lossy-body')).toBe(true);
   });
 
+  it('keeps usable requests while surfacing malformed fields, duplicates, assets, and lossy responses', () => {
+    const preview = parseHarImport(
+      JSON.stringify({
+        log: {
+          version: '1.2',
+          pages: [null, { id: 'unknown-page' }],
+          entries: [
+            { request: { method: 'GET', headers: [] } },
+            {
+              pageref: 'unknown-page',
+              request: {
+                url: 'https://api.example.test/one',
+                headers: [{ name: 'Accept', value: 'application/json' }, { name: 1 }],
+                postData: { mimeType: 'application/xml', text: '<ok />' },
+              },
+              response: { status: 200, content: { size: 12 } },
+            },
+            {
+              pageref: 'unknown-page',
+              request: {
+                method: 'GET',
+                url: 'https://api.example.test/one',
+                headers: [{ name: 'Accept', value: 'application/json' }],
+                postData: { mimeType: 'application/xml', text: '<ok />' },
+              },
+            },
+            {
+              pageref: 'unknown-page',
+              request: {
+                method: 'GET',
+                url: 'https://cdn.example.test/logo.png',
+                headers: [{ name: 'Accept', value: 'image/png' }],
+              },
+            },
+          ],
+        },
+      })
+    );
+
+    expect(preview.groups).toHaveLength(1);
+    expect(preview.groups[0]).toMatchObject({ id: 'page:unknown-page', name: 'unknown-page' });
+    expect(preview.groups[0]?.entries.map((entry) => entry.selected)).toEqual([true, false, false]);
+    expect(preview.groups[0]?.entries[0]?.request.body).toMatchObject({
+      type: 'xml',
+      raw: '<ok />',
+    });
+    expect(preview.environmentCandidates).toEqual([]);
+    expect(preview.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: 'har-entry-discarded', reason: 'missing URL' }),
+        expect.objectContaining({ kind: 'har-field-discarded', field: 'malformed header' }),
+        expect.objectContaining({ kind: 'har-response-discarded' }),
+      ])
+    );
+  });
+
+  it('maps urlencoded bodies without params and records malformed form fields', () => {
+    const preview = parseHarImport(
+      JSON.stringify({
+        log: {
+          version: '1.2',
+          entries: [
+            {
+              request: {
+                method: 'POST',
+                url: 'https://api.example.test/token',
+                headers: [],
+                postData: {
+                  mimeType: 'application/x-www-form-urlencoded',
+                  text: 'grant_type=client_credentials&client_secret=top-secret',
+                },
+              },
+            },
+            {
+              request: {
+                method: 'POST',
+                url: 'https://api.example.test/form',
+                headers: [],
+                postData: {
+                  mimeType: 'multipart/form-data',
+                  params: [null, { name: 'empty-value' }],
+                },
+              },
+            },
+          ],
+        },
+      })
+    );
+
+    const [urlencoded, multipart] = preview.groups[0]!.entries;
+    expect(urlencoded?.request.body).toMatchObject({
+      type: 'x-www-form-urlencoded',
+      formData: [
+        expect.objectContaining({ key: 'grant_type', value: 'client_credentials' }),
+        expect.objectContaining({ key: 'client_secret', value: '{{clientSecret}}' }),
+      ],
+    });
+    expect(JSON.stringify(urlencoded)).not.toContain('top-secret');
+    expect(multipart?.request.body).toMatchObject({
+      type: 'form-data',
+      formData: [expect.objectContaining({ key: 'empty-value', value: '', type: 'text' })],
+    });
+    expect(preview.warnings).toContainEqual(
+      expect.objectContaining({ kind: 'har-field-discarded', field: 'malformed form field' })
+    );
+  });
+
+  it('rejects malformed HAR structures and per-entry resource bounds', () => {
+    const entries = Array.from({ length: 10_001 }, () => ({}));
+    const deeplyNested = { log: { version: '1.2', entries: [] as unknown[] } };
+    let cursor: Record<string, unknown> = deeplyNested;
+    for (let depth = 0; depth < 33; depth += 1) {
+      cursor.next = {};
+      cursor = cursor.next as Record<string, unknown>;
+    }
+
+    expect(() => parseHarImport(JSON.stringify({ log: { version: '1.2' } }))).toThrow(/entries/i);
+    expect(() => parseHarImport(JSON.stringify({ log: { version: '1.2', entries } }))).toThrow(
+      /10,000/i
+    );
+    expect(() => parseHarImport(JSON.stringify(deeplyNested))).toThrow(/nesting/i);
+    expect(() =>
+      parseHarImport(
+        JSON.stringify({
+          log: {
+            version: '1.2',
+            entries: [
+              {
+                request: {
+                  method: 'POST',
+                  url: 'https://api.example.test/large',
+                  headers: [],
+                  postData: { text: 'x'.repeat(1024 * 1024 + 1) },
+                },
+              },
+            ],
+          },
+        })
+      )
+    ).toThrow(/body exceeds/i);
+  });
+
   it('keeps selected HAR provenance in the OpenCollection round trip', () => {
     const preview = parseHarImport(HAR);
     const collection = buildHarImportCollections(
