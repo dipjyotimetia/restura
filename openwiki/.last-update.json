@@ -1,6 +1,8 @@
 {
-  "updatedAt": "2026-07-24T09:23:04.850Z",
+  "updatedAt": "2026-08-01T08:56:24.278Z",
   "command": "update",
-  "gitHead": "84f41b70a445a839812a8d7b8d95331871716727",
-  "model": "gpt-5.6-terra"
+  "gitHead": "c44ef76e6f9d97486f575717fda297ee74f54755",
+  "model": "deepseek/deepseek-v4-pro",
+  "status": "complete",
+  "language": "en"
 }
