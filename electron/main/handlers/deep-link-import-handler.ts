@@ -14,7 +14,7 @@ export function registerDeepLinkImportIPC(): void {
     IPC.deepLink.fetchImport,
     createValidatedHandler(IPC.deepLink.fetchImport, ImportUrlSchema, async ({ url }) => {
       const policy = validateURL(url, {
-        allowedSchemes: ['http:', 'https:'],
+        allowedSchemes: ['https:'],
         allowLocalhost: false,
         allowPrivateIPs: false,
       });

@@ -69,14 +69,16 @@ async function uploadBuffer(
   await page.locator(`#file-upload-${format}`).setInputFiles({ name, mimeType, buffer });
 }
 
+async function confirmImport(page: Page) {
+  await dialog(page).getByRole('button', { name: 'Confirm import' }).click();
+}
+
 test.describe('Import Collection', () => {
   test.beforeEach(async ({ app: page }) => {
     await resetPersistedState(page);
   });
 
-  test('format grid renders all supported formats with branded badges; Postman is default', async ({
-    app: page,
-  }) => {
+  test('format grid renders all import sources; Postman is default', async ({ app: page }) => {
     await openImport(page);
 
     const grid = dialog(page);
@@ -89,6 +91,8 @@ test.describe('Import Collection', () => {
       'Bruno',
       '.http File',
       'HAR',
+      'cURL',
+      'Remote URL',
     ]) {
       // Each format name appears in a card's bold title.
       await expect(grid.getByText(name, { exact: true })).toBeVisible();
@@ -114,6 +118,7 @@ test.describe('Import Collection', () => {
   test('imports a Postman v2.1 collection', async ({ app: page }) => {
     await openImport(page);
     await uploadFile(page, 'postman', `${FIXTURES_DIR}/postman.json`);
+    await confirmImport(page);
 
     await expect(page.getByText('Postman Sample').first()).toBeVisible({ timeout: 8_000 });
     await expect(page.getByText('Get Postman Ping').first()).toBeVisible({ timeout: 8_000 });
@@ -123,6 +128,7 @@ test.describe('Import Collection', () => {
     await openImport(page);
     await selectFormat(page, 'Insomnia');
     await uploadFile(page, 'insomnia', `${FIXTURES_DIR}/insomnia.json`);
+    await confirmImport(page);
 
     await expect(page.getByText('Insomnia Sample').first()).toBeVisible({ timeout: 8_000 });
     await expect(page.getByText('Get Insomnia Ping').first()).toBeVisible({ timeout: 8_000 });
@@ -132,6 +138,7 @@ test.describe('Import Collection', () => {
     await openImport(page);
     await selectFormat(page, 'Insomnia');
     await uploadFile(page, 'insomnia', `${FIXTURES_DIR}/insomnia-v5.yaml`);
+    await confirmImport(page);
 
     await expect(page.getByText('Insomnia v5 Sample').first()).toBeVisible({ timeout: 8_000 });
     await expect(page.getByText('Get Insomnia v5 Ping').first()).toBeVisible({ timeout: 8_000 });
@@ -141,6 +148,7 @@ test.describe('Import Collection', () => {
     await openImport(page);
     await selectFormat(page, 'OpenAPI');
     await uploadFile(page, 'openapi', `${FIXTURES_DIR}/openapi-3.json`);
+    await confirmImport(page);
 
     await expect(page.getByText('OpenAPI 3 Sample').first()).toBeVisible({ timeout: 8_000 });
     await expect(page.getByText(/Get OpenAPI3 Ping|getOpenapi3Ping/).first()).toBeVisible({
@@ -152,6 +160,7 @@ test.describe('Import Collection', () => {
     await openImport(page);
     await selectFormat(page, 'OpenAPI');
     await uploadFile(page, 'openapi', `${FIXTURES_DIR}/openapi-2.json`);
+    await confirmImport(page);
 
     await expect(page.getByText('Swagger 2 Sample').first()).toBeVisible({ timeout: 8_000 });
     await expect(page.getByText(/Get Swagger2 Ping|getSwagger2Ping/).first()).toBeVisible({
@@ -163,6 +172,7 @@ test.describe('Import Collection', () => {
     await openImport(page);
     await selectFormat(page, 'OpenCollection');
     await uploadFile(page, 'opencollection', OPENCOLLECTION_FIXTURE);
+    await confirmImport(page);
 
     await expect(page.getByText('Simple HTTP Demo').first()).toBeVisible({ timeout: 8_000 });
     await expect(page.getByText('Get JSON Placeholder Post').first()).toBeVisible({
@@ -174,6 +184,7 @@ test.describe('Import Collection', () => {
     await openImport(page);
     await selectFormat(page, 'Hoppscotch');
     await uploadFile(page, 'hoppscotch', `${FIXTURES_DIR}/hoppscotch.json`);
+    await confirmImport(page);
 
     await expect(page.getByText('Hoppscotch Sample').first()).toBeVisible({ timeout: 8_000 });
     await expect(page.getByText('Get Hoppscotch Ping').first()).toBeVisible({ timeout: 8_000 });
@@ -183,6 +194,7 @@ test.describe('Import Collection', () => {
     await openImport(page);
     await selectFormat(page, 'Bruno');
     await uploadFile(page, 'bruno', `${FIXTURES_DIR}/bruno.bru`);
+    await confirmImport(page);
 
     await expect(page.getByText('Get Bruno Ping').first()).toBeVisible({ timeout: 8_000 });
   });
@@ -209,6 +221,7 @@ test.describe('Import Collection', () => {
     await openImport(page);
     // Default tab is Postman. The detector kicks in inside processImportFile.
     await uploadFile(page, 'postman', `${FIXTURES_DIR}/postman-env.json`);
+    await confirmImport(page);
 
     await expect(dialog(page).getByText(/Imported environment: Postman Env Sample/)).toBeVisible({
       timeout: 8_000,
@@ -219,6 +232,7 @@ test.describe('Import Collection', () => {
     await openImport(page);
     await selectFormat(page, 'Hoppscotch');
     await uploadFile(page, 'hoppscotch', `${FIXTURES_DIR}/hoppscotch-env.json`);
+    await confirmImport(page);
 
     await expect(dialog(page).getByText(/Imported environment: Hoppscotch Env Sample/)).toBeVisible(
       { timeout: 8_000 }
@@ -245,6 +259,7 @@ test.describe('Import Collection', () => {
     await openImport(page);
     await selectFormat(page, 'Bruno');
     await uploadFile(page, 'bruno', `${FIXTURES_DIR}/bruno-with-warning.bru`);
+    await confirmImport(page);
 
     const banner = dialog(page).getByText(/Imported with \d+ warning/);
     await expect(banner).toBeVisible({ timeout: 8_000 });
@@ -253,5 +268,15 @@ test.describe('Import Collection', () => {
 
     await dialog(page).getByRole('button', { name: 'Dismiss' }).click();
     await expect(dialog(page)).not.toBeVisible();
+  });
+
+  test('imports a POSIX cURL command only after preview confirmation', async ({ app: page }) => {
+    await openImport(page);
+    await selectFormat(page, 'cURL');
+    await uploadFile(page, 'curl', `${FIXTURES_DIR}/request.sh`);
+
+    await expect(dialog(page).getByText('Detected format: cURL')).toBeVisible();
+    await confirmImport(page);
+    await expect(page.getByText('POST api.example.com').first()).toBeVisible({ timeout: 8_000 });
   });
 });

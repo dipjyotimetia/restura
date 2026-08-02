@@ -86,6 +86,10 @@ test.describe('Variable status overlay', () => {
       mimeType: 'application/json',
       buffer: Buffer.from(JSON.stringify(COLLECTION)),
     });
+    await page
+      .getByRole('dialog', { name: 'Import collection' })
+      .getByRole('button', { name: 'Confirm import' })
+      .click();
 
     // Open the request from the sidebar tree so the tab carries `savedRequestId`
     // (the link the classifier uses to find the collection's variables).

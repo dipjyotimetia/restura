@@ -18,7 +18,9 @@ export type ImportWarning =
   | { kind: 'har-response-discarded'; requestName: string }
   | { kind: 'har-entry-discarded'; entry: string; reason: string }
   | { kind: 'har-field-discarded'; requestName: string; field: string }
-  | { kind: 'har-lossy-body'; requestName: string; detail: string };
+  | { kind: 'har-lossy-body'; requestName: string; detail: string }
+  | { kind: 'unsupported-option'; option: string }
+  | { kind: 'unresolved-file'; option: string; path: string };
 
 const HTTP_METHODS: ReadonlySet<string> = new Set([
   'GET',
@@ -109,5 +111,9 @@ function describeWarning(w: ImportWarning): string {
       return `${w.field} was discarded from "${w.requestName}"`;
     case 'har-lossy-body':
       return `${w.detail} in "${w.requestName}"`;
+    case 'unsupported-option':
+      return `cURL option "${w.option}" is not supported`;
+    case 'unresolved-file':
+      return `Local file "${w.path}" from ${w.option} was not read`;
   }
 }
