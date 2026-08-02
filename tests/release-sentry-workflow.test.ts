@@ -14,7 +14,7 @@ describe('release workflow Sentry guardrails', () => {
   it('merges release candidates directly through the App bypass without waiting for candidate CI', () => {
     expect(workflow).toContain('Prepare stable release pull request');
     expect(workflow).toContain('peter-evans/create-pull-request@v8');
-    expect(workflow).toContain('actions/create-github-app-token@v2');
+    expect(workflow).toContain('actions/create-github-app-token@v3');
     expect(workflow).toContain('RELEASE_PR_APP_ID');
     expect(workflow).toContain('RELEASE_PR_APP_PRIVATE_KEY');
     expect(workflow).toContain('token: ${{ steps.release-pr-token.outputs.token }}');

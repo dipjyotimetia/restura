@@ -3,3 +3,8 @@
 # surface in CI. Kept to the renderer-only `type-check` (not `type-check:all`,
 # which runs 6 tsc passes) to stay fast. Bypass with `git push --no-verify`.
 npm run type-check
+
+# Keep the authoritative merged-suite branch budget green before publishing a
+# branch for review. CI remains the server-side enforcement point, but a normal
+# push should catch coverage regressions before a pull request is opened.
+npm run test:coverage
