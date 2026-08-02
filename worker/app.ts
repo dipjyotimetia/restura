@@ -16,6 +16,7 @@ import { createGrpcHandler } from './handlers/grpc';
 import { createGrpcReflectionHandler } from './handlers/grpc-reflection';
 import { createMcpHandler } from './handlers/mcp';
 import { createProxyHandler } from './handlers/proxy';
+import { createRemoteImportHandler } from './handlers/remote-import';
 import { telemetryError } from './handlers/telemetry';
 import { wsTicket } from './handlers/ws-ticket';
 import { rateLimitMiddleware } from './middleware/rateLimiter';
@@ -162,6 +163,7 @@ export function createApp(
   app.use('/api/*', rateLimitMiddleware);
 
   app.post('/api/proxy', createProxyHandler(deps.tcpProxy, deps.nodeHostnameGuard));
+  app.post('/api/import/fetch', createRemoteImportHandler(deps.nodeHostnameGuard));
   app.post('/api/grpc', createGrpcHandler(deps.nodeHostnameGuard));
   app.post('/api/grpc/reflection', createGrpcReflectionHandler(deps.nodeHostnameGuard));
   app.post('/api/mcp', createMcpHandler(deps.nodeHostnameGuard));
