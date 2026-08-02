@@ -182,5 +182,83 @@ GET https://api.example.com/ping
       expect(req.testScript).toBeUndefined();
       expect(result.warnings.filter((w) => w.kind === 'unrecognized-script-type')).toHaveLength(0);
     });
+
+    it('preserves inline scripts, bare query flags, XML, form, and text bodies', () => {
+      const result = importHttpFile(`### XML
+< {% request.variables.set('x', '1'); %}
+PUT https://api.example.com/xml?flag&key=value
+Content-Type: application/xml
+
+<note />
+> {% client.test('ok', () => {}); %}
+### Form
+POST https://api.example.com/form
+Content-Type: application/x-www-form-urlencoded
+
+a=1&b=2
+### Text
+PATCH https://api.example.com/text
+Content-Type: text/plain
+
+plain body`);
+
+      const xml = asHttpRequest(itemAt(result.collection.items, 0).request);
+      expect(xml.params).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ key: 'flag', value: '' }),
+          expect.objectContaining({ key: 'key', value: 'value' }),
+        ])
+      );
+      expect(xml.body).toMatchObject({ type: 'xml', raw: '<note />' });
+      expect(xml.preRequestScript).toContain("request.variables.set('x', '1');");
+      expect(xml.testScript).toContain("client.test('ok'");
+      expect(asHttpRequest(itemAt(result.collection.items, 1).request).body).toMatchObject({
+        type: 'x-www-form-urlencoded',
+      });
+      expect(asHttpRequest(itemAt(result.collection.items, 2).request).body).toMatchObject({
+        type: 'text',
+      });
+    });
+
+    it('skips empty and malformed blocks while retaining unclosed script content as inert text', () => {
+      const result = importHttpFile(`@token=
+###
+# only comments
+### Not an HTTP request
+not a request line
+### Body without headers
+// comment
+GET https://api.example.com/body
+unstructured body
+### Script
+< {% prep();
+%}
+GET https://api.example.com/script`);
+
+      expect(result.collection.name).toBe('HTTP File Import');
+      expect(result.environments?.[0]?.name).toBe('HTTP File Variables');
+      expect(result.collection.items).toHaveLength(2);
+      expect(asHttpRequest(itemAt(result.collection.items, 0).request).body).toMatchObject({
+        type: 'text',
+        raw: 'unstructured body',
+      });
+      expect(asHttpRequest(itemAt(result.collection.items, 1).request).preRequestScript).toBe(
+        'prep();'
+      );
+    });
+
+    it('uses a generated name for unnamed requests and retains same-line script closures', () => {
+      const result = importHttpFile(`###
+
+// a comment before the request
+< {% request.variables.set('mode', 'test'); %}
+GET https://api.example.com/unnamed
+> {% client.test('response', () => {}); %}`);
+
+      const request = asHttpRequest(itemAt(result.collection.items, 0).request);
+      expect(request.name).toBe('Request 1');
+      expect(request.preRequestScript).toBe("request.variables.set('mode', 'test');");
+      expect(request.testScript).toBe("client.test('response', () => {});");
+    });
   });
 });

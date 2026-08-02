@@ -126,6 +126,10 @@ function describeWarning(warning: ImportWarning): string {
       return `${warning.field} was discarded from "${warning.requestName}"`;
     case 'har-lossy-body':
       return `${warning.detail} in "${warning.requestName}"`;
+    case 'unsupported-option':
+      return `cURL option "${warning.option}" is not supported`;
+    case 'unresolved-file':
+      return `Local file "${warning.path}" from ${warning.option} was not read`;
     default:
       return 'Unknown warning';
   }

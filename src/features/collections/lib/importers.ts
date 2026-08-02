@@ -12,6 +12,7 @@ export type {
 export {
   buildHarImportCollections,
   importBrunoCollection,
+  importCurlCommand,
   importHoppscotchCollection,
   importHoppscotchEnvironment,
   importHttpFile,

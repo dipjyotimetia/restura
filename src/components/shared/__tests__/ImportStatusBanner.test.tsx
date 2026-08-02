@@ -70,6 +70,8 @@ describe('ImportStatusBanner', () => {
       { kind: 'har-entry-discarded', entry: 'Entry 1', reason: 'invalid HTTP URL' },
       { kind: 'har-field-discarded', requestName: 'HAR field', field: 'malformed header' },
       { kind: 'har-lossy-body', requestName: 'HAR body', detail: 'base64 body retained as text' },
+      { kind: 'unsupported-option', option: '--compressed' },
+      { kind: 'unresolved-file', option: '--form', path: '/tmp/avatar.png' },
       { kind: 'future-warning' },
       ...Array.from({ length: 12 }, (_, index) => ({
         kind: 'unsupported-method' as const,
@@ -88,7 +90,7 @@ describe('ImportStatusBanner', () => {
       />
     );
 
-    expect(screen.getByText('Imported with 27 warnings')).toBeInTheDocument();
+    expect(screen.getByText('Imported with 29 warnings')).toBeInTheDocument();
     expect(screen.getByText(/Unknown body shape in "Body shape"/)).toBeInTheDocument();
     expect(screen.getByText(/Script type "pre-request" dropped/)).toBeInTheDocument();
     expect(screen.getByText(/Auth "Digest" not supported/)).toBeInTheDocument();
@@ -104,8 +106,12 @@ describe('ImportStatusBanner', () => {
     expect(screen.getByText('Entry 1 was discarded: invalid HTTP URL')).toBeInTheDocument();
     expect(screen.getByText('malformed header was discarded from "HAR field"')).toBeInTheDocument();
     expect(screen.getByText('base64 body retained as text in "HAR body"')).toBeInTheDocument();
+    expect(screen.getByText('cURL option "--compressed" is not supported')).toBeInTheDocument();
+    expect(
+      screen.getByText('Local file "/tmp/avatar.png" from --form was not read')
+    ).toBeInTheDocument();
     expect(screen.getByText('Unknown warning')).toBeInTheDocument();
-    expect(screen.getByText('… and 7 more')).toBeInTheDocument();
+    expect(screen.getByText('… and 9 more')).toBeInTheDocument();
   });
 
   it('shows generic success and import failure feedback', () => {
