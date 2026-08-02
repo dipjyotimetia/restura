@@ -44,6 +44,50 @@ describe('useVariableStatus', () => {
     expect(result.current('nope')).toBe('unresolved');
   });
 
+  it('resolves variables from a matching base and sub-environment hierarchy', () => {
+    useEnvironmentStore.setState({
+      environments: [
+        {
+          id: 'base',
+          name: 'Base',
+          collectionId: 'collection-1',
+          variables: [{ id: 'base-v', key: 'baseVar', value: 'base', enabled: true }],
+        },
+        {
+          id: 'sub',
+          name: 'Sub',
+          parentId: 'base',
+          collectionId: 'collection-1',
+          variables: [{ id: 'sub-v', key: 'subVar', value: 'sub', enabled: true }],
+        },
+      ],
+      activeEnvironmentId: 'sub',
+    });
+    useCollectionStore.setState({
+      collections: [
+        {
+          id: 'collection-1',
+          name: 'C',
+          items: [
+            {
+              id: 'folder-1',
+              name: 'Folder',
+              type: 'folder',
+              variables: [{ id: 'folder-v', key: 'folderVar', value: 'folder', enabled: true }],
+              items: [{ id: 'item-1', name: 'R', type: 'request', request: makeRequest() }],
+            },
+          ],
+        },
+      ],
+    });
+    useRequestStore.getState().openTab(makeRequest(), { savedRequestId: 'item-1' });
+
+    const { result } = renderHook(() => useVariableStatus());
+    expect(result.current('baseVar')).toBe('resolved');
+    expect(result.current('subVar')).toBe('resolved');
+    expect(result.current('folderVar')).toBe('resolved');
+  });
+
   it('classifies a workspace global as resolved', () => {
     useGlobalsStore.getState().set('gVar', 'g');
     const { result } = renderHook(() => useVariableStatus());

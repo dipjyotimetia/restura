@@ -234,6 +234,38 @@ describe('store-validators', () => {
       expect(result.name).toBe('Production');
     });
 
+    it('preserves hierarchy and secret metadata when present', () => {
+      const result = validateEnvironment({
+        id: 'env-1',
+        name: 'Staging',
+        collectionId: 'collection-1',
+        parentId: 'base-1',
+        variables: [
+          {
+            id: 'var-1',
+            key: 'TOKEN',
+            value: 'opaque',
+            enabled: true,
+            description: 'API token',
+            private: true,
+            secretRef: { kind: 'inline', value: 'secret' },
+          },
+        ],
+      });
+
+      expect(result).toMatchObject({
+        collectionId: 'collection-1',
+        parentId: 'base-1',
+        variables: [
+          {
+            description: 'API token',
+            private: true,
+            secretRef: { kind: 'inline', value: 'secret' },
+          },
+        ],
+      });
+    });
+
     it('should throw error for empty environment name', () => {
       const invalidEnv = {
         id: 'env-1',
