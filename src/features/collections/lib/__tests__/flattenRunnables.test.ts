@@ -87,12 +87,14 @@ describe('flattenRunnables — effective script combining', () => {
         name: 'Outer',
         type: 'folder',
         preRequestScript: 'OUTER_PRE',
+        variables: [{ id: 'outer-v', key: 'host', value: 'outer', enabled: true }],
         items: [
           {
             id: 'inner',
             name: 'Inner',
             type: 'folder',
             preRequestScript: 'INNER_PRE',
+            variables: [{ id: 'inner-v', key: 'host', value: 'inner', enabled: true }],
             items: [req('r1', 'R', 'REQ_PRE')],
           },
         ],
@@ -104,6 +106,10 @@ describe('flattenRunnables — effective script combining', () => {
       'COLLECTION_PRE\nOUTER_PRE\nINNER_PRE\nREQ_PRE'
     );
     expect(runnables[0]!.folderPath).toEqual(['Outer', 'Inner']);
+    expect(runnables[0]!.folderVariables).toEqual([
+      [{ id: 'outer-v', key: 'host', value: 'outer', enabled: true }],
+      [{ id: 'inner-v', key: 'host', value: 'inner', enabled: true }],
+    ]);
   });
 
   it('returns [] for an unknown folder id', () => {
