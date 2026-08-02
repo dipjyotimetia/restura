@@ -1,4 +1,5 @@
 export { type BrunoSource, importBrunoCollection } from './bruno';
+export { importCurlCommand } from './curl';
 export {
   buildHarImportCollections,
   type HarEnvironmentCandidate,
