@@ -195,7 +195,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -264,7 +264,7 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.release-pr-token.outputs.token }}
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -386,7 +386,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           ref: ${{ inputs.repair_release_tag || github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || inputs.recover_stable_release_sha || github.sha }}
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -591,7 +591,7 @@ jobs:
           # version matches the release electron-builder publishes into.
           ref: ${{ needs.release.outputs.actual_tag }}
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -756,7 +756,7 @@ jobs:
           # version matches the GitHub release this run cut.
           ref: ${{ needs.release.outputs.actual_tag }}
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -891,7 +891,7 @@ jobs:
         with:
           ref: ${{ needs.release.outputs.actual_tag }}
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
