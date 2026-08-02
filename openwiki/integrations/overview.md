@@ -1,7 +1,7 @@
 ---
 type: 'Integration Surface'
 title: Integrations
-description: 'Import/export surfaces, OpenCollection file layout, file/Git collections, browser capture extension, CLI collection runner, and MCP integration.'
+description: 'Import/export surfaces, HAR capture import, OpenCollection file layout, file/Git collections, browser capture extension, CLI collection runner, and MCP integration.'
 tags: [integrations, opencollection, import-export, postman, mcp, capture]
 ---
 
@@ -25,6 +25,7 @@ Supported formats:
 - Hoppscotch Collection & Environment
 - Bruno Collection
 - HTTP file (`importHttpFile`)
+- HAR 1.2 (`parseHarImport` + `buildHarImportCollections`)
 
 Types: `shared/types/import-export.ts` (with a renderer compatibility re-export at `src/types/import-export.ts`).
 
@@ -37,11 +38,13 @@ flowchart TD
     DISPATCH -->|Insomnia| IN[insomnia transformer]
     DISPATCH -->|OpenAPI| OA[openapi transformer]
     DISPATCH -->|OpenCollection| OC[opencollection loader]
+    DISPATCH -->|HAR| HAR_IMP["parseHarImport → review → buildHarImportCollections"]
     DISPATCH -->|Bruno/Hoppscotch/HTTP| OTHER[other transformers]
     PM --> NORMALIZE[normalize to Restura model]
     IN --> NORMALIZE
     OA --> NORMALIZE
     OC --> NORMALIZE
+    HAR_IMP --> NORMALIZE
     OTHER --> NORMALIZE
     NORMALIZE --> STORE[useCollectionStore with optional _oc cache]
     STORE --> EDIT[edit request]
@@ -54,6 +57,16 @@ _Imports are dispatched by detected format, normalized to the Restura model, and
 - Editing a request strips ancestor `_oc` bags so re-export rebuilds from the live model.
 - Collection variables and script contexts are normalised across importers.
 - **Environment hierarchies on import:** Insomnia v5 `base` + `subEnvironments` array maps to Restura's two-level `parentId` hierarchy. Insomnia v4 resolves flat `parentId` links against the workspace root to identify the base. Postman environments are imported flat (no hierarchy). OpenCollection's `extends` field roundtrips as `Environment.parentId`.
+
+### HAR import
+
+The HAR importer (`src/features/collections/lib/importers/har.ts`) converts browser-capture HAR 1.2 files into Restura collections through a secure two-phase pipeline:
+
+1. **Parse (`parseHarImport`):** Accepts a HAR JSON string, validates it against hard limits (16 MiB input, 32 depth, 10,000 entries, 1,024-char header names, 64 KiB header values, 1 MiB body), extracts HTTP requests grouped by page or origin, runs every request body through the same `redactExchange` secret redaction as the capture pipeline, strips cookies, discards non-HTTP URLs and asset requests (CSS/JS/images/fonts), and returns a `HarImportPreview` with groups, warnings, and optional environment candidates (base URLs for single-origin groups). This phase is persistence-free — no collection is created until the user reviews and selects entries.
+
+2. **Build (`buildHarImportCollections`):** Takes the preview and the user's selected entry/environment IDs, builds REST-only `Collection` objects carrying an `x-restura-har` provenance extension (page reference, start time, latency), and optionally generates Restura environments with a `baseUrl` variable. The result is a normal `ImportResult` that feeds into the standard import flow.
+
+**Security hardening:** Bounded depth/entry/header/body limits prevent resource exhaustion. Cookies are explicitly stripped from both request and response sides. Redirect responses (3xx) generate warnings but the redirect target is not followed. Response bodies are discarded. Form-field values are redacted through the capture pipeline's denylist. Base64-encoded bodies are retained as lossy text. Duplicate requests are deduplicated by method + URL + body fingerprint. The importer reuses the capture pipeline's `redactExchange` rather than carrying its own secret-extraction logic.
 
 ---
 
@@ -178,6 +191,7 @@ Restura can act as an MCP client/proxy and as an MCP server.
 | Integration                 | Files                                                                                                                    |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | Importers                   | `src/features/collections/lib/importers.ts`, `src/features/collections/lib/importers/*.ts`, `src/types/import-export.ts` |
+| HAR importer                | `src/features/collections/lib/importers/har.ts` — bounded two-phase import with `parseHarImport` + `buildHarImportCollections` |
 | Exporters                   | `src/features/collections/lib/exporters.ts`                                                                              |
 | Console exports             | `src/lib/shared/console-export.ts`                                                                                       |
 | OpenCollection parser/types | `shared/opencollection/`, `vendor/opencollection/v1.0.0/schema.json`, `docs/opencollection.md`                         |
