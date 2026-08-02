@@ -80,6 +80,12 @@ Request-level pre-request/test scripts round-trip through OC's `runtime.scripts`
 
 On desktop, **Open Collection from Folder**, **Save to Files**, and **Clone OpenCollection workspace** use the directory layout directly. A file-backed collection’s **Git…** dialog includes status, staging, commits, branches, remote sync, and explicit branch merges.
 
+### HAR browser captures
+
+The collection import dialog also accepts **HAR 1.2 JSON** from a file or paste. Restura parses it as untrusted input with a 16 MiB source limit, 10,000-entry limit, 32-level nesting limit, and bounded headers and bodies; compressed archives are not accepted. It groups requests by HAR page (or origin when a page is absent), redacts credentials before the preview is rendered, and requires explicit entry selection before it writes a collection.
+
+Imported requests retain the HTTP method, URL/query, headers, request MIME/body, form metadata, and representable page/timing provenance. Cookies, response bodies, and unrepresentable binary payloads are discarded or downgraded with a visible warning; captured traffic never executes during import. Provenance is preserved in the round-trippable `extensions.x-restura-har` bag until the collection is structurally edited.
+
 During a conflicted merge, Restura validates root, folder, and request YAML against the same OpenCollection schemas used at load time. Mapping values receive field-level base/local/incoming choices; arrays are deliberately atomic. The resulting document is editable and is validated again before it reaches Git’s index. Invalid OpenCollection content cannot be staged or committed through the merge flow.
 
 ## Stable roundtrip

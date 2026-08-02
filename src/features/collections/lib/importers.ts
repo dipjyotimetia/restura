@@ -1,11 +1,16 @@
 export type {
   BrunoSource,
+  HarEnvironmentCandidate,
+  HarImportPreview,
+  HarPreviewEntry,
+  HarPreviewGroup,
   ImportHttpFileOptions,
   ImportResult,
   ImportValidation,
   ImportWarning,
 } from './importers/index';
 export {
+  buildHarImportCollections,
   importBrunoCollection,
   importHoppscotchCollection,
   importHoppscotchEnvironment,
@@ -19,6 +24,7 @@ export {
   isHoppscotchCollection,
   isHoppscotchEnvironment,
   isPostmanEnvironment,
+  parseHarImport,
   summarizeWarnings,
   validateImportedCollection,
 } from './importers/index';

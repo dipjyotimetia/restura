@@ -15,9 +15,10 @@
  * `file-upload-<format>`. The dialog's accessible name is
  * "Import collection".
  */
-import type { Page } from '@playwright/test';
-import { test, expect } from './fixtures/app';
+
 import { resolve } from 'node:path';
+import type { Page } from '@playwright/test';
+import { expect, test } from './fixtures/app';
 import { resetPersistedState } from './utils/reset-state';
 
 const FIXTURES_DIR = resolve(process.cwd(), 'e2e/fixtures/import');
@@ -73,7 +74,7 @@ test.describe('Import Collection', () => {
     await resetPersistedState(page);
   });
 
-  test('format grid renders all six with branded badges; Postman is default', async ({
+  test('format grid renders all supported formats with branded badges; Postman is default', async ({
     app: page,
   }) => {
     await openImport(page);
@@ -86,6 +87,8 @@ test.describe('Import Collection', () => {
       'OpenCollection',
       'Hoppscotch',
       'Bruno',
+      '.http File',
+      'HAR',
     ]) {
       // Each format name appears in a card's bold title.
       await expect(grid.getByText(name, { exact: true })).toBeVisible();
@@ -182,6 +185,24 @@ test.describe('Import Collection', () => {
     await uploadFile(page, 'bruno', `${FIXTURES_DIR}/bruno.bru`);
 
     await expect(page.getByText('Get Bruno Ping').first()).toBeVisible({ timeout: 8_000 });
+  });
+
+  test('reviews HAR entries before explicitly importing the selected requests', async ({
+    app: page,
+  }) => {
+    await openImport(page);
+    await selectFormat(page, 'HAR');
+    await uploadFile(page, 'har', `${FIXTURES_DIR}/captured.har`);
+
+    await expect(dialog(page).getByRole('heading', { name: 'Review HAR import' })).toBeVisible();
+    await expect(dialog(page).getByText('Checkout', { exact: true })).toBeVisible();
+    await expect(
+      dialog(page).getByRole('button', { name: 'Import selected requests' })
+    ).toBeVisible();
+
+    await dialog(page).getByRole('button', { name: 'Import selected requests' }).click();
+    await expect(page.getByText('Checkout').first()).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByText('POST /orders').first()).toBeVisible({ timeout: 8_000 });
   });
 
   test('auto-detects a Postman environment file', async ({ app: page }) => {
