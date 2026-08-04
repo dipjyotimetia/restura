@@ -205,7 +205,7 @@
     "@grpc/proto-loader": "^0.8.1",
     "@grpc/reflection": "^1.0.4",
     "@modelcontextprotocol/node": "^2.0.0",
-    "@playwright/test": "^1.62.0",
+    "@playwright/test": "^1.62.1",
     "@sentry/cli": "^3.6.2",
     "@size-limit/file": "^13.0.1",
     "@tailwindcss/vite": "^4.3.3",
