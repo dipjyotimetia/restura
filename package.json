@@ -234,7 +234,7 @@
     "esbuild": "^0.28.1",
     "fake-indexeddb": "^6.2.5",
     "husky": "^9.1.7",
-    "jsdom": "^30.0.0",
+    "jsdom": "^30.0.1",
     "json-schema-to-typescript": "^15.0.4",
     "lint-staged": "^17.2.0",
     "lodash": "^4.18.1",
