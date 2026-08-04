@@ -143,7 +143,7 @@
     "@radix-ui/react-tabs": "^1.1.21",
     "@radix-ui/react-tooltip": "^1.2.16",
     "@sentry/electron": "^7.16.0",
-    "@smithy/protocol-http": "^5.5.15",
+    "@smithy/protocol-http": "^5.5.16",
     "@smithy/signature-v4": "^5.6.11",
     "@usebruno/lang": "^0.38.0",
     "@xyflow/react": "^12.11.2",
