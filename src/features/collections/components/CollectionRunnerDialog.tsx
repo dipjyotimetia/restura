@@ -1,3 +1,4 @@
+import type { ResponseRetentionMode } from '@shared/collection-run/evidence';
 import {
   CheckCircle2,
   ChevronDown,
@@ -43,6 +44,16 @@ export interface RunnerScope {
 interface Props {
   scope: RunnerScope | null;
   onClose: () => void;
+  /** Safe persisted configuration used by failed/selected reruns. */
+  initialConfig?: {
+    selectedIds?: string[];
+    environmentId?: string;
+    iterations?: number;
+    delayMs?: number;
+    stopOnFailure?: boolean;
+    retention?: ResponseRetentionMode;
+    usedDataFile?: boolean;
+  };
 }
 
 function StatusIcon({ status }: { status: 'pending' | 'success' | 'failed' | 'skipped' }) {
@@ -58,7 +69,7 @@ function StatusIcon({ status }: { status: 'pending' | 'success' | 'failed' | 'sk
   }
 }
 
-function CollectionRunnerDialogInner({ scope, onClose }: Props) {
+function CollectionRunnerDialogInner({ scope, onClose, initialConfig }: Props) {
   const collection = useCollectionStore((s) =>
     scope ? s.collections.find((c) => c.id === scope.collectionId) : undefined
   );
@@ -71,6 +82,7 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
   const [iterations, setIterations] = useState(1);
   const [delayMs, setDelayMs] = useState(0);
   const [stopOnFailure, setStopOnFailure] = useState(false);
+  const [retention, setRetention] = useState<ResponseRetentionMode>('metadata');
   const [dataRows, setDataRows] = useState<IterationRow[]>([]);
   const [dataFileName, setDataFileName] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -99,14 +111,22 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
   // dialog is open does NOT wipe the user's in-progress run configuration.
   useEffect(() => {
     setOrder(allRunnables.map((r) => r.itemId));
-    setSelected(new Set(allRunnables.map((r) => r.itemId)));
-    setEnvironmentId(useEnvironmentStore.getState().activeEnvironmentId ?? 'none');
-    setIterations(1);
-    setDelayMs(0);
-    setStopOnFailure(false);
+    const available = new Set(allRunnables.map((r) => r.itemId));
+    setSelected(
+      initialConfig?.selectedIds
+        ? new Set(initialConfig.selectedIds.filter((id) => available.has(id)))
+        : new Set(available)
+    );
+    setEnvironmentId(
+      initialConfig?.environmentId ?? useEnvironmentStore.getState().activeEnvironmentId ?? 'none'
+    );
+    setIterations(initialConfig?.iterations ?? 1);
+    setDelayMs(initialConfig?.delayMs ?? 0);
+    setStopOnFailure(initialConfig?.stopOnFailure ?? false);
+    setRetention(initialConfig?.retention ?? 'metadata');
     setDataRows([]);
     setDataFileName(null);
-  }, [scopeKey]);
+  }, [scopeKey, initialConfig]);
 
   const scopeName = useMemo(() => {
     if (!collection) return '';
@@ -149,6 +169,10 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
 
   const handleRun = () => {
     if (!collection || selectedRunnables.length === 0) return;
+    if (initialConfig?.usedDataFile && dataRows.length === 0) {
+      toast.warning('Choose the original CSV or JSON data file before rerunning');
+      return;
+    }
     start({
       collection,
       scopeName,
@@ -158,6 +182,7 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
       dataRows,
       delayMs,
       stopOnFailure,
+      retention,
     });
   };
 
@@ -301,6 +326,36 @@ function CollectionRunnerDialogInner({ scope, onClose }: Props) {
               />
               Stop on failure
             </label>
+
+            <div className="space-y-1.5">
+              <label htmlFor="cr-retention" className="text-xs font-medium">
+                Response evidence
+              </label>
+              <Select
+                value={retention}
+                onValueChange={(value) => setRetention(value as ResponseRetentionMode)}
+                disabled={running}
+              >
+                <SelectTrigger id="cr-retention" className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="metadata">Metadata only (default)</SelectItem>
+                  <SelectItem value="failures">Failures only (64 KiB each)</SelectItem>
+                  <SelectItem value="all">All responses (16 KiB each)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                Evidence is redacted before storage. Binary bodies are never retained; run and total
+                limits apply.
+              </p>
+              {initialConfig?.usedDataFile && dataRows.length === 0 && (
+                <p className="text-[10px] text-amber-600 dark:text-amber-400 leading-relaxed">
+                  This rerun used a data file originally. Choose the file again; its rows are never
+                  retained.
+                </p>
+              )}
+            </div>
 
             {running ? (
               <Button className="w-full" variant="destructive" onClick={stop}>

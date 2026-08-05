@@ -1,3 +1,8 @@
+import {
+  buildResponseEvidence,
+  type ResponseEvidence,
+  type ResponseRetentionMode,
+} from '@shared/collection-run/evidence';
 import { v4 as uuidv4 } from 'uuid';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { protocolRegistry } from '@/features/registry/registry';
@@ -44,6 +49,20 @@ export interface CollectionRequestResult {
   assertions: RunnerAssertion[];
   error?: string;
   skippedReason?: string;
+  /** Sanitized bounded response evidence, never a raw response body. */
+  evidence?: ResponseEvidence;
+}
+
+/** Safe replay/configuration summary. Resolved variables and data rows are intentionally excluded. */
+export interface CollectionRunConfiguration {
+  runnableIds: string[];
+  environmentId?: string;
+  environmentName?: string;
+  iterations: number;
+  delayMs: number;
+  stopOnFailure: boolean;
+  usedDataFile: boolean;
+  retention: ResponseRetentionMode;
 }
 
 export interface CollectionRunResult {
@@ -56,6 +75,8 @@ export interface CollectionRunResult {
   durationMs: number;
   iterations: number;
   dataRows: number;
+  /** Absent only on migrated pre-evidence history entries. */
+  configuration?: CollectionRunConfiguration;
   outcome: 'completed' | 'aborted' | 'failed';
   requests: CollectionRequestResult[];
   summary: { total: number; passed: number; failed: number; skipped: number };
@@ -76,6 +97,11 @@ export interface CollectionRunOptions {
   dataRows: IterationRow[];
   delayMs: number;
   stopOnFailure: boolean;
+  /** Metadata is the privacy-preserving default. */
+  retention?: ResponseRetentionMode;
+  /** Identity only; resolved environment values are never persisted in the run report. */
+  environmentId?: string;
+  environmentName?: string;
 }
 
 export interface RunProgress {
@@ -141,6 +167,7 @@ export async function runCollection(
     dataRows,
     delayMs,
     stopOnFailure,
+    retention = 'metadata',
   } = options;
 
   const runId = uuidv4();
@@ -374,6 +401,10 @@ export async function runCollection(
           result.error = scriptError.join('; ');
         }
         result.status = passed ? 'success' : 'failed';
+        result.evidence = await buildResponseEvidence(
+          response,
+          retention === 'all' || result.status === 'failed' ? retention : 'metadata'
+        );
       } catch (err) {
         result.durationMs = Date.now() - startedReq;
         result.status = 'failed';
@@ -465,6 +496,16 @@ export async function runCollection(
     durationMs: Date.now() - startedAt,
     iterations: rows.length,
     dataRows: dataRows.length,
+    configuration: {
+      runnableIds: runnables.map((runnable) => runnable.itemId),
+      ...(options.environmentId ? { environmentId: options.environmentId } : {}),
+      ...(options.environmentName ? { environmentName: options.environmentName } : {}),
+      iterations: rows.length,
+      delayMs,
+      stopOnFailure,
+      usedDataFile: dataRows.length > 0,
+      retention,
+    },
     outcome: signal.aborted ? 'aborted' : bailed ? 'failed' : 'completed',
     requests: results,
     summary,

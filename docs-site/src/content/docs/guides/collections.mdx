@@ -32,6 +32,18 @@ Restura imports and exports **OpenCollection** natively (see [reference](/refere
 
 On the desktop client, you can also point Restura at a **filesystem-backed workspace** and use Git on the directory.
 
+## Collection-run evidence
+
+The collection runner records status, timing, assertions, and a safe response-evidence summary in the Runs panel. Choose one retention mode when starting a run:
+
+- **Metadata only** (the default) stores no body excerpt or hash.
+- **Failures only** keeps a redacted excerpt of failed text responses, capped at 64 KiB each.
+- **All responses** keeps a redacted excerpt of each text response, capped at 16 KiB each.
+
+Restura redacts credential headers, cookies, recognizable secrets, and sensitive diagnostic values before any evidence is saved or exported. Binary/base64 responses are never retained. Evidence is also capped at 2 MiB per run and 20 MiB total; when needed, the oldest evidence is evicted while the run metadata remains visible.
+
+From a saved run you can inspect evidence after reload, export JSON/JUnit/HTML reports, compare it with the most recent run for the same collection, and rerun failed or individual requests. Reruns use the current collection, environment, secrets, security policy, and platform capabilities. If the original run used a CSV or JSON data file, choose it again: input rows are never retained.
+
 ## Git collaboration on desktop
 
 Open or clone an OpenCollection directory, then open the collection menu and choose **Git…**. Restura uses your installed Git and its existing SSH agent or credential manager; it does not ask for or store Git credentials.
