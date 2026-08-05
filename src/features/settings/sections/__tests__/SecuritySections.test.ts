@@ -31,6 +31,40 @@ const awsProfile: ExternalSecretProfile = {
   auth: { kind: 'named-profile', profile: 'production' },
 };
 
+const googleWorkloadProfile: ExternalSecretProfile = {
+  id: 'profile-google',
+  label: 'Google workload',
+  provider: 'google-secret-manager',
+  projectId: 'project-1',
+  auth: { kind: 'workload-identity', credentialConfigFile: '/tmp/google-wif.json' },
+};
+
+const awsWorkloadProfile: ExternalSecretProfile = {
+  id: 'profile-aws-workload',
+  label: 'AWS workload',
+  provider: 'aws-secrets-manager',
+  region: 'ap-southeast-2',
+  auth: {
+    kind: 'workload-identity',
+    roleArn: 'arn:aws:iam::123:role/restura',
+    tokenFile: '/tmp/aws-token',
+    sessionName: 'restura',
+  },
+};
+
+const azureWorkloadProfile: ExternalSecretProfile = {
+  id: 'profile-azure',
+  label: 'Azure workload',
+  provider: 'azure-key-vault',
+  vaultName: 'team-vault',
+  auth: {
+    kind: 'workload-identity',
+    tenantId: 'tenant-1',
+    clientId: 'client-1',
+    tokenFile: '/tmp/azure-token',
+  },
+};
+
 function createApi(profiles: ExternalSecretProfile[] = []) {
   return {
     externalSecrets: {
@@ -240,6 +274,49 @@ describe('ExternalSecretProfiles', () => {
     await user.click(screen.getByRole('button', { name: 'Delete' }));
     await waitFor(() => expect(api.externalSecrets.delete).toHaveBeenCalledWith('profile-aws'));
     expect(toastMock.success).toHaveBeenCalledWith('External profile deleted');
+  });
+
+  it('loads a Google workload identity profile into its provider-specific editor', async () => {
+    const user = userEvent.setup();
+    platformMock.api = createApi([googleWorkloadProfile]);
+    render(createElement(ExternalSecretProfiles));
+
+    await user.click(await screen.findByRole('button', { name: 'Edit' }));
+
+    expect(screen.getByPlaceholderText('Google project ID *')).toHaveValue('project-1');
+    expect(screen.getByPlaceholderText('Google credential config path *')).toHaveValue(
+      '/tmp/google-wif.json'
+    );
+    expect(screen.queryByPlaceholderText('AWS region *')).not.toBeInTheDocument();
+  });
+
+  it('loads an AWS workload identity profile into its provider-specific editor', async () => {
+    const user = userEvent.setup();
+    platformMock.api = createApi([awsWorkloadProfile]);
+    render(createElement(ExternalSecretProfiles));
+
+    await user.click(await screen.findByRole('button', { name: 'Edit' }));
+
+    expect(screen.getByPlaceholderText('AWS region *')).toHaveValue('ap-southeast-2');
+    expect(screen.getByPlaceholderText('AWS role ARN *')).toHaveValue(
+      'arn:aws:iam::123:role/restura'
+    );
+    expect(screen.getByPlaceholderText('Web identity token file *')).toHaveValue('/tmp/aws-token');
+    expect(screen.getByPlaceholderText('Session name')).toHaveValue('restura');
+  });
+
+  it('loads an Azure workload identity profile into its provider-specific editor', async () => {
+    const user = userEvent.setup();
+    platformMock.api = createApi([azureWorkloadProfile]);
+    render(createElement(ExternalSecretProfiles));
+
+    await user.click(await screen.findByRole('button', { name: 'Edit' }));
+
+    expect(screen.getByPlaceholderText('Azure vault name *')).toHaveValue('team-vault');
+    expect(screen.getByPlaceholderText('Azure tenant ID *')).toHaveValue('tenant-1');
+    expect(screen.getByPlaceholderText('Azure client ID *')).toHaveValue('client-1');
+    expect(screen.getByPlaceholderText('Federated token file *')).toHaveValue('/tmp/azure-token');
+    expect(screen.queryByPlaceholderText('AWS profile name *')).not.toBeInTheDocument();
   });
 });
 

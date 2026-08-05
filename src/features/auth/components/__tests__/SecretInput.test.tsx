@@ -68,6 +68,12 @@ describe('SecretInput', () => {
     expect(screen.queryByRole('button', { name: 'External' })).not.toBeInTheDocument();
   });
 
+  it('renders an inline SecretRef value in the password input', () => {
+    render(<SecretInput value={{ kind: 'inline', value: 'top-secret' }} onChange={vi.fn()} />);
+
+    expect(screen.getByDisplayValue('top-secret')).toBeInTheDocument();
+  });
+
   it('stores an inline value with its display label', async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
@@ -84,6 +90,18 @@ describe('SecretInput', () => {
     });
     expect(toastMock.success).toHaveBeenCalledWith('Secret stored securely');
     await waitFor(() => expect(api.secrets.list).toHaveBeenCalled());
+  });
+
+  it('stores an inline value without adding an empty handle label', async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    const api = platformMock.api as ElectronAPI;
+
+    render(<SecretInput value="top-secret" onChange={onChange} />);
+    await user.click(screen.getByRole('button', { name: 'Store' }));
+
+    expect(api.secrets.store).toHaveBeenCalledWith({ value: 'top-secret' });
+    expect(onChange).toHaveBeenCalledWith({ kind: 'handle', id: 'stored-handle' });
   });
 
   it('reports unavailable and failed secure storage without changing the value', async () => {
@@ -124,6 +142,23 @@ describe('SecretInput', () => {
     expect(onChange).toHaveBeenCalledWith({ kind: 'handle', id: 'handle-1', label: 'API key' });
   });
 
+  it('keeps the handle picker empty when the keychain list request fails', async () => {
+    const user = userEvent.setup();
+    const api = platformMock.api as ElectronAPI;
+    (api.secrets.list as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      error: 'keychain unavailable',
+    });
+
+    render(<SecretInput value="" onChange={vi.fn()} />);
+    const handlePicker = screen.getAllByRole('combobox')[0];
+    if (!handlePicker) throw new Error('Expected the handle picker');
+    await user.click(handlePicker);
+
+    await waitFor(() => expect(api.secrets.list).toHaveBeenCalled());
+    expect(screen.getByRole('option', { name: '(no stored handles)' })).toBeInTheDocument();
+  });
+
   it('replaces stored handles only when the input is enabled', async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
@@ -159,6 +194,27 @@ describe('SecretInput', () => {
       secretId: 'service-token',
       selector: 'AWSCURRENT',
       label: 'Service token',
+    });
+  });
+
+  it('omits optional external selector and display metadata when blank', async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+
+    render(<SecretInput value="" onChange={onChange} />);
+    await user.click(screen.getByRole('button', { name: 'External' }));
+    const profilePicker = screen.getAllByRole('combobox')[1];
+    if (!profilePicker) throw new Error('Expected the external profile picker');
+    await user.click(profilePicker);
+    await user.click(await screen.findByRole('option', { name: 'Production AWS' }));
+    await user.type(screen.getByPlaceholderText('Secret name'), 'service-token');
+    await user.click(screen.getByRole('button', { name: 'Use external secret' }));
+
+    expect(onChange).toHaveBeenCalledWith({
+      kind: 'external',
+      provider: 'aws-secrets-manager',
+      profileId: 'profile-aws',
+      secretId: 'service-token',
     });
   });
 
