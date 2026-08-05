@@ -57,6 +57,7 @@ function startArgs(): StartRunArgs {
     dataRows: [],
     delayMs: 0,
     stopOnFailure: false,
+    retention: 'metadata',
   };
 }
 
