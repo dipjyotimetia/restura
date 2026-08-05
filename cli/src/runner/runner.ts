@@ -167,7 +167,9 @@ export async function runCollection(
               : {}),
             ...(options.sseMaxEvents !== undefined ? { sseMaxEvents: options.sseMaxEvents } : {}),
             ...(dispatcher ? { dispatcher } : {}),
-            ...(options.externalSecretResolver ? { externalSecretResolver: options.externalSecretResolver } : {}),
+            ...(options.externalSecretResolver
+              ? { externalSecretResolver: options.externalSecretResolver }
+              : {}),
           }),
         retry
       );

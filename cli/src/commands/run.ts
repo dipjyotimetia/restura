@@ -111,7 +111,10 @@ export function registerRunCommand(program: Command): void {
     .option('--client-key <file>', 'PEM client private key for mutual TLS')
     .option('--cert-passphrase <value>', 'Passphrase for an encrypted client key')
     .option('--proxy <url>', 'HTTP(S) proxy URL (overrides HTTP_PROXY; composes with TLS options)')
-    .option('--external-secrets-config <file>', 'YAML/JSON file mapping external secret profile ids to explicit identities')
+    .option(
+      '--external-secrets-config <file>',
+      'YAML/JSON file mapping external secret profile ids to explicit identities'
+    )
     .action(async (collectionPath: string | undefined, opts: RunOpts) => {
       // A missing collection launches the wizard in a TTY; in CI it's an error
       // (never block on stdin) matching commander's required-argument behaviour.

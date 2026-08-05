@@ -417,7 +417,12 @@ export async function clearDexieStorage(): Promise<void> {
     if (api) {
       // Dexie must be cleared first: store.clear removes the key used to
       // decrypt its records. Then wipe every separate desktop secret store.
-      await Promise.all([api.store.clear(), api.secrets.clear(), api.vault.clear()]);
+      await Promise.all([
+        api.store.clear(),
+        api.secrets.clear(),
+        api.externalSecrets?.clear(),
+        api.vault.clear(),
+      ]);
     }
   }
 }

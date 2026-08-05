@@ -50,7 +50,9 @@ describe('createExternalSecretResolver', () => {
       throw new Error('expected resolver to fail');
     } catch (error) {
       expect(error).toMatchObject({ code: 'provider-error' });
-      expect((error as Error).message).toBe('AWS Secrets Manager could not resolve Payments token.');
+      expect((error as Error).message).toBe(
+        'AWS Secrets Manager could not resolve Payments token.'
+      );
       expect((error as Error).message).not.toContain('resolved-value');
     }
   });
@@ -62,7 +64,7 @@ describe('createExternalSecretResolver', () => {
       resolve: async (_reference, options) => {
         const response = await fetch(`${server.url}/v1/secret`, { signal: options?.signal });
         if (!response.ok) throw new Error(await response.text());
-        return (await response.json() as { value: string }).value;
+        return ((await response.json()) as { value: string }).value;
       },
     };
     try {
@@ -86,7 +88,7 @@ describe('createExternalSecretResolver', () => {
       provider: 'aws-secrets-manager',
       resolve: async (_reference, options) => {
         const response = await fetch(`${server.url}/v1/secret`, { signal: options?.signal });
-        return (await response.json() as { value: string }).value;
+        return ((await response.json()) as { value: string }).value;
       },
     };
     const controller = new AbortController();

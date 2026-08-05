@@ -53,6 +53,9 @@ export async function startMockExternalSecretServer(): Promise<MockExternalSecre
     delay(ms) {
       delayMs = ms;
     },
-    close: () => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
+    close: () =>
+      new Promise((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve()))
+      ),
   };
 }

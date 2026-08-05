@@ -949,7 +949,7 @@ async function makeHttpRequest(
   config: HttpRequestConfig,
   redirectCount = 0
 ): Promise<HttpResponse> {
-  config = materializeSecretVariables(config);
+  config = await materializeSecretVariables(config);
   let policyConfig: HttpRequestConfig;
   try {
     policyConfig = resolveHttpExecutionPolicy(config);

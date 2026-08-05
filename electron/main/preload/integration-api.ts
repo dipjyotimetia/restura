@@ -12,6 +12,7 @@ type IntegrationApi = Pick<
   | 'capture'
   | 'deepLinks'
   | 'secrets'
+  | 'externalSecrets'
   | 'vault'
   | 'ai'
   | 'aiLab'
@@ -101,6 +102,13 @@ export const integrationApi: IntegrationApi = {
     describe: (id) => ipcRenderer.invoke(IPC.secret.describe, { id }),
     list: invoke<ElectronAPI['secrets']['list']>(IPC.secret.list),
     clear: invoke<ElectronAPI['secrets']['clear']>(IPC.secret.clear),
+  },
+  externalSecrets: {
+    list: invoke<ElectronAPI['externalSecrets']['list']>(IPC.externalSecrets.list),
+    create: invoke<ElectronAPI['externalSecrets']['create']>(IPC.externalSecrets.create),
+    update: invoke<ElectronAPI['externalSecrets']['update']>(IPC.externalSecrets.update),
+    delete: (id) => ipcRenderer.invoke(IPC.externalSecrets.delete, { id }),
+    clear: invoke<ElectronAPI['externalSecrets']['clear']>(IPC.externalSecrets.clear),
   },
   vault: {
     get: (key) => ipcRenderer.invoke(IPC.vault.get, { key }),

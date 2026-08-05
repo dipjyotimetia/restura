@@ -1,5 +1,7 @@
 import type { FormField } from '@shared/protocol/body-builder';
 import type { ProtocolSecretValue as SecretValue } from '@shared/protocol/types';
+import { isProtocolExternalSecret } from '@shared/protocol/secret-value-schema';
+import { desktopExternalSecretResolver } from './external-secret-providers';
 import { unwrapSecretValueMain } from './secret-handle-store';
 
 export interface SecretVariableHttpConfig {
@@ -12,11 +14,16 @@ export interface SecretVariableHttpConfig {
 }
 
 /** Materialize opaque SecretRef variables only in Electron main, before the wire request. */
-export function materializeSecretVariables<T extends SecretVariableHttpConfig>(config: T): T {
+export async function materializeSecretVariables<T extends SecretVariableHttpConfig>(
+  config: T,
+  signal?: AbortSignal
+): Promise<T> {
   if (!config.secretVariables || Object.keys(config.secretVariables).length === 0) return config;
   const values: Record<string, string> = {};
   for (const [name, value] of Object.entries(config.secretVariables)) {
-    const plaintext = unwrapSecretValueMain(value);
+    const plaintext = isProtocolExternalSecret(value)
+      ? await desktopExternalSecretResolver.resolve(value, { signal })
+      : unwrapSecretValueMain(value);
     if (plaintext === undefined)
       throw new Error(`Secret variable "${name}" is unavailable on this desktop device`);
     values[name] = plaintext;

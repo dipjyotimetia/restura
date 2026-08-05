@@ -9,6 +9,7 @@ import type {
   ElectronCaptureAPI,
   ElectronCollectionsAPI,
   ElectronDeepLinkAPI,
+  ElectronExternalSecretsAPI,
   ElectronGitAPI,
   ElectronKeychainAPI,
   ElectronLogAPI,
@@ -64,6 +65,7 @@ export interface ElectronAPI {
   capture: ElectronCaptureAPI;
   deepLinks: ElectronDeepLinkAPI;
   secrets: ElectronSecretsAPI;
+  externalSecrets: ElectronExternalSecretsAPI;
   vault: ElectronVaultAPI;
   ai: ElectronAiAPI;
   aiLab: ElectronAiLabAPI;

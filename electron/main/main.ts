@@ -38,6 +38,10 @@ import { registerWindowControlsIPC } from './lifecycle/window-controls';
 import { registerNotificationIPC } from './notifications';
 import { registerExecutionPolicyIPC } from './security/execution-policy';
 import { registerKeychainStatusIPC } from './security/keychain-status-handler';
+import {
+  registerExternalSecretProfileIPC,
+  unregisterExternalSecretProfileIPC,
+} from './security/external-secret-profile-store';
 import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './security/secret-handle-store';
 import { registerBrunoExportHandlerIPC } from './storage/bruno-export-handler';
 import {
@@ -167,6 +171,10 @@ const IPC_MODULES: IpcModule[] = [
   { register: () => registerOwsWorkspaceHandlerIPC() },
   { register: () => registerStoreHandlerIPC() },
   { register: () => registerSecretHandleIPC(), dispose: () => unregisterSecretHandleIPC() },
+  {
+    register: () => registerExternalSecretProfileIPC(),
+    dispose: () => unregisterExternalSecretProfileIPC(),
+  },
   { register: () => registerVaultHandlers(), dispose: () => unregisterVaultHandlers() },
   { register: () => registerKeychainStatusIPC() },
   {

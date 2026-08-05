@@ -15,7 +15,10 @@ const SECRET_FIELDS: ReadonlyArray<[keyof AuthConfig, readonly string[]]> = [
   ['wsse', ['password']],
 ];
 
-async function materializeValue(value: unknown, resolver: ExternalSecretResolver | undefined): Promise<unknown> {
+async function materializeValue(
+  value: unknown,
+  resolver: ExternalSecretResolver | undefined
+): Promise<unknown> {
   if (!value || typeof value !== 'object' || (value as { kind?: unknown }).kind !== 'external') {
     return value;
   }

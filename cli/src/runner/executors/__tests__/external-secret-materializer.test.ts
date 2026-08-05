@@ -1,4 +1,7 @@
-import { createExternalSecretResolver, type ExternalSecretProvider } from '@shared/secrets/external-secret-resolver';
+import {
+  createExternalSecretResolver,
+  type ExternalSecretProvider,
+} from '@shared/secrets/external-secret-resolver';
 import { describe, expect, it } from 'vitest';
 import { materializeExternalSecretsInAuth } from '../external-secret-materializer';
 
@@ -14,7 +17,11 @@ describe('materializeExternalSecretsInAuth', () => {
         type: 'bearer',
         bearer: {
           token: {
-            kind: 'external', provider: 'azure-key-vault', profileId: 'prod', secretId: 'api-token', label: 'API token',
+            kind: 'external',
+            provider: 'azure-key-vault',
+            profileId: 'prod',
+            secretId: 'api-token',
+            label: 'API token',
           },
         },
       },
@@ -24,9 +31,21 @@ describe('materializeExternalSecretsInAuth', () => {
   });
 
   it('fails closed when the CLI has no explicit external-secret resolver', async () => {
-    await expect(materializeExternalSecretsInAuth({
-      type: 'bearer',
-      bearer: { token: { kind: 'external', provider: 'azure-key-vault', profileId: 'prod', secretId: 'api-token' } },
-    }, undefined)).rejects.toThrow('Configure an explicit external-secret profile');
+    await expect(
+      materializeExternalSecretsInAuth(
+        {
+          type: 'bearer',
+          bearer: {
+            token: {
+              kind: 'external',
+              provider: 'azure-key-vault',
+              profileId: 'prod',
+              secretId: 'api-token',
+            },
+          },
+        },
+        undefined
+      )
+    ).rejects.toThrow('Configure an explicit external-secret profile');
   });
 });
