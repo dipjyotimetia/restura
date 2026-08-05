@@ -65,6 +65,7 @@ _Fast unit and integration tests run first; contract, parity, security, and e2e 
 - **Collections**: `src/features/collections/lib/__tests__/*`, `src/features/collections/hooks/__tests__/*`, and `src/lib/opencollection/__tests__/*` cover runner scope/outcomes, coordinated deletion, format round-trips, and managed-file reconciliation.
 - **AI Lab**: `src/features/ai-lab/lib/__tests__/*`.
 - **MCP**: `src/features/mcp-server/__tests__/*`, `src/features/mcp/lib/__tests__/*`.
+<!-- openwiki: broken internal link [../features/protocols.md#kafka--mqtt] heading anchor "kafka--mqtt" does not exist in "../features/protocols.md". Fix the href or restore the target, then delete this comment. -->
 - **Desktop Kafka producer**: `src/features/kafka/lib/__tests__/kafkaProducerValidation.test.ts`, `electron/main/__tests__/{kafka-handler,kafka-serde,kafka-validators}.test.ts`, and `src/features/kafka/lib/__tests__/kafkaManager.electron.test.ts` cover client-side payload/header/schema validation, strict Base64 wire decoding and byte-preserving consume display, IPC schema validation, and manager routing. These tests protect the desktop behavior described in [Protocol features](../features/protocols.md#kafka--mqtt).
 
 Run selectively:
