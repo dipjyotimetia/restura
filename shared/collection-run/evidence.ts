@@ -89,7 +89,7 @@ function safeHeaders(input: Response['headers']): {
 
 function isTextResponse(response: Response, contentType: string): boolean {
   if (response.bodyEncoding === 'base64') return false;
-  const essence = contentType.split(';', 1)[0]?.trim().toLowerCase() ?? '';
+  const essence = contentType.split(';', 1).join('').trim().toLowerCase();
   if (essence === '') return true;
   return (
     essence.startsWith('text/') ||

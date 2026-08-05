@@ -63,6 +63,43 @@ describe('pruneCollectionRuns', () => {
     expect(result[0]!.requests[0]!.evidence).toMatchObject({ unavailable: true });
     expect(result[0]!.requests[0]!.evidence?.excerpt).toBeUndefined();
   });
+
+  it('preserves metadata-only requests and skips evidence-free oldest runs during global eviction', () => {
+    const size = Math.floor(RESPONSE_EVIDENCE_LIMITS.perRunBytes * 0.9);
+    const runs = Array.from({ length: 12 }, (_, index) => run(`run-${index}`, 20 - index, size));
+    runs[11] = {
+      ...runs[11]!,
+      requests: [
+        ...runs[11]!.requests,
+        {
+          itemId: 'metadata-with-evidence',
+          itemName: 'metadata-with-evidence',
+          protocol: 'http',
+          iteration: 0,
+          status: 'success',
+          assertions: [],
+        },
+      ],
+    };
+    const oldest: CollectionRunResult = {
+      ...run('oldest', 0),
+      requests: [
+        {
+          itemId: 'metadata-only',
+          itemName: 'metadata-only',
+          protocol: 'http',
+          iteration: 0,
+          status: 'success',
+          assertions: [],
+        },
+      ],
+    };
+
+    const result = pruneCollectionRuns([...runs, oldest]);
+
+    expect(result.at(-1)?.requests[0]?.evidence).toBeUndefined();
+    expect(result.some((item) => item.requests[0]?.evidence?.unavailable)).toBe(true);
+  });
 });
 
 describe('collection-run persistence migration', () => {

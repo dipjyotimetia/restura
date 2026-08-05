@@ -192,6 +192,8 @@ describe('runCollection', () => {
         delayMs: 0,
         stopOnFailure: false,
         retention: 'failures',
+        environmentId: 'environment',
+        environmentName: 'Staging',
       },
       noop,
       new AbortController().signal
@@ -205,6 +207,8 @@ describe('runCollection', () => {
       runnableIds: ['1', '2'],
       retention: 'failures',
       usedDataFile: false,
+      environmentId: 'environment',
+      environmentName: 'Staging',
     });
   });
 

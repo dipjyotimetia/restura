@@ -94,6 +94,37 @@ describe('buildResponseEvidence', () => {
     expect(evidence.excerpt).toBeUndefined();
     expect(evidence.hash).toBeUndefined();
   });
+
+  it('uses the first safe multi-value header and treats empty arrays as an empty value', async () => {
+    const evidence = await buildResponseEvidence(
+      response({
+        headers: {
+          'content-type': ['application/json'],
+          etag: [],
+        },
+      }),
+      'all'
+    );
+
+    expect(evidence).toMatchObject({
+      contentType: 'application/json',
+      headers: { 'content-type': 'application/json', etag: '' },
+    });
+  });
+
+  it.each([
+    'application/xml',
+    'application/javascript',
+    'application/graphql',
+    'application/x-www-form-urlencoded',
+  ])('retains %s as a text response', async (contentType) => {
+    const evidence = await buildResponseEvidence(
+      response({ headers: { 'content-type': contentType } }),
+      'all'
+    );
+
+    expect(evidence).toMatchObject({ binary: false, unavailable: false });
+  });
 });
 
 describe('evidenceBytes', () => {
@@ -113,5 +144,9 @@ describe('evidenceBytes', () => {
     expect(evidenceBytes(evidence)).toBe(
       new TextEncoder().encode(JSON.stringify(evidence)).byteLength
     );
+  });
+
+  it('does not reserve quota for requests with no retained evidence', () => {
+    expect(evidenceBytes(undefined)).toBe(0);
   });
 });
