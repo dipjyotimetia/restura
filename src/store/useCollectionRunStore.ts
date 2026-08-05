@@ -72,14 +72,25 @@ export const collectionRunMigrationDescriptor: MigrationDescriptor<CollectionRun
   version: 2,
   steps: [
     {
+      // Framework adoption: retain unknown v0 blobs unchanged before the real
+      // v1 evidence migration below. This matches the other adopted stores.
+      name: 'adopt-legacy-version-zero',
+      fromVersion: 0,
+      apply: (state) => ({ state: state as CollectionRunState }),
+    },
+    {
       name: 'add-evidence-configuration-defaults',
       fromVersion: 1,
       apply: (state) => {
         const value = state as { runs?: CollectionRunResult[] };
+        // A v0 framework-probe blob is not a collection-run payload; preserve
+        // it verbatim rather than inventing fields. Real v1 run stores always
+        // contain the runs array and continue through quota normalization.
+        if (!Array.isArray(value.runs)) return { state: value as CollectionRunState };
         return {
           state: {
             ...value,
-            runs: Array.isArray(value.runs) ? pruneCollectionRuns(value.runs) : [],
+            runs: pruneCollectionRuns(value.runs),
           },
         };
       },
