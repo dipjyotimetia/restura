@@ -115,6 +115,8 @@ src/features/<feature>/
 
 Protocol features: `http`, `grpc`, `graphql`, `websocket`, `socketio`, `sse`, `mcp`, `kafka`, `mqtt`. Cross-cutting features: `collections`, `environments`, `workflows`, `scripts`, `auth`, `registry`, `contracts`, `load-testing`.
 
+`src/features/registry/bootstrap.ts` (imported in `src/main.tsx`) registers all built-in protocol modules with the singleton `ProtocolRegistry`. This avoids top-level dependencies inside the route file.
+
 See [Protocol features](../features/protocols.md) for the registry contract and per-protocol notes.
 
 ### State
@@ -175,7 +177,7 @@ _The protocol registry dispatches a single call through whichever transport the 
 
 - Factory: `worker/app.ts` (`createApp(deps)`).
 - Entry: `worker/index.ts` — mounts the app with Cloudflare-specific TCP proxy (`worker/shared/tcp-proxy.ts`) and WebSocketPair handler.
-- Routes: `/api/proxy`, `/api/grpc`, `/api/grpc/reflection`, `/api/mcp`, `/api/telemetry/error`, `/api/feature-flags`, `/api/ws-ticket`, `/api/ws`.
+- Routes: `/api/proxy`, `/api/import/fetch`, `/api/grpc`, `/api/grpc/reflection`, `/api/mcp`, `/api/telemetry/error`, `/api/feature-flags`, `/api/ws-ticket`, `/api/ws`. Operational probes `/health` and `/ready` are outside the `/api/*` prefix so they bypass auth and rate limiting.
 - Auth/protection: `proxyAuthMiddleware` in `worker/app.ts` and rate limits.
 
 ### Self-hosted Node / Docker
@@ -203,41 +205,6 @@ The browser-extension pipeline is implemented in `shared/capture/` (normaliser, 
 
 ---
 
-## Renderer architecture
-
-### Routing
-
-- `createHashRouter` from `react-router-dom` in `src/App.tsx`.
-- `/` — main `Home` route with protocol panels.
-- `/ai-lab` — separate full-screen AI Lab workbench, lazy-loaded.
-
-### State management
-
-Zustand is used everywhere. Persistent stores follow a pattern: store slice in `src/store/use<Name>Store.ts`, persistence options in `src/store/lib/`, and migration/logging in `src/lib/shared/persistence/`.
-
-Key stores:
-
-- `useRequestStore` — current request, tabs, active tab lifecycle.
-- `useCollectionStore` — in-app collections/folders/requests.
-- `useFileCollectionStore` — desktop filesystem-backed collections, git ops, watchers.
-- `useWorkflowStore` — validated OWS workflow documents, typed saved-request bindings, non-semantic layout, and save state.
-- `useEnvironmentStore` — environments and variable substitution.
-- `useSettingsStore` — app settings including telemetry opt-out.
-
-### Feature folders
-
-`src/features/<name>/` generally contains:
-
-- `components/` — React UI.
-- `lib/` — pure logic (executors, validators, parsers).
-- `hooks/` — React hooks.
-- `protocol.ts` — renderer-side protocol registration and executor calls.
-- `store.ts` — feature-local state.
-
-`src/features/registry/bootstrap.ts` (imported in `src/main.tsx`) registers all built-in protocol modules with the singleton `ProtocolRegistry`. This avoids top-level dependencies inside the route file.
-
----
-
 ## Worker / backend architecture
 
 `worker/app.ts` exports `createApp(deps)` which builds a Hono app with the following responsibilities:
@@ -249,10 +216,12 @@ Key stores:
 - `/api/grpc`, `/api/grpc/reflection` — gRPC via `shared/protocol/grpc-proxy.ts`.
 - `/api/mcp` — MCP proxy via `shared/protocol/mcp-proxy.ts`.
 - `/api/ws-ticket`, `/api/ws` — WebSocket upgrade flow.
+- `/api/import/fetch` — remote URL import fetch with hostname guard (`worker/handlers/remote-import.ts`).
 - `/api/telemetry/error` — web error reporting sink.
 - `/api/feature-flags` — flags read from Cloudflare KV / Node env.
+- `/health`, `/ready` — operational probes; outside `/api/*` prefix to bypass auth/rate-limit.
 
-`worker/adapters.ts` defines the `AppDeps` interface: the implementations of CONNECT/TCP proxy and native WebSocket that differ between Cloudflare and Node.
+`worker/adapters.ts` defines the `AppDeps` interface: the implementations of CONNECT/TCP proxy (`tcpProxy`), a `nodeHostnameGuard` for DNS validation, and native WebSocket that differ between Cloudflare and Node.
 
 ---
 

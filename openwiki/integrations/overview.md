@@ -207,7 +207,7 @@ Restura can act as an MCP client/proxy and as an MCP server.
 
 ## Change guidance
 
-- When adding an import format, add a transformer in `src/features/collections/lib/` and update `importTransformer.ts` dispatch. Add fixtures in `src/features/collections/lib/__tests__/ `.
+- When adding an import format, add a transformer in `src/features/collections/lib/importers/` and update the barrel export in `src/features/collections/lib/importers.ts`. Add fixtures in `src/features/collections/lib/__tests__/`.
 - When extending OpenCollection, update the vendored schema if you own it, regenerate `spec-types.ts`, and document any Restura-specific extension fields.
 - When adding script APIs, update `scriptApiTypes.ts`, the host bridges, and the bootstrapping in `scriptExecutor.ts`. Test with the CLI contract tests (`cli/src/runner/__tests__/scripts.test.ts`) and `src/features/scripts/lib/__tests__/*`.
 - When adding CLI protocols, add an executor under `cli/src/runner/executors/` and wire it in `runner.ts` for the collection path.
