@@ -7,6 +7,8 @@ import type { RunnableRequest } from '../flattenRunnables';
 // --- Mock the protocol registry so we control runRequest per request ---------
 type Behavior = {
   status?: number;
+  responseBody?: string;
+  responseHeaders?: Record<string, string>;
   throws?: string;
   tests?: Array<{ name: string; passed: boolean; error?: string }>;
   setVars?: Record<string, string>;
@@ -46,8 +48,8 @@ const runRequestMock = vi.fn(async (_req: unknown, ctx: RunContext): Promise<Api
     requestId: 'req',
     status: b.status ?? 200,
     statusText: 'OK',
-    headers: {},
-    body: '',
+    headers: b.responseHeaders ?? {},
+    body: b.responseBody ?? '',
     size: 0,
     time: 1,
     timestamp: Date.now(),
@@ -172,6 +174,38 @@ describe('runCollection', () => {
     expect(result.requests[0]!.status).toBe('success');
     expect(result.requests[1]!.status).toBe('failed');
     expect(result.summary).toEqual({ total: 2, passed: 1, failed: 1, skipped: 0 });
+  });
+
+  it('retains sanitized evidence only for failures in failures mode', async () => {
+    behaviors.push(
+      { status: 200, responseBody: '{"token":"super-secret-value"}' },
+      { status: 500, responseBody: '{"token":"super-secret-value"}' }
+    );
+    const result = await runCollection(
+      {
+        collection,
+        scopeName: 'C',
+        runnables: [runnable('1', 'pass'), runnable('2', 'fail')],
+        baseVars: {},
+        iterations: 1,
+        dataRows: [],
+        delayMs: 0,
+        stopOnFailure: false,
+        retention: 'failures',
+      },
+      noop,
+      new AbortController().signal
+    );
+
+    expect(result.requests[0]!.evidence?.unavailable).toBe(true);
+    expect(result.requests[0]!.evidence?.excerpt).toBeUndefined();
+    expect(result.requests[1]!.evidence?.excerpt).not.toContain('super-secret-value');
+    expect(result.requests[1]!.evidence?.hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(result.configuration).toMatchObject({
+      runnableIds: ['1', '2'],
+      retention: 'failures',
+      usedDataFile: false,
+    });
   });
 
   it('skips unsupported (streaming) protocols with a reason', async () => {
