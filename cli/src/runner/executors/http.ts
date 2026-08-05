@@ -6,6 +6,7 @@ import type { LoadedRequest } from '../collectionLoader';
 import { createUndiciFetcher, undiciFetcher } from '../undiciFetcher';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, resolveOAuth2Token, toProtocolAuth } from './auth';
+import { materializeExternalSecretsInAuth } from './external-secret-materializer';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
 
 /**
@@ -48,7 +49,11 @@ export async function executeHttp(
     // Acquire an OAuth2 client_credentials token when the auth declares a token
     // endpoint but carries no access token (e.g. a CI collection). No-op for
     // every other auth type.
-    const resolvedAuth = await resolveOAuth2Token(req.auth, opts.vars, {
+    const externalMaterializedAuth = await materializeExternalSecretsInAuth(
+      req.auth,
+      opts.externalSecretResolver
+    );
+    const resolvedAuth = await resolveOAuth2Token(externalMaterializedAuth, opts.vars, {
       allowLocalhost: opts.allowLocalhost,
       ...(opts.oauthFetch ? { fetch: opts.oauthFetch } : {}),
       ...(opts.signal ? { signal: opts.signal } : {}),
