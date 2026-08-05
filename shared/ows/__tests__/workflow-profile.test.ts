@@ -79,8 +79,8 @@ describe('OWS workflow profile', () => {
 
     const graph = buildOwsGraphWithSdk(normalized);
     expect(graph.entryNode).toBeDefined();
-    expect(graph.nodes.map((node) => node.taskReference)).toContain('/do/0/seed');
-    expect(graph.nodes.map((node) => node.taskReference)).toContain('/do/1/pause');
+    expect(graph.nodes.map((node) => node.id)).toContain('/do/0/seed');
+    expect(graph.nodes.map((node) => node.id)).toContain('/do/1/pause');
   });
 
   it('accepts only the binding-only HTTP sentinel form', () => {
