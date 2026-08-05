@@ -1,5 +1,7 @@
+import type { ResponseRetentionMode } from '@shared/collection-run/evidence';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { buildValueMap } from '@/lib/shared/variableScopes';
 import { useCollectionRunStore } from '@/store/useCollectionRunStore';
 import {
   type ConsoleLog,
@@ -10,7 +12,6 @@ import {
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import type { Collection, Environment } from '@/types';
-import { buildValueMap } from '@/lib/shared/variableScopes';
 import {
   type CollectionRunResult,
   type RequestCompleteInfo,
@@ -30,6 +31,7 @@ export interface StartRunArgs {
   dataRows: IterationRow[];
   delayMs: number;
   stopOnFailure: boolean;
+  retention: ResponseRetentionMode;
 }
 
 /** Globals, enabled environment values, then collection values (highest precedence). */
@@ -156,6 +158,9 @@ export function useCollectionRun() {
         dataRows: args.dataRows,
         delayMs: args.delayMs,
         stopOnFailure: args.stopOnFailure,
+        retention: args.retention,
+        ...(args.environmentId !== 'none' ? { environmentId: args.environmentId } : {}),
+        ...(selectedEnvironment ? { environmentName: selectedEnvironment.name } : {}),
       },
       (p) => {
         if (!isCurrent()) return;

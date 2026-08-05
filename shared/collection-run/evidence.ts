@@ -61,6 +61,11 @@ function redactText(value: string): { value: string; redacted: boolean } {
   return { value: text, redacted: text !== value };
 }
 
+/** Sanitizes arbitrary diagnostic text before it enters an export or UI report. */
+export function redactDiagnosticText(value: string): string {
+  return redactText(value).value;
+}
+
 function safeHeaders(input: Response['headers']): {
   headers: Record<string, string>;
   redacted: boolean;
