@@ -45,6 +45,7 @@ import {
 } from '../security/execution-policy';
 import { isProxyBypassed } from '../security/proxy-bypass';
 import { materializeSecretVariables } from '../security/secret-variable-materializer';
+import { materializeExternalProtocolAuth } from '../security/external-secret-materializer';
 import { unwrapSecretValueMain } from '../security/secret-handle-store';
 import { buildTlsClientMaterial } from '../security/tls-material';
 import { interceptorRegistry } from './interceptor-registry';
@@ -1042,7 +1043,11 @@ async function makeHttpRequest(
   try {
     // Apply non-sign-at-wire auth main-side for handle-protected creds.
     // (Renderer skipped this step because it can't resolve handles.)
-    const mainApplied = applyNonSignAtWireAuth(interceptedConfig.auth);
+    const resolvedProtocolAuth = await materializeExternalProtocolAuth(
+      interceptedConfig.auth,
+      interceptedConfig.signal
+    );
+    const mainApplied = applyNonSignAtWireAuth(resolvedProtocolAuth);
     const mergedHeaders: Record<string, string> = {
       ...(interceptedConfig.headers ?? {}),
       ...mainApplied.headers,
@@ -1083,7 +1088,7 @@ async function makeHttpRequest(
         ...(interceptedConfig.data !== undefined ? { data: interceptedConfig.data } : {}),
         ...(interceptedConfig.formData ? { formData: interceptedConfig.formData } : {}),
         ...(interceptedConfig.timeout !== undefined ? { timeout: interceptedConfig.timeout } : {}),
-        ...(interceptedConfig.auth ? { auth: interceptedConfig.auth } : {}),
+        ...(resolvedProtocolAuth ? { auth: resolvedProtocolAuth } : {}),
         ...(Object.keys(redirectPolicy).length > 0 ? { redirectPolicy } : {}),
         ...(interceptedConfig.encodeUrlAutomatically !== undefined
           ? { encodeUrl: interceptedConfig.encodeUrlAutomatically }

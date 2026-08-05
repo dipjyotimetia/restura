@@ -46,15 +46,15 @@ function messageFor(code: ExternalSecretErrorCode, label: string | undefined): s
   const reference = label ? `could not resolve ${label}` : 'could not resolve the selected secret';
   switch (code) {
     case 'provider-unavailable':
-      return ' is not configured for this runtime';
+      return 'is not configured for this runtime';
     case 'profile-unavailable':
-      return ' profile is unavailable';
+      return 'profile is unavailable';
     case 'not-found':
       return `${reference} because it was not found`;
     case 'access-denied':
       return `${reference} because access was denied`;
     case 'cancelled':
-      return ' resolution was cancelled';
+      return 'resolution was cancelled';
     case 'provider-error':
       return reference;
   }
