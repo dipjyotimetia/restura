@@ -1,8 +1,10 @@
 <div align="center">
 
-<img src=".github/assets/banner.svg" alt="Restura — the API client that speaks every protocol" width="100%">
+<img src=".github/assets/banner.svg" alt="Restura — a private, multi-protocol API client" width="100%">
 
-<br/>
+# Restura
+
+**One local-first API client for HTTP, GraphQL, gRPC, WebSocket, Kafka, MQTT, MCP, and more.**
 
 [![CI](https://img.shields.io/github/actions/workflow/status/dipjyotimetia/restura/ci.yml?style=flat-square&label=CI&labelColor=14121F&color=2E91FF)](https://github.com/dipjyotimetia/restura/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/dipjyotimetia/restura/badge?style=flat-square)](https://securityscorecards.dev/viewer/?uri=github.com/dipjyotimetia/restura)
@@ -10,259 +12,160 @@
 [![License](https://img.shields.io/badge/license-MIT-2E91FF?style=flat-square&labelColor=14121F)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A524-2E91FF?style=flat-square&labelColor=14121F)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-2E91FF?style=flat-square&labelColor=14121F)](https://www.typescriptlang.org)
-[![Sentry](https://img.shields.io/badge/crash_reports-Sentry-362D59?style=flat-square&logo=sentry&logoColor=white&labelColor=14121F)](https://sentry.io)
 
-<br/>
-
-[![Live App](https://img.shields.io/badge/Live_App-2E91FF?style=for-the-badge&logo=cloudflare&logoColor=white)](https://restura.dev/)
+[![Try the web app](https://img.shields.io/badge/Try_the_web_app-2E91FF?style=for-the-badge&logo=cloudflare&logoColor=white)](https://restura.dev/)
 &nbsp;
-[![Download](https://img.shields.io/badge/Download_Desktop-14121F?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/dipjyotimetia/restura/releases/latest)
+[![Download desktop](https://img.shields.io/badge/Download_desktop-14121F?style=for-the-badge&logo=electron&logoColor=white)](https://github.com/dipjyotimetia/restura/releases/latest)
 &nbsp;
-<a href="https://docs.restura.dev/" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Documentation-14121F?style=for-the-badge&logo=readthedocs&logoColor=white" alt="Documentation"></a>
+<a href="https://docs.restura.dev/" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/Read_the_docs-14121F?style=for-the-badge&logo=readthedocs&logoColor=white" alt="Documentation"></a>
 
 </div>
 
-<br/>
+Restura lets you debug an HTTP API, inspect a gRPC service, keep a WebSocket transcript, and work with Kafka or MQTT without switching tools—or surrendering your collections to a hosted account. Run it in your browser, as a native desktop app for macOS, Windows, and Linux, or self-host it in Docker behind your firewall.
 
-# Restura — Open-Source Multi-Protocol API Client
+No account. No cloud sync. Your collections, history, and environments stay in local browser storage or encrypted desktop storage; optional crash reporting is scrubbed and can be disabled. Native networking and AI features are deliberately desktop-only where browser security boundaries make them impossible.
 
-Restura is a free, open-source, privacy-first API client for developers. Test REST/HTTP, GraphQL, gRPC, WebSocket, Socket.IO, Server-Sent Events, Kafka, MQTT, and MCP from one app. It stores data locally, needs no account, and runs in the browser, as a native desktop app (macOS / Windows / Linux), or self-hosted with Docker behind your firewall.
+> **Try it your way:** [open the web app](https://restura.dev/) for HTTP-first workflows, [download desktop](https://github.com/dipjyotimetia/restura/releases/latest) for native protocols and OS-backed secrets, or [self-host with Docker](docs/SELF_HOSTING.md) for a controlled deployment.
 
-If you are looking for a private, open-source Postman alternative that also covers streaming, message-broker, and MCP workflows, [try the web app](https://restura.dev/), [download the desktop app](https://github.com/dipjyotimetia/restura/releases/latest), or read the [Restura documentation](https://docs.restura.dev/).
+## Everything your API stack speaks
 
-It started because I was tired of juggling four tools to debug one service, each with its own collection format and auth setup. Then Postman changed its pricing and Insomnia went cloud-first — syncing auth tokens, internal hostnames, and payload bodies to someone's server by default. That felt wrong, so Restura signs auth at the wire and keeps your data on your machine.
+| Protocol | What works today | Platform |
+| --- | --- | --- |
+| **REST / HTTP** | All methods, params, headers, body types, cookies, code generation | Web · Desktop |
+| **GraphQL** | Query builder, schema introspection, subscriptions | Web · Desktop |
+| **gRPC** | Unary calls, server streaming, reflection; native client/bidi streaming | Web · Desktop¹ |
+| **WebSocket** | Connect, send/receive, full message history | Web · Desktop |
+| **Socket.IO** | Connect, emit/listen events, acknowledgements | Web · Desktop |
+| **SSE** | Live event-stream viewer with reconnection | Web · Desktop |
+| **Kafka** | Produce, consume, transactions, admin, SASL/OAuth, TLS | Desktop |
+| **MQTT** | Publish/subscribe, QoS, TLS | Desktop |
+| **MCP** | Connect to MCP servers—or expose Restura as one | Web · Desktop² |
 
-<br/>
+¹ Web supports unary and server-streaming gRPC; client and bidirectional streaming require desktop. ² Web supports streamable HTTP; HTTP-SSE transport requires desktop. See the [capability matrix](docs/CAPABILITY_MATRIX.md) for the complete, generated platform breakdown.
 
-<!-- ─────────────────────────────────────────────────────────────────────────
-     A LOOK INSIDE
-     Drop your screenshot at .github/assets/restura-screenshot.png and it
-     renders here automatically. See .github/assets/ASSETS.md for specs.
-────────────────────────────────────────────────────────────────────────── -->
+## Why developers choose Restura
 
-<div align="center">
+| | |
+| --- | --- |
+| **Bring your existing work** | Import Postman v2.1, Insomnia, OpenAPI 3.x / Swagger 2.0, Hoppscotch, and Bruno collections. Export when you need to move on. |
+| **Reuse requests safely** | Organise collections and environments; inherit auth; switch `{{base_url}}` between staging and production without copying requests. |
+| **Automate without a fragile script runner** | Run pre-request and test scripts in a bounded QuickJS WASM sandbox with no DOM, filesystem, or network access. Build portable workflows from saved HTTP and GraphQL requests. |
+| **Keep authentication close to the wire** | Configure Basic, Bearer, API Key, Digest, NTLM, OAuth 1.0a/2.0, WSSE, AWS SigV4, and more. Desktop also supports mTLS, custom CAs, and SOCKS. |
+| **Work with AI on sensitive requests** | Desktop AI chat and AI Lab use request context with secrets and internal URLs redacted before provider calls. Evaluate prompts, models, and bounded agent suites locally. |
+| **Use MCP in both directions** | Inspect MCP server traffic as a client, or expose permitted Restura collections through Restura’s MCP server mode. |
 
-### A look inside
+## Start in the right place
 
-<!-- Uncomment the line below once .github/assets/restura-screenshot.png is committed -->
-<!-- <img src=".github/assets/restura-screenshot.png" alt="Restura desktop app — HTTP request with response inspector, network console, and timing waterfall" width="92%"> -->
+### Web app
 
-<sub>Multi-tab requests · response inspector · network console · timing waterfall</sub>
+Open [restura.dev](https://restura.dev/) to send HTTP, GraphQL, WebSocket, SSE, and supported gRPC/MCP requests immediately. Browser capabilities are intentionally constrained; consult the [capability matrix](docs/CAPABILITY_MATRIX.md) before relying on native networking features.
 
-</div>
+### Develop locally
 
-<br/>
-
-## Protocols
-
-|        | Protocol               | What works today                                                           |
-| :----: | ---------------------- | -------------------------------------------------------------------------- |
-| `HTTP` | REST / HTTP            | All methods, params, headers, body types, cookies, code gen                |
-| `GQL`  | GraphQL                | Query builder, schema introspection, subscriptions                         |
-| `RPC`  | gRPC                   | Unary, server streaming, reflection · client/bidi streaming _desktop only_ |
-|  `WS`  | WebSocket              | Connect, send/receive, full message history                                |
-|  `IO`  | Socket.IO              | Connect, emit/listen events, acks                                          |
-| `SSE`  | Server-Sent Events     | Live event stream viewer with reconnection                                 |
-| `KFK`  | Kafka                  | Produce, consume, transactions, admin, SASL/OAuth + TLS · _desktop only_   |
-| `MQT`  | MQTT                   | Publish / subscribe, QoS, TLS · _desktop only_                             |
-| `MCP`  | Model Context Protocol | Proxy to any MCP server — and Restura _can be_ one                         |
-
-## Highlights
-
-|                        |                                                                                                                                                                |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Request scripting**  | Pre-request and test scripts in JavaScript, sandboxed in [QuickJS](https://bellard.org/quickjs/) WASM — no DOM, no network escape.                             |
-| **Workflows**          | Chain requests, extract variables via JSONPath / regex / headers, set retries with exponential backoff. Runs in the app or in CI.                              |
-| **Import everything**  | Postman v2.1, Insomnia, Bruno, OpenAPI / Swagger, Hoppscotch — drop it in and start testing.                                                                   |
-| **Environments**       | Scope variables per environment; swap `{{base_url}}` between staging and prod in one click.                                                                    |
-| **Auth built-in**      | Basic, Bearer, API Key, Digest, NTLM, OAuth 1.0a/2.0, WSSE, AWS SigV4 — per request or inherited from a collection or folder. mTLS via the Electron transport. |
-| **AI assistant**       | Chat with OpenAI, Anthropic, or OpenRouter with the current request and response as context. Secrets are redacted at the wire. _Desktop only._                 |
-| **AI Lab**             | Compare models, run dataset evals, and test versioned agent suites with bounded tools, approvals, and sanitized reports. _Desktop only._                         |
-| **Private by default** | Everything stored locally. No accounts, no cloud sync, no per-user tracking or behavioural profiling — usage metrics are anonymous and aggregate only.         |
-
-## Security
-
-Restura signs auth **at the wire** and guards every outbound request — on both the web Worker and the desktop main process.
-
-- **Desktop (Electron)** — Keys wrapped by the OS keychain via `safeStorage` (macOS Keychain / Windows Credential Manager / libsecret), data sealed with AES-256-GCM. mTLS, custom CA certs, SOCKS proxies, and TLS-verify-off use Node's TLS / `net` stack. PAC proxy scripts are not currently wired on any target.
-- **Web** — Keys default to ephemeral in-memory (regenerated per session) so the key never sits beside the ciphertext; encrypted data won't survive a reload. mTLS, custom CA, SOCKS, and TLS-verify-off aren't available in the browser sandbox.
-- **Network** — SSRF guards (RFC 1918, CGNAT, link-local, cloud-metadata, IPv6 ULA, IPv4-mapped IPv6) on every path; desktop adds a DNS-rebind guard at lookup time. AWS SigV4 is signed in the Worker / Electron handler — never the renderer — so the signature matches the exact bytes upstream receives.
-- **Sandbox** — User scripts run in a [QuickJS](https://bellard.org/quickjs/) WASM VM with memory and time limits. No host bridge, no filesystem, no network.
-- **Privacy** — No accounts, no cloud sync. Optional, opt-out error reporting (on by default) can be turned off in **Settings › Privacy**. Desktop routes errors to [Sentry](https://sentry.io) via a renderer→main IPC bridge; web routes them to a self-hosted Cloudflare Worker (`/api/telemetry/error`). Either way: error message, stack, version, OS only — never request URLs, headers, bodies, secrets, or identity (`sendDefaultPii: false`). Both paths gate on `settings.telemetry.errorsEnabled` and send nothing until checked. The only usage signal is anonymous aggregate session counts (desktop Sentry Release Health, gated by the same opt-out); the self-hosted server collects nothing. See [`docs/adr/0027-telemetry-and-privacy-preserving-usage-analytics.md`](docs/adr/0027-telemetry-and-privacy-preserving-usage-analytics.md).
-
-See [`docs/adr/0004-security-hardening.md`](docs/adr/0004-security-hardening.md) for the design rationale.
-
-## Quick start
-
-**Prerequisites:** Node.js 24+ and npm. Or skip the setup and [open the web app](https://restura.dev/) directly.
+**Prerequisites:** Node.js 24+ and npm.
 
 ```bash
 git clone https://github.com/dipjyotimetia/restura.git
 cd restura
 npm install
-npm run dev          # → http://localhost:5173
+npm run dev # http://localhost:5173
 ```
 
-One command boots the Vite dev server **and** the Cloudflare Worker proxy (via Miniflare).
+This starts the Vite app and its local Cloudflare Worker proxy through Miniflare.
 
-<details>
-<summary><b>Desktop app (build from source)</b></summary>
+### Desktop app
 
-<br/>
-
-Prebuilt installers live on the [**releases page**](https://github.com/dipjyotimetia/restura/releases/latest). To build locally:
+Get prebuilt installers from the [latest release](https://github.com/dipjyotimetia/restura/releases/latest), or build from source:
 
 ```bash
-npm run electron:dev              # development (live reload)
-
-npm run electron:dist:mac         # macOS   → DMG + ZIP  (x64 + arm64)
-npm run electron:dist:win         # Windows → NSIS + portable (x64 + ia32)
-npm run electron:dist:linux       # Linux   → AppImage + deb + rpm (x64)
+npm run electron:dev              # development with live reload
+npm run electron:dist:mac         # macOS: DMG + ZIP
+npm run electron:dist:win         # Windows: NSIS + portable
+npm run electron:dist:linux       # Linux: AppImage + deb + rpm
 ```
 
-</details>
+Desktop is the right target for Kafka, MQTT, native gRPC streaming, filesystem/Git collections, OS-keychain secret handles, mTLS, custom CAs, SOCKS, and all AI surfaces.
 
-<details>
-<summary><b>Self-hosting (Docker)</b></summary>
+### Self-host with Docker
 
-<br/>
-
-Run the web app behind your firewall in a single Node container — no Cloudflare account required.
+Run the web application in one Node container; no Cloudflare account is required.
 
 ```bash
-cp .env.example .env              # set WORKER_PROXY_TOKEN + ALLOWED_ORIGIN
+cp .env.example .env # set WORKER_PROXY_TOKEN and ALLOWED_ORIGIN
 docker compose up -d --build
 curl -fs http://localhost:3000/health
 ```
 
-See [**docs/SELF_HOSTING.md**](docs/SELF_HOSTING.md) for the full operations guide — auth modes, internal-network access, reverse-proxy examples, healthchecks.
+Read [Self-hosting](docs/SELF_HOSTING.md) before deploying: it covers authentication modes, reverse-proxy configuration, internal-network access, rate limits, and health checks.
 
-</details>
+## Built to keep request data under your control
 
-## How it works
+- **Local persistence with clear boundaries.** Browser data lives in local IndexedDB. On desktop, encrypted storage is backed by Electron `safeStorage` and the OS keychain; secret handles keep plaintext out of the renderer where supported.
+- **Outbound-request protection.** Shared SSRF validation blocks private, link-local, and cloud-metadata targets by default. Desktop adds DNS-rebind protection; self-hosted deployments can explicitly enable private-network access when needed.
+- **Wire-accurate signing.** AWS SigV4 is signed in the Worker or Electron handler, not the renderer, so the upstream receives the exact signed bytes.
+- **Sandboxed user code.** Pre-request and test scripts run with time and memory limits and have no host bridge.
+- **Transparent telemetry.** Error reporting is opt-out and can be disabled in **Settings → Privacy**. It excludes request URLs, headers, bodies, secrets, and identity. Self-hosted deployments collect no usage analytics.
 
-The same React SPA powers both targets. The only thing that differs is the transport layer, chosen at runtime by `isElectron()`.
+Read the [security architecture](docs/adr/0004-security-hardening.md), [privacy and telemetry decision](docs/adr/0027-telemetry-and-privacy-preserving-usage-analytics.md), and [capability matrix](docs/CAPABILITY_MATRIX.md) for the full model and platform caveats.
 
-```
-          ┌──────────────────────────────────────┐
-          │          React SPA (renderer)        │
-          │   Vite · React 19 · React Router v7  │
-          └────────────┬─────────────┬───────────┘
-                       │             │
-                web    │             │   desktop
-                       ▼             ▼
-          ┌─────────────────┐  ┌──────────────────────┐
-          │   Cloudflare    │  │   Electron main       │
-          │   Worker (Hono) │  │   Native IPC handlers │
-          └────────┬────────┘  └──────────┬────────────┘
-                   │                       │
-                   └───────────┬───────────┘
-                               ▼
-                       Target API / Service
+## One renderer, three targets
+
+The React SPA runs as a web app, a self-hosted Node/Docker service, and an Electron desktop application. Its transport changes by target; its protocol core does not.
+
+```text
+React SPA
+  ├─ Web: Cloudflare Worker (Hono) → target API or service
+  ├─ Self-hosted: Node/Hono server → target API or service
+  └─ Desktop: Electron IPC → native protocol handlers → target API or service
 ```
 
-Protocol logic lives once in `shared/protocol/` — SSRF validation, header policy, body construction, response shaping — and each backend supplies only a thin `Fetcher` adapter. The Cloudflare Worker is never bundled into the desktop app. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full breakdown.
+`shared/protocol/` owns request construction, header policy, response shaping, and SSRF validation. Worker and Electron handlers supply the transport-specific adapters. See [Architecture](docs/ARCHITECTURE.md) for the details.
 
 <details>
-<summary><b>Project layout</b></summary>
+<summary><strong>Project layout</strong></summary>
 
-<br/>
-
-```
-src/
-├── features/
-│   ├── http/          # REST request builder & executor
-│   ├── grpc/          # gRPC client + server reflection
-│   ├── graphql/       # GraphQL builder + schema explorer
-│   ├── websocket/     # WebSocket client
-│   ├── socketio/      # Socket.IO client
-│   ├── sse/           # Server-Sent Events client
-│   ├── kafka/         # Kafka producer/consumer (desktop only)
-│   ├── mqtt/          # MQTT client (desktop only)
-│   ├── mcp/           # MCP client
-│   ├── ai/            # AI assistant (chat + request context)
-│   ├── ai-lab/        # LLM / prompt eval workbench (desktop only)
-│   ├── workflows/     # Request chaining + variable extraction
-│   ├── collections/   # Sidebar, runner, Postman/Insomnia import
-│   ├── environments/  # Environment variable manager
-│   ├── auth/          # Auth config (shared across protocols)
-│   ├── load-testing/  # Collection load/perf runner
-│   ├── mcp-server/    # Restura-as-MCP-server
-│   ├── registry/      # Lightweight service registry / request runner
-│   ├── contracts/     # Contract testing (provider / consumer)
-│   └── scripts/       # Script editor + QuickJS executor
-│
-shared/protocol/       # Backend-agnostic protocol orchestrators
-shared/capture/        # Browser-capture pipeline (used by the extension)
-worker/                # Shared Hono app — Cloudflare Worker + self-hosted Node
-electron/main/         # Electron main process + IPC handlers
-extension/chrome/      # Browser capture extension (MV3)
-extension/vscode/      # VS Code extension (OpenCollection support)
-cli/                   # restura-cli — run collections in CI
+```text
+src/features/          # protocol UI, collections, scripts, workflows, AI
+shared/protocol/       # backend-agnostic protocol orchestrators
+worker/                # Cloudflare Worker and self-hosted Node/Hono app
+electron/main/         # desktop IPC, native handlers, secure storage
+extension/             # Chrome capture and VS Code extensions
+cli/                   # collection and workflow automation for CI
+docs/                  # architecture, operations, security, and guides
 ```
 
 </details>
 
-## Stack
-
-| Concern    | Choice                                                          |
-| ---------- | --------------------------------------------------------------- |
-| Build      | Vite 8 + `@cloudflare/vite-plugin`                              |
-| UI         | React 19 · Tailwind CSS v4 · shadcn/ui · Radix UI               |
-| Routing    | React Router v7 (hash mode — works on `file://` and `https://`) |
-| State      | Zustand v5 with `persist` middleware                            |
-| Validation | Zod v4                                                          |
-| Editor     | Monaco Editor                                                   |
-| Script VM  | QuickJS WASM (`quickjs-emscripten`)                             |
-| Worker     | Hono on Cloudflare Pages Functions                              |
-| Desktop    | Electron 42                                                     |
-| Tests      | Vitest + React Testing Library + Playwright                     |
-
-## Development
+## Development and contributing
 
 ```bash
-npm run dev              # web dev server (port 5173)
-npm run validate         # type-check + lint + tests (same as CI)
-npm run test:run         # run tests once
+npm run dev              # web development server
+npm run validate         # static checks, tests, and builds
+npm run test:run         # Vitest once
 npm run test:coverage    # coverage report
+npm run type-check:all   # renderer, Worker, Electron, CLI, extensions
 npm run lint             # Biome lint
-npm run format           # Biome format
+npm run format:check     # formatting check
 ```
 
-Every PR runs type-check (renderer + Electron main + Worker), lint, security audit, tests, build, and a Cloudflare Pages preview deploy — the URL is posted to the PR automatically.
+Contributions across protocol support, bugs, security, docs, and UX are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup and conventions; use a [good first issue](https://github.com/dipjyotimetia/restura/labels/good%20first%20issue) to get started. For a new protocol or a larger change, open an issue first so the design can be discussed.
 
-## Contributing
+## Explore further
 
-This started as a personal tool and I'd genuinely love help making it better. Bug fixes, new protocol support, UI polish, docs, security hardening — all welcome.
-
-```bash
-git checkout -b fix/my-thing
-# make your changes
-npm run validate          # type-check + lint + tests — same gates as CI
-git commit -m 'fix: my thing'
-# open a PR
-```
-
-If you're thinking about adding a new protocol or something significant, open an issue first so we can talk through the approach. For smaller things, just send the PR. [`good first issue`](https://github.com/dipjyotimetia/restura/labels/good%20first%20issue) is a good place to start. See [CONTRIBUTING.md](CONTRIBUTING.md) for branch naming and commit format, and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for the code of conduct.
-
-## Links
-
-- <a href="https://docs.restura.dev/" target="_blank" rel="noopener noreferrer"><b>Documentation</b></a> — guides, references, and how-tos
-- [**AI Lab**](https://docs.restura.dev/guides/ai-lab/) — desktop model evaluation and agent-suite testing
-- [**Architecture**](docs/ARCHITECTURE.md) — system design, security model, IPC internals
-- [**Roadmap**](docs/ROADMAP.md) — what's planned
-- [**Changelog**](docs/CHANGELOG.md) — what's shipped
-- [**CI/CD & Releases**](docs/CI_CD.md) — pipeline, supply-chain hardening, release runbook
-- [**Security**](SECURITY.md) — how to report vulnerabilities
-- [**Browser extension**](extension/chrome/README.md) — capture HTTP/GraphQL/WebSocket/SSE/gRPC-web traffic from Chrome into a collection
-- [**VS Code extension**](extension/vscode/README.md) — schema validation, Test Explorer, and inline send for OpenCollection files
-
-<br/>
+- [Documentation](https://docs.restura.dev/) — installation, protocol guides, and references
+- [Capability matrix](docs/CAPABILITY_MATRIX.md) — precise web-versus-desktop support
+- [AI Lab](https://docs.restura.dev/guides/ai-lab/) — desktop model evaluation and agent-suite testing
+- [Architecture](docs/ARCHITECTURE.md) — shared protocol core, transport boundaries, and security model
+- [Self-hosting](docs/SELF_HOSTING.md) — Docker, auth, reverse proxies, and operations
+- [Roadmap](docs/ROADMAP.md) and [changelog](docs/CHANGELOG.md) — planned and shipped work
+- [Security policy](SECURITY.md) — responsible disclosure
+- [Browser extension](extension/chrome/README.md) — capture browser traffic into a collection
+- [VS Code extension](extension/vscode/README.md) — OpenCollection validation, Test Explorer, and inline send
 
 <div align="center">
 
-**MIT License** · Hosted on Cloudflare Pages · Made by [**dipjyotimetia**](https://github.com/dipjyotimetia)
+**MIT License** · Hosted on Cloudflare Pages · Made by [dipjyotimetia](https://github.com/dipjyotimetia)
 
-<sub>If this saves you a context-switch, a ⭐ helps other developers find it.</sub>
+<sub>If Restura saves you a context-switch, a ⭐ helps other developers find it.</sub>
 
 </div>
