@@ -18,6 +18,7 @@ import {
 import type { ProtocolSecretValue } from '@shared/protocol/types';
 import { describe, expect, it } from 'vitest';
 import {
+  externalSecret,
   handleSecret,
   inlineSecret,
   type SecretValue,
@@ -33,6 +34,13 @@ describe('SecretValue / ProtocolSecretValue structural parity', () => {
       inlineSecret(''),
       handleSecret('uuid-1'),
       handleSecret('uuid-2', 'AWS prod'),
+      externalSecret({
+        provider: 'aws-secrets-manager',
+        profileId: 'engineering-prod',
+        secretId: 'restura/payments/token',
+        selector: 'AWSCURRENT',
+        label: 'Payments token',
+      }),
     ];
     for (const s of samples) {
       const result = protocolSecretValueSchema.safeParse(s);
@@ -46,6 +54,14 @@ describe('SecretValue / ProtocolSecretValue structural parity', () => {
       { kind: 'inline', value: 'hello' },
       { kind: 'handle', id: 'uuid-1' },
       { kind: 'handle', id: 'uuid-2', label: 'AWS prod' },
+      {
+        kind: 'external',
+        provider: 'google-secret-manager',
+        profileId: 'ci-workload',
+        secretId: 'projects/restura/secrets/api-token',
+        selector: '42',
+        label: 'CI API token',
+      },
     ];
     for (const s of samples) {
       const result = secretValueSchema.safeParse(s);
@@ -68,6 +84,8 @@ describe('SecretValue / ProtocolSecretValue structural parity', () => {
       [],
       { kind: 'inline' }, // missing value
       { kind: 'handle' }, // missing id
+      { kind: 'external', provider: 'aws-secrets-manager' }, // missing reference fields
+      { kind: 'external', provider: 'untrusted-provider', profileId: 'p', secretId: 's' },
       { kind: 'unknown', foo: 'bar' },
     ];
     for (const v of bad) {

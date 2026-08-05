@@ -24,4 +24,4 @@ jobs:
           # Tighten over time once we audit transitive deps.
           allow-licenses: >-
             MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, MPL-2.0,
-            CC0-1.0, CC-BY-4.0, Unlicense, 0BSD, BlueOak-1.0.0, Python-2.0
+            CC0-1.0, CC-BY-4.0, Unlicense, 0BSD, BlueOak-1.0.0, Python-2.0, MITNFA

@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { materializeSecretVariables } from '../security/secret-variable-materializer';
 
 describe('materializeSecretVariables', () => {
-  it('resolves opaque values only at the Electron wire boundary', () => {
-    const materialized = materializeSecretVariables({
+  it('resolves opaque values only at the Electron wire boundary', async () => {
+    const materialized = await materializeSecretVariables({
       method: 'POST',
       url: 'https://{{host}}/v1',
       headers: { Authorization: 'Bearer {{token}}' },

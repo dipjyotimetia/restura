@@ -40,6 +40,25 @@ describe('buildAuthCredential', () => {
       const auth = { type: 'bearer' } as AuthConfig;
       expect(buildAuthCredential(auth)).toEqual({ headers: {}, params: {} });
     });
+
+    it('defers an external reference to Electron main without rendering its value', () => {
+      const auth: AuthConfig = {
+        type: 'bearer',
+        bearer: {
+          token: {
+            kind: 'external',
+            provider: 'google-secret-manager',
+            profileId: 'profile-1',
+            secretId: 'token',
+          },
+        },
+      };
+      expect(buildAuthCredential(auth)).toEqual({
+        headers: {},
+        params: {},
+        requiresMainSideApply: true,
+      });
+    });
   });
 
   describe('basic', () => {

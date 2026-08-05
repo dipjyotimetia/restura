@@ -365,6 +365,23 @@ export interface ElectronSecretsAPI {
   clear: () => Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
+/** Renderer-visible profile metadata only; resolved provider values stay in main. */
+export interface ElectronExternalSecretsAPI {
+  list: () => Promise<{
+    profiles: import('../../../shared/secrets/external-secret-profile').ExternalSecretProfile[];
+  }>;
+  create: (
+    input: import('../../../shared/secrets/external-secret-profile').ExternalSecretProfileInput
+  ) => Promise<{
+    profile: import('../../../shared/secrets/external-secret-profile').ExternalSecretProfile;
+  }>;
+  update: (
+    profile: import('../../../shared/secrets/external-secret-profile').ExternalSecretProfile
+  ) => Promise<{ ok: true }>;
+  delete: (id: string) => Promise<{ ok: true }>;
+  clear: () => Promise<{ ok: true }>;
+}
+
 export interface ElectronVaultAPI {
   get: (key: string) => Promise<{ value: string | null }>;
   set: (key: string, value: string) => Promise<{ ok: true }>;

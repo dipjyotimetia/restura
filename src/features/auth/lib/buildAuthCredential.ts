@@ -1,4 +1,4 @@
-import { isSecretHandle, unwrapSecret } from '@/lib/shared/secretRef';
+import { isExternalSecretRef, isSecretHandle, unwrapSecret } from '@/lib/shared/secretRef';
 import type { AuthConfig } from '@/types';
 
 export interface AuthCredential {
@@ -62,7 +62,7 @@ export function buildAuthCredential(
 
   switch (auth.type) {
     case 'bearer': {
-      if (isSecretHandle(auth.bearer?.token)) {
+      if (isSecretHandle(auth.bearer?.token) || isExternalSecretRef(auth.bearer?.token)) {
         return { ...empty, requiresMainSideApply: true };
       }
       const token = unwrapSecret(auth.bearer?.token);
@@ -71,7 +71,7 @@ export function buildAuthCredential(
     }
 
     case 'basic': {
-      if (isSecretHandle(auth.basic?.password)) {
+      if (isSecretHandle(auth.basic?.password) || isExternalSecretRef(auth.basic?.password)) {
         return { ...empty, requiresMainSideApply: true };
       }
       const username = auth.basic?.username ?? '';
@@ -86,7 +86,7 @@ export function buildAuthCredential(
     }
 
     case 'api-key': {
-      if (isSecretHandle(auth.apiKey?.value)) {
+      if (isSecretHandle(auth.apiKey?.value) || isExternalSecretRef(auth.apiKey?.value)) {
         return { ...empty, requiresMainSideApply: true };
       }
       const key = auth.apiKey?.key ?? '';
@@ -101,7 +101,10 @@ export function buildAuthCredential(
     }
 
     case 'oauth2': {
-      if (isSecretHandle(auth.oauth2?.accessToken)) {
+      if (
+        isSecretHandle(auth.oauth2?.accessToken) ||
+        isExternalSecretRef(auth.oauth2?.accessToken)
+      ) {
         return { ...empty, requiresMainSideApply: true };
       }
       const token = unwrapSecret(auth.oauth2?.accessToken);

@@ -7,6 +7,7 @@ import { applyFilters, type FilterOptions } from './filter.js';
 import { DEFAULT_RETRY, type RetryOptions, withRetry } from './retry.js';
 import { type RunScriptResult, runPreRequestScript, runTestScript } from './scriptRunner.js';
 import { buildDispatcher, type TlsOptions } from './undiciFetcher.js';
+import type { ExternalSecretResolver } from '@shared/secrets/external-secret-resolver';
 
 export interface RunOptions {
   envVars: Record<string, string>;
@@ -29,6 +30,7 @@ export interface RunOptions {
   tls?: TlsOptions;
   /** Explicit HTTP(S) proxy URL. Overrides the HTTP_PROXY env var and composes with `tls`. */
   proxy?: string;
+  externalSecretResolver?: ExternalSecretResolver;
 }
 
 /**
@@ -165,6 +167,9 @@ export async function runCollection(
               : {}),
             ...(options.sseMaxEvents !== undefined ? { sseMaxEvents: options.sseMaxEvents } : {}),
             ...(dispatcher ? { dispatcher } : {}),
+            ...(options.externalSecretResolver
+              ? { externalSecretResolver: options.externalSecretResolver }
+              : {}),
           }),
         retry
       );

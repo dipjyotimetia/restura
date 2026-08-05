@@ -1,5 +1,6 @@
 import type { Dispatcher } from 'undici';
 import type { Fetcher } from '@shared/protocol/types';
+import type { ExternalSecretResolver } from '@shared/secrets/external-secret-resolver';
 import type { LoadedRequest } from '../collectionLoader';
 
 /** Streaming event captured from SSE or WebSocket runs. */
@@ -52,6 +53,8 @@ export interface ExecuteOptions {
   fetcher?: Fetcher;
   /** DNS-pinned fetch for OAuth token exchange in security-sensitive agent tools. */
   oauthFetch?: typeof globalThis.fetch;
+  /** Explicit external-secret resolver; omitted profiles fail closed. */
+  externalSecretResolver?: ExternalSecretResolver;
 }
 
 export type Executor = (req: LoadedRequest, opts: ExecuteOptions) => Promise<ExecuteOutcome>;

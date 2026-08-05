@@ -140,6 +140,13 @@ export const IPC = {
     list: 'secret:list',
     clear: 'secret:clear',
   },
+  externalSecrets: {
+    list: 'external-secrets:list',
+    create: 'external-secrets:create',
+    update: 'external-secrets:update',
+    delete: 'external-secrets:delete',
+    clear: 'external-secrets:clear',
+  },
   // pm.vault — user-named async key-value secret store, separate from
   // the UUID-keyed handle store above so the two namespaces can't collide.
   // Keys are user-controlled strings (validated by ipc-validators); values

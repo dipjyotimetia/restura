@@ -1,7 +1,20 @@
 import { Info, KeyRound, ShieldAlert, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+import type {
+  ExternalSecretProfile,
+  ExternalSecretProfileInput,
+} from '@shared/secrets/external-secret-profile';
 import { toast } from 'sonner';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Floater, ToggleField } from '@/components/ui/spatial';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
@@ -71,6 +84,261 @@ interface SecretHandleSummary {
   createdAt: number;
 }
 
+type Provider = ExternalSecretProfile['provider'];
+
+export function buildExternalSecretProfileInput(
+  provider: Provider,
+  authKind: 'named-profile' | 'workload-identity',
+  values: Record<string, string>
+): ExternalSecretProfileInput | null {
+  const label = values.label?.trim();
+  const withLabel = label ? { label } : {};
+  if (provider === 'aws-secrets-manager') {
+    if (!values.region?.trim()) return null;
+    return authKind === 'named-profile'
+      ? {
+          provider,
+          region: values.region.trim(),
+          auth: { kind: authKind, profile: values.profile?.trim() ?? '' },
+          ...withLabel,
+        }
+      : {
+          provider,
+          region: values.region.trim(),
+          auth: {
+            kind: authKind,
+            roleArn: values.roleArn?.trim() ?? '',
+            tokenFile: values.tokenFile?.trim() ?? '',
+            ...(values.sessionName?.trim() ? { sessionName: values.sessionName.trim() } : {}),
+          },
+          ...withLabel,
+        };
+  }
+  if (provider === 'google-secret-manager') {
+    return {
+      provider,
+      projectId: values.projectId?.trim() ?? '',
+      auth: { kind: authKind, credentialConfigFile: values.credentialConfigFile?.trim() ?? '' },
+      ...withLabel,
+    };
+  }
+  return authKind === 'named-profile'
+    ? {
+        provider,
+        vaultName: values.vaultName?.trim() ?? '',
+        auth: {
+          kind: authKind,
+          ...(values.subscription?.trim() ? { subscription: values.subscription.trim() } : {}),
+        },
+        ...withLabel,
+      }
+    : {
+        provider,
+        vaultName: values.vaultName?.trim() ?? '',
+        auth: {
+          kind: authKind,
+          tenantId: values.tenantId?.trim() ?? '',
+          clientId: values.clientId?.trim() ?? '',
+          tokenFile: values.tokenFile?.trim() ?? '',
+        },
+        ...withLabel,
+      };
+}
+
+export function ExternalSecretProfiles() {
+  const [profiles, setProfiles] = useState<ExternalSecretProfile[]>([]);
+  const [provider, setProvider] = useState<Provider>('aws-secrets-manager');
+  const [authKind, setAuthKind] = useState<'named-profile' | 'workload-identity'>('named-profile');
+  const [editingId, setEditingId] = useState<string>();
+  const [values, setValues] = useState<Record<string, string>>({});
+
+  const refresh = useCallback(async () => {
+    const result = await getElectronAPI()?.externalSecrets?.list();
+    if (result) setProfiles(result.profiles);
+  }, []);
+  useEffect(() => void refresh(), [refresh]);
+
+  const reset = () => {
+    setEditingId(undefined);
+    setProvider('aws-secrets-manager');
+    setAuthKind('named-profile');
+    setValues({});
+  };
+  const set = (name: string, value: string) =>
+    setValues((current) => ({ ...current, [name]: value }));
+  const input = (name: string, placeholder: string, required = true) => (
+    <Input
+      value={values[name] ?? ''}
+      onChange={(event) => set(name, event.target.value)}
+      placeholder={`${placeholder}${required ? ' *' : ''}`}
+      className="h-8 text-xs"
+    />
+  );
+
+  const save = async () => {
+    const inputValue = buildExternalSecretProfileInput(provider, authKind, values);
+    const api = getElectronAPI()?.externalSecrets;
+    if (!api || !inputValue) {
+      toast.error('Complete the required profile fields');
+      return;
+    }
+    try {
+      if (editingId) await api.update({ ...inputValue, id: editingId } as ExternalSecretProfile);
+      else await api.create(inputValue);
+      toast.success(editingId ? 'External profile updated' : 'External profile added');
+      reset();
+      await refresh();
+    } catch {
+      toast.error('Could not save the external profile');
+    }
+  };
+
+  const edit = (profile: ExternalSecretProfile) => {
+    setEditingId(profile.id);
+    setProvider(profile.provider);
+    setAuthKind(profile.auth.kind);
+    const common = { label: profile.label ?? '' };
+    if (profile.provider === 'aws-secrets-manager') {
+      setValues({
+        ...common,
+        region: profile.region,
+        ...(profile.auth.kind === 'named-profile'
+          ? { profile: profile.auth.profile }
+          : {
+              roleArn: profile.auth.roleArn,
+              tokenFile: profile.auth.tokenFile,
+              sessionName: profile.auth.sessionName ?? '',
+            }),
+      });
+    } else if (profile.provider === 'google-secret-manager') {
+      setValues({
+        ...common,
+        projectId: profile.projectId,
+        credentialConfigFile: profile.auth.credentialConfigFile,
+      });
+    } else {
+      setValues({
+        ...common,
+        vaultName: profile.vaultName,
+        ...(profile.auth.kind === 'named-profile'
+          ? { subscription: profile.auth.subscription ?? '' }
+          : {
+              tenantId: profile.auth.tenantId,
+              clientId: profile.auth.clientId,
+              tokenFile: profile.auth.tokenFile,
+            }),
+      });
+    }
+  };
+
+  const remove = async (id: string) => {
+    try {
+      await getElectronAPI()?.externalSecrets?.delete(id);
+      await refresh();
+      toast.success('External profile deleted');
+    } catch {
+      toast.error('Could not delete the external profile');
+    }
+  };
+
+  return (
+    <FieldGroup label="External cloud profiles">
+      <p className="text-sp-11 text-sp-muted mb-2">
+        Profile metadata is encrypted locally; provider credentials and resolved values never enter
+        Restura.
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <Select value={provider} onValueChange={(value) => setProvider(value as Provider)}>
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="aws-secrets-manager">AWS Secrets Manager</SelectItem>
+            <SelectItem value="google-secret-manager">Google Secret Manager</SelectItem>
+            <SelectItem value="azure-key-vault">Azure Key Vault</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={authKind} onValueChange={(value) => setAuthKind(value as typeof authKind)}>
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="named-profile">Named profile / CLI identity</SelectItem>
+            <SelectItem value="workload-identity">Workload identity</SelectItem>
+          </SelectContent>
+        </Select>
+        {input('label', 'Profile label', false)}
+        {provider === 'aws-secrets-manager' && input('region', 'AWS region')}
+        {provider === 'google-secret-manager' && input('projectId', 'Google project ID')}
+        {provider === 'azure-key-vault' && input('vaultName', 'Azure vault name')}
+        {authKind === 'named-profile' &&
+          provider === 'aws-secrets-manager' &&
+          input('profile', 'AWS profile name')}
+        {authKind === 'named-profile' &&
+          provider === 'google-secret-manager' &&
+          input('credentialConfigFile', 'Google credential config path')}
+        {authKind === 'named-profile' &&
+          provider === 'azure-key-vault' &&
+          input('subscription', 'Azure subscription (optional)', false)}
+        {authKind === 'workload-identity' && provider === 'aws-secrets-manager' && (
+          <>
+            {input('roleArn', 'AWS role ARN')}
+            {input('tokenFile', 'Web identity token file')}
+            {input('sessionName', 'Session name', false)}
+          </>
+        )}
+        {authKind === 'workload-identity' &&
+          provider === 'google-secret-manager' &&
+          input('credentialConfigFile', 'Google credential config path')}
+        {authKind === 'workload-identity' && provider === 'azure-key-vault' && (
+          <>
+            {input('tenantId', 'Azure tenant ID')}
+            {input('clientId', 'Azure client ID')}
+            {input('tokenFile', 'Federated token file')}
+          </>
+        )}
+      </div>
+      <div className="flex gap-2 mt-2">
+        <Button type="button" variant="outline" size="sm" onClick={() => void save()}>
+          {editingId ? 'Save profile' : 'Add profile'}
+        </Button>
+        {editingId && (
+          <Button type="button" variant="ghost" size="sm" onClick={reset}>
+            Cancel
+          </Button>
+        )}
+      </div>
+      {profiles.length > 0 && (
+        <ul className="mt-3 divide-y divide-sp-line rounded-sp-btn border border-sp-line">
+          {profiles.map((profile) => (
+            <li key={profile.id} className="flex items-center justify-between gap-2 px-3 py-2">
+              <span className="min-w-0 truncate text-sp-12 font-mono">
+                {profile.label || profile.provider}
+              </span>
+              <span className="flex shrink-0 gap-2">
+                <button
+                  type="button"
+                  className="text-sp-muted hover:text-sp-text text-sp-11"
+                  onClick={() => edit(profile)}
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  className="text-rose-400 text-sp-11"
+                  onClick={() => void remove(profile.id)}
+                >
+                  Delete
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </FieldGroup>
+  );
+}
+
 export function SecretsSection() {
   const electron = isElectron();
   const [handles, setHandles] = useState<SecretHandleSummary[]>([]);
@@ -127,6 +395,7 @@ export function SecretsSection() {
         title="Secrets"
         description="Plaintext for these handles lives in the OS keychain. Restura never reads them in the renderer; the main process resolves them at the wire boundary only when a request is sent."
       />
+      <ExternalSecretProfiles />
       <SectionLabel>Stored handles</SectionLabel>
       {loading ? (
         <Floater radius="panel" elevation="inset" className="p-4">

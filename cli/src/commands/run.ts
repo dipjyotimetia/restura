@@ -12,6 +12,7 @@ import { loadIterationData } from '../runner/dataLoader.js';
 import { loadEnv } from '../runner/envLoader.js';
 import { parseRetryOn } from '../runner/retry.js';
 import { type RunOptions, runCollection } from '../runner/runner.js';
+import { loadExternalSecretResolver } from '../runner/external-secret-config.js';
 import { interactive, showCursor } from '../ui/colors.js';
 import { runWizard } from '../ui/wizard.js';
 
@@ -38,6 +39,7 @@ export interface RunOpts {
   clientKey?: string;
   certPassphrase?: string;
   proxy?: string;
+  externalSecretsConfig?: string;
 }
 
 /** Build TLS options from --insecure / --ca / --client-cert / --client-key. */
@@ -109,6 +111,10 @@ export function registerRunCommand(program: Command): void {
     .option('--client-key <file>', 'PEM client private key for mutual TLS')
     .option('--cert-passphrase <value>', 'Passphrase for an encrypted client key')
     .option('--proxy <url>', 'HTTP(S) proxy URL (overrides HTTP_PROXY; composes with TLS options)')
+    .option(
+      '--external-secrets-config <file>',
+      'YAML/JSON file mapping external secret profile ids to explicit identities'
+    )
     .action(async (collectionPath: string | undefined, opts: RunOpts) => {
       // A missing collection launches the wizard in a TTY; in CI it's an error
       // (never block on stdin) matching commander's required-argument behaviour.
@@ -140,6 +146,7 @@ export async function executeRun(collectionPath: string, opts: RunOpts): Promise
     const iterations = await loadIterationData(opts.data);
     const reporter = buildReporters(opts);
     const tls = buildTls(opts);
+    const externalSecretResolver = await loadExternalSecretResolver(opts.externalSecretsConfig);
 
     const result = await runCollection(
       collectionPath,
@@ -169,6 +176,7 @@ export async function executeRun(collectionPath: string, opts: RunOpts): Promise
           : {}),
         ...(tls ? { tls } : {}),
         ...(opts.proxy ? { proxy: opts.proxy } : {}),
+        ...(externalSecretResolver ? { externalSecretResolver } : {}),
       },
       reporter
     );

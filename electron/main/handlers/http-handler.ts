@@ -35,7 +35,6 @@ import {
   type ValidatedHttpRequestConfig,
 } from '../ipc/ipc-validators';
 import type { LogEntry } from '../lifecycle/request-logger';
-import { applyNonSignAtWireAuth } from '../security/auth-applier';
 import { smithySigV4Signer } from '../security/aws-sigv4-smithy';
 import { resolveEnvProxy } from '../security/env-proxy';
 import {
@@ -44,6 +43,7 @@ import {
   getExecutionPolicy,
 } from '../security/execution-policy';
 import { isProxyBypassed } from '../security/proxy-bypass';
+import { materializeHttpAuth } from '../security/http-auth-materializer';
 import { materializeSecretVariables } from '../security/secret-variable-materializer';
 import { unwrapSecretValueMain } from '../security/secret-handle-store';
 import { buildTlsClientMaterial } from '../security/tls-material';
@@ -948,7 +948,7 @@ async function makeHttpRequest(
   config: HttpRequestConfig,
   redirectCount = 0
 ): Promise<HttpResponse> {
-  config = materializeSecretVariables(config);
+  config = await materializeSecretVariables(config, config.signal);
   let policyConfig: HttpRequestConfig;
   try {
     policyConfig = resolveHttpExecutionPolicy(config);
@@ -1040,17 +1040,7 @@ async function makeHttpRequest(
 
   let rawResult: HttpResponse;
   try {
-    // Apply non-sign-at-wire auth main-side for handle-protected creds.
-    // (Renderer skipped this step because it can't resolve handles.)
-    const mainApplied = applyNonSignAtWireAuth(interceptedConfig.auth);
-    const mergedHeaders: Record<string, string> = {
-      ...(interceptedConfig.headers ?? {}),
-      ...mainApplied.headers,
-    };
-    const mergedParams: Record<string, string> = {
-      ...(interceptedConfig.params ?? {}),
-      ...mainApplied.params,
-    };
+    const mainAuth = await materializeHttpAuth(interceptedConfig);
 
     const fetcher = buildElectronFetcher(interceptedConfig, socksSocket);
     const redirectPolicy: {
@@ -1075,15 +1065,15 @@ async function makeHttpRequest(
       {
         method: interceptedConfig.method ?? 'GET',
         url: interceptedConfig.url,
-        headers: mergedHeaders,
-        params: mergedParams,
+        headers: mainAuth.headers,
+        params: mainAuth.params,
         // Honour an explicit bodyType (form-data/binary/etc.); legacy callers that
         // only send `data` keep the raw-when-present default.
         bodyType: interceptedConfig.bodyType ?? (interceptedConfig.data ? 'raw' : 'none'),
         ...(interceptedConfig.data !== undefined ? { data: interceptedConfig.data } : {}),
         ...(interceptedConfig.formData ? { formData: interceptedConfig.formData } : {}),
         ...(interceptedConfig.timeout !== undefined ? { timeout: interceptedConfig.timeout } : {}),
-        ...(interceptedConfig.auth ? { auth: interceptedConfig.auth } : {}),
+        ...(mainAuth.auth ? { auth: mainAuth.auth } : {}),
         ...(Object.keys(redirectPolicy).length > 0 ? { redirectPolicy } : {}),
         ...(interceptedConfig.encodeUrlAutomatically !== undefined
           ? { encodeUrl: interceptedConfig.encodeUrlAutomatically }

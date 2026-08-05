@@ -15,6 +15,7 @@ import {
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
 import { applyNonSignAtWireAuth } from '../security/auth-applier';
+import { materializeExternalProtocolAuth } from '../security/external-secret-materializer';
 import {
   executeConnectServerStreamCollect,
   executeConnectUnary,
@@ -322,6 +323,21 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
     };
   }
 
+  try {
+    policyConfig = {
+      ...policyConfig,
+      auth: await materializeExternalProtocolAuth(policyConfig.auth),
+    };
+  } catch (err) {
+    const detail = sanitizeErrorMessage(err instanceof Error ? err.message : String(err));
+    return {
+      status: 2,
+      statusText: 'Internal Error',
+      headers: {},
+      trailers: {},
+      error: `gRPC setup failed: ${detail}`,
+    };
+  }
   const shared = toConnectArgs(policyConfig, grpcDial);
 
   try {
@@ -484,6 +500,25 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           pendingForOwner(requestId, event.sender.id)?.token !== claim.token
         ) {
           releasePendingStream(requestId, claim);
+          return;
+        }
+
+        // Preserve the synchronous ownership reservation and the existing
+        // DNS-pinning lifecycle above; provider resolution is async and must
+        // happen only after this stream is owned by the initiating renderer.
+        try {
+          policyConfig = {
+            ...policyConfig,
+            auth: await materializeExternalProtocolAuth(policyConfig.auth),
+          };
+        } catch (err) {
+          releasePendingStream(requestId, claim);
+          safeSend(eventChannel(EVENT_PREFIX.grpc.error, requestId), {
+            status: 2,
+            details: `gRPC setup failed: ${sanitizeErrorMessage(
+              err instanceof Error ? err.message : String(err)
+            )}`,
+          });
           return;
         }
 
