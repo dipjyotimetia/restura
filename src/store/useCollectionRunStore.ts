@@ -60,8 +60,9 @@ export function pruneCollectionRuns(runs: CollectionRunResult[]): CollectionRunR
     const run = retained[index]!;
     const bytes = runEvidenceBytes(run);
     if (bytes === 0) continue;
-    retained[index] = markUnavailable(run);
-    total -= bytes;
+    const pruned = markUnavailable(run);
+    retained[index] = pruned;
+    total -= bytes - runEvidenceBytes(pruned);
   }
   return retained;
 }

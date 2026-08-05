@@ -1,4 +1,4 @@
-import { RESPONSE_EVIDENCE_LIMITS } from '@shared/collection-run/evidence';
+import { evidenceBytes, RESPONSE_EVIDENCE_LIMITS } from '@shared/collection-run/evidence';
 import { describe, expect, it } from 'vitest';
 import type { CollectionRunResult } from '@/features/collections/lib/collectionRunner';
 import { runMigrations } from '@/lib/shared/persistence/runMigrations';
@@ -39,6 +39,18 @@ function run(id: string, startedAt: number, evidenceSize = 0): CollectionRunResu
       : [],
     summary: { total: 0, passed: 0, failed: 0, skipped: 0 },
   };
+}
+
+function totalEvidenceBytes(runs: CollectionRunResult[]): number {
+  return runs.reduce(
+    (runTotal, item) =>
+      runTotal +
+      item.requests.reduce(
+        (requestTotal, request) => requestTotal + evidenceBytes(request.evidence),
+        0
+      ),
+    0
+  );
 }
 
 describe('pruneCollectionRuns', () => {
@@ -99,6 +111,24 @@ describe('pruneCollectionRuns', () => {
 
     expect(result.at(-1)?.requests[0]?.evidence).toBeUndefined();
     expect(result.some((item) => item.requests[0]?.evidence?.unavailable)).toBe(true);
+  });
+
+  it('counts retained metadata after each global evidence eviction', () => {
+    const targetPerRun = Math.floor(RESPONSE_EVIDENCE_LIMITS.totalBytes / 11);
+    let excerptBytes = targetPerRun;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const actualBytes = totalEvidenceBytes([run('probe', 0, excerptBytes)]);
+      excerptBytes -= actualBytes - targetPerRun;
+    }
+    const runs = Array.from({ length: 12 }, (_, index) =>
+      run(`boundary-${index}`, 12 - index, excerptBytes)
+    );
+
+    expect(totalEvidenceBytes(runs)).toBeGreaterThan(RESPONSE_EVIDENCE_LIMITS.totalBytes);
+
+    const result = pruneCollectionRuns(runs);
+
+    expect(totalEvidenceBytes(result)).toBeLessThanOrEqual(RESPONSE_EVIDENCE_LIMITS.totalBytes);
   });
 });
 
