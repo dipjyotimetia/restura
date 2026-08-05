@@ -1,6 +1,7 @@
 // @vitest-environment node
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
 import { EventEmitter } from 'node:events';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockHandle = vi.hoisted(() => vi.fn());
 const mockEmitTo = vi.hoisted(() => vi.fn());
@@ -36,6 +37,7 @@ import {
   registerKafkaHandlerIPC,
   stopKafkaCleanup,
 } from '../handlers/kafka-handler';
+import { setExecutionPolicy } from '../security/execution-policy';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -213,6 +215,13 @@ describe('kafka-handler', () => {
     FakeProducer.metadataGates.length = 0;
     FakeAdmin.instances.length = 0;
     FakeConsumer.instances.length = 0;
+    setExecutionPolicy({
+      security: { allowLocalhost: true, allowPrivateIPs: true },
+      proxy: { enabled: false, type: 'http', host: '', port: 8080, bypassList: [] },
+      timeout: 30_000,
+      tls: { verifySsl: true, serverCipherOrder: false },
+      certificates: { clientCertificates: [], caCertificates: [] },
+    });
     __setKafkaForTests(fakeKafkaLib);
     registerKafkaHandlerIPC(mockOnComplete);
   });
@@ -264,7 +273,10 @@ describe('kafka-handler', () => {
     const { event, senderId } = makeEvent();
     const res = await handlerFor(IPC.kafka.connect)(event, validConnect('c1'));
     expect(res).toEqual({ success: true });
-    expect(mockBrokersSafe).toHaveBeenCalledWith(['broker.example.com:9092']);
+    expect(mockBrokersSafe).toHaveBeenCalledWith(['broker.example.com:9092'], {
+      allowLocalhost: true,
+      allowPrivateIPs: true,
+    });
     expect(FakeProducer.instances).toHaveLength(1);
     expect(FakeProducer.instances[0]!.metadata).toHaveBeenCalledWith({
       autocreateTopics: false,

@@ -14,6 +14,8 @@ export const PORTS = {
   mtls: 8444,
   /** Forward + CONNECT HTTP proxy. */
   proxy: 8888,
+  /** SOCKS5 CONNECT proxy for raw TCP clients such as MQTT. */
+  socks: 1080,
   /** Native gRPC (h2c) + server reflection — what the DESKTOP client dials. */
   grpc: 50051,
   /** WebSocket (/echo /chat /graphql /ping /close). */
@@ -49,6 +51,7 @@ export const IN_PROCESS_SERVICES = [
   'https',
   'mtls',
   'proxy',
+  'socks',
   'grpc',
   'ws',
   'wss',

@@ -1,4 +1,5 @@
 import { validateURL } from '@shared/protocol/url-validation';
+import type { BrokerSecurityPolicy } from './mqtt-broker-guard';
 
 /**
  * Pre-flight SSRF guard for Kafka bootstrap brokers. Unlike HTTP, production
@@ -16,7 +17,10 @@ import { validateURL } from '@shared/protocol/url-validation';
  * Extracted into its own module so the unit test can import it without
  * pulling the full `@platformatic/kafka` + Electron import chain.
  */
-export function assertKafkaBrokersSafe(brokers: readonly string[]): void {
+export function assertKafkaBrokersSafe(
+  brokers: readonly string[],
+  policy: BrokerSecurityPolicy = { allowLocalhost: true, allowPrivateIPs: true }
+): void {
   for (const broker of brokers) {
     if (!broker || broker.length > 256) {
       throw new Error(`Invalid Kafka broker address: ${broker}`);
@@ -34,8 +38,8 @@ export function assertKafkaBrokersSafe(brokers: readonly string[]): void {
     const synthetic = `kafka://${broker}`;
     const result = validateURL(synthetic, {
       allowedSchemes: ['kafka:'],
-      allowLocalhost: true,
-      allowPrivateIPs: true, // Kafka brokers are routinely on private nets
+      allowLocalhost: policy.allowLocalhost,
+      allowPrivateIPs: policy.allowPrivateIPs,
     });
     if (!result.valid) {
       throw new Error(`Kafka broker "${broker}" rejected: ${result.error}`);
@@ -45,16 +49,20 @@ export function assertKafkaBrokersSafe(brokers: readonly string[]): void {
 
 /**
  * Pre-flight SSRF guard for a Confluent Schema Registry URL. Same trust posture
- * as the brokers (registries live on the same private/VPC networks), so private
- * IPs are allowed but cloud-metadata endpoints and blocked hostnames are not.
+ * as the brokers (registries live on the same private/VPC networks), unless the
+ * active global execution policy narrows that allowance. Cloud-metadata
+ * endpoints and blocked hostnames are always rejected.
  * String-policy only — the same residual DNS-rebind gap as the broker guard
  * applies (documented in ADR-0006).
  */
-export function assertRegistryUrlSafe(url: string): void {
+export function assertRegistryUrlSafe(
+  url: string,
+  policy: BrokerSecurityPolicy = { allowLocalhost: true, allowPrivateIPs: true }
+): void {
   const result = validateURL(url, {
     allowedSchemes: ['http:', 'https:'],
-    allowLocalhost: true,
-    allowPrivateIPs: true, // registries sit alongside brokers on private nets
+    allowLocalhost: policy.allowLocalhost,
+    allowPrivateIPs: policy.allowPrivateIPs,
   });
   if (!result.valid) {
     throw new Error(`Schema Registry URL rejected: ${result.error}`);

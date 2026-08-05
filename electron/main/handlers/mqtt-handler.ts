@@ -21,6 +21,11 @@ import {
 } from '../ipc/ipc-validators';
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
+import {
+  type BrokerTlsOptions,
+  resolveMqttExecutionPolicy,
+} from '../security/broker-execution-policy';
+import { getExecutionPolicy } from '../security/execution-policy';
 import { assertMqttBrokerSafe } from '../security/mqtt-broker-guard';
 
 const log = createLogger('mqtt');
@@ -112,15 +117,18 @@ function emitToEntry(entry: ActiveMqtt, channel: string, ...args: unknown[]): vo
 
 // MQTT.js forwards unknown options through to the underlying tls.connect, but
 // its typed `IClientOptions` omits `passphrase`. Widen locally so we can set it.
-type MqttClientOptions = IClientOptions & { passphrase?: string };
+type MqttClientOptions = IClientOptions & BrokerTlsOptions & { passphrase?: string };
 
-function buildClientOptions(cfg: MqttConnectConfig): MqttClientOptions {
+function buildClientOptions(
+  cfg: MqttConnectConfig,
+  policyConfig: ReturnType<typeof resolveMqttExecutionPolicy>
+): MqttClientOptions {
   const opts: MqttClientOptions = {
     protocolVersion: cfg.protocolVersion,
     clientId: cfg.clientId,
     keepalive: cfg.keepalive,
     clean: cfg.cleanStart,
-    connectTimeout: cfg.connectTimeout,
+    connectTimeout: policyConfig.connectTimeout,
     // 0 disables auto-reconnect; otherwise retry every second.
     reconnectPeriod: cfg.autoReconnect ? 1000 : 0,
   };
@@ -128,16 +136,10 @@ function buildClientOptions(cfg: MqttConnectConfig): MqttClientOptions {
   if (cfg.username !== undefined) opts.username = cfg.username;
   if (cfg.password !== undefined) opts.password = cfg.password;
 
-  const isTls = new URL(cfg.brokerUrl).protocol === 'mqtts:';
-  if (isTls && cfg.tls) {
-    if (cfg.tls.ca) opts.ca = cfg.tls.ca;
-    if (cfg.tls.cert) opts.cert = cfg.tls.cert;
-    if (cfg.tls.key) opts.key = cfg.tls.key;
-    if (cfg.tls.passphrase) opts.passphrase = cfg.tls.passphrase;
-    if (cfg.tls.rejectUnauthorized !== undefined) {
-      opts.rejectUnauthorized = cfg.tls.rejectUnauthorized;
-    }
+  if (policyConfig.tls) {
+    Object.assign(opts, policyConfig.tls);
   }
+  if (policyConfig.socksProxy) opts.socksProxy = policyConfig.socksProxy;
 
   if (cfg.lwt) {
     opts.will = {
@@ -288,8 +290,14 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         activeConnections.remove(connectionId, webContentsId);
       }
 
+      let policyConfig: ReturnType<typeof resolveMqttExecutionPolicy>;
       try {
-        assertMqttBrokerSafe(cfg.brokerUrl);
+        policyConfig = resolveMqttExecutionPolicy({
+          brokerUrl: cfg.brokerUrl,
+          connectTimeout: cfg.connectTimeout,
+          ...(cfg.tls ? { tls: cfg.tls } : {}),
+        });
+        assertMqttBrokerSafe(cfg.brokerUrl, getExecutionPolicy().security);
       } catch (err) {
         const msg = errorMessage(err);
         logEntry(400, msg);
@@ -300,8 +308,9 @@ export function registerMqttHandlerIPC(onComplete?: (entry: LogEntry) => void): 
         if (pendingConnections.get(key)?.token !== claim.token) {
           return { success: false, error: 'Not connected' };
         }
+
         const mqtt = getMqtt();
-        const client = mqtt.connect(cfg.brokerUrl, buildClientOptions(cfg));
+        const client = mqtt.connect(cfg.brokerUrl, buildClientOptions(cfg, policyConfig));
         const wc = webContents.fromId(webContentsId) ?? undefined;
         const entry: ActiveMqtt = {
           client,

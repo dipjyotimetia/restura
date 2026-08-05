@@ -30,56 +30,79 @@ export async function startMockSocksProxyServer(
     client.on('error', () => {});
     client.on('close', () => live.delete(client));
 
-    // Phase 1: method-negotiation greeting → reply NO-AUTH (0x00).
-    client.once('data', (greeting: Buffer) => {
-      if (greeting[0] !== 0x05) {
+    let buffered = Buffer.alloc(0);
+    let authenticated = false;
+    let connecting = false;
+
+    // TCP framing is arbitrary: MQTT.js may send the SOCKS greeting and CONNECT
+    // request in one chunk, or split either across several. Parse incrementally
+    // so this mock validates the real client rather than a packet-boundary
+    // accident of the test runner.
+    client.on('data', (chunk: Buffer) => {
+      if (connecting) return;
+      buffered = Buffer.concat([buffered, chunk]);
+
+      if (!authenticated) {
+        if (buffered.length < 2) return;
+        const methodCount = buffered[1]!;
+        const greetingLength = 2 + methodCount;
+        if (buffered.length < greetingLength || buffered[0] !== 0x05) {
+          if (buffered.length >= greetingLength) client.destroy();
+          return;
+        }
+        buffered = buffered.subarray(greetingLength);
+        authenticated = true;
+        client.write(Buffer.from([0x05, 0x00]));
+      }
+
+      if (buffered.length < 4) return;
+      if (buffered[0] !== 0x05 || buffered[1] !== 0x01) {
         client.destroy();
         return;
       }
-      client.write(Buffer.from([0x05, 0x00]));
 
-      // Phase 2: CONNECT request.
-      client.once('data', (req: Buffer) => {
-        if (req[0] !== 0x05 || req[1] !== 0x01) {
-          client.destroy();
-          return;
-        }
-        const atyp = req[3];
-        let host: string;
-        let offset: number;
-        if (atyp === 0x03) {
-          const len = req[4]!;
-          host = req.subarray(5, 5 + len).toString('ascii');
-          offset = 5 + len;
-        } else if (atyp === 0x01) {
-          host = `${req[4]}.${req[5]}.${req[6]}.${req[7]}`;
-          offset = 8;
-        } else {
-          // Address type not supported.
-          client.end(Buffer.from([0x05, 0x08, 0x00, 0x01, 0, 0, 0, 0, 0, 0]));
-          return;
-        }
-        const port = req.readUInt16BE(offset);
-        connectCount += 1;
-        connectHosts.push(`${host}:${port}`);
+      const atyp = buffered[3];
+      let host: string;
+      let portOffset: number;
+      if (atyp === 0x03) {
+        if (buffered.length < 5) return;
+        const length = buffered[4]!;
+        portOffset = 5 + length;
+        if (buffered.length < portOffset + 2) return;
+        host = buffered.subarray(5, portOffset).toString('ascii');
+      } else if (atyp === 0x01) {
+        portOffset = 8;
+        if (buffered.length < portOffset + 2) return;
+        host = `${buffered[4]}.${buffered[5]}.${buffered[6]}.${buffered[7]}`;
+      } else {
+        // Address type not supported.
+        client.end(Buffer.from([0x05, 0x08, 0x00, 0x01, 0, 0, 0, 0, 0, 0]));
+        return;
+      }
 
-        const upstream = createConnection({ host: loopbackHost(host), port });
-        live.add(upstream);
-        upstream.on('close', () => live.delete(upstream));
-        upstream.on('error', () => {
-          // General SOCKS failure (0x01).
-          try {
-            client.end(Buffer.from([0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0]));
-          } catch {
-            /* already gone */
-          }
-        });
-        upstream.once('connect', () => {
-          // Success reply (BND.ADDR/PORT are ignored by the client).
-          client.write(Buffer.from([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]));
-          upstream.pipe(client);
-          client.pipe(upstream);
-        });
+      const port = buffered.readUInt16BE(portOffset);
+      buffered = buffered.subarray(portOffset + 2);
+      connecting = true;
+      connectCount += 1;
+      connectHosts.push(`${host}:${port}`);
+
+      const upstream = createConnection({ host: loopbackHost(host), port });
+      live.add(upstream);
+      upstream.on('close', () => live.delete(upstream));
+      upstream.on('error', () => {
+        // General SOCKS failure (0x01).
+        try {
+          client.end(Buffer.from([0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0]));
+        } catch {
+          /* already gone */
+        }
+      });
+      upstream.once('connect', () => {
+        // Success reply (BND.ADDR/PORT are ignored by the client).
+        client.write(Buffer.from([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]));
+        if (buffered.length > 0) upstream.write(buffered);
+        upstream.pipe(client);
+        client.pipe(upstream);
       });
     });
   });

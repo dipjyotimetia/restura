@@ -20,14 +20,22 @@ import { validateURL } from '@shared/protocol/url-validation';
  * Extracted into its own module so the unit test can import it without
  * pulling the full `mqtt` + Electron import chain.
  */
-export function assertMqttBrokerSafe(brokerUrl: string): void {
+export interface BrokerSecurityPolicy {
+  allowLocalhost: boolean;
+  allowPrivateIPs: boolean;
+}
+
+export function assertMqttBrokerSafe(
+  brokerUrl: string,
+  policy: BrokerSecurityPolicy = { allowLocalhost: true, allowPrivateIPs: true }
+): void {
   if (!brokerUrl || brokerUrl.length > 2048) {
     throw new Error(`Invalid MQTT broker URL: ${brokerUrl}`);
   }
   const result = validateURL(brokerUrl, {
     allowedSchemes: ['mqtt:', 'mqtts:'],
-    allowLocalhost: true,
-    allowPrivateIPs: true, // MQTT brokers are routinely on private/IoT/LAN nets
+    allowLocalhost: policy.allowLocalhost,
+    allowPrivateIPs: policy.allowPrivateIPs,
   });
   if (!result.valid) {
     throw new Error(`MQTT broker "${brokerUrl}" rejected: ${result.error}`);
