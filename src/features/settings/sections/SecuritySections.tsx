@@ -86,7 +86,66 @@ interface SecretHandleSummary {
 
 type Provider = ExternalSecretProfile['provider'];
 
-function ExternalSecretProfiles() {
+export function buildExternalSecretProfileInput(
+  provider: Provider,
+  authKind: 'named-profile' | 'workload-identity',
+  values: Record<string, string>
+): ExternalSecretProfileInput | null {
+  const label = values.label?.trim();
+  const withLabel = label ? { label } : {};
+  if (provider === 'aws-secrets-manager') {
+    if (!values.region?.trim()) return null;
+    return authKind === 'named-profile'
+      ? {
+          provider,
+          region: values.region.trim(),
+          auth: { kind: authKind, profile: values.profile?.trim() ?? '' },
+          ...withLabel,
+        }
+      : {
+          provider,
+          region: values.region.trim(),
+          auth: {
+            kind: authKind,
+            roleArn: values.roleArn?.trim() ?? '',
+            tokenFile: values.tokenFile?.trim() ?? '',
+            ...(values.sessionName?.trim() ? { sessionName: values.sessionName.trim() } : {}),
+          },
+          ...withLabel,
+        };
+  }
+  if (provider === 'google-secret-manager') {
+    return {
+      provider,
+      projectId: values.projectId?.trim() ?? '',
+      auth: { kind: authKind, credentialConfigFile: values.credentialConfigFile?.trim() ?? '' },
+      ...withLabel,
+    };
+  }
+  return authKind === 'named-profile'
+    ? {
+        provider,
+        vaultName: values.vaultName?.trim() ?? '',
+        auth: {
+          kind: authKind,
+          ...(values.subscription?.trim() ? { subscription: values.subscription.trim() } : {}),
+        },
+        ...withLabel,
+      }
+    : {
+        provider,
+        vaultName: values.vaultName?.trim() ?? '',
+        auth: {
+          kind: authKind,
+          tenantId: values.tenantId?.trim() ?? '',
+          clientId: values.clientId?.trim() ?? '',
+          tokenFile: values.tokenFile?.trim() ?? '',
+        },
+        ...withLabel,
+      };
+}
+
+export function ExternalSecretProfiles() {
   const [profiles, setProfiles] = useState<ExternalSecretProfile[]>([]);
   const [provider, setProvider] = useState<Provider>('aws-secrets-manager');
   const [authKind, setAuthKind] = useState<'named-profile' | 'workload-identity'>('named-profile');
@@ -116,63 +175,8 @@ function ExternalSecretProfiles() {
     />
   );
 
-  const toInput = (): ExternalSecretProfileInput | null => {
-    const label = values.label?.trim();
-    const withLabel = label ? { label } : {};
-    if (provider === 'aws-secrets-manager') {
-      if (!values.region?.trim()) return null;
-      return authKind === 'named-profile'
-        ? {
-            provider,
-            region: values.region.trim(),
-            auth: { kind: authKind, profile: values.profile?.trim() ?? '' },
-            ...withLabel,
-          }
-        : {
-            provider,
-            region: values.region.trim(),
-            auth: {
-              kind: authKind,
-              roleArn: values.roleArn?.trim() ?? '',
-              tokenFile: values.tokenFile?.trim() ?? '',
-              ...(values.sessionName?.trim() ? { sessionName: values.sessionName.trim() } : {}),
-            },
-            ...withLabel,
-          };
-    }
-    if (provider === 'google-secret-manager') {
-      return {
-        provider,
-        projectId: values.projectId?.trim() ?? '',
-        auth: { kind: authKind, credentialConfigFile: values.credentialConfigFile?.trim() ?? '' },
-        ...withLabel,
-      };
-    }
-    return authKind === 'named-profile'
-      ? {
-          provider,
-          vaultName: values.vaultName?.trim() ?? '',
-          auth: {
-            kind: authKind,
-            ...(values.subscription?.trim() ? { subscription: values.subscription.trim() } : {}),
-          },
-          ...withLabel,
-        }
-      : {
-          provider,
-          vaultName: values.vaultName?.trim() ?? '',
-          auth: {
-            kind: authKind,
-            tenantId: values.tenantId?.trim() ?? '',
-            clientId: values.clientId?.trim() ?? '',
-            tokenFile: values.tokenFile?.trim() ?? '',
-          },
-          ...withLabel,
-        };
-  };
-
   const save = async () => {
-    const inputValue = toInput();
+    const inputValue = buildExternalSecretProfileInput(provider, authKind, values);
     const api = getElectronAPI()?.externalSecrets;
     if (!api || !inputValue) {
       toast.error('Complete the required profile fields');

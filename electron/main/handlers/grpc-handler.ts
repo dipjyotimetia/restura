@@ -323,10 +323,21 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
     };
   }
 
-  policyConfig = {
-    ...policyConfig,
-    auth: await materializeExternalProtocolAuth(policyConfig.auth),
-  };
+  try {
+    policyConfig = {
+      ...policyConfig,
+      auth: await materializeExternalProtocolAuth(policyConfig.auth),
+    };
+  } catch (err) {
+    const detail = sanitizeErrorMessage(err instanceof Error ? err.message : String(err));
+    return {
+      status: 2,
+      statusText: 'Internal Error',
+      headers: {},
+      trailers: {},
+      error: `gRPC setup failed: ${detail}`,
+    };
+  }
   const shared = toConnectArgs(policyConfig, grpcDial);
 
   try {
