@@ -57,6 +57,7 @@ npm run echo:local -- manifest                # write + print the manifest, exit
 | HTTPS            | `https://localhost:8443`                           | CA-signed server cert                                                        |
 | HTTPS mTLS       | `https://localhost:8444`                           | requires a client cert; `GET /mtls/whoami` confirms it                       |
 | HTTP proxy       | `http://localhost:8888`                            | forward + CONNECT                                                            |
+| SOCKS proxy      | `socks5://localhost:1080`                          | SOCKS5 CONNECT; MQTT global-proxy verification                               |
 | gRPC             | `grpc://localhost:50051`                           | `echo.v1.EchoService`, reflection on                                         |
 | WebSocket        | `ws://localhost:8085/echo`                         | also `/chat` `/graphql` `/ping` `/close`                                     |
 | Secure WebSocket | `wss://localhost:8543/echo`                        | same paths over TLS (CA-signed); the packaged desktop CSP allows `wss:` only |

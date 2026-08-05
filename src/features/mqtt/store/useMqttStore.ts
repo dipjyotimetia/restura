@@ -16,6 +16,7 @@ export type MqttMessageDirection = 'sent' | 'received' | 'system';
  * is resolved by `mqttManager` just before the IPC call.
  */
 export const MQTT_SECRET_SENTINEL = '__restura_secret__';
+export const DEFAULT_MQTT_CONNECT_TIMEOUT = 30_000;
 
 export interface MqttTls {
   caPath?: string;
@@ -172,7 +173,7 @@ function makeDefaultConnection(
     clientId: init?.clientId ?? `restura-${id.slice(0, 8)}`,
     keepalive: 60,
     cleanStart: true,
-    connectTimeout: 30_000,
+    connectTimeout: DEFAULT_MQTT_CONNECT_TIMEOUT,
     autoReconnect: true,
     status: 'disconnected',
     subscriptions: [],

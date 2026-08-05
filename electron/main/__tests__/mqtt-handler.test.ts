@@ -31,6 +31,7 @@ import {
   registerMqttHandlerIPC,
   stopMqttCleanup,
 } from '../handlers/mqtt-handler';
+import { setExecutionPolicy } from '../security/execution-policy';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -152,6 +153,13 @@ describe('mqtt-handler', () => {
     mockEmitTo.mockClear();
     mockBrokerSafe.mockClear();
     FakeMqttClient.instances.length = 0;
+    setExecutionPolicy({
+      security: { allowLocalhost: true, allowPrivateIPs: true },
+      proxy: { enabled: false, type: 'http', host: '', port: 8080, bypassList: [] },
+      timeout: 30_000,
+      tls: { verifySsl: true, serverCipherOrder: false },
+      certificates: { clientCertificates: [], caCertificates: [] },
+    });
     __setMqttForTests(fakeMqttLib);
     registerMqttHandlerIPC();
   });
@@ -205,7 +213,10 @@ describe('mqtt-handler', () => {
     const { event, senderId } = makeEvent();
     const res = await handlerFor(IPC.mqtt.connect)(event, validConnect('c1'));
     expect(res).toEqual({ success: true });
-    expect(mockBrokerSafe).toHaveBeenCalledWith('mqtt://broker.example.com:1883');
+    expect(mockBrokerSafe).toHaveBeenCalledWith('mqtt://broker.example.com:1883', {
+      allowLocalhost: true,
+      allowPrivateIPs: true,
+    });
 
     const client = FakeMqttClient.instances[0]!;
     expect(client.url).toBe('mqtt://broker.example.com:1883');

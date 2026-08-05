@@ -1,7 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import type * as SchemaRegistryLib from '@kafkajs/confluent-schema-registry';
 import type * as KafkaLib from '@platformatic/kafka';
 import { createLogger } from '@shared/runtime/logger';
-import { randomUUID } from 'node:crypto';
 import type { WebContents } from 'electron';
 import { ipcMain, webContents } from 'electron';
 import { IPC } from '../../shared/channels';
@@ -12,10 +12,10 @@ import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import {
   assertTrustedSender,
   createValidatedEventHandler,
-  type KafkaConnectConfig,
-  KafkaConnectSchema,
   type KafkaCommitMessageConfig,
   KafkaCommitMessageSchema,
+  type KafkaConnectConfig,
+  KafkaConnectSchema,
   KafkaConsumerControlSchema,
   KafkaDisconnectSchema,
   KafkaSubscribeSchema,
@@ -24,8 +24,12 @@ import {
 } from '../ipc/ipc-validators';
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
 import type { LogEntry } from '../lifecycle/request-logger';
+import {
+  type BrokerTlsOptions,
+  resolveKafkaExecutionPolicy,
+} from '../security/broker-execution-policy';
+import { getExecutionPolicy } from '../security/execution-policy';
 import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
-import { decodeDisplayField } from './kafka-serde';
 import { registerKafkaAdminHandlers } from './kafka/admin-handlers';
 import {
   type AppProducer,
@@ -33,6 +37,7 @@ import {
   type KafkaProducerEntry,
   registerKafkaProducerHandlers,
 } from './kafka/producer-handlers';
+import { decodeDisplayField } from './kafka-serde';
 
 const log = createLogger('kafka');
 type SchemaRegistry = SchemaRegistryLib.SchemaRegistry;
@@ -91,13 +96,8 @@ interface KafkaClientOptions {
     token?: string;
     oauthBearerExtensions?: Record<string, string>;
   };
-  tls?: {
-    ca?: string;
-    cert?: string;
-    key?: string;
-    passphrase?: string;
-    rejectUnauthorized?: boolean;
-  };
+  tls?: BrokerTlsOptions;
+  connectTimeout?: number;
 }
 // Awaited teardown stays in this handler; registry disposal covers renderer death.
 const activeConnections = new StreamRegistry<ActiveKafka>({
@@ -188,15 +188,14 @@ function buildClientOptions(cfg: KafkaConnectConfig): KafkaClientOptions {
           };
   }
 
-  if (useTls) {
-    const tls = 'tls' in cfg.auth ? cfg.auth.tls : undefined;
-    opts.tls = {};
-    if (tls?.ca) opts.tls.ca = tls.ca;
-    if (tls?.cert) opts.tls.cert = tls.cert;
-    if (tls?.key) opts.tls.key = tls.key;
-    if (tls?.passphrase) opts.tls.passphrase = tls.passphrase;
-    if (tls?.rejectUnauthorized !== undefined) opts.tls.rejectUnauthorized = tls.rejectUnauthorized;
-  }
+  const explicitTls = useTls && 'tls' in cfg.auth ? cfg.auth.tls : undefined;
+  const policyConfig = resolveKafkaExecutionPolicy({
+    bootstrapBrokers: cfg.bootstrapBrokers,
+    usesTls: useTls,
+    ...(explicitTls ? { tls: explicitTls } : {}),
+  });
+  opts.connectTimeout = policyConfig.connectTimeout;
+  if (policyConfig.tls) opts.tls = policyConfig.tls;
 
   return opts;
 }
@@ -366,8 +365,8 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
       }
 
       try {
-        assertKafkaBrokersSafe(cfg.bootstrapBrokers);
-        if (cfg.registry) assertRegistryUrlSafe(cfg.registry.url);
+        assertKafkaBrokersSafe(cfg.bootstrapBrokers, getExecutionPolicy().security);
+        if (cfg.registry) assertRegistryUrlSafe(cfg.registry.url, getExecutionPolicy().security);
       } catch (err) {
         const msg = errorMessage(err);
         log.warn('connection rejected by transport guard', { connectionId });

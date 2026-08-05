@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mqttManager } from '@/features/mqtt/lib/mqttManager';
 import { useMqttStore } from '@/features/mqtt/store/useMqttStore';
+import type { MqttConnectIpc } from '../../../../../electron/types/electron-api';
 
 // Minimal fake of the Electron IPC bridge. Captures per-channel listeners so a
 // test can drive main→renderer events (connect / message / close) and assert
@@ -8,7 +9,7 @@ import { useMqttStore } from '@/features/mqtt/store/useMqttStore';
 function installElectronMock() {
   const listeners = new Map<string, Array<(...a: unknown[]) => void>>();
   const mqtt = {
-    connect: vi.fn(async () => ({ success: true as const })),
+    connect: vi.fn(async (_input: MqttConnectIpc) => ({ success: true as const })),
     publish: vi.fn(async () => ({ success: true as const })),
     subscribe: vi.fn(async () => ({ success: true as const })),
     unsubscribe: vi.fn(async () => ({ success: true as const })),
@@ -57,6 +58,28 @@ describe('mqttManager (Electron path)', () => {
     expect(useMqttStore.getState().connections[id]!.status).toBe('connecting');
     emit(`mqtt:connected:${id}`, { sessionPresent: false });
     expect(useMqttStore.getState().connections[id]!.status).toBe('connected');
+  });
+
+  it('leaves the stock connection timeout unset so the main-process global policy applies', async () => {
+    const { mqtt } = installElectronMock();
+    const id = useMqttStore.getState().createConnection();
+
+    await mqttManager.connect(useMqttStore.getState().connections[id]!);
+
+    expect(mqtt.connect).toHaveBeenCalledWith(expect.objectContaining({ connectionId: id }));
+    expect(mqtt.connect.mock.calls[0]?.[0]).not.toHaveProperty('connectTimeout');
+  });
+
+  it('preserves an explicit non-default connection timeout', async () => {
+    const { mqtt } = installElectronMock();
+    const id = useMqttStore.getState().createConnection();
+    useMqttStore.getState().updateConnection(id, { connectTimeout: 1_000 });
+
+    await mqttManager.connect(useMqttStore.getState().connections[id]!);
+
+    expect(mqtt.connect).toHaveBeenCalledWith(
+      expect.objectContaining({ connectionId: id, connectTimeout: 1_000 })
+    );
   });
 
   it('does not double-bind listeners across reconnects (no duplicate messages)', async () => {

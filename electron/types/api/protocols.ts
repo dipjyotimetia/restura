@@ -581,7 +581,7 @@ export interface MqttConnectIpc {
   clientId: string;
   keepalive: number;
   cleanStart: boolean;
-  connectTimeout: number;
+  connectTimeout?: number;
   autoReconnect: boolean;
   username?: string;
   password?: string;

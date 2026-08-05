@@ -14,6 +14,15 @@ describe('assertMqttBrokerSafe', () => {
     expect(() => assertMqttBrokerSafe('mqtts://192.168.1.100:8883')).not.toThrow();
   });
 
+  it('honors an execution policy that disallows private broker addresses', () => {
+    expect(() =>
+      assertMqttBrokerSafe('mqtt://10.0.5.42:1883', {
+        allowLocalhost: true,
+        allowPrivateIPs: false,
+      })
+    ).toThrow(/rejected/);
+  });
+
   it('accepts localhost for local development', () => {
     expect(() => assertMqttBrokerSafe('mqtt://localhost:1883')).not.toThrow();
     expect(() => assertMqttBrokerSafe('mqtt://127.0.0.1:1883')).not.toThrow();

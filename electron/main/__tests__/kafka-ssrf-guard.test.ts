@@ -15,6 +15,15 @@ describe('assertKafkaBrokersSafe', () => {
     expect(() => assertKafkaBrokersSafe(['192.168.1.100:9092'])).not.toThrow();
   });
 
+  it('honors an execution policy that disallows private broker addresses', () => {
+    expect(() =>
+      assertKafkaBrokersSafe(['10.0.5.42:9092'], {
+        allowLocalhost: true,
+        allowPrivateIPs: false,
+      })
+    ).toThrow(/rejected/);
+  });
+
   it('accepts localhost for local development', () => {
     expect(() => assertKafkaBrokersSafe(['localhost:9092'])).not.toThrow();
     expect(() => assertKafkaBrokersSafe(['127.0.0.1:9092'])).not.toThrow();
@@ -78,6 +87,15 @@ describe('assertRegistryUrlSafe', () => {
     expect(() => assertRegistryUrlSafe('http://10.0.5.42:8081')).not.toThrow();
     expect(() => assertRegistryUrlSafe('https://192.168.1.100:8081')).not.toThrow();
     expect(() => assertRegistryUrlSafe('http://localhost:8081')).not.toThrow();
+  });
+
+  it('honors an execution policy that disallows private registry addresses', () => {
+    expect(() =>
+      assertRegistryUrlSafe('http://10.0.5.42:8081', {
+        allowLocalhost: true,
+        allowPrivateIPs: false,
+      })
+    ).toThrow(/Schema Registry URL rejected/);
   });
 
   it('rejects cloud metadata endpoints', () => {

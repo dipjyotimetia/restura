@@ -17,6 +17,7 @@ import {
 import { startMockMcpServer } from '../e2e/mocks/mcpServer';
 import { startMockProxyServer } from '../e2e/mocks/proxyServer';
 import { startMockSocketIOServer } from '../e2e/mocks/socketioServer';
+import { startMockSocksProxyServer } from '../e2e/mocks/socksProxyServer';
 import { startMockWsServer } from '../e2e/mocks/wsServer';
 import type { EchoCerts } from './certs';
 import { PORTS, type ServiceId, TLS_SERVICES } from './ports';
@@ -113,6 +114,10 @@ export async function launch(opts: LaunchOptions): Promise<LaunchResult> {
   if (wanted('proxy')) {
     const h = await startMockProxyServer({ port: PORTS.proxy });
     services.push({ id: 'proxy', close: h.close });
+  }
+  if (wanted('socks')) {
+    const h = await startMockSocksProxyServer({ port: PORTS.socks });
+    services.push({ id: 'socks', close: h.close });
   }
   if (wanted('ws')) {
     const h = await startMockWsServer({ port: PORTS.ws });

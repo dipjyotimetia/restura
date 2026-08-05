@@ -53,7 +53,7 @@ export const architecturePolicy: ArchitecturePolicy = {
   grandfatheredFileLines: {
     'shared/scripts/script-executor.ts': 1_537,
     'electron/main/handlers/http-handler.ts': 1_240,
-    'electron/main/handlers/kafka-handler.ts': 729,
+    'electron/main/handlers/kafka-handler.ts': 728,
     'electron/main/handlers/grpc-connect.ts': 819,
   },
 };

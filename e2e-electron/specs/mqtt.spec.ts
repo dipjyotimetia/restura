@@ -1,8 +1,25 @@
-import { test, expect, dockerAvailable } from '../fixtures/brokers';
+import type { Page } from '@playwright/test';
+import { startMockSocksProxyServer } from '../../e2e/mocks/socksProxyServer';
 import { switchMode } from '../../e2e/utils/selectors';
+import { dockerAvailable, expect, test } from '../fixtures/brokers';
 
 // Requires the Dockerised EMQX broker; skip (don't fail) when Docker is absent.
 const describeOrSkip = dockerAvailable() ? test.describe : test.describe.skip;
+
+async function configureSocksProxy(page: Page, port: number, enabled: boolean): Promise<void> {
+  await page.getByRole('button', { name: 'Open settings' }).click();
+  const drawer = page.getByRole('dialog', { name: 'Settings' });
+  await drawer.getByRole('button', { name: 'Proxy', exact: true }).click();
+  const toggle = drawer.getByRole('switch', { name: 'Enable proxy' });
+  const isOn = (await toggle.getAttribute('aria-checked')) === 'true';
+  if (isOn !== enabled) await toggle.click();
+  if (enabled) {
+    await drawer.getByRole('radio', { name: 'SOCKS5', exact: true }).click();
+    await drawer.getByPlaceholder('proxy.example.com').fill('127.0.0.1');
+    await drawer.getByRole('spinbutton').fill(String(port));
+  }
+  await page.getByRole('button', { name: 'Close settings' }).click();
+}
 
 /**
  * Desktop MQTT round-trip against a REAL broker (EMQX via Docker) — renderer →
@@ -49,5 +66,38 @@ describeOrSkip('Desktop MQTT (live EMQX broker)', () => {
       .first()
       .click()
       .catch(() => {});
+  });
+
+  test('uses the global SOCKS5 proxy for the raw MQTT broker connection', async ({
+    app: page,
+    brokers,
+  }) => {
+    const socks = await startMockSocksProxyServer();
+    try {
+      expect(brokers.mqtt).toBe('mqtt://localhost:1883');
+      await configureSocksProxy(page, socks.port, true);
+      // Settings delivery is an asynchronous IPC round trip. Wait for that
+      // renderer→main update to settle before constructing the outbound client.
+      await page.waitForTimeout(250);
+      await switchMode(page, 'mqtt');
+      await page.getByRole('tab', { name: 'Connection', exact: true }).click();
+      // The default bypass list covers localhost but not broker.localhost;
+      // the proxy maps this deterministic loopback name back to 127.0.0.1.
+      await page.getByPlaceholder('mqtt://localhost:1883').fill('mqtt://broker.localhost:1883');
+      await page.getByRole('button', { name: 'Connect', exact: true }).click();
+
+      await expect(page.getByText('Connected').first()).toBeVisible({ timeout: 15_000 });
+      expect(socks.connectCount(), 'MQTT CONNECT tunnelled through SOCKS5').toBeGreaterThanOrEqual(
+        1
+      );
+    } finally {
+      await page
+        .getByRole('button', { name: /Disconnect/ })
+        .first()
+        .click()
+        .catch(() => {});
+      await configureSocksProxy(page, socks.port, false).catch(() => {});
+      await socks.close();
+    }
   });
 });

@@ -1,5 +1,9 @@
 import type { MqttConnection, MqttMessage, MqttQoS } from '@/features/mqtt/store/useMqttStore';
-import { MQTT_SECRET_SENTINEL, useMqttStore } from '@/features/mqtt/store/useMqttStore';
+import {
+  DEFAULT_MQTT_CONNECT_TIMEOUT,
+  MQTT_SECRET_SENTINEL,
+  useMqttStore,
+} from '@/features/mqtt/store/useMqttStore';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
 import { MQTT_CHANNEL, mqttChannel } from '../../../../electron/shared/mqtt-channels';
@@ -44,9 +48,15 @@ async function resolveConnect(connection: MqttConnection): Promise<MqttConnectIp
     clientId: connection.clientId,
     keepalive: connection.keepalive,
     cleanStart: connection.cleanStart,
-    connectTimeout: connection.connectTimeout,
     autoReconnect: connection.autoReconnect,
   };
+
+  // The stored 30s value is the legacy/default UI value, not a deliberate
+  // per-connection override. Omitting it lets Electron apply the current
+  // acknowledged global timeout; a user-selected non-default value still wins.
+  if (connection.connectTimeout !== DEFAULT_MQTT_CONNECT_TIMEOUT) {
+    ipc.connectTimeout = connection.connectTimeout;
+  }
 
   if (connection.username) ipc.username = connection.username;
 

@@ -94,7 +94,7 @@ export const MqttConnectSchema = z.object({
   clientId: z.string().min(1).max(256),
   keepalive: z.number().int().min(0).max(65535),
   cleanStart: z.boolean(),
-  connectTimeout: z.number().int().positive().max(300_000),
+  connectTimeout: z.number().int().positive().max(300_000).optional(),
   autoReconnect: z.boolean(),
   username: z.string().max(256).optional(),
   password: z.string().max(1024).optional(),
