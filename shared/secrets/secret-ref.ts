@@ -44,6 +44,15 @@ export type SecretRef =
       id: string;
       /** Optional UI label so the renderer can render "AWS prod key" without resolving. */
       label?: string;
+    }
+  | {
+      /** An opaque secret reference resolved by a trusted platform adapter. */
+      kind: 'external';
+      provider: 'aws-secrets-manager' | 'google-secret-manager' | 'azure-key-vault';
+      profileId: string;
+      secretId: string;
+      selector?: string;
+      label?: string;
     };
 
 /** Anything that could carry a secret — either plain text or a typed SecretRef. */
@@ -70,6 +79,18 @@ export function isInlineSecretRef(
     typeof value === 'object' &&
     value !== null &&
     (value as SecretRef).kind === 'inline'
+  );
+}
+
+/** Type guard: does the secret require a trusted external-provider resolver? */
+export function isExternalSecretRef(
+  value: SecretValue | undefined
+): value is Extract<SecretRef, { kind: 'external' }> {
+  return (
+    value !== undefined &&
+    typeof value === 'object' &&
+    value !== null &&
+    (value as SecretRef).kind === 'external'
   );
 }
 
@@ -105,6 +126,8 @@ export function describeSecret(value: SecretValue | undefined): string {
   if (typeof value === 'string') return value.length === 0 ? '(empty)' : SECRET_HANDLE_PLACEHOLDER;
   if (value.kind === 'inline')
     return value.value.length === 0 ? '(empty)' : SECRET_HANDLE_PLACEHOLDER;
+  if (value.kind === 'external')
+    return value.label ? `External: ${value.label}` : `External: ${value.provider}`;
   return value.label ? `Handle: ${value.label}` : `Handle: ${value.id.slice(0, 8)}…`;
 }
 
@@ -137,6 +160,13 @@ export function handleSecret(id: string, label?: string): SecretRef {
   return label !== undefined ? { kind: 'handle', id, label } : { kind: 'handle', id };
 }
 
+/** Create a renderer-safe external provider reference. */
+export function externalSecret(
+  ref: Omit<Extract<SecretRef, { kind: 'external' }>, 'kind'>
+): Extract<SecretRef, { kind: 'external' }> {
+  return { kind: 'external', ...ref };
+}
+
 /**
  * Coerce an arbitrary persisted value into a canonical `SecretValue`:
  *  - string → `{kind:'inline', value}`
@@ -148,7 +178,11 @@ export function handleSecret(id: string, label?: string): SecretRef {
  */
 export function coerceToInlineSecret(value: unknown): SecretValue {
   if (typeof value === 'string') return { kind: 'inline', value };
-  if (isInlineSecretRef(value as SecretValue) || isSecretHandle(value as SecretValue)) {
+  if (
+    isInlineSecretRef(value as SecretValue) ||
+    isSecretHandle(value as SecretValue) ||
+    isExternalSecretRef(value as SecretValue)
+  ) {
     return value as SecretValue;
   }
   return { kind: 'inline', value: '' };
@@ -162,9 +196,25 @@ export function coerceToInlineSecret(value: unknown): SecretValue {
 export function assertSecretValue(value: unknown, fieldName: string): asserts value is SecretValue {
   if (typeof value === 'string') return;
   if (value && typeof value === 'object') {
-    const v = value as { kind?: unknown; value?: unknown; id?: unknown };
+    const v = value as {
+      kind?: unknown;
+      value?: unknown;
+      id?: unknown;
+      provider?: unknown;
+      profileId?: unknown;
+      secretId?: unknown;
+    };
     if (v.kind === 'inline' && typeof v.value === 'string') return;
     if (v.kind === 'handle' && typeof v.id === 'string') return;
+    if (
+      v.kind === 'external' &&
+      (v.provider === 'aws-secrets-manager' ||
+        v.provider === 'google-secret-manager' ||
+        v.provider === 'azure-key-vault') &&
+      typeof v.profileId === 'string' &&
+      typeof v.secretId === 'string'
+    )
+      return;
   }
   throw new TypeError(`${fieldName}: expected string or SecretRef, got ${JSON.stringify(value)}`);
 }

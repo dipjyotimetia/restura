@@ -8,7 +8,20 @@ import type { FormField, ProxyBodyType } from './body-builder';
  */
 export type ProtocolSecretRef =
   | { kind: 'inline'; value: string }
-  | { kind: 'handle'; id: string; label?: string };
+  | { kind: 'handle'; id: string; label?: string }
+  | {
+      /** A provider-owned reference; resolved only by a trusted runtime. */
+      kind: 'external';
+      provider: 'aws-secrets-manager' | 'google-secret-manager' | 'azure-key-vault';
+      /** Platform-owned profile; never carries credentials in a collection. */
+      profileId: string;
+      /** Provider secret name/path (not the resolved value). */
+      secretId: string;
+      /** Provider version, stage, or key selector. */
+      selector?: string;
+      /** Renderer-safe human-readable description. */
+      label?: string;
+    };
 
 export type ProtocolSecretValue = string | ProtocolSecretRef;
 

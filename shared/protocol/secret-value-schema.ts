@@ -27,6 +27,14 @@ export const protocolSecretValueSchema = z.union([
     id: z.string().max(128),
     label: z.string().max(256).optional(),
   }),
+  z.object({
+    kind: z.literal('external'),
+    provider: z.enum(['aws-secrets-manager', 'google-secret-manager', 'azure-key-vault']),
+    profileId: z.string().min(1).max(128),
+    secretId: z.string().min(1).max(1024),
+    selector: z.string().min(1).max(512).optional(),
+    label: z.string().min(1).max(256).optional(),
+  }),
 ]);
 
 /** True iff the value is a handle reference — the only form Worker cannot resolve. */
@@ -34,4 +42,11 @@ export function isProtocolSecretHandle(
   value: ProtocolSecretValue | unknown
 ): value is { kind: 'handle'; id: string; label?: string } {
   return !!value && typeof value === 'object' && (value as { kind?: unknown }).kind === 'handle';
+}
+
+/** True iff a value must be resolved by a provider-owned external vault adapter. */
+export function isProtocolExternalSecret(
+  value: ProtocolSecretValue | unknown
+): value is Extract<ProtocolSecretValue, { kind: 'external' }> {
+  return !!value && typeof value === 'object' && (value as { kind?: unknown }).kind === 'external';
 }

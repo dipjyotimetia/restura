@@ -40,6 +40,11 @@ export const inlineOnlySecretResolver: SecretResolver = (value) => {
         'this typically means the Worker is processing a desktop-only handle. Use the desktop app.'
     );
   }
+  if (value.kind === 'external') {
+    throw new Error(
+      'External secret encountered at sign-at-wire boundary but no trusted provider resolver was supplied.'
+    );
+  }
   return value.value;
 };
 

@@ -33,6 +33,8 @@ function brunoSecretValue(value: SecretValue | undefined): string {
   if (value === undefined) return '';
   if (typeof value === 'string') return value;
   if (value.kind === 'inline') return value.value;
+  if (value.kind === 'external')
+    return `{{external:${value.provider}:${value.profileId}:${value.secretId}${value.selector ? `:${value.selector}` : ''}}}`;
   return `{{handle:${value.label ?? value.id}}}`;
 }
 
