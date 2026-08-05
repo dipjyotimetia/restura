@@ -1,7 +1,8 @@
 import { RESPONSE_EVIDENCE_LIMITS } from '@shared/collection-run/evidence';
 import { describe, expect, it } from 'vitest';
 import type { CollectionRunResult } from '@/features/collections/lib/collectionRunner';
-import { pruneCollectionRuns } from '../useCollectionRunStore';
+import { runMigrations } from '@/lib/shared/persistence/runMigrations';
+import { collectionRunMigrationDescriptor, pruneCollectionRuns } from '../useCollectionRunStore';
 
 function run(id: string, startedAt: number, evidenceSize = 0): CollectionRunResult {
   return {
@@ -61,5 +62,20 @@ describe('pruneCollectionRuns', () => {
     expect(result).toHaveLength(1);
     expect(result[0]!.requests[0]!.evidence).toMatchObject({ unavailable: true });
     expect(result[0]!.requests[0]!.evidence?.excerpt).toBeUndefined();
+  });
+});
+
+describe('collection-run persistence migration', () => {
+  it('preserves legacy run metadata while advancing the evidence store version', () => {
+    const outcome = runMigrations(
+      collectionRunMigrationDescriptor,
+      { runs: [run('legacy', 1)] },
+      1
+    );
+
+    expect(outcome).toMatchObject({ kind: 'ok', from: 1, to: 2 });
+    if (outcome.kind === 'ok') {
+      expect((outcome.state as { runs: CollectionRunResult[] }).runs[0]?.id).toBe('legacy');
+    }
   });
 });

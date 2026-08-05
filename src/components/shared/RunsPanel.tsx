@@ -62,18 +62,19 @@ export function RunsPanel() {
   const collectionRuns = useCollectionRunStore((s) => s.runs);
   const clearCollectionRuns = useCollectionRunStore((s) => s.clearRuns);
   const [detailRun, setDetailRun] = useState<CollectionRunResult | null>(null);
+  const [comparisonRunId, setComparisonRunId] = useState<string>('');
   const [collectionRerun, setCollectionRerun] = useState<{
     run: CollectionRunResult;
     requestIds: string[];
   } | null>(null);
   const comparisonRun = useMemo(
     () =>
-      detailRun
+      detailRun && comparisonRunId && comparisonRunId !== detailRun.id
         ? (collectionRuns.find(
-            (run) => run.collectionId === detailRun.collectionId && run.id !== detailRun.id
+            (run) => run.id === comparisonRunId && run.collectionId === detailRun.collectionId
           ) ?? null)
         : null,
-    [collectionRuns, detailRun]
+    [collectionRuns, comparisonRunId, detailRun]
   );
   const rerunConfig = useMemo(() => {
     if (!collectionRerun) return undefined;
@@ -195,6 +196,21 @@ export function RunsPanel() {
           </p>
         ) : (
           <div className="space-y-2">
+            <label className="block text-[10px] text-muted-foreground">
+              Compare opened run with
+              <select
+                value={comparisonRunId}
+                onChange={(event) => setComparisonRunId(event.target.value)}
+                className="mt-1 block h-7 w-full rounded border border-border bg-background px-2 text-[10px]"
+              >
+                <option value="">No comparison</option>
+                {collectionRuns.map((run) => (
+                  <option key={run.id} value={run.id}>
+                    {run.scopeName} · {formatRelativeTime(run.startedAt)}
+                  </option>
+                ))}
+              </select>
+            </label>
             {collectionRuns.map((run) => {
               const ok = run.summary.failed === 0;
               return (

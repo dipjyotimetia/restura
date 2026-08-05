@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { CollectionRunResult } from '@/features/collections/lib/collectionRunner';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
+import type { MigrationDescriptor } from '@/lib/shared/persistence/types';
 
 /**
  * Collection / folder runs, surfaced in the Runs panel after the runner
@@ -65,6 +66,31 @@ export function pruneCollectionRuns(runs: CollectionRunResult[]): CollectionRunR
   return retained;
 }
 
+export const collectionRunMigrationDescriptor: MigrationDescriptor<CollectionRunState> = {
+  store: 'collectionRuns',
+  persistName: 'collection-run-storage',
+  version: 2,
+  steps: [
+    {
+      name: 'add-evidence-configuration-defaults',
+      fromVersion: 1,
+      apply: (state) => {
+        const value = state as { runs?: CollectionRunResult[] };
+        return {
+          state: {
+            ...value,
+            runs: Array.isArray(value.runs) ? pruneCollectionRuns(value.runs) : [],
+          },
+        };
+      },
+    },
+  ],
+};
+
+export const collectionRunPersistence = createPersistedStore<CollectionRunState>(
+  collectionRunMigrationDescriptor
+);
+
 export const useCollectionRunStore = create<CollectionRunState>()(
   persist(
     (set) => ({
@@ -73,25 +99,6 @@ export const useCollectionRunStore = create<CollectionRunState>()(
       removeRun: (runId) => set((s) => ({ runs: s.runs.filter((run) => run.id !== runId) })),
       clearRuns: () => set({ runs: [] }),
     }),
-    createPersistedStore<CollectionRunState>({
-      store: 'collectionRuns',
-      persistName: 'collection-run-storage',
-      version: 2,
-      steps: [
-        {
-          name: 'add-evidence-configuration-defaults',
-          fromVersion: 1,
-          apply: (state) => {
-            const value = state as { runs?: CollectionRunResult[] };
-            return {
-              state: {
-                ...value,
-                runs: Array.isArray(value.runs) ? pruneCollectionRuns(value.runs) : [],
-              },
-            };
-          },
-        },
-      ],
-    })
+    collectionRunPersistence
   )
 );
