@@ -120,3 +120,16 @@ npm run validate                    # static policy -> all tests/workspaces -> p
 - [Integrations](integrations/overview.md) — import/export, OpenCollection, Postman parity, file/Git collections.
 - [Operations](operations/overview.md) — CLI, CI/CD, Docker, telemetry, security.
 - [Testing](testing/overview.md) — test pyramid, e2e, contract, parity, and security tests.
+
+---
+
+## Backlog
+
+These systems have source evidence but are not yet documented in depth. Each entry includes the primary source anchor and the reason for deferral.
+
+| Area | Source anchor | Reason |
+| ---- | ------------- | ------ |
+| Mock server | `electron/main/handlers/mock-server-handler.ts`, `src/store/useMockStore.ts` | Desktop-only local HTTP listener for stub responses; gated by `capabilities.mock.localServer`. Low change velocity. |
+| Load testing | `src/features/load-testing/` | UI feature for HTTP load generation; small surface with low recent churn. |
+| Contracts (API definition) | `src/features/contracts/` | OpenAPI contract viewer/editor; referenced by AI Lab dataset generation but not execution-significant. |
+| Remote import | `worker/handlers/remote-import.ts`, `shared/import/remote-fetch.ts` | Worker proxy for fetching external collection URLs; thin handler with hostname guard. Covered in passing in [architecture](architecture/overview.md). |
