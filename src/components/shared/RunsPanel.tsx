@@ -1,7 +1,8 @@
 import { Copy, Gauge, ListChecks, RotateCw, Server, Square, Trash2 } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { CollectionRunDetail } from '@/features/collections/components/CollectionRunDetail';
+import { CollectionRunnerDialog } from '@/features/collections/components/sidebarLazyDialogs';
 import type { CollectionRunResult } from '@/features/collections/lib/collectionRunner';
 import { formatRelativeTime, getMethodColor } from '@/lib/shared/console-format';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
@@ -61,6 +62,33 @@ export function RunsPanel() {
   const collectionRuns = useCollectionRunStore((s) => s.runs);
   const clearCollectionRuns = useCollectionRunStore((s) => s.clearRuns);
   const [detailRun, setDetailRun] = useState<CollectionRunResult | null>(null);
+  const [comparisonRunId, setComparisonRunId] = useState<string>('');
+  const [collectionRerun, setCollectionRerun] = useState<{
+    run: CollectionRunResult;
+    requestIds: string[];
+  } | null>(null);
+  const comparisonRun = useMemo(
+    () =>
+      detailRun && comparisonRunId && comparisonRunId !== detailRun.id
+        ? (collectionRuns.find(
+            (run) => run.id === comparisonRunId && run.collectionId === detailRun.collectionId
+          ) ?? null)
+        : null,
+    [collectionRuns, comparisonRunId, detailRun]
+  );
+  const rerunConfig = useMemo(() => {
+    if (!collectionRerun) return undefined;
+    const config = collectionRerun.run.configuration;
+    return {
+      selectedIds: collectionRerun.requestIds,
+      environmentId: config?.environmentId,
+      iterations: config?.iterations,
+      delayMs: config?.delayMs,
+      stopOnFailure: config?.stopOnFailure,
+      retention: config?.retention,
+      usedDataFile: config?.usedDataFile,
+    };
+  }, [collectionRerun]);
 
   const stopMock = async () => {
     const api = getElectronAPI();
@@ -168,6 +196,21 @@ export function RunsPanel() {
           </p>
         ) : (
           <div className="space-y-2">
+            <label className="block text-[10px] text-muted-foreground">
+              Compare opened run with
+              <select
+                value={comparisonRunId}
+                onChange={(event) => setComparisonRunId(event.target.value)}
+                className="mt-1 block h-7 w-full rounded border border-border bg-background px-2 text-[10px]"
+              >
+                <option value="">No comparison</option>
+                {collectionRuns.map((run) => (
+                  <option key={run.id} value={run.id}>
+                    {run.scopeName} · {formatRelativeTime(run.startedAt)}
+                  </option>
+                ))}
+              </select>
+            </label>
             {collectionRuns.map((run) => {
               const ok = run.summary.failed === 0;
               return (
@@ -215,7 +258,21 @@ export function RunsPanel() {
         )}
       </section>
 
-      <CollectionRunDetail run={detailRun} onClose={() => setDetailRun(null)} />
+      <CollectionRunDetail
+        run={detailRun}
+        onClose={() => setDetailRun(null)}
+        comparisonRun={comparisonRun}
+        onRerun={(requestIds) => {
+          if (!detailRun || requestIds.length === 0) return;
+          setDetailRun(null);
+          setCollectionRerun({ run: detailRun, requestIds });
+        }}
+      />
+      <CollectionRunnerDialog
+        scope={collectionRerun ? { collectionId: collectionRerun.run.collectionId } : null}
+        initialConfig={rerunConfig}
+        onClose={() => setCollectionRerun(null)}
+      />
 
       {/* Load tests */}
       <section>
