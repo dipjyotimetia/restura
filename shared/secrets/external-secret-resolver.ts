@@ -95,6 +95,9 @@ export function createExternalSecretResolver(
         if (!value) throw new ExternalSecretError('not-found', reference.provider, reference.label);
         return value;
       } catch (error) {
+        if (options?.signal?.aborted) {
+          throw new ExternalSecretError('cancelled', reference.provider, reference.label);
+        }
         throw asExternalSecretError(error, reference);
       }
     },
