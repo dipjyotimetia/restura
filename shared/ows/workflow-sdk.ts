@@ -4,7 +4,12 @@
  * parsing/normalization/validation/graph construction in Node workspace and
  * CLI paths; the renderer uses the safe profile module for its own inputs.
  */
-import { buildGraph, Classes, type Graph, WorkflowValidationError } from '@openworkflowspec/sdk';
+import {
+  buildFlatGraph,
+  Classes,
+  type FlatGraph,
+  WorkflowValidationError,
+} from '@openworkflowspec/sdk';
 import type { OwsWorkflow } from './workflow-profile';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -59,6 +64,6 @@ export function serializeOwsWorkflowJsonWithSdk(workflow: OwsWorkflow): string {
   return Classes.Workflow.serialize(normalizeOwsWorkflowWithSdk(workflow), 'json');
 }
 
-export function buildOwsGraphWithSdk(workflow: OwsWorkflow): Graph {
-  return buildGraph(normalizeOwsWorkflowWithSdk(workflow));
+export function buildOwsGraphWithSdk(workflow: OwsWorkflow): FlatGraph {
+  return buildFlatGraph(normalizeOwsWorkflowWithSdk(workflow));
 }
