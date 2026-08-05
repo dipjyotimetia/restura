@@ -2,7 +2,7 @@ import { Copy, Gauge, ListChecks, RotateCw, Server, Square, Trash2 } from 'lucid
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { CollectionRunDetail } from '@/features/collections/components/CollectionRunDetail';
-import { CollectionRunnerDialog } from '@/features/collections/components/CollectionRunnerDialog';
+import { CollectionRunnerDialog } from '@/features/collections/components/sidebarLazyDialogs';
 import type { CollectionRunResult } from '@/features/collections/lib/collectionRunner';
 import { formatRelativeTime, getMethodColor } from '@/lib/shared/console-format';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
