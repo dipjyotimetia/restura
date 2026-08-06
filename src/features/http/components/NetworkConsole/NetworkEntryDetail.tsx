@@ -10,7 +10,6 @@ import {
   FileText,
   GitCompare,
   Maximize2,
-  RotateCw,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -38,6 +37,7 @@ import { parseRequestCookies, parseResponseCookies } from '@/lib/shared/cookie-p
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { cn } from '@/lib/shared/utils';
 import type { ConsoleEntry } from '@/store/useConsoleStore';
+import { getConsoleEntryActions } from '@/store/useConsoleStore';
 
 const CodeEditor = lazyComponent(
   () => import('@/components/shared/CodeEditor'),
@@ -82,8 +82,7 @@ interface NetworkEntryDetailProps {
   onCopyAsCode: (generator: CodeGeneratorType) => void;
   onCopyCurl: () => void;
   onExpand: () => void;
-  onOpenInNewTab: () => void;
-  onReplay: () => void;
+  onOpenSafeDraft: () => void;
 }
 
 export default function NetworkEntryDetail({
@@ -93,8 +92,7 @@ export default function NetworkEntryDetail({
   onCopyAsCode,
   onCopyCurl,
   onExpand,
-  onOpenInNewTab,
-  onReplay,
+  onOpenSafeDraft,
 }: NetworkEntryDetailProps) {
   const selectedStatus = entry ? httpLikeStatus(entry.protocol, entry.response.status) : 0;
   const requestCookies = useMemo(
@@ -115,6 +113,7 @@ export default function NetworkEntryDetail({
       </div>
     );
   }
+  const actions = getConsoleEntryActions(entry);
 
   return (
     <Tabs defaultValue="response" className="h-full flex flex-col">
@@ -142,57 +141,55 @@ export default function NetworkEntryDetail({
               Compare ({compareCount})
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-[11px]"
-            onClick={onReplay}
-            title="Replay in the active tab (or open a new HTTP tab if not HTTP)"
-          >
-            <RotateCw className="h-3 w-3 mr-1" />
-            Replay
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-[11px]"
-            onClick={onOpenInNewTab}
-            title="Open in a new tab"
-          >
-            <ExternalLink className="h-3 w-3 mr-1" />
-            New tab
-          </Button>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-[11px]"
-                title="Copy request as code"
-              >
-                <Code2 className="h-3 w-3 mr-1" />
-                Copy as
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuLabel className="text-[11px]">Copy request as</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-xs" onClick={onCopyCurl}>
-                cURL
-              </DropdownMenuItem>
-              {(
-                Object.entries(codeGenerators) as Array<
-                  [CodeGeneratorType, (typeof codeGenerators)[CodeGeneratorType]]
+          {actions.openNativeDraft && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-[11px]"
+              onClick={onOpenSafeDraft}
+              title="Open a non-executing, credential-free native draft"
+            >
+              <ExternalLink className="h-3 w-3 mr-1" />
+              Open safe draft
+            </Button>
+          )}
+          {actions.copyCode && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-[11px]"
+                  title="Copy request as code"
                 >
-              )
-                .filter(([key]) => key !== 'curl')
-                .map(([key, gen]) => (
-                  <DropdownMenuItem key={key} className="text-xs" onClick={() => onCopyAsCode(key)}>
-                    {gen.name}
-                  </DropdownMenuItem>
-                ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+                  <Code2 className="h-3 w-3 mr-1" />
+                  Copy as
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuLabel className="text-[11px]">Copy request as</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem className="text-xs" onClick={onCopyCurl}>
+                  cURL
+                </DropdownMenuItem>
+                {(
+                  Object.entries(codeGenerators) as Array<
+                    [CodeGeneratorType, (typeof codeGenerators)[CodeGeneratorType]]
+                  >
+                )
+                  .filter(([key]) => key !== 'curl')
+                  .map(([key, gen]) => (
+                    <DropdownMenuItem
+                      key={key}
+                      className="text-xs"
+                      onClick={() => onCopyAsCode(key)}
+                    >
+                      {gen.name}
+                    </DropdownMenuItem>
+                  ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -205,6 +202,12 @@ export default function NetworkEntryDetail({
           </Button>
         </div>
       </div>
+
+      {entry.nativeDraft?.credentialsOmitted && (
+        <p className="px-4 py-1.5 border-b border-amber-500/20 bg-amber-500/5 text-[11px] text-amber-700 dark:text-amber-300">
+          Credentials omitted — configure them in the editor before sending.
+        </p>
+      )}
 
       {/* At-a-glance summary — visible on both Request and Response tabs. */}
       <div className="flex items-center gap-3 px-4 py-1.5 border-b border-border/60 text-[11px] font-mono">

@@ -1,6 +1,7 @@
 import { AgentSuiteSchema } from '@shared/agent-lab';
 import { AgentTelemetryConfigSchema } from '@shared/agent-lab/telemetry-config';
 import { z } from 'zod';
+import { ConsoleNativeDraftSchema } from '@/lib/shared/console-store-schemas';
 import { AiLabReportEnvelopeSchema } from '@/features/ai-lab/run-engine/reportEnvelope';
 import type { Collection, Environment, Request, SpatialAccent } from '@/types';
 import { SPATIAL_ACCENT_PRESETS } from '@/types';
@@ -81,6 +82,23 @@ export const ConsoleEntrySchema = z.object({
   runId: z.string().optional(),
   runLabel: z.string().optional(),
   iteration: z.number().optional(),
+  source: z
+    .object({
+      protocol: z.enum([
+        'http',
+        'grpc',
+        'graphql',
+        'mcp',
+        'sse',
+        'websocket',
+        'kafka',
+        'mqtt',
+        'socketio',
+      ]),
+      connectionId: z.string().optional(),
+    })
+    .optional(),
+  nativeDraft: ConsoleNativeDraftSchema.optional(),
 });
 
 /**

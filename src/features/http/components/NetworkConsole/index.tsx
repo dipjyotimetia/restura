@@ -77,9 +77,10 @@ export default function NetworkConsole({
 }: NetworkConsoleProps) {
   // Scoped subscriptions — an unscoped useConsoleStore() here would re-render
   // the whole panel (header, toolbar, resize handle, both tab portals) on
-  // every streamed frame. The frames array is only needed for the badge
-  // count, so subscribe to its length alone; FramesTab owns the list.
+  // every streamed frame. FramesTab owns rendering; export additionally reads
+  // the current safe frame evidence when the user explicitly requests NDJSON.
   const framesCount = useConsoleStore((s) => s.frames.length);
+  const frames = useConsoleStore((s) => s.frames);
   const {
     entries,
     isExpanded,
@@ -215,10 +216,11 @@ export default function NetworkConsole({
       toast.error('Nothing to export');
       return;
     }
-    const file = buildExportFile(format, list);
+    const file = buildExportFile(format, list, frames);
     downloadExportFile(file);
     toast.success(
-      `Exported ${list.length} ${scope === 'filtered' ? 'filtered ' : ''}entries to ${file.filename}`
+      `Exported ${list.length - file.excludedEntries} ${scope === 'filtered' ? 'filtered ' : ''}entries to ${file.filename}` +
+        (file.excludedEntries > 0 ? ` (${file.excludedEntries} incompatible entries excluded)` : '')
     );
   };
 

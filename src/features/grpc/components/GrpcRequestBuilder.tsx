@@ -500,6 +500,15 @@ function GrpcRequestBuilder() {
           response: grpcResponse,
           ...(consoleLogs.length > 0 && { scriptLogs: consoleLogs }),
           ...(consoleTests.length > 0 && { tests: consoleTests }),
+          nativeDraft: {
+            kind: 'grpc',
+            credentialsOmitted: true,
+            url: grpcRequest.url,
+            service: grpcRequest.service,
+            method: grpcRequest.method,
+            message: grpcRequest.message,
+            metadata: sentMetadata,
+          },
         })
       );
 

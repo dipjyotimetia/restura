@@ -34,6 +34,7 @@ import {
   type ConsoleEntry,
   entryToCurl,
   entryToHttpRequest,
+  getConsoleEntryActions,
   useConsoleStore,
 } from '@/store/useConsoleStore';
 import { useRequestStore } from '@/store/useRequestStore';
@@ -80,6 +81,8 @@ export default function RequestEntryItem({
   const totalTests = entry.tests?.length ?? 0;
   const updateRequest = useRequestStore((s) => s.updateRequest);
   const activeTab = useActiveTab();
+  const actions = getConsoleEntryActions(entry);
+  const canOpenHttpDraft = actions.openNativeDraft && entry.nativeDraft?.kind === 'http';
 
   // Extract pathname from URL for display — prefer the resolved URL (falls
   // back to the raw, possibly templated `request.url` for older entries).
@@ -115,19 +118,21 @@ export default function RequestEntryItem({
     }
   };
 
-  const handleOpenInNewTab = () => {
+  const handleOpenSafeDraftInNewTab = () => {
     const req = entryToHttpRequest(entry);
+    if (!req) return;
     openTab(req, { switchTo: true });
-    toast.success('Opened in a new tab');
+    toast.success('Opened safe HTTP draft.');
   };
 
-  const handleReplaceActive = () => {
+  const handleOpenSafeDraftInActiveTab = () => {
     // Only safe for HTTP tabs — other protocols have different request shapes.
     if (activeTab?.request.type !== 'http') {
-      handleOpenInNewTab();
+      handleOpenSafeDraftInNewTab();
       return;
     }
     const req = entryToHttpRequest(entry);
+    if (!req) return;
     updateRequest({
       method: req.method,
       url: req.url,
@@ -136,7 +141,7 @@ export default function RequestEntryItem({
       body: req.body,
       auth: req.auth,
     });
-    toast.success('Replayed in active tab');
+    toast.success('Opened safe HTTP draft.');
   };
 
   return (
@@ -265,19 +270,27 @@ export default function RequestEntryItem({
         </div>
       </ContextMenuTrigger>
       <ContextMenuContent className="w-56">
-        <ContextMenuItem onClick={handleReplaceActive}>
-          <RotateCw className="h-3.5 w-3.5 mr-2" />
-          Replay in active tab
-        </ContextMenuItem>
-        <ContextMenuItem onClick={handleOpenInNewTab}>
-          <ExternalLink className="h-3.5 w-3.5 mr-2" />
-          Open in new tab
-        </ContextMenuItem>
-        <ContextMenuSeparator />
-        <ContextMenuItem onClick={handleCopyCurl}>
-          <Copy className="h-3.5 w-3.5 mr-2" />
-          Copy as cURL
-        </ContextMenuItem>
+        {canOpenHttpDraft && (
+          <ContextMenuItem onClick={handleOpenSafeDraftInActiveTab}>
+            <RotateCw className="h-3.5 w-3.5 mr-2" />
+            Open safe HTTP draft
+          </ContextMenuItem>
+        )}
+        {canOpenHttpDraft && (
+          <ContextMenuItem onClick={handleOpenSafeDraftInNewTab}>
+            <ExternalLink className="h-3.5 w-3.5 mr-2" />
+            Open safe HTTP draft in new tab
+          </ContextMenuItem>
+        )}
+        {actions.copyCode && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={handleCopyCurl}>
+              <Copy className="h-3.5 w-3.5 mr-2" />
+              Copy as cURL
+            </ContextMenuItem>
+          </>
+        )}
         <ContextMenuItem onClick={handleCopyUrl}>
           <Copy className="h-3.5 w-3.5 mr-2" />
           Copy URL

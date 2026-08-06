@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Response as ApiResponse, HttpRequest } from '@/types';
 import {
+  CONSOLE_PROTOCOL_ACTIONS,
   createConsoleEntry,
   createProtocolConsoleEntry,
   entryToCurl,
+  entryToGraphqlRequest,
+  entryToGrpcRequest,
+  entryToHttpRequest,
+  getConsoleEntryActions,
   useConsoleStore,
 } from '../useConsoleStore';
 
@@ -424,7 +429,7 @@ describe('useConsoleStore', () => {
         payload: huge,
         bytes: huge.length,
       });
-      const frame = useConsoleStore.getState().frames[0]!;
+      const frame = useConsoleStore.getState().frames.at(-1)!;
       expect(frame.payload.length).toBeLessThan(huge.length);
       expect(frame.payload).toContain('[truncated');
       // True size survives in `bytes` even though the preview is cut.
@@ -561,6 +566,7 @@ describe('entryToCurl', () => {
     const curl = entryToCurl({
       id: 'e1',
       timestamp: Date.now(),
+      protocol: 'http',
       request: {
         method: 'GET',
         url: "https://example.com/?q=it's",
@@ -748,5 +754,207 @@ describe('createConsoleEntry', () => {
       expect(e.runLabel).toBe('My Collection');
       expect(e.iteration).toBe(2);
     });
+  });
+});
+
+describe('console evidence sanitization', () => {
+  const secret = 'sk-proj-12345678901234567890123456789012';
+
+  beforeEach(() => {
+    useConsoleStore.setState({
+      entries: [],
+      frames: [],
+      captureEnabled: true,
+      preserveOnSend: true,
+    });
+  });
+
+  it('redacts credentials and recognizable secrets before an entry reaches store state', () => {
+    useConsoleStore.getState().addEntry({
+      timestamp: Date.now(),
+      protocol: 'mcp',
+      request: {
+        method: 'tools/call',
+        url: `https://mcp.example.test/?api_key=${secret}&page_token=cursor`,
+        headers: { Authorization: `Bearer ${secret}`, Cookie: `session=${secret}` },
+        body: JSON.stringify({ token: secret, safe: 'kept' }),
+      },
+      response: {
+        id: 'response',
+        requestId: 'request',
+        status: 200,
+        statusText: `OK ${secret}`,
+        headers: { 'set-cookie': `session=${secret}`, 'x-request-id': 'ok' },
+        body: JSON.stringify({ api_key: secret, value: 'kept' }),
+        size: 1,
+        time: 1,
+        timestamp: Date.now(),
+      },
+      scriptLogs: [{ type: 'error', message: `failed with ${secret}`, timestamp: Date.now() }],
+      tests: [{ name: 'does not echo a secret', passed: false, error: `secret=${secret}` }],
+    });
+
+    const stored = useConsoleStore.getState().entries[0]!;
+    expect(JSON.stringify(stored)).not.toContain(secret);
+    expect(stored.request.url).toContain('api_key=%5BREDACTED%5D');
+    expect(stored.request.url).toContain('page_token=cursor');
+    expect(stored.request.headers).toEqual({ Authorization: '[REDACTED]', Cookie: '[REDACTED]' });
+    expect(stored.response.headers).toMatchObject({
+      'set-cookie': '[REDACTED]',
+      'x-request-id': 'ok',
+    });
+  });
+
+  it.each(['websocket', 'socketio', 'kafka', 'mqtt', 'sse', 'grpc'] as const)(
+    'redacts raw %s frame payloads before retaining them',
+    (protocol) => {
+      const secret = 'Bearer very-secret-token-value';
+      useConsoleStore.getState().addFrame({
+        timestamp: Date.now(),
+        protocol,
+        direction: 'in',
+        payload: `event payload ${secret}`,
+      });
+
+      const frame = useConsoleStore.getState().frames.at(-1)!;
+      expect(frame.payload).not.toContain(secret);
+      expect(frame.payload).toContain('[REDACTED]');
+    }
+  );
+});
+
+describe('native console drafts', () => {
+  const response: ApiResponse = {
+    id: 'response',
+    requestId: 'request',
+    status: 200,
+    statusText: 'OK',
+    headers: {},
+    body: '',
+    size: 0,
+    time: 1,
+    timestamp: 1,
+  };
+
+  beforeEach(() => {
+    useConsoleStore.setState({
+      entries: [],
+      frames: [],
+      captureEnabled: true,
+      preserveOnSend: true,
+    });
+  });
+
+  it('creates an HTTP draft with credentials omitted and a sanitized resolved URL', () => {
+    const request: HttpRequest = {
+      id: 'request',
+      name: 'Request',
+      type: 'http',
+      method: 'GET',
+      url: '{{baseUrl}}/users',
+      headers: [],
+      params: [],
+      body: { type: 'none' },
+      auth: { type: 'none' },
+    };
+    useConsoleStore.getState().addEntry(
+      createConsoleEntry(
+        request,
+        response,
+        { Authorization: 'Bearer unsafe-value' },
+        undefined,
+        undefined,
+        'http',
+        {
+          resolvedUrl: 'https://api.example.test/users?api_key=unsafe-value',
+        }
+      )
+    );
+
+    const entry = useConsoleStore.getState().entries[0]!;
+    expect(entry.nativeDraft).toMatchObject({
+      kind: 'http',
+      credentialsOmitted: true,
+      url: 'https://api.example.test/users?api_key=%5BREDACTED%5D',
+      headers: { Authorization: '[REDACTED]' },
+    });
+    expect(entryToHttpRequest(entry)?.url).toBe(
+      'https://api.example.test/users?api_key=%5BREDACTED%5D'
+    );
+  });
+
+  it('keeps GraphQL and gRPC evidence in their native request shapes', () => {
+    const graphql = createProtocolConsoleEntry({
+      protocol: 'graphql',
+      method: 'POST',
+      url: 'https://api.example.test/graphql',
+      response,
+      nativeDraft: {
+        kind: 'graphql',
+        credentialsOmitted: true,
+        url: 'https://api.example.test/graphql',
+        headers: {},
+        query: 'query Viewer { viewer { id } }',
+        variables: '{"token":"unsafe-value"}',
+      },
+    });
+    const grpc = createProtocolConsoleEntry({
+      protocol: 'grpc',
+      method: 'example.v1.Users/Get',
+      url: 'https://grpc.example.test',
+      response,
+      nativeDraft: {
+        kind: 'grpc',
+        credentialsOmitted: true,
+        url: 'https://grpc.example.test',
+        service: 'example.v1.Users',
+        method: 'Get',
+        message: '{"id":"1"}',
+        metadata: { Authorization: 'Bearer unsafe-value' },
+      },
+    });
+    useConsoleStore.getState().addEntry(graphql);
+    useConsoleStore.getState().addEntry(grpc);
+
+    const storedGrpc = useConsoleStore
+      .getState()
+      .entries.find((entry) => entry.protocol === 'grpc');
+    const storedGraphql = useConsoleStore
+      .getState()
+      .entries.find((entry) => entry.protocol === 'graphql');
+    expect(entryToGraphqlRequest(storedGraphql!)?.body.type).toBe('graphql');
+    expect(entryToGrpcRequest(storedGrpc!)).toMatchObject({
+      type: 'grpc',
+      service: 'example.v1.Users',
+      method: 'Get',
+      auth: { type: 'none' },
+      metadata: [{ key: 'Authorization', value: '[REDACTED]' }],
+    });
+  });
+
+  it('only exposes protocol-native actions and never exposes frame replay', () => {
+    const grpc = createProtocolConsoleEntry({
+      protocol: 'grpc',
+      method: 'Users/Get',
+      url: 'https://grpc.example.test',
+      response,
+      nativeDraft: {
+        kind: 'grpc',
+        credentialsOmitted: true,
+        url: 'https://grpc.example.test',
+        service: 'Users',
+        method: 'Get',
+        message: '{}',
+        metadata: {},
+      },
+    });
+    useConsoleStore.getState().addEntry(grpc);
+
+    expect(getConsoleEntryActions(useConsoleStore.getState().entries[0]!)).toEqual({
+      openNativeDraft: true,
+      copyCode: false,
+      exportHttp: false,
+    });
+    expect(CONSOLE_PROTOCOL_ACTIONS.websocket.openNativeDraft).toBe(false);
   });
 });

@@ -38,14 +38,14 @@ describe('entriesToHar', () => {
     expect(har.log.entries).toHaveLength(1);
   });
 
-  it('expands a single header value into one HarHeader', () => {
+  it('omits credential-bearing request headers from HAR', () => {
     const har = entriesToHar([makeEntry()]);
     const reqHeaders = har.log.entries[0]!.request.headers;
     expect(reqHeaders).toContainEqual({ name: 'Content-Type', value: 'application/json' });
-    expect(reqHeaders).toContainEqual({ name: 'X-Token', value: 'abc' });
+    expect(reqHeaders).not.toContainEqual({ name: 'X-Token', value: 'abc' });
   });
 
-  it('expands array-valued response headers into one HarHeader per value', () => {
+  it('omits Set-Cookie response headers from HAR', () => {
     const har = entriesToHar([
       makeEntry({
         response: {
@@ -55,24 +55,21 @@ describe('entriesToHar', () => {
       }),
     ]);
     const respHeaders = har.log.entries[0]!.response.headers;
-    expect(respHeaders.filter((h) => h.name === 'set-cookie')).toEqual([
-      { name: 'set-cookie', value: 'a=1; Path=/' },
-      { name: 'set-cookie', value: 'b=2; Path=/' },
-    ]);
+    expect(respHeaders.filter((h) => h.name === 'set-cookie')).toEqual([]);
   });
 
-  it('maps a successful gRPC entry (status 0) to HTTP 200 — HAR treats 0 as no-response', () => {
+  it('excludes gRPC entries from HAR', () => {
     const har = entriesToHar([
       makeEntry({ protocol: 'grpc', response: { ...makeEntry().response, status: 0 } }),
     ]);
-    expect(har.log.entries[0]!.response.status).toBe(200);
+    expect(har.log.entries).toEqual([]);
   });
 
-  it('maps a gRPC error code to its HTTP equivalent in HAR', () => {
+  it('excludes gRPC errors from HAR', () => {
     const har = entriesToHar([
       makeEntry({ protocol: 'grpc', response: { ...makeEntry().response, status: 5 } }),
     ]);
-    expect(har.log.entries[0]!.response.status).toBe(404); // NOT_FOUND
+    expect(har.log.entries).toEqual([]);
   });
 
   it('parses URL query parameters into queryString', () => {
@@ -197,6 +194,42 @@ describe('entriesToCurlBatch', () => {
   it('separates each curl block with a blank line', () => {
     const batch = entriesToCurlBatch([makeEntry({ id: 'a' }), makeEntry({ id: 'b' })]);
     expect(batch).toContain('\n\n');
+  });
+});
+
+describe('safe export protocol compatibility', () => {
+  it('excludes non-HTTP entries from HAR and cURL while retaining them in NDJSON', () => {
+    const http = makeEntry({ protocol: 'http' });
+    const grpc = makeEntry({ id: 'grpc', protocol: 'grpc' });
+
+    expect(entriesToHar([http, grpc]).log.entries).toHaveLength(1);
+    expect(entriesToCurlBatch([http, grpc])).toContain('curl -X GET');
+    expect(entriesToCurlBatch([http, grpc])).not.toContain('grpc');
+    expect(entriesToNdjson([http, grpc])).toContain('"protocol":"grpc"');
+  });
+
+  it('uses the sanitized resolved URL and never emits credential headers', () => {
+    const entry = makeEntry({
+      resolvedUrl: 'https://api.example.com/users?api_key=%5BREDACTED%5D',
+      request: {
+        method: 'GET',
+        url: 'https://api.example.com/users?api_key=plaintext-secret',
+        headers: { Authorization: '[REDACTED]', Cookie: '[REDACTED]', Accept: 'application/json' },
+      },
+    });
+    const har = JSON.stringify(entriesToHar([entry]));
+    const curl = entriesToCurlBatch([entry]);
+    const ndjson = entriesToNdjson([entry]);
+
+    expect(har).not.toContain('plaintext-secret');
+    expect(har).not.toContain('Authorization');
+    expect(har).not.toContain('Cookie');
+    expect(curl).toContain('api_key=%5BREDACTED%5D');
+    expect(curl).not.toContain('Authorization');
+    expect(ndjson).toContain(
+      '"resolvedUrl":"https://api.example.com/users?api_key=%5BREDACTED%5D"'
+    );
+    expect(ndjson).not.toContain('plaintext-secret');
   });
 });
 

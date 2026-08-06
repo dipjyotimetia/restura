@@ -65,3 +65,27 @@ describe('useMcpStore.resetConnectionSession', () => {
     expect(useMcpStore.getState().activeConnectionId).toBe(before.activeConnectionId);
   });
 });
+
+describe('useMcpStore.createConnection', () => {
+  beforeEach(() => {
+    useMcpStore.setState({ connections: {}, activeConnectionId: null });
+  });
+
+  it('creates an active disconnected connection from a safe console draft without connecting', () => {
+    const id = useMcpStore
+      .getState()
+      .createConnection('https://mcp.example.test', 'http-sse', [
+        { id: 'header', key: 'Authorization', value: '[REDACTED]', enabled: true },
+      ]);
+
+    expect(useMcpStore.getState().activeConnectionId).toBe(id);
+    expect(useMcpStore.getState().connections[id]).toMatchObject({
+      url: 'https://mcp.example.test',
+      transport: 'http-sse',
+      status: 'disconnected',
+      capabilities: null,
+      headers: [{ key: 'Authorization', value: '[REDACTED]' }],
+      log: [],
+    });
+  });
+});

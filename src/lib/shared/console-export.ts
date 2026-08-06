@@ -1,5 +1,15 @@
 import { httpLikeStatus } from '@/lib/shared/console-format';
-import { type ConsoleEntry, entryToCurl } from '@/store/useConsoleStore';
+import {
+  isConsoleCredentialHeader,
+  sanitizeConsoleEntry,
+  sanitizeConsoleFrame,
+} from '@/lib/shared/console-sanitization';
+import {
+  type ConsoleEntry,
+  type ConsoleFrame,
+  entryToCurl,
+  isHttpExportCompatible,
+} from '@/store/useConsoleStore';
 
 /**
  * Minimal HAR 1.2 shape. We emit just enough for the standard tools
@@ -53,6 +63,7 @@ interface HarEntry {
 function headersToHar(headers: Record<string, string | string[]>): HarHeader[] {
   const out: HarHeader[] = [];
   for (const [name, value] of Object.entries(headers)) {
+    if (isConsoleCredentialHeader(name)) continue;
     if (Array.isArray(value)) {
       for (const v of value) out.push({ name, value: v });
     } else {
@@ -89,7 +100,8 @@ export function entriesToHar(entries: ConsoleEntry[]): HarLog {
     log: {
       version: '1.2',
       creator: { name: 'Restura', version: '1.0' },
-      entries: entries.map((entry) => {
+      entries: entries.filter(isHttpExportCompatible).map((rawEntry) => {
+        const entry = { ...sanitizeConsoleEntry(rawEntry), id: rawEntry.id };
         const reqContentType = contentTypeFromHeaders(
           // sentHeaders is Record<string, string>; HAR helper accepts the wider shape.
           entry.request.headers as unknown as Record<string, string | string[]>
@@ -99,12 +111,12 @@ export function entriesToHar(entries: ConsoleEntry[]): HarLog {
           time: entry.response.time,
           request: {
             method: entry.request.method,
-            url: entry.request.url,
+            url: entry.resolvedUrl ?? entry.request.url,
             httpVersion: 'HTTP/1.1',
             headers: headersToHar(
               entry.request.headers as unknown as Record<string, string | string[]>
             ),
-            queryString: queryStringFromUrl(entry.request.url),
+            queryString: queryStringFromUrl(entry.resolvedUrl ?? entry.request.url),
             cookies: [],
             headersSize: -1,
             bodySize: -1,
@@ -141,37 +153,52 @@ export function entriesToHar(entries: ConsoleEntry[]): HarLog {
   };
 }
 
-export function entriesToNdjson(entries: ConsoleEntry[]): string {
-  return entries
-    .map((entry) =>
-      JSON.stringify({
-        id: entry.id,
-        timestamp: entry.timestamp,
-        protocol: entry.protocol ?? 'http',
-        request: entry.request,
-        response: entry.response,
-        ...(entry.scriptLogs && { scriptLogs: entry.scriptLogs }),
-        ...(entry.tests && { tests: entry.tests }),
-      })
-    )
-    .join('\n');
+export function entriesToNdjson(entries: ConsoleEntry[], frames: ConsoleFrame[] = []): string {
+  const entryLines = entries.map((rawEntry) => {
+    const entry = { ...sanitizeConsoleEntry(rawEntry), id: rawEntry.id };
+    return JSON.stringify({
+      recordType: 'entry',
+      id: entry.id,
+      timestamp: entry.timestamp,
+      protocol: entry.protocol ?? 'http',
+      source: entry.source ?? { protocol: entry.protocol ?? 'http' },
+      request: entry.request,
+      ...(entry.resolvedUrl !== undefined && { resolvedUrl: entry.resolvedUrl }),
+      response: entry.response,
+      ...(entry.nativeDraft && { nativeDraft: entry.nativeDraft }),
+      ...(entry.scriptLogs && { scriptLogs: entry.scriptLogs }),
+      ...(entry.tests && { tests: entry.tests }),
+      ...(entry.bodyTruncated !== undefined && { bodyTruncated: entry.bodyTruncated }),
+      ...(entry.requestSize !== undefined && { requestSize: entry.requestSize }),
+      ...(entry.runId !== undefined && { runId: entry.runId }),
+      ...(entry.runLabel !== undefined && { runLabel: entry.runLabel }),
+      ...(entry.iteration !== undefined && { iteration: entry.iteration }),
+    });
+  });
+  const frameLines = frames.map((rawFrame) => {
+    const frame = { ...sanitizeConsoleFrame(rawFrame), id: rawFrame.id };
+    return JSON.stringify({ recordType: 'frame', ...frame });
+  });
+  return [...entryLines, ...frameLines].join('\n');
 }
 
 export function entriesToCurlBatch(entries: ConsoleEntry[]): string {
   // Reverse so the file lists oldest first — matches the natural order users
   // expect when re-running a sequence of requests.
-  return [...entries].reverse().map(entryToCurl).join('\n\n');
+  return [...entries].filter(isHttpExportCompatible).reverse().map(entryToCurl).join('\n\n');
 }
 
 export interface ConsoleExportFile {
   filename: string;
   mimeType: string;
   contents: string;
+  excludedEntries: number;
 }
 
 export function buildExportFile(
   format: 'har' | 'ndjson' | 'curl',
-  entries: ConsoleEntry[]
+  entries: ConsoleEntry[],
+  frames: ConsoleFrame[] = []
 ): ConsoleExportFile {
   const ts = new Date().toISOString().replace(/[:.]/g, '-');
   if (format === 'har') {
@@ -179,19 +206,22 @@ export function buildExportFile(
       filename: `restura-console-${ts}.har`,
       mimeType: 'application/json',
       contents: JSON.stringify(entriesToHar(entries), null, 2),
+      excludedEntries: entries.filter((entry) => !isHttpExportCompatible(entry)).length,
     };
   }
   if (format === 'ndjson') {
     return {
       filename: `restura-console-${ts}.ndjson`,
       mimeType: 'application/x-ndjson',
-      contents: entriesToNdjson(entries),
+      contents: entriesToNdjson(entries, frames),
+      excludedEntries: 0,
     };
   }
   return {
     filename: `restura-console-${ts}.sh`,
     mimeType: 'text/x-shellscript',
     contents: `#!/usr/bin/env bash\nset -euo pipefail\n\n${entriesToCurlBatch(entries)}\n`,
+    excludedEntries: entries.filter((entry) => !isHttpExportCompatible(entry)).length,
   };
 }
 
