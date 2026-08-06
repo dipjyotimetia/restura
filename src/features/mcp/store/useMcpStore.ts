@@ -161,14 +161,14 @@ export const useMcpStore = create<McpState>()(
         set((s) => {
           const c = s.connections[id];
           if (!c) return s;
+          const { lastError: _lastError, ...connection } = c;
           return {
             connections: {
               ...s.connections,
               [id]: {
-                ...c,
+                ...connection,
                 status: 'disconnected',
                 capabilities: null,
-                lastError: undefined,
               },
             },
           };

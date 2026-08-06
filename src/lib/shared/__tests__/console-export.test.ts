@@ -106,6 +106,24 @@ describe('entriesToHar', () => {
     expect(postData).toEqual({ mimeType: 'application/json', text: '{"name":"x"}' });
   });
 
+  it('falls back to text/plain for a body without a request content-type', () => {
+    const har = entriesToHar([
+      makeEntry({
+        request: {
+          method: 'POST',
+          url: 'https://api.example.com/users',
+          headers: {},
+          body: 'plain text',
+        },
+      }),
+    ]);
+
+    expect(har.log.entries[0]!.request.postData).toEqual({
+      mimeType: 'text/plain',
+      text: 'plain text',
+    });
+  });
+
   it('uses response content-type for response.content.mimeType (case-insensitive)', () => {
     const har = entriesToHar([
       makeEntry({
@@ -116,6 +134,27 @@ describe('entriesToHar', () => {
       }),
     ]);
     expect(har.log.entries[0]!.response.content.mimeType).toBe('application/xml');
+  });
+
+  it('preserves safe repeated headers and falls back for an empty content-type array', () => {
+    const har = entriesToHar([
+      makeEntry({
+        response: {
+          ...makeEntry().response,
+          headers: { 'content-type': [], 'x-trace': ['first', 'second'] },
+        },
+      }),
+    ]);
+
+    expect(har.log.entries[0]!.response.content.mimeType).toBe('text/plain');
+    expect(har.log.entries[0]!.response.headers).toContainEqual({
+      name: 'x-trace',
+      value: 'first',
+    });
+    expect(har.log.entries[0]!.response.headers).toContainEqual({
+      name: 'x-trace',
+      value: 'second',
+    });
   });
 
   it('uses text/plain when content-type is missing', () => {
@@ -165,6 +204,53 @@ describe('entriesToNdjson', () => {
     const parsed = JSON.parse(entriesToNdjson([entry]));
     expect(parsed.scriptLogs).toHaveLength(1);
     expect(parsed.tests[0].name).toBe('status is 200');
+  });
+
+  it('includes complete safe evidence metadata and frame records', () => {
+    const entry = makeEntry({
+      resolvedUrl: 'https://api.example.com/users?token=%5BREDACTED%5D',
+      source: { protocol: 'http', connectionId: 'connection-1' },
+      nativeDraft: {
+        kind: 'http',
+        credentialsOmitted: true,
+        method: 'GET',
+        url: 'https://api.example.com/users?token=%5BREDACTED%5D',
+        headers: {},
+      },
+      scriptLogs: [{ type: 'info', message: 'safe', timestamp: 1 }],
+      tests: [{ name: 'safe', passed: true }],
+      bodyTruncated: true,
+      requestSize: 42,
+      runId: 'run-1',
+      runLabel: 'Smoke',
+      iteration: 2,
+    });
+
+    const [entryLine, frameLine] = entriesToNdjson(
+      [entry],
+      [
+        {
+          id: 'frame-1',
+          timestamp: 1,
+          protocol: 'websocket',
+          direction: 'in',
+          payload: 'safe frame',
+        },
+      ]
+    ).split('\n');
+    const parsed = JSON.parse(entryLine!);
+
+    expect(parsed).toMatchObject({
+      recordType: 'entry',
+      resolvedUrl: 'https://api.example.com/users?token=%5BREDACTED%5D',
+      source: { protocol: 'http', connectionId: 'connection-1' },
+      bodyTruncated: true,
+      requestSize: 42,
+      runId: 'run-1',
+      runLabel: 'Smoke',
+      iteration: 2,
+    });
+    expect(JSON.parse(frameLine!)).toMatchObject({ recordType: 'frame', id: 'frame-1' });
   });
 
   it('returns empty string for empty input', () => {

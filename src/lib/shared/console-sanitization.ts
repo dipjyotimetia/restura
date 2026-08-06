@@ -78,11 +78,12 @@ export function sanitizeConsoleUrl(value: string): string {
     }
     return changed ? url.toString() : value;
   } catch {
-    return sanitizeConsoleText(value).replace(
+    const withRedactedQuery = value.replace(
       /([?&]([^=&]+)=)([^&#\s]+)/g,
       (match, prefix: string, key: string) =>
         isCredentialQueryParam(key) ? `${prefix}${CONSOLE_REDACTED}` : match
     );
+    return sanitizeConsoleText(withRedactedQuery);
   }
 }
 

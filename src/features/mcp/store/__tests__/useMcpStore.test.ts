@@ -28,13 +28,17 @@ describe('useMcpStore.resetConnectionSession', () => {
   it('clears only ephemeral session state while preserving connection configuration', () => {
     useMcpStore.getState().resetConnectionSession('connection-1');
 
-    expect(useMcpStore.getState().connections['connection-1']).toEqual(
-      connection({
-        status: 'disconnected',
-        capabilities: null,
-        lastError: undefined,
-      })
-    );
+    const reset = useMcpStore.getState().connections['connection-1'];
+    expect(reset).toMatchObject({
+      id: 'connection-1',
+      url: 'https://mcp.example.com',
+      transport: 'streamable-http',
+      status: 'disconnected',
+      capabilities: null,
+      log: [],
+      createdAt: 1,
+    });
+    expect(reset).not.toHaveProperty('lastError');
     expect(useMcpStore.getState().activeConnectionId).toBe('connection-1');
   });
 

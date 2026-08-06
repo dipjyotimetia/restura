@@ -922,6 +922,7 @@ describe('native console drafts', () => {
     const storedGraphql = useConsoleStore
       .getState()
       .entries.find((entry) => entry.protocol === 'graphql');
+    expect(entryToHttpRequest(storedGraphql!)).toBeNull();
     expect(entryToGraphqlRequest(storedGraphql!)?.body.type).toBe('graphql');
     expect(entryToGrpcRequest(storedGrpc!)).toMatchObject({
       type: 'grpc',
@@ -955,6 +956,9 @@ describe('native console drafts', () => {
       copyCode: false,
       exportHttp: false,
     });
+    const legacy = { ...useConsoleStore.getState().entries[0]! };
+    delete legacy.protocol;
+    expect(getConsoleEntryActions(legacy)).toMatchObject({ exportHttp: true });
     expect(CONSOLE_PROTOCOL_ACTIONS.websocket.openNativeDraft).toBe(false);
   });
 });
