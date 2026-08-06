@@ -2,11 +2,21 @@
 
 import { Network } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import { toast } from 'sonner';
 import { useShallow } from 'zustand/react/shallow';
 import { type CodeGeneratorType, codeGenerators } from '@/lib/shared/codeGenerators';
 import { useActiveTab } from '@/store/selectors';
-import { entryToCurl, entryToHttpRequest, useConsoleStore } from '@/store/useConsoleStore';
+import { useMcpStore } from '@/features/mcp/store/useMcpStore';
+import type { McpRequest } from '@/types';
+import {
+  entryToCurl,
+  entryToGraphqlRequest,
+  entryToGrpcRequest,
+  entryToHttpRequest,
+  getConsoleEntryActions,
+  useConsoleStore,
+} from '@/store/useConsoleStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import EntryCompareDialog from './EntryCompareDialog';
 import EntryExpandDialog from './EntryExpandDialog';
@@ -49,7 +59,11 @@ export default function NetworkTab() {
     }))
   );
   const openTab = useRequestStore((state) => state.openTab);
+  const openTabWithMode = useRequestStore((state) => state.openTabWithMode);
   const updateRequest = useRequestStore((state) => state.updateRequest);
+  const updateRequestForTab = useRequestStore((state) => state.updateRequestForTab);
+  const createMcpConnection = useMcpStore((state) => state.createConnection);
+  const appendMcpLog = useMcpStore((state) => state.appendLog);
   const activeTab = useActiveTab();
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [compareDialogOpen, setCompareDialogOpen] = useState(false);
@@ -82,9 +96,10 @@ export default function NetworkTab() {
   };
 
   const handleCopyAsCode = async (generatorKey: CodeGeneratorType) => {
-    if (!selectedEntry) return;
+    if (!selectedEntry || !getConsoleEntryActions(selectedEntry).copyCode) return;
     try {
-      const request = entryToHttpRequest(selectedEntry);
+      const request = entryToHttpRequest(selectedEntry) ?? entryToGraphqlRequest(selectedEntry);
+      if (!request) return;
       const resolvedParams: Record<string, string> = {};
       try {
         for (const [key, value] of new URL(request.url).searchParams) resolvedParams[key] = value;
@@ -104,33 +119,85 @@ export default function NetworkTab() {
     }
   };
 
-  const handleReplay = () => {
+  const handleOpenSafeDraft = () => {
     if (!selectedEntry) return;
-    const request = entryToHttpRequest(selectedEntry);
-    if (activeTab?.request.type !== 'http') {
-      openTab(request, { switchTo: true });
-      toast.success('Opened in a new tab');
+    const draft = selectedEntry.nativeDraft;
+    if (!draft) return;
+
+    if (draft.kind === 'http') {
+      const request = entryToHttpRequest(selectedEntry);
+      if (!request) return;
+      if (activeTab?.request.type !== 'http') {
+        openTab(request, { switchTo: true });
+      } else {
+        updateRequest({
+          method: request.method,
+          url: request.url,
+          headers: request.headers,
+          params: request.params,
+          body: request.body,
+          auth: request.auth,
+        });
+      }
+      toast.success('Opened safe HTTP draft');
       return;
     }
-    updateRequest({
-      method: request.method,
-      url: request.url,
-      headers: request.headers,
-      params: request.params,
-      body: request.body,
-      auth: request.auth,
-    });
-    toast.success('Replayed in active tab');
-  };
 
-  const handleOpenInNewTab = () => {
-    if (!selectedEntry) return;
-    openTab(entryToHttpRequest(selectedEntry), { switchTo: true });
-    toast.success('Opened in a new tab');
+    if (draft.kind === 'graphql') {
+      const request = entryToGraphqlRequest(selectedEntry);
+      if (!request) return;
+      const tabId = openTabWithMode('graphql');
+      updateRequestForTab(tabId, request);
+      toast.success('Opened safe GraphQL draft');
+      return;
+    }
+
+    if (draft.kind === 'grpc') {
+      const request = entryToGrpcRequest(selectedEntry);
+      if (!request) return;
+      openTab(request, { switchTo: true });
+      toast.success('Opened gRPC draft — load reflection or a proto before sending');
+      return;
+    }
+
+    const connectionId = createMcpConnection(
+      draft.url,
+      draft.transport,
+      Object.entries(draft.headers).map(([key, value]) => ({
+        id: uuidv4(),
+        key,
+        value,
+        enabled: true,
+      }))
+    );
+    if (draft.method) {
+      appendMcpLog(connectionId, {
+        method: draft.method,
+        ...(draft.params !== undefined && { params: draft.params }),
+        error: 'Captured console evidence — not invoked.',
+        durationMs: 0,
+      });
+    }
+    const request: McpRequest = {
+      id: uuidv4(),
+      name: 'Console MCP Draft',
+      type: 'mcp',
+      url: draft.url,
+      transport: draft.transport,
+      headers: Object.entries(draft.headers).map(([key, value]) => ({
+        id: uuidv4(),
+        key,
+        value,
+        enabled: true,
+      })),
+      auth: { type: 'none' },
+    };
+    openTab(request, { switchTo: true });
+    toast.success('Created disconnected MCP draft');
   };
 
   const handleCopyCurl = async () => {
-    if (!selectedEntry) return;
+    if (!selectedEntry || !getConsoleEntryActions(selectedEntry).copyCode) return;
     try {
       await navigator.clipboard.writeText(entryToCurl(selectedEntry));
       toast.success('Copied as cURL');
@@ -176,8 +243,7 @@ export default function NetworkTab() {
           onCopyAsCode={handleCopyAsCode}
           onCopyCurl={handleCopyCurl}
           onExpand={() => setExpandOpen(true)}
-          onOpenInNewTab={handleOpenInNewTab}
-          onReplay={handleReplay}
+          onOpenSafeDraft={handleOpenSafeDraft}
         />
       </div>
       <EntryCompareDialog

@@ -28,13 +28,17 @@ describe('useMcpStore.resetConnectionSession', () => {
   it('clears only ephemeral session state while preserving connection configuration', () => {
     useMcpStore.getState().resetConnectionSession('connection-1');
 
-    expect(useMcpStore.getState().connections['connection-1']).toEqual(
-      connection({
-        status: 'disconnected',
-        capabilities: null,
-        lastError: undefined,
-      })
-    );
+    const reset = useMcpStore.getState().connections['connection-1'];
+    expect(reset).toMatchObject({
+      id: 'connection-1',
+      url: 'https://mcp.example.com',
+      transport: 'streamable-http',
+      status: 'disconnected',
+      capabilities: null,
+      log: [],
+      createdAt: 1,
+    });
+    expect(reset).not.toHaveProperty('lastError');
     expect(useMcpStore.getState().activeConnectionId).toBe('connection-1');
   });
 
@@ -63,5 +67,29 @@ describe('useMcpStore.resetConnectionSession', () => {
 
     expect(useMcpStore.getState().connections).toEqual(before.connections);
     expect(useMcpStore.getState().activeConnectionId).toBe(before.activeConnectionId);
+  });
+});
+
+describe('useMcpStore.createConnection', () => {
+  beforeEach(() => {
+    useMcpStore.setState({ connections: {}, activeConnectionId: null });
+  });
+
+  it('creates an active disconnected connection from a safe console draft without connecting', () => {
+    const id = useMcpStore
+      .getState()
+      .createConnection('https://mcp.example.test', 'http-sse', [
+        { id: 'header', key: 'Authorization', value: '[REDACTED]', enabled: true },
+      ]);
+
+    expect(useMcpStore.getState().activeConnectionId).toBe(id);
+    expect(useMcpStore.getState().connections[id]).toMatchObject({
+      url: 'https://mcp.example.test',
+      transport: 'http-sse',
+      status: 'disconnected',
+      capabilities: null,
+      headers: [{ key: 'Authorization', value: '[REDACTED]' }],
+      log: [],
+    });
   });
 });

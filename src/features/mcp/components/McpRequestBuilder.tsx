@@ -123,6 +123,15 @@ export default function McpRequestBuilder() {
           time: result.durationMs,
           timestamp: Date.now(),
         },
+        nativeDraft: {
+          kind: 'mcp',
+          credentialsOmitted: true,
+          url: active.url,
+          transport: active.transport,
+          headers: keyValuePairsToRecord(active.headers),
+          method,
+          ...(params !== undefined && { params: JSON.stringify(params, null, 2) }),
+        },
       })
     );
   };

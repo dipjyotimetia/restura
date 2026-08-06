@@ -38,14 +38,14 @@ describe('entriesToHar', () => {
     expect(har.log.entries).toHaveLength(1);
   });
 
-  it('expands a single header value into one HarHeader', () => {
+  it('omits credential-bearing request headers from HAR', () => {
     const har = entriesToHar([makeEntry()]);
     const reqHeaders = har.log.entries[0]!.request.headers;
     expect(reqHeaders).toContainEqual({ name: 'Content-Type', value: 'application/json' });
-    expect(reqHeaders).toContainEqual({ name: 'X-Token', value: 'abc' });
+    expect(reqHeaders).not.toContainEqual({ name: 'X-Token', value: 'abc' });
   });
 
-  it('expands array-valued response headers into one HarHeader per value', () => {
+  it('omits Set-Cookie response headers from HAR', () => {
     const har = entriesToHar([
       makeEntry({
         response: {
@@ -55,24 +55,21 @@ describe('entriesToHar', () => {
       }),
     ]);
     const respHeaders = har.log.entries[0]!.response.headers;
-    expect(respHeaders.filter((h) => h.name === 'set-cookie')).toEqual([
-      { name: 'set-cookie', value: 'a=1; Path=/' },
-      { name: 'set-cookie', value: 'b=2; Path=/' },
-    ]);
+    expect(respHeaders.filter((h) => h.name === 'set-cookie')).toEqual([]);
   });
 
-  it('maps a successful gRPC entry (status 0) to HTTP 200 — HAR treats 0 as no-response', () => {
+  it('excludes gRPC entries from HAR', () => {
     const har = entriesToHar([
       makeEntry({ protocol: 'grpc', response: { ...makeEntry().response, status: 0 } }),
     ]);
-    expect(har.log.entries[0]!.response.status).toBe(200);
+    expect(har.log.entries).toEqual([]);
   });
 
-  it('maps a gRPC error code to its HTTP equivalent in HAR', () => {
+  it('excludes gRPC errors from HAR', () => {
     const har = entriesToHar([
       makeEntry({ protocol: 'grpc', response: { ...makeEntry().response, status: 5 } }),
     ]);
-    expect(har.log.entries[0]!.response.status).toBe(404); // NOT_FOUND
+    expect(har.log.entries).toEqual([]);
   });
 
   it('parses URL query parameters into queryString', () => {
@@ -109,6 +106,24 @@ describe('entriesToHar', () => {
     expect(postData).toEqual({ mimeType: 'application/json', text: '{"name":"x"}' });
   });
 
+  it('falls back to text/plain for a body without a request content-type', () => {
+    const har = entriesToHar([
+      makeEntry({
+        request: {
+          method: 'POST',
+          url: 'https://api.example.com/users',
+          headers: {},
+          body: 'plain text',
+        },
+      }),
+    ]);
+
+    expect(har.log.entries[0]!.request.postData).toEqual({
+      mimeType: 'text/plain',
+      text: 'plain text',
+    });
+  });
+
   it('uses response content-type for response.content.mimeType (case-insensitive)', () => {
     const har = entriesToHar([
       makeEntry({
@@ -119,6 +134,27 @@ describe('entriesToHar', () => {
       }),
     ]);
     expect(har.log.entries[0]!.response.content.mimeType).toBe('application/xml');
+  });
+
+  it('preserves safe repeated headers and falls back for an empty content-type array', () => {
+    const har = entriesToHar([
+      makeEntry({
+        response: {
+          ...makeEntry().response,
+          headers: { 'content-type': [], 'x-trace': ['first', 'second'] },
+        },
+      }),
+    ]);
+
+    expect(har.log.entries[0]!.response.content.mimeType).toBe('text/plain');
+    expect(har.log.entries[0]!.response.headers).toContainEqual({
+      name: 'x-trace',
+      value: 'first',
+    });
+    expect(har.log.entries[0]!.response.headers).toContainEqual({
+      name: 'x-trace',
+      value: 'second',
+    });
   });
 
   it('uses text/plain when content-type is missing', () => {
@@ -170,6 +206,53 @@ describe('entriesToNdjson', () => {
     expect(parsed.tests[0].name).toBe('status is 200');
   });
 
+  it('includes complete safe evidence metadata and frame records', () => {
+    const entry = makeEntry({
+      resolvedUrl: 'https://api.example.com/users?token=%5BREDACTED%5D',
+      source: { protocol: 'http', connectionId: 'connection-1' },
+      nativeDraft: {
+        kind: 'http',
+        credentialsOmitted: true,
+        method: 'GET',
+        url: 'https://api.example.com/users?token=%5BREDACTED%5D',
+        headers: {},
+      },
+      scriptLogs: [{ type: 'info', message: 'safe', timestamp: 1 }],
+      tests: [{ name: 'safe', passed: true }],
+      bodyTruncated: true,
+      requestSize: 42,
+      runId: 'run-1',
+      runLabel: 'Smoke',
+      iteration: 2,
+    });
+
+    const [entryLine, frameLine] = entriesToNdjson(
+      [entry],
+      [
+        {
+          id: 'frame-1',
+          timestamp: 1,
+          protocol: 'websocket',
+          direction: 'in',
+          payload: 'safe frame',
+        },
+      ]
+    ).split('\n');
+    const parsed = JSON.parse(entryLine!);
+
+    expect(parsed).toMatchObject({
+      recordType: 'entry',
+      resolvedUrl: 'https://api.example.com/users?token=%5BREDACTED%5D',
+      source: { protocol: 'http', connectionId: 'connection-1' },
+      bodyTruncated: true,
+      requestSize: 42,
+      runId: 'run-1',
+      runLabel: 'Smoke',
+      iteration: 2,
+    });
+    expect(JSON.parse(frameLine!)).toMatchObject({ recordType: 'frame', id: 'frame-1' });
+  });
+
   it('returns empty string for empty input', () => {
     expect(entriesToNdjson([])).toBe('');
   });
@@ -197,6 +280,42 @@ describe('entriesToCurlBatch', () => {
   it('separates each curl block with a blank line', () => {
     const batch = entriesToCurlBatch([makeEntry({ id: 'a' }), makeEntry({ id: 'b' })]);
     expect(batch).toContain('\n\n');
+  });
+});
+
+describe('safe export protocol compatibility', () => {
+  it('excludes non-HTTP entries from HAR and cURL while retaining them in NDJSON', () => {
+    const http = makeEntry({ protocol: 'http' });
+    const grpc = makeEntry({ id: 'grpc', protocol: 'grpc' });
+
+    expect(entriesToHar([http, grpc]).log.entries).toHaveLength(1);
+    expect(entriesToCurlBatch([http, grpc])).toContain('curl -X GET');
+    expect(entriesToCurlBatch([http, grpc])).not.toContain('grpc');
+    expect(entriesToNdjson([http, grpc])).toContain('"protocol":"grpc"');
+  });
+
+  it('uses the sanitized resolved URL and never emits credential headers', () => {
+    const entry = makeEntry({
+      resolvedUrl: 'https://api.example.com/users?api_key=%5BREDACTED%5D',
+      request: {
+        method: 'GET',
+        url: 'https://api.example.com/users?api_key=plaintext-secret',
+        headers: { Authorization: '[REDACTED]', Cookie: '[REDACTED]', Accept: 'application/json' },
+      },
+    });
+    const har = JSON.stringify(entriesToHar([entry]));
+    const curl = entriesToCurlBatch([entry]);
+    const ndjson = entriesToNdjson([entry]);
+
+    expect(har).not.toContain('plaintext-secret');
+    expect(har).not.toContain('Authorization');
+    expect(har).not.toContain('Cookie');
+    expect(curl).toContain('api_key=%5BREDACTED%5D');
+    expect(curl).not.toContain('Authorization');
+    expect(ndjson).toContain(
+      '"resolvedUrl":"https://api.example.com/users?api_key=%5BREDACTED%5D"'
+    );
+    expect(ndjson).not.toContain('plaintext-secret');
   });
 });
 

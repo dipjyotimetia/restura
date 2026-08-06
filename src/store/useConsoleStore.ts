@@ -2,9 +2,21 @@ import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
+import {
+  isConsoleCredentialHeader,
+  sanitizeConsoleEntry,
+  sanitizeConsoleFrame,
+  sanitizeConsoleUrl,
+} from '@/lib/shared/console-sanitization';
 import { ConsoleEntrySchema } from '@/lib/shared/store-validators';
 import { truncateForPersist as truncate } from '@/lib/shared/utils';
-import type { Response as ApiResponse, HttpMethod, HttpRequest, RequestBody } from '@/types';
+import type {
+  GrpcRequest,
+  Response as ApiResponse,
+  HttpMethod,
+  HttpRequest,
+  RequestBody,
+} from '@/types';
 
 export type ConsoleProtocol =
   | 'http'
@@ -44,10 +56,9 @@ export interface ConsoleEntry {
   /**
    * `request.url` with `{{variables}}` substituted, i.e. what actually went
    * out on the wire — display/copy (cURL, headers Host) should prefer this.
-   * `request.url` itself is left as the original (possibly templated) value
-   * so "Replay"/"Open in new tab" still target whichever environment is
-   * currently active. Absent for non-HTTP protocols and for entries that
-   * predate this field.
+   * Console evidence never restores a credential-bearing template. Native
+   * drafts use this sanitized wire URL instead. Absent for non-HTTP protocols
+   * and for entries that predate this field.
    */
   resolvedUrl?: string;
   response: ApiResponse;
@@ -63,7 +74,48 @@ export interface ConsoleEntry {
   runId?: string;
   runLabel?: string;
   iteration?: number;
+  /** Original producer and safe source correlation; never contains credentials. */
+  source?: { protocol: ConsoleProtocol; connectionId?: string };
+  /** A sanitized, non-executing protocol-native editor draft. */
+  nativeDraft?: ConsoleNativeDraft;
 }
+
+export type ConsoleNativeDraft =
+  | {
+      kind: 'http';
+      credentialsOmitted: true;
+      url: string;
+      method: string;
+      headers: Record<string, string>;
+      body?: string;
+    }
+  | {
+      kind: 'graphql';
+      credentialsOmitted: true;
+      url: string;
+      headers: Record<string, string>;
+      query: string;
+      variables: string;
+      operationName?: string;
+    }
+  | {
+      kind: 'grpc';
+      credentialsOmitted: true;
+      url: string;
+      service: string;
+      method: string;
+      message: string;
+      metadata: Record<string, string>;
+    }
+  | {
+      kind: 'mcp';
+      credentialsOmitted: true;
+      url: string;
+      transport: 'streamable-http' | 'http-sse';
+      headers: Record<string, string>;
+      method?: string;
+      params?: string;
+    };
 
 export type FrameProtocol = 'websocket' | 'socketio' | 'kafka' | 'mqtt' | 'sse' | 'grpc';
 export type FrameDirection = 'in' | 'out' | 'system';
@@ -108,12 +160,40 @@ const MAX_FRAMES = 500;
 const FRAME_PAYLOAD_LIMIT = 64 * 1024;
 // In-memory cap per captured body. A pathological 100 MB response would
 // otherwise sit in RAM for the whole session (×100 entries). 5 MB keeps
-// Expand/Compare/replay intact for any realistic payload while bounding the
+// Expand/Compare/inspect workflows intact for any realistic payload while bounding the
 // worst case; persist trims further (PERSIST_BODY_LIMIT) at the reload
 // boundary. Entries cut here carry `bodyTruncated` so the UI can say so.
 const LIVE_BODY_LIMIT = 5 * 1024 * 1024;
 
 export type ConsoleTabId = 'network' | 'scripts' | 'frames' | 'disk';
+
+/** Explicit console action policy. Frames are evidence only and never replayable. */
+export const CONSOLE_PROTOCOL_ACTIONS: Record<
+  ConsoleProtocol,
+  { openNativeDraft: boolean; copyCode: boolean; exportHttp: boolean }
+> = {
+  http: { openNativeDraft: true, copyCode: true, exportHttp: true },
+  graphql: { openNativeDraft: true, copyCode: true, exportHttp: true },
+  grpc: { openNativeDraft: true, copyCode: false, exportHttp: false },
+  mcp: { openNativeDraft: true, copyCode: false, exportHttp: false },
+  sse: { openNativeDraft: false, copyCode: false, exportHttp: false },
+  websocket: { openNativeDraft: false, copyCode: false, exportHttp: false },
+  socketio: { openNativeDraft: false, copyCode: false, exportHttp: false },
+  kafka: { openNativeDraft: false, copyCode: false, exportHttp: false },
+  mqtt: { openNativeDraft: false, copyCode: false, exportHttp: false },
+};
+
+export function getConsoleEntryActions(entry: ConsoleEntry): {
+  openNativeDraft: boolean;
+  copyCode: boolean;
+  exportHttp: boolean;
+} {
+  const actions = CONSOLE_PROTOCOL_ACTIONS[entry.protocol ?? 'http'];
+  return {
+    ...actions,
+    openNativeDraft: actions.openNativeDraft && entry.nativeDraft !== undefined,
+  };
+}
 
 interface ConsoleState {
   entries: ConsoleEntry[];
@@ -239,7 +319,10 @@ export const useConsoleStore = create<ConsoleState>()(
       addEntry: (entry) =>
         set((state) => {
           if (!state.captureEnabled) return state;
-          const newEntry: ConsoleEntry = { ...capLiveBody(entry), id: uuidv4() };
+          const newEntry: ConsoleEntry = {
+            ...capLiveBody(sanitizeConsoleEntry(entry)),
+            id: uuidv4(),
+          };
           // preserve-off still keeps pinned entries — pins are an explicit "keep this".
           const base = state.preserveOnSend ? state.entries : state.entries.filter((e) => e.pinned);
           const capped = capEntries([newEntry, ...base]);
@@ -275,7 +358,10 @@ export const useConsoleStore = create<ConsoleState>()(
       addFrame: (frame) =>
         set((state) => {
           if (!state.captureEnabled) return state;
-          const newFrame: ConsoleFrame = { ...capFramePayload(frame), id: uuidv4() };
+          const newFrame: ConsoleFrame = {
+            ...capFramePayload(sanitizeConsoleFrame(frame)),
+            id: uuidv4(),
+          };
           // Frames append newest at the *end* — they're chronological logs,
           // not a stack of distinct requests. Tail trim when over cap.
           const next =
@@ -290,7 +376,7 @@ export const useConsoleStore = create<ConsoleState>()(
         set((state) => {
           if (!state.captureEnabled || frames.length === 0) return state;
           const incoming: ConsoleFrame[] = frames.map((f) => ({
-            ...capFramePayload(f),
+            ...capFramePayload(sanitizeConsoleFrame(f)),
             id: uuidv4(),
           }));
           const merged = state.frames.concat(incoming);
@@ -350,7 +436,11 @@ export const useConsoleStore = create<ConsoleState>()(
         const valid: ConsoleEntry[] = [];
         for (const candidate of state.entries) {
           const parsed = ConsoleEntrySchema.safeParse(candidate);
-          if (parsed.success) valid.push(parsed.data as ConsoleEntry);
+          if (parsed.success)
+            valid.push({
+              ...sanitizeConsoleEntry(parsed.data as ConsoleEntry),
+              id: parsed.data.id,
+            });
         }
         state.entries = valid;
         if (state.selectedEntryId && !valid.some((e) => e.id === state.selectedEntryId)) {
@@ -379,6 +469,7 @@ export interface ConsoleEntryExtra {
   iteration?: number;
   /** See `ConsoleEntry.resolvedUrl`. */
   resolvedUrl?: string;
+  source?: ConsoleEntry['source'];
 }
 
 // Helper to create console entry from request/response
@@ -410,6 +501,17 @@ export function createConsoleEntry(
     ...(extra?.runLabel !== undefined && { runLabel: extra.runLabel }),
     ...(extra?.iteration !== undefined && { iteration: extra.iteration }),
     ...(extra?.resolvedUrl !== undefined && { resolvedUrl: extra.resolvedUrl }),
+    source: extra?.source ?? { protocol },
+    nativeDraft: {
+      kind: 'http',
+      credentialsOmitted: true,
+      method: request.method,
+      // A console draft is evidence of the wire target, never a restorable
+      // credential-bearing template. Sanitization happens at addEntry.
+      url: extra?.resolvedUrl ?? request.url,
+      headers: sentHeaders,
+      ...(body !== undefined && { body }),
+    },
   };
 }
 
@@ -430,6 +532,7 @@ export function createProtocolConsoleEntry(args: {
   scriptLogs?: ConsoleLog[];
   tests?: ConsoleTest[];
   extra?: ConsoleEntryExtra;
+  nativeDraft?: ConsoleNativeDraft;
 }): Omit<ConsoleEntry, 'id'> {
   const headers = args.headers ?? {};
   const requestSize = args.extra?.requestSize ?? estimateRequestSize(headers, args.body);
@@ -449,21 +552,76 @@ export function createProtocolConsoleEntry(args: {
     ...(args.extra?.runId !== undefined && { runId: args.extra.runId }),
     ...(args.extra?.runLabel !== undefined && { runLabel: args.extra.runLabel }),
     ...(args.extra?.iteration !== undefined && { iteration: args.extra.iteration }),
+    source: args.extra?.source ?? { protocol: args.protocol },
+    ...(args.nativeDraft !== undefined && { nativeDraft: args.nativeDraft }),
   };
 }
 
 /**
- * Round-trip a captured entry back into an HttpRequest so it can be replayed
- * in the active tab or opened in a new one. Body type is best-effort — the
- * entry only records the wire form, not the original `RequestBody.type`.
+ * Reconstruct a credential-free HTTP editor draft. Only native HTTP evidence
+ * is convertible; other protocols must stay in their own editor shape.
  */
-export function entryToHttpRequest(entry: ConsoleEntry): HttpRequest {
+export function entryToHttpRequest(entry: ConsoleEntry): HttpRequest | null {
+  if (entry.nativeDraft?.kind !== 'http') return null;
   return shapeToHttpRequest(
-    entry.request.method,
-    entry.request.url,
-    entry.request.headers,
-    entry.request.body
+    entry.nativeDraft.method,
+    entry.nativeDraft.url,
+    entry.nativeDraft.headers,
+    entry.nativeDraft.body
   );
+}
+
+/** Reconstruct a GraphQL editor request without downgrading it to an HTTP tab. */
+export function entryToGraphqlRequest(entry: ConsoleEntry): HttpRequest | null {
+  const draft = entry.nativeDraft;
+  if (!draft || draft.kind !== 'graphql') return null;
+  let variables: unknown = {};
+  try {
+    variables = JSON.parse(draft.variables);
+  } catch {
+    // Keep malformed captured variables inspectable; the GraphQL editor will
+    // surface validation instead of silently changing the evidence.
+    variables = draft.variables;
+  }
+  return {
+    ...shapeToHttpRequest('POST', draft.url, draft.headers, undefined),
+    name: 'Console GraphQL Draft',
+    body: {
+      type: 'graphql',
+      raw: JSON.stringify({
+        query: draft.query,
+        variables,
+        ...(draft.operationName !== undefined && { operationName: draft.operationName }),
+      }),
+    },
+  };
+}
+
+/** gRPC drafts deliberately include no descriptors: discovery/upload is still required before send. */
+export function entryToGrpcRequest(entry: ConsoleEntry): GrpcRequest | null {
+  const draft = entry.nativeDraft;
+  if (!draft || draft.kind !== 'grpc') return null;
+  return {
+    id: uuidv4(),
+    name: 'Console gRPC Draft',
+    type: 'grpc',
+    methodType: 'unary',
+    url: draft.url,
+    service: draft.service,
+    method: draft.method,
+    metadata: Object.entries(draft.metadata).map(([key, value]) => ({
+      id: uuidv4(),
+      key,
+      value,
+      enabled: true,
+    })),
+    message: draft.message,
+    auth: { type: 'none' },
+  };
+}
+
+export function isHttpExportCompatible(entry: ConsoleEntry): boolean {
+  return getConsoleEntryActions(entry).exportHttp;
 }
 
 /**
@@ -471,7 +629,7 @@ export function entryToHttpRequest(entry: ConsoleEntry): HttpRequest {
  * method + URL (Electron's file-backed log records no headers or bodies).
  */
 export function diskEntryToHttpRequest(method: string, url: string): HttpRequest {
-  return shapeToHttpRequest(method, url, {}, undefined);
+  return shapeToHttpRequest(method, sanitizeConsoleUrl(url), {}, undefined);
 }
 
 function shapeToHttpRequest(
@@ -512,16 +670,19 @@ function shapeToHttpRequest(
  * ConsoleEntry already holds the resolved request as it went on the wire).
  */
 export function entryToCurl(entry: ConsoleEntry): string {
+  if (!isHttpExportCompatible(entry)) return '';
+  const safe = sanitizeConsoleEntry(entry);
   const escape = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
   // A curl command needs the real URL — `entry.request.url` may still be an
   // unresolved `{{var}}` template.
-  const url = entry.resolvedUrl ?? entry.request.url;
-  const parts = [`curl -X ${entry.request.method} ${escape(url)}`];
-  for (const [key, value] of Object.entries(entry.request.headers)) {
+  const url = safe.resolvedUrl ?? safe.request.url;
+  const parts = [`curl -X ${safe.request.method} ${escape(url)}`];
+  for (const [key, value] of Object.entries(safe.request.headers)) {
+    if (isConsoleCredentialHeader(key)) continue;
     parts.push(`-H ${escape(`${key}: ${value}`)}`);
   }
-  if (entry.request.body) {
-    parts.push(`-d ${escape(entry.request.body)}`);
+  if (safe.request.body) {
+    parts.push(`-d ${escape(safe.request.body)}`);
   }
   return parts.join(' \\\n  ');
 }

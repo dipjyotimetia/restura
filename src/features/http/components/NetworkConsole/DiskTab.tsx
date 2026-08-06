@@ -12,6 +12,7 @@ import {
   getStatusTextColor,
   httpLikeStatus,
 } from '@/lib/shared/console-format';
+import { sanitizeConsoleText, sanitizeConsoleUrl } from '@/lib/shared/console-sanitization';
 import { getElectronAPI } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import { useActiveTab } from '@/store/selectors';
@@ -47,7 +48,13 @@ export default function DiskTab() {
     try {
       const data = await api.log.getHistory(pageSize);
       // Reversed so most recent appears first — disk file is append-only.
-      setEntries([...data].reverse());
+      setEntries(
+        [...data].reverse().map((entry) => ({
+          ...entry,
+          url: sanitizeConsoleUrl(entry.url),
+          ...(entry.error !== undefined && { error: sanitizeConsoleText(entry.error) }),
+        }))
+      );
     } catch (err) {
       console.error('Failed to load disk log:', err);
       toast.error('Could not load disk log');
@@ -69,9 +76,9 @@ export default function DiskTab() {
     toast.success('Disk log cleared');
   };
 
-  const handleReplay = (entry: DiskLogEntry) => {
+  const handleOpenSafeDraft = (entry: DiskLogEntry) => {
     if (entry.protocol !== 'http') {
-      toast.error('Replay supports HTTP entries only');
+      toast.error('Safe drafts support HTTP entries only');
       return;
     }
     const req = diskEntryToHttpRequest(entry.method, entry.url);
@@ -84,20 +91,20 @@ export default function DiskTab() {
         body: req.body,
         auth: req.auth,
       });
-      toast.success('Replayed in active tab');
+      toast.success('Opened safe HTTP draft.');
     } else {
       openTab(req, { switchTo: true });
-      toast.success('Opened in a new tab');
+      toast.success('Opened safe HTTP draft.');
     }
   };
 
-  const handleOpenInNewTab = (entry: DiskLogEntry) => {
+  const handleOpenSafeDraftInNewTab = (entry: DiskLogEntry) => {
     if (entry.protocol !== 'http') {
-      toast.error('Only HTTP entries can be opened in a new tab');
+      toast.error('Only HTTP entries can be opened as safe drafts');
       return;
     }
     openTab(diskEntryToHttpRequest(entry.method, entry.url), { switchTo: true });
-    toast.success('Opened in a new tab');
+    toast.success('Opened safe HTTP draft.');
   };
 
   const handleCopyUrl = async (entry: DiskLogEntry) => {
@@ -257,19 +264,19 @@ export default function DiskTab() {
                 variant="outline"
                 size="sm"
                 className="h-7 text-[11px]"
-                onClick={() => handleReplay(selected)}
+                onClick={() => handleOpenSafeDraft(selected)}
               >
                 <RotateCw className="h-3 w-3 mr-1" />
-                Replay
+                Open safe HTTP draft
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 className="h-7 text-[11px]"
-                onClick={() => handleOpenInNewTab(selected)}
+                onClick={() => handleOpenSafeDraftInNewTab(selected)}
               >
                 <ExternalLink className="h-3 w-3 mr-1" />
-                Open in new tab
+                Open safe HTTP draft in new tab
               </Button>
               <Button
                 variant="outline"
@@ -289,7 +296,7 @@ export default function DiskTab() {
         ) : (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
             <HardDrive className="h-8 w-8 mb-2 opacity-30" />
-            <p className="text-xs">Select an entry to view metadata and replay it</p>
+            <p className="text-xs">Select an entry to view metadata and open a safe draft</p>
           </div>
         )}
       </div>

@@ -35,7 +35,7 @@ interface McpState {
   connections: Record<string, McpConnection>;
   activeConnectionId: string | null;
 
-  createConnection: (url?: string, transport?: McpTransportType) => string;
+  createConnection: (url?: string, transport?: McpTransportType, headers?: KeyValue[]) => string;
   removeConnection: (id: string) => void;
   setActiveConnection: (id: string | null) => void;
 
@@ -62,13 +62,13 @@ export const useMcpStore = create<McpState>()(
       connections: {},
       activeConnectionId: null,
 
-      createConnection: (url = '', transport = 'streamable-http') => {
+      createConnection: (url = '', transport = 'streamable-http', headers = []) => {
         const id = uuidv4();
         const conn: McpConnection = {
           id,
           url,
           transport,
-          headers: [],
+          headers,
           status: 'disconnected',
           capabilities: null,
           log: [],
@@ -161,14 +161,14 @@ export const useMcpStore = create<McpState>()(
         set((s) => {
           const c = s.connections[id];
           if (!c) return s;
+          const { lastError: _lastError, ...connection } = c;
           return {
             connections: {
               ...s.connections,
               [id]: {
-                ...c,
+                ...connection,
                 status: 'disconnected',
                 capabilities: null,
-                lastError: undefined,
               },
             },
           };

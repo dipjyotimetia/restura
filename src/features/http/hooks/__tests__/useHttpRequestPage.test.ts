@@ -243,14 +243,13 @@ describe('useHttpRequestPage — resolved URL persistence', () => {
       await result.current.handlers.sendRequest();
     });
 
-    // Regression guard for the reported bug: replaying/reopening a console
-    // entry must reconstruct the original `{{var}}` template, not the
-    // resolved URL that happened to be active at send time — otherwise the
-    // user can never resend against a different environment.
+    // A console is irreversible evidence: its safe native draft uses the
+    // resolved wire URL, not a re-evaluable variable template.
     const lastConsoleEntry = useConsoleStore.getState().entries[0];
     expect(lastConsoleEntry).toBeDefined();
     const replayed = entryToHttpRequest(lastConsoleEntry!);
-    expect(replayed.url).toBe('{{baseUrl}}/anything');
+    expect(replayed).not.toBeNull();
+    expect(replayed?.url).toBe('https://example.com/anything');
   });
 
   it('writes a delayed response and script result only to the tab that sent the request', async () => {

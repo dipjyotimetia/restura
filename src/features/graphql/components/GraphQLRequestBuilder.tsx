@@ -245,6 +245,14 @@ function GraphQLRequestBuilder() {
           response,
           ...(consoleLogs.length > 0 && { scriptLogs: consoleLogs }),
           ...(consoleTests.length > 0 && { tests: consoleTests }),
+          nativeDraft: {
+            kind: 'graphql',
+            credentialsOmitted: true,
+            url: wireRequest.url,
+            headers: sentHeaders,
+            query,
+            variables: JSON.stringify(parsedVariables),
+          },
         })
       );
 
