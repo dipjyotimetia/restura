@@ -133,6 +133,7 @@ Stores of note:
 - `useEnvironmentStore` — environments, active env, variable resolution.
 - `useWorkflowStore` — workflows, executions, graph state; uses `zundo` for undo/redo.
 - `useFileCollectionStore` — Electron filesystem-backed collections and git sync.
+- `useConsoleStore` — Network Console entries/frames with credential redaction and safe native drafts (see [Console evidence & safety](../features/console-evidence.md)).
 
 ---
 

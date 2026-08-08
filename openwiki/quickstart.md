@@ -22,6 +22,7 @@ This wiki is an in-repo map for humans and future coding agents. It links out to
 | Work on OWS workflows or collection batch runners                   | [Workflows](workflows/overview.md)                                         |
 | Work on scripts, variables, environments, secrets, or persistence   | [Scripts, variables & storage](features/scripts-variables-storage.md)   |
 | Import/export, OpenCollection, Postman parity, file/Git collections | [Integrations](integrations/overview.md)                                   |
+| Network Console, evidence redaction, safe drafts, collection-run evidence | [Console evidence & safety](features/console-evidence.md)            |
 | CI/CD, Docker self-host, packaging, telemetry, security             | [Operations](operations/overview.md)                                       |
 | Test strategy, e2e, contract and security tests                     | [Testing](testing/overview.md)                                             |
 
@@ -118,6 +119,7 @@ npm run validate                    # static policy -> all tests/workspaces -> p
 - [Scripts, variables & storage](features/scripts-variables-storage.md) — QuickJS sandbox, variable scopes, persistence, secrets.
 - [AI and MCP](features/ai-mcp.md) — AI chat, AI Lab eval workbench, Restura-as-MCP-server, MCP client.
 - [Integrations](integrations/overview.md) — import/export, OpenCollection, Postman parity, file/Git collections.
+- [Console evidence & safety](features/console-evidence.md) — Network Console, credential redaction, safe drafts, collection-run evidence, HAR/NDJSON/cURL export.
 - [Operations](operations/overview.md) — CLI, CI/CD, Docker, telemetry, security.
 - [Testing](testing/overview.md) — test pyramid, e2e, contract, parity, and security tests.
 
