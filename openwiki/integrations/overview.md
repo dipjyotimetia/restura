@@ -111,7 +111,7 @@ Entry point: `src/features/collections/lib/exporters.ts`.
 - HAR
 - OpenAPI 3.0
 - OpenCollection
-- Console exports: HAR, NDJSON, curl batch (`src/lib/shared/console-export.ts`)
+- Console exports: HAR, NDJSON, curl batch (`src/lib/shared/console-export.ts`); the export pipeline applies the same credential redaction as the capture pipeline (see [Console evidence & safety](../features/console-evidence.md)).
 
 Postman and Insomnia exports surface lossy-format warnings before download. Postman preserves collection variables but represents non-HTTP protocols as marked stubs; Insomnia also omits collection/folder scripts, inherited auth, and collection variables. Attached contracts are collection-scoped and are not execution-time response validators.
 
