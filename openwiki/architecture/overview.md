@@ -121,7 +121,7 @@ See [Protocol features](../features/protocols.md) for the registry contract and 
 
 ### State
 
-Zustand v5 with `persist` middleware. Persistence is pluggable:
+Zustand v5 with `persist` middleware. Persistence is pluggable; [Persistence and security](persistence-and-security.md) is the canonical source for table ownership, hydration/migration quarantine, encryption modes, secret-reference boundaries, and execution-policy synchronization:
 
 - Web — Dexie/IndexedDB via `src/lib/shared/dexie-storage.ts`.
 - Desktop — encrypted `electron-store` via `src/lib/shared/secure-storage.ts`; key wrapped by Electron `safeStorage` → OS keychain.
@@ -183,10 +183,11 @@ _The protocol registry dispatches a single call through whichever transport the 
 
 ### Self-hosted Node / Docker
 
-- Entry: `worker/node-entry.ts` — runs `createApp` under `@hono/node-server`, serves the built SPA from `dist/web`, and handles Node WebSocket upgrades through `@hono/node-ws`.
-- Platform adapters: `worker/shared/tcp-proxy-node.ts`, `worker/shared/dns-guard-node.ts`, `worker/handlers/websocket-node.ts`.
+- Entry: `worker/node-entry.ts` — runs the same `createApp` factory under `@hono/node-server`, serves the built SPA from `dist/web`, and handles Node WebSocket upgrades through `@hono/node-ws`. `worker/index.ts` supplies the Cloudflare-specific socket CONNECT and `WebSocketPair` adapters.
+- Platform adapters: Node uses `worker/shared/tcp-proxy-node.ts`, `worker/shared/dns-guard-node.ts`, and `worker/handlers/websocket-node.ts`; Cloudflare uses `worker/shared/tcp-proxy.ts` and `worker/handlers/websocket.ts`.
 - Environment variables: `PORT`, `HOST`, `RESTURA_STATIC_ROOT`, `WORKER_PROXY_TOKEN`/`DEV_BYPASS_AUTH`. See `docs/SELF_HOSTING.md`.
-- Important constraint from `CLAUDE.md`: `nodeEntry` must `Object.assign` onto `c.env`, not reassign it, because `@hono/node-ws` stamps state on that exact reference.
+- Node injects `process.env` by `Object.assign` onto `c.env`, never replacement, because `@hono/node-ws` stamps upgrade state on that exact reference. It snapshots DNS policy at startup and refuses `RATE_LIMITER=binding` or `binding-shadow`, which need a Cloudflare binding.
+- Node returns JSON 404 for unknown `/api/*` before static serving. Only non-API unknown paths get `index.html`, preventing an API typo from becoming a 200 SPA response.
 
 ### Electron desktop
 
@@ -210,9 +211,9 @@ The browser-extension pipeline is implemented in `shared/capture/` (normaliser, 
 
 `worker/app.ts` exports `createApp(deps)` which builds a Hono app with the following responsibilities:
 
-- CORS (`resolveCorsOrigin` in `worker/app.ts`) — closed-by-default; operators must set `ALLOWED_ORIGIN`.
+- CORS (`resolveCorsOrigin` in `worker/app.ts`) — configured comma-separated origins may use single-label `*` patterns; when `ALLOWED_ORIGIN` is absent, only Vite localhost origins pass in real local development and production denies cross-origin requests with a one-time warning.
 - Request-ID middleware.
-- Rate limiting.
+- Authentication then rate limiting: non-public API routes accept `X-Restura-Proxy-Token` or Bearer token first, then Cloudflare Access when configured; local bypass is conditional, and a route with neither configured auth fails 503 rather than becoming open. `/api/feature-flags` and `/api/telemetry/error` bypass proxy authority only; they still pass CORS, IDs, and rate limiting.
 - `/api/proxy` — HTTP proxy via `shared/protocol/http-proxy.ts`.
 - `/api/grpc`, `/api/grpc/reflection` — gRPC via `shared/protocol/grpc-proxy.ts`.
 - `/api/mcp` — MCP proxy via `shared/protocol/mcp-proxy.ts`.

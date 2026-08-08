@@ -13,9 +13,7 @@ is no legacy linear workflow, proprietary Flow graph, migration path, or
 compatibility executor. The Open Workflow Specification document is the sole
 executable workflow definition.
 
-The public capability boundary is documented in
-[`docs/workflows.md`](../../docs/workflows.md). This page is a source map for
-contributors.
+The public capability boundary is documented in `docs/workflows.md`. This page is a source map for contributors.
 
 ## Data model and persistence
 

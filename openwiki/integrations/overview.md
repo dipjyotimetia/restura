@@ -7,7 +7,7 @@ tags: [integrations, opencollection, import-export, postman, mcp, capture]
 
 # Integrations
 
-Restura imports from and exports to several external collection formats. This page maps the import/export surfaces, OpenCollection file layout, file/Git collections, the browser capture extension pipeline, and the CLI collection runner.
+Restura imports from and exports to several external collection formats. This page maps format conversion and public import/export behavior. The operational native-format and desktop lifecycle is documented separately in [OpenCollection, file collections, and capture](collections-and-opencollection.md); the CI command surface is [Restura CLI](cli.md); extension and controlled upstream infrastructure is [Extensions and test services](extensions-and-test-services.md).
 
 ---
 

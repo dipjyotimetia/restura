@@ -1,10 +1,12 @@
 ---
 type: Reference
 title: "AI and MCP"
-description: "AI chat assistant, AI Lab eval/agents workbench, Restura-as-MCP-server, MCP client, and safety boundaries."
+description: "AI chat assistant and Restura-as-MCP-server boundaries, with links to the dedicated Agent Lab and MCP client implementation pages."
 ---
 
 # AI and MCP
+
+This page covers ordinary AI chat and the Restura MCP server surface. The larger tool-using evaluation workbench has its own canonical page: [Agent Lab](agent-lab.md). For outbound MCP request/session execution, see [MCP client](mcp-client.md).
 
 This page covers the AI chat assistant, the AI Lab evaluation workbench, Restura-as-MCP-server, and the MCP client used to call external MCP servers from the request builder.
 

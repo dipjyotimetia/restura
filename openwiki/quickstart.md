@@ -18,11 +18,16 @@ This wiki is an in-repo map for humans and future coding agents. It links out to
 | ------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | Run the app, type-check, test, or build                             | [Operations — Development setup](operations/overview.md#development-setup) |
 | Understand the renderer/backends/shared protocol layer              | [Architecture overview](architecture/overview.md)                       |
-| Work on a protocol feature (HTTP, gRPC, WS, SSE, MCP, AI)           | [Protocol features](features/protocols.md)                              |
+| Change HTTP, GraphQL, or gRPC execution                              | [HTTP, GraphQL, and gRPC](features/http-graphql-grpc.md)                   |
+| Change SSE, WebSocket, Socket.IO, Kafka, or MQTT                    | [Realtime protocol clients](features/realtime-protocols.md)                |
+| Change the MCP client or Restura-as-MCP server                       | [MCP client](features/mcp-client.md) and [AI and MCP](features/ai-mcp.md)  |
 | Work on OWS workflows or collection batch runners                   | [Workflows](workflows/overview.md)                                         |
-| Work on scripts, variables, environments, secrets, or persistence   | [Scripts, variables & storage](features/scripts-variables-storage.md)   |
-| Import/export, OpenCollection, Postman parity, file/Git collections | [Integrations](integrations/overview.md)                                   |
-| Network Console, evidence redaction, safe drafts, collection-run evidence | [Console evidence & safety](features/console-evidence.md)            |
+| Work on scripts, variables, environments, persistence, or secrets   | [Scripts, variables and storage](features/scripts-variables-storage.md) and [Persistence and security](architecture/persistence-and-security.md) |
+| Change file/Git collections, OpenCollection, or browser capture     | [OpenCollection, file collections, and capture](integrations/collections-and-opencollection.md) |
+| Change the CI runner, reporters, workflows, or agents               | [Restura CLI](integrations/cli.md)                                         |
+| Work on Agent Lab providers, tools, or evaluation                    | [Agent Lab](features/agent-lab.md)                                         |
+| Change contracts, load tests, or desktop mocking                     | [Contracts, load testing, and mock server](features/quality-tools.md)      |
+| Network Console, evidence redaction, safe drafts, collection-run evidence | [Console evidence and safety](features/console-evidence.md)            |
 | CI/CD, Docker self-host, packaging, telemetry, security             | [Operations](operations/overview.md)                                       |
 | Test strategy, e2e, contract and security tests                     | [Testing](testing/overview.md)                                             |
 
@@ -113,25 +118,20 @@ npm run validate                    # static policy -> all tests/workspaces -> p
 
 ## Documentation sections
 
-- [Architecture overview](architecture/overview.md) — renderer, backends, shared protocol layer, Fetcher pattern.
-- [Protocol features](features/protocols.md) — registry, request types, streaming vs execution, per-protocol notes.
+- [Architecture overview](architecture/overview.md) — renderer, backends, shared protocol layer, Fetcher pattern, and capability boundaries.
+- [Persistence and security](architecture/persistence-and-security.md) — Dexie ownership, encryption modes, migration observability, secret resolution, and fail-closed desktop execution policy.
+- [Protocol features](features/protocols.md) — registry and common request lifecycle; [HTTP, GraphQL, and gRPC](features/http-graphql-grpc.md), [realtime protocol clients](features/realtime-protocols.md), and [MCP client](features/mcp-client.md) provide implementation maps.
 - [Workflows](workflows/overview.md) — bounded OWS execution, workspace artifacts, editor, and collection runner.
-- [Scripts, variables & storage](features/scripts-variables-storage.md) — QuickJS sandbox, variable scopes, persistence, secrets.
-- [AI and MCP](features/ai-mcp.md) — AI chat, AI Lab eval workbench, Restura-as-MCP-server, MCP client.
-- [Integrations](integrations/overview.md) — import/export, OpenCollection, Postman parity, file/Git collections.
-- [Console evidence & safety](features/console-evidence.md) — Network Console, credential redaction, safe drafts, collection-run evidence, HAR/NDJSON/cURL export.
-- [Operations](operations/overview.md) — CLI, CI/CD, Docker, telemetry, security.
-- [Testing](testing/overview.md) — test pyramid, e2e, contract, parity, and security tests.
+- [Scripts, variables and storage](features/scripts-variables-storage.md) — QuickJS sandbox, variable scopes, auth inheritance, and secret handles.
+- [AI and MCP](features/ai-mcp.md) — ordinary AI and Restura-as-MCP-server; [Agent Lab](features/agent-lab.md) covers the agent workbench.
+- [Contracts, load testing, and mock server](features/quality-tools.md) — quality tools that reuse HTTP execution.
+- [Integrations](integrations/overview.md) — format conversion and Postman parity; [OpenCollection, file collections, and capture](integrations/collections-and-opencollection.md), [Restura CLI](integrations/cli.md), and [extensions and test services](integrations/extensions-and-test-services.md) cover their operational surfaces.
+- [Console evidence and safety](features/console-evidence.md) — Network Console, credential redaction, safe drafts, collection-run evidence, HAR/NDJSON/cURL export.
+- [Operations](operations/overview.md) — CI/CD, Docker, generated contracts, telemetry, security, and release.
+- [Testing](testing/overview.md) — test pyramid, e2e, generated/parity controls, and security tests.
 
 ---
 
-## Backlog
+## Coverage note
 
-These systems have source evidence but are not yet documented in depth. Each entry includes the primary source anchor and the reason for deferral.
-
-| Area | Source anchor | Reason |
-| ---- | ------------- | ------ |
-| Mock server | `electron/main/handlers/mock-server-handler.ts`, `src/store/useMockStore.ts` | Desktop-only local HTTP listener for stub responses; gated by `capabilities.mock.localServer`. Low change velocity. |
-| Load testing | `src/features/load-testing/` | UI feature for HTTP load generation; small surface with low recent churn. |
-| Contracts (API definition) | `src/features/contracts/` | OpenAPI contract viewer/editor; referenced by AI Lab dataset generation but not execution-significant. |
-| Remote import | `worker/handlers/remote-import.ts`, `shared/import/remote-fetch.ts` | Worker proxy for fetching external collection URLs; thin handler with hostname guard. Covered in passing in [architecture](architecture/overview.md). |
+All manifest-backed runtimes and substantial feature clusters inspected for this initialization have a canonical page. The old quality-tool backlog is now covered by [Contracts, load testing, and mock server](features/quality-tools.md). Remote import remains a narrow Worker route documented with the public Hono API in [Architecture overview](architecture/overview.md); its owning handler is `worker/handlers/remote-import.ts` and it shares the hostname guard boundary.
