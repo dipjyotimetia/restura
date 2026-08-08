@@ -35,7 +35,7 @@ openwiki:
 
 The Network Console is a DevTools-style panel that captures every request/response, connection frame, script log, and test outcome as long-lived evidence. Every captured record crosses a one-way trust boundary that redacts credentials and produces safe, non-executing native drafts. Nothing in the console is ever replayable with its original credentials.
 
-The console is surfaced through [`ConsoleDrawer.tsx`](../../src/components/shared/ConsoleDrawer.tsx) as a collapsible bottom-drawer panel, always accessible from any tab, and is implemented as a Zustand store (`useConsoleStore`) with selective IndexedDB persistence.
+The console is surfaced through `src/components/shared/ConsoleDrawer.tsx` as a collapsible bottom-drawer panel, always accessible from any tab, and is implemented as a Zustand store (`useConsoleStore`) with selective IndexedDB persistence.
 
 ---
 

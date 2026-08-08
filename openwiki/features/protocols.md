@@ -6,7 +6,7 @@ description: "Protocol registry contract, per-protocol execution notes, streamin
 
 # Protocol features
 
-This page explains how Restura turns the React renderer's protocol-specific UI state into an actual request, and what each protocol feature owns.
+This page is the canonical registry and common lifecycle reference. Use [HTTP, GraphQL, and gRPC](http-graphql-grpc.md) for request/response execution, [Realtime protocol clients](realtime-protocols.md) for long-lived transports, and [MCP client execution](mcp-client.md) for MCP-specific sessions. It explains how Restura turns protocol-specific UI state into an actual request and what the registry owns.
 
 ---
 

@@ -185,14 +185,18 @@ There are also codegen ownership checks and bundle-size limits (`size-limit`).
 
 ---
 
-## Builds and generated files
+## Builds, generated contracts, and architecture governance
 
-- `npm run proto:gen` — `buf generate`; regenerates TypeScript protobuf code.
-- `npm run gen:opencollection-types` — generates `shared/opencollection/spec-types.ts` from the vendored schema.
-- `npm run capabilities:matrix` — generates `docs/CAPABILITY_MATRIX.md` from `src/lib/shared/capabilities.ts`.
-- `npm run build:sandbox-libs` — rebuilds QuickJS sandbox libraries.
+| Artifact | Source of truth and consumer | Generate or verify |
+| --- | --- | --- |
+| Proto descriptors | `buf.yaml`, `buf.gen.yaml`; generated descriptors support `e2e/mocks/proto` | `npm run proto:gen` |
+| OpenCollection types | `vendor/opencollection/v1.0.0/schema.json` → checked-in `shared/opencollection/spec-types.ts`; consumed by conversion and workspace I/O | `npm run gen:opencollection-types`; `npm run verify:opencollection-types` rejects drift |
+| Capability matrix | `src/lib/shared/capabilities.ts` → checked-in `docs/CAPABILITY_MATRIX.md`; gates renderer/platform behavior | `npm run capabilities:matrix`; `npm run capabilities:check` rejects drift |
+| Sandbox libraries | sandbox library sources → generated runtime assets | `npm run build:sandbox-libs` |
 
-Do not edit generated files by hand; CI will fail the drift checks.
+Do not edit generated outputs by hand. A generated-file diff means its source or generator changed; regenerate and commit the checked-in output. The narrow failure mode is a non-empty `git diff` after a verification command.
+
+`scripts/architecture.config.mts` and `scripts/check-architecture.mts` make architecture executable: shared code is the dependency floor, runtime apps cannot import renderer-owned modules, forbidden cycles are rejected, and selected production files have size ratchets. Run `npm run architecture:check` after moving cross-zone code. `tests/architecture-policy.test.ts` tests those constraints; parity tests such as `tests/auth-config-parity.test.ts` and `tests/secret-ref-parity.test.ts` protect deliberately duplicated renderer/shared contracts. These controls are complemented by the focused map in [Testing](../testing/overview.md).
 
 ---
 
@@ -216,6 +220,10 @@ Source of truth for workflows is `.github/workflows/`. Key documents:
 - `docs/CI_CD.md` — full pipeline, required status checks, branch protection, supply-chain security.
 - `docs/DISTRIBUTION.md` — desktop app signing, notarization, distribution.
 - `docs/EXTENSION_RELEASE.md` — Chrome/VS Code extension release runbook.
+
+### OpenWiki update automation
+
+`.github/workflows/openwiki-update.yml` runs manually (`workflow_dispatch`) and on the UTC schedule `0 8 * * *`. Its concurrency group is the workflow name and `cancel-in-progress: true`, so a newer run supersedes an older update. It invokes `openwiki --update --print` with `OPENROUTER_API_KEY` and `OPENWIKI_MODEL_ID=deepseek/deepseek-v4-pro`; the API key is a GitHub secret and must never be recorded in generated docs. The pull-request step stages only `openwiki`, creates branch `openwiki/update`, and uses commit/title `docs: update OpenWiki` with the automated-update body. This workflow has write contents and pull-request permissions, but its intended repository modification scope is only the generated wiki.
 
 Important rules:
 

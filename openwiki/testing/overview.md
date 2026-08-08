@@ -77,18 +77,23 @@ vitest run -t "pattern"
 
 ---
 
-## Contract and parity tests (`tests/`)
+## Contract, parity, generated, and architecture controls (`tests/`)
 
-These verify identical behavior across backends for the same inputs.
+These verify identical behavior across backends for the same inputs. They also make generated artifacts and dependency policy enforceable rather than relying on documentation.
 
 - `tests/contract/http-proxy.contract.test.ts` — same `RequestSpec` through `globalThis.fetch` and undici; asserts `ExecuteResult` parity.
 - `tests/contract/http-proxy-streaming.contract.test.ts` — streaming parity.
 - `tests/auth-config-parity.test.ts`, `tests/body-type-parity.test.ts`, `tests/grpc-spec-parity.test.ts`, `tests/redirect-policy-parity.test.ts`, `tests/secret-ref-parity.test.ts`.
 
+`tests/architecture-policy.test.ts` asserts forbidden source-zone directions, runtime-cycle detection, and production-file ratchets. `tests/auth-config-parity.test.ts` and `tests/secret-ref-parity.test.ts` assert renderer/shared schema and configuration parity where duplication is intentional. Generated artifact drift is checked by `npm run verify:opencollection-types` and `npm run capabilities:check`; `npm run proto:gen` owns protobuf descriptor regeneration. See [Operations: generated contracts and architecture governance](../operations/overview.md#builds-generated-contracts-and-architecture-governance) for source-of-truth locations and failure interpretation.
+
 Run:
 
 ```bash
 npm run test:contract
+npm run architecture:check
+npm run verify:opencollection-types
+npm run capabilities:check
 ```
 
 ---
