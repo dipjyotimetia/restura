@@ -103,6 +103,31 @@ describe('pm.sendRequest — host bridge', () => {
     });
   });
 
+  it('normalizes alternate headers and malformed inputs without leaking them to the host', async () => {
+    const seen: PmSendRequestInput[] = [];
+    const ex = new ScriptExecutor({
+      host: {
+        sendRequest: async (input) => {
+          seen.push(input);
+          return buildMockResponse();
+        },
+      },
+    });
+    await ex.executeScript(
+      `
+        pm.sendRequest({ headers: { Accept: 'application/json' } }, function () {});
+        pm.sendRequest({}, function () {});
+        pm.sendRequest(null, function () {});
+      `,
+      {}
+    );
+    expect(seen).toEqual([
+      { url: '', method: 'GET', headers: { Accept: 'application/json' }, body: undefined },
+      { url: '', method: 'GET', headers: {}, body: undefined },
+      { url: '', method: 'GET' },
+    ]);
+  });
+
   it('promise form: await pm.sendRequest(url) resolves with the wrapped response', async () => {
     const host = {
       sendRequest: vi.fn(async () => buildMockResponse({ code: 200, body: '{"foo":1}' })),
@@ -151,6 +176,38 @@ describe('pm.sendRequest — host bridge', () => {
   });
 });
 
+describe('ScriptExecutor host-value conversion', () => {
+  it('drops unsupported host values while binding request context into QuickJS', async () => {
+    const ex = new ScriptExecutor();
+    const r = await ex.executeScript(
+      `
+        pm.test('request remains usable', function () { pm.expect(request.url).to.equal('https://api/x'); });
+        pm.test('boolean response values cross the boundary', function () {
+          pm.expect(response.body.enabled).to.be.true;
+          pm.expect(response.body.disabled).to.be.false;
+        });
+      `,
+      {
+        request: {
+          url: 'https://api/x',
+          method: 'GET',
+          headers: {},
+          body: () => 'not transferable across the sandbox boundary',
+        },
+        response: {
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: { enabled: true, disabled: false, noValue: null },
+          time: 1,
+          size: 1,
+        },
+      }
+    );
+    expect(r.tests?.every((test) => test.passed)).toBe(true);
+  });
+});
+
 describe('pm.cookies — jar adapter', () => {
   function buildMockAdapter(seedRecords: PmCookieRecord[] = []): PmCookieAdapter {
     const store = [...seedRecords];
@@ -179,6 +236,7 @@ describe('pm.cookies — jar adapter', () => {
       `
       pm.test('has', function () { pm.expect(pm.cookies.has('sid')).to.be.true; });
       pm.test('get', function () { pm.expect(pm.cookies.get('sid')).to.equal('abc'); });
+      pm.test('get missing', function () { pm.expect(pm.cookies.get('nope')).to.be.undefined; });
       pm.test('missing', function () { pm.expect(pm.cookies.has('nope')).to.be.false; });
     `,
       { request: { url: 'https://api.example.com/v1', method: 'GET', headers: {} } }
@@ -210,6 +268,7 @@ describe('pm.cookies — jar adapter', () => {
       var j = pm.cookies.jar();
       j.set('https://api/x', 'token', 'abc');
       var v = j.get('https://api/x', 'x');
+      var missing = j.get('https://api/x', 'missing');
       j.unset('https://api/x', 'token');
       j.clear('https://api/x');
     `,
@@ -221,12 +280,31 @@ describe('pm.cookies — jar adapter', () => {
     expect(calls.find((c) => c.op === 'clear')?.args).toEqual(['https://api/x']);
   });
 
-  it('no host.cookies bound: pm.cookies.get returns undefined / has returns false', async () => {
+  it('serializes current cookies and jar.getAll through the active adapter', async () => {
+    const adapter = buildMockAdapter([{ name: 'sid', value: 'abc' }]);
+    const ex = new ScriptExecutor({ host: { cookies: () => adapter } });
+    const r = await ex.executeScript(
+      `
+        pm.test('toJSON', function () { pm.expect(pm.cookies.toJSON()).to.have.length(1); });
+        pm.test('getAll', function () { pm.expect(pm.cookies.jar().getAll('https://api/x')).to.have.length(1); });
+      `,
+      { request: { url: 'https://api/x', method: 'GET', headers: {} } }
+    );
+    expect(r.tests?.every((test) => test.passed)).toBe(true);
+  });
+
+  it('no host.cookies bound: pm.cookies methods return their empty-safe values', async () => {
     const ex = new ScriptExecutor({});
     const r = await ex.executeScript(
       `
       pm.test('get undef', function () { pm.expect(pm.cookies.get('x')).to.be.undefined; });
       pm.test('has false', function () { pm.expect(pm.cookies.has('x')).to.be.false; });
+      pm.test('toJSON empty', function () { pm.expect(pm.cookies.toJSON()).to.have.length(0); });
+      pm.test('getAll empty', function () { pm.expect(pm.cookies.jar().getAll('https://api/x')).to.have.length(0); });
+      pm.test('jar get undef', function () { pm.expect(pm.cookies.jar().get('https://api/x', 'x')).to.be.undefined; });
+      pm.cookies.jar().set('https://api/x', 'x', '1');
+      pm.cookies.jar().unset('https://api/x', 'x');
+      pm.cookies.jar().clear('https://api/x');
     `,
       { request: { url: 'https://api/x', method: 'GET', headers: {} } }
     );
