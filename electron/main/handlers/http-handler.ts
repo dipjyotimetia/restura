@@ -1,13 +1,13 @@
 import * as diagnosticsChannel from 'node:diagnostics_channel';
-import { pipeline, Readable, Transform } from 'node:stream';
+import { Readable } from 'node:stream';
 import {
   arrayBuffer as readStreamArrayBuffer,
   text as readStreamText,
 } from 'node:stream/consumers';
-import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib';
 import type { FormField, ProxyBodyType } from '@shared/protocol/body-builder';
+import { selectCertForUrl } from '@shared/protocol/cert-matcher';
 import { flattenHeaders } from '@shared/protocol/header-utils';
-import { executeHttpProxy, MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
+import { executeHttpProxy } from '@shared/protocol/http-proxy';
 import type {
   Fetcher,
   FetcherRequest,
@@ -15,15 +15,11 @@ import type {
   ProtocolAuthConfig,
   ProtocolSecretValue as SecretValue,
 } from '@shared/protocol/types';
-import { assertResolvedAddressAllowed, isPrivateAddress } from '@shared/protocol/url-validation';
-import * as dns from 'dns';
+import { createLogger } from '@shared/runtime/logger';
 import { ipcMain, session } from 'electron';
-import type * as http from 'http';
-import * as net from 'net';
+import type * as net from 'net';
 import * as tls from 'tls';
 import { Agent, buildConnector, ProxyAgent, request as undiciRequest } from 'undici';
-import { selectCertForUrl } from '@shared/protocol/cert-matcher';
-import { createLogger } from '@shared/runtime/logger';
 import { IPC } from '../../shared/channels';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
@@ -42,12 +38,17 @@ import {
   type ExecutionPolicy,
   getExecutionPolicy,
 } from '../security/execution-policy';
-import { isProxyBypassed } from '../security/proxy-bypass';
 import { materializeHttpAuth } from '../security/http-auth-materializer';
-import { materializeSecretVariables } from '../security/secret-variable-materializer';
+import { isProxyBypassed } from '../security/proxy-bypass';
 import { unwrapSecretValueMain } from '../security/secret-handle-store';
+import { materializeSecretVariables } from '../security/secret-variable-materializer';
 import { buildTlsClientMaterial } from '../security/tls-material';
+import { capBodyStream, decodeBodyStream, tryParseJson } from './http-response-stream';
+import { createSecureLookup, openSocksSocket } from './http-secure-connection';
 import { interceptorRegistry } from './interceptor-registry';
+
+export { decodeBodyStream } from './http-response-stream';
+export { openSocksSocket } from './http-secure-connection';
 
 const log = createLogger('http');
 // Migration map: node:http/https → undici.
@@ -76,75 +77,6 @@ const log = createLogger('http');
 // results into self-inflicted "Rate limit exceeded" errors (the renderer is a
 // trusted surface — the limiter only backstops runaway loops).
 export const httpRateLimiter = createKeyedRateLimiter(6000, 60_000);
-
-/**
- * Bring the undici fetcher to parity with the `fetch`-based backends (Worker /
- * Node self-host), which auto-decompress responses. `undici.request` does NOT —
- * it hands back the raw compressed bytes — so without this the renderer shows
- * garbage for any `Content-Encoding: gzip|br|deflate` upstream.
- *
- * The cap is enforced on the DECOMPRESSED output as it streams (a small gzip
- * bomb expands to gigabytes): bytes are counted through the chain and it is torn
- * down past MAX_RESPONSE_SIZE, so the decompressed body is never fully buffered
- * before the limit fires. Returns the source unchanged when there is nothing to
- * decode, leaving non-encoded bodies on their existing (shared-proxy) cap path.
- */
-export function decodeBodyStream(source: Readable, encoding: string | undefined): Readable {
-  const enc = encoding?.trim().toLowerCase();
-  const decompressor =
-    enc === 'gzip' || enc === 'x-gzip'
-      ? createGunzip()
-      : enc === 'br'
-        ? createBrotliDecompress()
-        : enc === 'deflate'
-          ? createInflate()
-          : undefined;
-  if (!decompressor) return source;
-
-  // pipeline tears down every stream (incl. the undici source, firing its
-  // 'close' → dispatcher cleanup) if decompression or the cap errors; the error
-  // surfaces on `cap`, so text()/arrayBuffer()/body all reject.
-  const cap = createSizeCapTransform();
-  pipeline(source, decompressor, cap, () => {
-    /* errors surface on `cap`; nothing to do here */
-  });
-  return cap;
-}
-
-/**
- * A Transform that counts bytes and errors (tearing the pipeline down) once the
- * total exceeds MAX_RESPONSE_SIZE. Shared by the decode path and the
- * never-encoded body path so the cap logic + error string live in one place.
- */
-function createSizeCapTransform(): Transform {
-  let total = 0;
-  return new Transform({
-    transform(chunk: Buffer, _enc, cb) {
-      total += chunk.length;
-      if (total > MAX_RESPONSE_SIZE) {
-        cb(new Error(`Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`));
-        return;
-      }
-      cb(null, chunk);
-    },
-  });
-}
-
-/**
- * Enforce MAX_RESPONSE_SIZE on an already-decoded (or never-encoded) body as it
- * streams. Without this, the non-`Content-Encoding` path returns the raw source
- * to text()/arrayBuffer() (node:stream/consumers), which buffer the WHOLE body
- * before the post-hoc `text.length > MAX_RESPONSE_SIZE` check in http-proxy can
- * fire — a chunked response with no Content-Length OOMs the main process. This
- * tears the stream down mid-flight, mirroring decodeBodyStream's cap.
- */
-function capBodyStream(source: Readable): Readable {
-  const cap = createSizeCapTransform();
-  pipeline(source, cap, () => {
-    /* errors surface on `cap` */
-  });
-  return cap;
-}
 
 export interface ElectronProxyConfig {
   enabled: boolean;
@@ -279,187 +211,6 @@ export function resolveHttpExecutionPolicy(config: HttpRequestConfig): HttpReque
 
 // Connection timeout (10 seconds) — operates below the shared core's request timeout.
 const CONNECTION_TIMEOUT = 10000;
-
-function createSecureLookup(
-  hostname: string,
-  allowLocalhost: boolean,
-  allowPrivateIPs: boolean
-): NonNullable<http.RequestOptions['lookup']> {
-  // Permit resolved private addresses when the host is itself a literal private
-  // IP the user typed, OR when the Security setting opts into private IPs. Cloud
-  // metadata stays blocked inside assertResolvedAddressAllowed regardless.
-  const allowPrivate = allowPrivateIPs || (net.isIP(hostname) !== 0 && isPrivateAddress(hostname));
-  return (lookupHostname, options, callback) => {
-    dns.lookup(lookupHostname, options, (error, address, family) => {
-      if (error) {
-        callback(error, address as never, family as never);
-        return;
-      }
-      const addresses = Array.isArray(address) ? address : [{ address, family }];
-      try {
-        for (const entry of addresses) {
-          assertResolvedAddressAllowed(hostname, entry.address, {
-            allowLocalhost,
-            allowPrivateLiteralHost: allowPrivate,
-            // Loopback stays gated on allowLocalhost, independent of the
-            // private-IP opt-in (matches the desktop two-toggle Security model).
-            loopbackNeedsLocalhost: true,
-          });
-        }
-        callback(null, address as never, family as never);
-      } catch (err) {
-        callback(err as Error, address as never, family as never);
-      }
-    });
-  };
-}
-
-// Opens a raw TCP tunnel through a SOCKS4 or SOCKS5 proxy.
-// Returns a connected net.Socket pointed at (targetHost, targetPort).
-export function openSocksSocket(
-  proxy: ElectronProxyConfig,
-  targetHost: string,
-  targetPort: number,
-  signal?: AbortSignal
-): Promise<net.Socket> {
-  return new Promise((resolve, reject) => {
-    signal?.throwIfAborted();
-    const socket = net.createConnection({
-      host: proxy.host,
-      port: proxy.port,
-      // Connecting to the user-configured proxy host itself. Preserve prior
-      // behaviour: allow a literal private-IP proxy, but don't broaden the
-      // upstream private-IP policy here (that's applied on the target lookup).
-      lookup: createSecureLookup(proxy.host, true, false),
-    });
-    let settled = false;
-    let dataListener: ((data: Buffer) => void) | undefined;
-    const cleanup = () => {
-      socket.removeListener('error', onError);
-      socket.removeListener('connect', onConnect);
-      if (dataListener) socket.removeListener('data', dataListener);
-      signal?.removeEventListener('abort', onAbort);
-    };
-    const fail = (cause: Error) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      socket.destroy();
-      reject(cause);
-    };
-    const succeed = () => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      resolve(socket);
-    };
-    const onError = (cause: Error) => fail(cause);
-    const onAbort = () => {
-      const error = new Error('Operation cancelled.');
-      error.name = 'AbortError';
-      fail(error);
-    };
-
-    const onConnect = () => {
-      if (proxy.type === 'socks4') {
-        // SOCKS4a: send destination IP 0.0.0.1 (non-zero last byte flags the proxy to resolve
-        // the hostname itself) followed by a NUL-terminated hostname in the request tail.
-        const hostBuf = Buffer.from(targetHost + '\0', 'ascii');
-        const portBuf = Buffer.alloc(2);
-        portBuf.writeUInt16BE(targetPort, 0);
-        const userId = Buffer.from((proxy.auth?.username ?? '') + '\0', 'ascii');
-        const req = Buffer.concat([
-          Buffer.from([0x04, 0x01]),
-          portBuf,
-          Buffer.from([0x00, 0x00, 0x00, 0x01]), // fake IP — 0.0.0.x (x!=0) triggers SOCKS4a hostname lookup
-          userId,
-          hostBuf,
-        ]);
-        socket.write(req);
-        dataListener = (data: Buffer) => {
-          if (data[1] === 0x5a) {
-            succeed();
-          } else {
-            fail(new Error(`SOCKS4 proxy rejected connection (code ${data[1]})`));
-          }
-        };
-        socket.once('data', dataListener);
-      } else {
-        // SOCKS5
-        const hasAuth = !!proxy.auth?.username;
-        const greeting = hasAuth
-          ? Buffer.from([0x05, 0x02, 0x00, 0x02])
-          : Buffer.from([0x05, 0x01, 0x00]);
-        socket.write(greeting);
-
-        dataListener = (authMethodReply: Buffer) => {
-          if (authMethodReply[0] !== 0x05) {
-            fail(new Error('SOCKS5 invalid server greeting'));
-            return;
-          }
-          const method = authMethodReply[1];
-
-          const sendConnect = () => {
-            const hostBuf = Buffer.from(targetHost, 'ascii');
-            const portBuf = Buffer.alloc(2);
-            portBuf.writeUInt16BE(targetPort, 0);
-            const connectReq = Buffer.concat([
-              Buffer.from([0x05, 0x01, 0x00, 0x03, hostBuf.length]),
-              hostBuf,
-              portBuf,
-            ]);
-            socket.write(connectReq);
-            dataListener = (connectReply: Buffer) => {
-              if (connectReply[1] !== 0x00) {
-                fail(new Error(`SOCKS5 connection failed (code ${connectReply[1]})`));
-                return;
-              }
-              succeed();
-            };
-            socket.once('data', dataListener);
-          };
-
-          const socksPassword = unwrapSecretValueMain(proxy.auth?.password);
-          if (method === 0x00) {
-            sendConnect();
-          } else if (method === 0x02 && proxy.auth?.username && socksPassword) {
-            const user = Buffer.from(proxy.auth.username, 'utf8');
-            const pass = Buffer.from(socksPassword, 'utf8');
-            const authReq = Buffer.concat([
-              Buffer.from([0x01, user.length]),
-              user,
-              Buffer.from([pass.length]),
-              pass,
-            ]);
-            socket.write(authReq);
-            dataListener = (authReply: Buffer) => {
-              if (authReply[1] !== 0x00) {
-                fail(new Error('SOCKS5 authentication failed'));
-                return;
-              }
-              sendConnect();
-            };
-            socket.once('data', dataListener);
-          } else {
-            fail(new Error('SOCKS5 no acceptable auth method'));
-          }
-        };
-        socket.once('data', dataListener);
-      }
-    };
-    socket.once('error', onError);
-    socket.once('connect', onConnect);
-    signal?.addEventListener('abort', onAbort, { once: true });
-  });
-}
-
-function tryParseJson(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-}
 
 /**
  * Wraps undici's default connector to capture the negotiated ALPN protocol

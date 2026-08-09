@@ -28,16 +28,30 @@ export default defineConfig({
       reporter: ['text', 'json', 'json-summary'],
       include: [
         'electron/main/handlers/http-handler.ts',
+        'electron/main/handlers/http-response-stream.ts',
+        'electron/main/handlers/http-secure-connection.ts',
         'electron/main/ipc/validators/boundary.ts',
         'electron/main/security/execution-policy.ts',
         'electron/main/security/secret-handle-store.ts',
       ],
       thresholds: {
         'electron/main/handlers/http-handler.ts': {
-          statements: 50,
-          branches: 36,
-          functions: 57,
-          lines: 51,
+          statements: 46,
+          branches: 34,
+          functions: 42,
+          lines: 47,
+        },
+        'electron/main/handlers/http-response-stream.ts': {
+          statements: 85,
+          branches: 100,
+          functions: 85,
+          lines: 84,
+        },
+        'electron/main/handlers/http-secure-connection.ts': {
+          statements: 57,
+          branches: 35,
+          functions: 68,
+          lines: 60,
         },
         'electron/main/ipc/validators/boundary.ts': {
           statements: 70,
