@@ -17,8 +17,12 @@ export function verifyToolchain({ nodeVersion, npmVersion }) {
   return errors;
 }
 
+export function npmExecutable(platform = process.platform) {
+  return platform === 'win32' ? 'npm.cmd' : 'npm';
+}
+
 function installedNpmVersion() {
-  return execFileSync('npm', ['--version'], { encoding: 'utf8' }).trim();
+  return execFileSync(npmExecutable(), ['--version'], { encoding: 'utf8' }).trim();
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

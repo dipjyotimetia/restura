@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { TOOLCHAIN, verifyToolchain } from '../verify-toolchain.mjs';
+import { npmExecutable, TOOLCHAIN, verifyToolchain } from '../verify-toolchain.mjs';
+
+test('uses the Windows npm command shim when required', () => {
+  assert.equal(npmExecutable('win32'), 'npm.cmd');
+  assert.equal(npmExecutable('linux'), 'npm');
+});
 
 test('accepts the pinned Node and npm versions', () => {
   assert.deepEqual(verifyToolchain(TOOLCHAIN), []);
