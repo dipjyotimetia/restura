@@ -21,6 +21,9 @@ export function npmExecutable(platform = process.platform) {
   return platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
+/**
+ * @returns {import('node:child_process').ExecFileSyncOptionsWithStringEncoding}
+ */
 export function npmCommandOptions(platform = process.platform) {
   return { encoding: 'utf8', ...(platform === 'win32' && { shell: true }) };
 }
