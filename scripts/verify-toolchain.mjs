@@ -21,8 +21,12 @@ export function npmExecutable(platform = process.platform) {
   return platform === 'win32' ? 'npm.cmd' : 'npm';
 }
 
+export function npmCommandOptions(platform = process.platform) {
+  return { encoding: 'utf8', ...(platform === 'win32' && { shell: true }) };
+}
+
 function installedNpmVersion() {
-  return execFileSync(npmExecutable(), ['--version'], { encoding: 'utf8' }).trim();
+  return execFileSync(npmExecutable(), ['--version'], npmCommandOptions()).trim();
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
