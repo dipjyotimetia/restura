@@ -10,180 +10,33 @@ import type {
 } from '@shared/protocol/ai/judge';
 import type { QuickJSContext, QuickJSHandle, QuickJSRuntime } from 'quickjs-emscripten';
 import { getQuickJS } from 'quickjs-emscripten';
-// ScriptResult is defined once in shared/types; re-exported here for existing consumers.
-import type { ScriptResult } from '../types';
-import type { PmCookieAdapter, PmCookieRecord } from './cookie-adapter';
 import { PM_EXPECT_BOOTSTRAP } from './expect-bootstrap';
 import { buildRequireShimSource, loadSandboxLibraries } from './sandbox-libraries';
+import { bindPmCookies, buildKvNamespace } from './script-executor-namespaces';
+import type {
+  PmCookieAdapter,
+  PmExecutionLocation,
+  PmRequestInfo,
+  ScriptContext,
+  ScriptExecutorOptions,
+  ScriptHostBridges,
+  ScriptResult,
+} from './script-executor-types';
+import { makeJSValue, normalizeSendRequestInput } from './script-executor-values';
 
-export type { PmCookieAdapter, PmCookieRecord, ScriptResult };
-
-export interface PmRequestInfo {
-  requestName?: string;
-  requestId?: string;
-  iteration?: number;
-  iterationCount?: number;
-  /** Postman-compatible: which script phase is running. */
-  eventName?: 'prerequest' | 'test';
-}
-
-/**
- * Postman-compatible execution-location context bound onto `pm.execution.location`.
- * Populated by the collection runner; absent for one-off requests.
- */
-export interface PmExecutionLocation {
-  currentRequestName: string;
-  folderPath: string[];
-  collectionName: string;
-}
-
-/**
- * Host-side bridges injected at construction time. The executor stays
- * decoupled from `executeProxiedRequest` / `useCookieStore` / the vault IPC
- * so its module dependency graph remains tiny — callers in
- * `src/features/http/`, `src/features/grpc/`, and `cli/src/runner/` wire
- * the closures in per harness.
- */
-export interface ScriptHostBridges {
-  /**
-   * Fire a sub-request from `pm.sendRequest`. Must route through the same
-   * SSRF-guarded path as a top-level send (the renderer uses
-   * `executeProxiedRequest`, the CLI uses `undiciFetcher`). Phase C wires
-   * implementations; Phase B+below this is a no-op slot.
-   */
-  sendRequest?: (input: PmSendRequestInput) => Promise<PmSubResponse>;
-  /**
-   * Cookie jar adapter factory for `pm.cookies` (Phase C). The factory
-   * receives the active request URL so `pm.cookies.get(name)` scopes its
-   * read to the right domain+path. The renderer passes
-   * `makeCookieAdapter` (backed by `useCookieStore`); the CLI passes a
-   * file-jar variant or omits it.
-   */
-  cookies?: (currentUrl: string | undefined) => PmCookieAdapter;
-  /** Vault key-value store for `pm.vault` (Phase D). */
-  vault?: PmVaultAdapter;
-  /**
-   * LLM-as-judge bridge for `rs.judge(output, opts)` — a semantic
-   * assertion on the response. Like `sendRequest`/`vault` it routes to a
-   * host-resolved promise; the renderer wires it to the `aiLab.complete`
-   * IPC. Bound only when wired in, so builds without a judge never expose
-   * it (the CLI does not wire one yet).
-   */
-  judge?: (input: JudgeRequestInput) => Promise<JudgeVerdict>;
-}
-
-/** Phase-C placeholder shapes — concretized when host bridges land. */
-export interface PmSendRequestInput {
-  url: string;
-  method?: string;
-  headers?: Record<string, string>;
-  body?: unknown;
-}
-
-export interface PmSubResponse {
-  code: number;
-  status: string;
-  headers: Record<string, string>;
-  body: string;
-  responseTime: number;
-  responseSize: number;
-}
-
-export interface PmVaultAdapter {
-  get(key: string): Promise<string | undefined>;
-  set(key: string, value: string): Promise<void>;
-  unset(key: string): Promise<void>;
-}
-
-/** Full constructor shape for `new ScriptExecutor({...})`. */
-export interface ScriptExecutorOptions {
-  envVars?: Record<string, string>;
-  globalVars?: Record<string, string>;
-  collectionVars?: Record<string, string>;
-  iterationData?: Record<string, string>;
-  info?: PmRequestInfo;
-  location?: PmExecutionLocation;
-  host?: ScriptHostBridges;
-}
-
-export interface ScriptContext {
-  // Request/Response data
-  request?: {
-    url: string;
-    method: string;
-    headers: Record<string, string>;
-    body?: unknown;
-  };
-  response?: {
-    status: number;
-    statusText: string;
-    headers: Record<string, string>;
-    body: unknown;
-    time: number;
-    size: number;
-  };
-
-  // Environment variables
-  environment: {
-    get: (key: string) => string | undefined;
-    set: (key: string, value: string) => void;
-  };
-
-  // Global variables
-  globals: {
-    get: (key: string) => string | undefined;
-    set: (key: string, value: string) => void;
-  };
-
-  // Console logs
-  console: {
-    log: (...args: unknown[]) => void;
-    error: (...args: unknown[]) => void;
-    warn: (...args: unknown[]) => void;
-    info: (...args: unknown[]) => void;
-  };
-
-  // Test assertions (for test scripts)
-  pm: {
-    test: (name: string, fn: () => void) => void;
-    expect: (actual: unknown) => {
-      to: {
-        equal: (expected: unknown) => void;
-        be: {
-          a: (type: string) => void;
-          true: () => void;
-          false: () => void;
-        };
-        have: {
-          property: (prop: string) => void;
-          length: (len: number) => void;
-        };
-      };
-    };
-    response: {
-      to: {
-        have: {
-          status: (code: number) => void;
-          header: (key: string, value?: string) => void;
-          body: (value?: unknown) => void;
-          jsonBody: (path?: string, value?: unknown) => void;
-        };
-        be: {
-          ok: () => void;
-          json: () => void;
-          html: () => void;
-        };
-      };
-      time: {
-        below: (ms: number) => void;
-      };
-    };
-    variables: {
-      get: (key: string) => string | undefined;
-      set: (key: string, value: string) => void;
-    };
-  };
-}
+export type {
+  PmCookieAdapter,
+  PmCookieRecord,
+  PmExecutionLocation,
+  PmRequestInfo,
+  PmSendRequestInput,
+  PmSubResponse,
+  PmVaultAdapter,
+  ScriptContext,
+  ScriptExecutorOptions,
+  ScriptHostBridges,
+  ScriptResult,
+} from './script-executor-types';
 
 // Security constants
 const MAX_EXECUTION_TIME_MS = 5000; // 5s for sync-only scripts
@@ -503,12 +356,12 @@ class ScriptExecutor {
     // methods will return empty results via the undefined-adapter guard.
     this.callCookieAdapter = this.host.cookies?.(context.request?.url);
     if (context.request) {
-      const handle = this.makeJSValue(vm, context.request);
+      const handle = makeJSValue(vm, context.request);
       vm.setProp(vm.global, 'request', handle);
       handle.dispose();
     }
     if (context.response) {
-      const handle = this.makeJSValue(vm, context.response);
+      const handle = makeJSValue(vm, context.response);
       vm.setProp(vm.global, 'response', handle);
       handle.dispose();
     }
@@ -548,147 +401,6 @@ class ScriptExecutor {
   }
 
   /**
-   * Build a QuickJS object exposing get/set/unset/has against a live
-   * Record<string,string>. Mutations go straight to the backing map; the
-   * caller is responsible for setProp-ing it under the right name and
-   * disposing the returned handle.
-   *
-   * If `mutations` is supplied, every set/unset is also recorded into it
-   * (`null` = unset, string = set). The executor surfaces these on
-   * `ScriptResult.{globalsMutations,collectionMutations}` so the renderer
-   * can merge them back into the corresponding Zustand stores after eval.
-   *
-   * Shared by `environment`, `globals`, and the four `pm.*` namespaces.
-   */
-  private buildKvNamespace(
-    vm: QuickJSContext,
-    store: Record<string, string>,
-    mutations?: Record<string, string | null>
-  ): QuickJSHandle {
-    const ns = vm.newObject();
-    const get = vm.newFunction('get', (keyHandle) => {
-      const key = vm.getString(keyHandle);
-      const value = store[key];
-      return value !== undefined ? vm.newString(value) : vm.undefined;
-    });
-    const set = vm.newFunction('set', (keyHandle, valueHandle) => {
-      const k = vm.getString(keyHandle);
-      const v = vm.getString(valueHandle);
-      store[k] = v;
-      if (mutations) mutations[k] = v;
-    });
-    const unset = vm.newFunction('unset', (keyHandle) => {
-      const k = vm.getString(keyHandle);
-      delete store[k];
-      if (mutations) mutations[k] = null;
-    });
-    const has = vm.newFunction('has', (keyHandle) => {
-      return store[vm.getString(keyHandle)] !== undefined ? vm.true : vm.false;
-    });
-    vm.setProp(ns, 'get', get);
-    vm.setProp(ns, 'set', set);
-    vm.setProp(ns, 'unset', unset);
-    vm.setProp(ns, 'has', has);
-    get.dispose();
-    set.dispose();
-    unset.dispose();
-    has.dispose();
-    return ns;
-  }
-
-  /**
-   * Build the pm.cookies namespace and attach it to pmObj. Each method
-   * delegates to `this.callCookieAdapter` (rebound per-eval), so a single
-   * binding works across many calls — flipping the adapter at eval-time
-   * changes which jar the same `pm.cookies.get` reads.
-   */
-  private bindPmCookies(vm: QuickJSContext, pmObj: QuickJSHandle): void {
-    const ns = vm.newObject();
-
-    const cookiesArrayHandle = (records: PmCookieRecord[]): QuickJSHandle => {
-      return this.makeJSValue(vm, records);
-    };
-
-    // pm.cookies.get(name)  — value for the first cookie matching name, scoped to current URL
-    const getFn = vm.newFunction('get', (nameHandle) => {
-      if (!this.callCookieAdapter) return vm.undefined;
-      const name = vm.getString(nameHandle);
-      const hit = this.callCookieAdapter.forCurrentUrl().find((c) => c.name === name);
-      return hit ? vm.newString(hit.value) : vm.undefined;
-    });
-    // pm.cookies.has(name)  — boolean; current URL scope
-    const hasFn = vm.newFunction('has', (nameHandle) => {
-      if (!this.callCookieAdapter) return vm.false;
-      const name = vm.getString(nameHandle);
-      return this.callCookieAdapter.forCurrentUrl().some((c) => c.name === name)
-        ? vm.true
-        : vm.false;
-    });
-    // pm.cookies.toJSON() — array of cookie objects for the current URL
-    const toJSON = vm.newFunction('toJSON', () => {
-      if (!this.callCookieAdapter) return vm.newArray();
-      return cookiesArrayHandle(this.callCookieAdapter.forCurrentUrl());
-    });
-
-    // pm.cookies.jar() — { get, getAll, set, unset, clear } with explicit URLs
-    const jarFn = vm.newFunction('jar', () => {
-      const jar = vm.newObject();
-      const jarGet = vm.newFunction('get', (urlH, nameH) => {
-        if (!this.callCookieAdapter) return vm.undefined;
-        const url = vm.getString(urlH);
-        const name = vm.getString(nameH);
-        const hit = this.callCookieAdapter.getForUrl(url).find((c) => c.name === name);
-        return hit ? vm.newString(hit.value) : vm.undefined;
-      });
-      const jarGetAll = vm.newFunction('getAll', (urlH) => {
-        if (!this.callCookieAdapter) return vm.newArray();
-        return cookiesArrayHandle(this.callCookieAdapter.getForUrl(vm.getString(urlH)));
-      });
-      const jarSet = vm.newFunction('set', (urlH, nameH, valueH) => {
-        if (!this.callCookieAdapter) return vm.undefined;
-        this.callCookieAdapter.add(vm.getString(urlH), {
-          name: vm.getString(nameH),
-          value: vm.getString(valueH),
-        });
-        return vm.undefined;
-      });
-      const jarUnset = vm.newFunction('unset', (urlH, nameH) => {
-        if (!this.callCookieAdapter) return vm.undefined;
-        this.callCookieAdapter.unset(vm.getString(urlH), vm.getString(nameH));
-        return vm.undefined;
-      });
-      const jarClear = vm.newFunction('clear', (urlH) => {
-        if (!this.callCookieAdapter) return vm.undefined;
-        this.callCookieAdapter.clear(vm.getString(urlH));
-        return vm.undefined;
-      });
-      vm.setProp(jar, 'get', jarGet);
-      vm.setProp(jar, 'getAll', jarGetAll);
-      vm.setProp(jar, 'set', jarSet);
-      vm.setProp(jar, 'unset', jarUnset);
-      vm.setProp(jar, 'clear', jarClear);
-      jarGet.dispose();
-      jarGetAll.dispose();
-      jarSet.dispose();
-      jarUnset.dispose();
-      jarClear.dispose();
-      return jar;
-    });
-
-    vm.setProp(ns, 'get', getFn);
-    vm.setProp(ns, 'has', hasFn);
-    vm.setProp(ns, 'toJSON', toJSON);
-    vm.setProp(ns, 'jar', jarFn);
-    getFn.dispose();
-    hasFn.dispose();
-    toJSON.dispose();
-    jarFn.dispose();
-
-    vm.setProp(pmObj, 'cookies', ns);
-    ns.dispose();
-  }
-
-  /**
    * Build `pm.sendRequest(input, [callback])` — the gateway from inside
    * the sandbox to the renderer's HTTP execution path.
    *
@@ -705,7 +417,7 @@ class ScriptExecutor {
   private bindPmSendRequest(vm: QuickJSContext, pmObj: QuickJSHandle): void {
     const fn = vm.newFunction('sendRequest', (inputHandle, callbackHandle) => {
       const input = vm.dump(inputHandle) as unknown;
-      const spec = this.normalizeSendRequestInput(input);
+      const spec = normalizeSendRequestInput(input);
       const deferred = vm.newPromise();
       this.pendingHostOps++;
 
@@ -766,7 +478,7 @@ class ScriptExecutor {
           // and was already freed. Note: `errH = vm.null` / `nullH = vm.null`
           // are shared QuickJS singletons — never call `.dispose()` on them.
           if (!this.runtime || !this.pendingHostCleanups.has(cleanup)) return;
-          const respJs = this.makeJSValue(vm, response as unknown);
+          const respJs = makeJSValue(vm, response as unknown);
           deferred.resolve(respJs);
           if (cbHandle) {
             const errH = vm.null;
@@ -779,7 +491,7 @@ class ScriptExecutor {
         .catch((err: unknown) => {
           if (!this.runtime || !this.pendingHostCleanups.has(cleanup)) return;
           const msg = err instanceof Error ? err.message : String(err);
-          const errObj = this.makeJSValue(vm, { message: msg });
+          const errObj = makeJSValue(vm, { message: msg });
           deferred.reject(errObj);
           if (cbHandle) {
             const nullH = vm.null;
@@ -864,7 +576,7 @@ class ScriptExecutor {
       .catch((err: unknown) => {
         if (!this.runtime || !this.pendingHostCleanups.has(cleanup)) return;
         const msg = err instanceof Error ? err.message : String(err);
-        const e = this.makeJSValue(vm, { message: msg });
+        const e = makeJSValue(vm, { message: msg });
         deferred.reject(e);
         e.dispose();
       })
@@ -968,65 +680,11 @@ class ScriptExecutor {
           judge
             ? judge(input)
             : Promise.reject(new Error('rs.judge: host.judge is not wired in this build')),
-        (verdict) => this.makeJSValue(vm, verdict as unknown)
+        (verdict) => makeJSValue(vm, verdict as unknown)
       );
     });
     vm.setProp(pmObj, 'judge', fn);
     fn.dispose();
-  }
-
-  /**
-   * Turn the user's `pm.sendRequest` argument into the host's
-   * `PmSendRequestInput` shape. Postman accepts a bare URL string OR a
-   * request object with `url / method / header / body`. We tolerate both.
-   */
-  private normalizeSendRequestInput(input: unknown): PmSendRequestInput {
-    if (typeof input === 'string') {
-      return { url: input, method: 'GET' };
-    }
-    if (input && typeof input === 'object') {
-      const o = input as Record<string, unknown>;
-      const url = typeof o.url === 'string' ? o.url : '';
-      const method = typeof o.method === 'string' ? o.method : 'GET';
-      const headers =
-        o.header && typeof o.header === 'object'
-          ? (o.header as Record<string, string>)
-          : o.headers && typeof o.headers === 'object'
-            ? (o.headers as Record<string, string>)
-            : {};
-      const body = o.body;
-      return { url, method, headers, body };
-    }
-    return { url: '', method: 'GET' };
-  }
-
-  /** Native → QuickJS handle. Extracted from setupQuickJSContext so the
-   *  per-eval request/response rebind can reuse it. */
-  private makeJSValue(vm: QuickJSContext, value: unknown): QuickJSHandle {
-    if (value === undefined) return vm.undefined;
-    if (value === null) return vm.null;
-    if (typeof value === 'boolean') return value ? vm.true : vm.false;
-    if (typeof value === 'number') return vm.newNumber(value);
-    if (typeof value === 'string') return vm.newString(value);
-    if (Array.isArray(value)) {
-      const arr = vm.newArray();
-      value.forEach((item, i) => {
-        const itemHandle = this.makeJSValue(vm, item);
-        vm.setProp(arr, i, itemHandle);
-        itemHandle.dispose();
-      });
-      return arr;
-    }
-    if (typeof value === 'object') {
-      const obj = vm.newObject();
-      for (const [key, val] of Object.entries(value)) {
-        const valHandle = this.makeJSValue(vm, val);
-        vm.setProp(obj, key, valHandle);
-        valHandle.dispose();
-      }
-      return obj;
-    }
-    return vm.undefined;
   }
 
   /**
@@ -1287,11 +945,11 @@ class ScriptExecutor {
 
     // Top-level `environment` and `globals` namespaces. Both expose the
     // same get/set/unset/has surface as their `pm.*` aliases below.
-    const envObj = this.buildKvNamespace(vm, this.envVars);
+    const envObj = buildKvNamespace(vm, this.envVars);
     vm.setProp(vm.global, 'environment', envObj);
     envObj.dispose();
 
-    const globalsObj = this.buildKvNamespace(vm, this.globalVars);
+    const globalsObj = buildKvNamespace(vm, this.globalVars);
     vm.setProp(vm.global, 'globals', globalsObj);
     globalsObj.dispose();
 
@@ -1347,7 +1005,7 @@ class ScriptExecutor {
       ['collectionVariables', this.collectionVars, this.collectionMutations],
     ];
     for (const [name, map, mutations] of kvBindings) {
-      const ns = this.buildKvNamespace(vm, map, mutations);
+      const ns = buildKvNamespace(vm, map, mutations);
       vm.setProp(pmObj, name, ns);
       ns.dispose();
     }
@@ -1355,9 +1013,9 @@ class ScriptExecutor {
     // pm.iterationData — real backing map (empty for non-runner calls).
     // Same get/set/unset/has surface as the other pm.* namespaces, plus
     // toObject() for Postman compatibility.
-    const pmIterData = this.buildKvNamespace(vm, this.iterationData);
+    const pmIterData = buildKvNamespace(vm, this.iterationData);
     const pmIterToObject = vm.newFunction('toObject', () => {
-      return this.makeJSValue(vm, { ...this.iterationData });
+      return makeJSValue(vm, { ...this.iterationData });
     });
     vm.setProp(pmIterData, 'toObject', pmIterToObject);
     vm.setProp(pmObj, 'iterationData', pmIterData);
@@ -1367,7 +1025,7 @@ class ScriptExecutor {
     // pm.cookies — read/write the renderer's persistent cookie jar.
     // Per-eval `bindRequestResponse` overwrites `this.callCookieAdapter`
     // so `pm.cookies.get(name)` resolves against the active request URL.
-    this.bindPmCookies(vm, pmObj);
+    bindPmCookies(vm, pmObj, () => this.callCookieAdapter);
 
     // pm.sendRequest — only bound when a host.sendRequest closure is
     // wired in. The callback / promise machinery is non-trivial; see

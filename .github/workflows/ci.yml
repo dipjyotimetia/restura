@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -74,7 +74,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -204,7 +204,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -236,6 +236,24 @@ jobs:
         # also exercises shared protocol and OpenCollection modules.
         run: npm run test:workspaces
 
+  electron-critical-coverage:
+    name: Electron critical-path coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-node-npm
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
+
+      - name: Verify Electron IPC and transport coverage
+        run: npm run test:electron:critical-coverage
+
   electron-smoke:
     name: Electron pack smoke (${{ matrix.os }})
     # Skip for Dependabot: this job needs the `electron-builder install-app-deps`
@@ -253,7 +271,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -312,7 +330,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -381,7 +399,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -440,7 +458,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -498,7 +516,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -553,7 +571,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -699,7 +717,7 @@ jobs:
             echo 'deploy=true' >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"

@@ -67,7 +67,7 @@ Open [restura.dev](https://restura.dev/) to send HTTP, GraphQL, WebSocket, SSE, 
 ```bash
 git clone https://github.com/dipjyotimetia/restura.git
 cd restura
-npm install
+npm ci
 npm run dev # http://localhost:5173
 ```
 

@@ -34,7 +34,7 @@ git clone https://github.com/dipjyotimetia/restura.git
 cd restura
 
 # Install dependencies
-npm install
+npm ci
 
 # Start development server
 npm run dev
@@ -46,7 +46,7 @@ npm run dev
 
 ```bash
 # Install dependencies
-npm install
+npm ci
 
 # Start Vite dev server + Cloudflare Worker locally (port 5173)
 npm run dev
