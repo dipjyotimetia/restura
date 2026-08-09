@@ -1,0 +1,30 @@
+name: Setup pinned Node and npm
+description: Install the repository's Node version and the npm version enforced by package.json.
+
+inputs:
+  node-version-file:
+    description: File containing the Node.js version.
+    required: false
+    default: .nvmrc
+  cache:
+    description: Optional dependency cache used by actions/setup-node.
+    required: false
+    default: npm
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version-file: ${{ inputs.node-version-file }}
+        cache: ${{ inputs.cache }}
+
+    # Node 24.18.0 on the GitHub-hosted image bundles npm 11.16.0; install
+    # the repository's pinned package manager before npm reads package.json.
+    - name: Install pinned npm
+      shell: bash
+      run: npm install --global npm@12.0.2 --ignore-scripts
+
+    - name: Verify toolchain
+      shell: bash
+      run: npm run toolchain:check

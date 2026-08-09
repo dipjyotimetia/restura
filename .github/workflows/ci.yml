@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -74,7 +74,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -204,7 +204,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -243,7 +243,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -271,7 +271,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -330,7 +330,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -399,7 +399,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -458,7 +458,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -516,7 +516,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -571,7 +571,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
@@ -717,7 +717,7 @@ jobs:
             echo 'deploy=true' >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/setup-node@v7
+      - uses: ./.github/actions/setup-node-npm
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
