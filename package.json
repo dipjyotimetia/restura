@@ -111,7 +111,7 @@
   "dependencies": {
     "@apidevtools/swagger-parser": "^12.1.0",
     "@aws-crypto/sha256-js": "^5.2.0",
-    "@aws-sdk/client-secrets-manager": "^3.1103.0",
+    "@aws-sdk/client-secrets-manager": "^3.1104.0",
     "@aws-sdk/credential-providers": "^3.1103.0",
     "@azure/identity": "^4.13.1",
     "@azure/keyvault-secrets": "^4.11.2",
