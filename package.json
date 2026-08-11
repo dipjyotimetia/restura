@@ -171,7 +171,7 @@
     "fflate": "^0.8.3",
     "framer-motion": "^12.43.0",
     "graphql": "^17.0.2",
-    "graphql-ws": "^6.2.0",
+    "graphql-ws": "^6.2.1",
     "hono": "^4.13.0",
     "js-yaml": "^5.2.2",
     "jsonc-parser": "3.3.1",
