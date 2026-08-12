@@ -49,15 +49,15 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@aws-sdk/client-secrets-manager": "^3.1103.0",
-    "@aws-sdk/credential-providers": "^3.1103.0",
+    "@aws-sdk/client-secrets-manager": "^3.1104.0",
+    "@aws-sdk/credential-providers": "^3.1104.0",
     "@azure/identity": "^4.13.1",
     "@azure/keyvault-secrets": "^4.11.2",
     "@clack/prompts": "^1.7.0",
     "@faker-js/faker": "^10.5.0",
     "@google-cloud/secret-manager": "^6.3.0",
     "commander": "^15.0.0",
-    "csv-parse": "^7.0.1",
+    "csv-parse": "^7.0.2",
     "js-yaml": "^5.2.1",
     "log-update": "^8.0.0",
     "quickjs-emscripten": "^0.32.0",
