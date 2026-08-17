@@ -2,6 +2,10 @@
 # formats staged files but does not type-check, so type errors otherwise only
 # surface in CI. Kept to the renderer-only `type-check` (not `type-check:all`,
 # which runs 6 tsc passes) to stay fast. Bypass with `git push --no-verify`.
+# Vitest's Git fixtures create independent repositories and must not inherit
+# the repository context Git exports to hooks.
+unset GIT_DIR GIT_WORK_TREE
+
 npm run type-check
 
 # Keep the authoritative merged-suite branch budget green before publishing a
