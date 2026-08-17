@@ -18,17 +18,22 @@ This wiki is an in-repo map for humans and future coding agents. It links out to
 | ------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | Run the app, type-check, test, or build                             | [Operations — Development setup](operations/overview.md#development-setup) |
 | Understand the renderer/backends/shared protocol layer              | [Architecture overview](architecture/overview.md)                       |
+| Change a Worker route, proxy auth/CORS, or self-hosted Node behavior | [Worker and self-hosted Node API](architecture/worker-and-node-api.md) |
+| Change desktop `window.electron`, IPC, handler cleanup, or headless MCP | [Electron IPC and lifecycle](architecture/electron-ipc-and-lifecycle.md) |
 | Change HTTP, GraphQL, or gRPC execution                              | [HTTP, GraphQL, and gRPC](features/http-graphql-grpc.md)                   |
 | Change SSE, WebSocket, Socket.IO, Kafka, or MQTT                    | [Realtime protocol clients](features/realtime-protocols.md)                |
 | Change the MCP client or Restura-as-MCP server                       | [MCP client](features/mcp-client.md) and [AI and MCP](features/ai-mcp.md)  |
 | Work on OWS workflows or collection batch runners                   | [Workflows](workflows/overview.md)                                         |
 | Work on scripts, variables, environments, persistence, or secrets   | [Scripts, variables and storage](features/scripts-variables-storage.md) and [Persistence and security](architecture/persistence-and-security.md) |
 | Change file/Git collections, OpenCollection, or browser capture     | [OpenCollection, file collections, and capture](integrations/collections-and-opencollection.md) |
+| Change Chrome capture, VS Code Test Explorer/CodeLens, or Echo fixtures | [Extensions and test services](integrations/extensions-and-test-services.md) |
 | Change the CI runner, reporters, workflows, or agents               | [Restura CLI](integrations/cli.md)                                         |
 | Work on Agent Lab providers, tools, or evaluation                    | [Agent Lab](features/agent-lab.md)                                         |
 | Change contracts, load tests, or desktop mocking                     | [Contracts, load testing, and mock server](features/quality-tools.md)      |
 | Network Console, evidence redaction, safe drafts, collection-run evidence | [Console evidence and safety](features/console-evidence.md)            |
 | CI/CD, Docker self-host, packaging, telemetry, security             | [Operations](operations/overview.md)                                       |
+| Change capability flags, telemetry/logging, or critical Electron paths | [Capabilities, observability, and critical desktop tests](operations/capabilities-observability-and-critical-tests.md) |
+| Understand why recent security/reliability changes landed            | [Recent history and change rationale](operations/recent-history-and-change-rationale.md) |
 | Test strategy, e2e, contract and security tests                     | [Testing](testing/overview.md)                                             |
 
 The repo also maintains `/CLAUDE.md` (Claude Code) and `/AGENTS.md` (Codex) as concise agent handbooks. This wiki is the deeper navigation layer.
@@ -58,8 +63,8 @@ The repo also maintains `/CLAUDE.md` (Claude Code) and `/AGENTS.md` (Codex) as c
 - `src/features/<protocol>/` — per-protocol UI and logic. Each protocol feature exports a `protocol.ts` describing its schema and executor.
 - `src/features/registry/` — protocol registry. `bootstrap.ts` registers modules; `useRequestRunner.ts` is the single entry point.
 - `shared/protocol/` — backend-agnostic HTTP/gRPC/MCP/WebSocket/SSE/AI orchestrators, validation, body building, auth signing.
-- `worker/app.ts` — `createApp(deps)` Hono factory. `worker/index.ts` runs it under Cloudflare; `worker/node-entry.ts` runs it as a Node/Docker server.
-- `electron/main/` — IPC handlers, protocol native handling, storage, telemetry, window management.
+- `worker/app.ts` — `createApp(deps)` Hono factory. `worker/index.ts` runs it under Cloudflare; `worker/node-entry.ts` runs it as a Node/Docker server. See [Worker and self-hosted Node API](architecture/worker-and-node-api.md) for the public route and middleware contract.
+- `electron/main/` — IPC handlers, protocol native handling, storage, telemetry, window management. See [Electron IPC and lifecycle](architecture/electron-ipc-and-lifecycle.md) for the preload/type/validator chain and cleanup invariant.
 - `src/store/` and `src/features/*/store.ts` — Zustand stores; many are persisted via Dexie (web) or encrypted electron-store (desktop).
 - `src/lib/shared/` — platform detection, encryption, variable scopes, validators, capabilities, persistence adapters.
 
@@ -118,7 +123,7 @@ npm run validate                    # static policy -> all tests/workspaces -> p
 
 ## Documentation sections
 
-- [Architecture overview](architecture/overview.md) — renderer, backends, shared protocol layer, Fetcher pattern, and capability boundaries.
+- [Architecture overview](architecture/overview.md) — renderer, backends, shared protocol layer, Fetcher pattern, and capability boundaries; [Worker and self-hosted Node API](architecture/worker-and-node-api.md) and [Electron IPC and lifecycle](architecture/electron-ipc-and-lifecycle.md) are the concrete backend boundaries.
 - [Persistence and security](architecture/persistence-and-security.md) — Dexie ownership, encryption modes, migration observability, secret resolution, and fail-closed desktop execution policy.
 - [Protocol features](features/protocols.md) — registry and common request lifecycle; [HTTP, GraphQL, and gRPC](features/http-graphql-grpc.md), [realtime protocol clients](features/realtime-protocols.md), and [MCP client](features/mcp-client.md) provide implementation maps.
 - [Workflows](workflows/overview.md) — bounded OWS execution, workspace artifacts, editor, and collection runner.
@@ -127,7 +132,7 @@ npm run validate                    # static policy -> all tests/workspaces -> p
 - [Contracts, load testing, and mock server](features/quality-tools.md) — quality tools that reuse HTTP execution.
 - [Integrations](integrations/overview.md) — format conversion and Postman parity; [OpenCollection, file collections, and capture](integrations/collections-and-opencollection.md), [Restura CLI](integrations/cli.md), and [extensions and test services](integrations/extensions-and-test-services.md) cover their operational surfaces.
 - [Console evidence and safety](features/console-evidence.md) — Network Console, credential redaction, safe drafts, collection-run evidence, HAR/NDJSON/cURL export.
-- [Operations](operations/overview.md) — CI/CD, Docker, generated contracts, telemetry, security, and release.
+- [Operations](operations/overview.md) — CI/CD, Docker, generated contracts, telemetry, security, and release; [capabilities, observability, and critical desktop tests](operations/capabilities-observability-and-critical-tests.md) and [recent history and change rationale](operations/recent-history-and-change-rationale.md) explain cross-cutting constraints and recent decisions.
 - [Testing](testing/overview.md) — test pyramid, e2e, generated/parity controls, and security tests.
 
 ---

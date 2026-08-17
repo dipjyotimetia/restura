@@ -54,7 +54,7 @@ _Key point: the backend-specific code is limited to a thin `Fetcher` adapter plu
 
 ## Shared protocol core
 
-`/shared/protocol/` is the most important architectural boundary for request execution.
+`/shared/protocol/` is the most important architectural boundary for request execution. The concrete web route contract and Node static-server lifecycle are documented in [Worker and self-hosted Node API](worker-and-node-api.md); the desktop typed IPC boundary, lifecycle registry, and headless mode are documented in [Electron IPC and lifecycle](electron-ipc-and-lifecycle.md).
 
 ### Core modules
 

@@ -38,7 +38,7 @@ _Scripts run in a QuickJS VM with no DOM, filesystem, or direct network; the hos
 
 ### Postman-compatible API
 
-`shared/scripts/script-executor.ts` exposes a `pm`-style object; the renderer path is a compatibility re-export:
+`shared/scripts/script-executor.ts` is the lifecycle/orchestration owner and exposes a `pm`-style object; the renderer path is a compatibility re-export. The recent extraction keeps namespace binding in `shared/scripts/script-executor-namespaces.ts`, public contracts in `shared/scripts/script-executor-types.ts`, and value marshaling/`pm.sendRequest` input normalization in `shared/scripts/script-executor-values.ts`. Preserve those seams when changing sandbox APIs so the VM lifecycle remains independent of bridge details:
 
 - `pm.variables.get/set`
 - `pm.environment.get/set`
@@ -204,7 +204,7 @@ Handles keep secrets out of:
 
 | Area                | Key files                                                                                               |
 | ------------------- | ------------------------------------------------------------------------------------------------------- |
-| Script executor     | `shared/scripts/script-executor.ts`                                                                      |
+| Script executor     | `shared/scripts/script-executor.ts`, `shared/scripts/script-executor-{namespaces,types,values}.ts`      |
 | `pm.*` APIs         | `src/features/scripts/lib/pmExpect.ts`, `src/features/scripts/lib/scriptApiTypes.ts`                    |
 | Context options     | `src/features/scripts/lib/pmRunContextOptions.ts`                                                       |
 | Script migrations   | `src/features/scripts/lib/scriptMigrations.ts`                                                          |
