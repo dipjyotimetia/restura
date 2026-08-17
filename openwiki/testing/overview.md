@@ -144,6 +144,8 @@ Run them after touching `shared/protocol/url-validation.ts`, `redirect-follower.
 
 `npm run test:ci` enforces the configured coverage budgets while collecting coverage. In addition to percentage floors, `vitest.config.ts` has an uncovered-branch budget; add coverage for newly introduced branches instead of weakening that guardrail.
 
+`npm run test:electron:critical-coverage` is a separate, focused gate defined by `vitest.electron-critical.config.ts`. It applies per-file thresholds to Electron HTTP execution, extracted response/secure-connection helpers, validated IPC boundary, execution policy, and secret handles. Run it after changing those owners; it complements rather than replaces root coverage. [Capabilities, observability, and critical desktop tests](../operations/capabilities-observability-and-critical-tests.md) explains the rationale and narrow commands.
+
 ---
 
 ## Source map

@@ -202,6 +202,8 @@ Do not edit generated outputs by hand. A generated-file diff means its source or
 
 ## Telemetry and privacy
 
+The canonical code-level map for capability flags, intentional unsupported paths, structured logging, telemetry boundaries, and critical Electron coverage is [Capabilities, observability, and critical desktop tests](capabilities-observability-and-critical-tests.md). For the reasoning and regression tests behind recent security and reliability work, see [Recent history and change rationale](recent-history-and-change-rationale.md).
+
 - Telemetry is off by default until `settings.telemetry.errorsEnabled` is true.
 - Desktop errors are sent to Sentry via a renderer→main IPC bridge; `sendDefaultPii: false`; secrets are redacted.
 - Web errors are POSTed to `/api/telemetry/error` on the same Worker/self-hosted instance — no third-party telemetry service.

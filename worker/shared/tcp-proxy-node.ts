@@ -25,6 +25,7 @@
  *   - Headers may arrive as a Record or a `Headers` instance (the redirect-
  *     follower always passes a Headers); normalised here via `toRecord`.
  */
+import { Buffer } from 'node:buffer';
 import net from 'node:net';
 import tls from 'node:tls';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
