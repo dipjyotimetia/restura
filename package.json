@@ -203,7 +203,7 @@
   },
   "devDependencies": {
     "@babel/parser": "^8.0.4",
-    "@biomejs/biome": "^2.5.7",
+    "@biomejs/biome": "^2.5.9",
     "@bufbuild/protoc-gen-es": "^2.13.0",
     "@cloudflare/vite-plugin": "^1.51.0",
     "@cloudflare/workers-types": "^5.20260729.1",
