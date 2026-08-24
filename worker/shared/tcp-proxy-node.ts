@@ -147,10 +147,10 @@ function readConnectResponse(
       }
       chunks.push(chunk);
       const buf = Buffer.concat(chunks);
-      const split = buf.indexOf('\r\n\r\n');
+      const split = buf.indexOf(Buffer.from('\r\n\r\n'));
       if (split === -1) return;
 
-      const headBytes = buf.subarray(0, split).toString('latin1');
+      const headBytes = Buffer.from(buf.subarray(0, split)).toString('latin1');
       const lines = headBytes.split('\r\n');
       const statusLine = lines[0] ?? '';
       const headers: Record<string, string> = {};
@@ -221,10 +221,10 @@ function readHttpResponseBody(
     const onError = (err: Error) => fail(err);
 
     const parseHeadersFromBuffer = (buf: Buffer): void => {
-      const split = buf.indexOf('\r\n\r\n');
+      const split = buf.indexOf(Buffer.from('\r\n\r\n'));
       if (split === -1) return;
       headerBodySplit = split;
-      const headBytes = buf.subarray(0, split).toString('latin1');
+      const headBytes = Buffer.from(buf.subarray(0, split)).toString('latin1');
       const lines = headBytes.split('\r\n');
       statusLine = lines[0] ?? '';
       headers = {};
