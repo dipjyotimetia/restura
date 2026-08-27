@@ -22,6 +22,7 @@
  */
 import { sanitizeRequestHeaders } from '@shared/protocol/header-policy';
 import { validateWsUrl } from '@shared/protocol/websocket-proxy';
+import { Buffer } from 'node:buffer';
 import type { Context, MiddlewareHandler } from 'hono';
 import type { WSContext, WSEvents } from 'hono/ws';
 import WebSocket from 'ws';
@@ -157,7 +158,7 @@ export function createNodeWebsocketHandler(
           }
           try {
             if (!isBinary) {
-              ws.send(buf.toString('utf-8'));
+              ws.send(Buffer.from(buf).toString('utf-8'));
             } else {
               // Buffer → Uint8Array<ArrayBuffer> for Hono's WSContext typing.
               // .buffer of Node's Buffer can be SharedArrayBuffer; copy into
