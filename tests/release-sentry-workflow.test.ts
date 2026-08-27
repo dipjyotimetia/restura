@@ -147,4 +147,14 @@ describe('release workflow Sentry guardrails', () => {
     expect(workflow).toContain("needs.release.outputs.is_repair != 'true'");
     expect(workflow).toContain("needs.release.outputs.is_repair == 'true'");
   });
+
+  it('generates release SBOMs with the npm 12-compatible CycloneDX CLI', () => {
+    const sbomBlock = workflow.slice(
+      workflow.indexOf('- name: Generate CycloneDX SBOM'),
+      workflow.indexOf('- name: Create GitHub release')
+    );
+
+    expect(sbomBlock.match(/@cyclonedx\/cyclonedx-npm@6/g) ?? []).toHaveLength(2);
+    expect(sbomBlock).not.toContain('@cyclonedx/cyclonedx-npm@2');
+  });
 });
