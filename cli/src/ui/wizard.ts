@@ -1,5 +1,14 @@
 import { existsSync } from 'node:fs';
-import { cancel, confirm, intro, isCancel, multiselect, outro, text } from '@clack/prompts';
+import {
+  type CANCEL_SYMBOL,
+  cancel,
+  confirm,
+  intro,
+  isCancel,
+  multiselect,
+  outro,
+  text,
+} from '@clack/prompts';
 import type { RunOpts } from '../commands/run.js';
 
 /**
@@ -13,7 +22,7 @@ import type { RunOpts } from '../commands/run.js';
 const FILE_REPORTERS = new Set(['json', 'junit', 'html']);
 
 /** Unwrap a clack prompt result, exiting 130 (SIGINT convention) on cancel. */
-function orCancel<T>(value: T | symbol): T {
+function orCancel<T>(value: T | typeof CANCEL_SYMBOL): T {
   if (isCancel(value)) {
     cancel('Run cancelled.');
     process.exit(130);
