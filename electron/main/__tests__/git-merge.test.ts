@@ -40,7 +40,7 @@ describe.skipIf(!gitAvailable)('git merge operations (temp repo)', () => {
 
   afterEach(() => {
     setGitDirectoryAllowlist(() => false);
-    rmSync(directory, { recursive: true, force: true });
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5 });
   });
 
   it('fast-forwards without leaving merge metadata', async () => {

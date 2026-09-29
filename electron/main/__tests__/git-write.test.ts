@@ -48,7 +48,7 @@ describe.skipIf(!gitAvailable)('git write operations (temp repo)', () => {
 
   afterAll(() => {
     setGitDirectoryAllowlist(() => false);
-    rmSync(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5 });
   });
 
   it('stages and commits a file', async () => {
@@ -146,8 +146,8 @@ describe.skipIf(!gitAvailable)('git write operations (temp repo)', () => {
     } finally {
       execFileSync('git', ['remote', 'remove', 'test-origin'], { cwd: dir });
       setGitDirectoryAllowlist((p) => p === dir);
-      rmSync(remoteDir, { recursive: true, force: true });
-      rmSync(cloneDir, { recursive: true, force: true });
+      rmSync(remoteDir, { recursive: true, force: true, maxRetries: 5 });
+      rmSync(cloneDir, { recursive: true, force: true, maxRetries: 5 });
     }
   });
 
@@ -185,7 +185,7 @@ describe.skipIf(!gitAvailable)('git write operations (temp repo)', () => {
       expect(status.clean).toBe(true);
     } finally {
       setGitDirectoryAllowlist((p) => p === dir);
-      rmSync(plainDir, { recursive: true, force: true });
+      rmSync(plainDir, { recursive: true, force: true, maxRetries: 5 });
     }
   });
 
@@ -201,7 +201,7 @@ describe.skipIf(!gitAvailable)('git write operations (temp repo)', () => {
       expect((await gitStatus(unbornDir)).clean).toBe(true);
     } finally {
       setGitDirectoryAllowlist((p) => p === dir);
-      rmSync(unbornDir, { recursive: true, force: true });
+      rmSync(unbornDir, { recursive: true, force: true, maxRetries: 5 });
     }
   });
 
@@ -215,7 +215,7 @@ describe.skipIf(!gitAvailable)('git write operations (temp repo)', () => {
       await expect(gitStatus(goneDir)).rejects.toMatchObject({ code: 'directory-missing' });
     } finally {
       setGitDirectoryAllowlist((p) => p === dir);
-      rmSync(parent, { recursive: true, force: true });
+      rmSync(parent, { recursive: true, force: true, maxRetries: 5 });
     }
   });
 
@@ -265,8 +265,8 @@ describe.skipIf(!gitAvailable)('git write operations (temp repo)', () => {
       await expect(gitPush(dir)).rejects.toMatchObject({ code: 'invalid-remote-url' });
     } finally {
       setGitDirectoryAllowlist((p) => p === dir);
-      rmSync(remoteDir, { recursive: true, force: true });
-      rmSync(peerDir, { recursive: true, force: true });
+      rmSync(remoteDir, { recursive: true, force: true, maxRetries: 5 });
+      rmSync(peerDir, { recursive: true, force: true, maxRetries: 5 });
     }
   }, 15_000);
 
@@ -282,7 +282,7 @@ describe.skipIf(!gitAvailable)('git write operations (temp repo)', () => {
       rmSync(path.join(dir, 'dirty.txt'));
       execFileSync('git', ['remote', 'remove', 'dirty-origin'], { cwd: dir });
     } finally {
-      rmSync(remoteDir, { recursive: true, force: true });
+      rmSync(remoteDir, { recursive: true, force: true, maxRetries: 5 });
     }
   });
 });

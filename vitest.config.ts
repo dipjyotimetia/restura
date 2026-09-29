@@ -54,15 +54,15 @@ export default defineConfig({
       // budget until all blobs are merged.
       reporter: isVitestShard ? [] : ['text', 'json', 'json-summary', 'html'],
       exclude: [
-        'node_modules/',
-        'tests/',
+        'node_modules/**',
+        'tests/**',
         // Dev/test tooling, not production code: e2e mocks + the local echo stack.
-        'e2e/',
-        'echo-local/',
+        'e2e/**',
+        'echo-local/**',
         '**/*.d.ts',
         '**/*.config.*',
-        '**/types/',
-        'electron/',
+        '**/types/**',
+        'electron/**',
         // Platform/runtime-specific — depend on Electron IPC or IndexedDB
         'src/lib/shared/platform.ts',
         'src/lib/shared/database.ts',

@@ -30,10 +30,14 @@ const trustedEvent = {
   senderFrame: { url: 'file:///app/dist/web/index.html' },
 };
 
+// Snapshot registrations once: Vitest 5 clears mock.calls before every test,
+// so the calls recorded in beforeAll are gone by the time a test runs.
+const registered = new Map<string, IpcHandler>();
+
 function handlerFor(channel: string): IpcHandler {
-  const call = mockHandle.mock.calls.find((c) => c[0] === channel);
-  if (!call) throw new Error(`No handler registered for ${channel}`);
-  return call[1] as IpcHandler;
+  const handler = registered.get(channel);
+  if (!handler) throw new Error(`No handler registered for ${channel}`);
+  return handler;
 }
 
 describe('mcp-handler integration (SDK client ↔ SDK server over real HTTP)', () => {
@@ -49,6 +53,9 @@ describe('mcp-handler integration (SDK client ↔ SDK server over real HTTP)', (
     });
     server = await startMockMcpServer();
     registerMcpHandlerIPC();
+    for (const [channel, handler] of mockHandle.mock.calls) {
+      registered.set(channel as string, handler as IpcHandler);
+    }
   });
 
   afterAll(async () => {

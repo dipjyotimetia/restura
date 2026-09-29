@@ -592,7 +592,7 @@ Run them all at once with `npm run type-check:all` (which `npm run validate` cal
 - `electron-builder` packages `dist/web/` (renderer) and `dist/electron/` (main process)
 - Releases published to GitHub via `electron-updater`
 - macOS: notarized DMG + ZIP (x64 + arm64)
-- Windows: NSIS installer + portable (x64 + ia32)
+- Windows: NSIS installer + portable (x64)
 - Linux: AppImage + deb + rpm (x64)
 
 ---

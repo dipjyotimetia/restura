@@ -7,7 +7,7 @@ This guide explains how to build, sign, and distribute the Restura Electron app.
 The app supports distribution on:
 
 - **macOS**: DMG installer and ZIP updater archive (arm64)
-- **Windows**: NSIS installer and portable executable (x64 and ia32)
+- **Windows**: NSIS installer and portable executable (x64)
 - **Linux**: AppImage, DEB, and RPM packages (x64)
 
 ## Prerequisites
@@ -15,7 +15,7 @@ The app supports distribution on:
 ### Required Software
 
 - Node.js 24.x or later
-- npm 12.0.2
+- npm 12.1.0
 - Git
 
 ### Platform-Specific Requirements
