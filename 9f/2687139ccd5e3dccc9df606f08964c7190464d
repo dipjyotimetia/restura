@@ -1,0 +1,29 @@
+docs-site/src/content/docs/contributing/dev-setup.mdx
+  s_bf43d82f79a935::t_54824ac7fbfb00 8
+scripts/__tests__/verify-toolchain.test.mjs
+  s_bf43d82f79a935::t_54824ac7fbfb00 27
+scripts/verify-toolchain.mjs
+  s_bf43d82f79a935::t_129cf6457d439b 6
+.github/actions/setup-node-npm/action.yml
+  s_bf43d82f79a935::t_129cf6457d439b 26
+docs-site/package.json
+  s_bf43d82f79a935::t_129cf6457d439b 19,21
+docs/DISTRIBUTION.md
+  s_bf43d82f79a935::t_0c46d6fa50a093 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9f2687139ccd5e3dccc9df606f08964c7190464d",
+  "prompts": {},
+  "sessions": {
+    "s_bf43d82f79a935": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cd4814dd-7b0b-4cdd-888d-d36f07f66856",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
