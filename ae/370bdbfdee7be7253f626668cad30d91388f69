@@ -1,0 +1,21 @@
+electron/main/__tests__/git-write.test.ts
+  s_bf43d82f79a935::t_da67873620a312 51,149-150,188,204,218,268-269,285
+electron/main/__tests__/git-merge.test.ts
+  s_bf43d82f79a935::t_da67873620a312 43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ae370bdbfdee7be7253f626668cad30d91388f69",
+  "prompts": {},
+  "sessions": {
+    "s_bf43d82f79a935": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cd4814dd-7b0b-4cdd-888d-d36f07f66856",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
