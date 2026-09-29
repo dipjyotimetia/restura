@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 export const TOOLCHAIN = {
   nodeVersion: '24.18.0',
-  npmVersion: '12.0.2',
+  npmVersion: '12.1.0',
 };
 
 export function verifyToolchain({ nodeVersion, npmVersion }) {
