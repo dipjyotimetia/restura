@@ -15,6 +15,7 @@ tmp/*
 /test-results/
 /.vitest-reports/
 /.vitest-attachments/
+/.vitest/
 /playwright-report/
 /playwright/.cache/
 

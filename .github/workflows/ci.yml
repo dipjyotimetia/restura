@@ -55,7 +55,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: vitest-blob-report-${{ matrix.shard }}
-          path: .vitest-reports/
+          path: .vitest/blob/
           include-hidden-files: true
           if-no-files-found: warn
           retention-days: 1
@@ -85,7 +85,7 @@ jobs:
       - name: Download Vitest blob reports
         uses: actions/download-artifact@v8
         with:
-          path: .vitest-reports
+          path: .vitest/blob
           pattern: vitest-blob-report-*
           merge-multiple: true
 
