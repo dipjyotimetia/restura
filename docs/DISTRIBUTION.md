@@ -7,7 +7,7 @@ This guide explains how to build, sign, and distribute the Restura Electron app.
 The app supports distribution on:
 
 - **macOS**: DMG installer and ZIP updater archive (arm64)
-- **Windows**: NSIS installer and portable executable (x64 and ia32)
+- **Windows**: NSIS installer and portable executable (x64)
 - **Linux**: AppImage, DEB, and RPM packages (x64)
 
 ## Prerequisites

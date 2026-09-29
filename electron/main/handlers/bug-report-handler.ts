@@ -1,4 +1,4 @@
-import { app, type BrowserWindow, clipboard, ipcMain, nativeImage } from 'electron';
+import { app, type BrowserWindow, ClipboardItem, clipboard, ipcMain, nativeImage } from 'electron';
 import { IPC } from '../../shared/channels';
 import {
   BugReportScreenshotSchema,
@@ -66,11 +66,12 @@ export function registerBugReportIPC(getMainWindow: () => BrowserWindow | null):
     createValidatedHandler(
       IPC.bugReport.copyScreenshot,
       BugReportScreenshotSchema,
-      (imageDataUrl) => {
+      async (imageDataUrl) => {
         const image = nativeImage.createFromDataURL(imageDataUrl);
         if (image.isEmpty())
           return { ok: false as const, error: 'The screenshot could not be decoded.' };
-        clipboard.writeImage(image);
+        const png = new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' });
+        await clipboard.write([new ClipboardItem({ 'image/png': png })]);
         return { ok: true as const };
       }
     )
