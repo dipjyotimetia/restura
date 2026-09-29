@@ -103,7 +103,9 @@ export default defineConfig({
     // upload, without leaking maps into the packaged app. electron-builder
     // excludes the *.map files from the asar (see electron-builder.json).
     sourcemap: isElectronBuild ? 'hidden' : process.env.NODE_ENV === 'production' ? false : true,
-    ...(isElectronBuild && { target: 'esnext' }),
+    // Web floor: jsonpath-plus 11 ships RegExp `v`-flag literals, which esbuild
+    // can't down-level, so browsers below this baseline would throw at parse.
+    target: isElectronBuild ? 'esnext' : ['chrome112', 'edge112', 'firefox116', 'safari17'],
     // Split the large, stable vendor libraries that sit in the *eager* import
     // graph (the renderer entry) into their own chunks. On desktop the renderer
     // loads from file://, so this isn't about network parallelism — it lets
