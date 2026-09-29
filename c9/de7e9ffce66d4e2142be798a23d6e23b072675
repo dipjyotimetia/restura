@@ -1,0 +1,25 @@
+docs/ARCHITECTURE.md
+  s_bf43d82f79a935::t_54824ac7fbfb00 595
+docs/DISTRIBUTION.md
+  s_bf43d82f79a935::t_54824ac7fbfb00 10
+electron-builder.json
+  s_bf43d82f79a935::t_129cf6457d439b 66
+electron/main/handlers/bug-report-handler.ts
+  s_bf43d82f79a935::t_59cbb536bae380 1,69,73-74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c9de7e9ffce66d4e2142be798a23d6e23b072675",
+  "prompts": {},
+  "sessions": {
+    "s_bf43d82f79a935": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cd4814dd-7b0b-4cdd-888d-d36f07f66856",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
