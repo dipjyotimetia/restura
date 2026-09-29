@@ -1,0 +1,27 @@
+vitest.config.ts
+  s_bf43d82f79a935::t_129cf6457d439b 57-58,60-61,64-65
+src/features/http/tsconfig.json
+  s_bf43d82f79a935::t_feedb3d41f11aa 12
+.gitignore
+  s_bf43d82f79a935::t_129cf6457d439b 18
+.github/workflows/ci.yml
+  s_bf43d82f79a935::t_129cf6457d439b 58,88
+electron/main/__tests__/mcp-handler.integration.test.ts
+  s_bf43d82f79a935::t_ce9a03ae475360 33-36,38-40,56-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2818d07296db0af89641345abbffc386e182efc6",
+  "prompts": {},
+  "sessions": {
+    "s_bf43d82f79a935": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cd4814dd-7b0b-4cdd-888d-d36f07f66856",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
