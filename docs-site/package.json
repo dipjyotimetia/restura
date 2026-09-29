@@ -33,10 +33,10 @@
     "@astrojs/mdx": "^7.0.3",
     "@astrojs/starlight": "^0.41.7",
     "@fontsource-variable/geist": "^5.2.9",
-    "astro": "^7.2.1",
+    "astro": "^7.2.8",
     "astro-mermaid": "^2.1.0",
     "mermaid": "^11.16.1",
-    "sharp": "0.35.3",
+    "sharp": "0.35.4",
     "typescript": "^6.0.3"
   },
   "overrides": {
