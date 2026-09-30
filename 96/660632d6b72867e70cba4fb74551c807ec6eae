@@ -1,0 +1,48 @@
+shared/agent-lab/providers/__tests__/anthropic-messages.test.ts
+  s_a7461997a2d317::t_1ef0a452b7210d 54-57
+src/features/settings/sections/JudgeSettingsSection.tsx
+  s_a7461997a2d317::t_e581d09acf91f5 70,74
+shared/protocol/ai/__tests__/provider-routes.request-shape.test.ts
+  s_a7461997a2d317::t_961afc8a68052b 1-49
+shared/protocol/ai/providers/__tests__/openai.test.ts
+  s_a7461997a2d317::t_1ef0a452b7210d 14,56,65-82
+  s_a7461997a2d317::t_e0deb94eec8a3d 83
+shared/agent-lab/providers/anthropic-messages.ts
+  s_a7461997a2d317::t_f75fdbdc9460ae 77-82,103-114,184-190
+shared/protocol/ai/provider-routes.ts
+  s_a7461997a2d317::t_f75fdbdc9460ae 40-46,142-143,165-172,175,208,237
+shared/protocol/ai/types.ts
+  s_a7461997a2d317::t_e581d09acf91f5 82
+shared/protocol/ai/providers/__tests__/anthropic.test.ts
+  s_a7461997a2d317::t_1ef0a452b7210d 14,57-82
+  s_a7461997a2d317::t_3fd77a0f20f51d 83
+shared/protocol/ai/providers/types.ts
+  s_a7461997a2d317::t_26d44ee2f925a3 5-6,10-35
+shared/protocol/ai/providers/openai.ts
+  s_a7461997a2d317::t_d2ce0711d10c04 2,4-6,9-14,17-46,63-64,103-108,148,173-181
+shared/protocol/ai/providers/__tests__/tool-calls.test.ts
+  s_a7461997a2d317::t_1ef0a452b7210d 30,41,50
+shared/protocol/ai/providers/anthropic.ts
+  s_a7461997a2d317::t_961afc8a68052b 164-165
+  s_a7461997a2d317::t_26d44ee2f925a3 2,4-6,14-15,18-24,27-42,50-54,59-60,62-63,85,87,93,140,159-163,166-168,170-171,175,177-182,186-187
+shared/protocol/ai/providers/openrouter.ts
+  s_a7461997a2d317::t_d2ce0711d10c04 10-11,14-19,22-27,30-51,56-58
+shared/protocol/ai/providers/__tests__/openrouter.test.ts
+  s_a7461997a2d317::t_1ef0a452b7210d 8,20-21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "96660632d6b72867e70cba4fb74551c807ec6eae",
+  "prompts": {},
+  "sessions": {
+    "s_a7461997a2d317": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2b76c12a-3cac-43bb-9a8c-7009be6ff47d",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
