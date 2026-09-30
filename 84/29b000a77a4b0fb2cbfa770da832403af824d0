@@ -1,0 +1,25 @@
+src/features/sse/protocol.ts
+  s_2b7c03aa2cf1a1::t_fcb7c1d19a1a45 31,143-145
+src/features/sse/lib/__tests__/sseStreamSpec.test.ts
+  s_2b7c03aa2cf1a1::t_fcb7c1d19a1a45 1-14
+src/features/sse/lib/sseManager.ts
+  s_2b7c03aa2cf1a1::t_fcb7c1d19a1a45 8-12,14-16,144
+  s_2b7c03aa2cf1a1::t_1109c9fca27baa 1,13
+  s_2b7c03aa2cf1a1::t_5688ea59d5eb17 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8429b000a77a4b0fb2cbfa770da832403af824d0",
+  "prompts": {},
+  "sessions": {
+    "s_2b7c03aa2cf1a1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c7d267ed-966f-41df-8b42-2ba97c06cd68",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
