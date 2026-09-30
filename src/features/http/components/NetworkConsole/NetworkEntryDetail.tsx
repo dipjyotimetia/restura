@@ -69,6 +69,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
       size="icon"
       className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
       onClick={handleCopy}
+      aria-label={`Copy ${label}`}
     >
       {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
     </Button>
