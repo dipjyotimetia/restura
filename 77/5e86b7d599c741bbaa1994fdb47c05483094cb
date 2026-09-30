@@ -1,0 +1,19 @@
+e2e-electron/fixtures/electronApp.ts
+  s_dc9a687cb049b5::t_4f18d80ac77f92 72-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "775e86b7d599c741bbaa1994fdb47c05483094cb",
+  "prompts": {},
+  "sessions": {
+    "s_dc9a687cb049b5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9d76a409-9a64-495f-bab5-7c58f38e4cac",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
