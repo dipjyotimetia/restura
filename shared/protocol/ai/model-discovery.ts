@@ -34,6 +34,8 @@ export interface DiscoveredModel {
   pricing?: {
     promptPerMTokUSD?: number;
     completionPerMTokUSD?: number;
+    cacheReadPerMTokUSD?: number;
+    cacheWritePerMTokUSD?: number;
   };
   /** ISO 8601 timestamp the model was first listed (provider-normalised). */
   createdAt?: string;
@@ -443,28 +445,37 @@ interface OpenRouterModelWire {
   input_modalities?: string[];
   output_modalities?: string[];
   supported_parameters?: string[];
-  pricing?: { prompt?: string; completion?: string };
+  pricing?: {
+    prompt?: string;
+    completion?: string;
+    input_cache_read?: string;
+    input_cache_write?: string;
+  };
   created?: string;
   /** Slash-prefixed upstream name (e.g. "anthropic/claude-3.5-sonnet"). */
   canonical_slug?: string;
 }
 
-function parseOpenRouterPricing(
-  p: OpenRouterModelWire['pricing']
-): { promptPerMTokUSD?: number; completionPerMTokUSD?: number } | undefined {
+type OpenRouterPricing = NonNullable<DiscoveredModel['pricing']>;
+
+function parseOpenRouterPricing(p: OpenRouterModelWire['pricing']): OpenRouterPricing | undefined {
   if (!p) return undefined;
-  const out: { promptPerMTokUSD?: number; completionPerMTokUSD?: number } = {};
-  if (typeof p.prompt === 'string') {
-    const v = Number(p.prompt);
-    if (Number.isFinite(v) && v >= 0) out.promptPerMTokUSD = v * 1_000_000;
-  }
-  if (typeof p.completion === 'string') {
-    const v = Number(p.completion);
-    if (Number.isFinite(v) && v >= 0) out.completionPerMTokUSD = v * 1_000_000;
-  }
-  return out.promptPerMTokUSD !== undefined || out.completionPerMTokUSD !== undefined
-    ? out
-    : undefined;
+  const out: OpenRouterPricing = {};
+  // OpenRouter reports USD per token as a string; store per million tokens.
+  const perMTok = (raw: unknown): number | undefined => {
+    if (typeof raw !== 'string') return undefined;
+    const v = Number(raw);
+    return Number.isFinite(v) && v >= 0 ? v * 1_000_000 : undefined;
+  };
+  const prompt = perMTok(p.prompt);
+  const completion = perMTok(p.completion);
+  const cacheRead = perMTok(p.input_cache_read);
+  const cacheWrite = perMTok(p.input_cache_write);
+  if (prompt !== undefined) out.promptPerMTokUSD = prompt;
+  if (completion !== undefined) out.completionPerMTokUSD = completion;
+  if (cacheRead !== undefined) out.cacheReadPerMTokUSD = cacheRead;
+  if (cacheWrite !== undefined) out.cacheWritePerMTokUSD = cacheWrite;
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function dedupeSort(models: DiscoveredModel[]): DiscoveredModel[] {

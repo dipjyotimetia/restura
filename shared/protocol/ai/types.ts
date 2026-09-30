@@ -90,9 +90,14 @@ export interface ChatRequestSpec {
 }
 
 export interface Usage {
+  /** Total prompt size, INCLUDING any cache-read and cache-write tokens below. */
   promptTokens: number;
   completionTokens: number;
   estimatedCostUSD: number;
+  /** Prompt tokens served from the provider's cache. Omitted when zero. */
+  cacheReadTokens?: number;
+  /** Prompt tokens written to the provider's cache. Omitted when zero. */
+  cacheWriteTokens?: number;
 }
 
 export type ChatErrorCode = 'provider' | 'network' | 'parse' | 'aborted' | 'guard';

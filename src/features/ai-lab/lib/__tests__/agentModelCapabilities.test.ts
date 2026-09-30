@@ -224,6 +224,65 @@ describe('known completion cost', () => {
     ).toBe(8);
   });
 
+  describe('with cached prompt tokens', () => {
+    const cached = {
+      promptTokens: 3_000_000,
+      completionTokens: 1_000_000,
+      cacheReadTokens: 1_000_000,
+      cacheWriteTokens: 1_000_000,
+    };
+    const priced = (pricing: Record<string, number>) =>
+      config({
+        pricingKnown: true,
+        modelDetails: { custom: { pricing } },
+      });
+
+    it('prices cache reads and writes at their own rates, not the input rate', () => {
+      // 1M uncached x $4 + 1M read x $0.4 + 1M write x $5 + 1M output x $20
+      expect(
+        knownCostForCompletion(
+          priced({
+            promptPerMTokUSD: 4,
+            completionPerMTokUSD: 20,
+            cacheReadPerMTokUSD: 0.4,
+            cacheWritePerMTokUSD: 5,
+          }),
+          'custom',
+          cached
+        )
+      ).toBeCloseTo(29.4, 6);
+    });
+
+    it('omits cost when cache reads occurred but no cache-read price is known', () => {
+      expect(
+        knownCostForCompletion(
+          priced({ promptPerMTokUSD: 4, completionPerMTokUSD: 20, cacheWritePerMTokUSD: 5 }),
+          'custom',
+          cached
+        )
+      ).toBeUndefined();
+    });
+
+    it('omits cost when cache writes occurred but no cache-write price is known', () => {
+      expect(
+        knownCostForCompletion(
+          priced({ promptPerMTokUSD: 4, completionPerMTokUSD: 20, cacheReadPerMTokUSD: 0.4 }),
+          'custom',
+          cached
+        )
+      ).toBeUndefined();
+    });
+
+    it('does not need cache prices when no tokens were cached', () => {
+      expect(
+        knownCostForCompletion(priced({ promptPerMTokUSD: 2, completionPerMTokUSD: 8 }), 'custom', {
+          promptTokens: 1_000_000,
+          completionTokens: 500_000,
+        })
+      ).toBeCloseTo(6, 6);
+    });
+  });
+
   it.each(['http://localhost:11434', 'https://ollama.example.test'])(
     'keeps Ollama cost unknown by default at %s',
     (baseUrl) => {

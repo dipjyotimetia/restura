@@ -174,6 +174,8 @@ class AnthropicDecoder implements StreamDecoder {
         usage: {
           promptTokens,
           completionTokens: this.outputTokens,
+          ...(this.cacheReadTokens > 0 ? { cacheReadTokens: this.cacheReadTokens } : {}),
+          ...(this.cacheWriteTokens > 0 ? { cacheWriteTokens: this.cacheWriteTokens } : {}),
           estimatedCostUSD: estimateCostUSD(modelFor(this.model), {
             input: this.inputTokens,
             cacheRead: this.cacheReadTokens,

@@ -172,6 +172,7 @@ class OpenAIDecoder implements StreamDecoder {
         usage: {
           promptTokens: this.pendingUsage.promptTokens,
           completionTokens: this.pendingUsage.completionTokens,
+          ...(this.pendingUsage.cached > 0 ? { cacheReadTokens: this.pendingUsage.cached } : {}),
           estimatedCostUSD: estimateCostUSD(
             this.models.find((m) => m.id === this.model),
             {

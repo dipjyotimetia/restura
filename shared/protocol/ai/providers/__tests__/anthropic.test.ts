@@ -39,6 +39,9 @@ describe('anthropic decoder', () => {
     expect(usage?.usage.promptTokens).toBe(42);
     expect(usage?.usage.completionTokens).toBe(3);
     expect(usage?.usage.estimatedCostUSD).toBeGreaterThan(0);
+    // No cache activity: the breakdown fields are omitted, not reported as 0.
+    expect(usage?.usage).not.toHaveProperty('cacheReadTokens');
+    expect(usage?.usage).not.toHaveProperty('cacheWriteTokens');
   });
 
   it('emits a provider error for error events', () => {
@@ -78,6 +81,8 @@ describe('anthropic decoder', () => {
     const usage = decoder.flush().find((e) => e.type === 'usage');
     if (usage?.type !== 'usage') throw new Error('no usage event');
     expect(usage.usage.promptTokens).toBe(3_000_000);
+    expect(usage.usage.cacheReadTokens).toBe(1_000_000);
+    expect(usage.usage.cacheWriteTokens).toBe(1_000_000);
     // Opus 5.5: $4 input + $0.20 cache read + $5 cache write + $20 output.
     expect(usage.usage.estimatedCostUSD).toBeCloseTo(29.2, 5);
   });

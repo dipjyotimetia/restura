@@ -140,31 +140,41 @@ export function capabilitiesForDesktopModel(
 /**
  * Reports cost only when it can be derived from exact model metadata or an
  * explicit user assertion that the configured endpoint is local and free.
+ *
+ * `promptTokens` includes any cached tokens, so those are split out and priced
+ * at their own rates. If tokens were cached but the matching cache price is not
+ * known, the cost cannot be derived exactly and is reported as unknown rather
+ * than mispriced at the plain input rate.
  */
 export function knownCostForCompletion(
   config: AiLabProviderConfig,
   model: string,
-  completion: Pick<Usage, 'promptTokens' | 'completionTokens'>
+  completion: Pick<Usage, 'promptTokens' | 'completionTokens'> &
+    Partial<Pick<Usage, 'cacheReadTokens' | 'cacheWriteTokens'>>
 ): number | undefined {
   if (!config.models.includes(model)) return undefined;
   if (config.costPolicy === 'local-zero') return 0;
 
   const pricing = config.modelDetails?.[model]?.pricing;
+  const validPrice = (price: number | undefined): price is number =>
+    price !== undefined && Number.isFinite(price) && price >= 0;
   const promptPrice = pricing?.promptPerMTokUSD;
   const completionPrice = pricing?.completionPerMTokUSD;
-  if (
-    promptPrice === undefined ||
-    completionPrice === undefined ||
-    !Number.isFinite(promptPrice) ||
-    !Number.isFinite(completionPrice) ||
-    promptPrice < 0 ||
-    completionPrice < 0
-  ) {
-    return undefined;
-  }
+  if (!validPrice(promptPrice) || !validPrice(completionPrice)) return undefined;
 
+  const cacheRead = completion.cacheReadTokens ?? 0;
+  const cacheWrite = completion.cacheWriteTokens ?? 0;
+  const cacheReadPrice = pricing?.cacheReadPerMTokUSD;
+  const cacheWritePrice = pricing?.cacheWritePerMTokUSD;
+  if (cacheRead > 0 && !validPrice(cacheReadPrice)) return undefined;
+  if (cacheWrite > 0 && !validPrice(cacheWritePrice)) return undefined;
+
+  const uncachedPrompt = Math.max(0, completion.promptTokens - cacheRead - cacheWrite);
   return (
-    (completion.promptTokens * promptPrice + completion.completionTokens * completionPrice) /
+    (uncachedPrompt * promptPrice +
+      (cacheRead > 0 ? cacheRead * cacheReadPrice! : 0) +
+      (cacheWrite > 0 ? cacheWrite * cacheWritePrice! : 0) +
+      completion.completionTokens * completionPrice) /
     1_000_000
   );
 }

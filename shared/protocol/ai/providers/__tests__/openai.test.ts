@@ -78,6 +78,8 @@ describe('openai decoder', () => {
     const usage = decoder.flush().find((e) => e.type === 'usage');
     if (usage?.type !== 'usage') throw new Error('no usage event');
     expect(usage.usage.promptTokens).toBe(2_000_000);
+    expect(usage.usage.cacheReadTokens).toBe(1_000_000);
+    expect(usage.usage).not.toHaveProperty('cacheWriteTokens');
     // Astra: $10 uncached input + $1 cached + $50 output.
     expect(usage.usage.estimatedCostUSD).toBeCloseTo(61, 5);
   });
