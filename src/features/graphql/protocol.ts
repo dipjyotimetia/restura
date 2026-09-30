@@ -197,6 +197,9 @@ export const graphqlProtocol: ProtocolModule = {
     if (ctx.onScriptResult && result.scriptResult) {
       ctx.onScriptResult(result.scriptResult);
     }
+    if (ctx.onAuthRefreshed && result.refreshedAuth) {
+      ctx.onAuthRefreshed(result.refreshedAuth);
+    }
     return result.response;
   },
 };

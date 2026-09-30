@@ -1,5 +1,5 @@
 import type { ComponentType } from 'react';
-import type { Request, RequestType, Response, ScriptResult } from '@/types';
+import type { AuthConfig, Request, RequestType, Response, ScriptResult } from '@/types';
 
 /**
  * Protocols the registry knows about. Superset of `RequestType` because
@@ -26,6 +26,13 @@ export interface RunContext {
    * a script pipeline may omit the call entirely.
    */
   onScriptResult?: (result: ProtocolScriptResult) => void;
+  /**
+   * Optional sink for an auth config the protocol refreshed during the run
+   * (an expired OAuth2 token). The caller decides whether it may be written
+   * back: the runner only persists it when the request owns that auth, never
+   * when it was inherited from a folder or collection.
+   */
+  onAuthRefreshed?: (auth: AuthConfig) => void;
   /**
    * Per-protocol options that don't fit on the `Request` shape itself —
    * e.g. gRPC's transient proto content, or future cert overrides. Each
