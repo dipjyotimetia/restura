@@ -22,55 +22,21 @@ import {
 } from '@/components/ui/spatial';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { AiActionsMenu } from '@/features/ai/components/AiActionsMenu';
+import { classifyRequestError } from '@/features/http/lib/classifyRequestError';
 import { base64ToBytes, extensionForContentType } from '@/lib/shared/binaryBody';
 import { detectLanguage } from '@/lib/shared/console-format';
 import { isCsvResponse } from '@/lib/shared/csvParser';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { isElectron } from '@/lib/shared/platform';
 import { cn, formatBytes, formatTime } from '@/lib/shared/utils';
 import { useActiveResponse, useActiveStreamingEvents, useActiveTab } from '@/store/selectors';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
+import { buildResponsePreviewDocument } from './lib/responsePreview';
+import { LargeBodyNotice, RequestErrorCard } from './ResponseNotices';
 
 // Bodies above this size skip pretty-print to avoid freezing the main thread; raw text still renders fine through Monaco.
 const PRETTY_PRINT_MAX_BYTES = 1_000_000;
-
-const RESPONSE_PREVIEW_CSP =
-  "default-src 'none'; base-uri 'none'; connect-src 'none'; font-src 'none'; form-action 'none'; frame-src 'none'; img-src data:; manifest-src 'none'; media-src 'none'; object-src 'none'; script-src 'none'; style-src 'unsafe-inline'; worker-src 'none'";
-const RESPONSE_PREVIEW_CSP_META = `<meta http-equiv="Content-Security-Policy" content="${RESPONSE_PREVIEW_CSP}">`;
-
-function buildResponsePreviewDocument(body: string): string {
-  const template = document.createElement('template');
-  template.innerHTML = body;
-
-  // Chromium does not currently enforce CSP's navigate-to directive. Remove
-  // the small set of navigation-capable attributes while the response is in
-  // an inert template so links/forms cannot turn a preview interaction into an
-  // outbound request. Subresource URLs remain present and are denied by CSP.
-  for (const meta of template.content.querySelectorAll('meta[http-equiv]')) {
-    if (meta.getAttribute('http-equiv')?.toLowerCase() === 'refresh') meta.remove();
-  }
-  for (const link of template.content.querySelectorAll('a, area')) {
-    link.removeAttribute('href');
-    link.removeAttribute('xlink:href');
-    link.removeAttribute('ping');
-    link.removeAttribute('target');
-  }
-  for (const base of template.content.querySelectorAll('base')) {
-    base.removeAttribute('href');
-    base.removeAttribute('target');
-  }
-  for (const form of template.content.querySelectorAll('form[action]')) {
-    form.removeAttribute('action');
-  }
-  for (const submitter of template.content.querySelectorAll('[formaction]')) {
-    submitter.removeAttribute('formaction');
-  }
-
-  // Own the outer document so the browser always parses the policy in <head>.
-  // Upstream document tags inside <body> are harmlessly ignored/reparented by
-  // the HTML parser while their visible content and inline presentation remain.
-  return `<!doctype html><html><head>${RESPONSE_PREVIEW_CSP_META}</head><body>${template.innerHTML}</body></html>`;
-}
 
 const CodeEditor = lazyComponent(
   () => import('@/components/shared/CodeEditor'),
@@ -96,8 +62,8 @@ const JsonPathQuery = lazyComponent(
   </div>
 );
 
-const formatJson = (body: string): string => {
-  if (body.length > PRETTY_PRINT_MAX_BYTES) return body;
+const formatJson = (body: string, force = false): string => {
+  if (!force && body.length > PRETTY_PRINT_MAX_BYTES) return body;
   try {
     return JSON.stringify(JSON.parse(body), null, 2);
   } catch {
@@ -210,6 +176,8 @@ function ResponseViewer() {
   const [activeTab, setActiveTab] = useState<ResponseTab>('body');
   const [bodyFormat, setBodyFormat] = useState<BodyFormat>('pretty');
   const [showJsonPath, setShowJsonPath] = useState(false);
+  // Opt-in to pretty-printing a body above PRETTY_PRINT_MAX_BYTES (per response).
+  const [forceFormat, setForceFormat] = useState(false);
   const [copiedHeader, setCopiedHeader] = useState<string | null>(null);
   const [copiedBody, setCopiedBody] = useState(false);
   const [headerFilter, setHeaderFilter] = useState('');
@@ -236,6 +204,13 @@ function ResponseViewer() {
     return (Array.isArray(raw) ? raw[0] : raw) ?? '';
   }, [currentResponse?.headers]);
 
+  // Transport-level failures (status 0 / proxy-generated) get a summary + next
+  // step instead of the raw message dumped into the body editor.
+  const errorInfo = useMemo(
+    () => (currentResponse ? classifyRequestError(currentResponse, isElectron()) : null),
+    [currentResponse]
+  );
+
   // Binary bodies arrive base64-encoded (Response.bodyEncoding); image/* gets a
   // visual preview, other binary gets a download affordance. CSV is text, so it
   // only applies when the body wasn't base64-encoded.
@@ -254,6 +229,7 @@ function ResponseViewer() {
   useEffect(() => {
     setBodyFormat(isCsv ? 'table' : 'pretty');
     setShowJsonPath(false);
+    setForceFormat(false);
   }, [currentResponse?.id]);
 
   // Pretty-printing a large JSON body can stall the main thread, so only
@@ -265,9 +241,17 @@ function ResponseViewer() {
     // Binary (base64) and table views render their own components, not Monaco.
     if (isBase64 || bodyFormat === 'table') return '';
     if (bodyFormat === 'raw') return currentResponse.body;
-    if (language === 'json') return formatJson(currentResponse.body);
+    if (language === 'json') return formatJson(currentResponse.body, forceFormat);
     return currentResponse.body;
-  }, [currentResponse, language, bodyFormat, activeTab, isBase64]);
+  }, [currentResponse, language, bodyFormat, activeTab, isBase64, forceFormat]);
+
+  // Pretty view of an oversized JSON body is shown unformatted — say so.
+  const formattingSkipped =
+    language === 'json' &&
+    bodyFormat === 'pretty' &&
+    !isBase64 &&
+    !forceFormat &&
+    (currentResponse?.body.length ?? 0) > PRETTY_PRINT_MAX_BYTES;
 
   const headerEntries = useMemo(
     () => Object.entries(currentResponse?.headers ?? {}),
@@ -584,7 +568,9 @@ function ResponseViewer() {
                 <SubTabPanel tabKey={activeTab} className="h-full">
                   {activeTab === 'body' && (
                     <div className="relative h-full" style={{ background: 'var(--sp-code)' }}>
-                      {isImage ? (
+                      {errorInfo ? (
+                        <RequestErrorCard info={errorInfo} url={activeTab_?.request.url ?? ''} />
+                      ) : isImage ? (
                         <ImagePreview
                           base64={currentResponse.body}
                           contentType={contentType}
@@ -614,17 +600,27 @@ function ResponseViewer() {
                       ) : bodyFormat === 'table' ? (
                         <CsvTableViewer body={currentResponse.body} />
                       ) : formattedBody ? (
-                        <CodeEditor
-                          value={formattedBody}
-                          language={language}
-                          readOnly
-                          height="100%"
-                          showCopyButton={false}
-                          onEditorMount={(editor) => {
-                            responseEditorRef.current = editor;
-                          }}
-                          path={activeTabId ? `tab-${activeTabId}-response` : undefined}
-                        />
+                        <div className="flex h-full flex-col">
+                          {formattingSkipped && (
+                            <LargeBodyNotice
+                              size={currentResponse.size}
+                              onFormat={() => setForceFormat(true)}
+                            />
+                          )}
+                          <div className="relative min-h-0 flex-1">
+                            <CodeEditor
+                              value={formattedBody}
+                              language={language}
+                              readOnly
+                              height="100%"
+                              showCopyButton={false}
+                              onEditorMount={(editor) => {
+                                responseEditorRef.current = editor;
+                              }}
+                              path={activeTabId ? `tab-${activeTabId}-response` : undefined}
+                            />
+                          </div>
+                        </div>
                       ) : (
                         <div className="flex flex-col items-center justify-center h-full gap-3 text-sp-dim">
                           <p className="text-sp-12 font-mono">No body content returned</p>

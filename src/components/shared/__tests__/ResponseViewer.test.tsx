@@ -8,7 +8,9 @@ vi.mock('@/components/shared/CodeEditor', () => ({
 }));
 
 vi.mock('@/lib/shared/lazyComponent', () => ({
-  lazyComponent: () => () => <div data-testid="lazy-component" />,
+  lazyComponent: () => (props: { value?: string }) => (
+    <div data-testid="lazy-component" data-multiline={String(props.value?.includes('\n'))} />
+  ),
 }));
 
 vi.mock('@/features/ai/components/AiActionsMenu', () => ({
@@ -214,5 +216,100 @@ describe('ResponseViewer HTML preview', () => {
     rerender(<ResponseViewer />);
     expect(screen.getByText(/Binary response/)).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Download file' }).length).toBeGreaterThan(0);
+  });
+
+  it('flags an oversized JSON body as unformatted and formats it on request', () => {
+    // 1,000,001+ chars of compact JSON: over the pretty-print cap.
+    const big = JSON.stringify({ items: Array.from({ length: 100000 }, (_, i) => ({ i })) });
+    expect(big.length).toBeGreaterThan(1_000_000);
+    act(() => {
+      useRequestStore.setState({
+        tabs: [
+          {
+            id: 'tab-big',
+            request: htmlRequest,
+            response: {
+              ...htmlResponse,
+              id: 'response-big',
+              headers: { 'content-type': 'application/json' },
+              body: big,
+              size: big.length,
+            },
+            isDirty: false,
+          },
+        ],
+        activeTabId: 'tab-big',
+        isLoading: false,
+      });
+    });
+    render(<ResponseViewer />);
+
+    expect(screen.getByRole('status')).toHaveTextContent(/shown unformatted/i);
+    expect(screen.getByTestId('lazy-component')).toHaveAttribute('data-multiline', 'false');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Format anyway' }));
+
+    expect(screen.queryByText(/shown unformatted/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId('lazy-component')).toHaveAttribute('data-multiline', 'true');
+  });
+
+  it('explains a transport failure and lists unresolved variables, keeping the raw message', () => {
+    act(() => {
+      useRequestStore.setState({
+        tabs: [
+          {
+            id: 'tab-fail',
+            request: { ...htmlRequest, url: 'https://{{missingHost}}/path' },
+            response: {
+              ...htmlResponse,
+              id: 'response-fail',
+              status: 0,
+              statusText: 'Error',
+              headers: {},
+              body: 'Request timeout after 30000ms',
+              size: 0,
+            },
+            isDirty: false,
+          },
+        ],
+        activeTabId: 'tab-fail',
+        isLoading: false,
+      });
+    });
+    render(<ResponseViewer />);
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Request timed out');
+    expect(alert).toHaveTextContent(/Settings tab/);
+    expect(alert).toHaveTextContent('{{missingHost}}');
+    expect(alert).toHaveTextContent('Request timeout after 30000ms');
+    expect(screen.queryByText(/shown unformatted/i)).not.toBeInTheDocument();
+  });
+
+  it('does not show the failure card for a normal upstream error response', () => {
+    act(() => {
+      useRequestStore.setState({
+        tabs: [
+          {
+            id: 'tab-500',
+            request: htmlRequest,
+            response: {
+              ...htmlResponse,
+              id: 'response-500',
+              status: 500,
+              statusText: 'Internal Server Error',
+              headers: { 'content-type': 'text/plain' },
+              body: 'upstream exploded',
+              size: 17,
+            },
+            isDirty: false,
+          },
+        ],
+        activeTabId: 'tab-500',
+        isLoading: false,
+      });
+    });
+    render(<ResponseViewer />);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });

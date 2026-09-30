@@ -5,9 +5,11 @@ import { useRequestStore } from '@/store/useRequestStore';
 import type { HttpRequest } from '@/types';
 import { TabBar } from './TabBar';
 
+const platform = vi.hoisted(() => ({ electron: true }));
+
 vi.mock('@/lib/shared/platform', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/shared/platform')>();
-  return { ...actual, isElectron: () => true };
+  return { ...actual, isElectron: () => platform.electron };
 });
 
 const makeHttp = (overrides: Partial<HttpRequest> = {}): HttpRequest => ({
@@ -25,6 +27,7 @@ const makeHttp = (overrides: Partial<HttpRequest> = {}): HttpRequest => ({
 
 describe('TabBar', () => {
   beforeEach(() => {
+    platform.electron = true;
     useRequestStore.setState({ tabs: [], activeTabId: null, isLoading: false });
   });
 
@@ -42,6 +45,23 @@ describe('TabBar', () => {
 
     expect(screen.getByRole('menuitem', { name: /Kafka client/i })).toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: /Kafka consumer/i })).not.toBeInTheDocument();
+  });
+
+  it('shows Kafka and MQTT on web as disabled, desktop-only entries', async () => {
+    platform.electron = false;
+    const user = userEvent.setup();
+    render(<TabBar />);
+
+    await user.click(screen.getByRole('button', { name: /new request/i }));
+
+    for (const name of [/Kafka client/i, /MQTT client/i]) {
+      const item = screen.getByRole('menuitem', { name });
+      expect(item).toHaveAttribute('aria-disabled', 'true');
+      expect(item).toHaveTextContent('Desktop only');
+    }
+    expect(screen.getByRole('menuitem', { name: /HTTP request/i })).not.toHaveAttribute(
+      'aria-disabled'
+    );
   });
 
   it('renders one button per open tab with the request name', () => {
