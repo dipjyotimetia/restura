@@ -1,0 +1,46 @@
+src/components/shared/ResponseViewer.tsx
+  s_dc9a687cb049b5::t_e6ccd4e9445821 65-66,179-180,232,244,246-254,603-604,609,611-623
+  s_dc9a687cb049b5::t_369219c65f2004 572,605-608
+  s_dc9a687cb049b5::t_5913e098d58cdb 610
+  s_dc9a687cb049b5::t_ad0cba22c3f309 207-213,571,573
+  s_dc9a687cb049b5::t_d01e581cb22887 25,30,35-36
+src/features/http/lib/classifyRequestError.ts
+  s_dc9a687cb049b5::t_369219c65f2004 6,53-55
+  s_dc9a687cb049b5::t_a6dd354ad0e799 1-5,7-52,56-71,73-90
+  s_dc9a687cb049b5::t_155611dcf5b779 72
+src/components/shared/ResponseNotices.tsx
+  s_dc9a687cb049b5::t_369219c65f2004 1-63
+src/components/shared/lib/responsePreview.ts
+  s_dc9a687cb049b5::t_e894a395565862 1-39
+src/components/shared/TabBar.tsx
+  s_dc9a687cb049b5::t_d10a568ef0a6c6 18,29
+  s_dc9a687cb049b5::t_2b57222d15260a 387-406
+src/components/shared/__tests__/ResponseViewer.test.tsx
+  s_dc9a687cb049b5::t_939298577a9849 11-13,248,253
+  s_dc9a687cb049b5::t_20c0c156377664 220-222,224-247,249-252
+  s_dc9a687cb049b5::t_002bc8d115b715 223
+  s_dc9a687cb049b5::t_99c630438a5ccb 254-314
+src/components/shared/TabBar.test.tsx
+  s_dc9a687cb049b5::t_29fb283b86ad7d 8-9,12,30,50-64
+  s_dc9a687cb049b5::t_f708c51f0d52c1 65-66
+src/features/http/lib/__tests__/classifyRequestError.test.ts
+  s_dc9a687cb049b5::t_528aa8ca6fb56e 1-46,48-50,52-55,57-78,87-91
+  s_dc9a687cb049b5::t_8a6ea2c69e9673 79-86
+  s_dc9a687cb049b5::t_16ffe5b77643b8 47,51,56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f6d9662b403be248ef52ea5761646b321696b41a",
+  "prompts": {},
+  "sessions": {
+    "s_dc9a687cb049b5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9d76a409-9a64-495f-bab5-7c58f38e4cac",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
