@@ -28,10 +28,6 @@ import {
   emptySubscriptionLog,
   type SubscriptionLogState,
 } from '@/features/graphql/lib/subscriptionLog';
-import {
-  buildDesktopTransportConfig,
-  resolveEffectiveSettings,
-} from '@/features/http/lib/requestExecutor';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
@@ -43,7 +39,6 @@ import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleS
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
 import { useRequestStore } from '@/store/useRequestStore';
-import { useSettingsStore } from '@/store/useSettingsStore';
 import type { AuthConfig as AuthConfigType, HttpRequest } from '@/types';
 import SchemaExplorer from './SchemaExplorer';
 
@@ -318,26 +313,9 @@ function GraphQLRequestBuilder() {
       toast.error('Set a URL first');
       return;
     }
-    // Carry the request's auth + TLS/proxy config so introspection behaves like
-    // a query against the same endpoint (and works on desktop, where a direct
-    // fetch is CSP-blocked). We pass BOTH `headers` (with header auth —
-    // basic/bearer/api-key — already folded in by buildHeaders) AND `auth`: the
-    // header copy covers the web path (the Worker only signs sign-at-wire types),
-    // while `auth` lets the wire apply sign-at-wire (sigv4/oauth1/wsse) and
-    // api-key-in-query. Re-applying the header types at the wire is a harmless
-    // overwrite with the same value.
-    // Limitation: introspection does NOT go through buildProxyRequestSpec, so it
-    // skips OAuth2 token refresh and SecretRef-handle resolution — an expired
-    // OAuth2 token must be refreshed via a normal query first. Acceptable for a
-    // manual "Refresh Schema" action.
-    const globalSettings = useSettingsStore.getState().settings;
-    const effectiveSettings = resolveEffectiveSettings(httpRequest.settings, globalSettings);
-    const desktop = buildDesktopTransportConfig(effectiveSettings, globalSettings, url);
-    void fetchSchema(url, {
-      headers: buildHeaders(),
-      auth: httpRequest.auth,
-      ...(desktop ? { desktop } : {}),
-    });
+    // Introspection runs through the same executor as Send, seeded with this
+    // tab's auth, headers and settings (see introspectSchema).
+    void fetchSchema(url, { request: httpRequest });
   };
 
   const renderSendButton = () => {
