@@ -1,0 +1,34 @@
+src/features/http/hooks/useHttpRequestPage.ts
+  s_dc9a687cb049b5::t_8ef346f59cc71f 4,74-77,203,256
+src/features/http/hooks/__tests__/useHttpRequestPage.test.ts
+  s_dc9a687cb049b5::t_123550617ab869 420-422,431-479
+  s_dc9a687cb049b5::t_5ea1560e3af3af 423-424
+  s_dc9a687cb049b5::t_10b7a4493a7abc 425-430
+  s_dc9a687cb049b5::t_8ef346f59cc71f 11-19
+src/features/http/components/NetworkConsole/NetworkEntryList.tsx
+  s_dc9a687cb049b5::t_05d7d8a9bb68aa 159
+src/features/http/components/NetworkConsole/NetworkEntryDetail.tsx
+  s_dc9a687cb049b5::t_05d7d8a9bb68aa 72
+src/features/http/components/NetworkConsole/index.tsx
+  s_dc9a687cb049b5::t_05d7d8a9bb68aa 463,481-482
+src/features/http/components/NetworkConsole/FramesTab.tsx
+  s_dc9a687cb049b5::t_05d7d8a9bb68aa 189
+docs-site/src/content/docs/guides/keyboard-shortcuts.mdx
+  s_dc9a687cb049b5::t_bacc7ef3f54b9e 19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "894a6cd98e364d143061e7e8058fa2dc68594b13",
+  "prompts": {},
+  "sessions": {
+    "s_dc9a687cb049b5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9d76a409-9a64-495f-bab5-7c58f38e4cac",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
