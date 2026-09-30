@@ -1,6 +1,16 @@
 import { Plus, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
@@ -15,6 +25,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Floater, ProtoChip } from '@/components/ui/spatial';
 import { saveTabBackToCollection } from '@/features/collections/lib/saveBack';
+import { CAPABILITIES } from '@/lib/shared/capabilities';
 import { isElectron } from '@/lib/shared/platform';
 import { useOverflowFade } from '@/lib/shared/useOverflowFade';
 import { cn } from '@/lib/shared/utils';
@@ -25,6 +36,7 @@ import {
 } from '@/store/useRequestStore';
 import type { RequestMode, TabModeOverride } from '@/types';
 import { isConnectionMode } from '@/types';
+import { DesktopOnlyBadge } from './DesktopOnlyBadge';
 import { SaveToCollectionDialog } from './SaveToCollectionDialog';
 
 type NewRequestMode = RequestMode;
@@ -103,6 +115,8 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
   const [renamingTabId, setRenamingTabId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [localSaveDialogTabId, setLocalSaveDialogTabId] = useState<string | null>(null);
+  // Tab awaiting a discard/save decision (only ever set for tabs with unsaved edits).
+  const [pendingCloseId, setPendingCloseId] = useState<string | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const activeTabRef = useRef<HTMLButtonElement>(null);
   const stripFadeRef = useOverflowFade<HTMLDivElement>();
@@ -136,6 +150,14 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
   };
 
   const cancelRename = () => setRenamingTabId(null);
+
+  // Closing a tab with unsaved edits asks first; clean tabs close immediately.
+  const requestClose = (tabId: string) => {
+    if (tabs.find((t) => t.id === tabId)?.isDirty) setPendingCloseId(tabId);
+    else closeTab(tabId);
+  };
+
+  const pendingTab = tabs.find((t) => t.id === pendingCloseId);
 
   const handleSaveBack = (tabId: string, savedRequestId: string) => {
     const tab = tabs.find((t) => t.id === tabId);
@@ -173,7 +195,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
               if (prev) switchTab(prev.id);
             } else if (e.key === 'Delete' && activeTabId) {
               e.preventDefault();
-              closeTab(activeTabId);
+              requestClose(activeTabId);
             }
           }}
         >
@@ -292,7 +314,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                     <button
                       type="button"
                       aria-label={`close ${displayName}`}
-                      onClick={() => closeTab(tab.id)}
+                      onClick={() => requestClose(tab.id)}
                       className={cn(
                         'inline-flex items-center justify-center size-4 rounded-[5px]',
                         'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100',
@@ -324,7 +346,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                   )}
                   <ContextMenuSeparator />
                   <ContextMenuItem onClick={() => duplicateTab(tab.id)}>Duplicate</ContextMenuItem>
-                  <ContextMenuItem onClick={() => closeTab(tab.id)}>Close</ContextMenuItem>
+                  <ContextMenuItem onClick={() => requestClose(tab.id)}>Close</ContextMenuItem>
                   <ContextMenuItem onClick={() => closeOtherTabs(tab.id)}>
                     Close Others
                   </ContextMenuItem>
@@ -382,22 +404,78 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                 <ProtoChip protocol="MCP" className="w-12 justify-center" />
                 MCP request
               </DropdownMenuItem>
-              {isElectron() && (
-                <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('kafka')}>
-                  <ProtoChip protocol="KAFKA" className="w-12 justify-center" />
-                  Kafka client
-                </DropdownMenuItem>
-              )}
-              {isElectron() && (
-                <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('mqtt')}>
-                  <ProtoChip protocol="MQTT" className="w-12 justify-center" />
-                  MQTT client
-                </DropdownMenuItem>
-              )}
+              {/* Raw-TCP protocols: shown on web too (disabled + badge) so users can
+                  discover them instead of wondering where they went. */}
+              <DropdownMenuItem
+                className="gap-2"
+                disabled={!isElectron()}
+                onClick={() => handleNewTab('kafka')}
+              >
+                <ProtoChip protocol="KAFKA" className="w-12 justify-center" />
+                Kafka client
+                <DesktopOnlyBadge title={CAPABILITIES['kafka.basic'].notes} className="ml-auto" />
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="gap-2"
+                disabled={!isElectron()}
+                onClick={() => handleNewTab('mqtt')}
+              >
+                <ProtoChip protocol="MQTT" className="w-12 justify-center" />
+                MQTT client
+                <DesktopOnlyBadge title={CAPABILITIES['mqtt.basic'].notes} className="ml-auto" />
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </Floater>
       </div>
+
+      <AlertDialog
+        open={pendingTab !== undefined}
+        onOpenChange={(open) => {
+          if (!open) setPendingCloseId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Close “{pendingTab ? tabDisplayName(pendingTab.request) : ''}”?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This request has unsaved changes that will be lost if you close it.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep open</AlertDialogCancel>
+            {pendingTab && (
+              <AlertDialogAction
+                onClick={(e) => {
+                  // Bound tab: write back, then close only if it saved. Keep the
+                  // dialog open on failure (preventDefault stops the action's
+                  // auto-close) so the user can retry or choose another option;
+                  // on success the tab is removed, which closes the dialog.
+                  // Unbound: hand off to the save dialog and leave the tab open.
+                  if (pendingTab.savedRequestId) {
+                    e.preventDefault();
+                    if (saveTabBackToCollection(pendingTab.request, pendingTab.savedRequestId)) {
+                      closeTab(pendingTab.id);
+                    }
+                  } else {
+                    openSaveDialog(pendingTab.id);
+                  }
+                }}
+              >
+                {pendingTab.savedRequestId ? 'Save & close' : 'Save…'}
+              </AlertDialogAction>
+            )}
+            <AlertDialogAction
+              onClick={() => pendingTab && closeTab(pendingTab.id)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Discard
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Fallback dialog when used without onSaveToCollection prop
           (e.g. accessibility tests / standalone usage). */}

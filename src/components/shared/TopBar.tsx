@@ -123,8 +123,11 @@ export function WindowChrome({
           <Globe className="h-3 w-3" aria-hidden="true" />
           {envHost && (
             <>
-              <span className="text-sp-text/80 truncate max-w-[220px]">{envHost}</span>
-              <span className="text-sp-dim" aria-hidden="true">
+              {/* Hidden on narrow windows so the centred pill can't run into the right cluster. */}
+              <span className="text-sp-text/80 truncate max-w-[220px] max-[820px]:hidden">
+                {envHost}
+              </span>
+              <span className="text-sp-dim max-[820px]:hidden" aria-hidden="true">
                 ·
               </span>
             </>

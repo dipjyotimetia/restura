@@ -5,9 +5,14 @@ import { useRequestStore } from '@/store/useRequestStore';
 import type { HttpRequest } from '@/types';
 import { TabBar } from './TabBar';
 
+const platform = vi.hoisted(() => ({ electron: true }));
+const saveBack = vi.hoisted(() => ({ saveTabBackToCollection: vi.fn() }));
+
+vi.mock('@/features/collections/lib/saveBack', () => saveBack);
+
 vi.mock('@/lib/shared/platform', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/shared/platform')>();
-  return { ...actual, isElectron: () => true };
+  return { ...actual, isElectron: () => platform.electron };
 });
 
 const makeHttp = (overrides: Partial<HttpRequest> = {}): HttpRequest => ({
@@ -25,6 +30,7 @@ const makeHttp = (overrides: Partial<HttpRequest> = {}): HttpRequest => ({
 
 describe('TabBar', () => {
   beforeEach(() => {
+    platform.electron = true;
     useRequestStore.setState({ tabs: [], activeTabId: null, isLoading: false });
   });
 
@@ -42,6 +48,23 @@ describe('TabBar', () => {
 
     expect(screen.getByRole('menuitem', { name: /Kafka client/i })).toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: /Kafka consumer/i })).not.toBeInTheDocument();
+  });
+
+  it('shows Kafka and MQTT on web as disabled, desktop-only entries', async () => {
+    platform.electron = false;
+    const user = userEvent.setup();
+    render(<TabBar />);
+
+    await user.click(screen.getByRole('button', { name: /new request/i }));
+
+    for (const name of [/Kafka client/i, /MQTT client/i]) {
+      const item = screen.getByRole('menuitem', { name });
+      expect(item).toHaveAttribute('aria-disabled', 'true');
+      expect(item).toHaveTextContent('Desktop only');
+    }
+    expect(screen.getByRole('menuitem', { name: /HTTP request/i })).not.toHaveAttribute(
+      'aria-disabled'
+    );
   });
 
   it('renders one button per open tab with the request name', () => {
@@ -113,5 +136,117 @@ describe('TabBar', () => {
     // standard convention: A inserted AT C's index, pushing C to the right) OR equivalently
     // [B, A, C]. Pick one and stick with it.
     expect(order).toEqual([b, c, a]);
+  });
+
+  describe('closing a tab with unsaved changes', () => {
+    const openDirtyTab = (name: string, savedRequestId?: string) => {
+      const id = useRequestStore.getState().openTab(makeHttp({ name }));
+      useRequestStore.setState((s) => ({
+        tabs: s.tabs.map((t) =>
+          t.id === id ? { ...t, isDirty: true, ...(savedRequestId ? { savedRequestId } : {}) } : t
+        ),
+      }));
+      return id;
+    };
+
+    beforeEach(() => saveBack.saveTabBackToCollection.mockReset());
+
+    it('Save & close writes a saved-request tab back, then closes it', async () => {
+      const user = userEvent.setup();
+      saveBack.saveTabBackToCollection.mockReturnValue(true);
+      openDirtyTab('Bound', 'saved-1');
+      render(<TabBar />);
+
+      await user.click(screen.getByRole('button', { name: /close Bound/i }));
+      await user.click(screen.getByRole('button', { name: 'Save & close' }));
+
+      expect(saveBack.saveTabBackToCollection).toHaveBeenCalledWith(
+        expect.objectContaining({ name: 'Bound' }),
+        'saved-1'
+      );
+      expect(useRequestStore.getState().tabs).toHaveLength(0);
+    });
+
+    it('keeps the tab open when writing back fails', async () => {
+      const user = userEvent.setup();
+      saveBack.saveTabBackToCollection.mockReturnValue(false);
+      openDirtyTab('Bound', 'saved-1');
+      render(<TabBar />);
+
+      await user.click(screen.getByRole('button', { name: /close Bound/i }));
+      await user.click(screen.getByRole('button', { name: 'Save & close' }));
+
+      expect(useRequestStore.getState().tabs).toHaveLength(1);
+      // The dialog stays open so the user can retry or pick another option.
+      expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+
+      saveBack.saveTabBackToCollection.mockReturnValue(true);
+      await user.click(screen.getByRole('button', { name: 'Save & close' }));
+      expect(useRequestStore.getState().tabs).toHaveLength(0);
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+
+    it('Save… on an unsaved tab hands off to the save dialog and leaves the tab open', async () => {
+      const user = userEvent.setup();
+      const onSaveToCollection = vi.fn();
+      const id = openDirtyTab('Fresh');
+      render(<TabBar onSaveToCollection={onSaveToCollection} />);
+
+      await user.click(screen.getByRole('button', { name: /close Fresh/i }));
+      await user.click(screen.getByRole('button', { name: 'Save…' }));
+
+      expect(onSaveToCollection).toHaveBeenCalledWith(id);
+      expect(saveBack.saveTabBackToCollection).not.toHaveBeenCalled();
+      expect(useRequestStore.getState().tabs).toHaveLength(1);
+    });
+
+    it('closes a clean tab immediately, without asking', async () => {
+      const user = userEvent.setup();
+      useRequestStore.getState().openTab(makeHttp({ name: 'Clean' }));
+      render(<TabBar />);
+
+      await user.click(screen.getByRole('button', { name: /close Clean/i }));
+
+      expect(useRequestStore.getState().tabs).toHaveLength(0);
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+
+    it('asks first and keeps the tab when the user backs out', async () => {
+      const user = userEvent.setup();
+      openDirtyTab('Edited');
+      render(<TabBar />);
+
+      await user.click(screen.getByRole('button', { name: /close Edited/i }));
+
+      expect(screen.getByRole('alertdialog')).toHaveTextContent(/unsaved changes/i);
+      expect(useRequestStore.getState().tabs).toHaveLength(1);
+
+      await user.click(screen.getByRole('button', { name: 'Keep open' }));
+      expect(useRequestStore.getState().tabs).toHaveLength(1);
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+
+    it('discards the tab only after the user confirms', async () => {
+      const user = userEvent.setup();
+      openDirtyTab('Edited');
+      render(<TabBar />);
+
+      await user.click(screen.getByRole('button', { name: /close Edited/i }));
+      await user.click(screen.getByRole('button', { name: 'Discard' }));
+
+      expect(useRequestStore.getState().tabs).toHaveLength(0);
+    });
+
+    it('also guards the Delete-key shortcut', async () => {
+      const user = userEvent.setup();
+      openDirtyTab('Edited');
+      render(<TabBar />);
+
+      screen.getByRole('tab', { name: /Edited/ }).focus();
+      await user.keyboard('{Delete}');
+
+      expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+      expect(useRequestStore.getState().tabs).toHaveLength(1);
+    });
   });
 });
