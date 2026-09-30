@@ -1,0 +1,41 @@
+shared/protocol/ai/providers/anthropic.ts
+  s_2b7c03aa2cf1a1::t_7995a2df8c01ca 177-178
+shared/protocol/ai/types.ts
+  s_2b7c03aa2cf1a1::t_7995a2df8c01ca 93,97-100
+src/features/ai-lab/lib/agentModelCapabilities.ts
+  s_2b7c03aa2cf1a1::t_7995a2df8c01ca 143-147,152-153,159-160,163-170,172,174-177
+shared/protocol/ai/providers/__tests__/anthropic.test.ts
+  s_2b7c03aa2cf1a1::t_faca02b4692f77 42-44,84-85
+shared/protocol/ai/model-discovery.ts
+  s_2b7c03aa2cf1a1::t_7995a2df8c01ca 37-38,448-453,459-461,463-478
+shared/protocol/ai/providers/openai.ts
+  s_2b7c03aa2cf1a1::t_7995a2df8c01ca 175
+shared/protocol/ai/providers/__tests__/openai.test.ts
+  s_2b7c03aa2cf1a1::t_faca02b4692f77 81-82
+src/features/ai-lab/lib/__tests__/agentModelCapabilities.test.ts
+  s_2b7c03aa2cf1a1::t_7995a2df8c01ca 278-281
+  s_2b7c03aa2cf1a1::t_faca02b4692f77 227-277,282-285
+shared/protocol/ai/__tests__/model-discovery.test.ts
+  s_2b7c03aa2cf1a1::t_faca02b4692f77 108-135
+src/lib/shared/store-validators.ts
+  s_2b7c03aa2cf1a1::t_7995a2df8c01ca 382-383
+  s_2b7c03aa2cf1a1::t_ebc7dde3c1bd20 5
+src/features/ai-lab/types.ts
+  s_2b7c03aa2cf1a1::t_7995a2df8c01ca 78-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0e24b7c64941abfe03258a586932a53c8c713342",
+  "prompts": {},
+  "sessions": {
+    "s_2b7c03aa2cf1a1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c7d267ed-966f-41df-8b42-2ba97c06cd68",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
