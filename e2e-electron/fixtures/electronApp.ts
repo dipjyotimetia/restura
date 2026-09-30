@@ -69,11 +69,15 @@ export const test = base.extend<ElectronFixtures, ElectronWorkerFixtures>({
 
       // Fresh userData ⇒ the welcome onboarding shows. Dismiss it via its own
       // UI (addInitScript can't reach the already-loading first window).
-      const skipTour = page.getByRole('button', { name: 'Skip Tour' });
-      try {
-        await skipTour.click({ timeout: 5_000 });
-      } catch {
-        // Onboarding not shown (already dismissed or feature changed) — fine.
+      // "Skip Tour" jumps to the final (privacy) step rather than dismissing, and
+      // the open modal hides the app from the a11y tree, so finish with "Get
+      // Started". Each step is optional: onboarding may not be shown at all.
+      for (const name of ['Skip Tour', 'Get Started']) {
+        try {
+          await page.getByRole('button', { name }).click({ timeout: 5_000 });
+        } catch {
+          // Not shown (already dismissed or feature changed) — fine.
+        }
       }
       await expect(page.getByRole('main', { name: 'Request workspace' })).toBeVisible({
         timeout: 15_000,
