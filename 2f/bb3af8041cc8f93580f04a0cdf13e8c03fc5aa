@@ -1,0 +1,24 @@
+src/components/shared/TopBar.tsx
+  s_dc9a687cb049b5::t_c3b91540b43e80 126-130
+src/components/shared/TabBar.test.tsx
+  s_dc9a687cb049b5::t_565ba1b25034c6 137-195
+src/components/shared/TabBar.tsx
+  s_dc9a687cb049b5::t_c3b91540b43e80 4-12,118-119,154-161,198,317,349,432-474
+  s_dc9a687cb049b5::t_c69760d3c60b4d 3,475
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2fbb3af8041cc8f93580f04a0cdf13e8c03fc5aa",
+  "prompts": {},
+  "sessions": {
+    "s_dc9a687cb049b5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9d76a409-9a64-495f-bab5-7c58f38e4cac",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
