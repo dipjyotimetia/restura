@@ -113,7 +113,10 @@ them. Key modules: `url-validation.ts` (single-source SSRF guard),
 **Adding a new protocol**: add `shared/protocol/<name>-proxy.ts` exposing
 `execute<Name>Proxy(spec, fetcher, options)`, then ~30 lines of Fetcher adapter
 each in `worker/handlers/` and `electron/main/handlers/`. SSRF, headers, body,
-timeouts come for free. Keep `shared/` backend-agnostic — Electron-only
+timeouts come for free. The Electron HTTP adapter
+(`electron/main/handlers/http-handler.ts`) is the exception and is far larger:
+PAC, SOCKS, mTLS, ALPN capture and manual redirects live inside its fetcher
+closure (ADR-0006). Keep `shared/` backend-agnostic — Electron-only
 capabilities (PAC, SOCKS, mTLS, custom CA, DNS guard) live in the Electron
 fetcher closure.
 
