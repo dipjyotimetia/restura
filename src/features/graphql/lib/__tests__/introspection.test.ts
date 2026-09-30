@@ -155,6 +155,47 @@ describe('introspectSchema', () => {
     expect(secondSpec.headers.Cookie).toBe('sid=abc');
   });
 
+  it('keeps caller-supplied Content-Type and Accept headers', async () => {
+    mockExecute.mockResolvedValue(okIntrospectionResponse());
+
+    await introspectSchema('https://example.test/graphql', {
+      request: makeTabRequest({
+        headers: [
+          {
+            id: 'h1',
+            key: 'content-type',
+            value: 'application/graphql-response+json',
+            enabled: true,
+          },
+          { id: 'h2', key: 'Accept', value: 'application/graphql-response+json', enabled: true },
+        ],
+      }),
+    });
+
+    const [spec] = mockExecute.mock.calls[0]!;
+    expect(spec.headers['content-type']).toBe('application/graphql-response+json');
+    expect(spec.headers.Accept).toBe('application/graphql-response+json');
+    expect(spec.headers['Content-Type']).toBeUndefined();
+  });
+
+  it('reports a transport failure with the underlying message', async () => {
+    mockExecute.mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:4010'));
+
+    const result = await introspectSchema('https://example.test/graphql');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('connect ECONNREFUSED 127.0.0.1:4010');
+  });
+
+  it('falls back to a generic message when the transport failure has none', async () => {
+    mockExecute.mockRejectedValue(new Error(''));
+
+    const result = await introspectSchema('https://example.test/graphql');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Request failed');
+  });
+
   it('coerces a string body (web proxy path) before parsing __schema', async () => {
     const introspection = introspectionFromSchema(buildSchema(SAMPLE_SDL));
     mockExecute.mockResolvedValue({
