@@ -134,6 +134,12 @@ export default function WelcomeOnboarding() {
     setIsOpen(false);
   };
 
+  // Skipping must not bypass the privacy step: telemetry is on by default, and
+  // completing the tour is what suppresses the step, so jump to it instead.
+  const lastStep = steps.length - 1;
+  const isLastStep = currentStep === lastStep;
+  const handleSkip = () => setCurrentStep(lastStep);
+
   const currentStepData = steps[currentStep];
 
   if (!currentStepData) {
@@ -202,20 +208,24 @@ export default function WelcomeOnboarding() {
         </div>
 
         <DialogFooter className="flex items-center justify-between sm:justify-between">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleComplete}
-            className="text-muted-foreground font-mono text-xs"
-          >
-            Skip Tour
-          </Button>
+          {isLastStep ? (
+            <span />
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleSkip}
+              className="text-muted-foreground font-mono text-xs"
+            >
+              Skip Tour
+            </Button>
+          )}
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-mono text-muted-foreground">
               {currentStep + 1}/{steps.length}
             </span>
             <Button variant="glow" size="sm" onClick={handleNext} className="font-mono text-xs">
-              {currentStep === steps.length - 1 ? (
+              {isLastStep ? (
                 'Get Started'
               ) : (
                 <>

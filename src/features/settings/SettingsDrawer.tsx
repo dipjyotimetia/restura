@@ -10,8 +10,8 @@ import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import { SettingsNavigation } from './components/SettingsNavigation';
-import { AppearanceSection } from './sections/AppearanceSection';
 import { AboutSection } from './sections/AboutSection';
+import { AppearanceSection } from './sections/AppearanceSection';
 import { CertificatesSection } from './sections/CertificatesSection';
 import { DataSection } from './sections/DataSection';
 import { GeneralSection } from './sections/GeneralSection';
@@ -46,7 +46,7 @@ const SHORTCUT_GROUPS: Array<{
   {
     title: 'Request Builder',
     shortcuts: [
-      { keys: ['⌘', '↵'], description: 'Send request' },
+      { keys: ['⌘', '↵'], description: 'Send request (cancels while one is in flight)' },
       { keys: ['⌘', 'S'], description: 'Save request to collection' },
       { keys: ['⌥', '1'], description: 'Switch to Params tab' },
       { keys: ['⌥', '2'], description: 'Switch to Headers tab' },
@@ -59,18 +59,8 @@ const SHORTCUT_GROUPS: Array<{
   {
     title: 'Navigation',
     shortcuts: [
-      { keys: ['⌘', '1'], description: 'HTTP mode' },
-      { keys: ['⌘', '2'], description: 'gRPC mode' },
-      { keys: ['⌘', '3'], description: 'WebSocket mode' },
-      { keys: ['⌘', 'I'], description: 'Import collection' },
-      { keys: ['⌘', 'E'], description: 'Export collection' },
-    ],
-  },
-  {
-    title: 'Response',
-    shortcuts: [
-      { keys: ['⌘', 'C'], description: 'Copy response body' },
-      { keys: ['⌘', 'S'], description: 'Save response to file' },
+      { keys: ['⌘', 'I'], description: 'Import collection (desktop app)' },
+      { keys: ['⌘', 'E'], description: 'Export collection (desktop app)' },
     ],
   },
 ];

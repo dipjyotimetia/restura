@@ -49,6 +49,20 @@ describe('WelcomeOnboarding privacy step', () => {
     });
   });
 
+  it('Skip Tour lands on the privacy step instead of dismissing it', async () => {
+    const user = userEvent.setup();
+    render(<WelcomeOnboarding />);
+    await screen.findByText('Send Your First Request', undefined, { timeout: 2000 });
+
+    await user.click(screen.getByRole('button', { name: /skip tour/i }));
+
+    expect(screen.getByText('Help Improve Restura')).toBeInTheDocument();
+    expect(
+      screen.getByRole('switch', { name: 'Send crash and error reports' })
+    ).toBeInTheDocument();
+    expect(localStorage.length).toBe(0);
+  });
+
   it('shows the multi-protocol step but hides the desktop-only AI step on web', async () => {
     // jsdom has no window.electron, so isElectron() is false → AI step filtered.
     const user = userEvent.setup();

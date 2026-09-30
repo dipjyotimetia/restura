@@ -62,17 +62,19 @@ function RequestBuilder() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  // Cmd/Ctrl + Enter send
+  // Cmd/Ctrl + Enter send (cancels instead while a request is in flight)
+  const { cancelRequest } = handlers;
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
-        sendRequest();
+        if (isLoading) cancelRequest();
+        else sendRequest();
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [sendRequest]);
+  }, [sendRequest, cancelRequest, isLoading]);
 
   if (!httpRequest) return null;
 
@@ -85,6 +87,7 @@ function RequestBuilder() {
         onMethodChange={handlers.changeMethod}
         onUrlChange={handlers.changeUrl}
         onSend={handlers.sendRequest}
+        onCancel={handlers.cancelRequest}
         onOpenCodeGen={() => setCodeGenOpen(true)}
       />
 

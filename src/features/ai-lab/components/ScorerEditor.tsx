@@ -282,7 +282,7 @@ function ScorerRow({
             />
             Swap positions (cancel bias)
           </label>
-          <p className="text-sp-11 text-sp-text-dim">
+          <p className="text-sp-11 text-sp-dim">
             Compares the output against each case&apos;s reference.
           </p>
         </div>

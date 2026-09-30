@@ -76,6 +76,7 @@ describe('a11y smoke — shell components', () => {
           onMethodChange={() => undefined}
           onUrlChange={() => undefined}
           onSend={() => undefined}
+          onCancel={() => undefined}
           onOpenCodeGen={() => undefined}
         />
       );

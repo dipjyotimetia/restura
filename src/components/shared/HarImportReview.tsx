@@ -30,7 +30,7 @@ export function HarImportReview({
     <section className="space-y-4" aria-label="HAR review">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-sp-15 font-semibold text-sp-text">Review HAR import</h2>
+          <h2 className="text-sp-16 font-semibold text-sp-text">Review HAR import</h2>
           <p className="mt-1 text-sp-12 text-sp-muted">
             Requests are redacted and remain unpersisted until you confirm this import.
           </p>

@@ -12,6 +12,7 @@ function renderUrlBar(
     onMethodChange: (m: HttpMethod) => void;
     onUrlChange: (u: string) => void;
     onSend: () => void;
+    onCancel: () => void;
     onOpenCodeGen: () => void;
   }> = {}
 ) {
@@ -22,6 +23,7 @@ function renderUrlBar(
     onMethodChange: vi.fn(),
     onUrlChange: vi.fn(),
     onSend: vi.fn(),
+    onCancel: vi.fn(),
     onOpenCodeGen: vi.fn(),
     ...overrides,
   };
@@ -36,10 +38,14 @@ describe('UrlBar', () => {
       expect(send).toBeDisabled();
     });
 
-    it('is disabled while loading', () => {
-      renderUrlBar({ url: 'https://example.com', isLoading: true });
-      const send = screen.getByRole('button', { name: /sending request/i });
-      expect(send).toBeDisabled();
+    it('becomes an enabled Cancel button while loading and calls onCancel', async () => {
+      const user = userEvent.setup();
+      const { props } = renderUrlBar({ url: 'https://example.com', isLoading: true });
+      const cancel = screen.getByRole('button', { name: /cancel request/i });
+      expect(cancel).not.toBeDisabled();
+      await user.click(cancel);
+      expect(props.onCancel).toHaveBeenCalledOnce();
+      expect(props.onSend).not.toHaveBeenCalled();
     });
 
     it('is enabled with a valid URL', () => {

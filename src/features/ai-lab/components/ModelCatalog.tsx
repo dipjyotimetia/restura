@@ -92,7 +92,7 @@ export function ModelCatalog({
                       )}
                     </div>
                     <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sp-10 text-sp-muted">
-                      <span className="font-medium text-sp-text-dim">{option.cfg.label}</span>
+                      <span className="font-medium text-sp-dim">{option.cfg.label}</span>
                       <span className="truncate font-mono" title={option.model}>
                         {option.model}
                       </span>

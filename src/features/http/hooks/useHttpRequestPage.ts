@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import { resolveEffectiveAuth } from '@/features/auth/lib/authInheritance';
@@ -70,6 +70,10 @@ export function useHttpRequestPage() {
     [httpRequest?.settings, globalSettings]
   );
 
+  // Aborts the in-flight send; the executor honours the signal end to end.
+  const abortRef = useRef<AbortController | null>(null);
+  const cancelRequest = useCallback(() => abortRef.current?.abort(), []);
+
   // The interactive Send delegates to the shared `executeRequest` — the same
   // pipeline the collection runner / workflows / load-testing use. This is
   // deliberate convergence: the page used to build its own spec (and on web,
@@ -83,6 +87,8 @@ export function useHttpRequestPage() {
     const originTabId = useRequestStore.getState().activeTabId;
     if (!originTabId) return;
 
+    const controller = new AbortController();
+    abortRef.current = controller;
     setLoading(true);
     const startTime = Date.now();
     toast.loading('Sending request...', { id: 'request' });
@@ -123,6 +129,7 @@ export function useHttpRequestPage() {
         globalSettings,
         resolveVariables: (text) => resolveVariables(text),
         collectionVars,
+        signal: controller.signal,
       });
 
       // Recompute the resolved URL for history/console display with the
@@ -190,6 +197,11 @@ export function useHttpRequestPage() {
         toast.dismiss('request');
       }
     } catch (error: unknown) {
+      // User cancelled: not a failure, so no error response or history entry.
+      if (controller.signal.aborted) {
+        toast.info('Request cancelled', { id: 'request', duration: 2000 });
+        return;
+      }
       // executeRequest throws before anything is sent (URL failed validation,
       // SecretRef handle unsupported on this platform, …).
       const endTime = Date.now();
@@ -222,6 +234,7 @@ export function useHttpRequestPage() {
       );
       toast.error(`Request failed: ${errorMessage}`, { id: 'request', duration: 5000 });
     } finally {
+      if (abortRef.current === controller) abortRef.current = null;
       setLoading(false);
     }
   }, [
@@ -286,6 +299,7 @@ export function useHttpRequestPage() {
 
   const handlers = {
     sendRequest,
+    cancelRequest,
     changeMethod: (method: HttpMethod) => updateRequest({ method }),
     changeUrl: (url: string) => updateRequest({ url }),
     changeAuth: (auth: AuthConfig) => updateRequest({ auth }),

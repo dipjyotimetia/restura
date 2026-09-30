@@ -153,7 +153,7 @@ export function Arena() {
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-sp-11 text-sp-text-dim">
+            <p className="text-sp-11 text-sp-dim">
               Each case&apos;s <code>prompt</code>/<code>input</code> var is sent to every model.
             </p>
           </div>
@@ -218,7 +218,7 @@ export function Arena() {
                 ariaLabel="Concurrency"
               />
             </div>
-            <p className="text-sp-11 text-sp-text-dim">
+            <p className="text-sp-11 text-sp-dim">
               Parallel model calls — lower it if your provider rate-limits.
             </p>
           </div>
@@ -364,9 +364,9 @@ export function Arena() {
                                   }
                                 >
                                   {r === c ? (
-                                    <span className="text-sp-text-dim">—</span>
+                                    <span className="text-sp-dim">—</span>
                                   ) : rate === null || rate === undefined ? (
-                                    <span className="text-sp-text-dim">·</span>
+                                    <span className="text-sp-dim">·</span>
                                   ) : (
                                     `${Math.round(rate * 100)}%`
                                   )}
