@@ -448,10 +448,14 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
             <AlertDialogCancel>Keep open</AlertDialogCancel>
             {pendingTab && (
               <AlertDialogAction
-                onClick={() => {
-                  // Bound tab: write back, then close only if it saved. Unbound:
-                  // hand off to the save dialog and leave the tab open.
+                onClick={(e) => {
+                  // Bound tab: write back, then close only if it saved. Keep the
+                  // dialog open on failure (preventDefault stops the action's
+                  // auto-close) so the user can retry or choose another option;
+                  // on success the tab is removed, which closes the dialog.
+                  // Unbound: hand off to the save dialog and leave the tab open.
                   if (pendingTab.savedRequestId) {
+                    e.preventDefault();
                     if (saveTabBackToCollection(pendingTab.request, pendingTab.savedRequestId)) {
                       closeTab(pendingTab.id);
                     }
