@@ -135,7 +135,7 @@ export function ImportFromHistoryDialog({
                 >
                   <Checkbox checked={picked.has(c.key)} onCheckedChange={() => toggle(c.key)} />
                   <span className="truncate text-sp-text">{c.label}</span>
-                  <span className="ml-auto shrink-0 text-sp-11 text-sp-text-dim">{c.source}</span>
+                  <span className="ml-auto shrink-0 text-sp-11 text-sp-dim">{c.source}</span>
                 </label>
               ))
             )}

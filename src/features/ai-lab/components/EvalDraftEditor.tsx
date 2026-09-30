@@ -176,7 +176,7 @@ export function EvalDraftEditor({
             ariaLabel="Concurrency"
           />
         </div>
-        <p className="text-sp-11 text-sp-text-dim">
+        <p className="text-sp-11 text-sp-dim">
           Parallel model calls — lower it if your provider rate-limits.
         </p>
       </div>

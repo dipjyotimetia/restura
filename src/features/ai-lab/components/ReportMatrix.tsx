@@ -101,7 +101,7 @@ export function ReportMatrix({
                       {cell ? (
                         <VerdictChip passed={cell.passed} notEvaluated={cell.notEvaluated} />
                       ) : (
-                        <span className="text-sp-text-dim">·</span>
+                        <span className="text-sp-dim">·</span>
                       )}
                     </td>
                   );
@@ -175,7 +175,7 @@ export function ReportMatrix({
                           {score.passed ? 'pass' : 'fail'}
                           {score.score !== undefined ? ` (${score.score.toFixed(2)})` : ''}
                           {score.detail ? (
-                            <span className="block text-sp-text-dim">{score.detail}</span>
+                            <span className="block text-sp-dim">{score.detail}</span>
                           ) : null}
                         </span>
                       </div>

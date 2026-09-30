@@ -48,6 +48,7 @@ interface UrlBarProps {
   onMethodChange: (method: HttpMethod) => void;
   onUrlChange: (url: string) => void;
   onSend: () => void;
+  onCancel: () => void;
   onOpenCodeGen: () => void;
 }
 
@@ -63,6 +64,7 @@ export function UrlBar({
   onMethodChange,
   onUrlChange,
   onSend,
+  onCancel,
   onOpenCodeGen,
 }: UrlBarProps) {
   const [urlError, setUrlError] = useState<string | null>(null);
@@ -216,13 +218,16 @@ export function UrlBar({
           type="button"
           variant="cta"
           size="cta"
-          onClick={onSend}
-          disabled={isLoading || !url || !!urlError}
-          aria-label={isLoading ? 'Sending request' : 'Send request'}
+          onClick={isLoading ? onCancel : onSend}
+          disabled={!isLoading && (!url || !!urlError)}
+          aria-label={isLoading ? 'Cancel request' : 'Send request'}
           className="shrink-0 select-none"
         >
           {isLoading ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              <span>Cancel</span>
+            </>
           ) : (
             <>
               <Send className="h-3.5 w-3.5" />
