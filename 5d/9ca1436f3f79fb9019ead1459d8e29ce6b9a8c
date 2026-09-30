@@ -1,0 +1,23 @@
+e2e-electron/fixtures/electronApp.ts
+  s_dc9a687cb049b5::t_2b76885995b635 72-80
+e2e/real-mqtt.spec.ts
+  s_dc9a687cb049b5::t_2b76885995b635 1-2,9-10,17-35
+e2e-electron/specs/deep-link.spec.ts
+  s_dc9a687cb049b5::t_2b76885995b635 26-34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5d9ca1436f3f79fb9019ead1459d8e29ce6b9a8c",
+  "prompts": {},
+  "sessions": {
+    "s_dc9a687cb049b5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9d76a409-9a64-495f-bab5-7c58f38e4cac",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
