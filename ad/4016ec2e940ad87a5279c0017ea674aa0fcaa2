@@ -1,0 +1,30 @@
+src/features/registry/__tests__/useRequestRunner.test.tsx
+  s_2b7c03aa2cf1a1::t_ee5135ec48134f 414-444,449-452
+  s_2b7c03aa2cf1a1::t_73e945d42f34f0 445-448
+src/features/graphql/__tests__/protocol.test.ts
+  s_2b7c03aa2cf1a1::t_ee5135ec48134f 103,120,125-147
+  s_2b7c03aa2cf1a1::t_4658f8a1c5a9db 148
+src/features/registry/useRequestRunner.ts
+  s_2b7c03aa2cf1a1::t_a2d9378905e267 21,87,108
+src/features/graphql/protocol.ts
+  s_2b7c03aa2cf1a1::t_a2d9378905e267 128-158,183,190
+  s_2b7c03aa2cf1a1::t_73e945d42f34f0 18
+src/features/registry/types.ts
+  s_2b7c03aa2cf1a1::t_a2d9378905e267 2,22-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ad4016ec2e940ad87a5279c0017ea674aa0fcaa2",
+  "prompts": {},
+  "sessions": {
+    "s_2b7c03aa2cf1a1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c7d267ed-966f-41df-8b42-2ba97c06cd68",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
