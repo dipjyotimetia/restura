@@ -1,0 +1,21 @@
+src/components/shared/TabBar.test.tsx
+  s_dc9a687cb049b5::t_1337d85ed706b2 180-186
+src/components/shared/TabBar.tsx
+  s_dc9a687cb049b5::t_1337d85ed706b2 451-456,458
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c2832937fb8749ab36b86781021119517d1e2e66",
+  "prompts": {},
+  "sessions": {
+    "s_dc9a687cb049b5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9d76a409-9a64-495f-bab5-7c58f38e4cac",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
