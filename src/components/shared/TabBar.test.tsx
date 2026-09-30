@@ -134,4 +134,63 @@ describe('TabBar', () => {
     // [B, A, C]. Pick one and stick with it.
     expect(order).toEqual([b, c, a]);
   });
+
+  describe('closing a tab with unsaved changes', () => {
+    const openDirtyTab = (name: string) => {
+      const id = useRequestStore.getState().openTab(makeHttp({ name }));
+      useRequestStore.setState((s) => ({
+        tabs: s.tabs.map((t) => (t.id === id ? { ...t, isDirty: true } : t)),
+      }));
+      return id;
+    };
+
+    it('closes a clean tab immediately, without asking', async () => {
+      const user = userEvent.setup();
+      useRequestStore.getState().openTab(makeHttp({ name: 'Clean' }));
+      render(<TabBar />);
+
+      await user.click(screen.getByRole('button', { name: /close Clean/i }));
+
+      expect(useRequestStore.getState().tabs).toHaveLength(0);
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+
+    it('asks first and keeps the tab when the user backs out', async () => {
+      const user = userEvent.setup();
+      openDirtyTab('Edited');
+      render(<TabBar />);
+
+      await user.click(screen.getByRole('button', { name: /close Edited/i }));
+
+      expect(screen.getByRole('alertdialog')).toHaveTextContent(/unsaved changes/i);
+      expect(useRequestStore.getState().tabs).toHaveLength(1);
+
+      await user.click(screen.getByRole('button', { name: 'Keep open' }));
+      expect(useRequestStore.getState().tabs).toHaveLength(1);
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+
+    it('discards the tab only after the user confirms', async () => {
+      const user = userEvent.setup();
+      openDirtyTab('Edited');
+      render(<TabBar />);
+
+      await user.click(screen.getByRole('button', { name: /close Edited/i }));
+      await user.click(screen.getByRole('button', { name: 'Discard' }));
+
+      expect(useRequestStore.getState().tabs).toHaveLength(0);
+    });
+
+    it('also guards the Delete-key shortcut', async () => {
+      const user = userEvent.setup();
+      openDirtyTab('Edited');
+      render(<TabBar />);
+
+      screen.getByRole('tab', { name: /Edited/ }).focus();
+      await user.keyboard('{Delete}');
+
+      expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+      expect(useRequestStore.getState().tabs).toHaveLength(1);
+    });
+  });
 });
