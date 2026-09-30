@@ -1,0 +1,23 @@
+docs/ARCHITECTURE.md
+  s_2b7c03aa2cf1a1::t_ba51475b1baf11 125
+CLAUDE.md
+  s_2b7c03aa2cf1a1::t_ba51475b1baf11 123
+AGENTS.md
+  s_2b7c03aa2cf1a1::t_ba51475b1baf11 116-119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c351b78912b42480feee079d7c2e2be807613105",
+  "prompts": {},
+  "sessions": {
+    "s_2b7c03aa2cf1a1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c7d267ed-966f-41df-8b42-2ba97c06cd68",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
