@@ -1,4 +1,5 @@
 import type { ComponentType } from 'react';
+import type { SecretValue } from '@/lib/shared/secretRef';
 import type { AuthConfig, Request, RequestType, Response, ScriptResult } from '@/types';
 
 /**
@@ -18,6 +19,12 @@ export interface ProtocolScriptResult {
 export interface RunContext {
   signal: AbortSignal;
   variables: Record<string, string>;
+  /**
+   * Opaque Secret references for variables whose plaintext must not reach the
+   * renderer. Forwarded to the executor, which keeps their `{{tokens}}` intact
+   * for Electron main to resolve at the wire.
+   */
+  secretVariables?: Record<string, SecretValue>;
   /**
    * Optional sink for pre-request / test script results produced by the
    * protocol. Protocols that run user scripts call this once per run so the
