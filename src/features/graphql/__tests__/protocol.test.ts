@@ -120,6 +120,23 @@ describe('graphqlProtocol envelope', () => {
     expect(passed.signal).toBe(signal);
   });
 
+  it('reports a refreshed OAuth2 auth through ctx.onAuthRefreshed', async () => {
+    const refreshed = { type: 'oauth2', oauth2: { accessToken: 'fresh' } };
+    executeRequestMock.mockResolvedValue({
+      response: { status: 200 },
+      scriptResult: undefined,
+      refreshedAuth: refreshed,
+    });
+    const onAuthRefreshed = vi.fn();
+    await graphqlProtocol.runRequest(gqlRequest(ENVELOPE), {
+      signal: new AbortController().signal,
+      variables: {},
+      onAuthRefreshed,
+    } as never);
+
+    expect(onAuthRefreshed).toHaveBeenCalledWith(refreshed);
+  });
+
   it('runRequest rejects a non-HTTP request shape', async () => {
     const ctx = { signal: new AbortController().signal, variables: {} };
     await expect(

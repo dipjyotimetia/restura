@@ -21,7 +21,7 @@ import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAut
 import { buildActiveRequestValueMap } from '@/lib/shared/activeRequestScopes';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
-import type { Request, Response } from '@/types';
+import type { AuthConfig, Request, Response } from '@/types';
 import { protocolRegistry } from './registry';
 import type { ProtocolScriptResult } from './types';
 
@@ -101,11 +101,20 @@ export function useRequestRunner() {
         }
       };
 
+      // Write a refreshed OAuth2 token back only when the request owns that
+      // auth; a refreshed *inherited* auth must not be materialised onto it.
+      const onAuthRefreshed = (auth: AuthConfig) => {
+        if (originTabId && rawRequest.type === 'http' && rawRequest.auth?.type === 'oauth2') {
+          useRequestStore.getState().updateRequestForTab(originTabId, { auth });
+        }
+      };
+
       const startedAt = performance.now();
       const response = await protocol.runRequest(request, {
         signal: ctrl.signal,
         variables,
         onScriptResult,
+        onAuthRefreshed,
         ...(options?.protocolOptions ? { protocolOptions: options.protocolOptions } : {}),
       });
       const durationMs = performance.now() - startedAt;
