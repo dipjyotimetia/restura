@@ -1,28 +1,38 @@
-import { test as webTest, expect as webExpect } from './fixtures/app';
-import { test, expect, openMqttTab } from './fixtures/mqtt';
+import { expect as webExpect, test as webTest } from './fixtures/app';
+import { expect, openMqttTab, test } from './fixtures/mqtt';
 
 /**
  * MQTT is a desktop-only protocol (raw TCP/TLS over the Electron IPC bridge).
  *
  * Two layers of coverage:
  *   1. Web-build gating — on the Cloudflare Pages / web build there is no
- *      `window.electron`, so the MQTT entry points must NOT leak into the UI.
+ *      `window.electron`, so MQTT must never be usable: the new-tab menu lists
+ *      it as a disabled, desktop-only entry and the command palette omits it.
  *   2. Full renderer flow — with a mocked loopback-broker Electron bridge
  *      injected, the real MqttClient drives connect → subscribe → publish →
  *      round-trip → disconnect end-to-end (see fixtures/mqtt.ts).
  */
 
 webTest.describe('MQTT — web build gating', () => {
-  webTest('is not offered in the web new-request menu', async ({ app: page }) => {
-    await page.getByRole('button', { name: 'new request', exact: true }).click();
-    // Menu items render a decorative <ProtoChip> that prefixes the accessible
-    // name ("MQTT MQTT client"), so match the label as a substring, not exact.
-    await webExpect(page.getByRole('menuitem', { name: 'MQTT client' })).toHaveCount(0);
-    // Kafka (the other desktop-only protocol) is likewise absent — sanity that
-    // the gate isn't simply hiding everything.
-    await webExpect(page.getByRole('menuitem', { name: 'HTTP request' })).toBeVisible();
-    await page.keyboard.press('Escape');
-  });
+  webTest(
+    'is shown in the web new-request menu only as a disabled desktop-only entry',
+    async ({ app: page }) => {
+      await page.getByRole('button', { name: 'new request', exact: true }).click();
+      // Menu items render a decorative <ProtoChip> that prefixes the accessible
+      // name ("MQTT MQTT client"), so match the label as a substring, not exact.
+      for (const name of ['MQTT client', 'Kafka client']) {
+        const item = page.getByRole('menuitem', { name });
+        await webExpect(item).toBeVisible();
+        await webExpect(item).toHaveAttribute('aria-disabled', 'true');
+        await webExpect(item).toContainText('Desktop only');
+      }
+      // Sanity that the gate isn't simply disabling everything.
+      await webExpect(page.getByRole('menuitem', { name: 'HTTP request' })).not.toHaveAttribute(
+        'aria-disabled'
+      );
+      await page.keyboard.press('Escape');
+    }
+  );
 
   webTest('is not offered in the web command palette', async ({ app: page }) => {
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+k' : 'Control+k');
