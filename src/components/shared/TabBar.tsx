@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Floater, ProtoChip } from '@/components/ui/spatial';
 import { saveTabBackToCollection } from '@/features/collections/lib/saveBack';
+import { CAPABILITIES } from '@/lib/shared/capabilities';
 import { isElectron } from '@/lib/shared/platform';
 import { useOverflowFade } from '@/lib/shared/useOverflowFade';
 import { cn } from '@/lib/shared/utils';
@@ -25,6 +26,7 @@ import {
 } from '@/store/useRequestStore';
 import type { RequestMode, TabModeOverride } from '@/types';
 import { isConnectionMode } from '@/types';
+import { DesktopOnlyBadge } from './DesktopOnlyBadge';
 import { SaveToCollectionDialog } from './SaveToCollectionDialog';
 
 type NewRequestMode = RequestMode;
@@ -382,18 +384,26 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                 <ProtoChip protocol="MCP" className="w-12 justify-center" />
                 MCP request
               </DropdownMenuItem>
-              {isElectron() && (
-                <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('kafka')}>
-                  <ProtoChip protocol="KAFKA" className="w-12 justify-center" />
-                  Kafka client
-                </DropdownMenuItem>
-              )}
-              {isElectron() && (
-                <DropdownMenuItem className="gap-2" onClick={() => handleNewTab('mqtt')}>
-                  <ProtoChip protocol="MQTT" className="w-12 justify-center" />
-                  MQTT client
-                </DropdownMenuItem>
-              )}
+              {/* Raw-TCP protocols: shown on web too (disabled + badge) so users can
+                  discover them instead of wondering where they went. */}
+              <DropdownMenuItem
+                className="gap-2"
+                disabled={!isElectron()}
+                onClick={() => handleNewTab('kafka')}
+              >
+                <ProtoChip protocol="KAFKA" className="w-12 justify-center" />
+                Kafka client
+                <DesktopOnlyBadge title={CAPABILITIES['kafka.basic'].notes} className="ml-auto" />
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="gap-2"
+                disabled={!isElectron()}
+                onClick={() => handleNewTab('mqtt')}
+              >
+                <ProtoChip protocol="MQTT" className="w-12 justify-center" />
+                MQTT client
+                <DesktopOnlyBadge title={CAPABILITIES['mqtt.basic'].notes} className="ml-auto" />
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </Floater>
