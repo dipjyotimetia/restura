@@ -286,3 +286,13 @@ This repository has a generated `openwiki/` evidence index. It is optional just-
 The scheduled OpenWiki GitHub Actions workflow refreshes the repository wiki. Do not hand-edit generated OpenWiki pages unless explicitly asked; prefer updating source code/docs and letting OpenWiki regenerate.
 
 <!-- OPENWIKI:END -->
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues for dipjyotimetia/restura (via the `gh` CLI). See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` at the repo root plus `docs/adr/`. See `docs/agents/domain.md`.
