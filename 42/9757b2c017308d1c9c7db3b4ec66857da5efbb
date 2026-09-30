@@ -1,0 +1,19 @@
+docs-site/src/content/docs/guides/ai-assistant.mdx
+  s_2b7c03aa2cf1a1::t_a5ce861ae860fc 12-13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "429757b2c017308d1c9c7db3b4ec66857da5efbb",
+  "prompts": {},
+  "sessions": {
+    "s_2b7c03aa2cf1a1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c7d267ed-966f-41df-8b42-2ba97c06cd68",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
