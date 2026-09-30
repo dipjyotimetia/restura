@@ -100,6 +100,7 @@ describe('graphqlProtocol envelope', () => {
     expect(JSON.parse(passed.request.body.raw!)).toEqual({
       query: 'query Saved { me { id } }',
       variables: {},
+      operationName: 'Saved',
     });
   });
 
@@ -116,6 +117,7 @@ describe('graphqlProtocol envelope', () => {
     expect(JSON.parse(passed.request.body.raw!)).toEqual({
       query: 'query Saved($id: ID!) { me(id: $id) { id } }',
       variables: { id: '42' },
+      operationName: 'Saved',
     });
     expect(passed.signal).toBe(signal);
   });
@@ -135,6 +137,30 @@ describe('graphqlProtocol envelope', () => {
     } as never);
 
     expect(onAuthRefreshed).toHaveBeenCalledWith(refreshed);
+  });
+
+  it('leaves operationName off an anonymous saved document, like interactive Send', async () => {
+    const saved = gqlRequest('{ me { id } }');
+    saved.body.type = 'graphql';
+    await graphqlProtocol.runRequest(saved, {
+      signal: new AbortController().signal,
+      variables: {},
+    } as never);
+
+    const passed = executeRequestMock.mock.calls[0]![0] as { request: HttpRequest };
+    expect(JSON.parse(passed.request.body.raw!)).toEqual({ query: '{ me { id } }', variables: {} });
+  });
+
+  it('forwards ctx.secretVariables to the executor so Secret references stay opaque', async () => {
+    const secretVariables = { apiKey: { kind: 'handle', id: 'handle-1' } };
+    await graphqlProtocol.runRequest(gqlRequest(ENVELOPE), {
+      signal: new AbortController().signal,
+      variables: {},
+      secretVariables,
+    } as never);
+
+    const passed = executeRequestMock.mock.calls[0]![0] as { secretVariables?: unknown };
+    expect(passed.secretVariables).toEqual(secretVariables);
   });
 
   it('runRequest rejects a non-HTTP request shape', async () => {

@@ -18,7 +18,7 @@
 import { useCallback, useRef } from 'react';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
-import { buildActiveRequestValueMap } from '@/lib/shared/activeRequestScopes';
+import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { AuthConfig, Request, Response } from '@/types';
@@ -84,7 +84,7 @@ export function useRequestRunner() {
       // (precedence globals < env < collection). gRPC unary substitution reads
       // this map directly, so collection/global vars must live here, not only in
       // the store resolver.
-      const variables = buildActiveRequestValueMap();
+      const { values: variables, secretVariables } = buildActiveRequestVariableResolution();
 
       // Capture script results emitted by the protocol so we can both push
       // them to the originating tab (so the Console panel updates) AND surface
@@ -113,6 +113,7 @@ export function useRequestRunner() {
       const response = await protocol.runRequest(request, {
         signal: ctrl.signal,
         variables,
+        secretVariables,
         onScriptResult,
         onAuthRefreshed,
         ...(options?.protocolOptions ? { protocolOptions: options.protocolOptions } : {}),

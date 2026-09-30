@@ -15,6 +15,7 @@
  * runner doesn't model long-lived streams yet (see Task 4.5 follow-up note).
  */
 import { v4 as uuidv4 } from 'uuid';
+import { buildGraphQLRequestBody } from '@/features/graphql/lib/queryParser';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
 import type { ProtocolModule } from '@/features/registry/types';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
@@ -124,6 +125,37 @@ function injectInJson(value: unknown, inject: (s: string) => string): unknown {
   return value;
 }
 
+/**
+ * Turn a saved GraphQL body (`type: 'graphql'`, `raw` = query document or an
+ * envelope, `graphqlVariables` = variables JSON) into the JSON envelope the
+ * executor sends. A plain document goes through `buildGraphQLRequestBody`, the
+ * same builder interactive Send uses, so both paths put the same bytes on the
+ * wire (including the derived `operationName`).
+ */
+function toJsonEnvelopeBody(body: HttpRequest['body']): HttpRequest['body'] {
+  const storedVariables = (() => {
+    if (body.graphqlVariables === undefined) return undefined;
+    try {
+      const parsed = JSON.parse(body.graphqlVariables ?? '{}');
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  })();
+  const raw = body.raw ?? '';
+  let envelope: Record<string, unknown> | undefined;
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (typeof parsed.query === 'string') envelope = parsed;
+  } catch {
+    // Not JSON: a plain query document.
+  }
+  const out = envelope
+    ? { ...envelope, ...(storedVariables === undefined ? {} : { variables: storedVariables }) }
+    : buildGraphQLRequestBody(raw, storedVariables ?? {});
+  return { ...body, type: 'json', raw: JSON.stringify(out) };
+}
+
 export const graphqlProtocol: ProtocolModule = {
   id: 'graphql',
   label: 'GraphQL',
@@ -148,51 +180,14 @@ export const graphqlProtocol: ProtocolModule = {
     // `graphql` body marker. The normal request executor transports JSON, so
     // shape the standard { query, variables, operationName? } envelope here.
     const executable =
-      http.body.type === 'graphql'
-        ? {
-            ...http,
-            body: {
-              ...http.body,
-              type: 'json' as const,
-              raw: (() => {
-                const storedVariables = (() => {
-                  if (http.body.graphqlVariables === undefined) return undefined;
-                  try {
-                    const parsed = JSON.parse(http.body.graphqlVariables ?? '{}');
-                    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-                      ? parsed
-                      : {};
-                  } catch {
-                    return {};
-                  }
-                })();
-                try {
-                  const parsed = JSON.parse(http.body.raw ?? '') as Record<string, unknown>;
-                  return typeof parsed.query === 'string'
-                    ? JSON.stringify({
-                        ...parsed,
-                        ...(storedVariables === undefined ? {} : { variables: storedVariables }),
-                      })
-                    : JSON.stringify({
-                        query: http.body.raw ?? '',
-                        variables: storedVariables ?? {},
-                      });
-                } catch {
-                  return JSON.stringify({
-                    query: http.body.raw ?? '',
-                    variables: storedVariables ?? {},
-                  });
-                }
-              })(),
-            },
-          }
-        : http;
+      http.body.type === 'graphql' ? { ...http, body: toJsonEnvelopeBody(http.body) } : http;
     const result = await executeRequest({
       request: executable,
       envVars: { ...variables },
       globalSettings,
       signal: ctx.signal,
       resolveVariables: (text) => defaultResolveVariables(text, variables),
+      ...(ctx.secretVariables ? { secretVariables: ctx.secretVariables } : {}),
     });
     if (ctx.onScriptResult && result.scriptResult) {
       ctx.onScriptResult(result.scriptResult);

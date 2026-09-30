@@ -482,4 +482,43 @@ describe('useRequestRunner', () => {
       expect((tab?.request as { auth: unknown }).auth).toEqual({ type: 'none' });
     });
   });
+
+  it('hands the active Secret references to the protocol as ctx.secretVariables', async () => {
+    const secretVariables = { apiKey: { kind: 'handle', id: 'handle-1' } };
+    vi.doMock('@/lib/shared/activeRequestScopes', () => ({
+      buildActiveRequestVariableResolution: () => ({ values: { host: 'x' }, secretVariables }),
+    }));
+    const { protocolRegistry } = await import('../registry');
+    let seen: { variables?: unknown; secretVariables?: unknown } = {};
+    protocolRegistry.register({
+      id: 'fake-secret-vars-test',
+      label: 'Fake',
+      tabType: 'http',
+      defaultRequest: () => ({}) as never,
+      runRequest: async (_req, ctx) => {
+        seen = { variables: ctx.variables, secretVariables: ctx.secretVariables };
+        return {
+          id: 'r',
+          requestId: 'r',
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: '',
+          size: 0,
+          time: 0,
+          timestamp: Date.now(),
+        };
+      },
+    });
+    const { useRequestRunner } = await import('../useRequestRunner');
+    const { result } = renderHook(() => useRequestRunner());
+    await act(async () => {
+      await result.current.run(
+        { id: 'r1', type: 'http', method: 'GET', url: 'https://x' } as never,
+        'fake-secret-vars-test'
+      );
+    });
+    expect(seen).toEqual({ variables: { host: 'x' }, secretVariables });
+    vi.doUnmock('@/lib/shared/activeRequestScopes');
+  });
 });
