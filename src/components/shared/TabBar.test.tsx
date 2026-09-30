@@ -177,6 +177,13 @@ describe('TabBar', () => {
       await user.click(screen.getByRole('button', { name: 'Save & close' }));
 
       expect(useRequestStore.getState().tabs).toHaveLength(1);
+      // The dialog stays open so the user can retry or pick another option.
+      expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+
+      saveBack.saveTabBackToCollection.mockReturnValue(true);
+      await user.click(screen.getByRole('button', { name: 'Save & close' }));
+      expect(useRequestStore.getState().tabs).toHaveLength(0);
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
     });
 
     it('Save… on an unsaved tab hands off to the save dialog and leaves the tab open', async () => {
