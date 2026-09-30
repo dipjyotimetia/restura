@@ -1,0 +1,52 @@
+src/features/http/components/RequestBuilder/index.tsx
+  s_dc9a687cb049b5::t_1f6a95504dd795 65-66,71-72,77,90
+src/features/ai-lab/components/Arena.tsx
+  s_dc9a687cb049b5::t_a1f5bb7b7d7985 156,221,367,369
+docs-site/src/content/docs/guides/keyboard-shortcuts.mdx
+  s_dc9a687cb049b5::t_0805f6601b5257 17
+src/features/http/hooks/useHttpRequestPage.ts
+  s_dc9a687cb049b5::t_1f6a95504dd795 1,90-91,132,200-204,237,302
+  s_dc9a687cb049b5::t_02a83f5dd85a80 73-76
+src/components/shared/__tests__/accessibility.smoke.test.tsx
+  s_dc9a687cb049b5::t_cc68ba892c412f 79
+src/features/http/components/UrlBar.tsx
+  s_dc9a687cb049b5::t_1f6a95504dd795 51,67,221-223,227-230
+src/features/ai-lab/components/EvalDraftEditor.tsx
+  s_dc9a687cb049b5::t_a1f5bb7b7d7985 179
+src/features/ai-lab/components/ScorerEditor.tsx
+  s_dc9a687cb049b5::t_a1f5bb7b7d7985 285
+src/components/shared/WelcomeOnboarding.tsx
+  s_dc9a687cb049b5::t_c4ecbd86691e3f 137-138,142,228
+  s_dc9a687cb049b5::t_02a83f5dd85a80 139-141,211-222
+src/features/http/components/__tests__/UrlBar.test.tsx
+  s_dc9a687cb049b5::t_cc68ba892c412f 15,26,41-48
+src/features/ai-lab/components/ModelCatalog.tsx
+  s_dc9a687cb049b5::t_a1f5bb7b7d7985 95
+src/features/ai-lab/components/ReportMatrix.tsx
+  s_dc9a687cb049b5::t_a1f5bb7b7d7985 104,178
+src/components/shared/__tests__/WelcomeOnboarding.test.tsx
+  s_dc9a687cb049b5::t_c4ecbd86691e3f 52-59,63-65
+  s_dc9a687cb049b5::t_91bafd9d3833fd 60-62
+src/features/settings/SettingsDrawer.tsx
+  s_dc9a687cb049b5::t_68b2d8c69d24b1 49,62-63
+src/components/shared/HarImportReview.tsx
+  s_dc9a687cb049b5::t_79f0047c01b412 33
+src/features/ai-lab/components/ImportFromHistoryDialog.tsx
+  s_dc9a687cb049b5::t_a1f5bb7b7d7985 138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4ad3637b1c206a99961f3c8827b67dd4adc0d24d",
+  "prompts": {},
+  "sessions": {
+    "s_dc9a687cb049b5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9d76a409-9a64-495f-bab5-7c58f38e4cac",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
