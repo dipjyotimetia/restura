@@ -1,4 +1,3 @@
-import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import {
   buildClientSchema,
   type GraphQLSchema as GQLSchema,
@@ -6,44 +5,109 @@ import {
   type IntrospectionQuery,
   printSchema,
 } from 'graphql';
-import { type DesktopTransportConfig, executeProxiedRequest } from '@/lib/shared/transport';
-import type { AuthConfig } from '@/types';
+import { resolveEffectiveAuth } from '@/features/auth/lib/authInheritance';
+import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+import { executeRequest, resolveEffectiveSettings } from '@/features/http/lib/requestExecutor';
+import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
+import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
+import type { HttpRequest } from '@/types';
 import type { GraphQLSchema, IntrospectionResult } from '../types';
 
 // Standard GraphQL introspection query (spec-compliant, from the official `graphql` library)
 const INTROSPECTION_QUERY = getIntrospectionQuery();
 
 export interface IntrospectionOptions {
-  headers?: Record<string, string>;
+  /**
+   * The tab's request. Its auth, headers, params and settings carry over so
+   * introspection behaves like a query against the same endpoint; its query,
+   * body and scripts do not.
+   */
+  request?: HttpRequest;
   timeout?: number;
-  /** Sign-at-wire auth (sigv4/oauth1/wsse), applied in the proxy/main. */
-  auth?: AuthConfig;
-  /** Desktop TLS/proxy config so introspecting custom-CA/mTLS/proxied endpoints
-   *  behaves identically to running a query against them. */
-  desktop?: DesktopTransportConfig;
+}
+
+/**
+ * Turn the tab's request into a script-free introspection request: POST, JSON
+ * body, the tab's auth/headers/settings, and the caller's timeout.
+ */
+function buildIntrospectionRequest(
+  endpoint: string,
+  base: HttpRequest | undefined,
+  timeout: number
+): HttpRequest {
+  const headers = [...(base?.headers ?? [])];
+  const hasHeader = (name: string) =>
+    headers.some((h) => h.enabled && h.key.toLowerCase() === name.toLowerCase());
+  if (!hasHeader('content-type')) {
+    headers.push({
+      id: 'introspection-content-type',
+      key: 'Content-Type',
+      value: 'application/json',
+      enabled: true,
+    });
+  }
+  if (!hasHeader('accept')) {
+    headers.push({
+      id: 'introspection-accept',
+      key: 'Accept',
+      value: 'application/json',
+      enabled: true,
+    });
+  }
+
+  const request: HttpRequest = {
+    id: base?.id ?? 'graphql-introspection',
+    name: base?.name ?? 'GraphQL introspection',
+    type: 'http',
+    method: 'POST',
+    url: endpoint,
+    headers,
+    params: base?.params ?? [],
+    body: { type: 'json', raw: JSON.stringify({ query: INTROSPECTION_QUERY }) },
+    auth: base?.auth ?? { type: 'none' },
+    settings: {
+      ...resolveEffectiveSettings(base?.settings, useSettingsStore.getState().settings),
+      timeout,
+    },
+  };
+
+  // A request with no auth of its own picks up the nearest ancestor's, as on Send.
+  const inherited = resolveInheritedAuthFor(request);
+  return { ...request, auth: resolveEffectiveAuth(request.auth, inherited?.auth) };
 }
 
 export async function introspectSchema(
   endpoint: string,
   options: IntrospectionOptions = {}
 ): Promise<IntrospectionResult> {
-  const { headers = {}, timeout = 30000, auth, desktop } = options;
+  const { timeout = 30000 } = options;
 
   try {
-    // Route through the shared proxy (IPC on desktop, Worker on web) — never a
+    // Same executor as Send (IPC on desktop, Worker on web) — never a
     // renderer-direct fetch: the packaged-build CSP blocks it, and it would
-    // bypass the SSRF guard, header policy, and sign-at-wire auth.
-    const spec: ProxyRequestBody = {
-      method: 'POST',
-      url: endpoint,
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...headers },
-      bodyType: 'json',
-      data: JSON.stringify({ query: INTROSPECTION_QUERY }),
-      timeout,
-      ...(auth && auth.type !== 'none' ? { auth: auth as ProxyRequestBody['auth'] } : {}),
-    };
+    // bypass the SSRF guard, header policy, and sign-at-wire auth. Going through
+    // it also gives introspection OAuth2 refresh, Secret reference handling and
+    // the cookie jar. Any refreshed auth is discarded: Refresh Schema doesn't
+    // write back to the tab.
+    const { values, secretVariables } = buildActiveRequestVariableResolution();
+    const { response, transportOk } = await executeRequest({
+      request: buildIntrospectionRequest(endpoint, options.request, timeout),
+      envVars: values,
+      secretVariables,
+      globalSettings: useSettingsStore.getState().settings,
+      resolveVariables: (text) => useEnvironmentStore.getState().resolveVariables(text),
+    });
 
-    const response = await executeProxiedRequest(spec, {}, desktop);
+    if (!transportOk) {
+      return {
+        success: false,
+        schema: null,
+        error: response.body || 'Request failed',
+        endpoint,
+        timestamp: Date.now(),
+      };
+    }
 
     if (response.status < 200 || response.status >= 300) {
       return {
@@ -55,10 +119,7 @@ export async function introspectSchema(
       };
     }
 
-    // The proxy returns the upstream body under `data` — already JSON-parsed on
-    // the desktop path, a string on some web paths; coerce either to an object.
-    const raw: unknown =
-      typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
+    const raw: unknown = JSON.parse(response.body);
     const json = raw as {
       data?: { __schema: GraphQLSchema } | null;
       errors?: Array<{ message: string }>;
