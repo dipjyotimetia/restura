@@ -1,8 +1,8 @@
 import { AgentSuiteSchema } from '@shared/agent-lab';
 import { AgentTelemetryConfigSchema } from '@shared/agent-lab/telemetry-config';
 import { z } from 'zod';
-import { ConsoleNativeDraftSchema } from '@/lib/shared/console-store-schemas';
 import { AiLabReportEnvelopeSchema } from '@/features/ai-lab/run-engine/reportEnvelope';
+import { ConsoleNativeDraftSchema } from '@/lib/shared/console-store-schemas';
 import type { Collection, Environment, Request, SpatialAccent } from '@/types';
 import { SPATIAL_ACCENT_PRESETS } from '@/types';
 import {
@@ -379,6 +379,8 @@ const AiLabModelDetailSchema = z
       .object({
         promptPerMTokUSD: z.number().optional(),
         completionPerMTokUSD: z.number().optional(),
+        cacheReadPerMTokUSD: z.number().optional(),
+        cacheWritePerMTokUSD: z.number().optional(),
       })
       .optional(),
     agentCapabilities: PartialModelCapabilitiesSchema.optional(),

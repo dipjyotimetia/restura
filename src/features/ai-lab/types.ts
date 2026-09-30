@@ -75,6 +75,10 @@ export interface AiLabModelDetail {
   pricing?: {
     promptPerMTokUSD?: number;
     completionPerMTokUSD?: number;
+    /** Price of prompt tokens served from the provider's cache. */
+    cacheReadPerMTokUSD?: number;
+    /** Price of prompt tokens written to the provider's cache. */
+    cacheWritePerMTokUSD?: number;
   };
   /** Model-specific capabilities returned by a tested discovery adapter. */
   agentCapabilities?: Partial<ModelCapabilities>;

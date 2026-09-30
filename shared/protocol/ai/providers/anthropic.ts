@@ -1,6 +1,9 @@
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
-import type { ModelInfo, ProviderModule, StreamDecoder } from './types';
+import { estimateCostUSD, type ModelInfo, type ProviderModule, type StreamDecoder } from './types';
 
+// Pricing snapshot from platform.claude.com/docs/en/about-claude/pricing
+// (checked 2026-09-30). 5-minute cache writes are 1.25x input; reads are 0.1x
+// (0.05x on Opus 5.5, 0.025x on Fable 5.1).
 const MODELS: ModelInfo[] = [
   {
     id: 'claude-haiku-4-5',
@@ -8,20 +11,35 @@ const MODELS: ModelInfo[] = [
     contextWindow: 200_000,
     inputUSDPerMTok: 1.0,
     outputUSDPerMTok: 5.0,
+    cacheReadUSDPerMTok: 0.1,
+    cacheWriteUSDPerMTok: 1.25,
   },
   {
-    id: 'claude-sonnet-4-6',
-    label: 'Claude Sonnet 4.6',
-    contextWindow: 200_000,
-    inputUSDPerMTok: 3.0,
-    outputUSDPerMTok: 15.0,
+    id: 'claude-sonnet-5-5',
+    label: 'Claude Sonnet 5.5',
+    contextWindow: 1_000_000,
+    inputUSDPerMTok: 2.0,
+    outputUSDPerMTok: 10.0,
+    cacheReadUSDPerMTok: 0.2,
+    cacheWriteUSDPerMTok: 2.5,
   },
   {
-    id: 'claude-opus-4-7',
-    label: 'Claude Opus 4.7',
-    contextWindow: 200_000,
-    inputUSDPerMTok: 15.0,
-    outputUSDPerMTok: 75.0,
+    id: 'claude-opus-5-5',
+    label: 'Claude Opus 5.5',
+    contextWindow: 1_000_000,
+    inputUSDPerMTok: 4.0,
+    outputUSDPerMTok: 20.0,
+    cacheReadUSDPerMTok: 0.2,
+    cacheWriteUSDPerMTok: 5.0,
+  },
+  {
+    id: 'claude-fable-5-1',
+    label: 'Claude Fable 5.1',
+    contextWindow: 1_000_000,
+    inputUSDPerMTok: 10.0,
+    outputUSDPerMTok: 50.0,
+    cacheReadUSDPerMTok: 0.25,
+    cacheWriteUSDPerMTok: 12.5,
   },
 ];
 
@@ -29,18 +47,20 @@ function modelFor(id: string): ModelInfo | undefined {
   return MODELS.find((m) => m.id === id);
 }
 
-function estimateCost(model: string, inputTokens: number, outputTokens: number): number {
-  const info = modelFor(model);
-  if (!info) return 0;
-  return (
-    (inputTokens / 1_000_000) * info.inputUSDPerMTok +
-    (outputTokens / 1_000_000) * info.outputUSDPerMTok
-  );
+interface AnthropicUsage {
+  input_tokens?: number;
+  output_tokens?: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
 }
 
 class AnthropicDecoder implements StreamDecoder {
   private buffered: ChatStreamEvent[] = [];
+  // `input_tokens` from Anthropic EXCLUDES cache reads/writes; tracked apart so
+  // cost uses each rate and `promptTokens` reports the true total.
   private inputTokens = 0;
+  private cacheReadTokens = 0;
+  private cacheWriteTokens = 0;
   private outputTokens = 0;
   private finished = false;
   // Tool-use content blocks, keyed by stream `index`. Anthropic streams the
@@ -62,17 +82,15 @@ class AnthropicDecoder implements StreamDecoder {
       type?: string;
       index?: number;
       content_block?: { type?: string; id?: string; name?: string };
-      message?: { usage?: { input_tokens?: number; output_tokens?: number } };
+      message?: { usage?: AnthropicUsage };
       delta?: { text?: string; type?: string; partial_json?: string };
-      usage?: { input_tokens?: number; output_tokens?: number };
+      usage?: AnthropicUsage;
       error?: { message?: string };
     };
     const evt = eventName ?? p.type;
     switch (evt) {
       case 'message_start':
-        if (p.message?.usage?.input_tokens != null) this.inputTokens = p.message.usage.input_tokens;
-        if (p.message?.usage?.output_tokens != null)
-          this.outputTokens = p.message.usage.output_tokens;
+        this.absorbUsage(p.message?.usage);
         break;
       case 'content_block_start':
         if (
@@ -119,7 +137,7 @@ class AnthropicDecoder implements StreamDecoder {
         }
         break;
       case 'message_delta':
-        if (p.usage?.output_tokens != null) this.outputTokens = p.usage.output_tokens;
+        this.absorbUsage(p.usage);
         break;
       case 'message_stop':
         this.finished = true;
@@ -138,17 +156,37 @@ class AnthropicDecoder implements StreamDecoder {
     return this.drain();
   }
 
+  /** Later events may carry only some fields; keep the last value seen for each. */
+  private absorbUsage(u: AnthropicUsage | undefined): void {
+    if (!u) return;
+    if (u.input_tokens != null) this.inputTokens = u.input_tokens;
+    if (u.cache_read_input_tokens != null) this.cacheReadTokens = u.cache_read_input_tokens;
+    if (u.cache_creation_input_tokens != null)
+      this.cacheWriteTokens = u.cache_creation_input_tokens;
+    if (u.output_tokens != null) this.outputTokens = u.output_tokens;
+  }
+
   flush(): ChatStreamEvent[] {
-    if (this.inputTokens > 0 || this.outputTokens > 0) {
+    const promptTokens = this.inputTokens + this.cacheReadTokens + this.cacheWriteTokens;
+    if (promptTokens > 0 || this.outputTokens > 0) {
       this.buffered.push({
         type: 'usage',
         usage: {
-          promptTokens: this.inputTokens,
+          promptTokens,
           completionTokens: this.outputTokens,
-          estimatedCostUSD: estimateCost(this.model, this.inputTokens, this.outputTokens),
+          ...(this.cacheReadTokens > 0 ? { cacheReadTokens: this.cacheReadTokens } : {}),
+          ...(this.cacheWriteTokens > 0 ? { cacheWriteTokens: this.cacheWriteTokens } : {}),
+          estimatedCostUSD: estimateCostUSD(modelFor(this.model), {
+            input: this.inputTokens,
+            cacheRead: this.cacheReadTokens,
+            cacheWrite: this.cacheWriteTokens,
+            output: this.outputTokens,
+          }),
         },
       });
       this.inputTokens = 0;
+      this.cacheReadTokens = 0;
+      this.cacheWriteTokens = 0;
       this.outputTokens = 0;
     }
     if (this.finished || this.buffered.length > 0) {

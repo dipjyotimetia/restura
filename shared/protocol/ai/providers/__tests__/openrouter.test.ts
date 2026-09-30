@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 describe('openrouter', () => {
   it('is OpenAI-API-compatible — reuses the same decoder shape', () => {
-    const decoder = openrouterModule.createDecoder('anthropic/claude-sonnet-4-6');
+    const decoder = openrouterModule.createDecoder('anthropic/claude-sonnet-5.5');
     const events = decoder.feed('{"choices":[{"delta":{"content":"hello"}}]}');
     expect(events[0]).toEqual({ type: 'delta', text: 'hello' });
   });
@@ -17,8 +17,8 @@ describe('openrouter', () => {
 
   it('estimates cost against OWN price table for a slash-namespaced model id', () => {
     // Regression guard: reusing the OpenAI decoder must NOT look the model up in
-    // OpenAI's list (where 'anthropic/claude-sonnet-4-6' is absent → $0).
-    const model = 'anthropic/claude-sonnet-4-6';
+    // OpenAI's list (where 'anthropic/claude-sonnet-5.5' is absent → $0).
+    const model = 'anthropic/claude-sonnet-5.5';
     const decoder = openrouterModule.createDecoder(model);
     decoder.feed(
       JSON.stringify({

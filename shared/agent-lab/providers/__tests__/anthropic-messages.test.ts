@@ -51,7 +51,10 @@ describe('AnthropicMessagesAdapter', () => {
     });
     const request = JSON.parse(vi.mocked(transport).mock.calls[0]?.[0].body as string);
     expect(request).toMatchObject({
-      system: 'Use tools carefully.',
+      cache_control: { type: 'ephemeral' },
+      system: [
+        { type: 'text', text: 'Use tools carefully.', cache_control: { type: 'ephemeral' } },
+      ],
       tools: [{ name: 'lookup', input_schema: expect.any(Object) }],
       messages: [{ role: 'user', content: [{ type: 'text', text: 'Find order 42.' }] }],
     });

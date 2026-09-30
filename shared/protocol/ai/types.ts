@@ -79,7 +79,7 @@ export interface AiToolDef {
 
 export interface ChatRequestSpec {
   provider: Provider;
-  model: string; // e.g. "claude-sonnet-4-x"
+  model: string; // e.g. "claude-sonnet-5-5"
   messages: ChatMessageWire[]; // system first, then alternating user/assistant
   apiKeyHandleId: string; // resolved by secretResolver in the handler
   baseUrlOverride?: string; // user-set self-hosted / regional endpoint
@@ -90,9 +90,14 @@ export interface ChatRequestSpec {
 }
 
 export interface Usage {
+  /** Total prompt size, INCLUDING any cache-read and cache-write tokens below. */
   promptTokens: number;
   completionTokens: number;
   estimatedCostUSD: number;
+  /** Prompt tokens served from the provider's cache. Omitted when zero. */
+  cacheReadTokens?: number;
+  /** Prompt tokens written to the provider's cache. Omitted when zero. */
+  cacheWriteTokens?: number;
 }
 
 export type ChatErrorCode = 'provider' | 'network' | 'parse' | 'aborted' | 'guard';

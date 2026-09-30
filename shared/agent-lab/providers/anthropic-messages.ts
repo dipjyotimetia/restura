@@ -74,7 +74,12 @@ function parseResponse(value: unknown): GenerationResponse {
     id?: unknown;
     content?: unknown;
     stop_reason?: unknown;
-    usage?: { input_tokens?: unknown; output_tokens?: unknown };
+    usage?: {
+      input_tokens?: unknown;
+      output_tokens?: unknown;
+      cache_creation_input_tokens?: unknown;
+      cache_read_input_tokens?: unknown;
+    };
   };
   if (typeof response.id !== 'string' || !Array.isArray(response.content)) {
     throw new Error('Anthropic Messages returned an invalid response shape');
@@ -95,7 +100,18 @@ function parseResponse(value: unknown): GenerationResponse {
       toolCalls.push({ id: block.id, name: block.name, arguments: block.input ?? {} });
     }
   }
-  const inputTokens = response.usage?.input_tokens;
+  // `input_tokens` excludes cached tokens; report the true prompt size.
+  const cachedTokens =
+    (typeof response.usage?.cache_read_input_tokens === 'number'
+      ? response.usage.cache_read_input_tokens
+      : 0) +
+    (typeof response.usage?.cache_creation_input_tokens === 'number'
+      ? response.usage.cache_creation_input_tokens
+      : 0);
+  const inputTokens =
+    typeof response.usage?.input_tokens === 'number'
+      ? response.usage.input_tokens + cachedTokens
+      : undefined;
   const outputTokens = response.usage?.output_tokens;
   return {
     id: response.id,
@@ -165,8 +181,13 @@ export class AnthropicMessagesAdapter implements ProviderAdapter {
       },
       body: JSON.stringify({
         model: request.model.model,
-        max_tokens: request.maxOutputTokens ?? 4096,
-        ...(system ? { system } : {}),
+        max_tokens: request.maxOutputTokens ?? 8192,
+        // Agent loops resend the same system prompt + tools every turn: cache the
+        // stable prefix explicitly and the growing tail automatically.
+        cache_control: { type: 'ephemeral' },
+        ...(system
+          ? { system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }] }
+          : {}),
         messages,
         ...(request.tools
           ? {

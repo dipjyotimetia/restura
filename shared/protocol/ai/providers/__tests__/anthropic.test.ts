@@ -11,7 +11,7 @@ function load(name: string): Uint8Array {
   );
 }
 
-function decodeFixture(name: string, model = 'claude-sonnet-4-6'): ChatStreamEvent[] {
+function decodeFixture(name: string, model = 'claude-sonnet-5-5'): ChatStreamEvent[] {
   const decoder = anthropicModule.createDecoder(model);
   const parser = new SseParser();
   const events: ChatStreamEvent[] = [];
@@ -39,6 +39,9 @@ describe('anthropic decoder', () => {
     expect(usage?.usage.promptTokens).toBe(42);
     expect(usage?.usage.completionTokens).toBe(3);
     expect(usage?.usage.estimatedCostUSD).toBeGreaterThan(0);
+    // No cache activity: the breakdown fields are omitted, not reported as 0.
+    expect(usage?.usage).not.toHaveProperty('cacheReadTokens');
+    expect(usage?.usage).not.toHaveProperty('cacheWriteTokens');
   });
 
   it('emits a provider error for error events', () => {
@@ -53,5 +56,34 @@ describe('anthropic decoder', () => {
   it('ends with done', () => {
     const events = decodeFixture('anthropic-explain.sse.txt');
     expect(events.at(-1)?.type).toBe('done');
+  });
+
+  it('prices cache reads/writes at their own rates and reports the true prompt size', () => {
+    const decoder = anthropicModule.createDecoder('claude-opus-5-5');
+    decoder.feed(
+      JSON.stringify({
+        type: 'message_start',
+        message: {
+          usage: {
+            input_tokens: 1_000_000,
+            cache_read_input_tokens: 1_000_000,
+            cache_creation_input_tokens: 1_000_000,
+            output_tokens: 0,
+          },
+        },
+      }),
+      'message_start'
+    );
+    decoder.feed(
+      JSON.stringify({ type: 'message_delta', usage: { output_tokens: 1_000_000 } }),
+      'message_delta'
+    );
+    const usage = decoder.flush().find((e) => e.type === 'usage');
+    if (usage?.type !== 'usage') throw new Error('no usage event');
+    expect(usage.usage.promptTokens).toBe(3_000_000);
+    expect(usage.usage.cacheReadTokens).toBe(1_000_000);
+    expect(usage.usage.cacheWriteTokens).toBe(1_000_000);
+    // Opus 5.5: $4 input + $0.20 cache read + $5 cache write + $20 output.
+    expect(usage.usage.estimatedCostUSD).toBeCloseTo(29.2, 5);
   });
 });

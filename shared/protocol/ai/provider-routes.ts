@@ -37,6 +37,13 @@ const DEFAULT_BASE_URLS: Record<Provider, string> = {
   'openai-compatible': '',
 };
 
+// Output caps are a backstop, not a tuning knob: a tight cap truncates mid-answer
+// without making the model any more economical. Current models also spend the
+// cap on reasoning (Opus 5.5 always thinks; OpenAI GPT-5+/6 reason by default),
+// so 2048 could leave no room for the visible reply.
+const DEFAULT_MAX_OUTPUT_TOKENS = 8192;
+const OPENAI_DEFAULT_MAX_COMPLETION_TOKENS = 16384;
+
 function baseUrl(spec: ChatRequestSpec): string {
   return spec.baseUrlOverride?.replace(/\/+$/, '') ?? DEFAULT_BASE_URLS[spec.provider];
 }
@@ -132,7 +139,8 @@ const openaiRoute: ProviderRoute = {
         stream: true,
         // Without this, OpenAI omits the usage block from the stream entirely.
         stream_options: { include_usage: true },
-        max_tokens: spec.maxOutputTokens ?? 2048,
+        // GPT-5+ / GPT-6 reject the legacy `max_tokens` on Chat Completions.
+        max_completion_tokens: spec.maxOutputTokens ?? OPENAI_DEFAULT_MAX_COMPLETION_TOKENS,
         ...(tools ? { tools } : {}),
       }),
     };
@@ -154,10 +162,17 @@ const anthropicRoute: ProviderRoute = {
       },
       body: JSON.stringify({
         model: spec.model,
-        system: systemPrompt || undefined,
+        // The system prompt and tools are byte-stable across turns, so an explicit
+        // breakpoint on the system block caches that prefix (and lets independent
+        // conversations share it); the top-level marker auto-caches the growing tail.
+        // Prefixes under the model's minimum cacheable length silently skip caching.
+        cache_control: { type: 'ephemeral' },
+        system: systemPrompt
+          ? [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }]
+          : undefined,
         messages: turnMessages,
         stream: true,
-        max_tokens: spec.maxOutputTokens ?? 2048,
+        max_tokens: spec.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
         // Anthropic tools: [{ name, description, input_schema }].
         ...(spec.tools && spec.tools.length > 0
           ? {
@@ -190,7 +205,7 @@ const openrouterRoute: ProviderRoute = {
         stream: true,
         // OpenRouter is OpenAI-compatible; opt in to usage in the stream.
         stream_options: { include_usage: true },
-        max_tokens: spec.maxOutputTokens ?? 2048,
+        max_tokens: spec.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
         ...(openaiTools(spec) ? { tools: openaiTools(spec) } : {}),
       }),
     };
@@ -219,7 +234,7 @@ function openAiCompatibleRoute(): ProviderRoute {
           messages: openaiMessages(spec),
           stream: true,
           stream_options: { include_usage: true },
-          max_tokens: spec.maxOutputTokens ?? 2048,
+          max_tokens: spec.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
           ...(tools ? { tools } : {}),
         }),
       };

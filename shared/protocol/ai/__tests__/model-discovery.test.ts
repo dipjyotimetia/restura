@@ -105,6 +105,34 @@ describe('listModels', () => {
     expect((req.headers as Record<string, string>).Authorization).toBeUndefined();
   });
 
+  it('OpenRouter discovery parses cache-read and cache-write prices per million tokens', async () => {
+    const fetcher = jsonFetcher({
+      'https://openrouter.ai/api/v1/models': {
+        json: {
+          data: [
+            {
+              id: 'anthropic/claude-sonnet',
+              name: 'Claude Sonnet',
+              pricing: {
+                prompt: '0.000003',
+                completion: '0.000015',
+                input_cache_read: '0.0000003',
+                input_cache_write: '0.00000375',
+              },
+            },
+          ],
+        },
+      },
+    });
+    const models = await listModels({
+      provider: 'openrouter',
+      baseUrl: 'https://openrouter.ai/api',
+      fetcher,
+    });
+    expect(models[0]?.pricing?.cacheReadPerMTokUSD).toBeCloseTo(0.3);
+    expect(models[0]?.pricing?.cacheWritePerMTokUSD).toBeCloseTo(3.75);
+  });
+
   it('OpenRouter discovery omits pricing when the per-token strings are absent', async () => {
     const fetcher = jsonFetcher({
       'https://openrouter.ai/api/v1/models': {
