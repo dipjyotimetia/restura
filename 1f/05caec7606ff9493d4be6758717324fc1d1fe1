@@ -1,0 +1,33 @@
+CONTEXT.md
+  s_2b7c03aa2cf1a1::t_11cc47cb631a65 34-47
+  s_2b7c03aa2cf1a1::t_6a67eb87a59ca3 92-101
+  s_2b7c03aa2cf1a1::t_a88416f564caa9 48-69
+  s_2b7c03aa2cf1a1::t_0407f621231f2d 70-91
+  s_2b7c03aa2cf1a1::t_a65b17b01d1b81 102-129
+  s_2b7c03aa2cf1a1::t_60a3ddbbc2da4a 1-13,15-17,19
+  s_2b7c03aa2cf1a1::t_72aa95f3110c4d 20-33
+  s_2b7c03aa2cf1a1::t_a64908538fd716 14,18
+  s_2b7c03aa2cf1a1::t_c6bb9b698869c6 130-139
+CLAUDE.md
+  s_2b7c03aa2cf1a1::t_80f67d343544a9 289-298
+docs/agents/domain.md
+  s_2b7c03aa2cf1a1::t_80f67d343544a9 1-51
+docs/agents/issue-tracker.md
+  s_2b7c03aa2cf1a1::t_80f67d343544a9 1-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1f05caec7606ff9493d4be6758717324fc1d1fe1",
+  "prompts": {},
+  "sessions": {
+    "s_2b7c03aa2cf1a1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c7d267ed-966f-41df-8b42-2ba97c06cd68",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
