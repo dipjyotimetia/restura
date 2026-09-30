@@ -28,7 +28,7 @@ import { injectString } from '@/features/workflows/lib/variableHelpers';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { executeProxiedStreamingRequest } from '@/lib/shared/transport';
 import type { Request, SseRequest } from '@/types';
-import { cleanupSseElectronListeners } from './lib/sseManager';
+import { buildSseStreamSpec, cleanupSseElectronListeners } from './lib/sseManager';
 import { type ParsedSseEvent, SseParser } from './lib/sseParser';
 
 function createDefaultSseRequest(): SseRequest {
@@ -140,16 +140,9 @@ async function sseStartStream(
   if (ctx.signal.aborted) ourCtrl.abort();
   else ctx.signal.addEventListener('abort', linkAbort, { once: true });
 
-  const response = await executeProxiedStreamingRequest(
-    {
-      method: 'GET',
-      url,
-      headers,
-      streamingMode: true,
-      timeout: 0,
-    },
-    { signal: ourCtrl.signal }
-  );
+  const response = await executeProxiedStreamingRequest(buildSseStreamSpec(url, headers), {
+    signal: ourCtrl.signal,
+  });
 
   if (!response.ok) {
     ourCtrl.abort();

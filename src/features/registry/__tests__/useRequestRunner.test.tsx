@@ -411,4 +411,75 @@ describe('useRequestRunner', () => {
       expect(sent.auth.bearer?.token).toBe('my-own');
     });
   });
+
+  describe('refreshed auth', () => {
+    const okResponse = () => ({
+      id: 'r',
+      requestId: 'r',
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      body: '',
+      size: 0,
+      time: 0,
+      timestamp: Date.now(),
+    });
+    const refreshed = { type: 'oauth2', oauth2: { accessToken: 'fresh' } };
+    const requestWith = (id: string, auth: unknown) =>
+      ({
+        id,
+        name: 'R',
+        type: 'http',
+        method: 'GET',
+        url: 'https://example.com',
+        headers: [],
+        params: [],
+        body: { type: 'none' },
+        auth,
+      }) as never;
+
+    async function runWithRefresh(protocolId: string, request: never, tabId: string) {
+      const { protocolRegistry } = await import('../registry');
+      const { useRequestStore } = await import('@/store/useRequestStore');
+      protocolRegistry.register({
+        id: protocolId,
+        label: 'Fake',
+        tabType: 'http',
+        defaultRequest: () => ({}) as never,
+        runRequest: async (_req, ctx) => {
+          ctx.onAuthRefreshed?.(refreshed as never);
+          return okResponse();
+        },
+      });
+      useRequestStore.setState({
+        tabs: [{ id: tabId, request, isDirty: false }],
+        activeTabId: tabId,
+        isLoading: false,
+      });
+      const { useRequestRunner } = await import('../useRequestRunner');
+      const { result } = renderHook(() => useRequestRunner());
+      await act(async () => {
+        await result.current.run(request, protocolId);
+      });
+      return useRequestStore.getState().tabs.find((t) => t.id === tabId);
+    }
+
+    it('persists a refreshed OAuth2 token onto the originating tab when the request owns its auth', async () => {
+      const tab = await runWithRefresh(
+        'fake-refresh-own',
+        requestWith('req-own', { type: 'oauth2', oauth2: { accessToken: 'stale' } }),
+        'tab-own'
+      );
+      expect((tab?.request as { auth: unknown }).auth).toEqual(refreshed);
+    });
+
+    it('does not materialise a refreshed token onto a request whose auth is inherited', async () => {
+      const tab = await runWithRefresh(
+        'fake-refresh-inherited',
+        requestWith('req-inherited', { type: 'none' }),
+        'tab-inherited'
+      );
+      expect((tab?.request as { auth: unknown }).auth).toEqual({ type: 'none' });
+    });
+  });
 });
