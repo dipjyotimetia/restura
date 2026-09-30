@@ -1,0 +1,19 @@
+src/features/graphql/lib/__tests__/introspection.test.ts
+  s_2b7c03aa2cf1a1::t_45ecc845b421da 158-198
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "020a97f1e1429e7b8bffd836276e559253ad0d12",
+  "prompts": {},
+  "sessions": {
+    "s_2b7c03aa2cf1a1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c7d267ed-966f-41df-8b42-2ba97c06cd68",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
