@@ -122,7 +122,7 @@ Each backend supplies a `Fetcher` — `(req: FetcherRequest) => Promise<FetcherR
 
 1. Add a `shared/protocol/<name>-proxy.ts` module exposing an `execute<Name>Proxy(spec, fetcher, options)` orchestrator that returns `ExecuteResult`.
 2. Add a Worker handler (~30 lines) that builds a `Fetcher` over `globalThis.fetch` and forwards the result.
-3. Add an Electron handler (~30 lines) that builds a `Fetcher` over Node `http`/`https` (or whatever transport the protocol needs) and forwards the result.
+3. Add an Electron handler (~30 lines) that builds a `Fetcher` over Node `http`/`https` (or whatever transport the protocol needs) and forwards the result. The Electron HTTP handler is the exception and is far larger: PAC, SOCKS, mTLS, ALPN capture and manual redirects live inside its fetcher closure (see ADR-0006).
 
 SSRF rules, header sanitisers, body construction, error mapping, and timeouts come for free.
 
