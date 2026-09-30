@@ -1,0 +1,25 @@
+src/features/graphql/components/GraphQLRequestBuilder.tsx
+  s_2b7c03aa2cf1a1::t_0fcdcbb3f57310 316-318
+src/features/graphql/lib/__tests__/introspection.test.ts
+  s_2b7c03aa2cf1a1::t_36a731cfb6a88f 2,4-6,8-12,14-21,37-61,63-67,71-72,75-76,79-82,89-93,95,104-156
+  s_2b7c03aa2cf1a1::t_875002fd9e275e 157
+src/features/graphql/lib/introspection.ts
+  s_2b7c03aa2cf1a1::t_3cbaff7e878e65 10,69-72
+  s_2b7c03aa2cf1a1::t_f68e81db015b72 8-9,11-14,21-26,28-68,73-77,84,87,89-100,102-110,122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "61c9ae023a55ccf5ba7ba888a72accfbdc0457b6",
+  "prompts": {},
+  "sessions": {
+    "s_2b7c03aa2cf1a1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c7d267ed-966f-41df-8b42-2ba97c06cd68",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
