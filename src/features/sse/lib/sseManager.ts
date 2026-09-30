@@ -1,7 +1,18 @@
+import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import { useSseStore } from '@/features/sse/store/useSseStore';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { executeProxiedStreamingRequest } from '@/lib/shared/transport';
 import { type ParsedSseEvent, SseParser } from './sseParser';
+
+/**
+ * Wire spec for opening an SSE stream through the streaming proxy. Shared by
+ * this manager and the store-free `sseStartStream` (`src/features/sse/protocol.ts`)
+ * so the streaming shape is defined once. The orchestrator-side timeout is
+ * disabled: the caller controls the stream's lifetime with its AbortController.
+ */
+export function buildSseStreamSpec(url: string, headers: Record<string, string>): ProxyRequestBody {
+  return { method: 'GET', url, headers, streamingMode: true, timeout: 0 };
+}
 
 /**
  * Remove all `sse:{open,event,error,close}:<connectionId>` IPC listeners.
@@ -130,15 +141,7 @@ class SseManager {
       // signal goes through to fetch so abort during the request/connect
       // phase actually closes the socket — not just the body afterward.
       const response = await executeProxiedStreamingRequest(
-        {
-          method: 'GET',
-          url,
-          headers: { Accept: 'text/event-stream', ...headers },
-          streamingMode: true,
-          // Orchestrator-side timeout disabled; the renderer controls
-          // lifetime via the AbortController above.
-          timeout: 0,
-        },
+        buildSseStreamSpec(url, { Accept: 'text/event-stream', ...headers }),
         { signal: controller.signal }
       );
       clearTimeout(timeoutId);
