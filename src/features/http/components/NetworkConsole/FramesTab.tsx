@@ -186,6 +186,7 @@ export default function FramesTab() {
                 size="icon"
                 className="absolute right-0.5 top-1/2 -translate-y-1/2 h-6 w-6"
                 onClick={() => setSearch('')}
+                aria-label="Clear search"
               >
                 <X className="h-3 w-3" />
               </Button>

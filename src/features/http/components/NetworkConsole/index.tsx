@@ -460,6 +460,7 @@ export default function NetworkConsole({
                     onClick={handleClear}
                     disabled={clearDisabled}
                     className="h-5 w-5"
+                    aria-label={`Clear ${CLEAR_LABELS[activeTab]}`}
                   >
                     <Trash2 className="h-3 w-3" />
                   </Button>
@@ -477,6 +478,8 @@ export default function NetworkConsole({
                   size="icon"
                   onClick={() => setExpanded(!isExpanded)}
                   className="h-5 w-5"
+                  aria-label={`${isExpanded ? 'Collapse' : 'Expand'} console`}
+                  aria-expanded={isExpanded}
                 >
                   {isExpanded ? (
                     <ChevronDown className="h-3 w-3" />
