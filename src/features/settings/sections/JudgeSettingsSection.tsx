@@ -67,11 +67,11 @@ export function JudgeSettingsSection() {
       />
       <FieldRow
         label="Judge model"
-        hint="e.g. gpt-4o-mini, claude-3-5-haiku, or a local Ollama model."
+        hint="e.g. gpt-6-luna, claude-haiku-4-5, or a local Ollama model."
         control={
           <TextField
             mono
-            placeholder="gpt-4o-mini"
+            placeholder="gpt-6-luna"
             value={judge.model}
             onChange={(event) => updateJudge({ model: event.target.value })}
             disabled={!judge.enabled}

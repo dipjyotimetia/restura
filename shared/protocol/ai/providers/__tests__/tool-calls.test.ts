@@ -27,7 +27,7 @@ type ToolCall = Extract<ChatStreamEvent, { type: 'tool_call' }>;
 
 describe('anthropic tool_use decoding', () => {
   it('reconstructs a tool call from streamed input_json_delta fragments', () => {
-    const events = decode(anthropicModule, 'anthropic-tool-use.sse.txt', 'claude-sonnet-4-6');
+    const events = decode(anthropicModule, 'anthropic-tool-use.sse.txt', 'claude-sonnet-5-5');
     const call = events.find((e): e is ToolCall => e.type === 'tool_call');
     expect(call).toBeDefined();
     expect(call?.id).toBe('toolu_01');
@@ -38,7 +38,7 @@ describe('anthropic tool_use decoding', () => {
 
 describe('openai tool_calls decoding', () => {
   it('reconstructs a tool call from streamed argument fragments', () => {
-    const events = decode(openaiModule, 'openai-tool-call.sse.txt', 'gpt-4o');
+    const events = decode(openaiModule, 'openai-tool-call.sse.txt', 'gpt-6-luna');
     const call = events.find((e): e is ToolCall => e.type === 'tool_call');
     expect(call).toBeDefined();
     expect(call?.id).toBe('call_01');
@@ -47,7 +47,7 @@ describe('openai tool_calls decoding', () => {
   });
 
   it('keeps parallel tool calls separate when deltas omit index', () => {
-    const calls = decode(openaiModule, 'openai-tool-call-noindex.sse.txt', 'gpt-4o').filter(
+    const calls = decode(openaiModule, 'openai-tool-call-noindex.sse.txt', 'gpt-6-luna').filter(
       (e): e is ToolCall => e.type === 'tool_call'
     );
     expect(calls).toHaveLength(2);

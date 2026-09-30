@@ -79,7 +79,7 @@ export interface AiToolDef {
 
 export interface ChatRequestSpec {
   provider: Provider;
-  model: string; // e.g. "claude-sonnet-4-x"
+  model: string; // e.g. "claude-sonnet-5-5"
   messages: ChatMessageWire[]; // system first, then alternating user/assistant
   apiKeyHandleId: string; // resolved by secretResolver in the handler
   baseUrlOverride?: string; // user-set self-hosted / regional endpoint

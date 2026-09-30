@@ -11,7 +11,7 @@ function loadFixture(name: string): Uint8Array {
   );
 }
 
-function decodeFixture(fixtureName: string, model = 'gpt-4o-mini'): ChatStreamEvent[] {
+function decodeFixture(fixtureName: string, model = 'gpt-6-luna'): ChatStreamEvent[] {
   const decoder = openaiModule.createDecoder(model);
   const parser = new SseParser();
   const events: ChatStreamEvent[] = [];
@@ -53,7 +53,7 @@ describe('openai decoder', () => {
     // Some OpenAI-compatible gateways/proxies omit the trailing `data: [DONE]`.
     // A non-null finish_reason must still terminate the stream so the renderer
     // finalizes the message instead of leaving it stuck "streaming".
-    const decoder = openaiModule.createDecoder('gpt-4o-mini');
+    const decoder = openaiModule.createDecoder('gpt-6-luna');
     const events = [
       ...decoder.feed('{"choices":[{"delta":{"content":"hi"},"finish_reason":null}]}'),
       ...decoder.feed('{"choices":[{"delta":{},"finish_reason":"stop"}]}'),
@@ -61,5 +61,24 @@ describe('openai decoder', () => {
     ];
     expect(events.some((e) => e.type === 'delta' && e.text === 'hi')).toBe(true);
     expect(events.at(-1)?.type).toBe('done');
+  });
+
+  it('bills the cached portion of prompt_tokens at the cache-read rate', () => {
+    const decoder = openaiModule.createDecoder('gpt-6-astra');
+    decoder.feed(
+      JSON.stringify({
+        choices: [{ delta: {}, finish_reason: 'stop' }],
+        usage: {
+          prompt_tokens: 2_000_000,
+          completion_tokens: 1_000_000,
+          prompt_tokens_details: { cached_tokens: 1_000_000 },
+        },
+      })
+    );
+    const usage = decoder.flush().find((e) => e.type === 'usage');
+    if (usage?.type !== 'usage') throw new Error('no usage event');
+    expect(usage.usage.promptTokens).toBe(2_000_000);
+    // Astra: $10 uncached input + $1 cached + $50 output.
+    expect(usage.usage.estimatedCostUSD).toBeCloseTo(61, 5);
   });
 });

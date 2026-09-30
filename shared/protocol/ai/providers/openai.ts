@@ -1,36 +1,51 @@
 import type { ChatStreamEvent } from '@shared/protocol/ai/types';
-import type { ModelInfo, ProviderModule, StreamDecoder } from './types';
+import { estimateCostUSD, type ModelInfo, type ProviderModule, type StreamDecoder } from './types';
 
+// Pricing snapshot from developers.openai.com/api/docs/pricing (checked
+// 2026-09-30, short-context ≤272K tier). Prompt caching is automatic; cached
+// input is billed at the cache-read rate.
 const MODELS: ModelInfo[] = [
   {
-    id: 'gpt-4o-mini',
-    label: 'GPT-4o mini',
-    contextWindow: 128_000,
-    inputUSDPerMTok: 0.15,
-    outputUSDPerMTok: 0.6,
+    id: 'gpt-6.1-sol',
+    label: 'GPT-6.1 Sol',
+    contextWindow: 1_050_000,
+    inputUSDPerMTok: 2.0,
+    outputUSDPerMTok: 10.0,
+    cacheReadUSDPerMTok: 0.1,
   },
   {
-    id: 'gpt-4o',
-    label: 'GPT-4o',
-    contextWindow: 128_000,
-    inputUSDPerMTok: 2.5,
-    outputUSDPerMTok: 10.0,
+    id: 'gpt-6-astra',
+    label: 'GPT-6 Astra',
+    contextWindow: 1_050_000,
+    inputUSDPerMTok: 10.0,
+    outputUSDPerMTok: 50.0,
+    cacheReadUSDPerMTok: 1.0,
+  },
+  {
+    id: 'gpt-6-luna',
+    label: 'GPT-6 Luna',
+    contextWindow: 1_050_000,
+    inputUSDPerMTok: 0.1,
+    outputUSDPerMTok: 0.5,
+    cacheReadUSDPerMTok: 0.01,
+  },
+  {
+    id: 'gpt-5.4-mini',
+    label: 'GPT-5.4 mini',
+    contextWindow: 400_000,
+    inputUSDPerMTok: 0.75,
+    outputUSDPerMTok: 4.5,
+    cacheReadUSDPerMTok: 0.075,
+  },
+  {
+    id: 'gpt-5.4-nano',
+    label: 'GPT-5.4 nano',
+    contextWindow: 400_000,
+    inputUSDPerMTok: 0.2,
+    outputUSDPerMTok: 1.25,
+    cacheReadUSDPerMTok: 0.02,
   },
 ];
-
-function estimateCost(
-  models: ModelInfo[],
-  model: string,
-  promptTokens: number,
-  completionTokens: number
-): number {
-  const info = models.find((m) => m.id === model);
-  if (!info) return 0;
-  return (
-    (promptTokens / 1_000_000) * info.inputUSDPerMTok +
-    (completionTokens / 1_000_000) * info.outputUSDPerMTok
-  );
-}
 
 /**
  * OpenAI chunked Chat Completions format:
@@ -45,7 +60,8 @@ function estimateCost(
  */
 class OpenAIDecoder implements StreamDecoder {
   private buffered: ChatStreamEvent[] = [];
-  private pendingUsage: { promptTokens: number; completionTokens: number } | null = null;
+  private pendingUsage: { promptTokens: number; completionTokens: number; cached: number } | null =
+    null;
   private finished = false;
   // Tool calls stream as delta.tool_calls[]; id/name arrive first, arguments
   // accumulate across chunks. Keyed by `index`; emitted on flush().
@@ -84,7 +100,12 @@ class OpenAIDecoder implements StreamDecoder {
         };
         finish_reason?: string | null;
       }>;
-      usage?: { prompt_tokens?: number; completion_tokens?: number };
+      usage?: {
+        prompt_tokens?: number;
+        completion_tokens?: number;
+        // `prompt_tokens` INCLUDES the cached portion reported here.
+        prompt_tokens_details?: { cached_tokens?: number };
+      };
       error?: { message?: string };
     };
     if (p.error?.message) {
@@ -124,6 +145,7 @@ class OpenAIDecoder implements StreamDecoder {
       this.pendingUsage = {
         promptTokens: p.usage.prompt_tokens,
         completionTokens: p.usage.completion_tokens,
+        cached: Math.min(p.usage.prompt_tokens_details?.cached_tokens ?? 0, p.usage.prompt_tokens),
       };
     }
     return this.drain();
@@ -148,12 +170,15 @@ class OpenAIDecoder implements StreamDecoder {
       this.buffered.push({
         type: 'usage',
         usage: {
-          ...this.pendingUsage,
-          estimatedCostUSD: estimateCost(
-            this.models,
-            this.model,
-            this.pendingUsage.promptTokens,
-            this.pendingUsage.completionTokens
+          promptTokens: this.pendingUsage.promptTokens,
+          completionTokens: this.pendingUsage.completionTokens,
+          estimatedCostUSD: estimateCostUSD(
+            this.models.find((m) => m.id === this.model),
+            {
+              input: this.pendingUsage.promptTokens - this.pendingUsage.cached,
+              cacheRead: this.pendingUsage.cached,
+              output: this.pendingUsage.completionTokens,
+            }
           ),
         },
       });
