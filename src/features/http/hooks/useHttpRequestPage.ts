@@ -1,6 +1,7 @@
 import { useCallback, useRef } from 'react';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
+import { useRequestAnnouncements } from '@/components/shared/AriaLiveAnnouncer';
 import { resolveEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { executeRequest, resolveEffectiveSettings } from '@/features/http/lib/requestExecutor';
@@ -69,6 +70,10 @@ export function useHttpRequestPage() {
     (): RequestSettings => resolveEffectiveSettings(httpRequest?.settings, globalSettings),
     [httpRequest?.settings, globalSettings]
   );
+
+  // Failures and cancellation already reach screen readers through their toasts
+  // (sonner's live region); a real response only shows visually, so announce it.
+  const { announceRequestComplete } = useRequestAnnouncements();
 
   // Aborts the in-flight send; the executor honours the signal end to end.
   const abortRef = useRef<AbortController | null>(null);
@@ -195,6 +200,7 @@ export function useHttpRequestPage() {
         toast.error(`Request failed: ${responseData.body}`, { id: 'request', duration: 5000 });
       } else {
         toast.dismiss('request');
+        announceRequestComplete(responseData.status, responseData.time);
       }
     } catch (error: unknown) {
       // User cancelled: not a failure, so no error response or history entry.
@@ -247,6 +253,7 @@ export function useHttpRequestPage() {
     addHistoryItem,
     globalSettings,
     addEntry,
+    announceRequestComplete,
     updateRequest,
     updateRequestForTab,
   ]);

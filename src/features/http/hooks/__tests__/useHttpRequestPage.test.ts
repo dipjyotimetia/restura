@@ -8,6 +8,15 @@ vi.mock('@/lib/shared/platform', async (importOriginal) => ({
   isElectron: () => false,
 }));
 
+const announceRequestComplete = vi.hoisted(() => vi.fn());
+vi.mock('@/components/shared/AriaLiveAnnouncer', () => ({
+  useRequestAnnouncements: () => ({
+    announceRequestSent: vi.fn(),
+    announceRequestComplete,
+    announceRequestFailed: vi.fn(),
+  }),
+}));
+
 // The web interactive Send converged on the shared executor, which posts the
 // spec to the Worker `/api/proxy` via `axios.post` (see lib/shared/transport).
 // Mock that wire shape: the Worker responds with a ProxyJsonResponse envelope.
@@ -406,5 +415,65 @@ describe('useHttpRequestPage — resolved URL persistence', () => {
       body: 'delayed failure',
     });
     expect(state.tabs.find((tab) => tab.id === 'tab-error-other')?.response).toBeUndefined();
+  });
+});
+
+describe('useHttpRequestPage — screen-reader announcements', () => {
+  beforeEach(() => {
+    // Earlier tests leave `vi.doMock` overrides behind (they survive resetModules).
+    vi.doUnmock('@/features/http/lib/requestExecutor');
+    vi.doMock('axios', () => {
+      const post = vi.fn().mockResolvedValue({
+        data: { status: 200, statusText: 'OK', headers: {}, data: { ok: true } },
+      });
+      return { default: Object.assign(vi.fn(), { post }), isAxiosError: () => false };
+    });
+    vi.resetModules();
+    announceRequestComplete.mockClear();
+  });
+
+  const send = async (url: string) => {
+    const { useRequestStore } = await import('@/store/useRequestStore');
+    useRequestStore.setState({
+      tabs: [
+        {
+          id: 'tab-a11y',
+          request: {
+            id: 'req-a11y',
+            name: 'A11y',
+            type: 'http' as const,
+            method: 'GET' as const,
+            url,
+            headers: [],
+            params: [],
+            body: { type: 'none' as const },
+            auth: { type: 'none' as const },
+          },
+          isDirty: false,
+        },
+      ],
+      activeTabId: 'tab-a11y',
+      isLoading: false,
+    });
+    const { useHttpRequestPage } = await import('../useHttpRequestPage');
+    const { result } = renderHook(() => useHttpRequestPage());
+    await act(async () => {
+      await result.current.handlers.sendRequest();
+    });
+  };
+
+  it('announces a completed response with its status and time', async () => {
+    await send('https://example.com/ok');
+    expect(announceRequestComplete).toHaveBeenCalledTimes(1);
+    expect(announceRequestComplete).toHaveBeenCalledWith(200, expect.any(Number));
+  });
+
+  it('does not announce a transport failure (its toast already speaks)', async () => {
+    const axios = (await import('axios')).default as unknown as {
+      post: ReturnType<typeof vi.fn>;
+    };
+    axios.post.mockRejectedValueOnce(new Error('Network Error'));
+    await send('https://example.com/down');
+    expect(announceRequestComplete).not.toHaveBeenCalled();
   });
 });
