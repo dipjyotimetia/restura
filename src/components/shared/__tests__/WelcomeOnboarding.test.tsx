@@ -63,6 +63,31 @@ describe('WelcomeOnboarding privacy step', () => {
     expect(localStorage.length).toBe(0);
   });
 
+  it('Escape routes to the privacy step first, and only completes from there', async () => {
+    const user = userEvent.setup();
+    render(<WelcomeOnboarding />);
+    await screen.findByText('Send Your First Request', undefined, { timeout: 2000 });
+
+    await user.keyboard('{Escape}');
+    expect(screen.getByText('Help Improve Restura')).toBeInTheDocument();
+    expect(localStorage.length).toBe(0);
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(localStorage.length).toBeGreaterThan(0);
+  });
+
+  it('Back returns to the previous step', async () => {
+    const user = userEvent.setup();
+    render(<WelcomeOnboarding />);
+    await screen.findByText('Send Your First Request', undefined, { timeout: 2000 });
+    expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /next/i }));
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByText('Send Your First Request')).toBeInTheDocument();
+  });
+
   it('shows the multi-protocol step but hides the desktop-only AI step on web', async () => {
     // jsdom has no window.electron, so isElectron() is false → AI step filtered.
     const user = userEvent.setup();

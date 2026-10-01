@@ -468,7 +468,7 @@ describe('useHttpRequestPage — screen-reader announcements', () => {
     expect(announceRequestComplete).toHaveBeenCalledWith(200, expect.any(Number));
   });
 
-  it('does not announce a transport failure (its toast already speaks)', async () => {
+  it('does not announce a transport failure (its error card already speaks)', async () => {
     const axios = (await import('axios')).default as unknown as {
       post: ReturnType<typeof vi.fn>;
     };

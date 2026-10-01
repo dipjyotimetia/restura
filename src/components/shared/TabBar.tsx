@@ -117,6 +117,9 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
   const [localSaveDialogTabId, setLocalSaveDialogTabId] = useState<string | null>(null);
   // Tab awaiting a discard/save decision (only ever set for tabs with unsaved edits).
   const [pendingCloseId, setPendingCloseId] = useState<string | null>(null);
+  // Close Others / Close All awaiting confirmation because a tab being closed
+  // has unsaved edits. `keepId` is the tab kept by Close Others (null = all).
+  const [pendingBulkClose, setPendingBulkClose] = useState<{ keepId: string | null } | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const activeTabRef = useRef<HTMLButtonElement>(null);
   const stripFadeRef = useOverflowFade<HTMLDivElement>();
@@ -158,6 +161,20 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
   };
 
   const pendingTab = tabs.find((t) => t.id === pendingCloseId);
+
+  const runBulkClose = (keepId: string | null) => {
+    if (keepId) closeOtherTabs(keepId);
+    else closeAllTabs();
+  };
+
+  const requestBulkClose = (keepId: string | null) => {
+    if (tabs.some((t) => t.id !== keepId && t.isDirty)) setPendingBulkClose({ keepId });
+    else runBulkClose(keepId);
+  };
+
+  const bulkDirtyTabs = pendingBulkClose
+    ? tabs.filter((t) => t.id !== pendingBulkClose.keepId && t.isDirty)
+    : [];
 
   const handleSaveBack = (tabId: string, savedRequestId: string) => {
     const tab = tabs.find((t) => t.id === tabId);
@@ -347,10 +364,12 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                   <ContextMenuSeparator />
                   <ContextMenuItem onClick={() => duplicateTab(tab.id)}>Duplicate</ContextMenuItem>
                   <ContextMenuItem onClick={() => requestClose(tab.id)}>Close</ContextMenuItem>
-                  <ContextMenuItem onClick={() => closeOtherTabs(tab.id)}>
+                  <ContextMenuItem onClick={() => requestBulkClose(tab.id)}>
                     Close Others
                   </ContextMenuItem>
-                  <ContextMenuItem onClick={closeAllTabs}>Close All</ContextMenuItem>
+                  <ContextMenuItem onClick={() => requestBulkClose(null)}>
+                    Close All
+                  </ContextMenuItem>
                 </ContextMenuContent>
               </ContextMenu>
             );
@@ -472,6 +491,41 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Discard
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={pendingBulkClose !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingBulkClose(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Discard unsaved changes in {bulkDirtyTabs.length}{' '}
+              {bulkDirtyTabs.length === 1 ? 'tab' : 'tabs'}?
+            </AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div>
+                <p>These requests have unsaved changes that will be lost if you close them:</p>
+                <ul className="mt-2 list-disc pl-5">
+                  {bulkDirtyTabs.map((t) => (
+                    <li key={t.id}>{tabDisplayName(t.request)}</li>
+                  ))}
+                </ul>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep open</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => pendingBulkClose && runBulkClose(pendingBulkClose.keepId)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Discard & close
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

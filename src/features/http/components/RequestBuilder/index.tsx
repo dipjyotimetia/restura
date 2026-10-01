@@ -8,6 +8,7 @@ import { useHttpRequestPage } from '@/features/http/hooks/useHttpRequestPage';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { useUiStore } from '@/store/useUiStore';
 import { RequestBuilderTabs } from './RequestBuilderTabs';
+import { type SubTabKey, subTabForShortcut } from './subTabShortcut';
 
 const CodeGeneratorDialog = lazyComponent(
   () => import('@/features/http/components/CodeGeneratorDialog')
@@ -15,17 +16,6 @@ const CodeGeneratorDialog = lazyComponent(
 const LoadTestDialog = lazyComponent(
   () => import('@/features/load-testing/components/LoadTestDialog')
 );
-
-type SubTabKey = 'params' | 'headers' | 'body' | 'auth' | 'scripts' | 'settings';
-
-const TAB_KEYS: Record<string, SubTabKey> = {
-  '1': 'params',
-  '2': 'headers',
-  '3': 'body',
-  '4': 'auth',
-  '5': 'scripts',
-  '6': 'settings',
-};
 
 function RequestBuilder() {
   const { httpRequest, isLoading, globalSettings, handlers, counts } = useHttpRequestPage();
@@ -50,12 +40,10 @@ function RequestBuilder() {
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-      if (e.altKey && !e.metaKey && !e.ctrlKey) {
-        const tab = TAB_KEYS[e.key];
-        if (tab) {
-          e.preventDefault();
-          setActiveTab(tab);
-        }
+      const tab = subTabForShortcut(e);
+      if (tab) {
+        e.preventDefault();
+        setActiveTab(tab);
       }
     };
     window.addEventListener('keydown', onKeyDown);

@@ -248,5 +248,40 @@ describe('TabBar', () => {
       expect(screen.getByRole('alertdialog')).toBeInTheDocument();
       expect(useRequestStore.getState().tabs).toHaveLength(1);
     });
+
+    it('Close Others asks before discarding unsaved edits in other tabs', async () => {
+      const user = userEvent.setup();
+      useRequestStore.getState().openTab(makeHttp({ name: 'Keep' }));
+      openDirtyTab('Edited');
+      render(<TabBar />);
+
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /Keep/ }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Close Others' }));
+
+      const dialog = screen.getByRole('alertdialog');
+      expect(dialog).toHaveTextContent('Edited');
+      expect(useRequestStore.getState().tabs).toHaveLength(2);
+
+      await user.click(screen.getByRole('button', { name: 'Keep open' }));
+      expect(useRequestStore.getState().tabs).toHaveLength(2);
+
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /Keep/ }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Close Others' }));
+      await user.click(screen.getByRole('button', { name: 'Discard & close' }));
+      expect(useRequestStore.getState().tabs.map((t) => t.request.name)).toEqual(['Keep']);
+    });
+
+    it('Close All closes clean tabs immediately, without asking', async () => {
+      const user = userEvent.setup();
+      useRequestStore.getState().openTab(makeHttp({ name: 'A' }));
+      useRequestStore.getState().openTab(makeHttp({ name: 'B' }));
+      render(<TabBar />);
+
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /^A/ }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Close All' }));
+
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(useRequestStore.getState().tabs).toHaveLength(0);
+    });
   });
 });

@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { Floater, Kbd } from '@/components/ui/spatial';
 import { envColorFor } from '@/features/environments/lib/envColor';
 import { envHostHint } from '@/features/environments/lib/envHint';
+import { isCapableHere } from '@/lib/shared/capabilities';
 import { getPlatform, isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
@@ -171,15 +172,19 @@ export function WindowChrome({
             icon={<Sparkles className="h-3.5 w-3.5" aria-hidden="true" />}
           />
         )}
-        <ChromeIconButton
-          label="Open AI Lab"
-          // HashRouter — set the hash directly so the chrome stays presentational
-          // (no useNavigate, which would require a Router context in unit tests).
-          onClick={() => {
-            window.location.hash = '#/ai-lab';
-          }}
-          icon={<FlaskConical className="h-3.5 w-3.5" aria-hidden="true" />}
-        />
+        {/* AI Lab is desktop-only; on web the button would dead-end on a
+            "not available" page. */}
+        {isCapableHere('aiLab.basic', isElectron()) && (
+          <ChromeIconButton
+            label="Open AI Lab"
+            // HashRouter — set the hash directly so the chrome stays presentational
+            // (no useNavigate, which would require a Router context in unit tests).
+            onClick={() => {
+              window.location.hash = '#/ai-lab';
+            }}
+            icon={<FlaskConical className="h-3.5 w-3.5" aria-hidden="true" />}
+          />
+        )}
         <ChromeIconButton
           label="Report a bug"
           onClick={onOpenBugReport}

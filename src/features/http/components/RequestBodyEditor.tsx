@@ -94,6 +94,7 @@ export default function RequestBodyEditor({
             : 'Raw request body'
       }
       getVariableStatus={getVariableStatus}
+      formatOnMount={false}
       {...(activeTabId ? { path: `tab-${activeTabId}-body` } : {})}
       {...(activeTabId ? { modelOwner: activeTabId } : {})}
     />

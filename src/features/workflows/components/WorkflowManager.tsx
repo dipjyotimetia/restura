@@ -4,6 +4,7 @@ import { Download, MoreVertical, Pencil, Play, Plus, Trash2, Upload, Workflow } 
 import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useShallow } from 'zustand/react/shallow';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -46,6 +47,7 @@ export function WorkflowManager({
   const [showNewDialog, setShowNewDialog] = useState(false);
   const [editingWorkflow, setEditingWorkflow] = useState<OwsStoredWorkflow | null>(null);
   const [workflowName, setWorkflowName] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<OwsStoredWorkflow | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const workflowNames = useMemo(
     () => workflows.map((workflow) => workflow.document.document.name),
@@ -200,7 +202,7 @@ export function WorkflowManager({
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       className="text-destructive"
-                      onClick={() => removeWorkflow(workflow.id)}
+                      onClick={() => setPendingDelete(workflow)}
                     >
                       <Trash2 className="mr-2 h-4 w-4" />
                       Delete
@@ -255,6 +257,17 @@ export function WorkflowManager({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+        title="Delete workflow?"
+        description={`“${pendingDelete?.document.document.name ?? ''}” will be permanently deleted.`}
+        confirmText="Delete"
+        variant="destructive"
+        onConfirm={() => pendingDelete && removeWorkflow(pendingDelete.id)}
+      />
     </div>
   );
 }

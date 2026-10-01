@@ -1,6 +1,7 @@
 import { Copy, Gauge, ListChecks, RotateCw, Server, Square, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { CollectionRunDetail } from '@/features/collections/components/CollectionRunDetail';
 import { CollectionRunnerDialog } from '@/features/collections/components/sidebarLazyDialogs';
 import type { CollectionRunResult } from '@/features/collections/lib/collectionRunner';
@@ -62,6 +63,7 @@ export function RunsPanel() {
   const collectionRuns = useCollectionRunStore((s) => s.runs);
   const clearCollectionRuns = useCollectionRunStore((s) => s.clearRuns);
   const [detailRun, setDetailRun] = useState<CollectionRunResult | null>(null);
+  const [pendingClear, setPendingClear] = useState<'collection' | 'load' | null>(null);
   const [comparisonRunId, setComparisonRunId] = useState<string>('');
   const [collectionRerun, setCollectionRerun] = useState<{
     run: CollectionRunResult;
@@ -182,7 +184,7 @@ export function RunsPanel() {
             collectionRuns.length > 0 ? (
               <button
                 type="button"
-                onClick={clearCollectionRuns}
+                onClick={() => setPendingClear('collection')}
                 className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted transition-colors"
               >
                 <Trash2 className="h-3 w-3" /> Clear
@@ -283,7 +285,7 @@ export function RunsPanel() {
             runs.length > 0 ? (
               <button
                 type="button"
-                onClick={clearRuns}
+                onClick={() => setPendingClear('load')}
                 className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted transition-colors"
               >
                 <Trash2 className="h-3 w-3" /> Clear
@@ -339,6 +341,17 @@ export function RunsPanel() {
           </div>
         )}
       </section>
+      <ConfirmDialog
+        open={pendingClear !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingClear(null);
+        }}
+        title={pendingClear === 'load' ? 'Clear load test runs?' : 'Clear collection runs?'}
+        description="Run history and results will be permanently removed."
+        confirmText="Clear"
+        variant="destructive"
+        onConfirm={pendingClear === 'load' ? clearRuns : clearCollectionRuns}
+      />
     </div>
   );
 }
