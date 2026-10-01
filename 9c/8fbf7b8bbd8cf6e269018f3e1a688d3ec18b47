@@ -1,0 +1,22 @@
+e2e/variable-status.spec.ts
+  s_766edd634beb43::t_d6465c53974e86 68-69
+  s_766edd634beb43::t_09cb7e962977e6 17
+src/components/ui/spatial/ParamRow.tsx
+  s_766edd634beb43::t_d6465c53974e86 87,110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9c8fbf7b8bbd8cf6e269018f3e1a688d3ec18b47",
+  "prompts": {},
+  "sessions": {
+    "s_766edd634beb43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9c66557-0bf1-4aa9-990d-ab0ef03d2e23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
