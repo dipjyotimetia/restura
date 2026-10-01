@@ -1,0 +1,26 @@
+src/features/http/lib/__tests__/requestExecutor.test.ts
+  s_766edd634beb43::t_5bd7ad1f0a4057 152-192,209-212
+  s_766edd634beb43::t_1e2c181ccec7bc 193-194,202-203,205-208
+  s_766edd634beb43::t_d094da44dc5ab6 195-198
+  s_766edd634beb43::t_c8f1fdd9b553e0 199-201,204
+  s_766edd634beb43::t_d705c0fc41e17b 150-151
+src/features/http/lib/requestExecutor.ts
+  s_766edd634beb43::t_d094da44dc5ab6 27
+  s_766edd634beb43::t_5bd7ad1f0a4057 229-236,244,292-299,307
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "801f0781eff7b17a5d81a0cb4d4a7ad08d03788e",
+  "prompts": {},
+  "sessions": {
+    "s_766edd634beb43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9c66557-0bf1-4aa9-990d-ab0ef03d2e23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
