@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { CompareWithPrevious } from '@/components/shared/CompareWithPrevious';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { ImagePreview } from '@/components/shared/ImagePreview';
+import { InFlightBar } from '@/components/shared/InFlightBar';
 import { ResponseEmptyState } from '@/components/shared/ResponseEmptyState';
 import { ResponseHeadersPanel } from '@/components/shared/ResponseHeadersPanel';
 import { ResponseStatus } from '@/components/shared/ResponseStatus';
@@ -381,9 +382,12 @@ function ResponseViewer() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.1 }}
-            className="h-full"
+            className="h-full flex flex-col"
           >
-            <ResponseSkeleton />
+            <InFlightBar />
+            <div className="flex-1 min-h-0">
+              <ResponseSkeleton />
+            </div>
           </motion.div>
         ) : !currentResponse ? (
           <motion.div
