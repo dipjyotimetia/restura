@@ -202,6 +202,8 @@ export default function Home() {
     {
       combo: 'mod+n',
       allowInInput: true,
+      // Desktop: File > New Request (CmdOrCtrl+N) arrives as 'menu:new-request'.
+      enabled: !isElectron(),
       handler: () => {
         createNewRequest('http');
       },
@@ -221,11 +223,19 @@ export default function Home() {
     const offReopen = onMenuEvent('menu:reopen-tab', () =>
       useRequestStore.getState().reopenClosedTab()
     );
+    // File > New Request / Import (and the tray equivalents) had no renderer
+    // subscriber, so their menu clicks did nothing.
+    const offNew = onMenuEvent('menu:new-request', () =>
+      useRequestStore.getState().createNewRequest('http')
+    );
+    const offImport = onMenuEvent('menu:import', openImportDialog);
     return () => {
       offClose();
       offReopen();
+      offNew();
+      offImport();
     };
-  }, []);
+  }, [openImportDialog]);
 
   // Native "Settings/Preferences" menu item (Electron) → open the drawer. The
   // mod+, keybinding above covers the web build, where there is no native menu.
@@ -483,7 +493,9 @@ function cycleTab(step: 1 | -1) {
 function buildTabShortcuts(electron: boolean): Keybinding[] {
   const bind = (id: string, handler: () => void): Keybinding[] => {
     const combo = shortcutCombo(id, electron);
-    return combo ? [{ combo, allowInInput: true, handler }] : [];
+    // Alt/Option combos type characters on macOS (Option+N is the ñ dead key,
+    // Option+[ a curly quote), so they don't fire while typing in a field.
+    return combo ? [{ combo, allowInInput: !combo.startsWith('alt+'), handler }] : [];
   };
   const bindings: Keybinding[] = [
     // Shift variants first: a combo without shift also matches with it held.

@@ -64,13 +64,6 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
     web: null,
   },
   {
-    id: 'export',
-    label: 'Export collection',
-    group: 'General',
-    desktop: 'mod+e',
-    web: null,
-  },
-  {
     id: 'send',
     label: 'Send request (cancels while one is in flight)',
     group: 'Request',
@@ -105,14 +98,14 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
     id: 'next-tab',
     label: 'Next tab',
     group: 'Tabs',
-    desktop: 'mod+tab',
+    desktop: 'ctrl+tab',
     web: 'alt+bracketright',
   },
   {
     id: 'prev-tab',
     label: 'Previous tab',
     group: 'Tabs',
-    desktop: 'mod+shift+tab',
+    desktop: 'ctrl+shift+tab',
     web: 'alt+bracketleft',
   },
   {
@@ -143,6 +136,7 @@ export function formatCombo(combo: string, mac: boolean, range?: string): string
   const parts = combo.toLowerCase().split('+');
   const keys = parts.map((part) => {
     if (part === 'mod') return mac ? '⌘' : 'Ctrl';
+    if (part === 'ctrl') return mac ? '⌃' : 'Ctrl';
     if (part === 'shift') return mac ? '⇧' : 'Shift';
     if (part === 'alt') return mac ? '⌥' : 'Alt';
     if (part in NAMED_KEYS) return NAMED_KEYS[part] as string;

@@ -1,11 +1,11 @@
 'use client';
 
 import { FileText } from 'lucide-react';
-import { useState } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
-import { Segmented } from '@/components/ui/spatial';
 import { useVariableStatus } from '@/hooks/useVariableStatus';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { urlEncodedItems } from '@/lib/shared/urlEncodedBody';
 import { useActiveTab } from '@/store/selectors';
 import type { FormDataItem, RequestBody } from '@/types';
 
@@ -35,6 +35,7 @@ interface RequestBodyEditorProps {
   onBodyTypeChange: (type: RequestBody['type']) => void;
   onBodyContentChange: (content: string) => void;
   onFormDataChange?: (items: FormDataItem[]) => void;
+  onUrlEncodedChange?: (items: FormDataItem[]) => void;
   url?: string;
   graphqlVariables?: string;
   onGraphQLVariablesChange?: (variables: string) => void;
@@ -44,13 +45,13 @@ export default function RequestBodyEditor({
   body,
   onBodyContentChange,
   onFormDataChange,
+  onUrlEncodedChange,
   url = '',
   graphqlVariables = '{}',
   onGraphQLVariablesChange,
 }: RequestBodyEditorProps) {
   const activeTabId = useActiveTab()?.id;
   const getVariableStatus = useVariableStatus();
-  const [urlEncodedMode, setUrlEncodedMode] = useState<'table' | 'text'>('table');
 
   if (body.type === 'none') {
     return (
@@ -107,26 +108,9 @@ export default function RequestBodyEditor({
   if (body.type !== 'x-www-form-urlencoded') return editor;
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex justify-end border-b border-sp-line px-2 py-1">
-        <Segmented<'table' | 'text'>
-          options={[
-            { value: 'table', label: 'Table' },
-            { value: 'text', label: 'Text' },
-          ]}
-          value={urlEncodedMode}
-          onChange={setUrlEncodedMode}
-          size="sm"
-          ariaLabel="Form body view"
-        />
-      </div>
-      <div className="flex-1 min-h-0">
-        {urlEncodedMode === 'table' ? (
-          <UrlEncodedEditor raw={body.raw || ''} onChange={onBodyContentChange} />
-        ) : (
-          editor
-        )}
-      </div>
-    </div>
+    <UrlEncodedEditor
+      items={urlEncodedItems(body, uuidv4)}
+      onChange={onUrlEncodedChange ?? (() => {})}
+    />
   );
 }

@@ -8,7 +8,8 @@ describe('formatCombo', () => {
     expect(formatCombo('alt+bracketright', true)).toEqual(['⌥', ']']);
     expect(formatCombo('alt+bracketleft', false)).toEqual(['Alt', '[']);
     expect(formatCombo('mod+enter', true)).toEqual(['⌘', '↵']);
-    expect(formatCombo('mod+tab', false)).toEqual(['Ctrl', 'Tab']);
+    expect(formatCombo('ctrl+tab', false)).toEqual(['Ctrl', 'Tab']);
+    expect(formatCombo('ctrl+tab', true)).toEqual(['⌃', 'Tab']);
     expect(formatCombo('mod+,', true)).toEqual(['⌘', ',']);
     expect(formatCombo('alt+digit1', true, '1–6')).toEqual(['⌥', '1–6']);
   });
@@ -17,7 +18,7 @@ describe('formatCombo', () => {
 describe('shortcut registry', () => {
   it('has unique ids and never binds browser-reserved keys on web', () => {
     expect(new Set(SHORTCUTS.map((s) => s.id)).size).toBe(SHORTCUTS.length);
-    const reserved = ['mod+keyw', 'mod+n', 'mod+shift+keyt', 'mod+tab', 'mod+digit1'];
+    const reserved = ['mod+keyw', 'mod+n', 'mod+shift+keyt', 'ctrl+tab', 'mod+digit1'];
     for (const s of SHORTCUTS) expect(reserved).not.toContain(s.web);
   });
 

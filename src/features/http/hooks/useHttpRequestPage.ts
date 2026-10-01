@@ -10,6 +10,7 @@ import { applyUrlInput } from '@/features/http/lib/urlQuery';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
+import { urlEncodedRaw } from '@/lib/shared/urlEncodedBody';
 import { buildValueMap } from '@/lib/shared/variableScopes';
 import { useActiveRequest } from '@/store/selectors';
 import { useCollectionStore } from '@/store/useCollectionStore';
@@ -378,6 +379,12 @@ export function useHttpRequestPage() {
     changeBodyContent: (raw: string) => {
       if (!httpRequest) return;
       updateRequest({ body: { ...httpRequest.body, raw } });
+    },
+    // urlencoded fields are the source of truth; keep `raw` in sync for the
+    // text view and older consumers.
+    changeUrlEncoded: (formData: FormDataItem[]) => {
+      if (!httpRequest) return;
+      updateRequest({ body: { ...httpRequest.body, formData, raw: urlEncodedRaw(formData) } });
     },
     changeFormData: (formData: FormDataItem[]) => {
       if (!httpRequest) return;

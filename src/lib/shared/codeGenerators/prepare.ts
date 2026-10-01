@@ -1,5 +1,6 @@
 import type { AuthConfig, HttpRequest } from '@/types';
 import { isSecretHandle, type SecretValue } from '../secretRef';
+import { serializeUrlEncoded } from '../urlEncodedBody';
 import type { GenerateOptions } from './types';
 
 export interface CodegenInput {
@@ -106,10 +107,25 @@ export function prepareCodegen(input: CodegenInput): GenerateOptions & { notes: 
   if (body.type === 'binary')
     notes.push('The binary body isn’t included; attach the file in your client.');
 
+  // Imported urlencoded bodies carry fields rather than a raw string; the
+  // app sends those fields, so the snippet does too.
+  const urlEncodedFields =
+    body.type === 'x-www-form-urlencoded'
+      ? (body.formData ?? []).filter((f) => f.enabled && f.key && f.type !== 'file')
+      : [];
+  const raw =
+    urlEncodedFields.length > 0
+      ? serializeUrlEncoded(urlEncodedFields.map((f) => ({ key: f.key, value: resolve(f.value) })))
+      : body.raw !== undefined
+        ? resolve(body.raw)
+        : undefined;
   const resolvedRequest: HttpRequest =
-    body.raw !== undefined && body.type !== 'binary'
-      ? { ...request, body: { ...body, raw: resolve(body.raw) } }
-      : request;
+    raw !== undefined && body.type !== 'binary' ? { ...request, body: { ...body, raw } } : request;
+
+  // Match the app, which sends XML with this Content-Type unless one is set.
+  if (body.type === 'xml' && !hasHeader('Content-Type')) {
+    resolvedHeaders['Content-Type'] = 'application/xml';
+  }
 
   return {
     request: resolvedRequest,

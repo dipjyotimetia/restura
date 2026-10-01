@@ -131,6 +131,28 @@ describe('prepareCodegen', () => {
   });
 });
 
+describe('prepareCodegen bodies', () => {
+  it('serializes urlencoded fields and adds the XML Content-Type the app sends', () => {
+    const form = prepareCodegen(
+      input({
+        request: {
+          ...base,
+          body: {
+            type: 'x-www-form-urlencoded',
+            formData: [
+              { id: '1', key: 'q', value: '{{term}} x', enabled: true, type: 'text' },
+              { id: '2', key: 'off', value: 'y', enabled: false, type: 'text' },
+            ],
+          },
+        },
+      })
+    );
+    expect(form.request.body.raw).toBe('q=shoes%20x');
+    const xml = prepareCodegen(input({ request: { ...base, body: { type: 'xml', raw: '<a/>' } } }));
+    expect(xml.resolvedHeaders['Content-Type']).toBe('application/xml');
+  });
+});
+
 describe('generators', () => {
   it('JavaScript stringifies JSON bodies for fetch', () => {
     expect(generateJavaScript(prepareCodegen(input()))).toContain(

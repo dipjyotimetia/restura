@@ -46,6 +46,18 @@ describe('comboMatches physical keys', () => {
     expect(comboMatches('mod+digit3', key({ key: '3', code: 'Digit3', metaKey: true }))).toBe(true);
     expect(comboMatches('alt+keyw', key({ key: 'w', code: 'KeyQ', altKey: true }))).toBe(false);
   });
+
+  it('does not treat AltGr (Ctrl+Alt on Windows) as a Ctrl+digit shortcut', () => {
+    expect(
+      comboMatches('mod+digit8', key({ key: '[', code: 'Digit8', ctrlKey: true, altKey: true }))
+    ).toBe(false);
+  });
+
+  it('ctrl requires the literal Control key, even on macOS', () => {
+    expect(comboMatches('ctrl+tab', key({ key: 'Tab', ctrlKey: true }))).toBe(true);
+    expect(comboMatches('ctrl+tab', key({ key: 'Tab', metaKey: true }))).toBe(false);
+    expect(comboMatches('ctrl+shift+tab', key({ key: 'Tab', ctrlKey: true }))).toBe(false);
+  });
 });
 
 describe('isEditableTarget', () => {

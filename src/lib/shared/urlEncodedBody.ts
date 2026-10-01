@@ -1,8 +1,10 @@
+import type { FormDataItem } from '@/types';
+
 /**
- * Table view over an x-www-form-urlencoded body string. The stored shape stays
- * the raw string (what the wire sends), so the table parses it for display and
- * re-serializes on edit. `{{var}}` tokens are left unencoded so they still
- * resolve at send time.
+ * x-www-form-urlencoded bodies. Imported collections store them as text
+ * fields (`body.formData`), older ones as a pre-encoded `raw` string. The
+ * editor works on fields and keeps `raw` in sync; `{{var}}` tokens stay
+ * unencoded so they still resolve at send time.
  */
 export interface UrlEncodedField {
   key: string;
@@ -46,4 +48,25 @@ export function serializeUrlEncoded(fields: ReadonlyArray<UrlEncodedField>): str
     .filter((f) => f.key !== '' || f.value !== '')
     .map((f) => `${encode(f.key)}=${encode(f.value)}`)
     .join('&');
+}
+
+/** The editable fields of a urlencoded body: stored fields, else the parsed raw string. */
+export function urlEncodedItems(
+  body: { raw?: string; formData?: FormDataItem[] },
+  makeId: () => string
+): FormDataItem[] {
+  const stored = body.formData?.filter((f) => f.type !== 'file') ?? [];
+  if (stored.length > 0) return stored;
+  return parseUrlEncoded(body.raw ?? '').map((f) => ({
+    id: makeId(),
+    key: f.key,
+    value: f.value,
+    enabled: true,
+    type: 'text' as const,
+  }));
+}
+
+/** Raw string for a set of fields (enabled ones only, as sent). */
+export function urlEncodedRaw(items: ReadonlyArray<FormDataItem>): string {
+  return serializeUrlEncoded(items.filter((i) => i.enabled));
 }

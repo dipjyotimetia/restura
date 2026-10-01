@@ -95,3 +95,28 @@ describe('CLI body building — structured forms', () => {
     expect(last.body).toBe(`token=${encodeURIComponent(baseUrl)}`);
   });
 });
+
+describe('CLI body building — XML', () => {
+  const run = async (headers: string) => {
+    const dir = bodyCollection(
+      `name: Xml\nmethod: POST\nurl: '{{BASE}}/xml'\n${headers}body:\n  type: xml\n  raw: '<a/>'\n`
+    );
+    await runCollection(
+      dir,
+      { envVars: {}, bail: false, timeoutMs: 5000, allowLocalhost: true },
+      new NoopReporter()
+    );
+    return captured[captured.length - 1]!;
+  };
+
+  it('defaults Content-Type to application/xml, like the app', async () => {
+    const last = await run('');
+    expect(last.contentType).toBe('application/xml');
+    expect(last.body).toBe('<a/>');
+  });
+
+  it('keeps a Content-Type the request sets', async () => {
+    const last = await run('headers:\n  - { key: content-type, value: text/xml, enabled: true }\n');
+    expect(last.contentType).toBe('text/xml');
+  });
+});

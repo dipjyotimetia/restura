@@ -35,7 +35,7 @@ export default function CodeGeneratorDialog({
   const savedLanguage = useSettingsStore((s) => s.settings.codegenLanguage);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
   const activeLanguage: CodeGeneratorType =
-    savedLanguage && savedLanguage in codeGenerators
+    savedLanguage && Object.hasOwn(codeGenerators, savedLanguage)
       ? (savedLanguage as CodeGeneratorType)
       : 'curl';
   const [maskSecrets, setMaskSecrets] = useState(true);

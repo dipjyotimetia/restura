@@ -318,6 +318,7 @@ export function RequestBuilderTabs({
                 onBodyTypeChange={handlers.changeBodyType}
                 onBodyContentChange={handlers.changeBodyContent}
                 onFormDataChange={handlers.changeFormData}
+                onUrlEncodedChange={handlers.changeUrlEncoded}
                 url={request.url}
               />
             </div>

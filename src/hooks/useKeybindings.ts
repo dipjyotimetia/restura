@@ -7,7 +7,8 @@ import { useEffect, useRef } from 'react';
  *
  * `combo` grammar: parts joined by '+', case-insensitive. `mod` = ⌘ on macOS /
  * Ctrl elsewhere. Examples: 'mod+s', 'mod+shift+c', 'mod+,', 'mod+/'. Physical-key
- * tokens (`keyw`, `digit1`, `bracketright`) match `KeyboardEvent.code`.
+ * tokens (`keyw`, `digit1`, `bracketright`) match `KeyboardEvent.code`; `ctrl`
+ * is the literal Control key on every OS.
  */
 export interface Keybinding {
   combo: string;
@@ -35,11 +36,15 @@ function isEditableTarget(target: EventTarget | null): boolean {
 function comboMatches(combo: string, e: KeyboardEvent): boolean {
   const parts = combo.toLowerCase().split('+');
   const key = parts[parts.length - 1] ?? '';
-  const needMod = parts.includes('mod');
+  const needCtrl = parts.includes('ctrl');
+  const needMod = parts.includes('mod') || needCtrl;
   const needShift = parts.includes('shift');
   const needAlt = parts.includes('alt');
   const hasMod = e.metaKey || e.ctrlKey;
   if (needMod !== hasMod) return false;
+  // `ctrl` means the literal Control key on every OS (e.g. Ctrl+Tab on macOS,
+  // where Cmd+Tab is the app switcher).
+  if (needCtrl && !e.ctrlKey) return false;
   // Require shift/alt only when the combo asks for them; don't reject when they
   // happen to be held otherwise. This keeps punctuation combos (e.g. mod+/ ,
   // mod+, ) working on layouts where the key itself requires Shift.
@@ -48,6 +53,10 @@ function comboMatches(combo: string, e: KeyboardEvent): boolean {
   // Physical-key tokens (keyw, digit1, bracketright) compare KeyboardEvent.code,
   // so Alt/Option combos still match on macOS where Option+W types '∑'.
   if (/^(?:key[a-z]|digit\d|bracket(?:left|right))$/.test(key)) {
+    // An unrequested Alt is a different keystroke here: on Windows, AltGr
+    // reports as Ctrl+Alt, so Ctrl+Digit8 would otherwise swallow '[' on
+    // German/Nordic layouts.
+    if (!needAlt && e.altKey) return false;
     return e.code.toLowerCase() === key;
   }
   return e.key.toLowerCase() === key;

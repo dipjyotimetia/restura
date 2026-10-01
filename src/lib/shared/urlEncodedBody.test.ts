@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { parseUrlEncoded, serializeUrlEncoded } from './urlEncodedBody';
+import {
+  parseUrlEncoded,
+  serializeUrlEncoded,
+  urlEncodedItems,
+  urlEncodedRaw,
+} from './urlEncodedBody';
 
 describe('urlencoded body', () => {
   it('parses pairs, decoding escapes and "+" as space', () => {
@@ -29,5 +34,24 @@ describe('urlencoded body', () => {
       { key: 'id', value: '{{id}}' },
     ];
     expect(parseUrlEncoded(serializeUrlEncoded(fields))).toEqual(fields);
+  });
+
+  it('prefers stored fields, falls back to parsing raw, and serializes enabled fields', () => {
+    let n = 0;
+    const id = () => `id-${++n}`;
+    const stored = [
+      { id: 'a', key: 'a', value: '1', enabled: true, type: 'text' as const },
+      { id: 'f', key: 'f', value: 'AAA=', enabled: true, type: 'file' as const },
+      { id: 'b', key: 'b', value: 'x y', enabled: false, type: 'text' as const },
+    ];
+    expect(urlEncodedItems({ raw: 'z=9', formData: stored }, id).map((i) => i.id)).toEqual([
+      'a',
+      'b',
+    ]);
+    expect(urlEncodedItems({ raw: 'z=9' }, id)).toEqual([
+      { id: 'id-1', key: 'z', value: '9', enabled: true, type: 'text' },
+    ]);
+    expect(urlEncodedItems({}, id)).toEqual([]);
+    expect(urlEncodedRaw(stored.filter((i) => i.type === 'text'))).toBe('a=1');
   });
 });

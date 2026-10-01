@@ -296,21 +296,33 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   const proxyBodyType = mapBodyType(request.body.type);
   // form-data carries structured fields (with base64 file content) instead of a
   // raw string; everything else (incl. binary, whose base64 lives in `raw`) uses `data`.
+  // Text fields resolve {{vars}} like the rest of the request; file parts
+  // carry base64 bytes and are never touched. Imported collections
+  // (OpenCollection, Bruno, Insomnia, …) carry urlencoded bodies as
+  // structured text fields rather than a raw string, as the CLI already
+  // honours; send those fields, falling back to `raw`.
+  const resolveTextFields = (items: FormDataItem[] | undefined) =>
+    items?.map((item) =>
+      item.type === 'file' ? item : { ...item, value: resolveLocal(item.value) }
+    );
   const formFields =
     proxyBodyType === 'form-data'
-      ? buildFormFields(
-          request.body.formData?.map((item) =>
-            item.type === 'file' ? item : { ...item, value: resolveLocal(item.value) }
+      ? buildFormFields(resolveTextFields(request.body.formData))
+      : proxyBodyType === 'form-urlencoded'
+        ? buildFormFields(
+            resolveTextFields(request.body.formData?.filter((f) => f.type !== 'file'))
           )
-        )
-      : [];
+        : [];
   const spec: ProxyRequestBody = {
     method: request.method,
     url: resolvedUrl,
     headers,
     params,
     bodyType: proxyBodyType,
-    ...(proxyBodyType !== 'none' && proxyBodyType !== 'form-data' && request.body.raw !== undefined
+    ...(proxyBodyType !== 'none' &&
+    proxyBodyType !== 'form-data' &&
+    formFields.length === 0 &&
+    request.body.raw !== undefined
       ? { data: resolvedRaw }
       : {}),
     ...(formFields.length > 0 ? { formData: formFields } : {}),
