@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { ImagePreview } from '@/components/shared/ImagePreview';
 import { ResponseEmptyState } from '@/components/shared/ResponseEmptyState';
+import { ResponseStatus } from '@/components/shared/ResponseStatus';
 import { ResponseTestsPanel } from '@/components/shared/ResponseTestsPanel';
 import { IconButton, LayoutToggleButton } from '@/components/shared/ResponseToolbarButtons';
 import { StreamingResponseViewer } from '@/components/shared/StreamingResponseViewer';
@@ -16,7 +17,6 @@ import {
   Kbd,
   Segmented,
   Stat,
-  StatusPill,
   type SubTab,
   SubTabBar,
   SubTabPanel,
@@ -30,7 +30,7 @@ import { detectLanguage } from '@/lib/shared/console-format';
 import { isCsvResponse } from '@/lib/shared/csvParser';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { isElectron, isMac } from '@/lib/shared/platform';
-import { cn, formatBytes, formatTime } from '@/lib/shared/utils';
+import { formatBytes, formatTime } from '@/lib/shared/utils';
 import { useActiveResponse, useActiveStreamingEvents, useActiveTab } from '@/store/selectors';
 import { useRequestStore } from '@/store/useRequestStore';
 import { buildResponsePreviewDocument } from './lib/responsePreview';
@@ -431,15 +431,9 @@ function ResponseViewer() {
               <div className="flex items-center gap-3 px-4 py-3 border-b border-sp-line">
                 {/* One-shot arrival cue — replays because the keyed motion.div
                     above remounts the pill for each new response id. */}
-                <StatusPill
+                <ResponseStatus
                   status={currentResponse.status}
-                  text={currentResponse.statusText}
-                  className={cn(
-                    currentResponse.status >= 400 && 'animate-error-shake',
-                    currentResponse.status >= 200 &&
-                      currentResponse.status < 300 &&
-                      'animate-success-pulse'
-                  )}
+                  statusText={currentResponse.statusText}
                 />
                 <Stat label="Time" value={formatTime(currentResponse.time)} />
                 <Stat label="Size" value={formatBytes(currentResponse.size)} />
