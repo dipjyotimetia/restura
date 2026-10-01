@@ -1,0 +1,100 @@
+src/lib/shared/store-validators.ts
+  s_766edd634beb43::t_a42fbc80cb8307 662
+src/features/http/components/UrlEncodedEditor.tsx
+  s_766edd634beb43::t_c0be3d2b42c8b8 1-96
+src/features/http/lib/urlEncodedBody.test.ts
+  s_766edd634beb43::t_f61d5048e46728 1-33
+src/features/http/hooks/useHttpRequestPage.ts
+  s_766edd634beb43::t_ba0a136178fcc9 26,331-332
+src/features/auth/components/InheritedAuthHint.test.tsx
+  s_766edd634beb43::t_9bd21e5d6a0ce5 1-59
+src/features/http/lib/urlEncodedBody.ts
+  s_766edd634beb43::t_f61d5048e46728 1-49
+src/lib/shared/codeGenerators/php.ts
+  s_766edd634beb43::t_5fbbab8f33104f 1,12
+src/features/http/lib/__tests__/requestExecutor.test.ts
+  s_766edd634beb43::t_38658e5b764e92 215-254
+  s_766edd634beb43::t_64786073a5c2fd 150-151
+src/features/http/lib/requestCode.ts
+  s_766edd634beb43::t_a42fbc80cb8307 1-47
+docs-site/src/content/docs/protocols/http.mdx
+  s_766edd634beb43::t_7817b3eebcb5fd 17,19,21,27-30,40-44
+src/lib/shared/codeGenerators/javascript.ts
+  s_766edd634beb43::t_5fbbab8f33104f 1,12
+  s_766edd634beb43::t_698d5b0f22a0d7 4,18-27,39-43
+shared/types/settings.ts
+  s_766edd634beb43::t_a42fbc80cb8307 29-30
+src/lib/shared/codeGenerators/prepare.test.ts
+  s_766edd634beb43::t_eefd80b67c6379 1-148
+src/components/shared/CommandPalette.tsx
+  s_766edd634beb43::t_39e4f55a6d154e 27,546
+  s_766edd634beb43::t_7df41dba338124 40-42,166,295-313
+  s_766edd634beb43::t_4a1a20b2fe706a 314
+src/features/http/lib/formatJsonBody.test.ts
+  s_766edd634beb43::t_3309e48d5e424d 6-8
+  s_766edd634beb43::t_96a5b5ec4b427e 1-5,9-29
+src/features/http/lib/bulkEdit.test.ts
+  s_766edd634beb43::t_e764f385e7132e 1-37
+src/lib/shared/codeGenerators/ruby.ts
+  s_766edd634beb43::t_5fbbab8f33104f 1,12
+src/features/auth/components/InheritedAuthHint.tsx
+  s_766edd634beb43::t_8a3ac3e75b5500 11-32,56
+src/components/ui/spatial/ParamRow.tsx
+  s_766edd634beb43::t_481ca2ace49c3a 135
+  s_766edd634beb43::t_ba0a136178fcc9 22-23,48-49,57,87,124,156
+  s_766edd634beb43::t_7b4f74b0fb7186 110
+src/features/http/components/CodeGeneratorDialog.tsx
+  s_766edd634beb43::t_a42fbc80cb8307 13,16-17,34-41,44,46-54,74,86-94
+src/lib/shared/codeGenerators/curl.ts
+  s_766edd634beb43::t_eefd80b67c6379 26-27
+  s_766edd634beb43::t_5fbbab8f33104f 2,15
+  s_766edd634beb43::t_71e75394e01cdb 5,24-25,28-30
+src/lib/shared/codeGenerators/prepare.ts
+  s_766edd634beb43::t_191ab6b245dafa 1-33,36-105,108-152,157
+  s_766edd634beb43::t_71e75394e01cdb 34-35,106-107,153-156,158-160
+src/lib/shared/codeGenerators/python.ts
+  s_766edd634beb43::t_eefd80b67c6379 31-32
+  s_766edd634beb43::t_698d5b0f22a0d7 5-7,28-30,33-42,68-71
+src/features/http/lib/requestCode.test.ts
+  s_766edd634beb43::t_9bd21e5d6a0ce5 1-65
+src/features/http/lib/requestExecutor.ts
+  s_766edd634beb43::t_3309e48d5e424d 27
+  s_766edd634beb43::t_a781827929e825 228-234
+src/features/http/components/RequestBuilder/RequestBuilderTabs.tsx
+  s_766edd634beb43::t_8a3ac3e75b5500 18-22,168,170-172,195
+  s_766edd634beb43::t_ba0a136178fcc9 6,26,235-237,255-257,436-440,459-461,467-472,522,550,610-633,636-645,670
+  s_766edd634beb43::t_d66c78164c2b75 173-175,387-390
+  s_766edd634beb43::t_7b4f74b0fb7186 646-669
+  s_766edd634beb43::t_3309e48d5e424d 3,5,7,27,282-305
+  s_766edd634beb43::t_a781827929e825 110,121,131
+src/lib/shared/codeGenerators/types.ts
+  s_766edd634beb43::t_5fbbab8f33104f 17-25
+  s_766edd634beb43::t_71e75394e01cdb 9-10
+src/features/http/lib/formatJsonBody.ts
+  s_766edd634beb43::t_96a5b5ec4b427e 1-61
+src/lib/shared/codeGenerators/generators.test.ts
+  s_766edd634beb43::t_b6a50c8272aac5 136
+  s_766edd634beb43::t_5fbbab8f33104f 137-142
+  s_766edd634beb43::t_d3af491fd1bf01 1-135,143
+src/features/http/components/RequestBodyEditor.tsx
+  s_766edd634beb43::t_c0be3d2b42c8b8 4,6,21,53,87,106-130
+  s_766edd634beb43::t_3f0fe33ee1675b 131
+src/features/http/lib/bulkEdit.ts
+  s_766edd634beb43::t_e764f385e7132e 1-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "15b2c751a4ab5e0e9b3ebcbd9f8650ab2f8033a8",
+  "prompts": {},
+  "sessions": {
+    "s_766edd634beb43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9c66557-0bf1-4aa9-990d-ab0ef03d2e23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}

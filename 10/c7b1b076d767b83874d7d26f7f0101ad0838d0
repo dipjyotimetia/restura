@@ -1,0 +1,61 @@
+src/lib/shared/shortcuts.test.ts
+  s_766edd634beb43::t_cc2b79db64215d 11-12,21
+src/features/http/components/RequestBodyEditor.tsx
+  s_766edd634beb43::t_012c4beb582518 8
+  s_766edd634beb43::t_637b655034c491 4,38,48,111-114
+src/features/http/hooks/useHttpRequestPage.ts
+  s_766edd634beb43::t_012c4beb582518 13
+  s_766edd634beb43::t_637b655034c491 383-387
+  s_766edd634beb43::t_3c637c51b4ea77 388
+cli/src/runner/executors/http.ts
+  s_766edd634beb43::t_bab71f709e39e2 34-41,199-200
+src/hooks/useKeybindings.ts
+  s_766edd634beb43::t_cc2b79db64215d 10-11,39-40,45-47,56-59
+src/features/http/lib/__tests__/requestExecutor.test.ts
+  s_766edd634beb43::t_e1cec23268aa1e 257-295,325-329
+  s_766edd634beb43::t_f5fc5872224cd8 255-256
+src/lib/shared/codeGenerators/prepare.ts
+  s_766edd634beb43::t_b831b464a09e2b 3,110-121,123-128
+src/features/http/components/RequestBuilder/RequestBuilderTabs.tsx
+  s_766edd634beb43::t_637b655034c491 321
+src/lib/shared/shortcuts.ts
+  s_766edd634beb43::t_cc2b79db64215d 101,108,139
+src/routes/index.tsx
+  s_766edd634beb43::t_65e35948341ca2 226-231,235-236,238,496-498
+  s_766edd634beb43::t_f6cdf5dd566cc1 205-206
+src/hooks/__tests__/useKeybindings.test.ts
+  s_766edd634beb43::t_cc2b79db64215d 49-60
+cli/src/runner/__tests__/httpBody.test.ts
+  s_766edd634beb43::t_b20d9c7b326103 98-118,120-122
+  s_766edd634beb43::t_012c4beb582518 119
+src/lib/shared/codeGenerators/prepare.test.ts
+  s_766edd634beb43::t_b831b464a09e2b 134-155
+src/features/http/components/CodeGeneratorDialog.tsx
+  s_766edd634beb43::t_012c4beb582518 38
+src/features/http/components/UrlEncodedEditor.tsx
+  s_766edd634beb43::t_637b655034c491 2-3,5-6,8,11-12,18-20,24-25,28-44,49-57,60-82,84-139
+  s_766edd634beb43::t_b831b464a09e2b 7
+  s_766edd634beb43::t_6d3403a2113112 21-23,45-48,58-59
+src/features/http/lib/requestExecutor.ts
+  s_766edd634beb43::t_e1cec23268aa1e 308-309,311,315,322-325
+src/lib/shared/urlEncodedBody.test.ts
+  s_766edd634beb43::t_fdedfd97ce907c 2-7,38-56
+src/lib/shared/urlEncodedBody.ts
+  s_766edd634beb43::t_309f8f5a5f9680 1-2,4-7,52-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "10c7b1b076d767b83874d7d26f7f0101ad0838d0",
+  "prompts": {},
+  "sessions": {
+    "s_766edd634beb43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9c66557-0bf1-4aa9-990d-ab0ef03d2e23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}

@@ -1,0 +1,58 @@
+src/components/shared/VariableHover.tsx
+  s_766edd634beb43::t_be1bb81c22ca45 1-27,34-38,42-84
+  s_766edd634beb43::t_5e58bee909b2c6 28-33,39-41
+e2e/environment-manager.spec.ts
+  s_766edd634beb43::t_6620433252bcc5 30-31
+  s_766edd634beb43::t_3ba2ffd3277776 25-27,29
+  s_766edd634beb43::t_e4901ee8d94561 17
+src/routes/index.tsx
+  s_766edd634beb43::t_e4901ee8d94561 372
+src/components/ui/spatial/ParamRow.test.tsx
+  s_766edd634beb43::t_641713b0488328 1-51
+src/components/shared/VariableInput.tsx
+  s_766edd634beb43::t_46c17eae0c8334 13,15,32-34,125-127,129-131,136,138-142
+src/hooks/useSendShortcut.test.ts
+  s_766edd634beb43::t_faa810a97b8dec 1-44
+src/components/shared/VariableHover.test.tsx
+  s_766edd634beb43::t_faa810a97b8dec 1-82
+src/components/ui/spatial/VariableText.tsx
+  s_766edd634beb43::t_be1bb81c22ca45 66
+src/features/http/components/UrlBar.tsx
+  s_766edd634beb43::t_5e58bee909b2c6 6,82,178-183
+src/lib/shared/variableScopes.ts
+  s_766edd634beb43::t_5cf219a407a021 112-176
+src/components/shared/StatusBar.tsx
+  s_766edd634beb43::t_cadc57756e2ecc 97-103,113
+  s_766edd634beb43::t_e4901ee8d94561 11-12,39-42
+src/components/shared/TopBar.tsx
+  s_766edd634beb43::t_4b76545ea6e3a1 89-126,168-169
+  s_766edd634beb43::t_981c8e2a053e03 2,162
+  s_766edd634beb43::t_9c4368544e2dc3 4-12,65,69,161,163-167,170-190
+src/hooks/useVariableStatus.ts
+  s_766edd634beb43::t_688ec8a2ea51c5 6-11,30-54,75-86
+  s_766edd634beb43::t_3200d41bd5486d 3
+src/components/ui/spatial/ParamRow.tsx
+  s_766edd634beb43::t_5e58bee909b2c6 2,70,151-157,159
+src/lib/shared/__tests__/variableScopes.test.ts
+  s_766edd634beb43::t_10c595b1c84cd4 3-9,97-141
+  s_766edd634beb43::t_a378c14c2254ce 142
+src/features/http/components/__tests__/UrlBar.test.tsx
+  s_766edd634beb43::t_c0a03176efe860 14,139-190
+  s_766edd634beb43::t_ccabd2a8aa15a7 191
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "22303f0d522a47f9bf504642a2aec1550695d955",
+  "prompts": {},
+  "sessions": {
+    "s_766edd634beb43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9c66557-0bf1-4aa9-990d-ab0ef03d2e23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}

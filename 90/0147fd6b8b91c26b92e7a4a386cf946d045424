@@ -1,0 +1,119 @@
+src/store/__tests__/useRequestStore.test.ts
+  s_766edd634beb43::t_3d29c96719ed9e 61,314-381
+src/features/collections/lib/sidebarSearch.ts
+  s_766edd634beb43::t_01a0823e0f9cc5 1-82
+src/components/shared/TabBar.test.tsx
+  s_766edd634beb43::t_fbd39a34bde444 1,6,274-314
+  s_766edd634beb43::t_1377a250e20067 315
+src/components/shared/ResponseToolbarButtons.tsx
+  s_766edd634beb43::t_c0c868208202e9 1-68
+src/features/collections/lib/sidebarSearch.test.ts
+  s_766edd634beb43::t_01a0823e0f9cc5 1-122
+src/components/shared/CommandPalette.tsx
+  s_766edd634beb43::t_55b73cd8fa86ca 38,41
+  s_766edd634beb43::t_95993f6bbd6640 5,13,15,22,36,39,58,118,267,309-362,369,463-473,489,529-531,533-537,539-545,550,658-664,674-681,688-696
+  s_766edd634beb43::t_58166b230b7358 517,520
+  s_766edd634beb43::t_0448c20ff3e5fe 731
+  s_766edd634beb43::t_c298255bca2710 27-34
+src/components/shared/RunsPanel.tsx
+  s_766edd634beb43::t_cb9f7244c82d37 10,299-300
+src/features/http/components/__tests__/UrlBar.test.tsx
+  s_766edd634beb43::t_b836018d278e3c 4,129,131
+src/store/useRequestStore.ts
+  s_766edd634beb43::t_3250f6160ddd59 47-53,230,256-260,274-278,305-311,315-350
+  s_766edd634beb43::t_4577cc40e8b5fa 200-209
+  s_766edd634beb43::t_3d29c96719ed9e 12
+src/features/ai/components/Composer.tsx
+  s_766edd634beb43::t_0448c20ff3e5fe 4,43
+docs-site/src/content/docs/guides/keyboard-shortcuts.mdx
+  s_766edd634beb43::t_5a0648fcef2708 58
+  s_766edd634beb43::t_eb6dd1c5193172 8,20,22-37
+src/lib/shared/fuzzy.test.ts
+  s_766edd634beb43::t_fd41153be0566f 1-29,44
+  s_766edd634beb43::t_5a0648fcef2708 30-43
+src/components/shared/TopBar.tsx
+  s_766edd634beb43::t_cb9f7244c82d37 26
+  s_766edd634beb43::t_0448c20ff3e5fe 236
+  s_766edd634beb43::t_a9794c1880a4a7 1-9,53-54,74-75,166-179
+  s_766edd634beb43::t_94294a6488fc07 180
+shared/types/settings.ts
+  s_766edd634beb43::t_a8c4dfebf33ab1 27-28
+src/routes/index.tsx
+  s_766edd634beb43::t_8ad74c3f920d11 11,18,34
+  s_766edd634beb43::t_a9794c1880a4a7 148-154,209-212,349-350,361,364-366
+  s_766edd634beb43::t_c4d1bdaf904c5c 171-172,214,217-228,466-513
+  s_766edd634beb43::t_58166b230b7358 414
+  s_766edd634beb43::t_889ab5fe2ea2e8 213,229
+src/lib/shared/shortcuts.ts
+  s_766edd634beb43::t_4082288fd74263 3-29,37-80,88-169,175
+  s_766edd634beb43::t_0448c20ff3e5fe 1-2,30-36,81-87,170-174
+src/components/shared/ResponseToolbarButtons.test.tsx
+  s_766edd634beb43::t_8dee370cd96030 1-42
+src/hooks/useKeybindings.ts
+  s_766edd634beb43::t_4510ee7fba2cef 9-10,48-52
+src/components/shared/StatusBar.tsx
+  s_766edd634beb43::t_cb9f7244c82d37 6
+  s_766edd634beb43::t_0448c20ff3e5fe 150
+src/features/collections/components/Sidebar.tsx
+  s_766edd634beb43::t_433f62a0b636bb 1,29,76-81
+  s_766edd634beb43::t_1fe7bcbdd55818 508-509,511-513
+  s_766edd634beb43::t_4660da4679aea4 214-219,221-223,225,228,241,504-507,510,514-533
+src/components/shared/ResponseViewer.tsx
+  s_766edd634beb43::t_0448c20ff3e5fe 406
+  s_766edd634beb43::t_63df64df164152 1
+  s_766edd634beb43::t_c0c868208202e9 9
+  s_766edd634beb43::t_ee24aeb2edf658 32
+src/lib/shared/fuzzy.ts
+  s_766edd634beb43::t_fd41153be0566f 1-34
+src/features/http/components/UrlBar.tsx
+  s_766edd634beb43::t_cb9f7244c82d37 19
+  s_766edd634beb43::t_0448c20ff3e5fe 275
+src/features/socketio/components/SocketIOClient.tsx
+  s_766edd634beb43::t_0448c20ff3e5fe 702
+  s_766edd634beb43::t_cb9f7244c82d37 27,33
+src/components/shared/WelcomeOnboarding.tsx
+  s_766edd634beb43::t_0448c20ff3e5fe 25,41-42,48,55,76,83,88-89
+src/features/websocket/components/WebSocketClient.tsx
+  s_766edd634beb43::t_cb9f7244c82d37 32
+  s_766edd634beb43::t_0448c20ff3e5fe 659
+src/features/collections/components/SidebarHistoryPanel.tsx
+  s_766edd634beb43::t_5f099ac89d3306 10,84-92,94-107,109-112,114-168
+src/lib/shared/shortcuts.test.ts
+  s_766edd634beb43::t_4510ee7fba2cef 1-39
+src/features/settings/SettingsDrawer.tsx
+  s_766edd634beb43::t_6af98a60e09dfe 34-36
+  s_766edd634beb43::t_ed606ba591e312 10-11
+src/hooks/__tests__/useKeybindings.test.ts
+  s_766edd634beb43::t_27a859a87518cd 40-50
+electron/main/lifecycle/menu.ts
+  s_766edd634beb43::t_aace1707188af4 64-80,99-101,158
+src/lib/shared/store-validators.ts
+  s_766edd634beb43::t_a8c4dfebf33ab1 661
+src/components/shared/ResizableLayout.tsx
+  s_766edd634beb43::t_7f71f3ae275736 125-126
+electron/shared/channels.ts
+  s_766edd634beb43::t_aace1707188af4 340-341
+src/features/http/components/NetworkConsole/index.tsx
+  s_766edd634beb43::t_cb9f7244c82d37 33,481-483
+src/components/shared/TabBar.tsx
+  s_766edd634beb43::t_0bbac7f031e45c 67-78,112,135,138,155-159,184-186,190-192,195-203,205,237-240,244-247,263-268,367-375,414,417-423,578
+src/components/shared/CommandPaletteParts.tsx
+  s_766edd634beb43::t_c298255bca2710 2-143
+  s_766edd634beb43::t_69f8c2d3813f8e 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "900147fd6b8b91c26b92e7a4a386cf946d045424",
+  "prompts": {},
+  "sessions": {
+    "s_766edd634beb43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9c66557-0bf1-4aa9-990d-ab0ef03d2e23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
