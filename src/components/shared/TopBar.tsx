@@ -1,5 +1,15 @@
 import { Bug, FlaskConical, Globe, Settings, Sparkles } from 'lucide-react';
+import { cloneElement } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Floater, Kbd } from '@/components/ui/spatial';
 import { envColorFor } from '@/features/environments/lib/envColor';
 import { envHostHint } from '@/features/environments/lib/envHint';
@@ -52,10 +62,11 @@ export function WindowChrome({
   onOpenBugReport,
   setEnvManagerOpen,
 }: WindowChromeProps) {
-  const { environments, activeEnvironmentId } = useEnvironmentStore(
+  const { environments, activeEnvironmentId, setActiveEnvironment } = useEnvironmentStore(
     useShallow((s) => ({
       environments: s.environments,
       activeEnvironmentId: s.activeEnvironmentId,
+      setActiveEnvironment: s.setActiveEnvironment,
     }))
   );
   const activeEnv = activeEnvironmentId
@@ -74,6 +85,44 @@ export function WindowChrome({
   // wired the new prop, we surface the old behaviour. This keeps the prop
   // contract additive.
   const handleOpenEnv = onOpenEnvSwitcher ?? (() => setEnvManagerOpen?.(true));
+
+  const envPill = (
+    <button
+      type="button"
+      aria-label={`Switch environment (current: ${envName})`}
+      className={cn(
+        'inline-flex items-center gap-2 h-7 px-2.5 rounded-sp-pill',
+        'bg-sp-surface-lo border border-sp-line',
+        'text-sp-11-5 text-sp-muted',
+        'hover:bg-sp-hover hover:text-sp-text transition-colors',
+        'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
+      )}
+    >
+      <Globe className="h-3 w-3" aria-hidden="true" />
+      {envHost && (
+        <>
+          {/* Hidden on narrow windows so the centred pill can't run into the right cluster. */}
+          <span className="text-sp-text/80 truncate max-w-[220px] max-[820px]:hidden">
+            {envHost}
+          </span>
+          <span className="text-sp-dim max-[820px]:hidden" aria-hidden="true">
+            ·
+          </span>
+        </>
+      )}
+      <span
+        className="inline-flex items-center gap-1.5"
+        style={{ color: activeEnv ? envColor : 'var(--sp-text-muted)' }}
+      >
+        <span
+          className="block size-1.5 rounded-full"
+          style={{ background: 'currentColor' }}
+          aria-hidden="true"
+        />
+        {envName}
+      </span>
+    </button>
+  );
 
   return (
     <header
@@ -109,42 +158,36 @@ export function WindowChrome({
         className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
         style={region('no-drag')}
       >
-        <button
-          type="button"
-          onClick={handleOpenEnv}
-          aria-label={`Switch environment (current: ${envName})`}
-          className={cn(
-            'inline-flex items-center gap-2 h-7 px-2.5 rounded-sp-pill',
-            'bg-sp-surface-lo border border-sp-line',
-            'text-sp-11-5 text-sp-muted',
-            'hover:bg-sp-hover hover:text-sp-text transition-colors',
-            'focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent'
-          )}
-        >
-          <Globe className="h-3 w-3" aria-hidden="true" />
-          {envHost && (
-            <>
-              {/* Hidden on narrow windows so the centred pill can't run into the right cluster. */}
-              <span className="text-sp-text/80 truncate max-w-[220px] max-[820px]:hidden">
-                {envHost}
-              </span>
-              <span className="text-sp-dim max-[820px]:hidden" aria-hidden="true">
-                ·
-              </span>
-            </>
-          )}
-          <span
-            className="inline-flex items-center gap-1.5"
-            style={{ color: activeEnv ? envColor : 'var(--sp-text-muted)' }}
-          >
-            <span
-              className="block size-1.5 rounded-full"
-              style={{ background: 'currentColor' }}
-              aria-hidden="true"
-            />
-            {envName}
-          </span>
-        </button>
+        {environments.length === 0 ? (
+          cloneElement(envPill, { onClick: handleOpenEnv })
+        ) : (
+          // Quick switch: the pill opens a menu of environments; the full
+          // manager is one item away. With no environments yet, the pill opens
+          // the manager directly so the create flow stays one click.
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>{envPill}</DropdownMenuTrigger>
+            <DropdownMenuContent align="center" sideOffset={6} className="min-w-[200px]">
+              <DropdownMenuRadioGroup
+                value={activeEnvironmentId ?? ''}
+                onValueChange={(id) => setActiveEnvironment(id || null)}
+              >
+                <DropdownMenuRadioItem value="">No environment</DropdownMenuRadioItem>
+                {environments.map((env) => (
+                  <DropdownMenuRadioItem key={env.id} value={env.id}>
+                    <span
+                      className="mr-2 inline-block size-1.5 rounded-full"
+                      style={{ background: envColorFor(env) }}
+                      aria-hidden="true"
+                    />
+                    {env.name}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={handleOpenEnv}>Manage environments…</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
 
       {/* Right: search trigger + settings */}

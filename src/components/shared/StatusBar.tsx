@@ -8,6 +8,8 @@ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 
 interface StatusBarProps {
+  /** Opens the Environment Manager from the environment indicator. */
+  onOpenEnvironments?: () => void;
   // Optional — orchestrator wires this when migrating to the new chrome.
   // Falls back to the legacy `⌘K` keyboard-event dispatch so the bar still
   // works as a standalone surface during the migration window.
@@ -34,7 +36,10 @@ function withAlpha(hex: string, alpha: number): string {
  * Heavy state (active env, history count) reads through Zustand selectors so
  * the bar stays cheap to re-render — no per-second tickers, no resize listeners.
  */
-export default function StatusBar({ onOpenCommandPalette }: StatusBarProps = {}) {
+export default function StatusBar({
+  onOpenCommandPalette,
+  onOpenEnvironments,
+}: StatusBarProps = {}) {
   const { environments, activeEnvironmentId } = useEnvironmentStore(
     useShallow((s) => ({
       environments: s.environments,
@@ -89,7 +94,13 @@ export default function StatusBar({ onOpenCommandPalette }: StatusBarProps = {})
     >
       {/* Left cluster */}
       <div className="flex items-center gap-3 min-w-0">
-        <div className="flex items-center gap-2 min-w-0">
+        <button
+          type="button"
+          onClick={onOpenEnvironments}
+          disabled={!onOpenEnvironments}
+          aria-label={`Manage environments (current: ${envName})`}
+          className="flex items-center gap-2 min-w-0 rounded-sp-btn px-1 -mx-1 hover:bg-sp-hover disabled:hover:bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+        >
           <span
             aria-hidden="true"
             className="block size-1.5 rounded-full shrink-0"
@@ -99,7 +110,7 @@ export default function StatusBar({ onOpenCommandPalette }: StatusBarProps = {})
             }}
           />
           <span className="truncate text-sp-text/80">{envName}</span>
-        </div>
+        </button>
 
         <span className="text-sp-dim" aria-hidden="true">
           ·

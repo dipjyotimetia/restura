@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { KeyValue } from '@/types/common';
-import { buildKnownNames, buildScopedVariableResolution, buildValueMap } from '../variableScopes';
+import {
+  buildKnownNames,
+  buildScopedVariableResolution,
+  buildValueMap,
+  describeVariables,
+  variableSourceLabel,
+} from '../variableScopes';
 
 const kv = (key: string, value: string, enabled = true): KeyValue => ({
   id: key,
@@ -86,5 +92,51 @@ describe('buildKnownNames', () => {
 
   it('is empty for empty inputs', () => {
     expect(buildKnownNames({}).size).toBe(0);
+  });
+});
+
+describe('describeVariables', () => {
+  const kv = (key: string, value: string, extra: Record<string, unknown> = {}): KeyValue =>
+    ({ id: key, key, value, enabled: true, ...extra }) as KeyValue;
+
+  it('reports the winning value and scope, sorted by name', () => {
+    const details = describeVariables({
+      globals: { host: 'global.dev', only: 'g' },
+      baseEnvironment: [kv('host', 'env.dev'), kv('off', 'x', { enabled: false })],
+      collection: [kv('host', 'col.dev')],
+    });
+    expect(details).toEqual([
+      { name: 'host', value: 'col.dev', source: 'collection', secret: false },
+      { name: 'only', value: 'g', source: 'global', secret: false },
+    ]);
+  });
+
+  it('flags secrets from the winning scope and omits values held only as handles', () => {
+    const details = describeVariables({
+      globals: { token: 'plain' },
+      baseEnvironment: [
+        kv('token', 'shh', { secret: true }),
+        kv('apiKey', '', { secretRef: { kind: 'handle', id: 'h1' } }),
+      ],
+      collection: [kv('apiKey', 'override')],
+    });
+    expect(details).toEqual([
+      { name: 'apiKey', value: 'override', source: 'collection', secret: false },
+      { name: 'token', value: 'shh', source: 'base-environment', secret: true },
+    ]);
+    const handleOnly = describeVariables({
+      baseEnvironment: [kv('apiKey', '', { secretRef: { kind: 'handle', id: 'h1' } })],
+    });
+    expect(handleOnly).toEqual([{ name: 'apiKey', source: 'base-environment', secret: true }]);
+  });
+
+  it('lists script-set keys without a value and labels every source', () => {
+    const details = describeVariables({ scriptSetKeys: ['fromScript'], dataRow: { row: '1' } });
+    expect(details).toEqual([
+      { name: 'fromScript', source: 'script', secret: false },
+      { name: 'row', value: '1', source: 'data-row', secret: false },
+    ]);
+    expect(variableSourceLabel('script')).toBe('Pre-request script');
+    expect(variableSourceLabel('sub-environment')).toBe('Sub-environment');
   });
 });

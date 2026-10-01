@@ -1,9 +1,14 @@
 import { useCallback, useMemo } from 'react';
 import type { VariableStatus } from '@/components/ui/spatial';
+import { findAncestorFolderVariables } from '@/lib/shared/activeRequestScopes';
 import { HELPERS } from '@/lib/shared/dynamicVariables';
 import { parseScriptSetKeys } from '@/lib/shared/parseScriptSetKeys';
-import { findAncestorFolderVariables } from '@/lib/shared/activeRequestScopes';
-import { buildKnownNames } from '@/lib/shared/variableScopes';
+import {
+  buildKnownNames,
+  describeVariables,
+  type ScopeInputs,
+  type VariableDetail,
+} from '@/lib/shared/variableScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
@@ -22,6 +27,31 @@ import { useRequestStore } from '@/store/useRequestStore';
  * scopes the resolvers substitute, so validation and execution never disagree.
  */
 export function useVariableStatus(): (name: string) => VariableStatus {
+  const inputs = useActiveScopeInputs();
+  const knownNames = useMemo(() => buildKnownNames(inputs), [inputs]);
+
+  return useCallback(
+    (name: string): VariableStatus => {
+      if (name.startsWith('$')) {
+        return name.slice(1) in HELPERS ? 'resolved' : 'unresolved';
+      }
+      return knownNames.has(name) ? 'resolved' : 'unresolved';
+    },
+    [knownNames]
+  );
+}
+
+/**
+ * Every variable the active request can reference, with its resolved value,
+ * winning scope and secret flag — for hover cards and `{{` autocomplete.
+ */
+export function useVariableDetails(): VariableDetail[] {
+  const inputs = useActiveScopeInputs();
+  return useMemo(() => describeVariables(inputs), [inputs]);
+}
+
+/** Scopes the active tab's request resolves against, matching the send path. */
+function useActiveScopeInputs(): ScopeInputs {
   const environments = useEnvironmentStore((s) => s.environments);
   const activeEnvironmentId = useEnvironmentStore((s) => s.activeEnvironmentId);
   const globals = useGlobalsStore((s) => s.vars);
@@ -42,29 +72,18 @@ export function useVariableStatus(): (name: string) => VariableStatus {
     return parent ? [parent, active] : [active];
   }, [activeEnvironmentId, environments]);
 
-  const knownNames = useMemo(
-    () =>
-      buildKnownNames({
-        baseEnvironment: environmentChain[0]?.variables,
-        subEnvironment: environmentChain[1]?.variables,
-        globals,
-        collection: collection?.variables,
-        folders:
-          savedRequestId && collection
-            ? findAncestorFolderVariables(collection.items, savedRequestId)
-            : undefined,
-        scriptSetKeys: parseScriptSetKeys(preRequestScript),
-      }),
+  return useMemo(
+    () => ({
+      baseEnvironment: environmentChain[0]?.variables,
+      subEnvironment: environmentChain[1]?.variables,
+      globals,
+      collection: collection?.variables,
+      folders:
+        savedRequestId && collection
+          ? findAncestorFolderVariables(collection.items, savedRequestId)
+          : undefined,
+      scriptSetKeys: parseScriptSetKeys(preRequestScript),
+    }),
     [environmentChain, globals, collection, preRequestScript, savedRequestId]
-  );
-
-  return useCallback(
-    (name: string): VariableStatus => {
-      if (name.startsWith('$')) {
-        return name.slice(1) in HELPERS ? 'resolved' : 'unresolved';
-      }
-      return knownNames.has(name) ? 'resolved' : 'unresolved';
-    },
-    [knownNames]
   );
 }

@@ -1,4 +1,5 @@
 import { X } from 'lucide-react';
+import { useVariableHover } from '@/components/shared/VariableHover';
 import { VariableInput } from '@/components/shared/VariableInput';
 import { cn } from '@/lib/shared/utils';
 import { ComboboxInput, type ComboboxSuggestion } from './ComboboxInput';
@@ -66,6 +67,7 @@ export function ParamRow({
   // the highlight overlay shows (avoids double-rendering the text). Gated on a
   // real token — a half-typed `{{` keeps the raw input visible.
   const showValueOverlay = !!showVariableHighlight && hasVariableToken(row.value);
+  const variableHover = useVariableHover();
   const valueInputClass = cn(baseInput, showValueOverlay && 'text-transparent caret-sp-accent');
 
   const renderKey = () => {
@@ -146,8 +148,15 @@ export function ParamRow({
         />
       </div>
       <div className="border-l border-sp-line/40 flex items-center min-w-0">{renderKey()}</div>
-      <div className="relative border-l border-sp-line/40 flex items-center min-w-0">
+      <div
+        className="relative border-l border-sp-line/40 flex items-center min-w-0"
+        {...(showValueOverlay && {
+          onMouseMove: variableHover.onMouseMove,
+          onMouseLeave: variableHover.onMouseLeave,
+        })}
+      >
         {renderValue()}
+        {showValueOverlay && variableHover.card}
         {showValueOverlay && (
           <div
             aria-hidden="true"

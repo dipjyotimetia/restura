@@ -3,6 +3,7 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Code2, Link2, Loader2, Send } from 'lucide-react';
 import { useState } from 'react';
+import { useVariableHover } from '@/components/shared/VariableHover';
 import { VariableInput } from '@/components/shared/VariableInput';
 import { Button } from '@/components/ui/button';
 import {
@@ -78,6 +79,7 @@ export function UrlBar({
   const [draft, setDraft] = useState<string | null>(null);
   const shownUrl = draft ?? url;
   const getVarStatus = useVariableStatus();
+  const variableHover = useVariableHover();
 
   const validateUrl = (newUrl: string) => {
     if (!newUrl) {
@@ -173,7 +175,12 @@ export function UrlBar({
           </DropdownMenu.Root>
 
           {/* URL field with variable highlight overlay */}
-          <div className="relative flex-1 min-w-0 h-7 flex items-center">
+          <div
+            className="relative flex-1 min-w-0 h-7 flex items-center"
+            onMouseMove={variableHover.onMouseMove}
+            onMouseLeave={variableHover.onMouseLeave}
+          >
+            {variableHover.card}
             <VariableInput
               rawInput
               type="text"

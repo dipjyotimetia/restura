@@ -63,6 +63,7 @@ export function VariableText({
           <span
             key={i}
             className={cn('font-mono', unresolved ? 'sp-variable-unresolved' : 'sp-variable')}
+            data-var={seg.name}
             title={unresolved ? `Unresolved variable: ${seg.name}` : undefined}
           >
             {seg.text}

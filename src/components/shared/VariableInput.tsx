@@ -10,8 +10,9 @@ import {
 } from '@/components/ui/command';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
+import { useVariableDetails } from '@/hooks/useVariableStatus';
 import { POSTMAN_VARIABLES } from '@/lib/shared/dynamicVariables';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { variableSourceLabel } from '@/lib/shared/variableScopes';
 
 interface VariableInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   value: string;
@@ -28,7 +29,9 @@ export const VariableInput = React.forwardRef<HTMLInputElement, VariableInputPro
     const [search, setSearch] = useState('');
     const [insertPosition, setInsertPosition] = useState(0);
     const internalRef = useRef<HTMLInputElement>(null);
-    const activeEnv = useEnvironmentStore((s) => s.getActiveEnvironment());
+    // Every scope the request resolves against (env, globals, collection,
+    // folders, script-set keys), not just the active environment.
+    const variables = useVariableDetails();
 
     const checkVariableContext = (text: string, cursorPosition: number) => {
       const beforeCursor = text.slice(0, cursorPosition);
@@ -84,7 +87,6 @@ export const VariableInput = React.forwardRef<HTMLInputElement, VariableInputPro
       }, 0);
     };
 
-    const envVariables = activeEnv?.variables.filter((v) => v.enabled && v.key) || [];
     const InputComponent = rawInput ? 'input' : Input;
 
     return (
@@ -120,21 +122,24 @@ export const VariableInput = React.forwardRef<HTMLInputElement, VariableInputPro
             />
             <CommandList>
               <CommandEmpty>No variables found.</CommandEmpty>
-              {envVariables.length > 0 && (
-                <CommandGroup heading="Environment Variables">
-                  {envVariables.map((v) => (
+              {variables.length > 0 && (
+                <CommandGroup heading="Variables">
+                  {variables.map((v) => (
                     <CommandItem
-                      key={v.id}
-                      value={v.key}
-                      onSelect={() => insertVariable(v.key)}
+                      key={v.name}
+                      value={v.name}
+                      onSelect={() => insertVariable(v.name)}
                       className="flex justify-between items-center"
                     >
                       <div className="flex items-center gap-2 overflow-hidden">
                         <Variable className="h-3.5 w-3.5 text-primary shrink-0" />
-                        <span className="font-mono text-xs truncate">{v.key}</span>
+                        <span className="font-mono text-xs truncate">{v.name}</span>
                       </div>
-                      <span className="text-xs text-muted-foreground truncate max-w-[100px] ml-2">
-                        {v.secret ? '••••••' : v.value}
+                      <span className="flex items-center gap-1.5 ml-2 min-w-0 text-xs text-muted-foreground">
+                        <span className="truncate max-w-[100px]">
+                          {v.secret ? '••••••' : (v.value ?? '')}
+                        </span>
+                        <span className="shrink-0 opacity-70">{variableSourceLabel(v.source)}</span>
                       </span>
                     </CommandItem>
                   ))}

@@ -369,7 +369,7 @@ export default function Home() {
         {enableAi && aiPanelOpen && <ChatPanel onClose={() => setAiPanelOpen(false)} />}
       </div>
 
-      <StatusBar />
+      <StatusBar onOpenEnvironments={openEnvironmentManager} />
 
       {paletteOpen && (
         <CommandPalette
