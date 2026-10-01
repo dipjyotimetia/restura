@@ -149,6 +149,69 @@ describe('executeRequest — cookie settings inheritance', () => {
   });
 });
 
+describe('executeRequest — body variables', () => {
+  const settings = useSettingsStore.getState().settings;
+  beforeEach(() => {
+    executeProxiedRequestMock.mockReset();
+    executeProxiedRequestMock.mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: '',
+      size: 0,
+    });
+  });
+  const sentSpec = () =>
+    executeProxiedRequestMock.mock.calls[0]?.[0] as {
+      data?: string;
+      formData?: Array<{ name: string; value: string }>;
+    };
+  const send = (body: HttpRequest['body']) =>
+    executeRequest({
+      request: makeRequest({ method: 'POST', body }),
+      envVars: { host: 'api.dev', id: '42' },
+      globalSettings: settings,
+      resolveVariables: (text) => text,
+    });
+
+  it('resolves {{vars}} in a raw body', async () => {
+    await send({ type: 'json', raw: '{"h":"{{host}}","id":{{id}}}' });
+    expect(sentSpec().data).toBe('{"h":"api.dev","id":42}');
+  });
+
+  it('resolves {{vars}} in form-data text fields but never in file content', async () => {
+    await send({
+      type: 'form-data',
+      formData: [
+        { id: '1', key: 'who', value: '{{host}}', enabled: true, type: 'text' },
+        { id: '2', key: 'f', value: 'e3tob3N0fX0=', enabled: true, type: 'file', fileName: 'a' },
+      ],
+    });
+    expect(sentSpec().formData?.map((f) => f.value)).toEqual(['api.dev', 'e3tob3N0fX0=']);
+  });
+
+  it('keeps desktop secret-handle references opaque in the body', async () => {
+    await executeRequest({
+      request: makeRequest({
+        method: 'POST',
+        body: { type: 'text', raw: 'k={{apiKey}}&h={{host}}' },
+      }),
+      // Handle-backed variables are absent from envVars; the store-level
+      // resolver would otherwise substitute its masked placeholder.
+      envVars: { host: 'api.dev' },
+      secretVariables: { apiKey: { kind: 'handle', id: 'h1' } },
+      globalSettings: settings,
+      resolveVariables: (text) => text.replaceAll('{{apiKey}}', '••••••••'),
+    });
+    expect(sentSpec().data).toBe('k={{apiKey}}&h=api.dev');
+  });
+
+  it('leaves a binary body untouched', async () => {
+    await send({ type: 'binary', raw: 'e3tob3N0fX0=' });
+    expect(sentSpec().data).toBe('e3tob3N0fX0=');
+  });
+});
+
 describe('isStreamingAccept', () => {
   it('detects text/event-stream', () => {
     expect(isStreamingAccept({ Accept: 'text/event-stream' })).toBe(true);

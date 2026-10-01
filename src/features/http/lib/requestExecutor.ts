@@ -1,6 +1,5 @@
 import type { ProxyBodyType } from '@shared/protocol/body-builder';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
-import type { SecretValue } from '@/lib/shared/secretRef';
 import { Cookie } from 'tough-cookie';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -25,6 +24,7 @@ import { selectCertForUrl } from '@/lib/shared/certMatcher';
 import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
 import { makeRendererJudge } from '@/lib/shared/judgeBridge';
+import type { SecretValue } from '@/lib/shared/secretRef';
 import {
   type DesktopTransportConfig,
   executeProxiedRequest,
@@ -226,6 +226,14 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
       headers[h.key] = resolveLocal(h.value);
     });
 
+  // {{vars}} in the body resolve like the URL/params/headers do (the CLI
+  // already does this). Binary bodies hold base64 bytes and are never touched;
+  // desktop secret handles stay opaque via resolveLocal.
+  const resolvedRaw =
+    request.body.raw !== undefined && request.body.type !== 'binary'
+      ? resolveLocal(request.body.raw)
+      : request.body.raw;
+
   const effectiveAuth = await refreshOAuth2Auth(request.auth, Date.now(), options.signal);
 
   const headersWithAuth = await applyAuthHeaders(
@@ -233,7 +241,7 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
     headers,
     resolvedUrl,
     request.method,
-    request.body.type !== 'none' ? request.body.raw : undefined
+    request.body.type !== 'none' ? resolvedRaw : undefined
   );
   assertHandleSupported(headersWithAuth);
   Object.assign(headers, headersWithAuth.headers);
@@ -281,7 +289,14 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   const proxyBodyType = mapBodyType(request.body.type);
   // form-data carries structured fields (with base64 file content) instead of a
   // raw string; everything else (incl. binary, whose base64 lives in `raw`) uses `data`.
-  const formFields = proxyBodyType === 'form-data' ? buildFormFields(request.body.formData) : [];
+  const formFields =
+    proxyBodyType === 'form-data'
+      ? buildFormFields(
+          request.body.formData?.map((item) =>
+            item.type === 'file' ? item : { ...item, value: resolveLocal(item.value) }
+          )
+        )
+      : [];
   const spec: ProxyRequestBody = {
     method: request.method,
     url: resolvedUrl,
@@ -289,7 +304,7 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
     params,
     bodyType: proxyBodyType,
     ...(proxyBodyType !== 'none' && proxyBodyType !== 'form-data' && request.body.raw !== undefined
-      ? { data: request.body.raw }
+      ? { data: resolvedRaw }
       : {}),
     ...(formFields.length > 0 ? { formData: formFields } : {}),
     ...(effectiveSettings.timeout !== undefined ? { timeout: effectiveSettings.timeout } : {}),
