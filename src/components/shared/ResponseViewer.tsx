@@ -52,6 +52,12 @@ const CodeEditor = lazyComponent(
 );
 
 // CSV (papaparse) and JSONPath (jsonpath-plus) only load when actually used.
+const JsonTree = lazyComponent(
+  () => import('@/components/shared/JsonTree'),
+  <div className="p-4">
+    <Skeleton className="h-4 w-1/2 rounded" />
+  </div>
+);
 const CsvTableViewer = lazyComponent(
   () => import('@/components/shared/CsvTableViewer'),
   <div className="p-4">
@@ -118,7 +124,7 @@ function ResponseSkeleton() {
 }
 
 type ResponseTab = 'body' | 'headers' | 'cookies' | 'timeline' | 'tests' | 'preview' | 'visualize';
-type BodyFormat = 'pretty' | 'raw' | 'table';
+type BodyFormat = 'pretty' | 'raw' | 'table' | 'tree';
 
 function ResponseViewer() {
   const currentResponse = useActiveResponse();
@@ -194,11 +200,26 @@ function ResponseViewer() {
     const showsBody = activeTab === 'body' || activeTab === 'preview';
     if (!showsBody) return '';
     // Binary (base64) and table views render their own components, not Monaco.
-    if (isBase64 || bodyFormat === 'table') return '';
+    if (isBase64 || bodyFormat === 'table' || bodyFormat === 'tree') return '';
     if (bodyFormat === 'raw') return currentResponse.body;
     if (language === 'json') return formatJson(currentResponse.body, forceFormat);
     return currentResponse.body;
   }, [currentResponse, language, bodyFormat, activeTab, isBase64, forceFormat]);
+
+  // The tree view parses the body, so it's offered under the same size cap as
+  // pretty-printing, and parsed only while it's selected.
+  const canShowTree =
+    language === 'json' &&
+    !isBase64 &&
+    (currentResponse?.body.length ?? 0) <= PRETTY_PRINT_MAX_BYTES;
+  const treeValue = useMemo(() => {
+    if (bodyFormat !== 'tree' || !currentResponse) return undefined;
+    try {
+      return { value: JSON.parse(currentResponse.body) as unknown };
+    } catch {
+      return null;
+    }
+  }, [bodyFormat, currentResponse]);
 
   // Pretty view of an oversized JSON body is shown unformatted — say so.
   const formattingSkipped =
@@ -441,6 +462,7 @@ function ResponseViewer() {
                           options={[
                             { value: 'pretty', label: 'Pretty' },
                             { value: 'raw', label: 'Raw' },
+                            ...(canShowTree ? [{ value: 'tree' as const, label: 'Tree' }] : []),
                             ...(isCsv ? [{ value: 'table' as const, label: 'Table' }] : []),
                           ]}
                           ariaLabel="Response body format"
@@ -454,15 +476,18 @@ function ResponseViewer() {
                           onClick={() => setShowJsonPath((v) => !v)}
                         />
                       )}
-                      {!isBase64 && bodyFormat !== 'table' && !showJsonPath && (
-                        <IconButton
-                          icon={<Search className="h-3.5 w-3.5" />}
-                          label="Find in response (Ctrl+F)"
-                          onClick={() =>
-                            responseEditorRef.current?.getAction('actions.find')?.run()
-                          }
-                        />
-                      )}
+                      {!isBase64 &&
+                        bodyFormat !== 'table' &&
+                        bodyFormat !== 'tree' &&
+                        !showJsonPath && (
+                          <IconButton
+                            icon={<Search className="h-3.5 w-3.5" />}
+                            label="Find in response (Ctrl+F)"
+                            onClick={() =>
+                              responseEditorRef.current?.getAction('actions.find')?.run()
+                            }
+                          />
+                        )}
                       {!isBase64 && (
                         <IconButton
                           icon={
@@ -525,6 +550,14 @@ function ResponseViewer() {
                           body={currentResponse.body}
                           onClose={() => setShowJsonPath(false)}
                         />
+                      ) : bodyFormat === 'tree' ? (
+                        treeValue ? (
+                          <JsonTree value={treeValue.value} />
+                        ) : (
+                          <p className="p-4 text-sp-12 text-sp-dim">
+                            This body isn’t valid JSON, so it can’t be shown as a tree.
+                          </p>
+                        )
                       ) : bodyFormat === 'table' ? (
                         <CsvTableViewer body={currentResponse.body} />
                       ) : formattedBody ? (
