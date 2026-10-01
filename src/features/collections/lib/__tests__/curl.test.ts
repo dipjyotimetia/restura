@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { HttpRequest } from '@/types';
-import { importCurlCommand } from '../importers/curl';
+import { importCurlCommand, parseCurlCommand } from '../importers/curl';
 import { coerceHttpMethod, type ImportWarning, summarizeWarnings } from '../importers/types';
 
 describe('importCurlCommand', () => {
@@ -261,5 +261,16 @@ describe('importCurlCommand', () => {
     const request = importCurlCommand('curl https://api.example.com\\').collection.items[0]!
       .request as HttpRequest;
     expect(request).toMatchObject({ url: 'https://api.example.com/' });
+  });
+});
+
+describe('parseCurlCommand', () => {
+  it('reports only the settings the command\u2019s flags set', () => {
+    expect(parseCurlCommand("curl 'https://x.dev'").explicitSettings).toEqual({});
+    expect(parseCurlCommand("curl -L -k --max-time 3 'https://x.dev'").explicitSettings).toEqual({
+      followRedirects: true,
+      verifySsl: false,
+      timeout: 3000,
+    });
   });
 });

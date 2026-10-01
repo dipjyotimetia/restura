@@ -477,3 +477,72 @@ describe('useHttpRequestPage — screen-reader announcements', () => {
     expect(announceRequestComplete).not.toHaveBeenCalled();
   });
 });
+
+describe('useHttpRequestPage — paste cURL', () => {
+  beforeEach(() => vi.resetModules());
+
+  const setUp = async (settings?: Record<string, unknown>) => {
+    const { useRequestStore } = await import('@/store/useRequestStore');
+    useRequestStore.setState({
+      tabs: [
+        {
+          id: 'tab1',
+          isDirty: false,
+          request: {
+            id: 'req-1',
+            name: 'Existing',
+            type: 'http',
+            method: 'GET',
+            url: 'https://old.dev',
+            headers: [],
+            params: [],
+            body: { type: 'none' },
+            auth: { type: 'none' },
+            ...(settings ? { settings: settings as never } : {}),
+          },
+        },
+      ],
+      activeTabId: 'tab1',
+      isLoading: false,
+    });
+    const { useHttpRequestPage } = await import('../useHttpRequestPage');
+    const { result } = renderHook(() => useHttpRequestPage());
+    const current = () =>
+      useRequestStore.getState().tabs[0]?.request as { url: string; settings?: unknown };
+    return { result, current };
+  };
+
+  it('keeps the request\u2019s own settings when the command sets none', async () => {
+    const mine = { timeout: 60_000, followRedirects: true, maxRedirects: 3, verifySsl: true };
+    const { result, current } = await setUp(mine);
+    act(() => {
+      expect(result.current.handlers.importCurl("curl -X POST 'https://new.dev/x'")).toBe(true);
+    });
+    expect(current().url).toBe('https://new.dev/x');
+    expect(current().settings).toEqual(mine);
+  });
+
+  it('applies only the settings the command’s flags set', async () => {
+    const mine = { timeout: 60_000, followRedirects: false, maxRedirects: 3, verifySsl: true };
+    const { result, current } = await setUp(mine);
+    act(() => {
+      expect(result.current.handlers.importCurl("curl -L 'https://new.dev'")).toBe(true);
+    });
+    expect(current().settings).toEqual({ ...mine, followRedirects: true });
+  });
+
+  it('builds complete settings from the effective ones when the request had none', async () => {
+    const { result, current } = await setUp();
+    act(() => {
+      expect(result.current.handlers.importCurl("curl -k 'https://new.dev'")).toBe(true);
+    });
+    const settings = current().settings as Record<string, unknown>;
+    expect(settings.verifySsl).toBe(false);
+    expect(Object.keys(settings).sort()).toEqual([
+      'followRedirects',
+      'maxRedirects',
+      'timeout',
+      'verifySsl',
+    ]);
+  });
+});
