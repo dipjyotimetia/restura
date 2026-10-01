@@ -3,6 +3,7 @@ import { useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { envColorFor } from '@/components/shared/TopBar';
 import { Kbd } from '@/components/ui/spatial';
+import { modLabel } from '@/lib/shared/shortcuts';
 import { cn } from '@/lib/shared/utils';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
@@ -146,7 +147,7 @@ export default function StatusBar({
             'focus:outline-none focus-visible:text-sp-text'
           )}
         >
-          <Kbd size="xs">⌘K</Kbd>
+          <Kbd size="xs">{modLabel('K')}</Kbd>
           <span>Palette</span>
         </button>
       </div>

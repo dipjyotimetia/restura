@@ -5,7 +5,7 @@ description: Send requests, open the command palette, jump between request tabs 
 
 import { Aside } from '@astrojs/starlight/components';
 
-Press `Cmd+/` (`Ctrl+/` on Linux / Windows) anywhere in the app to open the keyboard-shortcuts reference (Settings → Shortcuts).
+Press `Cmd+/` (`Ctrl+/` on Linux / Windows) anywhere in the app to open the keyboard-shortcuts reference (Settings → Shortcuts). The reference shows the keys for your platform and for the app you're using (desktop or web).
 
 ## Global
 
@@ -17,10 +17,24 @@ Press `Cmd+/` (`Ctrl+/` on Linux / Windows) anywhere in the app to open the keyb
 | Send request (cancels the request while one is in flight) | `Cmd+Enter` | `Ctrl+Enter` |
 | Save request | `Cmd+S` | `Ctrl+S` |
 | Toggle console | `Cmd+Shift+C` | `Ctrl+Shift+C` |
+| Toggle sidebar | `Cmd+B` | `Ctrl+B` |
 
-<Aside type="note">
-Shortcuts are focus-aware: global shortcuts fire only when no text input is focused, so pressing them never types into your request body.
-</Aside>
+`Cmd/Ctrl+Enter` works in every protocol: it sends HTTP and GraphQL requests, invokes gRPC methods, and connects MCP servers and SSE streams. In the HTTP URL bar, plain `Enter` sends too.
+
+## Tabs
+
+Browsers reserve `Cmd/Ctrl+W`, `Cmd/Ctrl+T`, `Ctrl+Tab` and `Cmd/Ctrl+1–9`, so the web app uses `Alt`-based equivalents. On macOS, `Alt` is the `Option` key.
+
+| Action | Desktop app | Web app |
+|---|---|---|
+| New request | `Cmd/Ctrl+N` | `Alt+N` |
+| Close tab | `Cmd/Ctrl+W` | `Alt+W` |
+| Reopen closed tab | `Cmd/Ctrl+Shift+T` | `Alt+Shift+T` |
+| Next tab | `Ctrl+Tab` | `Alt+]` |
+| Previous tab | `Ctrl+Shift+Tab` | `Alt+[` |
+| Go to tab 1–8 (9 = last tab) | `Cmd/Ctrl+1`–`9` | — |
+
+In the desktop app, closing the window moves to `Cmd/Ctrl+Shift+W`. Middle-clicking a tab closes it. Closing a tab with unsaved changes always asks first, whichever way you close it.
 
 ## Request builder
 
@@ -41,7 +55,7 @@ The request body uses the Monaco editor, so its standard shortcuts apply — for
 
 ## Command palette
 
-`Cmd+K` opens a fuzzy-search command palette — the fastest way to reach actions that don't have a dedicated shortcut. Type the start of any command — "send", "save", "import", "new gRPC", "switch env", "generate code", "run load test" — and pick from the suggestions.
+`Cmd+K` opens a fuzzy-search command palette. It's the fastest way to reach actions that don't have a dedicated shortcut. Type part of any command, or just its initials (for example "rct" for *Reopen closed tab*), then pick from the suggestions. Examples: "send", "import", "new gRPC", "switch env", "generate code", "reopen closed tab", "toggle layout". Rows show their shortcut where one exists.
 
 ## Related
 

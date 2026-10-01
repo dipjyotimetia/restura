@@ -58,6 +58,7 @@ describe('useRequestStore — tabs', () => {
       tabs: [],
       activeTabId: null,
       isLoading: false,
+      closedTabs: [],
     });
   });
 
@@ -309,6 +310,74 @@ describe('useRequestStore — tabs', () => {
 
     it('returns null when source tab does not exist', () => {
       expect(useRequestStore.getState().duplicateTab('nonexistent')).toBeNull();
+    });
+
+    it('suffixes a named duplicate with "(copy)" but keeps default names', () => {
+      const named = useRequestStore.getState().openTab(makeHttp({ name: 'Get users' }));
+      const dup = useRequestStore.getState().duplicateTab(named)!;
+      const tabs = useRequestStore.getState().tabs;
+      expect(tabs.find((t) => t.id === dup)?.request.name).toBe('Get users (copy)');
+      const unnamed = useRequestStore.getState().openTab(makeHttp({ name: 'New Request' }));
+      const dup2 = useRequestStore.getState().duplicateTab(unnamed)!;
+      expect(useRequestStore.getState().tabs.find((t) => t.id === dup2)?.request.name).toBe(
+        'New Request'
+      );
+    });
+  });
+
+  describe('closeTabsToRight / reopenClosedTab', () => {
+    const names = () => useRequestStore.getState().tabs.map((t) => t.request.name);
+
+    it('closes only the tabs right of the target and keeps the active tab when it survives', () => {
+      const s = useRequestStore.getState();
+      const a = s.openTab(makeHttp({ name: 'A' }));
+      s.openTab(makeHttp({ name: 'B' }));
+      s.openTab(makeHttp({ name: 'C' }));
+      s.switchTab(a);
+      useRequestStore.getState().closeTabsToRight(a);
+      expect(names()).toEqual(['A']);
+      expect(useRequestStore.getState().activeTabId).toBe(a);
+    });
+
+    it('activates the target when the active tab was closed, and no-ops at the end', () => {
+      const s = useRequestStore.getState();
+      const a = s.openTab(makeHttp({ name: 'A' }));
+      s.openTab(makeHttp({ name: 'B' }));
+      useRequestStore.getState().closeTabsToRight(a);
+      expect(useRequestStore.getState().activeTabId).toBe(a);
+      useRequestStore.getState().closeTabsToRight(a);
+      useRequestStore.getState().closeTabsToRight('missing');
+      expect(names()).toEqual(['A']);
+    });
+
+    it('reopens closed tabs newest-first with fresh ids and no stale response', () => {
+      const s = useRequestStore.getState();
+      const a = s.openTab(makeHttp({ name: 'A' }));
+      const b = s.openTab(makeHttp({ name: 'B' }));
+      useRequestStore.getState().setCurrentResponseForTab(b, makeResponse('x'));
+      useRequestStore.getState().closeTab(b);
+      useRequestStore.getState().closeTab(a);
+
+      useRequestStore.getState().reopenClosedTab();
+      expect(names()).toEqual(['A']);
+      useRequestStore.getState().reopenClosedTab();
+      expect(names()).toEqual(['A', 'B']);
+      const reopened = useRequestStore.getState().tabs[1]!;
+      expect(reopened.id).not.toBe(b);
+      expect(reopened.response).toBeNull();
+      expect(useRequestStore.getState().activeTabId).toBe(reopened.id);
+
+      useRequestStore.getState().reopenClosedTab(); // empty stack: no-op
+      expect(names()).toEqual(['A', 'B']);
+    });
+
+    it('remembers tabs closed by Close Others and Close All', () => {
+      const s = useRequestStore.getState();
+      const a = s.openTab(makeHttp({ name: 'A' }));
+      s.openTab(makeHttp({ name: 'B' }));
+      useRequestStore.getState().closeOtherTabs(a);
+      useRequestStore.getState().closeAllTabs();
+      expect(useRequestStore.getState().closedTabs.map((t) => t.request.name)).toEqual(['B', 'A']);
     });
   });
 

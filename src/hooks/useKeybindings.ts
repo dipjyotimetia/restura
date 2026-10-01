@@ -6,7 +6,8 @@ import { useEffect, useRef } from 'react';
  * single listener + consistent input-focus scoping.
  *
  * `combo` grammar: parts joined by '+', case-insensitive. `mod` = ⌘ on macOS /
- * Ctrl elsewhere. Examples: 'mod+s', 'mod+shift+c', 'mod+,', 'mod+/'.
+ * Ctrl elsewhere. Examples: 'mod+s', 'mod+shift+c', 'mod+,', 'mod+/'. Physical-key
+ * tokens (`keyw`, `digit1`, `bracketright`) match `KeyboardEvent.code`.
  */
 export interface Keybinding {
   combo: string;
@@ -44,6 +45,11 @@ function comboMatches(combo: string, e: KeyboardEvent): boolean {
   // mod+, ) working on layouts where the key itself requires Shift.
   if (needShift && !e.shiftKey) return false;
   if (needAlt && !e.altKey) return false;
+  // Physical-key tokens (keyw, digit1, bracketright) compare KeyboardEvent.code,
+  // so Alt/Option combos still match on macOS where Option+W types '∑'.
+  if (/^(?:key[a-z]|digit\d|bracket(?:left|right))$/.test(key)) {
+    return e.code.toLowerCase() === key;
+  }
   return e.key.toLowerCase() === key;
 }
 

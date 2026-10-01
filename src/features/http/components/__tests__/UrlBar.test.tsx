@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { modLabel } from '@/lib/shared/shortcuts';
 import type { HttpMethod } from '@/types';
 import { UrlBar } from '../UrlBar';
 
@@ -125,9 +126,9 @@ describe('UrlBar', () => {
       expect(screen.getByLabelText('Request URL')).toBeInTheDocument();
     });
 
-    it('Send button shows ⌘↵ keyboard hint when idle', () => {
+    it('Send button shows the platform send hint (⌘↵ / Ctrl+↵) when idle', () => {
       renderUrlBar({ url: 'https://x.com' });
-      expect(screen.getByText('⌘↵')).toBeInTheDocument();
+      expect(screen.getByText(modLabel('↵'))).toBeInTheDocument();
     });
 
     it('exposes Copy URL and Generate code buttons by label', () => {

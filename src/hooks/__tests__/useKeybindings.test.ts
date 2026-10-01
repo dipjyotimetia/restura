@@ -37,6 +37,17 @@ describe('comboMatches', () => {
   });
 });
 
+describe('comboMatches physical keys', () => {
+  it('matches Option/Alt combos by code even when the key is a symbol (macOS)', () => {
+    expect(comboMatches('alt+keyw', key({ key: '∑', code: 'KeyW', altKey: true }))).toBe(true);
+    expect(
+      comboMatches('alt+bracketright', key({ key: '‘', code: 'BracketRight', altKey: true }))
+    ).toBe(true);
+    expect(comboMatches('mod+digit3', key({ key: '3', code: 'Digit3', metaKey: true }))).toBe(true);
+    expect(comboMatches('alt+keyw', key({ key: 'w', code: 'KeyQ', altKey: true }))).toBe(false);
+  });
+});
+
 describe('isEditableTarget', () => {
   it('detects inputs, textareas, selects', () => {
     expect(isEditableTarget(document.createElement('input'))).toBe(true);

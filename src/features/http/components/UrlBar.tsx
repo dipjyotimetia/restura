@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/spatial';
 import { useVariableStatus } from '@/hooks/useVariableStatus';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
+import { modLabel } from '@/lib/shared/shortcuts';
 import { cn } from '@/lib/shared/utils';
 import type { HttpMethod } from '@/types';
 import { looksLikeCurl } from '../lib/urlQuery';
@@ -271,7 +272,7 @@ export function UrlBar({
               <Send className="h-3.5 w-3.5" />
               <span>Send</span>
               <Kbd size="xs" className="ml-0.5 border-white/30 bg-white/15 text-white">
-                ⌘↵
+                {modLabel('↵')}
               </Kbd>
             </>
           )}

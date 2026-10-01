@@ -22,7 +22,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { ToggleField } from '@/components/ui/spatial/ToggleField';
-import { isElectron } from '@/lib/shared/platform';
+import { isElectron, isMac } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
 import { cn } from '@/lib/shared/utils';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -38,19 +38,21 @@ interface OnboardingStep {
   desktopOnly?: boolean;
 }
 
+const MOD = isMac() ? '⌘' : 'Ctrl';
+
 const onboardingSteps: OnboardingStep[] = [
   {
     icon: <Send className="h-7 w-7 text-primary" />,
     title: 'Send Your First Request',
     description: 'Enter a URL in the request builder and click Send to make your first API call.',
-    tip: 'Press ⌘+↵ to quickly send a request',
+    tip: `Press ${MOD}+↵ to quickly send a request`,
   },
   {
     icon: <Network className="h-7 w-7 text-violet-400" />,
     title: 'One Client, Every Protocol',
     description:
       'Restura is more than REST — test gRPC, GraphQL, WebSocket, Socket.IO, SSE, and MCP, plus Kafka and MQTT on desktop.',
-    tip: 'Open ⌘+K → "New …" to start a request in any protocol',
+    tip: `Open ${MOD}+K → "New …" to start a request in any protocol`,
   },
   {
     desktopOnly: true,
@@ -71,20 +73,20 @@ const onboardingSteps: OnboardingStep[] = [
     icon: <FolderOpen className="h-7 w-7 text-amber-400" />,
     title: 'Organize with Collections',
     description: 'Save your requests into collections for easy access and sharing with your team.',
-    tip: 'Import from Postman, Insomnia, OpenAPI or Bruno via ⌘+K → "Import collection"',
+    tip: `Import from Postman, Insomnia, OpenAPI or Bruno via ${MOD}+K → "Import collection"`,
   },
   {
     icon: <Code2 className="h-7 w-7 text-primary" />,
     title: 'Generate Code Snippets',
     description:
       'Convert any request into code in multiple languages (cURL, Python, JavaScript, Go, and more).',
-    tip: 'Click the </> icon next to Send, or run "Generate code" from ⌘+K',
+    tip: `Click the </> icon next to Send, or run "Generate code" from ${MOD}+K`,
   },
   {
     icon: <Keyboard className="h-7 w-7 text-cyan-400" />,
     title: 'Master Keyboard Shortcuts',
-    description: 'Work faster with keyboard shortcuts. Press ⌘+/ to see all available shortcuts.',
-    tip: 'Use ⌘+K to open the command palette for quick actions',
+    description: `Work faster with keyboard shortcuts. Press ${MOD}+/ to see all available shortcuts.`,
+    tip: `Use ${MOD}+K to open the command palette for quick actions`,
   },
   {
     kind: 'privacy',

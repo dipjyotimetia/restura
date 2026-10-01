@@ -1,4 +1,12 @@
-import { Bug, FlaskConical, Globe, Settings, Sparkles } from 'lucide-react';
+import {
+  Bug,
+  FlaskConical,
+  Globe,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Settings,
+  Sparkles,
+} from 'lucide-react';
 import { cloneElement } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import {
@@ -15,6 +23,7 @@ import { envColorFor } from '@/features/environments/lib/envColor';
 import { envHostHint } from '@/features/environments/lib/envHint';
 import { isCapableHere } from '@/lib/shared/capabilities';
 import { getPlatform, isElectron } from '@/lib/shared/platform';
+import { modLabel } from '@/lib/shared/shortcuts';
 import { cn } from '@/lib/shared/utils';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import type { RequestMode } from '@/types';
@@ -41,6 +50,8 @@ interface WindowChromeProps {
   onOpenEnvSwitcher?: () => void;
   onToggleAi?: () => void;
   onOpenBugReport?: () => void;
+  onToggleSidebar?: () => void;
+  sidebarCollapsed?: boolean;
 }
 
 /**
@@ -60,6 +71,8 @@ export function WindowChrome({
   onOpenEnvSwitcher,
   onToggleAi,
   onOpenBugReport,
+  onToggleSidebar,
+  sidebarCollapsed,
   setEnvManagerOpen,
 }: WindowChromeProps) {
   const { environments, activeEnvironmentId, setActiveEnvironment } = useEnvironmentStore(
@@ -150,6 +163,21 @@ export function WindowChrome({
         ) : (
           <span className="block w-1" aria-hidden="true" />
         )}
+        {onToggleSidebar && (
+          <span style={region('no-drag')}>
+            <ChromeIconButton
+              label={sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
+              onClick={onToggleSidebar}
+              icon={
+                sidebarCollapsed ? (
+                  <PanelLeftOpen className="h-3.5 w-3.5" aria-hidden="true" />
+                ) : (
+                  <PanelLeftClose className="h-3.5 w-3.5" aria-hidden="true" />
+                )
+              }
+            />
+          </span>
+        )}
       </div>
 
       {/* Center: environment pill — absolutely positioned so it stays centered
@@ -205,7 +233,7 @@ export function WindowChrome({
           )}
         >
           <span>Search</span>
-          <Kbd size="xs">⌘K</Kbd>
+          <Kbd size="xs">{modLabel('K')}</Kbd>
         </button>
 
         {onToggleAi && (

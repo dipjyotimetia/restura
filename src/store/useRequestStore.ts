@@ -8,8 +8,8 @@ import { cleanupSocketIOConnectionForTab } from '@/features/socketio/lib/connect
 import { cleanupWebSocketConnectionForTab } from '@/features/websocket/lib/connectionLifecycle';
 import { dexieStorageAdapters } from '@/lib/shared/dexie-storage';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
-import { migrateAuthConfigToSecretRef } from '@/lib/shared/secretRef-migrations';
 import { disposeRetainedMonacoModelsForOwner } from '@/lib/shared/monacoModelLifecycle';
+import { migrateAuthConfigToSecretRef } from '@/lib/shared/secretRef-migrations';
 import { validateRequestUpdate } from '@/lib/shared/store-validators';
 import type {
   GrpcRequest,
@@ -44,6 +44,13 @@ interface RequestState {
   reorderTabs: (orderedIds: string[]) => void;
   closeOtherTabs: (id: string) => void;
   closeAllTabs: () => void;
+  closeTabsToRight: (id: string) => void;
+  /**
+   * Recently closed tabs, newest last. In-memory only (not persisted) and
+   * capped, so a reload starts fresh. Feeds `reopenClosedTab`.
+   */
+  closedTabs: RequestTab[];
+  reopenClosedTab: () => void;
 
   // Per-active-tab actions (names preserved for consumer compatibility)
   // Returns true when the update was validated and applied, false when it was
@@ -190,6 +197,16 @@ function patchTab(
  * Dispatches per-tab connection cleanup through explicit lifecycle
  * coordinators. Stores stay pure while managers retain runtime ownership.
  */
+const MAX_CLOSED_TABS = 20;
+
+/** Push closed tabs onto the reopen stack without live response/stream state. */
+function rememberClosed(stack: RequestTab[], closed: RequestTab[]): RequestTab[] {
+  const snapshots = closed.map(
+    ({ streamingEvents: _streamingEvents, ...rest }) => ({ ...rest, response: null }) as RequestTab
+  );
+  return [...stack, ...snapshots].slice(-MAX_CLOSED_TABS);
+}
+
 function dispatchTabCleanup(closedTabIds: string[]): void {
   if (closedTabIds.length === 0) return;
   for (const id of closedTabIds) {
@@ -210,6 +227,7 @@ export const useRequestStore = create<RequestState>()(
         tabs: [initialTab],
         activeTabId: initialTab.id,
         isLoading: false,
+        closedTabs: [],
 
         openTab: (request, options = {}) => {
           const tab = createTabFromRequest(
@@ -235,7 +253,11 @@ export const useRequestStore = create<RequestState>()(
             const fallback = newTabs[idx] ?? newTabs[idx - 1] ?? null;
             nextActive = fallback ? fallback.id : null;
           }
-          set({ tabs: newTabs, activeTabId: nextActive });
+          set({
+            tabs: newTabs,
+            activeTabId: nextActive,
+            closedTabs: rememberClosed(state.closedTabs, [state.tabs[idx] as RequestTab]),
+          });
           dispatchTabCleanup([id]);
         },
 
@@ -249,10 +271,11 @@ export const useRequestStore = create<RequestState>()(
           const state = get();
           const source = state.tabs.find((t) => t.id === id);
           if (!source) return null;
-          const clonedRequest: Request = {
-            ...(JSON.parse(JSON.stringify(source.request)) as Request),
-            id: uuidv4(),
-          };
+          const copy = JSON.parse(JSON.stringify(source.request)) as Request;
+          // Distinguish a named duplicate; default-named tabs already fall back
+          // to showing their URL, so leave those alone.
+          const name = DEFAULT_REQUEST_NAMES.has(copy.name) ? copy.name : `${copy.name} (copy)`;
+          const clonedRequest: Request = { ...copy, id: uuidv4(), name };
           const tab = createTabFromRequest(
             clonedRequest,
             source.modeOverride !== undefined ? { modeOverride: source.modeOverride } : {}
@@ -279,15 +302,52 @@ export const useRequestStore = create<RequestState>()(
           const state = get();
           const keep = state.tabs.find((t) => t.id === id);
           if (!keep) return;
-          const removed = state.tabs.filter((t) => t.id !== id).map((t) => t.id);
-          set({ tabs: [keep], activeTabId: keep.id });
-          dispatchTabCleanup(removed);
+          const removedTabs = state.tabs.filter((t) => t.id !== id);
+          set({
+            tabs: [keep],
+            activeTabId: keep.id,
+            closedTabs: rememberClosed(state.closedTabs, removedTabs),
+          });
+          dispatchTabCleanup(removedTabs.map((t) => t.id));
         },
 
         closeAllTabs: () => {
-          const removed = get().tabs.map((t) => t.id);
-          set({ tabs: [], activeTabId: null });
-          dispatchTabCleanup(removed);
+          const state = get();
+          set({
+            tabs: [],
+            activeTabId: null,
+            closedTabs: rememberClosed(state.closedTabs, state.tabs),
+          });
+          dispatchTabCleanup(state.tabs.map((t) => t.id));
+        },
+
+        closeTabsToRight: (id) => {
+          const state = get();
+          const idx = findTabIndex(state.tabs, id);
+          if (idx === -1) return;
+          const removedTabs = state.tabs.slice(idx + 1);
+          if (removedTabs.length === 0) return;
+          const kept = state.tabs.slice(0, idx + 1);
+          const activeKept = kept.some((t) => t.id === state.activeTabId);
+          set({
+            tabs: kept,
+            activeTabId: activeKept ? state.activeTabId : id,
+            closedTabs: rememberClosed(state.closedTabs, removedTabs),
+          });
+          dispatchTabCleanup(removedTabs.map((t) => t.id));
+        },
+
+        reopenClosedTab: () => {
+          const state = get();
+          const last = state.closedTabs[state.closedTabs.length - 1];
+          if (!last) return;
+          // Fresh tab id: cleanup listeners already tore down the old one.
+          const tab: RequestTab = { ...last, id: uuidv4() };
+          set({
+            tabs: [...state.tabs, tab],
+            activeTabId: tab.id,
+            closedTabs: state.closedTabs.slice(0, -1),
+          });
         },
 
         updateRequest: (updates) => {

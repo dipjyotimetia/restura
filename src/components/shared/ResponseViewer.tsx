@@ -1,4 +1,4 @@
-import { Braces, Check, Columns, Copy, Download, FileDown, Rows, Search, Zap } from 'lucide-react';
+import { Braces, Check, Copy, Download, FileDown, Search, Zap } from 'lucide-react';
 import type * as Monaco from 'monaco-editor';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -6,6 +6,7 @@ import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { ImagePreview } from '@/components/shared/ImagePreview';
 import { ResponseEmptyState } from '@/components/shared/ResponseEmptyState';
 import { ResponseTestsPanel } from '@/components/shared/ResponseTestsPanel';
+import { IconButton, LayoutToggleButton } from '@/components/shared/ResponseToolbarButtons';
 import { StreamingResponseViewer } from '@/components/shared/StreamingResponseViewer';
 import { VisualizerFrame } from '@/components/shared/VisualizerFrame';
 import { AnimatePresence, motion, Scale, Stagger, StaggerItem } from '@/components/ui/motion';
@@ -28,11 +29,10 @@ import { base64ToBytes, extensionForContentType } from '@/lib/shared/binaryBody'
 import { detectLanguage } from '@/lib/shared/console-format';
 import { isCsvResponse } from '@/lib/shared/csvParser';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
-import { isElectron } from '@/lib/shared/platform';
+import { isElectron, isMac } from '@/lib/shared/platform';
 import { cn, formatBytes, formatTime } from '@/lib/shared/utils';
 import { useActiveResponse, useActiveStreamingEvents, useActiveTab } from '@/store/selectors';
 import { useRequestStore } from '@/store/useRequestStore';
-import { useSettingsStore } from '@/store/useSettingsStore';
 import { buildResponsePreviewDocument } from './lib/responsePreview';
 import { LargeBodyNotice, RequestErrorCard } from './ResponseNotices';
 
@@ -117,51 +117,6 @@ function ResponseSkeleton() {
 
 type ResponseTab = 'body' | 'headers' | 'cookies' | 'timeline' | 'tests' | 'preview' | 'visualize';
 type BodyFormat = 'pretty' | 'raw' | 'table';
-
-function IconButton({
-  icon,
-  label,
-  onClick,
-  active,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  onClick?: () => void;
-  active?: boolean;
-}) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={onClick}
-          aria-label={label}
-          className={cn(
-            'inline-flex items-center justify-center size-7 rounded-sp-btn transition-colors',
-            'text-sp-muted hover:text-sp-text hover:bg-sp-hover',
-            active && 'text-sp-accent bg-sp-active'
-          )}
-        >
-          {icon}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  );
-}
-
-function LayoutToggleButton() {
-  const layoutOrientation = useSettingsStore((s) => s.settings.layoutOrientation);
-  const updateSettings = useSettingsStore((s) => s.updateSettings);
-  const vertical = layoutOrientation === 'vertical';
-  return (
-    <IconButton
-      icon={vertical ? <Columns className="h-3.5 w-3.5" /> : <Rows className="h-3.5 w-3.5" />}
-      label={`Switch to ${vertical ? 'side-by-side' : 'stacked'} layout`}
-      onClick={() => updateSettings({ layoutOrientation: vertical ? 'horizontal' : 'vertical' })}
-    />
-  );
-}
 
 function ResponseViewer() {
   const currentResponse = useActiveResponse();
@@ -448,7 +403,7 @@ function ResponseViewer() {
               message="Send a request to see the response"
               hint={
                 <div className="flex items-center justify-center gap-1.5 text-sp-11 text-sp-dim">
-                  <Kbd size="sm">⌘</Kbd>
+                  <Kbd size="sm">{isMac() ? '⌘' : 'Ctrl'}</Kbd>
                   <Kbd size="sm">↵</Kbd>
                   <span className="font-mono">to send</span>
                 </div>

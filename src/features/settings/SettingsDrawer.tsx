@@ -7,7 +7,8 @@ import { useEffect, useState } from 'react';
 import { CaptureBridgeCard } from '@/components/shared/CaptureBridgeCard';
 import { Logo } from '@/components/shared/Logo';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
-import { isElectron } from '@/lib/shared/platform';
+import { isElectron, isMac } from '@/lib/shared/platform';
+import { shortcutSheet } from '@/lib/shared/shortcuts';
 import { cn } from '@/lib/shared/utils';
 import { SettingsNavigation } from './components/SettingsNavigation';
 import { AboutSection } from './sections/AboutSection';
@@ -30,40 +31,9 @@ const ProviderSettings = lazyComponent(async () => {
   return { default: Comp };
 });
 
-const SHORTCUT_GROUPS: Array<{
-  title: string;
-  shortcuts: Array<{ keys: string[]; description: string }>;
-}> = [
-  {
-    title: 'General',
-    shortcuts: [
-      { keys: ['⌘', 'K'], description: 'Open command palette' },
-      { keys: ['⌘', '/'], description: 'Show keyboard shortcuts' },
-      { keys: ['⌘', ','], description: 'Open settings' },
-      { keys: ['⌘', 'N'], description: 'New request' },
-    ],
-  },
-  {
-    title: 'Request Builder',
-    shortcuts: [
-      { keys: ['⌘', '↵'], description: 'Send request (cancels while one is in flight)' },
-      { keys: ['⌘', 'S'], description: 'Save request to collection' },
-      { keys: ['⌥', '1'], description: 'Switch to Params tab' },
-      { keys: ['⌥', '2'], description: 'Switch to Headers tab' },
-      { keys: ['⌥', '3'], description: 'Switch to Body tab' },
-      { keys: ['⌥', '4'], description: 'Switch to Auth tab' },
-      { keys: ['⌥', '5'], description: 'Switch to Scripts tab' },
-      { keys: ['⌥', '6'], description: 'Switch to Settings tab' },
-    ],
-  },
-  {
-    title: 'Navigation',
-    shortcuts: [
-      { keys: ['⌘', 'I'], description: 'Import collection (desktop app)' },
-      { keys: ['⌘', 'E'], description: 'Export collection (desktop app)' },
-    ],
-  },
-];
+// Rendered from the shared shortcut registry so the sheet always matches the
+// real bindings for this platform (⌘ vs Ctrl, desktop vs web keys).
+const SHORTCUT_GROUPS = shortcutSheet(isElectron(), isMac());
 
 export default function SettingsDrawer({
   open,
