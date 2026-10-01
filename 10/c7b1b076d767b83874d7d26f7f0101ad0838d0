@@ -14,6 +14,7 @@ src/hooks/useKeybindings.ts
 src/features/http/lib/__tests__/requestExecutor.test.ts
   s_766edd634beb43::t_e1cec23268aa1e 257-295,325-329
   s_766edd634beb43::t_f5fc5872224cd8 255-256
+  s_766edd634beb43::t_b0bb0eaa3bd40f 296-324
 src/lib/shared/codeGenerators/prepare.ts
   s_766edd634beb43::t_b831b464a09e2b 3,110-121,123-128
 src/features/http/components/RequestBuilder/RequestBuilderTabs.tsx
@@ -38,6 +39,8 @@ src/features/http/components/UrlEncodedEditor.tsx
   s_766edd634beb43::t_6d3403a2113112 21-23,45-48,58-59
 src/features/http/lib/requestExecutor.ts
   s_766edd634beb43::t_e1cec23268aa1e 308-309,311,315,322-325
+  s_766edd634beb43::t_b0bb0eaa3bd40f 312-313
+  s_766edd634beb43::t_80de3f1856ec27 299-307,310
 src/lib/shared/urlEncodedBody.test.ts
   s_766edd634beb43::t_fdedfd97ce907c 2-7,38-56
 src/lib/shared/urlEncodedBody.ts
