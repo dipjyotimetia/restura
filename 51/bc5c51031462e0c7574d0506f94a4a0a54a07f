@@ -1,0 +1,25 @@
+e2e-electron/specs/tab-menu.spec.ts
+  s_766edd634beb43::t_cf46a03a3f836a 1-40
+shared/opencollection/from-internal.test.ts
+  s_766edd634beb43::t_e2564db38622f9 3,76-116
+  s_766edd634beb43::t_03a23c31a526ce 117-118
+e2e/data-management.spec.ts
+  s_766edd634beb43::t_c0307bd0b82e1f 30
+  s_766edd634beb43::t_294cb04f49040c 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "51bc5c51031462e0c7574d0506f94a4a0a54a07f",
+  "prompts": {},
+  "sessions": {
+    "s_766edd634beb43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9c66557-0bf1-4aa9-990d-ab0ef03d2e23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
