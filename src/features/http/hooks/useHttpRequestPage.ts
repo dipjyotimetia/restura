@@ -4,7 +4,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { useRequestAnnouncements } from '@/components/shared/AriaLiveAnnouncer';
 import { resolveEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
+import { importCurlCommand } from '@/features/collections/lib/importers/curl';
 import { executeRequest, resolveEffectiveSettings } from '@/features/http/lib/requestExecutor';
+import { applyUrlInput } from '@/features/http/lib/urlQuery';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { buildActiveRequestVariableResolution } from '@/lib/shared/activeRequestScopes';
 import { escapeRegExp } from '@/lib/shared/escapeRegExp';
@@ -16,7 +18,14 @@ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import type { AuthConfig, FormDataItem, HttpMethod, RequestBody, RequestSettings } from '@/types';
+import type {
+  AuthConfig,
+  FormDataItem,
+  HttpMethod,
+  HttpRequest,
+  RequestBody,
+  RequestSettings,
+} from '@/types';
 
 /**
  * Capture the headers the request actually went out with for the Console:
@@ -318,7 +327,41 @@ export function useHttpRequestPage() {
     sendRequest,
     cancelRequest,
     changeMethod: (method: HttpMethod) => updateRequest({ method }),
-    changeUrl: (url: string) => updateRequest({ url }),
+    // The URL bar shows url + enabled params; split edits back into both so
+    // the stored url keeps no query and the params table stays in sync.
+    changeUrl: (text: string) => {
+      if (!httpRequest) return;
+      updateRequest(applyUrlInput(text, httpRequest.params, uuidv4));
+    },
+    // Paste a whole cURL command into the URL bar → fill the request. Returns
+    // false when it can't be parsed so the caller lets the plain paste through.
+    importCurl: (command: string): boolean => {
+      if (!httpRequest) return false;
+      let imported: HttpRequest | undefined;
+      try {
+        const item = importCurlCommand(command).collection.items[0];
+        if (item?.request?.type === 'http') imported = item.request;
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Could not parse cURL command');
+        return false;
+      }
+      if (!imported) return false;
+      const { method, url, headers, params, body, auth, settings } = httpRequest;
+      const previous = { method, url, headers, params, body, auth, settings };
+      updateRequest({
+        method: imported.method,
+        url: imported.url,
+        headers: imported.headers,
+        params: imported.params,
+        body: imported.body,
+        auth: imported.auth,
+        settings: imported.settings,
+      });
+      toast.success('Imported cURL command', {
+        action: { label: 'Undo', onClick: () => updateRequest(previous) },
+      });
+      return true;
+    },
     changeAuth: (auth: AuthConfig) => updateRequest({ auth }),
     changeBodyType: (type: RequestBody['type']) => {
       if (!httpRequest) return;

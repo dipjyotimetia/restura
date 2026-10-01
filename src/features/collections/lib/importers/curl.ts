@@ -215,7 +215,7 @@ export function importCurlCommand(source: string): ImportResult {
         ? { type: 'form-data', formData }
         : bodyKind === 'none'
           ? { type: 'none' }
-          : { type: bodyKind, raw: rawBody },
+          : { type: bodyKind, raw: rawBody ?? '' },
     auth: basic ? { type: 'basic', basic } : { type: 'none' },
     settings: { timeout: 0, followRedirects: false, maxRedirects: 5, verifySsl: true, ...settings },
   };

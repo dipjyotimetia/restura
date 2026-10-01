@@ -32,6 +32,7 @@ import {
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
+import { useSendShortcut } from '@/hooks/useSendShortcut';
 import { isElectron } from '@/lib/shared/platform';
 import { useActiveRequest, useActiveTab } from '@/store/selectors';
 import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
@@ -248,6 +249,7 @@ function GrpcRequestBuilder() {
     streamingMessages.length,
   ]);
 
+  const sendShortcut = useSendShortcut();
   if (!currentRequest) {
     return null;
   }
@@ -568,6 +570,8 @@ function GrpcRequestBuilder() {
       })
       .join('\n');
   };
+
+  sendShortcut.current = !isLoading && isFormValid() ? () => void handleSendRequest() : null;
 
   return (
     <div className="flex-1 flex flex-col min-h-0 p-2.5 gap-2.5">

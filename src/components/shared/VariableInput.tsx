@@ -60,6 +60,9 @@ export const VariableInput = React.forwardRef<HTMLInputElement, VariableInputPro
         setOpen(false);
         e.stopPropagation();
       }
+      // Enter belongs to the open picker, not to the field's own handler
+      // (e.g. the URL bar's send-on-Enter).
+      if (e.key === 'Enter' && open) e.preventDefault();
       onKeyDown?.(e);
     };
 

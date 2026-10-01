@@ -17,6 +17,7 @@ import { useVariableStatus } from '@/hooks/useVariableStatus';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { cn } from '@/lib/shared/utils';
 import type { HttpMethod } from '@/types';
+import { looksLikeCurl } from '../lib/urlQuery';
 
 const HTTP_METHODS: ReadonlyArray<HttpMethod> = [
   'GET',
@@ -47,6 +48,8 @@ interface UrlBarProps {
   isLoading: boolean;
   onMethodChange: (method: HttpMethod) => void;
   onUrlChange: (url: string) => void;
+  /** Handle a pasted cURL command; return false to let the plain paste through. */
+  onPasteCurl?: (command: string) => boolean;
   onSend: () => void;
   onCancel: () => void;
   onOpenCodeGen: () => void;
@@ -63,11 +66,17 @@ export function UrlBar({
   isLoading,
   onMethodChange,
   onUrlChange,
+  onPasteCurl,
   onSend,
   onCancel,
   onOpenCodeGen,
 }: UrlBarProps) {
   const [urlError, setUrlError] = useState<string | null>(null);
+  // While focused, show exactly what the user typed: the store copy is
+  // re-derived from url + params, which would drop a trailing "?" or "&"
+  // mid-edit. The draft is discarded on blur.
+  const [draft, setDraft] = useState<string | null>(null);
+  const shownUrl = draft ?? url;
   const getVarStatus = useVariableStatus();
 
   const validateUrl = (newUrl: string) => {
@@ -89,8 +98,27 @@ export function UrlBar({
   };
 
   const handleUrlChange = (next: string) => {
+    setDraft(next);
     onUrlChange(next);
     validateUrl(next);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const text = e.clipboardData.getData('text');
+    if (!onPasteCurl || !looksLikeCurl(text)) return;
+    if (onPasteCurl(text)) {
+      e.preventDefault();
+      setDraft(null);
+      setUrlError(null);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // VariableInput swallows Enter while its {{variable}} picker is open.
+    if (e.key !== 'Enter' || e.defaultPrevented || e.nativeEvent.isComposing) return;
+    if (e.metaKey || e.ctrlKey) return; // Cmd/Ctrl+Enter is handled globally
+    e.preventDefault();
+    if (!isLoading && url && !urlError) onSend();
   };
 
   return (
@@ -149,8 +177,11 @@ export function UrlBar({
             <VariableInput
               rawInput
               type="text"
-              value={url}
+              value={shownUrl}
               onValueChange={handleUrlChange}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              onBlur={() => setDraft(null)}
               placeholder={ECHO_URLS.http}
               spellCheck={false}
               aria-label="Request URL"
@@ -162,16 +193,16 @@ export function UrlBar({
                 urlError ? 'text-rose-400' : 'text-sp-text',
                 // Make the visible glyphs transparent only when we have a
                 // {{var}} to overlay-render; otherwise show the raw input.
-                hasVariableToken(url) && !urlError && 'text-transparent caret-sp-accent'
+                hasVariableToken(shownUrl) && !urlError && 'text-transparent caret-sp-accent'
               )}
             />
-            {hasVariableToken(url) && !urlError && (
+            {hasVariableToken(shownUrl) && !urlError && (
               <div
                 aria-hidden="true"
                 className="absolute inset-0 pointer-events-none flex items-center overflow-hidden"
               >
                 <VariableText
-                  text={url}
+                  text={shownUrl}
                   getStatus={getVarStatus}
                   className="font-mono text-sp-13 text-sp-text tabular-nums whitespace-pre"
                 />
