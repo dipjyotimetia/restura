@@ -1,0 +1,53 @@
+src/features/http/lib/urlQuery.ts
+  s_766edd634beb43::t_96d384f6b0669a 1-117
+src/features/http/lib/urlQuery.test.ts
+  s_766edd634beb43::t_f41db01c92cc77 1-121
+src/features/sse/components/SseClient.tsx
+  s_766edd634beb43::t_ff226bf4390daf 11
+  s_766edd634beb43::t_bc2df2006e4ad7 139,142
+  s_766edd634beb43::t_9a1d9557961438 143
+src/features/http/components/UrlBar.tsx
+  s_766edd634beb43::t_f90a276bf35e88 51-52,69,75-79,101,106-123,180,182-184,196,199,205
+  s_766edd634beb43::t_ff226bf4390daf 20
+src/components/shared/VariableInput.tsx
+  s_766edd634beb43::t_f90a276bf35e88 63-65
+src/features/graphql/components/GraphQLRequestBuilder.tsx
+  s_766edd634beb43::t_bc2df2006e4ad7 93
+  s_766edd634beb43::t_ff226bf4390daf 34,383-391
+  s_766edd634beb43::t_628fbfb65c7987 392
+src/features/collections/lib/importers/curl.ts
+  s_766edd634beb43::t_b400c8a05431d5 218
+src/features/grpc/components/GrpcRequestBuilder.tsx
+  s_766edd634beb43::t_ff226bf4390daf 35,574
+  s_766edd634beb43::t_bc2df2006e4ad7 252
+  s_766edd634beb43::t_5e40447161f785 575
+src/hooks/useSendShortcut.ts
+  s_766edd634beb43::t_43617dc313113e 2-5,11,14-25,28
+  s_766edd634beb43::t_bc2df2006e4ad7 1,6-10,12-13,26-27
+src/features/http/hooks/useHttpRequestPage.ts
+  s_766edd634beb43::t_b400c8a05431d5 343
+  s_766edd634beb43::t_f9463538030ae9 7,9,21-28,330-342,344-364
+src/features/mcp/components/McpRequestBuilder.tsx
+  s_766edd634beb43::t_ff226bf4390daf 13
+  s_766edd634beb43::t_bc2df2006e4ad7 71,206-211
+  s_766edd634beb43::t_5e83850cb49b5f 212
+src/features/http/components/RequestBuilder/index.tsx
+  s_766edd634beb43::t_f90a276bf35e88 73-74,76,80
+  s_766edd634beb43::t_ff226bf4390daf 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "30d979416fc93df3dd8e967306742a7719b9281b",
+  "prompts": {},
+  "sessions": {
+    "s_766edd634beb43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9c66557-0bf1-4aa9-990d-ab0ef03d2e23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
