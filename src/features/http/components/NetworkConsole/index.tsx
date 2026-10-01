@@ -150,18 +150,6 @@ export default function NetworkConsole({
     [setPanelHeight]
   );
 
-  // Keyboard shortcut for toggling console — uses getState() to avoid stale closure
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'c') {
-        e.preventDefault();
-        setExpanded(!useConsoleStore.getState().isExpanded);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [setExpanded]);
-
   // Keep the console within the space budget — clamps an over-large persisted
   // height down on mount, and re-clamps when the window shrinks. Reads the live
   // height via getState() so the effect doesn't re-run on every resize tick.

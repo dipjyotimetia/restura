@@ -36,6 +36,7 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { ActivePanel, RequestMode } from '@/types';
 import { isConnectionMode } from '@/types';
+import { NoOpenTabs } from './components/NoOpenTabs';
 import { RequestWorkspace } from './components/RequestWorkspace';
 
 const ChatPanel = lazyComponent(() => import('@/features/ai/components/ChatPanel'));
@@ -344,12 +345,19 @@ export default function Home() {
               onChangeMode={handleRequestModeChange}
             />
             <div className="flex flex-1 flex-col min-h-0">
-              <RequestWorkspace
-                mode={requestMode}
-                orientation={effectiveLayout}
-                split={settings.requestResponseSplit ?? 50}
-                onSplitChange={handleSplitChange}
-              />
+              {activeTab ? (
+                <RequestWorkspace
+                  mode={requestMode}
+                  orientation={effectiveLayout}
+                  split={settings.requestResponseSplit ?? 50}
+                  onSplitChange={handleSplitChange}
+                />
+              ) : (
+                <NoOpenTabs
+                  onNewRequest={handleRequestModeChange}
+                  onOpenImport={openImportDialog}
+                />
+              )}
             </div>
             <ConsoleDrawer
               scriptLogs={allLogs}

@@ -1,5 +1,5 @@
 import { ChevronUp } from 'lucide-react';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import NetworkConsole from '@/features/http/components/NetworkConsole';
 import { getStatusTextColor, httpLikeStatus } from '@/lib/shared/console-format';
@@ -57,6 +57,20 @@ export default function ConsoleDrawer({
       setExpanded: s.setExpanded,
     }))
   );
+
+  // Cmd/Ctrl+Shift+C toggles the console. Registered here rather than in
+  // NetworkConsole because that only mounts while expanded, so the shortcut
+  // could close the console but never open it. getState() avoids a stale closure.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        setExpanded(!useConsoleStore.getState().isExpanded);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [setExpanded]);
 
   // Status-class counts for the collapsed summary — derived here so the store
   // stays untouched. ok = 2xx · redirect = 3xx · err = 4xx/5xx/network-fail.

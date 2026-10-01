@@ -41,6 +41,13 @@ function captureSentHeaders(
   return out;
 }
 
+// The response panel's error card (role="alert") already reports a failure
+// for the visible tab, so only toast when the user has moved to another tab.
+function reportFailure(originTabId: string, message: string) {
+  if (useRequestStore.getState().activeTabId === originTabId) toast.dismiss('request');
+  else toast.error(`Request failed: ${message}`, { id: 'request', duration: 5000 });
+}
+
 export function useHttpRequestPage() {
   const httpRequest = useActiveRequest('http');
   const updateRequest = useRequestStore((s) => s.updateRequest);
@@ -95,6 +102,9 @@ export function useHttpRequestPage() {
     const controller = new AbortController();
     abortRef.current = controller;
     setLoading(true);
+    // Drop the previous run's script output so the Tests/Visualize tabs never
+    // show stale results next to a send that ran no scripts or failed.
+    setScriptResultForTab(originTabId, null);
     const startTime = Date.now();
     toast.loading('Sending request...', { id: 'request' });
     // Hoisted out of the try block, seeded with the raw URL, so the catch
@@ -193,11 +203,11 @@ export function useHttpRequestPage() {
         )
       );
       // Transport-level failures surface as a status-0 response from the
-      // executor rather than a throw — report those with an error toast; for
-      // real responses the panel already shows the outcome, so just clear the
-      // in-flight toast rather than stacking a redundant success one.
+      // executor rather than a throw. For real responses the panel already
+      // shows the outcome, so just clear the in-flight toast rather than
+      // stacking a redundant success one.
       if (responseData.status === 0) {
-        toast.error(`Request failed: ${responseData.body}`, { id: 'request', duration: 5000 });
+        reportFailure(originTabId, responseData.body);
       } else {
         toast.dismiss('request');
         announceRequestComplete(responseData.status, responseData.time);
@@ -238,7 +248,7 @@ export function useHttpRequestPage() {
           { resolvedUrl }
         )
       );
-      toast.error(`Request failed: ${errorMessage}`, { id: 'request', duration: 5000 });
+      reportFailure(originTabId, errorMessage);
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
       setLoading(false);

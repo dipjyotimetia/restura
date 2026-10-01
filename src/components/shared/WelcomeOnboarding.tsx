@@ -97,6 +97,8 @@ const onboardingSteps: OnboardingStep[] = [
 ];
 
 const ONBOARDING_KEY = 'restura-onboarding-completed';
+/** Window event that reopens the tour from the start (e.g. from the command palette). */
+export const REPLAY_ONBOARDING_EVENT = 'restura:replay-onboarding';
 
 export default function WelcomeOnboarding() {
   const [isOpen, setIsOpen] = useState(false);
@@ -121,6 +123,15 @@ export default function WelcomeOnboarding() {
     return undefined;
   }, []);
 
+  useEffect(() => {
+    const replay = () => {
+      setCurrentStep(0);
+      setIsOpen(true);
+    };
+    window.addEventListener(REPLAY_ONBOARDING_EVENT, replay);
+    return () => window.removeEventListener(REPLAY_ONBOARDING_EVENT, replay);
+  }, []);
+
   const handleNext = () => {
     if (currentStep < steps.length - 1) {
       setCurrentStep(currentStep + 1);
@@ -139,6 +150,13 @@ export default function WelcomeOnboarding() {
   const lastStep = steps.length - 1;
   const isLastStep = currentStep === lastStep;
   const handleSkip = () => setCurrentStep(lastStep);
+  // Esc / outside-click is a skip, not an exit: route it to the privacy step
+  // first, and persist completion only once that step has been seen.
+  const handleOpenChange = (open: boolean) => {
+    if (open) setIsOpen(true);
+    else if (isLastStep) handleComplete();
+    else handleSkip();
+  };
 
   const currentStepData = steps[currentStep];
 
@@ -147,7 +165,7 @@ export default function WelcomeOnboarding() {
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader icon={Rocket}>
           <DialogTitle>WELCOME TO RESTURA</DialogTitle>
@@ -224,6 +242,16 @@ export default function WelcomeOnboarding() {
             <span className="text-[10px] font-mono text-muted-foreground">
               {currentStep + 1}/{steps.length}
             </span>
+            {currentStep > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setCurrentStep(currentStep - 1)}
+                className="font-mono text-xs"
+              >
+                Back
+              </Button>
+            )}
             <Button variant="glow" size="sm" onClick={handleNext} className="font-mono text-xs">
               {isLastStep ? (
                 'Get Started'

@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { ImagePreview } from '@/components/shared/ImagePreview';
 import { ResponseEmptyState } from '@/components/shared/ResponseEmptyState';
+import { ResponseTestsPanel } from '@/components/shared/ResponseTestsPanel';
 import { StreamingResponseViewer } from '@/components/shared/StreamingResponseViewer';
 import { VisualizerFrame } from '@/components/shared/VisualizerFrame';
 import { AnimatePresence, motion, Scale, Stagger, StaggerItem } from '@/components/ui/motion';
@@ -115,7 +116,7 @@ function ResponseSkeleton() {
 }
 
 type ResponseTab = 'body' | 'headers' | 'cookies' | 'timeline' | 'tests' | 'preview' | 'visualize';
-type BodyFormat = 'pretty' | 'raw' | 'preview' | 'table';
+type BodyFormat = 'pretty' | 'raw' | 'table';
 
 function IconButton({
   icon,
@@ -172,6 +173,7 @@ function ResponseViewer() {
   const visualization =
     activeTab_?.scriptResult?.test?.visualization ??
     activeTab_?.scriptResult?.preRequest?.visualization;
+  const testResults = activeTab_?.scriptResult?.test?.tests ?? [];
   const isLoading = useRequestStore((state) => state.isLoading);
   const [activeTab, setActiveTab] = useState<ResponseTab>('body');
   const [bodyFormat, setBodyFormat] = useState<BodyFormat>('pretty');
@@ -389,7 +391,13 @@ function ResponseViewer() {
     { value: 'headers' as const, label: 'Headers', count: headerEntries.length },
     { value: 'cookies' as const, label: 'Cookies', count: cookies.length },
     { value: 'timeline' as const, label: 'Timeline' },
-    { value: 'tests' as const, label: 'Tests' },
+    {
+      value: 'tests' as const,
+      label: 'Tests',
+      ...(testResults.length > 0 && {
+        badge: `${testResults.filter((t) => t.passed).length}/${testResults.length}`,
+      }),
+    },
     // Visualize tab — only present when the test script called
     // pm.visualizer.set. Postman's behaviour: the tab disappears on the
     // next request that doesn't visualize, which falls out of this
@@ -510,9 +518,6 @@ function ResponseViewer() {
                           options={[
                             { value: 'pretty', label: 'Pretty' },
                             { value: 'raw', label: 'Raw' },
-                            ...(language === 'html'
-                              ? [{ value: 'preview' as const, label: 'Preview' }]
-                              : []),
                             ...(isCsv ? [{ value: 'table' as const, label: 'Table' }] : []),
                           ]}
                           ariaLabel="Response body format"
@@ -768,11 +773,7 @@ function ResponseViewer() {
                   )}
 
                   {activeTab === 'tests' && (
-                    <div className="flex items-center justify-center h-full">
-                      <p className="text-sp-12 text-sp-dim font-mono">
-                        No tests recorded for this response
-                      </p>
-                    </div>
+                    <ResponseTestsPanel result={activeTab_?.scriptResult?.test} />
                   )}
 
                   {activeTab === 'visualize' && visualization && (

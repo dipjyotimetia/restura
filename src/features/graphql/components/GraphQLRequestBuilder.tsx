@@ -500,6 +500,7 @@ function GraphQLRequestBuilder() {
                     language="json"
                     height="100%"
                     ariaLabel="GraphQL variables"
+                    formatOnMount={false}
                     {...(activeTabId ? { path: `tab-${activeTabId}-graphql-variables-full` } : {})}
                     {...(activeTabId ? { modelOwner: activeTabId } : {})}
                   />

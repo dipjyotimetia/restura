@@ -12,23 +12,28 @@ import {
   Keyboard,
   type LucideIcon,
   Moon,
+  Rocket,
   Search,
   Send,
   Server,
   Settings2,
   Sun,
+  Terminal,
   Trash2,
   Wifi,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import type * as React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { REPLAY_ONBOARDING_EVENT } from '@/components/shared/WelcomeOnboarding';
 import { Kbd, MethodChip, ProtoChip } from '@/components/ui/spatial';
 import { isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
 import { withViewTransition } from '@/lib/shared/viewTransition';
 import { useActiveResponse, useActiveTab } from '@/store/selectors';
 import { useCollectionStore } from '@/store/useCollectionStore';
+import { useConsoleStore } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
@@ -75,6 +80,11 @@ interface PaletteItem {
   activeMarker?: boolean;
   shortcut?: string;
   group: 'Recent' | 'Requests' | 'Actions' | 'New' | 'Environments' | 'Settings';
+  /**
+   * Leave the palette mounted after selecting — for actions that open their
+   * own confirm dialog, which lives in (and unmounts with) the palette.
+   */
+  keepOpen?: boolean;
   onSelect: () => void;
 }
 
@@ -143,6 +153,7 @@ export default function CommandPalette({
   );
   const [query, setQuery] = useState('');
   const [highlighted, setHighlighted] = useState(0);
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
 
   // resolvedTheme (concrete 'light'|'dark'), not theme — theme can be 'system',
@@ -177,19 +188,22 @@ export default function CommandPalette({
     return () => document.removeEventListener('keydown', down);
   }, [isControlled, setOpen]);
 
-  // Reset transient state on open
+  // Reset transient state on open; drop a pending confirm when the palette
+  // closes by any route (e.g. its own Cmd+K toggle) so it can't be orphaned.
   useEffect(() => {
     if (open) {
       setQuery('');
       setHighlighted(0);
+    } else {
+      setConfirmClearOpen(false);
     }
   }, [open]);
 
   const close = useCallback(() => setOpen(false), [setOpen]);
   const run = useCallback(
-    (cmd: () => void) => {
-      close();
-      cmd();
+    (item: PaletteItem) => {
+      if (!item.keepOpen) close();
+      item.onSelect();
     },
     [close]
   );
@@ -276,7 +290,6 @@ export default function CommandPalette({
         group: 'Actions',
         name: 'Copy response body',
         icon: Copy,
-        shortcut: '⌘⇧C',
         onSelect: () => navigator.clipboard.writeText(currentResponse.body),
       });
     }
@@ -309,12 +322,25 @@ export default function CommandPalette({
       });
     }
     items.push({
+      id: 'toggle-console',
+      kind: 'action',
+      group: 'Actions',
+      name: 'Toggle network console',
+      icon: Terminal,
+      shortcut: '⌘⇧C',
+      onSelect: () => {
+        const consoleState = useConsoleStore.getState();
+        consoleState.setExpanded(!consoleState.isExpanded);
+      },
+    });
+    items.push({
       id: 'clear-history',
       kind: 'action',
       group: 'Actions',
       name: 'Clear history',
       icon: Trash2,
-      onSelect: clearHistory,
+      keepOpen: true,
+      onSelect: () => setConfirmClearOpen(true),
     });
 
     // New group — Kafka and MQTT are desktop-only (worker can't open raw TCP).
@@ -395,6 +421,14 @@ export default function CommandPalette({
           updateThemeSetting({ theme: next });
         }),
     });
+    items.push({
+      id: 'welcome-tour',
+      kind: 'setting',
+      group: 'Settings',
+      name: 'Show welcome tour',
+      icon: Rocket,
+      onSelect: () => window.dispatchEvent(new Event(REPLAY_ONBOARDING_EVENT)),
+    });
     if (onOpenSettings) {
       items.push({
         id: 'open-settings',
@@ -432,7 +466,6 @@ export default function CommandPalette({
     onOpenSettings,
     onChangeMode,
     currentResponse,
-    clearHistory,
     createNewRequest,
     openTab,
     resolvedTheme,
@@ -490,7 +523,7 @@ export default function CommandPalette({
       } else if (e.key === 'Enter') {
         e.preventDefault();
         const target = filtered[highlighted];
-        if (target) run(target.onSelect);
+        if (target) run(target);
       }
     },
     [filtered, highlighted, run]
@@ -504,119 +537,133 @@ export default function CommandPalette({
   }, [highlighted]);
 
   return (
-    <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay
-          className={cn(
-            'fixed inset-0 z-50',
-            'data-[state=open]:animate-in data-[state=closed]:animate-out',
-            'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0'
-          )}
-          style={{
-            background: 'rgba(0,0,0,0.55)',
-            backdropFilter: 'blur(6px)',
-            WebkitBackdropFilter: 'blur(6px)',
-          }}
-        />
-        <DialogPrimitive.Content
-          aria-label="Command palette"
-          onKeyDown={onKeyDown}
-          className={cn(
-            'fixed left-1/2 z-50 -translate-x-1/2',
-            'w-[640px] max-w-[calc(100vw-32px)]',
-            'rounded-sp-panel border border-sp-line-strong',
-            'sp-floater-lg',
-            'flex flex-col overflow-hidden',
-            'data-[state=open]:animate-in data-[state=closed]:animate-out',
-            'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
-            'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95'
-          )}
-          style={{
-            top: 100,
-            maxHeight: 480,
-            background: 'var(--sp-surface-hi)',
-            backdropFilter: 'blur(40px) saturate(180%)',
-            WebkitBackdropFilter: 'blur(40px) saturate(180%)',
-          }}
-        >
-          <DialogPrimitive.Title className="sr-only">Command palette</DialogPrimitive.Title>
-          <DialogPrimitive.Description className="sr-only">
-            Search for requests, actions, or settings
-          </DialogPrimitive.Description>
-
-          {/* Header */}
-          <div
-            className="flex items-center gap-3 border-b border-sp-line"
-            style={{ padding: '14px 16px' }}
-          >
-            <Search size={15} className="text-sp-dim shrink-0" aria-hidden="true" />
-            <input
-              autoFocus
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              aria-label="Search requests, actions, settings"
-              placeholder="Search requests, actions, settings..."
-              className="flex-1 bg-transparent outline-none text-sp-text placeholder:text-sp-dim text-sp-14"
-              style={{ fontFamily: 'Geist, var(--font-sans, sans-serif)' }}
-            />
-            <Kbd size="xs">ESC</Kbd>
-          </div>
-
-          {/* List */}
-          <div ref={listRef} className="flex-1 overflow-y-auto py-2" style={{ minHeight: 0 }}>
-            {filtered.length === 0 ? (
-              <div className="px-4 py-12 text-center text-sp-muted text-sp-12">
-                No matches for &lsquo;{query}&rsquo;
-              </div>
-            ) : (
-              grouped.map((g) => (
-                <div key={g.group} className="mb-2 last:mb-0">
-                  <div className="sp-label px-4 pt-2 pb-1">{g.group}</div>
-                  <div>
-                    {g.items.map((it) => {
-                      const globalIndex = filtered.indexOf(it);
-                      const active = globalIndex === highlighted;
-                      return (
-                        <PaletteRow
-                          key={it.id}
-                          item={it}
-                          index={globalIndex}
-                          active={active}
-                          onMouseEnter={() => setHighlighted(globalIndex)}
-                          onClick={() => run(it.onSelect)}
-                        />
-                      );
-                    })}
-                  </div>
-                </div>
-              ))
+    <>
+      <ConfirmDialog
+        open={confirmClearOpen}
+        onOpenChange={(next) => {
+          setConfirmClearOpen(next);
+          if (!next) close();
+        }}
+        title="Clear history?"
+        description="This permanently removes every entry from your request history."
+        confirmText="Clear history"
+        variant="destructive"
+        onConfirm={clearHistory}
+      />
+      <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
+        <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay
+            className={cn(
+              'fixed inset-0 z-50',
+              'data-[state=open]:animate-in data-[state=closed]:animate-out',
+              'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0'
             )}
-          </div>
+            style={{
+              background: 'rgba(0,0,0,0.55)',
+              backdropFilter: 'blur(6px)',
+              WebkitBackdropFilter: 'blur(6px)',
+            }}
+          />
+          <DialogPrimitive.Content
+            aria-label="Command palette"
+            onKeyDown={onKeyDown}
+            className={cn(
+              'fixed left-1/2 z-50 -translate-x-1/2',
+              'w-[640px] max-w-[calc(100vw-32px)]',
+              'rounded-sp-panel border border-sp-line-strong',
+              'sp-floater-lg',
+              'flex flex-col overflow-hidden',
+              'data-[state=open]:animate-in data-[state=closed]:animate-out',
+              'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+              'data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95'
+            )}
+            style={{
+              top: 100,
+              maxHeight: 480,
+              background: 'var(--sp-surface-hi)',
+              backdropFilter: 'blur(40px) saturate(180%)',
+              WebkitBackdropFilter: 'blur(40px) saturate(180%)',
+            }}
+          >
+            <DialogPrimitive.Title className="sr-only">Command palette</DialogPrimitive.Title>
+            <DialogPrimitive.Description className="sr-only">
+              Search for requests, actions, or settings
+            </DialogPrimitive.Description>
 
-          {/* Footer */}
-          <div className="flex items-center justify-between border-t border-sp-line px-4 py-2 text-sp-11 text-sp-muted">
-            <div className="flex items-center gap-3">
-              <span className="inline-flex items-center gap-1">
-                <Kbd size="xs">↑</Kbd>
-                <Kbd size="xs">↓</Kbd>
-                <span>navigate</span>
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <Kbd size="xs">↵</Kbd>
-                <span>select</span>
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <Kbd size="xs">⌘↵</Kbd>
-                <span>in new tab</span>
-              </span>
+            {/* Header */}
+            <div
+              className="flex items-center gap-3 border-b border-sp-line"
+              style={{ padding: '14px 16px' }}
+            >
+              <Search size={15} className="text-sp-dim shrink-0" aria-hidden="true" />
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                aria-label="Search requests, actions, settings"
+                placeholder="Search requests, actions, settings..."
+                className="flex-1 bg-transparent outline-none text-sp-text placeholder:text-sp-dim text-sp-14"
+                style={{ fontFamily: 'Geist, var(--font-sans, sans-serif)' }}
+              />
+              <Kbd size="xs">ESC</Kbd>
             </div>
-            <div className="font-mono tabular-nums text-sp-dim">
-              {filtered.length} {filtered.length === 1 ? 'result' : 'results'}
+
+            {/* List */}
+            <div ref={listRef} className="flex-1 overflow-y-auto py-2" style={{ minHeight: 0 }}>
+              {filtered.length === 0 ? (
+                <div className="px-4 py-12 text-center text-sp-muted text-sp-12">
+                  No matches for &lsquo;{query}&rsquo;
+                </div>
+              ) : (
+                grouped.map((g) => (
+                  <div key={g.group} className="mb-2 last:mb-0">
+                    <div className="sp-label px-4 pt-2 pb-1">{g.group}</div>
+                    <div>
+                      {g.items.map((it) => {
+                        const globalIndex = filtered.indexOf(it);
+                        const active = globalIndex === highlighted;
+                        return (
+                          <PaletteRow
+                            key={it.id}
+                            item={it}
+                            index={globalIndex}
+                            active={active}
+                            onMouseEnter={() => setHighlighted(globalIndex)}
+                            onClick={() => run(it)}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
-          </div>
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between border-t border-sp-line px-4 py-2 text-sp-11 text-sp-muted">
+              <div className="flex items-center gap-3">
+                <span className="inline-flex items-center gap-1">
+                  <Kbd size="xs">↑</Kbd>
+                  <Kbd size="xs">↓</Kbd>
+                  <span>navigate</span>
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <Kbd size="xs">↵</Kbd>
+                  <span>select</span>
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <Kbd size="xs">⌘↵</Kbd>
+                  <span>in new tab</span>
+                </span>
+              </div>
+              <div className="font-mono tabular-nums text-sp-dim">
+                {filtered.length} {filtered.length === 1 ? 'result' : 'results'}
+              </div>
+            </div>
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+      </DialogPrimitive.Root>
+    </>
   );
 }
 

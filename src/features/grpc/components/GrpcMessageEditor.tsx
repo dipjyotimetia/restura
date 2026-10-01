@@ -62,6 +62,7 @@ export function GrpcMessageEditor({
           language="json"
           height="360px"
           ariaLabel="gRPC request message"
+          formatOnMount={false}
           {...(editorPath ? { path: editorPath } : {})}
           {...(modelOwner ? { modelOwner } : {})}
         />

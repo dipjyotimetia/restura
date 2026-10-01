@@ -205,6 +205,7 @@ export default function GraphQLBodyEditor({
                 language="json"
                 height="140px"
                 ariaLabel="GraphQL variables"
+                formatOnMount={false}
                 {...(activeTabId ? { path: `tab-${activeTabId}-graphql-variables` } : {})}
                 {...(activeTabId ? { modelOwner: activeTabId } : {})}
               />
