@@ -225,6 +225,13 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
     .forEach((h) => {
       headers[h.key] = resolveLocal(h.value);
     });
+  // XML travels as a 'raw' proxy body, which sets no Content-Type of its own.
+  if (
+    request.body.type === 'xml' &&
+    !Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')
+  ) {
+    headers['Content-Type'] = 'application/xml';
+  }
 
   // {{vars}} in the body resolve like the URL/params/headers do (the CLI
   // already does this). Binary bodies hold base64 bytes and are never touched;

@@ -2,7 +2,9 @@ import { unwrapSecret } from '@/lib/shared/secretRef';
 import { escapeJson, type GenerateOptions } from './types';
 
 export const generatePython = (options: GenerateOptions): string => {
-  const { request, resolvedUrl, resolvedHeaders, resolvedParams, settings } = options;
+  const { request, resolvedUrl, resolvedHeaders, resolvedParams, settings, formData } = options;
+  const textFields = formData?.filter((f) => f.type === 'text') ?? [];
+  const fileFields = formData?.filter((f) => f.type === 'file') ?? [];
 
   let python = `import requests\n\n`;
   python += `url = "${escapeJson(resolvedUrl)}"\n\n`;
@@ -23,7 +25,21 @@ export const generatePython = (options: GenerateOptions): string => {
     python += `}\n\n`;
   }
 
-  if (request.body.type !== 'none' && request.body.raw) {
+  if (formData) {
+    if (textFields.length > 0) {
+      python += `data = {\n`;
+      for (const f of textFields)
+        python += `    "${escapeJson(f.key)}": "${escapeJson(f.value)}",\n`;
+      python += `}\n\n`;
+    }
+    if (fileFields.length > 0) {
+      python += `files = {\n`;
+      for (const f of fileFields) {
+        python += `    "${escapeJson(f.key)}": open("${escapeJson(f.value)}", "rb"),\n`;
+      }
+      python += `}\n\n`;
+    }
+  } else if (request.body.type !== 'none' && request.body.raw) {
     if (request.body.type === 'json') {
       python += `json_data = ${request.body.raw}\n\n`;
     } else {
@@ -49,7 +65,10 @@ export const generatePython = (options: GenerateOptions): string => {
   python += `    url`;
   if (Object.keys(resolvedParams).length > 0) python += `,\n    params=params`;
   if (Object.keys(resolvedHeaders).length > 0) python += `,\n    headers=headers`;
-  if (request.body.type !== 'none' && request.body.raw) {
+  if (formData) {
+    if (textFields.length > 0) python += `,\n    data=data`;
+    if (fileFields.length > 0) python += `,\n    files=files`;
+  } else if (request.body.type !== 'none' && request.body.raw) {
     python += request.body.type === 'json' ? `,\n    json=json_data` : `,\n    data=data`;
   }
   if (proxyConfig?.enabled && proxyConfig.host) python += `,\n    proxies=proxies`;

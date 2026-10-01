@@ -23,6 +23,7 @@ import type {
   FormDataItem,
   HttpMethod,
   HttpRequest,
+  KeyValue,
   RequestBody,
   RequestSettings,
 } from '@/types';
@@ -327,6 +328,8 @@ export function useHttpRequestPage() {
     sendRequest,
     cancelRequest,
     changeMethod: (method: HttpMethod) => updateRequest({ method }),
+    replaceParams: (params: KeyValue[]) => updateRequest({ params }),
+    replaceHeaders: (headers: KeyValue[]) => updateRequest({ headers }),
     // The URL bar shows url + enabled params; split edits back into both so
     // the stored url keeps no query and the params table stays in sync.
     changeUrl: (text: string) => {

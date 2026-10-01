@@ -212,6 +212,48 @@ describe('executeRequest — body variables', () => {
   });
 });
 
+describe('executeRequest — XML body', () => {
+  const settings = useSettingsStore.getState().settings;
+  beforeEach(() => {
+    executeProxiedRequestMock.mockReset();
+    executeProxiedRequestMock.mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: '',
+      size: 0,
+    });
+  });
+
+  const sentHeaders = () =>
+    (executeProxiedRequestMock.mock.calls[0]?.[0] as { headers: Record<string, string> }).headers;
+
+  it('defaults Content-Type to application/xml', async () => {
+    await executeRequest({
+      request: makeRequest({ method: 'POST', body: { type: 'xml', raw: '<a/>' } }),
+      envVars: {},
+      globalSettings: settings,
+      resolveVariables: (text) => text,
+    });
+    expect(sentHeaders()['Content-Type']).toBe('application/xml');
+  });
+
+  it('keeps a Content-Type the user set', async () => {
+    await executeRequest({
+      request: makeRequest({
+        method: 'POST',
+        body: { type: 'xml', raw: '<a/>' },
+        headers: [{ id: 'h', key: 'content-type', value: 'text/xml', enabled: true }],
+      }),
+      envVars: {},
+      globalSettings: settings,
+      resolveVariables: (text) => text,
+    });
+    expect(sentHeaders()['content-type']).toBe('text/xml');
+    expect(sentHeaders()['Content-Type']).toBeUndefined();
+  });
+});
+
 describe('isStreamingAccept', () => {
   it('detects text/event-stream', () => {
     expect(isStreamingAccept({ Accept: 'text/event-stream' })).toBe(true);

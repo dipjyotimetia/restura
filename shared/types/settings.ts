@@ -26,6 +26,8 @@ export interface AppSettings {
   requestResponseSplit?: number;
   // Collapsed sidebar (Cmd/Ctrl+B). Optional: absent = expanded.
   sidebarCollapsed?: boolean;
+  // Last language picked in the code generator (a codeGenerators key).
+  codegenLanguage?: string;
   // Security settings
   allowLocalhost?: boolean;
   allowPrivateIPs?: boolean;

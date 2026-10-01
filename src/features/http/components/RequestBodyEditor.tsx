@@ -1,7 +1,9 @@
 'use client';
 
 import { FileText } from 'lucide-react';
+import { useState } from 'react';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
+import { Segmented } from '@/components/ui/spatial';
 import { useVariableStatus } from '@/hooks/useVariableStatus';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { useActiveTab } from '@/store/selectors';
@@ -16,6 +18,7 @@ const GraphQLBodyEditor = lazyComponent(
 );
 const FormDataEditor = lazyComponent(() => import('@/features/http/components/FormDataEditor'));
 const BinaryBodyPicker = lazyComponent(() => import('@/features/http/components/BinaryBodyPicker'));
+const UrlEncodedEditor = lazyComponent(() => import('@/features/http/components/UrlEncodedEditor'));
 
 /**
  * Whether the editor for this body type fills its container (the Monaco code
@@ -47,6 +50,7 @@ export default function RequestBodyEditor({
 }: RequestBodyEditorProps) {
   const activeTabId = useActiveTab()?.id;
   const getVariableStatus = useVariableStatus();
+  const [urlEncodedMode, setUrlEncodedMode] = useState<'table' | 'text'>('table');
 
   if (body.type === 'none') {
     return (
@@ -80,7 +84,7 @@ export default function RequestBodyEditor({
     return <BinaryBodyPicker base64={body.raw || ''} onChange={onBodyContentChange} />;
   }
 
-  return (
+  const editor = (
     <CodeEditor
       value={body.raw || ''}
       onChange={onBodyContentChange}
@@ -98,5 +102,31 @@ export default function RequestBodyEditor({
       {...(activeTabId ? { path: `tab-${activeTabId}-body` } : {})}
       {...(activeTabId ? { modelOwner: activeTabId } : {})}
     />
+  );
+
+  if (body.type !== 'x-www-form-urlencoded') return editor;
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex justify-end border-b border-sp-line px-2 py-1">
+        <Segmented<'table' | 'text'>
+          options={[
+            { value: 'table', label: 'Table' },
+            { value: 'text', label: 'Text' },
+          ]}
+          value={urlEncodedMode}
+          onChange={setUrlEncodedMode}
+          size="sm"
+          ariaLabel="Form body view"
+        />
+      </div>
+      <div className="flex-1 min-h-0">
+        {urlEncodedMode === 'table' ? (
+          <UrlEncodedEditor raw={body.raw || ''} onChange={onBodyContentChange} />
+        ) : (
+          editor
+        )}
+      </div>
+    </div>
   );
 }

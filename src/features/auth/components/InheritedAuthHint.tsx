@@ -8,6 +8,28 @@ import {
 import { useCollectionStore } from '@/store/useCollectionStore';
 import type { AuthConfig, AuthType, Request } from '@/types';
 
+/**
+ * The folder/collection auth this request inherits, if it has none of its
+ * own. Subscribes to the collection store so it updates live.
+ */
+export function useInheritedAuth(
+  request: Pick<Request, 'id'> & { auth: AuthConfig }
+): InheritedAuth | undefined {
+  const collections = useCollectionStore((s) => s.collections);
+  return useMemo(() => {
+    if (isConfiguredAuth(request.auth)) return undefined;
+    for (const collection of collections) {
+      const found = findInheritedAuthWithSource(collection, request.id);
+      if (found) return found;
+    }
+    return undefined;
+  }, [collections, request.id, request.auth]);
+}
+
+export function authTypeLabel(type: AuthType): string {
+  return AUTH_TYPE_LABELS[type] ?? type;
+}
+
 const AUTH_TYPE_LABELS: Partial<Record<AuthType, string>> = {
   basic: 'Basic',
   bearer: 'Bearer',
@@ -31,17 +53,7 @@ export function InheritedAuthHint({
 }: {
   request: Pick<Request, 'id'> & { auth: AuthConfig };
 }) {
-  // Subscribe so the hint updates live when folder/collection auth changes.
-  const collections = useCollectionStore((s) => s.collections);
-
-  const inherited = useMemo<InheritedAuth | undefined>(() => {
-    if (isConfiguredAuth(request.auth)) return undefined;
-    for (const collection of collections) {
-      const found = findInheritedAuthWithSource(collection, request.id);
-      if (found) return found;
-    }
-    return undefined;
-  }, [collections, request.id, request.auth]);
+  const inherited = useInheritedAuth(request);
 
   if (!inherited) return null;
 

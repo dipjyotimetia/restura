@@ -24,6 +24,7 @@ import {
 import { useTheme } from 'next-themes';
 import type * as React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import {
   GROUP_ORDER,
   hint,
@@ -36,6 +37,9 @@ import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { CLOSE_ACTIVE_TAB_EVENT } from '@/components/shared/TabBar';
 import { REPLAY_ONBOARDING_EVENT } from '@/components/shared/WelcomeOnboarding';
 import { Kbd } from '@/components/ui/spatial';
+import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
+import { generateRequestCode } from '@/features/http/lib/requestCode';
+import { useVariableDetails } from '@/hooks/useVariableStatus';
 import { fuzzyScore } from '@/lib/shared/fuzzy';
 import { isElectron } from '@/lib/shared/platform';
 import { modLabel } from '@/lib/shared/shortcuts';
@@ -159,6 +163,7 @@ export default function CommandPalette({
   // modeOverride; in those modes RequestBuilder (which hosts the code-gen /
   // load-test dialogs) isn't mounted, so gate on the effective mode.
   const activeIsHttp = !activeTab?.modeOverride && activeTab?.request?.type === 'http';
+  const variables = useVariableDetails();
 
   // Toggle ⌘K / Ctrl+K — works regardless of controlled/uncontrolled mode.
   useEffect(() => {
@@ -286,6 +291,26 @@ export default function CommandPalette({
         name: 'Generate code for current request',
         icon: FileCode2,
         onSelect: () => useUiStore.getState().setCodeGenOpen(true),
+      });
+      items.push({
+        id: 'copy-curl',
+        kind: 'action',
+        group: 'Actions',
+        name: 'Copy as cURL',
+        icon: Copy,
+        onSelect: () => {
+          const tab = useRequestStore.getState().getActiveTab();
+          if (tab?.request.type !== 'http') return;
+          const code = generateRequestCode(tab.request, 'curl', {
+            variables,
+            maskSecrets: true,
+            settings: resolveEffectiveSettings(
+              tab.request.settings,
+              useSettingsStore.getState().settings
+            ),
+          });
+          void navigator.clipboard.writeText(code).then(() => toast.success('Copied as cURL'));
+        },
       });
       items.push({
         id: 'load-test',
@@ -518,6 +543,7 @@ export default function CommandPalette({
     onChangeMode,
     currentResponse,
     activeTab,
+    variables,
     createNewRequest,
     openTab,
     resolvedTheme,
