@@ -122,6 +122,8 @@ export default function ResizableLayout({
             : 'h-px cursor-row-resize before:inset-x-0 before:-inset-y-2 before:cursor-row-resize'
         )}
         onMouseDown={handleResizeStart}
+        onDoubleClick={() => commitSplit(defaultSplit)}
+        title="Drag to resize · double-click to reset"
         onKeyDown={(e) => {
           const step = 5;
           if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {

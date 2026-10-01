@@ -24,6 +24,10 @@ export interface AppSettings {
   // Persisted so the divider position survives reload. Optional: pre-existing
   // persisted settings predate it and fall back to a 50/50 default in the UI.
   requestResponseSplit?: number;
+  // Collapsed sidebar (Cmd/Ctrl+B). Optional: absent = expanded.
+  sidebarCollapsed?: boolean;
+  // Last language picked in the code generator (a codeGenerators key).
+  codegenLanguage?: string;
   // Security settings
   allowLocalhost?: boolean;
   allowPrivateIPs?: boolean;

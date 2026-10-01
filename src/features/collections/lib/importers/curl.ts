@@ -10,6 +10,19 @@ const SHELL_OPERATORS = new Set([';', '|', '||', '&&', '&']);
  * and local-file reads are never evaluated.
  */
 export function importCurlCommand(source: string): ImportResult {
+  return parseCurlCommand(source).result;
+}
+
+/**
+ * Parse a cURL command. Besides the import result, reports the settings the
+ * command's flags set explicitly (-L, --max-redirs, --max-time, -k, --proxy,
+ * --tlsv1.x) — the result's `settings` also carries defaults for the rest,
+ * which a paste into an existing request must not apply over the user's own.
+ */
+export function parseCurlCommand(source: string): {
+  result: ImportResult;
+  explicitSettings: Partial<RequestSettings>;
+} {
   const tokens = lexPosix(source);
   if (tokens.some((token) => SHELL_OPERATORS.has(token))) {
     throw new Error(
@@ -215,17 +228,20 @@ export function importCurlCommand(source: string): ImportResult {
         ? { type: 'form-data', formData }
         : bodyKind === 'none'
           ? { type: 'none' }
-          : { type: bodyKind, raw: rawBody },
+          : { type: bodyKind, raw: rawBody ?? '' },
     auth: basic ? { type: 'basic', basic } : { type: 'none' },
     settings: { timeout: 0, followRedirects: false, maxRedirects: 5, verifySsl: true, ...settings },
   };
   return {
-    collection: {
-      id: uuid(),
-      name: `cURL: ${parsedUrl.hostname}`,
-      items: [{ id: uuid(), name: requestName, type: 'request', request }],
+    result: {
+      collection: {
+        id: uuid(),
+        name: `cURL: ${parsedUrl.hostname}`,
+        items: [{ id: uuid(), name: requestName, type: 'request', request }],
+      },
+      warnings,
     },
-    warnings,
+    explicitSettings: settings,
   };
 }
 

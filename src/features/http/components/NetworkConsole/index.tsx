@@ -30,6 +30,7 @@ import { buildExportFile, downloadExportFile } from '@/lib/shared/console-export
 import { filterEntries } from '@/lib/shared/console-filter';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { isElectron } from '@/lib/shared/platform';
+import { modLabel } from '@/lib/shared/shortcuts';
 import { cn } from '@/lib/shared/utils';
 import type { ConsoleLog, ConsoleTabId, ConsoleTest } from '@/store/useConsoleStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
@@ -477,7 +478,9 @@ export default function NetworkConsole({
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                <p>{isExpanded ? 'Collapse' : 'Expand'} console (⌘⇧C)</p>
+                <p>
+                  {isExpanded ? 'Collapse' : 'Expand'} console ({modLabel('⇧C')})
+                </p>
               </TooltipContent>
             </Tooltip>
           </div>

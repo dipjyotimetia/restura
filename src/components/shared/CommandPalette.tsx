@@ -2,33 +2,47 @@
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
-  Check,
-  Code2,
+  Columns,
   Copy,
   FileCode2,
   FolderOpen,
   Gauge,
   Globe,
   Keyboard,
-  type LucideIcon,
   Moon,
+  PanelLeft,
   Rocket,
+  RotateCcw,
   Search,
   Send,
-  Server,
   Settings2,
   Sun,
   Terminal,
   Trash2,
-  Wifi,
+  X,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import type * as React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
+import {
+  GROUP_ORDER,
+  hint,
+  LISTBOX_ID,
+  optionId,
+  type PaletteItem,
+  PaletteRow,
+} from '@/components/shared/CommandPaletteParts';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
+import { CLOSE_ACTIVE_TAB_EVENT } from '@/components/shared/TabBar';
 import { REPLAY_ONBOARDING_EVENT } from '@/components/shared/WelcomeOnboarding';
-import { Kbd, MethodChip, ProtoChip } from '@/components/ui/spatial';
+import { Kbd } from '@/components/ui/spatial';
+import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
+import { generateRequestCode } from '@/features/http/lib/requestCode';
+import { useVariableDetails } from '@/hooks/useVariableStatus';
+import { fuzzyScore } from '@/lib/shared/fuzzy';
 import { isElectron } from '@/lib/shared/platform';
+import { modLabel } from '@/lib/shared/shortcuts';
 import { cn } from '@/lib/shared/utils';
 import { withViewTransition } from '@/lib/shared/viewTransition';
 import { useActiveResponse, useActiveTab } from '@/store/selectors';
@@ -45,6 +59,7 @@ import { isConnectionMode } from '@/types';
 interface CommandPaletteProps {
   onOpenEnvironments?: () => void;
   onOpenSettings?: () => void;
+  onOpenShortcuts?: () => void;
   onOpenImport?: () => void;
   onSendRequest?: () => void;
   // Widened to include `graphql` so the "New GraphQL request" command can
@@ -59,33 +74,6 @@ interface CommandPaletteProps {
   // palette keeps its internal Cmd+K listener as the sole open source.
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
-}
-
-type ItemKind = 'request' | 'new' | 'action' | 'setting' | 'environment';
-
-interface PaletteItem {
-  id: string;
-  kind: ItemKind;
-  name: string;
-  path?: string;
-  /** When kind === 'request' and the request is HTTP */
-  method?: string;
-  /** When kind === 'new', or kind === 'request' for non-HTTP protocols */
-  proto?: string;
-  /** When kind === 'action' | 'setting' */
-  icon?: LucideIcon;
-  /** When kind === 'request' — flagged as recent */
-  recent?: boolean;
-  /** When kind === 'environment' — currently-active marker. */
-  activeMarker?: boolean;
-  shortcut?: string;
-  group: 'Recent' | 'Requests' | 'Actions' | 'New' | 'Environments' | 'Settings';
-  /**
-   * Leave the palette mounted after selecting — for actions that open their
-   * own confirm dialog, which lives in (and unmounts with) the palette.
-   */
-  keepOpen?: boolean;
-  onSelect: () => void;
 }
 
 /**
@@ -131,6 +119,7 @@ function flattenCollectionRequests(
 export default function CommandPalette({
   onOpenEnvironments,
   onOpenSettings,
+  onOpenShortcuts,
   onOpenImport,
   onSendRequest,
   onChangeMode,
@@ -174,6 +163,7 @@ export default function CommandPalette({
   // modeOverride; in those modes RequestBuilder (which hosts the code-gen /
   // load-test dialogs) isn't mounted, so gate on the effective mode.
   const activeIsHttp = !activeTab?.modeOverride && activeTab?.request?.type === 'http';
+  const variables = useVariableDetails();
 
   // Toggle ⌘K / Ctrl+K — works regardless of controlled/uncontrolled mode.
   useEffect(() => {
@@ -279,7 +269,7 @@ export default function CommandPalette({
         group: 'Actions',
         name: 'Send request',
         icon: Send,
-        shortcut: '⌘↵',
+        shortcut: hint('send'),
         onSelect: onSendRequest,
       });
     }
@@ -303,6 +293,26 @@ export default function CommandPalette({
         onSelect: () => useUiStore.getState().setCodeGenOpen(true),
       });
       items.push({
+        id: 'copy-curl',
+        kind: 'action',
+        group: 'Actions',
+        name: 'Copy as cURL',
+        icon: Copy,
+        onSelect: () => {
+          const tab = useRequestStore.getState().getActiveTab();
+          if (tab?.request.type !== 'http') return;
+          const code = generateRequestCode(tab.request, 'curl', {
+            variables,
+            maskSecrets: true,
+            settings: resolveEffectiveSettings(
+              tab.request.settings,
+              useSettingsStore.getState().settings
+            ),
+          });
+          void navigator.clipboard.writeText(code).then(() => toast.success('Copied as cURL'));
+        },
+      });
+      items.push({
         id: 'load-test',
         kind: 'action',
         group: 'Actions',
@@ -321,13 +331,67 @@ export default function CommandPalette({
         onSelect: onOpenImport,
       });
     }
+    if (activeTab) {
+      items.push({
+        id: 'close-tab',
+        kind: 'action',
+        group: 'Actions',
+        name: 'Close tab',
+        icon: X,
+        shortcut: hint('close-tab'),
+        onSelect: () => window.dispatchEvent(new Event(CLOSE_ACTIVE_TAB_EVENT)),
+      });
+      items.push({
+        id: 'duplicate-tab',
+        kind: 'action',
+        group: 'Actions',
+        name: 'Duplicate tab',
+        icon: Copy,
+        onSelect: () => useRequestStore.getState().duplicateTab(activeTab.id),
+      });
+    }
+    items.push({
+      id: 'reopen-tab',
+      kind: 'action',
+      group: 'Actions',
+      name: 'Reopen closed tab',
+      icon: RotateCcw,
+      shortcut: hint('reopen-tab'),
+      onSelect: () => useRequestStore.getState().reopenClosedTab(),
+    });
+    items.push({
+      id: 'toggle-sidebar',
+      kind: 'action',
+      group: 'Actions',
+      name: 'Toggle sidebar',
+      icon: PanelLeft,
+      shortcut: hint('toggle-sidebar'),
+      onSelect: () => {
+        const settings = useSettingsStore.getState();
+        settings.updateSettings({ sidebarCollapsed: !settings.settings.sidebarCollapsed });
+      },
+    });
+    items.push({
+      id: 'toggle-layout',
+      kind: 'action',
+      group: 'Actions',
+      name: 'Toggle side-by-side / stacked layout',
+      icon: Columns,
+      onSelect: () => {
+        const settings = useSettingsStore.getState();
+        settings.updateSettings({
+          layoutOrientation:
+            settings.settings.layoutOrientation === 'vertical' ? 'horizontal' : 'vertical',
+        });
+      },
+    });
     items.push({
       id: 'toggle-console',
       kind: 'action',
       group: 'Actions',
       name: 'Toggle network console',
       icon: Terminal,
-      shortcut: '⌘⇧C',
+      shortcut: hint('toggle-console'),
       onSelect: () => {
         const consoleState = useConsoleStore.getState();
         consoleState.setExpanded(!consoleState.isExpanded);
@@ -421,6 +485,17 @@ export default function CommandPalette({
           updateThemeSetting({ theme: next });
         }),
     });
+    if (onOpenShortcuts) {
+      items.push({
+        id: 'shortcuts',
+        kind: 'setting',
+        group: 'Settings',
+        name: 'Keyboard shortcuts',
+        icon: Keyboard,
+        shortcut: hint('shortcuts'),
+        onSelect: onOpenShortcuts,
+      });
+    }
     items.push({
       id: 'welcome-tour',
       kind: 'setting',
@@ -436,7 +511,7 @@ export default function CommandPalette({
         group: 'Settings',
         name: 'Open settings',
         icon: Settings2,
-        shortcut: '⌘,',
+        shortcut: hint('settings'),
         onSelect: onOpenSettings,
       });
     }
@@ -464,8 +539,11 @@ export default function CommandPalette({
     onOpenImport,
     onOpenEnvironments,
     onOpenSettings,
+    onOpenShortcuts,
     onChangeMode,
     currentResponse,
+    activeTab,
+    variables,
     createNewRequest,
     openTab,
     resolvedTheme,
@@ -474,25 +552,28 @@ export default function CommandPalette({
   ]);
 
   // Filter
+  // Fuzzy match, best first *within* each group: rows render grouped, and
+  // keyboard selection indexes into this list, so its order must match the
+  // on-screen order.
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return allItems;
-    return allItems.filter((it) => {
-      const hay = `${it.name} ${it.path ?? ''}`.toLowerCase();
-      return hay.includes(q);
+    if (!query.trim()) return allItems;
+    const scored: Array<{ it: PaletteItem; score: number; i: number }> = [];
+    allItems.forEach((it, i) => {
+      const score = fuzzyScore(query, `${it.name} ${it.path ?? ''}`);
+      if (score !== null) scored.push({ it, score, i });
     });
+    scored.sort(
+      (a, b) =>
+        GROUP_ORDER.indexOf(a.it.group) - GROUP_ORDER.indexOf(b.it.group) ||
+        b.score - a.score ||
+        a.i - b.i
+    );
+    return scored.map((s) => s.it);
   }, [allItems, query]);
 
   // Group preserving original order
   const grouped = useMemo(() => {
-    const order: Array<PaletteItem['group']> = [
-      'Recent',
-      'Requests',
-      'Actions',
-      'New',
-      'Environments',
-      'Settings',
-    ];
+    const order = GROUP_ORDER;
     const map = new Map<PaletteItem['group'], PaletteItem[]>();
     for (const g of order) map.set(g, []);
     for (const it of filtered) map.get(it.group)?.push(it);
@@ -600,6 +681,13 @@ export default function CommandPalette({
                 autoFocus
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                role="combobox"
+                aria-expanded={filtered.length > 0}
+                aria-controls={LISTBOX_ID}
+                aria-autocomplete="list"
+                {...(filtered[highlighted] && {
+                  'aria-activedescendant': optionId(filtered[highlighted].id),
+                })}
                 aria-label="Search requests, actions, settings"
                 placeholder="Search requests, actions, settings..."
                 className="flex-1 bg-transparent outline-none text-sp-text placeholder:text-sp-dim text-sp-14"
@@ -609,15 +697,29 @@ export default function CommandPalette({
             </div>
 
             {/* List */}
-            <div ref={listRef} className="flex-1 overflow-y-auto py-2" style={{ minHeight: 0 }}>
+            <div
+              ref={listRef}
+              id={LISTBOX_ID}
+              role="listbox"
+              aria-label="Results"
+              className="flex-1 overflow-y-auto py-2"
+              style={{ minHeight: 0 }}
+            >
               {filtered.length === 0 ? (
                 <div className="px-4 py-12 text-center text-sp-muted text-sp-12">
                   No matches for &lsquo;{query}&rsquo;
                 </div>
               ) : (
                 grouped.map((g) => (
-                  <div key={g.group} className="mb-2 last:mb-0">
-                    <div className="sp-label px-4 pt-2 pb-1">{g.group}</div>
+                  <div
+                    key={g.group}
+                    role="group"
+                    aria-labelledby={`cmd-group-${g.group}`}
+                    className="mb-2 last:mb-0"
+                  >
+                    <div id={`cmd-group-${g.group}`} className="sp-label px-4 pt-2 pb-1">
+                      {g.group}
+                    </div>
                     <div>
                       {g.items.map((it) => {
                         const globalIndex = filtered.indexOf(it);
@@ -652,7 +754,7 @@ export default function CommandPalette({
                   <span>select</span>
                 </span>
                 <span className="inline-flex items-center gap-1">
-                  <Kbd size="xs">⌘↵</Kbd>
+                  <Kbd size="xs">{modLabel('↵')}</Kbd>
                   <span>in new tab</span>
                 </span>
               </div>
@@ -664,95 +766,5 @@ export default function CommandPalette({
         </DialogPrimitive.Portal>
       </DialogPrimitive.Root>
     </>
-  );
-}
-
-interface PaletteRowProps {
-  item: PaletteItem;
-  index: number;
-  active: boolean;
-  onMouseEnter: () => void;
-  onClick: () => void;
-}
-
-const PROTO_ICON: Record<string, LucideIcon> = {
-  WS: Wifi,
-  SOCKETIO: Wifi,
-  GRPC: Server,
-  MCP: Server,
-  SSE: Wifi,
-  HTTP: Code2,
-  GQL: Code2,
-};
-
-function PaletteRow({ item, index, active, onMouseEnter, onClick }: PaletteRowProps) {
-  const Icon =
-    item.icon ?? (item.kind === 'new' && item.proto ? PROTO_ICON[item.proto] : undefined);
-
-  return (
-    <div
-      role="option"
-      aria-selected={active}
-      tabIndex={-1}
-      data-cmd-index={index}
-      onMouseEnter={onMouseEnter}
-      onClick={onClick}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onClick();
-        }
-      }}
-      className={cn(
-        'relative flex items-center gap-3 mx-2 px-3 py-2 rounded-sp-btn cursor-pointer',
-        'text-sp-13 text-sp-text',
-        active ? 'bg-sp-active' : 'hover:bg-sp-hover'
-      )}
-      style={active ? { boxShadow: 'inset 2px 0 0 0 var(--sp-accent)' } : undefined}
-    >
-      {/* Leading visual */}
-      <div className="shrink-0 inline-flex items-center justify-center">
-        {/* proto exists only on 'request' (non-HTTP) and 'new' items; method
-            only on HTTP 'request' items — so a flat chain covers all kinds. */}
-        {item.proto ? (
-          <ProtoChip protocol={item.proto} />
-        ) : item.method ? (
-          <MethodChip method={item.method} size="sm" />
-        ) : Icon ? (
-          <Icon size={15} className="text-sp-muted" />
-        ) : null}
-      </div>
-
-      {/* Name + path */}
-      <div className="flex-1 min-w-0 flex items-baseline gap-2">
-        <span className="truncate whitespace-nowrap text-sp-text font-medium">{item.name}</span>
-        {item.path && (
-          <span className="truncate text-sp-dim text-sp-11 font-mono">{item.path}</span>
-        )}
-      </div>
-
-      {/* Trailing */}
-      <div className="shrink-0 inline-flex items-center gap-2">
-        {item.activeMarker && <Check size={13} className="text-sp-accent" />}
-        {item.recent && (
-          <span
-            className="font-mono uppercase tracking-wide rounded-sp-chip px-1.5 py-0.5"
-            style={{
-              fontSize: 9,
-              fontWeight: 700,
-              letterSpacing: '0.06em',
-              background: 'var(--sp-accent-glow-15)',
-              color: 'var(--sp-accent)',
-            }}
-          >
-            RECENT
-          </span>
-        )}
-        {item.shortcut && <Kbd size="xs">{item.shortcut}</Kbd>}
-        {item.kind === 'action' && !item.shortcut && active && (
-          <Keyboard size={12} className="text-sp-dim" />
-        )}
-      </div>
-    </div>
   );
 }

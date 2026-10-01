@@ -1,9 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { HttpRequest } from '@/types';
-import { TabBar } from './TabBar';
+import { CLOSE_ACTIVE_TAB_EVENT, TabBar } from './TabBar';
 
 const platform = vi.hoisted(() => ({ electron: true }));
 const saveBack = vi.hoisted(() => ({ saveTabBackToCollection: vi.fn() }));
@@ -269,6 +269,48 @@ describe('TabBar', () => {
       await user.click(await screen.findByRole('menuitem', { name: 'Close Others' }));
       await user.click(screen.getByRole('button', { name: 'Discard & close' }));
       expect(useRequestStore.getState().tabs.map((t) => t.request.name)).toEqual(['Keep']);
+    });
+
+    it('Close Tabs to the Right asks only about dirty tabs to the right', async () => {
+      const user = userEvent.setup();
+      useRequestStore.getState().openTab(makeHttp({ name: 'Left' }));
+      const mid = useRequestStore.getState().openTab(makeHttp({ name: 'Mid' }));
+      openDirtyTab('Right');
+      useRequestStore.getState().switchTab(mid);
+      render(<TabBar />);
+
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /Mid/ }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Close Tabs to the Right' }));
+      expect(screen.getByRole('alertdialog')).toHaveTextContent('Right');
+      await user.click(screen.getByRole('button', { name: 'Discard & close' }));
+      expect(useRequestStore.getState().tabs.map((t) => t.request.name)).toEqual(['Left', 'Mid']);
+    });
+
+    it('disables Close Tabs to the Right on the last tab', async () => {
+      useRequestStore.getState().openTab(makeHttp({ name: 'Only' }));
+      render(<TabBar />);
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /Only/ }));
+      expect(
+        await screen.findByRole('menuitem', { name: 'Close Tabs to the Right' })
+      ).toHaveAttribute('data-disabled');
+    });
+
+    it('middle-click and the close-active-tab event close through the same prompt', () => {
+      useRequestStore.getState().openTab(makeHttp({ name: 'Clean' }));
+      openDirtyTab('Edited');
+      render(<TabBar />);
+
+      fireEvent(
+        screen.getByRole('tab', { name: /Clean/ }).parentElement as HTMLElement,
+        new MouseEvent('auxclick', { bubbles: true, button: 1 })
+      );
+      expect(useRequestStore.getState().tabs.map((t) => t.request.name)).toEqual(['Edited']);
+
+      act(() => {
+        window.dispatchEvent(new Event(CLOSE_ACTIVE_TAB_EVENT));
+      });
+      expect(screen.getByRole('alertdialog')).toHaveTextContent('Edited');
+      expect(useRequestStore.getState().tabs).toHaveLength(1);
     });
 
     it('Close All closes clean tabs immediately, without asking', async () => {

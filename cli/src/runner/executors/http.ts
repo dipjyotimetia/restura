@@ -31,6 +31,14 @@ export async function executeHttp(
   for (const h of req.headers) {
     if (h.enabled && h.key) headers[h.key] = resolveVarsDeep(h.value, opts.vars);
   }
+  // Match the app: XML is sent as a 'raw' body (no Content-Type of its own),
+  // so default it unless the request sets one.
+  if (
+    req.body.type === 'xml' &&
+    !Object.keys(headers).some((k) => k.toLowerCase() === 'content-type')
+  ) {
+    headers['Content-Type'] = 'application/xml';
+  }
   const params: Record<string, string> = {};
   for (const p of req.params) {
     if (p.enabled && p.key) params[p.key] = resolveVarsDeep(p.value, opts.vars);
@@ -188,8 +196,8 @@ function buildBody(body: HttpRequest['body'] | undefined, vars: Record<string, s
         }),
       };
     case 'xml':
-      // 'raw' bodyType emits with no content-type. The header layer should set
-      // application/xml if the caller wants it; we don't force it here.
+      // 'raw' bodyType emits with no content-type; executeHttp defaults the
+      // header to application/xml (as the app does).
       return { bodyType: 'raw', ...(raw !== undefined ? { data: raw } : {}) };
     case 'x-www-form-urlencoded': {
       // OpenCollection exports carry urlencoded forms as a structured field

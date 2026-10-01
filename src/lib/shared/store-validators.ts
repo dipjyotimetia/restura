@@ -658,6 +658,8 @@ export const appSettingsSchema = z
     theme: z.enum(['light', 'dark', 'system']).optional().catch(undefined),
     layoutOrientation: z.enum(['vertical', 'horizontal']).optional().catch(undefined),
     requestResponseSplit: z.number().min(0).max(100).optional().catch(undefined),
+    sidebarCollapsed: z.boolean().optional().catch(undefined),
+    codegenLanguage: z.string().max(32).optional().catch(undefined),
     allowLocalhost: z.boolean().optional().catch(undefined),
     allowPrivateIPs: z.boolean().optional().catch(undefined),
     clientCert: ClientCertCatchSchema.optional().catch(undefined),

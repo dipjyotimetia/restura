@@ -212,6 +212,123 @@ describe('executeRequest — body variables', () => {
   });
 });
 
+describe('executeRequest — XML body', () => {
+  const settings = useSettingsStore.getState().settings;
+  beforeEach(() => {
+    executeProxiedRequestMock.mockReset();
+    executeProxiedRequestMock.mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: '',
+      size: 0,
+    });
+  });
+
+  const sentHeaders = () =>
+    (executeProxiedRequestMock.mock.calls[0]?.[0] as { headers: Record<string, string> }).headers;
+
+  it('defaults Content-Type to application/xml', async () => {
+    await executeRequest({
+      request: makeRequest({ method: 'POST', body: { type: 'xml', raw: '<a/>' } }),
+      envVars: {},
+      globalSettings: settings,
+      resolveVariables: (text) => text,
+    });
+    expect(sentHeaders()['Content-Type']).toBe('application/xml');
+  });
+
+  it('keeps a Content-Type the user set', async () => {
+    await executeRequest({
+      request: makeRequest({
+        method: 'POST',
+        body: { type: 'xml', raw: '<a/>' },
+        headers: [{ id: 'h', key: 'content-type', value: 'text/xml', enabled: true }],
+      }),
+      envVars: {},
+      globalSettings: settings,
+      resolveVariables: (text) => text,
+    });
+    expect(sentHeaders()['content-type']).toBe('text/xml');
+    expect(sentHeaders()['Content-Type']).toBeUndefined();
+  });
+});
+
+describe('executeRequest — urlencoded fields', () => {
+  const settings = useSettingsStore.getState().settings;
+  beforeEach(() => {
+    executeProxiedRequestMock.mockReset();
+    executeProxiedRequestMock.mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: '',
+      size: 0,
+    });
+  });
+  const sentSpec = () =>
+    executeProxiedRequestMock.mock.calls[0]?.[0] as {
+      bodyType: string;
+      data?: string;
+      formData?: Array<{ name: string; value: string }>;
+    };
+  const send = (body: HttpRequest['body']) =>
+    executeRequest({
+      request: makeRequest({ method: 'POST', body }),
+      envVars: {},
+      globalSettings: settings,
+      resolveVariables: (text) => text,
+    });
+
+  it('sends enabled text fields from imported collections', async () => {
+    await send({
+      type: 'x-www-form-urlencoded',
+      formData: [
+        { id: '1', key: 'a', value: '1', enabled: true, type: 'text' },
+        { id: '2', key: 'off', value: 'x', enabled: false, type: 'text' },
+      ],
+    });
+    expect(sentSpec().bodyType).toBe('form-urlencoded');
+    expect(sentSpec().formData).toEqual([{ name: 'a', value: '1' }]);
+    expect(sentSpec().data).toBeUndefined();
+  });
+
+  it('resolves {{vars}} in urlencoded fields', async () => {
+    await executeRequest({
+      request: makeRequest({
+        method: 'POST',
+        body: {
+          type: 'x-www-form-urlencoded',
+          formData: [{ id: '1', key: 'h', value: '{{host}}', enabled: true, type: 'text' }],
+        },
+      }),
+      envVars: { host: 'api.dev' },
+      globalSettings: settings,
+      resolveVariables: (text) => text,
+    });
+    expect(sentSpec().formData).toEqual([{ name: 'h', value: 'api.dev' }]);
+  });
+
+  it('resolves {{vars}} in a raw urlencoded fallback', async () => {
+    await executeRequest({
+      request: makeRequest({
+        method: 'POST',
+        body: { type: 'x-www-form-urlencoded', raw: 'h={{host}}' },
+      }),
+      envVars: { host: 'api.dev' },
+      globalSettings: settings,
+      resolveVariables: (text) => text,
+    });
+    expect(sentSpec().data).toBe('h=api.dev');
+  });
+
+  it('falls back to the raw string when there are no fields', async () => {
+    await send({ type: 'x-www-form-urlencoded', raw: 'a=1&b=2', formData: [] });
+    expect(sentSpec().data).toBe('a=1&b=2');
+    expect(sentSpec().formData).toBeUndefined();
+  });
+});
+
 describe('isStreamingAccept', () => {
   it('detects text/event-stream', () => {
     expect(isStreamingAccept({ Accept: 'text/event-stream' })).toBe(true);

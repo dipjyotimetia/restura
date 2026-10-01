@@ -337,6 +337,8 @@ export const VALID_EVENT_CHANNELS = [
   'menu:import',
   'menu:export',
   'menu:new-request',
+  'menu:close-tab',
+  'menu:reopen-tab',
   'menu:settings',
   'menu:report-bug',
   'app:focus',

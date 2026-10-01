@@ -31,6 +31,7 @@ import {
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
+import { useSendShortcut } from '@/hooks/useSendShortcut';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { cn } from '@/lib/shared/utils';
@@ -89,6 +90,7 @@ function GraphQLRequestBuilder() {
     [schemaResult]
   );
 
+  const sendShortcut = useSendShortcut();
   if (!currentRequest) {
     return null;
   }
@@ -377,6 +379,16 @@ function GraphQLRequestBuilder() {
         ] as SubTab<TabValue>[])
       : []),
   ];
+
+  sendShortcut.current = !httpRequest.url
+    ? null
+    : isSubscription
+      ? isSubscribed
+        ? null
+        : handleSubscribe
+      : isLoading
+        ? null
+        : () => void handleSendRequest();
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">

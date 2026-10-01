@@ -1,4 +1,4 @@
-import { Activity, Folder, History, Workflow as WorkflowIcon } from 'lucide-react';
+import { Activity, Folder, History, Workflow as WorkflowIcon, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useShallow } from 'zustand/react/shallow';
@@ -26,6 +26,7 @@ import {
   siblingNamesForParent,
   uniqueName,
 } from '../lib/names';
+import { filterCollectionTree, historyItemMatches } from '../lib/sidebarSearch';
 import { CollectionDirectoryPicker } from './CollectionDirectoryPicker';
 import { selectionKey, type TreeActions, type TreeState } from './CollectionTree';
 import { ConflictDialog } from './ConflictDialog';
@@ -72,6 +73,12 @@ const siblingNames = (collectionId: string, parentId?: string) => {
   return collection ? siblingNamesForParent(collection, parentId) : [];
 };
 
+/** What the shared search box filters, per sidebar tab (for its label/placeholder). */
+const SEARCH_SCOPE_LABEL: Record<string, string> = {
+  collections: 'collections',
+  history: 'history',
+  workflows: 'workflows',
+};
 function Sidebar({ activePanel }: SidebarProps) {
   const { collections, addItemToCollection, removeCollectionItem, moveCollectionItem } =
     useCollectionStore(
@@ -204,36 +211,21 @@ function Sidebar({ activePanel }: SidebarProps) {
     })
   );
 
-  // Filter collections based on search query
-  const filteredCollections = useMemo(() => {
-    if (!searchQuery) return collections;
-    const query = searchQuery.toLowerCase();
-    return collections.filter(
-      (c) =>
-        c.name.toLowerCase().includes(query) ||
-        c.items.some((item) => item.name.toLowerCase().includes(query))
-    );
-  }, [collections, searchQuery]);
+  // Filter collections based on search query — nested folders included, so a
+  // request deep in a folder is found and only the path to it is shown.
+  const filteredCollections = useMemo(
+    () => filterCollectionTree(collections, searchQuery),
+    [collections, searchQuery]
+  );
 
-  // Filter history based on search query and method filter
+  // While searching or filtering, look through the whole history rather than
+  // only the loaded page (otherwise older entries are unfindable).
+  const allHistory = useHistoryStore((state) => state.history);
   const filteredHistory = useMemo(() => {
-    let filtered = visibleHistory;
+    let filtered = searchQuery || methodFilter ? allHistory : visibleHistory;
 
     if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter((item) => {
-        const r = item.request;
-        if (r.type === 'http') {
-          return r.url.toLowerCase().includes(query) || r.method.toLowerCase().includes(query);
-        }
-        if (r.type === 'grpc') {
-          return (
-            r.service?.toLowerCase().includes(query) || r.method?.toLowerCase().includes(query)
-          );
-        }
-        // sse / mcp — match on URL only
-        return r.url.toLowerCase().includes(query);
-      });
+      filtered = filtered.filter((item) => historyItemMatches(item, searchQuery));
     }
 
     if (methodFilter) {
@@ -246,7 +238,7 @@ function Sidebar({ activePanel }: SidebarProps) {
     }
 
     return filtered;
-  }, [visibleHistory, searchQuery, methodFilter]);
+  }, [allHistory, visibleHistory, searchQuery, methodFilter]);
 
   const hasMoreHistory = visibleHistoryCount < totalHistoryCount;
 
@@ -509,12 +501,36 @@ function Sidebar({ activePanel }: SidebarProps) {
         className="sp-chrome flex flex-col h-full"
       >
         {/* Search Input */}
-        <Input
-          className="h-7 bg-transparent border-0 border-b border-border rounded-none px-3 text-xs placeholder:text-sp-dim focus-visible:shadow-none focus-visible:border-primary"
-          placeholder="Search..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
+        <div className="relative">
+          <Input
+            type="search"
+            aria-label={`Search ${SEARCH_SCOPE_LABEL[activeTab] ?? 'sidebar'}`}
+            // The Runs tab has no searchable list.
+            disabled={!SEARCH_SCOPE_LABEL[activeTab]}
+            className="h-7 bg-transparent border-0 border-b border-border rounded-none pl-3 pr-7 text-xs placeholder:text-sp-dim focus-visible:shadow-none focus-visible:border-primary [&::-webkit-search-cancel-button]:hidden"
+            placeholder={
+              SEARCH_SCOPE_LABEL[activeTab] ? `Search ${SEARCH_SCOPE_LABEL[activeTab]}…` : ''
+            }
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && searchQuery) {
+                e.stopPropagation();
+                setSearchQuery('');
+              }
+            }}
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              aria-label="Clear search"
+              onClick={() => setSearchQuery('')}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 inline-flex size-5 items-center justify-center rounded-sp-btn text-sp-dim hover:text-sp-text hover:bg-sp-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+            >
+              <X className="h-3 w-3" aria-hidden="true" />
+            </button>
+          )}
+        </div>
 
         <Tabs
           value={activeTab}

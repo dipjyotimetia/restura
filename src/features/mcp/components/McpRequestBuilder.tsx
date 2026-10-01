@@ -10,6 +10,7 @@ import { McpInvokeForm } from '@/features/mcp/components/McpInvokeForm';
 import { useMcpConnectionActions } from '@/features/mcp/hooks/useMcpConnectionActions';
 import { type McpCall, McpClient } from '@/features/mcp/lib/mcpClient';
 import { useMcpStore } from '@/features/mcp/store/useMcpStore';
+import { useSendShortcut } from '@/hooks/useSendShortcut';
 import { keyValuePairsToRecord } from '@/lib/shared/utils';
 import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
@@ -67,6 +68,7 @@ export default function McpRequestBuilder() {
     };
   }, [activeIdForCleanup, resetConnectionSession]);
 
+  const sendShortcut = useSendShortcut();
   if (!active) return null;
 
   const tools = active.capabilities?.tools ?? [];
@@ -200,6 +202,13 @@ export default function McpRequestBuilder() {
     if (active.status !== 'connected' || session?.connectionId !== active.id) return null;
     return session.client;
   };
+
+  sendShortcut.current =
+    active.status === 'disconnected' || active.status === 'error'
+      ? active.url.trim()
+        ? () => void handleConnect()
+        : null
+      : null;
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-transparent">

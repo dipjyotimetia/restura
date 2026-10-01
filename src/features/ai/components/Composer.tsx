@@ -1,6 +1,7 @@
 import { type KeyboardEvent, useCallback, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { modLabel } from '@/lib/shared/shortcuts';
 
 interface Props {
   disabled?: boolean;
@@ -39,7 +40,7 @@ export function Composer({ disabled, streaming, onSend, onStop }: Props) {
         placeholder={
           disabled
             ? 'Add an API key in Settings → AI to start chatting.'
-            : 'Ask about the active request or response… (⌘+Enter to send)'
+            : `Ask about the active request or response… (${modLabel('Enter')} to send)`
         }
         rows={3}
         className="w-full resize-none bg-transparent text-sm placeholder:text-muted-foreground focus:outline-none"

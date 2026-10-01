@@ -8,6 +8,7 @@ import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import { sseManager } from '@/features/sse/lib/sseManager';
 import { createSseStreamSummary, getSseSummaryView } from '@/features/sse/lib/streamSummary';
 import { useSseStore } from '@/features/sse/store/useSseStore';
+import { useSendShortcut } from '@/hooks/useSendShortcut';
 import { keyValuePairsToRecord } from '@/lib/shared/utils';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import SseAssembledOutput from './SseAssembledOutput';
@@ -135,7 +136,10 @@ export default function SseClient() {
 
   const derived = useMemo(() => getSseSummaryView(summary), [summary]);
 
+  const sendShortcut = useSendShortcut();
   if (!active) return null;
+
+  sendShortcut.current = !isStreaming && active.url.trim() ? handleConnect : null;
 
   return (
     <div className="flex flex-col h-full overflow-hidden bg-transparent">

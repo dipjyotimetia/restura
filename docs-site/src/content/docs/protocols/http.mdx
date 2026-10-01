@@ -14,17 +14,20 @@ GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, and any custom verb you type.
 ## Body types
 
 - **None**
-- **JSON** — pretty-printed, schema-aware editor with formatting on `Cmd+Shift+F`.
+- **JSON** — the **Beautify** button formats the body and keeps `{{variable}}` references exactly as written, including bare ones like `"id": {{id}}`.
 - **Text** — plain text, UTF-8.
-- **XML** — syntax highlighted.
+- **XML** — syntax highlighted; sent with `Content-Type: application/xml` unless you set your own.
 - **Form data (`multipart/form-data`)** — supports file inputs.
-- **Form URL-encoded (`application/x-www-form-urlencoded`)**.
+- **Form URL-encoded (`application/x-www-form-urlencoded`)** — edit as a key/value table, or switch to **Text** to edit the encoded string directly.
 - **Binary** — drag in any file; Restura reads it as a stream.
 - **Protobuf** — paste base64 or upload a binary; helpful for testing gRPC-style endpoints behind a JSON adapter.
 
 ## Headers, params, cookies
 
-- **Query parameters** — autocomplete from the URL, drag to reorder.
+- **Query parameters** — kept in sync with the URL. Type or paste `?a=1&b=2` into the URL bar and the rows appear in **Params**; edit a row and the URL updates. Disabled rows stay in the table and are left out of the URL.
+- **Paste a cURL command** into the URL bar to fill in the method, URL, headers and body. A toast offers **Undo**.
+- **Bulk edit** — switch params or headers to a text view with one `key: value` per line. Prefix a line with `//` to disable it.
+- **Variables** — hover a `{{variable}}` in the URL or a param value to see its value and where it comes from (environment, collection, folder, globals). Secret values are masked.
 - **Headers** — autocompletion for standard names + values where applicable.
 - **Cookies** — per-request override, plus a session-wide cookie jar on desktop.
 
@@ -34,7 +37,11 @@ Every auth scheme Restura supports works on HTTP: Bearer, Basic, API Key, OAuth 
 
 ## Code generation
 
-Click the `</>` icon next to the URL to copy the request as:
+Click the `</>` icon next to the URL, or run **Copy as cURL** from the command palette. Snippets resolve variables from every scope and include the request's auth, including auth inherited from a folder or collection.
+
+**Mask secrets** is on by default: secret variables stay as `{{name}}` references and credentials become placeholders such as `<token>`. Values stored in the desktop keychain are never printed. Auth that's computed per request (Digest, NTLM, AWS Signature v4, OAuth 1.0, WSSE) and binary bodies are noted as comments rather than generated. Multipart form-data is generated for cURL, Python and JavaScript. The last language you picked is remembered.
+
+Available languages:
 
 - `curl`.
 - Python (`requests`).

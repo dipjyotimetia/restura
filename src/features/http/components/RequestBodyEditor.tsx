@@ -1,9 +1,11 @@
 'use client';
 
 import { FileText } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { useVariableStatus } from '@/hooks/useVariableStatus';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
+import { urlEncodedItems } from '@/lib/shared/urlEncodedBody';
 import { useActiveTab } from '@/store/selectors';
 import type { FormDataItem, RequestBody } from '@/types';
 
@@ -16,6 +18,7 @@ const GraphQLBodyEditor = lazyComponent(
 );
 const FormDataEditor = lazyComponent(() => import('@/features/http/components/FormDataEditor'));
 const BinaryBodyPicker = lazyComponent(() => import('@/features/http/components/BinaryBodyPicker'));
+const UrlEncodedEditor = lazyComponent(() => import('@/features/http/components/UrlEncodedEditor'));
 
 /**
  * Whether the editor for this body type fills its container (the Monaco code
@@ -32,6 +35,7 @@ interface RequestBodyEditorProps {
   onBodyTypeChange: (type: RequestBody['type']) => void;
   onBodyContentChange: (content: string) => void;
   onFormDataChange?: (items: FormDataItem[]) => void;
+  onUrlEncodedChange?: (items: FormDataItem[]) => void;
   url?: string;
   graphqlVariables?: string;
   onGraphQLVariablesChange?: (variables: string) => void;
@@ -41,6 +45,7 @@ export default function RequestBodyEditor({
   body,
   onBodyContentChange,
   onFormDataChange,
+  onUrlEncodedChange,
   url = '',
   graphqlVariables = '{}',
   onGraphQLVariablesChange,
@@ -80,7 +85,7 @@ export default function RequestBodyEditor({
     return <BinaryBodyPicker base64={body.raw || ''} onChange={onBodyContentChange} />;
   }
 
-  return (
+  const editor = (
     <CodeEditor
       value={body.raw || ''}
       onChange={onBodyContentChange}
@@ -97,6 +102,15 @@ export default function RequestBodyEditor({
       formatOnMount={false}
       {...(activeTabId ? { path: `tab-${activeTabId}-body` } : {})}
       {...(activeTabId ? { modelOwner: activeTabId } : {})}
+    />
+  );
+
+  if (body.type !== 'x-www-form-urlencoded') return editor;
+
+  return (
+    <UrlEncodedEditor
+      items={urlEncodedItems(body, uuidv4)}
+      onChange={onUrlEncodedChange ?? (() => {})}
     />
   );
 }

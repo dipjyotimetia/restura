@@ -29,6 +29,7 @@ import { websocketManager } from '@/features/websocket/lib/websocketManager';
 import type { WebSocketMessageType } from '@/features/websocket/store/useWebSocketStore';
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
+import { modLabel } from '@/lib/shared/shortcuts';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
 import { useActiveTabId } from '@/store/selectors';
@@ -655,7 +656,7 @@ function WebSocketClient() {
               >
                 <Send className="h-3.5 w-3.5 mr-1" /> Send
               </Button>
-              <Kbd size="xs">⌘↵</Kbd>
+              <Kbd size="xs">{modLabel('↵')}</Kbd>
               <div className="flex-1" />
               <span className="text-sp-11 text-sp-dim font-mono tabular-nums">{byteCount} B</span>
             </div>

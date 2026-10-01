@@ -14,7 +14,7 @@
  * (`playwright.config.ts` runs workers:1, fullyParallel:false).
  */
 import type { Page } from '@playwright/test';
-import { test, expect } from './fixtures/app';
+import { expect, test } from './fixtures/app';
 import { mockProxy } from './utils/mockProxy';
 import { resetPersistedState } from './utils/reset-state';
 import { sendButton } from './utils/selectors';
@@ -65,7 +65,8 @@ const unresolved = (page: Page, name: string) => page.getByTitle(`Unresolved var
 
 /** Assert the fixed scopes are NOT flagged and the undefined one IS. */
 async function assertScopes(page: Page) {
-  await expect(unresolved(page, 'nope')).toBeVisible();
+  // The query param shows in both the URL bar and the Params table.
+  await expect(unresolved(page, 'nope').first()).toBeVisible();
   await expect(unresolved(page, 'colVar')).toHaveCount(0);
   await expect(unresolved(page, 'scriptVar')).toHaveCount(0);
 }

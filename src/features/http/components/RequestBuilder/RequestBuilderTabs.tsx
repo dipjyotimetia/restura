@@ -1,7 +1,10 @@
 'use client';
 
-import { Plus } from 'lucide-react';
+import { Plus, WandSparkles } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
+import { v4 as uuidv4 } from 'uuid';
+import { Button } from '@/components/ui/button';
 import type { ComboboxSuggestion, ParamRowData, VariableStatus } from '@/components/ui/spatial';
 import {
   ComboboxInput,
@@ -12,10 +15,16 @@ import {
   SubTabPanel,
 } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
-import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
+import {
+  authTypeLabel,
+  InheritedAuthHint,
+  useInheritedAuth,
+} from '@/features/auth/components/InheritedAuthHint';
 import RequestBodyEditor, { bodyEditorFills } from '@/features/http/components/RequestBodyEditor';
 import RequestSettingsEditor from '@/features/http/components/RequestSettingsEditor';
 import type { useHttpRequestPage } from '@/features/http/hooks/useHttpRequestPage';
+import { fromBulkText, toBulkText } from '@/features/http/lib/bulkEdit';
+import { formatJsonBody } from '@/features/http/lib/formatJsonBody';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useVariableStatus } from '@/hooks/useVariableStatus';
 import { getHeaderDef, STANDARD_HTTP_HEADERS } from '@/lib/shared/http-headers';
@@ -98,6 +107,7 @@ const BODY_BADGE: Partial<Record<BodyType, string>> = {
   'x-www-form-urlencoded': 'Form',
   graphql: 'GQL',
   text: 'Raw',
+  xml: 'XML',
   binary: 'Bin',
 };
 
@@ -108,6 +118,7 @@ const BODY_OPTIONS: ReadonlyArray<{ value: BodyType; label: string }> = [
   { value: 'x-www-form-urlencoded', label: 'x-www-form-urlencoded' },
   { value: 'graphql', label: 'GraphQL' },
   { value: 'text', label: 'raw' },
+  { value: 'xml', label: 'XML' },
   { value: 'binary', label: 'binary' },
 ];
 
@@ -117,6 +128,7 @@ const CONTENT_TYPE_FOR: Partial<Record<BodyType, string>> = {
   'x-www-form-urlencoded': 'application/x-www-form-urlencoded',
   graphql: 'application/json',
   text: 'text/plain',
+  xml: 'application/xml',
   binary: 'application/octet-stream',
 };
 
@@ -153,8 +165,14 @@ export function RequestBuilderTabs({
   const headersCount = counts.activeHeaders;
   const getVarStatus = useVariableStatus();
 
+  const inheritedAuth = useInheritedAuth(request);
   const tabs = useMemo(() => {
-    const authBadge = AUTH_BADGE[request.auth.type];
+    // An inherited auth still goes out with the request, so badge it too.
+    const authBadge =
+      AUTH_BADGE[request.auth.type] ??
+      (inheritedAuth
+        ? `↑ ${AUTH_BADGE[inheritedAuth.auth.type] ?? inheritedAuth.auth.type}`
+        : undefined);
     const bodyBadge = BODY_BADGE[request.body.type];
     const items: Array<{
       value: SubTabKey;
@@ -174,7 +192,7 @@ export function RequestBuilderTabs({
     if (bodyBadge) items[2]!.badge = bodyBadge;
     if (authBadge) items[3]!.badge = authBadge;
     return items;
-  }, [paramsCount, headersCount, request.auth.type, request.body.type]);
+  }, [paramsCount, headersCount, request.auth.type, request.body.type, inheritedAuth]);
 
   const bodyBytes = useMemo(
     () => (request.body.raw ? new Blob([request.body.raw]).size : 0),
@@ -214,6 +232,9 @@ export function RequestBuilderTabs({
             }
             onRowRemove={(id) => handlers.removeParam(id)}
             onAdd={(data) => handlers.addParam(data)}
+            source={request.params}
+            onReplaceAll={handlers.replaceParams}
+            itemLabel="parameter"
             getStatus={getVarStatus}
           />
         )}
@@ -231,6 +252,9 @@ export function RequestBuilderTabs({
             }
             onRowRemove={(id) => handlers.removeHeader(id)}
             onAdd={(data) => handlers.addHeader(data)}
+            source={request.headers}
+            onReplaceAll={handlers.replaceHeaders}
+            itemLabel="header"
             keySuggestions={HEADER_KEY_SUGGESTIONS}
             valueSuggestionsFor={headerValueSuggestionsFor}
             getStatus={getVarStatus}
@@ -255,12 +279,30 @@ export function RequestBuilderTabs({
                 size="sm"
                 ariaLabel="Body type"
               />
-              {request.body.type !== 'none' && (
-                <div className="flex items-center gap-1.5 text-sp-11 text-sp-muted font-mono">
-                  <span className="sp-label">Content-Type</span>
-                  <span className="text-sp-text/80">{contentTypeFor(request.body.type)}</span>
-                </div>
-              )}
+              <div className="flex items-center gap-3">
+                {request.body.type === 'json' && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1.5 text-sp-11"
+                    disabled={!request.body.raw?.trim()}
+                    onClick={() => {
+                      const formatted = formatJsonBody(request.body.raw ?? '');
+                      if (formatted === null) toast.error('The body isn’t valid JSON');
+                      else handlers.changeBodyContent(formatted);
+                    }}
+                  >
+                    <WandSparkles className="h-3.5 w-3.5" aria-hidden="true" />
+                    Beautify
+                  </Button>
+                )}
+                {request.body.type !== 'none' && (
+                  <div className="flex items-center gap-1.5 text-sp-11 text-sp-muted font-mono">
+                    <span className="sp-label">Content-Type</span>
+                    <span className="text-sp-text/80">{contentTypeFor(request.body.type)}</span>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div
@@ -276,6 +318,7 @@ export function RequestBuilderTabs({
                 onBodyTypeChange={handlers.changeBodyType}
                 onBodyContentChange={handlers.changeBodyContent}
                 onFormDataChange={handlers.changeFormData}
+                onUrlEncodedChange={handlers.changeUrlEncoded}
                 url={request.url}
               />
             </div>
@@ -342,7 +385,10 @@ export function RequestBuilderTabs({
                             }}
                           />
                         )}
-                        {opt.label}
+                        {/* 'No Auth' means "inherit" when a parent defines auth. */}
+                        {opt.value === 'none' && inheritedAuth
+                          ? `Inherit (${authTypeLabel(inheritedAuth.auth.type)})`
+                          : opt.label}
                       </button>
                     );
                   })}
@@ -388,6 +434,11 @@ interface ParamHeaderTableProps {
   onRowChange: (row: ParamRowData) => void;
   onRowRemove: (id: string) => void;
   onAdd: (overrides?: Partial<Pick<ParamRowData, 'key' | 'value' | 'description'>>) => void;
+  /** The stored rows, for bulk edit (keeps descriptions/ids across the text round-trip). */
+  source: KeyValue[];
+  onReplaceAll: (rows: KeyValue[]) => void;
+  /** Singular noun for accessible names, e.g. 'parameter' or 'header'. */
+  itemLabel: string;
   keySuggestions?: ReadonlyArray<ComboboxSuggestion>;
   valueSuggestionsFor?: (key: string) => ReadonlyArray<string> | undefined;
   getStatus?: (varName: string) => VariableStatus;
@@ -406,11 +457,20 @@ function ParamHeaderTable({
   onRowChange,
   onRowRemove,
   onAdd,
+  source,
+  onReplaceAll,
+  itemLabel,
   keySuggestions,
   valueSuggestionsFor,
   getStatus,
 }: ParamHeaderTableProps) {
   const [draft, setDraft] = useState({ key: '', value: '', desc: '' });
+  // Bulk edit: null = table view; otherwise the text being edited.
+  const [bulkText, setBulkText] = useState<string | null>(null);
+  const applyBulk = () => {
+    if (bulkText !== null) onReplaceAll(fromBulkText(bulkText, source, uuidv4));
+    setBulkText(null);
+  };
   const newRowRef = useRef<HTMLInputElement>(null);
   // Set when a commit should pull focus into the freshly-added row (Enter only,
   // never blur — a blur commit means the user is leaving, so stealing focus
@@ -460,7 +520,7 @@ function ParamHeaderTable({
     'bg-transparent outline-none placeholder:text-sp-dim/50 font-mono text-sp-12 w-full px-2 py-1.5 focus:bg-sp-hover/50 transition-colors';
 
   return (
-    <div className="flex flex-col h-full min-h-0">
+    <div className="relative flex flex-col h-full min-h-0">
       {/* Column header — pinned */}
       <div
         className="grid items-center border-b border-sp-line bg-sp-surface-lo/30 flex-none"
@@ -488,6 +548,7 @@ function ParamHeaderTable({
               row={row}
               onChange={onRowChange}
               onRemove={onRowRemove}
+              itemLabel={itemLabel}
               showVariableHighlight
               {...(getStatus && { getStatus })}
               {...(i === rows.length - 1 && { inputRef: newRowRef })}
@@ -547,20 +608,67 @@ function ParamHeaderTable({
         </div>
       </div>
 
+      {bulkText !== null && (
+        <div className="absolute inset-0 top-9 bottom-10 z-10 flex flex-col bg-sp-surface p-2">
+          <textarea
+            autoFocus
+            aria-label={`Bulk edit ${itemLabel}s`}
+            value={bulkText}
+            onChange={(e) => setBulkText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.stopPropagation();
+                setBulkText(null);
+              }
+            }}
+            spellCheck={false}
+            placeholder={'key: value\n//disabled-key: value'}
+            className="flex-1 resize-none rounded-sp-btn border border-sp-line bg-sp-code p-2 font-mono text-sp-12 text-sp-text outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+          />
+          <p className="mt-1 text-sp-11 text-sp-dim">
+            One <code className="font-mono">key: value</code> per line; prefix with{' '}
+            <code className="font-mono">//</code> to disable.
+          </p>
+        </div>
+      )}
+
       {/* Footer — pinned */}
       <div className="flex items-center justify-between px-3 py-2 border-t border-sp-line/50 flex-none">
-        <button
-          type="button"
-          onClick={() => onAdd()}
-          className={cn(
-            'inline-flex items-center gap-1 text-sp-11 text-sp-dim',
-            'hover:text-sp-accent transition-colors',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent/40 rounded-sp-chip'
-          )}
-        >
-          <Plus size={11} />
-          <span>Add row</span>
-        </button>
+        {bulkText !== null ? (
+          <div className="flex items-center gap-2">
+            <Button size="sm" className="h-7" onClick={applyBulk}>
+              Apply
+            </Button>
+            <Button size="sm" variant="ghost" className="h-7" onClick={() => setBulkText(null)}>
+              Cancel
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => onAdd()}
+              className={cn(
+                'inline-flex items-center gap-1 text-sp-11 text-sp-dim',
+                'hover:text-sp-accent transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent/40 rounded-sp-chip'
+              )}
+            >
+              <Plus size={11} />
+              <span>Add row</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setBulkText(toBulkText(source))}
+              className={cn(
+                'text-sp-11 text-sp-dim hover:text-sp-accent transition-colors',
+                'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent/40 rounded-sp-chip'
+              )}
+            >
+              Bulk edit
+            </button>
+          </div>
+        )}
         {rows.length > 0 && (
           <span className="text-sp-11 text-sp-dim font-mono tabular-nums">
             {activeCount} of {rows.length} active

@@ -5,6 +5,7 @@ import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { Floater } from '@/components/ui/spatial';
 import UrlBar from '@/features/http/components/UrlBar';
 import { useHttpRequestPage } from '@/features/http/hooks/useHttpRequestPage';
+import { buildDisplayUrl } from '@/features/http/lib/urlQuery';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { useUiStore } from '@/store/useUiStore';
 import { RequestBuilderTabs } from './RequestBuilderTabs';
@@ -69,11 +70,14 @@ function RequestBuilder() {
   return (
     <div className="flex-1 flex flex-col min-h-0 px-2 pt-2 pb-3 gap-2.5 relative z-30">
       <UrlBar
+        // Remount per request so a half-typed draft never leaks across tabs.
+        key={httpRequest.id}
         method={httpRequest.method}
-        url={httpRequest.url}
+        url={buildDisplayUrl(httpRequest.url, httpRequest.params)}
         isLoading={isLoading}
         onMethodChange={handlers.changeMethod}
         onUrlChange={handlers.changeUrl}
+        onPasteCurl={handlers.importCurl}
         onSend={handlers.sendRequest}
         onCancel={handlers.cancelRequest}
         onOpenCodeGen={() => setCodeGenOpen(true)}

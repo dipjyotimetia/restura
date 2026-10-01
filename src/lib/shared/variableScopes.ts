@@ -109,3 +109,68 @@ export function buildKnownNames(inputs: ScopeInputs): Set<string> {
   for (const k of inputs.scriptSetKeys ?? []) names.add(k);
   return names;
 }
+
+export interface VariableDetail {
+  name: string;
+  /** Resolved value; absent for secret handles and script-set keys (no static value). */
+  value?: string;
+  source: VariableProvenance | 'script';
+  /** Marked secret (or a desktop secret handle) — UI must mask the value. */
+  secret: boolean;
+}
+
+/**
+ * Every name a reference can resolve to, with its winning value, scope and
+ * secret flag — for hover cards and autocomplete. Uses the same precedence as
+ * `buildScopedVariableResolution` so the UI never disagrees with the send path.
+ */
+export function describeVariables(inputs: ScopeInputs): VariableDetail[] {
+  const { values, provenance } = buildScopedVariableResolution(inputs);
+  const secret: Record<string, boolean> = {};
+  const handleOnly = new Set<string>();
+  for (const key of Object.keys(inputs.globals ?? {})) secret[key] = false;
+  const scopes = [
+    inputs.baseEnvironment ?? inputs.env,
+    inputs.subEnvironment,
+    inputs.collection,
+    ...(inputs.folders ?? []),
+  ];
+  for (const scope of scopes) {
+    for (const variable of scope ?? []) {
+      if (!variable.enabled || !variable.key) continue;
+      const hasHandle = 'secretRef' in variable && variable.secretRef !== undefined;
+      secret[variable.key] = variable.secret === true || hasHandle;
+      if (hasHandle) handleOnly.add(variable.key);
+      else handleOnly.delete(variable.key);
+    }
+  }
+  for (const key of Object.keys(inputs.dataRow ?? {})) {
+    secret[key] = false;
+    handleOnly.delete(key);
+  }
+
+  const details: VariableDetail[] = Object.keys(values).map((name) => ({
+    name,
+    ...(handleOnly.has(name) ? {} : { value: values[name] as string }),
+    source: provenance[name] as VariableProvenance,
+    secret: secret[name] ?? false,
+  }));
+  for (const name of inputs.scriptSetKeys ?? []) {
+    if (!(name in values)) details.push({ name, source: 'script', secret: false });
+  }
+  return details.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+const SOURCE_LABELS: Record<VariableDetail['source'], string> = {
+  global: 'Global',
+  'base-environment': 'Environment',
+  'sub-environment': 'Sub-environment',
+  collection: 'Collection',
+  folder: 'Folder',
+  'data-row': 'Data row',
+  script: 'Pre-request script',
+};
+
+export function variableSourceLabel(source: VariableDetail['source']): string {
+  return SOURCE_LABELS[source];
+}

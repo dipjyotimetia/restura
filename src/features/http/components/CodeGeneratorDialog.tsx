@@ -10,11 +10,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
+import { generateRequestCode } from '@/features/http/lib/requestCode';
+import { useVariableDetails } from '@/hooks/useVariableStatus';
 import type { CodeGeneratorType } from '@/lib/shared/codeGenerators';
 import { codeGenerators } from '@/lib/shared/codeGenerators';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { HttpRequest } from '@/types';
 
@@ -29,42 +31,27 @@ export default function CodeGeneratorDialog({
   onOpenChange,
   request,
 }: CodeGeneratorDialogProps) {
-  const [activeLanguage, setActiveLanguage] = useState<CodeGeneratorType>('curl');
+  // Last-used language is remembered in settings (cURL by default).
+  const savedLanguage = useSettingsStore((s) => s.settings.codegenLanguage);
+  const updateSettings = useSettingsStore((s) => s.updateSettings);
+  const activeLanguage: CodeGeneratorType =
+    savedLanguage && Object.hasOwn(codeGenerators, savedLanguage)
+      ? (savedLanguage as CodeGeneratorType)
+      : 'curl';
+  const [maskSecrets, setMaskSecrets] = useState(true);
   const [copied, setCopied] = useState(false);
-  const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const globalSettings = useSettingsStore((s) => s.settings);
+  const variables = useVariableDetails();
 
-  const generatedCode = useMemo(() => {
-    // Resolve environment variables
-    const resolvedUrl = resolveVariables(request.url);
-
-    // Build query params
-    const resolvedParams: Record<string, string> = {};
-    request.params
-      .filter((p) => p.enabled && p.key)
-      .forEach((p) => {
-        resolvedParams[p.key] = resolveVariables(p.value);
-      });
-
-    // Build headers
-    const resolvedHeaders: Record<string, string> = {};
-    request.headers
-      .filter((h) => h.enabled && h.key)
-      .forEach((h) => {
-        resolvedHeaders[h.key] = resolveVariables(h.value);
-      });
-
-    const effectiveSettings = resolveEffectiveSettings(request.settings, globalSettings);
-
-    const generator = codeGenerators[activeLanguage];
-    return generator.generate({
-      request,
-      resolvedUrl,
-      resolvedHeaders,
-      resolvedParams,
-      settings: effectiveSettings,
-    });
-  }, [request, activeLanguage, resolveVariables, globalSettings]);
+  const generatedCode = useMemo(
+    () =>
+      generateRequestCode(request, activeLanguage, {
+        variables,
+        maskSecrets,
+        settings: resolveEffectiveSettings(request.settings, globalSettings),
+      }),
+    [request, activeLanguage, variables, maskSecrets, globalSettings]
+  );
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(generatedCode);
@@ -84,7 +71,7 @@ export default function CodeGeneratorDialog({
 
         <Tabs
           value={activeLanguage}
-          onValueChange={(v) => setActiveLanguage(v as CodeGeneratorType)}
+          onValueChange={(v) => updateSettings({ codegenLanguage: v })}
           className="flex-1 flex flex-col overflow-hidden"
         >
           <TabsList className="grid grid-cols-7 w-full">
@@ -96,7 +83,15 @@ export default function CodeGeneratorDialog({
           </TabsList>
 
           <div className="flex-1 overflow-hidden mt-4 relative">
-            <div className="absolute top-2 right-2 z-10">
+            <div className="absolute top-2 right-2 z-10 flex items-center gap-3">
+              <label className="flex items-center gap-2 text-sp-12 text-sp-muted">
+                <Switch
+                  checked={maskSecrets}
+                  onCheckedChange={setMaskSecrets}
+                  aria-label="Mask secrets"
+                />
+                Mask secrets
+              </label>
               <Button variant="outline" size="sm" onClick={handleCopy} className="gap-2">
                 {copied ? (
                   <>

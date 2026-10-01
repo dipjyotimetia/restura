@@ -1,8 +1,8 @@
 import { unwrapSecret } from '@/lib/shared/secretRef';
-import { escapeShell, type GenerateOptions } from './types';
+import { escapeShell, type GenerateOptions, urlWithVariables } from './types';
 
 export const generateCurl = (options: GenerateOptions): string => {
-  const { request, resolvedUrl, resolvedHeaders, resolvedParams, settings } = options;
+  const { request, resolvedUrl, resolvedHeaders, resolvedParams, settings, formData } = options;
 
   let curl = `curl -X ${request.method}`;
 
@@ -12,7 +12,7 @@ export const generateCurl = (options: GenerateOptions): string => {
     Object.entries(resolvedParams).forEach(([key, value]) => {
       url.searchParams.append(key, value);
     });
-    curl += ` ${escapeShell(url.toString())}`;
+    curl += ` ${escapeShell(urlWithVariables(url))}`;
   } catch {
     curl += ` ${escapeShell(urlStr)}`;
   }
@@ -21,7 +21,13 @@ export const generateCurl = (options: GenerateOptions): string => {
     curl += ` \\\n  -H ${escapeShell(`${key}: ${value}`)}`;
   });
 
-  if (request.body.type !== 'none' && request.body.raw) {
+  if (formData) {
+    for (const field of formData) {
+      const part =
+        field.type === 'file' ? `${field.key}=@${field.value}` : `${field.key}=${field.value}`;
+      curl += ` \\\n  -F ${escapeShell(part)}`;
+    }
+  } else if (request.body.type !== 'none' && request.body.raw) {
     curl += ` \\\n  -d ${escapeShell(request.body.raw)}`;
   }
 

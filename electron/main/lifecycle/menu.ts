@@ -61,6 +61,23 @@ export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
             mainWindow.webContents.send('menu:new-request');
           },
         },
+        // Tab shortcuts live in the menu so they win over the window-level
+        // defaults: Cmd/Ctrl+W closes the active request tab (the window close
+        // moves to Cmd/Ctrl+Shift+W, matching browsers and editors).
+        {
+          label: 'Close Tab',
+          accelerator: 'CmdOrCtrl+W',
+          click: () => {
+            if (!mainWindow.isDestroyed()) mainWindow.webContents.send('menu:close-tab');
+          },
+        },
+        {
+          label: 'Reopen Closed Tab',
+          accelerator: 'CmdOrCtrl+Shift+T',
+          click: () => {
+            if (!mainWindow.isDestroyed()) mainWindow.webContents.send('menu:reopen-tab');
+          },
+        },
         { type: 'separator' },
         {
           label: 'Import Collection...',
@@ -79,7 +96,9 @@ export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
         { type: 'separator' },
         // macOS surfaces Settings in the app menu; elsewhere File is its home.
         ...(!isMac ? [settingsItem, { type: 'separator' as const }] : []),
-        isMac ? { role: 'close' as const } : { role: 'quit' as const },
+        isMac
+          ? { role: 'close' as const, accelerator: 'CmdOrCtrl+Shift+W' }
+          : { role: 'quit' as const },
       ],
     },
 
@@ -136,7 +155,7 @@ export function createApplicationMenu(mainWindow: BrowserWindow): Menu {
               { type: 'separator' as const },
               { role: 'window' as const },
             ]
-          : [{ role: 'close' as const }]),
+          : [{ role: 'close' as const, accelerator: 'CmdOrCtrl+Shift+W' }]),
       ],
     },
 

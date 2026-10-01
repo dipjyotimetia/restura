@@ -7,6 +7,7 @@ import { httpLikeStatus } from '@/lib/shared/console-format';
 import { METHOD_COLORS, PROTOCOL_LABELS } from '@/lib/shared/constants';
 import { cn } from '@/lib/shared/utils';
 import type { HistoryItem } from '@/types';
+import { groupHistory } from '../lib/sidebarSearch';
 import { SidebarEmptyState } from './SidebarEmptyState';
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] as const;
@@ -80,84 +81,91 @@ export function SidebarHistoryPanel({
           }
         />
       ) : (
-        <Stagger className="flex flex-col gap-0.5" initial={staggerInitial}>
-          {filteredHistory.map((item) => (
-            <StaggerItem
-              key={item.id}
-              className="group px-1.5 py-1.5 rounded hover:bg-accent cursor-pointer transition-colors"
-              onClick={() => onLoadHistoryItem(item.id)}
-            >
-              <div className="flex items-center gap-1.5 mb-1">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onToggleFavorite(item.id);
-                  }}
-                  aria-label={
-                    favorites.includes(item.id) ? 'Remove from favorites' : 'Add to favorites'
-                  }
+        groupHistory(filteredHistory).map((group) => (
+          <section key={group.bucket} aria-label={group.bucket} className="mb-2">
+            <h3 className="px-1.5 pb-1 text-sp-11 font-medium text-sp-dim">{group.bucket}</h3>
+            <Stagger className="flex flex-col gap-0.5" initial={staggerInitial}>
+              {group.items.map((item) => (
+                <StaggerItem
+                  key={item.id}
+                  className="group px-1.5 py-1.5 rounded hover:bg-accent cursor-pointer transition-colors"
+                  onClick={() => onLoadHistoryItem(item.id)}
                 >
-                  <Star
-                    className={cn(
-                      'h-3.5 w-3.5 transition-all',
-                      favorites.includes(item.id)
-                        ? 'text-amber-500 fill-amber-500 scale-110'
-                        : 'text-sp-dim group-hover:text-amber-500'
-                    )}
-                  />
-                </Button>
-                <Badge
-                  variant={
-                    item.request.type === 'http'
-                      ? (item.request.method.toLowerCase() as
-                          | 'get'
-                          | 'post'
-                          | 'put'
-                          | 'delete'
-                          | 'patch'
-                          | 'options'
-                          | 'head')
-                      : 'mono'
-                  }
-                  className="text-[9px] h-4 px-1"
-                >
-                  {item.request.type === 'http'
-                    ? item.request.method
-                    : PROTOCOL_LABELS[item.request.type]}
-                </Badge>
-                {item.response &&
-                  (() => {
-                    const status = httpLikeStatus(item.request.type, item.response.status);
-                    return (
-                      <span
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onToggleFavorite(item.id);
+                      }}
+                      aria-label={
+                        favorites.includes(item.id) ? 'Remove from favorites' : 'Add to favorites'
+                      }
+                    >
+                      <Star
                         className={cn(
-                          'text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded tabular-nums',
-                          status >= 200 && status < 300
-                            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                            : status >= 400
-                              ? 'bg-red-500/10 text-red-600 dark:text-red-400'
-                              : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                          'h-3.5 w-3.5 transition-all',
+                          favorites.includes(item.id)
+                            ? 'text-amber-500 fill-amber-500 scale-110'
+                            : 'text-sp-dim group-hover:text-amber-500'
                         )}
-                      >
-                        {status}
-                      </span>
-                    );
-                  })()}
-              </div>
-              <p className="text-xs font-mono truncate pl-6 mb-1 text-foreground">
-                {item.request.type === 'grpc'
-                  ? item.request.service
-                  : (item.resolvedUrl ?? item.request.url)}
-              </p>
-              <span className="text-[10px] text-sp-dim pl-6 block">
-                {new Date(item.timestamp).toLocaleString()}
-              </span>
-            </StaggerItem>
-          ))}
-        </Stagger>
+                      />
+                    </Button>
+                    <Badge
+                      variant={
+                        item.request.type === 'http'
+                          ? (item.request.method.toLowerCase() as
+                              | 'get'
+                              | 'post'
+                              | 'put'
+                              | 'delete'
+                              | 'patch'
+                              | 'options'
+                              | 'head')
+                          : 'mono'
+                      }
+                      className="text-[9px] h-4 px-1"
+                    >
+                      {item.request.type === 'http'
+                        ? item.request.method
+                        : PROTOCOL_LABELS[item.request.type]}
+                    </Badge>
+                    {item.response &&
+                      (() => {
+                        const status = httpLikeStatus(item.request.type, item.response.status);
+                        return (
+                          <span
+                            className={cn(
+                              'text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded tabular-nums',
+                              status >= 200 && status < 300
+                                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                                : status >= 400
+                                  ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+                                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                            )}
+                          >
+                            {status}
+                          </span>
+                        );
+                      })()}
+                  </div>
+                  <p className="text-xs font-mono truncate pl-6 mb-1 text-foreground">
+                    {item.request.type === 'grpc'
+                      ? item.request.service
+                      : (item.resolvedUrl ?? item.request.url)}
+                  </p>
+                  <span className="text-[10px] text-sp-dim pl-6 block">
+                    {group.bucket === 'Today' || group.bucket === 'Yesterday'
+                      ? new Date(item.timestamp).toLocaleTimeString()
+                      : new Date(item.timestamp).toLocaleString()}
+                  </span>
+                </StaggerItem>
+              ))}
+            </Stagger>
+          </section>
+        ))
       )}
       {hasMoreHistory && !searchQuery && !methodFilter && (
         <Button variant="outline" size="sm" className="w-full mt-3 text-xs" onClick={onLoadMore}>

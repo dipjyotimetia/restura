@@ -7,6 +7,7 @@ import { CollectionRunnerDialog } from '@/features/collections/components/sideba
 import type { CollectionRunResult } from '@/features/collections/lib/collectionRunner';
 import { formatRelativeTime, getMethodColor } from '@/lib/shared/console-format';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
+import { modLabel } from '@/lib/shared/shortcuts';
 import { cn } from '@/lib/shared/utils';
 import { useCollectionRunStore } from '@/store/useCollectionRunStore';
 import { useLoadTestStore } from '@/store/useLoadTestStore';
@@ -295,7 +296,8 @@ export function RunsPanel() {
         />
         {runs.length === 0 ? (
           <p className="text-[11px] text-sp-muted font-mono leading-relaxed">
-            No runs yet. Run one from an HTTP request (⌘K &rarr; &ldquo;Run load test&rdquo;).
+            No runs yet. Run one from an HTTP request ({modLabel('K')} &rarr; &ldquo;Run load
+            test&rdquo;).
           </p>
         ) : (
           <div className="space-y-2">

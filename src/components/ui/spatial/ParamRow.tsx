@@ -1,4 +1,5 @@
 import { X } from 'lucide-react';
+import { useVariableHover } from '@/components/shared/VariableHover';
 import { VariableInput } from '@/components/shared/VariableInput';
 import { cn } from '@/lib/shared/utils';
 import { ComboboxInput, type ComboboxSuggestion } from './ComboboxInput';
@@ -18,6 +19,8 @@ export interface ParamRowProps {
   onChange: (next: ParamRowData) => void;
   onRemove?: (id: string) => void;
   showVariableHighlight?: boolean;
+  /** Singular noun for accessible names ('parameter', 'header'). */
+  itemLabel?: string;
   /**
    * Classifies `{{var}}` references in the value column so unresolved ones get
    * the warning style. Forwarded to the {{var}} overlay; only consulted when
@@ -42,6 +45,8 @@ export interface ParamRowProps {
   valueSuggestionsFor?: (key: string) => ReadonlyArray<string> | undefined;
 }
 
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
 export const PARAM_GRID = '26px 1fr 1fr 1fr 26px';
 
 export function ParamRow({
@@ -49,6 +54,7 @@ export function ParamRow({
   onChange,
   onRemove,
   showVariableHighlight,
+  itemLabel = 'parameter',
   getStatus,
   className,
   inputRef,
@@ -66,6 +72,7 @@ export function ParamRow({
   // the highlight overlay shows (avoids double-rendering the text). Gated on a
   // real token — a half-typed `{{` keeps the raw input visible.
   const showValueOverlay = !!showVariableHighlight && hasVariableToken(row.value);
+  const variableHover = useVariableHover();
   const valueInputClass = cn(baseInput, showValueOverlay && 'text-transparent caret-sp-accent');
 
   const renderKey = () => {
@@ -77,6 +84,7 @@ export function ParamRow({
           value={row.key}
           onValueChange={(val) => onChange({ ...row, key: val })}
           placeholder="key"
+          aria-label={`${capitalize(itemLabel)} key`}
           className={baseInput}
         />
       );
@@ -99,6 +107,7 @@ export function ParamRow({
         }}
         suggestions={keySuggestions}
         placeholder="key"
+        aria-label={`${capitalize(itemLabel)} key`}
         inputClassName={baseInput}
       />
     );
@@ -112,6 +121,7 @@ export function ParamRow({
           value={row.value}
           onValueChange={(val) => onChange({ ...row, value: val })}
           placeholder="value"
+          aria-label={`${capitalize(itemLabel)} value`}
           className={valueInputClass}
         />
       );
@@ -122,6 +132,7 @@ export function ParamRow({
         onChange={(next) => onChange({ ...row, value: next })}
         suggestions={valueSuggestions}
         placeholder="value"
+        aria-label={`${capitalize(itemLabel)} value`}
         inputClassName={valueInputClass}
       />
     );
@@ -142,12 +153,19 @@ export function ParamRow({
           checked={row.enabled}
           onChange={(enabled) => onChange({ ...row, enabled })}
           size="sm"
-          ariaLabel="Enable parameter"
+          ariaLabel={`Enable ${itemLabel}`}
         />
       </div>
       <div className="border-l border-sp-line/40 flex items-center min-w-0">{renderKey()}</div>
-      <div className="relative border-l border-sp-line/40 flex items-center min-w-0">
+      <div
+        className="relative border-l border-sp-line/40 flex items-center min-w-0"
+        {...(showValueOverlay && {
+          onMouseMove: variableHover.onMouseMove,
+          onMouseLeave: variableHover.onMouseLeave,
+        })}
+      >
         {renderValue()}
+        {showValueOverlay && variableHover.card}
         {showValueOverlay && (
           <div
             aria-hidden="true"

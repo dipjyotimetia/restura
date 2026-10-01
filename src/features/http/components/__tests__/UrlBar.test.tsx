@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { modLabel } from '@/lib/shared/shortcuts';
 import type { HttpMethod } from '@/types';
 import { UrlBar } from '../UrlBar';
 
@@ -11,6 +12,7 @@ function renderUrlBar(
     isLoading: boolean;
     onMethodChange: (m: HttpMethod) => void;
     onUrlChange: (u: string) => void;
+    onPasteCurl: (command: string) => boolean;
     onSend: () => void;
     onCancel: () => void;
     onOpenCodeGen: () => void;
@@ -124,15 +126,68 @@ describe('UrlBar', () => {
       expect(screen.getByLabelText('Request URL')).toBeInTheDocument();
     });
 
-    it('Send button shows ⌘↵ keyboard hint when idle', () => {
+    it('Send button shows the platform send hint (⌘↵ / Ctrl+↵) when idle', () => {
       renderUrlBar({ url: 'https://x.com' });
-      expect(screen.getByText('⌘↵')).toBeInTheDocument();
+      expect(screen.getByText(modLabel('↵'))).toBeInTheDocument();
     });
 
     it('exposes Copy URL and Generate code buttons by label', () => {
       renderUrlBar({ url: 'https://x.com' });
       expect(screen.getByLabelText('Copy URL')).toBeInTheDocument();
       expect(screen.getByLabelText('Generate code snippet')).toBeInTheDocument();
+    });
+  });
+
+  describe('keyboard and paste', () => {
+    const urlInput = () => screen.getByRole('textbox', { name: 'Request URL' });
+
+    it('Enter sends, but not while loading, with an invalid URL, or with Cmd/Ctrl held', () => {
+      const { props, rerender } = renderUrlBar({ url: 'https://example.com' });
+      fireEvent.keyDown(urlInput(), { key: 'Enter' });
+      expect(props.onSend).toHaveBeenCalledOnce();
+
+      fireEvent.keyDown(urlInput(), { key: 'Enter', metaKey: true });
+      fireEvent.keyDown(urlInput(), { key: 'a' });
+      expect(props.onSend).toHaveBeenCalledOnce();
+
+      rerender(<UrlBar {...props} isLoading />);
+      fireEvent.keyDown(urlInput(), { key: 'Enter' });
+      expect(props.onSend).toHaveBeenCalledOnce();
+    });
+
+    it('keeps the typed draft while focused and shows the store value after blur', () => {
+      const { props, rerender } = renderUrlBar({ url: 'https://x.dev' });
+      fireEvent.change(urlInput(), { target: { value: 'https://x.dev?' } });
+      expect(props.onUrlChange).toHaveBeenCalledWith('https://x.dev?');
+      // The store copy drops the dangling "?" — the field must not.
+      rerender(<UrlBar {...props} url="https://x.dev" />);
+      expect(urlInput()).toHaveValue('https://x.dev?');
+      fireEvent.blur(urlInput());
+      expect(urlInput()).toHaveValue('https://x.dev');
+    });
+
+    const paste = (text: string) => {
+      const event = new Event('paste', { bubbles: true, cancelable: true });
+      Object.assign(event, { clipboardData: { getData: () => text } });
+      urlInput().dispatchEvent(event);
+      return event;
+    };
+
+    it('hands a pasted cURL command to onPasteCurl and swallows the paste on success', () => {
+      const onPasteCurl = vi.fn(() => true);
+      renderUrlBar({ url: 'https://x.dev', onPasteCurl });
+      const event = paste("curl 'https://y.dev'");
+      expect(onPasteCurl).toHaveBeenCalledWith("curl 'https://y.dev'");
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('lets a plain URL, or an unparseable cURL command, paste normally', () => {
+      const onPasteCurl = vi.fn(() => false);
+      renderUrlBar({ url: '', onPasteCurl });
+      expect(paste('https://plain.dev').defaultPrevented).toBe(false);
+      expect(onPasteCurl).not.toHaveBeenCalled();
+      expect(paste('curl nope').defaultPrevented).toBe(false);
+      expect(onPasteCurl).toHaveBeenCalledOnce();
     });
   });
 });

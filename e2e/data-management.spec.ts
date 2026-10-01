@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures/app';
+import { expect, test } from './fixtures/app';
 
 test.describe('Collections', () => {
   test('creates a new collection from the sidebar', async ({ app: page }) => {
@@ -27,7 +27,7 @@ test.describe('Collections', () => {
     await page.keyboard.press('Enter');
     await expect(page.getByText('New Collection', { exact: true }).first()).toBeVisible();
 
-    const search = page.getByPlaceholder('Search...');
+    const search = page.getByRole('searchbox', { name: 'Search collections' });
     await search.fill('zzz-no-match');
     await expect(page.getByText('No collections found')).toBeVisible();
 

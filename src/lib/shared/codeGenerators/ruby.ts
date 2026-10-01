@@ -1,4 +1,4 @@
-import { escapeJson, type GenerateOptions } from './types';
+import { escapeJson, type GenerateOptions, urlWithVariables } from './types';
 
 export const generateRuby = (options: GenerateOptions): string => {
   const { request, resolvedUrl, resolvedHeaders, resolvedParams } = options;
@@ -9,7 +9,7 @@ export const generateRuby = (options: GenerateOptions): string => {
     Object.entries(resolvedParams).forEach(([key, value]) => {
       url.searchParams.append(key, value);
     });
-    urlStr = url.toString();
+    urlStr = urlWithVariables(url);
   } catch {
     // keep urlStr as-is
   }

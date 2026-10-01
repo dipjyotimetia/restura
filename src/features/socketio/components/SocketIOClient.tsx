@@ -23,13 +23,14 @@ import {
   ToggleField,
   VariableText,
 } from '@/components/ui/spatial';
-import { socketioManager } from '@/features/socketio/lib/socketioManager';
 import { filterSocketIOEvents } from '@/features/socketio/lib/eventFilter';
+import { socketioManager } from '@/features/socketio/lib/socketioManager';
 import {
   type SocketIOEventDirection,
   type SocketIOEventFilter,
   useSocketIOStore,
 } from '@/features/socketio/store/useSocketIOStore';
+import { modLabel } from '@/lib/shared/shortcuts';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn } from '@/lib/shared/utils';
 import { useActiveTabId } from '@/store/selectors';
@@ -698,7 +699,7 @@ function SocketIOClient() {
               >
                 <Send className="h-3.5 w-3.5 mr-1" /> Emit
               </Button>
-              <Kbd size="xs">⌘↵</Kbd>
+              <Kbd size="xs">{modLabel('↵')}</Kbd>
               <div className="flex-1" />
               <span className="text-sp-11 text-sp-dim font-mono tabular-nums">{byteCount} B</span>
             </div>

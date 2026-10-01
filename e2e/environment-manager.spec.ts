@@ -14,7 +14,7 @@
  * (`playwright.config.ts` runs `workers: 1, fullyParallel: false`).
  */
 import type { Page } from '@playwright/test';
-import { test, expect } from './fixtures/app';
+import { expect, test } from './fixtures/app';
 import { resetPersistedState } from './utils/reset-state';
 
 function dialog(page: Page) {
@@ -22,10 +22,13 @@ function dialog(page: Page) {
 }
 
 async function openManager(page: Page) {
-  // Header env pill — "Switch environment (current: <name>)" — opens the
-  // Environment Manager dialog directly (the sidebar footer + quick-switch
-  // popover were removed when the env indicator was de-duplicated).
+  // Header env pill — "Switch environment (current: <name>)". With no
+  // environments it opens the Environment Manager directly; once any exist it
+  // opens a quick-switch menu whose last item opens the manager.
   await page.getByRole('button', { name: /Switch environment/ }).click();
+  const manage = page.getByRole('menuitem', { name: 'Manage environments…' });
+  await expect(manage.or(dialog(page))).toBeVisible();
+  if (await manage.isVisible()) await manage.click();
   await expect(dialog(page)).toBeVisible();
 }
 

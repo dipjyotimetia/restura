@@ -64,6 +64,18 @@ function tabDisplayName(request: { name: string; url?: string }): string {
   return name;
 }
 
+/** Window event asking the strip to close the active tab (with the unsaved-changes prompt). */
+export const CLOSE_ACTIVE_TAB_EVENT = 'restura:close-active-tab';
+
+type BulkClose = { kind: 'others' | 'right'; id: string } | { kind: 'all' };
+
+function tabsClosedBy<T extends { id: string }>(tabs: T[], bulk: BulkClose): T[] {
+  if (bulk.kind === 'all') return tabs;
+  if (bulk.kind === 'others') return tabs.filter((t) => t.id !== bulk.id);
+  const idx = tabs.findIndex((t) => t.id === bulk.id);
+  return idx === -1 ? [] : tabs.slice(idx + 1);
+}
+
 interface TabStripProps {
   onSaveToCollection?: (tabId: string) => void;
   /**
@@ -97,6 +109,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
   const closeTab = useRequestStore((s) => s.closeTab);
   const closeOtherTabs = useRequestStore((s) => s.closeOtherTabs);
   const closeAllTabs = useRequestStore((s) => s.closeAllTabs);
+  const closeTabsToRight = useRequestStore((s) => s.closeTabsToRight);
   const duplicateTab = useRequestStore((s) => s.duplicateTab);
   const createNewRequest = useRequestStore((s) => s.createNewRequest);
   const reorderTabs = useRequestStore((s) => s.reorderTabs);
@@ -119,9 +132,10 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
   const [pendingCloseId, setPendingCloseId] = useState<string | null>(null);
   // Close Others / Close All awaiting confirmation because a tab being closed
   // has unsaved edits. `keepId` is the tab kept by Close Others (null = all).
-  const [pendingBulkClose, setPendingBulkClose] = useState<{ keepId: string | null } | null>(null);
+  const [pendingBulkClose, setPendingBulkClose] = useState<BulkClose | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const activeTabRef = useRef<HTMLButtonElement>(null);
+  const focusActiveOnSwitch = useRef(false);
   const stripFadeRef = useOverflowFade<HTMLDivElement>();
 
   const openSaveDialog = onSaveToCollection ?? setLocalSaveDialogTabId;
@@ -137,6 +151,11 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
     // `scrollIntoView` is absent under jsdom — guard so test renders don't throw.
     if (typeof activeTabRef.current?.scrollIntoView === 'function') {
       activeTabRef.current.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+    // Arrow-key navigation moves focus with the selection (roving tabindex).
+    if (focusActiveOnSwitch.current) {
+      focusActiveOnSwitch.current = false;
+      activeTabRef.current?.focus();
     }
   }, [activeTabId]);
 
@@ -162,18 +181,28 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
 
   const pendingTab = tabs.find((t) => t.id === pendingCloseId);
 
-  const runBulkClose = (keepId: string | null) => {
-    if (keepId) closeOtherTabs(keepId);
+  const runBulkClose = (bulk: BulkClose) => {
+    if (bulk.kind === 'others') closeOtherTabs(bulk.id);
+    else if (bulk.kind === 'right') closeTabsToRight(bulk.id);
     else closeAllTabs();
   };
 
-  const requestBulkClose = (keepId: string | null) => {
-    if (tabs.some((t) => t.id !== keepId && t.isDirty)) setPendingBulkClose({ keepId });
-    else runBulkClose(keepId);
+  const requestBulkClose = (bulk: BulkClose) => {
+    if (tabsClosedBy(tabs, bulk).some((t) => t.isDirty)) setPendingBulkClose(bulk);
+    else runBulkClose(bulk);
   };
 
+  // Keyboard/menu "close tab" goes through the same unsaved-changes prompt.
+  useEffect(() => {
+    const onCloseActive = () => {
+      if (activeTabId) requestClose(activeTabId);
+    };
+    window.addEventListener(CLOSE_ACTIVE_TAB_EVENT, onCloseActive);
+    return () => window.removeEventListener(CLOSE_ACTIVE_TAB_EVENT, onCloseActive);
+  });
+
   const bulkDirtyTabs = pendingBulkClose
-    ? tabs.filter((t) => t.id !== pendingBulkClose.keepId && t.isDirty)
+    ? tabsClosedBy(tabs, pendingBulkClose).filter((t) => t.isDirty)
     : [];
 
   const handleSaveBack = (tabId: string, savedRequestId: string) => {
@@ -205,11 +234,17 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
             if (e.key === 'ArrowRight') {
               e.preventDefault();
               const next = tabs[(idx + 1) % tabs.length];
-              if (next) switchTab(next.id);
+              if (next) {
+                focusActiveOnSwitch.current = true;
+                switchTab(next.id);
+              }
             } else if (e.key === 'ArrowLeft') {
               e.preventDefault();
               const prev = tabs[(idx - 1 + tabs.length) % tabs.length];
-              if (prev) switchTab(prev.id);
+              if (prev) {
+                focusActiveOnSwitch.current = true;
+                switchTab(prev.id);
+              }
             } else if (e.key === 'Delete' && activeTabId) {
               e.preventDefault();
               requestClose(activeTabId);
@@ -225,6 +260,12 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
               <ContextMenu key={tab.id}>
                 <ContextMenuTrigger asChild>
                   <div
+                    // Middle-click closes, as in browsers and editors.
+                    onAuxClick={(e) => {
+                      if (e.button !== 1) return;
+                      e.preventDefault();
+                      requestClose(tab.id);
+                    }}
                     className={cn(
                       'group inline-flex items-center gap-2 shrink-0',
                       'rounded-sp-btn px-3 py-1.5 transition-colors',
@@ -323,9 +364,15 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                         aria-label="Save changes to collection"
                         title="Save changes"
                         onClick={() => handleSaveBack(tab.id, tab.savedRequestId!)}
-                        className="block size-[5px] rounded-full sp-accent-glow shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
-                        style={{ background: 'var(--sp-accent)' }}
-                      />
+                        // 16px hit target around the 5px dot.
+                        className="-mx-1 inline-flex size-4 shrink-0 items-center justify-center rounded-full hover:bg-sp-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+                      >
+                        <span
+                          aria-hidden="true"
+                          className="block size-[5px] rounded-full sp-accent-glow"
+                          style={{ background: 'var(--sp-accent)' }}
+                        />
+                      </button>
                     )}
 
                     <button
@@ -364,10 +411,16 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                   <ContextMenuSeparator />
                   <ContextMenuItem onClick={() => duplicateTab(tab.id)}>Duplicate</ContextMenuItem>
                   <ContextMenuItem onClick={() => requestClose(tab.id)}>Close</ContextMenuItem>
-                  <ContextMenuItem onClick={() => requestBulkClose(tab.id)}>
+                  <ContextMenuItem onClick={() => requestBulkClose({ kind: 'others', id: tab.id })}>
                     Close Others
                   </ContextMenuItem>
-                  <ContextMenuItem onClick={() => requestBulkClose(null)}>
+                  <ContextMenuItem
+                    disabled={tabs[tabs.length - 1]?.id === tab.id}
+                    onClick={() => requestBulkClose({ kind: 'right', id: tab.id })}
+                  >
+                    Close Tabs to the Right
+                  </ContextMenuItem>
+                  <ContextMenuItem onClick={() => requestBulkClose({ kind: 'all' })}>
                     Close All
                   </ContextMenuItem>
                 </ContextMenuContent>
@@ -522,7 +575,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
           <AlertDialogFooter>
             <AlertDialogCancel>Keep open</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => pendingBulkClose && runBulkClose(pendingBulkClose.keepId)}
+              onClick={() => pendingBulkClose && runBulkClose(pendingBulkClose)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Discard & close

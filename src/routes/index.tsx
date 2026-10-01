@@ -8,14 +8,14 @@ import { SaveToCollectionDialog } from '@/components/shared/SaveToCollectionDial
 import type { SectionId } from '@/components/shared/SettingsDrawer';
 import Sidebar from '@/components/shared/Sidebar';
 import StatusBar from '@/components/shared/StatusBar';
-import { TabBar } from '@/components/shared/TabBar';
+import { CLOSE_ACTIVE_TAB_EVENT, TabBar } from '@/components/shared/TabBar';
 import TopBar from '@/components/shared/TopBar';
 import { WebNativeDownloadBanner } from '@/components/shared/WebNativeDownloadBanner';
 import WelcomeOnboarding from '@/components/shared/WelcomeOnboarding';
 import { motion } from '@/components/ui/motion';
 import { useAiChatStore } from '@/features/ai/store';
 import { saveTabBackToCollection } from '@/features/collections/lib/saveBack';
-import { useKeybindings } from '@/hooks/useKeybindings';
+import { type Keybinding, useKeybindings } from '@/hooks/useKeybindings';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useStoreHydration } from '@/hooks/useStoreHydration';
 import {
@@ -31,6 +31,7 @@ import {
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { isElectron, onMenuEvent, openExternalUrl } from '@/lib/shared/platform';
+import { shortcutCombo } from '@/lib/shared/shortcuts';
 import { useActiveTab } from '@/store/selectors';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
@@ -144,6 +145,13 @@ export default function Home() {
   }, []);
 
   // Persisted request/response split (shared by every split protocol view).
+  const sidebarCollapsed = settings.sidebarCollapsed === true;
+  const toggleSidebar = useCallback(
+    () =>
+      updateSettings({ sidebarCollapsed: !useSettingsStore.getState().settings.sidebarCollapsed }),
+    [updateSettings]
+  );
+
   const handleSplitChange = useCallback(
     (split: number) => updateSettings({ requestResponseSplit: split }),
     [updateSettings]
@@ -159,6 +167,8 @@ export default function Home() {
   const handleClearConsole = () => {
     setScriptResult(null);
   };
+
+  const tabShortcuts = useMemo(() => buildTabShortcuts(isElectron()), []);
 
   // App-level shortcuts. All use allowInInput so they keep working while the
   // user is typing in the URL bar / editors (matching prior behaviour). Cmd+K
@@ -192,11 +202,40 @@ export default function Home() {
     {
       combo: 'mod+n',
       allowInInput: true,
+      // Desktop: File > New Request (CmdOrCtrl+N) arrives as 'menu:new-request'.
+      enabled: !isElectron(),
       handler: () => {
         createNewRequest('http');
       },
     },
+    {
+      combo: 'mod+b',
+      allowInInput: true,
+      handler: toggleSidebar,
+    },
+    ...tabShortcuts,
   ]);
+
+  // Desktop routes Close/Reopen Tab through native menu accelerators (which
+  // take precedence over the renderer for Cmd/Ctrl+W and Cmd/Ctrl+Shift+T).
+  useEffect(() => {
+    const offClose = onMenuEvent('menu:close-tab', closeActiveTab);
+    const offReopen = onMenuEvent('menu:reopen-tab', () =>
+      useRequestStore.getState().reopenClosedTab()
+    );
+    // File > New Request / Import (and the tray equivalents) had no renderer
+    // subscriber, so their menu clicks did nothing.
+    const offNew = onMenuEvent('menu:new-request', () =>
+      useRequestStore.getState().createNewRequest('http')
+    );
+    const offImport = onMenuEvent('menu:import', openImportDialog);
+    return () => {
+      offClose();
+      offReopen();
+      offNew();
+      offImport();
+    };
+  }, [openImportDialog]);
 
   // Native "Settings/Preferences" menu item (Electron) → open the drawer. The
   // mod+, keybinding above covers the web build, where there is no native menu.
@@ -317,6 +356,8 @@ export default function Home() {
         onOpenSettings={() => openSettings('general')}
         onToggleAi={enableAi ? () => setAiPanelOpen(!aiPanelOpen) : undefined}
         onOpenBugReport={() => void handleOpenBugReport()}
+        onToggleSidebar={toggleSidebar}
+        sidebarCollapsed={sidebarCollapsed}
       />
       <WebNativeDownloadBanner />
 
@@ -327,9 +368,12 @@ export default function Home() {
           <motion.div
             key="sidebar-panel"
             initial={{ width: 0, opacity: 0 }}
-            animate={{ width: 268, opacity: 1 }}
+            animate={sidebarCollapsed ? { width: 0, opacity: 0 } : { width: 268, opacity: 1 }}
             transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
             className="shrink-0 overflow-hidden"
+            // Collapsed: out of the tab order and the accessibility tree.
+            inert={sidebarCollapsed}
+            aria-hidden={sidebarCollapsed || undefined}
           >
             <Sidebar activePanel={activePanel} onOpenImport={openImportDialog} />
           </motion.div>
@@ -369,7 +413,7 @@ export default function Home() {
         {enableAi && aiPanelOpen && <ChatPanel onClose={() => setAiPanelOpen(false)} />}
       </div>
 
-      <StatusBar />
+      <StatusBar onOpenEnvironments={openEnvironmentManager} />
 
       {paletteOpen && (
         <CommandPalette
@@ -377,6 +421,7 @@ export default function Home() {
           onOpenChange={setPaletteOpen}
           onOpenEnvironments={openEnvironmentManager}
           onOpenSettings={() => openSettings('general')}
+          onOpenShortcuts={() => openSettings('shortcuts')}
           onOpenImport={openImportDialog}
           onSendRequest={handleSendRequest}
           onChangeMode={handleRequestModeChange}
@@ -427,4 +472,54 @@ export default function Home() {
       )}
     </div>
   );
+}
+
+function closeActiveTab() {
+  window.dispatchEvent(new Event(CLOSE_ACTIVE_TAB_EVENT));
+}
+
+function cycleTab(step: 1 | -1) {
+  const { tabs, activeTabId, switchTab } = useRequestStore.getState();
+  if (tabs.length === 0) return;
+  const idx = tabs.findIndex((t) => t.id === activeTabId);
+  const next = tabs[(idx + step + tabs.length) % tabs.length];
+  if (next) switchTab(next.id);
+}
+
+/**
+ * Tab shortcuts from the shared registry (`lib/shared/shortcuts`). Desktop
+ * Close/Reopen arrive as menu events instead (see the effect in Home).
+ */
+function buildTabShortcuts(electron: boolean): Keybinding[] {
+  const bind = (id: string, handler: () => void): Keybinding[] => {
+    const combo = shortcutCombo(id, electron);
+    // Alt/Option combos type characters on macOS (Option+N is the ñ dead key,
+    // Option+[ a curly quote), so they don't fire while typing in a field.
+    return combo ? [{ combo, allowInInput: !combo.startsWith('alt+'), handler }] : [];
+  };
+  const bindings: Keybinding[] = [
+    // Shift variants first: a combo without shift also matches with it held.
+    ...bind('prev-tab', () => cycleTab(-1)),
+    ...bind('next-tab', () => cycleTab(1)),
+    ...(electron ? [] : bind('close-tab', closeActiveTab)),
+    ...(electron ? [] : bind('reopen-tab', () => useRequestStore.getState().reopenClosedTab())),
+    ...(electron ? [] : bind('new-tab', () => useRequestStore.getState().createNewRequest('http'))),
+  ];
+  const jump = shortcutCombo('jump-tab', electron);
+  if (jump) {
+    const prefix = jump.replace(/digit1$/, '');
+    for (let n = 1; n <= 9; n++) {
+      bindings.push({
+        combo: `${prefix}digit${n}`,
+        allowInInput: true,
+        handler: () => {
+          const { tabs, switchTab } = useRequestStore.getState();
+          // 9 always means the last tab, as in browsers.
+          const target = n === 9 ? tabs[tabs.length - 1] : tabs[n - 1];
+          if (target) switchTab(target.id);
+        },
+      });
+    }
+  }
+  return bindings;
 }
