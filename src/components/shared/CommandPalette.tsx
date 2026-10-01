@@ -188,11 +188,14 @@ export default function CommandPalette({
     return () => document.removeEventListener('keydown', down);
   }, [isControlled, setOpen]);
 
-  // Reset transient state on open
+  // Reset transient state on open; drop a pending confirm when the palette
+  // closes by any route (e.g. its own Cmd+K toggle) so it can't be orphaned.
   useEffect(() => {
     if (open) {
       setQuery('');
       setHighlighted(0);
+    } else {
+      setConfirmClearOpen(false);
     }
   }, [open]);
 
