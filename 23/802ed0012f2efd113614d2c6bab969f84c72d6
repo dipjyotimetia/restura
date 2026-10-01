@@ -1,0 +1,31 @@
+src/lib/shared/previousResponse.test.ts
+  s_766edd634beb43::t_283d8f1ee7c32d 3,15,77-85
+  s_766edd634beb43::t_17621c7ea88a40 1-2,4-14,16-70,72-76,86-87
+  s_766edd634beb43::t_b8f5c73a68262c 71
+src/lib/shared/previousResponse.ts
+  s_766edd634beb43::t_283d8f1ee7c32d 1,53,55-72
+  s_766edd634beb43::t_17621c7ea88a40 2-43,50-52,54,73
+  s_766edd634beb43::t_b8f5c73a68262c 44-49
+src/components/shared/CompareWithPrevious.tsx
+  s_766edd634beb43::t_ed6330fba20e28 1-16,24-44,51-57
+  s_766edd634beb43::t_b0c26893fa1245 45-50
+  s_766edd634beb43::t_cf9e7ce5e6a892 17-23
+src/components/shared/ResponseViewer.tsx
+  s_766edd634beb43::t_cf9e7ce5e6a892 5,516-521
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "23802ed0012f2efd113614d2c6bab969f84c72d6",
+  "prompts": {},
+  "sessions": {
+    "s_766edd634beb43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9c66557-0bf1-4aa9-990d-ab0ef03d2e23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
