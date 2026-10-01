@@ -1,0 +1,66 @@
+worker/handlers/proxy.ts
+  s_766edd634beb43::t_fa3fc7a5537769 246
+docs-site/src/content/docs/protocols/http.mdx
+  s_766edd634beb43::t_4473432078abfb 59-70
+electron/main/handlers/http-connector-wrappers.ts
+  s_766edd634beb43::t_a135d66103f535 1-76
+shared/protocol/http-proxy.ts
+  s_766edd634beb43::t_58f5132410e8ce 6-12,133,161,227-234,421-435
+  s_766edd634beb43::t_c9431d1ede1b06 436
+src/lib/shared/responseTimingSegments.ts
+  s_766edd634beb43::t_94ac008aa86d16 1-30,44-45,49-62
+  s_766edd634beb43::t_331f7fb6b8ed26 31-43,46-48
+shared/protocol/types.ts
+  s_766edd634beb43::t_33a68252f38ab0 184-185,237-258
+shared/protocol/http-proxy.test.ts
+  s_766edd634beb43::t_5b76137f663f1d 533-569
+src/lib/shared/capabilities.ts
+  s_766edd634beb43::t_6b2ae1afa5516c 21,109-115
+src/features/http/lib/requestExecutor.ts
+  s_766edd634beb43::t_f75903bccc5091 537
+src/lib/shared/responseTimingSegments.test.ts
+  s_766edd634beb43::t_94ac008aa86d16 1-33,35-38,40,42-44,46,48-66
+  s_766edd634beb43::t_331f7fb6b8ed26 34,39,41,45,47
+docs/CAPABILITY_MATRIX.md
+  s_766edd634beb43::t_6b2ae1afa5516c 21
+electron/main/handlers/http-handler.ts
+  s_766edd634beb43::t_fa3fc7a5537769 168-169,865-866
+  s_766edd634beb43::t_cfd3121af1cadb 689-690
+  s_766edd634beb43::t_a135d66103f535 48-52
+  s_766edd634beb43::t_b6d4e0d8bf8198 12,17,420-421,511-517,520-523
+  s_766edd634beb43::t_f47d49f22b8d84 867
+e2e-electron/specs/tab-menu.spec.ts
+  s_766edd634beb43::t_07a7408f220ab2 22-27
+src/components/shared/TimingBreakdown.tsx
+  s_766edd634beb43::t_4de4c1b80d4d32 1-26,28-34
+  s_766edd634beb43::t_b756d838d3ccd0 27
+e2e-electron/specs/timing.spec.ts
+  s_766edd634beb43::t_bf2307a5d7f969 1-19
+  s_766edd634beb43::t_8663523dd92b8b 20-30
+src/lib/shared/transport.ts
+  s_766edd634beb43::t_f75903bccc5091 27-28,248
+  s_766edd634beb43::t_8d5dfb7daa9b54 9
+  s_766edd634beb43::t_f41b4a28b25189 13
+shared/types/http.ts
+  s_766edd634beb43::t_f75903bccc5091 96-107
+src/components/shared/ResponseViewer.tsx
+  s_766edd634beb43::t_4de4c1b80d4d32 15,38,364,366-369,652
+electron/types/api/protocols.ts
+  s_766edd634beb43::t_cd4aa131aeda61 79-80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e8bc881f2dfaefbef73a6e66aa74177039344a83",
+  "prompts": {},
+  "sessions": {
+    "s_766edd634beb43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9c66557-0bf1-4aa9-990d-ab0ef03d2e23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
