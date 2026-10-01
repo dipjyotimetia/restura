@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { ImagePreview } from '@/components/shared/ImagePreview';
 import { ResponseEmptyState } from '@/components/shared/ResponseEmptyState';
+import { ResponseHeadersPanel } from '@/components/shared/ResponseHeadersPanel';
 import { ResponseStatus } from '@/components/shared/ResponseStatus';
 import { ResponseTestsPanel } from '@/components/shared/ResponseTestsPanel';
 import { IconButton, LayoutToggleButton } from '@/components/shared/ResponseToolbarButtons';
@@ -22,14 +23,15 @@ import {
   SubTabPanel,
   WaterfallBar,
 } from '@/components/ui/spatial';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { AiActionsMenu } from '@/features/ai/components/AiActionsMenu';
 import { classifyRequestError } from '@/features/http/lib/classifyRequestError';
-import { base64ToBytes, extensionForContentType } from '@/lib/shared/binaryBody';
+import { base64ToBytes } from '@/lib/shared/binaryBody';
 import { detectLanguage } from '@/lib/shared/console-format';
 import { isCsvResponse } from '@/lib/shared/csvParser';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { isElectron, isMac } from '@/lib/shared/platform';
+import { downloadExtension, downloadFileName, downloadMime } from '@/lib/shared/responseFiles';
 import { formatBytes, formatTime } from '@/lib/shared/utils';
 import { useActiveResponse, useActiveStreamingEvents, useActiveTab } from '@/store/selectors';
 import { useRequestStore } from '@/store/useRequestStore';
@@ -135,16 +137,12 @@ function ResponseViewer() {
   const [showJsonPath, setShowJsonPath] = useState(false);
   // Opt-in to pretty-printing a body above PRETTY_PRINT_MAX_BYTES (per response).
   const [forceFormat, setForceFormat] = useState(false);
-  const [copiedHeader, setCopiedHeader] = useState<string | null>(null);
   const [copiedBody, setCopiedBody] = useState(false);
-  const [headerFilter, setHeaderFilter] = useState('');
-  const copyHeaderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyBodyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const responseEditorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
 
   useEffect(() => {
     return () => {
-      if (copyHeaderTimer.current) clearTimeout(copyHeaderTimer.current);
       if (copyBodyTimer.current) clearTimeout(copyBodyTimer.current);
     };
   }, []);
@@ -215,12 +213,6 @@ function ResponseViewer() {
     [currentResponse?.headers]
   );
 
-  const filteredHeaderEntries = useMemo(() => {
-    if (!headerFilter) return headerEntries;
-    const needle = headerFilter.toLowerCase();
-    return headerEntries.filter(([key]) => key.toLowerCase().includes(needle));
-  }, [headerEntries, headerFilter]);
-
   const cookies = useMemo(() => {
     if (!currentResponse) return [] as Array<{ name: string; value: string; attrs: string }>;
     const raw = currentResponse.headers['set-cookie'] ?? currentResponse.headers['Set-Cookie'];
@@ -267,19 +259,6 @@ function ResponseViewer() {
     return out;
   }, [currentResponse, activeTab]);
 
-  const handleCopyHeader = async (key: string, value: string | string[]) => {
-    const displayValue = Array.isArray(value) ? value.join(', ') : value;
-    try {
-      await navigator.clipboard.writeText(`${key}: ${displayValue}`);
-      setCopiedHeader(key);
-      toast.success('Header copied');
-      if (copyHeaderTimer.current) clearTimeout(copyHeaderTimer.current);
-      copyHeaderTimer.current = setTimeout(() => setCopiedHeader(null), 2000);
-    } catch {
-      toast.error('Failed to copy header');
-    }
-  };
-
   const handleCopyBody = async () => {
     try {
       await navigator.clipboard.writeText(formattedBody);
@@ -294,21 +273,16 @@ function ResponseViewer() {
 
   const handleDownloadBody = () => {
     if (!currentResponse) return;
-    let blob: Blob;
-    let ext: string;
-    if (isBase64) {
-      // Reconstruct the original bytes from the base64 body for a faithful download.
-      const bytes = base64ToBytes(currentResponse.body);
-      blob = new Blob([bytes as BlobPart], { type: contentType || 'application/octet-stream' });
-      ext = extensionForContentType(contentType);
-    } else {
-      blob = new Blob([currentResponse.body], { type: 'application/octet-stream' });
-      ext = language === 'json' ? 'json' : isCsv ? 'csv' : 'txt';
-    }
+    // Base64 bodies are rebuilt from the original bytes for a faithful file.
+    const content = isBase64
+      ? (base64ToBytes(currentResponse.body) as BlobPart)
+      : currentResponse.body;
+    const blob = new Blob([content], { type: downloadMime(contentType, isBase64) });
+    const ext = downloadExtension(contentType, { isBase64, language, isCsv });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `response-${activeTabId ?? 'body'}.${ext}`;
+    a.download = downloadFileName(activeTab_?.request.name, ext);
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -597,55 +571,7 @@ function ResponseViewer() {
                     />
                   )}
 
-                  {activeTab === 'headers' && (
-                    <div className="h-full overflow-auto">
-                      {headerEntries.length > 8 && (
-                        <div className="sticky top-0 z-10 px-4 pt-3 pb-2 bg-sp-surface border-b border-sp-line">
-                          <input
-                            value={headerFilter}
-                            onChange={(e) => setHeaderFilter(e.target.value)}
-                            placeholder={`Filter ${headerEntries.length} headers…`}
-                            aria-label="Filter response headers"
-                            className="w-full h-7 px-2 rounded-sp-btn bg-sp-surface-lo border border-sp-line text-sp-12 font-mono outline-none focus:border-sp-line-strong"
-                          />
-                        </div>
-                      )}
-                      <div className="px-3 py-1">
-                        {filteredHeaderEntries.map(([key, value]) => (
-                          <div
-                            key={key}
-                            className="group grid grid-cols-[200px_1fr_auto] gap-3 py-1.5 border-b border-sp-line items-start"
-                          >
-                            <span className="font-mono text-sp-12 text-sp-muted truncate">
-                              {key}
-                            </span>
-                            <span className="font-mono text-sp-12 text-sp-text break-all">
-                              {Array.isArray(value) ? value.join(', ') : value}
-                            </span>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  type="button"
-                                  onClick={() => handleCopyHeader(key, value)}
-                                  aria-label={copiedHeader === key ? 'Copied!' : 'Copy header'}
-                                  className="size-5 inline-flex items-center justify-center text-sp-dim hover:text-sp-text opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity rounded-sp-chip hover:bg-sp-hover"
-                                >
-                                  {copiedHeader === key ? (
-                                    <Check className="h-3 w-3 text-emerald-400" />
-                                  ) : (
-                                    <Copy className="h-3 w-3" />
-                                  )}
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {copiedHeader === key ? 'Copied!' : 'Copy header'}
-                              </TooltipContent>
-                            </Tooltip>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  {activeTab === 'headers' && <ResponseHeadersPanel entries={headerEntries} />}
 
                   {activeTab === 'cookies' && (
                     <div className="h-full overflow-auto">
