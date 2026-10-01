@@ -1,0 +1,83 @@
+src/components/shared/TabBar.tsx
+  s_766edd634beb43::t_a6afb7d69e3998 122,370-372
+  s_766edd634beb43::t_a8d0224a7e3607 120-121,165-178,367,499-528
+  s_766edd634beb43::t_52856c2eb065dc 529-533
+src/components/shared/ConsoleDrawer.test.tsx
+  s_766edd634beb43::t_ae5de36be02822 3,5,9-10,12-13,17,21-22,26-28
+  s_766edd634beb43::t_07d6385cd4f3d0 1,14-16,18-20,23-25
+  s_766edd634beb43::t_1cc3dff83ae49c 4
+  s_766edd634beb43::t_af8480e3c9460a 2,6-8,11
+src/features/http/components/RequestBuilder/index.tsx
+  s_766edd634beb43::t_9468ab4713f166 11,43-46
+src/features/http/hooks/__tests__/useHttpRequestPage.test.ts
+  s_766edd634beb43::t_e0e7e2c840365e 471
+src/components/shared/RunsPanel.tsx
+  s_766edd634beb43::t_fa3ac4baaa1e6b 4,66,187,288,344-354
+src/components/shared/CommandPalette.tsx
+  s_766edd634beb43::t_c5f08264431025 83-87,201-203,339,523,540-543,629
+  s_766edd634beb43::t_d56ba9eb9804a2 21,28,36,156,322-332,340,428,537,663
+  s_766edd634beb43::t_a6afb7d69e3998 538-539,544-583,585-612,614-628,630-636,638-658,660-662
+  s_766edd634beb43::t_abebf27d21b9a3 15,29,321,421-427
+src/features/grpc/components/GrpcMessageEditor.tsx
+  s_766edd634beb43::t_7520c4fe998354 65
+src/components/shared/ResponseViewer.tsx
+  s_766edd634beb43::t_dc1ff602072e0f 119
+  s_766edd634beb43::t_997e1d6b0d39b6 8,176,394-400,776
+src/components/shared/WelcomeOnboarding.tsx
+  s_766edd634beb43::t_db1c0e7afce4cd 100-101,126-134,153-159,168,245-254
+src/components/shared/RunsPanel.test.tsx
+  s_766edd634beb43::t_efd856cbc24554 1-44
+src/components/shared/ResponseTestsPanel.tsx
+  s_766edd634beb43::t_34e55704ab987c 12-17
+  s_766edd634beb43::t_1c339fa6bd8ff1 1-11,18-82
+src/features/graphql/components/GraphQLRequestBuilder.tsx
+  s_766edd634beb43::t_7520c4fe998354 503
+src/components/shared/TabBar.test.tsx
+  s_766edd634beb43::t_fa136a92172529 251-285
+src/components/shared/ConsoleDrawer.tsx
+  s_766edd634beb43::t_ef2db2bce674d1 2,61-73
+  s_766edd634beb43::t_479e6e1e503a86 74
+src/components/shared/__tests__/WelcomeOnboarding.test.tsx
+  s_766edd634beb43::t_282f437b85303e 66-90
+src/features/http/components/RequestBodyEditor.tsx
+  s_766edd634beb43::t_b1c91cff190cd4 97
+src/features/http/hooks/useHttpRequestPage.ts
+  s_766edd634beb43::t_38cfb3b77b8d45 105-107
+  s_766edd634beb43::t_513978c9924ad8 44-50
+  s_766edd634beb43::t_e0e7e2c840365e 206-208,210,251
+src/routes/index.tsx
+  s_766edd634beb43::t_0dcf039a62b6f1 39,348-360
+src/components/shared/ResponseTestsPanel.test.tsx
+  s_766edd634beb43::t_fbeb79d4cf92c6 1-30,44-48
+  s_766edd634beb43::t_34e55704ab987c 31-43
+src/features/workflows/components/WorkflowManager.tsx
+  s_766edd634beb43::t_fa3ac4baaa1e6b 7,50,205,260-270
+src/components/shared/TopBar.tsx
+  s_766edd634beb43::t_a1d9a6a1c3531c 6,175-187
+src/features/http/components/RequestBuilder/subTabShortcut.test.ts
+  s_766edd634beb43::t_9468ab4713f166 1-26
+src/features/http/components/RequestBuilder/subTabShortcut.ts
+  s_766edd634beb43::t_9468ab4713f166 1-20
+src/routes/components/NoOpenTabs.tsx
+  s_766edd634beb43::t_b537daf5ed10b1 1,3-7,14-31,35-47,49,57-58,60-70
+  s_766edd634beb43::t_0dcf039a62b6f1 8-13,50-53,55-56
+  s_766edd634beb43::t_333d762da91284 2,32-34,48,54,59
+src/features/graphql/components/GraphQLBodyEditor.tsx
+  s_766edd634beb43::t_7520c4fe998354 208
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4d9bade7e422c57ec7c166130a7bdf8e74f2be02",
+  "prompts": {},
+  "sessions": {
+    "s_766edd634beb43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9c66557-0bf1-4aa9-990d-ab0ef03d2e23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
