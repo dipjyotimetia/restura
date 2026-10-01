@@ -2,6 +2,7 @@ import { Braces, Check, Copy, Download, FileDown, Search, Zap } from 'lucide-rea
 import type * as Monaco from 'monaco-editor';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { CompareWithPrevious } from '@/components/shared/CompareWithPrevious';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { ImagePreview } from '@/components/shared/ImagePreview';
 import { ResponseEmptyState } from '@/components/shared/ResponseEmptyState';
@@ -512,6 +513,12 @@ function ResponseViewer() {
                         label={isBase64 ? 'Download file' : 'Download response'}
                         onClick={handleDownloadBody}
                       />
+                      {activeTab_ && (
+                        <CompareWithPrevious
+                          request={activeTab_.request}
+                          response={currentResponse}
+                        />
+                      )}
                     </div>
                   ) : undefined
                 }
