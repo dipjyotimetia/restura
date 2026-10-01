@@ -12,6 +12,7 @@ import { ResponseStatus } from '@/components/shared/ResponseStatus';
 import { ResponseTestsPanel } from '@/components/shared/ResponseTestsPanel';
 import { IconButton, LayoutToggleButton } from '@/components/shared/ResponseToolbarButtons';
 import { StreamingResponseViewer } from '@/components/shared/StreamingResponseViewer';
+import { TimingBreakdown } from '@/components/shared/TimingBreakdown';
 import { VisualizerFrame } from '@/components/shared/VisualizerFrame';
 import { AnimatePresence, motion, Scale, Stagger, StaggerItem } from '@/components/ui/motion';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -34,6 +35,7 @@ import { isCsvResponse } from '@/lib/shared/csvParser';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { isElectron, isMac } from '@/lib/shared/platform';
 import { downloadExtension, downloadFileName, downloadMime } from '@/lib/shared/responseFiles';
+import { timingSegments } from '@/lib/shared/responseTimingSegments';
 import { formatBytes, formatTime } from '@/lib/shared/utils';
 import { useActiveResponse, useActiveStreamingEvents, useActiveTab } from '@/store/selectors';
 import { useRequestStore } from '@/store/useRequestStore';
@@ -359,17 +361,12 @@ function ResponseViewer() {
       : []),
   ];
 
-  // Only the total `time` is available on Response — we render a single "Wait"
-  // segment rather than invent DNS/TCP/TLS splits we don't have data for.
+  // Measured breakdown where the transport provides one (see timingSegments).
   const waterfallSegments = currentResponse
-    ? [
-        {
-          label: 'Wait',
-          ms: currentResponse.time,
-          color: 'var(--color-proto-http)',
-          emphasised: true,
-        },
-      ]
+    ? timingSegments(currentResponse, {
+        desktop: isElectron(),
+        https: (activeTab_?.request.url ?? '').trim().toLowerCase().startsWith('https'),
+      })
     : [];
 
   return (
@@ -652,15 +649,7 @@ function ResponseViewer() {
 
                   {activeTab === 'timeline' && (
                     <div className="h-full overflow-auto px-4 py-3 space-y-4">
-                      <div>
-                        <div className="sp-label mb-2">Total</div>
-                        <div className="flex items-center gap-3">
-                          <WaterfallBar segments={waterfallSegments} width={320} height={10} />
-                          <span className="font-mono text-sp-12 text-sp-text tabular-nums">
-                            {formatTime(currentResponse.time)}
-                          </span>
-                        </div>
-                      </div>
+                      <TimingBreakdown segments={waterfallSegments} total={currentResponse.time} />
                       <div>
                         <div className="sp-label mb-2">Server-Timing</div>
                         {serverTiming.length === 0 ? (

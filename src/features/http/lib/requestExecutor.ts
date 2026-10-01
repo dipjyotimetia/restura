@@ -534,6 +534,7 @@ export async function executeRequest(
       ...(proxyResponse.negotiatedAlpn !== undefined
         ? { negotiatedAlpn: proxyResponse.negotiatedAlpn }
         : {}),
+      ...(proxyResponse.timings !== undefined ? { timings: proxyResponse.timings } : {}),
     };
   } catch (err) {
     signal?.throwIfAborted();

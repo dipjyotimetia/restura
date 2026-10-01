@@ -181,6 +181,8 @@ export interface NormalizedResponse {
    * (via undici) and surfaced informationally in the response viewer.
    */
   negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
+  /** Timing breakdown measured by the shared proxy (see ResponseTimings). */
+  timings?: ResponseTimings;
 }
 
 export interface FetcherRequest {
@@ -232,6 +234,28 @@ export interface FetcherResponse {
   body?: ReadableStream<Uint8Array> | null;
   /** Negotiated ALPN for this response. Populated by Electron's undici fetcher. */
   negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
+  /**
+   * Connection phases of the final hop, when the fetcher can observe them
+   * (Electron's direct connections). Absent for runtimes that hide sockets
+   * (Workers) and for proxied connections, where they'd describe the proxy.
+   */
+  connectionTimings?: ConnectionTimings;
+}
+
+/** Milliseconds spent establishing the connection for the final hop. */
+export interface ConnectionTimings {
+  /** DNS lookup. */
+  dns?: number;
+  /** TCP connect, plus the TLS handshake for HTTPS. */
+  connect?: number;
+}
+
+/** Where the time of a request went, in milliseconds. */
+export interface ResponseTimings extends ConnectionTimings {
+  /** Request start to response headers (includes connect and any redirects). */
+  ttfb: number;
+  /** Response headers to the end of the body. */
+  download: number;
 }
 
 export type Fetcher = (req: FetcherRequest) => Promise<FetcherResponse>;
