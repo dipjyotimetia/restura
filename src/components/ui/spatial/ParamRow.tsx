@@ -84,7 +84,7 @@ export function ParamRow({
           value={row.key}
           onValueChange={(val) => onChange({ ...row, key: val })}
           placeholder="key"
-          aria-label={`${capitalize(itemLabel)} name`}
+          aria-label={`${capitalize(itemLabel)} key`}
           className={baseInput}
         />
       );
@@ -107,7 +107,7 @@ export function ParamRow({
         }}
         suggestions={keySuggestions}
         placeholder="key"
-        aria-label={`${capitalize(itemLabel)} name`}
+        aria-label={`${capitalize(itemLabel)} key`}
         inputClassName={baseInput}
       />
     );
