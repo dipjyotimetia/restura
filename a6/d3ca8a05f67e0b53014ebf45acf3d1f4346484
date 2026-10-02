@@ -1,0 +1,77 @@
+src/components/shared/ConsoleDrawer.tsx
+  s_766edd634beb43::t_277af3ea836e15 117,123,133,155
+docs-site/src/content/docs/architecture/adrs/0028-typescript-architecture-boundaries.mdx
+  s_766edd634beb43::t_4190deadfcedb8 20
+docs-site/src/content/docs/contributing/dev-setup.mdx
+  s_766edd634beb43::t_4190deadfcedb8 24
+src/features/collections/components/SidebarCollectionsPanel.tsx
+  s_766edd634beb43::t_04706efc7c7e19 350
+  s_766edd634beb43::t_277af3ea836e15 213,278,285
+src/features/http/components/NetworkConsole/EntryExpandDialog.tsx
+  s_766edd634beb43::t_5a86d56e0a2fa4 64,69,132,145,211,245,288
+src/features/http/components/NetworkConsole/DiskTab.tsx
+  s_766edd634beb43::t_5a86d56e0a2fa4 146,196,209,213,218,225,242,266,275,284,291
+scripts/architecture-scanner.mts
+  s_766edd634beb43::t_9767371259c085 187-188,191-192
+  s_766edd634beb43::t_1e3938857f5e58 4-8
+src/features/http/components/NetworkConsole/EntryCompareDialog.tsx
+  s_766edd634beb43::t_5a86d56e0a2fa4 118,146,198,263,278,282,284
+src/features/collections/components/__tests__/SidebarHistoryPanel.test.tsx
+  s_766edd634beb43::t_2fd41d281203d2 170
+src/features/http/components/NetworkConsole/index.tsx
+  s_766edd634beb43::t_5a86d56e0a2fa4 265,274,278,283,287,293,298,304,312,333,367,400,416
+src/components/shared/ResizableLayout.test.tsx
+  s_766edd634beb43::t_ff1f391c4d973c 94-102,107-112,115,119-132
+  s_766edd634beb43::t_db4c7ffbcbd17f 133
+src/features/http/components/NetworkConsole/NetworkEntryDetail.tsx
+  s_766edd634beb43::t_5a86d56e0a2fa4 137,149,163,171,208,214,217,236,278,306,390,404,437,450
+scripts/architecture.config.mts
+  s_766edd634beb43::t_bb96627e82ef39 67,74
+  s_766edd634beb43::t_1e3938857f5e58 59-66,68-69,71-72,75-76
+  s_766edd634beb43::t_a2fbcd5d273894 70,73
+src/features/collections/components/SidebarHistoryPanel.tsx
+  s_766edd634beb43::t_02fc945553f214 91,93-106,110,166
+  s_766edd634beb43::t_277af3ea836e15 51,62,141,153,171
+src/features/http/components/NetworkConsole/NetworkEntryList.tsx
+  s_766edd634beb43::t_5a86d56e0a2fa4 183,201,230,242,260,275,306
+src/features/http/components/NetworkConsole/RequestEntryItem.tsx
+  s_766edd634beb43::t_5a86d56e0a2fa4 225,243
+  s_766edd634beb43::t_235f0e7226e4e4 176-177,180-181,183,185,189
+src/features/http/components/NetworkConsole/ScriptsTab.tsx
+  s_766edd634beb43::t_5a86d56e0a2fa4 99,157
+tests/architecture-policy.test.ts
+  s_766edd634beb43::t_e59106f0d7032f 188-190,192-193,199-227
+  s_766edd634beb43::t_577a0e39d7d776 5,9-10,187,191,194-198,228-229
+docs/adr/0028-typescript-architecture-boundaries.md
+  s_766edd634beb43::t_4190deadfcedb8 18-19
+CLAUDE.md
+  s_766edd634beb43::t_86751252995336 30,226
+scripts/architecture-policy.mts
+  s_766edd634beb43::t_9767371259c085 11-28,47,51-57,89-103,227-245
+  s_766edd634beb43::t_ca402c5e78c38c 246-247
+src/components/shared/StatusBar.tsx
+  s_766edd634beb43::t_2b74c141053202 85-86,115-117
+src/features/collections/components/CollectionTree.tsx
+  s_766edd634beb43::t_04706efc7c7e19 324
+  s_766edd634beb43::t_277af3ea836e15 187,417,441,583,592
+src/components/shared/ResizableLayout.tsx
+  s_766edd634beb43::t_da05b716a47e1b 64-75,77-87,89-105,107-112,133,139
+src/features/http/components/NetworkConsole/FramesTab.tsx
+  s_766edd634beb43::t_5a86d56e0a2fa4 129,133,137,141,203,222,236,248,256,264,268,305,313,319
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a6d3ca8a05f67e0b53014ebf45acf3d1f4346484",
+  "prompts": {},
+  "sessions": {
+    "s_766edd634beb43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9c66557-0bf1-4aa9-990d-ab0ef03d2e23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
