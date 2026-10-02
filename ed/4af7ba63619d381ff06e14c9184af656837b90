@@ -1,0 +1,69 @@
+src/features/environments/components/RailPin.tsx
+  s_766edd634beb43::t_da283bffc0a111 1-46
+src/features/environments/components/__tests__/ScopeInspector.test.tsx
+  s_766edd634beb43::t_47e192850f3ef8 75-81
+  s_766edd634beb43::t_21d6444f0b90fe 1-74,82
+  s_766edd634beb43::t_462113ecb90c6b 83-84
+src/features/environments/components/EnvironmentManager.tsx
+  s_766edd634beb43::t_27aa2275ed4992 760-775
+  s_766edd634beb43::t_e28a90f6730af9 7,484
+  s_766edd634beb43::t_adabed6e33f7ca 23-25,175,178,227-242,446-451,604-605,636-651,661,663,697-701
+shared/opencollection/to-internal.ts
+  s_766edd634beb43::t_c30a9a40469c99 106-111
+docs-site/src/content/docs/reference/opencollection.mdx
+  s_766edd634beb43::t_75b826bb458c2c 17
+src/features/collections/lib/__tests__/postman-scripts.test.ts
+  s_766edd634beb43::t_745b0f2d0f088d 154-168
+  s_766edd634beb43::t_12fff5bbaf9952 169
+docs-site/src/content/docs/guides/environments.mdx
+  s_766edd634beb43::t_4ad76c4af962d1 6-7,14,18-26,28,30-32,51
+src/features/environments/components/ScopeInspector.tsx
+  s_766edd634beb43::t_02bd9bee4e60e6 12-14,16-17,32-33
+  s_766edd634beb43::t_c715ec02158c13 1-7,10-11,18-31,34-73
+  s_766edd634beb43::t_ca83b4bcd4af3a 8-9
+  s_766edd634beb43::t_49e239f6255d33 15
+src/features/collections/components/CollectionSettingsDialog.tsx
+  s_766edd634beb43::t_c6f9b60430d2d9 182-183
+  s_766edd634beb43::t_e2dae52a59ab53 23,29,31-40,70-71,91-92,113-122,155-158,202,218,221,247,265-291
+  s_766edd634beb43::t_ca83b4bcd4af3a 222-224
+  s_766edd634beb43::t_02bd9bee4e60e6 244
+src/features/collections/lib/exporters.ts
+  s_766edd634beb43::t_7f022d265702f8 120-128
+src/components/shared/MarkdownPreview.tsx
+  s_766edd634beb43::t_7a8c11b4613915 1-33
+src/components/shared/KeyValueEditor.tsx
+  s_766edd634beb43::t_521508dc9c7ef9 1,21-23,25,27,34-35,48,111-119,123-135
+  s_766edd634beb43::t_e2dae52a59ab53 120-122
+src/lib/opencollection/__tests__/folder-variables-roundtrip.test.ts
+  s_766edd634beb43::t_02181a765de8e0 1-106
+src/features/environments/components/__tests__/GlobalsPanel.test.tsx
+  s_766edd634beb43::t_33bd8e82c776e3 40
+  s_766edd634beb43::t_b7b56cbdcd62c9 1-39,41-43,45,50-58
+  s_766edd634beb43::t_dbe30da6d8ca1b 44,46-49
+src/store/useGlobalsStore.ts
+  s_766edd634beb43::t_04eb04ab890599 22-23,47
+  s_766edd634beb43::t_da3b6e38a6b268 48
+docs-site/src/content/docs/guides/collections.mdx
+  s_766edd634beb43::t_4ad76c4af962d1 10-11,19-20
+src/features/environments/components/GlobalsPanel.tsx
+  s_766edd634beb43::t_0a00e0f96fd95e 1-144
+shared/opencollection/from-internal.ts
+  s_766edd634beb43::t_c30a9a40469c99 81-82,262-263,300-303,702-729
+  s_766edd634beb43::t_f728ba52ca350a 730
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ed4af7ba63619d381ff06e14c9184af656837b90",
+  "prompts": {},
+  "sessions": {
+    "s_766edd634beb43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9c66557-0bf1-4aa9-990d-ab0ef03d2e23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
