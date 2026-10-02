@@ -1,0 +1,115 @@
+src/components/shared/VariableUrlInput.tsx
+  s_766edd634beb43::t_254794ccabd93b 1-80
+docs-site/src/content/docs/protocols/socket-io.mdx
+  s_766edd634beb43::t_ebb2fc4feb167c 21-22
+docs-site/src/content/docs/protocols/kafka.mdx
+  s_766edd634beb43::t_ebb2fc4feb167c 14
+src/lib/shared/messageLog.ts
+  s_766edd634beb43::t_804994a1d0fcb2 1-68,72,74,80
+  s_766edd634beb43::t_56fd55f9f8f7eb 69-71,73,75-79
+src/features/grpc/components/GrpcStreamingPanel.tsx
+  s_766edd634beb43::t_6f6bbf95c64869 2,4-7,9,26,29-30,64-72,76-83,310-318,320-325,327-329,337,341,353,358,362
+  s_766edd634beb43::t_72ecf914656610 319
+src/features/websocket/lib/wsLogExport.ts
+  s_766edd634beb43::t_ef50894090fe11 21
+  s_766edd634beb43::t_e71d59d170090f 1-20,22-24
+src/features/socketio/components/SocketIOClient.tsx
+  s_766edd634beb43::t_41798ed9988287 1,6-10,33-36,225,254,527-532,534,563,570
+  s_766edd634beb43::t_04b19db2e83bc1 11,347,349-350,353-354
+src/features/http/components/UrlBar.tsx
+  s_766edd634beb43::t_d1e5056ef4c1f6 6,8,168-180
+src/features/kafka/components/KafkaMessagesPanel.tsx
+  s_766edd634beb43::t_3fcf9c9352a215 3,17,20,209,211-212,214
+  s_766edd634beb43::t_72ecf914656610 210,213
+src/hooks/useVariableStatus.ts
+  s_766edd634beb43::t_c35d1c1f059bb5 29-32,50-51,55-62,64,86-102
+docs-site/src/content/docs/protocols/sse.mdx
+  s_766edd634beb43::t_ebb2fc4feb167c 13,16
+src/components/shared/messageLog/MessageLogControls.tsx
+  s_766edd634beb43::t_68ed3283aaa54b 2,29-32,58-60
+  s_766edd634beb43::t_e71d59d170090f 71,78,97-103
+  s_766edd634beb43::t_2c260a7cd6aa60 1,3-12,14-18,23,26,28,33-57,61-70,72-77,79-96,104-205
+  s_766edd634beb43::t_56fd55f9f8f7eb 13,19-22,24-25,27
+docs-site/src/content/docs/protocols/grpc.mdx
+  s_766edd634beb43::t_ebb2fc4feb167c 22-23
+src/features/mqtt/lib/mqttLogExport.ts
+  s_766edd634beb43::t_e0a684ebd26d90 1-15
+src/components/shared/VariableUrlInput.test.tsx
+  s_766edd634beb43::t_7a8d62a74d0146 2-26,28-31,33-46
+  s_766edd634beb43::t_c7fd849efc84fc 1,27,32
+src/lib/shared/messageLogAdapters.test.ts
+  s_766edd634beb43::t_771f40a903a13d 1-57
+  s_766edd634beb43::t_1f31a21247f602 58-60
+  s_766edd634beb43::t_739b9cc8d6bd00 61-92
+src/features/mcp/components/McpConnectionPanel.tsx
+  s_766edd634beb43::t_c1531216d9cae0 4,64,67-68,71-72
+src/features/kafka/lib/kafkaLogExport.ts
+  s_766edd634beb43::t_e0a684ebd26d90 1-18
+src/components/shared/VariableHover.tsx
+  s_766edd634beb43::t_c4c075cbac0aac 4,19,21
+src/features/socketio/lib/socketioLogExport.ts
+  s_766edd634beb43::t_41798ed9988287 1-24
+src/components/shared/VariableInput.tsx
+  s_766edd634beb43::t_c4c075cbac0aac 13,21-22,27-38,47
+src/lib/shared/messageLog.test.ts
+  s_766edd634beb43::t_804994a1d0fcb2 1,3-50,57-58
+  s_766edd634beb43::t_56fd55f9f8f7eb 2,51-56
+src/components/shared/messageLog/MessageLogControls.test.tsx
+  s_766edd634beb43::t_68ed3283aaa54b 23-32,35,37,39-42,44-48,50-51
+  s_766edd634beb43::t_16f2065964853a 33-34,36,128
+  s_766edd634beb43::t_9f1f128bc24481 1-22,38,43,49,52-127,129-136
+src/features/graphql/components/GraphQLRequestBuilder.tsx
+  s_766edd634beb43::t_c1531216d9cae0 18,441,443-444,447-448
+src/hooks/__tests__/useVariableStatus.test.ts
+  s_766edd634beb43::t_7a8d62a74d0146 89-98
+src/features/sse/components/SseClient.tsx
+  s_766edd634beb43::t_9c9999bceb5dd0 204
+  s_766edd634beb43::t_206ac5b44f2e76 8
+src/features/websocket/components/WebSocketClient.tsx
+  s_766edd634beb43::t_e71d59d170090f 1,7-11,35,144,477-478,480-481,483,512,519
+  s_766edd634beb43::t_04b19db2e83bc1 12,296,298-299,302-303
+  s_766edd634beb43::t_72ecf914656610 479
+  s_766edd634beb43::t_0e4025c875dd2c 207-208
+src/features/sse/components/SseUrlBar.tsx
+  s_766edd634beb43::t_04b19db2e83bc1 2,46-55
+  s_766edd634beb43::t_97c66ea34b5382 4
+src/features/grpc/components/GrpcInvocationBar.tsx
+  s_766edd634beb43::t_87c63a101f5052 2,71,73-74,77-79
+src/features/sse/components/SseEventTimeline.tsx
+  s_766edd634beb43::t_72ecf914656610 157
+  s_766edd634beb43::t_206ac5b44f2e76 9
+  s_766edd634beb43::t_a6928ffb6d894d 122-124,130-131,139
+  s_766edd634beb43::t_1e28138e42856b 2-7,22-23,100,103-104,109,112,155-156,158-161,198
+src/features/mqtt/components/MqttMessagesPanel.tsx
+  s_766edd634beb43::t_3fcf9c9352a215 3,16,167,169-170,172
+  s_766edd634beb43::t_72ecf914656610 103-104,122,168,171
+docs-site/src/content/docs/protocols/mqtt.mdx
+  s_766edd634beb43::t_ebb2fc4feb167c 15
+docs-site/src/content/docs/protocols/websocket.mdx
+  s_766edd634beb43::t_ebb2fc4feb167c 11,19
+src/features/mqtt/components/MqttClient.tsx
+  s_766edd634beb43::t_72ecf914656610 320
+  s_766edd634beb43::t_cdfbad69143d60 18
+src/features/sse/lib/sseLogExport.ts
+  s_766edd634beb43::t_206ac5b44f2e76 1-20
+docs-site/src/content/docs/protocols/graphql.mdx
+  s_766edd634beb43::t_ebb2fc4feb167c 15
+docs-site/src/content/docs/protocols/mcp.mdx
+  s_766edd634beb43::t_ebb2fc4feb167c 16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cb3acc224eff4143a33d7c63ad99708c5ac8ae69",
+  "prompts": {},
+  "sessions": {
+    "s_766edd634beb43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9c66557-0bf1-4aa9-990d-ab0ef03d2e23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
