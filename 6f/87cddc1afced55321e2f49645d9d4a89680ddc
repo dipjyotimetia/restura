@@ -1,0 +1,89 @@
+src/components/shared/JsonBodyView.test.tsx
+  s_766edd634beb43::t_f7b487b1c09ba6 1-70
+src/features/socketio/store/__tests__/useSocketIOStore.test.ts
+  s_766edd634beb43::t_c882bc3e6f4d36 25,35-39,41
+src/features/http/components/RequestBuilder/RequestBuilderTabs.tsx
+  s_766edd634beb43::t_680e216cadef39 28
+  s_766edd634beb43::t_eb1bcb3cc71f13 3-4,13
+  s_766edd634beb43::t_fb71efe75e4956 7-11
+  s_766edd634beb43::t_0ce880adc05c29 12
+src/features/mcp/components/McpRequestBuilder.tsx
+  s_766edd634beb43::t_63bcedfdc8e17e 37
+  s_766edd634beb43::t_3ec4b673adadfe 219
+src/features/mcp/hooks/useMcpConnectionActions.ts
+  s_766edd634beb43::t_63bcedfdc8e17e 10
+src/components/shared/JsonBodyView.tsx
+  s_766edd634beb43::t_6e586fb110ca76 1-7,9-81,95,111,121,126,148,150-151
+  s_766edd634beb43::t_ae94f5c66f1ee6 8,82-94,96-110,112-120,122-125,127-147,149
+src/features/mcp/components/__tests__/McpResultPanel.test.tsx
+  s_766edd634beb43::t_3b688e49b463f0 1-44
+src/features/websocket/store/__tests__/useWebSocketStore.test.ts
+  s_766edd634beb43::t_c882bc3e6f4d36 193-196,198-199,202-205
+src/features/mcp/components/McpConnectionPanel.tsx
+  s_766edd634beb43::t_61a223992132ce 3,172,174-178
+  s_766edd634beb43::t_3ec4b673adadfe 17,35
+src/components/shared/KeyValueTable.tsx
+  s_766edd634beb43::t_374a43fcd83181 1,9-24,27-38,40-78,83-85
+  s_766edd634beb43::t_fb71efe75e4956 2-8,25-26,39,79-82
+src/features/grpc/components/GrpcRequestBuilder.tsx
+  s_766edd634beb43::t_61a223992132ce 6,707,709-712
+src/features/socketio/components/SocketIOClient.tsx
+  s_766edd634beb43::t_61a223992132ce 5,428-429,431-433,440,442-444
+  s_766edd634beb43::t_e01788d52d6320 202,211
+src/components/ui/spatial/ParamRow.tsx
+  s_766edd634beb43::t_685640f764684b 4,23-24,60,79,88,126
+src/features/graphql/components/GraphQLRequestBuilder.tsx
+  s_766edd634beb43::t_61a223992132ce 17,556,558-562
+src/features/grpc/components/GrpcResponsePanel.tsx
+  s_766edd634beb43::t_92bb5f8449a9d0 91-93
+  s_766edd634beb43::t_da157a8d353653 4,6,9,15-21,23,26,39-40,45-46,116-119,121-126,128,130-134
+src/features/kafka/components/KafkaProducerPanel.tsx
+  s_766edd634beb43::t_61a223992132ce 4,280-281,283-285
+src/features/websocket/store/useWebSocketStore.ts
+  s_766edd634beb43::t_860d4798b928a9 82-83,302,307
+src/features/socketio/store/useSocketIOStore.ts
+  s_766edd634beb43::t_860d4798b928a9 88-89,92,301,306
+src/features/websocket/components/WebSocketClient.tsx
+  s_766edd634beb43::t_e01788d52d6320 168,180
+  s_766edd634beb43::t_61a223992132ce 6,389-390,392-395
+src/features/grpc/components/__tests__/GrpcResponsePanel.test.tsx
+  s_766edd634beb43::t_6238ffababeae6 1-45,47-50
+  s_766edd634beb43::t_92bb5f8449a9d0 46
+src/features/mcp/components/__tests__/McpRequestBuilder.test.tsx
+  s_766edd634beb43::t_63bcedfdc8e17e 68,77,99-105,376,382
+src/components/shared/KeyValueTable.test.tsx
+  s_766edd634beb43::t_6baecc25dd15f1 1-93
+src/components/shared/ParamHeaderTable.tsx
+  s_766edd634beb43::t_0809b2d2ba34a6 1-14,16-17,32-77,83-175,183-326
+  s_766edd634beb43::t_c6f66ecd3933a5 78-82,176-182
+  s_766edd634beb43::t_fb71efe75e4956 15,18-31
+src/features/mcp/store/__tests__/useMcpStore.test.ts
+  s_766edd634beb43::t_c882bc3e6f4d36 59
+src/features/sse/store/useSseStore.ts
+  s_766edd634beb43::t_860d4798b928a9 82-83,261,265
+src/features/mcp/components/McpResultPanel.tsx
+  s_766edd634beb43::t_135ff67010e954 1-2,39-44
+src/features/mcp/store/useMcpStore.ts
+  s_766edd634beb43::t_860d4798b928a9 44-45,105,109
+src/features/sse/components/SseClient.tsx
+  s_766edd634beb43::t_e01788d52d6320 52,64
+  s_766edd634beb43::t_61a223992132ce 3,157,159-163
+src/features/sse/store/__tests__/useSseStore.test.ts
+  s_766edd634beb43::t_bc6209c2ab8089 78-87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6f87cddc1afced55321e2f49645d9d4a89680ddc",
+  "prompts": {},
+  "sessions": {
+    "s_766edd634beb43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9c66557-0bf1-4aa9-990d-ab0ef03d2e23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
