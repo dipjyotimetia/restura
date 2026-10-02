@@ -14,12 +14,14 @@ src/components/ui/context-menu.tsx
   s_766edd634beb43::t_2273d36206d4e1 46-57
 src/features/sse/components/SseClient.tsx
   s_766edd634beb43::t_f080ecca7724e3 4,142-145,147,154-169,171-172,209-226
+  s_766edd634beb43::t_4c9000859ccb24 146,148-152
 src/lib/shared/store-validators.ts
   s_766edd634beb43::t_2d1137806e166a 661
 src/features/websocket/components/WebSocketClient.tsx
   s_766edd634beb43::t_55d82ec4b228bc 12,280-306,309,315-318,320-321,564-649,654-656,658
   s_766edd634beb43::t_6f88052ed22ac2 650-653
   s_766edd634beb43::t_67632051ababff 657
+  s_766edd634beb43::t_4c9000859ccb24 307-308,310-313
 shared/types/settings.ts
   s_766edd634beb43::t_2d1137806e166a 27-29
 src/components/shared/lib/openAs.ts
