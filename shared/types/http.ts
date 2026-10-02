@@ -93,6 +93,18 @@ export interface Response {
    * absent for the worker path (CF runtime doesn't expose ALPN).
    */
   negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
+  /**
+   * Where the time went, as measured by the proxy core: time to headers and
+   * body download everywhere; DNS and connect (incl. TLS) on desktop direct
+   * connections. Absent for responses that predate it. `time` stays the
+   * end-to-end total seen by the client.
+   */
+  timings?: {
+    dns?: number;
+    connect?: number;
+    ttfb: number;
+    download: number;
+  };
 }
 
 // Request Settings (per-request configuration)

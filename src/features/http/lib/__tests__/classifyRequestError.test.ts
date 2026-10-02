@@ -88,4 +88,35 @@ describe('classifyRequestError', () => {
     const info = classifyRequestError(fail('something unforeseen'), false);
     expect(info).toEqual({ title: 'Request failed', raw: 'something unforeseen' });
   });
+
+  describe('connection failures (messages captured from undici and the hosted proxy)', () => {
+    it('connection refused', () => {
+      const info = classifyRequestError(
+        fail('Request failed: connect ECONNREFUSED 127.0.0.1:9'),
+        true
+      );
+      expect(info?.title).toBe('Connection refused');
+    });
+
+    it('connection reset / closed early', () => {
+      expect(classifyRequestError(fail('Request failed: other side closed'), true)?.title).toBe(
+        'Connection closed by the server'
+      );
+      expect(classifyRequestError(fail('read ECONNRESET'), true)?.title).toBe(
+        'Connection closed by the server'
+      );
+    });
+
+    it('untrusted TLS certificates, with platform-specific advice', () => {
+      const msg =
+        'Request failed: self-signed certificate; if the root CA is installed locally, try running Node.js with --use-system-ca';
+      const desktop = classifyRequestError(fail(msg), true);
+      expect(desktop?.title).toBe('TLS certificate not trusted');
+      expect(desktop?.hint).toMatch(/Settings → Certificates/);
+      expect(classifyRequestError(fail(msg), false)?.hint).toMatch(/desktop app/);
+      expect(
+        classifyRequestError(fail('Request failed: certificate has expired'), true)?.title
+      ).toBe('TLS certificate not trusted');
+    });
+  });
 });

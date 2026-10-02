@@ -18,6 +18,7 @@ rather than discover it experimentally.
 | mTLS client certificates | ❌ | ✅ | Web build inherits browser cert store; no per-request control |
 | Custom CA bundle | ❌ | ✅ |  |
 | Manual redirect handling | ✅ | ✅ |  |
+| DNS / connect timing breakdown | ❌ | ✅ | Both show time to headers, download and the remaining overhead; DNS and connect (incl. TLS) are measured only on desktop direct connections, not through proxies |
 | DNS-pinning SSRF guard | ❌ | ✅ | Browser fetch resolves DNS opaquely |
 | TLS cipher suite + server-order control | ❌ | ✅ | No per-request TLS handshake control in Cloudflare Workers / browsers |
 | Incremental HTTP response streaming | ✅ | ❌ | Web streams via the Worker proxy; Electron IPC buffers the full response (renderer falls back to the buffered path) |

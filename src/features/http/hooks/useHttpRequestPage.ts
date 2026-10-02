@@ -19,6 +19,7 @@ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
+import { useUiStore } from '@/store/useUiStore';
 import type {
   AppSettings,
   AuthConfig,
@@ -127,6 +128,9 @@ export function useHttpRequestPage() {
     const controller = new AbortController();
     abortRef.current = controller;
     setLoading(true);
+    useUiStore
+      .getState()
+      .setInFlight({ tabId: originTabId, startedAt: Date.now(), cancel: () => controller.abort() });
     // Drop the previous run's script output so the Tests/Visualize tabs never
     // show stale results next to a send that ran no scripts or failed.
     setScriptResultForTab(originTabId, null);
@@ -277,6 +281,7 @@ export function useHttpRequestPage() {
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
       setLoading(false);
+      useUiStore.getState().setInFlight(null);
     }
   }, [
     httpRequest,

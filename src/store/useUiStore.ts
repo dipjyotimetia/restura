@@ -13,6 +13,19 @@ interface UiState {
   /** Opens the load-test dialog for the active HTTP request (owned by RequestBuilder). */
   loadTestOpen: boolean;
   setLoadTestOpen: (open: boolean) => void;
+  /**
+   * The request currently in flight, if any — drives the response panel's
+   * elapsed timer and Cancel button. Loading is global (one send at a time),
+   * so a single slot suffices; send paths set it and clear it when done.
+   */
+  inFlight: InFlightRequest | null;
+  setInFlight: (inFlight: InFlightRequest | null) => void;
+}
+
+export interface InFlightRequest {
+  tabId: string;
+  startedAt: number;
+  cancel: () => void;
 }
 
 export const useUiStore = create<UiState>((set) => ({
@@ -20,4 +33,6 @@ export const useUiStore = create<UiState>((set) => ({
   setCodeGenOpen: (open) => set({ codeGenOpen: open }),
   loadTestOpen: false,
   setLoadTestOpen: (open) => set({ loadTestOpen: open }),
+  inFlight: null,
+  setInFlight: (inFlight) => set({ inFlight }),
 }));

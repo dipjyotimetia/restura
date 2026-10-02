@@ -530,3 +530,40 @@ describe('executeHttpProxyStreaming', () => {
     if (r.ok) expect(r.response.negotiatedAlpn).toBe('h2');
   });
 });
+
+describe('executeHttpProxy timings', () => {
+  it('measures time to headers and download, and passes connection phases through', async () => {
+    const fetcher: Fetcher = vi.fn(async () => ({
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-type': 'text/plain' },
+      text: async () => {
+        await new Promise((r) => setTimeout(r, 15));
+        return 'ok';
+      },
+      contentLengthHeader: '2',
+      connectionTimings: { dns: 3.4, connect: 12.6 },
+    }));
+    const r = await executeHttpProxy(
+      { method: 'GET', url: 'https://example.com/', timeout: 1000 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const t = r.response.timings;
+    expect(t?.dns).toBe(3);
+    expect(t?.connect).toBe(13);
+    expect(Number.isInteger(t?.ttfb)).toBe(true);
+    expect(t?.download).toBeGreaterThanOrEqual(10);
+  });
+
+  it('omits connection phases the fetcher could not observe', async () => {
+    const r = await executeHttpProxy(
+      { method: 'GET', url: 'https://example.com/', timeout: 1000 },
+      makeFetcher('{}'),
+      { allowLocalhost: false }
+    );
+    expect(r.ok && Object.keys(r.response.timings ?? {}).sort()).toEqual(['download', 'ttfb']);
+  });
+});
