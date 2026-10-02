@@ -126,19 +126,19 @@ export default function FramesTab() {
       >
         <div className="flex items-center gap-2 mb-0.5">
           {directionIcon(frame.direction)}
-          <Badge variant="outline" className="text-[9px] px-1 py-0 uppercase">
+          <Badge variant="outline" className="text-sp-11 px-1 py-0 uppercase">
             {PROTOCOL_BADGES[frame.protocol] ?? frame.protocol.toUpperCase()}
           </Badge>
           {frame.label && (
-            <span className="text-[11px] font-mono text-sp-muted truncate max-w-[120px]">
+            <span className="text-sp-11 font-mono text-sp-muted truncate max-w-[120px]">
               {frame.label}
             </span>
           )}
-          <span className="text-[10px] text-muted-foreground ml-auto tabular-nums">
+          <span className="text-sp-11 text-muted-foreground ml-auto tabular-nums">
             {formatClockTime(frame.timestamp)}
           </span>
         </div>
-        <div className={cn('text-[11px] font-mono truncate', directionColor(frame.direction))}>
+        <div className={cn('text-sp-11 font-mono truncate', directionColor(frame.direction))}>
           {preview || <span className="text-muted-foreground">(empty)</span>}
         </div>
       </div>
@@ -200,7 +200,7 @@ export default function FramesTab() {
                   type="button"
                   onClick={() => setProtocolFilter(f.value)}
                   className={cn(
-                    'text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors',
+                    'text-sp-11 font-mono px-1.5 py-0.5 rounded border transition-colors',
                     protocolFilter === f.value
                       ? 'bg-primary/15 border-primary/40 text-primary'
                       : 'bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/60'
@@ -219,7 +219,7 @@ export default function FramesTab() {
                   type="button"
                   onClick={() => setGroupByConnection((v) => !v)}
                   className={cn(
-                    'inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors',
+                    'inline-flex items-center gap-1 text-sp-11 font-mono px-1.5 py-0.5 rounded border transition-colors',
                     groupByConnection
                       ? 'bg-primary/15 border-primary/40 text-primary'
                       : 'bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/60'
@@ -233,7 +233,7 @@ export default function FramesTab() {
               )}
               <button
                 type="button"
-                className="text-[10px] underline text-muted-foreground hover:text-foreground"
+                className="text-sp-11 underline text-muted-foreground hover:text-foreground"
                 onClick={() => {
                   clearFrames();
                   setSelectedId(null);
@@ -245,7 +245,7 @@ export default function FramesTab() {
           </div>
           {/* Frames live only in memory — make the expectation explicit so a
               user closing the app and coming back isn't surprised. */}
-          <p className="text-[10px] text-sp-muted leading-snug">
+          <p className="text-sp-11 text-sp-muted leading-snug">
             Frames are session-only — they aren't persisted across reload.
           </p>
         </div>
@@ -253,7 +253,7 @@ export default function FramesTab() {
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-muted-foreground text-center px-4">
               <Search className="h-5 w-5 mb-2 opacity-30" />
-              <p className="text-[11px]">No matching frames</p>
+              <p className="text-sp-11">No matching frames</p>
             </div>
           ) : grouped ? (
             grouped.map((group) => (
@@ -261,11 +261,11 @@ export default function FramesTab() {
                 <div
                   role="heading"
                   aria-level={3}
-                  className="sticky top-0 z-[1] flex items-center gap-2 px-3 py-1 bg-muted/80 backdrop-blur-sm border-y border-border/60 text-[10px] font-mono uppercase tracking-wider text-muted-foreground"
+                  className="sticky top-0 z-[1] flex items-center gap-2 px-3 py-1 bg-muted/80 backdrop-blur-sm border-y border-border/60 text-sp-11 font-mono uppercase tracking-wider text-muted-foreground"
                 >
                   <Cable className="h-3 w-3" aria-hidden="true" />
                   <span className="truncate max-w-[200px]">{group.id}</span>
-                  <Badge variant="secondary" className="ml-auto text-[9px] h-4 px-1 tabular-nums">
+                  <Badge variant="secondary" className="ml-auto text-sp-11 h-4 px-1 tabular-nums">
                     {group.items.length}
                   </Badge>
                 </div>
@@ -302,7 +302,7 @@ export default function FramesTab() {
               <Button
                 variant="ghost"
                 size="sm"
-                className="h-7 px-2 text-[11px] ml-auto"
+                className="h-7 px-2 text-sp-11 ml-auto"
                 onClick={() => handleCopy(selectedFrame)}
               >
                 <Copy className="h-3 w-3 mr-1" />
@@ -310,13 +310,13 @@ export default function FramesTab() {
               </Button>
             </div>
             <ScrollArea className="flex-1">
-              <pre className="p-4 text-[11px] font-mono whitespace-pre-wrap wrap-break-word leading-relaxed">
+              <pre className="p-4 text-sp-11 font-mono whitespace-pre-wrap wrap-break-word leading-relaxed">
                 {selectedFrame.payload || (
                   <span className="text-muted-foreground">(empty payload)</span>
                 )}
               </pre>
               {selectedFrame.connectionId && (
-                <div className="px-4 pb-4 text-[10px] text-muted-foreground font-mono">
+                <div className="px-4 pb-4 text-sp-11 text-muted-foreground font-mono">
                   connection: {selectedFrame.connectionId}
                 </div>
               )}

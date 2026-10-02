@@ -262,7 +262,7 @@ export default function NetworkConsole({
         {/* Header */}
         <div className="flex items-center justify-between px-3 h-7 shrink-0">
           <div className="flex items-center gap-3">
-            <span className="text-[11px] font-mono uppercase tracking-widest text-sp-dim select-none">
+            <span className="text-sp-11 font-mono uppercase tracking-widest text-sp-dim select-none">
               Console
             </span>
             {isExpanded && (
@@ -271,37 +271,37 @@ export default function NetworkConsole({
                 onValueChange={(v) => setActiveTab(v as ConsoleTabId)}
               >
                 <TabsList className="h-7 px-0 border-none bg-transparent gap-0">
-                  <TabsTrigger value="network" className="text-[11px] h-7 px-2 font-medium">
+                  <TabsTrigger value="network" className="text-sp-11 h-7 px-2 font-medium">
                     <Network className="h-3 w-3 mr-1.5" />
                     Network
                     {entries.length > 0 && (
-                      <Badge variant="secondary" className="ml-1.5 text-[9px] h-4 px-1">
+                      <Badge variant="secondary" className="ml-1.5 text-sp-11 h-4 px-1">
                         {entries.length}
                       </Badge>
                     )}
                   </TabsTrigger>
-                  <TabsTrigger value="frames" className="text-[11px] h-7 px-2 font-medium">
+                  <TabsTrigger value="frames" className="text-sp-11 h-7 px-2 font-medium">
                     <Cable className="h-3 w-3 mr-1.5" />
                     Frames
                     {framesCount > 0 && (
-                      <Badge variant="secondary" className="ml-1.5 text-[9px] h-4 px-1">
+                      <Badge variant="secondary" className="ml-1.5 text-sp-11 h-4 px-1">
                         {framesCount}
                       </Badge>
                     )}
                   </TabsTrigger>
                   {showDiskTab && (
-                    <TabsTrigger value="disk" className="text-[11px] h-7 px-2 font-medium">
+                    <TabsTrigger value="disk" className="text-sp-11 h-7 px-2 font-medium">
                       <HardDrive className="h-3 w-3 mr-1.5" />
                       Disk
                     </TabsTrigger>
                   )}
-                  <TabsTrigger value="scripts" className="text-[11px] h-7 px-2 font-medium">
+                  <TabsTrigger value="scripts" className="text-sp-11 h-7 px-2 font-medium">
                     <Terminal className="h-3 w-3 mr-1.5" />
                     Scripts
                     {(scriptLogs.length > 0 || (tests && tests.length > 0)) && (
                       <span className="ml-1.5 flex items-center gap-1">
                         {scriptLogs.length > 0 && (
-                          <Badge variant="secondary" className="text-[9px] h-4 px-1">
+                          <Badge variant="secondary" className="text-sp-11 h-4 px-1">
                             {scriptLogs.length}
                           </Badge>
                         )}
@@ -309,7 +309,7 @@ export default function NetworkConsole({
                           <Badge
                             variant="outline"
                             className={cn(
-                              'text-[9px] h-4 px-1',
+                              'text-sp-11 h-4 px-1',
                               failedTests > 0
                                 ? 'bg-red-500/10 text-red-400 border-red-500/30'
                                 : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
@@ -330,7 +330,7 @@ export default function NetworkConsole({
             {!captureEnabled && (
               <Badge
                 variant="outline"
-                className="text-[9px] h-4 px-1.5 bg-amber-500/10 text-amber-500 border-amber-500/30"
+                className="text-sp-11 h-4 px-1.5 bg-amber-500/10 text-amber-500 border-amber-500/30"
               >
                 Paused
               </Badge>
@@ -364,7 +364,7 @@ export default function NetworkConsole({
                 <TooltipTrigger asChild>
                   <label
                     htmlFor="network-console-preserve-log"
-                    className="flex items-center gap-1.5 text-[10px] text-muted-foreground cursor-pointer select-none"
+                    className="flex items-center gap-1.5 text-sp-11 text-muted-foreground cursor-pointer select-none"
                   >
                     <Switch
                       id="network-console-preserve-log"
@@ -397,7 +397,7 @@ export default function NetworkConsole({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel className="text-[11px]">
+                  <DropdownMenuLabel className="text-sp-11">
                     Export all ({entries.length})
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
@@ -413,7 +413,7 @@ export default function NetworkConsole({
                   {filtersActive && (
                     <>
                       <DropdownMenuSeparator />
-                      <DropdownMenuLabel className="text-[11px]">
+                      <DropdownMenuLabel className="text-sp-11">
                         Export filtered ({filteredEntries.length})
                       </DropdownMenuLabel>
                       <DropdownMenuItem

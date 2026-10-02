@@ -61,41 +61,55 @@ export default function ResizableLayout({
     [isControlled, onSplitChange, minSplit, maxSplit]
   );
 
-  const handleResizeStart = useCallback(() => {
-    setIsDraggingState(true);
-    document.body.style.cursor = isHorizontal ? 'col-resize' : 'row-resize';
-    document.body.style.userSelect = 'none';
+  // Pointer events (mouse, touch and pen) with pointer capture: the divider
+  // keeps receiving moves even when the pointer leaves it mid-drag.
+  const handleResizeStart = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const handle = e.currentTarget;
+      const pointerId = e.pointerId;
+      handle.setPointerCapture?.(pointerId);
+      setIsDraggingState(true);
+      document.body.style.cursor = isHorizontal ? 'col-resize' : 'row-resize';
+      document.body.style.userSelect = 'none';
 
-    const handleMove = (e: MouseEvent) => {
-      if (!containerRef.current) return;
-      const rect = containerRef.current.getBoundingClientRect();
-      const newPosition = isHorizontal
-        ? ((e.clientX - rect.left) / rect.width) * 100
-        : ((e.clientY - rect.top) / rect.height) * 100;
-      // Local preview only — no parent/store write until the gesture ends.
-      const clamped = clamp(newPosition, minSplit, maxSplit);
-      dragValueRef.current = clamped;
-      setDragSplit(clamped);
-    };
+      const handleMove = (ev: PointerEvent) => {
+        if (ev.pointerId !== pointerId || !containerRef.current) return;
+        const rect = containerRef.current.getBoundingClientRect();
+        const newPosition = isHorizontal
+          ? ((ev.clientX - rect.left) / rect.width) * 100
+          : ((ev.clientY - rect.top) / rect.height) * 100;
+        // Local preview only — no parent/store write until the gesture ends.
+        const clamped = clamp(newPosition, minSplit, maxSplit);
+        dragValueRef.current = clamped;
+        setDragSplit(clamped);
+      };
 
-    const handleEnd = () => {
-      setIsDraggingState(false);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleEnd);
-      // Commit the final position exactly once, so a drag persists a single
-      // write instead of one per `mousemove`.
-      if (dragValueRef.current !== null) {
-        commitSplit(dragValueRef.current);
-        dragValueRef.current = null;
-      }
-      setDragSplit(null);
-    };
+      const handleEnd = (ev: PointerEvent) => {
+        if (ev.pointerId !== pointerId) return;
+        setIsDraggingState(false);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        handle.removeEventListener('pointermove', handleMove);
+        handle.removeEventListener('pointerup', handleEnd);
+        handle.removeEventListener('pointercancel', handleEnd);
+        if (handle.hasPointerCapture?.(pointerId)) handle.releasePointerCapture(pointerId);
+        // Commit the final position exactly once, so a drag persists a single
+        // write instead of one per move.
+        if (dragValueRef.current !== null) {
+          commitSplit(dragValueRef.current);
+          dragValueRef.current = null;
+        }
+        setDragSplit(null);
+      };
 
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleEnd);
-  }, [isHorizontal, commitSplit, minSplit, maxSplit]);
+      handle.addEventListener('pointermove', handleMove);
+      handle.addEventListener('pointerup', handleEnd);
+      handle.addEventListener('pointercancel', handleEnd);
+    },
+    [isHorizontal, commitSplit, minSplit, maxSplit]
+  );
 
   return (
     <div
@@ -116,12 +130,13 @@ export default function ResizableLayout({
           // overlay enlarges the pointer hit area (without adding a visible gap)
           // so the divider is actually grabbable — mirrors the console handle.
           'before:absolute before:content-[""] before:z-50',
+          'touch-none',
           isDraggingState && 'bg-sp-accent/60',
           isHorizontal
             ? 'w-px cursor-col-resize before:inset-y-0 before:-inset-x-2 before:cursor-col-resize'
             : 'h-px cursor-row-resize before:inset-x-0 before:-inset-y-2 before:cursor-row-resize'
         )}
-        onMouseDown={handleResizeStart}
+        onPointerDown={handleResizeStart}
         onDoubleClick={() => commitSplit(defaultSplit)}
         title="Drag to resize · double-click to reset"
         onKeyDown={(e) => {

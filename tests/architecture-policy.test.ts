@@ -2,17 +2,18 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { architecturePolicy } from '../scripts/architecture.config.mts';
 import {
-  evaluateArchitecture,
   type ArchitectureFile,
   type ArchitecturePolicy,
+  countSourcePatterns,
+  evaluateArchitecture,
 } from '../scripts/architecture-policy.mts';
 import {
   inspectSource,
   isArchitectureSourcePath,
   scanArchitectureFiles,
 } from '../scripts/architecture-scanner.mts';
-import { architecturePolicy } from '../scripts/architecture.config.mts';
 
 const temporaryDirectories: string[] = [];
 
@@ -181,6 +182,49 @@ describe('evaluateArchitecture', () => {
         limit: 1_000,
       }),
     ]);
+  });
+
+  it('ratchets source pattern counts summed across files, in both directions', () => {
+    const ratchetPolicy: ArchitecturePolicy = {
+      ...policy,
+      sourcePatternRatchets: [
+        { name: 'px sizes', pathPrefix: 'src/', extension: '.tsx', pattern: 'x', max: 3 },
+      ],
+    };
+    const withCounts = (counts: number[]) =>
+      counts.map((n, i) => ({
+        ...file(`src/c${i}.tsx`, [], 10),
+        patternCounts: { 'px sizes': n },
+      }));
+
+    expect(evaluateArchitecture(withCounts([2, 1]), ratchetPolicy)).toEqual([]);
+    expect(evaluateArchitecture(withCounts([2, 2]), ratchetPolicy)).toEqual([
+      expect.objectContaining({ rule: 'pattern-ratchet', actual: 4, limit: 3 }),
+    ]);
+    expect(evaluateArchitecture(withCounts([1]), ratchetPolicy)).toEqual([
+      expect.objectContaining({ rule: 'stale-pattern-ratchet', actual: 1, limit: 3 }),
+    ]);
+  });
+
+  it('counts ratchet patterns only in matching production sources', () => {
+    const ratchetPolicy: ArchitecturePolicy = {
+      ...policy,
+      sourcePatternRatchets: [
+        {
+          name: 'px',
+          pathPrefix: 'src/',
+          extension: '.tsx',
+          pattern: String.raw`\btext-\[\d+px\]`,
+          max: 0,
+        },
+      ],
+    };
+    const text = '<a className="text-[10px] text-[9px]" />';
+    expect(countSourcePatterns('src/a.tsx', text, ratchetPolicy)).toEqual({ px: 2 });
+    expect(countSourcePatterns('src/a.test.tsx', text, ratchetPolicy)).toBeUndefined();
+    expect(countSourcePatterns('src/a.ts', text, ratchetPolicy)).toBeUndefined();
+    expect(countSourcePatterns('shared/a.tsx', text, ratchetPolicy)).toBeUndefined();
+    expect(countSourcePatterns('src/a.tsx', text, policy)).toBeUndefined();
   });
 
   it('does not apply production file limits to tests or generated sources', () => {
