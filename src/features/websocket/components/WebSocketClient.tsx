@@ -9,6 +9,7 @@ import {
   LogExportMenu,
   useFrozenView,
 } from '@/components/shared/messageLog/MessageLogControls';
+import { StreamSplit } from '@/components/shared/StreamSplit';
 import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -276,129 +277,48 @@ function WebSocketClient() {
         ? `RECONNECTING (${connection.reconnectAttempts}/${connection.maxReconnectAttempts})`
         : 'DISCONNECTED';
 
-  return (
-    <div className="flex flex-1 flex-col gap-2.5 bg-transparent p-3 overflow-hidden">
-      {/* Connection bar */}
-      <Floater radius="pill" className="flex items-center gap-2 px-3 h-12 shrink-0">
-        <ProtoChip protocol="WS" />
-        <span className="text-sp-dim font-mono text-sp-13 select-none" aria-hidden="true">
-          ›
-        </span>
-        <div className="flex-1 flex items-center gap-2 min-w-0">
-          {isConnected || isConnecting ? (
-            <span className="font-mono text-sp-13 text-sp-text truncate">
-              <VariableText text={connection.url} />
-            </span>
-          ) : (
-            <VariableUrlInput
-              value={connection.url}
-              onValueChange={(url) => updateConnectionUrl(activeConnectionId, url)}
-              variableScope="connection"
-              placeholder={ECHO_URLS.websocket}
-              aria-label="WebSocket URL"
-              className="h-7 flex-1"
-              textClassName="px-1 text-sp-13 placeholder:italic"
-            />
-          )}
-        </div>
-        {!isConnected && !isConnecting && (
-          <CountToggle
-            label="Options"
-            count={configCount}
-            expanded={configOpen}
-            onToggle={() => setConfigOpenOverride(!configOpen)}
+  const configPanel = (
+    <Floater radius="panel" className="flex h-full flex-col gap-3 overflow-auto px-3 py-3">
+      <div>
+        <label htmlFor="ws-subprotocols" className="text-sp-11 font-medium text-sp-muted">
+          Subprotocols
+        </label>
+        <Input
+          id="ws-subprotocols"
+          value={connection.protocols.join(', ')}
+          onChange={(e) =>
+            setProtocols(
+              activeConnectionId,
+              e.target.value
+                .split(',')
+                .map((s) => s.trim())
+                .filter(Boolean)
+            )
+          }
+          placeholder="comma-separated, e.g. graphql-transport-ws"
+          className="h-7 mt-1 font-mono text-sp-12"
+          aria-label="WebSocket subprotocols"
+        />
+      </div>
+      <div>
+        <span className="text-sp-11 font-medium text-sp-muted">Handshake headers</span>
+        <DesktopOnlyBadge title="The browser WebSocket API cannot send handshake headers — headers set here are only sent by the desktop app." />
+        <div className="mt-1">
+          {/* Handshake headers are sent as typed — no {{var}} resolution. */}
+          <KeyValueTable
+            items={connection.headers}
+            onChange={(headers) => setHeaders(activeConnectionId, headers)}
+            itemLabel="header"
+            addLabel="Add header"
+            httpHeaders
           />
-        )}
-        <span
-          className={cn(
-            'inline-flex items-center gap-1.5 h-6 px-2.5 rounded-sp-pill font-mono font-bold text-sp-10 tracking-wide',
-            isConnected && 'sp-accent-ring'
-          )}
-          style={{
-            color: isConnected
-              ? 'var(--color-success)'
-              : isConnecting
-                ? 'var(--color-warning)'
-                : 'var(--color-neutral)',
-            background: isConnected
-              ? 'color-mix(in srgb, var(--color-success) 16%, transparent)'
-              : isConnecting
-                ? 'color-mix(in srgb, var(--color-warning) 16%, transparent)'
-                : 'color-mix(in srgb, var(--color-neutral) 14%, transparent)',
-            boxShadow: isConnected
-              ? '0 0 0 1px color-mix(in srgb, var(--color-success) 40%, transparent), 0 0 12px color-mix(in srgb, var(--color-success) 35%, transparent)'
-              : undefined,
-          }}
-          aria-live="polite"
-          data-testid="websocket-status"
-        >
-          <span aria-hidden="true">●</span>
-          {statusLabel}
-        </span>
-        {isConnected || isConnecting ? (
-          <button
-            type="button"
-            onClick={handleDisconnect}
-            className="inline-flex items-center h-7 px-3 rounded-sp-btn font-medium text-sp-12 border border-danger/35 text-danger bg-transparent transition-colors hover:bg-danger/10"
-          >
-            Disconnect
-          </button>
-        ) : (
-          <Button
-            variant="cta"
-            size="cta"
-            onClick={handleConnect}
-            disabled={!connection.url}
-            className="min-w-[80px]"
-          >
-            Connect
-          </Button>
-        )}
-      </Floater>
+        </div>
+      </div>
+    </Floater>
+  );
 
-      {/* Connection config (handshake headers + subprotocols) — only while
-          disconnected, collapsed behind the Options toggle when empty so the
-          message console stays above the fold. */}
-      {configOpen && !isConnected && !isConnecting && (
-        <Floater radius="panel" className="flex flex-col gap-3 px-3 py-3 shrink-0">
-          <div>
-            <label htmlFor="ws-subprotocols" className="text-sp-11 font-medium text-sp-muted">
-              Subprotocols
-            </label>
-            <Input
-              id="ws-subprotocols"
-              value={connection.protocols.join(', ')}
-              onChange={(e) =>
-                setProtocols(
-                  activeConnectionId,
-                  e.target.value
-                    .split(',')
-                    .map((s) => s.trim())
-                    .filter(Boolean)
-                )
-              }
-              placeholder="comma-separated, e.g. graphql-transport-ws"
-              className="h-7 mt-1 font-mono text-sp-12"
-              aria-label="WebSocket subprotocols"
-            />
-          </div>
-          <div>
-            <span className="text-sp-11 font-medium text-sp-muted">Handshake headers</span>
-            <DesktopOnlyBadge title="The browser WebSocket API cannot send handshake headers — headers set here are only sent by the desktop app." />
-            <div className="mt-1">
-              {/* Handshake headers are sent as typed — no {{var}} resolution. */}
-              <KeyValueTable
-                items={connection.headers}
-                onChange={(headers) => setHeaders(activeConnectionId, headers)}
-                itemLabel="header"
-                addLabel="Add header"
-                httpHeaders
-              />
-            </div>
-          </div>
-        </Floater>
-      )}
-
+  const logPanel = (
+    <div className="flex min-h-0 flex-1 flex-col gap-2.5 h-full">
       {/* Stats row */}
       <div className="flex items-center gap-6 px-1 shrink-0">
         <UptimeStat connectedAt={connection.lastConnectedAt} isConnected={isConnected} />
@@ -639,6 +559,101 @@ function WebSocketClient() {
           </Floater>
         </div>
       </div>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-1 flex-col gap-2.5 bg-transparent p-3 overflow-hidden">
+      {/* Connection bar */}
+      <Floater radius="pill" className="flex items-center gap-2 px-3 h-12 shrink-0">
+        <ProtoChip protocol="WS" />
+        <span className="text-sp-dim font-mono text-sp-13 select-none" aria-hidden="true">
+          ›
+        </span>
+        <div className="flex-1 flex items-center gap-2 min-w-0">
+          {isConnected || isConnecting ? (
+            <span className="font-mono text-sp-13 text-sp-text truncate">
+              <VariableText text={connection.url} />
+            </span>
+          ) : (
+            <VariableUrlInput
+              value={connection.url}
+              onValueChange={(url) => updateConnectionUrl(activeConnectionId, url)}
+              variableScope="connection"
+              placeholder={ECHO_URLS.websocket}
+              aria-label="WebSocket URL"
+              className="h-7 flex-1"
+              textClassName="px-1 text-sp-13 placeholder:italic"
+            />
+          )}
+        </div>
+        {!isConnected && !isConnecting && (
+          <CountToggle
+            label="Options"
+            count={configCount}
+            expanded={configOpen}
+            onToggle={() => setConfigOpenOverride(!configOpen)}
+          />
+        )}
+        <span
+          className={cn(
+            'inline-flex items-center gap-1.5 h-6 px-2.5 rounded-sp-pill font-mono font-bold text-sp-10 tracking-wide',
+            isConnected && 'sp-accent-ring'
+          )}
+          style={{
+            color: isConnected
+              ? 'var(--color-success)'
+              : isConnecting
+                ? 'var(--color-warning)'
+                : 'var(--color-neutral)',
+            background: isConnected
+              ? 'color-mix(in srgb, var(--color-success) 16%, transparent)'
+              : isConnecting
+                ? 'color-mix(in srgb, var(--color-warning) 16%, transparent)'
+                : 'color-mix(in srgb, var(--color-neutral) 14%, transparent)',
+            boxShadow: isConnected
+              ? '0 0 0 1px color-mix(in srgb, var(--color-success) 40%, transparent), 0 0 12px color-mix(in srgb, var(--color-success) 35%, transparent)'
+              : undefined,
+          }}
+          aria-live="polite"
+          data-testid="websocket-status"
+        >
+          <span aria-hidden="true">●</span>
+          {statusLabel}
+        </span>
+        {isConnected || isConnecting ? (
+          <button
+            type="button"
+            onClick={handleDisconnect}
+            className="inline-flex items-center h-7 px-3 rounded-sp-btn font-medium text-sp-12 border border-danger/35 text-danger bg-transparent transition-colors hover:bg-danger/10"
+          >
+            Disconnect
+          </button>
+        ) : (
+          <Button
+            variant="cta"
+            size="cta"
+            onClick={handleConnect}
+            disabled={!connection.url}
+            className="min-w-[80px]"
+          >
+            Connect
+          </Button>
+        )}
+      </Floater>
+
+      {/* Connection config (handshake headers + subprotocols) — only while
+          disconnected, collapsed behind the Options toggle when empty so the
+          message console stays above the fold. Open, it gets a resizable pane
+          above the log. */}
+      {configOpen && !isConnected && !isConnecting ? (
+        <StreamSplit
+          config={<div className="h-full pb-2.5">{configPanel}</div>}
+          log={<div className="h-full pt-2.5">{logPanel}</div>}
+        />
+      ) : (
+        logPanel
+      )}
     </div>
   );
 }
