@@ -36,6 +36,8 @@ Browsers reserve `Cmd/Ctrl+W`, `Cmd/Ctrl+T`, `Ctrl+Tab` and `Cmd/Ctrl+1–9`, so
 
 In the desktop app, closing the window moves to `Cmd/Ctrl+Shift+W`. Middle-clicking a tab closes it. Closing a tab with unsaved changes always asks first, whichever way you close it.
 
+Right-click a tab for Rename, Duplicate, Close Others / to the Right / All, and **Open as…**, which opens the same target in a new tab of another protocol (for example an HTTP URL as a WebSocket). The URL comes along for HTTP, GraphQL, gRPC, WebSocket and Socket.IO, with `http(s)` and `ws(s)` swapped as needed; SSE, MCP, Kafka and MQTT open with their own connection settings. The original tab is left as it was.
+
 ## Request builder
 
 Jump straight to a request sub-tab with **`Alt`** + a number:
