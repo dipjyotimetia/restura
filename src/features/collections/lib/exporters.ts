@@ -117,12 +117,15 @@ export function exportToPostman(collection: Collection): PostmanCollection {
     },
     item: collection.items.map(convertToPostmanItem),
     auth: collection.auth ? convertAuthToPostman(collection.auth) : undefined,
-    variable: (collection.variables ?? []).map((variable) => ({
-      key: variable.key,
-      value: variable.value,
-      disabled: !variable.enabled,
-      ...(variable.description ? { description: variable.description } : {}),
-    })),
+    // Private variables are local-only — never exported.
+    variable: (collection.variables ?? [])
+      .filter((v) => !v.private)
+      .map((variable) => ({
+        key: variable.key,
+        value: variable.value,
+        disabled: !variable.enabled,
+        ...(variable.description ? { description: variable.description } : {}),
+      })),
     ...(event ? { event } : {}),
   };
 }

@@ -3,24 +3,33 @@ title: Environments
 description: Scope variables to environments and swap between staging and production with one click.
 ---
 
+import { Aside } from '@astrojs/starlight/components';
+
 An environment is a named set of variables. Pick one in the top-right selector and every `{{placeholder}}` in your request resolves against it.
 
 ## What you can put in a variable
 
 - **Plain strings** — `base_url`, `team_id`, `version`.
 - **Secrets** — `api_token`, `client_secret`. Marking an environment variable "secret" masks it in the UI and in collection exports, but the value is still stored as plaintext — environment variables don't use the `SecretRef` handle pattern. For values that need OS-keychain protection, store them on the request's Auth tab instead (see [Authentication](/guides/auth/)), where supported credential fields can be saved as a `SecretRef` handle.
-- **Environment-scoped overrides** — a variable in the active environment beats the same name in the collection-scope variable table.
+- **Globals** — workspace-wide values shared by every request. Edit them under **Environments → Globals**, or from scripts with `pm.globals` / `rs.globals`. They're stored as plain values, so keep credentials in environment secrets.
 
 ## Variable resolution order
 
-When `{{base_url}}` is encountered, Restura looks in this order, picking the first match:
+When `{{base_url}}` is encountered, the most specific scope that defines it wins:
 
-1. **Request-scope variables** — set inline on the request itself or by a pre-request script (`pm.variables.set('base_url', ...)`).
-2. **Active environment** — the selected environment's variable table.
-3. **Collection-scope variables** — defined on the parent collection.
-4. **Globals** — workspace-wide values.
+1. **Data row** — the current CSV/JSON row in a collection run.
+2. **Folder variables** — the nearest folder first, then outer folders.
+3. **Collection variables** — defined in the collection's settings.
+4. **Active environment** — a sub-environment first, then the environment it extends.
+5. **Globals** — workspace-wide values.
 
-If none match, the placeholder is left as-is so you can spot the typo.
+Pre-request scripts can set environment, collection and global values before the request is sent. If nothing matches, the placeholder is left as-is so you can spot the typo.
+
+To see what a tab actually resolves, open **Environments → Variables in scope**: it lists every name with its winning value (secrets masked) and the scope it came from.
+
+<Aside>
+WebSocket, Socket.IO, SSE, MCP, gRPC and GraphQL resolve their URL and headers against the active environment and globals only — collection and folder variables apply to HTTP requests. The scope inspector shows the narrower set for those tabs.
+</Aside>
 
 ## Switching environments
 
@@ -39,7 +48,7 @@ Postman-compatible helpers work in any `{{...}}` placeholder:
 
 ## Tips
 
-- Keep secrets out of collection-scope variables — anyone you share an exported collection with sees those values (unless you redact on export, which is wise).
+- Keep secrets out of collection-scope variables — anyone you share an exported collection with sees those values. Mark a collection variable **Keep local** (in collection settings) to leave it out of every export and of Git sync.
 - Use the **environment diff** view (when staging vs production are open side by side) to spot drift.
 
 ## Related
