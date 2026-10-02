@@ -14,7 +14,7 @@ import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
-import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import { KeyValueTable } from '@/components/shared/KeyValueTable';
 import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
 import { Floater, type SubTab, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
@@ -39,7 +39,6 @@ import {
 } from '@/features/graphql/lib/subscriptionLog';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
-import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
@@ -88,12 +87,6 @@ function GraphQLRequestBuilder() {
     useState<SubscriptionLogState>(emptySubscriptionLog);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const subscriptionClientRef = useRef<GraphQLSubscriptionClient | null>(null);
-
-  const {
-    handleAdd: handleAddHeader,
-    handleUpdate: handleUpdateHeader,
-    handleDelete: handleDeleteHeader,
-  } = useKeyValueCollection(currentRequest?.headers ?? [], (headers) => updateRequest({ headers }));
 
   const executableSchema = useMemo(
     () => (schemaResult ? buildSchemaFromIntrospection(schemaResult) : null),
@@ -560,15 +553,13 @@ function GraphQLRequestBuilder() {
                   Content-Type: application/json is automatically set. Auth header is injected from
                   the Auth tab.
                 </p>
-                <KeyValueEditor
+                <KeyValueTable
                   items={httpRequest.headers}
-                  onAdd={handleAddHeader}
-                  onUpdate={handleUpdateHeader}
-                  onDelete={handleDeleteHeader}
-                  keyPlaceholder="Header name"
-                  valuePlaceholder="Value"
-                  addButtonText="Add Header"
-                  itemType="header"
+                  onChange={(headers) => updateRequest({ headers })}
+                  itemLabel="header"
+                  addLabel="Add header"
+                  resolvesVariables="connection"
+                  httpHeaders
                 />
               </div>
             )}

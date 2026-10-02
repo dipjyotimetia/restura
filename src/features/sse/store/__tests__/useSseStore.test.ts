@@ -75,4 +75,14 @@ describe('useSseStore', () => {
       progress: null,
     });
   });
+
+  it('setHeaders replaces the header list and ignores unknown ids', () => {
+    const id = useSseStore.getState().createConnection();
+    const headers = [{ id: 'h1', key: 'X-Token', value: '{{token}}', enabled: true }];
+    useSseStore.getState().setHeaders(id, headers);
+    expect(useSseStore.getState().connections[id]!.headers).toEqual(headers);
+    const before = useSseStore.getState().connections;
+    useSseStore.getState().setHeaders('missing', []);
+    expect(useSseStore.getState().connections).toBe(before);
+  });
 });

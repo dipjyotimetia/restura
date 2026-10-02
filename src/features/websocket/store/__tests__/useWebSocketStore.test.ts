@@ -190,41 +190,19 @@ describe('useWebSocketStore', () => {
       connectionId = useWebSocketStore.getState().createConnection();
     });
 
-    it('should add header', () => {
-      const store = useWebSocketStore.getState();
+    it('replaces the header list', () => {
+      const headers = [{ id: 'h1', key: 'Authorization', value: 'Bearer token', enabled: true }];
+      useWebSocketStore.getState().setHeaders(connectionId, headers);
+      expect(useWebSocketStore.getState().connections[connectionId]!.headers).toEqual(headers);
 
-      store.addHeader(connectionId);
-
-      const connection = useWebSocketStore.getState().connections[connectionId];
-      expect(connection!.headers).toHaveLength(1);
-      expect(connection!.headers[0]?.key).toBe('');
-      expect(connection!.headers[0]?.value).toBe('');
-      expect(connection!.headers[0]?.enabled).toBe(true);
+      useWebSocketStore.getState().setHeaders(connectionId, []);
+      expect(useWebSocketStore.getState().connections[connectionId]!.headers).toHaveLength(0);
     });
 
-    it('should update header', () => {
-      const store = useWebSocketStore.getState();
-
-      store.addHeader(connectionId);
-      const headerId = useWebSocketStore.getState().connections[connectionId]!.headers[0]!.id;
-
-      store.updateHeader(connectionId, headerId, { key: 'Authorization', value: 'Bearer token' });
-
-      const connection = useWebSocketStore.getState().connections[connectionId];
-      expect(connection!.headers[0]?.key).toBe('Authorization');
-      expect(connection!.headers[0]?.value).toBe('Bearer token');
-    });
-
-    it('should delete header', () => {
-      const store = useWebSocketStore.getState();
-
-      store.addHeader(connectionId);
-      const headerId = useWebSocketStore.getState().connections[connectionId]!.headers[0]!.id;
-
-      store.removeHeader(connectionId, headerId);
-
-      const connection = useWebSocketStore.getState().connections[connectionId];
-      expect(connection!.headers).toHaveLength(0);
+    it('ignores an unknown connection', () => {
+      const before = useWebSocketStore.getState().connections;
+      useWebSocketStore.getState().setHeaders('missing', []);
+      expect(useWebSocketStore.getState().connections).toBe(before);
     });
   });
 

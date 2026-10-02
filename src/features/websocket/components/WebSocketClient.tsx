@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
-import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import { KeyValueTable } from '@/components/shared/KeyValueTable';
 import {
   FreezeToggle,
   LogExportMenu,
@@ -165,9 +165,7 @@ function WebSocketClient() {
     setSearchQuery,
     getFilteredMessages,
     addMessage,
-    addHeader,
-    updateHeader,
-    removeHeader,
+    setHeaders,
     setProtocols,
   } = useWebSocketStore(
     useShallow((s) => ({
@@ -179,9 +177,7 @@ function WebSocketClient() {
       setSearchQuery: s.setSearchQuery,
       getFilteredMessages: s.getFilteredMessages,
       addMessage: s.addMessage,
-      addHeader: s.addHeader,
-      updateHeader: s.updateHeader,
-      removeHeader: s.removeHeader,
+      setHeaders: s.setHeaders,
       setProtocols: s.setProtocols,
     }))
   );
@@ -390,15 +386,13 @@ function WebSocketClient() {
             <span className="text-sp-11 font-medium text-sp-muted">Handshake headers</span>
             <DesktopOnlyBadge title="The browser WebSocket API cannot send handshake headers — headers set here are only sent by the desktop app." />
             <div className="mt-1">
-              <KeyValueEditor
+              {/* Handshake headers are sent as typed — no {{var}} resolution. */}
+              <KeyValueTable
                 items={connection.headers}
-                onAdd={() => addHeader(activeConnectionId)}
-                onUpdate={(id, updates) => updateHeader(activeConnectionId, id, updates)}
-                onDelete={(id) => removeHeader(activeConnectionId, id)}
-                keyPlaceholder="Header"
-                valuePlaceholder="Value"
-                addButtonText="Add header"
-                itemType="header"
+                onChange={(headers) => setHeaders(activeConnectionId, headers)}
+                itemLabel="header"
+                addLabel="Add header"
+                httpHeaders
               />
             </div>
           </div>

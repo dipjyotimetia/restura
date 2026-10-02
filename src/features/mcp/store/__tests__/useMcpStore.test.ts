@@ -56,9 +56,7 @@ describe('useMcpStore.resetConnectionSession', () => {
     const actions = before;
     actions.setUrl('missing', 'https://other.example.com');
     actions.setTransport('missing', 'http-sse');
-    actions.addHeader('missing');
-    actions.updateHeader('missing', 'header', { key: 'x' });
-    actions.removeHeader('missing', 'header');
+    actions.setHeaders('missing', []);
     actions.setStatus('missing', 'connected');
     actions.setCapabilities('missing', null);
     actions.appendLog('missing', { method: 'tools/list', durationMs: 1 });

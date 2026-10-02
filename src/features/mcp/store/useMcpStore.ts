@@ -41,9 +41,8 @@ interface McpState {
 
   setUrl: (id: string, url: string) => void;
   setTransport: (id: string, t: McpTransportType) => void;
-  addHeader: (id: string) => void;
-  updateHeader: (id: string, headerId: string, updates: Partial<KeyValue>) => void;
-  removeHeader: (id: string, headerId: string) => void;
+  /** Replace the whole header list (the key/value table drives edits through this). */
+  setHeaders: (id: string, headers: KeyValue[]) => void;
 
   setStatus: (id: string, status: McpConnectionStatus, error?: string) => void;
   setCapabilities: (id: string, caps: McpServerCapabilities | null) => void;
@@ -103,39 +102,11 @@ export const useMcpStore = create<McpState>()(
           return { connections: { ...s.connections, [id]: { ...c, transport: t } } };
         }),
 
-      addHeader: (id) =>
+      setHeaders: (id, headers) =>
         set((s) => {
           const c = s.connections[id];
           if (!c) return s;
-          const h: KeyValue = { id: uuidv4(), key: '', value: '', enabled: true };
-          return { connections: { ...s.connections, [id]: { ...c, headers: [...c.headers, h] } } };
-        }),
-
-      updateHeader: (id, headerId, updates) =>
-        set((s) => {
-          const c = s.connections[id];
-          if (!c) return s;
-          return {
-            connections: {
-              ...s.connections,
-              [id]: {
-                ...c,
-                headers: c.headers.map((h) => (h.id === headerId ? { ...h, ...updates } : h)),
-              },
-            },
-          };
-        }),
-
-      removeHeader: (id, headerId) =>
-        set((s) => {
-          const c = s.connections[id];
-          if (!c) return s;
-          return {
-            connections: {
-              ...s.connections,
-              [id]: { ...c, headers: c.headers.filter((h) => h.id !== headerId) },
-            },
-          };
+          return { connections: { ...s.connections, [id]: { ...c, headers } } };
         }),
 
       setStatus: (id, status, error) =>

@@ -1,6 +1,7 @@
 import { X } from 'lucide-react';
 import { useVariableHover } from '@/components/shared/VariableHover';
 import { VariableInput } from '@/components/shared/VariableInput';
+import type { VariableScope } from '@/hooks/useVariableStatus';
 import { cn } from '@/lib/shared/utils';
 import { ComboboxInput, type ComboboxSuggestion } from './ComboboxInput';
 import { ToggleField } from './ToggleField';
@@ -19,6 +20,8 @@ export interface ParamRowProps {
   onChange: (next: ParamRowData) => void;
   onRemove?: (id: string) => void;
   showVariableHighlight?: boolean;
+  /** Which resolver the row feeds; scopes `{{var}}` suggestions and hover cards. */
+  variableScope?: VariableScope;
   /** Singular noun for accessible names ('parameter', 'header'). */
   itemLabel?: string;
   /**
@@ -54,6 +57,7 @@ export function ParamRow({
   onChange,
   onRemove,
   showVariableHighlight,
+  variableScope = 'request',
   itemLabel = 'parameter',
   getStatus,
   className,
@@ -72,7 +76,7 @@ export function ParamRow({
   // the highlight overlay shows (avoids double-rendering the text). Gated on a
   // real token — a half-typed `{{` keeps the raw input visible.
   const showValueOverlay = !!showVariableHighlight && hasVariableToken(row.value);
-  const variableHover = useVariableHover();
+  const variableHover = useVariableHover(variableScope);
   const valueInputClass = cn(baseInput, showValueOverlay && 'text-transparent caret-sp-accent');
 
   const renderKey = () => {
@@ -81,6 +85,7 @@ export function ParamRow({
         <VariableInput
           ref={inputRef}
           rawInput
+          variableScope={variableScope}
           value={row.key}
           onValueChange={(val) => onChange({ ...row, key: val })}
           placeholder="key"
@@ -118,6 +123,7 @@ export function ParamRow({
       return (
         <VariableInput
           rawInput
+          variableScope={variableScope}
           value={row.value}
           onValueChange={(val) => onChange({ ...row, value: val })}
           placeholder="value"

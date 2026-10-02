@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight, PanelLeft, Play, RefreshCw, Square } from 'lucide-react';
 import { useState } from 'react';
-import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import { KeyValueTable } from '@/components/shared/KeyValueTable';
 import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
 import { Floater, ProtoChip, Segmented, VariableText } from '@/components/ui/spatial';
@@ -14,9 +14,7 @@ interface McpConnectionPanelProps {
   onToggleCatalog: () => void;
   onUrlChange: (url: string) => void;
   onTransportChange: (transport: McpTransportType) => void;
-  onAddHeader: () => void;
-  onUpdateHeader: (headerId: string, updates: Partial<KeyValue>) => void;
-  onRemoveHeader: (headerId: string) => void;
+  onHeadersChange: (headers: KeyValue[]) => void;
   onConnect: () => Promise<void>;
   onDisconnect: () => Promise<void>;
   onRefresh: () => Promise<void>;
@@ -34,9 +32,7 @@ export function McpConnectionPanel({
   onToggleCatalog,
   onUrlChange,
   onTransportChange,
-  onAddHeader,
-  onUpdateHeader,
-  onRemoveHeader,
+  onHeadersChange,
   onConnect,
   onDisconnect,
   onRefresh,
@@ -173,14 +169,13 @@ export function McpConnectionPanel({
           </button>
           {headersOpen && (
             <div className="px-3 py-2 border-t border-sp-line">
-              <KeyValueEditor
+              <KeyValueTable
                 items={connection.headers}
-                onAdd={onAddHeader}
-                onUpdate={onUpdateHeader}
-                onDelete={onRemoveHeader}
-                keyPlaceholder="Header name"
-                valuePlaceholder="Header value"
-                addButtonText="Add header"
+                onChange={onHeadersChange}
+                itemLabel="header"
+                addLabel="Add header"
+                resolvesVariables="connection"
+                httpHeaders
               />
             </div>
           )}
