@@ -1,0 +1,38 @@
+src/components/shared/messageLog/MessageLogControls.tsx
+  s_766edd634beb43::t_56b591e3185cd8 2,25-30,32-33
+src/lib/shared/messageLog.test.ts
+  s_766edd634beb43::t_d117dab7e63cba 2-8,65-72
+  s_766edd634beb43::t_12b854fa060473 73-74
+src/features/websocket/components/WebSocketClient.tsx
+  s_766edd634beb43::t_81e7c07c39e8f4 517
+  s_766edd634beb43::t_8f2e2849b41da9 39
+src/features/socketio/components/SocketIOClient.tsx
+  s_766edd634beb43::t_81e7c07c39e8f4 568
+  s_766edd634beb43::t_8f2e2849b41da9 43
+src/features/grpc/components/GrpcStreamingPanel.tsx
+  s_766edd634beb43::t_8f2e2849b41da9 9-14
+  s_766edd634beb43::t_81e7c07c39e8f4 333-335
+src/lib/shared/messageLog.ts
+  s_766edd634beb43::t_81e7c07c39e8f4 69-78
+  s_766edd634beb43::t_fbafc3e2ba1235 68
+src/components/shared/messageLog/MessageLogControls.test.tsx
+  s_766edd634beb43::t_d117dab7e63cba 56-61,75,78-79
+  s_766edd634beb43::t_56b591e3185cd8 3,62-63,68-70
+  s_766edd634beb43::t_ea6c846bd00082 64-67,71-74,76-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e89ea619a47e061a22d8c036f3240c6fb622f3bf",
+  "prompts": {},
+  "sessions": {
+    "s_766edd634beb43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9c66557-0bf1-4aa9-990d-ab0ef03d2e23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
