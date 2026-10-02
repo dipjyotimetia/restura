@@ -20,6 +20,7 @@ Restura speaks the **Connect protocol** on the web target and **native gRPC** ov
 - **Client streaming** — multiple requests, single response. <Badge text="desktop" variant="caution" /> for full HTTP/2 streaming; browser fetch limits client streaming on the web target.
 - **Bidirectional streaming** — same caveat as client streaming.
 - **Stream log** — streamed messages can be searched, filtered by direction, frozen, cleared, and exported as JSON or NDJSON.
+- **Response** — the **Body** tab offers Pretty / Raw / Tree views, a JSONPath query, find, copy, and download (a streamed response's frames appear as one JSON array, indexed by frame). **Headers** shows the server's leading metadata and **Trailers** the `grpc-status` / `grpc-message` and any trailing metadata.
 - **`{{variables}}` in the URL** — autocompleted and highlighted (unresolved names are flagged). Resolved from the active environment and globals at call time.
 
 ## Authentication
@@ -27,7 +28,7 @@ Restura speaks the **Connect protocol** on the web target and **native gRPC** ov
 All the HTTP auth schemes apply (Bearer is the common one), plus:
 
 - **AWS SigV4** signed at the wire (Worker / Electron, not the renderer).
-- **Custom metadata** — gRPC uses metadata in place of HTTP headers; the same editor adds them.
+- **Custom metadata** — gRPC uses metadata in place of HTTP headers; edit it in the same table as HTTP headers, with bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row. Values resolve `{{variables}}`.
 
 ## Tracing
 

@@ -10,6 +10,7 @@ import { Badge } from '@astrojs/starlight/components';
 ## What works
 
 - **Produce** — pick a topic, set text headers, target an optional partition, and send a key + value as UTF-8 text, validated JSON, or Base64-encoded arbitrary bytes. Base64 is decoded only at the Electron boundary, so invalid UTF-8 bytes are preserved exactly.
+  Record headers use a key/value table with bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row; they're produced exactly as typed.
 - **Consume** — subscribe to a topic, see messages live with partition / offset / timestamp. Start from **latest**, **earliest**, a specific **offset**, or a **timestamp** (seeks each partition to its first message at or after the chosen time).
 - **Export the log** — download the current filtered messages as JSON or NDJSON (one message per line).
 - **Topic inspector** — per-partition earliest/latest watermarks (and the approximate message count) plus the topic's broker config.
