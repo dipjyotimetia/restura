@@ -1,0 +1,43 @@
+src/components/shared/TabBar.test.tsx
+  s_766edd634beb43::t_94c2fe608d7ead 342,362
+  s_766edd634beb43::t_eb66cd45a9ba9d 329-341,343-361,363-370
+src/components/shared/StreamSplit.tsx
+  s_766edd634beb43::t_2d1137806e166a 1-27
+src/components/shared/TabBar.tsx
+  s_766edd634beb43::t_fe68c583f436f3 18-20,40,43,48-65,149-158,445-457,459-463
+  s_766edd634beb43::t_6b6112c0be43c7 458
+  s_766edd634beb43::t_d1ccfe2f73b0d0 464-465
+src/components/shared/lib/__tests__/openAs.test.ts
+  s_766edd634beb43::t_15d12145123d0f 5,51-54
+  s_766edd634beb43::t_e825af20724a8c 1-4,6-50,55-74
+src/components/ui/context-menu.tsx
+  s_766edd634beb43::t_2273d36206d4e1 46-57
+src/features/sse/components/SseClient.tsx
+  s_766edd634beb43::t_f080ecca7724e3 4,146-157,159-174,176-177,214-231
+src/lib/shared/store-validators.ts
+  s_766edd634beb43::t_2d1137806e166a 661
+src/features/websocket/components/WebSocketClient.tsx
+  s_766edd634beb43::t_55d82ec4b228bc 12,284-319,321-324,326-327,570-655,660-662,664
+  s_766edd634beb43::t_6f88052ed22ac2 656-659
+  s_766edd634beb43::t_67632051ababff 663
+shared/types/settings.ts
+  s_766edd634beb43::t_2d1137806e166a 27-29
+src/components/shared/lib/openAs.ts
+  s_766edd634beb43::t_44255f4815b7cb 1-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a7fa91de8747cc1c5a919b990202a66491548170",
+  "prompts": {},
+  "sessions": {
+    "s_766edd634beb43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9c66557-0bf1-4aa9-990d-ab0ef03d2e23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
