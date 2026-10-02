@@ -6,7 +6,12 @@ import {
   useFrozenView,
 } from '@/components/shared/messageLog/MessageLogControls';
 import { Button } from '@/components/ui/button';
-import { filterLog, type LogDirection, type LogEntry } from '@/lib/shared/messageLog';
+import {
+  filteredEmptyText,
+  filterLog,
+  type LogDirection,
+  type LogEntry,
+} from '@/lib/shared/messageLog';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import type { GrpcRequest, GrpcStatusCode } from '@/types';
@@ -325,7 +330,9 @@ export function GrpcStreamingPanel({
 
       <div className="flex-1 overflow-y-auto p-3 font-mono text-xs space-y-2">
         {frames.length > 0 && visibleFrames.length === 0 && (
-          <div className="text-muted-foreground italic">No messages match the current filter.</div>
+          <div className="text-muted-foreground italic">
+            {filteredEmptyText('message', newCount)}
+          </div>
         )}
         {frames.length === 0 && status !== 'error' && (
           <div className="text-muted-foreground italic">

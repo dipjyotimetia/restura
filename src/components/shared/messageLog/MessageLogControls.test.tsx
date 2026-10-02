@@ -1,6 +1,6 @@
 import { act, render, renderHook, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { LogDirection, LogEntry } from '@/lib/shared/messageLog';
 import {
@@ -51,6 +51,30 @@ describe('useFrozenView', () => {
     expect(result.current.visible.map((e) => e.id)).toEqual(['a', 'b', 'c', 'd']);
     expect(result.current.newCount).toBe(0);
   });
+});
+
+it('cuts off on the very render that freezes (no unfrozen frame)', () => {
+  vi.spyOn(Date, 'now').mockReturnValue(1000);
+  const entries: LogEntry[] = [
+    { id: 'a', timestamp: 900, direction: 'in', body: 'a' },
+    { id: 'b', timestamp: 1500, direction: 'in', body: 'b' },
+  ];
+  // Record every committed (painted) render — a render React discards to
+  // apply a render-phase state update never reaches the screen.
+  const frozenRenders: string[][] = [];
+  const { rerender } = renderHook(
+    ({ frozen }) => {
+      const view = useFrozenView(entries, frozen);
+      useLayoutEffect(() => {
+        if (frozen) frozenRenders.push(view.visible.map((e) => e.id));
+      });
+      return view;
+    },
+    { initialProps: { frozen: false } }
+  );
+  rerender({ frozen: true });
+  expect(frozenRenders.length).toBeGreaterThan(0);
+  for (const ids of frozenRenders) expect(ids).toEqual(['a']);
 });
 
 describe('FreezeToggle', () => {

@@ -36,6 +36,7 @@ import { wsExportName, wsToLogEntries } from '@/features/websocket/lib/wsLogExpo
 import type { WebSocketMessageType } from '@/features/websocket/store/useWebSocketStore';
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
+import { filteredEmptyText } from '@/lib/shared/messageLog';
 import { modLabel } from '@/lib/shared/shortcuts';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
@@ -513,7 +514,7 @@ function WebSocketClient() {
               <div className="py-10 text-center text-sp-dim text-sp-12">
                 {connection.messages.length === 0
                   ? 'No messages yet. Connect and start sending.'
-                  : 'No messages match the current filter.'}
+                  : filteredEmptyText('message', newCount)}
               </div>
             ) : (
               visibleMessages.map((msg) => {

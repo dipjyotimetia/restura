@@ -1,5 +1,5 @@
 import { Download, Pause, Play, Search, Trash2 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,14 +22,15 @@ import { cn } from '@/lib/shared/utils';
  * Nothing is dropped — unfreezing shows everything still in the (capped) log.
  */
 export function useFrozenView<T extends { timestamp: number }>(entries: T[], frozen: boolean) {
-  const [frozenAt, setFrozenAt] = useState<number | null>(null);
-  useEffect(() => {
+  const [frozenAt, setFrozenAt] = useState<number | null>(() => (frozen ? Date.now() : null));
+  const [prevFrozen, setPrevFrozen] = useState(frozen);
+  // Set the cutoff during render (not in an effect) so the first frozen
+  // render is already cut off — React re-renders before painting.
+  if (frozen !== prevFrozen) {
+    setPrevFrozen(frozen);
     setFrozenAt(frozen ? Date.now() : null);
-  }, [frozen]);
-  return useMemo(
-    () => splitAtCutoff(entries, frozen ? frozenAt : null),
-    [entries, frozen, frozenAt]
-  );
+  }
+  return useMemo(() => splitAtCutoff(entries, frozenAt), [entries, frozenAt]);
 }
 
 const iconButton =

@@ -66,6 +66,17 @@ function parseMaybeJson(body: string): unknown {
 }
 
 /**
+ * Empty-state text when a filtered log shows nothing: says so when the only
+ * matches arrived after a freeze, rather than blaming the filter.
+ */
+export function filteredEmptyText(noun: 'message' | 'event', newCount: number): string {
+  if (newCount > 0) {
+    return `Frozen — ${newCount} new ${noun}${newCount === 1 ? '' : 's'} since. Resume to show ${newCount === 1 ? 'it' : 'them'}.`;
+  }
+  return `No ${noun}s match the current filter.`;
+}
+
+/**
  * Split a log at a freeze cutoff: `visible` is what had arrived by `cutoff`
  * (ms epoch, local receipt time), `newCount` is what arrived after. A null
  * cutoff means live — everything is visible.

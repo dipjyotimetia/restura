@@ -40,6 +40,7 @@ import {
   type SocketIOEventFilter,
   useSocketIOStore,
 } from '@/features/socketio/store/useSocketIOStore';
+import { filteredEmptyText } from '@/lib/shared/messageLog';
 import { modLabel } from '@/lib/shared/shortcuts';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn } from '@/lib/shared/utils';
@@ -564,7 +565,7 @@ function SocketIOClient() {
               <div className="py-10 text-center text-sp-dim text-sp-12">
                 {connection.events.length === 0
                   ? 'No events yet. Connect and emit to see them here.'
-                  : 'No events match the current filter.'}
+                  : filteredEmptyText('event', newCount)}
               </div>
             ) : (
               visibleEvents.map((event) => {

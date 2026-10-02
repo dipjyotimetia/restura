@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { exportLog, filterLog, type LogEntry, splitAtCutoff } from './messageLog';
+import {
+  exportLog,
+  filteredEmptyText,
+  filterLog,
+  type LogEntry,
+  splitAtCutoff,
+} from './messageLog';
 
 const entries: LogEntry[] = [
   { id: '1', timestamp: 0, direction: 'out', label: 'chat', body: '{"msg":"hello"}' },
@@ -54,5 +60,15 @@ describe('splitAtCutoff', () => {
     expect(at1000.visible.map((e) => e.id)).toEqual(['1', '2']);
     expect(at1000.newCount).toBe(1);
     expect(splitAtCutoff(entries, null)).toEqual({ visible: entries, newCount: 0 });
+  });
+});
+
+describe('filteredEmptyText', () => {
+  it('blames the freeze, not the filter, when matches arrived after it', () => {
+    expect(filteredEmptyText('message', 0)).toBe('No messages match the current filter.');
+    expect(filteredEmptyText('event', 1)).toBe('Frozen — 1 new event since. Resume to show it.');
+    expect(filteredEmptyText('message', 3)).toBe(
+      'Frozen — 3 new messages since. Resume to show them.'
+    );
   });
 });
