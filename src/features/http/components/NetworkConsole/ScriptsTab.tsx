@@ -96,7 +96,7 @@ export default function ScriptsTab({ logs, tests }: ScriptsTabProps) {
     <ScrollArea className="h-full">
       <div className="p-4 font-mono text-xs space-y-2">
         {source === 'entry' && (
-          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mb-2">
+          <div className="flex items-center gap-1.5 text-sp-11 text-muted-foreground mb-2">
             <History className="h-3 w-3" />
             <span>Showing scripts captured with the selected request.</span>
           </div>
@@ -154,7 +154,7 @@ export default function ScriptsTab({ logs, tests }: ScriptsTabProps) {
               className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-primary/5 transition-all border border-transparent hover:border-primary/10"
             >
               {getLogIcon(log.type)}
-              <span className="text-muted-foreground text-[10px] font-medium shrink-0 mt-0.5 px-2 py-0.5 rounded bg-muted/50">
+              <span className="text-muted-foreground text-sp-11 font-medium shrink-0 mt-0.5 px-2 py-0.5 rounded bg-muted/50">
                 {formatTime(log.timestamp)}
               </span>
               <pre

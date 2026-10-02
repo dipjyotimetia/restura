@@ -210,7 +210,7 @@ export function SidebarCollectionsPanel({
                           <span className="text-xs font-medium truncate">{collection.name}</span>
                         )}
                         <FileStatusBadge collectionId={collection.id} />
-                        <span className="ml-auto shrink-0 text-[10px] tabular-nums text-sp-dim">
+                        <span className="ml-auto shrink-0 text-sp-11 tabular-nums text-sp-dim">
                           {collection.items.length}
                         </span>
                       </div>
@@ -275,14 +275,14 @@ export function SidebarCollectionsPanel({
                           <button
                             type="button"
                             onClick={() => onAddRequest(collection.id)}
-                            className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                            className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-sp-11 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
                           >
                             <FilePlus className="h-3 w-3" /> Add request
                           </button>
                           <button
                             type="button"
                             onClick={() => onAddFolder(collection.id)}
-                            className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                            className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-sp-11 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
                           >
                             <FolderPlus className="h-3 w-3" /> Add folder
                           </button>
@@ -347,7 +347,7 @@ function CollectionMenu({
         <Button
           variant="ghost"
           size="icon"
-          className="h-7 w-7 opacity-0 group-hover:opacity-100 shrink-0"
+          className="h-7 w-7 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 shrink-0"
           aria-label="Collection options"
         >
           <MoreVertical className="h-3.5 w-3.5" />

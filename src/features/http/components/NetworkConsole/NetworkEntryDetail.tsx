@@ -134,7 +134,7 @@ export default function NetworkEntryDetail({
             <Button
               variant="outline"
               size="sm"
-              className="h-7 px-2 text-[11px]"
+              className="h-7 px-2 text-sp-11"
               onClick={() => onCompare()}
               title="Compare the two selected entries"
             >
@@ -146,7 +146,7 @@ export default function NetworkEntryDetail({
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-[11px]"
+              className="h-7 px-2 text-sp-11"
               onClick={onOpenSafeDraft}
               title="Open a non-executing, credential-free native draft"
             >
@@ -160,7 +160,7 @@ export default function NetworkEntryDetail({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 px-2 text-[11px]"
+                  className="h-7 px-2 text-sp-11"
                   title="Copy request as code"
                 >
                   <Code2 className="h-3 w-3 mr-1" />
@@ -168,7 +168,7 @@ export default function NetworkEntryDetail({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuLabel className="text-[11px]">Copy request as</DropdownMenuLabel>
+                <DropdownMenuLabel className="text-sp-11">Copy request as</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem className="text-xs" onClick={onCopyCurl}>
                   cURL
@@ -205,16 +205,16 @@ export default function NetworkEntryDetail({
       </div>
 
       {entry.nativeDraft?.credentialsOmitted && (
-        <p className="px-4 py-1.5 border-b border-amber-500/20 bg-amber-500/5 text-[11px] text-amber-700 dark:text-amber-300">
+        <p className="px-4 py-1.5 border-b border-amber-500/20 bg-amber-500/5 text-sp-11 text-amber-700 dark:text-amber-300">
           Credentials omitted — configure them in the editor before sending.
         </p>
       )}
 
       {/* At-a-glance summary — visible on both Request and Response tabs. */}
-      <div className="flex items-center gap-3 px-4 py-1.5 border-b border-border/60 text-[11px] font-mono">
+      <div className="flex items-center gap-3 px-4 py-1.5 border-b border-border/60 text-sp-11 font-mono">
         <Badge
           variant="outline"
-          className={cn('text-[10px] px-1.5 py-0', getStatusBadgeColor(selectedStatus))}
+          className={cn('text-sp-11 px-1.5 py-0', getStatusBadgeColor(selectedStatus))}
         >
           {selectedStatus || 'ERR'} {entry.response.statusText}
         </Badge>
@@ -233,7 +233,7 @@ export default function NetworkEntryDetail({
         {entry.bodyTruncated && (
           <Badge
             variant="outline"
-            className="text-[9px] px-1 py-0 bg-amber-500/10 text-amber-500 border-amber-500/30"
+            className="text-sp-11 px-1 py-0 bg-amber-500/10 text-amber-500 border-amber-500/30"
             title="Body exceeded the live capture limit and was cut at capture time"
           >
             body truncated
@@ -275,7 +275,7 @@ export default function NetworkEntryDetail({
               <div className="flex items-center justify-between group">
                 <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   Request Headers
-                  <Badge variant="secondary" className="ml-2 text-[10px]">
+                  <Badge variant="secondary" className="ml-2 text-sp-11">
                     {Object.keys(entry.request.headers).length}
                   </Badge>
                 </h4>
@@ -303,7 +303,7 @@ export default function NetworkEntryDetail({
                 <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
                   <CookieIcon className="h-3 w-3" />
                   Cookies
-                  <Badge variant="secondary" className="ml-1 text-[10px]">
+                  <Badge variant="secondary" className="ml-1 text-sp-11">
                     {requestCookies.length}
                   </Badge>
                 </h4>
@@ -387,7 +387,7 @@ export default function NetworkEntryDetail({
                       }}
                     />
                   </div>
-                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                  <div className="flex justify-between text-sp-11 text-muted-foreground">
                     <span>0ms</span>
                     <span>500ms</span>
                     <span>1000ms</span>
@@ -401,7 +401,7 @@ export default function NetworkEntryDetail({
               <div className="flex items-center justify-between group">
                 <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                   Response Headers
-                  <Badge variant="secondary" className="ml-2 text-[10px]">
+                  <Badge variant="secondary" className="ml-2 text-sp-11">
                     {Object.keys(entry.response.headers).length}
                   </Badge>
                 </h4>
@@ -434,7 +434,7 @@ export default function NetworkEntryDetail({
                 <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
                   <CookieIcon className="h-3 w-3" />
                   Set-Cookie
-                  <Badge variant="secondary" className="ml-1 text-[10px]">
+                  <Badge variant="secondary" className="ml-1 text-sp-11">
                     {responseCookies.length}
                   </Badge>
                 </h4>
@@ -447,7 +447,7 @@ export default function NetworkEntryDetail({
                       </div>
                       {/* Attributes — only render when something was actually parsed,
                                 so the panel stays compact for typical cookies. */}
-                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground pl-[120px] ml-2">
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-sp-11 text-muted-foreground pl-[120px] ml-2">
                         {c.domain && (
                           <span>
                             Domain: <span className="text-sp-muted">{c.domain}</span>

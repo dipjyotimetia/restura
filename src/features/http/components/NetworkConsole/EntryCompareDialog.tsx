@@ -115,7 +115,7 @@ export default function EntryCompareDialog({
             <div key={idx} className="bg-background overflow-auto p-4 space-y-4 text-xs">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-semibold">
+                  <Badge variant="outline" className="text-sp-11 px-1.5 py-0 font-semibold">
                     {entry.request.method}
                   </Badge>
                   <span
@@ -143,7 +143,7 @@ export default function EntryCompareDialog({
                 <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
                   Request headers
                 </h4>
-                <div className="bg-muted/30 rounded p-2 font-mono text-[11px] space-y-0.5">
+                <div className="bg-muted/30 rounded p-2 font-mono text-sp-11 space-y-0.5">
                   {requestHeaderDiff.length === 0 ? (
                     <span className="text-muted-foreground">No headers</span>
                   ) : (
@@ -195,7 +195,7 @@ export default function EntryCompareDialog({
                 <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
                   Response headers
                 </h4>
-                <div className="bg-muted/30 rounded p-2 font-mono text-[11px] space-y-0.5">
+                <div className="bg-muted/30 rounded p-2 font-mono text-sp-11 space-y-0.5">
                   {responseHeaderDiff.length === 0 ? (
                     <span className="text-muted-foreground">No headers</span>
                   ) : (
@@ -260,7 +260,7 @@ export default function EntryCompareDialog({
           </div>
         )}
 
-        <div className="px-6 py-2 border-t border-border text-[11px] text-muted-foreground bg-muted/30">
+        <div className="px-6 py-2 border-t border-border text-sp-11 text-muted-foreground bg-muted/30">
           Highlighted rows show changed headers (side-by-side). Body changes are shown as a unified
           line diff below.
         </div>
@@ -275,13 +275,13 @@ function DiffSection({ title, entries }: { title: string; entries: LineDiffEntry
   const allEqual = entries.every((e) => e.op === 'equal');
   return (
     <div className="px-4 py-3 border-b border-border/60 last:border-b-0 space-y-1.5">
-      <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+      <h4 className="text-sp-11 font-semibold text-muted-foreground uppercase tracking-wider">
         {title}
       </h4>
       {allEqual ? (
-        <p className="text-[11px] text-muted-foreground italic">No differences.</p>
+        <p className="text-sp-11 text-muted-foreground italic">No differences.</p>
       ) : (
-        <div className="font-mono text-[11px] leading-relaxed rounded border border-border/60 bg-background/50 overflow-hidden">
+        <div className="font-mono text-sp-11 leading-relaxed rounded border border-border/60 bg-background/50 overflow-hidden">
           {entries.map((e, i) => (
             <div
               key={i}
