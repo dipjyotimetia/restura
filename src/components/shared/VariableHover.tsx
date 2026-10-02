@@ -1,7 +1,7 @@
 import type * as React from 'react';
 import { useCallback, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useVariableDetails } from '@/hooks/useVariableStatus';
+import { useVariableDetails, type VariableScope } from '@/hooks/useVariableStatus';
 import { HELPERS } from '@/lib/shared/dynamicVariables';
 import { variableSourceLabel } from '@/lib/shared/variableScopes';
 
@@ -16,9 +16,9 @@ interface HoverState {
  * is `pointer-events-none` so the input underneath stays fully editable; the
  * container hit-tests the overlay's `[data-var]` spans on mouse move instead.
  */
-export function useVariableHover() {
+export function useVariableHover(scope: VariableScope = 'request') {
   const [hover, setHover] = useState<HoverState | null>(null);
-  const details = useVariableDetails();
+  const details = useVariableDetails(scope);
   const byName = useMemo(() => new Map(details.map((d) => [d.name, d])), [details]);
 
   const onMouseMove = useCallback((e: React.MouseEvent<HTMLElement>) => {

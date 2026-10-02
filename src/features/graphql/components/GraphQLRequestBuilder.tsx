@@ -15,8 +15,8 @@ import { toast } from 'sonner';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Floater, type SubTab, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
@@ -438,12 +438,14 @@ function GraphQLRequestBuilder() {
           {isSubscription ? 'SUB' : 'POST'}
         </div>
         <span className="text-sp-dim font-mono text-sm select-none shrink-0">›</span>
-        <Input
+        <VariableUrlInput
           value={httpRequest.url}
-          onChange={(e) => updateRequest({ url: e.target.value })}
+          onValueChange={(url) => updateRequest({ url })}
+          variableScope="connection"
           placeholder={ECHO_URLS.graphql}
-          className="flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none placeholder:text-sp-dim"
           aria-label="GraphQL endpoint URL"
+          className="flex-1 h-7"
+          textClassName="px-2 text-sm"
         />
         <button
           type="button"

@@ -26,8 +26,10 @@ import { useRequestStore } from '@/store/useRequestStore';
  * the overlay can flag a genuine typo before the request fires — matching the
  * scopes the resolvers substitute, so validation and execution never disagree.
  */
-export function useVariableStatus(): (name: string) => VariableStatus {
-  const inputs = useActiveScopeInputs();
+export function useVariableStatus(
+  scope: VariableScope = 'request'
+): (name: string) => VariableStatus {
+  const inputs = useActiveScopeInputs(scope);
   const knownNames = useMemo(() => buildKnownNames(inputs), [inputs]);
 
   return useCallback(
@@ -45,13 +47,21 @@ export function useVariableStatus(): (name: string) => VariableStatus {
  * Every variable the active request can reference, with its resolved value,
  * winning scope and secret flag — for hover cards and `{{` autocomplete.
  */
-export function useVariableDetails(): VariableDetail[] {
-  const inputs = useActiveScopeInputs();
+export function useVariableDetails(scope: VariableScope = 'request'): VariableDetail[] {
+  const inputs = useActiveScopeInputs(scope);
   return useMemo(() => describeVariables(inputs), [inputs]);
 }
 
+/**
+ * Which resolver the field feeds: `request` is the HTTP/GraphQL send path
+ * (env chain, globals, collection, folders, script keys); `connection` is
+ * `useEnvironmentStore.resolveVariables` used by WS / Socket.IO / SSE / MCP /
+ * gRPC (active environment and globals only).
+ */
+export type VariableScope = 'request' | 'connection';
+
 /** Scopes the active tab's request resolves against, matching the send path. */
-function useActiveScopeInputs(): ScopeInputs {
+function useActiveScopeInputs(scope: VariableScope): ScopeInputs {
   const environments = useEnvironmentStore((s) => s.environments);
   const activeEnvironmentId = useEnvironmentStore((s) => s.activeEnvironmentId);
   const globals = useGlobalsStore((s) => s.vars);
@@ -73,17 +83,22 @@ function useActiveScopeInputs(): ScopeInputs {
   }, [activeEnvironmentId, environments]);
 
   return useMemo(
-    () => ({
-      baseEnvironment: environmentChain[0]?.variables,
-      subEnvironment: environmentChain[1]?.variables,
-      globals,
-      collection: collection?.variables,
-      folders:
-        savedRequestId && collection
-          ? findAncestorFolderVariables(collection.items, savedRequestId)
-          : undefined,
-      scriptSetKeys: parseScriptSetKeys(preRequestScript),
-    }),
-    [environmentChain, globals, collection, preRequestScript, savedRequestId]
+    () =>
+      scope === 'connection'
+        ? // useEnvironmentStore.resolveVariables: the active environment only
+          // (no parent chain), then globals.
+          { env: environmentChain[environmentChain.length - 1]?.variables, globals }
+        : {
+            baseEnvironment: environmentChain[0]?.variables,
+            subEnvironment: environmentChain[1]?.variables,
+            globals,
+            collection: collection?.variables,
+            folders:
+              savedRequestId && collection
+                ? findAncestorFolderVariables(collection.items, savedRequestId)
+                : undefined,
+            scriptSetKeys: parseScriptSetKeys(preRequestScript),
+          },
+    [scope, environmentChain, globals, collection, preRequestScript, savedRequestId]
   );
 }

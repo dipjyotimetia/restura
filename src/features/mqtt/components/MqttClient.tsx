@@ -15,10 +15,10 @@ import {
 } from '@/components/ui/select';
 import {
   ConnectionBadge,
+  type ConnectionTone,
   Floater,
   ProtoChip,
   VariableText,
-  type ConnectionTone,
 } from '@/components/ui/spatial';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -317,6 +317,7 @@ function MqttClient() {
             searchQuery={searchQuery}
             selectedMessage={selectedMessage}
             selectedMessageId={selectedMessageId}
+            filteredMessages={filteredMessages}
             visibleMessages={visibleMessages}
           />
 

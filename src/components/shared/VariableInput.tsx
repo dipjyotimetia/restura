@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/command';
 import { Input } from '@/components/ui/input';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
-import { useVariableDetails } from '@/hooks/useVariableStatus';
+import { useVariableDetails, type VariableScope } from '@/hooks/useVariableStatus';
 import { POSTMAN_VARIABLES } from '@/lib/shared/dynamicVariables';
 import { variableSourceLabel } from '@/lib/shared/variableScopes';
 
@@ -18,11 +18,24 @@ interface VariableInputProps extends React.InputHTMLAttributes<HTMLInputElement>
   value: string;
   onValueChange: (value: string) => void;
   rawInput?: boolean;
+  /** Which resolver the field feeds; limits suggestions to scopes it resolves. */
+  variableScope?: VariableScope;
 }
 
 export const VariableInput = React.forwardRef<HTMLInputElement, VariableInputProps>(
   (
-    { value, onValueChange, rawInput, className, onChange, onKeyDown, onSelect, onBlur, ...props },
+    {
+      value,
+      onValueChange,
+      rawInput,
+      variableScope = 'request',
+      className,
+      onChange,
+      onKeyDown,
+      onSelect,
+      onBlur,
+      ...props
+    },
     forwardedRef
   ) => {
     const [open, setOpen] = useState(false);
@@ -31,7 +44,7 @@ export const VariableInput = React.forwardRef<HTMLInputElement, VariableInputPro
     const internalRef = useRef<HTMLInputElement>(null);
     // Every scope the request resolves against (env, globals, collection,
     // folders, script-set keys), not just the active environment.
-    const variables = useVariableDetails();
+    const variables = useVariableDetails(variableScope);
 
     const checkVariableContext = (text: string, cursorPosition: number) => {
       const beforeCursor = text.slice(0, cursorPosition);

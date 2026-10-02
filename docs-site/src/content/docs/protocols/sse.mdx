@@ -10,8 +10,10 @@ A purpose-built viewer for `text/event-stream` endpoints. Connect, watch events 
 ## What works
 
 - **Connect** to any `text/event-stream` URL.
+- **`{{variables}}` in the URL** — autocompleted and highlighted (unresolved names are flagged). Resolved from the active environment and globals at connect time.
 - **Resume with `Last-Event-ID`** — toggle "Reconnect on resume" and reconnecting sends the last-seen `id:` back as the `Last-Event-ID` header, so a well-behaved server can pick up where it left off.
 - **Per-connection event-type filter** — narrow the view to a single event name; each connection keeps its own filter.
+- **Freeze & export the log** — freeze pauses the view while messages keep arriving (a counter shows how many are new; search and filters still apply), and export downloads the current filtered log as JSON or NDJSON (one message per line).
 - **Long-running session** — stays open until you disconnect; capped by your platform's connection budget.
 - **JSON pretty-printing** — when the event `data:` is valid JSON.
 - **Custom request headers + structured auth** — Basic, Bearer, API Key, and OAuth 2.0 (API-key-in-query supported) applied at connect. Restura does **not** use the browser `EventSource` API — the stream is proxied through the Worker on web and over IPC on desktop, so custom headers and auth work on **both** platforms. (Sign-at-wire schemes — AWS SigV4 / OAuth 1.0a / WSSE — are not applied to SSE.)
