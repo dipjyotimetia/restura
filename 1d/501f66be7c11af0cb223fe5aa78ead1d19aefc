@@ -1,0 +1,23 @@
+docs-site/src/content/docs/guides/keyboard-shortcuts.mdx
+  s_766edd634beb43::t_b011541075bff8 39-40
+docs-site/src/content/docs/protocols/sse.mdx
+  s_766edd634beb43::t_b011541075bff8 18
+docs-site/src/content/docs/protocols/websocket.mdx
+  s_766edd634beb43::t_b011541075bff8 17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1d501f66be7c11af0cb223fe5aa78ead1d19aefc",
+  "prompts": {},
+  "sessions": {
+    "s_766edd634beb43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9c66557-0bf1-4aa9-990d-ab0ef03d2e23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
