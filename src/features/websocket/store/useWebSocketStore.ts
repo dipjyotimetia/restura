@@ -79,9 +79,8 @@ interface WebSocketState {
   clearMessages: (connectionId: string) => void;
 
   // Headers
-  addHeader: (connectionId: string) => void;
-  updateHeader: (connectionId: string, headerId: string, updates: Partial<KeyValue>) => void;
-  removeHeader: (connectionId: string, headerId: string) => void;
+  /** Replace the whole header list (the key/value table drives edits through this). */
+  setHeaders: (connectionId: string, headers: KeyValue[]) => void;
 
   // Protocols
   setProtocols: (connectionId: string, protocols: string[]) => void;
@@ -300,60 +299,12 @@ export const useWebSocketStore = create<WebSocketState>()(
           };
         }),
 
-      addHeader: (connectionId) =>
+      setHeaders: (connectionId, headers) =>
         set((state) => {
           const connection = state.connections[connectionId];
           if (!connection) return state;
-
-          const newHeader: KeyValue = {
-            id: uuidv4(),
-            key: '',
-            value: '',
-            enabled: true,
-          };
-
           return {
-            connections: {
-              ...state.connections,
-              [connectionId]: {
-                ...connection,
-                headers: [...connection.headers, newHeader],
-              },
-            },
-          };
-        }),
-
-      updateHeader: (connectionId, headerId, updates) =>
-        set((state) => {
-          const connection = state.connections[connectionId];
-          if (!connection) return state;
-
-          return {
-            connections: {
-              ...state.connections,
-              [connectionId]: {
-                ...connection,
-                headers: connection.headers.map((h) =>
-                  h.id === headerId ? { ...h, ...updates } : h
-                ),
-              },
-            },
-          };
-        }),
-
-      removeHeader: (connectionId, headerId) =>
-        set((state) => {
-          const connection = state.connections[connectionId];
-          if (!connection) return state;
-
-          return {
-            connections: {
-              ...state.connections,
-              [connectionId]: {
-                ...connection,
-                headers: connection.headers.filter((h) => h.id !== headerId),
-              },
-            },
+            connections: { ...state.connections, [connectionId]: { ...connection, headers } },
           };
         }),
 

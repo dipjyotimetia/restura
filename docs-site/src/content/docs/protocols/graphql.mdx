@@ -15,6 +15,7 @@ GraphQL in Restura is HTTP underneath, but the editor knows the spec: it can int
 - **`{{variables}}` in the URL** — autocompleted and highlighted (unresolved names are flagged). Resolved from the active environment and globals at send time.
 - **Persisted queries** — send by hash if the server supports it.
 - **Authentication** — the same auth schemes as HTTP. Most teams ship a Bearer token here.
+- **Headers** — bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row; header values resolve `{{variables}}`.
 - **Subscriptions** — `graphql-ws` over a WebSocket, for servers that support it. Live events stream into the response panel. On desktop the `graphql-ws` socket is tunnelled over the WebSocket IPC bridge (the packaged CSP blocks renderer `ws:`/`wss:`), with header auth carried on the handshake.
 
 ## Subscriptions in depth

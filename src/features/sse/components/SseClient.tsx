@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import { KeyValueTable } from '@/components/shared/KeyValueTable';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
@@ -49,9 +49,7 @@ export default function SseClient() {
     updateConnectionUrl,
     setReconnectOnResume,
     clearLog,
-    addHeader,
-    updateHeader,
-    removeHeader,
+    setHeaders,
     setAuth,
     setSearchQuery,
     setEventNameFilter,
@@ -63,9 +61,7 @@ export default function SseClient() {
       updateConnectionUrl: s.updateConnectionUrl,
       setReconnectOnResume: s.setReconnectOnResume,
       clearLog: s.clearLog,
-      addHeader: s.addHeader,
-      updateHeader: s.updateHeader,
-      removeHeader: s.removeHeader,
+      setHeaders: s.setHeaders,
       setAuth: s.setAuth,
       setSearchQuery: s.setSearchQuery,
       setEventNameFilter: s.setEventNameFilter,
@@ -158,14 +154,13 @@ export default function SseClient() {
 
       {headersOpen && (
         <div className="border-b border-sp-line p-3 bg-sp-surface-lo">
-          <KeyValueEditor
+          <KeyValueTable
             items={active.headers}
-            onAdd={() => addHeader(active.id)}
-            onUpdate={(id, updates) => updateHeader(active.id, id, updates)}
-            onDelete={(id) => removeHeader(active.id, id)}
-            keyPlaceholder="Header name"
-            valuePlaceholder="Header value"
-            addButtonText="Add header"
+            onChange={(headers) => setHeaders(active.id, headers)}
+            itemLabel="header"
+            addLabel="Add header"
+            resolvesVariables="connection"
+            httpHeaders
           />
           <div className="pt-3 mt-3 border-t border-sp-line">
             <Label className="text-sp-11 text-sp-muted mb-2 block">Auth</Label>

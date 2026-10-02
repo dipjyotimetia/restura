@@ -85,14 +85,12 @@ interface SocketIOState {
   clearEvents: (connectionId: string) => void;
 
   // KeyValue helpers
-  addKv: (connectionId: string, field: 'auth' | 'query' | 'extraHeaders') => void;
-  updateKv: (
+  /** Replace a whole key/value list (the key/value table drives edits through this). */
+  setKv: (
     connectionId: string,
     field: 'auth' | 'query' | 'extraHeaders',
-    kvId: string,
-    updates: Partial<KeyValue>
+    items: KeyValue[]
   ) => void;
-  removeKv: (connectionId: string, field: 'auth' | 'query' | 'extraHeaders', kvId: string) => void;
 
   // Subscriptions
   addSubscribedEvent: (connectionId: string, eventName: string) => void;
@@ -300,46 +298,12 @@ export const useSocketIOStore = create<SocketIOState>()(
           };
         }),
 
-      addKv: (connectionId, field) =>
-        set((state) => {
-          const c = state.connections[connectionId];
-          if (!c) return state;
-          const kv: KeyValue = { id: uuidv4(), key: '', value: '', enabled: true };
-          return {
-            connections: {
-              ...state.connections,
-              [connectionId]: { ...c, [field]: [...c[field], kv] },
-            },
-          };
-        }),
-
-      updateKv: (connectionId, field, kvId, updates) =>
+      setKv: (connectionId, field, items) =>
         set((state) => {
           const c = state.connections[connectionId];
           if (!c) return state;
           return {
-            connections: {
-              ...state.connections,
-              [connectionId]: {
-                ...c,
-                [field]: c[field].map((kv) => (kv.id === kvId ? { ...kv, ...updates } : kv)),
-              },
-            },
-          };
-        }),
-
-      removeKv: (connectionId, field, kvId) =>
-        set((state) => {
-          const c = state.connections[connectionId];
-          if (!c) return state;
-          return {
-            connections: {
-              ...state.connections,
-              [connectionId]: {
-                ...c,
-                [field]: c[field].filter((kv) => kv.id !== kvId),
-              },
-            },
+            connections: { ...state.connections, [connectionId]: { ...c, [field]: items } },
           };
         }),
 

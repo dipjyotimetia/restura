@@ -2,7 +2,7 @@ import { Filter, Search, Send, Trash2, X } from 'lucide-react';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
-import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import { KeyValueTable } from '@/components/shared/KeyValueTable';
 import {
   FreezeToggle,
   LogExportMenu,
@@ -199,9 +199,7 @@ function SocketIOClient() {
     clearEvents,
     setEventFilter,
     setSearchQuery,
-    addKv,
-    updateKv,
-    removeKv,
+    setKv,
   } = useSocketIOStore(
     useShallow((s) => ({
       ensureConnectionForTab: s.ensureConnectionForTab,
@@ -210,9 +208,7 @@ function SocketIOClient() {
       clearEvents: s.clearEvents,
       setEventFilter: s.setEventFilter,
       setSearchQuery: s.setSearchQuery,
-      addKv: s.addKv,
-      updateKv: s.updateKv,
-      removeKv: s.removeKv,
+      setKv: s.setKv,
     }))
   );
 
@@ -429,30 +425,23 @@ function SocketIOClient() {
           <div>
             <span className="text-sp-11 font-medium text-sp-muted">Auth (handshake payload)</span>
             <div className="mt-1">
-              <KeyValueEditor
+              {/* Auth and query maps are sent as typed — no {{var}} resolution. */}
+              <KeyValueTable
                 items={connection.auth}
-                onAdd={() => addKv(activeConnectionId, 'auth')}
-                onUpdate={(id, updates) => updateKv(activeConnectionId, 'auth', id, updates)}
-                onDelete={(id) => removeKv(activeConnectionId, 'auth', id)}
-                keyPlaceholder="Key"
-                valuePlaceholder="Value (e.g. admin-token)"
-                addButtonText="Add auth field"
-                itemType="auth field"
+                onChange={(items) => setKv(activeConnectionId, 'auth', items)}
+                itemLabel="auth field"
+                addLabel="Add auth field"
               />
             </div>
           </div>
           <div>
             <span className="text-sp-11 font-medium text-sp-muted">Query params</span>
             <div className="mt-1">
-              <KeyValueEditor
+              <KeyValueTable
                 items={connection.query}
-                onAdd={() => addKv(activeConnectionId, 'query')}
-                onUpdate={(id, updates) => updateKv(activeConnectionId, 'query', id, updates)}
-                onDelete={(id) => removeKv(activeConnectionId, 'query', id)}
-                keyPlaceholder="Key"
-                valuePlaceholder="Value"
-                addButtonText="Add query param"
-                itemType="query param"
+                onChange={(items) => setKv(activeConnectionId, 'query', items)}
+                itemLabel="query param"
+                addLabel="Add query param"
               />
             </div>
           </div>

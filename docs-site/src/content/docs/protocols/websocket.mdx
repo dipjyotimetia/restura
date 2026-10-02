@@ -10,6 +10,7 @@ Restura's WebSocket client gives you a full session viewer: every frame sent and
 - **Connect** to `ws://` and `wss://` URLs.
 - **`{{variables}}` in the URL** — autocompleted and highlighted (unresolved names are flagged). Resolved from the active environment and globals at connect time.
 - **Subprotocols + handshake headers** — editable while disconnected (e.g. a `Sec-WebSocket-Protocol` such as `graphql-transport-ws`); the negotiated subprotocol is surfaced after the upgrade.
+- **Header table** — bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row. Handshake header values are sent exactly as typed (no `{{variable}}` resolution).
 - **Custom headers** during the upgrade — desktop only (sent natively via the main process); the browser `WebSocket` API can't set upgrade headers.
 - **Send text frames** with the editor; auto-detects JSON for pretty printing.
 - **Send binary frames** — paste hex, upload a file, or use a script.

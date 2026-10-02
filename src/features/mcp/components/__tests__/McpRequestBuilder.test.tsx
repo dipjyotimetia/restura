@@ -65,9 +65,7 @@ vi.mock('@/features/mcp/components/McpConnectionPanel', () => ({
     onToggleCatalog,
     onUrlChange,
     onTransportChange,
-    onAddHeader,
-    onUpdateHeader,
-    onRemoveHeader,
+    onHeadersChange,
   }: {
     connection: McpConnection;
     onConnect: () => Promise<void>;
@@ -76,9 +74,7 @@ vi.mock('@/features/mcp/components/McpConnectionPanel', () => ({
     onToggleCatalog: () => void;
     onUrlChange: (value: string) => void;
     onTransportChange: (value: McpConnection['transport']) => void;
-    onAddHeader: () => void;
-    onUpdateHeader: (id: string, updates: { key?: string; value?: string }) => void;
-    onRemoveHeader: (id: string) => void;
+    onHeadersChange: (headers: McpConnection['headers']) => void;
   }) => (
     <div>
       <span>{`${connection.id}:${connection.status}`}</span>
@@ -100,14 +96,13 @@ vi.mock('@/features/mcp/components/McpConnectionPanel', () => ({
       <button type="button" onClick={() => onTransportChange('http-sse')}>
         Change transport
       </button>
-      <button type="button" onClick={onAddHeader}>
-        Add header
-      </button>
-      <button type="button" onClick={() => onUpdateHeader('header-1', { value: 'changed' })}>
-        Update header
-      </button>
-      <button type="button" onClick={() => onRemoveHeader('header-1')}>
-        Remove header
+      <button
+        type="button"
+        onClick={() =>
+          onHeadersChange([{ id: 'header-1', key: 'x-token', value: 't', enabled: true }])
+        }
+      >
+        Set headers
       </button>
     </div>
   ),
@@ -378,20 +373,13 @@ describe('McpRequestBuilder client ownership', () => {
     act(() => {
       fireEvent.click(screen.getByRole('button', { name: 'Change URL' }));
       fireEvent.click(screen.getByRole('button', { name: 'Change transport' }));
-      fireEvent.click(screen.getByRole('button', { name: 'Add header' }));
-    });
-    const headerId = useMcpStore.getState().connections.first?.headers[0]?.id;
-    expect(headerId).toBeDefined();
-    if (!headerId) throw new Error('Expected header');
-    act(() => {
-      useMcpStore.getState().updateHeader('first', headerId, { key: 'x-token' });
-      fireEvent.click(screen.getByRole('button', { name: 'Remove header' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Set headers' }));
     });
 
     expect(useMcpStore.getState().connections.first).toMatchObject({
       url: 'https://changed.example/mcp',
       transport: 'http-sse',
-      headers: [{ id: headerId, key: 'x-token' }],
+      headers: [{ id: 'header-1', key: 'x-token', value: 't' }],
     });
   });
 });

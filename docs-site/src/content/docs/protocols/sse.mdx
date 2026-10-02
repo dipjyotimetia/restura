@@ -17,6 +17,7 @@ A purpose-built viewer for `text/event-stream` endpoints. Connect, watch events 
 - **Long-running session** — stays open until you disconnect; capped by your platform's connection budget.
 - **JSON pretty-printing** — when the event `data:` is valid JSON.
 - **Custom request headers + structured auth** — Basic, Bearer, API Key, and OAuth 2.0 (API-key-in-query supported) applied at connect. Restura does **not** use the browser `EventSource` API — the stream is proxied through the Worker on web and over IPC on desktop, so custom headers and auth work on **both** platforms. (Sign-at-wire schemes — AWS SigV4 / OAuth 1.0a / WSSE — are not applied to SSE.)
+- **Header table** — bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row; header values resolve `{{variables}}`.
 - **Code generation** — copy the connection as browser `EventSource` (no custom headers), `fetch` + `ReadableStream` (supports headers), or `curl -N`.
 
 ## Reconnection behavior
