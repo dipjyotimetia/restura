@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { KeyValueTable } from '@/components/shared/KeyValueTable';
+import { StreamSplit } from '@/components/shared/StreamSplit';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
@@ -138,47 +139,37 @@ export default function SseClient() {
 
   sendShortcut.current = !isStreaming && active.url.trim() ? handleConnect : null;
 
-  return (
-    <div className="flex flex-col h-full overflow-hidden bg-transparent">
-      <SseUrlBar
-        url={active.url}
-        onUrlChange={(v) => updateConnectionUrl(active.id, v)}
-        isStreaming={isConnected}
-        isConnecting={isConnecting}
-        onStream={handleConnect}
-        onStop={handleDisconnect}
-        headerCount={active.headers.length}
-        headersOpen={headersOpen}
-        onToggleHeaders={() => setHeadersOpen((s) => !s)}
+  // Headers / auth / resume options; when open they get a resizable pane
+  // above the log instead of pushing it down.
+  const configPanel = (
+    <div className="h-full overflow-auto p-3 bg-sp-surface-lo">
+      <KeyValueTable
+        items={active.headers}
+        onChange={(headers) => setHeaders(active.id, headers)}
+        itemLabel="header"
+        addLabel="Add header"
+        resolvesVariables="connection"
+        httpHeaders
       />
+      <div className="pt-3 mt-3 border-t border-sp-line">
+        <Label className="text-sp-11 text-sp-muted mb-2 block">Auth</Label>
+        <AuthConfiguration auth={active.auth} onChange={(a) => setAuth(active.id, a)} />
+      </div>
+      <div className="flex items-center gap-2 pt-3 mt-3 border-t border-sp-line">
+        <Switch
+          id="resume"
+          checked={active.reconnectOnResume}
+          onCheckedChange={(c) => setReconnectOnResume(active.id, c)}
+        />
+        <Label htmlFor="resume" className="text-sp-11 text-sp-muted">
+          Reconnect on resume (Last-Event-ID)
+        </Label>
+      </div>
+    </div>
+  );
 
-      {headersOpen && (
-        <div className="border-b border-sp-line p-3 bg-sp-surface-lo">
-          <KeyValueTable
-            items={active.headers}
-            onChange={(headers) => setHeaders(active.id, headers)}
-            itemLabel="header"
-            addLabel="Add header"
-            resolvesVariables="connection"
-            httpHeaders
-          />
-          <div className="pt-3 mt-3 border-t border-sp-line">
-            <Label className="text-sp-11 text-sp-muted mb-2 block">Auth</Label>
-            <AuthConfiguration auth={active.auth} onChange={(a) => setAuth(active.id, a)} />
-          </div>
-          <div className="flex items-center gap-2 pt-3 mt-3 border-t border-sp-line">
-            <Switch
-              id="resume"
-              checked={active.reconnectOnResume}
-              onCheckedChange={(c) => setReconnectOnResume(active.id, c)}
-            />
-            <Label htmlFor="resume" className="text-sp-11 text-sp-muted">
-              Reconnect on resume (Last-Event-ID)
-            </Label>
-          </div>
-        </div>
-      )}
-
+  const logPanel = (
+    <div className="flex min-h-0 flex-1 flex-col h-full">
       <SseStatsRow
         status={active.status}
         events={derived.eventCount}
@@ -213,6 +204,24 @@ export default function SseClient() {
           />
         </div>
       </div>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden bg-transparent">
+      <SseUrlBar
+        url={active.url}
+        onUrlChange={(v) => updateConnectionUrl(active.id, v)}
+        isStreaming={isConnected}
+        isConnecting={isConnecting}
+        onStream={handleConnect}
+        onStop={handleDisconnect}
+        headerCount={active.headers.length}
+        headersOpen={headersOpen}
+        onToggleHeaders={() => setHeadersOpen((s) => !s)}
+      />
+
+      {headersOpen ? <StreamSplit config={configPanel} log={logPanel} /> : logPanel}
     </div>
   );
 }
