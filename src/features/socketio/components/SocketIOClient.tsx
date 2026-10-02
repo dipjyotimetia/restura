@@ -1,8 +1,14 @@
-import { Download, Filter, Search, Send, Trash2, X } from 'lucide-react';
+import { Filter, Search, Send, Trash2, X } from 'lucide-react';
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import {
+  FreezeToggle,
+  LogExportMenu,
+  useFrozenView,
+} from '@/components/shared/messageLog/MessageLogControls';
+import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -24,6 +30,10 @@ import {
   VariableText,
 } from '@/components/ui/spatial';
 import { filterSocketIOEvents } from '@/features/socketio/lib/eventFilter';
+import {
+  socketioExportName,
+  socketioToLogEntries,
+} from '@/features/socketio/lib/socketioLogExport';
 import { socketioManager } from '@/features/socketio/lib/socketioManager';
 import {
   type SocketIOEventDirection,
@@ -212,6 +222,7 @@ function SocketIOClient() {
   const [emitError, setEmitError] = useState<string | null>(null);
   const [requestAck, setRequestAck] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [frozen, setFrozen] = useState(false);
   // null = auto (open only when something is configured); boolean = user override.
   const [configOpenOverride, setConfigOpenOverride] = useState<boolean | null>(null);
 
@@ -240,6 +251,7 @@ function SocketIOClient() {
 
   // Suppresses per-row entry animation while events arrive faster than ~10/s.
   const rapidStream = useRapidAppendFlag(rawEventsLength);
+  const { visible: visibleEvents, newCount } = useFrozenView(filteredEvents, frozen);
 
   const eventsScrollRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -296,18 +308,6 @@ function SocketIOClient() {
     setSelectedEventId(null);
   };
 
-  const handleExport = () => {
-    const blob = new Blob([JSON.stringify(filteredEvents, null, 2)], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `socketio-events-${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   // `addEvent` is destructured for parity with the WebSocket client but not yet
   // used here (events are appended by socketioManager); reference it to satisfy lint.
   void addEvent;
@@ -344,12 +344,14 @@ function SocketIOClient() {
             </span>
           ) : (
             <>
-              <Input
+              <VariableUrlInput
                 value={connection.url}
-                onChange={(e) => updateConnectionField(activeConnectionId, 'url', e.target.value)}
+                onValueChange={(url) => updateConnectionField(activeConnectionId, 'url', url)}
+                variableScope="connection"
                 placeholder="https://your-server.example.com"
-                className="h-7 flex-1 bg-transparent border-0 px-1 font-mono text-sp-13 text-sp-text shadow-none placeholder:italic focus-visible:ring-0 focus-visible:ring-offset-0"
                 aria-label="Socket.IO server URL"
+                className="h-7 flex-1"
+                textClassName="px-1 text-sp-13 placeholder:italic"
               />
               <Input
                 value={connection.namespace}
@@ -522,16 +524,14 @@ function SocketIOClient() {
                 <SelectItem value="ack">Acks</SelectItem>
               </SelectContent>
             </Select>
-            <button
-              type="button"
-              onClick={handleExport}
+            <FreezeToggle frozen={frozen} newCount={newCount} onChange={setFrozen} />
+            <LogExportMenu
+              entries={() => socketioToLogEntries(filteredEvents)}
+              name={socketioExportName(connection.url)}
+              meta={{ protocol: 'socket.io', url: connection.url }}
+              label="Download events"
               disabled={connection.events.length === 0}
-              aria-label="Download events"
-              title="Export events as JSON"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-sp-btn text-sp-muted hover:bg-sp-hover hover:text-sp-text disabled:opacity-50"
-            >
-              <Download className="h-3.5 w-3.5" />
-            </button>
+            />
             <button
               type="button"
               onClick={handleClear}
@@ -560,14 +560,14 @@ function SocketIOClient() {
             className="flex-1 min-h-0 overflow-auto font-mono"
             data-stream-rapid={rapidStream || undefined}
           >
-            {filteredEvents.length === 0 ? (
+            {visibleEvents.length === 0 ? (
               <div className="py-10 text-center text-sp-dim text-sp-12">
                 {connection.events.length === 0
                   ? 'No events yet. Connect and emit to see them here.'
                   : 'No events match the current filter.'}
               </div>
             ) : (
-              filteredEvents.map((event) => {
+              visibleEvents.map((event) => {
                 const selected = event.id === selectedEventId;
                 return (
                   <button

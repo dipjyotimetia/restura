@@ -1,8 +1,8 @@
 import { ChevronDown, ChevronRight, PanelLeft, Play, RefreshCw, Square } from 'lucide-react';
 import { useState } from 'react';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Floater, ProtoChip, Segmented, VariableText } from '@/components/ui/spatial';
 import type { McpConnection } from '@/features/mcp/store/useMcpStore';
 import { cn } from '@/lib/shared/utils';
@@ -61,13 +61,15 @@ export function McpConnectionPanel({
               <VariableText text={connection.url} emptyLabel="No URL" />
             </div>
           ) : (
-            <Input
+            <VariableUrlInput
               placeholder="https://mcp.example.com/v1/server"
               value={connection.url}
-              onChange={(event) => onUrlChange(event.target.value)}
+              onValueChange={onUrlChange}
+              variableScope="connection"
               disabled={isBusy}
-              className="flex-1 min-w-[140px] h-7 bg-transparent border-0 font-mono text-sp-12 text-sp-text px-1 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none placeholder:text-sp-dim placeholder:italic"
               aria-label="MCP server URL"
+              className="flex-1 min-w-[140px] h-7"
+              textClassName="px-1 text-sp-12 placeholder:italic"
             />
           )}
           <ConnectionPill status={connection.status} />

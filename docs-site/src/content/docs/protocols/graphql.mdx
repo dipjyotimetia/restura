@@ -12,6 +12,7 @@ GraphQL in Restura is HTTP underneath, but the editor knows the spec: it can int
 - **Introspection** — "Refresh Schema" against any GraphQL endpoint; Restura fetches the schema and uses it for completion and validation. Runs through the shared proxy (so it carries the request's auth + TLS/proxy config and works on desktop, where a direct fetch is CSP-blocked).
 - **Query / Mutation / Subscription** — operation type detected from the document.
 - **Variables** — separate JSON editor; resolves environment placeholders (`{{userId}}`).
+- **`{{variables}}` in the URL** — autocompleted and highlighted (unresolved names are flagged). Resolved from the active environment and globals at send time.
 - **Persisted queries** — send by hash if the server supports it.
 - **Authentication** — the same auth schemes as HTTP. Most teams ship a Bearer token here.
 - **Subscriptions** — `graphql-ws` over a WebSocket, for servers that support it. Live events stream into the response panel. On desktop the `graphql-ws` socket is tunnelled over the WebSocket IPC bridge (the packaged CSP blocks renderer `ws:`/`wss:`), with header auth carried on the handshake.

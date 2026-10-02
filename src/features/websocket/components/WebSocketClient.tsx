@@ -1,9 +1,15 @@
-import { Download, Filter, Search, Send, Trash2, X } from 'lucide-react';
+import { Filter, Search, Send, Trash2, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import {
+  FreezeToggle,
+  LogExportMenu,
+  useFrozenView,
+} from '@/components/shared/messageLog/MessageLogControls';
+import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -26,6 +32,7 @@ import {
   VariableText,
 } from '@/components/ui/spatial';
 import { websocketManager } from '@/features/websocket/lib/websocketManager';
+import { wsExportName, wsToLogEntries } from '@/features/websocket/lib/wsLogExport';
 import type { WebSocketMessageType } from '@/features/websocket/store/useWebSocketStore';
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
@@ -134,6 +141,7 @@ function WebSocketClient() {
   const [message, setMessage] = useState('');
   const [sendFormat, setSendFormat] = useState<SendFormat>('json');
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
+  const [frozen, setFrozen] = useState(false);
   // null = auto (open only when something is configured); boolean = user override.
   const [configOpenOverride, setConfigOpenOverride] = useState<boolean | null>(null);
 
@@ -196,6 +204,8 @@ function WebSocketClient() {
   // Suppresses per-row entry animation while messages arrive faster than ~10/s.
   // Must sit above the early return below (rules of hooks).
   const rapidStream = useRapidAppendFlag(connection?.messages.length ?? 0);
+  const filteredMessages = activeConnectionId ? getFilteredMessages(activeConnectionId) : [];
+  const { visible: visibleMessages, newCount } = useFrozenView(filteredMessages, frozen);
 
   if (!connection || !activeConnectionId) {
     return (
@@ -255,34 +265,6 @@ function WebSocketClient() {
     setSelectedMessageId(null);
   };
 
-  const handleExportMessages = () => {
-    const messages = connection.messages.map((msg) => ({
-      timestamp: new Date(msg.timestamp).toISOString(),
-      type: msg.type,
-      dataType: msg.dataType,
-      content: msg.content,
-    }));
-
-    const exportData = {
-      url: connection.url,
-      protocols: connection.protocols,
-      exportedAt: new Date().toISOString(),
-      messageCount: messages.length,
-      messages,
-    };
-
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `websocket-messages-${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const filteredMessages = getFilteredMessages(activeConnectionId);
   const selectedMessage =
     (selectedMessageId && connection.messages.find((m) => m.id === selectedMessageId)) || null;
 
@@ -311,12 +293,14 @@ function WebSocketClient() {
               <VariableText text={connection.url} />
             </span>
           ) : (
-            <Input
+            <VariableUrlInput
               value={connection.url}
-              onChange={(e) => updateConnectionUrl(activeConnectionId, e.target.value)}
+              onValueChange={(url) => updateConnectionUrl(activeConnectionId, url)}
+              variableScope="connection"
               placeholder={ECHO_URLS.websocket}
-              className="h-7 flex-1 bg-transparent border-0 px-1 font-mono text-sp-13 text-sp-text shadow-none placeholder:italic focus-visible:ring-0 focus-visible:ring-offset-0"
               aria-label="WebSocket URL"
+              className="h-7 flex-1"
+              textClassName="px-1 text-sp-13 placeholder:italic"
             />
           )}
         </div>
@@ -490,16 +474,13 @@ function WebSocketClient() {
                 <SelectItem value="system">System</SelectItem>
               </SelectContent>
             </Select>
-            <button
-              type="button"
-              onClick={handleExportMessages}
+            <FreezeToggle frozen={frozen} newCount={newCount} onChange={setFrozen} />
+            <LogExportMenu
+              entries={() => wsToLogEntries(filteredMessages)}
+              name={wsExportName(connection.url)}
+              meta={{ protocol: 'websocket', url: connection.url, protocols: connection.protocols }}
               disabled={connection.messages.length === 0}
-              aria-label="Download messages"
-              title="Export messages as JSON"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-sp-btn text-sp-muted hover:bg-sp-hover hover:text-sp-text disabled:opacity-50"
-            >
-              <Download className="h-3.5 w-3.5" />
-            </button>
+            />
             <button
               type="button"
               onClick={handleClearMessages}
@@ -528,14 +509,14 @@ function WebSocketClient() {
             className="flex-1 min-h-0 overflow-auto font-mono"
             data-stream-rapid={rapidStream || undefined}
           >
-            {filteredMessages.length === 0 ? (
+            {visibleMessages.length === 0 ? (
               <div className="py-10 text-center text-sp-dim text-sp-12">
                 {connection.messages.length === 0
                   ? 'No messages yet. Connect and start sending.'
                   : 'No messages match the current filter.'}
               </div>
             ) : (
-              filteredMessages.map((msg) => {
+              visibleMessages.map((msg) => {
                 const selected = msg.id === selectedMessageId;
                 return (
                   <button

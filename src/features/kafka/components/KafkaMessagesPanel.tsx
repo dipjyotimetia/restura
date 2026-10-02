@@ -1,5 +1,6 @@
 import { Activity, Pause, Play, RefreshCw, Search } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { LogExportMenu } from '@/components/shared/messageLog/MessageLogControls';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,11 +14,12 @@ import {
 } from '@/components/ui/select';
 import { CodeEditorFrame, ConnectionBadge, Floater, Stat } from '@/components/ui/spatial';
 import { TabsContent } from '@/components/ui/tabs';
+import { kafkaToLogEntries } from '@/features/kafka/lib/kafkaLogExport';
 import type { KafkaMessage } from '@/features/kafka/store/useKafkaStore';
 import { useKafkaStore } from '@/features/kafka/store/useKafkaStore';
+import { getElectronAPI } from '@/lib/shared/platform';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn } from '@/lib/shared/utils';
-import { getElectronAPI } from '@/lib/shared/platform';
 import type { KafkaConnection } from '../store/useKafkaStore';
 import { KAFKA_PINK, partitionColor } from './shared';
 
@@ -204,6 +206,12 @@ export function KafkaMessagesPanel({
                 </>
               )}
             </Button>
+            <LogExportMenu
+              entries={() => kafkaToLogEntries(filteredMessages)}
+              name={`${connection.name}-kafka`}
+              meta={{ protocol: 'kafka', brokers: connection.bootstrapBrokers }}
+              disabled={filteredMessages.length === 0}
+            />
             <Button
               size="sm"
               variant="ghost"

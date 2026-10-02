@@ -1,6 +1,12 @@
 import { Search, Trash2 } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import {
+  FreezeToggle,
+  LogExportMenu,
+  useFrozenView,
+} from '@/components/shared/messageLog/MessageLogControls';
 import { Floater } from '@/components/ui/spatial';
+import { sseToLogEntries } from '@/features/sse/lib/sseLogExport';
 import type { SseLogEntry } from '@/features/sse/store/useSseStore';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn } from '@/lib/shared/utils';
@@ -13,6 +19,8 @@ export interface SseEventTimelineProps {
   onEventNameFilterChange: (v: string) => void;
   eventNames: string[];
   onClearLog: () => void;
+  /** Base file name for exports, e.g. the stream URL's host. */
+  exportName?: string;
 }
 
 interface EventStyle {
@@ -89,16 +97,19 @@ export function SseEventTimeline({
   onEventNameFilterChange,
   eventNames,
   onClearLog,
+  exportName = 'sse-stream',
 }: SseEventTimelineProps) {
   const listRef = useRef<HTMLDivElement>(null);
+  const [frozen, setFrozen] = useState(false);
+  const { visible, newCount } = useFrozenView(log, frozen);
   // Suppresses per-row entry animation while events arrive faster than ~10/s
   // (token streams would otherwise animate every chunk).
   const rapidStream = useRapidAppendFlag(log.length);
 
-  // Auto-scroll to bottom when new entries arrive.
+  // Auto-scroll to bottom when new entries arrive (not while frozen).
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, [log.length]);
+  }, [visible.length]);
 
   return (
     <Floater
@@ -108,16 +119,16 @@ export function SseEventTimeline({
       style={{ flex: 1.4, minWidth: 0 }}
     >
       {/* Header: title + legend + filters */}
-      <div className="flex items-center gap-3 px-4 h-11 border-b border-sp-line shrink-0">
-        <span className="sp-label">Event timeline</span>
-        <div className="flex items-center gap-3 ml-2">
+      <div className="@container flex items-center gap-3 px-4 h-11 border-b border-sp-line shrink-0 min-w-0">
+        <span className="sp-label shrink-0">Event timeline</span>
+        <div className="hidden @3xl:flex items-center gap-3 ml-2">
           <LegendDot name="message" />
           <LegendDot name="progress" />
           <LegendDot name="token" />
           <LegendDot name="done" />
         </div>
-        <div className="ml-auto flex items-center gap-2">
-          <div className="inline-flex items-center gap-1.5 h-7 px-2 rounded-sp-btn border border-sp-line bg-sp-surface-lo">
+        <div className="ml-auto flex min-w-0 items-center gap-2">
+          <div className="inline-flex min-w-0 items-center gap-1.5 h-7 px-2 rounded-sp-btn border border-sp-line bg-sp-surface-lo">
             <Search className="h-3.5 w-3.5 text-sp-dim" />
             <input
               type="text"
@@ -125,7 +136,7 @@ export function SseEventTimeline({
               onChange={(e) => onSearchChange(e.target.value)}
               placeholder="Search"
               aria-label="Search events"
-              className="bg-transparent outline-none text-sp-12 text-sp-text placeholder:text-sp-dim w-40"
+              className="bg-transparent outline-none text-sp-12 text-sp-text placeholder:text-sp-dim w-20 @xl:w-40"
             />
           </div>
           <select
@@ -141,6 +152,13 @@ export function SseEventTimeline({
               </option>
             ))}
           </select>
+          <FreezeToggle frozen={frozen} newCount={newCount} onChange={setFrozen} />
+          <LogExportMenu
+            entries={() => sseToLogEntries(log)}
+            name={exportName}
+            meta={{ protocol: 'sse' }}
+            label="Download events"
+          />
           <button
             type="button"
             onClick={onClearLog}
@@ -177,7 +195,7 @@ export function SseEventTimeline({
           </div>
         ) : (
           <ul className="space-y-1.5 relative">
-            {log.map((entry) => {
+            {visible.map((entry) => {
               if (entry.kind === 'system') {
                 return (
                   <li

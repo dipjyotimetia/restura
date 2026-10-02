@@ -5,6 +5,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
+import { sseExportName } from '@/features/sse/lib/sseLogExport';
 import { sseManager } from '@/features/sse/lib/sseManager';
 import { createSseStreamSummary, getSseSummaryView } from '@/features/sse/lib/streamSummary';
 import { useSseStore } from '@/features/sse/store/useSseStore';
@@ -200,6 +201,7 @@ export default function SseClient() {
           onEventNameFilterChange={(v) => setEventNameFilter(active.id, v)}
           eventNames={derived.eventNames}
           onClearLog={() => clearLog(active.id)}
+          exportName={sseExportName(active.url)}
         />
         <div className="flex flex-col gap-2.5 min-h-0">
           <SseAssembledOutput

@@ -3,18 +3,9 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Code2, Link2, Loader2, Send } from 'lucide-react';
 import { useState } from 'react';
-import { useVariableHover } from '@/components/shared/VariableHover';
-import { VariableInput } from '@/components/shared/VariableInput';
+import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
-import {
-  Floater,
-  hasVariableToken,
-  Kbd,
-  MethodChip,
-  methodLabel,
-  VariableText,
-} from '@/components/ui/spatial';
-import { useVariableStatus } from '@/hooks/useVariableStatus';
+import { Floater, hasVariableToken, Kbd, MethodChip, methodLabel } from '@/components/ui/spatial';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { modLabel } from '@/lib/shared/shortcuts';
 import { cn } from '@/lib/shared/utils';
@@ -79,8 +70,6 @@ export function UrlBar({
   // mid-edit. The draft is discarded on blur.
   const [draft, setDraft] = useState<string | null>(null);
   const shownUrl = draft ?? url;
-  const getVarStatus = useVariableStatus();
-  const variableHover = useVariableHover();
 
   const validateUrl = (newUrl: string) => {
     if (!newUrl) {
@@ -176,47 +165,19 @@ export function UrlBar({
           </DropdownMenu.Root>
 
           {/* URL field with variable highlight overlay */}
-          <div
-            className="relative flex-1 min-w-0 h-7 flex items-center"
-            onMouseMove={variableHover.onMouseMove}
-            onMouseLeave={variableHover.onMouseLeave}
-          >
-            {variableHover.card}
-            <VariableInput
-              rawInput
-              type="text"
-              value={shownUrl}
-              onValueChange={handleUrlChange}
-              onKeyDown={handleKeyDown}
-              onPaste={handlePaste}
-              onBlur={() => setDraft(null)}
-              placeholder={ECHO_URLS.http}
-              spellCheck={false}
-              aria-label="Request URL"
-              aria-invalid={!!urlError}
-              aria-describedby={urlError ? 'url-error' : undefined}
-              className={cn(
-                'w-full bg-transparent outline-none font-mono text-sp-13 tabular-nums caret-sp-accent',
-                'placeholder:text-sp-dim',
-                urlError ? 'text-rose-400' : 'text-sp-text',
-                // Make the visible glyphs transparent only when we have a
-                // {{var}} to overlay-render; otherwise show the raw input.
-                hasVariableToken(shownUrl) && !urlError && 'text-transparent caret-sp-accent'
-              )}
-            />
-            {hasVariableToken(shownUrl) && !urlError && (
-              <div
-                aria-hidden="true"
-                className="absolute inset-0 pointer-events-none flex items-center overflow-hidden"
-              >
-                <VariableText
-                  text={shownUrl}
-                  getStatus={getVarStatus}
-                  className="font-mono text-sp-13 text-sp-text tabular-nums whitespace-pre"
-                />
-              </div>
-            )}
-          </div>
+          <VariableUrlInput
+            value={shownUrl}
+            onValueChange={handleUrlChange}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            onBlur={() => setDraft(null)}
+            placeholder={ECHO_URLS.http}
+            aria-label="Request URL"
+            aria-describedby={urlError ? 'url-error' : undefined}
+            invalid={!!urlError}
+            className="flex-1 h-7"
+            textClassName="text-sp-13"
+          />
 
           {/* Inline icon affordances */}
           <div className="flex items-center gap-0.5 shrink-0 pr-1">

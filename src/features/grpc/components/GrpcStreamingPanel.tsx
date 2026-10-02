@@ -1,7 +1,12 @@
 import { ArrowDown, ArrowUp, Play, Send, Square, StopCircle } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import {
+  MessageLogToolbar,
+  useFrozenView,
+} from '@/components/shared/messageLog/MessageLogControls';
 import { Button } from '@/components/ui/button';
+import { filterLog, type LogDirection, type LogEntry } from '@/lib/shared/messageLog';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import type { GrpcRequest, GrpcStatusCode } from '@/types';
@@ -18,10 +23,11 @@ export interface GrpcStreamingPanelProps {
 
 type Status = 'idle' | 'streaming' | 'awaiting-response' | 'closed' | 'error';
 
-interface FrameEntry {
+interface FrameEntry extends LogEntry {
   direction: 'in' | 'out';
   payload: unknown;
-  timestamp: number;
+  /** 1-based position in the stream, kept stable when the view is filtered. */
+  seq: number;
 }
 
 const MAX_MESSAGES = 500;
@@ -55,10 +61,26 @@ export function GrpcStreamingPanel({
 
   const pushFrame = (direction: FrameEntry['direction'], payload: unknown) => {
     setFrames((prev) => {
-      const next = [...prev, { direction, payload, timestamp: Date.now() }];
+      const frame: FrameEntry = {
+        id: uuidv4(),
+        direction,
+        payload,
+        body: JSON.stringify(payload, null, 2),
+        timestamp: Date.now(),
+        seq: (prev[prev.length - 1]?.seq ?? 0) + 1,
+      };
+      const next = [...prev, frame];
       return next.length > MAX_MESSAGES ? next.slice(-MAX_MESSAGES) : next;
     });
   };
+  const [query, setQuery] = useState('');
+  const [directionFilter, setDirectionFilter] = useState<LogDirection | 'all'>('all');
+  const [frozen, setFrozen] = useState(false);
+  const filteredFrames = useMemo(
+    () => filterLog(frames, { query, direction: directionFilter }),
+    [frames, query, directionFilter]
+  );
+  const { visible: visibleFrames, newCount } = useFrozenView(filteredFrames, frozen);
 
   // Mirror streaming traffic into the unified console Frames tab so web gRPC
   // streams show up alongside the desktop path (GrpcRequestBuilder) and the
@@ -285,7 +307,26 @@ export function GrpcStreamingPanel({
         </div>
       )}
 
+      <MessageLogToolbar
+        query={query}
+        onQueryChange={setQuery}
+        direction={directionFilter}
+        onDirectionChange={setDirectionFilter}
+        directions={interactive ? ['in', 'out'] : ['in']}
+        frozen={frozen}
+        newCount={newCount}
+        onFrozenChange={setFrozen}
+        exportEntries={() => filteredFrames}
+        exportName={`${request.service}-${request.method}-stream`}
+        exportMeta={{ protocol: 'grpc', method: `${request.service}/${request.method}` }}
+        onClear={() => setFrames([])}
+        hasEntries={frames.length > 0}
+      />
+
       <div className="flex-1 overflow-y-auto p-3 font-mono text-xs space-y-2">
+        {frames.length > 0 && visibleFrames.length === 0 && (
+          <div className="text-muted-foreground italic">No messages match the current filter.</div>
+        )}
         {frames.length === 0 && status !== 'error' && (
           <div className="text-muted-foreground italic">
             {interactive
@@ -293,11 +334,11 @@ export function GrpcStreamingPanel({
               : 'No messages yet. Click Start.'}
           </div>
         )}
-        {frames.map((frame, i) => {
+        {visibleFrames.map((frame) => {
           const outbound = frame.direction === 'out';
           return (
             <div
-              key={i}
+              key={frame.id}
               className={[
                 'border-b border-border/30 pb-2 last:border-b-0',
                 outbound ? 'pl-2 border-l-2 border-l-blue-500/50' : '',
@@ -309,18 +350,16 @@ export function GrpcStreamingPanel({
                 {outbound ? (
                   <>
                     <ArrowUp className="size-2.5" />
-                    <span>Sent #{i + 1}</span>
+                    <span>Sent #{frame.seq}</span>
                   </>
                 ) : (
                   <>
                     <ArrowDown className="size-2.5" />
-                    <span>Received #{i + 1}</span>
+                    <span>Received #{frame.seq}</span>
                   </>
                 )}
               </div>
-              <pre className="whitespace-pre-wrap break-all">
-                {JSON.stringify(frame.payload, null, 2)}
-              </pre>
+              <pre className="whitespace-pre-wrap break-all">{frame.body}</pre>
             </div>
           );
         })}
