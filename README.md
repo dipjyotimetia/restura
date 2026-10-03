@@ -50,7 +50,7 @@ No account. No cloud sync. Your collections, history, and environments stay in l
 | **Bring your existing work** | Import Postman v2.1, Insomnia, OpenAPI 3.x / Swagger 2.0, Hoppscotch, and Bruno collections. Export when you need to move on. |
 | **Reuse requests safely** | Organise collections and environments; inherit auth; switch `{{base_url}}` between staging and production without copying requests. |
 | **Automate without a fragile script runner** | Run pre-request and test scripts in a bounded QuickJS WASM sandbox with no DOM, filesystem, or network access. Build portable workflows from saved HTTP and GraphQL requests. |
-| **Keep authentication close to the wire** | Configure Basic, Bearer, API Key, Digest, NTLM, OAuth 1.0a/2.0, WSSE, AWS SigV4, and more. Desktop also supports mTLS, custom CAs, and SOCKS. |
+| **Keep authentication close to the wire** | Send with Basic, Bearer, API Key, OAuth 2.0 (with PKCE and token refresh), OAuth 1.0a, WSSE, and AWS SigV4. Desktop also supports mTLS, custom CAs, and SOCKS. Digest and NTLM can be selected and saved, but are not yet applied when sending. |
 | **Work with AI on sensitive requests** | Desktop AI chat and AI Lab use request context with secrets and internal URLs redacted before provider calls. Evaluate prompts, models, and bounded agent suites locally. |
 | **Use MCP in both directions** | Inspect MCP server traffic as a client, or expose permitted Restura collections through Restura’s MCP server mode. |
 
@@ -96,7 +96,7 @@ docker compose up -d --build
 curl -fs http://localhost:3000/health
 ```
 
-Read [Self-hosting](docs/SELF_HOSTING.md) before deploying: it covers authentication modes, reverse-proxy configuration, internal-network access, rate limits, and health checks.
+Read [Self-hosting](docs/SELF_HOSTING.md) before deploying: it covers authentication modes, reverse-proxy configuration, internal-network access, rate limits, and health checks. Note that the stock image's web UI does not send `WORKER_PROXY_TOKEN`, so browser use needs reverse-proxy auth — see [Auth modes](docs/SELF_HOSTING.md#auth-modes).
 
 ## Built to keep request data under your control
 

@@ -1,11 +1,11 @@
 ---
 title: Authentication
-description: Every supported auth scheme — Bearer, Basic, API Key, OAuth 2.0, OAuth 1.0a, AWS SigV4, Digest, NTLM, WSSE, and mTLS.
+description: Every auth scheme Restura applies on send — Bearer, Basic, API Key, OAuth 2.0, OAuth 1.0a, AWS SigV4, WSSE, and mTLS — plus the configurable-only Digest and NTLM.
 ---
 
 import { Badge, Aside } from '@astrojs/starlight/components';
 
-Auth lives on each request and inherits from the parent collection by default — set it once on the folder, every request below uses it. Auth signing happens **at the wire** (Cloudflare Worker on web, Electron main process on desktop), so the signature matches the exact bytes the upstream receives.
+Auth lives on each request and inherits from the parent collection by default — set it once on the folder, every request below uses it. Schemes whose signature depends on the final URL or body bytes (AWS SigV4, OAuth 1.0a, WSSE) are signed **at the wire** (Cloudflare Worker on web, Electron main process on desktop), so the signature matches the exact bytes the upstream receives. Header-shaped schemes (Bearer, Basic, API Key, OAuth 2.0) are applied before dispatch — in the main process when the secret is a desktop keychain handle.
 
 ## Supported schemes
 
@@ -19,7 +19,7 @@ Username + password, base64-encoded. Stored as a `SecretRef` (handle, never plai
 
 ### API Key
 
-Choose where the key lives — header, query string, cookie — and what name (default `X-API-Key`).
+Choose where the key lives — a header or a query parameter — and its name.
 
 ### OAuth 2.0
 
@@ -40,17 +40,13 @@ Full HMAC-SHA1 signing per request — useful for legacy APIs (Twitter v1, Magen
 
 For AWS APIs (S3, DynamoDB, EC2, etc.). Pick the region and service; Restura computes the canonical request and signs at the wire. Works across HTTP, gRPC (Connect), and SSE.
 
-### Digest
-
-Two-step Digest auth: Restura sends the first request, reads the `WWW-Authenticate` challenge, and sends the signed second request automatically.
-
-### NTLM <Badge text="desktop only" variant="caution" />
-
-NTLM v2 handshake — three-way (negotiate → challenge → authenticate). Common for on-prem Microsoft stacks. The browser/Worker path emits a warning instead.
-
 ### WSSE
 
-`PasswordDigest` and `PasswordText` variants. Common for SOAP-y APIs.
+`X-WSSE` UsernameToken header with `PasswordDigest` (default — fresh nonce and timestamp per send) or `PasswordText`. Common for SOAP-y APIs. Signed at the wire.
+
+### Digest and NTLM <Badge text="not yet sent" variant="caution" />
+
+You can select Digest or NTLM, fill in the credentials, and they are saved and inherited like any other scheme (several importers also map them). **Restura does not yet perform the Digest or NTLM challenge/response when sending**, so requests go out without an `Authorization` header for these schemes. Use Basic, a pre-computed header, or another tool for these upstreams until support lands.
 
 ### mTLS (client certificates) <Badge text="desktop only" variant="caution" />
 

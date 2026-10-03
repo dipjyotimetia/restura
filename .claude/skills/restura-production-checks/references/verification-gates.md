@@ -23,7 +23,7 @@ tsc --noEmit -p electron/tsconfig.json                # Electron main process
 tsc --noEmit -p src/features/http/tsconfig.json       # http feature project
 tsc --noEmit -p worker/tsconfig.json                  # Cloudflare Worker
 tsc --noEmit -p echo/tsconfig.json                    # echo test server
-npm run --workspace cli type-check                    # @restura/cli workspace
+npm run --workspace cli type-check                    # restura-cli workspace
 ```
 
 Root `tsconfig.json` `exclude` = `node_modules, dist, out, worker, electron/main, cli, docs-site`. That exclusion is the whole reason `type-check:all` exists.

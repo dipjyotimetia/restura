@@ -57,13 +57,18 @@ npm run echo:local -- manifest              # write + print the manifest, then e
 | HTTPS | `https://localhost:8443` | CA-signed server cert |
 | HTTPS mTLS | `https://localhost:8444` | Requires a client cert; `GET /mtls/whoami` confirms it |
 | HTTP proxy | `http://localhost:8888` | Forward + CONNECT |
+| SOCKS proxy | `socks5://localhost:1080` | SOCKS5 CONNECT; MQTT global-proxy verification |
 | gRPC | `grpc://localhost:50051` | `echo.v1.EchoService`, reflection on |
 | WebSocket | `ws://localhost:8085/echo` | Also `/chat`, `/graphql`, `/ping`, `/close` |
 | Secure WebSocket | `wss://localhost:8543/echo` | Same paths over TLS (CA-signed); the packaged desktop CSP allows `wss:` only |
 | Socket.IO | `http://localhost:8086` | Namespaces `/`, `/chat`, `/admin` |
 | MCP | `http://localhost:8087/mcp` | Streamable-http |
 | MQTT | `mqtt://localhost:1883` / `mqtts://localhost:8883` | EMQX MQTT 5 (Docker); dashboard on `:18083` (`admin`/`public`) |
-| Kafka | `localhost:9092` | Redpanda (Docker) |
+| Kafka | `localhost:9092` | Redpanda PLAINTEXT (Docker) |
+| Kafka SSL | `localhost:9093` | TLS, no SASL; self-signed broker cert (verify-SSL off) |
+| Kafka SASL | `localhost:9094` | SASL_PLAINTEXT, SCRAM-SHA-256 (`restura` / `restura-secret`) |
+| Kafka SASL_SSL | `localhost:9095` | SCRAM-SHA-256 over TLS; self-signed broker cert (verify-SSL off) |
+| Schema Registry | `http://localhost:8081` | Confluent-compatible, bundled with Redpanda, no auth |
 
 Only MQTT (EMQX) and Kafka (Redpanda) need Docker — start them with `docker compose -f echo-local/docker-compose.yml up -d`. Everything else runs in-process via `npm run echo:local`.
 
@@ -81,8 +86,10 @@ These are the values echo-local's routes validate (most from `TEST_AUTH_FIXTURES
 | Scheme | Credentials |
 | --- | --- |
 | OAuth2 client | `restura-client` / `restura-secret` |
-| User (password / basic / digest) | `alice` / `wonderland` |
+| User (password / basic) | `alice` / `wonderland` |
 | AWS SigV4 | access key `AKIDEXAMPLE`, secret key `wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY`, region `us-east-1`, service `execute-api` |
+| OAuth 1.0a (HMAC-SHA1) | consumer `restura-consumer-key` / `restura-consumer-secret`, token `restura-access-token` / `restura-access-token-secret` |
+| Kafka SASL (SCRAM-SHA-256) | `restura` / `restura-secret` |
 | API key | header `X-API-Key: secret123` (or query `?api_key=secret123`) — the `/api-key/header/:key/:value` and `/api-key/query/:key/:value` routes accept any key/value encoded in the URL; `secret123` is just the example baked into the generated collection, not a `TEST_AUTH_FIXTURES` entry |
 
 ## The generated collection
@@ -97,7 +104,7 @@ Some protocols and auth schemes are connection-based, or lossy on OpenCollection
 - **OAuth2** — configure client-credentials manually: token URL `http://localhost:8080/oauth/token`, client `restura-client`/`restura-secret`, scope `read`; call `GET /oauth/protected`. OpenCollection import drops the grant type, so this can't be a click-Send collection entry.
 - **WSSE** — import is lossy, so configure manually (UsernameToken / PasswordDigest). `GET /wsse/protected` verifies the `X-WSSE` digest end-to-end.
 - **OAuth1** — signed at the wire; import is lossy, so configure manually. `GET /oauth1/protected` verifies the signature end-to-end via an independent RFC 5849 verifier (`e2e/mocks/oauth1Verify.ts`) that does not share code with the client signer.
-- **Digest / NTLM** — the desktop client transport doesn't apply these yet; the server supports Digest for reference only.
+- **Digest / NTLM** — Restura doesn't apply these on send yet (on any platform); the server's `/digest-auth/:user/:pass` route exists for reference only.
 
 ## Related
 

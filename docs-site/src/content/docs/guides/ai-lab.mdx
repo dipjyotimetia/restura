@@ -151,7 +151,7 @@ Every outbound model call goes through the Electron AI Lab handler, which applie
 
 ## Where it runs
 
-- **Desktop** — fully wired. The renderer drives model calls over the `window.electron.aiLab` IPC bridge → `electron/main/ai-lab-handler.ts` → `shared/protocol/ai`. <Badge text="primary path" variant="success" />
+- **Desktop** — fully wired. The renderer drives model calls over the `window.electron.aiLab` IPC bridge → `electron/main/handlers/ai-lab-handler.ts` → `shared/protocol/ai`. <Badge text="primary path" variant="success" />
 - **Web / self-hosted** — not available; the route shows a desktop-only message. There is no Worker route for AI Lab.
 
 ## Related

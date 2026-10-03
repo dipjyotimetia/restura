@@ -333,7 +333,7 @@ Do **not** add behavioural-analytics SDKs (Countly, Matomo, Google Analytics, an
 For distribution issues:
 
 - Check [Electron Builder Docs](https://www.electron.build/)
-- Review [GitHub Actions Logs](../../actions)
+- Review [GitHub Actions Logs](https://github.com/dipjyotimetia/restura/actions)
 - Open an issue with build logs
 
 ## License

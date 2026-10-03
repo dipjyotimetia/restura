@@ -1,6 +1,6 @@
-import { defineConfig } from 'astro/config';
 import { unified } from '@astrojs/markdown-remark';
 import starlight from '@astrojs/starlight';
+import { defineConfig } from 'astro/config';
 import mermaid from 'astro-mermaid';
 
 export default defineConfig({
@@ -236,6 +236,10 @@ export default defineConfig({
                   label: '0027 — Telemetry + privacy-preserving usage',
                   slug: 'architecture/adrs/0027-telemetry-and-privacy-preserving-usage-analytics',
                 },
+                {
+                  label: '0028 — TypeScript architecture boundaries',
+                  slug: 'architecture/adrs/0028-typescript-architecture-boundaries',
+                },
               ],
             },
           ],
@@ -264,7 +268,7 @@ export default defineConfig({
           items: [
             { label: 'Capability matrix', slug: 'reference/capability-matrix' },
             { label: 'API', slug: 'reference/api' },
-            { label: 'CLI (@restura/cli)', slug: 'reference/cli' },
+            { label: 'CLI (restura-cli)', slug: 'reference/cli' },
             { label: 'OpenCollection', slug: 'reference/opencollection' },
             { label: 'Postman compatibility', slug: 'reference/postman-compat' },
           ],

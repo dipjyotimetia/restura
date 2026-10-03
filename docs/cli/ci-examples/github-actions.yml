@@ -14,10 +14,10 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
 
       - name: Install Restura CLI
-        run: npm install -g @restura/cli
+        run: npm install -g restura-cli
 
       - name: Run API tests
         run: |

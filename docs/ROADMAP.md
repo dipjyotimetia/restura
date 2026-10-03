@@ -22,7 +22,7 @@ This is an honest picture of what's done, what's being worked on, and what's nex
 
 ### Auth
 
-Basic, Bearer, API Key, OAuth 2.0 (auth code with PKCE, client credentials, device, password), OAuth 1.0, Digest, NTLM, AWS SigV4, WSSE, mTLS (desktop). Auth signs at the wire — in the Worker or Electron main process — not in the renderer.
+Basic, Bearer, API Key, OAuth 2.0 (auth code with PKCE, client credentials, device, password), OAuth 1.0, AWS SigV4, WSSE, mTLS (desktop). Body- and URL-dependent schemes (SigV4, OAuth 1.0, WSSE) sign at the wire — in the Worker or Electron main process — not in the renderer. Digest and NTLM can be selected and saved, but the challenge/response is not yet implemented on send (planned).
 
 ### Collections and environments
 

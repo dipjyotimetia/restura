@@ -19,18 +19,16 @@ flowchart LR
   CLI -->|exec| G[gRPC Connect]
   CLI -->|exec| S[SSE]
   CLI -->|exec| M[MCP]
-  CLI -->|exec| W[WebSocket]
   H --> R1[tui · live · json · junit · html · stats]
   G --> R1
   S --> R1
   M --> R1
-  W --> R1
   R1 -->|exit code| CI
 
   classDef cli fill:#7b6ef6,stroke:#4f46e5,color:#fff;
   classDef proto fill:#6366f122,stroke:#7b6ef6,color:#7b6ef6;
   class CLI cli;
-  class H,G,S,M,W proto;
+  class H,G,S,M proto;
 ```
 
 ## Install
@@ -91,7 +89,7 @@ The legacy format prints a stderr deprecation warning the first time it's loaded
 | **gRPC** | Via **Connect protocol** (JSON-encoded, no proto compilation needed) |
 | **SSE** | Captures events for `--sse-duration` ms, or until `--sse-events N` |
 | **MCP** | Single JSON-RPC POST per request |
-| **WebSocket** | Executor available; not yet wired into the dispatcher |
+| **WebSocket** | Not run in collection batches (matches the desktop collection runner, which skips streaming protocols) |
 
 <Aside type="caution" title="gRPC wire format">
 The CLI uses **Connect-over-HTTP**, not gRPC-over-HTTP/2 binary framing. If your server only speaks classic gRPC, requests come back `UNKNOWN`.
@@ -131,18 +129,21 @@ restura run [collection] [options]
 | `--client-key <file>` | | PEM client private key for mutual TLS. |
 | `--cert-passphrase <value>` | | Passphrase for an encrypted `--client-key`. |
 | `--proxy <url>` | | HTTP(S) proxy URL. Overrides `HTTP_PROXY` / `HTTPS_PROXY`; composes with the TLS flags. |
+| `--external-secrets-config <file>` | | YAML/JSON profiles (AWS Secrets Manager, Google Secret Manager, Azure Key Vault) for resolving external secret references. Identity metadata only — never credentials. Without it, a request that uses an external reference errors instead of being sent unauthenticated. |
 
 ### OWS workflows
 
 ```bash
-restura workflow run <workspace> <workflow-id> [--env ci.env] [--timeout 30000]
+restura workflow run <workspace> <workflow-id> [--env ci.env] [--timeout 30000] [--allow-localhost] [--allow-mutations]
 ```
+
+`--allow-localhost` permits loopback targets and `--allow-mutations` permits saved GraphQL mutation calls; both are off by default.
 
 The workspace must be an OpenCollection directory with `opencollection.yml` and a complete `workflows/<workflow-id>/` artifact set. The command accepts only Restura's safe OWS profile: `do`, `set`, `wait`, timeout/cancellation, and binding-only HTTP calls to saved requests. It rejects inline endpoints, credentials, non-HTTP calls, and controls without a bounded runtime before dispatching any network request.
 
 ## Scripts and assertions
 
-Pre-request and test scripts run in a sandboxed QuickJS WASM VM — no DOM, no filesystem, no network escape; 10 MB memory cap, 5 s execution timeout. See [Scripts](/guides/scripts/) for the full Postman API surface.
+Pre-request and test scripts run in a sandboxed QuickJS WASM VM — no DOM, no filesystem, no network escape; 64 MB memory cap, 5 s execution timeout. `pm.sendRequest`, `pm.cookies`, and `pm.vault` are not wired in the CLI and reject with a clear error. See [Scripts](/guides/scripts/) for the full Postman API surface.
 
 ```yaml
 # request.http.yaml
@@ -248,6 +249,15 @@ Combine with a comma: `--reporter live,junit --reporter-output junit=results.xml
 restura agent eval ./orders.agent-bundle.json --output agent-report.json
 ```
 
+| Flag | Default | Description |
+|---|---|---|
+| `--output <file>` | | Write the full JSON trace report. |
+| `--runtime <file>` | | Runtime manifest binding selected saved HTTP requests and MCP servers as tools. |
+| `--env <file>` | | JSON or YAML env file used by saved requests. |
+| `--timeout <ms>` | `30000` | Per saved-HTTP-request timeout. |
+| `--allow-localhost` | `false` | Permit localhost saved-request targets. |
+| `--telemetry-config <file>` | | Metadata-only Langfuse or OTLP export; credentials must be environment references. |
+
 The CLI is intentionally narrower than the desktop AI Lab: it supports stateless OpenAI Responses and Anthropic Messages with environment credentials, deterministic fixtures, and an optional runtime manifest for selected saved HTTP and MCP tools. It refuses desktop secret handles, arbitrary base URLs, judge graders, and sandbox providers. A runtime manifest can only expose explicitly listed read-only HTTP requests and read-only MCP tools with an allowlist; `--allow-localhost` remains off by default.
 
 <Aside type="caution" title="Treat trace reports as sensitive">
@@ -283,7 +293,7 @@ jobs:
 | `Invalid URL` | URL after `{{var}}` resolution isn't a valid absolute URL. Check `--env` is loaded and names match. |
 | `Localhost URLs are not allowed` | Add `--allow-localhost` for local upstreams. Off by default to prevent SSRF in shared CI. |
 | gRPC requests return `UNKNOWN` | Upstream doesn't speak Connect protocol. Restura's CLI uses Connect-over-HTTP, not gRPC-over-HTTP/2 binary. |
-| `a secret handle ref is unresolvable in CLI` | Your auth uses a desktop-only secret handle. Re-export with inline values for CI use. |
+| `auth uses a desktop-only secret handle…` | Your auth references a secret handle only the desktop app can decrypt. The request errors (it is not sent unauthenticated); re-export with inline values for CI use. |
 
 ## Development
 

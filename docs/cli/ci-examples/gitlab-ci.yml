@@ -4,9 +4,9 @@ stages:
 
 api-tests:
   stage: test
-  image: node:22
+  image: node:24
   script:
-    - npm install -g @restura/cli
+    - npm install -g restura-cli
     - restura run ./api-tests --env ./api-tests/env.ci.yaml --reporter junit --output junit.xml
   variables:
     # Secrets injected as CI/CD variables; env file references via ${VAR}.

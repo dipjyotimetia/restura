@@ -9,7 +9,12 @@ npm run test:e2e            # headless
 npm run test:e2e:headed     # with the browser visible
 npm run test:e2e:ui         # Playwright UI mode
 npm run test:e2e:report     # open the last HTML report
+npm run test:e2e:extension  # Chrome capture extension (builds it, then runs extension-capture.spec.ts)
 ```
+
+The default config skips `extension-capture.spec.ts`; it runs only under
+`playwright.extension.config.ts`. The **desktop** (Electron) suite lives in
+`e2e-electron/` — see the [end-to-end testing guide](https://docs.restura.dev/testing/end-to-end/) (`npm run test:e2e:electron:build && npm run test:e2e:electron`).
 
 That's it. From a fresh checkout `npm install && npm run test:e2e` is the
 whole flow — the runner bootstraps everything automatically:
@@ -28,23 +33,34 @@ whole flow — the runner bootstraps everything automatically:
 e2e/
 ├── fixtures/
 │   ├── app.ts                # Onboarding-skipping page fixture
-│   └── servers.ts            # Worker-scoped fixture spinning up mock servers
+│   ├── servers.ts            # Worker-scoped fixture spinning up the mock servers
+│   ├── mqtt.ts               # Loopback-broker window.electron mock for the MQTT UI
+│   └── import/               # Collection files used by import-collection.spec.ts
 ├── mocks/
 │   ├── cert.ts               # Self-signed TLS cert generator
 │   ├── httpServer.ts         # Plain HTTP + HTTPS mock with httpbin-style routes
+│   ├── authRoutes.ts         # OAuth2/JWT/SigV4/Digest/WSSE/OAuth1 verification routes
+│   ├── oauth1Verify.ts       # Independent RFC 5849 verifier (shares no code with the signer)
+│   ├── graphqlSchema.ts      # Schema served by the HTTP mock's /graphql route
 │   ├── proxyServer.ts        # CONNECT-tunneling HTTP proxy server
+│   ├── socksProxyServer.ts   # SOCKS5 proxy (desktop + echo-local)
 │   ├── grpcServer.ts         # Connect-RPC JSON server (echo + reflection)
+│   ├── wsServer.ts           # WebSocket echo / chat / graphql-transport-ws
+│   ├── socketioServer.ts     # Socket.IO server (namespaces /, /chat, /admin)
+│   ├── mcpServer.ts          # Streamable-HTTP MCP server
+│   ├── mcpV2Server.ts        # MCP server on the v2 SDK (used by the e2e-electron suite)
 │   └── proto/echo.proto      # Reference IDL for the mock gRPC service
 ├── utils/
 │   ├── selectors.ts          # Stable role/label selectors for common controls
 │   ├── configureProxy.ts     # Drives the Settings → Proxy UI
-│   └── mockProxy.ts          # Playwright-route-level mock for /api/proxy
-├── http.spec.ts              # HTTP flow with route-level mocking
-├── protocols.spec.ts         # GraphQL, gRPC, WebSocket, SSE protocol switching
-├── data-management.spec.ts   # Collections, environments, settings, theme
-├── real-http.spec.ts         # Real network I/O against mock HTTP server (via Worker)
-├── real-proxy.spec.ts        # Real proxy CONNECT/forward verification
-└── real-grpc.spec.ts         # Worker-driven gRPC against mock Connect server
+│   ├── mockProxy.ts          # Playwright-route-level mock for /api/proxy
+│   ├── reset-state.ts        # Clears persisted app state between tests
+│   └── serverHelpers.ts      # Loopback bind / CORS / close helpers for the mock servers
+├── *.spec.ts                 # Route-mocked UI specs (http, protocols, data-management,
+│                             #   collection-runner, import-collection, persistence, …)
+├── real-*.spec.ts            # Real network I/O through the Worker (http, proxy, grpc,
+│                             #   graphql, websocket, sse, socketio, mcp, mqtt, auth, ai, …)
+└── extension-capture.spec.ts # Chrome extension (run via test:e2e:extension only)
 ```
 
 > **Self-signed HTTPS upstreams are a desktop-only scenario.** The web Send
@@ -57,7 +73,7 @@ e2e/
 ## Two test layers
 
 **1. Route-mocked tests** (`http.spec.ts`, `protocols.spec.ts`,
-`data-management.spec.ts`) intercept network at Playwright's request layer.
+`data-management.spec.ts`, and the other non-`real-*` specs) intercept network at Playwright's request layer.
 Fast and hermetic — good for UI behavior assertions.
 
 **2. Real-server tests** (`real-*.spec.ts`) run against actual local servers
@@ -77,7 +93,7 @@ user-supplied upstream directly (see `src/lib/shared/transport.ts`).
 
 ## Mock servers
 
-All six mock servers bind to `127.0.0.1:0` (random free port) and are
+All seven mock servers bind to `127.0.0.1:0` (random free port) and are
 shared via a worker-scoped fixture (`fixtures/servers.ts`). Each test gets
 fresh request counters via `reset()` between tests.
 
@@ -89,6 +105,7 @@ fresh request counters via `reset()` between tests.
 | gRPC   | Connect-RPC JSON: unary echo + server-streaming + reflection                                                                     | `servers.grpc.url`  |
 | WS     | `/echo`, `/chat` broadcast, `/graphql` graphql-transport-ws                                                                      | `servers.ws.url`    |
 | MCP    | Streamable-HTTP JSON-RPC: `initialize`, `tools/list`, `tools/call`                                                               | `servers.mcp.url`   |
+| Socket.IO | Namespaces `/`, `/chat`, `/admin`; emit/listen + acknowledgements                                                             | `servers.socketio.url` |
 
 Counters and request recordings are exposed for assertions:
 `servers.http.requestCount()`, `servers.proxy.connectHosts()`,
@@ -99,14 +116,14 @@ Counters and request recordings are exposed for assertions:
 | Protocol  | Variant             | Browser-driven?                                 | Wire test?                                    |
 | --------- | ------------------- | ----------------------------------------------- | --------------------------------------------- |
 | gRPC      | Unary               | yes (Worker)                                    | yes                                           |
-| gRPC      | Server-streaming    | UI panel only\*                                 | yes (Connect envelope framing)                |
-| gRPC      | Client-streaming    | stubbed                                         | stub assertion                                |
-| gRPC      | Bidirectional       | stubbed                                         | stub assertion                                |
+| gRPC      | Server-streaming    | UI "Web Stream" panel only\*                    | yes (Connect envelope framing)                |
+| gRPC      | Client-streaming    | n/a (desktop-only)                              | yes (Connect-Node gRPC HTTP/2 transport)      |
+| gRPC      | Bidirectional       | n/a (desktop-only)                              | yes (Connect-Node gRPC HTTP/2 transport)      |
 | GraphQL   | Query               | yes                                             | yes                                           |
 | GraphQL   | Mutation            | yes                                             | yes                                           |
 | GraphQL   | Subscription        | UI hook only                                    | covered by WS `/graphql` graphql-transport-ws |
 | SSE       | unnamed `message`   | yes                                             | yes                                           |
-| SSE       | named events        | n/a (Restura uses native EventSource onmessage) | yes                                           |
+| SSE       | named events        | wire only                                       | yes (`/stream/sse-named`)                     |
 | WebSocket | text                | yes                                             | yes                                           |
 | WebSocket | binary (hex)        | yes                                             | yes                                           |
 | WebSocket | broadcast/multiplex | n/a                                             | yes (`/chat`)                                 |
@@ -114,10 +131,13 @@ Counters and request recordings are exposed for assertions:
 | MCP       | tools/list          | yes                                             | yes                                           |
 | MCP       | tools/call          | yes (UI Tools)                                  | yes                                           |
 
-\* gRPC server-streaming uses direct fetch from the renderer with Connect
-envelope framing. Restura's UI gates streaming method types behind the
-desktop build, so the browser-driven test verifies the streaming UI panel
-exists; full streaming round-trip is covered at the wire layer.
+\* On web, gRPC server-streaming connects directly from the renderer with
+Connect envelope framing (CORS permitting) rather than through `/api/grpc`;
+client and bidirectional streaming are desktop-only (see `grpc.basic` in
+`src/lib/shared/capabilities.ts`). The browser-driven test verifies the
+"Web Stream" panel; the full streaming round-trip is covered at the wire
+layer. Web SSE is streamed through the Worker's `/api/proxy` (no native
+`EventSource`).
 
 ## Adding tests
 

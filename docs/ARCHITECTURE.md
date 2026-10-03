@@ -491,7 +491,7 @@ Restura's security posture is asymmetric between the Electron desktop client and
 
 The `KeyProvider` interface (`src/lib/shared/keyProvider.ts`) abstracts where the encryption key for the renderer's Dexie store comes from:
 
-- **Electron**: `ElectronSafeStorageKeyProvider` persists the key via the existing `electronAPI.store` IPC, which is `safeStorage`-protected at the Electron main level (`electron/main/store-handler.ts`). The OS keychain holds the wrapping key — macOS Keychain, Windows Credential Manager, Linux libsecret.
+- **Electron**: `ElectronSafeStorageKeyProvider` persists the key via the existing `electronAPI.store` IPC, which is `safeStorage`-protected at the Electron main level (`electron/main/storage/store-handler.ts`). The OS keychain holds the wrapping key — macOS Keychain, Windows Credential Manager, Linux libsecret.
 - **Web**: `PlaintextKeyProvider` by default — IndexedDB is protected only by the browser's same-origin policy. `WebSessionPassphraseProvider` exists, but its passphrase UI has not shipped and is not advertised as an available capability.
 
 ### Auth-at-the-wire
@@ -534,7 +534,7 @@ See `docs/adr/0004-security-hardening.md` and `docs/adr/0006-electron-connection
 
 ## CLI runner
 
-The `@restura/cli` package (`cli/` directory) is the third backend consuming `shared/protocol/`. Where the Worker uses `globalThis.fetch` and Electron uses `undici` via `http-handler.ts`, the CLI uses `undici` directly via `cli/src/runner/undiciFetcher.ts`.
+The `restura-cli` package (`cli/` directory) is the third backend consuming `shared/protocol/`. Where the Worker uses `globalThis.fetch` and Electron uses `undici` via `http-handler.ts`, the CLI uses `undici` directly via `cli/src/runner/undiciFetcher.ts`.
 
 Components:
 

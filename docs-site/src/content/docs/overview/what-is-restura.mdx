@@ -14,7 +14,7 @@ It ships from a single React renderer to three deployment targets:
 ## What it can do
 
 - **Nine protocols out of the box** — HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, Server-Sent Events, Kafka, MQTT, and Model Context Protocol.
-- **Auth covered** — Bearer, Basic, API Key, OAuth 2.0 (auth code / client credentials / password / device with PKCE), OAuth 1.0, AWS SigV4, Digest, NTLM, WSSE, and mTLS on desktop.
+- **Auth covered** — Bearer, Basic, API Key, OAuth 2.0 (auth code / client credentials / password / device with PKCE), OAuth 1.0, AWS SigV4, WSSE, and mTLS on desktop. Digest and NTLM can be selected and saved but are not yet applied on send.
 - **Collections & environments** — Group requests, share folders, scope variables, swap between staging and production in a click.
 - **OWS workflows** — Sequence saved HTTP requests with portable OWS JSON, typed bindings, `set`/`wait`, timeout, and cancellation. Runs in the app or in CI; unsupported controls and transports fail closed.
 - **Scripts** — Pre-request and test scripts in an isolated QuickJS WASM sandbox, using the native `rs.*` API (fully Postman `pm.*` compatible).

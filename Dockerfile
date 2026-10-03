@@ -25,6 +25,14 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV VITE_IS_DOCKER_BUILD=true
 
+# Optional build-time overrides for the SPA's placeholder echo URLs
+# (see docs/SELF_HOSTING.md § Building a custom image). Empty = public echo.
+ARG VITE_ECHO_HTTP_URL=""
+ARG VITE_ECHO_GRPC_URL=""
+ARG VITE_ECHO_GRAPHQL_URL=""
+ARG VITE_ECHO_WS_URL=""
+ARG VITE_ECHO_SSE_URL=""
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 

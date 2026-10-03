@@ -66,7 +66,11 @@ npm run lint
 # Run tests
 npm run test
 
-# Run all validations (type-check + lint + test:run)
+# Type-check every project (renderer, Worker, Electron, CLI, extensions) — what CI runs
+npm run type-check:all
+
+# Core product gate: static policy (type-check:all, lint, architecture, codegen checks),
+# root + workspace tests, and web / Docker / Electron / extension builds + size limits
 npm run validate
 ```
 
@@ -105,6 +109,7 @@ restura/
 │   │   ├── registry/    # Service/schema registry
 │   │   ├── contracts/   # OpenAPI contract testing
 │   │   ├── auth/        # Authentication config
+│   │   ├── settings/    # Settings drawer and its sections
 │   │   └── scripts/     # Pre/post scripts (QuickJS sandbox)
 │   ├── components/
 │   │   ├── ui/          # Radix UI primitives (shadcn/ui patterns)
@@ -116,7 +121,7 @@ restura/
 ├── worker/              # Shared Hono app — Cloudflare Worker + self-hosted Node
 ├── electron/            # Electron main process
 ├── extension/           # Browser capture (chrome/) + VS Code (vscode/) extensions
-├── cli/                 # @restura/cli — run collections in CI
+├── cli/                 # restura-cli — run collections, workflows, and agent suites in CI
 ├── tests/               # Test setup and fixtures
 ├── scripts/             # Build utilities
 └── docs/                # Documentation
