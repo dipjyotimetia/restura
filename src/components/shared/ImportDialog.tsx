@@ -34,6 +34,7 @@ import { HarImportReview } from './HarImportReview';
 import { ImportDropZone, ImportFormatCard } from './ImportFormatPicker';
 import { ImportStatusBanner } from './ImportStatusBanner';
 import {
+  detectImportFormat,
   detectRemoteFormat,
   FEATURE_LISTS,
   FORMATS,
@@ -71,9 +72,16 @@ interface ImportDialogProps {
   onOpenChange: (open: boolean) => void;
   /** A deep link is deliberately review-only until the user confirms download. */
   deepLinkSource?: { url: string; format?: DeepLinkImportFormat };
+  /** A file dropped on the window: its format is detected and it is staged for review. */
+  droppedFile?: File | null;
 }
 
-export default function ImportDialog({ open, onOpenChange, deepLinkSource }: ImportDialogProps) {
+export default function ImportDialog({
+  open,
+  onOpenChange,
+  deepLinkSource,
+  droppedFile,
+}: ImportDialogProps) {
   const addCollection = useCollectionStore((s) => s.addCollection);
   const addEnvironment = useEnvironmentStore((s) => s.addEnvironment);
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -309,6 +317,29 @@ export default function ImportDialog({ open, onOpenChange, deepLinkSource }: Imp
     }
     event.target.value = '';
   };
+
+  // A window-level drop: detect the format (Bruno zips by name), switch to its
+  // tab and stage the import — the usual review step still applies.
+  useEffect(() => {
+    if (!open || !droppedFile) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const type = droppedFile.name.toLowerCase().endsWith('.zip')
+          ? 'bruno'
+          : detectImportFormat(await droppedFile.text(), droppedFile.name);
+        if (cancelled) return;
+        setActiveFormat(type);
+        const outcome = await processImportFile(droppedFile, type);
+        if (!cancelled) stageImport(outcome, type);
+      } catch (error: unknown) {
+        if (!cancelled) handleImportError(error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, droppedFile]);
 
   const handleDrop = async (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();

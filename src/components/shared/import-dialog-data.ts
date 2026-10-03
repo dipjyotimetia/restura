@@ -191,7 +191,20 @@ export const FEATURE_LISTS: Record<ImportType, string[]> = {
 };
 
 export function detectRemoteFormat(text: string, sourceUrl: string): ParsedImportType {
-  const pathname = new URL(sourceUrl).pathname.toLowerCase();
+  const format = detectImportFormat(text, new URL(sourceUrl).pathname);
+  if (format === 'har') {
+    throw new Error('Remote import is not a supported Restura collection or specification format.');
+  }
+  return format;
+}
+
+/**
+ * Detect an import file's format from its name and contents — used when a
+ * file is dropped anywhere on the window, so no format tab was chosen.
+ */
+export function detectImportFormat(text: string, fileName: string): ParsedImportType | 'har' {
+  const pathname = fileName.toLowerCase();
+  if (pathname.endsWith('.har')) return 'har';
   if (pathname.endsWith('.bru')) return 'bruno';
   if (pathname.endsWith('.http') || pathname.endsWith('.rest')) return 'http';
   if (/^\s*(?:meta|vars)\s*\{/m.test(text)) return 'bruno';
@@ -205,13 +218,20 @@ export function detectRemoteFormat(text: string, sourceUrl: string): ParsedImpor
   if (!data || typeof data !== 'object')
     throw new Error('Remote import format could not be detected.');
   const record = data as Record<string, unknown>;
+  if (
+    record.log &&
+    typeof record.log === 'object' &&
+    Array.isArray((record.log as { entries?: unknown }).entries)
+  ) {
+    return 'har';
+  }
   if (typeof record.opencollection === 'string') return 'opencollection';
   if (typeof record.openapi === 'string' || typeof record.swagger === 'string') return 'openapi';
   if (record.info && typeof record.info === 'object' && 'schema' in record.info) return 'postman';
   if (record._type === 'export' || Array.isArray(record.resources)) return 'insomnia';
   if ('v' in record && (Array.isArray(record.requests) || Array.isArray(record.folders)))
     return 'hoppscotch';
-  throw new Error('Remote import is not a supported Restura collection or specification format.');
+  throw new Error('This file is not a supported collection, environment, or specification format.');
 }
 
 export async function fetchRemoteArtifact(url: string): Promise<string> {
