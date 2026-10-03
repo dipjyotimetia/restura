@@ -1,0 +1,59 @@
+src/features/collections/lib/__tests__/sampleCollection.test.ts
+  s_766edd634beb43::t_f00f7d209d35b5 1-43
+src/components/shared/import-dialog-data.ts
+  s_766edd634beb43::t_49ea08b95ff126 194-207,221-227,234
+src/routes/components/WindowFileDrop.tsx
+  s_766edd634beb43::t_0cfc5ca8c65574 1-73
+  s_766edd634beb43::t_580445f02b3258 74
+src/features/collections/lib/addSampleCollection.ts
+  s_766edd634beb43::t_6b5fd663674c9f 1-12
+src/components/shared/__tests__/ImportDialog.test.tsx
+  s_766edd634beb43::t_1100389f78ff40 320-341,357-362
+  s_766edd634beb43::t_550534cb964342 342-344,346-356
+  s_766edd634beb43::t_184e8efdc41bbb 345
+docs-site/src/content/docs/guides/import-export.mdx
+  s_766edd634beb43::t_cf49aae51e1786 10-11
+docs-site/src/content/docs/guides/collections.mdx
+  s_766edd634beb43::t_cf49aae51e1786 8-9
+src/features/collections/lib/sampleCollection.ts
+  s_766edd634beb43::t_7920e3722eac47 1-70,75-101
+  s_766edd634beb43::t_67fa8f86b36b1a 71-74
+src/features/collections/components/SidebarEmptyState.tsx
+  s_766edd634beb43::t_6b5fd663674c9f 8,13-14,20-29
+scripts/architecture.config.mts
+  s_766edd634beb43::t_173e05126585d4 67
+src/routes/components/__tests__/NoOpenTabs.test.tsx
+  s_766edd634beb43::t_1100389f78ff40 1-31
+src/routes/components/__tests__/WindowFileDrop.test.tsx
+  s_766edd634beb43::t_f3550fdafb4ed8 1-51
+src/routes/index.tsx
+  s_766edd634beb43::t_24b717f3514c74 42,65,450-453,456,459-464
+src/routes/components/NoOpenTabs.tsx
+  s_766edd634beb43::t_6b5fd663674c9f 37-38,68-79
+  s_766edd634beb43::t_cbeb6f0bdd986f 1,5,7
+src/components/shared/__tests__/importFormatDetection.test.ts
+  s_766edd634beb43::t_f207b2d4e99243 1-43
+src/components/shared/ImportDialog.tsx
+  s_766edd634beb43::t_49ea08b95ff126 75-76,79-84,321-342
+  s_766edd634beb43::t_b84611b4fc60ff 37
+  s_766edd634beb43::t_076f23b9e55579 343
+src/features/collections/components/SidebarCollectionsPanel.tsx
+  s_766edd634beb43::t_cbeb6f0bdd986f 36
+  s_766edd634beb43::t_6b5fd663674c9f 154-156,158-160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e44e255558d1a43ab20fa3e7c8beb2d23f25df41",
+  "prompts": {},
+  "sessions": {
+    "s_766edd634beb43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9c66557-0bf1-4aa9-990d-ab0ef03d2e23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
