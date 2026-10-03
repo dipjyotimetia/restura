@@ -33,6 +33,7 @@ import { Stagger, StaggerItem } from '@/components/ui/motion';
 import { TabsContent } from '@/components/ui/tabs';
 import { cn } from '@/lib/shared/utils';
 import type { Collection, MockServerStatus } from '@/types';
+import { addSampleCollection } from '../lib/addSampleCollection';
 import {
   CollectionTreeItems,
   handleTreeKeyDown,
@@ -150,8 +151,13 @@ export function SidebarCollectionsPanel({
             icon={FolderPlus}
             title={searchQuery ? 'No collections found' : 'No collections yet'}
             hint={
-              searchQuery ? 'Try a different search term' : 'Create one to organize your requests'
+              searchQuery
+                ? 'Try a different search term'
+                : 'Create one, import one, or start from a ready-to-run sample'
             }
+            {...(!searchQuery && {
+              action: { label: 'Try sample collection', onClick: addSampleCollection },
+            })}
           />
         ) : (
           <Stagger className="flex flex-col" initial={staggerInitial}>
