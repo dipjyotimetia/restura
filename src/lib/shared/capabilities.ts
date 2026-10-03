@@ -18,6 +18,7 @@ export type CapabilityName =
   | 'http.customCa'
   | 'http.manualRedirect'
   | 'http.dnsPinning'
+  | 'http.connectionTimings'
   | 'http.tls.cipherSuite'
   | 'http.tls.minVersion'
   | 'http.streamingResponse'
@@ -105,6 +106,13 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
   },
   'http.customCa': { label: 'Custom CA bundle', web: false, desktop: true },
   'http.manualRedirect': { label: 'Manual redirect handling', web: true, desktop: true },
+  'http.connectionTimings': {
+    label: 'DNS / connect timing breakdown',
+    web: false,
+    desktop: true,
+    notes:
+      'Both show time to headers, download and the remaining overhead; DNS and connect (incl. TLS) are measured only on desktop direct connections, not through proxies',
+  },
   'http.dnsPinning': {
     label: 'DNS-pinning SSRF guard',
     web: false,

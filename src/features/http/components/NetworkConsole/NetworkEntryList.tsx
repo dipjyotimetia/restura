@@ -180,7 +180,7 @@ export default function NetworkEntryList({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuLabel className="text-[11px]">Sort by</DropdownMenuLabel>
+              <DropdownMenuLabel className="text-sp-11">Sort by</DropdownMenuLabel>
               <DropdownMenuRadioGroup
                 value={sortBy}
                 onValueChange={(value) => setSortBy(value as NetworkSort)}
@@ -198,7 +198,7 @@ export default function NetworkEntryList({
               {protocolsPresent.size > 1 && (
                 <>
                   <DropdownMenuSeparator />
-                  <DropdownMenuLabel className="text-[11px]">Protocol</DropdownMenuLabel>
+                  <DropdownMenuLabel className="text-sp-11">Protocol</DropdownMenuLabel>
                   <DropdownMenuRadioGroup
                     value={protocolFilter}
                     onValueChange={(value) => setProtocolFilter(value as ConsoleProtocol | 'all')}
@@ -227,7 +227,7 @@ export default function NetworkEntryList({
                 type="button"
                 onClick={() => setStatusFilter(filter.value)}
                 className={cn(
-                  'inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors',
+                  'inline-flex items-center gap-1 text-sp-11 font-mono px-1.5 py-0.5 rounded border transition-colors',
                   statusFilter === filter.value
                     ? 'bg-primary/15 border-primary/40 text-primary'
                     : 'bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/60',
@@ -239,7 +239,7 @@ export default function NetworkEntryList({
                 {count > 0 && (
                   <span
                     className={cn(
-                      'text-[9px] tabular-nums px-1 rounded-sm',
+                      'text-sp-11 tabular-nums px-1 rounded-sm',
                       statusFilter === filter.value ? 'bg-primary/20' : 'bg-muted-foreground/15'
                     )}
                   >
@@ -257,7 +257,7 @@ export default function NetworkEntryList({
               type="button"
               onClick={() => setRunFilter('all')}
               className={cn(
-                'text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors',
+                'text-sp-11 font-mono px-1.5 py-0.5 rounded border transition-colors',
                 runFilter === 'all'
                   ? 'bg-primary/15 border-primary/40 text-primary'
                   : 'bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/60'
@@ -272,7 +272,7 @@ export default function NetworkEntryList({
                 onClick={() => setRunFilter(run.id)}
                 title={run.label}
                 className={cn(
-                  'text-[10px] font-mono px-1.5 py-0.5 rounded border transition-colors max-w-[90px] truncate',
+                  'text-sp-11 font-mono px-1.5 py-0.5 rounded border transition-colors max-w-[90px] truncate',
                   runFilter === run.id
                     ? 'bg-primary/15 border-primary/40 text-primary'
                     : 'bg-muted/30 border-transparent text-muted-foreground hover:bg-muted/60'
@@ -303,7 +303,7 @@ export default function NetworkEntryList({
               {filtersActive && (
                 <button
                   type="button"
-                  className="text-[10px] underline mt-2 text-primary"
+                  className="text-sp-11 underline mt-2 text-primary"
                   onClick={() => {
                     setSearchFilter('');
                     setStatusFilter('all');

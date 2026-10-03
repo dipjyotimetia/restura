@@ -48,7 +48,7 @@ export function SidebarHistoryPanel({
           <Button
             variant={methodFilter === null ? 'secondary' : 'ghost'}
             size="sm"
-            className="h-6 text-[10px] px-2"
+            className="h-6 text-sp-11 px-2"
             onClick={() => onMethodFilterChange(null)}
           >
             All
@@ -59,7 +59,7 @@ export function SidebarHistoryPanel({
               variant={methodFilter === method ? 'secondary' : 'ghost'}
               size="sm"
               className={cn(
-                'h-6 text-[10px] font-mono px-2',
+                'h-6 text-sp-11 font-mono px-2',
                 methodFilter === method && METHOD_COLORS[method]
               )}
               onClick={() => onMethodFilterChange(methodFilter === method ? null : method)}
@@ -88,14 +88,26 @@ export function SidebarHistoryPanel({
               {group.items.map((item) => (
                 <StaggerItem
                   key={item.id}
-                  className="group px-1.5 py-1.5 rounded hover:bg-accent cursor-pointer transition-colors"
-                  onClick={() => onLoadHistoryItem(item.id)}
+                  className="group relative px-1.5 py-1.5 rounded hover:bg-accent transition-colors focus-within:bg-accent"
                 >
-                  <div className="flex items-center gap-1.5 mb-1">
+                  {/* Full-row button underneath the content, so the row is
+                      keyboard-reachable without nesting the favorite button
+                      inside another button. */}
+                  <button
+                    type="button"
+                    onClick={() => onLoadHistoryItem(item.id)}
+                    aria-label={`Open ${
+                      item.request.type === 'http'
+                        ? item.request.method
+                        : PROTOCOL_LABELS[item.request.type]
+                    } ${item.request.type === 'grpc' ? item.request.service : (item.resolvedUrl ?? item.request.url)}`}
+                    className="absolute inset-0 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+                  />
+                  <div className="pointer-events-none relative flex items-center gap-1.5 mb-1">
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-6 w-6"
+                      className="pointer-events-auto h-6 w-6"
                       onClick={(event) => {
                         event.stopPropagation();
                         onToggleFavorite(item.id);
@@ -126,7 +138,7 @@ export function SidebarHistoryPanel({
                               | 'head')
                           : 'mono'
                       }
-                      className="text-[9px] h-4 px-1"
+                      className="text-sp-11 h-4 px-1"
                     >
                       {item.request.type === 'http'
                         ? item.request.method
@@ -138,7 +150,7 @@ export function SidebarHistoryPanel({
                         return (
                           <span
                             className={cn(
-                              'text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded tabular-nums',
+                              'text-sp-11 font-mono font-semibold px-1.5 py-0.5 rounded tabular-nums',
                               status >= 200 && status < 300
                                 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                                 : status >= 400
@@ -151,12 +163,12 @@ export function SidebarHistoryPanel({
                         );
                       })()}
                   </div>
-                  <p className="text-xs font-mono truncate pl-6 mb-1 text-foreground">
+                  <p className="pointer-events-none relative text-xs font-mono truncate pl-6 mb-1 text-foreground">
                     {item.request.type === 'grpc'
                       ? item.request.service
                       : (item.resolvedUrl ?? item.request.url)}
                   </p>
-                  <span className="text-[10px] text-sp-dim pl-6 block">
+                  <span className="pointer-events-none relative text-sp-11 text-sp-dim pl-6 block">
                     {group.bucket === 'Today' || group.bucket === 'Yesterday'
                       ? new Date(item.timestamp).toLocaleTimeString()
                       : new Date(item.timestamp).toLocaleString()}

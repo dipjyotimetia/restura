@@ -24,6 +24,9 @@ export interface AppSettings {
   // Persisted so the divider position survives reload. Optional: pre-existing
   // persisted settings predate it and fall back to a 50/50 default in the UI.
   requestResponseSplit?: number;
+  // Config/log split for the streaming clients (SSE, WebSocket), as a
+  // percentage of the config pane. Optional: absent = default.
+  streamSplit?: number;
   // Collapsed sidebar (Cmd/Ctrl+B). Optional: absent = expanded.
   sidebarCollapsed?: boolean;
   // Last language picked in the code generator (a codeGenerators key).

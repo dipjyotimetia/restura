@@ -184,7 +184,7 @@ function RenameInput({ actions, collectionId, itemId, value, ariaLabel }: Rename
         if (e.key === 'Escape') actions.cancelRename();
       }}
       onClick={(e) => e.stopPropagation()}
-      className="flex-1 bg-transparent border-b border-primary outline-none text-[11px] text-foreground"
+      className="flex-1 bg-transparent border-b border-primary outline-none text-sp-11 text-foreground"
       aria-label={ariaLabel}
     />
   );
@@ -321,7 +321,7 @@ function RowOptionsMenu(
         <Button
           variant="ghost"
           size="icon"
-          className="absolute right-0.5 top-1/2 h-5 w-5 -translate-y-1/2 opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
+          className="absolute right-0.5 top-1/2 h-5 w-5 -translate-y-1/2 opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100"
           aria-label={`${props.item.type === 'folder' ? 'Folder' : 'Request'} options`}
         >
           <MoreVertical className="h-3 w-3" />
@@ -414,7 +414,7 @@ const FolderRow = memo(function FolderRow({
             }}
             onDrop={(e) => actions.dropIntoFolder(e, collectionId, item.id)}
             className={cn(
-              'group flex items-center gap-1.5 min-w-0 rounded px-1.5 py-1 pr-6 text-[11px] text-muted-foreground hover:bg-accent cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+              'group flex items-center gap-1.5 min-w-0 rounded px-1.5 py-1 pr-6 text-sp-11 text-muted-foreground hover:bg-accent cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
               isDropTarget && 'ring-1 ring-primary bg-primary/5',
               isSelected && 'bg-primary/10 text-foreground'
             )}
@@ -438,7 +438,7 @@ const FolderRow = memo(function FolderRow({
               <>
                 <span className="truncate">{item.name}</span>
                 {isCollapsed && childCount > 0 && (
-                  <span className="ml-auto shrink-0 text-[9px] tabular-nums text-sp-dim">
+                  <span className="ml-auto shrink-0 text-sp-11 tabular-nums text-sp-dim">
                     {childCount}
                   </span>
                 )}
@@ -580,7 +580,7 @@ const RequestRow = memo(function RequestRow({
             }}
             onDrop={(e) => actions.dropBeforeItem(e, collectionId, item.id)}
             className={cn(
-              'flex w-full items-center gap-1.5 rounded px-1.5 py-1 pr-6 text-left text-[11px] hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-grab active:cursor-grabbing',
+              'flex w-full items-center gap-1.5 rounded px-1.5 py-1 pr-6 text-left text-sp-11 hover:bg-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-grab active:cursor-grabbing',
               isDropTarget && 'border-t-2 border-primary',
               isSelected && 'bg-primary/10'
             )}
@@ -589,7 +589,7 @@ const RequestRow = memo(function RequestRow({
           >
             <span
               className={cn(
-                'shrink-0 rounded px-1 py-0.5 text-[9px] font-mono font-medium leading-none',
+                'shrink-0 rounded px-1 py-0.5 text-sp-11 font-mono font-medium leading-none',
                 color ?? 'bg-muted text-muted-foreground border border-border'
               )}
             >

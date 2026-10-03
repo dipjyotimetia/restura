@@ -2,12 +2,17 @@ import { Braces, Check, Copy, Download, FileDown, Search, Zap } from 'lucide-rea
 import type * as Monaco from 'monaco-editor';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
+import { CompareWithPrevious } from '@/components/shared/CompareWithPrevious';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { ImagePreview } from '@/components/shared/ImagePreview';
+import { InFlightBar } from '@/components/shared/InFlightBar';
 import { ResponseEmptyState } from '@/components/shared/ResponseEmptyState';
+import { ResponseHeadersPanel } from '@/components/shared/ResponseHeadersPanel';
+import { ResponseStatus } from '@/components/shared/ResponseStatus';
 import { ResponseTestsPanel } from '@/components/shared/ResponseTestsPanel';
 import { IconButton, LayoutToggleButton } from '@/components/shared/ResponseToolbarButtons';
 import { StreamingResponseViewer } from '@/components/shared/StreamingResponseViewer';
+import { TimingBreakdown } from '@/components/shared/TimingBreakdown';
 import { VisualizerFrame } from '@/components/shared/VisualizerFrame';
 import { AnimatePresence, motion, Scale, Stagger, StaggerItem } from '@/components/ui/motion';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -16,21 +21,22 @@ import {
   Kbd,
   Segmented,
   Stat,
-  StatusPill,
   type SubTab,
   SubTabBar,
   SubTabPanel,
   WaterfallBar,
 } from '@/components/ui/spatial';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { AiActionsMenu } from '@/features/ai/components/AiActionsMenu';
 import { classifyRequestError } from '@/features/http/lib/classifyRequestError';
-import { base64ToBytes, extensionForContentType } from '@/lib/shared/binaryBody';
+import { base64ToBytes } from '@/lib/shared/binaryBody';
 import { detectLanguage } from '@/lib/shared/console-format';
 import { isCsvResponse } from '@/lib/shared/csvParser';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { isElectron, isMac } from '@/lib/shared/platform';
-import { cn, formatBytes, formatTime } from '@/lib/shared/utils';
+import { downloadExtension, downloadFileName, downloadMime } from '@/lib/shared/responseFiles';
+import { timingSegments } from '@/lib/shared/responseTimingSegments';
+import { formatBytes, formatTime } from '@/lib/shared/utils';
 import { useActiveResponse, useActiveStreamingEvents, useActiveTab } from '@/store/selectors';
 import { useRequestStore } from '@/store/useRequestStore';
 import { buildResponsePreviewDocument } from './lib/responsePreview';
@@ -50,6 +56,12 @@ const CodeEditor = lazyComponent(
 );
 
 // CSV (papaparse) and JSONPath (jsonpath-plus) only load when actually used.
+const JsonTree = lazyComponent(
+  () => import('@/components/shared/JsonTree'),
+  <div className="p-4">
+    <Skeleton className="h-4 w-1/2 rounded" />
+  </div>
+);
 const CsvTableViewer = lazyComponent(
   () => import('@/components/shared/CsvTableViewer'),
   <div className="p-4">
@@ -116,7 +128,7 @@ function ResponseSkeleton() {
 }
 
 type ResponseTab = 'body' | 'headers' | 'cookies' | 'timeline' | 'tests' | 'preview' | 'visualize';
-type BodyFormat = 'pretty' | 'raw' | 'table';
+type BodyFormat = 'pretty' | 'raw' | 'table' | 'tree';
 
 function ResponseViewer() {
   const currentResponse = useActiveResponse();
@@ -135,16 +147,12 @@ function ResponseViewer() {
   const [showJsonPath, setShowJsonPath] = useState(false);
   // Opt-in to pretty-printing a body above PRETTY_PRINT_MAX_BYTES (per response).
   const [forceFormat, setForceFormat] = useState(false);
-  const [copiedHeader, setCopiedHeader] = useState<string | null>(null);
   const [copiedBody, setCopiedBody] = useState(false);
-  const [headerFilter, setHeaderFilter] = useState('');
-  const copyHeaderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyBodyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const responseEditorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
 
   useEffect(() => {
     return () => {
-      if (copyHeaderTimer.current) clearTimeout(copyHeaderTimer.current);
       if (copyBodyTimer.current) clearTimeout(copyBodyTimer.current);
     };
   }, []);
@@ -196,11 +204,26 @@ function ResponseViewer() {
     const showsBody = activeTab === 'body' || activeTab === 'preview';
     if (!showsBody) return '';
     // Binary (base64) and table views render their own components, not Monaco.
-    if (isBase64 || bodyFormat === 'table') return '';
+    if (isBase64 || bodyFormat === 'table' || bodyFormat === 'tree') return '';
     if (bodyFormat === 'raw') return currentResponse.body;
     if (language === 'json') return formatJson(currentResponse.body, forceFormat);
     return currentResponse.body;
   }, [currentResponse, language, bodyFormat, activeTab, isBase64, forceFormat]);
+
+  // The tree view parses the body, so it's offered under the same size cap as
+  // pretty-printing, and parsed only while it's selected.
+  const canShowTree =
+    language === 'json' &&
+    !isBase64 &&
+    (currentResponse?.body.length ?? 0) <= PRETTY_PRINT_MAX_BYTES;
+  const treeValue = useMemo(() => {
+    if (bodyFormat !== 'tree' || !currentResponse) return undefined;
+    try {
+      return { value: JSON.parse(currentResponse.body) as unknown };
+    } catch {
+      return null;
+    }
+  }, [bodyFormat, currentResponse]);
 
   // Pretty view of an oversized JSON body is shown unformatted — say so.
   const formattingSkipped =
@@ -214,12 +237,6 @@ function ResponseViewer() {
     () => Object.entries(currentResponse?.headers ?? {}),
     [currentResponse?.headers]
   );
-
-  const filteredHeaderEntries = useMemo(() => {
-    if (!headerFilter) return headerEntries;
-    const needle = headerFilter.toLowerCase();
-    return headerEntries.filter(([key]) => key.toLowerCase().includes(needle));
-  }, [headerEntries, headerFilter]);
 
   const cookies = useMemo(() => {
     if (!currentResponse) return [] as Array<{ name: string; value: string; attrs: string }>;
@@ -267,19 +284,6 @@ function ResponseViewer() {
     return out;
   }, [currentResponse, activeTab]);
 
-  const handleCopyHeader = async (key: string, value: string | string[]) => {
-    const displayValue = Array.isArray(value) ? value.join(', ') : value;
-    try {
-      await navigator.clipboard.writeText(`${key}: ${displayValue}`);
-      setCopiedHeader(key);
-      toast.success('Header copied');
-      if (copyHeaderTimer.current) clearTimeout(copyHeaderTimer.current);
-      copyHeaderTimer.current = setTimeout(() => setCopiedHeader(null), 2000);
-    } catch {
-      toast.error('Failed to copy header');
-    }
-  };
-
   const handleCopyBody = async () => {
     try {
       await navigator.clipboard.writeText(formattedBody);
@@ -294,21 +298,16 @@ function ResponseViewer() {
 
   const handleDownloadBody = () => {
     if (!currentResponse) return;
-    let blob: Blob;
-    let ext: string;
-    if (isBase64) {
-      // Reconstruct the original bytes from the base64 body for a faithful download.
-      const bytes = base64ToBytes(currentResponse.body);
-      blob = new Blob([bytes as BlobPart], { type: contentType || 'application/octet-stream' });
-      ext = extensionForContentType(contentType);
-    } else {
-      blob = new Blob([currentResponse.body], { type: 'application/octet-stream' });
-      ext = language === 'json' ? 'json' : isCsv ? 'csv' : 'txt';
-    }
+    // Base64 bodies are rebuilt from the original bytes for a faithful file.
+    const content = isBase64
+      ? (base64ToBytes(currentResponse.body) as BlobPart)
+      : currentResponse.body;
+    const blob = new Blob([content], { type: downloadMime(contentType, isBase64) });
+    const ext = downloadExtension(contentType, { isBase64, language, isCsv });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `response-${activeTabId ?? 'body'}.${ext}`;
+    a.download = downloadFileName(activeTab_?.request.name, ext);
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -362,17 +361,12 @@ function ResponseViewer() {
       : []),
   ];
 
-  // Only the total `time` is available on Response — we render a single "Wait"
-  // segment rather than invent DNS/TCP/TLS splits we don't have data for.
+  // Measured breakdown where the transport provides one (see timingSegments).
   const waterfallSegments = currentResponse
-    ? [
-        {
-          label: 'Wait',
-          ms: currentResponse.time,
-          color: 'var(--color-proto-http)',
-          emphasised: true,
-        },
-      ]
+    ? timingSegments(currentResponse, {
+        desktop: isElectron(),
+        https: (activeTab_?.request.url ?? '').trim().toLowerCase().startsWith('https'),
+      })
     : [];
 
   return (
@@ -385,9 +379,12 @@ function ResponseViewer() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.1 }}
-            className="h-full"
+            className="h-full flex flex-col"
           >
-            <ResponseSkeleton />
+            <InFlightBar />
+            <div className="flex-1 min-h-0">
+              <ResponseSkeleton />
+            </div>
           </motion.div>
         ) : !currentResponse ? (
           <motion.div
@@ -431,15 +428,9 @@ function ResponseViewer() {
               <div className="flex items-center gap-3 px-4 py-3 border-b border-sp-line">
                 {/* One-shot arrival cue — replays because the keyed motion.div
                     above remounts the pill for each new response id. */}
-                <StatusPill
+                <ResponseStatus
                   status={currentResponse.status}
-                  text={currentResponse.statusText}
-                  className={cn(
-                    currentResponse.status >= 400 && 'animate-error-shake',
-                    currentResponse.status >= 200 &&
-                      currentResponse.status < 300 &&
-                      'animate-success-pulse'
-                  )}
+                  statusText={currentResponse.statusText}
                 />
                 <Stat label="Time" value={formatTime(currentResponse.time)} />
                 <Stat label="Size" value={formatBytes(currentResponse.size)} />
@@ -473,6 +464,7 @@ function ResponseViewer() {
                           options={[
                             { value: 'pretty', label: 'Pretty' },
                             { value: 'raw', label: 'Raw' },
+                            ...(canShowTree ? [{ value: 'tree' as const, label: 'Tree' }] : []),
                             ...(isCsv ? [{ value: 'table' as const, label: 'Table' }] : []),
                           ]}
                           ariaLabel="Response body format"
@@ -486,15 +478,18 @@ function ResponseViewer() {
                           onClick={() => setShowJsonPath((v) => !v)}
                         />
                       )}
-                      {!isBase64 && bodyFormat !== 'table' && !showJsonPath && (
-                        <IconButton
-                          icon={<Search className="h-3.5 w-3.5" />}
-                          label="Find in response (Ctrl+F)"
-                          onClick={() =>
-                            responseEditorRef.current?.getAction('actions.find')?.run()
-                          }
-                        />
-                      )}
+                      {!isBase64 &&
+                        bodyFormat !== 'table' &&
+                        bodyFormat !== 'tree' &&
+                        !showJsonPath && (
+                          <IconButton
+                            icon={<Search className="h-3.5 w-3.5" />}
+                            label="Find in response (Ctrl+F)"
+                            onClick={() =>
+                              responseEditorRef.current?.getAction('actions.find')?.run()
+                            }
+                          />
+                        )}
                       {!isBase64 && (
                         <IconButton
                           icon={
@@ -519,6 +514,12 @@ function ResponseViewer() {
                         label={isBase64 ? 'Download file' : 'Download response'}
                         onClick={handleDownloadBody}
                       />
+                      {activeTab_ && (
+                        <CompareWithPrevious
+                          request={activeTab_.request}
+                          response={currentResponse}
+                        />
+                      )}
                     </div>
                   ) : undefined
                 }
@@ -557,6 +558,14 @@ function ResponseViewer() {
                           body={currentResponse.body}
                           onClose={() => setShowJsonPath(false)}
                         />
+                      ) : bodyFormat === 'tree' ? (
+                        treeValue ? (
+                          <JsonTree value={treeValue.value} />
+                        ) : (
+                          <p className="p-4 text-sp-12 text-sp-dim">
+                            This body isn’t valid JSON, so it can’t be shown as a tree.
+                          </p>
+                        )
                       ) : bodyFormat === 'table' ? (
                         <CsvTableViewer body={currentResponse.body} />
                       ) : formattedBody ? (
@@ -603,55 +612,7 @@ function ResponseViewer() {
                     />
                   )}
 
-                  {activeTab === 'headers' && (
-                    <div className="h-full overflow-auto">
-                      {headerEntries.length > 8 && (
-                        <div className="sticky top-0 z-10 px-4 pt-3 pb-2 bg-sp-surface border-b border-sp-line">
-                          <input
-                            value={headerFilter}
-                            onChange={(e) => setHeaderFilter(e.target.value)}
-                            placeholder={`Filter ${headerEntries.length} headers…`}
-                            aria-label="Filter response headers"
-                            className="w-full h-7 px-2 rounded-sp-btn bg-sp-surface-lo border border-sp-line text-sp-12 font-mono outline-none focus:border-sp-line-strong"
-                          />
-                        </div>
-                      )}
-                      <div className="px-3 py-1">
-                        {filteredHeaderEntries.map(([key, value]) => (
-                          <div
-                            key={key}
-                            className="group grid grid-cols-[200px_1fr_auto] gap-3 py-1.5 border-b border-sp-line items-start"
-                          >
-                            <span className="font-mono text-sp-12 text-sp-muted truncate">
-                              {key}
-                            </span>
-                            <span className="font-mono text-sp-12 text-sp-text break-all">
-                              {Array.isArray(value) ? value.join(', ') : value}
-                            </span>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <button
-                                  type="button"
-                                  onClick={() => handleCopyHeader(key, value)}
-                                  aria-label={copiedHeader === key ? 'Copied!' : 'Copy header'}
-                                  className="size-5 inline-flex items-center justify-center text-sp-dim hover:text-sp-text opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity rounded-sp-chip hover:bg-sp-hover"
-                                >
-                                  {copiedHeader === key ? (
-                                    <Check className="h-3 w-3 text-emerald-400" />
-                                  ) : (
-                                    <Copy className="h-3 w-3" />
-                                  )}
-                                </button>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                {copiedHeader === key ? 'Copied!' : 'Copy header'}
-                              </TooltipContent>
-                            </Tooltip>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  {activeTab === 'headers' && <ResponseHeadersPanel entries={headerEntries} />}
 
                   {activeTab === 'cookies' && (
                     <div className="h-full overflow-auto">
@@ -688,15 +649,7 @@ function ResponseViewer() {
 
                   {activeTab === 'timeline' && (
                     <div className="h-full overflow-auto px-4 py-3 space-y-4">
-                      <div>
-                        <div className="sp-label mb-2">Total</div>
-                        <div className="flex items-center gap-3">
-                          <WaterfallBar segments={waterfallSegments} width={320} height={10} />
-                          <span className="font-mono text-sp-12 text-sp-text tabular-nums">
-                            {formatTime(currentResponse.time)}
-                          </span>
-                        </div>
-                      </div>
+                      <TimingBreakdown segments={waterfallSegments} total={currentResponse.time} />
                       <div>
                         <div className="sp-label mb-2">Server-Timing</div>
                         {serverTiming.length === 0 ? (

@@ -143,7 +143,7 @@ export default function DiskTab() {
       {/* List */}
       <div className="w-[320px] border-r border-border flex-shrink-0 flex flex-col">
         <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-b border-border">
-          <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+          <div className="flex items-center gap-1 text-sp-11 text-muted-foreground">
             <HardDrive className="h-3 w-3" />
             <span>Disk · last {entries.length}</span>
           </div>
@@ -193,7 +193,7 @@ export default function DiskTab() {
                 <div className="flex items-center gap-2 mb-0.5">
                   <Badge
                     variant="outline"
-                    className={cn('text-[10px] px-1.5 py-0 font-semibold', mc)}
+                    className={cn('text-sp-11 px-1.5 py-0 font-semibold', mc)}
                   >
                     {entry.method}
                   </Badge>
@@ -206,23 +206,23 @@ export default function DiskTab() {
                     {displayStatus || 'ERR'}
                   </span>
                   {entry.protocol !== 'http' && (
-                    <Badge variant="outline" className="text-[9px] px-1 py-0 uppercase">
+                    <Badge variant="outline" className="text-sp-11 px-1 py-0 uppercase">
                       {entry.protocol}
                     </Badge>
                   )}
-                  <span className="text-[10px] text-muted-foreground ml-auto">
+                  <span className="text-sp-11 text-muted-foreground ml-auto">
                     {formatLongTimestamp(entry.ts)}
                   </span>
                 </div>
                 <div className="text-xs text-sp-muted truncate font-mono">{entry.url}</div>
-                <div className="text-[10px] text-muted-foreground">{entry.durationMs}ms</div>
+                <div className="text-sp-11 text-muted-foreground">{entry.durationMs}ms</div>
               </div>
             );
           })}
           {entries.length >= pageSize && (
             <button
               type="button"
-              className="w-full text-center text-[11px] text-primary py-2 hover:bg-accent/50"
+              className="w-full text-center text-sp-11 text-primary py-2 hover:bg-accent/50"
               onClick={() => setPageSize((n) => n + PAGE_SIZE)}
             >
               Load more
@@ -239,7 +239,7 @@ export default function DiskTab() {
               <Badge
                 variant="outline"
                 className={cn(
-                  'text-[10px] px-1.5 py-0 font-semibold',
+                  'text-sp-11 px-1.5 py-0 font-semibold',
                   getMethodColor(selected.method)
                 )}
               >
@@ -263,7 +263,7 @@ export default function DiskTab() {
               <Button
                 variant="outline"
                 size="sm"
-                className="h-7 text-[11px]"
+                className="h-7 text-sp-11"
                 onClick={() => handleOpenSafeDraft(selected)}
               >
                 <RotateCw className="h-3 w-3 mr-1" />
@@ -272,7 +272,7 @@ export default function DiskTab() {
               <Button
                 variant="outline"
                 size="sm"
-                className="h-7 text-[11px]"
+                className="h-7 text-sp-11"
                 onClick={() => handleOpenSafeDraftInNewTab(selected)}
               >
                 <ExternalLink className="h-3 w-3 mr-1" />
@@ -281,14 +281,14 @@ export default function DiskTab() {
               <Button
                 variant="outline"
                 size="sm"
-                className="h-7 text-[11px]"
+                className="h-7 text-sp-11"
                 onClick={() => handleCopyUrl(selected)}
               >
                 <Copy className="h-3 w-3 mr-1" />
                 Copy URL
               </Button>
             </div>
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-sp-11 text-muted-foreground">
               Disk entries record metadata only (method, URL, status, timing) — no headers or
               bodies.
             </p>

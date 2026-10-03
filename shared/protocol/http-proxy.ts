@@ -3,7 +3,13 @@ import { bytesToBase64, getHeaderCI, isBinaryContentType, readStreamToBytes } fr
 import { buildRequestBody } from './body-builder';
 import { sanitizeRequestHeaders, sanitizeResponseHeaders } from './header-policy';
 import { followRedirects, RedirectPolicyError } from './redirect-follower';
-import type { ExecuteResult, Fetcher, RequestSpec } from './types';
+import type {
+  ConnectionTimings,
+  ExecuteResult,
+  Fetcher,
+  RequestSpec,
+  ResponseTimings,
+} from './types';
 import { validateURL } from './url-validation';
 
 export const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
@@ -124,6 +130,7 @@ export async function executeHttpProxy(
       }
     }
 
+    const startedAt = performance.now();
     const response = await followRedirects(
       {
         url: wireUrl,
@@ -151,6 +158,7 @@ export async function executeHttpProxy(
       }
     );
 
+    const headersAt = performance.now();
     if (response.contentLengthHeader && Number(response.contentLengthHeader) > MAX_RESPONSE_SIZE) {
       return {
         ok: false,
@@ -215,6 +223,14 @@ export async function executeHttpProxy(
     };
     if (normalized.ok && response.negotiatedAlpn) {
       normalized.response.negotiatedAlpn = response.negotiatedAlpn;
+    }
+    if (normalized.ok) {
+      normalized.response.timings = buildTimings(
+        startedAt,
+        headersAt,
+        performance.now(),
+        response.connectionTimings
+      );
     }
     return normalized;
   } catch (err) {
@@ -401,4 +417,20 @@ export async function executeHttpProxyStreaming(
   } finally {
     if (timer !== null) clearTimeout(timer);
   }
+}
+
+/** Round a timing breakdown to whole milliseconds; connection phases are kept when known. */
+export function buildTimings(
+  startedAt: number,
+  headersAt: number,
+  bodyDoneAt: number,
+  connection?: ConnectionTimings
+): ResponseTimings {
+  const ms = (n: number) => Math.max(0, Math.round(n));
+  return {
+    ...(connection?.dns !== undefined ? { dns: ms(connection.dns) } : {}),
+    ...(connection?.connect !== undefined ? { connect: ms(connection.connect) } : {}),
+    ttfb: ms(headersAt - startedAt),
+    download: ms(bodyDoneAt - headersAt),
+  };
 }

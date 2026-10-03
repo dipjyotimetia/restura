@@ -1,5 +1,6 @@
 import { RefreshCw, Search } from 'lucide-react';
 import { memo } from 'react';
+import { LogExportMenu } from '@/components/shared/messageLog/MessageLogControls';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -12,6 +13,7 @@ import {
 } from '@/components/ui/select';
 import { CodeEditorFrame, ConnectionBadge, Floater, Stat } from '@/components/ui/spatial';
 import { TabsContent } from '@/components/ui/tabs';
+import { mqttToLogEntries } from '@/features/mqtt/lib/mqttLogExport';
 import type {
   MqttConnection,
   MqttMessage,
@@ -98,6 +100,8 @@ interface MqttMessagesPanelProps {
   searchQuery: string;
   selectedMessage: MqttMessage | null;
   selectedMessageId: string | null;
+  /** Live messages under the current filter (ignores pause) — what Export writes. */
+  filteredMessages: MqttMessage[];
   visibleMessages: MqttMessage[];
 }
 
@@ -115,6 +119,7 @@ export function MqttMessagesPanel({
   searchQuery,
   selectedMessage,
   selectedMessageId,
+  filteredMessages,
   visibleMessages,
 }: MqttMessagesPanelProps) {
   return (
@@ -159,6 +164,12 @@ export function MqttMessagesPanel({
               />
             </div>
             {paused && <ConnectionBadge label="Paused" tone="warning" />}
+            <LogExportMenu
+              entries={() => mqttToLogEntries(filteredMessages)}
+              name={`${connection.name}-mqtt`}
+              meta={{ protocol: 'mqtt', brokerUrl: connection.brokerUrl }}
+              disabled={filteredMessages.length === 0}
+            />
             <Button
               size="sm"
               variant="ghost"

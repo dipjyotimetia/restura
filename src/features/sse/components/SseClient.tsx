@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import { KeyValueTable } from '@/components/shared/KeyValueTable';
+import { StreamSplit } from '@/components/shared/StreamSplit';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
+import { sseExportName } from '@/features/sse/lib/sseLogExport';
 import { sseManager } from '@/features/sse/lib/sseManager';
 import { createSseStreamSummary, getSseSummaryView } from '@/features/sse/lib/streamSummary';
 import { useSseStore } from '@/features/sse/store/useSseStore';
@@ -48,9 +50,7 @@ export default function SseClient() {
     updateConnectionUrl,
     setReconnectOnResume,
     clearLog,
-    addHeader,
-    updateHeader,
-    removeHeader,
+    setHeaders,
     setAuth,
     setSearchQuery,
     setEventNameFilter,
@@ -62,9 +62,7 @@ export default function SseClient() {
       updateConnectionUrl: s.updateConnectionUrl,
       setReconnectOnResume: s.setReconnectOnResume,
       clearLog: s.clearLog,
-      addHeader: s.addHeader,
-      updateHeader: s.updateHeader,
-      removeHeader: s.removeHeader,
+      setHeaders: s.setHeaders,
       setAuth: s.setAuth,
       setSearchQuery: s.setSearchQuery,
       setEventNameFilter: s.setEventNameFilter,
@@ -141,48 +139,37 @@ export default function SseClient() {
 
   sendShortcut.current = !isStreaming && active.url.trim() ? handleConnect : null;
 
-  return (
-    <div className="flex flex-col h-full overflow-hidden bg-transparent">
-      <SseUrlBar
-        url={active.url}
-        onUrlChange={(v) => updateConnectionUrl(active.id, v)}
-        isStreaming={isConnected}
-        isConnecting={isConnecting}
-        onStream={handleConnect}
-        onStop={handleDisconnect}
-        headerCount={active.headers.length}
-        headersOpen={headersOpen}
-        onToggleHeaders={() => setHeadersOpen((s) => !s)}
+  // Headers / auth / resume options; when open they get a resizable pane
+  // above the log instead of pushing it down.
+  const configPanel = (
+    <div className="h-full overflow-auto p-3 bg-sp-surface-lo">
+      <KeyValueTable
+        items={active.headers}
+        onChange={(headers) => setHeaders(active.id, headers)}
+        itemLabel="header"
+        addLabel="Add header"
+        resolvesVariables="connection"
+        httpHeaders
       />
+      <div className="pt-3 mt-3 border-t border-sp-line">
+        <Label className="text-sp-11 text-sp-muted mb-2 block">Auth</Label>
+        <AuthConfiguration auth={active.auth} onChange={(a) => setAuth(active.id, a)} />
+      </div>
+      <div className="flex items-center gap-2 pt-3 mt-3 border-t border-sp-line">
+        <Switch
+          id="resume"
+          checked={active.reconnectOnResume}
+          onCheckedChange={(c) => setReconnectOnResume(active.id, c)}
+        />
+        <Label htmlFor="resume" className="text-sp-11 text-sp-muted">
+          Reconnect on resume (Last-Event-ID)
+        </Label>
+      </div>
+    </div>
+  );
 
-      {headersOpen && (
-        <div className="border-b border-sp-line p-3 bg-sp-surface-lo">
-          <KeyValueEditor
-            items={active.headers}
-            onAdd={() => addHeader(active.id)}
-            onUpdate={(id, updates) => updateHeader(active.id, id, updates)}
-            onDelete={(id) => removeHeader(active.id, id)}
-            keyPlaceholder="Header name"
-            valuePlaceholder="Header value"
-            addButtonText="Add header"
-          />
-          <div className="pt-3 mt-3 border-t border-sp-line">
-            <Label className="text-sp-11 text-sp-muted mb-2 block">Auth</Label>
-            <AuthConfiguration auth={active.auth} onChange={(a) => setAuth(active.id, a)} />
-          </div>
-          <div className="flex items-center gap-2 pt-3 mt-3 border-t border-sp-line">
-            <Switch
-              id="resume"
-              checked={active.reconnectOnResume}
-              onCheckedChange={(c) => setReconnectOnResume(active.id, c)}
-            />
-            <Label htmlFor="resume" className="text-sp-11 text-sp-muted">
-              Reconnect on resume (Last-Event-ID)
-            </Label>
-          </div>
-        </div>
-      )}
-
+  const logPanel = (
+    <div className="flex min-h-0 flex-1 flex-col h-full">
       <SseStatsRow
         status={active.status}
         events={derived.eventCount}
@@ -200,6 +187,7 @@ export default function SseClient() {
           onEventNameFilterChange={(v) => setEventNameFilter(active.id, v)}
           eventNames={derived.eventNames}
           onClearLog={() => clearLog(active.id)}
+          exportName={sseExportName(active.url)}
         />
         <div className="flex flex-col gap-2.5 min-h-0">
           <SseAssembledOutput
@@ -216,6 +204,24 @@ export default function SseClient() {
           />
         </div>
       </div>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden bg-transparent">
+      <SseUrlBar
+        url={active.url}
+        onUrlChange={(v) => updateConnectionUrl(active.id, v)}
+        isStreaming={isConnected}
+        isConnecting={isConnecting}
+        onStream={handleConnect}
+        onStop={handleDisconnect}
+        headerCount={active.headers.length}
+        headersOpen={headersOpen}
+        onToggleHeaders={() => setHeadersOpen((s) => !s)}
+      />
+
+      {headersOpen ? <StreamSplit config={configPanel} log={logPanel} /> : logPanel}
     </div>
   );
 }

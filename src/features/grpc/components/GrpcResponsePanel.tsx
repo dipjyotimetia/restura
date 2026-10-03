@@ -1,24 +1,29 @@
 import { grpcStatusToHttpStatus } from '@shared/protocol/grpc-status';
 import { Radio } from 'lucide-react';
 import { Fragment, useMemo, useState } from 'react';
+import { JsonBodyView } from '@/components/shared/JsonBodyView';
 import { ResponseEmptyState } from '@/components/shared/ResponseEmptyState';
+import { ResponseHeadersPanel } from '@/components/shared/ResponseHeadersPanel';
 import type { SubTab } from '@/components/ui/spatial';
 import { Floater, Stat, StatusPill, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { formatBytes, formatTime } from '@/lib/shared/utils';
 import { useActiveResponse } from '@/store/selectors';
 import { useRequestStore } from '@/store/useRequestStore';
 import { type GrpcResponse, type GrpcStatusCode, GrpcStatusCodeName } from '@/types';
 
-function prettyJson(raw: string): string {
-  if (!raw) return '';
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2);
-  } catch {
-    return raw;
+/**
+ * The result as one text: a streamed response's frames as a JSON array (the
+ * index is the frame number), otherwise the unary body.
+ */
+export function grpcResultText(response: Pick<GrpcResponse, 'body' | 'messages'>): string {
+  if (response.messages && response.messages.length > 0) {
+    return `[${response.messages.map((m) => m || 'null').join(',')}]`;
   }
+  return response.body;
 }
 
-type GrpcResponseTab = 'body' | 'trailers';
+type GrpcResponseTab = 'body' | 'metadata' | 'trailers';
 
 /**
  * Spatial Depth response panel for gRPC. Mirrors the HTTP ResponseViewer's
@@ -31,11 +36,14 @@ export function GrpcResponsePanel() {
   // agnostic. The slot type is the generic ApiResponse union.
   const activeResponse = useActiveResponse();
   const isLoading = useRequestStore((s) => s.isLoading);
+  const activeTabId = useRequestStore((s) => s.activeTabId);
+  const activeTabName = useRequestStore((s) => s.getActiveTab()?.request.name);
   const [activeTab, setActiveTab] = useState<GrpcResponseTab>('body');
   const response =
     activeResponse && 'grpcStatus' in activeResponse ? (activeResponse as GrpcResponse) : null;
 
-  const body = useMemo(() => prettyJson(response?.body ?? ''), [response?.body]);
+  const resultText = useMemo(() => (response ? grpcResultText(response) : ''), [response]);
+  const metadataEntries = useMemo(() => Object.entries(response?.headers ?? {}), [response]);
 
   if (isLoading && !response) {
     return (
@@ -80,6 +88,9 @@ export function GrpcResponsePanel() {
 
   const tabs: ReadonlyArray<SubTab<GrpcResponseTab>> = [
     { value: 'body', label: 'Body', badge: 'JSON' },
+    // Leading metadata (response headers), as returned by both backends —
+    // named like the HTTP viewer's tab, and unlike the request's Metadata tab.
+    { value: 'metadata', label: 'Headers', count: metadataEntries.length },
     // grpc-status + grpc-message rows always render, hence the +2.
     { value: 'trailers', label: 'Trailers', count: extraTrailers.length + 2 },
   ];
@@ -102,30 +113,25 @@ export function GrpcResponsePanel() {
       <SubTabBar tabs={tabs} value={activeTab} onChange={setActiveTab} />
 
       <div className="flex-1 min-h-0 overflow-hidden" style={{ background: 'var(--sp-code)' }}>
-        <SubTabPanel tabKey={activeTab} className="h-full overflow-auto">
+        <SubTabPanel
+          tabKey={activeTab}
+          className={activeTab === 'body' ? 'h-full' : 'h-full overflow-auto'}
+        >
           {activeTab === 'body' ? (
-            response.messages && response.messages.length > 0 ? (
-              <div className="px-3.5 py-3 space-y-2">
-                {response.messages.map((m, i) => (
-                  <div key={i}>
-                    <div className="sp-label mb-1">Frame {i + 1}</div>
-                    <pre
-                      className="m-0 font-mono text-sp-12-5 text-sp-text whitespace-pre-wrap"
-                      style={{ lineHeight: 1.55 }}
-                    >
-                      {prettyJson(m)}
-                    </pre>
-                  </div>
-                ))}
-              </div>
+            resultText ? (
+              <JsonBodyView
+                text={resultText}
+                downloadName={`${activeTabName ?? 'grpc'}-response`}
+                editorPath={activeTabId ? `tab-${activeTabId}-grpc-response` : undefined}
+              />
             ) : (
-              <pre
-                className="m-0 px-3.5 py-3 font-mono text-sp-12-5 text-sp-text whitespace-pre-wrap"
-                style={{ lineHeight: 1.55 }}
-              >
-                {body || '(empty body)'}
-              </pre>
+              <p className="px-3.5 py-3 font-mono text-sp-12-5 text-sp-dim">(empty body)</p>
             )
+          ) : activeTab === 'metadata' ? (
+            // The headers panel's copy button carries a tooltip.
+            <TooltipProvider delayDuration={300}>
+              <ResponseHeadersPanel entries={metadataEntries} />
+            </TooltipProvider>
           ) : (
             <div
               className="grid font-mono text-sp-11-5 px-3.5 py-3"

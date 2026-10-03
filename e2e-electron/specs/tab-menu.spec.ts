@@ -19,6 +19,12 @@ async function clickFileMenuItem(
 
 test('File menu closes, reopens and creates request tabs', async ({ app: page, _electronApp }) => {
   const { electronApp } = _electronApp;
+  // The app is shared across specs: dismiss any dialog a previous spec left
+  // open (a modal hides the tab strip from role queries).
+  for (let i = 0; i < 3 && (await page.getByRole('dialog').count()) > 0; i++) {
+    await page.keyboard.press('Escape');
+  }
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   const tabs = page.getByRole('tablist', { name: 'Request tabs' }).getByRole('tab');
   const before = await tabs.count();
 

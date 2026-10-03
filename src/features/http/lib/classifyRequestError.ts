@@ -83,6 +83,35 @@ export function classifyRequestError(
       hint: 'The request never left the app. Check your connection and try again.',
     };
   }
+  // Desktop: undici's messages pass through as "Request failed: <message>"
+  // (e.g. "connect ECONNREFUSED 127.0.0.1:9", "other side closed").
+  if (hit(/ECONNREFUSED/)) {
+    return {
+      title: 'Connection refused',
+      raw,
+      hint: 'Nothing is accepting connections at that host and port. Check the URL and that the server is running.',
+    };
+  }
+  if (hit(/ECONNRESET|other side closed|socket hang up/i)) {
+    return {
+      title: 'Connection closed by the server',
+      raw,
+      hint: 'The server dropped the connection before sending a response.',
+    };
+  }
+  if (
+    hit(
+      /self[- ]signed certificate|unable to verify the first certificate|unable to get local issuer certificate|certificate has expired|does not match certificate|CERT_/i
+    )
+  ) {
+    return {
+      title: 'TLS certificate not trusted',
+      raw,
+      hint: isDesktop
+        ? 'Add the server’s CA in Settings → Certificates, or turn off SSL verification in this request’s Settings tab.'
+        : 'The hosted proxy only trusts publicly issued certificates. Use the desktop app for self-signed or internal CAs.',
+    };
+  }
   if (hit(/Response too large/)) {
     return { title: 'Response too large', raw };
   }
