@@ -20,13 +20,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Segmented } from '@/components/ui/spatial';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import AuthConfigComponent from '@/features/auth/components/AuthConfig';
 import { loadContractSpec } from '@/features/contracts/lib/specLoader';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
+import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { useCollectionStore } from '@/store/useCollectionStore';
-import type { AuthConfig, Collection, CollectionItem, ContractSpecSource, KeyValue } from '@/types';
+import type {
+  AuthConfig,
+  Collection,
+  CollectionItem,
+  ContractSpecSource,
+  ScopedVariable,
+} from '@/types';
+
+// react-markdown only loads when docs are previewed.
+const MarkdownPreview = lazyComponent(() => import('@/components/shared/MarkdownPreview'));
 
 /**
  * Settings dialog for a collection or a folder. Until this existed, the
@@ -56,7 +67,8 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
   const updateCollectionItem = useCollectionStore((s) => s.updateCollectionItem);
 
   const [auth, setAuth] = useState<AuthConfig>({ type: 'none' });
-  const [variables, setVariables] = useState<KeyValue[]>([]);
+  const [variables, setVariables] = useState<ScopedVariable[]>([]);
+  const [docsPreview, setDocsPreview] = useState(false);
   const [preRequestScript, setPreRequestScript] = useState('');
   const [testScript, setTestScript] = useState('');
   const [description, setDescription] = useState('');
@@ -76,8 +88,9 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
     setContractSource(source.contractSpec?.source ?? 'none');
     setContractUrl(source.contractSpec?.url ?? '');
     setContractInline(source.contractSpec?.inline ?? '');
+    setVariables(source.variables ?? []);
+    setDocsPreview(false);
     if (target.scope === 'collection') {
-      setVariables(target.collection.variables ?? []);
       setDescription(target.collection.description ?? '');
     }
   }, [targetId]);
@@ -97,16 +110,17 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
   };
 
   const handleSave = async () => {
+    const scopeLabel = target.scope === 'collection' ? 'Collection' : 'Folder';
+    const normalizedKeys = variables.map((variable) => variable.key.trim());
+    if (normalizedKeys.some((key) => key.length === 0)) {
+      toast.error(`${scopeLabel} variables must have a name`);
+      return;
+    }
+    if (new Set(normalizedKeys).size !== normalizedKeys.length) {
+      toast.error(`${scopeLabel} variable names must be unique`);
+      return;
+    }
     if (target.scope === 'collection') {
-      const normalizedKeys = variables.map((variable) => variable.key.trim());
-      if (normalizedKeys.some((key) => key.length === 0)) {
-        toast.error('Collection variables must have a name');
-        return;
-      }
-      if (new Set(normalizedKeys).size !== normalizedKeys.length) {
-        toast.error('Collection variable names must be unique');
-        return;
-      }
       const contractSpec = buildContractSpec();
       if (contractSource !== 'none' && !contractSpec) {
         toast.error('Complete the contract source before saving');
@@ -138,7 +152,10 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
         description: description.trim() ? description : undefined,
       });
     } else {
-      updateCollectionItem(target.collectionId, target.item.id, common);
+      updateCollectionItem(target.collectionId, target.item.id, {
+        ...common,
+        variables: variables.length > 0 ? variables : undefined,
+      });
     }
     onClose();
   };
@@ -162,8 +179,8 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
             {isCollection ? 'Collection settings' : 'Folder settings'} — {name}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Configure default auth, scripts, and contract spec
-            {isCollection ? ', variables, and documentation' : ''} for {name}.
+            Configure default auth, variables, scripts, and contract spec
+            {isCollection ? ', and documentation' : ''} for {name}.
           </DialogDescription>
         </DialogHeader>
 
@@ -182,7 +199,7 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
         <Tabs defaultValue="auth" className="flex-1 min-h-0 flex flex-col">
           <TabsList>
             <TabsTrigger value="auth">Auth</TabsTrigger>
-            {isCollection && <TabsTrigger value="variables">Variables</TabsTrigger>}
+            <TabsTrigger value="variables">Variables</TabsTrigger>
             <TabsTrigger value="scripts">Scripts</TabsTrigger>
             {isCollection && <TabsTrigger value="docs">Docs</TabsTrigger>}
             {isCollection && <TabsTrigger value="contract">Contract</TabsTrigger>}
@@ -198,11 +215,13 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
               <AuthConfigComponent auth={auth} onChange={setAuth} />
             </TabsContent>
 
-            {isCollection && (
+            {
               <TabsContent value="variables" className="mt-0 space-y-2">
                 <p className="text-xs text-muted-foreground">
-                  Collection variables are available as {'{{name}}'} in every request of this
-                  collection and are merged under the active environment.
+                  {isCollection
+                    ? 'Collection variables are available as {{name}} in every request of this collection. They override the active environment and globals; folder variables override them.'
+                    : 'Folder variables are available as {{name}} in every request inside this folder. They override collection, environment and global values; the nearest folder wins.'}
+                  {isCollection && ' Mark a variable local to keep it out of exports.'}
                 </p>
                 <KeyValueEditor
                   items={variables}
@@ -222,9 +241,10 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
                   valuePlaceholder="value"
                   addButtonText="Add variable"
                   itemType="variable"
+                  enablePrivate={isCollection}
                 />
               </TabsContent>
-            )}
+            }
 
             <TabsContent value="scripts" className="mt-0 space-y-2">
               <p className="text-xs text-muted-foreground">
@@ -242,15 +262,33 @@ export function CollectionSettingsDialog({ target, onClose }: Props) {
 
             {isCollection && (
               <TabsContent value="docs" className="mt-0 space-y-2">
-                <p className="text-xs text-muted-foreground">
-                  Markdown description — shown in the generated API docs.
-                </p>
-                <Textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="What does this API do?"
-                  className="min-h-[200px] font-mono text-xs"
-                />
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs text-muted-foreground">
+                    Markdown description — shown in the generated API docs.
+                  </p>
+                  <Segmented
+                    size="sm"
+                    value={docsPreview ? 'preview' : 'write'}
+                    onChange={(v) => setDocsPreview(v === 'preview')}
+                    options={[
+                      { value: 'write', label: 'Write' },
+                      { value: 'preview', label: 'Preview' },
+                    ]}
+                    ariaLabel="Docs view"
+                  />
+                </div>
+                {docsPreview ? (
+                  <div className="min-h-[200px] rounded-md border border-sp-line p-3">
+                    <MarkdownPreview source={description} />
+                  </div>
+                ) : (
+                  <Textarea
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="What does this API do?"
+                    className="min-h-[200px] font-mono text-xs"
+                  />
+                )}
               </TabsContent>
             )}
 
