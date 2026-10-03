@@ -4,6 +4,7 @@ import {
   Check,
   Copy,
   Globe,
+  Layers,
   MoreHorizontal,
   PencilLine,
   Plus,
@@ -19,6 +20,9 @@ import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import KeyValueEditor from '@/components/shared/KeyValueEditor';
 import { Floater } from '@/components/ui/spatial';
 import { EnvironmentUsageHints } from '@/features/environments/components/EnvironmentUsageHints';
+import { GlobalsPanel } from '@/features/environments/components/GlobalsPanel';
+import { RailPin } from '@/features/environments/components/RailPin';
+import { ScopeInspector } from '@/features/environments/components/ScopeInspector';
 import { envColorFor } from '@/features/environments/lib/envColor';
 import { envHostHint as hostHint } from '@/features/environments/lib/envHint';
 import { duplicateEnvironment } from '@/features/environments/lib/environmentActions';
@@ -168,9 +172,10 @@ const SCAFFOLDS: Scaffold[] = [
 
 interface EmptyStateProps {
   onCreate: (name: string) => void;
+  onOpenView: (view: 'globals' | 'scope') => void;
 }
 
-function EmptyState({ onCreate }: EmptyStateProps) {
+function EmptyState({ onCreate, onOpenView }: EmptyStateProps) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center px-8 py-10 text-center">
       <div
@@ -219,6 +224,22 @@ function EmptyState({ onCreate }: EmptyStateProps) {
       >
         <Plus size={14} /> Create blank environment
       </button>
+      <div className="mt-3 flex gap-3 text-sp-12">
+        <button
+          type="button"
+          onClick={() => onOpenView('globals')}
+          className="text-sp-muted underline-offset-2 hover:text-sp-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+        >
+          Edit globals
+        </button>
+        <button
+          type="button"
+          onClick={() => onOpenView('scope')}
+          className="text-sp-muted underline-offset-2 hover:text-sp-accent hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-sp-accent"
+        >
+          Variables in scope
+        </button>
+      </div>
     </div>
   );
 }
@@ -422,6 +443,12 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
     activeEnvironmentId || environments[0]?.id || null
   );
   const [searchQuery, setSearchQuery] = useState('');
+  // Detail pane: an environment, the workspace globals, or the scope inspector.
+  const [view, setView] = useState<'env' | 'globals' | 'scope'>('env');
+  const selectEnv = (id: string) => {
+    setSelectedEnvId(id);
+    setView('env');
+  };
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [envToDelete, setEnvToDelete] = useState<string | null>(null);
 
@@ -454,6 +481,7 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
   }, [filteredEnvs]);
 
   const createEnv = (name: string) => {
+    setView('env');
     const env = createNewEnvironment(name);
     addEnvironment(env);
     setSelectedEnvId(env.id);
@@ -573,8 +601,8 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
 
           {/* Body */}
           <div className="flex flex-1 min-h-0">
-            {environments.length === 0 ? (
-              <EmptyState onCreate={createEnv} />
+            {environments.length === 0 && view === 'env' ? (
+              <EmptyState onCreate={createEnv} onOpenView={setView} />
             ) : (
               <>
                 {/* Left rail */}
@@ -605,7 +633,22 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
                     </div>
                   )}
                   <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
-                    {filteredEnvs.length === 0 ? (
+                    <RailPin
+                      icon={Globe}
+                      label="Globals"
+                      hint="Every request · pm.globals"
+                      selected={view === 'globals'}
+                      onSelect={() => setView('globals')}
+                    />
+                    <RailPin
+                      icon={Layers}
+                      label="Variables in scope"
+                      hint="What the active tab resolves"
+                      selected={view === 'scope'}
+                      onSelect={() => setView('scope')}
+                    />
+                    <div aria-hidden="true" className="mx-2 my-1 border-t border-sp-line" />
+                    {environments.length > 0 && filteredEnvs.length === 0 ? (
                       <div className="text-center py-6 text-sp-11-5 text-sp-muted font-mono">
                         No matches
                       </div>
@@ -615,9 +658,9 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
                           key={env.id}
                           env={env}
                           isSubEnvironment={Boolean(env.parentId)}
-                          isSelected={selectedEnvId === env.id}
+                          isSelected={view === 'env' && selectedEnvId === env.id}
                           isActive={activeEnvironmentId === env.id}
-                          onSelect={() => setSelectedEnvId(env.id)}
+                          onSelect={() => selectEnv(env.id)}
                           onDelete={() => handleDeleteEnvironment(env.id)}
                         />
                       ))
@@ -651,7 +694,11 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
 
                 {/* Detail pane */}
                 <div className="flex-1 flex flex-col min-w-0">
-                  {selectedEnv ? (
+                  {view === 'globals' ? (
+                    <GlobalsPanel />
+                  ) : view === 'scope' ? (
+                    <ScopeInspector />
+                  ) : selectedEnv ? (
                     <>
                       <EnvDetailHeader
                         env={selectedEnv}
@@ -710,20 +757,22 @@ function EnvironmentManager({ open, onOpenChange }: EnvironmentManagerProps) {
               >
                 Close
               </DialogPrimitive.Close>
-              <button
-                type="button"
-                disabled={!canSetActive}
-                onClick={() => selectedEnvId && setActiveEnvironment(selectedEnvId)}
-                className={cn(
-                  'inline-flex items-center gap-1.5 h-8 px-4 rounded-sp-btn',
-                  'bg-sp-accent text-white text-sp-12 font-semibold',
-                  'transition-opacity',
-                  canSetActive ? 'hover:opacity-90' : 'opacity-50 cursor-not-allowed'
-                )}
-              >
-                <Check size={12} />
-                {isActiveSelected ? 'Active' : 'Set as active'}
-              </button>
+              {view === 'env' && (
+                <button
+                  type="button"
+                  disabled={!canSetActive}
+                  onClick={() => selectedEnvId && setActiveEnvironment(selectedEnvId)}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 h-8 px-4 rounded-sp-btn',
+                    'bg-sp-accent text-white text-sp-12 font-semibold',
+                    'transition-opacity',
+                    canSetActive ? 'hover:opacity-90' : 'opacity-50 cursor-not-allowed'
+                  )}
+                >
+                  <Check size={12} />
+                  {isActiveSelected ? 'Active' : 'Set as active'}
+                </button>
+              )}
             </div>
           )}
         </DialogPrimitive.Content>

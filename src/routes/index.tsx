@@ -39,6 +39,7 @@ import type { ActivePanel, RequestMode } from '@/types';
 import { isConnectionMode } from '@/types';
 import { NoOpenTabs } from './components/NoOpenTabs';
 import { RequestWorkspace } from './components/RequestWorkspace';
+import { WindowFileDrop } from './components/WindowFileDrop';
 
 const ChatPanel = lazyComponent(() => import('@/features/ai/components/ChatPanel'));
 const CommandPalette = lazyComponent(() => import('@/components/shared/CommandPalette'));
@@ -61,6 +62,7 @@ export default function Home() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importDialogLoaded, setImportDialogLoaded] = useState(false);
+  const [droppedImportFile, setDroppedImportFile] = useState<File | null>(null);
   const [deepLinkImport, setDeepLinkImport] = useState<
     { url: string; format?: DeepLinkImportFormat } | undefined
   >();
@@ -445,11 +447,21 @@ export default function Home() {
           open={importDialogOpen}
           onOpenChange={(open) => {
             setImportDialogOpen(open);
-            if (!open) setDeepLinkImport(undefined);
+            if (!open) {
+              setDeepLinkImport(undefined);
+              setDroppedImportFile(null);
+            }
           }}
           deepLinkSource={deepLinkImport}
+          droppedFile={droppedImportFile}
         />
       )}
+      <WindowFileDrop
+        onFile={(file) => {
+          setDroppedImportFile(file);
+          openImportDialog();
+        }}
+      />
       {bugReportOpen && (
         <BugReportDialog
           open={bugReportOpen}

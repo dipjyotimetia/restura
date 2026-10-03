@@ -2,7 +2,7 @@
 
 import { isOwsBindings } from '@shared/ows/bindings';
 import { parseOwsWorkflowJson } from '@shared/ows/workflow-profile';
-import { Check, Play, Workflow } from 'lucide-react';
+import { Check, Maximize2, Minimize2, Play, Redo2, Undo2, Workflow } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,10 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { modLabel } from '@/lib/shared/shortcuts';
+import { cn } from '@/lib/shared/utils';
 import { type OwsStoredWorkflow, useWorkflowStore } from '@/store/useWorkflowStore';
+import { isTextEditingTarget, useUndoable } from '../hooks/useUndoable';
 import { deriveOwsFlowModel, serializeOwsFlowModel } from '../lib/owsFlowMapper';
 import { workflowEditorModelPath } from '../lib/workflowEditorMonaco';
 import { WorkflowCanvas } from './WorkflowCanvas';
@@ -54,9 +57,12 @@ export function WorkflowBuilder({
   const [dirty, setDirty] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('graph');
-  const [flowModel, setFlowModel] = useState(() =>
+  const [fullscreen, setFullscreen] = useState(false);
+  // The graph draft keeps its own undo history (the store only sees saves).
+  const flow = useUndoable(() =>
     deriveOwsFlowModel(workflow.document, workflow.bindings, workflow.layout)
   );
+  const flowModel = flow.value;
   // Layout is non-semantic, but it is still part of the editable graph
   // artifact. Keep it with the draft so Graph → JSON → Graph does not discard
   // positions or viewport changes before a save.
@@ -67,7 +73,7 @@ export function WorkflowBuilder({
     setBindingsSource(stringify(workflow.bindings));
     setError(null);
     setDirty(false);
-    setFlowModel(deriveOwsFlowModel(workflow.document, workflow.bindings, workflow.layout));
+    flow.reset(deriveOwsFlowModel(workflow.document, workflow.bindings, workflow.layout));
     setLayoutDraft(workflow.layout);
   }, [workflow.id, workflow.updatedAt]);
 
@@ -89,7 +95,7 @@ export function WorkflowBuilder({
         if (!isOwsBindings(bindings)) {
           throw new Error('Workflow bindings must be a version 1 typed bindings document.');
         }
-        setFlowModel(deriveOwsFlowModel(document, bindings, layoutDraft));
+        flow.reset(deriveOwsFlowModel(document, bindings, layoutDraft));
       }
       setError(null);
       setActiveTab(nextTab);
@@ -151,10 +157,77 @@ export function WorkflowBuilder({
         if (!nextOpen) requestClose();
       }}
     >
-      <DialogContent className="h-[min(88vh,820px)] max-w-[min(96vw,1400px)] flex flex-col">
+      <DialogContent
+        className={cn(
+          'flex flex-col',
+          fullscreen
+            ? 'h-[100dvh] w-[100vw] max-w-none rounded-none'
+            : 'h-[min(88vh,820px)] max-w-[min(96vw,1400px)]'
+        )}
+        onKeyDown={(event) => {
+          // Graph undo/redo; text fields and Monaco keep their own Cmd+Z.
+          if (activeTab !== 'graph' || isTextEditingTarget(event.target)) return;
+          if (!(event.metaKey || event.ctrlKey)) return;
+          const key = event.key.toLowerCase();
+          if (key === 'z' && !event.shiftKey && flow.canUndo) {
+            event.preventDefault();
+            flow.undo();
+            setDirty(true);
+          } else if (((key === 'z' && event.shiftKey) || key === 'y') && flow.canRedo) {
+            event.preventDefault();
+            flow.redo();
+            setDirty(true);
+          }
+        }}
+      >
         <DialogHeader icon={Workflow}>
           <DialogTitle>Workflow: {workflow.document.document.name}</DialogTitle>
         </DialogHeader>
+        <div className="flex items-center justify-end gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={activeTab !== 'graph' || !flow.canUndo}
+            onClick={() => {
+              flow.undo();
+              setDirty(true);
+            }}
+            aria-label="Undo graph change"
+            title={`Undo (${modLabel('Z')})`}
+          >
+            <Undo2 className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={activeTab !== 'graph' || !flow.canRedo}
+            onClick={() => {
+              flow.redo();
+              setDirty(true);
+            }}
+            aria-label="Redo graph change"
+            title={`Redo (${modLabel('Shift+Z')})`}
+          >
+            <Redo2 className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-pressed={fullscreen}
+            onClick={() => setFullscreen((v) => !v)}
+            aria-label={fullscreen ? 'Exit full screen' : 'Full screen'}
+            title={fullscreen ? 'Exit full screen' : 'Full screen'}
+          >
+            {fullscreen ? (
+              <Minimize2 className="h-3.5 w-3.5" />
+            ) : (
+              <Maximize2 className="h-3.5 w-3.5" />
+            )}
+          </Button>
+        </div>
         <Tabs value={activeTab} onValueChange={changeTab} className="min-h-0 flex-1 flex flex-col">
           <TabsList className="grid grid-cols-3 w-full">
             <TabsTrigger value="graph">Graph</TabsTrigger>
@@ -209,8 +282,8 @@ export function WorkflowBuilder({
             <WorkflowCanvas
               collectionId={workflow.collectionId}
               model={flowModel}
-              onChange={(next) => {
-                setFlowModel(next);
+              onChange={(next, update) => {
+                flow.set(next, update);
                 setDirty(true);
                 setSaved(false);
               }}

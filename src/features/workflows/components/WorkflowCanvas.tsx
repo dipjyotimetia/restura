@@ -19,15 +19,17 @@ import {
   GitBranch,
   List,
   ShieldCheck,
+  Trash2,
   Type,
   Variable,
 } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useCollectionStore } from '@/store/useCollectionStore';
+import { isTextEditingTarget, type UndoableUpdate } from '../hooks/useUndoable';
 import { flattenRequests } from '../lib/collectionHelpers';
 import type { WorkflowBlock, WorkflowBlockKind, WorkflowFlowModel } from '../lib/owsFlowMapper';
 import './WorkflowCanvas.css';
@@ -35,7 +37,8 @@ import './WorkflowCanvas.css';
 interface WorkflowCanvasProps {
   collectionId: string;
   model: WorkflowFlowModel;
-  onChange: (model: WorkflowFlowModel) => void;
+  /** `update` tells an undo history how to record the change (coalesce / skip). */
+  onChange: (model: WorkflowFlowModel, update?: UndoableUpdate) => void;
 }
 
 const labels: Record<WorkflowBlockKind, string> = {
@@ -134,6 +137,10 @@ function updateBlock(
   };
 }
 
+function removeBlock(model: WorkflowFlowModel, id: string): WorkflowFlowModel {
+  return { ...model, blocks: model.blocks.filter((block) => block.id !== id) };
+}
+
 function CanvasInner({ collectionId, model, onChange }: WorkflowCanvasProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const hasReceivedInitialMove = useRef(false);
@@ -161,7 +168,15 @@ function CanvasInner({ collectionId, model, onChange }: WorkflowCanvasProps) {
     };
   }, [model.blocks]);
 
+  // React Flow reports node sizes as 'dimensions' changes; the minimap (and
+  // fitView) need them echoed back on controlled nodes.
+  const [measured, setMeasured] = useState<Record<string, { width: number; height: number }>>({});
+
   const nodes = useMemo<Node[]>(() => {
+    const withSize = (node: Node): Node => {
+      const size = measured[node.id];
+      return size ? { ...node, measured: size } : node;
+    };
     const blocks = model.blocks.map((block) => ({
       id: block.id,
       position: block.position,
@@ -201,8 +216,8 @@ function CanvasInner({ collectionId, model, onChange }: WorkflowCanvasProps) {
         className: 'workflow-canvas__node workflow-canvas__node--terminal',
         style: { width: 150 },
       },
-    ];
-  }, [model.blocks, selectedId, terminalPositions]);
+    ].map(withSize);
+  }, [model.blocks, selectedId, terminalPositions, measured]);
 
   const edges = useMemo<Edge[]>(() => {
     const ids = ['__start', ...model.blocks.map((block) => block.id), '__end'];
@@ -216,19 +231,56 @@ function CanvasInner({ collectionId, model, onChange }: WorkflowCanvasProps) {
 
   const onNodesChange = (changes: NodeChange[]) => {
     const moved = new Map<string, { x: number; y: number }>();
+    const sized: Record<string, { width: number; height: number }> = {};
     for (const change of changes) {
       if (change.type === 'position' && change.position) {
         moved.set(change.id, change.position);
+      } else if (change.type === 'dimensions' && change.dimensions) {
+        sized[change.id] = change.dimensions;
       }
     }
+    if (Object.keys(sized).length > 0) setMeasured((prev) => ({ ...prev, ...sized }));
     if (moved.size === 0) return;
-    onChange({
-      ...model,
-      blocks: model.blocks.map((block) =>
-        moved.has(block.id) ? { ...block, position: moved.get(block.id)! } : block
-      ),
-    });
+    onChange(
+      {
+        ...model,
+        blocks: model.blocks.map((block) =>
+          moved.has(block.id) ? { ...block, position: moved.get(block.id)! } : block
+        ),
+      },
+      // One drag of a node is one undo step.
+      { coalesce: `move:${[...moved.keys()].join(',')}` }
+    );
   };
+
+  const deleteSelected = () => {
+    if (!selected) return;
+    onChange(removeBlock(model, selected.id));
+    setSelectedId(null);
+  };
+
+  // Delete / Backspace removes the selected block. Clicking a React Flow node
+  // doesn't move focus into the canvas, so listen on the document (the
+  // builder is modal) — but never while the user is typing in a field.
+  const deleteRef = useRef(deleteSelected);
+  deleteRef.current = deleteSelected;
+  useEffect(() => {
+    if (!selectedId) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || isTextEditingTarget(event.target)) return;
+      if (event.key !== 'Delete' && event.key !== 'Backspace') return;
+      event.preventDefault();
+      deleteRef.current();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [selectedId]);
+
+  // Inspector edits coalesce per focused field, so typing a name is one step.
+  const onFieldChange = (next: WorkflowFlowModel) =>
+    onChange(next, {
+      coalesce: `field:${(document.activeElement as HTMLElement | null)?.id ?? ''}:${selectedId ?? ''}`,
+    });
 
   const addRequest = (request: (typeof requests)[number]) => {
     const resourceId = request.path.split(' / ').map(encodeURIComponent).join('/');
@@ -255,7 +307,7 @@ function CanvasInner({ collectionId, model, onChange }: WorkflowCanvasProps) {
   };
 
   return (
-    <div className="workflow-canvas grid h-[min(64vh,640px)] min-h-[520px] min-w-0 grid-cols-[250px_minmax(0,1fr)_290px] overflow-hidden rounded-lg border">
+    <div className="workflow-canvas grid h-full min-h-[420px] min-w-0 grid-cols-[250px_minmax(0,1fr)_290px] overflow-hidden rounded-lg border">
       <aside className="workflow-canvas__palette border-r p-3">
         <p className="workflow-canvas__section-label">Add block</p>
         <div className="workflow-canvas__palette-group">
@@ -410,6 +462,8 @@ function CanvasInner({ collectionId, model, onChange }: WorkflowCanvasProps) {
           edges={edges}
           onNodesChange={onNodesChange}
           onNodeClick={(_, node) => setSelectedId(node.id)}
+          onPaneClick={() => setSelectedId(null)}
+          deleteKeyCode={null}
           defaultViewport={model.viewport}
           onMoveEnd={(_, viewport) => {
             if (!hasReceivedInitialMove.current) {
@@ -423,23 +477,36 @@ function CanvasInner({ collectionId, model, onChange }: WorkflowCanvasProps) {
             ) {
               return;
             }
-            onChange({ ...model, viewport });
+            // Panning/zooming is not an edit worth undoing.
+            onChange({ ...model, viewport }, { history: false });
           }}
           nodesDraggable
           fitView
           fitViewOptions={{ padding: 0.2, maxZoom: 1.15 }}
           proOptions={{ hideAttribution: true }}
-          defaultEdgeOptions={{ animated: false, style: { stroke: '#4d6e89', strokeWidth: 1.5 } }}
+          defaultEdgeOptions={{ animated: false }}
         >
-          <Background color="#23415f" gap={24} size={1} />
+          {/* Colours come from the --xy-* theme variables in WorkflowCanvas.css. */}
+          <Background gap={24} size={1} />
           <Controls showInteractive={false} />
-          <MiniMap pannable zoomable nodeColor="#6684a5" maskColor="rgb(8 15 23 / 78%)" />
+          <MiniMap pannable zoomable />
         </ReactFlow>
       </main>
       <aside className="workflow-canvas__inspector border-l p-4">
         <p className="workflow-canvas__section-label">Inspector</p>
         {selected ? (
           <div className="mt-4 space-y-4">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full text-destructive"
+              onClick={deleteSelected}
+              title="Delete block (Delete / Backspace)"
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              Delete block
+            </Button>
             <div>
               <Label htmlFor="workflow-block-name" className="text-xs">
                 Block name
@@ -449,7 +516,7 @@ function CanvasInner({ collectionId, model, onChange }: WorkflowCanvasProps) {
                 className="mt-1"
                 value={selected.name}
                 onChange={(event) =>
-                  onChange(
+                  onFieldChange(
                     updateBlock(model, selected.id, (block) => ({
                       ...block,
                       name: event.target.value,
@@ -469,7 +536,7 @@ function CanvasInner({ collectionId, model, onChange }: WorkflowCanvasProps) {
                   placeholder="${.enabled}"
                   value={selected.condition ?? ''}
                   onChange={(event) =>
-                    onChange(
+                    onFieldChange(
                       updateBlock(model, selected.id, (block) => ({
                         ...block,
                         ...(event.target.value
@@ -493,7 +560,7 @@ function CanvasInner({ collectionId, model, onChange }: WorkflowCanvasProps) {
                   className="mt-1"
                   value={selected.wait?.milliseconds ?? 0}
                   onChange={(event) =>
-                    onChange(
+                    onFieldChange(
                       updateBlock(model, selected.id, (block) => ({
                         ...block,
                         wait: { milliseconds: Math.max(0, Number(event.target.value) || 0) },
@@ -518,7 +585,7 @@ function CanvasInner({ collectionId, model, onChange }: WorkflowCanvasProps) {
                     const nextKey = event.target.value.trim();
                     if (!nextKey) return;
                     const { [oldKey]: currentValue, ...rest } = currentSet;
-                    onChange(
+                    onFieldChange(
                       updateBlock(model, selected.id, (block) => ({
                         ...block,
                         set: { ...rest, [nextKey]: currentValue },
@@ -548,7 +615,7 @@ function CanvasInner({ collectionId, model, onChange }: WorkflowCanvasProps) {
                     className="mt-1 font-mono text-xs"
                     value={selected.for?.in ?? '${.value}'}
                     onChange={(event) =>
-                      onChange(
+                      onFieldChange(
                         updateBlock(model, selected.id, (block) => ({
                           ...block,
                           for: { ...(block.for ?? { each: 'item' }), in: event.target.value },
@@ -567,7 +634,7 @@ function CanvasInner({ collectionId, model, onChange }: WorkflowCanvasProps) {
                       className="mt-1 font-mono text-xs"
                       value={selected.for?.each ?? 'item'}
                       onChange={(event) =>
-                        onChange(
+                        onFieldChange(
                           updateBlock(model, selected.id, (block) => ({
                             ...block,
                             for: {
@@ -588,7 +655,7 @@ function CanvasInner({ collectionId, model, onChange }: WorkflowCanvasProps) {
                       className="mt-1 font-mono text-xs"
                       value={selected.for?.at ?? ''}
                       onChange={(event) =>
-                        onChange(
+                        onFieldChange(
                           updateBlock(model, selected.id, (block) => {
                             const { at: _at, ...withoutIndex } = block.for ?? {
                               each: 'item',

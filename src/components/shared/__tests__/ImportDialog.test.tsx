@@ -317,4 +317,47 @@ describe('ImportDialog', () => {
       placeholder
     );
   });
+
+  it('detects and stages a file dropped on the window, then requires confirmation', async () => {
+    const user = userEvent.setup();
+    const file = new File(
+      [
+        JSON.stringify({
+          info: {
+            name: 'Dropped API',
+            schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
+          },
+          item: [],
+        }),
+      ],
+      'dropped.json'
+    );
+    render(<ImportDialog open onOpenChange={vi.fn()} droppedFile={file} />);
+    expect(await screen.findByRole('region', { name: 'Import preview' })).toBeInTheDocument();
+    expect(useCollectionStore.getState().collections).toHaveLength(0);
+    await user.click(screen.getByRole('button', { name: /confirm import/i }));
+    expect(useCollectionStore.getState().collections[0]?.name).toBe('Dropped API');
+  });
+
+  it('routes a dropped .zip to the Bruno importer and reports a broken archive', async () => {
+    const file = new File([new Uint8Array([1, 2, 3])], 'bruno-export.zip');
+    render(<ImportDialog open onOpenChange={vi.fn()} droppedFile={file} />);
+    expect(await screen.findByText('Import failed')).toBeInTheDocument();
+    expect(useCollectionStore.getState().collections).toHaveLength(0);
+  });
+
+  it('drops a dropped-file import that finishes after the dialog unmounts', async () => {
+    const file = new File([JSON.stringify({ openapi: '3.0.0', paths: {} })], 'late.json');
+    const { unmount } = render(<ImportDialog open onOpenChange={vi.fn()} droppedFile={file} />);
+    unmount();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(useCollectionStore.getState().collections).toHaveLength(0);
+  });
+
+  it('reports an unsupported dropped file without importing it', async () => {
+    const file = new File([JSON.stringify({ hello: 'world' })], 'random.json');
+    render(<ImportDialog open onOpenChange={vi.fn()} droppedFile={file} />);
+    expect(await screen.findByText(/not a supported/)).toBeInTheDocument();
+    expect(useCollectionStore.getState().collections).toHaveLength(0);
+  });
 });

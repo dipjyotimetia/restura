@@ -151,3 +151,19 @@ describe('Postman round-trip', () => {
     expect(test?.script.exec.join('\n')).toBe(original);
   });
 });
+
+describe('exportToPostman variables', () => {
+  it('leaves private (local-only) collection variables out', () => {
+    const out = exportToPostman({
+      id: 'c',
+      name: 'C',
+      items: [],
+      variables: [
+        { id: '1', key: 'host', value: 'api.dev', enabled: true },
+        { id: '2', key: 'token', value: 'local-secret', enabled: true, private: true },
+      ],
+    });
+    expect(out.variable?.map((v) => v.key)).toEqual(['host']);
+    expect(JSON.stringify(out)).not.toContain('local-secret');
+  });
+});

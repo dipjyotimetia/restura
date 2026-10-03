@@ -1,4 +1,4 @@
-import { Eye, EyeOff, ListPlus, Lock, Plus, Trash2 } from 'lucide-react';
+import { CloudOff, Eye, EyeOff, ListPlus, Lock, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { VariableInput } from '@/components/shared/VariableInput';
 import {
@@ -18,16 +18,21 @@ import { Switch } from '@/components/ui/switch';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import type { KeyValue } from '@/types';
 
+/** A row may carry the collection-variable `private` flag (excluded from export). */
+type EditableKeyValue = KeyValue & { private?: boolean };
+
 interface KeyValueEditorProps {
-  items: KeyValue[];
+  items: EditableKeyValue[];
   onAdd: () => void;
-  onUpdate: (id: string, updates: Partial<KeyValue>) => void;
+  onUpdate: (id: string, updates: Partial<EditableKeyValue>) => void;
   onDelete: (id: string) => void;
   keyPlaceholder?: string;
   valuePlaceholder?: string;
   addButtonText?: string;
   itemType?: string;
   enableSecrets?: boolean;
+  /** Per-row "keep local" toggle for the `private` flag exporters honour. */
+  enablePrivate?: boolean;
 }
 
 export default function KeyValueEditor({
@@ -40,6 +45,7 @@ export default function KeyValueEditor({
   addButtonText = 'Add Item',
   itemType = 'item',
   enableSecrets = false,
+  enablePrivate = false,
 }: KeyValueEditorProps) {
   const [revealedIds, setRevealedIds] = useState<Set<string>>(new Set());
 
@@ -102,6 +108,31 @@ export default function KeyValueEditor({
                   className="flex-1 font-mono text-xs"
                   aria-label={`${itemType} value`}
                 />
+                {enablePrivate && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-pressed={Boolean(item.private)}
+                        className={`h-6 w-6 transition-colors ${item.private ? 'text-sp-accent' : 'text-sp-dim hover:text-muted-foreground'}`}
+                        onClick={() => onUpdate(item.id, { private: !item.private })}
+                        aria-label={
+                          item.private ? 'Include in export' : 'Keep local (exclude from export)'
+                        }
+                      >
+                        <CloudOff className="h-3.5 w-3.5" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>
+                        {item.private
+                          ? 'Local only — excluded from export and Git sync'
+                          : 'Keep local (exclude from export)'}
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
                 {enableSecrets && (
                   <div className="flex items-center gap-0.5">
                     {item.secret && (
