@@ -1,0 +1,37 @@
+docs-site/src/content/docs/guides/workflows.mdx
+  s_766edd634beb43::t_c0f4cd6bc9b8df 38-39
+src/features/workflows/components/WorkflowBuilder.tsx
+  s_766edd634beb43::t_b91c6796c0aba5 61-62,65,76,98,285-286
+  s_766edd634beb43::t_354f14cdd36bc0 5,18-19,21,60,160-182,186-230
+src/features/workflows/components/WorkflowCanvas.css
+  s_766edd634beb43::t_0e4bb86c59eb38 1-6,8-18,21-23,28,38,40,62,68-70,91-92,104,106-107,120-121,123,131-136,141-144,146,152,154-155,159,161-162,169,173,177,181,185,189,194,196,200,204,206,211,222-223
+  s_766edd634beb43::t_4148dc45a03ace 19-20
+src/features/workflows/hooks/useUndoable.ts
+  s_766edd634beb43::t_f31bff90cef347 1-105
+src/features/workflows/hooks/__tests__/useUndoable.test.ts
+  s_766edd634beb43::t_e430cb8043834a 1-111
+src/features/workflows/components/WorkflowCanvas.tsx
+  s_766edd634beb43::t_a7dfe3fa41c73b 171-174,176-179,219-220,234,238-239,242
+  s_766edd634beb43::t_e6d0a67d213a1b 22,499-509
+  s_766edd634beb43::t_3b755822f9aebc 26,262-278
+  s_766edd634beb43::t_354f14cdd36bc0 310
+  s_766edd634beb43::t_c14150cc913439 487,489-490,492
+  s_766edd634beb43::t_947760db98118f 32,40-41,140-143,244-253,256-261,279-283,465-466,480-481,519,539,563,588,618,637,658
+  s_766edd634beb43::t_d3269681f9afb4 284
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f5757736f6d8446a494bffc6de7b05ac62995194",
+  "prompts": {},
+  "sessions": {
+    "s_766edd634beb43": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c9c66557-0bf1-4aa9-990d-ab0ef03d2e23",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
