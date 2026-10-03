@@ -5,10 +5,12 @@ description: Organise requests into nested folders, share auth/headers/variables
 
 Collections are the unit of organisation in Restura: a tree of folders and requests, with auth and variables that cascade.
 
+New to Restura? With no collections yet, choose **Try sample collection** (in the Collections sidebar or the empty workspace) to add *Restura Echo (sample)* — ready-to-send HTTP, GraphQL, gRPC and SSE requests against the echo server, with a folder, a collection variable and a test script to explore.
+
 ## Structure
 
-- **Collection** — top-level folder. Can carry its own auth, base URL, headers, and variables.
-- **Folder** — nested inside a collection or another folder. Same shape — also carries auth / headers / variables.
+- **Collection** — top-level folder. Can carry its own auth, scripts, variables, and markdown docs (with a live preview in collection settings).
+- **Folder** — nested inside a collection or another folder. Carries its own auth, scripts, and variables (right-click → **Folder settings**).
 - **Request** — leaf node. Inherits from parents unless overridden.
 
 ## Inheritance
@@ -16,8 +18,8 @@ Collections are the unit of organisation in Restura: a tree of folders and reque
 Anything you set on a folder cascades to every descendant unless that descendant explicitly overrides it. Concretely:
 
 - **Auth** — `Inherit from parent` is the default on new requests.
-- **Headers** — additive: parent headers + child headers; child wins on conflict.
-- **Variables** — visible to all descendants; useful for collection-scoped defaults (`base_url`, `team_id`).
+- **Scripts** — collection scripts run first, then folder scripts (outermost first), then the request's own, in a collection run.
+- **Variables** — visible to all descendants; the nearest folder wins over outer folders and the collection, and all of them win over the active environment. See [resolution order](/guides/environments/#variable-resolution-order).
 
 ## Drag, duplicate, organise
 

@@ -64,7 +64,7 @@ export const architecturePolicy: ArchitecturePolicy = {
       pathPrefix: 'src/',
       extension: '.tsx',
       pattern: String.raw`\btext-\[\d+(?:\.\d+)?px\]`,
-      max: 87,
+      max: 86,
     },
     {
       name: 'sub-11px type tokens (text-sp-9 / text-sp-10 / text-sp-10-5)',

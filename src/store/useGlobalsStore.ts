@@ -19,6 +19,8 @@ interface GlobalsState {
   set: (key: string, value: string) => void;
   unset: (key: string) => void;
   clear: () => void;
+  /** Replace the whole map (the Globals editor writes through this). */
+  replace: (vars: Record<string, string>) => void;
   /** Bulk apply per-key mutations: `null` removes the key, a string sets it. */
   applyMutations: (mutations: Record<string, string | null>) => void;
 }
@@ -41,6 +43,8 @@ export const useGlobalsStore = create<GlobalsState>()(
         }),
 
       clear: () => set({ vars: {} }),
+
+      replace: (vars) => set({ vars }),
 
       applyMutations: (mutations) =>
         set((state) => {

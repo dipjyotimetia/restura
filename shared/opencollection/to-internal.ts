@@ -103,6 +103,12 @@ function itemToInternal(item: unknown): WithOC<CollectionItem>[] {
     const folderScripts = requestDefaultsScripts(it.request, out.name);
     if (folderScripts.preRequest) out.preRequestScript = folderScripts.preRequest;
     if (folderScripts.test) out.testScript = folderScripts.test;
+    // Folder variables (OC folder `request.variables`) — resolved for every
+    // descendant request; secret values come in empty, as at collection level.
+    const folderVariables = (it.request as { variables?: unknown } | undefined)?.variables;
+    if (Array.isArray(folderVariables) && folderVariables.length > 0) {
+      out.variables = folderVariables.map(ocVariableToKeyValue);
+    }
     out._oc = it;
     return [out];
   }

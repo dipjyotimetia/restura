@@ -1,8 +1,10 @@
-import { FolderOpen } from 'lucide-react';
+import { FolderOpen, Sparkles } from 'lucide-react';
 import { DesktopOnlyBadge } from '@/components/shared/DesktopOnlyBadge';
 import { Button } from '@/components/ui/button';
 import { Floater, ProtoChip } from '@/components/ui/spatial';
+import { addSampleCollection } from '@/features/collections/lib/addSampleCollection';
 import { isElectron } from '@/lib/shared/platform';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import type { RequestMode } from '@/types';
 
 const PROTOCOLS: ReadonlyArray<{
@@ -32,6 +34,8 @@ export function NoOpenTabs({ onNewRequest, onOpenImport }: NoOpenTabsProps) {
   // Raw-TCP protocols stay visible (disabled + badge) on web, matching the
   // tab strip's "+" menu, so users can discover them.
   const desktop = isElectron();
+  // The sample is offered only to a workspace that has no collections yet.
+  const hasCollections = useCollectionStore((s) => s.collections.length > 0);
   return (
     <Floater
       radius="panel"
@@ -61,10 +65,18 @@ export function NoOpenTabs({ onNewRequest, onOpenImport }: NoOpenTabsProps) {
           </li>
         ))}
       </ul>
-      <Button variant="ghost" size="sm" className="gap-2" onClick={onOpenImport}>
-        <FolderOpen className="h-4 w-4" aria-hidden="true" />
-        Import a collection
-      </Button>
+      <div className="flex flex-wrap justify-center gap-2">
+        <Button variant="ghost" size="sm" className="gap-2" onClick={onOpenImport}>
+          <FolderOpen className="h-4 w-4" aria-hidden="true" />
+          Import a collection
+        </Button>
+        {!hasCollections && (
+          <Button variant="ghost" size="sm" className="gap-2" onClick={addSampleCollection}>
+            <Sparkles className="h-4 w-4" aria-hidden="true" />
+            Try sample collection
+          </Button>
+        )}
+      </div>
     </Floater>
   );
 }
