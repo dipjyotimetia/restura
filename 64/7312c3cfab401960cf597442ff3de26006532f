@@ -1,0 +1,121 @@
+src/store/README.md
+  s_95e753efba790b::t_b27431092f552a 4-5,7-10,13-16
+docs/opencollection.md
+  s_95e753efba790b::t_81a2f5c8ae2274 63,65-70,101
+docs-site/src/content/docs/self-hosting/docker.mdx
+  s_95e753efba790b::t_345030ec068e40 57
+  s_95e753efba790b::t_e2ef6ab0da103d 46
+  s_95e753efba790b::t_941c60b906b5eb 50
+  s_95e753efba790b::t_34590bf55fdc6d 18-22
+docs-site/src/content/docs/self-hosting/reverse-proxy.mdx
+  s_95e753efba790b::t_e2ef6ab0da103d 13
+docs/API.md
+  s_95e753efba790b::t_23e82bf2ea8288 3,5,7,9-17,19,31,35,37,39,41-43,45,47,53,55,74,76-84,88,90,92,94,96,98-99,103,105,107-109,111,113,115-117,119,121
+  s_95e753efba790b::t_f64498d30e56f7 49-51,101
+  s_95e753efba790b::t_4ae865caa9f3fd 21-30,32-33,123-132
+  s_95e753efba790b::t_a4a23764a863e0 57-72
+docs/DISTRIBUTION.md
+  s_95e753efba790b::t_e1b2742583325d 336
+docs-site/src/content/docs/architecture/security.mdx
+  s_95e753efba790b::t_e2ef6ab0da103d 92
+  s_95e753efba790b::t_7d43cfc417e5d3 65-66
+  s_95e753efba790b::t_305f34e127a862 86
+docs-site/src/content/docs/guides/auth.mdx
+  s_95e753efba790b::t_81a2f5c8ae2274 3,8,22,43,45,47
+  s_95e753efba790b::t_a4a23764a863e0 49
+docs-site/src/content/docs/guides/ai-lab.mdx
+  s_95e753efba790b::t_305f34e127a862 154
+README.md
+  s_95e753efba790b::t_a4a23764a863e0 53
+  s_95e753efba790b::t_345030ec068e40 99
+docs-site/README.md
+  s_95e753efba790b::t_ce422e8cbb0f0f 32,34-35,38,49
+docs/ROADMAP.md
+  s_95e753efba790b::t_a4a23764a863e0 25
+e2e/README.md
+  s_95e753efba790b::t_778d4d3339e1cd 58
+  s_95e753efba790b::t_58e6536c9db627 12,15-16,18,36-38,42-44,46,48-50,56-57,59-63,76,96,108
+  s_95e753efba790b::t_187b5bc7a03bd1 17,119-121,126,134-140
+  s_95e753efba790b::t_87ae1d7473f505 51
+docs/cli/ci-examples/github-actions.yml
+  s_95e753efba790b::t_520af3fb5d80ad 17,20
+docs/cli/ci-examples/gitlab-ci.yml
+  s_95e753efba790b::t_520af3fb5d80ad 7,9
+echo/README.md
+  s_95e753efba790b::t_8106fcab85e0aa 3-5,29-30
+  s_95e753efba790b::t_5a97e6c35d9435 31
+docs-site/src/content/docs/reference/api.mdx
+  s_95e753efba790b::t_99ef0961e87191 14-15,17,20-22,24,30,33-34,44
+docs/cli/ci-examples/circleci.yml
+  s_95e753efba790b::t_520af3fb5d80ad 7,12
+docs-site/src/content/docs/testing/end-to-end.mdx
+  s_95e753efba790b::t_305f34e127a862 17
+docs/cli/README.md
+  s_95e753efba790b::t_f458eec641927f 3,5-8,11,27
+docs-site/src/content/docs/overview/install.mdx
+  s_95e753efba790b::t_e56334a0361f78 6
+  s_95e753efba790b::t_34590bf55fdc6d 71-75
+docs-site/src/content/docs/architecture/adrs.mdx
+  s_95e753efba790b::t_e78678ff6f9b42 40,179-182
+  s_95e753efba790b::t_fcab35758c37a9 183
+SECURITY.md
+  s_95e753efba790b::t_69468b859f9903 164
+  s_95e753efba790b::t_2821e8d5dec106 5,9
+  s_95e753efba790b::t_c170f3ca36bed3 7-8,10
+  s_95e753efba790b::t_ab4455418d51fd 20,22,237
+  s_95e753efba790b::t_7d43cfc417e5d3 104-107
+docs/SELF_HOSTING.md
+  s_95e753efba790b::t_345030ec068e40 100,112-114,120-127,324-326
+  s_95e753efba790b::t_34590bf55fdc6d 28-32
+  s_95e753efba790b::t_c170f3ca36bed3 91-99,101
+.claude/skills/restura-production-checks/references/verification-gates.md
+  s_95e753efba790b::t_e1b2742583325d 26
+Dockerfile
+  s_95e753efba790b::t_f49fa539f12ebd 28-35
+echo-local/README.md
+  s_95e753efba790b::t_85303c679ce4be 67-71,79,81-82,122-127
+docs-site/src/content/docs/protocols/http.mdx
+  s_95e753efba790b::t_81a2f5c8ae2274 36
+cli/README.md
+  s_95e753efba790b::t_1e3c9022158899 35-41,119,125-146,149,239-253,255-283
+  s_95e753efba790b::t_87a8e80fd450e6 254,284
+  s_95e753efba790b::t_3dfd25af374ca3 285
+extension/vscode/README.md
+  s_95e753efba790b::t_7ca2e86d3b9bbc 40-53,55
+  s_95e753efba790b::t_542f524b822a37 54
+docs/postman-compat.md
+  s_95e753efba790b::t_b6df9e330a248c 36-37,59,61,67-81,99-107,109,124-125
+CLAUDE.md
+  s_95e753efba790b::t_8106fcab85e0aa 135,209,217
+CONTRIBUTING.md
+  s_95e753efba790b::t_e1b2742583325d 124
+  s_95e753efba790b::t_f72bcf7ac35c4d 112
+  s_95e753efba790b::t_bf34528ca978b5 69-73
+docs-site/src/content/docs/testing/local-stack.mdx
+  s_95e753efba790b::t_85303c679ce4be 60,67-71,89,91-92,107
+docs-site/src/content/docs/reference/postman-compat.mdx
+  s_95e753efba790b::t_7d43cfc417e5d3 23
+docs/ARCHITECTURE.md
+  s_95e753efba790b::t_e1b2742583325d 494,537
+docs-site/src/content/docs/reference/cli.mdx
+  s_95e753efba790b::t_919203046a9ca4 31,92,132,137,140-141,252-260,296
+  s_95e753efba790b::t_7d43cfc417e5d3 146
+docs-site/src/content/docs/overview/what-is-restura.mdx
+  s_95e753efba790b::t_a4a23764a863e0 17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "647312c3cfab401960cf597442ff3de26006532f",
+  "prompts": {},
+  "sessions": {
+    "s_95e753efba790b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a1b6e79a-4e39-41d5-a832-5d468addf4ee",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
