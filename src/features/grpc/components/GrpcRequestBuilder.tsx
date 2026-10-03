@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { v4 as uuidv4 } from 'uuid';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
-import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import { KeyValueTable } from '@/components/shared/KeyValueTable';
 import { Button } from '@/components/ui/button';
 import { Floater, SubTabBar, SubTabPanel, TextField } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
@@ -31,7 +31,6 @@ import {
 } from '@/features/grpc/lib/grpcValidation';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
-import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
 import { isElectron } from '@/lib/shared/platform';
 import { useActiveRequest, useActiveTab } from '@/store/selectors';
@@ -100,14 +99,6 @@ function GrpcRequestBuilder() {
   const grpcUrl = currentRequest?.url;
 
   // All hooks must be called before any early return — Rules of Hooks
-  const {
-    handleAdd: handleAddMetadata,
-    handleUpdate: handleUpdateMetadata,
-    handleDelete: handleDeleteMetadata,
-  } = useKeyValueCollection(currentRequest?.metadata ?? [], (metadata) =>
-    updateRequest({ metadata })
-  );
-
   const validateUrl = useCallback((url: string) => {
     const result = validateGrpcUrl(url);
     setValidation((prev) => ({ ...prev, url: result }));
@@ -713,15 +704,12 @@ function GrpcRequestBuilder() {
                 <p className="text-sp-11 text-sp-muted font-mono">
                   gRPC metadata (headers). Common: authorization, content-type, grpc-timeout
                 </p>
-                <KeyValueEditor
+                <KeyValueTable
                   items={grpcRequest.metadata}
-                  onAdd={handleAddMetadata}
-                  onUpdate={handleUpdateMetadata}
-                  onDelete={handleDeleteMetadata}
-                  keyPlaceholder="Key (e.g., authorization)"
-                  valuePlaceholder="Value"
-                  addButtonText="Add Metadata"
-                  itemType="metadata"
+                  onChange={(metadata) => updateRequest({ metadata })}
+                  itemLabel="metadata"
+                  addLabel="Add metadata"
+                  resolvesVariables="connection"
                 />
                 {grpcRequest.auth.type !== 'none' && (
                   <div className="p-3 rounded-sp-btn border border-sp-line bg-sp-surface-lo">

@@ -1,6 +1,7 @@
 import { Play, Square } from 'lucide-react';
+import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
-import { CountToggle, MethodChip, VariableText } from '@/components/ui/spatial';
+import { CountToggle, MethodChip } from '@/components/ui/spatial';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { cn } from '@/lib/shared/utils';
 
@@ -42,29 +43,16 @@ export function SseUrlBar({
         ›
       </span>
 
-      <div className="relative flex-1 min-w-0">
-        <input
-          type="text"
-          value={url}
-          onChange={(e) => onUrlChange(e.target.value)}
-          placeholder={ECHO_URLS.sse}
-          disabled={showStop}
-          aria-label="SSE endpoint URL"
-          className="w-full h-8 bg-transparent border-0 outline-none font-mono text-sp-12 text-sp-text placeholder:text-sp-dim placeholder:italic px-2 disabled:cursor-not-allowed disabled:opacity-50"
-          style={{ caretColor: 'var(--sp-accent)' }}
-        />
-        {/* Decorative {{vars}} highlight overlay layered on top of the input.
-            The text is transparent so it only contributes color spans behind
-            the native input, which stays the source of truth for editing. */}
-        {url && (
-          <div
-            className="pointer-events-none absolute inset-0 flex items-center px-2 font-mono text-sp-12"
-            aria-hidden="true"
-          >
-            <VariableText text={url} className="text-transparent" />
-          </div>
-        )}
-      </div>
+      <VariableUrlInput
+        value={url}
+        onValueChange={onUrlChange}
+        variableScope="connection"
+        placeholder={ECHO_URLS.sse}
+        disabled={showStop}
+        aria-label="SSE endpoint URL"
+        className="flex-1 h-8"
+        textClassName="px-2 text-sp-12 placeholder:italic disabled:cursor-not-allowed disabled:opacity-50"
+      />
 
       <CountToggle
         label="Headers"

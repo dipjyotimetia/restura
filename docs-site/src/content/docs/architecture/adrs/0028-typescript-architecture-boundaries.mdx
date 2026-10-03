@@ -17,7 +17,7 @@ Restura compiles one repository into independent renderer, Worker/Node, Electron
 
 `shared/` is the runtime-neutral dependency floor. It cannot depend on an application, and Worker, Electron main, and CLI cannot depend on renderer-owned `src/` modules. Renderer compatibility barrels may re-export shared owners while callers migrate.
 
-`npm run architecture:check` parses TypeScript and enforces source-zone directions, an acyclic runtime import graph, an 800-line ceiling for new production modules, and exact non-growing caps for legacy oversized files. Type-only imports do not create runtime cycles.
+`npm run architecture:check` parses TypeScript and enforces source-zone directions, an acyclic runtime import graph, an 800-line ceiling for new production modules, and exact non-growing caps for legacy oversized files. The same exact-count ratchet also applies to configured source patterns (`sourcePatternRatchets`), first used to drive off-scale font sizes in `src/**/*.tsx` (pixel `text-[Npx]` classes and sub-11px `text-sp-*` tokens) down to zero. Type-only imports do not create runtime cycles.
 
 The Electron preload, IPC validators, and renderer API declaration are composed from domain modules while their existing top-level entry paths remain stable. Tooling has dedicated TypeScript configs, and `npm run validate` is the core product static, test, web/self-host/Electron/extension build, and bundle-size contract. Docs, end-to-end, packaging, and deploy checks remain separate CI jobs.
 

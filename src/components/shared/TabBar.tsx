@@ -15,6 +15,9 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import {
@@ -34,12 +37,31 @@ import {
   DEFAULT_REQUEST_URLS,
   useRequestStore,
 } from '@/store/useRequestStore';
-import type { RequestMode, TabModeOverride } from '@/types';
+import type { RequestMode, RequestTab, TabModeOverride } from '@/types';
 import { isConnectionMode } from '@/types';
 import { DesktopOnlyBadge } from './DesktopOnlyBadge';
+import { carriesUrl, seedUrl, sourceUrlOf, tabMode } from './lib/openAs';
 import { SaveToCollectionDialog } from './SaveToCollectionDialog';
 
 type NewRequestMode = RequestMode;
+
+/** "Open as" targets, in the new-request menu's order. */
+const OPEN_AS: ReadonlyArray<{
+  mode: RequestMode;
+  chip: React.ComponentProps<typeof ProtoChip>['protocol'];
+  label: string;
+  desktopOnly?: boolean;
+}> = [
+  { mode: 'http', chip: 'HTTP', label: 'HTTP request' },
+  { mode: 'graphql', chip: 'GQL', label: 'GraphQL request' },
+  { mode: 'grpc', chip: 'GRPC', label: 'gRPC request' },
+  { mode: 'websocket', chip: 'WS', label: 'WebSocket' },
+  { mode: 'socketio', chip: 'SOCKETIO', label: 'Socket.IO' },
+  { mode: 'sse', chip: 'SSE', label: 'SSE stream' },
+  { mode: 'mcp', chip: 'MCP', label: 'MCP request' },
+  { mode: 'kafka', chip: 'KAFKA', label: 'Kafka client', desktopOnly: true },
+  { mode: 'mqtt', chip: 'MQTT', label: 'MQTT client', desktopOnly: true },
+];
 
 // When a tab still carries a default auto-assigned name ("New Request",
 // "New gRPC Request", …), several open tabs become indistinguishable — fall
@@ -122,6 +144,16 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
       return;
     }
     createNewRequest(mode);
+  };
+
+  // Open the tab's target in a new tab of another protocol, carrying its URL
+  // where the target keeps URLs per tab. The source tab is left untouched.
+  const handleOpenAs = (tab: RequestTab, mode: RequestMode) => {
+    const url = sourceUrlOf(tab);
+    const before = useRequestStore.getState().activeTabId;
+    handleNewTab(mode);
+    const opened = useRequestStore.getState().activeTabId;
+    if (opened && opened !== before) seedUrl(opened, mode, url);
   };
 
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -410,6 +442,27 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                   )}
                   <ContextMenuSeparator />
                   <ContextMenuItem onClick={() => duplicateTab(tab.id)}>Duplicate</ContextMenuItem>
+                  <ContextMenuSub>
+                    <ContextMenuSubTrigger>Open as…</ContextMenuSubTrigger>
+                    <ContextMenuSubContent>
+                      {OPEN_AS.filter((t) => t.mode !== tabMode(tab)).map((t) => (
+                        <ContextMenuItem
+                          key={t.mode}
+                          className="gap-2"
+                          disabled={t.desktopOnly && !isElectron()}
+                          onClick={() => handleOpenAs(tab, t.mode)}
+                        >
+                          <ProtoChip protocol={t.chip} className="w-12 justify-center" />
+                          {t.label}
+                          {carriesUrl(t.mode) ? null : (
+                            <span className="ml-auto pl-3 text-sp-11 text-sp-dim">
+                              URL not carried
+                            </span>
+                          )}
+                        </ContextMenuItem>
+                      ))}
+                    </ContextMenuSubContent>
+                  </ContextMenuSub>
                   <ContextMenuItem onClick={() => requestClose(tab.id)}>Close</ContextMenuItem>
                   <ContextMenuItem onClick={() => requestBulkClose({ kind: 'others', id: tab.id })}>
                     Close Others

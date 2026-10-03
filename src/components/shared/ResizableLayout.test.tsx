@@ -91,21 +91,45 @@ describe('ResizableLayout', () => {
       expect(onSplitChange).toHaveBeenCalledWith(70);
     });
 
-    it('persists a drag once on release, not on every mousemove', () => {
-      // Regression: routing each mousemove to the persisted store wrote to
+    // jsdom has no PointerEvent: a MouseEvent carrying pointerId stands in.
+    const pointer = (type: string, init: MouseEventInit & { pointerId?: number }) => {
+      const ev = new MouseEvent(type, { bubbles: true, ...init });
+      Object.defineProperty(ev, 'pointerId', { value: init.pointerId ?? 1 });
+      return ev;
+    };
+
+    it('persists a drag once on release, not on every move', () => {
+      // Regression: routing each move to the persisted store wrote to
       // IndexedDB 60–120× per drag. The gesture must commit a single time.
       const onSplitChange = vi.fn();
       renderLayout({ split: 50, onSplitChange });
       const handle = screen.getByRole('separator');
-      fireEvent.mouseDown(handle);
-      fireEvent.mouseMove(window, { clientX: 100, clientY: 100 });
-      fireEvent.mouseMove(window, { clientX: 120, clientY: 120 });
-      fireEvent.mouseMove(window, { clientX: 140, clientY: 140 });
+      fireEvent(handle, pointer('pointerdown', { button: 0 }));
+      fireEvent(handle, pointer('pointermove', { clientX: 100, clientY: 100 }));
+      fireEvent(handle, pointer('pointermove', { clientX: 120, clientY: 120 }));
+      // A different pointer (second finger) is ignored.
+      fireEvent(handle, pointer('pointerup', { pointerId: 2 }));
+      fireEvent(handle, pointer('pointermove', { clientX: 140, clientY: 140 }));
       // Nothing persisted while dragging — the live preview stays local.
       expect(onSplitChange).not.toHaveBeenCalled();
-      fireEvent.mouseUp(window);
+      fireEvent(handle, pointer('pointerup', {}));
       // Exactly one commit, on release.
       expect(onSplitChange).toHaveBeenCalledTimes(1);
+    });
+
+    it('ignores non-primary buttons and ends cleanly on pointercancel', () => {
+      const onSplitChange = vi.fn();
+      renderLayout({ split: 50, onSplitChange });
+      const handle = screen.getByRole('separator');
+      fireEvent(handle, pointer('pointerdown', { button: 2 }));
+      fireEvent(handle, pointer('pointermove', { clientX: 100, clientY: 100 }));
+      fireEvent(handle, pointer('pointerup', {}));
+      expect(onSplitChange).not.toHaveBeenCalled();
+
+      fireEvent(handle, pointer('pointerdown', { button: 0 }));
+      fireEvent(handle, pointer('pointercancel', {}));
+      expect(onSplitChange).not.toHaveBeenCalled();
+      expect(document.body.style.cursor).toBe('');
     });
   });
 });

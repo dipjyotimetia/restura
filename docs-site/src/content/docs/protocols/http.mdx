@@ -56,11 +56,18 @@ Available languages:
 
 Every send is recorded to history with status, timing, request hash, and a quick way to **resend**. Per-response, you get:
 
-- **Status** + status text.
-- **Timing** — DNS / TCP / TLS / TTFB / download.
-- **Size** — raw + decompressed.
-- **Headers** — searchable.
-- **Body** — pretty-printed JSON, syntax-highlighted XML, hex view for binary.
+- **Status** and status text. Hover or focus the status for a plain-language explanation.
+- **Timing**: the **Timeline** tab breaks the total into phases.
+  - Everywhere: *Waiting* (time to response headers, including any redirects), *Download* (the body), and the remaining overhead. On the web this is the round trip to the Restura *Proxy*; on desktop it's *App* time such as scripts and IPC.
+  - Desktop only: *DNS* and *Connect + TLS* are also measured for direct connections. They're left out when a proxy is used, because they would describe the connection to the proxy.
+- **Size**: the decoded body size.
+- **Headers**: filter by name or value; *Copy all* copies one `Name: value` line per value.
+- **Body**:
+  - pretty-printed JSON with a collapsible **Tree** view (*Copy path* gives a JSONPath you can paste into the JSONPath box)
+  - syntax-highlighted XML
+  - **Download**, saved under the request's name with the right extension
+- **Compare with previous**: once a request has an earlier response in history, a toolbar button diffs the two side by side.
+- **Cancel**: while a request runs, the response panel shows the elapsed time and a **Cancel** button. GraphQL can be cancelled too.
 
 ## Worth knowing
 

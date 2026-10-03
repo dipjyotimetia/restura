@@ -37,7 +37,7 @@ npm run build                  # Production build (SPA + Worker bundle)
 npm run preview                # Preview production build
 npm run type-check             # TypeScript strict mode — RENDERER ONLY (excludes worker, electron/main, cli)
 npm run type-check:all         # Full type-check across all tsconfigs — what CI runs
-npm run architecture:check     # Enforce runtime boundaries, acyclic imports, file-size ratchets
+npm run architecture:check     # Enforce runtime boundaries, acyclic imports, file-size + source-pattern ratchets
 npm run lint                   # Biome lint over src/ shared/ electron/main/ worker/ echo/ echo-local/ cli/ tests/ scripts/
 npm run format                 # Biome format (write)
 npm run format:check           # Biome format check
@@ -211,7 +211,10 @@ Node/Docker entry. Routes: `/health`, `/ready`, `/api/proxy`, `/api/grpc`,
   compose at the route or shared-component level.
 - **Architecture boundaries** — `shared/` is the dependency floor; Worker,
   Electron main, and CLI do not import renderer-owned `src/`. The checked
-  policy is `scripts/architecture.config.mts` (ADR 0028).
+  policy is `scripts/architecture.config.mts` (ADR 0028). Besides file-size
+  caps it ratchets source patterns: off-scale font sizes (`text-[Npx]`,
+  sub-11px `text-sp-*`) in `src/**/*.tsx` may only go down — use the
+  `text-sp-*` tokens (11px minimum), and lower the cap when you remove some.
 - **Build**: Vite 8 + `@vitejs/plugin-react` + `@cloudflare/vite-plugin`
   (boots Miniflare during `vite dev`). Config is `vite.config.mts` (ESM-only).
 - **Tailwind v4** via `@tailwindcss/vite` (no separate PostCSS config).

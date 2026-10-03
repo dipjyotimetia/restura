@@ -1,8 +1,8 @@
 import { AlertCircle, Loader2, Play, X } from 'lucide-react';
+import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
 import { Floater, Segmented } from '@/components/ui/spatial';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
-import { cn } from '@/lib/shared/utils';
 import type { GrpcMethodType } from '@/types';
 import GrpcStreamingControls from './GrpcStreamingControls';
 
@@ -68,17 +68,15 @@ export function GrpcInvocationBar({
             ariaLabel="gRPC method type"
           />
           <span className="text-sp-dim font-mono text-sp-12 select-none shrink-0">›</span>
-          <input
-            type="text"
+          <VariableUrlInput
             value={url}
-            onChange={(e) => onUrlChange(e.target.value)}
+            onValueChange={onUrlChange}
+            variableScope="connection"
             placeholder={ECHO_URLS.grpc}
             aria-label="gRPC server URL"
-            className={cn(
-              'flex-1 min-w-0 h-7 bg-transparent border-0 outline-none px-1',
-              'font-mono text-sp-13 text-sp-text placeholder:text-sp-dim',
-              !isUrlValid && 'text-red-400'
-            )}
+            invalid={!isUrlValid}
+            className="flex-1 h-7"
+            textClassName="px-1 text-sp-13"
           />
         </Floater>
 

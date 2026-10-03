@@ -1,10 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { parse } from '@babel/parser';
-import type {
-  ArchitectureFile,
-  ArchitectureImport,
-  ArchitecturePolicy,
+import {
+  type ArchitectureFile,
+  type ArchitectureImport,
+  type ArchitecturePolicy,
+  countSourcePatterns,
 } from './architecture-policy.mts';
 
 type ImportResolver = (specifier: string) => string | undefined;
@@ -183,8 +184,11 @@ export function scanArchitectureFiles(
     .map((absolutePath) => {
       const relativePath = normalizeRelative(root, absolutePath);
       if (!relativePath) throw new Error(`Source file is outside repository root: ${absolutePath}`);
-      return inspectSource(relativePath, fs.readFileSync(absolutePath, 'utf8'), (specifier) =>
+      const sourceText = fs.readFileSync(absolutePath, 'utf8');
+      const file = inspectSource(relativePath, sourceText, (specifier) =>
         resolveInternalImport(root, absolutePath, specifier)
       );
+      const patternCounts = countSourcePatterns(relativePath, sourceText, policy);
+      return patternCounts ? { ...file, patternCounts } : file;
     });
 }

@@ -22,7 +22,7 @@ describe('useSocketIOStore', () => {
     expect(conn!.autoReconnect).toBe(true);
   });
 
-  it('addEvent appends to the events list and addKv/removeKv mutate auth list', () => {
+  it('addEvent appends to the events list and setKv replaces a key/value list', () => {
     const id = useSocketIOStore.getState().createConnection();
     const s = useSocketIOStore.getState();
     s.addEvent(id, { direction: 'sent', eventName: 'msg', args: ['hello'] });
@@ -32,14 +32,13 @@ describe('useSocketIOStore', () => {
     expect(events[0]!.direction).toBe('sent');
     expect(events[1]!.args).toEqual(['world']);
 
-    s.addKv(id, 'auth');
-    const auth = useSocketIOStore.getState().connections[id]!.auth;
-    expect(auth).toHaveLength(1);
-    const kvId = auth[0]!.id;
-    s.updateKv(id, 'auth', kvId, { key: 'token', value: 'abc' });
-    expect(useSocketIOStore.getState().connections[id]!.auth[0]!.key).toBe('token');
-    s.removeKv(id, 'auth', kvId);
+    const auth = [{ id: 'kv1', key: 'token', value: 'abc', enabled: true }];
+    s.setKv(id, 'auth', auth);
+    expect(useSocketIOStore.getState().connections[id]!.auth).toEqual(auth);
+    expect(useSocketIOStore.getState().connections[id]!.query).toEqual([]);
+    s.setKv(id, 'auth', []);
     expect(useSocketIOStore.getState().connections[id]!.auth).toHaveLength(0);
+    s.setKv('missing', 'auth', auth);
   });
 
   it('resolveAck appends an ack row and marks the original sent row resolved', () => {

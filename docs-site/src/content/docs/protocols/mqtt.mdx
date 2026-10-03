@@ -12,6 +12,7 @@ import { Badge } from '@astrojs/starlight/components';
 - **Connect** — `mqtt://` or `mqtts://` brokers; pick **MQTT 3.1.1** or **MQTT 5.0** per connection.
 - **Publish** — send to a topic with a chosen **QoS** (0, 1, or 2) and an optional **retain** flag; payloads are text, JSON, or binary.
 - **Subscribe** — one or more topic filters (wildcards included); messages stream live with topic, QoS, retain / dup flags, and timestamp.
+- **Export the log** — download the current filtered messages as JSON or NDJSON (one message per line).
 - **Auth** — username / password. On desktop the password is stored in the OS keychain (see [secrets](/architecture/adrs/0007-secret-ref-pattern/)) and resolved only at connect time, never persisted in clear.
 - **TLS** — `mqtts://` with server-certificate validation, optional client certificate (mTLS: CA / cert / key / passphrase), and a `rejectUnauthorized` toggle.
 - **Last Will & Testament (LWT)** — topic, payload, QoS, and retain that the broker publishes if your client drops.

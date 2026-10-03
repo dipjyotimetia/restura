@@ -82,9 +82,9 @@ export default function StatusBar({
   const handlePalette = onOpenCommandPalette ?? triggerPaletteFallback;
 
   return (
+    // Not a live region itself — that re-announced every button and counter on
+    // each change. Only the environment switch is announced (below).
     <footer
-      role="status"
-      aria-live="polite"
       aria-label="Application status bar"
       className={cn(
         'flex items-center justify-between shrink-0 select-none',
@@ -112,6 +112,9 @@ export default function StatusBar({
           />
           <span className="truncate text-sp-text/80">{envName}</span>
         </button>
+        <span role="status" className="sr-only">
+          {`Environment: ${envName}`}
+        </span>
 
         <span className="text-sp-dim" aria-hidden="true">
           ·

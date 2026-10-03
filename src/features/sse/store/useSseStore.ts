@@ -79,9 +79,8 @@ interface SseState {
   appendSystem: (connectionId: string, message: string) => void;
   clearLog: (connectionId: string) => void;
 
-  addHeader: (connectionId: string) => void;
-  updateHeader: (connectionId: string, headerId: string, updates: Partial<KeyValue>) => void;
-  removeHeader: (connectionId: string, headerId: string) => void;
+  /** Replace the whole header list (the key/value table drives edits through this). */
+  setHeaders: (connectionId: string, headers: KeyValue[]) => void;
   setAuth: (connectionId: string, auth: AuthConfig) => void;
 
   setSearchQuery: (q: string) => void;
@@ -259,41 +258,11 @@ export const useSseStore = create<SseState>()(
           };
         }),
 
-      addHeader: (connectionId) =>
+      setHeaders: (connectionId, headers) =>
         set((s) => {
           const c = s.connections[connectionId];
           if (!c) return s;
-          const h: KeyValue = { id: uuidv4(), key: '', value: '', enabled: true };
-          return {
-            connections: { ...s.connections, [connectionId]: { ...c, headers: [...c.headers, h] } },
-          };
-        }),
-
-      updateHeader: (connectionId, headerId, updates) =>
-        set((s) => {
-          const c = s.connections[connectionId];
-          if (!c) return s;
-          return {
-            connections: {
-              ...s.connections,
-              [connectionId]: {
-                ...c,
-                headers: c.headers.map((h) => (h.id === headerId ? { ...h, ...updates } : h)),
-              },
-            },
-          };
-        }),
-
-      removeHeader: (connectionId, headerId) =>
-        set((s) => {
-          const c = s.connections[connectionId];
-          if (!c) return s;
-          return {
-            connections: {
-              ...s.connections,
-              [connectionId]: { ...c, headers: c.headers.filter((h) => h.id !== headerId) },
-            },
-          };
+          return { connections: { ...s.connections, [connectionId]: { ...c, headers } } };
         }),
 
       setAuth: (connectionId, auth) =>

@@ -173,17 +173,20 @@ export default function RequestEntryItem({
                 className="h-3.5 w-3.5"
               />
             )}
+            {/* gRPC "methods" are full service paths — truncate rather than
+                push the status and protocol badges out of the row. */}
             <Badge
               variant="outline"
-              className={cn('text-[10px] px-1.5 py-0 font-semibold', methodColor)}
+              title={request.method}
+              className={cn('min-w-0 text-sp-11 px-1.5 py-0 font-semibold', methodColor)}
             >
-              {request.method}
+              <span className="truncate">{request.method}</span>
             </Badge>
-            <span className={cn('text-xs font-medium tabular-nums', statusColor)}>
+            <span className={cn('shrink-0 text-xs font-medium tabular-nums', statusColor)}>
               {displayStatus || 'ERR'}
             </span>
             {entry.protocol && entry.protocol !== 'http' && (
-              <Badge variant="outline" className="text-[9px] px-1 py-0 uppercase">
+              <Badge variant="outline" className="shrink-0 text-sp-11 px-1 py-0 uppercase">
                 {entry.protocol}
               </Badge>
             )}
@@ -219,7 +222,7 @@ export default function RequestEntryItem({
               >
                 <X className="h-3 w-3" />
               </button>
-              <span className="text-[10px] text-muted-foreground group-hover/entry:hidden">
+              <span className="text-sp-11 text-muted-foreground group-hover/entry:hidden">
                 {formatRelativeTime(timestamp)}
               </span>
             </div>
@@ -237,7 +240,7 @@ export default function RequestEntryItem({
               />
             </div>
           )}
-          <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground">
+          <div className="flex items-center gap-3 mt-1 text-sp-11 text-muted-foreground">
             <span className={cn(isSlow && 'text-amber-600 dark:text-amber-400')}>
               {formatDuration(response.time)}
             </span>

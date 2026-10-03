@@ -15,7 +15,8 @@ The repository has explicit source zones for `shared/`, the renderer, Worker, El
 - the forbidden zone directions in `scripts/architecture.config.mts`;
 - an acyclic runtime import graph (type-only imports do not create runtime cycles);
 - an 800-line ceiling for new production TypeScript files;
-- exact, non-growing caps for documented legacy oversized modules.
+- exact, non-growing caps for documented legacy oversized modules;
+- exact, non-growing repo-wide counts of configured source patterns (`sourcePatternRatchets`) — first used for off-scale font sizes in `src/**/*.tsx` (pixel `text-[Npx]` classes and sub-11px `text-sp-*` tokens), which may only decrease.
 
 The store/connection-manager cycles were replaced with explicit lifecycle coordinators. Cross-runtime types, schemas, secret/redaction helpers, OpenCollection, MCP-server policy, variable helpers, and the QuickJS executor now live in `shared/`; the old renderer paths are compatibility re-exports only.
 

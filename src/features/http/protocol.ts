@@ -77,9 +77,6 @@ export const httpProtocol: ProtocolModule = {
     if (request.type !== 'http') {
       throw new Error(`HTTP protocol cannot run ${request.type} request`);
     }
-    // executeRequest doesn't accept an AbortSignal directly today; honor
-    // pre-aborted ctx.signal so callers can short-circuit obviously-stale
-    // requests. Mid-flight cancellation will be wired in a later task.
     if (ctx.signal.aborted) {
       throw new DOMException('Request aborted', 'AbortError');
     }
@@ -100,6 +97,8 @@ export const httpProtocol: ProtocolModule = {
       // executeRequest's own `baseInfo` — no need to repeat that here.
       ...(opts.info ? { info: opts.info } : {}),
       ...(opts.location ? { location: opts.location } : {}),
+      // Mid-flight cancellation (runner abort, Cancel in the response panel).
+      signal: ctx.signal,
     });
     // Forward script results (pre-request + test) to the runner so the
     // Console panel sees logs/tests. `executeRequest` runs both scripts
