@@ -78,7 +78,8 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
     allFolderAuthsUnchanged(c.items) &&
     rootStructureUnchanged(c) &&
     scriptsUnchanged(c._oc, c.preRequestScript, c.testScript) &&
-    allFolderScriptsUnchanged(c.items)
+    allFolderScriptsUnchanged(c.items) &&
+    allFolderVariablesUnchanged(c.items)
   ) {
     return c._oc as OpenCollection;
   }
@@ -258,7 +259,8 @@ function folderFromInternal(
   // verbatim).
   const authSame = authUnchanged(it._oc, it.auth);
   const scriptsSame = scriptsUnchanged(it._oc, it.preRequestScript, it.testScript);
-  if (it._oc && authSame && scriptsSame) return it._oc;
+  const variablesSame = folderVariablesUnchanged(it._oc, it.variables);
+  if (it._oc && authSame && scriptsSame && variablesSame) return it._oc;
   const out: Record<string, unknown> = it._oc
     ? { ...(it._oc as Record<string, unknown>) }
     : { info: { name: it.name } };
@@ -295,6 +297,10 @@ function folderFromInternal(
   // survive only via the cached _oc bytes), and vice versa.
   if (!authSame) applyRequestDefaultsAuth(out, it.auth);
   if (!scriptsSame) applyRequestDefaultsScripts(out, it.preRequestScript, it.testScript);
+  if (!variablesSame) {
+    const variables = variablesFromInternal(it.variables);
+    setRequestDefault(out, 'variables', variables.length > 0 ? variables : undefined);
+  }
   return out;
 }
 
@@ -691,6 +697,35 @@ function scriptsUnchanged(
   const cachedRequest = (cachedNode as { request?: unknown } | undefined)?.request;
   const cached = groupScripts((cachedRequest as { scripts?: unknown } | undefined)?.scripts);
   return (cached.preRequest ?? '') === (preRequest ?? '') && (cached.test ?? '') === (test ?? '');
+}
+
+/**
+ * Export-time staleness check for folder variables (OC folder
+ * `request.variables`), through the same import conversion. Private variables
+ * never export, so they are left out of the comparison.
+ */
+function folderVariablesUnchanged(
+  cachedNode: unknown,
+  variables: CollectionItem['variables']
+): boolean {
+  const cachedRequest = (cachedNode as { request?: unknown } | undefined)?.request;
+  const cached = (cachedRequest as { variables?: unknown } | undefined)?.variables;
+  const cachedVariables = Array.isArray(cached) ? cached.map(ocVariableToKeyValue) : [];
+  return (
+    JSON.stringify(comparableVariables(cachedVariables)) ===
+    JSON.stringify(comparableVariables((variables ?? []).filter((v) => !v.private)))
+  );
+}
+
+/** Recursively true when every folder's variables still match its cached bag. */
+function allFolderVariablesUnchanged(items: CollectionItem[] | undefined): boolean {
+  if (!items) return true;
+  return items.every((it) => {
+    if (it.type !== 'folder') return true;
+    const wit = it as WithOC<CollectionItem>;
+    if (wit._oc !== undefined && !folderVariablesUnchanged(wit._oc, it.variables)) return false;
+    return allFolderVariablesUnchanged(it.items);
+  });
 }
 
 /** Recursively true when every folder's scripts still match its cached bag. */

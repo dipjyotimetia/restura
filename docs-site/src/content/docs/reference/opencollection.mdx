@@ -14,7 +14,7 @@ Postman's format is locked. Insomnia's is locked. Bruno's is its own. Switching 
 ## What it covers
 
 - Request-shaped protocols: HTTP, GraphQL, gRPC, WebSocket, Socket.IO, SSE, and MCP (Socket.IO / SSE / MCP ride along as `x-restura-*` extensions). The connection-based protocols (Kafka, MQTT) have no per-request shape, so they aren't stored in a collection.
-- Nested folders with inherited auth, headers, and variables.
+- Nested folders with inherited auth, scripts, and variables (folder `request.variables`; variables marked **Keep local** are never written). Folder-level default headers in the spec aren't mapped yet.
 - Environments with scoped variables.
 - Scripts (pre-request and test) — sandbox-portable JavaScript.
 - Workflows — separately stored OWS orchestration artifacts that reference saved HTTP requests. The currently executable profile is deliberately bounded; see the [workflow guide](/guides/workflows/).
