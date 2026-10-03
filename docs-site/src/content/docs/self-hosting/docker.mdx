@@ -15,7 +15,11 @@ docker run -p 3000:3000 \
   ghcr.io/dipjyotimetia/restura:latest
 ```
 
-Open `http://localhost:3000`. All user data lives in the browser's IndexedDB — the server is **stateless**.
+All user data lives in the browser's IndexedDB — the server is **stateless**.
+
+<Aside type="caution" title="Browser access needs reverse-proxy auth">
+The token protects `/api/*` for scripted callers, but the stock image's web UI can't send it, so requests from the page are rejected with `401`. For browser use, put an authenticating reverse proxy in front and set `REQUIRE_CF_ACCESS=true` — see [Reverse proxy](/self-hosting/reverse-proxy/).
+</Aside>
 
 ## docker-compose
 
@@ -39,18 +43,18 @@ The repo ships a [`docker-compose.yml`](https://github.com/dipjyotimetia/restura
 |---|---|---|
 | `PORT` | Listen port | `3000` |
 | `HOST` | Bind address | `0.0.0.0` |
-| `WORKER_PROXY_TOKEN` | Shared token for `X-Worker-Token` header from the client | **required in prod** |
+| `WORKER_PROXY_TOKEN` | Shared token for `X-Restura-Proxy-Token` header from the client | **required in prod** |
 | `REQUIRE_CF_ACCESS` | If `true`, trust the `Cf-Access-Authenticated-User-Email` header from your reverse proxy | `false` |
 | `ENVIRONMENT` | `development` allows localhost upstream; anything else enforces SSRF guard | `production` |
 | `ALLOW_PRIVATE_IPS` | Allow RFC 1918 / link-local upstreams (still blocks cloud-metadata) | `false` |
-| `ALLOWED_ORIGIN` | Comma-separated `Origin` allowlist | `*` (recommend setting) |
+| `ALLOWED_ORIGIN` | Comma-separated `Origin` allowlist (supports `*` wildcards) | unset = no cross-origin access (same-origin only) |
 | `RESTURA_STATIC_ROOT` | Path to the SPA bundle | `/app/dist/web` |
 
 ## Auth modes
 
 You have two options:
 
-1. **Shared token** — set `WORKER_PROXY_TOKEN` and have the client send it in the `X-Worker-Token` header. Configure the URL in `VITE_WORKER_URL` at build time, or in the in-app settings.
+1. **Shared token** — set `WORKER_PROXY_TOKEN`; callers send it in the `X-Restura-Proxy-Token` header (or `Authorization: Bearer`). The SPA only sends a token baked in at build time (`VITE_WORKER_PROXY_TOKEN`), and the stock image has none — so this mode protects scripted access, but the bundled web UI gets `401`. Use reverse-proxy auth for browser users.
 2. **Reverse-proxy auth** — set `REQUIRE_CF_ACCESS=true` and put Cloudflare Access (or any IdP that injects an authenticated email header) in front. The server reads the email from the proxy header and trusts it.
 
 ## Internal network access

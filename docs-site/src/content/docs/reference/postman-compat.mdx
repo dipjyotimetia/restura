@@ -20,7 +20,7 @@ Restura runs scripts in a **QuickJS WASM sandbox** built around a native `rs.*` 
 | `pm.info` | `.requestName`, `.requestId`, `.iteration`, `.iterationCount`, `.eventName` (`'prerequest'` / `'test'`) — populated from the real request during a send or collection run. |
 | `pm.execution.location` | `.collectionName`, `.currentRequestName`, `.folderPath` — always a real object (never `undefined`), populated during collection/folder runs. |
 | `pm.cookies` | Cookie jar lookup, plus an async `.jar()` for get/set/clear. |
-| `pm.sendRequest(input, cb?)` | Fire an ad-hoc request through the SSRF-guarded proxy. Returns a promise. Works from every script surface — the interactive Send button, gRPC, and collection/CLI runs. |
+| `pm.sendRequest(input, cb?)` | Fire an ad-hoc request through the SSRF-guarded proxy. Returns a promise. Works from the interactive Send button, gRPC, and in-app collection runs. Not wired in the CLI (rejects with a clear error). |
 | `pm.execution.setNextRequest` / `skipRequest` | Runner flow control. |
 | `pm.visualizer.set(template, data)` | Custom HTML response visualizations. |
 | `pm.vault` | Encrypted secret vault (`await pm.vault.get(...)`). Restura-native. Desktop only. |

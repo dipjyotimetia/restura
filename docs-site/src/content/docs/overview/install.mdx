@@ -3,7 +3,7 @@ title: Install
 description: Use the hosted web app, download the desktop client, or self-host with Docker.
 ---
 
-import { Tabs, TabItem, Card, CardGrid } from '@astrojs/starlight/components';
+import { Tabs, TabItem, Card, CardGrid, Aside } from '@astrojs/starlight/components';
 
 You have three ways to run Restura. Pick the one that fits.
 
@@ -68,7 +68,11 @@ docker run -p 3000:3000 \
   ghcr.io/dipjyotimetia/restura:latest
 ```
 
-Open `http://localhost:3000`. The server is stateless — all collections, environments, and history live in the browser's IndexedDB, exactly like the web app. Your data does not leave the browser.
+The server is stateless — all collections, environments, and history live in the browser's IndexedDB, exactly like the web app. Your data does not leave the browser.
+
+<Aside type="caution" title="Browser access needs reverse-proxy auth">
+The token protects `/api/*` for scripted callers, but the stock image's web UI can't send it, so requests from the page are rejected with `401`. For browser use, put an authenticating reverse proxy in front and set `REQUIRE_CF_ACCESS=true` — see [Reverse proxy](/self-hosting/reverse-proxy/).
+</Aside>
 
 For production setups (reverse proxy, TLS, multi-replica), see [Self-hosting → Docker](/self-hosting/docker/) and [Reverse proxy](/self-hosting/reverse-proxy/).
 

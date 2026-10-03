@@ -25,9 +25,11 @@ curl -fs http://localhost:3000/health
 # → {"status":"ok","version":"..."}
 ```
 
-Open `http://localhost:3000` in a browser. In **Settings → Proxy token**,
-paste the `WORKER_PROXY_TOKEN` you set in `.env` so the SPA can authenticate
-against the proxy.
+The API now accepts scripted calls carrying `X-Restura-Proxy-Token` (see
+[Verifying the build](#verifying-the-build)). The bundled web UI has no way to
+send that token, so to use Restura from a browser, front the container with an
+authenticating reverse proxy (Mode B under [Auth modes](#auth-modes)) and then
+open it through that proxy.
 
 ### Local source smoke test
 
@@ -86,17 +88,17 @@ reports.
 
 ## Environment variables
 
-| Var                  | Required        | Default                     | Purpose                                                                                      |
-| -------------------- | --------------- | --------------------------- | -------------------------------------------------------------------------------------------- |
-| `WORKER_PROXY_TOKEN` | Yes¹            | _(unset → 503)_             | Shared secret. SPA sends it in `X-Restura-Proxy-Token`.                                      |
-| `REQUIRE_CF_ACCESS`  | Yes¹            | `false`                     | Trust a reverse-proxy `Cf-Access-Authenticated-User-Email` header instead of a Bearer token. |
-| `ENVIRONMENT`        | No              | `production`                | Anything other than `development` enforces full auth + SSRF.                                 |
-| `ALLOWED_ORIGIN`     | No              | _(echo request Origin)_     | Comma-separated CORS allow-list. Supports `*` inside hostnames.                              |
-| `ALLOW_PRIVATE_IPS`  | No              | `false`                     | Permit RFC 1918 / link-local / CGNAT upstreams. See _Internal-network access_ below.         |
-| `RATE_LIMITER`       | No              | `map`                       | Always `map` in self-hosted (per-process limiter).                                           |
-| `PORT` / `HOST`      | No              | `3000` / `0.0.0.0`          | Bind address inside the container.                                                           |
-| `VITE_ECHO_*_URL`    | No              | _(public echo.restura.dev)_ | **Build-time.** Replace the SPA's placeholder URLs with internal echo endpoints.             |
-| `DEV_BYPASS_AUTH`    | _Never in prod_ | _(unset)_                   | Local dev only. Bypasses auth + allows localhost SSRF.                                       |
+| Var                  | Required        | Default                     | Purpose                                                                                             |
+| -------------------- | --------------- | --------------------------- | --------------------------------------------------------------------------------------------------- |
+| `WORKER_PROXY_TOKEN` | Yes¹            | _(unset → 503)_             | Shared secret. SPA sends it in `X-Restura-Proxy-Token`.                                             |
+| `REQUIRE_CF_ACCESS`  | Yes¹            | `false`                     | Trust a reverse-proxy `Cf-Access-Authenticated-User-Email` header instead of a Bearer token.        |
+| `ENVIRONMENT`        | No              | `production`                | Anything other than `development` enforces full auth + SSRF.                                        |
+| `ALLOWED_ORIGIN`     | No              | _(no cross-origin access)_  | Comma-separated CORS allow-list. Supports `*` inside hostnames. Unset = same-origin only.           |
+| `ALLOW_PRIVATE_IPS`  | No              | `false`                     | Permit RFC 1918 / link-local / CGNAT upstreams. See _Internal-network access_ below.                |
+| `RATE_LIMITER`       | No              | `map`                       | Always `map` in self-hosted (per-process limiter).                                                  |
+| `PORT` / `HOST`      | No              | `3000` / `0.0.0.0`          | Bind address inside the container.                                                                  |
+| `VITE_ECHO_*_URL`    | No              | _(public echo.restura.dev)_ | **Build-time `--build-arg` only.** Replace the SPA's placeholder URLs with internal echo endpoints. |
+| `DEV_BYPASS_AUTH`    | _Never in prod_ | _(unset)_                   | Local dev only. Bypasses auth + allows localhost SSRF.                                              |
 
 ¹ At least one of `WORKER_PROXY_TOKEN` or `REQUIRE_CF_ACCESS=true` MUST be
 set. The Worker fails-closed with HTTP 503 otherwise.
@@ -107,12 +109,21 @@ set. The Worker fails-closed with HTTP 503 otherwise.
 
 ### Mode A — Bearer token (default)
 
-Set `WORKER_PROXY_TOKEN` to a 32-byte hex string. The SPA sends it in
-`X-Restura-Proxy-Token`. The Worker compares with a constant-time check.
+Set `WORKER_PROXY_TOKEN` to a 32-byte hex string. Callers send it in
+`X-Restura-Proxy-Token` (or `Authorization: Bearer <token>`); the server
+compares with a constant-time check.
 
 ```bash
 openssl rand -hex 32   # generate a token
 ```
+
+> **Browser caveat.** The SPA only sends a token that was baked in at build
+> time (`VITE_WORKER_PROXY_TOKEN`), and the stock Docker image is built without
+> one — so with Mode A alone, `/api/*` is protected for scripted callers but
+> requests from the bundled web UI are rejected with `401`. For browser use,
+> put an authenticating reverse proxy in front (Mode B). Baking the token into
+> the image would expose it to anyone who can load the page, so the Dockerfile
+> deliberately does not accept it as a build argument.
 
 ### Mode B — Reverse-proxy auth header
 
@@ -310,7 +321,9 @@ docker push registry.corp.example/restura/web:v0.1.0
 
 Note: `VITE_*` vars are read at SPA build time, not at runtime — they're
 inlined into the JS bundle. Changing them after the image is built has no
-effect.
+effect. Pass them as `--build-arg` (the Dockerfile declares the five
+`VITE_ECHO_*_URL` args); values in `.env` do **not** reach the build, because
+Compose's `env_file` is runtime-only and `.dockerignore` excludes `.env`.
 
 ---
 

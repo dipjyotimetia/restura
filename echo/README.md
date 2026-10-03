@@ -1,6 +1,8 @@
 # Restura Echo Server
 
-A small Cloudflare Worker that acts as a **controlled upstream** for Restura's end-to-end and integration tests. The `real-*` e2e specs point at this server (deployed at `echo.restura.dev`) so they exercise the real request path against predictable, protocol-correct responses instead of flaky third-party endpoints.
+A small Cloudflare Worker (deployed at `echo.restura.dev`) that acts as a **controlled, protocol-correct upstream** for trying Restura and for manual cross-protocol checks. The app's default placeholder URLs for HTTP, gRPC, GraphQL, WebSocket, and SSE point here (`src/lib/shared/echo-defaults.ts`; self-hosted builds can override them with the build-time `VITE_ECHO_*_URL` variables — see [`docs/SELF_HOSTING.md`](../docs/SELF_HOSTING.md)).
+
+The automated suites do **not** depend on it: the `real-*` Playwright specs run against local, worker-scoped mock servers (`e2e/mocks/*`), and the desktop suite uses those mocks plus the native gRPC dev server. Handler behaviour is unit-tested in `echo/__tests__/`.
 
 > **Not part of the production app.** This Worker is test infrastructure only. It is never bundled into the web app, the self-hosted server, or the desktop build.
 
@@ -23,6 +25,9 @@ A small Cloudflare Worker that acts as a **controlled upstream** for Restura's e
 ```bash
 # Type-check (also run by `npm run type-check:all`)
 npx tsc --noEmit -p echo/tsconfig.json
+
+# Unit tests for the handlers
+npx vitest run echo/__tests__
 
 # Deploy to echo.restura.dev (from the repo root)
 npm run deploy:echo

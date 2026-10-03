@@ -60,12 +60,14 @@ These extensions are **roundtrip-stable**: tools that don't understand them igno
 
 ## Authentication
 
-OpenCollection v1.0.0 includes more authentication methods than Restura currently runs at the wire (OAuth1, NTLM, WSSE arrive in Phase 4). Importers and exporters preserve all of them so a Restura-imported file can roundtrip back to Bruno without losing auth configuration:
+OpenCollection v1.0.0 includes authentication methods that Restura's OpenCollection mapper does not yet model, and one (`digest`) that it models but does not yet apply on send. Importers and exporters preserve all of them so a Restura-imported file can roundtrip back to Bruno without losing auth configuration:
 
-| OpenCollection auth                                              | Restura runtime support      |
-| ---------------------------------------------------------------- | ---------------------------- |
-| `none`, `basic`, `bearer`, `apikey`, `digest`, `oauth2`, `awsv4` | ✅ Wired                     |
-| `oauth1`, `ntlm`, `wsse`                                         | Round-trips, runs in Phase 4 |
+| OpenCollection auth                                    | Import mapping                            | Applied on send                                                        |
+| ------------------------------------------------------ | ----------------------------------------- | ---------------------------------------------------------------------- |
+| `none`, `basic`, `bearer`, `apikey`, `oauth2`, `awsv4` | ✅ Mapped to Restura auth                 | ✅                                                                      |
+| `digest`                                               | ✅ Mapped to Restura auth                 | ❌ Not yet — no challenge/response                                      |
+| `oauth1`, `wsse`                                       | Imports as `none`; round-trips verbatim   | ✅ When configured in-app (signed at the wire); imported values don't map |
+| `ntlm`                                                 | Imports as `none`; round-trips verbatim   | ❌ Not yet                                                              |
 
 Collection- and folder-level **default auth** round-trips through OC's native `request.auth` (RequestDefaults) at the document root and on folder items — it imports into Restura's collection/folder auth (where nearest-ancestor inheritance applies) and exports back to the same native fields, with no vendor extension.
 
@@ -96,7 +98,7 @@ The bundled-export path used by the **Export → OpenCollection (YAML)** menu al
 
 If any item has been modified, both paths fall back to rebuilding from the internal model, which produces clean OpenCollection YAML. Edits, adds, removals, and moves defeat the verbatim shortcut by two complementary mechanisms: the store (`useCollectionStore`) strips the `_oc` bag from a mutated item and every ancestor folder, so a missing bag forces a rebuild of that subtree; and `internalToOC` runs a root-level count reconciliation (`rootStructureUnchanged`) so a **root-level removal** — which strips no ancestor bag and leaves every survivor's bag intact — is still detected and the deleted item never reappears (the root check accounts for SSE/MCP living in `extensions`, not `items`). Collection- and folder-level auth edits count as modifications: the exporter compares the cached document's auth against the live internal auth (in flattened-secret space) and defeats the verbatim shortcut when they differ, so a stale `_oc` bag never re-emits credentials you've since changed. Collection- and folder-level **script** edits are gated the same way — and independently of auth, so editing only a script never recomputes (and thereby drops) an un-modellable auth type that survives solely via the cached `_oc` bytes (see the OAuth1/NTLM/WSSE caveat below). Redacted exports drop the collection-level `_oc` bag and every auth-bearing item bag and rebuild those tiers — a verbatim emit would leak the original (pre-redaction) plaintext. Auth-free item bags survive so GraphQL/WebSocket shapes keep their fidelity.
 
-One caveat on the staleness gate: auth types Restura doesn't run yet (OAuth1, NTLM, WSSE) have no internal representation, so the gate can't see edits to them — in particular, clearing such an auth in-app and then exporting **with secrets included** re-emits the original block from the cached document. Redacted exports are unaffected (that tier always rebuilds). This resolves itself when the types are wired in Phase 4.
+One caveat on the staleness gate: auth types the OpenCollection mapper doesn't model yet (OAuth1, NTLM, WSSE) import as `none`, so the gate can't see edits to them — in particular, clearing such an auth in-app and then exporting **with secrets included** re-emits the original block from the cached document. Redacted exports are unaffected (that tier always rebuilds). This resolves itself once the mapper models these types.
 
 ## Verifying the schema
 

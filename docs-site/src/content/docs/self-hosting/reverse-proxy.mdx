@@ -10,7 +10,7 @@ When you self-host Restura, put it behind your reverse proxy of choice for TLS t
 The container needs the proxy to:
 
 - Forward `/api/ws` as a **WebSocket upgrade** (don't terminate the upgrade).
-- Pass through the `X-Worker-Token` header **or** the `Cf-Access-Authenticated-User-Email` header from your IdP.
+- Pass through the `X-Restura-Proxy-Token` header **or** the `Cf-Access-Authenticated-User-Email` header from your IdP.
 - Not strip the `Content-Encoding` header — streaming responses (SSE, chunked) depend on it.
 
 ## Example configs

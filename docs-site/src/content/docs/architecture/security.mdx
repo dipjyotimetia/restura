@@ -62,8 +62,8 @@ Pre-request and test scripts run in a **QuickJS WASM sandbox** (`shared/scripts/
 - No DOM.
 - No filesystem.
 - No network escape — `fetch` and `XMLHttpRequest` are absent.
-- Memory cap (10 MB by default).
-- Execution time cap (5 seconds).
+- Memory cap (64 MB per script runtime).
+- Execution time cap (5 seconds for synchronous scripts; 30 seconds when a host bridge such as `rs.sendRequest` is in use).
 
 This matters because shared collections might carry scripts from anywhere; the sandbox guarantees they can't exfiltrate or pivot.
 
@@ -83,13 +83,13 @@ For the hosted web app, `/api/telemetry/error` is a redacted, rate-limited, allo
 
 ## MCP server mode
 
-When Restura acts as an MCP server, every tool response is run through a redactor (`electron/main/collection-export-redactor.ts`) that strips secrets by name. `SecretRef` handles are never resolved for the MCP surface — agents see metadata, not plaintext.
+When Restura acts as an MCP server, every tool response is run through a redactor (`electron/main/security/collection-export-redactor.ts`) that strips secrets by name. `SecretRef` handles are never resolved for the MCP surface — agents see metadata, not plaintext.
 
 ## Worker auth gate
 
 The deployed Cloudflare Worker requires one of:
 
-- `WORKER_PROXY_TOKEN` set as a secret, sent by the client as `X-Worker-Token`.
+- `WORKER_PROXY_TOKEN` set as a secret, sent by the client as `X-Restura-Proxy-Token`.
 - `REQUIRE_CF_ACCESS=true` and a Cloudflare Access policy in front of the Worker.
 
 Local dev bypasses auth only when Miniflare is detected or `DEV_BYPASS_AUTH=true` is set in `.dev.vars`. **Never put `DEV_BYPASS_AUTH` in `wrangler.jsonc`** (the deployed config).

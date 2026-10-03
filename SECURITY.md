@@ -2,12 +2,12 @@
 
 ## Supported Versions
 
-We release patches for security vulnerabilities. The following versions are currently being supported with security updates:
+Security fixes land on `main` and ship in the next release. Only the latest release of each component — web app, desktop app, self-hosted server, `restura-cli`, and the browser/VS Code extensions — receives security updates; upgrade before reporting an issue against an older build.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
-| < 0.1   | :x:                |
+| Version                          | Supported          |
+| -------------------------------- | ------------------ |
+| Latest release of each component | :white_check_mark: |
+| Anything older                   | :x:                |
 
 ## Reporting a Vulnerability
 
@@ -17,9 +17,9 @@ We take the security of Restura seriously. If you have discovered a security vul
 
 Security vulnerabilities should not be reported through public GitHub issues.
 
-### 2. Email Us Directly
+### 2. Report Privately on GitHub
 
-Send an email to the project maintainers with:
+Use GitHub's private vulnerability reporting: [open a private security advisory](https://github.com/dipjyotimetia/restura/security/advisories/new). Include:
 
 - **Subject**: [SECURITY] Brief description of the vulnerability
 - **Description**: Detailed description of the vulnerability
@@ -101,12 +101,10 @@ Restura allows users to write pre-request and test scripts. These scripts are ex
 
 - **Complete isolation**: QuickJS WebAssembly runtime (no access to host JavaScript)
 - **No file system access**: Scripts cannot read/write files
-- **No network access**: Scripts cannot make HTTP requests
-- **Limited API surface**: Only safe JavaScript APIs exposed (JSON, Math, Date, etc.)
-- **Timeout enforcement**: 5-second maximum execution time
-- **Memory limits**: 10MB maximum memory allocation
-- **Pattern blocking**: Dangerous patterns (eval, Function, **proto**) are blocked
-- **Strict mode**: All scripts run in JavaScript strict mode
+- **No direct network access**: No `fetch`/`XMLHttpRequest`; the only network path is the host-mediated `pm.sendRequest`/`rs.sendRequest`, which goes through the same SSRF-guarded proxy as a normal send
+- **Limited API surface**: Only safe JavaScript APIs plus a fixed, bundled library set (`require` cannot reach npm or Node core modules)
+- **Timeout enforcement**: 5-second maximum for synchronous scripts; 30 seconds when a host bridge (`sendRequest`, vault, cookies) is in use
+- **Memory limits**: 64 MB per script runtime, plus a pinned native stack ceiling
 
 ### URL Validation & SSRF Protection
 
@@ -163,7 +161,7 @@ We regularly monitor and update our dependencies for known vulnerabilities:
 
 We perform regular security reviews:
 
-- **Automated**: Daily dependency vulnerability scanning via Dependabot
+- **Automated**: Dependabot version updates, dependency review on every pull request, a scheduled `npm audit` workflow (`security-audit.yml`), and OpenSSF Scorecard
 - **Manual**: Periodic code reviews focusing on security
 - **External**: Open to responsible security researchers
 
@@ -236,7 +234,6 @@ credentials.json
 
 For security-related inquiries:
 
-- GitHub: Open a private security advisory
-- Email: Contact project maintainers directly
+- GitHub: [open a private security advisory](https://github.com/dipjyotimetia/restura/security/advisories/new)
 
 Thank you for helping keep Restura and its users safe!

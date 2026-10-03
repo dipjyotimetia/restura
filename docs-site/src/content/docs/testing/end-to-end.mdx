@@ -14,7 +14,7 @@ Playwright drives the real web app in a browser. The `webServer` config boots `n
 Two test styles live side by side:
 
 - **Route-mocked specs** (`http.spec.ts`, `protocols.spec.ts`, `data-management.spec.ts`) intercept network calls at Playwright's request layer. Fast and hermetic — good for UI behavior assertions.
-- **`real-*.spec.ts` specs** (`real-http.spec.ts`, `real-https.spec.ts`, `real-proxy.spec.ts`, `real-grpc.spec.ts`) hit live upstreams — mock HTTP/HTTPS/proxy/gRPC servers spun up as worker-scoped fixtures, exercised through real sockets, real TLS, and real Worker → upstream traversal. These catch issues route mocking can't.
+- **`real-*.spec.ts` specs** (`real-http.spec.ts`, `real-proxy.spec.ts`, `real-grpc.spec.ts`, `real-websocket.spec.ts`, `real-socketio.spec.ts`, `real-mcp.spec.ts`, `real-auth-advanced.spec.ts`, and more) hit live upstreams — mock HTTP/HTTPS/proxy/gRPC/WebSocket/Socket.IO/MCP servers spun up as worker-scoped fixtures, exercised through real sockets, real TLS, and real Worker → upstream traversal. These catch issues route mocking can't.
 
 <Aside type="note">
 `workers: 1` and `fullyParallel: false` are deliberate, not an oversight — the mock servers and the single dev-server instance are shared worker-scoped state, and running suites concurrently across workers would corrupt it.

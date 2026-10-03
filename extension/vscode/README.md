@@ -37,6 +37,22 @@ CodeLens actions above each request:
 | `restura.allowPrivateIPs` | `false` | Allow private/RFC-1918 targets. Cloud-metadata endpoints stay blocked. |
 | `restura.env`             | `""`    | Optional env file (JSON/YAML) passed to the CLI runner.                |
 
+## Development
+
+This is the `restura-vscode` npm workspace. It bundles with esbuild to `out/extension.js` and imports Restura's shared protocol core from the repo, so build it from a full checkout.
+
+```bash
+# From the repo root
+npm run build      --workspace restura-vscode   # one-shot bundle → extension/vscode/out
+npm run watch      --workspace restura-vscode   # rebuild on change
+npm run type-check --workspace restura-vscode
+npm run test:unit  --workspace restura-vscode   # vitest (also run by `npm run test:workspaces`)
+npm run test:integration --workspace restura-vscode   # @vscode/test-cli in a real VS Code host
+npm run package    --workspace restura-vscode   # vsce package → .vsix
+```
+
+To try a local build, install the packaged file with `code --install-extension extension/vscode/restura-vscode-<version>.vsix`. Releases are published from a `vscode-v*` tag by `.github/workflows/extension-vscode-release.yml`; see [ADR 0025](../../docs/adr/0025-vscode-extension.md) for the design.
+
 ## Roadmap
 
 Two further offerings are planned but not yet shipped:
