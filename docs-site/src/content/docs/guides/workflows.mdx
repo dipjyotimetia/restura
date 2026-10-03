@@ -35,6 +35,8 @@ The call uses the sentinel `restura://saved-request`; the actual URL, headers, a
 
 Open a collection's **Workflows** sidebar tab to edit OWS JSON, typed bindings, and an SDK graph projection. The displayed start/end are visual-only. Bindings use a percent-encoded logical request path—for example `Users/Get%20user`—so moving or renaming a request fails closed instead of rebinding silently. In CI, run a portable workspace workflow with `restura workflow run <workspace> <workflow-id>`.
 
+In the **Graph** tab, add blocks from the palette, drag them to arrange the view, and edit them in the inspector. **Undo / Redo** (`Cmd/Ctrl+Z`, `Cmd/Ctrl+Shift+Z`) step through graph edits — a whole drag or one field's typing counts as a single step, and panning or zooming is never recorded. Select a block and press `Delete` / `Backspace` (or **Delete block** in the inspector) to remove it. Use the full-screen button for more room. Edits stay a draft until **Validate & save**.
+
 Desktop filesystem projects watch the workspace root; OWS artifacts therefore show up in the existing Git status, diff, stage, and commit views. The CLI discovers and validates the same artifacts and executes the safe HTTP profile through its existing HTTP executor.
 
 <Aside title="Removed behavior">
