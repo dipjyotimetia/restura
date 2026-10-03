@@ -21,14 +21,30 @@ export function rowsToVars(rows: readonly Row[]): Record<string, string> {
   return vars;
 }
 
-/** Rebuild rows from the store, reusing ids by key so rows don't remount. */
+/**
+ * Merge the store's map into the editor rows after an outside change (e.g.
+ * `pm.globals.set` in a script). Rows the map can't represent survive — a
+ * blank row the user just added, earlier duplicates of a name — values follow
+ * the store (on the row that wins), removed names drop out, and new names are
+ * appended. Ids are kept so rows don't remount mid-edit.
+ */
 export function varsToRows(vars: Record<string, string>, previous: readonly Row[]): Row[] {
-  const idByKey = new Map(previous.map((r) => [r.key.trim(), r.id]));
-  return Object.entries(vars).map(([key, value]) => ({
-    id: idByKey.get(key) ?? uuidv4(),
-    key,
-    value,
-  }));
+  const winner = new Map<string, number>();
+  previous.forEach((row, index) => {
+    const key = row.key.trim();
+    if (key) winner.set(key, index);
+  });
+  const kept = previous.flatMap((row, index) => {
+    const key = row.key.trim();
+    if (!key) return [row];
+    if (!(key in vars)) return [];
+    return [winner.get(key) === index ? { ...row, value: vars[key] ?? row.value } : row];
+  });
+  const present = new Set(kept.map((row) => row.key.trim()));
+  const added = Object.entries(vars)
+    .filter(([key]) => !present.has(key))
+    .map(([key, value]) => ({ id: uuidv4(), key, value }));
+  return [...kept, ...added];
 }
 
 const sameVars = (a: Record<string, string>, b: Record<string, string>) => {
