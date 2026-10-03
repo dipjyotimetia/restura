@@ -1,7 +1,7 @@
 import { Send } from 'lucide-react';
 import { type Dispatch, type SetStateAction, useState } from 'react';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
-import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import { KeyValueTable } from '@/components/shared/KeyValueTable';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -277,26 +277,12 @@ export function KafkaProducerPanel({
             </div>
             <div className="space-y-2">
               <Label className="text-xs sp-label">Headers</Label>
-              <KeyValueEditor
+              {/* Record headers are produced as typed — no {{var}} resolution. */}
+              <KeyValueTable
                 items={produceHeaders}
-                itemType="Kafka header"
-                keyPlaceholder="Header name"
-                valuePlaceholder="Header value"
-                addButtonText="Add header"
-                onAdd={() =>
-                  setProduceHeaders((headers) => [
-                    ...headers,
-                    { id: crypto.randomUUID(), key: '', value: '', enabled: true },
-                  ])
-                }
-                onUpdate={(id, patch) =>
-                  setProduceHeaders((headers) =>
-                    headers.map((header) => (header.id === id ? { ...header, ...patch } : header))
-                  )
-                }
-                onDelete={(id) =>
-                  setProduceHeaders((headers) => headers.filter((header) => header.id !== id))
-                }
+                onChange={setProduceHeaders}
+                itemLabel="Kafka header"
+                addLabel="Add header"
               />
             </div>
             <div className="space-y-2">

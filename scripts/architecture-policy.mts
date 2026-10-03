@@ -8,6 +8,24 @@ export interface ArchitectureFile {
   path: string;
   imports: ArchitectureImport[];
   lineCount: number;
+  /** Matches per `sourcePatternRatchets` name (production sources only). */
+  patternCounts?: Record<string, number>;
+}
+
+/**
+ * A repo-wide count of a source pattern that may only go down — e.g. ad-hoc
+ * pixel font sizes outside the type scale. Exact, like the file-size caps: a
+ * decrease must lower `max` in the same change.
+ */
+export interface SourcePatternRatchet {
+  name: string;
+  /** Path prefix the count covers, e.g. 'src/'. */
+  pathPrefix: string;
+  /** File extension the count covers, e.g. '.tsx'. */
+  extension: string;
+  /** Regular-expression source, matched globally. */
+  pattern: string;
+  max: number;
 }
 
 export interface ArchitectureZone {
@@ -26,9 +44,17 @@ export interface ArchitecturePolicy {
   maxNewProductionFileLines: number;
   grandfatheredFileLines: Record<string, number>;
   allowedDependencies?: Array<{ fromFile: string; toFile: string }>;
+  sourcePatternRatchets?: SourcePatternRatchet[];
 }
 
 export type ArchitectureViolation =
+  | {
+      rule: 'pattern-ratchet' | 'stale-pattern-ratchet';
+      file: string;
+      actual: number;
+      limit: number;
+      message: string;
+    }
   | {
       rule: 'forbidden-dependency';
       file: string;
@@ -58,6 +84,21 @@ export type ArchitectureViolation =
 
 function zoneFor(path: string, policy: ArchitecturePolicy): string | undefined {
   return policy.zones.find((zone) => path.startsWith(zone.root))?.name;
+}
+
+/** Count each applicable ratchet pattern in one source file. */
+export function countSourcePatterns(
+  path: string,
+  sourceText: string,
+  policy: ArchitecturePolicy
+): Record<string, number> | undefined {
+  const ratchets = (policy.sourcePatternRatchets ?? []).filter(
+    (r) => path.startsWith(r.pathPrefix) && path.endsWith(r.extension) && isProductionSource(path)
+  );
+  if (ratchets.length === 0) return undefined;
+  return Object.fromEntries(
+    ratchets.map((r) => [r.name, sourceText.match(new RegExp(r.pattern, 'g'))?.length ?? 0])
+  );
 }
 
 function isProductionSource(path: string): boolean {
@@ -180,6 +221,27 @@ export function evaluateArchitecture(
           message: `${file.path} shrank to ${file.lineCount} lines; lower its grandfathered cap from ${grandfatheredLimit}`,
         });
       }
+    }
+  }
+
+  for (const ratchet of policy.sourcePatternRatchets ?? []) {
+    const actual = files.reduce((sum, file) => sum + (file.patternCounts?.[ratchet.name] ?? 0), 0);
+    if (actual > ratchet.max) {
+      violations.push({
+        rule: 'pattern-ratchet',
+        file: ratchet.pathPrefix,
+        actual,
+        limit: ratchet.max,
+        message: `${ratchet.name}: ${actual} occurrences under ${ratchet.pathPrefix}; the cap is ${ratchet.max}`,
+      });
+    } else if (actual < ratchet.max) {
+      violations.push({
+        rule: 'stale-pattern-ratchet',
+        file: ratchet.pathPrefix,
+        actual,
+        limit: ratchet.max,
+        message: `${ratchet.name} dropped to ${actual}; lower its cap from ${ratchet.max}`,
+      });
     }
   }
 

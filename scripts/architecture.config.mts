@@ -56,4 +56,22 @@ export const architecturePolicy: ArchitecturePolicy = {
     'electron/main/handlers/kafka-handler.ts': 728,
     'electron/main/handlers/grpc-connect.ts': 819,
   },
+  // Type scale (UI/UX Phase 6): sizes come from the text-sp-* tokens, 11px
+  // minimum. Both counts may only go down.
+  sourcePatternRatchets: [
+    {
+      name: 'arbitrary pixel font sizes (text-[Npx])',
+      pathPrefix: 'src/',
+      extension: '.tsx',
+      pattern: String.raw`\btext-\[\d+(?:\.\d+)?px\]`,
+      max: 87,
+    },
+    {
+      name: 'sub-11px type tokens (text-sp-9 / text-sp-10 / text-sp-10-5)',
+      pathPrefix: 'src/',
+      extension: '.tsx',
+      pattern: String.raw`\btext-sp-(?:9|10)(?:-5)?\b`,
+      max: 93,
+    },
+  ],
 };

@@ -167,7 +167,7 @@ describe('SidebarHistoryPanel', () => {
     expect(screen.getByText('302')).toBeInTheDocument();
     expect(screen.getByText('500')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Remove from favorites' }));
-    fireEvent.click(screen.getByText('https://template.test/redirect'));
+    fireEvent.click(screen.getByRole('button', { name: /^Open .*template\.test\/redirect$/ }));
     fireEvent.click(screen.getByRole('button', { name: 'GET' }));
     fireEvent.click(screen.getByRole('button', { name: 'POST' }));
     fireEvent.click(screen.getByRole('button', { name: 'All' }));

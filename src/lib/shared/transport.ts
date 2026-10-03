@@ -6,10 +6,11 @@
  * never speak HTTP to a user-supplied upstream directly.
  */
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
+import type { ResponseTimings } from '@shared/protocol/types';
 import axios, { type AxiosError } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
-import type { CaCert, ClientCert, MinTlsVersion, ProxyConfig } from '@/types';
 import type { SecretValue } from '@/lib/shared/secretRef';
+import type { CaCert, ClientCert, MinTlsVersion, ProxyConfig } from '@/types';
 import { getElectronAPI, isElectron, workerAuthHeaders, workerBaseUrl } from './platform';
 
 /** Buffered JSON response shape returned by the Worker's `/api/proxy`. */
@@ -23,6 +24,8 @@ export interface ProxyJsonResponse {
   /** Present when `data` is base64 of a binary body (see shared/protocol/binary.ts). */
   bodyEncoding?: 'base64';
   negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
+  /** Timing breakdown measured by the proxy core (shared/protocol ResponseTimings). */
+  timings?: ResponseTimings;
 }
 
 export interface ProxyTransportOptions {
@@ -242,5 +245,6 @@ async function executeViaElectronIpc(
     ...(result.size !== undefined ? { size: result.size } : {}),
     ...(result.bodyEncoding !== undefined ? { bodyEncoding: result.bodyEncoding } : {}),
     ...(result.negotiatedAlpn !== undefined ? { negotiatedAlpn: result.negotiatedAlpn } : {}),
+    ...(result.timings !== undefined ? { timings: result.timings } : {}),
   };
 }

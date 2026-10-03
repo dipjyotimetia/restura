@@ -86,6 +86,16 @@ describe('useVariableStatus', () => {
     expect(result.current('baseVar')).toBe('resolved');
     expect(result.current('subVar')).toBe('resolved');
     expect(result.current('folderVar')).toBe('resolved');
+
+    // The connection scope (WS / SSE / MCP / gRPC / GraphQL URL fields) must
+    // agree with what useEnvironmentStore.resolveVariables actually substitutes.
+    const { result: connection } = renderHook(() => useVariableStatus('connection'));
+    const resolve = useEnvironmentStore.getState().resolveVariables;
+    for (const name of ['baseVar', 'subVar', 'folderVar']) {
+      const substituted = resolve(`{{${name}}}`) !== `{{${name}}}`;
+      expect(connection.current(name)).toBe(substituted ? 'resolved' : 'unresolved');
+    }
+    expect(connection.current('subVar')).toBe('resolved');
   });
 
   it('classifies a workspace global as resolved', () => {

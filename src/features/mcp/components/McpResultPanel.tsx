@@ -1,4 +1,5 @@
-import { CodeEditorFrame, Floater, Stat } from '@/components/ui/spatial';
+import { JsonBodyView } from '@/components/shared/JsonBodyView';
+import { Floater, Stat } from '@/components/ui/spatial';
 import { type McpInvocationLog, useMcpStore } from '@/features/mcp/store/useMcpStore';
 
 function McpResult({ entry }: { entry: McpInvocationLog }) {
@@ -10,7 +11,6 @@ function McpResult({ entry }: { entry: McpInvocationLog }) {
       }
     : entry.result;
   const json = JSON.stringify(payload, null, 2);
-  const lines = json.split('\n').length;
   const bytes = new TextEncoder().encode(json).length;
   const sizeLabel = bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
 
@@ -36,12 +36,12 @@ function McpResult({ entry }: { entry: McpInvocationLog }) {
           <Stat label="Size" value={sizeLabel} align="right" />
         </div>
       </div>
-      <div className="flex-1 min-h-0 overflow-auto p-3">
-        <CodeEditorFrame lineCount={lines} className="h-full">
-          <pre className="text-sp-12 font-mono text-sp-text whitespace-pre-wrap break-all">
-            {json}
-          </pre>
-        </CodeEditorFrame>
+      <div className="flex-1 min-h-0">
+        <JsonBodyView
+          text={json}
+          downloadName={`mcp-${entry.method.replace(/\//g, '-')}-result`}
+          editorPath={`mcp-result-${entry.id}`}
+        />
       </div>
     </div>
   );

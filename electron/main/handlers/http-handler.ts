@@ -9,10 +9,12 @@ import { selectCertForUrl } from '@shared/protocol/cert-matcher';
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
 import type {
+  ConnectionTimings,
   Fetcher,
   FetcherRequest,
   FetcherResponse,
   ProtocolAuthConfig,
+  ResponseTimings,
   ProtocolSecretValue as SecretValue,
 } from '@shared/protocol/types';
 import { createLogger } from '@shared/runtime/logger';
@@ -43,6 +45,11 @@ import { isProxyBypassed } from '../security/proxy-bypass';
 import { unwrapSecretValueMain } from '../security/secret-handle-store';
 import { materializeSecretVariables } from '../security/secret-variable-materializer';
 import { buildTlsClientMaterial } from '../security/tls-material';
+import {
+  withTimedLookup,
+  wrapConnectorForAlpn,
+  wrapConnectorForTiming,
+} from './http-connector-wrappers';
 import { capBodyStream, decodeBodyStream, tryParseJson } from './http-response-stream';
 import { createSecureLookup, openSocksSocket } from './http-secure-connection';
 import { interceptorRegistry } from './interceptor-registry';
@@ -158,6 +165,8 @@ export interface HttpResponse {
   bodyEncoding?: 'base64';
   /** Negotiated ALPN protocol (h2 or h1.1) when available — populated by undici's TLS handshake. */
   negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
+  /** Timing breakdown of the final hop (see ResponseTimings). */
+  timings?: ResponseTimings;
 }
 
 function policyProxyForUrl(url: URL, policy: ExecutionPolicy): ElectronProxyConfig | undefined {
@@ -211,30 +220,6 @@ export function resolveHttpExecutionPolicy(config: HttpRequestConfig): HttpReque
 
 // Connection timeout (10 seconds) — operates below the shared core's request timeout.
 const CONNECTION_TIMEOUT = 10000;
-
-/**
- * Wraps undici's default connector to capture the negotiated ALPN protocol
- * from the underlying TLS socket. The protocol is recorded on the supplied
- * holder so the fetcher can surface it on the FetcherResponse.
- */
-function wrapConnectorForAlpn(
-  innerConnect: ReturnType<typeof buildConnector>,
-  holder: { alpn?: string }
-): ReturnType<typeof buildConnector> {
-  type Cb = (err: Error | null, socket: net.Socket | null) => void;
-  return ((opts: Parameters<ReturnType<typeof buildConnector>>[0], callback: Cb) => {
-    innerConnect(opts, ((err: Error | null, socket: net.Socket | null) => {
-      if (!err && socket) {
-        // tls.TLSSocket exposes alpnProtocol; net.Socket leaves it undefined.
-        const alpn = (socket as tls.TLSSocket).alpnProtocol;
-        if (typeof alpn === 'string' && alpn.length > 0) {
-          holder.alpn = alpn;
-        }
-      }
-      callback(err, socket);
-    }) as Parameters<ReturnType<typeof buildConnector>>[1]);
-  }) as ReturnType<typeof buildConnector>;
-}
 
 /**
  * Subscribes to undici's `undici:client:connected` diagnostics channel for
@@ -432,6 +417,8 @@ export function buildElectronFetcher(
     // proxy-path ALPN capture; called after the request completes to avoid
     // leaking the listener across requests.
     let unsubscribeProxyAlpn: (() => void) | null = null;
+    // Connection phases of the direct path; stays empty when proxied.
+    const connectionTimings: ConnectionTimings = {};
 
     // Env-var proxy fallback (HTTP_PROXY / HTTPS_PROXY / NO_PROXY), consulted
     // only when the user has not configured an explicit proxy. resolveEnvProxy
@@ -521,11 +508,19 @@ export function buildElectronFetcher(
         unsubscribeProxyAlpn = subscribeProxyAlpnCapture(url.hostname, upstreamPort, alpnHolder);
       }
     } else {
-      // Direct connection. Wrap the default connector to capture ALPN.
-      const innerConnector = buildConnector(connectOpts as Parameters<typeof buildConnector>[0]);
+      // Direct connection. Wrap the default connector to capture ALPN, and
+      // time DNS (the lookup) and the connector (TCP + TLS). The Agent is
+      // per-request, so every request opens — and times — its own connection.
+      // Proxied paths are not timed: the phases would describe the proxy.
+      const innerConnector = buildConnector(
+        withTimedLookup(connectOpts, connectionTimings) as Parameters<typeof buildConnector>[0]
+      );
       dispatcher = new Agent({
         allowH2,
-        connect: captureAlpn ? wrapConnectorForAlpn(innerConnector, alpnHolder) : innerConnector,
+        connect: wrapConnectorForTiming(
+          captureAlpn ? wrapConnectorForAlpn(innerConnector, alpnHolder) : innerConnector,
+          connectionTimings
+        ),
       });
     }
 
@@ -691,6 +686,8 @@ export function buildElectronFetcher(
       body: Readable.toWeb(cappedBody) as ReadableStream<Uint8Array>,
     };
     if (negotiatedAlpn) result.negotiatedAlpn = negotiatedAlpn;
+    if (connectionTimings.connect !== undefined)
+      result.connectionTimings = { ...connectionTimings };
     return result;
   };
 }
@@ -864,6 +861,9 @@ async function makeHttpRequest(
     }
     if (result.response.negotiatedAlpn) {
       rawResult.negotiatedAlpn = result.response.negotiatedAlpn;
+    }
+    if (result.response.timings) {
+      rawResult.timings = result.response.timings;
     }
 
     // Manual redirect handling — undici is configured with maxRedirections: 0.

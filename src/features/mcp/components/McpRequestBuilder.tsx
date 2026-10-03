@@ -34,9 +34,7 @@ export default function McpRequestBuilder() {
     createConnection,
     setUrl,
     setTransport,
-    addHeader,
-    updateHeader,
-    removeHeader,
+    setHeaders,
     setStatus,
     setCapabilities,
     resetConnectionSession,
@@ -218,9 +216,7 @@ export default function McpRequestBuilder() {
         onToggleCatalog={() => setShowCatalog((visible) => !visible)}
         onUrlChange={(url) => setUrl(active.id, url)}
         onTransportChange={(transport) => setTransport(active.id, transport)}
-        onAddHeader={() => addHeader(active.id)}
-        onUpdateHeader={(headerId, updates) => updateHeader(active.id, headerId, updates)}
-        onRemoveHeader={(headerId) => removeHeader(active.id, headerId)}
+        onHeadersChange={(headers) => setHeaders(active.id, headers)}
         onConnect={handleConnect}
         onDisconnect={handleDisconnect}
         onRefresh={handleRefresh}

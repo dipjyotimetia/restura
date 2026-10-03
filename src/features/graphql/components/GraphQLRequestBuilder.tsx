@@ -1,13 +1,22 @@
 'use client';
 
-import { CheckCircle, Download, PanelLeft, Plug, PlugZap, Send, Wand2 } from 'lucide-react';
+import {
+  CheckCircle,
+  Download,
+  Loader2,
+  PanelLeft,
+  Plug,
+  PlugZap,
+  Send,
+  Wand2,
+} from 'lucide-react';
 import { useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
-import KeyValueEditor from '@/components/shared/KeyValueEditor';
+import { KeyValueTable } from '@/components/shared/KeyValueTable';
+import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Floater, type SubTab, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
@@ -30,7 +39,6 @@ import {
 } from '@/features/graphql/lib/subscriptionLog';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
-import { useKeyValueCollection } from '@/hooks/useKeyValueCollection';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
@@ -40,6 +48,7 @@ import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleS
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
 import { useRequestStore } from '@/store/useRequestStore';
+import { useUiStore } from '@/store/useUiStore';
 import type { AuthConfig as AuthConfigType, HttpRequest } from '@/types';
 import SchemaExplorer from './SchemaExplorer';
 
@@ -65,7 +74,7 @@ function GraphQLRequestBuilder() {
   const fetchSchema = useGraphQLSchemaStore((s) => s.fetchSchema);
   const schemaResult = useGraphQLSchemaStore((s) => (url ? (s.schemas[url] ?? null) : null));
   const schemaLoading = useGraphQLSchemaStore((s) => (url ? (s.loading[url] ?? false) : false));
-  const { run: runViaRegistry } = useRequestRunner();
+  const { run: runViaRegistry, abort: abortRun } = useRequestRunner();
   const [activeTab, setActiveTab] = useState<TabValue>('query');
   // Schema explorer is hidden by default so the query editor gets the full
   // builder width (side-by-side leaves the pane narrow); the URL-bar toggle
@@ -78,12 +87,6 @@ function GraphQLRequestBuilder() {
     useState<SubscriptionLogState>(emptySubscriptionLog);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const subscriptionClientRef = useRef<GraphQLSubscriptionClient | null>(null);
-
-  const {
-    handleAdd: handleAddHeader,
-    handleUpdate: handleUpdateHeader,
-    handleDelete: handleDeleteHeader,
-  } = useKeyValueCollection(currentRequest?.headers ?? [], (headers) => updateRequest({ headers }));
 
   const executableSchema = useMemo(
     () => (schemaResult ? buildSchemaFromIntrospection(schemaResult) : null),
@@ -194,6 +197,9 @@ function GraphQLRequestBuilder() {
 
     setLoading(true);
     setScriptResultForTab(originTabId, null);
+    useUiStore
+      .getState()
+      .setInFlight({ tabId: originTabId, startedAt: Date.now(), cancel: abortRun });
 
     const wireBody = JSON.stringify(buildGraphQLRequestBody(query, parsedVariables));
     const wireHeaders = httpRequest.headers.slice();
@@ -267,10 +273,15 @@ function GraphQLRequestBuilder() {
         );
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Request failed';
-      toast.error('Request failed', { description: errorMessage });
+      if (error instanceof Error && error.name === 'AbortError') {
+        toast.info('Request cancelled', { duration: 2000 });
+      } else {
+        const errorMessage = error instanceof Error ? error.message : 'Request failed';
+        toast.error('Request failed', { description: errorMessage });
+      }
     } finally {
       setLoading(false);
+      useUiStore.getState().setInFlight(null);
     }
   };
 
@@ -348,17 +359,31 @@ function GraphQLRequestBuilder() {
         </Button>
       );
     }
+    if (isLoading) {
+      return (
+        <Button
+          variant="outline"
+          size="cta"
+          onClick={abortRun}
+          aria-label="Cancel GraphQL query"
+          className="min-w-[72px] shrink-0"
+        >
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          Cancel
+        </Button>
+      );
+    }
     return (
       <Button
         variant="cta"
         size="cta"
         onClick={handleSendRequest}
-        disabled={isLoading || !httpRequest.url}
-        aria-label={isLoading ? 'Sending GraphQL query' : 'Send GraphQL query'}
+        disabled={!httpRequest.url}
+        aria-label="Send GraphQL query"
         className="min-w-[72px] shrink-0"
       >
         <Send className="h-3.5 w-3.5" />
-        {isLoading ? 'Sending...' : 'Send'}
+        Send
       </Button>
     );
   };
@@ -406,12 +431,14 @@ function GraphQLRequestBuilder() {
           {isSubscription ? 'SUB' : 'POST'}
         </div>
         <span className="text-sp-dim font-mono text-sm select-none shrink-0">›</span>
-        <Input
+        <VariableUrlInput
           value={httpRequest.url}
-          onChange={(e) => updateRequest({ url: e.target.value })}
+          onValueChange={(url) => updateRequest({ url })}
+          variableScope="connection"
           placeholder={ECHO_URLS.graphql}
-          className="flex-1 h-7 bg-transparent border-0 font-mono text-sm px-2 focus-visible:outline-none focus-visible:ring-0 focus-visible:shadow-none placeholder:text-sp-dim"
           aria-label="GraphQL endpoint URL"
+          className="flex-1 h-7"
+          textClassName="px-2 text-sm"
         />
         <button
           type="button"
@@ -526,15 +553,13 @@ function GraphQLRequestBuilder() {
                   Content-Type: application/json is automatically set. Auth header is injected from
                   the Auth tab.
                 </p>
-                <KeyValueEditor
+                <KeyValueTable
                   items={httpRequest.headers}
-                  onAdd={handleAddHeader}
-                  onUpdate={handleUpdateHeader}
-                  onDelete={handleDeleteHeader}
-                  keyPlaceholder="Header name"
-                  valuePlaceholder="Value"
-                  addButtonText="Add Header"
-                  itemType="header"
+                  onChange={(headers) => updateRequest({ headers })}
+                  itemLabel="header"
+                  addLabel="Add header"
+                  resolvesVariables="connection"
+                  httpHeaders
                 />
               </div>
             )}

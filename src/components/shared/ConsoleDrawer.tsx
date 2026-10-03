@@ -114,13 +114,13 @@ export default function ConsoleDrawer({
         >
           <div className="flex items-center gap-3 min-w-0">
             <ChevronUp className="h-3.5 w-3.5 text-sp-muted shrink-0" aria-hidden="true" />
-            <span className="sp-label text-sp-10-5 font-bold uppercase tracking-sp-label">
+            <span className="sp-label text-sp-11 font-bold uppercase tracking-sp-label">
               Console
             </span>
             <span
               className={cn(
                 'inline-flex items-center justify-center min-w-5 h-5 px-1.5',
-                'rounded-sp-chip font-mono text-sp-10 tabular-nums',
+                'rounded-sp-chip font-mono text-sp-11 tabular-nums',
                 'bg-sp-surface-lo border border-sp-line text-sp-muted'
               )}
               aria-label={`${total} total entries`}
@@ -130,7 +130,7 @@ export default function ConsoleDrawer({
 
             {/* Status-class summary — only non-zero classes render. */}
             {total > 0 && (
-              <div className="flex items-center gap-2 font-mono text-sp-10-5 tabular-nums">
+              <div className="flex items-center gap-2 font-mono text-sp-11 tabular-nums">
                 {counts.ok > 0 && (
                   <span className="text-emerald-500" aria-label={`${counts.ok} ok`}>
                     {counts.ok} ok
@@ -152,7 +152,7 @@ export default function ConsoleDrawer({
 
           {/* Last activity — the newest entry's status + relative time. */}
           {lastEntry && (
-            <span className="font-mono text-sp-10-5 text-sp-dim truncate">
+            <span className="font-mono text-sp-11 text-sp-dim truncate">
               last: <span className={getStatusTextColor(lastStatus)}>{lastStatus || 'ERR'}</span> ·{' '}
               {relativeTime(lastEntry.timestamp)}
             </span>

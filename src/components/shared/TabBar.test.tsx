@@ -326,4 +326,46 @@ describe('TabBar', () => {
       expect(useRequestStore.getState().tabs).toHaveLength(0);
     });
   });
+
+  describe('Open as', () => {
+    it('opens a gRPC tab carrying the URL and leaves the source tab alone', async () => {
+      const user = userEvent.setup();
+      useRequestStore.getState().openTab(makeHttp({ name: 'Src', url: 'https://api.dev/v1' }));
+      render(<TabBar />);
+
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /Src/ }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Open as…' }));
+      expect(screen.queryByRole('menuitem', { name: /HTTP request/ })).toBeNull();
+      expect(screen.getByRole('menuitem', { name: /SSE stream/ })).toHaveTextContent(
+        'URL not carried'
+      );
+      fireEvent.click(screen.getByRole('menuitem', { name: /gRPC request/ }));
+
+      const { tabs } = useRequestStore.getState();
+      expect(tabs).toHaveLength(2);
+      expect(useRequestStore.getState().getActiveTab()?.request).toMatchObject({
+        type: 'grpc',
+        url: 'https://api.dev/v1',
+      });
+      expect(tabs[0]?.request).toMatchObject({ type: 'http', url: 'https://api.dev/v1' });
+    });
+
+    it('opens connection modes through onChangeMode and seeds the WebSocket URL', async () => {
+      const user = userEvent.setup();
+      useRequestStore.getState().openTab(makeHttp({ name: 'Src', url: 'https://echo.dev/ws' }));
+      render(
+        <TabBar onChangeMode={(mode) => void useRequestStore.getState().openTabWithMode(mode)} />
+      );
+
+      fireEvent.contextMenu(screen.getByRole('tab', { name: /Src/ }));
+      await user.click(await screen.findByRole('menuitem', { name: 'Open as…' }));
+      fireEvent.click(screen.getByRole('menuitem', { name: /WebSocket/ }));
+
+      const active = useRequestStore.getState().getActiveTab();
+      expect(active?.modeOverride).toBe('websocket');
+      const { useWebSocketStore } = await import('@/features/websocket/store/useWebSocketStore');
+      const ws = useWebSocketStore.getState();
+      expect(ws.connections[ws.connectionByTabId[active!.id]!]?.url).toBe('wss://echo.dev/ws');
+    });
+  });
 });

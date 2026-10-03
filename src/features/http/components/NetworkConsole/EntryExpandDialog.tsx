@@ -61,12 +61,12 @@ export default function EntryExpandDialog({ open, onOpenChange, entry }: EntryEx
         {/* pr-14 reserves the top-right corner for DialogContent's absolute close button */}
         <DialogHeader className="py-3 pl-6 pr-14 border-b border-border">
           <DialogTitle className="text-sm flex items-center gap-3">
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-semibold">
+            <Badge variant="outline" className="text-sp-11 px-1.5 py-0 font-semibold">
               {entry.request.method}
             </Badge>
             <Badge
               variant="outline"
-              className={cn('text-[10px] px-1.5 py-0', getStatusBadgeColor(displayStatus))}
+              className={cn('text-sp-11 px-1.5 py-0', getStatusBadgeColor(displayStatus))}
             >
               {displayStatus || 'ERR'} {entry.response.statusText}
             </Badge>
@@ -129,7 +129,7 @@ export default function EntryExpandDialog({ open, onOpenChange, entry }: EntryEx
                   <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
                     <CookieIcon className="h-3 w-3" />
                     Set-Cookie
-                    <Badge variant="secondary" className="ml-1 text-[10px]">
+                    <Badge variant="secondary" className="ml-1 text-sp-11">
                       {resCookies.length}
                     </Badge>
                   </h4>
@@ -142,7 +142,7 @@ export default function EntryExpandDialog({ open, onOpenChange, entry }: EntryEx
                           </span>
                           <span className="text-sp-muted break-all ml-2">{c.value}</span>
                         </div>
-                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground pl-[140px] ml-2">
+                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-sp-11 text-muted-foreground pl-[140px] ml-2">
                           {c.domain && (
                             <span>
                               Domain: <span className="text-sp-muted">{c.domain}</span>
@@ -208,7 +208,7 @@ function HeaderBlock({
     <div className="space-y-1.5">
       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
         {title}
-        <Badge variant="secondary" className="ml-2 text-[10px]">
+        <Badge variant="secondary" className="ml-2 text-sp-11">
           {entries.length}
         </Badge>
       </h4>
@@ -242,7 +242,7 @@ function CookieList({
       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
         <CookieIcon className="h-3 w-3" />
         {title}
-        <Badge variant="secondary" className="ml-1 text-[10px]">
+        <Badge variant="secondary" className="ml-1 text-sp-11">
           {rows.length}
         </Badge>
       </h4>
@@ -285,7 +285,7 @@ function BodyBlock({
         />
       </div>
       {value.length > 100_000 && (
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-sp-11 text-muted-foreground">
           Showing first 100 KB of {formatBytes(value.length)}.
         </p>
       )}
