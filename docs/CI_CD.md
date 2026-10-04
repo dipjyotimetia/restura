@@ -293,8 +293,11 @@ loosen or update one without the other;
 
 ### Recovery after a failed stable run
 
-**Desktop (or anything before it) failed.** Only a draft release and tag
-exist — npm, Docker, and the web deploy wait for desktop. Merge the fix to
+**Transient failure (notarization timeout, runner flake).** Use **Re-run
+failed jobs** on the original run — no code change or retry needed.
+
+**Desktop (or anything before it) failed and needs a code fix.** Only a draft
+release and tag exist — npm, Docker, and the web deploy wait for desktop. Merge the fix to
 `main` (without another version bump), then retry the same version from
 current `main` HEAD:
 
