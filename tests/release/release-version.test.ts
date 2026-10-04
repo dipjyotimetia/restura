@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isVersionOnlyDiff, nextVersion } from '../../scripts/release-version.mjs';
+import { isVersionOnlyDiff, nextVersion, runCli } from '../../scripts/release-version.mjs';
 
 describe('nextVersion', () => {
   it.each([
@@ -71,5 +71,32 @@ describe('isVersionOnlyDiff', () => {
       '+export const x = 2;',
     ].join('\n')}`;
     expect(isVersionOnlyDiff(withCode, '1.12.2')).toBe(false);
+  });
+});
+
+describe('runCli', () => {
+  function io(files: Record<string, string>) {
+    const lines: string[] = [];
+    return {
+      lines,
+      read: (file: string | number) => files[String(file)] ?? '',
+      log: (line: string) => lines.push(line),
+    };
+  }
+
+  it('prints the next version from package.json', () => {
+    const fake = io({ 'package.json': '{"version":"1.12.1"}' });
+    expect(runCli(['next', 'minor', 'beta.2'], fake)).toBe(0);
+    expect(fake.lines).toEqual(['1.13.0-beta.2']);
+  });
+
+  it('exits 0 for a version-only diff on stdin and 1 otherwise', () => {
+    const diff = '-  "version": "1.12.1",\n+  "version": "1.12.2",';
+    expect(runCli(['version-only-diff', '1.12.2'], io({ '0': diff }))).toBe(0);
+    expect(runCli(['version-only-diff', '1.12.3'], io({ '0': diff }))).toBe(1);
+  });
+
+  it('rejects unknown commands', () => {
+    expect(() => runCli(['bogus'], io({}))).toThrow(/Usage/);
   });
 });

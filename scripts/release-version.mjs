@@ -7,7 +7,6 @@
 //     Exits 0 only if every changed line sets a "version" field to <version>.
 
 import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const STABLE = /^(\d+)\.(\d+)\.(\d+)$/;
@@ -39,25 +38,23 @@ export function isVersionOnlyDiff(diff, version) {
   return changed.every((line) => (line.startsWith('+') ? added.test(line) : removed.test(line)));
 }
 
-function main(argv) {
+// `io` is injected so the CLI paths are unit-testable without spawning node.
+export function runCli(argv, io) {
   const [command, ...args] = argv;
   if (command === 'next') {
-    const { version } = JSON.parse(readFileSync('package.json', 'utf8'));
-    console.log(nextVersion(version, args[0], args[1]));
+    const { version } = JSON.parse(io.read('package.json'));
+    io.log(nextVersion(version, args[0], args[1]));
     return 0;
   }
   if (command === 'version-only-diff') {
-    return isVersionOnlyDiff(readFileSync(0, 'utf8'), args[0]) ? 0 : 1;
+    return isVersionOnlyDiff(io.read(0), args[0]) ? 0 : 1;
   }
   throw new Error('Usage: release-version.mjs next <bump> [id] | version-only-diff <version>');
 }
 
-const entryPath = process.argv[1] ? path.resolve(process.argv[1]) : '';
-if (entryPath === fileURLToPath(import.meta.url)) {
-  try {
-    process.exitCode = main(process.argv.slice(2));
-  } catch (error) {
-    console.error(error instanceof Error ? error.message : error);
-    process.exitCode = 1;
-  }
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  process.exitCode = runCli(process.argv.slice(2), {
+    read: (file) => readFileSync(file, 'utf8'),
+    log: (line) => console.log(line),
+  });
 }
