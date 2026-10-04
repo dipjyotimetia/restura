@@ -35,11 +35,11 @@ describe('release workflow Sentry guardrails', () => {
     expect(workflow).toContain("github.event.pull_request.head.ref == 'release/prepare'");
     expect(workflow).toContain('github.event.pull_request.merge_commit_sha');
     expect(workflow).toContain(
-      "ref: ${{ inputs.repair_release_tag || github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || inputs.recover_stable_release_sha || github.sha }}"
+      "ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || github.sha }}"
     );
     expect(workflow).toContain('CLI_VERSION');
     expect(workflow).toContain('Root package version');
-    expect(workflow).toContain('recover_stable_release_sha');
+    expect(workflow).not.toContain('recover_stable_release_sha');
     expect(workflow).not.toContain('publish_existing_stable');
   });
 
@@ -141,11 +141,27 @@ describe('release workflow Sentry guardrails', () => {
     expect(workflow).toContain("needs.desktop.result == 'success'");
   });
 
-  it('repairs existing draft releases without republishing other distribution surfaces', () => {
-    expect(workflow).toContain('repair_release_tag:');
-    expect(workflow).toContain('is_repair: ${{ steps.context.outputs.is_repair }}');
-    expect(workflow).toContain("needs.release.outputs.is_repair != 'true'");
-    expect(workflow).toContain("needs.release.outputs.is_repair == 'true'");
+  it('publishes npm, Docker, and web only after desktop installers succeed', () => {
+    for (const job of ['publish-cli', 'publish-docker', 'deploy-web']) {
+      const block = workflow.slice(workflow.indexOf(`\n  ${job}:`));
+      const needs = block.match(/^ {4}needs: \[([^\]]+)\]/m)?.[1];
+      expect(needs, `${job} needs`).toBe('release, desktop');
+    }
+    expect(workflow).not.toContain('repair_release_tag');
+    expect(workflow).not.toContain('is_repair');
+  });
+
+  it('retries only unpublished stable releases from main HEAD', () => {
+    expect(workflow).toContain('retry_release_tag:');
+    const retryBlock = workflow.slice(
+      workflow.indexOf('- name: Clear unpublished release for retry'),
+      workflow.indexOf('- name: Validate tag does not exist')
+    );
+    expect(retryBlock).toContain("if: ${{ inputs.retry_release_tag != '' }}");
+    expect(retryBlock).toContain('npm view "${CLI_NAME}@${ACTUAL_TAG#v}" version');
+    expect(retryBlock).toContain('--json isDraft --jq .isDraft');
+    expect(retryBlock).toContain('gh release delete "$ACTUAL_TAG" --cleanup-tag --yes');
+    expect(workflow).toContain("does not match main's package.json version");
   });
 
   it('generates release SBOMs with the npm 12-compatible CycloneDX CLI', () => {

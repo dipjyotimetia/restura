@@ -272,9 +272,11 @@ requests` error.
    publication. The workflow uses that exact merge commit, so later `main`
    commits are excluded.
 4. The publish run: **preflight** (validate + build surfaces) → **release**
-   (tag, notes, SBOM, draft release) → fan-out (**desktop**, **publish-cli**,
-   **publish-docker**, **deploy-web**) → **publish-release** (flips the draft to
-   public once every required downstream job succeeds).
+   (tag, notes, SBOM, draft release) → **desktop** (signed installers uploaded
+   to the draft) → **publish-cli**, **publish-docker**, **deploy-web** →
+   **publish-release** (flips the draft to public once every required
+   downstream job succeeds). Desktop runs first because signing/notarization is
+   the likeliest failure; until it succeeds nothing irreversible has shipped.
 5. The stable macOS desktop leg fails closed unless the app is Developer ID
    signed for `APPLE_TEAM_ID`, uses the configured bundle identifier and
    hardened runtime, passes strict `codesign` verification, and retains a
@@ -291,24 +293,25 @@ loosen or update one without the other;
 
 ### Recovery after a failed stable run
 
-If a release fails before any external surface is published, the version-bump
-commit remains on `main` but the GitHub release stays a **draft**. Delete the
-draft and tag, then restart from the merged candidate:
+**Desktop (or anything before it) failed.** Only a draft release and tag
+exist — npm, Docker, and the web deploy wait for desktop. Merge the fix to
+`main` (without another version bump), then retry the same version from
+current `main` HEAD:
 
 ```bash
-gh release delete vX.Y.Z --cleanup-tag --yes   # drop draft + tag
-gh workflow run release.yml --ref main \
-  -f recover_stable_release_sha=<merged-release-candidate-sha>
+gh workflow run release.yml --ref main -f retry_release_tag=vX.Y.Z
 ```
 
-If npm, Docker, or the web deployment already published and only the desktop
-installers/updater metadata are missing, preserve that state and repair the
-existing draft instead. This rebuilds desktop assets, validates the manifests,
-and publishes the draft without republishing the other distribution surfaces:
+The retry re-runs preflight on HEAD, requires HEAD's `package.json` version to
+equal `X.Y.Z`, deletes the unpublished draft + tag, and re-tags HEAD. It
+refuses if the release is already public or `restura-cli@X.Y.Z` is on npm.
 
-```bash
-gh workflow run release.yml --ref main -f repair_release_tag=vX.Y.Z
-```
+**npm, Docker, or Cloudflare failed after desktop succeeded.** These are
+transient (credentials, outages) and need no code change. Use **Re-run failed
+jobs** on the original run so every surface ships from the same commit; the npm
+step is idempotent.
+
+**Partly public and not recoverable by re-run.** Cut a new patch release.
 
 Once a release is public, its updater assets are immutable. Do not replace a
 ZIP, installer, blockmap, or `latest*.yml` file under the same version: clients
