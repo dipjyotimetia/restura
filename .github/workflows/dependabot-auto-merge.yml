@@ -7,25 +7,29 @@ name: Dependabot auto-merge
 #
 # Approval: the `main` ruleset requires one approving review. GITHUB_TOKEN
 # (github-actions[bot]) is not allowed to approve PRs, so the approval comes
-# from the restura-bot GitHub App — the same App the release flow uses. Its
-# credentials must be stored as *Dependabot* secrets (Settings → Secrets and
-# variables → Dependabot), because Dependabot-triggered runs cannot read
-# Actions secrets:
-#   RELEASE_PR_APP_ID, RELEASE_PR_APP_PRIVATE_KEY
-# Without them the approve step is skipped with a warning and the PR waits for
-# a manual approval; auto-merge is still queued.
+# from the restura-bot GitHub App (RELEASE_PR_APP_ID / RELEASE_PR_APP_PRIVATE_KEY
+# — the same Actions secrets the release flow uses). Without them the approve
+# step is skipped with a warning and the PR waits for a manual approval.
+#
+# Trigger: `pull_request_target`, NOT `pull_request`. With `pull_request` the
+# workflow file is taken from the PR head, so a Dependabot PR bumping an action
+# used here (e.g. create-github-app-token) would run that unreviewed version
+# with the App key — and restura-bot is the ruleset bypass actor.
+# `pull_request_target` always runs this file as it exists on `main`.
+#
+# Safety rules for this file (pull_request_target runs with secrets):
+#   - NEVER check out or execute PR code here (no actions/checkout, no npm).
+#   - The App token is minted only after the patch/minor gate and is scoped to
+#     `pull-requests: write`, so it can approve but not push or bypass.
+#   - fetch-metadata verifies every commit on the PR is Dependabot-authored.
 #
 # Prerequisites (one-time, in repo settings — see docs/CI_CD.md):
 #   - Settings → General → "Allow auto-merge" enabled.
 #   - Required status checks on `main`. Without them `gh pr merge --auto` errors.
-#
-# Safety: this job never checks out or runs PR code — it only reads Dependabot
-# metadata (which verifies every commit is Dependabot-authored) and calls the
-# GitHub API. The App token is minted only after the patch/minor gate. CI
-# installs Dependabot PRs with --ignore-scripts (ci.yml), and a red required
-# check still blocks the merge.
+#   - A red required check still blocks the merge; CI installs Dependabot PRs
+#     with --ignore-scripts (ci.yml).
 
-on: pull_request
+on: pull_request_target
 
 permissions:
   contents: write
@@ -58,7 +62,7 @@ jobs:
           esac
           echo "eligible=$eligible" >> "$GITHUB_OUTPUT"
           if [ "$eligible" = true ] && [ "$HAS_APP" != true ]; then
-            echo "::warning::RELEASE_PR_APP_ID / RELEASE_PR_APP_PRIVATE_KEY are not set as Dependabot secrets; this PR needs a manual approval."
+            echo "::warning::RELEASE_PR_APP_ID / RELEASE_PR_APP_PRIVATE_KEY are not set; this PR needs a manual approval."
           fi
           echo "approve=$([ "$eligible" = true ] && [ "$HAS_APP" = true ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
@@ -69,6 +73,8 @@ jobs:
         with:
           app-id: ${{ secrets.RELEASE_PR_APP_ID }}
           private-key: ${{ secrets.RELEASE_PR_APP_PRIVATE_KEY }}
+          # Approve-only: no contents/admin scope even though the App has it.
+          permission-pull-requests: write
 
       - name: Approve (patch & minor only)
         if: ${{ steps.gate.outputs.approve == 'true' }}

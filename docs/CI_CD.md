@@ -158,13 +158,12 @@ To make it work:
   this, `gh pr merge --auto` errors and nothing merges.
 - ✅ **Branch protection with required status checks** (step 1). `--auto` waits
   on _required_ checks only; a red required check holds the merge.
-- ✅ **Dependabot secrets `RELEASE_PR_APP_ID` + `RELEASE_PR_APP_PRIVATE_KEY`**
-  (Settings → Secrets and variables → **Dependabot**) — the same restura-bot
-  App credentials the release flow uses. Dependabot-triggered runs can't read
-  Actions secrets, so they must be added here too. `GITHUB_TOKEN` cannot
-  approve PRs (_"GitHub Actions is not permitted to approve pull requests"_);
-  without the App secrets the workflow warns and the PR waits for a human
-  approval.
+- ✅ **Actions secrets `RELEASE_PR_APP_ID` + `RELEASE_PR_APP_PRIVATE_KEY`** — the
+  restura-bot App the release flow already uses. `GITHUB_TOKEN` cannot approve
+  PRs; without the App the workflow warns and the PR waits for a human approval.
+  The workflow runs on `pull_request_target` (always `main`'s copy of the file,
+  never PR code) and scopes the minted token to `pull-requests: write`, so a
+  Dependabot PR bumping an action cannot hand the App key to unreviewed code.
 
 How Dependabot runs are hardened (in `ci.yml`):
 
