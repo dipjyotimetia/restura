@@ -166,7 +166,7 @@
     "electron-store": "^11.0.2",
     "electron-updater": "^6.8.9",
     "fflate": "^0.8.3",
-    "framer-motion": "^13.4.5",
+    "framer-motion": "^13.4.6",
     "graphql": "^17.0.2",
     "graphql-ws": "^6.3.0",
     "hono": "^4.13.11",
