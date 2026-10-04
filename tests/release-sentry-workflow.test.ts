@@ -13,14 +13,14 @@ describe('release workflow Sentry guardrails', () => {
 
   it('merges release candidates directly through the App bypass without waiting for candidate CI', () => {
     expect(workflow).toContain('Prepare stable release pull request');
-    expect(workflow).toContain('peter-evans/create-pull-request@v8');
-    expect(workflow).toContain('actions/create-github-app-token@v3');
+    expect(workflow).toContain('peter-evans/create-pull-request@');
+    expect(workflow).toContain('actions/create-github-app-token@');
     expect(workflow).toContain('RELEASE_PR_APP_ID');
     expect(workflow).toContain('RELEASE_PR_APP_PRIVATE_KEY');
     expect(workflow).toContain('token: ${{ steps.release-pr-token.outputs.token }}');
     expect(workflow).toContain('sign-commits: true');
     expect(workflow).toContain(
-      'add-paths: |\n            package.json\n            package-lock.json\n            cli/package.json\n            extension/chrome/package.json\n            extension/vscode/package.json'
+      'add-paths: |\n            package.json\n            package-lock.json\n            cli/package.json\n            extension/vscode/package.json'
     );
     expect(workflow).toContain('Merge release candidate through bot bypass');
     expect(workflow).toContain('gh pr merge --squash --admin "$PR_URL"');
@@ -46,7 +46,7 @@ describe('release workflow Sentry guardrails', () => {
   it('requires desktop Sentry secrets before stable releases', () => {
     const preflightBlock = workflow.slice(
       workflow.indexOf('Validate stable release secrets'),
-      workflow.indexOf('- uses: actions/checkout@v7')
+      workflow.indexOf('- uses: actions/checkout@')
     );
 
     expect(preflightBlock).toContain('SENTRY_DSN');

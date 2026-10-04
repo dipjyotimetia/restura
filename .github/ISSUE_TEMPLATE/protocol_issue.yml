@@ -1,0 +1,65 @@
+name: 🔌 Protocol issue
+description: A request/connection behaves wrongly for a specific protocol
+labels: [protocol]
+body:
+  - type: dropdown
+    id: protocol
+    attributes:
+      label: Protocol(s)
+      multiple: true
+      options:
+        - HTTP/REST
+        - GraphQL
+        - gRPC
+        - WebSocket
+        - SSE
+        - Socket.IO
+        - MQTT
+        - Kafka
+        - MCP
+        - Not protocol-specific
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+    validations:
+      required: true
+  - type: textarea
+    id: test-case
+    attributes:
+      label: Minimal test case
+      description: Request sent and response received. Redact tokens and secrets.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: upstream
+    attributes:
+      label: Upstream details
+      description: Server/framework, auth type, TLS, proxy — whatever is relevant.
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      multiple: true
+      options:
+        - Web (Cloudflare Pages)
+        - Desktop (Electron)
+        - Self-hosted (Node/Docker)
+        - CLI
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Restura version
+      placeholder: e.g. 1.12.1
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS / browser
+      placeholder: e.g. macOS 15, Chrome 140

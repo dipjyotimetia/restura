@@ -21,7 +21,7 @@ describe('release signing check workflow', () => {
 
   it('exposes signing secrets only to the signing step', () => {
     const beforeSign = workflow.slice(
-      workflow.indexOf('- uses: actions/checkout@v7'),
+      workflow.indexOf('- uses: actions/checkout@'),
       workflow.indexOf('- name: Sign and verify')
     );
     expect(beforeSign).not.toContain('secrets.CSC_');

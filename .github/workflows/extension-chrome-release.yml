@@ -1,12 +1,10 @@
 name: Release — Chrome extension
 
 # Builds the `extension/chrome` MV3 bundle (Restura Capture), uploads it to the
-# Chrome Web Store, and attaches the packaged .zip to a GitHub release. The
-# main `release.yml` bumps extension/chrome/package.json with every app release,
-# but the Web Store's authoritative version is the one in
-# `public/manifest.json` — NOT package.json — which release.yml never touches.
-# So the published Chrome version is bumped by hand, and that is what the tag
-# is checked against.
+# Chrome Web Store, and attaches the packaged .zip to a GitHub release. The Web
+# Store's authoritative version is the one in `public/manifest.json` (not
+# package.json, which `release.yml` deliberately leaves alone). It is bumped by
+# hand, and that is what the tag is checked against.
 #
 # Release flow:
 #   1. Bump "version" in extension/chrome/public/manifest.json in a PR and merge.
@@ -56,7 +54,7 @@ jobs:
       # All four Web Store credentials must be present to attempt an upload.
       HAS_STORE_CREDS: ${{ secrets.CHROME_EXTENSION_ID != '' && secrets.CHROME_CLIENT_ID != '' && secrets.CHROME_CLIENT_SECRET != '' && secrets.CHROME_REFRESH_TOKEN != '' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: ./.github/actions/setup-node-npm
         with:
@@ -105,7 +103,7 @@ jobs:
           echo "Zipped ${ZIP}"
 
       - name: Upload zip artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: restura-capture-${{ steps.version.outputs.version }}-zip
           path: ${{ steps.zip.outputs.zip }}

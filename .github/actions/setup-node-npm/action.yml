@@ -10,14 +10,19 @@ inputs:
     description: Optional dependency cache used by actions/setup-node.
     required: false
     default: npm
+  cache-dependency-path:
+    description: Optional lockfile path(s) used to key the dependency cache.
+    required: false
+    default: ''
 
 runs:
   using: composite
   steps:
-    - uses: actions/setup-node@v7
+    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
       with:
         node-version-file: ${{ inputs.node-version-file }}
         cache: ${{ inputs.cache }}
+        cache-dependency-path: ${{ inputs.cache-dependency-path }}
 
     # Node 24.18.0 on the GitHub-hosted image bundles npm 11.16.0; install
     # the repository's pinned package manager before npm reads package.json.

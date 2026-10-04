@@ -1,0 +1,46 @@
+name: 🚀 Performance issue
+description: Something is slow or uses too much memory/CPU
+labels: [performance]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What is slow, and how slow (time, memory, CPU)?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce / benchmark
+    validations:
+      required: true
+  - type: textarea
+    id: profile
+    attributes:
+      label: Profiling data
+      description: Flame graphs, profiler output, or screenshots.
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      multiple: true
+      options:
+        - Web (Cloudflare Pages)
+        - Desktop (Electron)
+        - Self-hosted (Node/Docker)
+        - CLI
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Restura version
+      placeholder: e.g. 1.12.1
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS / browser
+      placeholder: e.g. macOS 15, Chrome 140
