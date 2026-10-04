@@ -1,0 +1,21 @@
+.github/workflows/dependabot-auto-merge.yml
+  s_9ae0cb4af86ebf::t_52e671ae5c4232 10-24,29-30,32,65,76-77
+docs/CI_CD.md
+  s_9ae0cb4af86ebf::t_cca9daf7c7f70e 161-166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "23c81fcf813815362934e52ae075b4b6418f1a71",
+  "prompts": {},
+  "sessions": {
+    "s_9ae0cb4af86ebf": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f71cc107-4733-4785-a169-1ec9f5743861",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
