@@ -19,7 +19,7 @@ secret scanning, required reviewers, secrets).
 | **Scorecard**             | `.github/workflows/scorecard.yml`                | push to `main`, weekly, branch-prot edit | OpenSSF supply-chain posture score + badge.                                                                                                                             |
 | **Dependency Review**     | `.github/workflows/dependency-review.yml`        | PR                                       | Blocks PRs that add high-severity-vulnerable or disallowed-license deps.                                                                                                |
 | **Security Audit**        | `.github/workflows/security-audit.yml`           | weekly, manual                           | Non-blocking `npm audit --audit-level=critical` (visibility net; Dependabot is the fix path).                                                                           |
-| **Dependabot auto-merge** | `.github/workflows/dependabot-auto-merge.yml`    | PR (Dependabot only)                     | Enables auto-merge for patch/minor dependency updates once required checks pass (no self-approval — see §4).                                                            |
+| **Dependabot auto-merge** | `.github/workflows/dependabot-auto-merge.yml`    | PR (Dependabot only)                     | Approves (as restura-bot) and auto-merges patch/minor dependency updates once required checks pass (see §4).                                                            |
 | **OpenWiki update**       | `.github/workflows/openwiki-update.yml`          | weekly, manual                           | Runs [OpenWiki](https://github.com/langchain-ai/openwiki) against OpenRouter to diff recent commits and open a PR updating `openwiki/`, the agent-facing docs (see §8). |
 | **Release**               | `.github/workflows/release.yml`                  | **manual** (`workflow_dispatch`)         | Versioned, attested release: tag → notes → SBOM → desktop installers → npm CLI → Docker → Cloudflare.                                                                   |
 | **Release signing check** | `.github/workflows/release-signing-check.yml`    | weekly, manual, signing config on `main` | Signs the macOS app with the real Developer ID cert (no notarize, no publish) so signing regressions surface before release day.                                        |
@@ -143,9 +143,14 @@ default setup is enabled`), which is why there is no `codeql.yml` here.
 
 ### 4. Dependabot auto-merge
 
-Patch & minor dependency updates from Dependabot are queued for auto-merge by
-`dependabot-auto-merge.yml`; GitHub merges them once the required status checks
-(step 1) go green. Major bumps and non-semver updates are left for manual review.
+Dependabot updates are **grouped** (`.github/dependabot.yml`): each weekly run
+opens one PR for all root npm patch/minor bumps, one for `docs-site`, and one
+for GitHub Actions. Majors arrive separately (families such as React, Vite/
+Vitest, Radix, protobuf and Astro are grouped) and always need manual review.
+
+`dependabot-auto-merge.yml` approves patch/minor PRs as **restura-bot** and
+queues auto-merge; GitHub merges once the required status checks (step 1) go
+green. Major bumps and non-semver updates are left for manual review.
 
 To make it work:
 
@@ -153,17 +158,13 @@ To make it work:
   this, `gh pr merge --auto` errors and nothing merges.
 - ✅ **Branch protection with required status checks** (step 1). `--auto` waits
   on _required_ checks only; a red required check holds the merge.
-- **Approvals.** The workflow does **not** self-approve — the default
-  `GITHUB_TOKEN` (`github-actions[bot]`) is not permitted to approve PRs, and
-  trying to do so fails with _"GitHub Actions is not permitted to approve pull
-  requests. (addPullRequestReview)"_. So if `main` has a "require N approvals"
-  (or Code Owner review) rule, an auto-merge-enabled Dependabot PR will sit
-  un-merged until a human approves it. To get true hands-off merging, **exempt
-  Dependabot patch/minor PRs from the approval requirement** — e.g. a branch
-  ruleset whose bypass list / target conditions exclude `dependabot[bot]` PRs —
-  or keep approving them by hand. (If you'd rather keep the required-approval
-  rule enforced for bots too, restore the approve step but authenticate it with
-  a PAT or GitHub App token — a real user identity — instead of `GITHUB_TOKEN`.)
+- ✅ **Dependabot secrets `RELEASE_PR_APP_ID` + `RELEASE_PR_APP_PRIVATE_KEY`**
+  (Settings → Secrets and variables → **Dependabot**) — the same restura-bot
+  App credentials the release flow uses. Dependabot-triggered runs can't read
+  Actions secrets, so they must be added here too. `GITHUB_TOKEN` cannot
+  approve PRs (_"GitHub Actions is not permitted to approve pull requests"_);
+  without the App secrets the workflow warns and the PR waits for a human
+  approval.
 
 How Dependabot runs are hardened (in `ci.yml`):
 
@@ -179,8 +180,8 @@ How Dependabot runs are hardened (in `ci.yml`):
 - **PR test-result / coverage comments are skipped** — the read-only Dependabot
   token can't post them (would 403 and fail the job).
 
-Tune the auto-merge scope (e.g. patch-only, or include `github-actions`) by
-editing the `update-type` condition in `dependabot-auto-merge.yml`.
+Tune the auto-merge scope (e.g. patch-only) by editing the `case` in the
+`Classify update` step of `dependabot-auto-merge.yml`.
 
 ### 5. OpenSSF Scorecard
 

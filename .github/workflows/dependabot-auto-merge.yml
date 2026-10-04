@@ -1,27 +1,29 @@
 name: Dependabot auto-merge
 
-# Enable auto-merge for Dependabot patch & minor updates. GitHub then merges the
-# PR automatically once all REQUIRED status checks pass (see the required-check
-# list in docs/CI_CD.md). Major bumps — and anything that isn't a clean semver
-# patch/minor — are left for manual review.
+# Approve and enable auto-merge for Dependabot patch & minor updates (grouped
+# weekly — see .github/dependabot.yml). GitHub then merges once all REQUIRED
+# status checks pass (see docs/CI_CD.md). Majors, and anything that isn't a
+# clean semver patch/minor, are left for manual review.
 #
-# We deliberately do NOT self-approve the PR here: the default GITHUB_TOKEN
-# (github-actions[bot]) is not permitted to approve pull requests, so a
-# `gh pr review --approve` step fails with
-#   "GitHub Actions is not permitted to approve pull requests. (addPullRequestReview)"
-# Instead, the merge proceeds on required status checks alone. If branch
-# protection on `main` requires approvals, exempt Dependabot patch/minor PRs
-# from that rule (or approve them manually) — see docs/CI_CD.md.
+# Approval: the `main` ruleset requires one approving review. GITHUB_TOKEN
+# (github-actions[bot]) is not allowed to approve PRs, so the approval comes
+# from the restura-bot GitHub App — the same App the release flow uses. Its
+# credentials must be stored as *Dependabot* secrets (Settings → Secrets and
+# variables → Dependabot), because Dependabot-triggered runs cannot read
+# Actions secrets:
+#   RELEASE_PR_APP_ID, RELEASE_PR_APP_PRIVATE_KEY
+# Without them the approve step is skipped with a warning and the PR waits for
+# a manual approval; auto-merge is still queued.
 #
 # Prerequisites (one-time, in repo settings — see docs/CI_CD.md):
 #   - Settings → General → "Allow auto-merge" enabled.
-#   - Branch protection on `main` with required status checks. Without required
-#     checks, "auto-merge" can't be enabled and `gh pr merge --auto` errors.
+#   - Required status checks on `main`. Without them `gh pr merge --auto` errors.
 #
-# Safety: Dependabot-triggered runs get a read-only token and NO repo secrets,
-# and CI installs with --ignore-scripts (ci.yml), so no untrusted package code
-# executes in the path that gates the merge. The write token below is scoped to
-# this workflow only and limited to contents + pull-requests.
+# Safety: this job never checks out or runs PR code — it only reads Dependabot
+# metadata (which verifies every commit is Dependabot-authored) and calls the
+# GitHub API. The App token is minted only after the patch/minor gate. CI
+# installs Dependabot PRs with --ignore-scripts (ci.yml), and a red required
+# check still blocks the merge.
 
 on: pull_request
 
@@ -33,8 +35,8 @@ jobs:
   auto-merge:
     name: Auto-merge Dependabot PR
     runs-on: ubuntu-latest
-    # Only ever act on Dependabot's own PRs.
-    if: ${{ github.actor == 'dependabot[bot]' }}
+    # Only ever act on Dependabot's own PRs, in runs Dependabot triggered.
+    if: ${{ github.actor == 'dependabot[bot]' && github.event.pull_request.user.login == 'dependabot[bot]' }}
     timeout-minutes: 5
     steps:
       - name: Fetch Dependabot metadata
@@ -43,13 +45,48 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Classify update
+        id: gate
+        env:
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+          HAS_APP: ${{ secrets.RELEASE_PR_APP_ID != '' && secrets.RELEASE_PR_APP_PRIVATE_KEY != '' }}
+        run: |
+          set -euo pipefail
+          case "$UPDATE_TYPE" in
+            version-update:semver-patch|version-update:semver-minor) eligible=true ;;
+            *) eligible=false; echo "Update type '${UPDATE_TYPE}' needs manual review." ;;
+          esac
+          echo "eligible=$eligible" >> "$GITHUB_OUTPUT"
+          if [ "$eligible" = true ] && [ "$HAS_APP" != true ]; then
+            echo "::warning::RELEASE_PR_APP_ID / RELEASE_PR_APP_PRIVATE_KEY are not set as Dependabot secrets; this PR needs a manual approval."
+          fi
+          echo "approve=$([ "$eligible" = true ] && [ "$HAS_APP" = true ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      - name: Mint restura-bot token
+        if: ${{ steps.gate.outputs.approve == 'true' }}
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.RELEASE_PR_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PR_APP_PRIVATE_KEY }}
+
+      - name: Approve (patch & minor only)
+        if: ${{ steps.gate.outputs.approve == 'true' }}
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+        run: |
+          set -euo pipefail
+          gh pr review --approve "$PR_URL" \
+            --body "Auto-approved Dependabot ${UPDATE_TYPE#version-update:} update; merges only when required checks pass."
+
       - name: Enable auto-merge (patch & minor only)
-        if: ${{ steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor' }}
+        if: ${{ steps.gate.outputs.eligible == 'true' }}
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           # Queue the merge. --auto waits for required checks; nothing merges red.
-          # We do not approve here — github-actions[bot] cannot approve PRs.
           gh pr merge --auto --squash "$PR_URL"
