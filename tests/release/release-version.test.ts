@@ -46,6 +46,14 @@ describe('isVersionOnlyDiff', () => {
     expect(isVersionOnlyDiff(versionBump, '1.12.2')).toBe(true);
   });
 
+  it('treats the version argument literally, not as a pattern', () => {
+    const bump = '-  "version": "1.12.1",\n+  "version": "1.12.2",';
+    expect(isVersionOnlyDiff(bump, '1.12.2')).toBe(true);
+    expect(isVersionOnlyDiff(bump, '1.12.?')).toBe(false);
+    expect(isVersionOnlyDiff(bump, '1x12x2')).toBe(false);
+    expect(isVersionOnlyDiff(bump, '.*')).toBe(false);
+  });
+
   it('rejects an empty diff', () => {
     expect(isVersionOnlyDiff('', '1.12.2')).toBe(false);
   });

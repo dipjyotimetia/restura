@@ -33,9 +33,14 @@ export function isVersionOnlyDiff(diff, version) {
     .split('\n')
     .filter((line) => /^[+-]/.test(line) && !/^(\+\+\+|---) /.test(line));
   if (changed.length === 0) return false;
-  const added = new RegExp(`^\\+\\s*"version": "${version.replaceAll('.', '\\.')}",?$`);
-  const removed = /^-\s*"version": "[^"]+",?$/;
-  return changed.every((line) => (line.startsWith('+') ? added.test(line) : removed.test(line)));
+  // Compare as plain strings: building a RegExp from `version` would let a
+  // crafted argument change what the pattern matches.
+  const added = `"version": "${version}"`;
+  const removed = /^"version": "[^"]+"$/;
+  return changed.every((line) => {
+    const field = line.slice(1).trim().replace(/,$/, '');
+    return line.startsWith('+') ? field === added : removed.test(field);
+  });
 }
 
 // `io` is injected so the CLI paths are unit-testable without spawning node.
