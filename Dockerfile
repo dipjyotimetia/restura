@@ -6,7 +6,7 @@
 # ──────────────────────────────────────────────────────────────────────────────
 
 # ──────── Stage 1: deps ──────────────────────────────────────────────────────
-FROM node:24-alpine AS deps
+FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS deps
 WORKDIR /app
 
 # Copy lockfile + manifest only so this layer caches across source changes.
@@ -20,7 +20,7 @@ RUN npm ci --ignore-scripts
 
 
 # ──────── Stage 2: build ─────────────────────────────────────────────────────
-FROM node:24-alpine AS build
+FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS build
 WORKDIR /app
 ENV NODE_ENV=production
 ENV VITE_IS_DOCKER_BUILD=true
@@ -46,7 +46,7 @@ RUN npm run build:server
 
 
 # ──────── Stage 3: runtime ───────────────────────────────────────────────────
-FROM node:24-alpine AS runtime
+FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
