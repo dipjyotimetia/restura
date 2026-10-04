@@ -164,6 +164,32 @@ describe('release workflow Sentry guardrails', () => {
     expect(workflow).toContain("does not match main's package.json version");
   });
 
+  it('computes release versions from package.json instead of a tag-scanning action', () => {
+    expect(workflow).not.toContain('anothrNick');
+    expect(workflow).toContain('node scripts/release-version.mjs next "$RELEASE_BUMP"');
+    expect(workflow).toContain(
+      'node scripts/release-version.mjs next "$RELEASE_BUMP" "$PRERELEASE_IDENTIFIER"'
+    );
+  });
+
+  it('reuses dispatch validation only for a version-only merged candidate', () => {
+    expect(workflow).toContain('<!-- restura:validated_sha=${{ github.sha }} -->');
+    const reuseBlock = workflow.slice(
+      workflow.indexOf('- name: Reuse dispatch validation'),
+      workflow.indexOf('- name: Validate application')
+    );
+    expect(reuseBlock).toContain("if: ${{ github.event_name == 'pull_request' }}");
+    expect(reuseBlock).toContain('git merge-base --is-ancestor "$VALIDATED_SHA" origin/main');
+    expect(reuseBlock).toContain('node scripts/release-version.mjs version-only-diff "$VERSION"');
+    expect(reuseBlock).toContain("echo 'skip=false'");
+    const validateBlock = workflow.slice(
+      workflow.indexOf('- name: Validate application'),
+      workflow.indexOf('  prepare-stable:')
+    );
+    expect(validateBlock).toContain("if: ${{ steps.reuse.outputs.skip != 'true' }}");
+    expect(validateBlock).toContain('run: npm run validate');
+  });
+
   it('generates release SBOMs with the npm 12-compatible CycloneDX CLI', () => {
     const sbomBlock = workflow.slice(
       workflow.indexOf('- name: Generate CycloneDX SBOM'),

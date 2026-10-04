@@ -223,25 +223,42 @@ jobs:
             exit 1
           fi
 
+      # The dispatch run already validated the commit the bot PR was cut from
+      # (recorded as validated_sha in the PR body). Skip re-validating when the
+      # merged commit differs from it ONLY by "version" fields set to the
+      # release version; any other change (e.g. a PR merged in between, or a
+      # lockfile dependency bump) falls back to the full validate below.
+      - name: Reuse dispatch validation
+        id: reuse
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          set -euo pipefail
+          VALIDATED_SHA="$(printf '%s' "$PR_BODY" | sed -n 's/.*<!-- restura:validated_sha=\([0-9a-f]\{40\}\) -->.*/\1/p' | head -n1)"
+          VERSION="$(git show "${MERGE_SHA}:package.json" | node -e "const fs = require('node:fs'); console.log(JSON.parse(fs.readFileSync(0, 'utf8')).version)")"
+          if [ -n "$VALIDATED_SHA" ] \
+            && git merge-base --is-ancestor "$VALIDATED_SHA" origin/main \
+            && git diff -U0 "$VALIDATED_SHA" "$MERGE_SHA" | node scripts/release-version.mjs version-only-diff "$VERSION"; then
+            echo "Merged commit is $VALIDATED_SHA plus a version-only bump; reusing its validation."
+            echo 'skip=true' >> "$GITHUB_OUTPUT"
+          else
+            echo "Merged commit differs from the validated commit beyond version fields; running full validate."
+            echo 'skip=false' >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install dependencies
+        if: ${{ steps.reuse.outputs.skip != 'true' }}
         run: npm ci --prefer-offline --no-audit --no-fund
 
+      # `validate` covers every release surface: type-check:all (renderer,
+      # electron, worker, echo, cli), build:workspaces, and electron:compile.
       - name: Validate application
+        if: ${{ steps.reuse.outputs.skip != 'true' }}
         env:
           ELECTRON_OVERRIDE_DIST_PATH: /tmp
         run: npm run validate
-
-      - name: Validate release build surfaces
-        env:
-          ELECTRON_OVERRIDE_DIST_PATH: /tmp
-        run: |
-          set -euo pipefail
-          npx tsc --noEmit -p electron/tsconfig.json
-          npx tsc --noEmit -p worker/tsconfig.json
-          npx tsc --noEmit -p echo/tsconfig.json
-          npm run --workspace cli type-check
-          npm run build -w cli
-          npm run electron:compile
 
   prepare-stable:
     name: Prepare stable release pull request
@@ -272,23 +289,13 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
 
-      - name: Determine next version
-        id: bump
-        uses: anothrNick/github-tag-action@1.75.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEFAULT_BUMP: ${{ inputs.release_bump }}
-          TAG_PREFIX: v
-          RELEASE_BRANCHES: main
-          DRY_RUN: "true"
-
       - name: Compute release tag
         id: tag
         env:
-          NEW_TAG: ${{ steps.bump.outputs.new_tag }}
+          RELEASE_BUMP: ${{ inputs.release_bump }}
         run: |
           set -euo pipefail
-          echo "actual_tag=$NEW_TAG" >> "$GITHUB_OUTPUT"
+          echo "actual_tag=v$(node scripts/release-version.mjs next "$RELEASE_BUMP")" >> "$GITHUB_OUTPUT"
 
       - name: Bump root + workspace versions
         env:
@@ -326,6 +333,7 @@ jobs:
             publishes this version.
 
             <!-- restura:publish_docker=${{ inputs.publish_docker }} -->
+            <!-- restura:validated_sha=${{ github.sha }} -->
 
       - name: Merge release candidate through bot bypass
         if: ${{ steps.create-release-pr.outputs.pull-request-url != '' }}
@@ -372,7 +380,7 @@ jobs:
 
       - uses: actions/checkout@v7
         with:
-          # full history so the bump action can read every prior tag
+          # full history: changelog range + tag-existence checks read prior tags
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.merge_commit_sha || github.sha }}
@@ -385,33 +393,18 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
 
-      - name: Determine next version
-        id: bump
-        # anothrNick is a Docker action — Linux runners only (we're on ubuntu-latest).
-        # Inputs go via env: rather than with:. Pinned to a tagged release, not @v1,
-        # so we don't silently track upstream breakage.
-        uses: anothrNick/github-tag-action@1.75.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEFAULT_BUMP: ${{ inputs.release_bump }}
-          TAG_PREFIX: v
-          RELEASE_BRANCHES: main
-          # Let *this* workflow do the actual tag push (after the version-bump commit),
-          # so we don't end up with a tag that points at the pre-bump commit.
-          DRY_RUN: "true"
-        if: ${{ steps.context.outputs.is_prerelease == 'true' }}
-
       - name: Compute actual tag
         id: tag
         env:
-          NEW_TAG: ${{ steps.bump.outputs.new_tag }}
+          RELEASE_BUMP: ${{ inputs.release_bump }}
           PRERELEASE: ${{ steps.context.outputs.is_prerelease }}
           PRERELEASE_IDENTIFIER: ${{ inputs.prerelease_identifier }}
           RETRY_RELEASE_TAG: ${{ inputs.retry_release_tag }}
         run: |
           set -euo pipefail
           if [ "$PRERELEASE" = "true" ]; then
-            ACTUAL_TAG="${NEW_TAG}-${PRERELEASE_IDENTIFIER}"
+            # Next stable version from package.json + identifier, e.g. v1.12.2-beta.1.
+            ACTUAL_TAG="v$(node scripts/release-version.mjs next "$RELEASE_BUMP" "$PRERELEASE_IDENTIFIER")"
           else
             VERSION="$(node -p "require('./package.json').version")"
             CLI_VERSION="$(node -p "require('./cli/package.json').version")"
