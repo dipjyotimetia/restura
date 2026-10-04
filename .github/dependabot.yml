@@ -19,7 +19,10 @@ version: 2
 # key), so the cooldown lives here in Dependabot rather than in `.npmrc`.
 updates:
   - package-ecosystem: 'github-actions'
-    directory: '/'
+    # '/' only scans .github/workflows; composite actions need listing too.
+    directories:
+      - '/'
+      - '/.github/actions/*'
     schedule:
       interval: 'monthly'
     # Actions are referenced by mutable tags, so a poisoned tag-repoint lands as
@@ -47,10 +50,8 @@ updates:
       semver-minor-days: 5
       semver-patch-days: 3
     labels:
-      - 'security'
       - 'dependencies'
       - 'npm'
-      - 'frontend'
     open-pull-requests-limit: 15
     versioning-strategy: 'increase'
     groups:
@@ -96,6 +97,21 @@ updates:
     labels:
       - 'dependencies'
       - 'npm'
-      - 'docs'
+      - 'documentation'
     open-pull-requests-limit: 5
     versioning-strategy: 'increase'
+
+  # Base images in the root Dockerfile (self-host image published to GHCR).
+  - package-ecosystem: 'docker'
+    directory: '/'
+    schedule:
+      interval: 'monthly'
+    cooldown:
+      default-days: 5
+    labels:
+      - 'dependencies'
+      - 'docker'
+    ignore:
+      # Node majors move with .nvmrc / engines, not independently.
+      - dependency-name: 'node'
+        update-types: ['version-update:semver-major']

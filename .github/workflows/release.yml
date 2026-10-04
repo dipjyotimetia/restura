@@ -186,7 +186,7 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -270,13 +270,13 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/create-github-app-token@v3
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: release-pr-token
         with:
           app-id: ${{ secrets.RELEASE_PR_APP_ID }}
           private-key: ${{ secrets.RELEASE_PR_APP_PRIVATE_KEY }}
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           token: ${{ steps.release-pr-token.outputs.token }}
@@ -297,6 +297,9 @@ jobs:
           set -euo pipefail
           echo "actual_tag=v$(node scripts/release-version.mjs next "$RELEASE_BUMP")" >> "$GITHUB_OUTPUT"
 
+      # The Chrome extension is excluded: the Web Store reads its version from
+      # extension/chrome/public/manifest.json, bumped by hand for chrome-v* tags
+      # (see extension-chrome-release.yml), so its package.json is not shipped.
       - name: Bump root + workspace versions
         env:
           ACTUAL_TAG: ${{ steps.tag.outputs.actual_tag }}
@@ -304,13 +307,14 @@ jobs:
           set -euo pipefail
           npm version "${ACTUAL_TAG#v}" \
             --no-git-tag-version \
-            --workspaces \
+            --workspace cli \
+            --workspace extension/vscode \
             --include-workspace-root \
             --allow-same-version
 
       - name: Create stable release pull request
         id: create-release-pr
-        uses: peter-evans/create-pull-request@v8
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
           token: ${{ steps.release-pr-token.outputs.token }}
           branch: release/prepare
@@ -321,7 +325,6 @@ jobs:
             package.json
             package-lock.json
             cli/package.json
-            extension/chrome/package.json
             extension/vscode/package.json
           commit-message: "chore(release): ${{ steps.tag.outputs.actual_tag }}"
           title: "chore(release): ${{ steps.tag.outputs.actual_tag }}"
@@ -378,7 +381,7 @@ jobs:
             echo "publish_docker=$DISPATCH_PUBLISH_DOCKER" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # full history: changelog range + tag-existence checks read prior tags
           fetch-depth: 0
@@ -521,7 +524,7 @@ jobs:
 
       - name: Generate release notes
         id: cliff
-        uses: orhun/git-cliff-action@v4
+        uses: orhun/git-cliff-action@a9a95522b26fe6403f7bb24031f21fb573d0f5ff # v4.9.1
         with:
           config: cliff.toml
           args: ${{ steps.range.outputs.args }}
@@ -542,7 +545,7 @@ jobs:
             --output-format XML --output-file restura.cdx.xml
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v3.0.3
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           tag_name: ${{ steps.tag.outputs.actual_tag }}
           name: ${{ steps.tag.outputs.actual_tag }}
@@ -585,7 +588,7 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The freshly-pushed version-bump commit, by tag, so package.json's
           # version matches the release electron-builder publishes into.
@@ -611,7 +614,8 @@ jobs:
           NEW_VERSION="${ACTUAL_TAG#v}"
           npm version "$NEW_VERSION" \
             --no-git-tag-version \
-            --workspaces \
+            --workspace cli \
+            --workspace extension/vscode \
             --include-workspace-root \
             --allow-same-version
 
@@ -726,7 +730,7 @@ jobs:
       # span all three OS targets; only the patterns matching this runner's
       # output contribute subjects, which is fine as long as at least one does.
       - name: Attest installer provenance
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
             dist/installers/*.dmg
@@ -751,7 +755,7 @@ jobs:
       # here. Drop this and the --provenance flag below if either changes.
       id-token: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The freshly-pushed version-bump commit, by tag, so cli/package.json's
           # version matches the GitHub release this run cut.
@@ -805,15 +809,15 @@ jobs:
       # Upload the Trivy vulnerability scan to code scanning.
       security-events: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.release.outputs.actual_tag }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.4.1
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to GHCR
-        uses: docker/login-action@v4.6.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -821,7 +825,7 @@ jobs:
 
       - name: Extract Docker metadata
         id: meta
-        uses: docker/metadata-action@v6.1.0
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
@@ -831,7 +835,7 @@ jobs:
 
       - name: Build and push
         id: build
-        uses: docker/build-push-action@v7.4.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           push: true
@@ -846,7 +850,7 @@ jobs:
       # release. ignore-unfixed drops noise we can't action; results land in the
       # Security → Code scanning tab via the SARIF upload below.
       - name: Scan image for vulnerabilities
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}
           format: sarif
@@ -856,7 +860,7 @@ jobs:
           exit-code: "0"
 
       - name: Upload Trivy scan to code scanning
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           sarif_file: trivy-results.sarif
           category: trivy-image
@@ -864,7 +868,7 @@ jobs:
       # Signed SLSA build-provenance for the image, pushed alongside it in GHCR.
       # Verify with `gh attestation verify oci://ghcr.io/<owner>/<repo>:<tag>`.
       - name: Attest image provenance
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.build.outputs.digest }}
@@ -886,7 +890,7 @@ jobs:
       contents: read
       deployments: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.release.outputs.actual_tag }}
 
@@ -901,6 +905,8 @@ jobs:
       - name: Build
         env:
           VITE_WORKER_URL: https://api.restura.dev
+          # Inlined into the public bundle: a soft gate, not a secret (see the
+          # matching note in ci.yml deploy-preview).
           VITE_WORKER_PROXY_TOKEN: ${{ secrets.WORKER_PROXY_TOKEN }}
         run: npm run build
 
@@ -908,7 +914,7 @@ jobs:
         run: rm -rf .wrangler/deploy
 
       - name: Deploy Worker (api.restura.dev)
-        uses: cloudflare/wrangler-action@v4
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -916,7 +922,7 @@ jobs:
           command: deploy
 
       - name: Deploy Echo Worker (echo.restura.dev)
-        uses: cloudflare/wrangler-action@v4
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -938,7 +944,7 @@ jobs:
           }
 
       - name: Deploy SPA to Cloudflare Pages (restura.pages.dev)
-        uses: cloudflare/wrangler-action@v4
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -965,7 +971,7 @@ jobs:
           }
 
       - name: Deploy docs site to Cloudflare Pages (docs.restura.dev)
-        uses: cloudflare/wrangler-action@v4
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

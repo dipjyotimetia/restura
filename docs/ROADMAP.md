@@ -124,7 +124,7 @@ These are things that would be good to have but aren't being actively planned.
 
 Open an issue or add a 👍 to an existing one. The things that get built fastest are the ones where it's clear someone actually needs them — a concrete use case is worth more than a vote count.
 
-[Feature request template](https://github.com/dipjyotimetia/restura/issues/new?template=feature_request.md) · [CONTRIBUTING.md](../CONTRIBUTING.md)
+[Feature request template](https://github.com/dipjyotimetia/restura/issues/new?template=feature_request.yml) · [CONTRIBUTING.md](../CONTRIBUTING.md)
 
 ---
 

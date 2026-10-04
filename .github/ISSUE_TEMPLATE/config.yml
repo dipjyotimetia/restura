@@ -6,6 +6,3 @@ contact_links:
   - name: 💬 Question / Discussion
     url: https://github.com/dipjyotimetia/restura/discussions
     about: Ask questions, share ideas, or discuss usage in our community.
-  - name: 📖 Documentation Issue
-    url: https://github.com/dipjyotimetia/restura/discussions/categories/docs
-    about: Report missing or unclear documentation.

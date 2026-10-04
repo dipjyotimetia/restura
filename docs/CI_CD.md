@@ -20,7 +20,7 @@ secret scanning, required reviewers, secrets).
 | **Dependency Review**     | `.github/workflows/dependency-review.yml`        | PR                                       | Blocks PRs that add high-severity-vulnerable or disallowed-license deps.                                                                                                |
 | **Security Audit**        | `.github/workflows/security-audit.yml`           | weekly, manual                           | Non-blocking `npm audit --audit-level=critical` (visibility net; Dependabot is the fix path).                                                                           |
 | **Dependabot auto-merge** | `.github/workflows/dependabot-auto-merge.yml`    | PR (Dependabot only)                     | Enables auto-merge for patch/minor dependency updates once required checks pass (no self-approval — see §4).                                                            |
-| **OpenWiki update**       | `.github/workflows/openwiki-update.yml`          | daily, manual                            | Runs [OpenWiki](https://github.com/langchain-ai/openwiki) against OpenRouter to diff recent commits and open a PR updating `openwiki/`, the agent-facing docs (see §8). |
+| **OpenWiki update**       | `.github/workflows/openwiki-update.yml`          | weekly, manual                           | Runs [OpenWiki](https://github.com/langchain-ai/openwiki) against OpenRouter to diff recent commits and open a PR updating `openwiki/`, the agent-facing docs (see §8). |
 | **Release**               | `.github/workflows/release.yml`                  | **manual** (`workflow_dispatch`)         | Versioned, attested release: tag → notes → SBOM → desktop installers → npm CLI → Docker → Cloudflare.                                                                   |
 | **Release signing check** | `.github/workflows/release-signing-check.yml`    | weekly, manual, signing config on `main` | Signs the macOS app with the real Developer ID cert (no notarize, no publish) so signing regressions surface before release day.                                        |
 | **VS Code extension**     | `.github/workflows/extension-vscode-release.yml` | tag `vscode-v*.*.*` + manual dry-run     | Package + publish `restura-vscode` to the VS Code Marketplace + Open VSX; attach `.vsix` to a GitHub release.                                                           |
@@ -78,12 +78,16 @@ rules_) for `main`:
   up to date**. Select these checks (names must match exactly — these are the
   job `name:` values that run on **pull requests**):
 
-  | Required check                          | From              |
-  | --------------------------------------- | ----------------- |
-  | `Type-check, lint, test, build`         | CI / `validate`   |
-  | `Docs site (type-check + build)`        | CI / `docs`       |
-  | `Review dependency changes`             | Dependency Review |
-  | `CodeQL` (the default-setup check name) | Code scanning     |
+  | Required check                                       | From                         |
+  | ---------------------------------------------------- | ---------------------------- |
+  | `validate` (merged Vitest shards + coverage)         | CI / `validate`              |
+  | `Static, build, and workspace validation`            | CI / `validate-static-build` |
+  | `Docs site (type-check + build + production deploy)` | CI / `docs`                  |
+  | `Review dependency changes`                          | Dependency Review            |
+
+  `validate` alone is **not** enough: type-check, lint, format, codegen and the
+  production builds run in `validate-static-build`, and Dependabot auto-merge
+  waits only on required checks.
 
   Recommended-but-heavier (enable once you're comfortable with their runtime /
   flakiness budget):
@@ -99,7 +103,7 @@ rules_) for `main`:
 
 - ✅ **Require conversation resolution before merging.**
 - ✅ Configure the **Main protection with release-bot bypass** repository
-  ruleset: it requires the `validate` check and one approval, with a
+  ruleset: it requires the checks above and one approval, with a
   pull-request-only bypass for the `restura-bot` GitHub App. Do not recreate a
   legacy branch-protection rule for `main`: personal repositories cannot scope
   that rule's review bypass to an App.
@@ -227,7 +231,7 @@ reviewers**, then add `environment: production` to the `deploy-web` job in
 ### 8. OpenWiki documentation updates
 
 `openwiki-update.yml` runs [OpenWiki](https://github.com/langchain-ai/openwiki)
-daily to keep `openwiki/` — the machine-readable docs coding agents reference —
+weekly to keep `openwiki/` — the machine-readable docs coding agents reference —
 in sync with recent commits. It opens a PR rather than pushing directly.
 
 - ✅ Set **`OPENROUTER_API_KEY`** in **Settings → Secrets and variables →
@@ -247,7 +251,7 @@ requests` error.
   PR instead of piling up new ones.
 - First run must be a manual **Actions → OpenWiki Update → Run workflow**
   dispatch (or `openwiki --init` run locally and committed) to seed the
-  `openwiki/` directory — the daily job only handles incremental `--update`
+  `openwiki/` directory — the scheduled job only handles incremental `--update`
   diffs.
 
 ---

@@ -6,6 +6,10 @@ labels: 'bug'
 assignees: ''
 ---
 
+<!-- Kept as Markdown (not an issue form): the in-app "Report a bug" dialog
+     (src/lib/shared/bug-report.ts) prefills this template via ?body=, which
+     issue forms ignore. Keep headings in sync with buildBugReportMarkdown. -->
+
 ## 🔍 Description
 
 <!-- A clear and concise description of what the bug is -->
