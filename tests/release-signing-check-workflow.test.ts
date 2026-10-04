@@ -13,10 +13,18 @@ describe('release signing check workflow', () => {
     expect(workflow).toContain('CSC_LINK: ${{ secrets.CSC_LINK }}');
     expect(workflow).toContain('RESTURA_REQUIRE_SIGNED_MAC: "true"');
     expect(workflow).toContain(
-      'npx electron-builder --mac --dir --publish never --config.mac.notarize=false'
+      'npx electron-builder --mac --dir --publish never --config.mac.notarize=false --config.npmRebuild=false'
     );
     expect(workflow).not.toContain('--publish always');
     expect(workflow).toContain('permissions:\n  contents: read');
+  });
+
+  it('exposes signing secrets only to the signing step', () => {
+    const beforeSign = workflow.slice(
+      workflow.indexOf('- uses: actions/checkout@v7'),
+      workflow.indexOf('- name: Sign and verify')
+    );
+    expect(beforeSign).not.toContain('secrets.CSC_');
   });
 
   it('runs when electron-builder or signing inputs change on main', () => {
