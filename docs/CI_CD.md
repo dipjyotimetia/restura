@@ -272,12 +272,17 @@ requests` error.
    does not wait for candidate-PR CI. The merged PR automatically starts
    publication. The workflow uses that exact merge commit, so later `main`
    commits are excluded.
-4. The publish run: **preflight** (validate + build surfaces) → **release**
+4. The publish run: **preflight** → **release**
    (tag, notes, SBOM, draft release) → **desktop** (signed installers uploaded
    to the draft) → **publish-cli**, **publish-docker**, **deploy-web** →
    **publish-release** (flips the draft to public once every required
    downstream job succeeds). Desktop runs first because signing/notarization is
    the likeliest failure; until it succeeds nothing irreversible has shipped.
+   Preflight skips `npm run validate` when the merged commit is the
+   dispatch-validated commit plus a version-only bump (checked by
+   `scripts/release-version.mjs version-only-diff`); any other difference runs
+   the full validate. Versions are computed from `package.json`
+   (`scripts/release-version.mjs next`), not from git tags.
 5. The stable macOS desktop leg fails closed unless the app is Developer ID
    signed for `APPLE_TEAM_ID`, uses the configured bundle identifier and
    hardened runtime, passes strict `codesign` verification, and retains a
