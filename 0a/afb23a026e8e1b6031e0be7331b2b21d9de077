@@ -1,0 +1,23 @@
+tests/release-signing-check-workflow.test.ts
+  s_613707424e77e7::t_a072c4748dc4b9 1-29
+.github/workflows/release-signing-check.yml
+  s_613707424e77e7::t_5d7fe137205377 1-78
+docs/CI_CD.md
+  s_613707424e77e7::t_18d55b84993d68 25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0aafb23a026e8e1b6031e0be7331b2b21d9de077",
+  "prompts": {},
+  "sessions": {
+    "s_613707424e77e7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c897b5aa-f981-4ea6-a08f-0b6b013aa8e2",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
