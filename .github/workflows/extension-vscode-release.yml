@@ -2,13 +2,13 @@ name: Release — VS Code extension
 
 # Publishes the `extension/vscode` package (restura-vscode) to the VS Code
 # Marketplace and Open VSX, and attaches the packaged `.vsix` to a GitHub
-# release. The extension versions INDEPENDENTLY of the desktop app: the main
-# `release.yml` bumps every workspace's package.json but only commits the root +
-# CLI ones, so the extension stays pinned in git and ships on its own cadence.
+# release. The extension's version follows the desktop app: the main
+# `release.yml` bumps `extension/vscode/package.json` with every app release,
+# but publishing to the Marketplace is a separate, opt-in tag.
 #
 # Release flow:
-#   1. Bump `extension/vscode/package.json` "version" in a normal PR and merge.
-#   2. Tag it:  git tag vscode-v1.2.3 && git push origin vscode-v1.2.3
+#   1. After an app release vX.Y.Z (package.json is already X.Y.Z), tag that
+#      release commit:  git tag vscode-vX.Y.Z vX.Y.Z && git push origin vscode-vX.Y.Z
 #      (the tag's `1.2.3` MUST match package.json — the job fails otherwise).
 #   3. This workflow builds, packages, publishes, and cuts a GitHub release.
 #
