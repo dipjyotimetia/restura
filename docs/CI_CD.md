@@ -22,6 +22,7 @@ secret scanning, required reviewers, secrets).
 | **Dependabot auto-merge** | `.github/workflows/dependabot-auto-merge.yml`    | PR (Dependabot only)                     | Enables auto-merge for patch/minor dependency updates once required checks pass (no self-approval — see §4).                                                            |
 | **OpenWiki update**       | `.github/workflows/openwiki-update.yml`          | daily, manual                            | Runs [OpenWiki](https://github.com/langchain-ai/openwiki) against OpenRouter to diff recent commits and open a PR updating `openwiki/`, the agent-facing docs (see §8). |
 | **Release**               | `.github/workflows/release.yml`                  | **manual** (`workflow_dispatch`)         | Versioned, attested release: tag → notes → SBOM → desktop installers → npm CLI → Docker → Cloudflare.                                                                   |
+| **Release signing check** | `.github/workflows/release-signing-check.yml`    | weekly, manual, signing config on `main` | Signs the macOS app with the real Developer ID cert (no notarize, no publish) so signing regressions surface before release day.                                        |
 | **VS Code extension**     | `.github/workflows/extension-vscode-release.yml` | tag `vscode-v*.*.*` + manual dry-run     | Package + publish `restura-vscode` to the VS Code Marketplace + Open VSX; attach `.vsix` to a GitHub release.                                                           |
 | **Chrome extension**      | `.github/workflows/extension-chrome-release.yml` | tag `chrome-v*.*.*` + manual dry-run     | Build + zip the MV3 bundle, upload to the Chrome Web Store; attach `.zip` to a GitHub release.                                                                          |
 
@@ -271,12 +272,17 @@ requests` error.
    does not wait for candidate-PR CI. The merged PR automatically starts
    publication. The workflow uses that exact merge commit, so later `main`
    commits are excluded.
-4. The publish run: **preflight** (validate + build surfaces) → **release**
+4. The publish run: **preflight** → **release**
    (tag, notes, SBOM, draft release) → **desktop** (signed installers uploaded
    to the draft) → **publish-cli**, **publish-docker**, **deploy-web** →
    **publish-release** (flips the draft to public once every required
    downstream job succeeds). Desktop runs first because signing/notarization is
    the likeliest failure; until it succeeds nothing irreversible has shipped.
+   Preflight skips `npm run validate` when the merged commit is the
+   dispatch-validated commit plus a version-only bump (checked by
+   `scripts/release-version.mjs version-only-diff`); any other difference runs
+   the full validate. Versions are computed from `package.json`
+   (`scripts/release-version.mjs next`), not from git tags.
 5. The stable macOS desktop leg fails closed unless the app is Developer ID
    signed for `APPLE_TEAM_ID`, uses the configured bundle identifier and
    hardened runtime, passes strict `codesign` verification, and retains a
