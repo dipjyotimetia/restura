@@ -1,0 +1,30 @@
+scripts/release-version.mjs
+  s_613707424e77e7::t_a5370470c1f74e 42-43
+  s_613707424e77e7::t_b08f59282f9427 1-41,44-63
+tests/release/release-version.test.ts
+  s_613707424e77e7::t_d143f21bb1f100 1-75
+scripts/release-version.d.mts
+  s_613707424e77e7::t_da38334d6c5221 1-3
+tests/release-sentry-workflow.test.ts
+  s_613707424e77e7::t_cff5fa381e5852 167-192
+.github/workflows/release.yml
+  s_613707424e77e7::t_0fdda24ada49f1 226-250,252,255-256,258,295,298,336,383,399,406-407
+docs/CI_CD.md
+  s_613707424e77e7::t_cff5fa381e5852 274,280-284
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ebd387e787d2b1c71136b954d4edf513db914444",
+  "prompts": {},
+  "sessions": {
+    "s_613707424e77e7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c897b5aa-f981-4ea6-a08f-0b6b013aa8e2",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
