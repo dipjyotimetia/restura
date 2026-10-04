@@ -17,4 +17,15 @@ describe('release-note generation', () => {
       'https://github.com/dipjyotimetia/restura/commit/{{ commit.id }}'
     );
   });
+
+  it('bases stable notes on the last published release, not the last git tag', () => {
+    const workflow = readFileSync(resolve(process.cwd(), '.github/workflows/release.yml'), 'utf8');
+    const rangeBlock = workflow.slice(
+      workflow.indexOf('- name: Compute changelog range'),
+      workflow.indexOf('- name: Generate release notes')
+    );
+    expect(rangeBlock).toContain('gh release list --exclude-drafts --exclude-pre-releases');
+    expect(rangeBlock).toContain('GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}');
+    expect(rangeBlock).not.toContain("git tag -l 'v[0-9]*.[0-9]*.[0-9]*'");
+  });
 });

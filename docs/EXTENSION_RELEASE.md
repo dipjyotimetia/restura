@@ -5,10 +5,13 @@ How to ship the two browser/editor extensions that live in `extension/`:
 - **VS Code** — `extension/vscode` (`restura-vscode`) → VS Code Marketplace + Open VSX.
 - **Chrome** — `extension/chrome` (Restura Capture, `@restura/extension`) → Chrome Web Store.
 
-The extensions version and ship **independently of the desktop app**. The main
+Each extension **publishes on its own, opt-in tag**, but its `package.json`
+version follows the app: the main
 [`release.yml`](../.github/workflows/release.yml) runs `npm version --workspaces`
-but only commits the root + CLI `package.json`, so the extension manifests stay
-pinned in git and are released on their own cadence by the two workflows below.
+and commits both extension `package.json` files with every app release. For
+VS Code that file is authoritative, so its version is the app version. Chrome's
+authoritative version is `public/manifest.json`, which `release.yml` never
+touches, so it is still bumped by hand.
 
 | Extension | Workflow                                         | Tag pattern     | Authoritative version file              |
 | --------- | ------------------------------------------------ | --------------- | --------------------------------------- |
@@ -59,18 +62,19 @@ secrets exist.
 
 ## Releasing the VS Code extension
 
-1. Bump the version in `extension/vscode/package.json` in a normal PR and merge to `main`.
-2. Tag the merge commit and push the tag:
+1. Cut an app release `vX.Y.Z` — it already sets `extension/vscode/package.json`
+   to `X.Y.Z` (do not bump it by hand; the next app release would overwrite it).
+2. Tag that release commit and push the tag:
    ```bash
-   git tag vscode-v1.2.3
-   git push origin vscode-v1.2.3
+   git tag vscode-vX.Y.Z vX.Y.Z
+   git push origin vscode-vX.Y.Z
    ```
 3. The workflow runs: type-check → unit tests → `vsce package` → publish to
    Marketplace + Open VSX → create a GitHub release with the `.vsix` attached.
 4. Verify on the [Marketplace listing](https://marketplace.visualstudio.com/items?itemName=dipjyotimetia.restura-vscode)
    (publishing can take a few minutes to index).
 
-The tag's `1.2.3` **must** equal `package.json`'s `version` or the run fails.
+The tag's `X.Y.Z` **must** equal `package.json`'s `version` or the run fails.
 
 ---
 

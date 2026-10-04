@@ -2,10 +2,11 @@ name: Release — Chrome extension
 
 # Builds the `extension/chrome` MV3 bundle (Restura Capture), uploads it to the
 # Chrome Web Store, and attaches the packaged .zip to a GitHub release. The
-# extension versions INDEPENDENTLY of the desktop app (see the VS Code release
-# workflow header for why), and the Web Store's authoritative version is the one
-# in `public/manifest.json` — NOT package.json — so that is what the tag is
-# checked against.
+# main `release.yml` bumps extension/chrome/package.json with every app release,
+# but the Web Store's authoritative version is the one in
+# `public/manifest.json` — NOT package.json — which release.yml never touches.
+# So the published Chrome version is bumped by hand, and that is what the tag
+# is checked against.
 #
 # Release flow:
 #   1. Bump "version" in extension/chrome/public/manifest.json in a PR and merge.
