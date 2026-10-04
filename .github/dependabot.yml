@@ -32,6 +32,10 @@ updates:
     labels:
       - 'dependencies'
       - 'github-actions'
+    groups:
+      github-actions-minor-patch:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
 
   - package-ecosystem: 'npm'
     directory: '/'
@@ -54,30 +58,24 @@ updates:
       - 'npm'
     open-pull-requests-limit: 15
     versioning-strategy: 'increase'
+    # Grouping keeps the weekly run to ~2 PRs instead of one per package.
+    # Groups are matched in order, first match wins:
+    #   1. every patch/minor bump → ONE PR, auto-approved + auto-merged on
+    #      green required checks (dependabot-auto-merge.yml);
+    #   2. majors that must move together → one PR per family, manual review;
+    #   3. any other major → its own PR, manual review.
     groups:
-      react-ecosystem:
-        patterns:
-          - 'react*'
-          - '@types/react*'
-      radix-ui:
-        patterns:
-          - '@radix-ui/*'
-      testing:
-        patterns:
-          - '@testing-library/*'
-          - 'vitest'
-          - '@vitejs/*'
-      build-tools:
-        patterns:
-          - 'typescript'
-          - '@biomejs/*'
-          - 'prettier'
-          - 'tailwindcss*'
-      protobuf:
-        patterns:
-          - '@bufbuild/*'
-          - '@connectrpc/*'
-          - '@protobuf-ts/*'
+      npm-minor-patch:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
+      react-major:
+        patterns: ['react*', '@types/react*']
+      radix-ui-major:
+        patterns: ['@radix-ui/*']
+      vite-vitest-major:
+        patterns: ['vite', 'vitest', '@vitest/*', '@vitejs/*', '@testing-library/*']
+      protobuf-major:
+        patterns: ['@bufbuild/*', '@connectrpc/*', '@protobuf-ts/*']
 
   # docs-site has its own package-lock.json and is NOT a workspace, so the root
   # npm entry above doesn't cover it. Without this it gets no update/security PRs.
@@ -100,6 +98,12 @@ updates:
       - 'documentation'
     open-pull-requests-limit: 5
     versioning-strategy: 'increase'
+    groups:
+      docs-site-minor-patch:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
+      astro-major:
+        patterns: ['astro', '@astrojs/*']
 
   # Base images in the root Dockerfile (self-host image published to GHCR).
   - package-ecosystem: 'docker'
