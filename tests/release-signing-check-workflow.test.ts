@@ -27,9 +27,9 @@ describe('release signing check workflow', () => {
     expect(beforeSign).not.toContain('secrets.CSC_');
   });
 
-  it('runs when electron-builder or signing inputs change on main', () => {
+  it('runs on reviewed signing inputs but never on auto-merged lockfile bumps', () => {
     const paths = workflow.slice(workflow.indexOf('paths:'), workflow.indexOf('concurrency:'));
-    expect(paths).toContain('package-lock.json');
+    expect(paths).not.toContain('package-lock.json');
     expect(paths).toContain('electron-builder.json');
     expect(paths).toContain('scripts/verify-electron-signature.mjs');
     expect(workflow).toContain('schedule:');

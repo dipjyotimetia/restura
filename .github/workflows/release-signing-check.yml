@@ -8,6 +8,12 @@ name: Release signing check
 # publishes nothing. afterSign (scripts/verify-electron-signature.mjs) fails
 # closed on a missing or wrong Developer ID because RESTURA_REQUIRE_SIGNED_MAC
 # is set.
+#
+# Deliberately NOT triggered by package-lock.json changes: Dependabot bumps
+# auto-merge, and npm ci / the Vite build run third-party code on this runner
+# before the signing step, where it could tamper with files that step executes
+# next to the cert. Lockfile-borne electron-builder bumps are caught by the
+# weekly run, or dispatch this workflow by hand after merging one.
 
 on:
   schedule:
@@ -16,9 +22,8 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    # Packaging/signing inputs: an electron-builder bump lands via the lockfile.
+    # Human-reviewed packaging/signing inputs only (see header on lockfile).
     paths:
-      - package-lock.json
       - electron-builder.json
       - scripts/verify-electron-signature.mjs
       - electron/resources/entitlements.mac.plist
@@ -68,11 +73,10 @@ jobs:
       - name: Build app
         run: npm run electron:build:all
 
-      # Signing secrets are scoped to this step only. npmRebuild=false keeps
-      # dependency build scripts (@electron/rebuild / node-gyp) from running
-      # while the cert is in the environment; this job only proves signing.
-      # This workflow also fires on auto-merged lockfile bumps, so it must not
-      # execute freshly-updated third-party build code next to the cert.
+      # Signing secrets are scoped to this step only, and npmRebuild=false keeps
+      # @electron/rebuild / node-gyp from running dependency build scripts in
+      # the signing process. This does not isolate the runner: earlier steps
+      # already ran third-party code on this filesystem (see header).
       - name: Sign and verify
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
