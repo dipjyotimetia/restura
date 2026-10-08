@@ -58,9 +58,9 @@ Chat panel with OpenAI, Anthropic, or OpenRouter. Sees the current request and r
 
 AI Lab (desktop) — multi-model playground, datasets, eval runner with LLM-as-judge (incl. pairwise/preference), OpenAPI-driven test generation, an `http-exec` target that executes AI-generated requests through the real request executor, and Arena — round-robin model-vs-model judging with an Elo leaderboard.
 
-### Contract testing
+### Contract specs
 
-Import OpenAPI specs and validate responses against them.
+Attach an OpenAPI spec to a collection and generate mock-server routes from it. Validating live responses against the spec is in progress (see below).
 
 ### Platforms
 
@@ -77,6 +77,8 @@ Web app (Cloudflare Pages + Worker), desktop app (Electron — macOS, Windows, L
 
 - **Test coverage** — currently patchy in places, working toward meaningful coverage on the protocol core and IPC layer.
 - **Accessibility** — keyboard navigation and screen reader support needs work, particularly in the workflow builder and response viewer.
+- **Contract testing** — the response validator exists and is tested but nothing calls it yet; next is validating on send, then in collection runs and CLI reports.
+- **Secret handle management** — migrate the remaining credential fields to desktop secret handles, offer conversion on import, and list handles in Settings ([ADR 0007](adr/0007-secret-ref-pattern.md)).
 
 ---
 
@@ -90,7 +92,17 @@ These are things that are clearly needed and will happen, roughly in order of ho
 
 **AI on web** — the AI assistant currently only works on the desktop app because there's no `/api/ai` route in the Worker. Adding web support requires some care around API key handling in the browser, but it's wanted.
 
-**Digest and NTLM execution** — complete the challenge/response handshake when sending requests; configuration and credential inheritance already exist.
+**Digest and NTLM execution** — complete the challenge/response handshake when sending requests; configuration and credential inheritance already exist. NTLM is expected to be desktop-only.
+
+**Passphrase-protected web storage** — the key provider exists; it needs a Settings screen to set and unlock a passphrase.
+
+**PAC proxy scripts** — desktop handler scaffolding exists, but proxy settings can't select PAC yet.
+
+**WebSocket headers on web** — route browser WebSocket connections through the existing Worker relay so custom handshake headers aren't dropped.
+
+**CLI protocol parity** — WebSocket requests in collection runs, per-domain client certificates, and protobuf bodies.
+
+**More agent model providers** — Gemini, Azure OpenAI, and Bedrock exist as adapter profiles, not transports.
 
 ---
 
@@ -112,6 +124,8 @@ These are things that would be good to have but aren't being actively planned.
 - Natural-language to request builder (describe what you want, get a request)
 - Scheduled test runs
 - Audit logging for the self-hosted deployment
+- Code sandboxes for evaluated agents (the provider contract exists; no provider ships)
+- Self-hosted scale-out: Helm chart, shared rate-limit store, upstream mTLS
 
 ---
 
@@ -125,4 +139,4 @@ Open an issue or add a 👍 to an existing one. The things that get built fastes
 
 _Last reviewed: October 2026_
 
-Explore the public [Product tree](https://docs.restura.dev/roadmap/). Its curated dataset lives in `docs-site/src/data/product-tree.ts`; keep public status changes aligned with this roadmap and current capabilities.
+Explore the public [roadmap](https://docs.restura.dev/roadmap/) and [delivery plan](https://docs.restura.dev/overview/delivery-plan/). Its curated dataset lives in `docs-site/src/data/product-tree.ts`; keep public status changes aligned with this roadmap and current capabilities.

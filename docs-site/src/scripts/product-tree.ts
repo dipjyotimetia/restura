@@ -358,6 +358,12 @@ function initializeTree() {
       item.append(button);
       childList?.append(item);
     }
+    // Optional: unshipped work links to its milestone checklist.
+    const planLink = document.getElementById('detail-plan') as HTMLAnchorElement | null;
+    if (planLink) {
+      planLink.hidden = !feature.plan;
+      planLink.href = `/overview/delivery-plan/#plan-${feature.id}`;
+    }
     const docs = get<HTMLAnchorElement>('detail-docs');
     docs.hidden = !feature.href;
     if (feature.href) docs.href = feature.href;

@@ -91,7 +91,7 @@ export default defineConfig({
             { label: 'Platforms', slug: 'overview/platforms' },
             { label: 'Product tree', link: '/roadmap/' },
             { label: 'Delivery plan', slug: 'overview/delivery-plan' },
-            { label: 'Release notes', slug: 'overview/release-notes' },
+            { label: 'Releases ↗', link: 'https://github.com/dipjyotimetia/restura/releases' },
             { label: 'vs other API clients', slug: 'overview/comparison' },
           ],
         },

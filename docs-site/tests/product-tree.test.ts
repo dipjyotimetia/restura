@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { branches, features, findFeatures } from '../src/data/product-tree';
+import { branches, features, findFeatures, highlights, progress } from '../src/data/product-tree';
 
 describe('public product tree', () => {
   it('finds feature names before descriptions without matching HAR inside share', () => {
@@ -11,8 +11,16 @@ describe('public product tree', () => {
   });
 
   it('combines branch and status filters and preserves editorial order without a query', () => {
-    expect(findFeatures('', 'planned', 'protocols')).toEqual([]);
-    expect(findFeatures('', 'planned', 'ai').map((feature) => feature.id)).toEqual(['ai-web']);
+    expect(findFeatures('', 'shipped', 'security').map((feature) => feature.id)).toEqual([
+      'auth',
+      'local-storage',
+      'secret-handles',
+      'native-tls',
+    ]);
+    expect(findFeatures('', 'planned', 'ai').map((feature) => feature.id)).toEqual([
+      'ai-web',
+      'agent-providers',
+    ]);
     expect(findFeatures('')).toEqual(features);
   });
   it('has stable unique IDs and valid, acyclic prerequisites', () => {
@@ -52,5 +60,28 @@ describe('public product tree', () => {
       'Desktop',
     ]);
     expect(features.find((feature) => feature.id === 'ai-web')?.status).toBe('planned');
+    // validateResponse has no runtime consumer yet; only mock generation ships.
+    expect(features.find((feature) => feature.id === 'contracts')?.status).toBe('in-progress');
+  });
+
+  it('gives every unshipped feature a plan, and shipped features none', () => {
+    for (const feature of features) {
+      if (feature.status === 'shipped') expect(feature.plan, feature.id).toBeUndefined();
+      else {
+        expect(feature.plan?.today, feature.id).toBeTruthy();
+        expect(feature.plan?.milestones.length, feature.id).toBeGreaterThanOrEqual(3);
+      }
+      // Something in progress must have started, and must not be finished.
+      if (feature.status === 'in-progress') {
+        expect(progress(feature), feature.id).toBeGreaterThan(0);
+        expect(progress(feature), feature.id).toBeLessThan(1);
+      }
+    }
+  });
+
+  it('lists highlights newest first with a cited pull request', () => {
+    const dates = highlights.map((highlight) => highlight.date);
+    expect([...dates].sort().reverse()).toEqual(dates);
+    for (const highlight of highlights) expect(highlight.pr).toBeGreaterThan(0);
   });
 });
