@@ -5,7 +5,7 @@ import {
   mapHeight,
   mapWidth,
   nodeHeight,
-} from '../docs-site/src/data/product-tree';
+} from '../src/data/product-tree';
 
 const windowListeners = vi.spyOn(window, 'addEventListener');
 const documentListeners = vi.spyOn(document, 'addEventListener');
@@ -59,7 +59,7 @@ beforeEach(async () => {
   Object.defineProperties(viewport, { clientWidth: { value: 1000 }, clientHeight: { value: 600 } });
   viewport.getBoundingClientRect = () => rect(0, 600);
   Object.defineProperty(document.getElementById('feature-detail'), 'offsetHeight', { value: 200 });
-  await import('../docs-site/src/scripts/product-tree');
+  await import('../src/scripts/product-tree');
   vi.runAllTimers();
   document.getElementById('tree-view')!.click();
 });

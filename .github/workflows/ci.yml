@@ -33,6 +33,10 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund${{ github.actor == 'dependabot[bot]' && ' --ignore-scripts' || '' }}
 
+      - name: Test docs-site interactions
+        if: matrix.shard == 1
+        run: npm run docs:test
+
       - name: Run Vitest shard with coverage
         # `electron`'s package index.js calls `downloadElectron()` at
         # module-load time when `path.txt` is missing. On GitHub-hosted runners

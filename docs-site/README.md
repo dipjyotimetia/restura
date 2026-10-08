@@ -51,7 +51,7 @@ app. Platform lists on future features are intended availability, not a promise.
 Keep `docs/ROADMAP.md` aligned and update `reviewedOn` after a content review.
 The site does not fetch GitHub data or require new dependencies.
 
-Run `npx vitest run tests/docs-product-tree.test.ts` from the repository root to
+Run `npm run docs:test` from the repository root to
 check IDs, dependency cycles, documentation links, and known platform boundaries.
 Also run the docs check/build and exercise search, filters, pan/zoom, list view,
 feature links, keyboard focus, themes, and the no-JavaScript fallback in a browser.
@@ -104,3 +104,5 @@ Select a branch to frame its features at a readable size. Status filters and wor
 Product tree motion is triggered by interaction: a short camera transition keeps branch navigation oriented, and one animation frame loop unfolds details while moving cards and SVG connectors together. Dragging interrupts the camera transition. Reduced-motion preferences disable transitions and make expansion immediate.
 
 The Delivery plan page renders the same curated feature dataset as the tree. Release notes link directly to GitHub releases. Feature icons are local SVG illustrations and protocol abbreviations, avoiding remote asset dependencies.
+
+Run `npm run docs:test` from the repository root after installing root dependencies. Docs-site tests have their own Vitest configuration and run in CI independently of the application’s fixed uncovered-code budget. That application budget and its coverage exclusions are unchanged.
