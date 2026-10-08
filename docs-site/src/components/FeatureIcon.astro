@@ -1,8 +1,22 @@
 ---
 import type { BranchId } from '../data/product-tree';
-interface Props { id: string; branch: BranchId }
+interface Props {
+  id: string;
+  branch: BranchId;
+}
 const { id, branch } = Astro.props;
-const marks: Record<string, string> = { http: 'HTTP', graphql: 'GQL', grpc: 'gRPC', 'grpc-streaming': 'gRPC', websocket: 'WS', 'socket-io': 'S.IO', sse: 'SSE', kafka: 'K', mqtt: 'MQTT', mcp: 'MCP' };
+const marks: Record<string, string> = {
+  http: 'HTTP',
+  graphql: 'GQL',
+  grpc: 'gRPC',
+  'grpc-streaming': 'gRPC',
+  websocket: 'WS',
+  'socket-io': 'S.IO',
+  sse: 'SSE',
+  kafka: 'K',
+  mqtt: 'MQTT',
+  mcp: 'MCP',
+};
 const paths: Record<string, string> = {
   security: 'M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6Z M9 12l2 2 4-4',
   collections: 'M3 7h7l2-3h8v16H3Z M3 9h17',
