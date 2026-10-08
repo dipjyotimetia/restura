@@ -1,0 +1,19 @@
+.github/workflows/openwiki-update.yml
+  s_e391766569d65c::t_2300dde8ed35c9 3-7,13,20-22,28,34,36,38-52,64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5615a87dd90a358e6995cded11c918fd2736069f",
+  "prompts": {},
+  "sessions": {
+    "s_e391766569d65c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3a687f68-6ae2-4b7b-9677-99c4de81794c",
+        "model": "unknown"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
