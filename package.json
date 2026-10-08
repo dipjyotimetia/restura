@@ -82,6 +82,7 @@
     "docs:dev": "npm --prefix docs-site run dev",
     "docs:build": "npm --prefix docs-site run build",
     "docs:check": "npm --prefix docs-site run check",
+    "docs:test": "vitest run --config vitest.docs.config.mts",
     "deploy:docs": "npm run docs:build && wrangler pages deploy docs-site/dist --project-name=restura-docs --branch=main",
     "deploy:docs:preview": "npm run docs:build && wrangler pages deploy docs-site/dist --project-name=restura-docs",
     "electron:compile": "node scripts/clean-electron-dist.mjs && tsc -p electron/tsconfig.json && tsc-alias -p electron/tsconfig.json && node scripts/verify-electron-runtime-imports.mjs && npm run electron:bundle-preload",
