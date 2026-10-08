@@ -1,0 +1,428 @@
+---
+import FeatureIcon from './FeatureIcon.astro';
+import { branches, features, highlights, progress, statuses } from '../data/product-tree';
+
+const horizons = [
+  { status: 'in-progress', name: 'Now', blurb: 'Being built or improved right now.' },
+  { status: 'planned', name: 'Next', blurb: 'Scoped and intended, with the groundwork in place.' },
+  { status: 'exploring', name: 'Later', blurb: 'Ideas being weighed. These are not commitments.' },
+] as const;
+const unshipped = features.filter((feature) => feature.status !== 'shipped');
+const milestones = unshipped.flatMap((feature) => feature.plan?.milestones ?? []);
+const milestonesDone = milestones.filter((milestone) => milestone.done).length;
+const shipped = features.length - unshipped.length;
+const branchLabel = (id: string) => branches.find((branch) => branch.id === id)?.label ?? id;
+const titleOf = (id: string) => features.find((feature) => feature.id === id)?.title ?? id;
+const formatDate = (date: string) =>
+  new Intl.DateTimeFormat('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(
+    new Date(date)
+  );
+const shippedDays = [...new Set(highlights.map((highlight) => highlight.date))].map((date) => ({
+  date,
+  items: highlights.filter((highlight) => highlight.date === date),
+}));
+---
+
+<div class="dp not-content" data-delivery-plan>
+  <dl class="dp-stats">
+    {horizons.map(({ status, name }) => (
+      <div class={`dp-stat ${status}`}>
+        <dt>{name}</dt>
+        <dd>{unshipped.filter((feature) => feature.status === status).length}</dd>
+      </div>
+    ))}
+    <div class="dp-stat dp-stat-wide">
+      <dt>Milestones done</dt>
+      <dd>
+        {milestonesDone}<span> / {milestones.length}</span>
+      </dd>
+      <div class="dp-bar" aria-hidden="true" style={`--progress:${milestonesDone / milestones.length}`}><span></span></div>
+    </div>
+    <div class="dp-stat shipped">
+      <dt>Shipped</dt>
+      <dd>{shipped}</dd>
+    </div>
+  </dl>
+
+  <div class="dp-controls" data-enhanced hidden>
+    <div class="dp-tabs" role="group" aria-label="Show a horizon">
+      <button type="button" data-horizon-filter="all" aria-pressed="true">All</button>
+      {horizons.map(({ status, name }) => (
+        <button type="button" data-horizon-filter={status} aria-pressed="false">
+          <i class={`dp-dot ${status}`} aria-hidden="true"></i>{name}
+        </button>
+      ))}
+    </div>
+    <div class="dp-filter-row">
+      <label class="dp-search">
+        <span class="sr-only">Search the plan</span>
+        <input type="search" placeholder="Search the plan…" autocomplete="off" data-plan-search />
+      </label>
+      <div class="dp-branches" role="group" aria-label="Filter by branch">
+        <button type="button" data-branch-filter="all" aria-pressed="true">All branches</button>
+        {branches.map((branch) => (
+          <button type="button" data-branch-filter={branch.id} aria-pressed="false">
+            <span aria-hidden="true">{`${branch.symbol}\uFE0E`}</span>{branch.label}
+          </button>
+        ))}
+      </div>
+    </div>
+    <p class="dp-count" role="status" aria-live="polite" data-plan-count></p>
+  </div>
+
+  {horizons.map(({ status, name, blurb }) => {
+    const items = unshipped
+      .filter((feature) => feature.status === status)
+      .sort((left, right) => (progress(right) ?? 0) - (progress(left) ?? 0));
+    return (
+      <section class="dp-horizon" data-horizon={status} aria-labelledby={`horizon-${status}`}>
+        <header>
+          <h2 id={`horizon-${status}`}>
+            <i class={`dp-dot ${status}`} aria-hidden="true"></i>
+            {name} <span class="dp-horizon-status">{statuses[status]}</span>
+          </h2>
+          <p>{blurb}</p>
+        </header>
+        <ol class="dp-cards">
+          {items.map((feature, index) => {
+            const plan = feature.plan;
+            const total = plan?.milestones.length ?? 0;
+            const doneCount = plan?.milestones.filter((milestone) => milestone.done).length ?? 0;
+            return (
+              <li
+                class="dp-card"
+                id={`plan-${feature.id}`}
+                data-branch={feature.branch}
+                data-search={`${feature.title} ${feature.description} ${branchLabel(feature.branch)} ${feature.platforms.join(' ')}`.toLocaleLowerCase()}
+                style={`--progress:${total ? doneCount / total : 0};--enter:${index * 60}ms`}
+              >
+                <div class="dp-card-meta">
+                  <span class="dp-branch">
+                    <FeatureIcon id={feature.id} branch={feature.branch} />
+                    {branchLabel(feature.branch)}
+                  </span>
+                  <span class="dp-platforms">{feature.platforms.join(' · ')}</span>
+                </div>
+                <h3>{feature.title}</h3>
+                <p class="dp-description">{feature.description}</p>
+                <div class="dp-progress">
+                  <div
+                    class="dp-bar"
+                    role="progressbar"
+                    aria-label={`${feature.title}: milestones done`}
+                    aria-valuemin="0"
+                    aria-valuemax={total}
+                    aria-valuenow={doneCount}
+                    aria-valuetext={`${doneCount} of ${total} milestones done`}
+                  >
+                    <span></span>
+                  </div>
+                  <span class="dp-progress-label">
+                    {doneCount === 0 ? 'Not started' : `${doneCount} of ${total} milestones`}
+                  </span>
+                </div>
+                {plan && (
+                  <details>
+                    <summary>{status === 'exploring' ? 'First steps' : 'What’s done and what’s left'}</summary>
+                    <p class="dp-today"><strong>Today:</strong> {plan.today}</p>
+                    <ul class="dp-milestones">
+                      {plan.milestones.map((milestone) => (
+                        <li class={milestone.done ? 'done' : 'todo'}>
+                          <span class="dp-check" aria-hidden="true">{milestone.done ? '✓' : ''}</span>
+                          <span class="sr-only">{milestone.done ? 'Done: ' : 'To do: '}</span>
+                          {milestone.title}
+                        </li>
+                      ))}
+                    </ul>
+                    {feature.prerequisites.length > 0 && (
+                      <p class="dp-built-on">
+                        Built on{' '}
+                        {feature.prerequisites.map((id, position) => (
+                          <>
+                            <a href={`/roadmap/#${id}`}>{titleOf(id)}</a>
+                            {position < feature.prerequisites.length - 1 ? ', ' : ''}
+                          </>
+                        ))}
+                      </p>
+                    )}
+                  </details>
+                )}
+                <div class="dp-links">
+                  <a href={`/roadmap/#${feature.id}`}>See it on the roadmap</a>
+                  {feature.href && <a href={feature.href}>Documentation</a>}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      </section>
+    );
+  })}
+
+  <div class="dp-empty" data-plan-empty hidden>
+    <p>Nothing matches these filters.</p>
+    <button type="button" data-plan-clear>Clear filters</button>
+  </div>
+
+  <section class="dp-shipped" aria-labelledby="recently-shipped">
+    <h2 id="recently-shipped">Recently shipped</h2>
+    <ol class="dp-timeline">
+      {shippedDays.map(({ date, items }) => (
+        <li>
+          <time datetime={date}>{formatDate(date)}</time>
+          <ul>
+            {items.map((highlight) => (
+              <li data-branch={highlight.branch}>
+                <a href={`https://github.com/dipjyotimetia/restura/pull/${highlight.pr}`}>{highlight.title}</a>
+                <span class="dp-pr">#{highlight.pr} · {branchLabel(highlight.branch)}</span>
+              </li>
+            ))}
+          </ul>
+        </li>
+      ))}
+    </ol>
+    <p class="dp-all-releases"><a href="https://github.com/dipjyotimetia/restura/releases">All releases and downloads on GitHub ↗</a></p>
+  </section>
+</div>
+
+<script>
+  import { initDeliveryPlan } from '../scripts/delivery-plan';
+  initDeliveryPlan();
+</script>
+
+<style>
+  .dp {
+    --dp-in-progress: #b7791f;
+    --dp-planned: var(--sl-color-accent);
+    --dp-exploring: #7c6fd1;
+    --dp-shipped: #16855f;
+    --dp-line: var(--sl-color-gray-5);
+    --dp-card: var(--sl-color-bg);
+    margin-top: 1.5rem;
+  }
+  :global(:root[data-theme='dark']) .dp {
+    --dp-in-progress: #efbc62;
+    --dp-exploring: #b1abd8;
+    --dp-shipped: #69cdb0;
+    --dp-card: var(--sl-color-gray-6);
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .in-progress { --tone: var(--dp-in-progress); }
+  .planned { --tone: var(--dp-planned); }
+  .exploring { --tone: var(--dp-exploring); }
+  .shipped { --tone: var(--dp-shipped); }
+  .dp-dot {
+    display: inline-block;
+    width: 0.6rem;
+    height: 0.6rem;
+    border-radius: 50%;
+    background: var(--tone);
+    flex-shrink: 0;
+  }
+  .dp-dot.exploring { background: transparent; border: 2px solid var(--tone); }
+
+  /* Headline numbers */
+  .dp-stats {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 0 0 1.5rem;
+  }
+  .dp-stat {
+    border: 1px solid var(--dp-line);
+    border-radius: 0.75rem;
+    padding: 0.75rem 0.9rem;
+    background: var(--dp-card);
+    border-top: 3px solid var(--tone, var(--sl-color-accent));
+  }
+  .dp-stat-wide { grid-column: span 1; }
+  .dp-stat dt { font-size: var(--sl-text-xs); color: var(--sl-color-gray-2); margin: 0; }
+  .dp-stat dd { margin: 0.15rem 0 0; font-size: 1.6rem; font-weight: 650; line-height: 1.1; color: var(--sl-color-white); }
+  .dp-stat dd span { font-size: var(--sl-text-sm); color: var(--sl-color-gray-3); font-weight: 400; }
+  .dp-stat .dp-bar { margin-top: 0.5rem; }
+
+  /* Controls */
+  .dp-controls { display: grid; gap: 0.75rem; margin-bottom: 1rem; }
+  .dp-controls[hidden] { display: none; }
+  .dp-tabs { display: inline-flex; gap: 0.25rem; padding: 0.25rem; border: 1px solid var(--dp-line); border-radius: 999px; justify-self: start; flex-wrap: wrap; }
+  .dp-tabs button, .dp-branches button, .dp-empty button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    padding: 0.35rem 0.8rem;
+    background: transparent;
+    color: var(--sl-color-gray-2);
+    font: inherit;
+    font-size: var(--sl-text-sm);
+    cursor: pointer;
+    transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
+  }
+  .dp-tabs button:hover, .dp-branches button:hover { color: var(--sl-color-white); }
+  .dp-tabs button[aria-pressed='true'], .dp-branches button[aria-pressed='true'] {
+    background: color-mix(in srgb, var(--sl-color-accent) 14%, transparent);
+    color: var(--sl-color-accent);
+    font-weight: 600;
+    border-color: color-mix(in srgb, var(--sl-color-accent) 45%, transparent);
+  }
+  .dp-filter-row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+  .dp-search input {
+    width: 14rem;
+    max-width: 100%;
+    padding: 0.45rem 0.75rem;
+    border: 1px solid var(--dp-line);
+    border-radius: 0.5rem;
+    background: var(--dp-card);
+    color: var(--sl-color-white);
+    font: inherit;
+    font-size: var(--sl-text-sm);
+  }
+  .dp-branches { display: flex; flex-wrap: wrap; gap: 0.15rem; }
+  .dp-branches button { padding: 0.3rem 0.6rem; font-size: var(--sl-text-xs); }
+  .dp-count { margin: 0; font-size: var(--sl-text-xs); color: var(--sl-color-gray-3); }
+  :is(button, input, a, summary):focus-visible { outline: 2px solid var(--sl-color-accent); outline-offset: 2px; }
+
+  /* Horizons and cards */
+  .dp-horizon { margin-top: 2rem; }
+  .dp-horizon[hidden] { display: none; }
+  .dp-horizon header h2 { display: flex; align-items: center; gap: 0.5rem; margin: 0; font-size: var(--sl-text-h3); }
+  .dp-horizon-status { font-size: var(--sl-text-sm); font-weight: 400; color: var(--sl-color-gray-3); }
+  .dp-horizon header p { margin: 0.25rem 0 0.9rem; color: var(--sl-color-gray-2); font-size: var(--sl-text-sm); }
+  .dp-cards { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem;
+    align-items: start; }
+  .dp-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 1rem;
+    border: 1px solid var(--dp-line);
+    border-radius: 0.85rem;
+    background: var(--dp-card);
+    scroll-margin-top: 6rem;
+    transition: border-color 180ms ease, box-shadow 220ms ease, transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .dp-card::before {
+    content: '';
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 3px;
+    border-radius: 0.85rem 0 0 0.85rem;
+    background: var(--tone);
+  }
+  .dp-horizon.in-progress, .dp-horizon[data-horizon='in-progress'] { --tone: var(--dp-in-progress); }
+  .dp-horizon[data-horizon='planned'] { --tone: var(--dp-planned); }
+  .dp-horizon[data-horizon='exploring'] { --tone: var(--dp-exploring); }
+  .dp-card:hover { border-color: color-mix(in srgb, var(--tone) 55%, var(--dp-line)); transform: translateY(-2px); box-shadow: 0 10px 24px rgb(0 0 0 / 0.08); }
+  .dp-card:target { border-color: var(--tone); box-shadow: 0 0 0 3px color-mix(in srgb, var(--tone) 25%, transparent); }
+  .dp-card[hidden] { display: none; }
+  .dp-card-meta { display: flex; justify-content: space-between;
+    flex-wrap: wrap; gap: 0.5rem; font-size: var(--sl-text-xs); color: var(--sl-color-gray-3); }
+  .dp-branch { display: inline-flex; align-items: center; gap: 0.35rem; color: var(--sl-color-gray-2);
+    white-space: nowrap;
+  }
+  .dp-branch :global(.feature-icon) { width: 16px; height: 16px; color: var(--sl-color-accent); }
+  .dp-platforms {
+    white-space: nowrap;
+  }
+  .dp-card h3 { margin: 0; font-size: var(--sl-text-lg); line-height: 1.25; color: var(--sl-color-white); }
+  .dp-description { margin: 0; font-size: var(--sl-text-sm); color: var(--sl-color-gray-2); line-height: 1.55; }
+
+  .dp-progress { display: flex; align-items: center; gap: 0.6rem; margin-top: auto; padding-top: 0.25rem; }
+  .dp-bar { flex: 1; height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--tone, var(--sl-color-accent)) 16%, transparent); overflow: hidden; }
+  .dp-bar span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--tone, var(--sl-color-accent));
+    transform-origin: left;
+    transform: scaleX(var(--progress));
+    transition: transform 900ms cubic-bezier(0.22, 1, 0.36, 1) var(--enter, 0ms);
+  }
+  .dp-progress-label { font-size: var(--sl-text-xs); color: var(--sl-color-gray-3); white-space: nowrap; }
+
+  .dp-card details { font-size: var(--sl-text-sm); }
+  .dp-card summary { cursor: pointer; color: var(--sl-color-accent); width: fit-content; }
+  .dp-today { margin: 0.6rem 0 0.4rem; color: var(--sl-color-gray-2); line-height: 1.55; }
+  .dp-milestones { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.35rem; }
+  .dp-milestones li { display: flex; gap: 0.5rem; align-items: flex-start; margin: 0; line-height: 1.45; }
+  .dp-milestones li.done { color: var(--sl-color-gray-2); }
+  .dp-check {
+    flex: 0 0 1rem;
+    height: 1rem;
+    margin-top: 0.12rem;
+    border-radius: 50%;
+    border: 1.5px solid var(--sl-color-gray-4);
+    display: inline-grid;
+    place-items: center;
+    font-size: 0.65rem;
+    line-height: 1;
+  }
+  .done .dp-check { background: var(--dp-shipped); border-color: var(--dp-shipped); color: var(--sl-color-black); }
+  .dp-built-on { margin: 0.6rem 0 0; color: var(--sl-color-gray-3); font-size: var(--sl-text-xs); }
+  .dp-links { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; font-size: var(--sl-text-xs); }
+
+  .dp-empty { margin-top: 2rem; text-align: center; color: var(--sl-color-gray-2); }
+  .dp-empty[hidden] { display: none; }
+  .dp-empty button { border-color: var(--dp-line); color: var(--sl-color-accent); }
+
+  /* Shipped timeline */
+  .dp-shipped { margin-top: 3rem; }
+  .dp-shipped h2 { font-size: var(--sl-text-h3); margin: 0 0 1rem; }
+  .dp-timeline { list-style: none; padding: 0; margin: 0; border-left: 2px solid var(--dp-line); }
+  .dp-timeline > li { position: relative; margin: 0 0 1.1rem; padding-left: 1.25rem; }
+  .dp-timeline > li::before {
+    content: '';
+    position: absolute;
+    left: -7px;
+    top: 0.35rem;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--dp-shipped);
+    box-shadow: 0 0 0 3px var(--sl-color-bg);
+  }
+  .dp-timeline time { font-size: var(--sl-text-xs); font-weight: 600; color: var(--sl-color-gray-2); text-transform: uppercase; letter-spacing: 0.04em; }
+  .dp-timeline ul { list-style: none; padding: 0; margin: 0.3rem 0 0; display: grid; gap: 0.3rem; }
+  .dp-timeline ul li { margin: 0; font-size: var(--sl-text-sm); }
+  .dp-all-releases { margin: 0.5rem 0 0; font-size: var(--sl-text-sm); }
+  .dp-pr { margin-left: 0.4rem; font-size: var(--sl-text-xs); color: var(--sl-color-gray-3); }
+
+  /* Motion, only once the script is running. */
+  :global(.dp-ready) .dp-card:not(.is-visible) .dp-bar span { transform: scaleX(0); }
+  :global(.dp-ready) .dp-card { opacity: 0; transform: translateY(12px); }
+  :global(.dp-ready) .dp-card.is-visible {
+    opacity: 1;
+    transform: none;
+    transition: opacity 500ms ease var(--enter, 0ms), transform 500ms cubic-bezier(0.22, 1, 0.36, 1) var(--enter, 0ms), border-color 180ms ease, box-shadow 220ms ease;
+  }
+  :global(.dp-ready) .dp-card.is-visible:hover { transform: translateY(-2px); }
+  .dp-card details[open] .dp-milestones li { animation: dp-tick 320ms ease both; }
+  .dp-card details[open] .dp-milestones li:nth-child(2) { animation-delay: 50ms; }
+  .dp-card details[open] .dp-milestones li:nth-child(3) { animation-delay: 100ms; }
+  .dp-card details[open] .dp-milestones li:nth-child(4) { animation-delay: 150ms; }
+  .dp-card details[open] .dp-milestones li:nth-child(5) { animation-delay: 200ms; }
+  @keyframes dp-tick { from { opacity: 0; transform: translateX(-6px); } }
+  .dp-stat .dp-bar span { transition-delay: 300ms; }
+  :global(.dp-ready) .dp-stats:not(.is-visible) .dp-bar span { transform: scaleX(0); }
+  @media (prefers-reduced-motion: reduce) {
+    .dp *, .dp *::before { animation: none !important; transition: none !important; }
+    :global(.dp-ready) .dp-card { opacity: 1; transform: none; }
+    :global(.dp-ready) .dp-card:not(.is-visible) .dp-bar span, :global(.dp-ready) .dp-stats:not(.is-visible) .dp-bar span { transform: scaleX(var(--progress)); }
+  }
+
+  @media (max-width: 50rem) {
+    .dp-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .dp-stat-wide { grid-column: span 2; }
+    .dp-cards { grid-template-columns: 1fr; }
+  }
+</style>

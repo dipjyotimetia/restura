@@ -7,9 +7,15 @@ import Default from '@astrojs/starlight/components/Footer.astro';
 <div class="restura-footer">
   <div class="restura-footer-inner">
     <div class="restura-footer-brand">
-      <a href="https://restura.pages.dev" class="restura-brand">Restura</a>
-      <span class="restura-tagline">The API client that speaks every protocol.</span>
+      <a href="https://restura.dev/" class="restura-brand">Restura</a>
+      <span class="restura-tagline">One open-source client for every protocol your stack uses.</span>
     </div>
+    <nav class="restura-footer-nav" aria-label="Project">
+      <a href="/overview/quick-start/">Get started</a>
+      <a href="/roadmap/"><span class="emoji" aria-hidden="true">🚀</span>Roadmap</a>
+      <a href="/overview/delivery-plan/">Delivery plan</a>
+      <a href="https://github.com/dipjyotimetia/restura/releases">Releases</a>
+    </nav>
     <div class="restura-footer-meta">
       <span>
         Built by
@@ -125,6 +131,23 @@ import Default from '@astrojs/starlight/components/Footer.astro';
     transition: color 0.15s ease;
   }
   .restura-footer-meta a:hover {
+    color: rgb(var(--restura-cobalt, 46 145 255));
+  }
+  .restura-footer-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.1rem;
+  }
+  .restura-footer-nav .emoji {
+    margin-inline-end: 0.3em;
+  }
+  .restura-footer-nav a {
+    color: var(--sl-color-gray-2);
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.15s ease;
+  }
+  .restura-footer-nav a:hover {
     color: rgb(var(--restura-cobalt, 46 145 255));
   }
   .restura-gh {

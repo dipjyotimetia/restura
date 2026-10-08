@@ -39,9 +39,9 @@ Pages are standalone `.mdx` files — nothing is imported from the repo's `/docs
 
 ## Product tree
 
-`/tree/` is a standalone Astro roadmap page linked from the homepage and Overview
+`/roadmap/` (formerly `/tree/`, which redirects) is a standalone Astro roadmap page linked from the homepage and Overview
 navigation. It uses SVG connectors, HTML feature buttons, and a grouped list that
-works without JavaScript; mobile defaults to the list.
+works without JavaScript; phones also open the tree, framed one column at a time.
 
 Edit `src/data/product-tree.ts` to maintain the content. Stable feature IDs are
 public fragment links, so preserve existing IDs. Branch membership groups features;
@@ -103,6 +103,6 @@ Select a branch to frame its features at a readable size. Status filters and wor
 
 Product tree motion is triggered by interaction: a short camera transition keeps branch navigation oriented, and one animation frame loop unfolds details while moving cards and SVG connectors together. Dragging interrupts the camera transition. Reduced-motion preferences disable transitions and make expansion immediate.
 
-The Delivery plan page renders the same curated feature dataset as the tree. Release notes render in the docs site using the unauthenticated public GitHub releases API, with older-release pagination, retry handling, and a GitHub fallback when JavaScript is disabled or the API is unavailable. Remote HTML is rebuilt with a formatting-only allowlist and HTTPS links. Feature icons are local SVG illustrations and protocol abbreviations, avoiding remote asset dependencies.
+The Delivery plan page renders the same curated feature dataset as the tree: unshipped work with verified milestones, plus a hand-curated "Recently shipped" timeline (`highlights`) citing merged PRs. Full release notes live on [GitHub Releases](https://github.com/dipjyotimetia/restura/releases); `/overview/release-notes/` redirects there. Feature icons are local SVG line icons, avoiding remote asset dependencies.
 
 Run `npm run docs:test` from the repository root after installing root dependencies. Docs-site tests have their own Vitest configuration and run in CI independently of the application’s fixed uncovered-code budget. That application budget and its coverage exclusions are unchanged.

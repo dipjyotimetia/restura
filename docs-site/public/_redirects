@@ -1,0 +1,6 @@
+# Product tree moved to /roadmap/; a 301 keeps #feature deep links working.
+/tree /roadmap/ 301
+/tree/ /roadmap/ 301
+# Release notes are published on GitHub Releases, not mirrored in the docs.
+/overview/release-notes https://github.com/dipjyotimetia/restura/releases 301
+/overview/release-notes/ https://github.com/dipjyotimetia/restura/releases 301

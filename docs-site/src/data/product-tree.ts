@@ -42,7 +42,25 @@ export const branches = [
 ] as const;
 export type BranchId = (typeof branches)[number]['id'];
 export type Status = keyof typeof statuses;
-export type Platform = 'Web' | 'Desktop' | 'Self-hosted' | 'CLI' | 'VS Code' | 'Chrome';
+export type Platform =
+  | 'Web'
+  | 'Desktop'
+  | 'Self-hosted'
+  | 'CLI'
+  | 'VS Code'
+  | 'Chrome'
+  | 'JetBrains';
+export interface Milestone {
+  title: string;
+  done: boolean;
+}
+/** Delivery detail for unshipped work. Milestones are checked against the source
+ * tree, not estimated, so progress is simply the share that are done. */
+export interface Plan {
+  /** What already exists in the codebase, in plain language. */
+  today: string;
+  milestones: readonly Milestone[];
+}
 export interface Feature {
   id: string;
   branch: BranchId;
@@ -52,6 +70,7 @@ export interface Feature {
   platforms: readonly Platform[];
   prerequisites: readonly string[];
   href?: string;
+  plan?: Plan;
 }
 const all: Platform[] = ['Web', 'Desktop', 'Self-hosted'];
 const desktop: Platform[] = ['Desktop'];
@@ -63,7 +82,8 @@ const entry = (
   status: Status,
   platforms: readonly Platform[],
   href?: string,
-  prerequisites: string[] = []
+  prerequisites: string[] = [],
+  plan?: Plan
 ): Feature => ({
   branch,
   id,
@@ -73,7 +93,10 @@ const entry = (
   platforms,
   ...(href ? { href } : {}),
   prerequisites,
+  ...(plan ? { plan } : {}),
 });
+const done = (title: string): Milestone => ({ title, done: true });
+const todo = (title: string): Milestone => ({ title, done: false });
 export const features: Feature[] = [
   entry(
     'protocols',
@@ -167,6 +190,25 @@ export const features: Feature[] = [
     '/protocols/mcp/'
   ),
   entry(
+    'protocols',
+    'websocket-web-headers',
+    'WebSocket headers on web',
+    'Send custom handshake headers from the browser by relaying connections through the Restura server.',
+    'planned',
+    ['Web', 'Self-hosted'],
+    '/protocols/websocket/',
+    ['websocket'],
+    {
+      today:
+        'The server-side ticket and relay routes exist behind the SSRF gate, but the web app still connects directly, so custom headers are dropped with a warning.',
+      milestones: [
+        done('Ticketed relay routes on the Worker and self-hosted server'),
+        todo('Web app connects through the relay when headers are set'),
+        todo('Header policy and end-to-end tests'),
+      ],
+    }
+  ),
+  entry(
     'security',
     'auth',
     'Request authentication',
@@ -206,10 +248,22 @@ export const features: Feature[] = [
     'security',
     'digest-ntlm',
     'Digest & NTLM execution',
-    'Complete challenge/response authentication on send. Saving a configuration does not yet implement the handshake.',
+    'Complete challenge/response authentication on send. Saving a configuration does not yet perform the handshake; NTLM is expected to be desktop-only.',
     'planned',
     all,
-    '/guides/auth/'
+    '/guides/auth/',
+    [],
+    {
+      today:
+        'Digest and NTLM settings are saved and validated, and the app warns that they are not applied. No backend performs the challenge/response handshake yet.',
+      milestones: [
+        done('Settings editors and validated configuration'),
+        done('In-app notice that these schemes are not yet applied'),
+        todo('Digest challenge/response in the shared protocol core'),
+        todo('Retry-on-401 in the desktop and web proxies'),
+        todo('NTLM handshake over a kept-alive desktop connection'),
+      ],
+    }
   ),
   entry(
     'security',
@@ -217,7 +271,78 @@ export const features: Feature[] = [
     'Self-hosted audit logging',
     'Explore an operational audit trail for self-hosted deployments.',
     'exploring',
-    ['Self-hosted']
+    ['Self-hosted'],
+    undefined,
+    [],
+    {
+      today:
+        'Nothing yet. The self-hosted Node server and its middleware are the natural place to start.',
+      milestones: [
+        todo('Decide which events matter and how long to keep them'),
+        todo('Structured audit events from the self-hosted server'),
+        todo('Export to an operator-owned log sink'),
+      ],
+    }
+  ),
+  entry(
+    'security',
+    'web-passphrase',
+    'Passphrase-protected web storage',
+    'Encrypt the web app\u2019s local data with a passphrase only you know.',
+    'planned',
+    ['Web', 'Self-hosted'],
+    '/architecture/security/',
+    ['local-storage'],
+    {
+      today:
+        'A passphrase key provider is implemented and documented as planned; there is no Settings screen to set or unlock it yet.',
+      milestones: [
+        done('Passphrase key provider in the storage layer'),
+        todo('Settings \u2192 Security passphrase setup and unlock prompt'),
+        todo('Re-encrypt existing browser data, with a recovery warning'),
+        todo('Security regression tests'),
+      ],
+    }
+  ),
+  entry(
+    'security',
+    'secret-handle-management',
+    'Secret handle management',
+    'Bring the remaining credential fields onto desktop secret handles and manage them in one place.',
+    'in-progress',
+    desktop,
+    '/architecture/adrs/0007-secret-ref-pattern/',
+    ['secret-handles'],
+    {
+      today:
+        'The handle store and send-time resolution are in place, and fields migrate one at a time. Importers do not yet offer conversion, and there is no list of stored handles.',
+      milestones: [
+        done('Handle store resolved only at send time'),
+        todo('Offer to convert imported secrets into handles'),
+        todo('Settings panel listing and deleting handles'),
+        todo('Migrate the remaining credential fields'),
+      ],
+    }
+  ),
+  entry(
+    'security',
+    'pac-proxy',
+    'PAC proxy scripts',
+    'Route desktop traffic using your organisation\u2019s proxy auto-config script.',
+    'planned',
+    desktop,
+    '/reference/capability-matrix/',
+    ['native-tls'],
+    {
+      today:
+        'Desktop networking has handler scaffolding, but proxy settings cannot choose PAC and the script is never loaded, so it is marked unsupported.',
+      milestones: [
+        done('Handler scaffolding in desktop networking'),
+        todo('PAC option in proxy settings'),
+        todo('Load the script through the desktop session proxy'),
+        todo('PAC evaluation tests'),
+      ],
+    }
   ),
   entry(
     'collections',
@@ -283,7 +408,19 @@ export const features: Feature[] = [
     'Export an environment independently of a collection.',
     'planned',
     all,
-    '/guides/environments/'
+    '/guides/environments/',
+    [],
+    {
+      today:
+        'Environments travel inside OpenCollection collection exports, and Postman environment files can be imported. There is no way to export one environment on its own.',
+      milestones: [
+        done('Environments included in collection exports'),
+        done('Postman environment import'),
+        todo('Export a single environment as Restura or Postman JSON'),
+        todo('Choose whether secret values are included'),
+        todo('Round-trip test against the importer'),
+      ],
+    }
   ),
   entry(
     'automation',
@@ -328,11 +465,22 @@ export const features: Feature[] = [
     'automation',
     'contracts',
     'Contract testing',
-    'Validate HTTP responses against imported OpenAPI specifications.',
-    'shipped',
+    'Attach an OpenAPI spec to a collection to generate mock routes today; validating live responses against it is being wired in.',
+    'in-progress',
     all,
-    '/architecture/overview/',
-    ['http']
+    '/guides/collections/',
+    ['http'],
+    {
+      today:
+        'Collections load and check an OpenAPI spec and turn it into mock-server routes. A tested response validator exists but nothing calls it yet, and the collection settings say so.',
+      milestones: [
+        done('Attach and validate an OpenAPI spec per collection'),
+        done('Generate mock-server routes from the spec'),
+        done('Response validator library with tests'),
+        todo('Validate responses on send and show violations in the response panel'),
+        todo('Report contract results in collection runs and CLI reports'),
+      ],
+    }
   ),
   entry(
     'automation',
@@ -351,7 +499,18 @@ export const features: Feature[] = [
     'planned',
     all,
     '/protocols/websocket/',
-    ['websocket', 'scripts']
+    ['websocket', 'scripts'],
+    {
+      today:
+        'The bounded QuickJS sandbox that runs HTTP scripts is shared and ready; the WebSocket client has no script hook yet.',
+      milestones: [
+        done('Bounded script sandbox shared across protocols'),
+        todo('On-message script saved with WebSocket requests'),
+        todo('Run per incoming frame with time and rate limits'),
+        todo('rs.message and rs.ws.send scripting APIs'),
+        todo('Script output and errors in the message log'),
+      ],
+    }
   ),
   entry(
     'automation',
@@ -361,7 +520,36 @@ export const features: Feature[] = [
     'exploring',
     ['Desktop', 'Self-hosted', 'CLI'],
     undefined,
-    ['cli']
+    ['cli'],
+    {
+      today:
+        'The CLI already produces JUnit, HTML, and JSON reports, so CI schedulers can run collections today.',
+      milestones: [
+        todo('Documented GitHub Actions and cron recipes'),
+        todo('Decide whether an in-app scheduler is worth it'),
+        todo('Run history and failure notifications'),
+      ],
+    }
+  ),
+  entry(
+    'automation',
+    'cli-parity',
+    'CLI protocol parity',
+    'Run more of what the app can send from CI: WebSocket requests, per-domain client certificates, and protobuf bodies.',
+    'planned',
+    ['CLI'],
+    '/reference/cli/',
+    ['cli'],
+    {
+      today:
+        'A standalone WebSocket executor already exists in the CLI but nothing routes to it; per-domain certificates and protobuf bodies are documented as not yet supported.',
+      milestones: [
+        done('Standalone WebSocket executor'),
+        todo('Run WebSocket requests in collection runs'),
+        todo('Honour per-domain client certificates'),
+        todo('Protobuf request bodies'),
+      ],
+    }
   ),
   entry(
     'ai',
@@ -394,11 +582,23 @@ export const features: Feature[] = [
     'ai',
     'mcp-server',
     'Restura as an MCP server',
-    'Expose collections to agents through the desktop MCP server with execution approval.',
-    'shipped',
+    'Let agents like Claude read your collections through a local MCP server you control. The server runs today but exposes nothing until data sync and consent controls land.',
+    'in-progress',
     desktop,
     '/guides/mcp-server-mode/',
-    ['collections']
+    ['collections'],
+    {
+      today:
+        'Launching the desktop app with --mcp-server starts a stdio MCP server with read-only, redacted tools. It deliberately sees no collections, environments, or history yet, so every tool call is refused.',
+      milestones: [
+        done('Headless stdio server (restura --mcp-server)'),
+        done('Read-only tools with input validation and deep redaction'),
+        done('Fail-closed consent model: every surface hidden by default'),
+        todo('Sync collections, environments, and history to the headless server'),
+        todo('Settings screen for per-collection and per-surface consent'),
+        todo('Optional local HTTP transport with a one-time token'),
+      ],
+    }
   ),
   entry(
     'ai',
@@ -408,7 +608,18 @@ export const features: Feature[] = [
     'planned',
     ['Web', 'Self-hosted'],
     '/guides/ai-assistant/',
-    ['ai-assistant']
+    ['ai-assistant'],
+    {
+      today:
+        'Provider streaming, decoding, and redaction live in the backend-agnostic protocol core, and the chat panel exists. Only the desktop app has a transport for it.',
+      milestones: [
+        done('Provider decoders and redaction in the shared core'),
+        done('Request-aware chat panel'),
+        todo('Decide how browser users supply and protect API keys'),
+        todo('Streaming /api/ai route with SSRF and rate limits'),
+        todo('Web transport alongside the desktop bridge'),
+      ],
+    }
   ),
   entry(
     'ai',
@@ -416,7 +627,58 @@ export const features: Feature[] = [
     'Natural-language requests',
     'Explore turning a plain-language description into a request.',
     'exploring',
-    all
+    all,
+    undefined,
+    [],
+    {
+      today:
+        'The desktop assistant and AI Lab already generate requests from OpenAPI, which this would build on.',
+      milestones: [
+        todo('Prototype prompt-to-request with the desktop assistant'),
+        todo('Review-before-send flow that never executes silently'),
+        todo('Evaluate quality with AI Lab datasets'),
+      ],
+    }
+  ),
+  entry(
+    'ai',
+    'agent-providers',
+    'More agent model providers',
+    'Run agent suites against Gemini, Azure OpenAI, and Amazon Bedrock.',
+    'planned',
+    ['Desktop', 'CLI'],
+    '/guides/ai-lab/',
+    ['agent-suites'],
+    {
+      today: 'Adapter profiles describe all three providers, but none has a shipped transport yet.',
+      milestones: [
+        done('Adapter profiles for Gemini, Azure OpenAI, and Bedrock'),
+        todo('Gemini transport on desktop'),
+        todo('Azure OpenAI transport'),
+        todo('Bedrock with request signing'),
+        todo('CLI parity'),
+      ],
+    }
+  ),
+  entry(
+    'ai',
+    'agent-sandboxes',
+    'Agent code sandboxes',
+    'Explore letting evaluated agents run code in an isolated sandbox.',
+    'exploring',
+    desktop,
+    '/guides/ai-lab/',
+    ['agent-suites'],
+    {
+      today:
+        'The sandbox provider contract and registry are implemented; no provider ships, and the CLI refuses sandbox sources.',
+      milestones: [
+        done('Sandbox provider contract and registry'),
+        todo('Threat model and design record'),
+        todo('One local container provider on desktop'),
+        todo('Approval and cancellation wiring'),
+      ],
+    }
   ),
   entry(
     'platforms',
@@ -470,7 +732,20 @@ export const features: Feature[] = [
     'Accessibility improvements',
     'Improve keyboard and screen-reader workflows, particularly the workflow builder and response viewer.',
     'in-progress',
-    all
+    all,
+    undefined,
+    [],
+    {
+      today:
+        'The October UX overhaul shipped a type-scale ratchet, labelled console controls, and announced responses. Automated checks and keyboard use of the workflow canvas are still missing.',
+      milestones: [
+        done('Type scale and contrast pass (#789)'),
+        done('Labelled console buttons and announced responses (#764)'),
+        todo('Automated axe checks for the workflow builder and response viewer'),
+        todo('Keyboard-operable workflow canvas'),
+        todo('Live regions for streaming responses'),
+      ],
+    }
   ),
   entry(
     'platforms',
@@ -479,7 +754,19 @@ export const features: Feature[] = [
     'Strengthen meaningful regression coverage at protocol and desktop IPC boundaries.',
     'in-progress',
     all,
-    '/testing/overview/'
+    '/testing/overview/',
+    [],
+    {
+      today:
+        'The shared protocol core enforces coverage floors, a desktop end-to-end suite runs in CI, and a global uncovered-code budget can only shrink.',
+      milestones: [
+        done('Coverage floors on the shared protocol core'),
+        done('Desktop end-to-end suite in CI'),
+        done('Global uncovered-code budget that only ratchets down'),
+        todo('Per-directory floors for desktop IPC and Worker handlers'),
+        todo('Contract tests for IPC channel and validator parity'),
+      ],
+    }
   ),
   entry(
     'platforms',
@@ -487,28 +774,184 @@ export const features: Feature[] = [
     'JetBrains integration',
     'Explore in-editor request execution for JetBrains IDEs.',
     'exploring',
-    ['Desktop']
+    ['JetBrains'],
+    undefined,
+    [],
+    {
+      today:
+        'No JetBrains code exists. The VS Code extension and CLI show the shape it could take.',
+      milestones: [
+        todo('Gauge demand from users'),
+        todo('Reuse the CLI as the execution engine'),
+        todo('Minimal plugin that runs OpenCollection files'),
+      ],
+    }
   ),
+  entry(
+    'platforms',
+    'self-host-scale',
+    'Self-hosted scale-out',
+    'Explore running Restura\u2019s server across several instances: shared rate limits, a Helm chart, and upstream mTLS.',
+    'exploring',
+    ['Self-hosted'],
+    '/self-hosting/docker/',
+    ['self-hosting'],
+    {
+      today:
+        'Single-instance self-hosting ships today; these are listed as out of scope for v1 and open to contributions.',
+      milestones: [
+        todo('Reference Helm chart'),
+        todo('Pluggable shared rate-limit store'),
+        todo('Optional upstream mTLS'),
+      ],
+    }
+  ),
+];
+
+/** Share of verified milestones that are done, 0–1; null when there is no plan. */
+export function progress(feature: Feature): number | null {
+  const milestones = feature.plan?.milestones ?? [];
+  if (!milestones.length) return null;
+  return milestones.filter((milestone) => milestone.done).length / milestones.length;
+}
+
+/** Notable merged work, newest first. Each entry cites its pull request. */
+export interface Highlight {
+  date: string;
+  title: string;
+  pr: number;
+  branch: BranchId;
+}
+export const highlights: readonly Highlight[] = [
+  {
+    date: '2026-10-03',
+    title: 'Workflow canvas undo/redo, full screen, and theming',
+    pr: 792,
+    branch: 'automation',
+  },
+  {
+    date: '2026-10-03',
+    title: 'Opt-in sample collection and drop-anywhere import',
+    pr: 793,
+    branch: 'collections',
+  },
+  {
+    date: '2026-10-03',
+    title: 'Globals editor, scope inspector, and folder variables',
+    pr: 791,
+    branch: 'collections',
+  },
+  {
+    date: '2026-10-02',
+    title: 'Response viewer: timing breakdown, JSON tree, compare, and cancel',
+    pr: 785,
+    branch: 'protocols',
+  },
+  {
+    date: '2026-10-02',
+    title: '“Open as” protocol switch and resizable SSE/WebSocket settings',
+    pr: 788,
+    branch: 'protocols',
+  },
+  {
+    date: '2026-10-02',
+    title: 'Type-scale ratchet and accessibility fixes',
+    pr: 789,
+    branch: 'platforms',
+  },
+  {
+    date: '2026-10-01',
+    title: 'Daily-driver URL bar, variables, navigation, and editors',
+    pr: 780,
+    branch: 'platforms',
+  },
+  {
+    date: '2026-10-01',
+    title: 'Variables resolved inside request bodies',
+    pr: 779,
+    branch: 'protocols',
+  },
+  {
+    date: '2026-09-30',
+    title: 'AI prompt caching, cache-aware cost, and latest models',
+    pr: 766,
+    branch: 'ai',
+  },
+  {
+    date: '2026-09-30',
+    title: 'GraphQL introspection and OAuth 2.0 refresh through the shared executor',
+    pr: 772,
+    branch: 'protocols',
+  },
 ];
 
 // Layout is editorial grouping, not a claim that adjacent features depend on
 // each other. Actual prerequisites are drawn separately when a node is selected.
-export const mapWidth = 2100;
+// Every map coordinate derives from these values; the page and script share them.
 export const nodeWidth = 276;
 export const nodeHeight = 62;
+export const layout = {
+  margin: 36,
+  columnPitch: 316,
+  rootTop: 14,
+  rootLinkY: 78,
+  headingY: 118,
+  rowPitch: 76,
+} as const;
+/** Branch lines bend under the heading and reach the first card at this offset. */
+export const firstRowY = layout.headingY + 93;
+export const columnX = (index: number) => layout.margin + index * layout.columnPitch;
+export const mapWidth = 2 * layout.margin + (branches.length - 1) * layout.columnPitch + nodeWidth;
+export const rootX = mapWidth / 2;
+export function featureGrid(feature: Feature): { column: number; row: number } {
+  return {
+    column: branches.findIndex((branch) => branch.id === feature.branch),
+    row: features
+      .filter((item) => item.branch === feature.branch)
+      .findIndex((item) => item.id === feature.id),
+  };
+}
 export function featurePosition(feature: Feature): { x: number; y: number } {
-  const column = branches.findIndex((branch) => branch.id === feature.branch);
-  const row = features
-    .filter((item) => item.branch === feature.branch)
-    .findIndex((item) => item.id === feature.id);
-  return { x: 36 + column * 344, y: 306 + row * 88 };
+  const { column, row } = featureGrid(feature);
+  return { x: columnX(column), y: firstRowY + row * layout.rowPitch };
 }
 export const mapHeight =
-  306 +
+  firstRowY +
   Math.max(
     ...branches.map((branch) => features.filter((feature) => feature.branch === branch.id).length)
   ) *
-    88;
+    layout.rowPitch;
+
+export function rootLinkPath(column: number): string {
+  const x = columnX(column) + nodeWidth / 2;
+  const { rootLinkY: start, headingY: end } = layout;
+  const span = end - start;
+  return `M${rootX} ${start} C${rootX} ${start + span * 0.6} ${x} ${start + span * 0.35} ${x} ${end}`;
+}
+export function branchLinePath(column: number, bottom: number): string {
+  const x = columnX(column);
+  const middle = x + nodeWidth / 2;
+  const bend = layout.headingY + 81;
+  return `M${middle} ${layout.headingY + 67} Q${middle} ${bend} ${middle - 16} ${bend} H${x + 4} Q${x - 12} ${bend} ${x - 12} ${bend + 16} V${bottom}`;
+}
+export const twigPath = (x: number, y: number) => `M${x - 12} ${y + nodeHeight / 2} H${x}`;
+
+/** Show the whole map when that costs little scale; otherwise fit the width (wide
+ * screens have more width than height to give) and let at most half a viewport of
+ * height overflow for panning. 88px keeps the top margin and floating controls clear. */
+export function fitScale(viewportWidth: number, viewportHeight: number): number {
+  const width = (viewportWidth - 52) / mapWidth;
+  // Phones can't show six columns legibly: frame one readable column instead,
+  // with the next one peeking in to invite a horizontal pan.
+  if (viewportWidth < 640)
+    return Math.min(1, (viewportWidth - 24) / (layout.columnPitch + layout.margin));
+  const height = (viewportHeight - 88) / mapHeight;
+  const scale =
+    height >= width * 0.75
+      ? Math.min(width, height)
+      : Math.min(width, (viewportHeight * 1.5) / mapHeight);
+  return Math.max(0.1, Math.min(1, scale));
+}
 
 /** Prefix matching on words supports typing without matching HAR in "share".
  * Prefer name matches over descriptions; retain editorial order for ties. */
