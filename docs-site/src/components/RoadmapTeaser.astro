@@ -10,7 +10,7 @@ const now = features
 
 <section class="roadmap-teaser not-content" aria-labelledby="roadmap-teaser-title">
   <div class="rt-intro">
-    <h2 id="roadmap-teaser-title">Where Restura is going</h2>
+    <h2 id="roadmap-teaser-title"><span class="emoji" aria-hidden="true">🌱</span>Where Restura is going</h2>
     <p>
       Every feature lives on one public roadmap — what has shipped, what is being built, and the
       ideas taking root. Progress counts milestones already in the code, not estimates.
@@ -22,12 +22,12 @@ const now = features
       <li class="exploring"><strong>{count('exploring')}</strong> exploring</li>
     </ul>
     <div class="rt-actions">
-      <a class="rt-primary" href="/roadmap/">Explore the roadmap <span aria-hidden="true">→</span></a>
-      <a class="rt-secondary" href="/overview/delivery-plan/">See the delivery plan</a>
+      <a class="rt-primary" href="/roadmap/"><span class="emoji" aria-hidden="true">🚀</span> Explore the roadmap <span aria-hidden="true">→</span></a>
+      <a class="rt-secondary" href="/overview/delivery-plan/"><span class="emoji" aria-hidden="true">🗓️</span> See the delivery plan</a>
     </div>
   </div>
   <div class="rt-now">
-    <p class="rt-now-label">Building now</p>
+    <p class="rt-now-label"><span class="emoji" aria-hidden="true">🛠️</span>Building now</p>
     <ul>
       {now.map((feature) => {
         const share = progress(feature) ?? 0;
@@ -57,6 +57,9 @@ const now = features
     background:
       radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--sl-color-accent) 12%, transparent), transparent 60%),
       var(--sl-color-bg);
+  }
+  .emoji {
+    margin-inline-end: 0.4em;
   }
   .sr-only {
     position: absolute;

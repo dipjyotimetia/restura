@@ -12,7 +12,7 @@ import Default from '@astrojs/starlight/components/Footer.astro';
     </div>
     <nav class="restura-footer-nav" aria-label="Project">
       <a href="/overview/quick-start/">Get started</a>
-      <a href="/roadmap/">Roadmap</a>
+      <a href="/roadmap/"><span class="emoji" aria-hidden="true">🚀</span>Roadmap</a>
       <a href="/overview/delivery-plan/">Delivery plan</a>
       <a href="https://github.com/dipjyotimetia/restura/releases">Releases</a>
     </nav>
@@ -137,6 +137,9 @@ import Default from '@astrojs/starlight/components/Footer.astro';
     display: flex;
     flex-wrap: wrap;
     gap: 0.4rem 1.1rem;
+  }
+  .restura-footer-nav .emoji {
+    margin-inline-end: 0.3em;
   }
   .restura-footer-nav a {
     color: var(--sl-color-gray-2);
