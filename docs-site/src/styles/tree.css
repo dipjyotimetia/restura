@@ -358,10 +358,6 @@ html:not(.tree-ready) .filter {
   stroke: var(--cobalt);
   opacity: 0.7;
 }
-.branch-line,
-.twig {
-  stroke: var(--line);
-}
 .connections .dependency {
   stroke: var(--accent);
   stroke-width: 2.5;
@@ -391,57 +387,33 @@ html:not(.tree-ready) .filter {
 .branch-heading {
   position: absolute;
   display: flex;
-  gap: 14px;
+  gap: 12px;
   align-items: center;
 }
 .branch-symbol {
+  display: grid;
+  place-items: center;
+  flex: 0 0 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  background: var(--surface);
   color: var(--accent);
-  font-size: 28px;
-  flex-shrink: 0;
-  width: 32px;
+  font-size: 22px;
+  box-shadow: 0 0 0 5px var(--bg);
 }
 .branch-heading h2 {
-  font-size: 20px;
-  margin: 0;
-  letter-spacing: -0.5px;
-  font-weight: 620;
-}
-.branch-heading p {
-  font-size: 14px;
-  color: var(--muted);
-  margin: 5px 0 0;
-}
-.feature-node {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  text-align: left;
-  gap: 14px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 11px 14px;
-  box-shadow: 0 3px 8px #00000005;
-}
-.feature-node > span:not(.node-open) {
   font-size: 17px;
-  font-weight: 520;
-  flex: 1;
+  margin: 0;
+  letter-spacing: -0.3px;
+  font-weight: 650;
   line-height: 1.2;
 }
-.node-open {
-  font-size: 20px;
-  font-weight: 300;
+.branch-heading p {
+  font-size: 12px;
   color: var(--muted);
-}
-.feature-node:hover,
-.feature-node.selected,
-.feature-node.prerequisite {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--cobalt) 8%, var(--surface));
-}
-.feature-node.dimmed {
-  opacity: 0.22;
+  margin: 3px 0 0;
+  line-height: 1.35;
 }
 .map-caption {
   color: var(--muted);
@@ -569,35 +541,12 @@ footer p {
 footer span {
   margin: 0 12px;
 }
-/* Feature details belong to the branch, directly beneath the selected title. */
-.feature-card {
-  position: absolute;
-  border-radius: 14px;
-}
-.feature-card .feature-node {
-  position: relative;
-  width: 100%;
-}
-.feature-card.expanded {
-  background: var(--surface);
-  border: 1px solid var(--accent);
-  box-shadow: 0 12px 32px #10295818;
-}
-.feature-card.expanded .feature-node {
-  border: 0;
-  border-radius: 13px 13px 0 0;
-}
-.feature-card.expanded .node-open {
-  transform: rotate(45deg);
-  color: var(--accent);
-}
 .inline-feature-detail {
   position: relative;
   padding: 18px;
   border-top: 1px solid var(--line);
   color: var(--ink);
   background: var(--surface);
-  border-radius: 0 0 13px 13px;
 }
 #close-detail {
   position: absolute;
@@ -838,15 +787,6 @@ h1 {
 .root-link {
   stroke-width: 2;
 }
-.feature-node {
-  border-radius: 14px;
-}
-.feature-node.dimmed {
-  opacity: 0.14;
-}
-.feature-node:hover .node-open {
-  color: var(--accent);
-}
 .clear-search {
   position: absolute;
   top: 4px;
@@ -940,9 +880,6 @@ h1 {
   font-size: 19px;
   line-height: 1.45;
 }
-.feature-card.expanded .detail-status {
-  margin: 0 30px 12px 0;
-}
 .inline-feature-detail #detail-description {
   margin: 0;
   font-size: 14px;
@@ -977,27 +914,21 @@ h1 {
 body {
   overflow-anchor: none;
 }
-.feature-card #close-detail {
-  display: none;
-}
 
 /* Motion communicates state: focus moves, branches quieten, and details unfold. */
 .feature-node {
+  transition: opacity 200ms ease;
+}
+.node-ring {
   transition:
     border-color 160ms ease,
     background-color 160ms ease,
     box-shadow 200ms ease,
-    transform 200ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 200ms ease;
+    transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .branch-heading,
 [data-branch-edge] {
   transition: opacity 240ms ease;
-}
-.node-open {
-  transition:
-    transform 220ms ease,
-    color 160ms ease;
 }
 .branch-navigation button,
 .filter,
@@ -1009,9 +940,6 @@ body {
 }
 .inline-feature-detail {
   min-height: 0;
-}
-.feature-card.expanded {
-  transition: box-shadow 240ms ease;
 }
 
 /* One opening gesture reveals how the six branches connect to the product. */
@@ -1116,15 +1044,6 @@ h1 {
   flex: 0 0 24px;
   color: var(--accent);
 }
-.feature-node {
-  gap: 10px;
-  padding-inline: 12px;
-}
-.feature-node .status-dot {
-  width: 6px;
-  height: 6px;
-  flex-shrink: 0;
-}
 .feature-label {
   display: flex;
   align-items: center;
@@ -1160,27 +1079,46 @@ h1 {
     stroke-dashoffset: 0;
   }
 }
-.tree-ready:not(.tree-entered) .branch-heading,
-.tree-ready:not(.tree-entered) .feature-card {
+.tree-ready:not(.tree-entered) .branch-heading {
   animation: tree-rise 520ms cubic-bezier(0.22, 1, 0.36, 1) var(--enter, 0ms) both;
 }
-.tree-ready:not(.tree-entered) .branch-line {
-  animation: tree-draw 600ms cubic-bezier(0.65, 0, 0.35, 1) var(--enter, 0ms) both;
+.tree-ready:not(.tree-entered) .trunk {
+  animation: tree-draw 500ms cubic-bezier(0.65, 0, 0.35, 1) both;
 }
-.tree-ready:not(.tree-entered) .twig {
-  animation: tree-fade 400ms ease 700ms both;
+/* Built work grows along a drawn line; unbuilt work only fades in, so the
+ * entrance itself shows what exists today. */
+.tree-ready:not(.tree-entered) .edge[data-status="shipped"] {
+  animation: tree-draw 420ms cubic-bezier(0.65, 0, 0.35, 1) var(--enter, 0ms) both;
+}
+.tree-ready:not(.tree-entered) .edge:not([data-status="shipped"]) {
+  animation: tree-fade 520ms ease var(--enter, 0ms) both;
+}
+@keyframes node-grow {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+.tree-ready:not(.tree-entered) .feature-card .node-ring {
+  animation: node-grow 460ms cubic-bezier(0.22, 1, 0.36, 1) var(--enter, 0ms) both;
+}
+.tree-ready:not(.tree-entered) .feature-card .node-label {
+  animation: tree-fade 360ms ease calc(var(--enter, 0ms) + 160ms) both;
 }
 .tree-ready:not(.tree-entered) .root-node {
   animation: tree-rise 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
-/* Hover lifts a card slightly; the expanded card stays put. */
-.feature-card:not(.expanded) .feature-node:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px #0b1a3a1f;
-}
-.feature-node:active:not(:disabled) {
-  transform: translateY(0);
+/* Hover lifts a node slightly. */
+.feature-node:hover:not(:disabled) .node-ring {
+  transform: scale(1.08);
+  box-shadow:
+    0 0 0 5px var(--bg),
+    0 6px 16px #0b1a3a26;
 }
 
 /* In-progress work breathes gently on the map: a compositor-only ring. */
@@ -1193,9 +1131,6 @@ h1 {
     transform: scale(2.6);
     opacity: 0;
   }
-}
-.feature-node .status-dot.in-progress {
-  position: relative;
 }
 .feature-node .status-dot.in-progress::after {
   content: "";
@@ -1292,4 +1227,204 @@ h1 {
   .tree-controls {
     inset: auto 10px 10px;
   }
+}
+
+/* Tree map, after up.com.au/tree: a root fans out to branch hubs; features are
+ * circles with their names beneath, hanging from always-visible lines. Status
+ * reads from the ring and the line leading in: solid for shipped, dashed for
+ * work that is still to come. */
+.trunk {
+  stroke: var(--cobalt);
+  stroke-width: 2.5;
+}
+.root-link {
+  stroke-width: 1.5;
+  opacity: 0.8;
+}
+.connections .edge {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+.connections .edge:not([data-status="shipped"]) {
+  stroke: color-mix(in srgb, var(--accent) 45%, var(--line));
+  stroke-dasharray: 5 5;
+}
+.feature-card {
+  position: absolute;
+}
+.feature-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: center;
+}
+.node-ring {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  background: var(--surface);
+  color: var(--accent);
+  /* A halo in the page colour lets lines appear to pass behind the node. */
+  box-shadow: 0 0 0 5px var(--bg);
+}
+.node-ring .feature-icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  color: inherit;
+}
+.feature-node[data-status="in-progress"] .node-ring {
+  border-color: var(--in-progress);
+  color: var(--in-progress);
+}
+.feature-node[data-status="planned"] .node-ring {
+  border-style: dashed;
+  border-color: var(--planned);
+}
+.feature-node[data-status="exploring"] .node-ring {
+  border-style: dashed;
+  border-color: var(--exploring);
+  color: var(--exploring);
+}
+.node-ring .status-dot {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--bg);
+  box-sizing: content-box;
+}
+.node-ring .status-dot.exploring {
+  border: 2px solid var(--bg);
+  background: var(--exploring);
+}
+.node-label {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  max-width: 100%;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--bg);
+  font-size: 13px;
+  font-weight: 520;
+  line-height: 1.25;
+  color: var(--ink);
+}
+.feature-node:not([data-status="shipped"]) .node-label {
+  color: var(--muted);
+}
+.feature-node:hover .node-label,
+.feature-node.selected .node-label {
+  color: var(--accent);
+}
+.feature-node.selected .node-ring,
+.feature-node.prerequisite .node-ring {
+  background: color-mix(in srgb, var(--cobalt) 16%, var(--surface));
+  box-shadow:
+    0 0 0 5px var(--bg),
+    0 0 0 7px color-mix(in srgb, var(--cobalt) 45%, transparent);
+}
+.feature-node.dimmed {
+  opacity: 0.16;
+}
+.feature-node:focus-visible {
+  outline: none;
+}
+.feature-node:focus-visible .node-ring {
+  outline: 3px solid var(--cobalt);
+  outline-offset: 4px;
+}
+/* The map background is a dotted ground, matching the page colour the halos use. */
+.tree-viewport {
+  background-color: var(--bg);
+}
+
+/* Details float beside the selected node instead of pushing the map apart. */
+.map-stage > .inline-feature-detail {
+  position: absolute;
+  z-index: 7;
+  width: 340px;
+  max-height: calc(100% - 28px);
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 14px;
+  box-shadow: 0 16px 40px #0b1a3a2e;
+  animation: pop-in 180ms ease-out;
+}
+.map-stage > .inline-feature-detail .detail-status {
+  margin: 0 34px 10px 0;
+}
+.map-stage > .inline-feature-detail #detail-title {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0 34px 8px 0;
+  overflow: visible;
+  clip-path: none;
+  white-space: normal;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.3px;
+}
+.map-stage > .inline-feature-detail.detail-sheet {
+  inset: auto 8px 8px;
+  width: auto;
+  max-height: 70%;
+}
+/* Focus moves to the title so screen readers announce it; it is not a control. */
+#detail-title:focus-visible {
+  outline: none;
+}
+
+/* Selecting a feature traces its lineage from the root, segment by segment,
+ * and the node answers with a single ripple. */
+.connections .lineage {
+  stroke: var(--cobalt);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--cobalt) 55%, transparent));
+  animation: tree-draw 380ms cubic-bezier(0.65, 0, 0.35, 1) var(--step, 0ms) both;
+}
+@keyframes select-ripple {
+  from {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.9);
+  }
+}
+.feature-node.selected .node-ring::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 2px solid var(--cobalt);
+  pointer-events: none;
+  animation: select-ripple 700ms ease-out both;
+}
+/* Filters quieten the lines into hidden nodes along with the nodes. */
+.connections .edge {
+  transition:
+    opacity 240ms ease,
+    stroke 200ms ease;
+}
+.connections .edge.dimmed {
+  opacity: 0.14;
 }

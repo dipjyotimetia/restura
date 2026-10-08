@@ -10,15 +10,17 @@ import {
   featurePosition,
   mapWidth,
   mapHeight,
-  nodeWidth,
-  nodeHeight,
+  nodeSize,
+  hubSize,
+  labelWidth,
   layout,
   featureGrid,
-  columnX,
+  branchLeft,
+  branchWidth,
+  hubPosition,
   rootX,
   rootLinkPath,
-  branchLinePath,
-  twigPath,
+  edgePath,
 } from '../data/product-tree';
 const reviewedDate = new Intl.DateTimeFormat('en-AU', {
   day: 'numeric',
@@ -26,6 +28,12 @@ const reviewedDate = new Intl.DateTimeFormat('en-AU', {
   year: 'numeric',
   timeZone: 'UTC',
 }).format(new Date(reviewedOn));
+// The tree grows on load: hubs first, then each branch downward, every node
+// arriving just after the line that leads to it.
+const grow = (feature: (typeof features)[number]) => {
+  const { column, depth, row } = featureGrid(feature);
+  return 560 + column * 40 + row * 55 + depth * 90;
+};
 const totals = Object.keys(statuses).map((status) => ({
   status,
   label: statuses[status as keyof typeof statuses],
@@ -72,26 +80,32 @@ const totals = Object.keys(statuses).map((status) => ({
         <div id="empty-state" hidden><p>No matching features in this view.</p><button id="clear-filters">Clear filters and search</button></div>
         <div class="map-stage enhanced">
         <div id="tree-controls" class="tree-controls enhanced">
-          <div class="map-caption"><span>Scroll to pan · <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + scroll to zoom · Click a box to expand</span></div>
+          <div class="map-caption"><span>Scroll to pan · <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + scroll to zoom · Click a node for details</span></div>
           <div class="zoom-controls" role="group" aria-label="Map controls"><button id="zoom-out" aria-label="Zoom out">−</button><output id="zoom-level" aria-label="Zoom level">100%</output><button id="zoom-in" aria-label="Zoom in">+</button><button id="reset-map">Fit tree</button></div>
         </div>
         <div id="tree-viewport" class="tree-viewport enhanced" role="region" aria-label="Interactive feature tree. Drag the background to pan. Use the zoom controls or switch to List for keyboard browsing." tabindex="0">
           <div id="tree-canvas" class="tree-canvas" style={`width:${mapWidth}px;height:${mapHeight}px`}>
             <svg class="connections" width={mapWidth} height={mapHeight} viewBox={`0 0 ${mapWidth} ${mapHeight}`} aria-hidden="true">
+              <path class="trunk" pathLength="1" d={`M${rootX} ${layout.trunkTop} V${layout.trunkY}`} />
               {branches.map((branch, index) => {
-                const items = features.filter((feature) => feature.branch === branch.id);
-                const last = items.at(-1);
-                const bottom = last ? featurePosition(last).y + nodeHeight / 2 : layout.headingY + 97;
-                return <g data-branch-edge={branch.id}><path class="root-link" pathLength="1" d={rootLinkPath(index)} /><path class="branch-line" pathLength="1" style={`--enter:${320 + index * 50}ms`} d={branchLinePath(index, bottom)} />{items.map((feature) => { const { x, y } = featurePosition(feature); return <path class="twig" data-edge={feature.id} d={twigPath(x, y)} />; })}</g>;
+                // Shipped edges draw last so a shared line stays solid up to the last shipped node.
+                const items = features
+                  .filter((feature) => feature.branch === branch.id)
+                  .sort((a, b) => Number(a.status === 'shipped') - Number(b.status === 'shipped'));
+                return <g data-branch-edge={branch.id}><path class="root-link" pathLength="1" style={`--enter:${120 + index * 40}ms`} d={rootLinkPath(index)} />{items.map((feature) => <path class="edge" pathLength={feature.status === 'shipped' ? 1 : undefined} data-edge={feature.id} data-status={feature.status} style={`--enter:${grow(feature)}ms`} d={edgePath(feature)} />)}</g>;
               })}
+              <g id="lineage-lines"></g>
               <g id="dependency-lines"></g>
             </svg>
             <div class="root-node" style={`left:${rootX}px;top:${layout.rootTop}px`}><span><img src="/favicon.svg" alt="" width="28" height="28" />Restura</span><small>Local first. Open source.</small></div>
-            {branches.map((branch, index) => <div class="branch-heading" data-map-branch={branch.id} style={`left:${columnX(index)}px;top:${layout.headingY}px;width:${nodeWidth}px;--enter:${180 + index * 50}ms`}><span class="branch-symbol" aria-hidden="true">{branch.symbol}</span><div><h2>{branch.label}</h2><p>{branch.description}</p></div></div>)}
+            {branches.map((branch, index) => {
+              const hub = hubPosition(index);
+              const left = hub.x - hubSize / 2;
+              return <div class="branch-heading" data-map-branch={branch.id} style={`left:${left}px;top:${hub.y - hubSize / 2}px;width:${branchLeft(index) + branchWidth(index) - left}px;--enter:${180 + index * 50}ms`}><span class="branch-symbol" aria-hidden="true">{branch.symbol}</span><div><h2>{branch.label}</h2><p>{branch.description}</p></div></div>;
+            })}
             {features.map((feature) => {
               const { x, y } = featurePosition(feature);
-              const { column, row } = featureGrid(feature);
-              return <article class="feature-card" data-card={feature.id} style={`left:${x}px;top:${y}px;width:${nodeWidth}px;--enter:${380 + column * 50 + row * 30}ms`}><button class="feature-node" data-feature={feature.id} data-status={feature.status} style={`height:${nodeHeight}px`} title={`${feature.title} — ${statuses[feature.status]}`} aria-label={`${feature.title}, ${statuses[feature.status]}`} aria-expanded="false" aria-controls="feature-detail"><FeatureIcon id={feature.id} branch={feature.branch} /><span>{feature.title}</span><i class={`status-dot ${feature.status}`} aria-hidden="true"></i><span class="node-open" aria-hidden="true">+</span></button></article>;
+              return <article class="feature-card" data-card={feature.id} style={`left:${x - labelWidth / 2}px;top:${y - nodeSize / 2}px;width:${labelWidth}px;--enter:${grow(feature) + 220}ms`}><button class="feature-node" data-feature={feature.id} data-status={feature.status} title={`${feature.title} — ${statuses[feature.status]}`} aria-label={`${feature.title}, ${statuses[feature.status]}`} aria-expanded="false" aria-controls="feature-detail"><span class="node-ring"><FeatureIcon id={feature.id} branch={feature.branch} /><i class={`status-dot ${feature.status}`} aria-hidden="true"></i></span><span class="node-label">{feature.title}</span></button></article>;
             })}
           </div>
         </div>
