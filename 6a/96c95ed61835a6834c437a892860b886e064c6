@@ -1,0 +1,21 @@
+tests/docs-product-tree.test.ts
+  s_763e1852f33c0c::t_b37a2a58e45fb5 3
+tests/docs-product-tree-ui.test.ts
+  s_763e1852f33c0c::t_f0d671fee3d4f3 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6a96c95ed61835a6834c437a892860b886e064c6",
+  "prompts": {},
+  "sessions": {
+    "s_763e1852f33c0c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1199e-0e8e-77e3-aa2d-50c9595576ff",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
