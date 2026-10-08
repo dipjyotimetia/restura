@@ -49,7 +49,7 @@ public fragment links, so preserve existing IDs. Branch membership groups featur
 verify the implementation, tests, and `src/lib/shared/capabilities.ts` in the main
 app. Platform lists on future features are intended availability, not a promise.
 Keep `docs/ROADMAP.md` aligned and update `reviewedOn` after a content review.
-The site does not fetch GitHub data or require new dependencies.
+The product tree uses curated local data and requires no new dependencies.
 
 Run `npm run docs:test` from the repository root to
 check IDs, dependency cycles, documentation links, and known platform boundaries.
@@ -103,6 +103,6 @@ Select a branch to frame its features at a readable size. Status filters and wor
 
 Product tree motion is triggered by interaction: a short camera transition keeps branch navigation oriented, and one animation frame loop unfolds details while moving cards and SVG connectors together. Dragging interrupts the camera transition. Reduced-motion preferences disable transitions and make expansion immediate.
 
-The Delivery plan page renders the same curated feature dataset as the tree. Release notes link directly to GitHub releases. Feature icons are local SVG illustrations and protocol abbreviations, avoiding remote asset dependencies.
+The Delivery plan page renders the same curated feature dataset as the tree. Release notes render in the docs site using the unauthenticated public GitHub releases API, with older-release pagination, retry handling, and a GitHub fallback when JavaScript is disabled or the API is unavailable. Remote HTML is rebuilt with a formatting-only allowlist and HTTPS links. Feature icons are local SVG illustrations and protocol abbreviations, avoiding remote asset dependencies.
 
 Run `npm run docs:test` from the repository root after installing root dependencies. Docs-site tests have their own Vitest configuration and run in CI independently of the application’s fixed uncovered-code budget. That application budget and its coverage exclusions are unchanged.
