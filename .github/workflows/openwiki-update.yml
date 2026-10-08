@@ -1,75 +1,55 @@
 name: OpenWiki Update
 
-# Scheduled agent-facing documentation: Claude Code walks the commits since the
-# last OpenWiki run, updates the openwiki/ directory to match, and a PR is
-# opened — docs written for coding agents to reference, not end users (see
-# docs/CI_CD.md for the human-facing docs pipeline).
-#
-# Runs on the Claude subscription (CLAUDE_CODE_OAUTH_TOKEN) instead of a
-# per-token API provider. The OpenWiki CLI itself can't use that token (it
-# calls provider APIs with API keys), so Claude Code does the update directly
-# and keeps OpenWiki's file conventions (.last-update.json, frontmatter,
-# index.md) so either generator can take over later.
+# Scheduled agent-facing documentation: OpenWiki (langchain-ai/openwiki) walks
+# the commits since its last run, diffs what changed, and opens a PR updating
+# the openwiki/ directory — docs written for coding agents to reference, not
+# end users (see docs/CI_CD.md for the human-facing docs pipeline). Runs
+# against OpenRouter so no direct OpenAI/Anthropic account is required.
 
 on:
   workflow_dispatch:
   schedule:
     # Weekly (Mondays 08:00 UTC): daily runs produced PRs that mostly went
-    # unmerged and spent a model run each day.
+    # unmerged and paid for a model call each day.
     - cron: '0 8 * * 1'
 
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: true
 
-permissions: {}
+permissions:
+  contents: write
+  pull-requests: write
 
 jobs:
   update:
     name: Generate OpenWiki update PR
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: write # create-pull-request pushes the openwiki/update branch
-      pull-requests: write # create-pull-request opens/updates the PR
-      id-token: write # claude-code-action exchanges OIDC for its GitHub App token
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Full history: the update diffs from the last recorded gitHead.
-          fetch-depth: 0
           persist-credentials: true
 
-      - name: Update OpenWiki with Claude Code
-        uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515 # v1
+      - uses: ./.github/actions/setup-node-npm
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # Read-only git plus file edits; the PR step below commits only openwiki/.
-          claude_args: >-
-            --model claude-sonnet-5-5
-            --max-turns 60
-            --allowedTools "Read,Write,Edit,Glob,Grep,Bash(git log:*),Bash(git diff:*),Bash(git show:*),Bash(git rev-parse:*),Bash(date:*)"
-          prompt: |
-            You maintain `openwiki/`, an agent-facing code wiki for this repository.
-            Follow `openwiki/INSTRUCTIONS.md`. Edit files under `openwiki/` only.
+          node-version-file: '.nvmrc'
 
-            1. Read `openwiki/.last-update.json`. Its `gitHead` is the last commit the
-               wiki reflects. Inspect what changed since then with
-               `git log --no-merges <gitHead>..HEAD` and `git diff --stat <gitHead>..HEAD`,
-               then read the changed source files that matter for engineers.
-            2. Update the affected pages so they match the code. Source code and tests
-               are authoritative; correct any page claim they contradict. Keep each
-               page's frontmatter (`type`, `title`, `description`) and the existing
-               directory structure. Add a page only for a genuinely new area, and list
-               it in the `index.md` of its directory.
-            3. Keep edits surgical and factual: cite real file paths, do not
-               speculate, and skip dependency bumps or changes with no effect on how
-               the code works.
-            4. If you changed any page, rewrite `openwiki/.last-update.json` with
-               `updatedAt` (`date -u +%Y-%m-%dT%H:%M:%S.000Z`), `command: "update"`,
-               `gitHead` (`git rev-parse HEAD`), `model: "claude-sonnet-5-5"`,
-               `status: "complete"`, and `language: "en"`. If nothing needed
-               changing, leave every file untouched so no PR is opened.
+      - name: Install OpenWiki
+        run: npm install --global openwiki@0.7.0
+
+      - name: Run OpenWiki
+        run: openwiki --update --print
+        env:
+          # OpenRouter is the only configured provider — swap this block to
+          # point at OpenAI/Anthropic/Fireworks/Baseten instead. See
+          # https://github.com/langchain-ai/openwiki for the full provider list.
+          # deepseek-v4-pro: 1M context, ~$0.44/$0.87 per M tok (in/out) on
+          # OpenRouter as of Jul 2026 — cheaper on both legs and a larger
+          # context window than OpenWiki's z-ai/glm-5.2 default. Drop to
+          # deepseek/deepseek-v4-flash for a ~5x cheaper, lower-fidelity run.
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENWIKI_MODEL_ID: deepseek/deepseek-v4-pro
 
       - name: Create OpenWiki update pull request
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
@@ -81,5 +61,4 @@ jobs:
           body: |
             Automated OpenWiki documentation update.
 
-            Generated by the scheduled OpenWiki workflow with Claude Code, following the
-            [OpenWiki](https://github.com/langchain-ai/openwiki) page conventions.
+            Generated by the scheduled [OpenWiki](https://github.com/langchain-ai/openwiki) workflow.
