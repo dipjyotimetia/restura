@@ -69,6 +69,8 @@ export interface Feature {
   status: Status;
   platforms: readonly Platform[];
   prerequisites: readonly string[];
+  /** Same-branch feature this one is drawn under on the map. */
+  parent?: string;
   href?: string;
   plan?: Plan;
 }
@@ -366,7 +368,7 @@ export const features: Feature[] = [
     'collections',
     'import-export',
     'Import & export',
-    'Bring collections from Postman, Insomnia, Bruno, and other tools; share portable files.',
+    'Import Postman, Insomnia, Bruno, Hoppscotch, OpenAPI, curl, and .http files; export portable OpenCollection or Bruno files.',
     'shipped',
     all,
     '/guides/import-export/'
@@ -806,6 +808,360 @@ export const features: Feature[] = [
       ],
     }
   ),
+  // Shipped capabilities verified in source on 2026-10-08 that had no entry yet.
+  entry(
+    'protocols',
+    'code-generation',
+    'Code generation',
+    'Turn a request into curl, JavaScript, Node.js, Python, Go, PHP, or Ruby, with generators for GraphQL, WebSocket, SSE, and MCP too.',
+    'shipped',
+    all,
+    '/protocols/http/'
+  ),
+  entry(
+    'protocols',
+    'network-console',
+    'Network console',
+    'Inspect every exchange, frame, and script log, and compare a response with the previous one.',
+    'shipped',
+    all,
+    '/protocols/http/'
+  ),
+  entry(
+    'protocols',
+    'kafka-schema-registry',
+    'Kafka Schema Registry',
+    'Encode and decode Avro, Protobuf, and JSON Schema messages, and inspect topics and consumer groups.',
+    'shipped',
+    desktop,
+    '/protocols/kafka/'
+  ),
+  entry(
+    'security',
+    'proxy-settings',
+    'Proxies & bypass rules',
+    'Route desktop traffic through HTTP, HTTPS, SOCKS4, or SOCKS5 proxies with authentication and a bypass list.',
+    'shipped',
+    desktop,
+    '/overview/platforms/'
+  ),
+  entry(
+    'security',
+    'external-secrets',
+    'Cloud secret providers',
+    'Resolve secrets from AWS Secrets Manager, Google Secret Manager, and Azure Key Vault at send time, on desktop and in the CLI.',
+    'shipped',
+    ['Desktop', 'CLI'],
+    '/guides/environments/'
+  ),
+  entry(
+    'collections',
+    'globals-scopes',
+    'Globals & variable scopes',
+    'Edit global and folder variables, and see which scope supplies each value.',
+    'shipped',
+    all,
+    '/guides/environments/'
+  ),
+  entry(
+    'collections',
+    'tabs-history',
+    'Tabs & request history',
+    'Work across request tabs, reopen closed ones, and revisit anything you have sent.',
+    'shipped',
+    all,
+    '/guides/collections/'
+  ),
+  entry(
+    'collections',
+    'collection-docs',
+    'Collection documentation',
+    'Generate readable Markdown or HTML documentation from a collection.',
+    'shipped',
+    all,
+    '/guides/collections/'
+  ),
+  entry(
+    'automation',
+    'collection-runner',
+    'Data-driven collection runs',
+    'Run a collection or folder in the app with iterations and CSV or JSON data rows, then review the saved run history.',
+    'shipped',
+    all,
+    '/guides/collections/',
+    ['collections']
+  ),
+  entry(
+    'automation',
+    'cli-workflows',
+    'Workflows from the CLI',
+    'Run request workflows headlessly in CI, with explicit opt-in for mutating calls.',
+    'shipped',
+    ['CLI'],
+    '/reference/cli/',
+    ['cli', 'workflows']
+  ),
+  entry(
+    'ai',
+    'ai-arena',
+    'Arena & Elo leaderboard',
+    'Judge models head to head and rank them with an Elo leaderboard and win-rate matrix.',
+    'shipped',
+    desktop,
+    '/guides/ai-lab/'
+  ),
+  entry(
+    'ai',
+    'eval-generation',
+    'Generated eval datasets',
+    'Generate eval cases from an OpenAPI spec or a red-team generator, or import them from request history.',
+    'shipped',
+    desktop,
+    '/guides/ai-lab/'
+  ),
+  entry(
+    'ai',
+    'agent-telemetry',
+    'Agent telemetry export',
+    'Send metadata-only agent traces to OTLP or Langfuse endpoints you configure.',
+    'shipped',
+    ['Desktop', 'CLI'],
+    '/guides/ai-lab/'
+  ),
+  entry(
+    'platforms',
+    'command-palette',
+    'Command palette & shortcuts',
+    'Jump to any request, action, or setting from the keyboard.',
+    'shipped',
+    all,
+    '/guides/keyboard-shortcuts/'
+  ),
+  entry(
+    'platforms',
+    'desktop-updates',
+    'Auto-update & deep links',
+    'Keep the desktop app current on a stable or beta channel, and open it from restura:// links.',
+    'shipped',
+    desktop,
+    '/guides/electron-updates/'
+  ),
+  // Ideas under exploration: directions informed by comparable API clients,
+  // checked against the source so none duplicates something that already ships.
+  entry(
+    'protocols',
+    'nats',
+    'NATS & JetStream',
+    'Publish, subscribe, and make request-reply calls against NATS, including JetStream consumers.',
+    'exploring',
+    desktop,
+    undefined,
+    [],
+    {
+      today:
+        'Kafka and MQTT clients ship on desktop behind broker address guards; NATS has no client yet.',
+      milestones: [
+        todo('Core publish and subscribe'),
+        todo('JetStream consumers'),
+        todo('TLS and credentials authentication'),
+      ],
+    }
+  ),
+  entry(
+    'protocols',
+    'amqp',
+    'AMQP / RabbitMQ',
+    'Browse exchanges and queues, and publish or consume AMQP 0-9-1 messages.',
+    'exploring',
+    desktop,
+    undefined,
+    [],
+    {
+      today:
+        'No AMQP client exists yet; the broker connection guards used by Kafka and MQTT would apply.',
+      milestones: [
+        todo('Connect and publish'),
+        todo('Consume with acknowledgements'),
+        todo('Exchange and queue browser'),
+      ],
+    }
+  ),
+  entry(
+    'protocols',
+    'http3',
+    'HTTP/3 & WebTransport',
+    'Send requests over QUIC and open WebTransport sessions, showing the negotiated protocol.',
+    'exploring',
+    desktop,
+    undefined,
+    [],
+    {
+      today: 'Desktop HTTP records the negotiated ALPN protocol; there is no QUIC transport.',
+      milestones: [
+        todo('HTTP/3 requests'),
+        todo('Alt-Svc negotiation'),
+        todo('WebTransport streams'),
+      ],
+    }
+  ),
+  entry(
+    'security',
+    'vault-providers',
+    '1Password & Vault',
+    'Add 1Password and HashiCorp Vault alongside the cloud secret providers.',
+    'exploring',
+    ['Desktop', 'CLI'],
+    undefined,
+    [],
+    {
+      today:
+        'AWS, Google, and Azure secret providers ship; the provider list is a closed set in the profile schema.',
+      milestones: [
+        todo('Pluggable provider interface'),
+        todo('1Password adapter'),
+        todo('HashiCorp Vault adapter'),
+      ],
+    }
+  ),
+  entry(
+    'security',
+    'workspace-trust',
+    'Workspace trust',
+    'Ask before running scripts or agent tools from a freshly cloned collection.',
+    'exploring',
+    ['Desktop', 'CLI'],
+    undefined,
+    [],
+    {
+      today: 'Scripts run in a bounded QuickJS sandbox; there is no per-workspace trust decision.',
+      milestones: [todo('Trust model'), todo('Desktop trust prompt'), todo('CLI trust flag')],
+    }
+  ),
+  entry(
+    'collections',
+    'asyncapi-import',
+    'AsyncAPI import',
+    'Turn AsyncAPI channels into Kafka, MQTT, WebSocket, and SSE requests.',
+    'exploring',
+    all,
+    undefined,
+    [],
+    {
+      today:
+        'Collections can record an AsyncAPI spec kind, but no importer reads AsyncAPI documents.',
+      milestones: [
+        todo('Spec parser'),
+        todo('Channel-to-request mapping'),
+        todo('Server and binding variables'),
+      ],
+    }
+  ),
+  entry(
+    'collections',
+    'team-sync',
+    'Account-free team sync',
+    'Share collections and environments with teammates through an encrypted relay you host, with no cloud account.',
+    'exploring',
+    ['Desktop', 'Self-hosted'],
+    undefined,
+    [],
+    {
+      today: 'Teams share collections through Git today; there is no live sync.',
+      milestones: [
+        todo('Sync design record'),
+        todo('Encrypted relay'),
+        todo('Conflict resolution view'),
+      ],
+    }
+  ),
+  entry(
+    'automation',
+    'visual-assertions',
+    'Visual assertion builder',
+    'Add status, JSONPath, schema, and latency checks without writing a script.',
+    'exploring',
+    all,
+    undefined,
+    [],
+    {
+      today: 'Assertions are written as scripts in the sandbox; there is no no-code builder.',
+      milestones: [todo('Assertion schema'), todo('Builder interface'), todo('CLI report parity')],
+    }
+  ),
+  entry(
+    'automation',
+    'mock-from-traffic',
+    'Mocks from recordings',
+    'Generate mock routes from recorded traffic and request history, with replay matching rules.',
+    'exploring',
+    desktop,
+    undefined,
+    [],
+    {
+      today: 'The mock server serves hand-written and OpenAPI-generated routes only.',
+      milestones: [
+        todo('Recordings to routes'),
+        todo('Matching rules'),
+        todo('Record and replay mode'),
+      ],
+    }
+  ),
+  entry(
+    'automation',
+    'api-monitors',
+    'Uptime monitors',
+    'Run collections on a schedule from a self-hosted server and alert on failures.',
+    'exploring',
+    ['Self-hosted', 'CLI'],
+    undefined,
+    [],
+    {
+      today: 'Collections run on demand in the app and the CLI; nothing runs on a schedule.',
+      milestones: [
+        todo('Monitor definitions'),
+        todo('Alert channels'),
+        todo('Run history dashboard'),
+      ],
+    }
+  ),
+  entry(
+    'ai',
+    'ai-tests-from-traffic',
+    'AI tests from traffic',
+    'Draft assertions and regression suites from recorded traffic, with secrets redacted first.',
+    'exploring',
+    desktop,
+    undefined,
+    [],
+    {
+      today:
+        'AI Lab generates eval cases from OpenAPI specs and history; request test suites are written by hand.',
+      milestones: [
+        todo('Traffic selection and redaction'),
+        todo('Assertion drafting'),
+        todo('Review and accept'),
+      ],
+    }
+  ),
+  entry(
+    'platforms',
+    'plugin-api',
+    'Plugin API',
+    'Extend Restura with sandboxed plugins for custom auth, importers, and panels.',
+    'exploring',
+    desktop,
+    undefined,
+    [],
+    {
+      today:
+        'Extension points are internal; scripts already run in a QuickJS sandbox a plugin host could reuse.',
+      milestones: [
+        todo('Manifest and permissions'),
+        todo('Sandboxed host interface'),
+        todo('Local plugin loader'),
+      ],
+    }
+  ),
 ];
 
 /** Share of verified milestones that are done, 0–1; null when there is no plan. */
@@ -885,72 +1241,158 @@ export const highlights: readonly Highlight[] = [
   },
 ];
 
-// Layout is editorial grouping, not a claim that adjacent features depend on
-// each other. Actual prerequisites are drawn separately when a node is selected.
+/** Editorial tree shape: the same-branch feature each one is drawn under. It reads
+ * as "builds on", so only name a parent the feature genuinely extends. Without one,
+ * a feature hangs from its first same-branch prerequisite, then from the hub. */
+const parents: Record<string, string> = {
+  graphql: 'http',
+  sse: 'http',
+  mcp: 'http',
+  'socket-io': 'websocket',
+  'digest-ntlm': 'auth',
+  'secret-handles': 'local-storage',
+  environments: 'collections',
+  'import-export': 'collections',
+  'environment-export': 'environments',
+  contracts: 'mock-server',
+  'natural-language': 'ai-assistant',
+  'agent-suites': 'ai-lab',
+  'self-hosting': 'web-app',
+  'code-generation': 'http',
+  'network-console': 'http',
+  'kafka-schema-registry': 'kafka',
+  http3: 'http',
+  'proxy-settings': 'native-tls',
+  'external-secrets': 'secret-handles',
+  'vault-providers': 'external-secrets',
+  'globals-scopes': 'environments',
+  'tabs-history': 'collections',
+  'collection-docs': 'collections',
+  'asyncapi-import': 'import-export',
+  'team-sync': 'git-collections',
+  'visual-assertions': 'scripts',
+  'mock-from-traffic': 'mock-server',
+  'api-monitors': 'scheduled-runs',
+  'ai-arena': 'ai-lab',
+  'eval-generation': 'ai-lab',
+  'ai-tests-from-traffic': 'eval-generation',
+  'agent-telemetry': 'agent-suites',
+  'desktop-updates': 'desktop-app',
+};
+for (const feature of features) {
+  const parent = parents[feature.id];
+  if (parent) feature.parent = parent;
+}
+const featureById = new Map(features.map((feature) => [feature.id, feature]));
+export function treeParent(feature: Feature): Feature | undefined {
+  const id =
+    feature.parent ??
+    feature.prerequisites.find(
+      (prerequisite) => featureById.get(prerequisite)?.branch === feature.branch
+    );
+  return id ? featureById.get(id) : undefined;
+}
+
+// The map is a tree: the root fans out to one hub per branch, and each feature
+// sits one row below the previous one and one step right of its tree parent.
 // Every map coordinate derives from these values; the page and script share them.
-export const nodeWidth = 276;
-export const nodeHeight = 62;
+export const nodeSize = 40;
+export const hubSize = 48;
+export const labelWidth = 136;
 export const layout = {
   margin: 36,
-  columnPitch: 316,
+  branchGap: 32,
+  minBranchWidth: 240,
+  depthStep: 80,
   rootTop: 14,
-  rootLinkY: 78,
-  headingY: 118,
-  rowPitch: 76,
+  trunkTop: 76,
+  trunkY: 124,
+  hubY: 276,
+  firstRowGap: 92,
+  rowPitch: 82,
+  bottomPad: 80,
 } as const;
-/** Branch lines bend under the heading and reach the first card at this offset. */
-export const firstRowY = layout.headingY + 93;
-export const columnX = (index: number) => layout.margin + index * layout.columnPitch;
-export const mapWidth = 2 * layout.margin + (branches.length - 1) * layout.columnPitch + nodeWidth;
+
+/** Depth-first rows per branch, so children follow their parent directly. */
+const placement = new Map<string, { column: number; depth: number; row: number }>();
+const branchDepth: number[] = [];
+const branchRows: number[] = [];
+branches.forEach((branch, column) => {
+  const items = features.filter((feature) => feature.branch === branch.id);
+  let row = 0;
+  let deepest = 0;
+  const place = (feature: Feature, depth: number) => {
+    placement.set(feature.id, { column, depth, row: row++ });
+    deepest = Math.max(deepest, depth);
+    for (const child of items.filter((item) => treeParent(item) === feature))
+      place(child, depth + 1);
+  };
+  for (const item of items.filter((candidate) => !treeParent(candidate))) place(item, 0);
+  branchDepth.push(deepest);
+  branchRows.push(row);
+});
+
+export const branchWidth = (column: number) =>
+  Math.max(layout.minBranchWidth, labelWidth + (branchDepth[column] ?? 0) * layout.depthStep);
+export const branchLeft = (column: number) => {
+  let left = layout.margin;
+  for (let index = 0; index < column; index++) left += branchWidth(index) + layout.branchGap;
+  return left;
+};
+const depthX = (column: number, depth: number) =>
+  branchLeft(column) + labelWidth / 2 + depth * layout.depthStep;
+export const mapWidth =
+  branchLeft(branches.length - 1) + branchWidth(branches.length - 1) + layout.margin;
 export const rootX = mapWidth / 2;
-export function featureGrid(feature: Feature): { column: number; row: number } {
+export const mapHeight =
+  layout.hubY +
+  layout.firstRowGap +
+  (Math.max(...branchRows) - 1) * layout.rowPitch +
+  layout.bottomPad;
+
+export function featureGrid(feature: Feature): { column: number; depth: number; row: number } {
+  const place = placement.get(feature.id);
+  if (!place) throw new Error(`Unplaced feature: ${feature.id}`);
+  return place;
+}
+/** Centre of the branch hub circle. */
+export const hubPosition = (column: number) => ({ x: depthX(column, 0), y: layout.hubY });
+/** Centre of the feature's circle. */
+export function featurePosition(feature: Feature): { x: number; y: number } {
+  const { column, depth, row } = featureGrid(feature);
   return {
-    column: branches.findIndex((branch) => branch.id === feature.branch),
-    row: features
-      .filter((item) => item.branch === feature.branch)
-      .findIndex((item) => item.id === feature.id),
+    x: depthX(column, depth),
+    y: layout.hubY + layout.firstRowGap + row * layout.rowPitch,
   };
 }
-export function featurePosition(feature: Feature): { x: number; y: number } {
-  const { column, row } = featureGrid(feature);
-  return { x: columnX(column), y: firstRowY + row * layout.rowPitch };
-}
-export const mapHeight =
-  firstRowY +
-  Math.max(
-    ...branches.map((branch) => features.filter((feature) => feature.branch === branch.id).length)
-  ) *
-    layout.rowPitch;
 
-export function rootLinkPath(column: number): string {
-  const x = columnX(column) + nodeWidth / 2;
-  const { rootLinkY: start, headingY: end } = layout;
-  const span = end - start;
-  return `M${rootX} ${start} C${rootX} ${start + span * 0.6} ${x} ${start + span * 0.35} ${x} ${end}`;
+export const rootLinkPath = (column: number) => {
+  const hub = hubPosition(column);
+  return `M${rootX} ${layout.trunkY} L${hub.x} ${hub.y - hubSize / 2}`;
+};
+/** Top-level features hang from the hub's spine. A parent's first child is reached
+ * diagonally; later siblings continue straight down from it, sharing that line. */
+export function edgePath(feature: Feature): string {
+  const { x, y } = featurePosition(feature);
+  const parent = treeParent(feature);
+  if (!parent) {
+    const hub = hubPosition(featureGrid(feature).column);
+    return `M${hub.x} ${hub.y} V${y}`;
+  }
+  const from = featurePosition(parent);
+  const first = features.find((item) => treeParent(item) === parent) ?? feature;
+  const firstY = featurePosition(first).y;
+  return `M${from.x} ${from.y} L${x} ${firstY}${y === firstY ? '' : ` V${y}`}`;
 }
-export function branchLinePath(column: number, bottom: number): string {
-  const x = columnX(column);
-  const middle = x + nodeWidth / 2;
-  const bend = layout.headingY + 81;
-  return `M${middle} ${layout.headingY + 67} Q${middle} ${bend} ${middle - 16} ${bend} H${x + 4} Q${x - 12} ${bend} ${x - 12} ${bend + 16} V${bottom}`;
-}
-export const twigPath = (x: number, y: number) => `M${x - 12} ${y + nodeHeight / 2} H${x}`;
 
-/** Show the whole map when that costs little scale; otherwise fit the width (wide
- * screens have more width than height to give) and let at most half a viewport of
- * height overflow for panning. 88px keeps the top margin and floating controls clear. */
+/** Fit the map's width, letting tall maps overflow downward for panning rather than
+ * shrinking labels further. Phones frame the first branch at a readable size with
+ * the next one peeking in, inviting a horizontal pan. */
 export function fitScale(viewportWidth: number, viewportHeight: number): number {
-  const width = (viewportWidth - 52) / mapWidth;
-  // Phones can't show six columns legibly: frame one readable column instead,
-  // with the next one peeking in to invite a horizontal pan.
   if (viewportWidth < 640)
-    return Math.min(1, (viewportWidth - 24) / (layout.columnPitch + layout.margin));
-  const height = (viewportHeight - 88) / mapHeight;
-  const scale =
-    height >= width * 0.75
-      ? Math.min(width, height)
-      : Math.min(width, (viewportHeight * 1.5) / mapHeight);
-  return Math.max(0.1, Math.min(1, scale));
+    return Math.min(1, (viewportWidth - 24) / (branchWidth(0) + layout.margin));
+  const width = (viewportWidth - 52) / mapWidth;
+  return Math.max(0.1, Math.min(1, width, (viewportHeight * 1.6) / mapHeight));
 }
 
 /** Prefix matching on words supports typing without matching HAR in "share".

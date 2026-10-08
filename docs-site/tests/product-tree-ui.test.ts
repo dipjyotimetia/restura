@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { featurePosition, features, fitScale, nodeHeight } from '../src/data/product-tree';
+import { featurePosition, features, fitScale } from '../src/data/product-tree';
 
 const windowListeners = vi.spyOn(window, 'addEventListener');
 const documentListeners = vi.spyOn(document, 'addEventListener');
@@ -89,14 +89,23 @@ it('retains keyboard focus after following a feature relationship', () => {
   expect(document.activeElement?.id).toBe('detail-title');
 });
 
-it('frames the displaced position of a node below an expanded card', () => {
+it('opens details beside a clicked node without moving the camera', () => {
+  const canvas = document.getElementById('tree-canvas')!;
+  const before = canvas.style.transform;
   document.querySelector<HTMLButtonElement>('[data-feature="http"]')!.click();
+  expect(document.getElementById('feature-detail')!.hidden).toBe(false);
+  expect(canvas.style.transform).toBe(before);
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  expect(document.getElementById('feature-detail')!.hidden).toBe(true);
+  expect(document.activeElement?.getAttribute('data-feature')).toBe('http');
+});
+
+it('pans to a node that receives focus off screen', () => {
   const node = document.querySelector<HTMLButtonElement>('[data-feature="graphql"]')!;
   node.getBoundingClientRect = () => rect(1000, 1062);
   node.focus();
   const graphQL = features.find((feature) => feature.id === 'graphql')!;
-  const scale = fitScale(1000, 600);
-  const expectedY = 300 - (featurePosition(graphQL).y + 200 + nodeHeight / 2) * scale;
+  const expectedY = 300 - featurePosition(graphQL).y * fitScale(1000, 600);
   expect(document.getElementById('tree-canvas')!.style.transform).toContain(`${expectedY}px`);
 });
 

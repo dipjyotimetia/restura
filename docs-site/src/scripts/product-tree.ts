@@ -1,20 +1,20 @@
 import {
   type BranchId,
   branches,
-  branchLinePath,
-  columnX,
+  branchLeft,
+  branchWidth,
   featurePosition,
   features,
   findFeatures,
   fitScale,
+  labelWidth,
   layout,
   mapHeight,
   mapWidth,
-  nodeHeight,
-  nodeWidth,
+  nodeSize,
   type Status,
   statuses,
-  twigPath,
+  treeParent,
 } from '../data/product-tree';
 
 function initializeTree() {
@@ -24,9 +24,8 @@ function initializeTree() {
   const canvas = get<HTMLDivElement>('tree-canvas');
   const list = get<HTMLDivElement>('feature-list');
   const panel = get<HTMLElement>('feature-detail');
-  let expansionHeight = 0;
+  const stage = viewport.closest<HTMLElement>('.map-stage');
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-  let expansionFrame: number | null = null;
   let cameraAnimation: Animation | null = null;
   let initialized = false;
   const search = get<HTMLInputElement>('feature-search');
@@ -70,16 +69,42 @@ function initializeTree() {
     get<HTMLOutputElement>('zoom-level').value = `${Math.round(scale * 100)}%`;
     get<HTMLButtonElement>('zoom-out').disabled = scale <= 0.1;
     get<HTMLButtonElement>('zoom-in').disabled = scale >= 1.6;
+    placePanel();
+  }
+  /** Anchors the tree-view details beside the selected node, flipping to its left
+   * near the right edge. Narrow maps show it as a bottom sheet instead (CSS). */
+  function placePanel() {
+    if (view !== 'tree' || !selection || panel.hidden) return;
+    const feature = features.find((item) => item.id === selection);
+    if (!feature) return;
+    const sheet = viewport.clientWidth < 640;
+    panel.classList.toggle('detail-sheet', sheet);
+    if (sheet) {
+      panel.style.removeProperty('left');
+      panel.style.removeProperty('top');
+      return;
+    }
+    const { x, y } = featurePosition(feature);
+    const gap = 14;
+    const width = panel.offsetWidth || 340;
+    const right = offset.x + (x + labelWidth / 2) * scale + gap;
+    const left =
+      right + width <= viewport.clientWidth - gap
+        ? right
+        : offset.x + (x - labelWidth / 2) * scale - gap - width;
+    const top = offset.y + (y - nodeSize / 2) * scale;
+    panel.style.left = `${viewport.offsetLeft + Math.max(gap, Math.min(viewport.clientWidth - width - gap, left))}px`;
+    panel.style.top = `${viewport.offsetTop + Math.max(gap, Math.min(viewport.clientHeight - panel.offsetHeight - gap, top))}px`;
   }
   function fit(animate = true) {
     if (!viewport.clientWidth) return;
     scale = fitScale(viewport.clientWidth, viewport.clientHeight);
     // A map wider than the viewport (phones) starts at its first column.
     const whole = mapWidth * scale <= viewport.clientWidth;
-    // The root sits off-screen in that case, so begin at the branch headings.
+    // The root sits off-screen in that case, so begin at the branch hubs.
     offset = whole
       ? { x: (viewport.clientWidth - mapWidth * scale) / 2, y: 16 }
-      : { x: 0, y: 16 - (layout.headingY - 16) * scale };
+      : { x: 0, y: 16 - (layout.hubY - 60) * scale };
     userMoved = false;
     paint(animate);
   }
@@ -98,24 +123,27 @@ function initializeTree() {
       return;
     }
     const index = branches.findIndex((branch) => branch.id === activeBranch);
-    scale = Math.min(1.1, viewport.clientWidth / (nodeWidth + 160));
+    const width = branchWidth(index);
+    scale = Math.min(1.1, viewport.clientWidth / (width + 120));
     offset = {
-      x: viewport.clientWidth / 2 - (columnX(index) + nodeWidth / 2) * scale,
-      y: 32 - layout.headingY * scale,
+      x: viewport.clientWidth / 2 - (branchLeft(index) + width / 2) * scale,
+      y: 32 - (layout.hubY - 40) * scale,
     };
     userMoved = false;
     paint(true);
   }
-  /** Pans for a user gesture, keeping part of the map on screen. Returns false
-   * when the map is already against that edge. */
+  /** Pans for a user gesture, stopping a small margin past the map's edges so it
+   * never scrolls away into empty canvas. Returns false when the map is already
+   * against that edge. */
   function panTo(next: { x: number; y: number }) {
-    const keep = 120;
+    const margin = 40;
+    const bound = (value: number, viewportSize: number, mapSize: number) => {
+      const far = viewportSize - mapSize * scale - margin;
+      return Math.min(Math.max(margin, far), Math.max(Math.min(margin, far), value));
+    };
     const clamped = {
-      x: Math.min(viewport.clientWidth - keep, Math.max(keep - mapWidth * scale, next.x)),
-      y: Math.min(
-        viewport.clientHeight - keep,
-        Math.max(keep - (mapHeight + expansionHeight) * scale, next.y)
-      ),
+      x: bound(next.x, viewport.clientWidth, mapWidth),
+      y: bound(next.y, viewport.clientHeight, mapHeight),
     };
     if (clamped.x === offset.x && clamped.y === offset.y) return false;
     userMoved = true;
@@ -169,29 +197,27 @@ function initializeTree() {
       lines.replaceChildren();
       return;
     }
-    // Layout runs every frame while a card expands; reuse the paths for the same
-    // selection so their draw-in animation plays once instead of restarting.
-    if (lines.dataset.for !== id) {
-      lines.replaceChildren();
-      lines.dataset.for = id;
-    }
-    const end = positionFor(target);
+    lines.replaceChildren();
+    const end = featurePosition(target);
     const sources = target.prerequisites
       .map((prerequisite) => features.find((feature) => feature.id === prerequisite))
       .filter((source) => source !== undefined);
     sources.forEach((source, index) => {
-      const start = positionFor(source);
+      const start = featurePosition(source);
       let path = lines.children[index];
       if (!path) {
         path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         path.setAttribute('class', 'dependency');
         lines.append(path);
       }
+      // Circle centre to circle centre; the nodes cover the ends.
+      const bend = Math.max(60, Math.abs(end.x - start.x) / 2);
       path.setAttribute(
         'd',
-        `M${start.x + nodeWidth} ${start.y + nodeHeight / 2} C${start.x + nodeWidth + 55} ${start.y + nodeHeight / 2},${end.x - 55} ${end.y + nodeHeight / 2},${end.x} ${end.y + nodeHeight / 2}`
+        `M${start.x} ${start.y} C${start.x + bend} ${start.y},${end.x - bend} ${end.y},${end.x} ${end.y}`
       );
     });
+    lineage(target);
     nodes.forEach((node) => {
       node.classList.toggle('selected', node.dataset.feature === id);
       node.classList.toggle(
@@ -200,105 +226,54 @@ function initializeTree() {
       );
     });
   }
-  function closeFeature(restoreFocus = false, updateUrl = true, animate = false) {
-    if (animate && selection && !reducedMotion.matches) {
-      animateExpansion(0, () => closeFeature(restoreFocus, updateUrl));
-      return;
-    }
-    if (expansionFrame !== null) cancelAnimationFrame(expansionFrame);
-    expansionFrame = null;
-    panel.style.removeProperty('height');
-    panel.style.removeProperty('overflow');
-    panel.style.removeProperty('padding-block');
+  /** Traces the selected feature back to the root: the trunk, its branch's link,
+   * then each ancestor's line, drawn in that order so the path reads top-down. */
+  function lineage(target: (typeof features)[number]) {
+    const group = document.getElementById('lineage-lines');
+    if (!group) return;
+    const chain: (typeof features)[number][] = [];
+    for (let item: (typeof features)[number] | undefined = target; item; item = treeParent(item))
+      chain.unshift(item);
+    const sources = [
+      document.querySelector('.connections .trunk'),
+      document.querySelector(`[data-branch-edge="${target.branch}"] .root-link`),
+      ...chain.map((item) => document.querySelector(`[data-edge="${item.id}"]`)),
+    ];
+    group.replaceChildren(
+      ...sources
+        .filter((source) => source !== null)
+        .map((source, index) => {
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('class', 'lineage');
+          path.setAttribute('pathLength', '1');
+          path.setAttribute('d', source.getAttribute('d') ?? '');
+          path.style.setProperty('--step', `${index * 110}ms`);
+          return path;
+        })
+    );
+  }
+  function closeFeature(restoreFocus = false, updateUrl = true) {
     const wasOpen = selection !== null;
     panel.hidden = true;
+    panel.classList.remove('detail-sheet');
     selection = null;
-    expansionHeight = 0;
     nodes.forEach((node) => node.setAttribute('aria-expanded', 'false'));
     details.forEach((detail) => {
       detail.open = false;
       detail.classList.remove('enhanced-detail');
       detail.querySelector('summary')?.setAttribute('aria-expanded', 'false');
     });
-    document.querySelectorAll('.feature-card').forEach((card) => card.classList.remove('expanded'));
-    const lines = document.getElementById('dependency-lines');
-    lines?.replaceChildren();
-    if (lines) delete lines.dataset.for;
+    get('dependency-lines')?.replaceChildren();
+    get('lineage-lines')?.replaceChildren();
     nodes.forEach((node) => node.classList.remove('selected', 'prerequisite'));
-    layoutCards();
     if (updateUrl && wasOpen) history.replaceState(null, '', location.pathname + location.search);
     if (restoreFocus && returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
-  }
-  function animateExpansion(target: number, onComplete?: () => void) {
-    if (expansionFrame !== null) cancelAnimationFrame(expansionFrame);
-    const startHeight = expansionHeight;
-    const started = performance.now();
-    const duration = target === 0 ? 220 : 340;
-    const fullHeight = Math.max(startHeight, target, 1);
-    panel.style.overflow = 'hidden';
-    const step = (now: number) => {
-      const progress = reducedMotion.matches ? 1 : Math.min(1, (now - started) / duration);
-      const eased = 1 - (1 - progress) ** 3;
-      expansionHeight = startHeight + (target - startHeight) * eased;
-      panel.style.paddingBlock = `${18 * Math.min(1, expansionHeight / fullHeight)}px`;
-      panel.style.height = `${expansionHeight}px`;
-      if (view === 'tree') layoutCards();
-      if (progress < 1) expansionFrame = requestAnimationFrame(step);
-      else {
-        expansionFrame = null;
-        panel.style.removeProperty('height');
-        panel.style.removeProperty('overflow');
-        panel.style.removeProperty('padding-block');
-        onComplete?.();
-      }
-    };
-    if (reducedMotion.matches) step(started + duration);
-    else {
-      panel.style.paddingBlock = `${18 * Math.min(1, startHeight / fullHeight)}px`;
-      panel.style.height = `${startHeight}px`;
-      expansionFrame = requestAnimationFrame(step);
-    }
-  }
-  function positionFor(feature: (typeof features)[number]) {
-    const position = featurePosition(feature);
-    const selected = features.find((item) => item.id === selection);
-    if (selected && selected.branch === feature.branch && position.y > featurePosition(selected).y)
-      position.y += expansionHeight;
-    return position;
-  }
-  function layoutCards() {
-    features.forEach((feature) => {
-      const position = positionFor(feature);
-      const card = document.querySelector<HTMLElement>(`[data-card="${feature.id}"]`);
-      if (card) card.style.top = `${position.y}px`;
-      document
-        .querySelector(`[data-edge="${feature.id}"]`)
-        ?.setAttribute('d', twigPath(position.x, position.y));
-    });
-    branches.forEach((branch, index) => {
-      const items = features.filter((feature) => feature.branch === branch.id);
-      const last = items.at(-1);
-      if (!last) return;
-      const bottom =
-        positionFor(last).y + nodeHeight / 2 + (last.id === selection ? expansionHeight : 0);
-      document
-        .querySelector(`[data-branch-edge="${branch.id}"] .branch-line`)
-        ?.setAttribute('d', branchLinePath(index, bottom));
-    });
-    canvas.style.height = `${mapHeight + expansionHeight}px`;
-    document
-      .querySelector('.connections')
-      ?.setAttribute('height', String(mapHeight + expansionHeight));
-    document
-      .querySelector('.connections')
-      ?.setAttribute('viewBox', `0 0 ${mapWidth} ${mapHeight + expansionHeight}`);
-    if (selection) dependencyLines(selection);
   }
   function showFeature(id: string, focusSource?: HTMLElement, updateUrl = true) {
     const feature = features.find((item) => item.id === id);
     if (!feature) return;
     if (selection === id && focusSource?.matches('[data-feature], summary')) {
-      closeFeature(true, true, true);
+      closeFeature(true);
       return;
     }
     closeFeature(false, false);
@@ -371,23 +346,22 @@ function initializeTree() {
     get('copy-status').textContent = '';
     panel.hidden = false;
     if (view === 'tree') {
-      const card = document.querySelector<HTMLElement>(`[data-card="${id}"]`);
-      card?.append(panel);
-      card?.classList.add('expanded');
+      // Details float over the map, so opening one never moves another node.
+      stage?.append(panel);
       selectedNode?.setAttribute('aria-expanded', 'true');
-      animateExpansion(panel.offsetHeight);
-      // Search and relationship links reveal their destination; direct box
-      // clicks leave the camera exactly where the user put it.
+      dependencyLines(id);
+      // Search and relationship links reveal their destination, leaving room for
+      // the details on the right; direct node clicks keep the user's camera.
       if (!focusSource || focusSource === search) {
         scale = Math.max(1, scale);
         const position = featurePosition(feature);
         offset = {
-          x: viewport.clientWidth / 2 - (position.x + nodeWidth / 2) * scale,
-          y: 32 - position.y * scale,
+          x: viewport.clientWidth / 3 - position.x * scale,
+          y: 140 - position.y * scale,
         };
         userMoved = true;
         paint(true);
-      }
+      } else placePanel();
     } else {
       const detail = details.find((item) => item.dataset.listFeature === id);
       detail?.querySelector('.list-detail')?.append(panel);
@@ -396,7 +370,6 @@ function initializeTree() {
         detail.classList.add('enhanced-detail');
       }
       detail?.querySelector('summary')?.setAttribute('aria-expanded', 'true');
-      animateExpansion(panel.offsetHeight);
       if (!focusSource || focusSource === search) detail?.scrollIntoView({ block: 'nearest' });
     }
     if (updateUrl) history.replaceState(null, '', `#${id}`);
@@ -423,6 +396,10 @@ function initializeTree() {
     nodes.forEach((node) => {
       const matches = ids.has(node.dataset.feature ?? '');
       node.classList.toggle('dimmed', !matches);
+      // Filtering quietens the line into a node along with the node itself.
+      document
+        .querySelector(`[data-edge="${node.dataset.feature}"]`)
+        ?.classList.toggle('dimmed', !matches);
       node.disabled = !matches;
     });
     details.forEach((detail) => {
@@ -500,9 +477,9 @@ function initializeTree() {
     applyFilters();
     search.focus();
   });
-  get('close-detail').addEventListener('click', () => closeFeature(true, true, true));
+  get('close-detail').addEventListener('click', () => closeFeature(true));
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && selection) closeFeature(true, true, true);
+    if (event.key === 'Escape' && selection) closeFeature(true);
   });
   get('copy-link').addEventListener('click', async () => {
     try {
@@ -679,7 +656,13 @@ function initializeTree() {
       if (suppressClick) {
         event.preventDefault();
         event.stopPropagation();
-      }
+      } else if (
+        selection &&
+        event.target instanceof Element &&
+        !event.target.closest('[data-feature]')
+      )
+        // A tap on the open map dismisses the details.
+        closeFeature();
       suppressClick = false;
     },
     true
@@ -717,10 +700,10 @@ function initializeTree() {
       box.top < area.top ||
       box.bottom > area.bottom - 64
     ) {
-      const position = positionFor(feature);
+      const position = featurePosition(feature);
       offset = {
-        x: viewport.clientWidth / 2 - (position.x + nodeWidth / 2) * scale,
-        y: viewport.clientHeight / 2 - (position.y + nodeHeight / 2) * scale,
+        x: viewport.clientWidth / 2 - position.x * scale,
+        y: viewport.clientHeight / 2 - position.y * scale,
       };
       userMoved = true;
       paint();
@@ -738,15 +721,7 @@ function initializeTree() {
         applyFilters();
       }
       showFeature(id, undefined, false);
-      if (view === 'tree' && feature) {
-        activeBranch = feature.branch;
-        updateBranchControls();
-        frameView();
-        const position = featurePosition(feature);
-        offset.y = 48 - position.y * scale;
-        userMoved = true;
-        paint();
-      } else
+      if (view === 'list')
         details
           .find((detail) => detail.dataset.listFeature === id)
           ?.scrollIntoView({ block: 'nearest' });
@@ -755,24 +730,14 @@ function initializeTree() {
   window.addEventListener('hashchange', onHash);
   const observer = new ResizeObserver(() => {
     if (view === 'tree' && !selection && !userMoved) frameView();
+    else placePanel();
   });
   observer.observe(viewport);
-  new ResizeObserver(() => {
-    if (
-      selection &&
-      view === 'tree' &&
-      expansionFrame === null &&
-      Math.abs(expansionHeight - panel.offsetHeight) > 0.5
-    ) {
-      expansionHeight = panel.offsetHeight;
-      layoutCards();
-    }
-  }).observe(panel);
   applyFilters();
   initialized = true;
   // Entrance animations play once; without this they'd replay (hiding cards for
   // their delay) whenever the map is shown again after List view.
-  setTimeout(() => document.documentElement.classList.add('tree-entered'), 1600);
+  setTimeout(() => document.documentElement.classList.add('tree-entered'), 2800);
   reducedMotion.addEventListener('change', () => {
     if (reducedMotion.matches) cameraAnimation?.cancel();
   });
