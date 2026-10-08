@@ -28,7 +28,7 @@ The script editors are Monaco with full type definitions registered for the API 
 - **`chai`-style assertions** — `rs.expect(rs.response.json().name).to.equal('alice')`.
 - **JSON / text helpers** — `rs.response.json()`, `rs.response.text()`, `rs.response.code`, `rs.response.responseTime`.
 - **`rs.sendRequest(...)`** — fire an ad-hoc HTTP request from inside a script (routes through the same SSRF-guarded proxy as a normal request).
-- **`rs.vault`** — read/write an encrypted secret vault (`await rs.vault.get('token')`), so secrets stay out of variables and exports.
+- **`rs.vault`** (desktop only) — read/write an OS-keychain-backed secret vault (`await rs.vault.get('token')`), so secrets stay out of variables and exports.
 - **`rs.cookies`** — read the cookie jar, plus an async `rs.cookies.jar()` for get/set/clear.
 - **`rs.execution`** — runner flow control: `setNextRequest(name)`, `skipRequest()`.
 - **`rs.visualizer.set(template, data)`** — render a custom HTML view of the response.

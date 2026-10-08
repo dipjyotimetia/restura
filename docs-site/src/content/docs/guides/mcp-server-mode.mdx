@@ -1,56 +1,61 @@
 ---
 title: MCP server mode
-description: Run Restura as an MCP server so an agent like Claude can read your collections, environments, and history.
+description: Run the Restura desktop app as a local MCP server for agents like Claude — how it launches, what it exposes, and what is still being built.
 ---
 
 import { Badge, Aside } from '@astrojs/starlight/components';
 
-<Badge text="desktop only" variant="caution" />
+<Badge text="desktop only" variant="caution" /> <Badge text="in progress" variant="note" />
 
-Restura can act as an MCP server, exposing a curated, redacted view of your saved data to an agent. The desktop app handles the MCP wire protocol; you wire it up in your agent's settings.
+Restura can act as an MCP server so an agent can discover your saved requests through a curated, redacted, read-only view. The server and its safety model ship today; the step that hands it your data does not yet.
 
-## What gets exposed
+<Aside type="caution" title="Current status">
+The headless server starts and answers MCP requests, but it deliberately sees **no collections, environments, or history yet** — every tool call is refused as hidden. Syncing your data to the server and a Settings screen for consent are the next milestones. Follow progress on the [delivery plan](/overview/delivery-plan/#plan-mcp-server).
+</Aside>
 
-| Tool | What it does |
-|---|---|
-| `list_collections` | Enumerate saved collections. |
-| `list_requests` | Browse requests in a collection (filterable by folder). |
-| `list_environments` | List environments and their active variables. |
-| `get_environment` | Fetch one environment's details — secrets auto-redacted. |
-| `get_history` | Query past request executions (filterable, with a limit). |
+## How it runs
 
-The tool surface is intentionally read-only and metadata-shaped. Your agent can ask *what* requests exist; it can't trigger sends or modify saved state.
-
-## Consent + redaction
-
-- Each connecting client requires explicit consent — the desktop app shows a confirmation dialog before exposing the tool surface.
-- Secret values (auth tokens, API keys, mTLS material) never leave the main-process secret store. Tool responses redact them by name.
-- The same `SecretRef` machinery used by [auth](/guides/auth/) protects MCP-exposed values.
-
-## Wiring it up
-
-The Restura desktop app advertises an MCP endpoint on a local port; configure your agent (Claude Desktop, Goose, your own MCP client) to connect to it.
-
-Setup steps in your agent's config file usually look like this:
+The desktop app has a headless mode. Launched with `--mcp-server`, it opens no window and speaks MCP over **stdio**, so the agent starts it as a subprocess — there is no network port.
 
 ```json
 {
   "mcpServers": {
     "restura": {
-      "url": "http://127.0.0.1:<port>",
-      "transport": "streamable-http"
+      "command": "/Applications/Restura.app/Contents/MacOS/Restura",
+      "args": ["--mcp-server"]
     }
   }
 }
 ```
 
-Open the **Settings → MCP server** panel in the desktop app for the exact port and the toggle to enable the server.
+Use the path to the Restura executable on your platform (on Windows, the installed `Restura.exe`; on Linux, the AppImage or installed binary). Logs go to stderr, which agents such as Claude Desktop capture in their own log files.
 
-<Aside type="caution">
-MCP server mode is opt-in. It's off by default. When on, the desktop app only listens on `127.0.0.1` — never on a public interface.
-</Aside>
+## What it exposes
+
+| Tool | What it does |
+|---|---|
+| `list_collections` | Enumerate collections you have shared with the agent. |
+| `list_requests` | Browse requests in a shared collection (filterable by folder). |
+| `list_environments` | List shared environments. |
+| `get_environment` | Fetch one environment's details — secrets redacted. |
+| `get_history` | Query past request executions, if you share history. |
+
+The tool surface is read-only and metadata-shaped: an agent can ask *what* requests exist, but cannot send them or change saved state.
+
+## Consent and redaction
+
+- **Everything is hidden by default.** Collections (hidden / read-only / full), environments, and history each have their own consent level, and all start hidden.
+- Tool input is validated against strict schemas, and every response is deeply redacted before it leaves the process.
+- Secret values stay in the desktop secret store; the same [`SecretRef`](/architecture/adrs/0007-secret-ref-pattern/) machinery that protects [auth](/guides/auth/) credentials keeps them out of tool output.
+
+## What's next
+
+1. Sync collections, environments, and history to the headless server.
+2. A Settings screen to choose what each agent may see.
+3. An optional local HTTP transport bound to `127.0.0.1` with a one-time token.
 
 ## Related
 
 - [MCP protocol](/protocols/mcp/) — Restura *as a client* of other MCP servers.
 - [AI assistant](/guides/ai-assistant/) — the built-in chat panel.
+- [Roadmap](/roadmap/#mcp-server) — where this sits among other AI features.

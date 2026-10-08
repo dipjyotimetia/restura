@@ -1,0 +1,198 @@
+---
+import { features, progress } from '../data/product-tree';
+
+// Live from the roadmap dataset, so the home page can never drift from it.
+const count = (status: string) => features.filter((feature) => feature.status === status).length;
+const now = features
+  .filter((feature) => feature.status === 'in-progress')
+  .sort((left, right) => (progress(right) ?? 0) - (progress(left) ?? 0));
+---
+
+<section class="roadmap-teaser not-content" aria-labelledby="roadmap-teaser-title">
+  <div class="rt-intro">
+    <h2 id="roadmap-teaser-title">Where Restura is going</h2>
+    <p>
+      Every feature lives on one public roadmap — what has shipped, what is being built, and the
+      ideas taking root. Progress counts milestones already in the code, not estimates.
+    </p>
+    <ul class="rt-stats" aria-label="Roadmap at a glance">
+      <li class="shipped"><strong>{count('shipped')}</strong> shipped</li>
+      <li class="in-progress"><strong>{count('in-progress')}</strong> in progress</li>
+      <li class="planned"><strong>{count('planned')}</strong> planned</li>
+      <li class="exploring"><strong>{count('exploring')}</strong> exploring</li>
+    </ul>
+    <div class="rt-actions">
+      <a class="rt-primary" href="/roadmap/">Explore the roadmap <span aria-hidden="true">→</span></a>
+      <a class="rt-secondary" href="/overview/delivery-plan/">See the delivery plan</a>
+    </div>
+  </div>
+  <div class="rt-now">
+    <p class="rt-now-label">Building now</p>
+    <ul>
+      {now.map((feature) => {
+        const share = progress(feature) ?? 0;
+        return (
+          <li>
+            <a href={`/overview/delivery-plan/#plan-${feature.id}`}>
+              <span class="rt-title">{feature.title}</span>
+              <span class="rt-bar" aria-hidden="true" style={`--progress:${share}`}><span></span></span>
+              <span class="rt-percent">{Math.round(share * 100)}%<span class="sr-only"> of milestones done</span></span>
+            </a>
+          </li>
+        );
+      })}
+    </ul>
+  </div>
+</section>
+
+<style>
+  .roadmap-teaser {
+    display: grid;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    gap: 1.5rem;
+    margin: 3rem 0 1rem;
+    padding: 1.75rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 1rem;
+    background:
+      radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--sl-color-accent) 12%, transparent), transparent 60%),
+      var(--sl-color-bg);
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  h2 {
+    margin: 0;
+    font-size: var(--sl-text-h2);
+    color: var(--sl-color-white);
+  }
+  .rt-intro p {
+    margin: 0.6rem 0 1rem;
+    color: var(--sl-color-gray-2);
+    line-height: 1.6;
+  }
+  .rt-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.25rem;
+    list-style: none;
+    padding: 0;
+    margin: 0 0 1.25rem;
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-2);
+  }
+  .rt-stats li {
+    display: flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    margin: 0;
+  }
+  .rt-stats strong {
+    font-size: 1.5rem;
+    color: var(--tone);
+  }
+  .shipped { --tone: #16855f; }
+  .in-progress { --tone: #b7791f; }
+  .planned { --tone: var(--sl-color-accent); }
+  .exploring { --tone: #7c6fd1; }
+  :global(:root[data-theme='dark']) .roadmap-teaser {
+    --dark: 1;
+  }
+  :global(:root[data-theme='dark']) .shipped { --tone: #69cdb0; }
+  :global(:root[data-theme='dark']) .in-progress { --tone: #efbc62; }
+  :global(:root[data-theme='dark']) .exploring { --tone: #b1abd8; }
+  .rt-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+  .rt-actions a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.55rem 1rem;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: var(--sl-text-sm);
+    text-decoration: none;
+    transition: transform 180ms ease, background-color 160ms ease;
+  }
+  .rt-primary {
+    background: var(--sl-color-accent);
+    color: var(--sl-color-black);
+  }
+  .rt-primary:hover { transform: translateX(2px); }
+  .rt-secondary {
+    border: 1px solid var(--sl-color-gray-4);
+    color: var(--sl-color-white);
+  }
+  .rt-secondary:hover { background: var(--sl-color-gray-6); }
+  .rt-now {
+    align-self: center;
+    padding: 1rem 1.1rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.75rem;
+    background: var(--sl-color-bg-nav);
+  }
+  .rt-now-label {
+    margin: 0 0 0.5rem;
+    font-size: var(--sl-text-xs);
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--sl-color-gray-3);
+  }
+  .rt-now ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 0.25rem;
+  }
+  .rt-now li { margin: 0; }
+  .rt-now a {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 5rem 2.5rem;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.45rem 0.5rem;
+    border-radius: 0.5rem;
+    color: var(--sl-color-white);
+    text-decoration: none;
+    font-size: var(--sl-text-sm);
+  }
+  .rt-now a:hover { background: color-mix(in srgb, var(--sl-color-accent) 10%, transparent); }
+  .rt-bar {
+    height: 6px;
+    border-radius: 999px;
+    background: color-mix(in srgb, #b7791f 18%, transparent);
+    overflow: hidden;
+  }
+  .rt-bar span {
+    display: block;
+    height: 100%;
+    background: #b7791f;
+    transform-origin: left;
+    transform: scaleX(var(--progress));
+    animation: rt-fill 1s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes rt-fill { from { transform: scaleX(0); } }
+  .rt-percent {
+    text-align: right;
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-3);
+  }
+  a:focus-visible { outline: 2px solid var(--sl-color-accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) {
+    .rt-bar span { animation: none; }
+    .rt-actions a { transition: none; }
+  }
+  @media (max-width: 50rem) {
+    .roadmap-teaser { grid-template-columns: 1fr; padding: 1.25rem; }
+  }
+</style>

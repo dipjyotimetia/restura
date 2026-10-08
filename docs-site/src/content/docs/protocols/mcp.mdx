@@ -1,6 +1,6 @@
 ---
 title: Model Context Protocol (MCP)
-description: Restura is both an MCP client and an MCP server.
+description: Connect to any MCP server over streamable HTTP (or HTTP+SSE on desktop) and inspect its tools, prompts, and resources.
 ---
 
 import { Badge } from '@astrojs/starlight/components';
@@ -38,7 +38,7 @@ The same URL validation, DNS pinning, header policy, and Electron IPC validation
 
 ## As an MCP server
 
-Restura can *be* an MCP server, exposing your saved data to an agent like Claude.
+Restura can also *be* an MCP server for an agent like Claude. The server ships today but fails closed — it exposes no saved data until collection sync and consent controls land ([progress](/overview/delivery-plan/#plan-mcp-server)).
 
 The stdio server uses the v2 server package with its built-in legacy transport compatibility, so modern and legacy clients are served without retaining the v1 SDK.
 
@@ -50,7 +50,7 @@ The desktop app exposes these tools:
 - `get_environment` — fetch one environment's details, with secrets auto-redacted.
 - `get_history` — query past request executions with filters and a limit.
 
-Every tool is **consent-gated** (the user approves the connecting agent) and every response is **redacted** so secrets, tokens, and auth headers don't leak into agent context.
+Every tool is **consent-gated** — each surface is hidden until you share it — and every response is **redacted** so secrets, tokens, and auth headers don't leak into agent context.
 
 See the [MCP server mode guide](/guides/mcp-server-mode/) for setup.
 

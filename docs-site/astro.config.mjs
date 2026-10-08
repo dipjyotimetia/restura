@@ -89,7 +89,7 @@ export default defineConfig({
             { label: 'Install', slug: 'overview/install' },
             { label: 'Quick start', slug: 'overview/quick-start' },
             { label: 'Platforms', slug: 'overview/platforms' },
-            { label: 'Product tree', link: '/roadmap/' },
+            { label: 'Roadmap', link: '/roadmap/' },
             { label: 'Delivery plan', slug: 'overview/delivery-plan' },
             { label: 'Releases ↗', link: 'https://github.com/dipjyotimetia/restura/releases' },
             { label: 'vs other API clients', slug: 'overview/comparison' },

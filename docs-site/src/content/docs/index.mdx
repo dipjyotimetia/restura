@@ -6,6 +6,7 @@ hero:
   tagline: One open-source client for every protocol your stack uses. No account required.
   image:
     file: ../../../public/favicon.svg
+    alt: Restura logo
   actions:
     - text: Get started
       link: /overview/quick-start/
@@ -14,14 +15,15 @@ hero:
     - text: Try the web app
       link: https://restura.dev/
       icon: external
-    - text: View on GitHub
-      link: https://github.com/dipjyotimetia/restura
-      icon: github
+    - text: See the roadmap
+      link: /roadmap/
+      icon: rocket
       variant: minimal
 ---
 
 import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 import DesktopDownload from '../../components/DesktopDownload.astro';
+import RoadmapTeaser from '../../components/RoadmapTeaser.astro';
 
 <DesktopDownload />
 
@@ -30,15 +32,15 @@ I got tired of opening a different tool for every protocol. Postman for HTTP, a 
 ## Speaks every protocol
 
 <div class="protocol-grid">
-  <a href="/protocols/http/" data-color="blue"><div class="label">HTTP</div><div class="name">REST / HTTP</div><div class="desc">All methods, body types, cookies, code gen.</div></a>
-  <a href="/protocols/graphql/" data-color="pink"><div class="label">GQL</div><div class="name">GraphQL</div><div class="desc">Query builder, introspection, subscriptions.</div></a>
-  <a href="/protocols/grpc/" data-color="green"><div class="label">RPC</div><div class="name">gRPC</div><div class="desc">Unary, streaming, server reflection.</div></a>
-  <a href="/protocols/websocket/" data-color="violet" data-live><div class="label">WS</div><div class="name">WebSocket</div><div class="desc">Connect, send, receive, full history.</div></a>
-  <a href="/protocols/socket-io/" data-color="violet" data-live><div class="label">IO</div><div class="name">Socket.IO</div><div class="desc">Emit, listen, ack — full transcript.</div></a>
-  <a href="/protocols/sse/" data-color="cyan" data-live><div class="label">SSE</div><div class="name">Server-Sent Events</div><div class="desc">Live stream viewer with reconnection.</div></a>
-  <a href="/protocols/kafka/" data-color="magenta"><div class="label">KFK</div><div class="name">Kafka</div><div class="desc">Produce / consume — desktop.</div></a>
-  <a href="/protocols/mqtt/" data-color="teal" data-live><div class="label">MQTT</div><div class="name">MQTT</div><div class="desc">Publish / subscribe, QoS, TLS — desktop.</div></a>
-  <a href="/protocols/mcp/" data-color="amber"><div class="label">MCP</div><div class="name">Model Context Protocol</div><div class="desc">Proxy to any MCP server — or be one.</div></a>
+  <a href="/protocols/http/" data-color="blue"><div class="label" aria-hidden="true">HTTP</div><div class="name">REST / HTTP</div><div class="desc">All methods, body types, cookies, code gen.</div></a>
+  <a href="/protocols/graphql/" data-color="pink"><div class="label" aria-hidden="true">GQL</div><div class="name">GraphQL</div><div class="desc">Query builder, introspection, subscriptions.</div></a>
+  <a href="/protocols/grpc/" data-color="green"><div class="label" aria-hidden="true">RPC</div><div class="name">gRPC</div><div class="desc">Unary, server streaming, reflection; client/bidi streams on desktop.</div></a>
+  <a href="/protocols/websocket/" data-color="violet" data-live><div class="label" aria-hidden="true">WS</div><div class="name">WebSocket</div><div class="desc">Connect, send, receive, full history.</div></a>
+  <a href="/protocols/socket-io/" data-color="violet" data-live><div class="label" aria-hidden="true">IO</div><div class="name">Socket.IO</div><div class="desc">Emit, listen, ack — full transcript.</div></a>
+  <a href="/protocols/sse/" data-color="cyan" data-live><div class="label" aria-hidden="true">SSE</div><div class="name">Server-Sent Events</div><div class="desc">Live stream viewer with reconnection.</div></a>
+  <a href="/protocols/kafka/" data-color="magenta"><div class="label" aria-hidden="true">KFK</div><div class="name">Kafka</div><div class="desc">Produce / consume — desktop.</div></a>
+  <a href="/protocols/mqtt/" data-color="teal" data-live><div class="label" aria-hidden="true">MQTT</div><div class="name">MQTT</div><div class="desc">Publish / subscribe, QoS, TLS — desktop.</div></a>
+  <a href="/protocols/mcp/" data-color="amber"><div class="label" aria-hidden="true">MCP</div><div class="name">Model Context Protocol</div><div class="desc">Inspect any MCP server’s tools, resources, and messages.</div></a>
 </div>
 
 ## Why Restura
@@ -57,19 +59,17 @@ I got tired of opening a different tool for every protocol. Postman for HTTP, a 
     Sequence saved HTTP requests as portable OWS workflows with typed bindings, `set`/`wait`, and cancellation. Run them in the app or in CI with `restura workflow run`.
   </Card>
   <Card title="Ask an AI about your request" icon="seti:notebook">
-    The AI assistant can see the current request and response — useful for explaining errors, writing test assertions, or generating follow-up requests. Secrets and internal URLs are stripped before anything reaches the model.
+    In the desktop app, the AI assistant can see the current request and response — useful for explaining errors, writing test assertions, or generating follow-up requests. Secrets and internal URLs are stripped before anything reaches the model. [Web support is planned](/overview/delivery-plan/#plan-ai-web).
   </Card>
-  <Card title="Debug MCP servers, or be one" icon="puzzle">
-    Connect to any MCP server as a client to inspect what's being sent and returned. Or flip it around: expose your own collections as an MCP server so agents like Claude can discover and run your requests, with your permission.
+  <Card title="Debug MCP servers" icon="puzzle">
+    Connect to any MCP server as a client to inspect what's being sent and returned. Restura can also run as a local MCP server for agents like Claude — the server ships today, and [collection sharing is being built](/overview/delivery-plan/#plan-mcp-server) with consent controls first.
   </Card>
   <Card title="Tested like it matters" icon="approve-check">
-    A layered suite of unit, integration, security, contract, and end-to-end tests runs against every change, across the web, desktop, and self-hosted builds.
+    A layered suite of unit, integration, security, and end-to-end tests — plus API-contract checks on the Worker and desktop IPC boundaries — runs against every change, across the web, desktop, and self-hosted builds. [See how it's tested](/testing/overview/).
   </Card>
 </CardGrid>
 
-## Where Restura is growing
-
-Explore [The Restura Tree](/roadmap/) — what has shipped, what we’re working on, and the ideas taking root.
+<RoadmapTeaser />
 
 ## Up next
 
@@ -98,6 +98,11 @@ Explore [The Restura Tree](/roadmap/) — what has shipped, what we’re working
     title="vs other API clients"
     description="Honest comparison with Postman, Hoppscotch, Bruno, Insomnia, and more."
     href="/overview/comparison/"
+  />
+  <LinkCard
+    title="Roadmap"
+    description="Shipped, in progress, planned, and exploring — with milestone progress."
+    href="/roadmap/"
   />
   <LinkCard
     title="Contributing"

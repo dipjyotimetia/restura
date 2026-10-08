@@ -18,7 +18,7 @@ This is an honest picture of what's done, what's being worked on, and what's nex
 - Server-Sent Events — live stream viewer with reconnection
 - Kafka — typed produce/consume, batching, streams, transactions, guarded admin, SASL/OAuth + TLS (desktop)
 - MQTT — publish/subscribe, QoS levels, TLS (desktop)
-- MCP — proxy to any MCP server, and Restura can expose itself as one
+- MCP — proxy to any MCP server (Restura-as-an-MCP-server is in progress; see below)
 
 ### Auth
 
@@ -78,6 +78,7 @@ Web app (Cloudflare Pages + Worker), desktop app (Electron — macOS, Windows, L
 - **Test coverage** — currently patchy in places, working toward meaningful coverage on the protocol core and IPC layer.
 - **Accessibility** — keyboard navigation and screen reader support needs work, particularly in the workflow builder and response viewer.
 - **Contract testing** — the response validator exists and is tested but nothing calls it yet; next is validating on send, then in collection runs and CLI reports.
+- **Restura as an MCP server** — the headless stdio server and fail-closed consent model ship; syncing collections to it and a consent Settings screen are next ([ADR 0011](adr/0011-mcp-server-mode.md)).
 - **Secret handle management** — migrate the remaining credential fields to desktop secret handles, offer conversion on import, and list handles in Settings ([ADR 0007](adr/0007-secret-ref-pattern.md)).
 
 ---
