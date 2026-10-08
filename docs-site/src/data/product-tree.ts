@@ -493,22 +493,71 @@ export const features: Feature[] = [
 
 // Layout is editorial grouping, not a claim that adjacent features depend on
 // each other. Actual prerequisites are drawn separately when a node is selected.
-export const mapWidth = 2100;
+// Every map coordinate derives from these values; the page and script share them.
 export const nodeWidth = 276;
 export const nodeHeight = 62;
+export const layout = {
+  margin: 36,
+  columnPitch: 316,
+  rootTop: 14,
+  rootLinkY: 78,
+  headingY: 118,
+  rowPitch: 76,
+} as const;
+/** Branch lines bend under the heading and reach the first card at this offset. */
+export const firstRowY = layout.headingY + 93;
+export const columnX = (index: number) => layout.margin + index * layout.columnPitch;
+export const mapWidth = 2 * layout.margin + (branches.length - 1) * layout.columnPitch + nodeWidth;
+export const rootX = mapWidth / 2;
+export function featureGrid(feature: Feature): { column: number; row: number } {
+  return {
+    column: branches.findIndex((branch) => branch.id === feature.branch),
+    row: features
+      .filter((item) => item.branch === feature.branch)
+      .findIndex((item) => item.id === feature.id),
+  };
+}
 export function featurePosition(feature: Feature): { x: number; y: number } {
-  const column = branches.findIndex((branch) => branch.id === feature.branch);
-  const row = features
-    .filter((item) => item.branch === feature.branch)
-    .findIndex((item) => item.id === feature.id);
-  return { x: 36 + column * 344, y: 306 + row * 88 };
+  const { column, row } = featureGrid(feature);
+  return { x: columnX(column), y: firstRowY + row * layout.rowPitch };
 }
 export const mapHeight =
-  306 +
+  firstRowY +
   Math.max(
     ...branches.map((branch) => features.filter((feature) => feature.branch === branch.id).length)
   ) *
-    88;
+    layout.rowPitch;
+
+export function rootLinkPath(column: number): string {
+  const x = columnX(column) + nodeWidth / 2;
+  const { rootLinkY: start, headingY: end } = layout;
+  const span = end - start;
+  return `M${rootX} ${start} C${rootX} ${start + span * 0.6} ${x} ${start + span * 0.35} ${x} ${end}`;
+}
+export function branchLinePath(column: number, bottom: number): string {
+  const x = columnX(column);
+  const middle = x + nodeWidth / 2;
+  const bend = layout.headingY + 81;
+  return `M${middle} ${layout.headingY + 67} Q${middle} ${bend} ${middle - 16} ${bend} H${x + 4} Q${x - 12} ${bend} ${x - 12} ${bend + 16} V${bottom}`;
+}
+export const twigPath = (x: number, y: number) => `M${x - 12} ${y + nodeHeight / 2} H${x}`;
+
+/** Show the whole map when that costs little scale; otherwise fit the width (wide
+ * screens have more width than height to give) and let at most half a viewport of
+ * height overflow for panning. 88px keeps the top margin and floating controls clear. */
+export function fitScale(viewportWidth: number, viewportHeight: number): number {
+  const width = (viewportWidth - 52) / mapWidth;
+  // Phones can't show six columns legibly: frame one readable column instead,
+  // with the next one peeking in to invite a horizontal pan.
+  if (viewportWidth < 640)
+    return Math.min(1, (viewportWidth - 24) / (layout.columnPitch + layout.margin));
+  const height = (viewportHeight - 88) / mapHeight;
+  const scale =
+    height >= width * 0.75
+      ? Math.min(width, height)
+      : Math.min(width, (viewportHeight * 1.5) / mapHeight);
+  return Math.max(0.1, Math.min(1, scale));
+}
 
 /** Prefix matching on words supports typing without matching HAR in "share".
  * Prefer name matches over descriptions; retain editorial order for ties. */

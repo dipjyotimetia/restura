@@ -39,9 +39,9 @@ Pages are standalone `.mdx` files — nothing is imported from the repo's `/docs
 
 ## Product tree
 
-`/tree/` is a standalone Astro roadmap page linked from the homepage and Overview
+`/roadmap/` (formerly `/tree/`, which redirects) is a standalone Astro roadmap page linked from the homepage and Overview
 navigation. It uses SVG connectors, HTML feature buttons, and a grouped list that
-works without JavaScript; mobile defaults to the list.
+works without JavaScript; phones also open the tree, framed one column at a time.
 
 Edit `src/data/product-tree.ts` to maintain the content. Stable feature IDs are
 public fragment links, so preserve existing IDs. Branch membership groups features;

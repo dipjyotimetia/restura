@@ -1,15 +1,20 @@
 import {
   type BranchId,
   branches,
+  branchLinePath,
+  columnX,
   featurePosition,
   features,
   findFeatures,
+  fitScale,
+  layout,
   mapHeight,
   mapWidth,
   nodeHeight,
   nodeWidth,
   type Status,
   statuses,
+  twigPath,
 } from '../data/product-tree';
 
 function initializeTree() {
@@ -26,16 +31,28 @@ function initializeTree() {
   let initialized = false;
   const search = get<HTMLInputElement>('feature-search');
   const results = get<HTMLUListElement>('search-results');
-  const mobile = matchMedia('(max-width: 760px)');
-  let view: 'tree' | 'list' = mobile.matches ? 'list' : 'tree';
+  let view: 'tree' | 'list' = 'tree';
   let filter: Status | 'all' = 'all';
   let activeBranch: BranchId | 'all' = 'all';
   let scale = 1;
   let offset = { x: 0, y: 0 };
+  // Once the user pans or zooms, resizes keep their camera instead of re-fitting.
+  let userMoved = false;
   let returnFocus: HTMLElement | null = null;
   let selection: string | null = null;
-  let dragging: { pointer: number; x: number; y: number; originX: number; originY: number } | null =
-    null;
+  let dragging: {
+    pointer: number;
+    x: number;
+    y: number;
+    originX: number;
+    originY: number;
+    moved: boolean;
+  } | null = null;
+  // A drag that started on a card must not also open it when the pointer lifts.
+  let suppressClick = false;
+  // Active touch/pen pointers; two of them pinch-zoom around their midpoint.
+  const pointers = new Map<number, { x: number; y: number }>();
+  let pinchDistance = 0;
   const nodes = [...document.querySelectorAll<HTMLButtonElement>('[data-feature]')];
   const details = [...document.querySelectorAll<HTMLDetailsElement>('[data-list-feature]')];
 
@@ -56,14 +73,18 @@ function initializeTree() {
   }
   function fit(animate = true) {
     if (!viewport.clientWidth) return;
-    scale = Math.max(
-      0.1,
-      Math.min(1, (viewport.clientWidth - 52) / mapWidth, (viewport.clientHeight - 88) / mapHeight)
-    );
-    offset = { x: (viewport.clientWidth - mapWidth * scale) / 2, y: 24 };
+    scale = fitScale(viewport.clientWidth, viewport.clientHeight);
+    // A map wider than the viewport (phones) starts at its first column.
+    const whole = mapWidth * scale <= viewport.clientWidth;
+    // The root sits off-screen in that case, so begin at the branch headings.
+    offset = whole
+      ? { x: (viewport.clientWidth - mapWidth * scale) / 2, y: 16 }
+      : { x: 0, y: 16 - (layout.headingY - 16) * scale };
+    userMoved = false;
     paint(animate);
   }
   function zoom(multiplier: number, point?: { x: number; y: number }) {
+    userMoved = true;
     const next = Math.max(0.1, Math.min(1.6, scale * multiplier));
     const cx = point?.x ?? viewport.clientWidth / 2;
     const cy = point?.y ?? viewport.clientHeight / 2;
@@ -79,10 +100,31 @@ function initializeTree() {
     const index = branches.findIndex((branch) => branch.id === activeBranch);
     scale = Math.min(1.1, viewport.clientWidth / (nodeWidth + 160));
     offset = {
-      x: viewport.clientWidth / 2 - (36 + index * 344 + nodeWidth / 2) * scale,
-      y: 32 - 213 * scale,
+      x: viewport.clientWidth / 2 - (columnX(index) + nodeWidth / 2) * scale,
+      y: 32 - layout.headingY * scale,
     };
+    userMoved = false;
     paint(true);
+  }
+  /** Pans for a user gesture, keeping part of the map on screen. Returns false
+   * when the map is already against that edge. */
+  function panTo(next: { x: number; y: number }) {
+    const keep = 120;
+    const clamped = {
+      x: Math.min(viewport.clientWidth - keep, Math.max(keep - mapWidth * scale, next.x)),
+      y: Math.min(
+        viewport.clientHeight - keep,
+        Math.max(keep - (mapHeight + expansionHeight) * scale, next.y)
+      ),
+    };
+    if (clamped.x === offset.x && clamped.y === offset.y) return false;
+    userMoved = true;
+    offset = clamped;
+    paint();
+    return true;
+  }
+  function dismissHint() {
+    get('tree-controls').classList.add('hint-dismissed');
   }
   function updateBranchControls() {
     document.querySelectorAll<HTMLElement>('[data-branch-filter]').forEach((button) => {
@@ -112,6 +154,7 @@ function initializeTree() {
     closeFeature();
     view = next;
     viewport.hidden = view !== 'tree';
+    viewport.closest('.map-stage')?.toggleAttribute('hidden', view !== 'tree');
     get('tree-controls').hidden = view !== 'tree';
     list.hidden = view !== 'list';
     get('tree-view').setAttribute('aria-pressed', String(view === 'tree'));
@@ -121,22 +164,34 @@ function initializeTree() {
   function dependencyLines(id: string) {
     const lines = document.getElementById('dependency-lines');
     if (!lines) return;
-    lines.replaceChildren();
     const target = features.find((feature) => feature.id === id);
-    if (!target) return;
+    if (!target) {
+      lines.replaceChildren();
+      return;
+    }
+    // Layout runs every frame while a card expands; reuse the paths for the same
+    // selection so their draw-in animation plays once instead of restarting.
+    if (lines.dataset.for !== id) {
+      lines.replaceChildren();
+      lines.dataset.for = id;
+    }
     const end = positionFor(target);
-    for (const prerequisite of target.prerequisites) {
-      const source = features.find((feature) => feature.id === prerequisite);
-      if (!source) continue;
+    const sources = target.prerequisites
+      .map((prerequisite) => features.find((feature) => feature.id === prerequisite))
+      .filter((source) => source !== undefined);
+    sources.forEach((source, index) => {
       const start = positionFor(source);
-      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      let path = lines.children[index];
+      if (!path) {
+        path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('class', 'dependency');
+        lines.append(path);
+      }
       path.setAttribute(
         'd',
         `M${start.x + nodeWidth} ${start.y + nodeHeight / 2} C${start.x + nodeWidth + 55} ${start.y + nodeHeight / 2},${end.x - 55} ${end.y + nodeHeight / 2},${end.x} ${end.y + nodeHeight / 2}`
       );
-      path.setAttribute('class', 'dependency');
-      lines.append(path);
-    }
+    });
     nodes.forEach((node) => {
       node.classList.toggle('selected', node.dataset.feature === id);
       node.classList.toggle(
@@ -166,7 +221,9 @@ function initializeTree() {
       detail.querySelector('summary')?.setAttribute('aria-expanded', 'false');
     });
     document.querySelectorAll('.feature-card').forEach((card) => card.classList.remove('expanded'));
-    document.getElementById('dependency-lines')?.replaceChildren();
+    const lines = document.getElementById('dependency-lines');
+    lines?.replaceChildren();
+    if (lines) delete lines.dataset.for;
     nodes.forEach((node) => node.classList.remove('selected', 'prerequisite'));
     layoutCards();
     if (updateUrl && wasOpen) history.replaceState(null, '', location.pathname + location.search);
@@ -216,21 +273,17 @@ function initializeTree() {
       if (card) card.style.top = `${position.y}px`;
       document
         .querySelector(`[data-edge="${feature.id}"]`)
-        ?.setAttribute('d', `M${position.x - 12} ${position.y + nodeHeight / 2} H${position.x}`);
+        ?.setAttribute('d', twigPath(position.x, position.y));
     });
     branches.forEach((branch, index) => {
       const items = features.filter((feature) => feature.branch === branch.id);
       const last = items.at(-1);
       if (!last) return;
-      const x = 36 + index * 344;
       const bottom =
         positionFor(last).y + nodeHeight / 2 + (last.id === selection ? expansionHeight : 0);
       document
         .querySelector(`[data-branch-edge="${branch.id}"] .branch-line`)
-        ?.setAttribute(
-          'd',
-          `M${x + 138} 280 Q${x + 138} 294 ${x + 122} 294 H${x + 4} Q${x - 12} 294 ${x - 12} 310 V${bottom}`
-        );
+        ?.setAttribute('d', branchLinePath(index, bottom));
     });
     canvas.style.height = `${mapHeight + expansionHeight}px`;
     document
@@ -326,6 +379,7 @@ function initializeTree() {
           x: viewport.clientWidth / 2 - (position.x + nodeWidth / 2) * scale,
           y: 32 - position.y * scale,
         };
+        userMoved = true;
         paint(true);
       }
     } else {
@@ -508,29 +562,54 @@ function initializeTree() {
   viewport.addEventListener(
     'wheel',
     (event) => {
-      event.preventDefault();
-      const area = viewport.getBoundingClientRect();
-      const delta =
-        event.deltaY *
-        (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1);
-      zoom(Math.exp(-Math.max(-100, Math.min(100, delta)) * 0.0015), {
-        x: event.clientX - area.left,
-        y: event.clientY - area.top,
+      dismissHint();
+      const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1;
+      // Ctrl/⌘ + wheel zooms; trackpad pinch arrives as a ctrlKey wheel too.
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        const area = viewport.getBoundingClientRect();
+        const delta = event.deltaY * unit;
+        zoom(Math.exp(-Math.max(-100, Math.min(100, delta)) * 0.0015), {
+          x: event.clientX - area.left,
+          y: event.clientY - area.top,
+        });
+        return;
+      }
+      // Plain wheel pans like a document; Shift turns a vertical wheel horizontal.
+      const horizontal = event.shiftKey && !event.deltaX;
+      const moved = panTo({
+        x: offset.x - (horizontal ? event.deltaY : event.deltaX) * unit,
+        y: offset.y - (horizontal ? 0 : event.deltaY) * unit,
       });
+      // At the map's edge the wheel scrolls the page instead of being trapped.
+      if (moved) event.preventDefault();
     },
     { passive: false }
   );
   viewport.addEventListener('pointerdown', (event) => {
+    suppressClick = false;
     if (
       event.button !== 0 ||
-      (event.target instanceof Element && event.target.closest('button, a, .inline-feature-detail'))
+      (event.target instanceof Element && event.target.closest('a, .inline-feature-detail'))
     )
       return;
+    // Gestures may start on a card (most of a phone screen). A tap still opens it:
+    // pointer capture, which retargets the click, only begins once the pointer moves.
     if (cameraAnimation?.playState === 'running') {
       const current = new DOMMatrixReadOnly(getComputedStyle(canvas).transform);
       scale = current.a;
       offset = { x: current.e, y: current.f };
       paint();
+    }
+    pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.size === 2) {
+      for (const id of pointers.keys()) viewport.setPointerCapture(id);
+      const [a, b] = [...pointers.values()] as [{ x: number; y: number }, { x: number; y: number }];
+      pinchDistance = Math.hypot(a.x - b.x, a.y - b.y);
+      dragging = null;
+      suppressClick = true;
+      dismissHint();
+      return;
     }
     dragging = {
       pointer: event.pointerId,
@@ -538,25 +617,67 @@ function initializeTree() {
       y: event.clientY,
       originX: offset.x,
       originY: offset.y,
+      moved: false,
     };
-    viewport.setPointerCapture(event.pointerId);
-    viewport.classList.add('dragging');
   });
   viewport.addEventListener('pointermove', (event) => {
+    if (pointers.has(event.pointerId))
+      pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (pointers.size === 2 && pinchDistance) {
+      const [a, b] = [...pointers.values()] as [{ x: number; y: number }, { x: number; y: number }];
+      const distance = Math.hypot(a.x - b.x, a.y - b.y);
+      const area = viewport.getBoundingClientRect();
+      zoom(distance / pinchDistance, {
+        x: (a.x + b.x) / 2 - area.left,
+        y: (a.y + b.y) / 2 - area.top,
+      });
+      pinchDistance = distance;
+      return;
+    }
     if (!dragging || dragging.pointer !== event.pointerId) return;
-    offset = {
-      x: dragging.originX + event.clientX - dragging.x,
-      y: dragging.originY + event.clientY - dragging.y,
-    };
-    paint();
+    const dx = event.clientX - dragging.x;
+    const dy = event.clientY - dragging.y;
+    if (!dragging.moved) {
+      if (Math.hypot(dx, dy) < 6) return;
+      dragging.moved = true;
+      suppressClick = true;
+      viewport.setPointerCapture(event.pointerId);
+      viewport.classList.add('dragging');
+      dismissHint();
+    }
+    panTo({ x: dragging.originX + dx, y: dragging.originY + dy });
   });
-  const endDrag = () => {
-    dragging = null;
+  const endDrag = (event: PointerEvent) => {
+    pointers.delete(event.pointerId);
+    if (pointers.size < 2) pinchDistance = 0;
     viewport.classList.remove('dragging');
+    // The finger left on the screen after a pinch carries on panning.
+    const [remaining] = [...pointers.entries()];
+    dragging = remaining
+      ? {
+          pointer: remaining[0],
+          x: remaining[1].x,
+          y: remaining[1].y,
+          originX: offset.x,
+          originY: offset.y,
+          moved: true,
+        }
+      : null;
   };
   viewport.addEventListener('pointerup', endDrag);
   viewport.addEventListener('pointercancel', endDrag);
   viewport.addEventListener('lostpointercapture', endDrag);
+  viewport.addEventListener(
+    'click',
+    (event) => {
+      if (suppressClick) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      suppressClick = false;
+    },
+    true
+  );
   viewport.addEventListener('keydown', (event) => {
     if (event.target !== viewport) return;
     const directions: Record<string, [number, number]> = {
@@ -568,9 +689,7 @@ function initializeTree() {
     const movement = directions[event.key];
     if (movement) {
       event.preventDefault();
-      offset.x += movement[0];
-      offset.y += movement[1];
-      paint();
+      panTo({ x: offset.x + movement[0], y: offset.y + movement[1] });
     }
     if (event.key === '+' || event.key === '=') zoom(1.2);
     if (event.key === '-') zoom(1 / 1.2);
@@ -597,6 +716,7 @@ function initializeTree() {
         x: viewport.clientWidth / 2 - (position.x + nodeWidth / 2) * scale,
         y: viewport.clientHeight / 2 - (position.y + nodeHeight / 2) * scale,
       };
+      userMoved = true;
       paint();
     }
   });
@@ -618,6 +738,7 @@ function initializeTree() {
         frameView();
         const position = featurePosition(feature);
         offset.y = 48 - position.y * scale;
+        userMoved = true;
         paint();
       } else
         details
@@ -627,7 +748,7 @@ function initializeTree() {
   };
   window.addEventListener('hashchange', onHash);
   const observer = new ResizeObserver(() => {
-    if (view === 'tree' && !selection) frameView();
+    if (view === 'tree' && !selection && !userMoved) frameView();
   });
   observer.observe(viewport);
   new ResizeObserver(() => {
@@ -641,9 +762,11 @@ function initializeTree() {
       layoutCards();
     }
   }).observe(panel);
-  mobile.addEventListener('change', () => setView(mobile.matches ? 'list' : 'tree'));
   applyFilters();
   initialized = true;
+  // Entrance animations play once; without this they'd replay (hiding cards for
+  // their delay) whenever the map is shown again after List view.
+  setTimeout(() => document.documentElement.classList.add('tree-entered'), 1600);
   reducedMotion.addEventListener('change', () => {
     if (reducedMotion.matches) cameraAnimation?.cancel();
   });

@@ -1,0 +1,3 @@
+# Product tree moved to /roadmap/; a 301 keeps #feature deep links working.
+/tree /roadmap/ 301
+/tree/ /roadmap/ 301

@@ -89,7 +89,7 @@ export default defineConfig({
             { label: 'Install', slug: 'overview/install' },
             { label: 'Quick start', slug: 'overview/quick-start' },
             { label: 'Platforms', slug: 'overview/platforms' },
-            { label: 'Product tree', link: '/tree/' },
+            { label: 'Product tree', link: '/roadmap/' },
             { label: 'Delivery plan', slug: 'overview/delivery-plan' },
             { label: 'Release notes', slug: 'overview/release-notes' },
             { label: 'vs other API clients', slug: 'overview/comparison' },

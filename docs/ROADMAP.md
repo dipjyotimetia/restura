@@ -125,4 +125,4 @@ Open an issue or add a 👍 to an existing one. The things that get built fastes
 
 _Last reviewed: October 2026_
 
-Explore the public [Product tree](https://docs.restura.dev/tree/). Its curated dataset lives in `docs-site/src/data/product-tree.ts`; keep public status changes aligned with this roadmap and current capabilities.
+Explore the public [Product tree](https://docs.restura.dev/roadmap/). Its curated dataset lives in `docs-site/src/data/product-tree.ts`; keep public status changes aligned with this roadmap and current capabilities.
