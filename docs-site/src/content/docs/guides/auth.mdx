@@ -46,7 +46,7 @@ For AWS APIs (S3, DynamoDB, EC2, etc.). Pick the region and service; Restura com
 
 ### Digest and NTLM <Badge text="not yet sent" variant="caution" />
 
-You can select Digest or NTLM, fill in the credentials, and they are saved and inherited like any other scheme (several importers also map them). **Restura does not yet perform the Digest or NTLM challenge/response when sending**, so requests go out without an `Authorization` header for these schemes. Use Basic, a pre-computed header, or another tool for these upstreams until support lands.
+You can select Digest or NTLM, fill in the credentials, and they are saved and inherited like any other scheme (several importers also map them). **Restura does not yet perform the Digest or NTLM challenge/response when sending**, so requests go out without an `Authorization` header for these schemes. Use Basic, a pre-computed header, or another tool for these upstreams until support lands — [track progress](/overview/delivery-plan/#plan-digest-ntlm).
 
 ### mTLS (client certificates) <Badge text="desktop only" variant="caution" />
 
@@ -57,7 +57,7 @@ Upload a `.pem` / `.p12` / `.pfx` with passphrase; the cert is presented during 
 Secret-bearing auth fields (tokens, passwords, client secrets, private keys) use a **handle-based pattern**: the encrypted value lives in the Electron main process keychain-protected store, and the renderer only sees a `SecretRef` handle. The plaintext is resolved at the wire, never touches the Zustand store, never lands in an exported collection, never appears in crash logs.
 
 <Aside title="See">
-[ADR 0007 — SecretRef pattern](/architecture/adrs/) for the design.
+[ADR 0007 — SecretRef pattern](/architecture/adrs/0007-secret-ref-pattern/) for the design.
 </Aside>
 
 ## Inheritance

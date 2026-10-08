@@ -28,7 +28,7 @@ Results land in the **Runs** panel, where each run is recorded so you can compar
 Each iteration is recorded as a sample with its status code and outcome, so failures show up in the success rate rather than skewing the latency numbers silently.
 
 <Aside type="caution" title="Web concurrency is capped">
-On the web build the browser limits concurrent connections per origin (~6), so the effective concurrency is lower than the number you set. For accurate high-concurrency runs, use the [desktop app](/overview/install/), which has no such cap.
+On the web build the browser limits concurrent connections per origin (~6), so the effective concurrency is lower than the number you set. The Worker proxy also rate-limits to about 100 requests per minute. For higher-concurrency runs use the [desktop app](/overview/install/), which is bounded only by its IPC rate budget; results above either budget include self-inflicted throttling. See the [capability matrix](/reference/capability-matrix/).
 </Aside>
 
 ## When to reach for the CLI instead

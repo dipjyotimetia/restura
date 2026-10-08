@@ -22,7 +22,7 @@ Legend: ✅ supported · ⚠️ partial / paid / behind sign-in · ❌ not suppo
 | **CLI runner for CI** | ✅ `restura-cli` | ✅ `newman` | ✅ `hopp` | ✅ `bru` | ⚠️ Inso (paid) | ❌ | ❌ | ❌ |
 | **HTTP / REST** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | **GraphQL** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| **gRPC** | ✅ unary + streaming | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **gRPC** | ✅ unary + streaming (client/bidi on desktop) | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **WebSocket** | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **Socket.IO** | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **Server-Sent Events** | ✅ | ✅ | ⚠️ | ❌ | ❌ | ❌ | ❌ | ❌ |
@@ -30,10 +30,10 @@ Legend: ✅ supported · ⚠️ partial / paid / behind sign-in · ❌ not suppo
 | **MQTT** | ✅ desktop | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **MCP (client)** | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | **MCP server mode** | ✅ desktop | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **AI assistant** | ✅ BYOK | ⚠️ Postbot (paid tiers) | ❌ | ❌ | ⚠️ paid | ⚠️ paid | ❌ | ❌ |
+| **AI assistant** | ✅ BYOK (desktop) | ⚠️ Postbot (paid tiers) | ❌ | ❌ | ⚠️ paid | ⚠️ paid | ❌ | ❌ |
 | **Pre-request / test scripts** | ✅ QuickJS sandbox | ✅ Node-like | ✅ | ✅ | ✅ | ✅ | ⚠️ | ❌ |
 | **mTLS / custom CA** | ✅ desktop | ✅ | ❌ | ✅ | ✅ | ❌ | ⚠️ | ✅ |
-| **SOCKS / PAC proxies** | ✅ desktop | ✅ | ❌ | ⚠️ | ⚠️ | ❌ | ❌ | ⚠️ |
+| **SOCKS / PAC proxies** | ⚠️ SOCKS5 on desktop; PAC planned | ✅ | ❌ | ⚠️ | ⚠️ | ❌ | ❌ | ⚠️ |
 | **OS keychain for secrets** | ✅ desktop | ❌ | ❌ | ❌ | ❌ | ❌ | ⚠️ | ❌ |
 | **Git-native collection layout** | ✅ OpenCollection dir | ❌ | ❌ | ✅ `.bru` files | ❌ | ⚠️ | ✅ | ❌ |
 | **Postman import** | ✅ v2.1 | — | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
@@ -55,7 +55,7 @@ This table reflects feature availability **in the free / open-source tier** of e
     HTTP, GraphQL, gRPC, WebSocket, Socket.IO, SSE, **Kafka**, **MQTT**, and **MCP** in one tool. Most clients give you 2–4 of these. Restura is the broadest free option.
   </Card>
   <Card title="You build with AI agents" icon="seti:notebook">
-    Built-in AI chat (OpenAI / Anthropic / OpenRouter, BYOK) that reads request context with redaction. And — uniquely — Restura **acts as an MCP server** for agents like Claude.
+    Built-in AI chat on desktop (OpenAI / Anthropic / OpenRouter, BYOK) that reads request context with redaction. Restura is also [becoming an MCP server](/guides/mcp-server-mode/) for agents like Claude.
   </Card>
   <Card title="You want one tool, three places" icon="laptop">
     Web app on Cloudflare Pages, native desktop on macOS / Windows / Linux, self-hosted Docker — same React renderer, same shortcuts, same UX.
@@ -89,7 +89,7 @@ The industry default. Massive ecosystem, mature mock-server / monitor / collabor
 
 Modern open-source web app with a clean UI. Real-time collaboration on shared workspaces. Lightweight, fast, self-hostable. CLI runner (`hopp`) is improving.
 
-**Trade-off:** Hoppscotch is **primarily a web app**. The Tauri-based desktop wrapper exists but doesn't unlock raw-TCP capabilities like Kafka, mTLS-with-OS-keychain, or PAC scripting that a true Node-based desktop process has.
+**Trade-off:** Hoppscotch is **primarily a web app**. The Tauri-based desktop wrapper exists but doesn't unlock raw-TCP capabilities like Kafka, mTLS-with-OS-keychain, or SOCKS proxies that a true Node-based desktop process has.
 
 **Pick Hoppscotch if:** you want a fast collaborative web client and don't need desktop-only capabilities.
 

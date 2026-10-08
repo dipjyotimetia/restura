@@ -12,6 +12,7 @@
   --planned: #2167b9;
   --exploring: #696d91;
   font-family: "Geist Variable", Geist, system-ui, sans-serif;
+  --header-height: 61px;
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
@@ -93,7 +94,8 @@ html:not(.tree-ready) .enhanced {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 22px 4vw;
+  min-height: var(--header-height);
+  padding: 10px 24px;
   border-bottom: 1px solid var(--line);
   gap: 24px;
 }
@@ -173,31 +175,40 @@ h1 {
   font-size: 13px;
   margin-bottom: 0;
 }
+/* The map is the page: header + roadmap fill the window; the footer sits below. */
+main {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100dvh - var(--header-height));
+}
 .roadmap {
-  margin: 0 2vw;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  margin: 12px 16px 16px;
   border: 1px solid var(--line);
-  border-radius: 18px;
+  border-radius: 14px;
   overflow: hidden;
 }
 .toolbar {
   display: flex;
-  justify-content: space-between;
-  padding: 16px 24px;
-  gap: 18px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  gap: 8px 14px;
   align-items: center;
   border-bottom: 1px solid var(--line);
   background: var(--surface);
 }
 .status-filters {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   flex-wrap: wrap;
 }
 .filter {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 9px 12px;
+  gap: 7px;
+  padding: 7px 10px;
   border: 1px solid transparent;
   background: transparent;
   border-radius: 8px;
@@ -215,6 +226,7 @@ html:not(.tree-ready) .filter {
   pointer-events: none;
 }
 .view-switch {
+  margin-left: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 3px;
@@ -254,20 +266,14 @@ html:not(.tree-ready) .filter {
   background: transparent;
   border: 1.5px solid currentColor;
 }
-.map-tools {
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 24px 0;
-  gap: 16px;
-}
 .search-wrap {
   position: relative;
-  width: 300px;
-  z-index: 4;
+  width: 240px;
+  z-index: 6;
 }
 #feature-search {
   width: 100%;
-  height: 42px;
+  height: 36px;
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--ink);
@@ -280,7 +286,7 @@ html:not(.tree-ready) .filter {
 }
 #search-results {
   position: absolute;
-  top: 40px;
+  top: 38px;
   width: min(440px, 85vw);
   padding: 6px;
   list-style: none;
@@ -313,12 +319,18 @@ html:not(.tree-ready) .filter {
   color: var(--muted);
   margin: 0;
 }
+.map-stage {
+  position: relative;
+  flex: 1;
+  flex-direction: column;
+  min-height: 480px;
+}
 .tree-ready .tree-viewport {
   display: block;
 }
 .tree-viewport {
   position: relative;
-  height: clamp(680px, 58vw, 1250px);
+  flex: 1;
   overflow: hidden;
   cursor: grab;
   touch-action: none;
@@ -357,25 +369,24 @@ html:not(.tree-ready) .filter {
 }
 .root-node {
   position: absolute;
-  left: 930px;
-  top: 30px;
+  translate: -50% 0;
   width: 240px;
   text-align: center;
 }
-.root-node img {
-  display: block;
-  margin: 0 auto 6px;
-}
 .root-node span {
-  font-size: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: 28px;
   font-weight: 650;
   letter-spacing: -1px;
 }
 .root-node small {
   display: block;
   color: var(--muted);
-  font-size: 14px;
-  margin-top: 4px;
+  font-size: 13px;
+  margin-top: 2px;
 }
 .branch-heading {
   position: absolute;
@@ -433,21 +444,24 @@ html:not(.tree-ready) .filter {
   opacity: 0.22;
 }
 .map-caption {
-  position: absolute;
-  bottom: 22px;
-  left: 24px;
   color: var(--muted);
   font-size: 12px;
   line-height: 1.7;
   pointer-events: none;
   padding: 6px 10px;
-  background: var(--bg);
-  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 8px;
+  transition: opacity 400ms ease;
+}
+.hint-dismissed .map-caption {
+  opacity: 0;
+}
+.map-caption kbd {
+  font: inherit;
+  color: var(--ink);
 }
 .zoom-controls {
-  position: absolute;
-  right: 24px;
-  bottom: 24px;
   display: flex;
   align-items: center;
   border: 1px solid var(--line);
@@ -717,12 +731,7 @@ footer span {
     border-radius: 12px;
   }
   .toolbar {
-    padding: 14px;
-    flex-direction: column-reverse;
-    gap: 12px;
-  }
-  .view-switch {
-    align-self: flex-end;
+    padding: 12px;
   }
   .status-filters {
     gap: 2px;
@@ -731,16 +740,9 @@ footer span {
     font-size: 12px;
     padding: 8px;
   }
-  .map-tools {
-    padding: 14px;
-    flex-direction: column;
-    align-items: stretch;
-  }
   .search-wrap {
-    width: 100%;
-  }
-  #result-count {
-    padding-left: 2px;
+    flex: 1 1 100%;
+    width: auto;
   }
   .feature-list {
     grid-template-columns: 1fr;
@@ -753,15 +755,8 @@ footer span {
   .list-status {
     font-size: 11px;
   }
-  .tree-viewport {
-    height: 650px;
-  }
   .map-caption {
     display: none;
-  }
-  .zoom-controls {
-    right: 16px;
-    bottom: 16px;
   }
   footer {
     flex-direction: column;
@@ -809,16 +804,15 @@ h1 {
 .branch-navigation {
   align-items: center;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 14px 24px 0;
+  gap: 2px;
 }
 .branch-navigation button {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   border: 1px solid transparent;
   border-radius: 24px;
-  padding: 9px 12px;
+  padding: 7px 10px;
   background: transparent;
   color: var(--muted);
   font-size: 12px;
@@ -839,7 +833,6 @@ h1 {
   opacity: 0.2;
 }
 .tree-viewport {
-  height: clamp(600px, 72vh, 850px);
   background-size: 32px 32px;
 }
 .root-link {
@@ -856,8 +849,8 @@ h1 {
 }
 .clear-search {
   position: absolute;
-  top: 7px;
-  right: 8px;
+  top: 4px;
+  right: 6px;
   width: 28px;
   height: 28px;
   padding: 0;
@@ -917,15 +910,11 @@ h1 {
     max-width: 280px;
   }
   .branch-navigation {
-    padding: 12px 14px 0;
     gap: 4px;
   }
   .branch-navigation button {
     font-size: 11px;
     padding: 8px 10px;
-  }
-  .tree-viewport {
-    height: 600px;
   }
 }
 
@@ -997,6 +986,8 @@ body {
   transition:
     border-color 160ms ease,
     background-color 160ms ease,
+    box-shadow 200ms ease,
+    transform 200ms cubic-bezier(0.22, 1, 0.36, 1),
     opacity 200ms ease;
 }
 .branch-heading,
@@ -1024,7 +1015,7 @@ body {
 }
 
 /* One opening gesture reveals how the six branches connect to the product. */
-.tree-ready .root-link {
+.tree-ready:not(.tree-entered) .root-link {
   animation: reveal-branch 650ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 @keyframes reveal-branch {
@@ -1074,46 +1065,24 @@ h1 {
   }
 }
 
-/* Instructions and zoom controls stay visible above the canvas. */
+/* Hint and zoom controls float over the canvas instead of taking a row. */
 .tree-controls {
+  position: absolute;
+  inset: auto 14px 14px;
+  z-index: 5;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 16px;
-  padding: 12px 24px;
-  border-bottom: 1px solid var(--line);
+  pointer-events: none;
 }
 .tree-controls[hidden] {
   display: none;
 }
-.tree-controls .map-caption {
-  position: static;
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  font-size: 12px;
-}
-.tree-controls .map-caption strong {
-  color: var(--ink);
-  font-weight: 550;
-}
-.tree-controls .map-caption span {
-  color: var(--muted);
-}
 .tree-controls .zoom-controls {
-  position: static;
-  flex-shrink: 0;
-}
-@media (max-width: 760px) {
-  .tree-controls {
-    padding: 10px 14px;
-    flex-wrap: wrap;
-  }
-  .tree-controls .map-caption {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 14px;
-  }
+  margin-left: auto;
+  pointer-events: auto;
+  box-shadow: 0 6px 20px #0000001a;
 }
 
 .site-header nav .header-action {
@@ -1165,4 +1134,162 @@ h1 {
   width: 20px;
   height: 20px;
   flex-basis: 20px;
+}
+
+/* Entrance: headings, then branch lines, then cards cascade down each column.
+ * Gated on .tree-ready (the map is hidden until then) so nothing flashes. The
+ * global prefers-reduced-motion rule disables all of this. */
+@keyframes tree-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+@keyframes tree-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes tree-draw {
+  from {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+  }
+}
+.tree-ready:not(.tree-entered) .branch-heading,
+.tree-ready:not(.tree-entered) .feature-card {
+  animation: tree-rise 520ms cubic-bezier(0.22, 1, 0.36, 1) var(--enter, 0ms) both;
+}
+.tree-ready:not(.tree-entered) .branch-line {
+  animation: tree-draw 600ms cubic-bezier(0.65, 0, 0.35, 1) var(--enter, 0ms) both;
+}
+.tree-ready:not(.tree-entered) .twig {
+  animation: tree-fade 400ms ease 700ms both;
+}
+.tree-ready:not(.tree-entered) .root-node {
+  animation: tree-rise 480ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Hover lifts a card slightly; the expanded card stays put. */
+.feature-card:not(.expanded) .feature-node:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px #0b1a3a1f;
+}
+.feature-node:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* In-progress work breathes gently on the map: a compositor-only ring. */
+@keyframes status-pulse {
+  from {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  to {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+.feature-node .status-dot.in-progress {
+  position: relative;
+}
+.feature-node .status-dot.in-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: currentColor;
+  animation: status-pulse 2.4s ease-out infinite;
+}
+
+/* Relationship lines draw toward the selected feature. */
+@keyframes dependency-flow {
+  from {
+    stroke-dashoffset: 44;
+    opacity: 0;
+  }
+}
+.connections .dependency {
+  animation: dependency-flow 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Popovers and revealed content ease in rather than snapping. */
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+#search-results:not([hidden]) {
+  transform-origin: top left;
+  animation: pop-in 160ms ease-out;
+}
+.inline-feature-detail:not([hidden]) > * {
+  animation: tree-fade 260ms ease 90ms both;
+}
+.feature-list:not([hidden]) section {
+  animation: tree-rise 380ms cubic-bezier(0.22, 1, 0.36, 1) var(--enter, 0ms) both;
+}
+#empty-state:not([hidden]) {
+  animation: tree-fade 200ms ease;
+}
+.zoom-controls output {
+  transition: color 160ms ease;
+}
+
+/* Phones get the tree too: controls collapse into swipeable rows so the map
+ * keeps most of the screen. */
+@media (max-width: 760px) {
+  .roadmap {
+    margin: 8px;
+  }
+  .toolbar {
+    gap: 8px;
+    padding: 10px;
+  }
+  .status-filters,
+  .branch-navigation {
+    flex: 1 1 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .status-filters::-webkit-scrollbar,
+  .branch-navigation::-webkit-scrollbar {
+    display: none;
+  }
+  .filter,
+  .branch-navigation button {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .search-wrap {
+    order: -2;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .view-switch {
+    order: -1;
+    margin-left: 0;
+  }
+  #result-count {
+    order: 3;
+  }
+  /* A fixed-height map leaves the page above and below it scrollable by touch;
+   * the map itself claims every gesture (touch-action: none) for pan/pinch. */
+  main {
+    min-height: 0;
+  }
+  .map-stage {
+    flex: none;
+    height: 60dvh;
+    min-height: 0;
+  }
+  .tree-controls {
+    inset: auto 10px 10px;
+  }
 }

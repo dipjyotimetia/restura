@@ -1,11 +1,5 @@
 import { afterAll, afterEach, beforeEach, expect, it, vi } from 'vitest';
-import {
-  featurePosition,
-  features,
-  mapHeight,
-  mapWidth,
-  nodeHeight,
-} from '../src/data/product-tree';
+import { featurePosition, features, fitScale, nodeHeight } from '../src/data/product-tree';
 
 const windowListeners = vi.spyOn(window, 'addEventListener');
 const documentListeners = vi.spyOn(document, 'addEventListener');
@@ -27,7 +21,7 @@ beforeEach(async () => {
   documentListeners.mockClear();
   vi.resetModules();
   vi.useFakeTimers();
-  history.replaceState(null, '', '/tree/');
+  history.replaceState(null, '', '/roadmap/');
   vi.stubGlobal('matchMedia', () => ({
     matches: true,
     addEventListener: vi.fn(),
@@ -77,7 +71,7 @@ afterEach(() => {
 
 it('keeps the incoming fragment when navigating between open features', () => {
   const navigate = (id: string) => {
-    history.replaceState(null, '', `/tree/#${id}`);
+    history.replaceState(null, '', `/roadmap/#${id}`);
     window.dispatchEvent(new Event('hashchange'));
   };
   navigate('http');
@@ -101,7 +95,7 @@ it('frames the displaced position of a node below an expanded card', () => {
   node.getBoundingClientRect = () => rect(1000, 1062);
   node.focus();
   const graphQL = features.find((feature) => feature.id === 'graphql')!;
-  const scale = Math.min(1, (1000 - 52) / mapWidth, (600 - 88) / mapHeight);
+  const scale = fitScale(1000, 600);
   const expectedY = 300 - (featurePosition(graphQL).y + 200 + nodeHeight / 2) * scale;
   expect(document.getElementById('tree-canvas')!.style.transform).toContain(`${expectedY}px`);
 });
@@ -109,4 +103,47 @@ it('frames the displaced position of a node below an expanded card', () => {
 afterAll(() => {
   windowListeners.mockRestore();
   documentListeners.mockRestore();
+});
+
+const pointer = (type: string, target: Element, x: number, y: number, id = 1) => {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y });
+  Object.defineProperty(event, 'pointerId', { value: id });
+  target.dispatchEvent(event);
+};
+
+it('pans when a drag starts on a card, without opening that card', () => {
+  const viewport = document.getElementById('tree-viewport')!;
+  viewport.setPointerCapture = vi.fn();
+  const card = document.querySelector<HTMLButtonElement>('[data-feature="http"]')!;
+  const before = document.getElementById('tree-canvas')!.style.transform;
+  pointer('pointerdown', card, 100, 100);
+  pointer('pointermove', card, 100, 160);
+  pointer('pointerup', card, 100, 160);
+  card.click();
+  expect(document.getElementById('tree-canvas')!.style.transform).not.toBe(before);
+  expect(document.getElementById('feature-detail')!.hidden).toBe(true);
+});
+
+it('still opens a card on a tap that does not move', () => {
+  const card = document.querySelector<HTMLButtonElement>('[data-feature="http"]')!;
+  pointer('pointerdown', card, 100, 100);
+  pointer('pointerup', card, 102, 101);
+  card.click();
+  expect(document.getElementById('detail-title')!.textContent).toBe('HTTP / REST');
+});
+
+it('lets the wheel scroll the page once the map reaches its edge', () => {
+  const viewport = document.getElementById('tree-viewport')!;
+  const wheel = () => {
+    const event = new WheelEvent('wheel', { deltaY: 4000, bubbles: true, cancelable: true });
+    viewport.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  expect(wheel()).toBe(true);
+  expect(wheel()).toBe(false);
+});
+
+it('frames one readable column on phones but fits the whole map on desktop', () => {
+  expect(fitScale(390, 600)).toBe(1);
+  expect(fitScale(800, 600)).toBeLessThan(0.5);
 });

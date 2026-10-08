@@ -5,7 +5,7 @@ description: Send your first request, save it to a collection, and chain a workf
 
 import { Steps, Aside } from '@astrojs/starlight/components';
 
-This walkthrough uses the web app at [restura.pages.dev](https://restura.pages.dev). The desktop app is identical.
+This walkthrough uses the web app at [restura.dev](https://restura.dev/). The desktop app works the same way and adds native-only features such as Kafka, MQTT, mTLS, and the AI assistant.
 
 ## Send your first request
 
@@ -58,7 +58,7 @@ Click the protocol picker (left of the URL, says `HTTP`) and pick a different on
 - **SSE** — connect to `https://echo.restura.dev/sse` and watch the live stream.
 - **MCP** — point at any HTTP-based MCP server.
 
-Each protocol has its own [protocol guide](/protocols/http/) with the full feature list.
+Each protocol has its own guide with the full feature list — start with [HTTP](/protocols/http/), [GraphQL](/protocols/graphql/), or [gRPC](/protocols/grpc/), and check the [capability matrix](/reference/capability-matrix/) for what differs between web and desktop.
 
 ## Next
 
@@ -69,5 +69,5 @@ Press `Cmd+K` (`Ctrl+K` on Linux/Windows) to open the command palette. Press `Cm
 - [**Authentication**](/guides/auth/) — Bearer, OAuth 2.0, AWS SigV4, mTLS.
 - [**Workflows**](/guides/workflows/) — run bounded OWS sequences over saved HTTP requests.
 - [**Scripts**](/guides/scripts/) — pre-request and test scripts in QuickJS.
-- [**AI assistant**](/guides/ai-assistant/) — chat with OpenAI / Anthropic / OpenRouter, with the current request as context.
+- [**AI assistant**](/guides/ai-assistant/) (desktop) — chat with OpenAI / Anthropic / OpenRouter, with the current request as context.
 - [**CLI**](/reference/cli/) — run your collections in CI.
