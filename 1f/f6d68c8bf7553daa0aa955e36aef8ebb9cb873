@@ -1,0 +1,69 @@
+docs-site/src/content/docs/guides/vscode-extension.mdx
+  s_e391766569d65c::t_ae95ae66419288 49
+docs-site/src/content/docs/protocols/mcp.mdx
+  s_e391766569d65c::t_b1df6a2ce6e406 3,41,53
+docs-site/src/content/docs/guides/import-export.mdx
+  s_e391766569d65c::t_ae95ae66419288 8
+docs-site/src/content/docs/overview/comparison.mdx
+  s_e391766569d65c::t_ae95ae66419288 25,33,36,58,92
+docs-site/src/content/docs/guides/environments.mdx
+  s_e391766569d65c::t_ae95ae66419288 56
+docs-site/astro.config.mjs
+  s_e391766569d65c::t_52a12a944a7d6c 92
+docs-site/src/content/docs/reference/api.mdx
+  s_e391766569d65c::t_ae95ae66419288 3
+docs/ROADMAP.md
+  s_e391766569d65c::t_8beb015d61d46f 21,81
+docs-site/src/content/docs/guides/load-testing.mdx
+  s_e391766569d65c::t_ae95ae66419288 31
+docs-site/src/components/RoadmapTeaser.astro
+  s_e391766569d65c::t_eec5e4bb6b3df0 1-198
+docs-site/src/content/docs/guides/browser-capture.mdx
+  s_e391766569d65c::t_ae95ae66419288 13
+docs-site/src/content/docs/architecture/adrs.mdx
+  s_e391766569d65c::t_ae95ae66419288 3
+docs-site/src/content/docs/overview/platforms.mdx
+  s_e391766569d65c::t_ae95ae66419288 29,40
+  s_e391766569d65c::t_a6a8b38292cdee 58
+docs-site/src/content/docs/overview/quick-start.mdx
+  s_e391766569d65c::t_ae95ae66419288 8,61,72
+docs-site/src/content/docs/guides/auth.mdx
+  s_e391766569d65c::t_ae95ae66419288 49,60
+docs-site/src/content/docs/guides/mcp-server-mode.mdx
+  s_e391766569d65c::t_ae95ae66419288 3,8,10,12-14,16,18,24-25,31,33-55,61
+docs-site/src/content/docs/guides/scripts.mdx
+  s_e391766569d65c::t_ae95ae66419288 31
+docs-site/src/content/docs/guides/ai-assistant.mdx
+  s_e391766569d65c::t_ae95ae66419288 34
+docs-site/src/data/product-tree.ts
+  s_e391766569d65c::t_ae95ae66419288 585-586,589-601
+docs-site/src/components/Footer.astro
+  s_e391766569d65c::t_52a12a944a7d6c 10-11,13-18
+  s_e391766569d65c::t_a287e9c6525793 136-149
+docs-site/src/pages/roadmap.astro
+  s_e391766569d65c::t_52a12a944a7d6c 40,44,53,57
+docs-site/src/content/docs/index.mdx
+  s_e391766569d65c::t_ae95ae66419288 43,64-65
+  s_e391766569d65c::t_52a12a944a7d6c 9,18-20,26,35-42,62,68,72,102-105
+  s_e391766569d65c::t_3e4fb58d29cdcb 106
+docs-site/src/content/docs/overview/what-is-restura.mdx
+  s_e391766569d65c::t_ae95ae66419288 21,23
+docs-site/src/content/docs/overview/install.mdx
+  s_e391766569d65c::t_bd68b1f9577a31 11,24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1ff6d68c8bf7553daa0aa955e36aef8ebb9cb873",
+  "prompts": {},
+  "sessions": {
+    "s_e391766569d65c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3a687f68-6ae2-4b7b-9677-99c4de81794c",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
