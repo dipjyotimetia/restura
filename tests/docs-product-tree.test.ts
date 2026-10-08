@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { describe, expect, it } from 'vitest';
 import { branches, features, findFeatures } from '../docs-site/src/data/product-tree';
 
 describe('public product tree', () => {

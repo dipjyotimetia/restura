@@ -1,3 +1,4 @@
+import { afterAll, afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   featurePosition,
   features,
