@@ -1,6 +1,6 @@
 # Restura — Roadmap
 
-Current version: **v1.0.0**
+Current package version: **v1.12.1**
 
 This is an honest picture of what's done, what's being worked on, and what's next. It's not a commitment or a sprint board — things move around based on what surfaces as the most painful problem.
 
@@ -12,9 +12,9 @@ This is an honest picture of what's done, what's being worked on, and what's nex
 
 - HTTP/REST — all methods, body types, cookies, code gen (cURL, JS, Python, Go, Ruby, PHP)
 - GraphQL — query builder, schema introspection, subscriptions
-- gRPC — unary calls, server streaming, server reflection
+- gRPC — unary calls, server streaming, server reflection, and desktop client/bidirectional streaming; web uses Connect transport
 - WebSocket — connect, send/receive, full message history
-- Socket.IO — emit/listen, acks, full transcript (desktop)
+- Socket.IO — emit/listen, acks, full transcript (web, desktop, and self-hosted)
 - Server-Sent Events — live stream viewer with reconnection
 - Kafka — typed produce/consume, batching, streams, transactions, guarded admin, SASL/OAuth + TLS (desktop)
 - MQTT — publish/subscribe, QoS levels, TLS (desktop)
@@ -30,7 +30,7 @@ Folder hierarchy, environment variables with `{{variable}}` substitution, collec
 
 ### Import / export
 
-Postman v2.1 (import + export), Insomnia (import + export), OpenAPI / Swagger (import), Bruno (import), Hoppscotch (import), OpenCollection (import + export), and one POSIX-shell cURL command (import). Public, credential-free HTTPS URLs can import the existing text collection/spec formats through a bounded backend fetch and mandatory preview. HAR import is not done yet.
+Postman v2.1 (import + export), Insomnia (import + export), OpenAPI / Swagger (import), Bruno (import), Hoppscotch (import), OpenCollection (import + export), and one POSIX-shell cURL command (import). Public, credential-free HTTPS URLs can import the existing text collection/spec formats through a bounded backend fetch and mandatory preview. HAR import with mandatory review and OpenAPI 3.0 export are also available.
 
 ### Scripting
 
@@ -38,7 +38,7 @@ Pre-request and test scripts in a QuickJS WASM sandbox — memory and time cappe
 
 ### Workflows
 
-Expand the safe OWS workflow profile only when each control has a bounded, policy-enforced runtime. Today the profile supports `do`, `set`, `wait`, timeout/cancellation, and binding-only saved HTTP requests; branching, loops, retries, and arbitrary transforms remain unavailable.
+Expand the safe OWS workflow profile only when each control has a bounded, policy-enforced runtime. The current profile supports sequential, guarded, loop, and recovery controls with typed bindings, timeout/cancellation, and saved HTTP or GraphQL calls. Unsupported transports and inline transport configuration are rejected before execution.
 
 ### CLI runner
 
@@ -75,7 +75,6 @@ Web app (Cloudflare Pages + Worker), desktop app (Electron — macOS, Windows, L
 
 ## Actively being worked on
 
-- **gRPC client streaming and bidirectional streaming** — unary and server streaming are done; the bidirectional path is next.
 - **Test coverage** — currently patchy in places, working toward meaningful coverage on the protocol core and IPC layer.
 - **Accessibility** — keyboard navigation and screen reader support needs work, particularly in the workflow builder and response viewer.
 
@@ -85,17 +84,13 @@ Web app (Cloudflare Pages + Worker), desktop app (Electron — macOS, Windows, L
 
 These are things that are clearly needed and will happen, roughly in order of how much they're being asked for.
 
-**HAR import** — useful for capturing real browser traffic and replaying it. Not complicated, just not done yet.
-
-**OpenAPI export** — you can import OpenAPI, you should also be able to export to it. The reverse path.
-
 **Environment export** — environments can't currently be exported standalone, only as part of a collection. That's a gap.
 
 **WebSocket bidirectional scripting** — the scripting sandbox currently works for HTTP request/response. Extending it to WebSocket (run a script on each incoming message) is on the list.
 
 **AI on web** — the AI assistant currently only works on the desktop app because there's no `/api/ai` route in the Worker. Adding web support requires some care around API key handling in the browser, but it's wanted.
 
-**Connect/gRPC transcoding** — the echo Worker uses Connect for gRPC over HTTP/2. Bringing that to the web client so gRPC works without the desktop app.
+**Digest and NTLM execution** — complete the challenge/response handshake when sending requests; configuration and credential inheritance already exist.
 
 ---
 
@@ -128,4 +123,6 @@ Open an issue or add a 👍 to an existing one. The things that get built fastes
 
 ---
 
-_Last updated: June 2026_
+_Last reviewed: October 2026_
+
+Explore the public [Product tree](https://docs.restura.dev/tree/). Its curated dataset lives in `docs-site/src/data/product-tree.ts`; keep public status changes aligned with this roadmap and current capabilities.

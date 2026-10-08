@@ -1,0 +1,46 @@
+---
+import type { BranchId } from '../data/product-tree';
+interface Props { id: string; branch: BranchId }
+const { id, branch } = Astro.props;
+const marks: Record<string, string> = { http: 'HTTP', graphql: 'GQL', grpc: 'gRPC', 'grpc-streaming': 'gRPC', websocket: 'WS', 'socket-io': 'S.IO', sse: 'SSE', kafka: 'K', mqtt: 'MQTT', mcp: 'MCP' };
+const paths: Record<string, string> = {
+  security: 'M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6Z M9 12l2 2 4-4',
+  collections: 'M3 7h7l2-3h8v16H3Z M3 9h17',
+  automation: 'M8 3h8 M10 3v6l-6 10q-1 2 2 2h12q3 0 2-2L14 9V3 M7 15h10',
+  ai: 'M7 7h10v10H7Z M9 3v4 M15 3v4 M9 17v4 M15 17v4 M3 9h4 M3 15h4 M17 9h4 M17 15h4 M10 11h4 M10 14h2',
+  platforms: 'M3 4h18v13H3Z M8 21h8 M12 17v4',
+  auth: 'M14 5a5 5 0 1 1-4 8L3 20v-4l7-7a5 5 0 0 1 4-4 M16 8h.01',
+  'local-storage': 'M4 6c0-4 16-4 16 0s-16 4-16 0 M4 6v12c0 4 16 4 16 0V6 M4 12c0 4 16 4 16 0',
+  environments: 'M8 4H5v16h3 M16 4h3v16h-3 M10 8l4 8 M14 8l-4 8',
+  'import-export': 'M4 8h14 M14 4l4 4-4 4 M20 16H6 M10 12l-4 4 4 4',
+  'har-import': 'M6 3h9l4 4v14H6Z M14 3v5h5 M12 11v7 M9 15l3 3 3-3',
+  workflows: 'M4 4h6v6H4Z M14 14h6v6h-6Z M10 7h7v7',
+  'load-testing': 'M4 18a9 9 0 1 1 16 0 M12 14l5-6 M8 18h8',
+  'web-app': 'M3 5h18v15H3Z M3 9h18 M6 7h.01 M9 7h.01',
+  'self-hosting': 'M3 9h18v5c-1 5-15 7-18 0Z M6 9V5h4v4 M10 9V5h4v4 M14 9V5h4v4 M10 5V1h4v4',
+  accessibility: 'M12 3h.01 M4 8h16 M12 8v6 M12 14l-5 7 M12 14l5 7',
+};
+Object.assign(paths, {
+  'self-hosting': 'M4 3h16v7H4Z M4 14h16v7H4Z M7 6h.01 M7 17h.01 M12 6h5 M12 17h5',
+  vscode: 'M8 5 2 12l6 7 M16 5l6 7-6 7 M14 3l-4 18',
+  jetbrains: 'M8 5 2 12l6 7 M16 5l6 7-6 7 M14 3l-4 18',
+  'browser-capture': 'M3 6h18v14H3Z M3 10h18 M12 12v6 M9 15l3 3 3-3',
+  'secret-handles': 'M5 10h14v11H5Z M8 10V6a4 4 0 0 1 8 0v4 M12 14v3',
+  scripts: 'M8 5 2 12l6 7 M16 5l6 7-6 7 M14 3l-4 18',
+  cli: 'M3 4h18v16H3Z M7 8l4 4-4 4 M13 16h4',
+  'git-collections': 'M6 3v12c0 5 12 5 12 0V9 M6 6h.01 M18 6h.01 M6 18h.01 M6 10c0 4 12 0 12-4',
+  'scheduled-runs': 'M12 3a9 9 0 1 0 .01 0 M12 7v5l4 2',
+  'environment-export': 'M4 3h9v18H4Z M10 12h11 M17 8l4 4-4 4',
+  'openapi-export': 'M4 3h9v18H4Z M10 12h11 M17 8l4 4-4 4',
+  'audit-logging': 'M5 3h14v18H5Z M8 7h8 M8 11h8 M8 15h5',
+  contracts: 'M5 3h14v18H5Z M8 7h8 M8 11h8 M8 15l2 2 5-4',
+  'mock-server': 'M4 3h16v7H4Z M4 14h16v7H4Z M7 6h.01 M7 17h.01',
+  'test-coverage': paths.automation,
+  'natural-language': 'M3 4h18v13H9l-5 4v-4H3Z M7 8h10 M7 12h7',
+});
+const path = paths[id] ?? paths[branch] ?? paths.platforms;
+const mark = marks[id];
+---
+<svg class="feature-icon" data-icon={id} width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  {mark ? <><rect x="1" y="1" width="22" height="22" rx="5" fill="currentColor" opacity=".1" /><text x="12" y="12.5" text-anchor="middle" dominant-baseline="middle" fill="currentColor" font-size={mark.length > 3 ? '5.5' : '7'} font-weight="650" font-family="inherit">{mark}</text></> : <path d={path} fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />}
+</svg>

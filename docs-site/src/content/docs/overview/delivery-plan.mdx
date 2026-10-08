@@ -1,0 +1,31 @@
+---
+title: Delivery plan
+description: Explore work in progress, planned improvements, and ideas being considered for Restura.
+---
+
+import { branches, features, reviewedOn, statuses } from '../../../data/product-tree';
+
+This plan shows where Restura is heading. Features are grouped by their current status, rather than promised release dates. Scope, availability, and priorities can change as implementation and feedback progress.
+
+For shipped changes, read the [GitHub release notes](https://github.com/dipjyotimetia/restura/releases). For connections between features, explore the [Product tree](/tree/).
+
+<p>Last reviewed: <time datetime={reviewedOn}>{reviewedOn}</time>.</p>
+
+{['in-progress', 'planned', 'exploring'].map((status) => (
+  <section>
+    <h2>{statuses[status]}</h2>
+    <p>{status === 'in-progress' ? 'Work currently being improved or implemented.' : status === 'planned' ? 'Intended improvements that still need implementation and verification.' : 'Ideas under consideration; these are not delivery commitments.'}</p>
+    {features.filter((feature) => feature.status === status).map((feature) => (
+      <article>
+        <h3><a href={`/tree/#${feature.id}`}>{feature.title}</a></h3>
+        <p>{feature.description}</p>
+        <p><strong>{branches.find((branch) => branch.id === feature.branch)?.label}</strong> — {feature.status === 'in-progress' ? 'Applies to' : 'Intended platforms'}: {feature.platforms.join(', ')}.</p>
+        {feature.prerequisites.length > 0 && <p><strong>Built on:</strong> {feature.prerequisites.map((id, index) => <span><a href={`/tree/#${id}`}>{features.find((item) => item.id === id)?.title}</a>{index < feature.prerequisites.length - 1 ? ', ' : ''}</span>)}</p>}
+      </article>
+    ))}
+  </section>
+))}
+
+## Help shape the plan
+
+[Suggest a feature](https://github.com/dipjyotimetia/restura/issues/new?template=feature_request.yml) with your use case, the platform you use, and the outcome you need.
