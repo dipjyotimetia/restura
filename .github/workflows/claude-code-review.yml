@@ -1,0 +1,65 @@
+name: Claude Code Review
+
+# Automated review on the Claude subscription (CLAUDE_CODE_OAUTH_TOKEN), so every
+# run spends the same usage pool as interactive Claude Code. Cost controls:
+#   - Reviews once when a PR is opened / marked ready / reopened — NOT on every
+#     push. Re-run on demand by adding the `claude-review` label.
+#   - Skips drafts, bots (Dependabot included), forks (no secrets there), and
+#     markdown/lockfile-only changes.
+#   - Cancels a superseded run for the same PR, caps turns and wall-clock time,
+#     and uses Sonnet rather than Opus.
+#
+# Comments are posted with the Claude GitHub App token obtained via OIDC
+# (`id-token: write`), so the workflow's own GITHUB_TOKEN stays read-only.
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, reopened, labeled]
+    paths-ignore:
+      - '**/*.md'
+      - 'openwiki/**'
+      - '**/package-lock.json'
+
+permissions: {}
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  claude-review:
+    if: |
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      github.event.pull_request.user.type != 'Bot' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.action != 'labeled' || github.event.label.name == 'claude-review')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515 # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
+          plugins: 'code-review@claude-code-plugins'
+          prompt: '/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
+          claude_args: >-
+            --model claude-sonnet-5-5
+            --max-turns 30
+            --allowedTools "mcp__github_inline_comment__create_inline_comment"
+          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
+          # or https://code.claude.com/docs/en/cli-reference for available options
