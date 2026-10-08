@@ -1,0 +1,21 @@
+.github/workflows/claude-code-review.yml
+  s_e391766569d65c::t_1458399fba9058 3-14,17-27,31-36,38,47,50,54,60-63
+.github/workflows/claude.yml
+  s_e391766569d65c::t_cff187026d38cd 3-8,19-25,29-45,47-49,58,64,68,72-74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d75c53020f8fe175ed3505ecfe71ab1c742f4b88",
+  "prompts": {},
+  "sessions": {
+    "s_e391766569d65c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3a687f68-6ae2-4b7b-9677-99c4de81794c",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
