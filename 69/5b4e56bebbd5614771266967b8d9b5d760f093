@@ -1,0 +1,38 @@
+docs-site/src/content/docs/overview/release-notes.mdx
+  s_763e1852f33c0c::t_38353d5e45af56 1-10
+docs-site/src/pages/tree.astro
+  s_763e1852f33c0c::t_67c7f35c65f8f4 28
+docs-site/src/components/ReleaseNotes.astro
+  s_763e1852f33c0c::t_38353d5e45af56 1-22
+docs-site/src/content/docs/overview/delivery-plan.mdx
+  s_763e1852f33c0c::t_67c7f35c65f8f4 10
+docs-site/README.md
+  s_763e1852f33c0c::t_42e4da7f2d7e7f 52,106
+docs-site/astro.config.mjs
+  s_763e1852f33c0c::t_67c7f35c65f8f4 94
+docs-site/src/scripts/release-notes.ts
+  s_763e1852f33c0c::t_a41b9f3f104687 2-28,45-47,52-54,86-91,93-94,98-105,111-112,118-119,122-125,145-148,157,159
+  s_763e1852f33c0c::t_38353d5e45af56 1,29-32,35-44,48-51,55-61,63-73,75-85,92,97,106-107,113-117,120-121,126-133,144,149-156,160-161
+  s_763e1852f33c0c::t_5e90d814c4a073 33-34,62,134-136
+  s_763e1852f33c0c::t_42e4da7f2d7e7f 74,95-96,108-110,137-143,158
+docs-site/tests/release-notes.test.ts
+  s_763e1852f33c0c::t_5e90d814c4a073 15-26,35,53-65
+  s_763e1852f33c0c::t_a41b9f3f104687 1-12,38-52,66-96
+  s_763e1852f33c0c::t_9e584d81da96b0 13-14,27-34,36-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "695b4e56bebbd5614771266967b8d9b5d760f093",
+  "prompts": {},
+  "sessions": {
+    "s_763e1852f33c0c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1199e-0e8e-77e3-aa2d-50c9595576ff",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Restura Test <test@restura.dev>"
+    }
+  }
+}
