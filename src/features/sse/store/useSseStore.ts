@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { migrateLegacySseConfig } from '@/features/sse/lib/legacySseConfig';
 import {
   appendSseEventToSummary,
   createSseStreamSummary,
@@ -283,6 +284,8 @@ export const useSseStore = create<SseState>()(
         ),
         activeConnectionId: state.activeConnectionId,
       }),
+      // Pre-#873 blobs carried url/headers here; hand them to blank SSE tabs.
+      onRehydrate: (state) => migrateLegacySseConfig(state),
     })
   )
 );
