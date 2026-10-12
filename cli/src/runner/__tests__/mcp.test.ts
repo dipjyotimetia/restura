@@ -65,4 +65,65 @@ describe('MCP executor', () => {
     expect(result.requests[0]?.status).toBe(200);
     expect(JSON.parse(lastBody).method).toBe('ping');
   });
+
+  it('fails the item with an actionable error when no defaultMethod is configured', async () => {
+    // Regression (#877): the executor used to silently fall back to `ping`, so
+    // every saved MCP request "passed" without exercising its operation.
+    lastBody = '';
+    const dir = mcpCollection(`name: NoOp\nurl: '{{BASE}}/mcp'\ntransport: streamable-http\n`);
+    const completed: Array<{ passed: boolean; errorMessage?: string }> = [];
+    const result = await runCollection(
+      dir,
+      { envVars: {}, bail: false, timeoutMs: 5000, allowLocalhost: true },
+      {
+        onRequestComplete: (r) => {
+          completed.push(r);
+        },
+        onEnd() {},
+      }
+    );
+    expect(lastBody).toBe('');
+    expect(result.requests[0]?.passed).toBe(false);
+    expect(result.requests[0]?.errorMessage).toMatch(/no MCP method configured/i);
+    expect(result.requests[0]?.errorMessage).toMatch(/tools\/call/);
+    expect(completed[0]?.passed).toBe(false);
+    expect(completed[0]?.errorMessage).toMatch(/no MCP method configured/i);
+  });
+
+  it('fails when defaultMethod resolves to a blank string', async () => {
+    lastBody = '';
+    const dir = mcpCollection(
+      `name: Blank\nurl: '{{BASE}}/mcp'\ntransport: streamable-http\ndefaultMethod: '{{METHOD}}'\n`
+    );
+    const result = await runCollection(
+      dir,
+      { envVars: { METHOD: '  ' }, bail: false, timeoutMs: 5000, allowLocalhost: true },
+      new NoopReporter()
+    );
+    expect(lastBody).toBe('');
+    expect(result.requests[0]?.passed).toBe(false);
+    expect(result.requests[0]?.errorMessage).toMatch(/no MCP method configured/i);
+  });
+
+  it('sends the configured method with {{var}}-resolved params', async () => {
+    const dir = mcpCollection(
+      [
+        'name: Call',
+        "url: '{{BASE}}/mcp'",
+        'transport: streamable-http',
+        'defaultMethod: tools/call',
+        `defaultParams: '{"name":"{{TOOL}}","arguments":{"text":"hi"}}'`,
+        '',
+      ].join('\n')
+    );
+    const result = await runCollection(
+      dir,
+      { envVars: { TOOL: 'echo' }, bail: false, timeoutMs: 5000, allowLocalhost: true },
+      new NoopReporter()
+    );
+    expect(result.requests[0]?.passed).toBe(true);
+    const sent = JSON.parse(lastBody) as { method: string; params: unknown };
+    expect(sent.method).toBe('tools/call');
+    expect(sent.params).toEqual({ name: 'echo', arguments: { text: 'hi' } });
+  });
 });

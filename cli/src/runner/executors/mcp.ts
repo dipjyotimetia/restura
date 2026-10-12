@@ -1,7 +1,7 @@
 import { validateMcpSpec } from '@shared/protocol/mcp-proxy';
+import type { McpRequest } from '@shared/types';
 import { request as undiciRequest } from 'undici';
 import { v4 as uuidv4 } from 'uuid';
-import type { McpRequest } from '@shared/types';
 import type { LoadedRequest } from '../collectionLoader';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, resolveOAuth2Token } from './auth';
@@ -30,6 +30,23 @@ export async function executeMcp(
   }
   const req = item.request as McpRequest;
 
+  // A saved MCP request is ONE operation (`defaultMethod` + `defaultParams`).
+  // Without a method there is nothing meaningful to run — fail the item loudly
+  // instead of silently substituting `ping` (#877), before any I/O.
+  const method = req.defaultMethod ? resolveVarsDeep(req.defaultMethod, opts.vars).trim() : '';
+  if (!method) {
+    return {
+      status: 0,
+      passed: false,
+      durationMs: 0,
+      bodyBytes: 0,
+      errorMessage:
+        `No MCP method configured for "${req.name}". Set defaultMethod (e.g. "tools/call", ` +
+        `"resources/read", "prompts/get") and defaultParams (e.g. {"name":"<tool>","arguments":{}}) ` +
+        'on the request — open it in Restura, build the operation, and save it to the collection again.',
+    };
+  }
+
   const url = resolveVarsDeep(req.url, opts.vars);
   const headers: Record<string, string> = {};
   for (const h of req.headers ?? []) {
@@ -54,7 +71,6 @@ export async function executeMcp(
 
   // Build a JSON-RPC envelope from defaultMethod/defaultParams. Real MCP usage
   // would walk a script-driven dialog; the CLI's contract is "send one call".
-  const method = req.defaultMethod ? resolveVarsDeep(req.defaultMethod, opts.vars) : 'ping';
   let params: unknown = undefined;
   if (req.defaultParams) {
     const resolved = resolveVarsDeep(req.defaultParams, opts.vars);

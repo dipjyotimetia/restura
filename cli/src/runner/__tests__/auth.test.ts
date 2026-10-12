@@ -161,7 +161,7 @@ describe('CLI auth signing — wire-level shapes', () => {
 
   it('MCP requests carry API-key auth as a header', async () => {
     const dir = authCollection(
-      `name: McpAuth\nurl: '{{BASE}}/mcp'\ntransport: streamable-http\n` +
+      `name: McpAuth\nurl: '{{BASE}}/mcp'\ntransport: streamable-http\ndefaultMethod: ping\n` +
         `auth:\n  type: api-key\n  apiKey:\n    key: X-Mcp-Key\n    value: mcp-secret\n    in: header\n`,
       'a.mcp.yaml'
     );
