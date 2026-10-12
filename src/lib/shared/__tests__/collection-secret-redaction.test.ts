@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { exportToOpenCollection } from '@/features/collections/lib/exporters';
+import { ocToInternal } from '@/lib/opencollection/to-internal';
 import type { AuthConfig, Collection, CollectionItem, HttpRequest } from '@/types';
 import {
   countCollectionInlineSecrets,
@@ -536,5 +537,194 @@ describe('OpenCollection export — no plaintext _oc secret leak (security regre
 
   it('countCollectionInlineSecrets fires the export dialog for this collection (gate)', () => {
     expect(countCollectionInlineSecrets(ocImportedCollectionWithBagSecrets())).toBeGreaterThan(0);
+  });
+});
+
+// Opaque OC items (WebSocket / Socket.IO / unknown `info.type`) never reach a
+// typed request — `itemToInternal` keeps them as folder placeholders whose only
+// copy of the auth block is the `_oc` bag. Their credentials must be counted
+// whatever the auth type, while modelled items (http/graphql/grpc + SSE/MCP
+// extension entries) keep being counted once, on the typed model.
+describe('opaque OpenCollection items — bag-only auth is counted and redacted', () => {
+  const opaqueAuths: Record<string, Record<string, unknown>> = {
+    oauth1: {
+      type: 'oauth1',
+      consumerKey: 'ck-public',
+      consumerSecret: 'OPAQUE-OAUTH1-CS',
+      accessTokenSecret: 'OPAQUE-OAUTH1-ATS',
+    },
+    ntlm: { type: 'ntlm', username: 'u', password: 'OPAQUE-NTLM-PW', domain: 'CORP' },
+    wsse: { type: 'wsse', username: 'u', password: 'OPAQUE-WSSE-PW' },
+    bearer: { type: 'bearer', token: 'OPAQUE-BEARER-TOKEN' },
+    apikey: { type: 'apikey', key: 'X-Key', value: 'OPAQUE-APIKEY-VALUE', placement: 'header' },
+    awsv4: { type: 'awsv4', accessKeyId: 'AKIA', secretAccessKey: 'OPAQUE-AWS-SECRET' },
+    oauth2: {
+      type: 'oauth2',
+      flow: 'resource_owner_password_credentials',
+      credentials: { clientId: 'cid', clientSecret: 'OPAQUE-OAUTH2-CS' },
+      resourceOwner: { username: 'u', password: 'OPAQUE-OAUTH2-PW' },
+    },
+  };
+
+  const wsBag = (auth: Record<string, unknown>, type = 'websocket') => ({
+    info: { type, name: 'Live' },
+    websocket: { url: 'wss://example.com/feed', auth },
+  });
+
+  const placeholder = (bag: unknown): CollectionItem =>
+    ({
+      id: 'ws',
+      name: 'Live (WebSocket)',
+      type: 'folder',
+      items: [],
+      _oc: bag,
+    }) as unknown as CollectionItem;
+
+  const withRootBag = (items: unknown[], placeholders: CollectionItem[] = []): Collection =>
+    ({
+      id: 'c',
+      name: 'C',
+      items: placeholders,
+      _oc: { opencollection: '1.0.0', info: { name: 'C' }, items },
+    }) as unknown as Collection;
+
+  const stripRoot = (c: Collection): Collection => {
+    const copy = { ...c } as Collection & { _oc?: unknown };
+    delete copy._oc;
+    return copy;
+  };
+
+  for (const [kind, auth] of Object.entries(opaqueAuths)) {
+    it(`counts a ${kind} secret held only in an opaque WebSocket item bag`, () => {
+      const c: Collection = { id: 'c', name: 'C', items: [placeholder(wsBag(auth))] };
+      expect(countCollectionInlineSecrets(c)).toBeGreaterThanOrEqual(1);
+    });
+
+    it(`counts a ${kind} secret in an opaque item reached through the root _oc bag`, () => {
+      const c = withRootBag([wsBag(auth)], [placeholder(wsBag(auth))]);
+      expect(countCollectionInlineSecrets(c)).toBeGreaterThanOrEqual(1);
+    });
+
+    it(`redacts a ${kind} secret in an opaque item bag`, () => {
+      const c = withRootBag([wsBag(auth)], [placeholder(wsBag(auth))]);
+      const out = JSON.stringify(redactCollectionSecrets(c));
+      expect(out).not.toMatch(/OPAQUE-/);
+      // Non-secret item shape survives for round-trip fidelity.
+      expect(out).toContain('wss://example.com/feed');
+    });
+  }
+
+  it('treats unknown item types (e.g. socketio) as opaque too', () => {
+    const c: Collection = {
+      id: 'c',
+      name: 'C',
+      items: [placeholder(wsBag(opaqueAuths.wsse!, 'socketio'))],
+    };
+    expect(countCollectionInlineSecrets(c)).toBe(1);
+  });
+
+  it('counts every credential field of an opaque auth block', () => {
+    const c: Collection = { id: 'c', name: 'C', items: [placeholder(wsBag(opaqueAuths.oauth1!))] };
+    expect(countCollectionInlineSecrets(c)).toBe(2);
+  });
+
+  it('counts opaque auth nested under a real OC folder in the root bag', () => {
+    const c = withRootBag([{ info: { name: 'Folder' }, items: [wsBag(opaqueAuths.bearer!)] }]);
+    expect(countCollectionInlineSecrets(c)).toBe(1);
+  });
+
+  it('ignores empty credentials in an opaque item', () => {
+    const c: Collection = {
+      id: 'c',
+      name: 'C',
+      items: [placeholder(wsBag({ type: 'bearer', token: '' }))],
+    };
+    expect(countCollectionInlineSecrets(c)).toBe(0);
+  });
+
+  it('counts an imported typed http item with NTLM exactly once (no double count)', () => {
+    const imported = ocToInternal({
+      opencollection: '1.0.0',
+      info: { name: 'Typed' },
+      items: [
+        {
+          info: { type: 'http', name: 'Ntlm' },
+          http: {
+            method: 'GET',
+            url: 'https://example.com',
+            auth: { type: 'ntlm', username: 'u', password: 'TYPED-NTLM-PW', domain: 'CORP' },
+          },
+        },
+      ],
+    } as never);
+    // Fresh import: the root `_oc` bag path.
+    expect(countCollectionInlineSecrets(imported)).toBe(1);
+    // After an edit strips the root `_oc`: the per-item bag fallback path.
+    expect(countCollectionInlineSecrets(stripRoot(imported))).toBe(1);
+  });
+
+  it('counts an imported opaque WebSocket item alongside a typed item', () => {
+    const imported = ocToInternal({
+      opencollection: '1.0.0',
+      info: { name: 'Mixed' },
+      items: [
+        {
+          info: { type: 'http', name: 'Bearer' },
+          http: { method: 'GET', url: 'https://example.com', auth: opaqueAuths.bearer },
+        },
+        wsBag(opaqueAuths.wsse!),
+      ],
+    } as never);
+    expect(countCollectionInlineSecrets(imported)).toBe(2);
+    expect(countCollectionInlineSecrets(stripRoot(imported))).toBe(2);
+  });
+
+  it('counts SSE/MCP extension entries once (typed via x-restura-sse / x-restura-mcp)', () => {
+    const imported = ocToInternal({
+      opencollection: '1.0.0',
+      info: { name: 'Ext' },
+      items: [],
+      extensions: {
+        'x-restura-sse': [
+          {
+            info: { type: 'sse', name: 'Stream' },
+            sse: { url: 'https://example.com/sse', auth: { type: 'bearer', token: 'SSE-TOK' } },
+          },
+        ],
+        'x-restura-mcp': [
+          {
+            info: { type: 'mcp', name: 'Tools' },
+            mcp: {
+              url: 'https://example.com/mcp',
+              transport: 'streamable-http',
+              auth: { type: 'wsse', username: 'u', password: 'MCP-PW' },
+            },
+          },
+        ],
+      },
+    } as never);
+    expect(countCollectionInlineSecrets(imported)).toBe(2);
+    expect(countCollectionInlineSecrets(stripRoot(imported))).toBe(2);
+  });
+
+  it('counts and redacts nested OAuth2 credentials on a typed item (never on the typed model)', () => {
+    const item = requestItem('r', { type: 'none' }) as CollectionItem & { _oc?: unknown };
+    item._oc = { info: { type: 'http', name: 'R' }, http: { auth: opaqueAuths.oauth2 } };
+    const c: Collection = { id: 'c', name: 'C', items: [item] };
+    expect(countCollectionInlineSecrets(c)).toBe(2);
+    const out = JSON.stringify(redactCollectionSecrets(c));
+    expect(out).not.toMatch(/OPAQUE-OAUTH2/);
+    expect(out).toContain('cid');
+  });
+
+  it('keeps an OAuth1 file-path privateKey when redacting an opaque bag', () => {
+    const auth = {
+      type: 'oauth1',
+      consumerKey: 'ck',
+      privateKey: { type: 'file', value: '/keys/rsa.pem' },
+    };
+    const c: Collection = { id: 'c', name: 'C', items: [placeholder(wsBag(auth))] };
+    expect(countCollectionInlineSecrets(c)).toBe(0);
+    expect(JSON.stringify(redactCollectionSecrets(c))).toContain('/keys/rsa.pem');
   });
 });
