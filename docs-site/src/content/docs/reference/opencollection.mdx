@@ -13,12 +13,12 @@ Postman's format is locked. Insomnia's is locked. Bruno's is its own. Switching 
 
 ## What it covers
 
-- Request-shaped protocols: HTTP, GraphQL, gRPC, WebSocket, Socket.IO, SSE, and MCP (Socket.IO / SSE / MCP ride along as `x-restura-*` extensions). The connection-based protocols (Kafka, MQTT) have no per-request shape, so they aren't stored in a collection.
+- Request-shaped protocols Restura can save and run: HTTP, GraphQL, gRPC, SSE, and MCP (SSE / MCP ride along as `x-restura-*` extensions — see [Restura extensions](#restura-extensions)). WebSocket and Socket.IO tabs can't be saved to a collection yet ([#886](https://github.com/dipjyotimetia/restura/issues/886)); a WebSocket item in an imported file shows up as a placeholder folder and an `x-restura-socketio` entry is kept opaquely, both re-exported unchanged while untouched. The connection-based protocols (Kafka, MQTT) have no per-request shape, so they aren't stored in a collection.
 - Nested folders with inherited auth, scripts, and variables (folder `request.variables`; variables marked **Keep local** are never written). Folder-level default headers in the spec aren't mapped yet.
 - Environments with scoped variables.
 - Scripts (pre-request and test) — sandbox-portable JavaScript.
 - Workflows — separately stored OWS orchestration artifacts that reference saved HTTP requests. The currently executable profile is deliberately bounded; see the [workflow guide](/guides/workflows/).
-- Auth schemes — every scheme in the [auth guide](/guides/auth/), with secrets stored as references (`SecretRef`).
+- Auth schemes — Basic, Bearer, API key, OAuth 2.0, AWS SigV4, Digest, OAuth 1.0a, NTLM, and WSSE, at request, folder and collection level. Secrets held as `SecretRef` handles export value-less (`{{handle:label}}`), never as plaintext. Digest and NTLM round-trip but are not yet applied when a request is sent ([#861](https://github.com/dipjyotimetia/restura/issues/861)).
 - Vendor extensions via the `extensions` field — so tools can persist proprietary data while staying spec-compliant.
 
 ## Two layouts
@@ -30,7 +30,29 @@ Restura exports the bundled YAML everywhere and the directory layout on desktop 
 
 ## Round-trip guarantees
 
-Importing a Restura-exported OpenCollection back into Restura is **lossless**. Importing a Postman v2.1 collection into Restura and exporting as OpenCollection retains every Postman-supported field; round-tripping back to Postman is best-effort (some Restura-specific features may not have Postman equivalents).
+Exporting a collection and importing it back into Restura preserves HTTP, GraphQL, gRPC, SSE, and MCP requests — including their auth, scripts, and folder placement — plus collection- and folder-level auth, scripts, and variables. A round-trip test exports a fully-populated request of each type and checks every field comes back; a new request field can't be added without either carrying it or listing it as a known gap.
+
+Known gaps — these are **not** preserved yet:
+
+- HTTP per-request **settings** (timeout, redirects, TLS verification) and the **contract link** (`contractRef`).
+- The **secret** marker on individual headers (the header value itself is exported).
+- OAuth 1.0a signature methods Restura can't sign with (`RSA-*`, `HMAC-SHA512`) import as the signer default; the original value survives only while the imported item is unedited.
+- WebSocket and Socket.IO items (see [What it covers](#what-it-covers)).
+
+Importing a Postman v2.1 collection into Restura and exporting as OpenCollection keeps the fields Restura models; round-tripping back to Postman is best-effort (some Restura-specific features have no Postman equivalent).
+
+## Restura extensions
+
+The OpenCollection v1.0.0 JSON Schema has no item type for SSE or MCP, and its request, folder and auth objects reject unknown keys. Restura therefore keeps what the schema can't hold in the document's free-form root `extensions` field instead of adding non-schema keys to items or auth blocks (which the [VS Code extension](/guides/vscode-extension/)'s schema validation would flag):
+
+| Extension | Carries |
+| --- | --- |
+| `x-restura-sse`, `x-restura-mcp` | SSE / MCP requests (all fields). A `folderPath` (ancestor folder names) records the folder an item lives in; entries without one load at the collection root. An MCP request stores one operation: `defaultMethod` (e.g. `tools/call`) plus `defaultParams`. |
+| `x-restura-grpc` | gRPC schema snapshots (reflected descriptors or an uploaded `.proto`), stored once per content hash (`schemas`), plus per-request `timeout`. `requests` entries reference a snapshot by hash and are matched to items by `path` (folder names + request name). |
+| `x-restura-auth` | Auth options the schema's auth objects lack: OAuth 1.0a `addParamsToBody`, NTLM `workstation`, WSSE `passwordType`. Each entry names its `target` (`collection`, `folder` or `request`), `path` and auth `type`, and only applies to a node whose auth has that type. |
+| `x-restura-contract` | The collection's linked API contract. |
+
+Other tools ignore these keys; Restura rebuilds them on every export and keeps unknown `x-*` keys from an imported file.
 
 <Aside title="Canonical spec">
 The full OpenCollection spec, with schema definitions and examples, is in [`docs/opencollection.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/opencollection.md). The generated TypeScript types live at [`shared/opencollection/spec-types.ts`](https://github.com/dipjyotimetia/restura/blob/main/shared/opencollection/spec-types.ts) and are regenerated by `npm run gen:opencollection-types`.

@@ -13,6 +13,12 @@ New to Restura? With no collections yet, choose **Try sample collection** (in th
 - **Folder** — nested inside a collection or another folder. Carries its own auth, scripts, and variables (right-click → **Folder settings**).
 - **Request** — leaf node. Inherits from parents unless overridden.
 
+## Saving requests
+
+**Save to Collection** stores the request exactly as configured in its tab: HTTP, GraphQL, and gRPC requests (gRPC with its schema snapshot and timeout), SSE requests with their URL, headers, query params, auth, event filter, and reconnect setting, and MCP requests as one operation — the method (for example `tools/call`, `resources/read`, `prompts/get`) plus its parameters. Opening a saved item restores that configuration in the builder.
+
+WebSocket, Socket.IO, Kafka, and MQTT sessions can't be saved to a collection yet — Save to Collection is disabled for them with an explanation ([#886](https://github.com/dipjyotimetia/restura/issues/886)).
+
 ## Inheritance
 
 Anything you set on a folder cascades to every descendant unless that descendant explicitly overrides it. Concretely:
