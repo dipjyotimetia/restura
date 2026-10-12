@@ -20,6 +20,7 @@ import {
   generateRequestTemplate,
   validateRequestAgainstSchema,
 } from '@/features/grpc/lib/grpcReflection';
+import { reflectionSnapshotUpdate } from '@/features/grpc/lib/grpcSchemaSnapshot';
 import { startGrpcStream } from '@/features/grpc/lib/grpcStreamingClient';
 import {
   type GrpcValidationState,
@@ -78,7 +79,6 @@ function GrpcRequestBuilder() {
   const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const { run: runViaRegistry } = useRequestRunner();
   const [activeTab, setActiveTab] = useState<GrpcSubTab>('message');
-  const [protoFile, setProtoFile] = useState<File | null>(null);
   const [resolvedProto, setResolvedProto] = useState<{
     content: string;
     fileName: string;
@@ -90,7 +90,6 @@ function GrpcRequestBuilder() {
     endStream: () => void;
     cancelStream: () => void;
   } | null>(null);
-  const [timeoutMs, setTimeoutMs] = useState(30000);
   const [retryMaxAttempts, setRetryMaxAttempts] = useState(1);
   const [retryDelayMs, setRetryDelayMs] = useState(0);
   const [useCompression, setUseCompression] = useState(false);
@@ -129,6 +128,12 @@ function GrpcRequestBuilder() {
     (service: ReflectionServiceInfo) => {
       updateRequest({ service: service.fullName });
       validateService(service.fullName);
+      // Persist the reflected descriptors as the request's schema snapshot so
+      // it runs outside the builder (collection runner, reopened tab) — #871.
+      const state = useRequestStore.getState();
+      const active = state.tabs.find((t) => t.id === state.activeTabId)?.request;
+      const next = reflectionSnapshotUpdate(service, active);
+      if (next) updateRequest({ schema: next });
     },
     [updateRequest, validateService]
   );
@@ -246,6 +251,8 @@ function GrpcRequestBuilder() {
   }
 
   const grpcRequest: GrpcRequest = currentRequest;
+  const timeoutMs = grpcRequest.timeout ?? 30000;
+  const protoSnapshot = grpcRequest.schema?.kind === 'proto' ? grpcRequest.schema : null;
   const reflectionResult = reflection.result;
   const reflectionServices: ReflectionServiceInfo[] = reflectionResult?.success
     ? reflectionResult.services
@@ -327,13 +334,19 @@ function GrpcRequestBuilder() {
       // web Connect path; Electron loads the descriptor set instead.
       let descriptors: string[] | undefined;
 
-      if (protoFile) {
-        protoContent = await protoFile.text();
-        protoFileName = protoFile.name;
+      if (protoSnapshot) {
+        protoContent = protoSnapshot.text;
+        protoFileName = protoSnapshot.fileName;
       } else if (reflection.result?.success && reflection.selectedService) {
         descriptors = reflection.selectedService.descriptors;
         protoContent = generateProtoFromReflection(grpcRequest.service, reflection.selectedService);
         protoFileName = 'generated.proto';
+      } else if (grpcRequest.schema?.kind === 'descriptors' && isElectron()) {
+        // Persisted reflection snapshot (reflection unreachable right now) —
+        // Electron loads descriptors directly; proto text is then unused.
+        descriptors = grpcRequest.schema.descriptors;
+        protoContent = '';
+        protoFileName = 'snapshot.proto';
       } else {
         toast.error('Proto file or reflection required', {
           description: 'Please upload a .proto file or use a server with gRPC reflection enabled.',
@@ -616,7 +629,9 @@ function GrpcRequestBuilder() {
                   type="number"
                   value={timeoutMs}
                   onChange={(e) =>
-                    setTimeoutMs(Math.max(1000, parseInt(e.target.value, 10) || 30000))
+                    updateRequest({
+                      timeout: Math.max(1000, parseInt(e.target.value, 10) || 30000),
+                    })
                   }
                   min={1000}
                   step={1000}
@@ -660,8 +675,10 @@ function GrpcRequestBuilder() {
               {reflection.loading ? 'Discovering…' : 'Discover'}
             </Button>
             <GrpcProtoUploader
-              protoFile={protoFile}
-              onProtoFileChange={setProtoFile}
+              protoFileName={protoSnapshot?.fileName ?? null}
+              onProtoLoaded={({ fileName, text }) =>
+                updateRequest({ schema: { kind: 'proto', fileName, text } })
+              }
               onServiceChange={handleServiceChange}
               onMethodChange={handleMethodChange}
               onMethodTypeChange={handleMethodTypeChange}

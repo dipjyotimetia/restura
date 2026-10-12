@@ -7,16 +7,18 @@ import { parseProtoFile } from '@/features/grpc/lib/grpcClient';
 import type { GrpcMethodType, ProtoFileInfo } from '@/types';
 
 interface GrpcProtoUploaderProps {
-  protoFile: File | null;
-  onProtoFileChange: (file: File | null) => void;
+  /** File name of the proto snapshot persisted on the request, if any. */
+  protoFileName: string | null;
+  /** Called with the uploaded file's name + text (persisted as the request's schema snapshot). */
+  onProtoLoaded: (proto: { fileName: string; text: string }) => void;
   onServiceChange: (service: string) => void;
   onMethodChange: (method: string) => void;
   onMethodTypeChange: (methodType: GrpcMethodType) => void;
 }
 
 export default function GrpcProtoUploader({
-  protoFile,
-  onProtoFileChange,
+  protoFileName,
+  onProtoLoaded,
   onServiceChange,
   onMethodChange,
   onMethodTypeChange,
@@ -32,10 +34,9 @@ export default function GrpcProtoUploader({
       return;
     }
 
-    onProtoFileChange(file);
-
     try {
       const content = await file.text();
+      onProtoLoaded({ fileName: file.name, text: content });
       const parsed = parseProtoFile(content);
 
       // Auto-fill service if available
@@ -95,11 +96,11 @@ export default function GrpcProtoUploader({
           variant="outline"
           size="sm"
           onClick={() => document.getElementById('proto-upload')?.click()}
-          title={protoFile ? protoFile.name : 'Upload a .proto file'}
+          title={protoFileName ?? 'Upload a .proto file'}
           className="h-8 shrink-0 text-sp-12 max-w-[180px]"
         >
           <Upload className="mr-1.5 h-3.5 w-3.5" />
-          <span className="truncate">{protoFile ? protoFile.name : 'Upload .proto'}</span>
+          <span className="truncate">{protoFileName ?? 'Upload .proto'}</span>
         </Button>
       </div>
     </>

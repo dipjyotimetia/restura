@@ -16,6 +16,16 @@ export type GrpcMethodType =
 // declarations would be nominally distinct types, so this must not be redefined.
 export { GrpcStatusCode, GrpcStatusCodeName };
 
+/**
+ * Schema snapshot persisted with a saved gRPC request so it can run without
+ * the builder's live reflection state (collection runner, reopened tabs,
+ * OpenCollection export/import). Captured when the user reflects (raw base64
+ * FileDescriptorProtos — lossless) or uploads a `.proto` (file name + text).
+ */
+export type GrpcSchemaSnapshot =
+  | { kind: 'descriptors'; descriptors: string[] }
+  | { kind: 'proto'; fileName: string; text: string };
+
 // gRPC Request
 //
 // NOTE: structurally mirrors `GrpcSpec` in `shared/protocol/grpc-proxy.ts`.
@@ -33,6 +43,10 @@ export interface GrpcRequest {
   auth: AuthConfig;
   preRequestScript?: string;
   testScript?: string;
+  /** Schema snapshot from reflection or an uploaded `.proto` (see GrpcSchemaSnapshot). */
+  schema?: GrpcSchemaSnapshot;
+  /** Per-request deadline in ms (builder default: 30000). */
+  timeout?: number;
 }
 
 // gRPC Response (specialized for gRPC)

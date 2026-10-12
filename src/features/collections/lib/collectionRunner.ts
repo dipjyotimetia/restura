@@ -5,12 +5,13 @@ import {
 } from '@shared/collection-run/evidence';
 import { v4 as uuidv4 } from 'uuid';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
+import { grpcRunOptionsFromRequest } from '@/features/grpc/lib/grpcSchemaSnapshot';
 import { protocolRegistry } from '@/features/registry/registry';
 import type { ProtocolScriptResult } from '@/features/registry/types';
 import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
 import { buildValueMap } from '@/lib/shared/variableScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
-import type { Response as ApiResponse, Collection, Request } from '@/types';
+import type { Response as ApiResponse, Collection, GrpcRequest, Request } from '@/types';
 import type { IterationRow } from './dataLoader';
 import type { RunnableRequest } from './flattenRunnables';
 
@@ -320,6 +321,13 @@ export async function runCollection(
             folderPath: runnable.folderPath ?? [],
             collectionName: collection.name,
           },
+          // gRPC: hand the persisted schema snapshot (reflection descriptors or
+          // uploaded proto) + per-request timeout to the protocol module — the
+          // desktop transport cannot call without a schema (#871). With no
+          // snapshot the module falls back to server reflection.
+          ...(protocolId === 'grpc'
+            ? grpcRunOptionsFromRequest(runnable.request as GrpcRequest)
+            : {}),
         },
       };
 
