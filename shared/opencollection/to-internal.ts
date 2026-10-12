@@ -13,6 +13,7 @@ import type {
   RequestBody,
   SseRequest,
 } from '../types';
+import { AUTH_EXTENSION_KEY, applyAuthExtension } from './auth-extension';
 import type { OpenCollection } from './schemas';
 
 /**
@@ -30,6 +31,9 @@ import type { OpenCollection } from './schemas';
  *   - extensions['x-restura-sse'] / ['x-restura-mcp']
  *                     → SseRequest / McpRequest items, placed in the folder named
  *                       by each entry's `folderPath` (collection root when absent).
+ *   - extensions['x-restura-auth']
+ *                     → OAuth1/NTLM/WSSE knobs the schema lacks, re-applied onto
+ *                       root/folder/request auth (see auth-extension.ts).
  *
  * Every emitted node also carries a non-typed `_oc` property holding the verbatim
  * OpenCollection input. The from-internal mapper (Task 10) consults this to emit
@@ -73,6 +77,13 @@ export function ocToInternal(oc: OpenCollection): WithOC<Collection> {
   const rootScripts = requestDefaultsScripts(oc.request, oc.info.name);
   if (rootScripts.preRequest) collection.preRequestScript = rootScripts.preRequest;
   if (rootScripts.test) collection.testScript = rootScripts.test;
+  // Schema-less auth knobs (OAuth1 addParamsToBody, NTLM workstation, WSSE
+  // passwordType) live in a collection-level extension; re-apply them now that
+  // every root/folder/request auth has been imported.
+  applyAuthExtension(
+    collection,
+    (oc.extensions as Record<string, unknown> | undefined)?.[AUTH_EXTENSION_KEY]
+  );
   collection._oc = oc;
   return collection;
 }
@@ -479,6 +490,9 @@ export function authToInternal(auth: unknown): AuthConfig {
           ...(typeof a.scope === 'string' ? { scope: a.scope } : {}),
         },
       };
+    // OAuth1 / NTLM / WSSE: only schema fields are read here. The Restura-only
+    // knobs (`addParamsToBody`, `workstation`, `passwordType`) arrive via the
+    // `x-restura-auth` extension, applied by ocToInternal (auth-extension.ts).
     case 'oauth1': {
       const oauth1: NonNullable<AuthConfig['oauth1']> = {
         consumerKey: str(a.consumerKey),
@@ -492,7 +506,6 @@ export function authToInternal(auth: unknown): AuthConfig {
       if (typeof a.realm === 'string') oauth1.realm = a.realm;
       if (typeof a.nonce === 'string') oauth1.nonce = a.nonce;
       if (typeof a.timestamp === 'string') oauth1.timestamp = a.timestamp;
-      if (typeof a.addParamsToBody === 'boolean') oauth1.addParamsToBody = a.addParamsToBody;
       return { type: 'oauth1', oauth1 };
     }
     case 'ntlm': {
@@ -501,19 +514,10 @@ export function authToInternal(auth: unknown): AuthConfig {
         password: str(a.password),
       };
       if (typeof a.domain === 'string') ntlm.domain = a.domain;
-      if (typeof a.workstation === 'string') ntlm.workstation = a.workstation;
       return { type: 'ntlm', ntlm };
     }
-    case 'wsse': {
-      const wsse: NonNullable<AuthConfig['wsse']> = {
-        username: str(a.username),
-        password: str(a.password),
-      };
-      if (a.passwordType === 'PasswordDigest' || a.passwordType === 'PasswordText') {
-        wsse.passwordType = a.passwordType;
-      }
-      return { type: 'wsse', wsse };
-    }
+    case 'wsse':
+      return { type: 'wsse', wsse: { username: str(a.username), password: str(a.password) } };
     default:
       // Unknown / future auth types. Return 'none'; the _oc bag preserves the
       // original auth for byte-stable roundtrip.

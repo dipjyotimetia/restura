@@ -69,10 +69,11 @@ export function authFromInternal(a?: AuthConfig): unknown {
       }
       return out;
     }
-    // OAuth1 / NTLM / WSSE use the spec's field names (#869). The Restura-only
-    // knobs the upstream schema lacks (`addParamsToBody`, `workstation`,
-    // `passwordType`) are emitted only when set, so a document using none of
-    // them stays strictly spec-shaped.
+    // OAuth1 / NTLM / WSSE use the spec's field names (#869). The schema's
+    // auth objects are `additionalProperties: false`, so the Restura-only
+    // knobs it lacks (`addParamsToBody`, `workstation`, `passwordType`) are
+    // NOT emitted here — they ride in the `x-restura-auth` collection
+    // extension (auth-extension.ts) and every export stays schema-valid.
     case 'oauth1': {
       const o = a.oauth1;
       const out: Record<string, unknown> = {
@@ -88,7 +89,6 @@ export function authFromInternal(a?: AuthConfig): unknown {
       if (o?.realm !== undefined) out.realm = o.realm;
       if (o?.nonce !== undefined) out.nonce = o.nonce;
       if (o?.timestamp !== undefined) out.timestamp = o.timestamp;
-      if (o?.addParamsToBody !== undefined) out.addParamsToBody = o.addParamsToBody;
       return out;
     }
     case 'ntlm': {
@@ -98,18 +98,14 @@ export function authFromInternal(a?: AuthConfig): unknown {
         password: secretToString(a.ntlm?.password),
       };
       if (a.ntlm?.domain !== undefined) out.domain = a.ntlm.domain;
-      if (a.ntlm?.workstation !== undefined) out.workstation = a.ntlm.workstation;
       return out;
     }
-    case 'wsse': {
-      const out: Record<string, unknown> = {
+    case 'wsse':
+      return {
         type: 'wsse',
         username: a.wsse?.username ?? '',
         password: secretToString(a.wsse?.password),
       };
-      if (a.wsse?.passwordType !== undefined) out.passwordType = a.wsse.passwordType;
-      return out;
-    }
     default:
       return undefined;
   }

@@ -11,6 +11,7 @@ import type {
   RequestBody,
   SseRequest,
 } from '../types';
+import { AUTH_EXTENSION_KEY, buildAuthExtension, stripAuthExtras } from './auth-extension';
 import { authFromInternal, unwrapAuthForCompare } from './auth-from-internal';
 import type { OpenCollection } from './schemas';
 import { authToInternal, groupScripts, ocVariableToKeyValue } from './to-internal';
@@ -28,8 +29,8 @@ import { authToInternal, groupScripts, ocVariableToKeyValue } from './to-interna
  *      items were edited, the rebuild starts from the cached root (so
  *      `info` extras, `config` extras, `docs`, request defaults, and any
  *      non-restura extensions survive) and only the `items` array plus
- *      Restura-managed extensions (`x-restura-sse` / `x-restura-mcp`) get
- *      replaced with fresh values. Unknown extensions like
+ *      Restura-managed extensions (`x-restura-sse` / `x-restura-mcp` /
+ *      `x-restura-auth`) get replaced with fresh values. Unknown extensions like
  *      `x-restura-socketio` survive unchanged because the merge keeps every
  *      non-restura-managed key from the cached extensions bag.
  *   3. **Synthesise from scratch.** No `_oc` on the collection — likely
@@ -48,6 +49,9 @@ import { authToInternal, groupScripts, ocVariableToKeyValue } from './to-interna
  *   - WebSocket placeholders survive only via `_oc` bags on folder items.
  *   - Auth name conversions: internal `api-key`/`aws-signature` ↔ OC
  *     `apikey`/`awsv4`.
+ *   - OAuth1 `addParamsToBody`, NTLM `workstation` and WSSE `passwordType`
+ *     have no slot in the schema's (closed) auth objects; they are emitted in
+ *     `extensions['x-restura-auth']` keyed by node path (auth-extension.ts).
  *   - Method type conversions: internal hyphenated ↔ OC camelCase.
  */
 
@@ -79,7 +83,8 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
     rootStructureUnchanged(c) &&
     scriptsUnchanged(c._oc, c.preRequestScript, c.testScript) &&
     allFolderScriptsUnchanged(c.items) &&
-    allFolderVariablesUnchanged(c.items)
+    allFolderVariablesUnchanged(c.items) &&
+    authExtensionUnchanged(c)
   ) {
     return c._oc as OpenCollection;
   }
@@ -101,6 +106,9 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
     items.push(wit._oc ?? requestFromInternal(it.name, r));
   }
 
+  // OAuth1/NTLM/WSSE knobs the schema has no slot for (x-restura-auth).
+  const authExt = buildAuthExtension(c);
+
   // Strategy 2 — root-preserving rebuild. Start from the cached OC root,
   // replace items + Restura-managed extensions only.
   if (c._oc) {
@@ -115,9 +123,11 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
     delete merged['x-restura-sse'];
     delete merged['x-restura-mcp'];
     delete merged['x-restura-contract'];
+    delete merged[AUTH_EXTENSION_KEY];
     if (sseItems.length > 0) merged['x-restura-sse'] = sseItems;
     if (mcpItems.length > 0) merged['x-restura-mcp'] = mcpItems;
     if (c.contractSpec) merged['x-restura-contract'] = c.contractSpec;
+    if (authExt) merged[AUTH_EXTENSION_KEY] = authExt;
     if (Object.keys(merged).length > 0) oc.extensions = merged;
     else delete oc.extensions;
 
@@ -160,6 +170,7 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
   if (sseItems.length > 0) extensions['x-restura-sse'] = sseItems;
   if (mcpItems.length > 0) extensions['x-restura-mcp'] = mcpItems;
   if (c.contractSpec) extensions['x-restura-contract'] = c.contractSpec;
+  if (authExt) extensions[AUTH_EXTENSION_KEY] = authExt;
   if (Object.keys(extensions).length > 0) oc.extensions = extensions;
 
   if ((c.variables ?? []).length > 0) {
@@ -537,9 +548,24 @@ function bodyFromInternal(body: RequestBody): unknown {
 function authUnchanged(cachedNode: unknown, internalAuth: AuthConfig | undefined): boolean {
   const cachedRequest = (cachedNode as { request?: unknown } | undefined)?.request;
   const cachedAuth = (cachedRequest as { auth?: unknown } | undefined)?.auth;
-  const cachedInternal = unwrapAuthForCompare(authToInternal(cachedAuth));
-  const currentInternal = unwrapAuthForCompare(internalAuth ?? { type: 'none' });
+  // Compare only the schema-visible part: the OC auth block never carries the
+  // x-restura-auth knobs, so they are gated by authExtensionUnchanged instead.
+  const cachedInternal = unwrapAuthForCompare(stripAuthExtras(authToInternal(cachedAuth)));
+  const currentInternal = unwrapAuthForCompare(stripAuthExtras(internalAuth ?? { type: 'none' }));
   return JSON.stringify(cachedInternal) === JSON.stringify(currentInternal);
+}
+
+/**
+ * True when the cached document's `x-restura-auth` still matches the internal
+ * tree. An edit to a schema-less knob (e.g. NTLM workstation on the collection
+ * or a folder) leaves the OC auth block — and thus authUnchanged — untouched,
+ * so the verbatim shortcut must also gate on the sidecar.
+ */
+function authExtensionUnchanged(c: WithOC<Collection>): boolean {
+  const cached = (
+    (c._oc as OpenCollection | undefined)?.extensions as Record<string, unknown> | undefined
+  )?.[AUTH_EXTENSION_KEY];
+  return JSON.stringify(cached) === JSON.stringify(buildAuthExtension(c));
 }
 
 /** Recursively true when every folder's auth still matches its cached bag. */
