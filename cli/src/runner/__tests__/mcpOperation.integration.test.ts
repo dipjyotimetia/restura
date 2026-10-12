@@ -1,12 +1,17 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import type { McpRequest } from '@shared/types';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { internalToOC } from '@shared/opencollection/from-internal';
+import { serializeOpenCollectionYAML } from '@shared/opencollection/serializer';
+import type { Collection, McpRequest } from '@shared/types';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   type MockMcpV2ServerHandle,
   startMockMcpV2Server,
 } from '../../../../e2e/mocks/mcpV2Server';
-import type { LoadedRequest } from '../collectionLoader';
+import { type LoadedRequest, loadCollection } from '../collectionLoader';
 import { executeMcp } from '../executors/mcp';
 import { runTestScript } from '../scriptRunner';
 
@@ -21,8 +26,11 @@ import { runTestScript } from '../scriptRunner';
 
 let mock: MockMcpV2ServerHandle | undefined;
 let recorder: Server | undefined;
+let tmp: string | undefined;
 
 afterEach(async () => {
+  if (tmp) await rm(tmp, { recursive: true, force: true });
+  tmp = undefined;
   await mock?.close();
   mock = undefined;
   if (recorder) {
@@ -122,6 +130,66 @@ describe('CLI MCP operation vs the v2 MCP mock', () => {
     expect(test.assertions).toEqual([
       expect.objectContaining({ name: 'echo tool replied', passed: true }),
     ]);
+  });
+
+  it('runs an MCP operation exported to OpenCollection YAML and loaded from disk', async () => {
+    mock = await startMockMcpV2Server();
+    const { url, received } = await startRecorder(mock.url);
+
+    // Author in-app → export (internalToOC → YAML) → load the file exactly
+    // the way `restura run <file>` does → execute. Nested in a folder so the
+    // x-restura-mcp folderPath placement is exercised too.
+    const saved: McpRequest = {
+      id: 'mcp-oc',
+      name: 'Echo via OC',
+      type: 'mcp',
+      url: '{{MCP_URL}}',
+      transport: 'streamable-http',
+      headers: [],
+      auth: { type: 'none' },
+      defaultMethod: 'tools/call',
+      defaultParams: JSON.stringify({ name: 'echo', arguments: { text: 'from-yaml' } }),
+    };
+    const collection: Collection = {
+      id: 'c',
+      name: 'MCP export',
+      items: [
+        {
+          id: 'f',
+          name: 'Tools',
+          type: 'folder',
+          items: [{ id: 'i', name: saved.name, type: 'request', request: saved }],
+        },
+      ],
+    };
+    tmp = await mkdtemp(join(tmpdir(), 'restura-cli-mcp-'));
+    const file = join(tmp, 'collection.yml');
+    await writeFile(file, serializeOpenCollectionYAML(internalToOC(collection)), 'utf-8');
+
+    const loadedCollection = await loadCollection(file);
+    const item = loadedCollection.requests.find((r) => r.type === 'mcp');
+    expect(item?.folderPath).toEqual(['Tools']);
+    expect(item?.request).toMatchObject({
+      defaultMethod: 'tools/call',
+      defaultParams: saved.defaultParams,
+    });
+    if (!item) throw new Error('MCP request not loaded');
+
+    const outcome = await executeMcp(item, {
+      vars: { MCP_URL: url },
+      timeoutMs: 5000,
+      allowLocalhost: true,
+    });
+
+    expect(outcome.errorMessage).toBeUndefined();
+    expect(outcome.status).toBe(200);
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({
+      jsonrpc: '2.0',
+      method: 'tools/call',
+      params: { name: 'echo', arguments: { text: 'from-yaml' } },
+    });
+    expect(outcome.responseBody).toMatch(/from-yaml/);
   });
 
   it('never contacts the server when the item has no method', async () => {
