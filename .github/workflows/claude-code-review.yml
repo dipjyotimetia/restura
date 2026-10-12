@@ -64,11 +64,18 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           plugin_marketplaces: 'https://github.com/anthropics/claude-code.git'
           plugins: 'code-review@claude-code-plugins'
+          # Stacked PRs (gh stack): each layer targets its parent branch, so
+          # `gh pr diff` and the checked-out merge ref already scope the review
+          # to that layer; the note below stops reviewers flagging work that
+          # lives in another layer. Restack force-pushes (`synchronize`) are not
+          # reviewed — restack before adding the label so the diff is clean.
+          #
           # The plugin stops if Claude already commented on the PR, which would
           # make the `claude-review` label re-run a no-op — so a labeled run
           # explicitly asks for a fresh review.
           prompt: >-
             /code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+            ${{ github.event.pull_request.base.ref != github.event.repository.default_branch && format('This PR is one layer of a stacked PR (gh stack): its base is `{0}`, not `{1}`. Review ONLY this layer''s diff against `{0}`; code from lower layers is already in the base and later layers are separate PRs, so do not flag work that belongs to another layer as missing or incomplete.', github.event.pull_request.base.ref, github.event.repository.default_branch) || '' }}
             ${{ github.event.action == 'labeled' && 'Re-review explicitly requested via the claude-review label: do NOT stop because Claude already commented on this PR; review the current head and only post issues not already raised in an earlier Claude comment.' || '' }}
           claude_args: >-
             --model claude-sonnet-5-5
