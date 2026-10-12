@@ -312,11 +312,14 @@ describe('countCollectionInlineSecrets', () => {
     expect(countCollectionInlineSecrets(c)).toBe(0);
   });
 
-  // OpenCollection degrade-to-none auth (OAuth1/NTLM/WSSE) leaves plaintext ONLY
-  // in the `_oc` passthrough bag, with the typed auth degraded to `type:'none'`.
-  // The count must see it so the export dialog fires (otherwise raw export leaks).
-  it('counts plaintext in an item _oc bag with degraded (OAuth1) auth', () => {
-    const item = requestItem('r', { type: 'none' }) as CollectionItem & { _oc?: unknown };
+  // OAuth1/NTLM/WSSE are modelled natively since #869 (they used to degrade to
+  // `type:'none'` and live only in the `_oc` bag). The typed model counts the
+  // plaintext once; the mirrored bag copy must not add a phantom second count.
+  it('counts imported OAuth1 plaintext once via the typed model, not again via _oc', () => {
+    const item = requestItem('r', {
+      type: 'oauth1',
+      oauth1: { consumerKey: 'ck', consumerSecret: 'plaintext-secret' },
+    }) as CollectionItem & { _oc?: unknown };
     item._oc = {
       name: 'R',
       request: {
@@ -324,7 +327,7 @@ describe('countCollectionInlineSecrets', () => {
       },
     };
     const c: Collection = { id: 'c', name: 'C', items: [item] };
-    expect(countCollectionInlineSecrets(c)).toBeGreaterThan(0);
+    expect(countCollectionInlineSecrets(c)).toBe(1);
   });
 
   it('counts a cert passphrase in the root _oc bag (real OC schema shape)', () => {

@@ -80,19 +80,34 @@ const auth = z.discriminatedUnion('type', [
     placement: z.enum(['header', 'query']),
   }),
   z.object({ type: z.literal('digest'), username: z.string(), password: z.string() }),
-  z.object({
-    type: z.literal('ntlm'),
-    username: z.string(),
-    password: z.string(),
-    domain: z.string().optional(),
-  }),
-  z.object({
-    type: z.literal('oauth1'),
-    consumerKey: z.string(),
-    consumerSecret: z.string(),
-    accessToken: z.string().optional(),
-    accessTokenSecret: z.string().optional(),
-  }),
+  // OAuth1 / NTLM / WSSE map onto typed internal auth (#869). Restura-only
+  // knobs the upstream schema lacks (`workstation`, `addParamsToBody`,
+  // `passwordType`) are accepted explicitly; `.passthrough()` keeps any other
+  // spec field (e.g. OAuth1 `privateKey`, `callbackUrl`) in the `_oc` bag
+  // instead of silently stripping it on parse.
+  z
+    .object({
+      type: z.literal('ntlm'),
+      username: z.string(),
+      password: z.string(),
+      domain: z.string().optional(),
+      workstation: z.string().optional(),
+    })
+    .passthrough(),
+  z
+    .object({
+      type: z.literal('oauth1'),
+      consumerKey: z.string(),
+      consumerSecret: z.string(),
+      accessToken: z.string().optional(),
+      accessTokenSecret: z.string().optional(),
+      signatureMethod: z.string().optional(),
+      realm: z.string().optional(),
+      nonce: z.string().optional(),
+      timestamp: z.string().optional(),
+      addParamsToBody: z.boolean().optional(),
+    })
+    .passthrough(),
   z.object({ type: z.literal('oauth2') }).passthrough(),
   z.object({
     type: z.literal('awsv4'),
@@ -102,7 +117,14 @@ const auth = z.discriminatedUnion('type', [
     service: z.string(),
     sessionToken: z.string().optional(),
   }),
-  z.object({ type: z.literal('wsse'), username: z.string(), password: z.string() }),
+  z
+    .object({
+      type: z.literal('wsse'),
+      username: z.string(),
+      password: z.string(),
+      passwordType: z.enum(['PasswordDigest', 'PasswordText']).optional(),
+    })
+    .passthrough(),
 ]);
 
 const httpRequestBody = z.object({}).passthrough();

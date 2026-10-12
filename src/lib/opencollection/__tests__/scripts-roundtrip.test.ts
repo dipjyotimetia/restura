@@ -205,10 +205,11 @@ items:
     expect(scripts?.find((s) => s.type === 'after-response')?.code).toBe('rs.afterResponse()');
   });
 
-  // The trap (advisor-flagged): OAuth1/NTLM/WSSE degrade to 'none' through
-  // authToInternal, so cached auth survives ONLY via the verbatim _oc bytes.
-  // Editing just a script must NOT recompute (and thereby delete) that auth.
-  it('editing only a script preserves un-modellable root auth (oauth1)', () => {
+  // The trap (advisor-flagged): parts of an auth block the internal model can't
+  // represent (here OAuth1 RSA signing + its private key) survive ONLY via the
+  // verbatim _oc bytes. Editing just a script must NOT recompute (and thereby
+  // delete) that auth.
+  it('editing only a script preserves un-modellable root auth (oauth1 RSA)', () => {
     const yaml = `opencollection: 1.0.0
 info:
   name: Trap
@@ -217,6 +218,10 @@ request:
     type: oauth1
     consumerKey: ck
     consumerSecret: cs
+    signatureMethod: RSA-SHA256
+    privateKey:
+      type: file
+      value: /keys/oauth.pem
   scripts:
     - type: before-request
       code: rs.original()
@@ -230,19 +235,27 @@ items:
 `;
     const oc = parseOpenCollectionYAML(yaml);
     const internal = ocToInternal(oc) as Collection & { _oc?: unknown };
-    // oauth1 has no internal representation → degrades to undefined auth.
-    expect(internal.auth).toBeUndefined();
+    // OAuth1 is modelled (#869), but RSA signing / privateKey are not.
+    expect(internal.auth?.type).toBe('oauth1');
+    expect(internal.auth?.oauth1?.signatureMethod).toBeUndefined();
 
     internal.preRequestScript = 'rs.edited()';
     const out = internalToOC(internal);
 
     const request = out.request as {
-      auth?: { type?: string; consumerKey?: string };
+      auth?: {
+        type?: string;
+        consumerKey?: string;
+        signatureMethod?: string;
+        privateKey?: unknown;
+      };
       scripts?: Array<{ code: string }>;
     };
-    // OAuth1 block survived the script-only edit.
+    // OAuth1 block — including the un-modellable parts — survived the script-only edit.
     expect(request.auth?.type).toBe('oauth1');
     expect(request.auth?.consumerKey).toBe('ck');
+    expect(request.auth?.signatureMethod).toBe('RSA-SHA256');
+    expect(request.auth?.privateKey).toEqual({ type: 'file', value: '/keys/oauth.pem' });
     // Script edit reached the output.
     expect(request.scripts?.find((s) => s.code === 'rs.edited()')).toBeTruthy();
   });

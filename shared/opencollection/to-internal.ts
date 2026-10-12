@@ -28,7 +28,8 @@ import type { OpenCollection } from './schemas';
  *                       persistent internal type yet — folders preserve visibility
  *                       without lying about runnability. Tracked as DONE_WITH_CONCERNS.
  *   - extensions['x-restura-sse'] / ['x-restura-mcp']
- *                     → SseRequest / McpRequest items appended to the root list.
+ *                     → SseRequest / McpRequest items, placed in the folder named
+ *                       by each entry's `folderPath` (collection root when absent).
  *
  * Every emitted node also carries a non-typed `_oc` property holding the verbatim
  * OpenCollection input. The from-internal mapper (Task 10) consults this to emit
@@ -45,10 +46,10 @@ export function ocToInternal(oc: OpenCollection): WithOC<Collection> {
   unrecognizedBodyCount = 0;
   unrecognizedScriptDetails.length = 0;
   const variables = extractRootVariables(oc);
-  const items: WithOC<CollectionItem>[] = [
-    ...((oc.items ?? []) as unknown[]).flatMap((it) => itemToInternal(it)),
-    ...extensionItems(oc.extensions),
-  ];
+  const items: WithOC<CollectionItem>[] = ((oc.items ?? []) as unknown[]).flatMap((it) =>
+    itemToInternal(it)
+  );
+  placeExtensionItems(items, oc.extensions);
   const collection: WithOC<Collection> = {
     id: uuid(),
     name: oc.info.name,
@@ -478,11 +479,58 @@ export function authToInternal(auth: unknown): AuthConfig {
           ...(typeof a.scope === 'string' ? { scope: a.scope } : {}),
         },
       };
+    case 'oauth1': {
+      const oauth1: NonNullable<AuthConfig['oauth1']> = {
+        consumerKey: str(a.consumerKey),
+        consumerSecret: str(a.consumerSecret),
+      };
+      if (typeof a.accessToken === 'string') oauth1.accessToken = a.accessToken;
+      if (typeof a.accessTokenSecret === 'string') oauth1.accessTokenSecret = a.accessTokenSecret;
+      // Only the signature methods Restura can sign with; RSA-*/HMAC-SHA512
+      // fall back to the signer default and survive verbatim via `_oc`.
+      if (isOAuth1SignatureMethod(a.signatureMethod)) oauth1.signatureMethod = a.signatureMethod;
+      if (typeof a.realm === 'string') oauth1.realm = a.realm;
+      if (typeof a.nonce === 'string') oauth1.nonce = a.nonce;
+      if (typeof a.timestamp === 'string') oauth1.timestamp = a.timestamp;
+      if (typeof a.addParamsToBody === 'boolean') oauth1.addParamsToBody = a.addParamsToBody;
+      return { type: 'oauth1', oauth1 };
+    }
+    case 'ntlm': {
+      const ntlm: NonNullable<AuthConfig['ntlm']> = {
+        username: str(a.username),
+        password: str(a.password),
+      };
+      if (typeof a.domain === 'string') ntlm.domain = a.domain;
+      if (typeof a.workstation === 'string') ntlm.workstation = a.workstation;
+      return { type: 'ntlm', ntlm };
+    }
+    case 'wsse': {
+      const wsse: NonNullable<AuthConfig['wsse']> = {
+        username: str(a.username),
+        password: str(a.password),
+      };
+      if (a.passwordType === 'PasswordDigest' || a.passwordType === 'PasswordText') {
+        wsse.passwordType = a.passwordType;
+      }
+      return { type: 'wsse', wsse };
+    }
     default:
-      // OAuth1, NTLM, WSSE — Phase 4 features. Return 'none' but the _oc bag
-      // preserves the original auth for byte-stable roundtrip.
+      // Unknown / future auth types. Return 'none'; the _oc bag preserves the
+      // original auth for byte-stable roundtrip.
       return { type: 'none' };
   }
+}
+
+function str(v: unknown): string {
+  return typeof v === 'string' ? v : '';
+}
+
+const OAUTH1_SIGNATURE_METHODS = new Set(['HMAC-SHA1', 'HMAC-SHA256', 'PLAINTEXT']);
+
+function isOAuth1SignatureMethod(
+  v: unknown
+): v is NonNullable<NonNullable<AuthConfig['oauth1']>['signatureMethod']> {
+  return typeof v === 'string' && OAUTH1_SIGNATURE_METHODS.has(v);
 }
 
 function methodTypeToInternal(t?: string): GrpcMethodType {
@@ -541,58 +589,121 @@ function extractRootVariables(oc: OpenCollection): KeyValue[] {
   return env.variables.map(ocVariableToKeyValue);
 }
 
-function extensionItems(ext: Record<string, unknown> | undefined): WithOC<CollectionItem>[] {
-  const out: WithOC<CollectionItem>[] = [];
-  const sse = (ext?.['x-restura-sse'] as unknown[] | undefined) ?? [];
-  for (const s of sse) {
+/**
+ * Place `x-restura-sse` / `x-restura-mcp` extension entries into the internal
+ * tree. OpenCollection has no native SSE/MCP item, so they ride in root
+ * `extensions`; each entry carries an optional `folderPath` (folder names from
+ * the root) recording where it lives (#866). Entries without one — or whose
+ * folder no longer exists — land at the collection root (backward compatible
+ * with pre-#866 exports).
+ */
+function placeExtensionItems(
+  rootItems: WithOC<CollectionItem>[],
+  ext: Record<string, unknown> | undefined
+): void {
+  const placed: Array<{ entry: Record<string, unknown>; item: WithOC<CollectionItem> }> = [];
+  for (const s of (ext?.['x-restura-sse'] as unknown[] | undefined) ?? []) {
     const entry = (s ?? {}) as Record<string, unknown>;
-    const info = (entry.info ?? {}) as { name?: string };
-    const sseCfg = (entry.sse ?? {}) as Record<string, unknown>;
-    const req: SseRequest = {
-      id: uuid(),
-      name: info.name ?? 'SSE',
-      type: 'sse',
-      url: (sseCfg.url as string) ?? '',
-      headers: ((sseCfg.headers as unknown[]) ?? []).map(kvToInternal),
-      params: [],
-      auth: authToInternal(sseCfg.auth),
-    };
-    if (Array.isArray(sseCfg.eventFilter)) {
-      req.eventFilter = sseCfg.eventFilter as string[];
-    }
-    const item: WithOC<CollectionItem> = {
-      id: uuid(),
-      type: 'request',
-      name: req.name,
-      request: req,
-    };
-    item._oc = entry;
-    out.push(item);
+    placed.push({ entry, item: extensionRequestItem(sseEntryToInternal(entry), entry) });
   }
-  const mcp = (ext?.['x-restura-mcp'] as unknown[] | undefined) ?? [];
-  for (const m of mcp) {
+  for (const m of (ext?.['x-restura-mcp'] as unknown[] | undefined) ?? []) {
     const entry = (m ?? {}) as Record<string, unknown>;
-    const info = (entry.info ?? {}) as { name?: string };
-    const mcpCfg = (entry.mcp ?? {}) as Record<string, unknown>;
-    const transport =
-      (mcpCfg.transport as 'streamable-http' | 'http-sse' | undefined) ?? 'streamable-http';
-    const req: McpRequest = {
-      id: uuid(),
-      name: info.name ?? 'MCP',
-      type: 'mcp',
-      url: (mcpCfg.url as string) ?? '',
-      transport,
-      headers: ((mcpCfg.headers as unknown[]) ?? []).map(kvToInternal),
-      auth: authToInternal(mcpCfg.auth),
-    };
-    const item: WithOC<CollectionItem> = {
-      id: uuid(),
-      type: 'request',
-      name: req.name,
-      request: req,
-    };
-    item._oc = entry;
-    out.push(item);
+    placed.push({ entry, item: extensionRequestItem(mcpEntryToInternal(entry), entry) });
   }
-  return out;
+  for (const { entry, item } of placed) {
+    (resolveFolderItems(rootItems, entry.folderPath) ?? rootItems).push(item);
+  }
+}
+
+function extensionRequestItem(
+  req: SseRequest | McpRequest,
+  entry: Record<string, unknown>
+): WithOC<CollectionItem> {
+  const item: WithOC<CollectionItem> = {
+    id: uuid(),
+    type: 'request',
+    name: req.name,
+    request: req,
+  };
+  item._oc = entry;
+  return item;
+}
+
+/**
+ * Walk `folderPath` (folder names) from the root and return the matching
+ * folder's `items` array, or null when the path is absent, empty or
+ * unresolvable. Only genuine OC folders match — WebSocket / unknown-type
+ * placeholders (also internal `folder`s) are skipped. Duplicate sibling names
+ * resolve to the first match.
+ */
+function resolveFolderItems(
+  rootItems: WithOC<CollectionItem>[],
+  folderPath: unknown
+): WithOC<CollectionItem>[] | null {
+  if (!Array.isArray(folderPath) || folderPath.length === 0) return null;
+  let level: WithOC<CollectionItem>[] = rootItems;
+  for (const segment of folderPath) {
+    if (typeof segment !== 'string') return null;
+    const next = level.find(
+      (it) =>
+        it.type === 'folder' &&
+        it.name === segment &&
+        isFolder((it._oc ?? {}) as Record<string, unknown>)
+    );
+    if (!next) return null;
+    next.items ??= [];
+    level = next.items as WithOC<CollectionItem>[];
+  }
+  return level;
+}
+
+function sseEntryToInternal(entry: Record<string, unknown>): SseRequest {
+  const info = (entry.info ?? {}) as { name?: string };
+  const sseCfg = (entry.sse ?? {}) as Record<string, unknown>;
+  const name = info.name ?? 'SSE';
+  // Same `runtime.scripts` container as HTTP/gRPC items.
+  const scripts = extractScripts(entry, name);
+  const req: SseRequest = {
+    id: uuid(),
+    name,
+    type: 'sse',
+    url: (sseCfg.url as string) ?? '',
+    headers: ((sseCfg.headers as unknown[]) ?? []).map(kvToInternal),
+    params: ((sseCfg.params as unknown[]) ?? []).map(kvToInternal),
+    auth: authToInternal(sseCfg.auth),
+  };
+  if (Array.isArray(sseCfg.eventFilter)) req.eventFilter = sseCfg.eventFilter as string[];
+  if (typeof sseCfg.reconnectOnResume === 'boolean') {
+    req.reconnectOnResume = sseCfg.reconnectOnResume;
+  }
+  if (scripts.preRequest) req.preRequestScript = scripts.preRequest;
+  if (scripts.test) req.testScript = scripts.test;
+  return req;
+}
+
+function mcpEntryToInternal(entry: Record<string, unknown>): McpRequest {
+  const info = (entry.info ?? {}) as { name?: string };
+  const mcpCfg = (entry.mcp ?? {}) as Record<string, unknown>;
+  const name = info.name ?? 'MCP';
+  const scripts = extractScripts(entry, name);
+  const transport =
+    (mcpCfg.transport as 'streamable-http' | 'http-sse' | undefined) ?? 'streamable-http';
+  const req: McpRequest = {
+    id: uuid(),
+    name,
+    type: 'mcp',
+    url: (mcpCfg.url as string) ?? '',
+    transport,
+    headers: ((mcpCfg.headers as unknown[]) ?? []).map(kvToInternal),
+    auth: authToInternal(mcpCfg.auth),
+  };
+  if (typeof mcpCfg.defaultMethod === 'string') req.defaultMethod = mcpCfg.defaultMethod;
+  // Exported as a JSON string; tolerate a hand-written YAML mapping too.
+  if (typeof mcpCfg.defaultParams === 'string') req.defaultParams = mcpCfg.defaultParams;
+  else if (mcpCfg.defaultParams !== undefined && mcpCfg.defaultParams !== null) {
+    req.defaultParams = JSON.stringify(mcpCfg.defaultParams);
+  }
+  if (scripts.preRequest) req.preRequestScript = scripts.preRequest;
+  if (scripts.test) req.testScript = scripts.test;
+  return req;
 }

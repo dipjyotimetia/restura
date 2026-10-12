@@ -1,5 +1,3 @@
-import { SECRET_FIELDS_BY_AUTH_BLOCK } from '../secrets/auth-fields';
-import type { SecretValue } from '../secrets/secret-ref';
 import type {
   AuthConfig,
   Collection,
@@ -13,6 +11,7 @@ import type {
   RequestBody,
   SseRequest,
 } from '../types';
+import { authFromInternal, unwrapAuthForCompare } from './auth-from-internal';
 import type { OpenCollection } from './schemas';
 import { authToInternal, groupScripts, ocVariableToKeyValue } from './to-internal';
 
@@ -44,7 +43,8 @@ import { authToInternal, groupScripts, ocVariableToKeyValue } from './to-interna
  *   - Internal HttpRequest with `body.type === 'graphql'` is emitted as a
  *     native OC GraphQL item, including its query and variables envelope.
  *   - SSE / MCP requests do not live in the OC `items` array; they go into
- *     `extensions['x-restura-sse']` / `extensions['x-restura-mcp']`.
+ *     `extensions['x-restura-sse']` / `extensions['x-restura-mcp']`, with a
+ *     `folderPath` (ancestor folder names) when nested in a folder (#866).
  *   - WebSocket placeholders survive only via `_oc` bags on folder items.
  *   - Auth name conversions: internal `api-key`/`aws-signature` ↔ OC
  *     `apikey`/`awsv4`.
@@ -91,20 +91,13 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
   for (const it of c.items ?? []) {
     const wit = it as WithOC<CollectionItem>;
     if (it.type === 'folder') {
-      items.push(folderFromInternal(wit, sseItems, mcpItems));
+      items.push(folderFromInternal(wit, [it.name], sseItems, mcpItems));
       continue;
     }
     const r = it.request;
     if (!r) continue;
 
-    if (r.type === 'sse') {
-      sseItems.push(wit._oc ?? sseToOC(it.name, r as SseRequest));
-      continue;
-    }
-    if (r.type === 'mcp') {
-      mcpItems.push(wit._oc ?? mcpToOC(it.name, r as McpRequest));
-      continue;
-    }
+    if (pushStreamItem(wit, [], sseItems, mcpItems)) continue;
     items.push(wit._oc ?? requestFromInternal(it.name, r));
   }
 
@@ -248,8 +241,62 @@ function applyRequestDefaultsScripts(
   setRequestDefault(node, 'scripts', merged.length > 0 ? merged : undefined);
 }
 
+/**
+ * Route an SSE / MCP request into its root extension list. OpenCollection has
+ * no native SSE/MCP item, so these live in root `extensions` regardless of
+ * where they sit in the tree; `folderPath` (ancestor folder names) records the
+ * folder so `to-internal` can re-nest it (#866). The path is always stamped
+ * fresh — a cached `_oc` entry keeps its bytes but never a stale location.
+ * Returns false for any other request type.
+ */
+function pushStreamItem(
+  it: WithOC<CollectionItem>,
+  folderPath: string[],
+  sseItems: unknown[],
+  mcpItems: unknown[]
+): boolean {
+  const r = it.request;
+  if (r?.type === 'sse') {
+    sseItems.push(withFolderPath(it._oc ?? sseToOC(it.name, r), folderPath));
+    return true;
+  }
+  if (r?.type === 'mcp') {
+    mcpItems.push(withFolderPath(it._oc ?? mcpToOC(it.name, r), folderPath));
+    return true;
+  }
+  return false;
+}
+
+function withFolderPath(entry: unknown, folderPath: string[]): unknown {
+  const out = { ...(entry as Record<string, unknown>) };
+  if (folderPath.length > 0) out.folderPath = folderPath;
+  else delete out.folderPath;
+  return out;
+}
+
+/**
+ * Collect the SSE / MCP descendants of a folder that is being emitted verbatim
+ * from its `_oc` bag. The bag is an OC folder, which cannot hold them, so they
+ * must still reach the root extension lists.
+ */
+function collectNestedStreamItems(
+  items: CollectionItem[] | undefined,
+  folderPath: string[],
+  sseItems: unknown[],
+  mcpItems: unknown[]
+): void {
+  for (const child of items ?? []) {
+    if (child.type === 'folder') {
+      collectNestedStreamItems(child.items, [...folderPath, child.name], sseItems, mcpItems);
+      continue;
+    }
+    pushStreamItem(child as WithOC<CollectionItem>, folderPath, sseItems, mcpItems);
+  }
+}
+
 function folderFromInternal(
   it: WithOC<CollectionItem>,
+  folderPath: string[],
   sseItems: unknown[],
   mcpItems: unknown[]
 ): unknown {
@@ -260,7 +307,10 @@ function folderFromInternal(
   const authSame = authUnchanged(it._oc, it.auth);
   const scriptsSame = scriptsUnchanged(it._oc, it.preRequestScript, it.testScript);
   const variablesSame = folderVariablesUnchanged(it._oc, it.variables);
-  if (it._oc && authSame && scriptsSame && variablesSame) return it._oc;
+  if (it._oc && authSame && scriptsSame && variablesSame) {
+    collectNestedStreamItems(it.items, folderPath, sseItems, mcpItems);
+    return it._oc;
+  }
   const out: Record<string, unknown> = it._oc
     ? { ...(it._oc as Record<string, unknown>) }
     : { info: { name: it.name } };
@@ -268,7 +318,7 @@ function folderFromInternal(
   for (const child of it.items ?? []) {
     const wchild = child as WithOC<CollectionItem>;
     if (child.type === 'folder') {
-      childItems.push(folderFromInternal(wchild, sseItems, mcpItems));
+      childItems.push(folderFromInternal(wchild, [...folderPath, child.name], sseItems, mcpItems));
       continue;
     }
     const r = child.request;
@@ -276,25 +326,14 @@ function folderFromInternal(
       childItems.push(wchild._oc ?? { info: { name: child.name } });
       continue;
     }
-    // SSE / MCP aren't valid folder items in OpenCollection — they live in
-    // root `extensions`. Hoist a folder-nested one rather than throwing (a
-    // user can drag an SSE/MCP request into a folder). Folder grouping isn't
-    // representable in the extension model, so it lands at the root, matching
-    // how root-level SSE/MCP are emitted.
-    if (r.type === 'sse') {
-      sseItems.push(wchild._oc ?? sseToOC(child.name, r as SseRequest));
-      continue;
-    }
-    if (r.type === 'mcp') {
-      mcpItems.push(wchild._oc ?? mcpToOC(child.name, r as McpRequest));
-      continue;
-    }
+    if (pushStreamItem(wchild, folderPath, sseItems, mcpItems)) continue;
     childItems.push(wchild._oc ?? requestFromInternal(child.name, r));
   }
   out.items = childItems;
   // Apply each independently and only when it actually changed: rebuilding for
-  // a script edit must not recompute auth (would drop OAuth1/NTLM/WSSE, which
-  // survive only via the cached _oc bytes), and vice versa.
+  // a script edit must not recompute auth (would drop auth the internal model
+  // can't represent — e.g. OAuth1 RSA keys or unknown types — which survives
+  // only via the cached _oc bytes), and vice versa.
   if (!authSame) applyRequestDefaultsAuth(out, it.auth);
   if (!scriptsSame) applyRequestDefaultsScripts(out, it.preRequestScript, it.testScript);
   if (!variablesSame) {
@@ -387,25 +426,44 @@ function requestFromInternal(name: string, r: Request): unknown {
   }
 }
 
+/**
+ * Every `SseRequest` field is carried (#863); scripts use the same
+ * `runtime.scripts` container as HTTP/gRPC items. The fidelity harness
+ * (`fidelity-roundtrip.test.ts`) fails type-check when a field is added to
+ * the type without being classified there.
+ */
 function sseToOC(name: string, r: SseRequest): unknown {
   const sse: Record<string, unknown> = { url: r.url };
   if (r.headers?.length) {
     sse.headers = r.headers.map(kvFromInternal);
   }
+  if (r.params?.length) {
+    sse.params = r.params.map(kvFromInternal);
+  }
   if (r.eventFilter?.length) sse.eventFilter = r.eventFilter;
+  if (typeof r.reconnectOnResume === 'boolean') sse.reconnectOnResume = r.reconnectOnResume;
   const auth = authFromInternal(r.auth);
   if (auth) sse.auth = auth;
-  return { info: { type: 'sse', name }, sse };
+  const out: Record<string, unknown> = { info: { type: 'sse', name }, sse };
+  const runtime = runtimeFromInternal(r.preRequestScript, r.testScript);
+  if (runtime) out.runtime = runtime;
+  return out;
 }
 
+/** Every `McpRequest` field is carried (#863), incl. the saved operation. */
 function mcpToOC(name: string, r: McpRequest): unknown {
   const mcp: Record<string, unknown> = { url: r.url, transport: r.transport };
   if (r.headers?.length) {
     mcp.headers = r.headers.map(kvFromInternal);
   }
+  if (r.defaultMethod !== undefined) mcp.defaultMethod = r.defaultMethod;
+  if (r.defaultParams !== undefined) mcp.defaultParams = r.defaultParams;
   const auth = authFromInternal(r.auth);
   if (auth) mcp.auth = auth;
-  return { info: { type: 'mcp', name }, mcp };
+  const out: Record<string, unknown> = { info: { type: 'mcp', name }, mcp };
+  const runtime = runtimeFromInternal(r.preRequestScript, r.testScript);
+  if (runtime) out.runtime = runtime;
+  return out;
 }
 
 function kvFromInternal(k: KeyValue): unknown {
@@ -454,93 +512,6 @@ function bodyFromInternal(body: RequestBody): unknown {
 }
 
 /**
- * Render a SecretValue for the OC text format. Inline values become plaintext
- * (the document is a portable file; redaction is the export dialog's job),
- * handles become a `{{handle:<label>}}` placeholder — the keychain plaintext
- * never leaves the machine. Mirrors `exportSecretValue` in the Postman/
- * Insomnia exporters. Without this, post-ADR-0007 auth (SecretValue objects)
- * would serialize as `{kind: inline, value: …}` blobs into the YAML.
- */
-function secretToString(value: SecretValue | undefined): string {
-  if (value === undefined) return '';
-  if (typeof value === 'string') return value;
-  if (value.kind === 'inline') return value.value;
-  if (value.kind === 'external')
-    return `{{external:${value.provider}:${value.profileId}:${value.secretId}${value.selector ? `:${value.selector}` : ''}}}`;
-  return `{{handle:${value.label ?? value.id}}}`;
-}
-
-/** oauth2 fields that hold SecretValues and need unwrapping on export. */
-const OAUTH2_SECRET_FIELDS = new Set(['accessToken', 'refreshToken', 'clientSecret', 'password']);
-
-function authFromInternal(a?: AuthConfig): unknown {
-  if (!a || a.type === 'none') return undefined;
-  switch (a.type) {
-    case 'basic':
-      return {
-        type: 'basic',
-        username: a.basic?.username ?? '',
-        password: secretToString(a.basic?.password),
-      };
-    case 'bearer':
-      return { type: 'bearer', token: secretToString(a.bearer?.token) };
-    case 'api-key':
-      return {
-        type: 'apikey',
-        key: a.apiKey?.key ?? '',
-        value: secretToString(a.apiKey?.value),
-        placement: a.apiKey?.in ?? 'header',
-      };
-    case 'aws-signature':
-      return {
-        type: 'awsv4',
-        accessKeyId: a.awsSignature?.accessKey ?? '',
-        secretAccessKey: secretToString(a.awsSignature?.secretKey),
-        region: a.awsSignature?.region ?? '',
-        service: a.awsSignature?.service ?? '',
-      };
-    case 'digest':
-      return {
-        type: 'digest',
-        username: a.digest?.username ?? '',
-        password: secretToString(a.digest?.password),
-      };
-    case 'oauth2': {
-      const out: Record<string, unknown> = { type: 'oauth2' };
-      const o = a.oauth2 ?? {};
-      for (const [k, v] of Object.entries(o)) {
-        if (v === undefined) continue;
-        out[k] = OAUTH2_SECRET_FIELDS.has(k) ? secretToString(v as SecretValue) : v;
-      }
-      return out;
-    }
-    default:
-      return undefined;
-  }
-}
-
-/**
- * Flatten every SecretValue in an AuthConfig to its exportable string form so
- * both compare-sides live in the same space: cached OC auth holds plain
- * strings, post-ADR-0007 internal auth holds SecretValue objects. (A local
- * walk over the shared field map rather than `migrateAuthConfigToSecretRef`
- * — that module pulls in `platform.ts`, which the CLI tsconfig can't compile.)
- */
-function unwrapAuthForCompare(a: AuthConfig): AuthConfig {
-  const out = { ...a };
-  for (const [block, fields] of Object.entries(SECRET_FIELDS_BY_AUTH_BLOCK)) {
-    const cur = out[block as keyof AuthConfig];
-    if (!cur || typeof cur !== 'object') continue;
-    const copy = { ...cur } as Record<string, unknown>;
-    for (const f of fields) {
-      if (f in copy) copy[f] = secretToString(copy[f] as SecretValue | undefined);
-    }
-    (out as unknown as Record<string, unknown>)[block as string] = copy;
-  }
-  return out;
-}
-
-/**
  * Export-time staleness check for collection/folder default auth. The cached
  * `_oc` bag predates any in-app edit, so before trusting it we convert its
  * `request.auth` through the SAME import pipeline (authToInternal) and
@@ -554,15 +525,14 @@ function unwrapAuthForCompare(a: AuthConfig): AuthConfig {
  * false "unchanged" would require structurally different auth to serialize
  * identically — impossible.
  *
- * Known blind spot: auth types with no internal representation (OAuth1/NTLM/
- * WSSE) degrade to 'none' through authToInternal, so cached-vs-current
- * compares none === none and the gate reports "unchanged" no matter what.
- * Untouched documents round-trip byte-stably (desired), but clearing such an
- * auth in-app resurrects the original block on an include-secrets export.
- * Redacted exports are NOT affected — redactCollectionSecrets drops the root
- * `_oc` bag outright, so this tier always rebuilds there. The real fix is
- * native internal support for these types (Phase 4); a treat-degraded-as-
- * changed heuristic would instead drop their auth on every round-trip.
+ * Known blind spot: auth types with no internal representation (unknown/
+ * future OC types) degrade to 'none' through authToInternal, so cached-vs-
+ * current compares none === none and the gate reports "unchanged" no matter
+ * what. Untouched documents round-trip byte-stably (desired), but clearing
+ * such an auth in-app resurrects the original block on an include-secrets
+ * export. OAuth1/NTLM/WSSE are modelled natively since #869 and are no longer
+ * affected; a treat-degraded-as-changed heuristic would instead drop the
+ * remaining unknown types on every round-trip.
  */
 function authUnchanged(cachedNode: unknown, internalAuth: AuthConfig | undefined): boolean {
   const cachedRequest = (cachedNode as { request?: unknown } | undefined)?.request;
@@ -606,9 +576,19 @@ function rootStructureUnchanged(c: WithOC<Collection>): boolean {
   ).length;
   const liveNonStream = live.length - liveStream;
   const ext = (cached.extensions ?? {}) as Record<string, unknown>;
-  const cachedSse = (ext['x-restura-sse'] as unknown[] | undefined)?.length ?? 0;
-  const cachedMcp = (ext['x-restura-mcp'] as unknown[] | undefined)?.length ?? 0;
-  return liveNonStream === (cached.items ?? []).length && liveStream === cachedSse + cachedMcp;
+  // Only root-level entries count; folder-nested ones (non-empty `folderPath`,
+  // #866) live under a folder internally. An entry whose folder could not be
+  // resolved on import lands at the root, so it miscounts as "changed" — which
+  // only costs byte-stability (a rebuild), never correctness.
+  const rootEntries = (list: unknown): number =>
+    Array.isArray(list)
+      ? list.filter((e) => {
+          const p = (e as { folderPath?: unknown } | null)?.folderPath;
+          return !Array.isArray(p) || p.length === 0;
+        }).length
+      : 0;
+  const cachedStream = rootEntries(ext['x-restura-sse']) + rootEntries(ext['x-restura-mcp']);
+  return liveNonStream === (cached.items ?? []).length && liveStream === cachedStream;
 }
 
 function variablesFromInternal(variables: Array<KeyValue & { private?: boolean }> | undefined) {

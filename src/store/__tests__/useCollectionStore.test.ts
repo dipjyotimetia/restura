@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { internalToOC } from '@/lib/opencollection/from-internal';
-import type { Collection, CollectionItem } from '@/types';
+import {
+  parseOpenCollectionYAML,
+  serializeOpenCollectionYAML,
+} from '@/lib/opencollection/serializer';
+import { ocToInternal } from '@/lib/opencollection/to-internal';
+import type { Collection, CollectionItem, McpRequest, SseRequest } from '@/types';
 import { useCollectionStore } from '../useCollectionStore';
 
 describe('useCollectionStore', () => {
@@ -130,6 +135,76 @@ describe('useCollectionStore', () => {
         items: Array<{ items: Array<{ http: { method: string } }> }>;
       };
       expect(oc.items[0]!.items[0]!.http.method).toBe('POST');
+    });
+
+    it('re-exports edits to imported SSE/MCP requests (root and folder-nested, #863)', () => {
+      const { addCollection, updateCollectionItem } = useCollectionStore.getState();
+      const imported = ocToInternal(
+        parseOpenCollectionYAML(`opencollection: 1.0.0
+info:
+  name: Streams
+items:
+  - info:
+      name: Folder
+    items: []
+extensions:
+  x-restura-sse:
+    - info:
+        type: sse
+        name: Ticker
+      sse:
+        url: https://stream.example.test/events
+        reconnectOnResume: true
+  x-restura-mcp:
+    - info:
+        type: mcp
+        name: Tools
+      folderPath: ["Folder"]
+      mcp:
+        url: https://mcp.example.test/mcp
+        transport: streamable-http
+        defaultMethod: tools/list
+`)
+      ) as Collection;
+      addCollection(imported);
+
+      const sseItem = imported.items.find((i) => i.name === 'Ticker')!;
+      const folder = imported.items.find((i) => i.name === 'Folder')!;
+      const mcpItem = folder.items!.find((i) => i.name === 'Tools')!;
+      const sseReq = sseItem.request as SseRequest;
+      const mcpReq = mcpItem.request as McpRequest;
+
+      updateCollectionItem(imported.id, sseItem.id, {
+        request: {
+          ...sseReq,
+          params: [{ id: 'p', key: 'symbol', value: 'ACME', enabled: true }],
+          reconnectOnResume: false,
+          testScript: 'rs.test("t", () => {});',
+        },
+      });
+      updateCollectionItem(imported.id, mcpItem.id, {
+        request: {
+          ...mcpReq,
+          defaultMethod: 'tools/call',
+          defaultParams: '{"name":"echo","arguments":{}}',
+        },
+      });
+
+      const edited = useCollectionStore.getState().getCollectionById(imported.id)!;
+      const back = ocToInternal(
+        parseOpenCollectionYAML(
+          serializeOpenCollectionYAML(internalToOC(edited as Collection & { _oc?: unknown }))
+        )
+      );
+      const sseBack = back.items.find((i) => i.name === 'Ticker')!.request as SseRequest;
+      expect(sseBack.params.map((p) => [p.key, p.value])).toEqual([['symbol', 'ACME']]);
+      expect(sseBack.reconnectOnResume).toBe(false);
+      expect(sseBack.testScript).toBe('rs.test("t", () => {});');
+      const mcpBack = back.items
+        .find((i) => i.name === 'Folder')!
+        .items!.find((i) => i.name === 'Tools')!.request as McpRequest;
+      expect(mcpBack.defaultMethod).toBe('tools/call');
+      expect(mcpBack.defaultParams).toBe('{"name":"echo","arguments":{}}');
     });
   });
 

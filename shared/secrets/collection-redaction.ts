@@ -1,3 +1,4 @@
+import type { AuthConfig, Collection, CollectionItem } from '../types';
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from './auth-fields';
 import {
   countSecretKeyValues,
@@ -5,7 +6,6 @@ import {
   type SecretableRow,
 } from './key-value-redaction';
 import { isSecretHandle, redactSecret, type SecretValue, unwrapSecret } from './secret-ref';
-import type { AuthConfig, Collection, CollectionItem } from '../types';
 
 /**
  * Redacts secret-bearing auth fields from a collection before it goes through
@@ -63,12 +63,12 @@ function countAuthInlineSecrets(auth: AuthConfig | undefined): number {
 }
 
 /**
- * OpenCollection auth `type`s whose plaintext IS captured by the typed internal
- * model (and therefore counted via {@link countAuthInlineSecrets}). Any other
- * non-empty type degrades to `type:'none'` on import (OAuth1/NTLM/WSSE/…),
- * leaving its credential material ONLY in the `_oc` passthrough bag.
+ * OpenCollection auth `type`s whose string credentials ARE captured by the
+ * typed internal model (and therefore counted via {@link countAuthInlineSecrets}).
+ * Any other non-empty type degrades to `type:'none'` on import, leaving its
+ * credential material ONLY in the `_oc` passthrough bag.
  *
- * Keep in sync with `authToInternal` in `src/lib/opencollection/to-internal.ts`
+ * Keep in sync with `authToInternal` in `shared/opencollection/to-internal.ts`
  * (its non-`default` cases) — that switch decides which types reach the typed
  * model; this set must mirror it or the bag counter will double- or under-count.
  */
@@ -80,12 +80,15 @@ const TYPED_OC_AUTH_TYPES = new Set([
   'awsv4',
   'digest',
   'oauth2',
+  'oauth1',
+  'ntlm',
+  'wsse',
 ]);
 
 /**
- * String credential fields on OC degrade-to-none auth blocks (OAuth1/NTLM/WSSE).
- * `password` covers NTLM/WSSE; `consumerSecret`/`accessTokenSecret` cover OAuth1.
- * (OAuth1 `privateKey` is object-valued and handled separately in
+ * String credential fields on OC degrade-to-none auth blocks (unknown types
+ * that still carry the familiar field names). (OAuth1 `privateKey` is
+ * object-valued and never reaches the typed model — handled separately in
  * {@link countAuthBlockSecrets}; cert passphrases are handled by `obj.passphrase`
  * in {@link countOcBagInlineSecrets}.)
  */
@@ -163,9 +166,10 @@ function countAuthBlockSecrets(a: Record<string, unknown>): number {
     // internal model never captures.
     return typeof a.password === 'string' && a.password.length > 0 ? 1 : 0;
   }
-  if (TYPED_OC_AUTH_TYPES.has(type)) return 0;
-  // Degrade-to-none request auth (OAuth1/NTLM/WSSE): plaintext lives only here.
-  let n = hasNonEmptyString(a, OC_SECRET_FIELDS) ? 1 : 0;
+  // Typed types: string credentials are counted on the typed model, so only
+  // bag-only material (OAuth1 RSA `privateKey`) counts here. Degrade-to-none
+  // types: plaintext lives only in the bag.
+  let n = !TYPED_OC_AUTH_TYPES.has(type) && hasNonEmptyString(a, OC_SECRET_FIELDS) ? 1 : 0;
   // OAuth1 RSA `privateKey` is an object `{ type: 'file' | 'text', value }`; an
   // inline ('text') key is a secret. A 'file' value is a path, not a secret.
   if (a.privateKey && typeof a.privateKey === 'object') {
