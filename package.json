@@ -232,7 +232,7 @@
     "better-sse": "^0.16.1",
     "chai": "^6.3.0",
     "cheerio": "^1.2.0",
-    "concurrently": "^10.0.5",
+    "concurrently": "^10.0.6",
     "cross-env": "^10.1.0",
     "crypto-js": "^4.2.0",
     "csv-parse": "^7.0.3",
