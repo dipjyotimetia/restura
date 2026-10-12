@@ -225,6 +225,13 @@ export const grpcRequestSchema = z.object({
   auth: authConfigSchema,
   preRequestScript: z.string().optional(),
   testScript: z.string().optional(),
+  schema: z
+    .discriminatedUnion('kind', [
+      z.object({ kind: z.literal('descriptors'), descriptors: z.array(z.string()) }),
+      z.object({ kind: z.literal('proto'), fileName: z.string(), text: z.string() }),
+    ])
+    .optional(),
+  timeout: z.number().int().positive().optional(),
 });
 
 // SSE Request Schema

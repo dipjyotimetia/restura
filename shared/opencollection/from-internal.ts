@@ -13,6 +13,7 @@ import type {
 } from '../types';
 import { AUTH_EXTENSION_KEY, buildAuthExtension, stripAuthExtras } from './auth-extension';
 import { authFromInternal, unwrapAuthForCompare } from './auth-from-internal';
+import { buildGrpcExtension, GRPC_EXTENSION_KEY } from './grpc-schema-extension';
 import type { OpenCollection } from './schemas';
 import { authToInternal, groupScripts, ocVariableToKeyValue } from './to-internal';
 
@@ -106,8 +107,17 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
     items.push(wit._oc ?? requestFromInternal(it.name, r));
   }
 
-  // OAuth1/NTLM/WSSE knobs the schema has no slot for (x-restura-auth).
-  const authExt = buildAuthExtension(c);
+  // Restura-managed extensions, rebuilt fresh on every export (undefined =
+  // omit): SSE/MCP items, the contract, OAuth1/NTLM/WSSE knobs the schema's
+  // closed auth objects can't hold (x-restura-auth) and deduped gRPC schema
+  // snapshots / timeouts (x-restura-grpc).
+  const managed: Record<string, unknown> = {
+    'x-restura-sse': sseItems.length > 0 ? sseItems : undefined,
+    'x-restura-mcp': mcpItems.length > 0 ? mcpItems : undefined,
+    'x-restura-contract': c.contractSpec,
+    [AUTH_EXTENSION_KEY]: buildAuthExtension(c),
+    [GRPC_EXTENSION_KEY]: buildGrpcExtension(c.items),
+  };
 
   // Strategy 2 — root-preserving rebuild. Start from the cached OC root,
   // replace items + Restura-managed extensions only.
@@ -120,14 +130,8 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
     // stays compact).
     const cachedExt = (cached.extensions ?? {}) as Record<string, unknown>;
     const merged: Record<string, unknown> = { ...cachedExt };
-    delete merged['x-restura-sse'];
-    delete merged['x-restura-mcp'];
-    delete merged['x-restura-contract'];
-    delete merged[AUTH_EXTENSION_KEY];
-    if (sseItems.length > 0) merged['x-restura-sse'] = sseItems;
-    if (mcpItems.length > 0) merged['x-restura-mcp'] = mcpItems;
-    if (c.contractSpec) merged['x-restura-contract'] = c.contractSpec;
-    if (authExt) merged[AUTH_EXTENSION_KEY] = authExt;
+    for (const k of Object.keys(managed)) delete merged[k];
+    for (const [k, v] of Object.entries(managed)) if (v !== undefined) merged[k] = v;
     if (Object.keys(merged).length > 0) oc.extensions = merged;
     else delete oc.extensions;
 
@@ -166,11 +170,7 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
     };
   }
 
-  const extensions: Record<string, unknown> = {};
-  if (sseItems.length > 0) extensions['x-restura-sse'] = sseItems;
-  if (mcpItems.length > 0) extensions['x-restura-mcp'] = mcpItems;
-  if (c.contractSpec) extensions['x-restura-contract'] = c.contractSpec;
-  if (authExt) extensions[AUTH_EXTENSION_KEY] = authExt;
+  const extensions = Object.fromEntries(Object.entries(managed).filter(([, v]) => v !== undefined));
   if (Object.keys(extensions).length > 0) oc.extensions = extensions;
 
   if ((c.variables ?? []).length > 0) {

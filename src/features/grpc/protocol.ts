@@ -7,11 +7,12 @@
  * its bespoke wiring for those paths via `startGrpcStream`.
  *
  * Two transport branches:
- *  - Electron: full reflection support, requires proto content. The
- *    builder loads proto bytes (uploaded file or reflection-generated)
- *    and passes them via `ctx.protocolOptions.protoContent` /
- *    `protoFileName`. Without those the run errors out with a clear
- *    message rather than silently degrading to the proxy.
+ *  - Electron: needs a schema — reflection `descriptors` or uploaded
+ *    `protoContent` / `protoFileName` via `ctx.protocolOptions` (the
+ *    builder passes its live state; the collection runner passes the
+ *    request's persisted `schema` snapshot). Without either it falls back
+ *    to server reflection, and fails with an actionable error when that is
+ *    unavailable rather than silently degrading to the proxy.
  *  - Web: routed through the worker `/api/grpc` proxy which accepts the
  *    request shape directly (no proto needed — the worker uses gRPC-Web
  *    framing).
@@ -39,6 +40,7 @@ import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { Response as ApiResponse, GrpcRequest, GrpcResponse, Request } from '@/types';
 import { makeElectronGrpcRequest, makeProxyGrpcRequest } from './lib/grpcClient';
+import { discoverDescriptorsForRequest } from './lib/grpcSchemaSnapshot';
 
 function createDefaultGrpcRequest(): GrpcRequest {
   return {
@@ -182,11 +184,12 @@ export const grpcProtocol: ProtocolModule = {
     let response: GrpcResponse;
     const resolve = (text: string) => defaultResolveVariables(text, scriptEnvVars);
     if (isElectron()) {
-      const hasDescriptors = !!opts.descriptors && opts.descriptors.length > 0;
-      if (!hasDescriptors && (!opts.protoContent || !opts.protoFileName)) {
-        throw new Error(
-          'gRPC Electron unary requires reflection `descriptors` or `protoContent` + `protoFileName` via protocolOptions.'
-        );
+      let descriptors = opts.descriptors?.length ? opts.descriptors : undefined;
+      if (!descriptors && (!opts.protoContent || !opts.protoFileName)) {
+        // No schema supplied (e.g. a saved request run from a collection with
+        // no snapshot): try server reflection; throws an actionable error
+        // ("reflect or upload a .proto") when that is unavailable.
+        descriptors = await discoverDescriptorsForRequest(resolve(request.url), request.service);
       }
       response = await makeElectronGrpcRequest(
         request,
@@ -195,7 +198,7 @@ export const grpcProtocol: ProtocolModule = {
         resolve,
         timeoutMs,
         opts.useCompression ?? false,
-        opts.descriptors
+        descriptors
       );
     } else {
       response = await makeProxyGrpcRequest(request, resolve, timeoutMs);

@@ -14,6 +14,7 @@ import type {
   SseRequest,
 } from '../types';
 import { AUTH_EXTENSION_KEY, applyAuthExtension } from './auth-extension';
+import { applyGrpcExtension, GRPC_EXTENSION_KEY } from './grpc-schema-extension';
 import type { OpenCollection } from './schemas';
 
 /**
@@ -34,6 +35,8 @@ import type { OpenCollection } from './schemas';
  *   - extensions['x-restura-auth']
  *                     → OAuth1/NTLM/WSSE knobs the schema lacks, re-applied onto
  *                       root/folder/request auth (see auth-extension.ts).
+ *   - extensions['x-restura-grpc'] → schema snapshots / timeouts re-inlined onto
+ *                     gRPC requests (see grpc-schema-extension.ts).
  *
  * Every emitted node also carries a non-typed `_oc` property holding the verbatim
  * OpenCollection input. The from-internal mapper (Task 10) consults this to emit
@@ -54,6 +57,13 @@ export function ocToInternal(oc: OpenCollection): WithOC<Collection> {
     itemToInternal(it)
   );
   placeExtensionItems(items, oc.extensions);
+  // gRPC schema snapshots + timeouts live in a collection-level extension
+  // (dedupe by content hash); re-inline them onto the imported requests —
+  // after placeExtensionItems so the tree matches the export-side walk.
+  applyGrpcExtension(
+    items,
+    (oc.extensions as Record<string, unknown> | undefined)?.[GRPC_EXTENSION_KEY]
+  );
   const collection: WithOC<Collection> = {
     id: uuid(),
     name: oc.info.name,

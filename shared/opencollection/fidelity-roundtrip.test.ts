@@ -137,6 +137,9 @@ const GRPC_FIELDS = {
   auth: 'roundtrip',
   preRequestScript: 'roundtrip',
   testScript: 'roundtrip',
+  // Carried by the collection-level x-restura-grpc extension (#871 #921).
+  schema: 'roundtrip',
+  timeout: 'roundtrip',
 } as const satisfies Record<keyof GrpcRequest, FieldPolicy>;
 
 const GRPC_FIXTURE: Required<GrpcRequest> = {
@@ -152,6 +155,8 @@ const GRPC_FIXTURE: Required<GrpcRequest> = {
   auth: AUTHS.ntlm,
   preRequestScript: 'rs.variables.set("g", 1);',
   testScript: 'rs.test("grpc", () => {});',
+  schema: { kind: 'proto', fileName: 'greet.proto', text: 'syntax = "proto3";\npackage greet.v1;' },
+  timeout: 5000,
 };
 
 const SSE_FIELDS = {

@@ -12,6 +12,10 @@ import type { ExecuteOptions, ExecuteOutcome } from './types';
  * carries JSON-shaped payloads. The CLI's `undiciFetcher` is the same one the
  * HTTP path uses; gRPC just sets specific headers and rides on top.
  *
+ * The request's persisted `schema` snapshot (reflection descriptors / uploaded
+ * proto, #871) is intentionally unused: Connect carries JSON, so no schema is
+ * needed on this path.
+ *
  * Only unary methods are supported: the shared proxy is unary-only. Streaming
  * methods (server / client / bidi) fail explicitly rather than silently
  * downgrading to unary, which previously returned partial/incorrect data with
@@ -77,7 +81,9 @@ export async function executeGrpc(
         method: req.method,
         metadata,
         message: parsedMessage,
-        timeout: opts.timeoutMs,
+        // Per-request timeout (saved with the request, #921) overrides the
+        // global --timeout — same precedence as the HTTP executor.
+        timeout: req.timeout ?? opts.timeoutMs,
       },
       opts.dispatcher ? createUndiciFetcher(opts.dispatcher) : undiciFetcher,
       { allowLocalhost: opts.allowLocalhost }
