@@ -253,4 +253,53 @@ describe('McpRequestBuilder ↔ collections', () => {
     // Restoring the saved operation is not an edit.
     expect(useRequestStore.getState().tabs[0]?.isDirty).toBe(false);
   });
+
+  it('restoring saved args with schema-unknown keys and empty strings leaves the request untouched', async () => {
+    const user = userEvent.setup();
+    // `extra` is not in the tool schema (additionalProperties / CLI-authored);
+    // `query` is a deliberately saved empty string.
+    const defaultParams = JSON.stringify({
+      name: 'search',
+      arguments: { query: '', limit: 7, extra: { keep: true } },
+    });
+    const saved: McpRequest = {
+      id: 'saved-mcp-extra',
+      name: 'Saved search',
+      type: 'mcp',
+      url: 'https://saved.example.com/mcp',
+      transport: 'streamable-http',
+      headers: [],
+      auth: { type: 'none' },
+      defaultMethod: 'tools/call',
+      defaultParams,
+    };
+    useRequestStore.getState().openTab(saved, { savedRequestId: 'item-2' });
+    const before = useRequestStore.getState().tabs[0]?.request;
+    render(<McpRequestBuilder />);
+
+    await user.click(await screen.findByRole('button', { name: 'Connect' }));
+    await waitFor(() => expect(screen.getByPlaceholderText('number')).toHaveValue('7'));
+    expect(screen.getByPlaceholderText('string')).toHaveValue('');
+
+    const tab = useRequestStore.getState().tabs[0];
+    expect(tab?.isDirty).toBe(false);
+    expect(tab?.request).toBe(before);
+    expect((tab?.request as McpRequest).defaultParams).toBe(defaultParams);
+
+    // A real edit is merged onto the saved arguments: unknown keys and
+    // untouched values (incl. the empty string) survive.
+    fireEvent.change(screen.getByPlaceholderText('number'), { target: { value: '9' } });
+    const edited = useRequestStore.getState().tabs[0];
+    expect(edited?.isDirty).toBe(true);
+    expect(JSON.parse((edited?.request as McpRequest).defaultParams ?? '')).toEqual({
+      name: 'search',
+      arguments: { query: '', limit: 9, extra: { keep: true } },
+    });
+
+    // Clearing an edited field removes it; everything else is still kept.
+    fireEvent.change(screen.getByPlaceholderText('number'), { target: { value: '' } });
+    expect(
+      JSON.parse((useRequestStore.getState().tabs[0]?.request as McpRequest).defaultParams ?? '')
+    ).toEqual({ name: 'search', arguments: { query: '', extra: { keep: true } } });
+  });
 });

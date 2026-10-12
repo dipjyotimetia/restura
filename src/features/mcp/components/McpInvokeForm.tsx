@@ -84,6 +84,36 @@ function toPersistedArguments(
   return args;
 }
 
+/**
+ * Apply only the user-edited fields onto the saved arguments. Keys the current
+ * tool schema doesn't declare (`additionalProperties`, CLI/OpenCollection
+ * authored, or from an older schema) and untouched values — including saved
+ * empty strings — survive verbatim. Clearing an edited field removes it.
+ */
+function mergeEditedArguments(
+  saved: Record<string, unknown>,
+  fields: McpArgumentFieldType[],
+  values: Record<string, string>,
+  edited: ReadonlySet<string>
+): Record<string, unknown> {
+  const args: Record<string, unknown> = { ...saved };
+  for (const field of fields) {
+    if (!edited.has(field.name)) continue;
+    const raw = values[field.name];
+    if (raw === undefined || raw === '') {
+      delete args[field.name];
+      continue;
+    }
+    const parsed = parseMcpArgument(raw, field.type);
+    args[field.name] = parsed.ok ? parsed.value : raw;
+  }
+  return args;
+}
+
+function isArgumentRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
 export function flattenMcpArgumentFields(
   schema: McpJsonSchema | undefined
 ): McpArgumentFieldType[] {
@@ -129,30 +159,48 @@ function InvokeToolForm({
   const [values, setValues] = useState<Record<string, string>>({});
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [running, setRunning] = useState(false);
-  // Read through refs so persisting an edit (which feeds back in as
+  // Read through a ref so persisting an edit (which feeds back in as
   // `initialArguments`) never re-runs the seeding effect below.
   const initialArgumentsRef = useRef(initialArguments);
   initialArgumentsRef.current = initialArguments;
-  const onArgumentsChangeRef = useRef(onArgumentsChange);
-  onArgumentsChangeRef.current = onArgumentsChange;
+  // Saved arguments the form was seeded from, and the fields the user has
+  // touched since. Edits are merged onto the saved object so restoring a
+  // request never rewrites it: unknown keys and untouched values are kept.
+  const savedArgumentsRef = useRef<Record<string, unknown> | undefined>(undefined);
+  const editedFieldsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
+    savedArgumentsRef.current = undefined;
+    editedFieldsRef.current = new Set();
     if (!tool) {
       setValues({});
       return;
     }
     const saved = initialArgumentsRef.current;
+    if (isArgumentRecord(saved)) savedArgumentsRef.current = saved;
     const source: unknown = saved ?? generateMcpTemplate(tool.inputSchema);
     const next: Record<string, string> = {};
-    if (source && typeof source === 'object' && !Array.isArray(source)) {
+    if (isArgumentRecord(source)) {
       for (const field of fields) {
-        next[field.name] = valueToString((source as Record<string, unknown>)[field.name]);
+        next[field.name] = valueToString(source[field.name]);
       }
     }
     setValues(next);
     setValidationErrors({});
-    onArgumentsChangeRef.current?.(toPersistedArguments(fields, next));
+    // Seeding is not an edit: never report it, or reopening a saved request
+    // would rewrite (and dirty) it. The template only persists once edited.
   }, [tool, fields]);
+
+  const persistEdit = (fieldName: string, next: Record<string, string>) => {
+    if (!onArgumentsChange) return;
+    editedFieldsRef.current.add(fieldName);
+    const saved = savedArgumentsRef.current;
+    onArgumentsChange(
+      saved
+        ? mergeEditedArguments(saved, fields, next, editedFieldsRef.current)
+        : toPersistedArguments(fields, next)
+    );
+  };
 
   const handleCall = async () => {
     if (!tool) return;
@@ -220,7 +268,7 @@ function InvokeToolForm({
                 onChange={(value) => {
                   const next = { ...values, [field.name]: value };
                   setValues(next);
-                  onArgumentsChange?.(toPersistedArguments(fields, next));
+                  persistEdit(field.name, next);
                   setValidationErrors((current) => {
                     if (current[field.name] === undefined) return current;
                     const { [field.name]: _removed, ...remaining } = current;

@@ -44,4 +44,49 @@ describe('McpInvokeForm', () => {
     expect(onCall).not.toHaveBeenCalled();
     expect(screen.getByRole('alert')).toHaveTextContent('Enter a valid integer.');
   });
+
+  it('never reports arguments when seeding from saved values or the schema template', () => {
+    const onToolArgumentsChange = vi.fn();
+    const { rerender } = render(
+      <McpInvokeForm
+        tab="tools"
+        tool={tool}
+        prompt={null}
+        onCall={vi.fn()}
+        onGet={vi.fn()}
+        toolArguments={{ attempts: 3, enabled: '', unknown: 'kept' }}
+        onToolArgumentsChange={onToolArgumentsChange}
+      />
+    );
+    expect(screen.getByPlaceholderText('integer')).toHaveValue('3');
+    rerender(
+      <McpInvokeForm
+        tab="tools"
+        tool={{ ...tool, name: 'other' }}
+        prompt={null}
+        onCall={vi.fn()}
+        onGet={vi.fn()}
+        onToolArgumentsChange={onToolArgumentsChange}
+      />
+    );
+    expect(onToolArgumentsChange).not.toHaveBeenCalled();
+  });
+
+  it('persists every filled field on the first edit when there are no saved arguments', () => {
+    const onToolArgumentsChange = vi.fn();
+    render(
+      <McpInvokeForm
+        tab="tools"
+        tool={tool}
+        prompt={null}
+        onCall={vi.fn()}
+        onGet={vi.fn()}
+        onToolArgumentsChange={onToolArgumentsChange}
+      />
+    );
+    fireEvent.change(screen.getByPlaceholderText('integer'), { target: { value: '4' } });
+    expect(onToolArgumentsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ attempts: 4 })
+    );
+  });
 });
