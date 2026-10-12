@@ -103,7 +103,9 @@ These are things that are clearly needed and will happen, roughly in order of ho
 
 **CLI protocol parity** — WebSocket requests in collection runs, per-domain client certificates, and protobuf bodies.
 
-**More agent model providers** — Gemini, Azure OpenAI, and Bedrock exist as adapter profiles, not transports.
+**More agent model providers** — Azure OpenAI, then Bedrock, then Gemini, each on desktop and the CLI ([#1044](https://github.com/dipjyotimetia/restura/issues/1044)). Today they exist as adapter profiles, not transports.
+
+**AI Lab fixes and next steps** — the [AI Lab review](audits/ai-lab-review-2026-10-12.md) filed 23 bugs and the work below under [epic #1057](https://github.com/dipjyotimetia/restura/issues/1057); security and misleading-status bugs come first. Planned: decision models such as Cloudflare Clef and TypeSafe Jev as a provider kind and a fast eval scorer ([#1049](https://github.com/dipjyotimetia/restura/issues/1049), [#1050](https://github.com/dipjyotimetia/restura/issues/1050)); dataset evals with judges in the CLI ([#1045](https://github.com/dipjyotimetia/restura/issues/1045)); remote agents as tools over A2A ([#1043](https://github.com/dipjyotimetia/restura/issues/1043)). AI Lab stays desktop-only.
 
 **Protocol gaps from the 2026-10-12 review** — the [protocol gap review](audits/protocol-gap-review-2026-10-12.md) filed every confirmed spec, competitor, and product gap as an issue under one epic per area: [HTTP #843](https://github.com/dipjyotimetia/restura/issues/843), [GraphQL #844](https://github.com/dipjyotimetia/restura/issues/844), [gRPC #845](https://github.com/dipjyotimetia/restura/issues/845), [WebSocket #846](https://github.com/dipjyotimetia/restura/issues/846), [Socket.IO #847](https://github.com/dipjyotimetia/restura/issues/847), [SSE #848](https://github.com/dipjyotimetia/restura/issues/848), [Kafka #849](https://github.com/dipjyotimetia/restura/issues/849), [MQTT #850](https://github.com/dipjyotimetia/restura/issues/850), [MCP #851](https://github.com/dipjyotimetia/restura/issues/851), [cross-cutting #852](https://github.com/dipjyotimetia/restura/issues/852), and [docs #853](https://github.com/dipjyotimetia/restura/issues/853). P0s (silent data loss in collection export/save, desktop WebSocket binary frames, CLI MCP, gRPC in the desktop runner and web reflection) come first.
 
@@ -127,7 +129,7 @@ These are things that would be good to have but aren't being actively planned.
 - Natural-language to request builder (describe what you want, get a request)
 - Scheduled test runs
 - Audit logging for the self-hosted deployment
-- Code sandboxes for evaluated agents (the provider contract exists; no provider ships)
+- Code sandboxes for evaluated agents — script sandbox first ([#1042](https://github.com/dipjyotimetia/restura/issues/1042)), then an opt-in container provider ([#1055](https://github.com/dipjyotimetia/restura/issues/1055))
 - Self-hosted scale-out: Helm chart, shared rate-limit store, upstream mTLS
 
 ### Exploring — ideas from the 2026-10-12 protocol gap review
@@ -153,6 +155,14 @@ Illustrative, not committed. Each has a feature issue with a design sketch.
 - One-click "try it" from the docs against the echo server ([#1013](https://github.com/dipjyotimetia/restura/issues/1013))
 - Docs capability summary and port tables generated from source ([#1014](https://github.com/dipjyotimetia/restura/issues/1014))
 - Docs link and claim checks in CI ([#1015](https://github.com/dipjyotimetia/restura/issues/1015))
+
+### Exploring — ideas from the 2026-10-12 AI Lab review
+
+- Regression datasets from recorded traffic, re-run when the model or prompt changes ([#1051](https://github.com/dipjyotimetia/restura/issues/1051))
+- MCP server checks for tool-annotation honesty and agent task completion ([#1052](https://github.com/dipjyotimetia/restura/issues/1052))
+- Model drift watch: scheduled evals with regression alerts ([#1053](https://github.com/dipjyotimetia/restura/issues/1053))
+- API explorer agent that saves failures as requests and eval cases ([#1054](https://github.com/dipjyotimetia/restura/issues/1054))
+- Risk-scored agent tool approvals using a decision model ([#1056](https://github.com/dipjyotimetia/restura/issues/1056))
 
 ---
 

@@ -663,7 +663,7 @@ export const features: Feature[] = [
     'ai',
     'agent-providers',
     'More agent model providers',
-    'Run agent suites against Gemini, Azure OpenAI, and Amazon Bedrock.',
+    'Run agent suites and evals against Azure OpenAI, Amazon Bedrock, and Gemini.',
     'planned',
     ['Desktop', 'CLI'],
     '/guides/ai-lab/',
@@ -672,10 +672,9 @@ export const features: Feature[] = [
       today: 'Adapter profiles describe all three providers, but none has a shipped transport yet.',
       milestones: [
         done('Adapter profiles for Gemini, Azure OpenAI, and Bedrock'),
-        todo('Gemini transport on desktop'),
-        todo('Azure OpenAI transport'),
-        todo('Bedrock with request signing'),
-        todo('CLI parity'),
+        todo('Azure OpenAI transport on desktop and CLI', 1044),
+        todo('Bedrock with request signing on desktop and CLI', 1044),
+        todo('Gemini transport on desktop and CLI', 1044),
       ],
     }
   ),
@@ -683,7 +682,7 @@ export const features: Feature[] = [
     'ai',
     'agent-sandboxes',
     'Agent code sandboxes',
-    'Explore letting evaluated agents run code in an isolated sandbox.',
+    'Explore letting evaluated agents run code in an isolated sandbox, starting with the built-in script sandbox.',
     'exploring',
     desktop,
     '/guides/ai-lab/',
@@ -693,9 +692,120 @@ export const features: Feature[] = [
         'The sandbox provider contract and registry are implemented; no provider ships, and the CLI refuses sandbox sources.',
       milestones: [
         done('Sandbox provider contract and registry'),
+        todo('Script sandbox provider on desktop and CLI', 1042),
         todo('Threat model and design record'),
-        todo('One local container provider on desktop'),
-        todo('Approval and cancellation wiring'),
+        todo('Opt-in local container provider on desktop', 1055),
+      ],
+    }
+  ),
+  entry(
+    'ai',
+    'a2a-tools',
+    'Remote agents as tools',
+    'Let agent suites call remote agents over the Agent2Agent (A2A) protocol as tools.',
+    'planned',
+    ['Desktop', 'CLI'],
+    '/guides/ai-lab/',
+    ['agent-suites'],
+    {
+      today: 'Suites can declare an A2A tool source, but no client is wired on desktop or the CLI.',
+      milestones: [
+        done('A2A tool source in the suite schema'),
+        todo('Shared A2A client behind the outbound address guard', 1043),
+        todo('Desktop adapter with approval for remote calls', 1043),
+        todo('CLI adapter', 1043),
+      ],
+    }
+  ),
+  entry(
+    'ai',
+    'decision-models',
+    'Decision models',
+    'Test decision models such as Cloudflare Clef and TypeSafe Jev, which answer typed questions with calibrated probabilities, and use them as fast eval scorers.',
+    'planned',
+    ['Desktop', 'CLI'],
+    '/guides/ai-lab/',
+    ['ai-lab'],
+    {
+      today:
+        'AI Lab supports text-generation providers only; there is no decision-model provider or scorer.',
+      milestones: [
+        todo('SystemOne-compatible provider, local Clef first', 1049),
+        todo('Typed-questions mode in the Playground', 1049),
+        todo('Decision scorer for evals', 1050),
+      ],
+    }
+  ),
+  entry(
+    'ai',
+    'agent-approval-gate',
+    'Risk-scored tool approvals',
+    'Explore letting a decision model score the risk of an agent tool call before asking you to approve it.',
+    'exploring',
+    desktop,
+    undefined,
+    ['agent-suites'],
+    {
+      today: 'Every non-read agent tool call needs a manual approval.',
+      milestones: [
+        todo('Design record and security review', 1056),
+        todo('Risk questions over the pending call', 1056),
+        todo('Auto-approve or escalate by threshold', 1056),
+      ],
+    }
+  ),
+  entry(
+    'ai',
+    'cli-evals',
+    'Dataset evals in CI',
+    'Run AI Lab dataset evals, including judge scorers, from the CLI with a pass threshold as the exit code.',
+    'planned',
+    ['CLI'],
+    undefined,
+    ['ai-lab', 'cli'],
+    {
+      today: 'The CLI runs agent suites only and refuses judge scorers.',
+      milestones: [
+        todo('Design record for judges in the CLI', 1048),
+        todo('Eval run command with desktop provider parity', 1045),
+        todo('Per-eval pass threshold as the exit code', 1024),
+      ],
+    }
+  ),
+  entry(
+    'ai',
+    'model-drift-watch',
+    'Model drift watch',
+    'Explore re-running saved evals on a schedule and alerting when a provider update lowers your pass rate.',
+    'exploring',
+    desktop,
+    undefined,
+    ['ai-lab', 'scheduled-runs'],
+    {
+      today: 'Eval reports compare a run against the previous run of the same eval, on demand.',
+      milestones: [
+        todo('Per-eval pass threshold', 1024),
+        todo('Scheduled eval runs on desktop', 1053),
+        todo('Regression alerts', 1053),
+      ],
+    }
+  ),
+  entry(
+    'ai',
+    'api-explorer-agent',
+    'API explorer agent',
+    'Explore an agent that probes an API from its schema and saves each failure as a request and an eval case.',
+    'exploring',
+    desktop,
+    undefined,
+    ['agent-suites'],
+    {
+      today:
+        'Agents can call saved requests as tools, and evals can be generated from OpenAPI specs.',
+      milestones: [
+        todo('Schema-driven probing with approvals', 1054),
+        todo('Failures saved as requests', 1054),
+        todo('Failures saved as eval cases', 1054),
       ],
     }
   ),
@@ -1154,9 +1264,10 @@ export const features: Feature[] = [
       today:
         'AI Lab generates eval cases from OpenAPI specs and history; request test suites are written by hand.',
       milestones: [
-        todo('Traffic selection and redaction'),
+        todo('Traffic selection and redaction', 1029),
         todo('Assertion drafting'),
         todo('Review and accept'),
+        todo('Re-run on model or prompt changes', 1051),
       ],
     }
   ),
@@ -1478,6 +1589,8 @@ export const features: Feature[] = [
         done('Version negotiation on desktop'),
         todo('Side-by-side version runs'),
         todo('Conformance report'),
+        todo('Tool annotation honesty checks', 1052),
+        todo('Agent task-completion evals against the server', 1052),
       ],
     }
   ),
@@ -1696,6 +1809,18 @@ export const featureTracking: Readonly<Record<string, Tracking>> = {
   'secret-handles': { issues: [928, 896, 976] },
   'ai-assistant': { issues: [977] },
   'mcp-server': { issues: [979] },
+  'ai-lab': { epic: 1057, issues: [1019, 1024, 1028, 1029, 1030, 1033] },
+  'agent-suites': { epic: 1057, issues: [1021, 1026, 1027, 1035, 1047] },
+  'ai-arena': { epic: 1057, issues: [1020, 1023, 1046] },
+  'agent-providers': { epic: 1057, issues: [1044] },
+  'agent-sandboxes': { epic: 1057, issues: [1042, 1055] },
+  'a2a-tools': { epic: 1057, issues: [1043] },
+  'decision-models': { epic: 1057, issues: [1049, 1050] },
+  'agent-approval-gate': { epic: 1057, issues: [1056] },
+  'cli-evals': { epic: 1057, issues: [1045, 1048] },
+  'model-drift-watch': { epic: 1057, issues: [1053] },
+  'api-explorer-agent': { epic: 1057, issues: [1054] },
+  'ai-tests-from-traffic': { issues: [1051] },
   'digest-ntlm': { issues: [861] },
   'websocket-web-headers': { epic: 846, issues: [898] },
   'websocket-scripts': { issues: [899] },
@@ -1715,7 +1840,7 @@ export const featureTracking: Readonly<Record<string, Tracking>> = {
   'broker-presets': { issues: [984] },
   'mcp-server-tests': { issues: [901] },
   'mcp-config-import': { issues: [906] },
-  'mcp-conformance': { issues: [911] },
+  'mcp-conformance': { issues: [911, 1052] },
   'docs-try-it': { issues: [1013] },
   'docs-from-source': { issues: [1014] },
   'docs-link-checks': { issues: [1015] },
