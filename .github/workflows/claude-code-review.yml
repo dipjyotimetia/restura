@@ -75,6 +75,7 @@ jobs:
           # explicitly asks for a fresh review.
           prompt: >-
             /code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}
+            A separate job posts a comment headed "## Standards & Spec review"; ignore that comment when checking whether Claude already commented.
             ${{ github.event.pull_request.base.ref != github.event.repository.default_branch && format('This PR is one layer of a stacked PR (gh stack): its base is `{0}`, not `{1}`. Review ONLY this layer''s diff against `{0}`; code from lower layers is already in the base and later layers are separate PRs, so do not flag work that belongs to another layer as missing or incomplete.', github.event.pull_request.base.ref, github.event.repository.default_branch) || '' }}
             ${{ github.event.action == 'labeled' && 'Re-review explicitly requested via the claude-review label: do NOT stop because Claude already commented on this PR; review the current head and only post issues not already raised in an earlier Claude comment.' || '' }}
           claude_args: >-
@@ -83,3 +84,56 @@ jobs:
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh pr list:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*)"
           # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
           # or https://code.claude.com/docs/en/cli-reference for available options
+
+  # Second axis: the repo's own `.claude/skills/code-review` skill (Standards vs
+  # Spec). The plugin job above hunts high-signal bugs with inline comments;
+  # this one checks the diff against the repo's documented standards and the
+  # originating issue, and posts ONE summary comment. Separate job (and
+  # concurrency group) so either can fail or be cancelled independently.
+  claude-skill-review:
+    if: |
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      github.event.pull_request.user.type != 'Bot' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.action != 'labeled' || github.event.label.name == 'claude-review')
+    concurrency:
+      group: claude-skill-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The skill diffs `origin/<base>...HEAD` locally, so it needs the base
+          # branch and the merge-base — a depth-1 clone has neither. For stacked
+          # PRs the base is the parent layer's branch, which this also fetches.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run code-review skill
+        uses: anthropics/claude-code-action@6fed3ca145920b639991cb756090506e1bcaf515 # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            Use the `code-review` skill (.claude/skills/code-review/SKILL.md) to review PR #${{ github.event.pull_request.number }} in ${{ github.repository }}.
+
+            You are running non-interactively in CI. NEVER ask the user anything; wherever the skill says to ask, use the defaults below instead.
+
+            - Fixed point: `origin/${{ github.event.pull_request.base.ref }}`. HEAD is the PR merge ref, so `git diff origin/${{ github.event.pull_request.base.ref }}...HEAD` is exactly this PR's change.
+            - Spec source: the PR title/body (`gh pr view ${{ github.event.pull_request.number }}`) plus any issues it or its commits reference (`gh issue view <n>`; the tracker is GitHub Issues, see docs/agents/issue-tracker.md). If none exist, skip the Spec sub-agent and say "no spec available".
+            - Ignore the line about `/setup-matt-pocock-skills`; the tracker is GitHub Issues.
+            ${{ github.event.pull_request.base.ref != github.event.repository.default_branch && format('- This PR is one layer of a stacked PR (gh stack) based on `{0}`, not `{1}`. Review only this layer; code from lower layers is already in the base and later layers are separate PRs, so do not report work that belongs to another layer as missing (Spec) or as Shotgun Surgery/Divergent Change (Standards).', github.event.pull_request.base.ref, github.event.repository.default_branch) || '' }}
+
+            When the skill's aggregated report is ready, post it as ONE PR comment with `gh pr comment ${{ github.event.pull_request.number }} --body-file <file>`. The comment MUST start with the heading `## Standards & Spec review` and keep the skill's `### Standards` / `### Spec` sections and one-line summary. If both axes are clean, post the heading plus a single line saying so. Do not post inline comments, and do not post anything else.
+          claude_args: >-
+            --model claude-sonnet-5-5
+            --max-turns 60
+            --allowedTools "Skill,Task,Agent,Read,Glob,Grep,Write,Bash(git diff:*),Bash(git log:*),Bash(git rev-parse:*),Bash(git show:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh issue view:*)"
