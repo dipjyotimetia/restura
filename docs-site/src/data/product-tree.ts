@@ -1,6 +1,6 @@
 /** Public editorial roadmap. Verify availability against capabilities.ts and source
  * before changing a status; planned/exploring entries carry no delivery dates. */
-export const reviewedOn = '2026-10-08';
+export const reviewedOn = '2026-10-12';
 export const statuses = {
   shipped: 'Shipped',
   'in-progress': 'In progress',
@@ -113,7 +113,7 @@ export const features: Feature[] = [
     'protocols',
     'graphql',
     'GraphQL',
-    'Build queries, inspect schemas, and subscribe to live updates.',
+    'Build queries, inspect schemas, and subscribe to live updates. On web, subscriptions connect straight from the browser rather than through the Restura server.',
     'shipped',
     all,
     '/protocols/graphql/'
@@ -159,7 +159,7 @@ export const features: Feature[] = [
     'protocols',
     'sse',
     'Server-Sent Events',
-    'Inspect live event streams with reconnection.',
+    'Inspect live event streams and resume with Last-Event-ID when you reconnect.',
     'shipped',
     all,
     '/protocols/sse/'
@@ -186,7 +186,7 @@ export const features: Feature[] = [
     'protocols',
     'mcp',
     'MCP client',
-    'Connect to MCP servers and inspect their tools, resources, and messages.',
+    'Connect to MCP servers and inspect their tools, resources, and messages. The legacy HTTP+SSE transport is desktop-only.',
     'shipped',
     all,
     '/protocols/mcp/'
@@ -1162,6 +1162,364 @@ export const features: Feature[] = [
       ],
     }
   ),
+  entry(
+    'protocols',
+    'streaming-timeline',
+    'Unified streaming timeline',
+    'See WebSocket, Socket.IO, SSE, Kafka, and MQTT traffic in one filterable, exportable timeline.',
+    'exploring',
+    all,
+    undefined,
+    [],
+    {
+      today:
+        'The console already mirrors WebSocket and SSE frames; each protocol otherwise keeps its own message log.',
+      milestones: [
+        done('Console mirrors WebSocket and SSE frames'),
+        todo('Shared timeline event model'),
+        todo('Kafka, MQTT, and Socket.IO sources'),
+        todo('Filter, correlate, and export'),
+      ],
+    }
+  ),
+  entry(
+    'automation',
+    'stream-assertions',
+    'Stream assertions',
+    'Assert on streamed frames and events in the app, such as a match within the first N events.',
+    'exploring',
+    ['Web', 'Desktop', 'Self-hosted', 'CLI'],
+    undefined,
+    ['websocket'],
+    {
+      today:
+        'The CLI exposes SSE stream events to test scripts; in the app, scripts run only for HTTP, GraphQL, and unary gRPC.',
+      milestones: [
+        done('CLI stream-event script context'),
+        todo('In-app stream script hook'),
+        todo('Assert-within-N-events helpers'),
+        todo('WebSocket, MQTT, and Kafka sources'),
+      ],
+    }
+  ),
+  entry(
+    'protocols',
+    'message-templates',
+    'Saved message templates',
+    'Save reusable WebSocket, Socket.IO, and MQTT messages with variables and send them in one click.',
+    'exploring',
+    all,
+    undefined,
+    ['websocket'],
+    {
+      today:
+        'Connections are saved, but each message is typed by hand and variables are not resolved in message bodies.',
+      milestones: [
+        todo('Template list on saved connections'),
+        todo('Variable resolution at send time'),
+        todo('One-click send'),
+      ],
+    }
+  ),
+  entry(
+    'protocols',
+    'graphql-operation-picker',
+    'GraphQL operation picker',
+    'Pick an operation from a multi-operation document and send it over the right transport automatically.',
+    'exploring',
+    all,
+    undefined,
+    [],
+    {
+      today:
+        'The operation type and name are read with pattern matching, and the first operation is always sent.',
+      milestones: [
+        todo('Parse documents into operations'),
+        todo('Operation chips in the editor'),
+        todo('Route subscriptions to WebSocket automatically'),
+      ],
+    }
+  ),
+  entry(
+    'protocols',
+    'graphql-error-navigation',
+    'Click-through GraphQL errors',
+    'Jump from each GraphQL error to the matching place in the query and in the response tree.',
+    'exploring',
+    all,
+    undefined,
+    [],
+    {
+      today: 'Only the first GraphQL error message is shown, as a notification.',
+      milestones: [
+        todo('Map error locations to editor markers'),
+        todo('Map error paths to response nodes'),
+        todo('Error list panel'),
+      ],
+    }
+  ),
+  entry(
+    'protocols',
+    'streaming-code-snippets',
+    'Code snippets for every protocol',
+    'Generate code for WebSocket, SSE, MCP, GraphQL, and gRPC requests the way HTTP does today.',
+    'exploring',
+    all,
+    undefined,
+    [],
+    {
+      today:
+        'Generators for WebSocket, SSE, MCP, and GraphQL are written but nothing in the interface uses them.',
+      milestones: [
+        done('WebSocket, SSE, MCP, and GraphQL generators'),
+        todo('Snippet panel on each protocol'),
+        todo('grpcurl and buf curl output'),
+      ],
+    }
+  ),
+  entry(
+    'protocols',
+    'grpc-schema-drift',
+    'gRPC schema drift check',
+    'Save the reflected schema with a request and flag breaking changes the next time you reflect.',
+    'exploring',
+    all,
+    undefined,
+    ['contracts'],
+    {
+      today:
+        'Reflection fetches full descriptor sets, but nothing stores them on the request or compares versions.',
+      milestones: [
+        todo('Schema snapshot saved on requests'),
+        todo('Descriptor diff'),
+        todo('Breaking-change warnings'),
+      ],
+    }
+  ),
+  entry(
+    'protocols',
+    'grpc-field-errors',
+    'gRPC field errors in the editor',
+    'Highlight the request fields a server rejected, using its structured error details.',
+    'exploring',
+    all,
+    undefined,
+    [],
+    {
+      today: 'Structured gRPC error details are received but not decoded or shown.',
+      milestones: [
+        todo('Decode rich status details'),
+        todo('Map field violations to request paths'),
+        todo('Inline editor highlights'),
+      ],
+    }
+  ),
+  entry(
+    'protocols',
+    'grpc-strict-send',
+    'Unknown-field warnings for gRPC',
+    'Warn before sending when request fields do not exist in the message type, instead of dropping them.',
+    'exploring',
+    all,
+    undefined,
+    [],
+    {
+      today: 'Unknown request fields are silently dropped when the message is encoded.',
+      milestones: [
+        todo('Detect dropped fields'),
+        todo('Pre-send warning'),
+        todo('Strict mode setting'),
+      ],
+    }
+  ),
+  entry(
+    'protocols',
+    'mqtt-request-response',
+    'MQTT request and response',
+    'Publish with a reply topic and correlation ID, wait for the matching reply, and show round-trip time.',
+    'exploring',
+    desktop,
+    undefined,
+    [],
+    {
+      today:
+        'MQTT 5 reply topic and correlation data can be set on publish; nothing matches replies.',
+      milestones: [
+        done('Reply topic and correlation data on publish'),
+        todo('Automatic reply subscription'),
+        todo('Reply matching and latency'),
+      ],
+    }
+  ),
+  entry(
+    'protocols',
+    'kafka-topic-browse',
+    'Read-only Kafka topic browser',
+    'Peek at a topic from a time or offset without creating a consumer group or committing offsets.',
+    'exploring',
+    desktop,
+    undefined,
+    [],
+    {
+      today:
+        'Every consume joins a consumer group, so browsing a topic creates the group and commits offsets.',
+      milestones: [
+        todo('Group-free partition assignment'),
+        todo('Start from time or offset'),
+        todo('No-commit browsing mode'),
+      ],
+    }
+  ),
+  entry(
+    'protocols',
+    'schema-registry-subjects',
+    'Schema Registry subject picker',
+    'Choose a subject and version instead of typing a schema ID, and see the schema beside decoded records.',
+    'exploring',
+    desktop,
+    undefined,
+    [],
+    {
+      today: 'Producing with Schema Registry needs a numeric schema ID.',
+      milestones: [
+        todo('Subject and version browser'),
+        todo('Latest-version produce'),
+        todo('Schema shown beside records'),
+      ],
+    }
+  ),
+  entry(
+    'collections',
+    'broker-presets',
+    'Broker connection presets',
+    'Save Kafka and MQTT connections, topics, and payload templates in collections to share them through Git.',
+    'exploring',
+    desktop,
+    undefined,
+    ['kafka', 'mqtt'],
+    {
+      today:
+        'Kafka and MQTT connections are saved locally with secrets in secure storage, but cannot go in a collection.',
+      milestones: [
+        done('Secure storage for broker secrets'),
+        todo('Connection item in collections'),
+        todo('Collection file format support'),
+      ],
+    }
+  ),
+  entry(
+    'automation',
+    'mcp-server-tests',
+    'MCP server tests in CI',
+    'Save MCP calls in collections with test scripts and run them from the CLI.',
+    'exploring',
+    ['Web', 'Desktop', 'Self-hosted', 'CLI'],
+    undefined,
+    ['mcp', 'cli'],
+    {
+      today:
+        'The CLI can send MCP requests, but saved collections keep only a ping; the app runner skips MCP.',
+      milestones: [
+        done('Pooled JSON-RPC runner'),
+        todo('Method and arguments saved in collections'),
+        todo('In-app runner support'),
+        todo('Test scripts on MCP results'),
+      ],
+    }
+  ),
+  entry(
+    'protocols',
+    'mcp-config-import',
+    'Import MCP client configs',
+    'Add servers from the mcp.json files used by Claude Desktop, Cursor, and VS Code.',
+    'exploring',
+    all,
+    undefined,
+    [],
+    {
+      today: 'MCP servers are added one by one by URL.',
+      milestones: [
+        todo('mcp.json parser'),
+        todo('Remote server import'),
+        todo('Local command servers after stdio support'),
+      ],
+    }
+  ),
+  entry(
+    'protocols',
+    'mcp-conformance',
+    'MCP conformance report',
+    'Run a server against older and newer protocol versions and report differences and schema violations.',
+    'exploring',
+    all,
+    undefined,
+    [],
+    {
+      today:
+        'The desktop client negotiates protocol versions and the SDK validates structured tool output.',
+      milestones: [
+        done('Version negotiation on desktop'),
+        todo('Side-by-side version runs'),
+        todo('Conformance report'),
+      ],
+    }
+  ),
+  entry(
+    'platforms',
+    'docs-try-it',
+    'Try it from the docs',
+    'Open each protocol example from the docs straight into Restura against the public echo server.',
+    'exploring',
+    ['Web', 'Desktop', 'Self-hosted'],
+    undefined,
+    [],
+    {
+      today:
+        'The echo server serves HTTP, GraphQL, WebSocket, and SSE endpoints; docs examples are typed by hand.',
+      milestones: [
+        done('Public echo server'),
+        todo('Per-protocol sample collections'),
+        todo('Open-in-Restura links'),
+      ],
+    }
+  ),
+  entry(
+    'platforms',
+    'docs-from-source',
+    'Docs generated from source',
+    'Build the docs capability summary and local port tables from the same source as the app.',
+    'exploring',
+    ['Web', 'Desktop', 'Self-hosted'],
+    undefined,
+    [],
+    {
+      today:
+        'The capability matrix is generated for the repository docs; the docs site keeps a hand-written summary.',
+      milestones: [
+        done('Generated capability matrix'),
+        todo('Docs-site summary from capabilities'),
+        todo('Port table from the local stack'),
+      ],
+    }
+  ),
+  entry(
+    'platforms',
+    'docs-link-checks',
+    'Docs link and claim checks',
+    'Fail the docs build on broken links and on claims that drift from the code.',
+    'exploring',
+    ['Web', 'Desktop', 'Self-hosted'],
+    undefined,
+    [],
+    {
+      today: 'The docs build and type check run in CI; links are not validated.',
+      milestones: [
+        todo('Link validator in the docs build'),
+        todo('Anchor checks'),
+        todo('Claim-to-source checks'),
+      ],
+    }
+  ),
 ];
 
 /** Share of verified milestones that are done, 0–1; null when there is no plan. */
@@ -1278,6 +1636,23 @@ const parents: Record<string, string> = {
   'ai-tests-from-traffic': 'eval-generation',
   'agent-telemetry': 'agent-suites',
   'desktop-updates': 'desktop-app',
+  'streaming-timeline': 'websocket',
+  'stream-assertions': 'websocket-scripts',
+  'message-templates': 'websocket',
+  'graphql-operation-picker': 'graphql',
+  'graphql-error-navigation': 'graphql',
+  'streaming-code-snippets': 'code-generation',
+  'grpc-schema-drift': 'grpc',
+  'grpc-field-errors': 'grpc',
+  'grpc-strict-send': 'grpc',
+  'mqtt-request-response': 'mqtt',
+  'kafka-topic-browse': 'kafka',
+  'schema-registry-subjects': 'kafka-schema-registry',
+  'broker-presets': 'collections',
+  'mcp-server-tests': 'collection-runner',
+  'mcp-config-import': 'mcp',
+  'mcp-conformance': 'mcp',
+  'docs-try-it': 'web-app',
 };
 for (const feature of features) {
   const parent = parents[feature.id];

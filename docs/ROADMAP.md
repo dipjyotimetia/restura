@@ -11,14 +11,14 @@ This is an honest picture of what's done, what's being worked on, and what's nex
 ### Protocol support
 
 - HTTP/REST — all methods, body types, cookies, code gen (cURL, JS, Python, Go, Ruby, PHP)
-- GraphQL — query builder, schema introspection, subscriptions
+- GraphQL — query builder, schema introspection, subscriptions (on web, subscriptions connect browser-direct rather than through the Worker)
 - gRPC — unary calls, server streaming, server reflection, and desktop client/bidirectional streaming; web uses Connect transport
-- WebSocket — connect, send/receive, full message history
+- WebSocket — connect, send/receive, live message log for the session
 - Socket.IO — emit/listen, acks, full transcript (web, desktop, and self-hosted)
-- Server-Sent Events — live stream viewer with reconnection
+- Server-Sent Events — live stream viewer; manual reconnect resumes with `Last-Event-ID`
 - Kafka — typed produce/consume, batching, streams, transactions, guarded admin, SASL/OAuth + TLS (desktop)
 - MQTT — publish/subscribe, QoS levels, TLS (desktop)
-- MCP — proxy to any MCP server (Restura-as-an-MCP-server is in progress; see below)
+- MCP — proxy to any MCP server over streamable HTTP; the legacy HTTP+SSE transport is desktop-only (Restura-as-an-MCP-server is in progress; see below)
 
 ### Auth
 
@@ -54,7 +54,7 @@ Local mock server for stubbing responses without a real upstream (desktop).
 
 ### AI
 
-Chat panel with OpenAI, Anthropic, or OpenRouter. Sees the current request and response as context. Secrets and URLs redacted before reaching the model. BYO API key, stored in OS keychain.
+Chat panel with OpenAI, Anthropic, or OpenRouter. Sees the current request and response as context. Secrets and environment values are redacted before reaching the model; the request URL is sent as-is ([#977](https://github.com/dipjyotimetia/restura/issues/977)). BYO API key, stored in OS keychain.
 
 AI Lab (desktop) — multi-model playground, datasets, eval runner with LLM-as-judge (incl. pairwise/preference), OpenAPI-driven test generation, an `http-exec` target that executes AI-generated requests through the real request executor, and Arena — round-robin model-vs-model judging with an Elo leaderboard.
 
@@ -105,6 +105,8 @@ These are things that are clearly needed and will happen, roughly in order of ho
 
 **More agent model providers** — Gemini, Azure OpenAI, and Bedrock exist as adapter profiles, not transports.
 
+**Protocol gaps from the 2026-10-12 review** — the [protocol gap review](audits/protocol-gap-review-2026-10-12.md) filed every confirmed spec, competitor, and product gap as an issue under one epic per area: [HTTP #843](https://github.com/dipjyotimetia/restura/issues/843), [GraphQL #844](https://github.com/dipjyotimetia/restura/issues/844), [gRPC #845](https://github.com/dipjyotimetia/restura/issues/845), [WebSocket #846](https://github.com/dipjyotimetia/restura/issues/846), [Socket.IO #847](https://github.com/dipjyotimetia/restura/issues/847), [SSE #848](https://github.com/dipjyotimetia/restura/issues/848), [Kafka #849](https://github.com/dipjyotimetia/restura/issues/849), [MQTT #850](https://github.com/dipjyotimetia/restura/issues/850), [MCP #851](https://github.com/dipjyotimetia/restura/issues/851), [cross-cutting #852](https://github.com/dipjyotimetia/restura/issues/852), and [docs #853](https://github.com/dipjyotimetia/restura/issues/853). P0s (silent data loss in collection export/save, desktop WebSocket binary frames, CLI MCP, gRPC in the desktop runner and web reflection) come first.
+
 ---
 
 ## What we're probably not doing
@@ -127,6 +129,30 @@ These are things that would be good to have but aren't being actively planned.
 - Audit logging for the self-hosted deployment
 - Code sandboxes for evaluated agents (the provider contract exists; no provider ships)
 - Self-hosted scale-out: Helm chart, shared rate-limit store, upstream mTLS
+
+### Exploring — ideas from the 2026-10-12 protocol gap review
+
+Illustrative, not committed. Each has a feature issue with a design sketch.
+
+- Unified streaming timeline across WebSocket, Socket.IO, SSE, Kafka, and MQTT ([#971](https://github.com/dipjyotimetia/restura/issues/971))
+- Stream assertions in the app, reusing the CLI's stream-event script context ([#936](https://github.com/dipjyotimetia/restura/issues/936))
+- Saved WebSocket / Socket.IO / MQTT message templates with variables ([#974](https://github.com/dipjyotimetia/restura/issues/974))
+- GraphQL operation picker with automatic transport routing ([#903](https://github.com/dipjyotimetia/restura/issues/903))
+- Click-through GraphQL errors to query and response locations ([#907](https://github.com/dipjyotimetia/restura/issues/907))
+- Code snippets for every protocol, plus `grpcurl` / `buf curl` ([#940](https://github.com/dipjyotimetia/restura/issues/940))
+- gRPC schema snapshot and drift check ([#937](https://github.com/dipjyotimetia/restura/issues/937))
+- gRPC field errors highlighted in the request editor ([#941](https://github.com/dipjyotimetia/restura/issues/941))
+- gRPC unknown-field warnings before send ([#944](https://github.com/dipjyotimetia/restura/issues/944))
+- MQTT 5 request/response mode with round-trip latency ([#978](https://github.com/dipjyotimetia/restura/issues/978))
+- Read-only Kafka topic browser without a consumer group ([#980](https://github.com/dipjyotimetia/restura/issues/980))
+- Schema Registry subject picker ([#982](https://github.com/dipjyotimetia/restura/issues/982))
+- Kafka / MQTT connection presets as collection items ([#984](https://github.com/dipjyotimetia/restura/issues/984))
+- MCP server tests in collections and CI ([#901](https://github.com/dipjyotimetia/restura/issues/901))
+- Import `mcp.json` from Claude Desktop, Cursor, and VS Code ([#906](https://github.com/dipjyotimetia/restura/issues/906))
+- MCP conformance report across protocol versions ([#911](https://github.com/dipjyotimetia/restura/issues/911))
+- One-click "try it" from the docs against the echo server ([#1013](https://github.com/dipjyotimetia/restura/issues/1013))
+- Docs capability summary and port tables generated from source ([#1014](https://github.com/dipjyotimetia/restura/issues/1014))
+- Docs link and claim checks in CI ([#1015](https://github.com/dipjyotimetia/restura/issues/1015))
 
 ---
 
