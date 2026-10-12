@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { saveToCollectionBlockedReason } from '@/features/collections/lib/collectable';
 import { isNameTaken, siblingNamesForParent } from '@/features/collections/lib/names';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useRequestStore } from '@/store/useRequestStore';
@@ -109,7 +110,11 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
     !!selectedCollection &&
     isNameTaken(effectiveRequestName, siblingNamesForParent(selectedCollection, validFolderId));
 
+  // Defence in depth: entry points already disable Save for these tabs.
+  const blockedReason = saveToCollectionBlockedReason(tab);
+
   const handleSave = () => {
+    if (blockedReason) return;
     let collectionId: string;
 
     if (effectiveMode === 'new') {
@@ -142,6 +147,7 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
   };
 
   const canSave =
+    !blockedReason &&
     !collectionNameTaken &&
     !requestNameTaken &&
     (effectiveMode === 'new'
@@ -156,6 +162,11 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
         </DialogHeader>
 
         <div className="space-y-4 py-2">
+          {blockedReason && (
+            <p role="alert" className="text-xs text-destructive">
+              {blockedReason}
+            </p>
+          )}
           <div className="space-y-1.5">
             <Label className="text-xs">Request name</Label>
             <Input

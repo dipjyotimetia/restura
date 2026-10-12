@@ -11,28 +11,18 @@ describe('useSseStore', () => {
     });
   });
 
-  it('creates connections with structured-auth and filter defaults', () => {
-    const id = useSseStore.getState().createConnection('https://example.com/stream');
+  it('creates connections holding runtime state only (request config lives on the tab)', () => {
+    const id = useSseStore.getState().createConnection();
     const conn = useSseStore.getState().connections[id];
     expect(conn).toBeDefined();
-    expect(conn!.url).toBe('https://example.com/stream');
-    expect(conn!.auth).toEqual({ type: 'none' });
-    expect(conn!.eventNameFilter).toBe('all');
     expect(conn!.status).toBe('disconnected');
+    expect(conn!.log).toEqual([]);
+    for (const configKey of ['url', 'headers', 'auth', 'eventNameFilter', 'reconnectOnResume']) {
+      expect(conn).not.toHaveProperty(configKey);
+    }
   });
 
-  it('setAuth updates only the target connection', () => {
-    const a = useSseStore.getState().createConnection();
-    const b = useSseStore.getState().createConnection();
-    useSseStore.getState().setAuth(a, { type: 'bearer', bearer: { token: 'secret' } });
-    expect(useSseStore.getState().connections[a]!.auth).toEqual({
-      type: 'bearer',
-      bearer: { token: 'secret' },
-    });
-    expect(useSseStore.getState().connections[b]!.auth).toEqual({ type: 'none' });
-  });
-
-  it('event filter is per-connection — one tab does not leak into another', () => {
+  it('getFilteredLog applies the caller-supplied event filter per connection', () => {
     const a = useSseStore.getState().createConnection();
     const b = useSseStore.getState().createConnection();
     const s = useSseStore.getState();
@@ -41,13 +31,7 @@ describe('useSseStore', () => {
       s.appendEvent(id, { event: 'pong', data: '2' });
     }
 
-    s.setEventNameFilter(a, 'tick');
-
-    // Connection A is filtered to 'tick'; B keeps its own 'all' filter.
-    expect(useSseStore.getState().connections[a]!.eventNameFilter).toBe('tick');
-    expect(useSseStore.getState().connections[b]!.eventNameFilter).toBe('all');
-
-    const filteredA = useSseStore.getState().getFilteredLog(a);
+    const filteredA = useSseStore.getState().getFilteredLog(a, 'tick');
     const filteredB = useSseStore.getState().getFilteredLog(b);
     expect(filteredA.every((e) => e.kind === 'event' && e.event === 'tick')).toBe(true);
     expect(filteredA).toHaveLength(1);
@@ -74,15 +58,5 @@ describe('useSseStore', () => {
       assembledText: '',
       progress: null,
     });
-  });
-
-  it('setHeaders replaces the header list and ignores unknown ids', () => {
-    const id = useSseStore.getState().createConnection();
-    const headers = [{ id: 'h1', key: 'X-Token', value: '{{token}}', enabled: true }];
-    useSseStore.getState().setHeaders(id, headers);
-    expect(useSseStore.getState().connections[id]!.headers).toEqual(headers);
-    const before = useSseStore.getState().connections;
-    useSseStore.getState().setHeaders('missing', []);
-    expect(useSseStore.getState().connections).toBe(before);
   });
 });

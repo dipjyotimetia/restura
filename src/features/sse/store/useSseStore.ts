@@ -7,10 +7,8 @@ import {
   rebuildSseStreamSummary,
   type SseStreamSummary,
 } from '@/features/sse/lib/streamSummary';
-import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
-import type { AuthConfig, KeyValue } from '@/types';
 
 export type SseConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
@@ -35,18 +33,16 @@ export interface SseSystemMessage {
 
 export type SseLogEntry = ({ kind: 'event' } & SseEventRecord) | SseSystemMessage;
 
+/**
+ * Runtime state of the SSE stream. Request configuration (url, headers,
+ * params, auth, event filter, reconnect-on-resume, scripts) is NOT kept here —
+ * it lives on the active tab's `SseRequest` (`useRequestStore`), the single
+ * source of truth that Save to Collection persists.
+ */
 export interface SseConnection {
   id: string;
-  url: string;
   status: SseConnectionStatus;
   log: SseLogEntry[];
-  headers: KeyValue[];
-  /** Structured auth applied as headers (basic/bearer/api-key/oauth2) at connect time. */
-  auth: AuthConfig;
-  /** Per-connection event-name filter; 'all' = include every event. */
-  eventNameFilter: string;
-  /** Reconnect using Last-Event-ID on disconnect */
-  reconnectOnResume: boolean;
   /** Last-Event-ID seen, surfaced in the UI and used by the manager on reconnect */
   lastEventId?: string;
   reconnectAttempts: number;
@@ -64,14 +60,12 @@ interface SseState {
 
   searchQuery: string;
 
-  createConnection: (url?: string) => string;
+  createConnection: () => string;
   removeConnection: (id: string) => void;
   setActiveConnection: (id: string | null) => void;
 
   updateConnectionStatus: (id: string, status: SseConnectionStatus) => void;
-  updateConnectionUrl: (id: string, url: string) => void;
   setReconnectAttempts: (id: string, attempts: number) => void;
-  setReconnectOnResume: (id: string, enabled: boolean) => void;
   setLastEventId: (id: string, lastEventId: string | undefined) => void;
   setLastConnectedAt: (id: string, ts: number) => void;
 
@@ -79,15 +73,11 @@ interface SseState {
   appendSystem: (connectionId: string, message: string) => void;
   clearLog: (connectionId: string) => void;
 
-  /** Replace the whole header list (the key/value table drives edits through this). */
-  setHeaders: (connectionId: string, headers: KeyValue[]) => void;
-  setAuth: (connectionId: string, auth: AuthConfig) => void;
-
   setSearchQuery: (q: string) => void;
-  setEventNameFilter: (connectionId: string, f: string) => void;
 
   getActiveConnection: () => SseConnection | null;
-  getFilteredLog: (connectionId: string) => SseLogEntry[];
+  /** `eventNameFilter` comes from the tab's request (`eventFilter[0]`); 'all' = no filter. */
+  getFilteredLog: (connectionId: string, eventNameFilter?: string) => SseLogEntry[];
 }
 
 const DEFAULT_MAX_RECONNECT_ATTEMPTS = 5;
@@ -102,17 +92,12 @@ export const useSseStore = create<SseState>()(
       activeConnectionId: null,
       searchQuery: '',
 
-      createConnection: (url = ECHO_URLS.sse) => {
+      createConnection: () => {
         const id = uuidv4();
         const conn: SseConnection = {
           id,
-          url,
           status: 'disconnected',
           log: [],
-          headers: [],
-          auth: { type: 'none' },
-          eventNameFilter: 'all',
-          reconnectOnResume: true,
           reconnectAttempts: 0,
           maxReconnectAttempts: DEFAULT_MAX_RECONNECT_ATTEMPTS,
           reconnectDelay: DEFAULT_RECONNECT_DELAY,
@@ -146,25 +131,11 @@ export const useSseStore = create<SseState>()(
           return { connections: { ...s.connections, [id]: { ...c, status } } };
         }),
 
-      updateConnectionUrl: (id, url) =>
-        set((s) => {
-          const c = s.connections[id];
-          if (!c) return s;
-          return { connections: { ...s.connections, [id]: { ...c, url } } };
-        }),
-
       setReconnectAttempts: (id, attempts) =>
         set((s) => {
           const c = s.connections[id];
           if (!c) return s;
           return { connections: { ...s.connections, [id]: { ...c, reconnectAttempts: attempts } } };
-        }),
-
-      setReconnectOnResume: (id, enabled) =>
-        set((s) => {
-          const c = s.connections[id];
-          if (!c) return s;
-          return { connections: { ...s.connections, [id]: { ...c, reconnectOnResume: enabled } } };
         }),
 
       setLastEventId: (id, lastEventId) =>
@@ -258,42 +229,20 @@ export const useSseStore = create<SseState>()(
           };
         }),
 
-      setHeaders: (connectionId, headers) =>
-        set((s) => {
-          const c = s.connections[connectionId];
-          if (!c) return s;
-          return { connections: { ...s.connections, [connectionId]: { ...c, headers } } };
-        }),
-
-      setAuth: (connectionId, auth) =>
-        set((s) => {
-          const c = s.connections[connectionId];
-          if (!c) return s;
-          return { connections: { ...s.connections, [connectionId]: { ...c, auth } } };
-        }),
-
       setSearchQuery: (q) => set({ searchQuery: q }),
-      setEventNameFilter: (connectionId, f) =>
-        set((s) => {
-          const c = s.connections[connectionId];
-          if (!c) return s;
-          return {
-            connections: { ...s.connections, [connectionId]: { ...c, eventNameFilter: f } },
-          };
-        }),
 
       getActiveConnection: () => {
         const { connections, activeConnectionId } = get();
         return activeConnectionId ? (connections[activeConnectionId] ?? null) : null;
       },
 
-      getFilteredLog: (connectionId) => {
+      getFilteredLog: (connectionId, eventNameFilter = 'all') => {
         const { connections, searchQuery } = get();
         const c = connections[connectionId];
         if (!c) return [];
         let log = c.log;
-        if (c.eventNameFilter !== 'all') {
-          log = log.filter((e) => e.kind === 'event' && e.event === c.eventNameFilter);
+        if (eventNameFilter !== 'all') {
+          log = log.filter((e) => e.kind === 'event' && e.event === eventNameFilter);
         }
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase();
@@ -316,13 +265,19 @@ export const useSseStore = create<SseState>()(
           Object.entries(state.connections).map(([id, conn]) => [
             id,
             {
-              ...conn,
+              // Explicit pick (not a spread) so request config persisted by
+              // older versions (url/headers/auth…) is shed on the next write.
+              id: conn.id,
               status: 'disconnected' as const,
               log: [],
-              // Filter resets with the transient log so a stale filter never
-              // hides the (now-empty) view after a reload.
-              eventNameFilter: 'all',
+              ...(conn.lastEventId !== undefined ? { lastEventId: conn.lastEventId } : {}),
               reconnectAttempts: 0,
+              maxReconnectAttempts: conn.maxReconnectAttempts,
+              reconnectDelay: conn.reconnectDelay,
+              createdAt: conn.createdAt,
+              ...(conn.lastConnectedAt !== undefined
+                ? { lastConnectedAt: conn.lastConnectedAt }
+                : {}),
             },
           ])
         ),

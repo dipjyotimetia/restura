@@ -14,6 +14,7 @@ import { WebNativeDownloadBanner } from '@/components/shared/WebNativeDownloadBa
 import WelcomeOnboarding from '@/components/shared/WelcomeOnboarding';
 import { motion } from '@/components/ui/motion';
 import { useAiChatStore } from '@/features/ai/store';
+import { saveToCollectionBlockedReason } from '@/features/collections/lib/collectable';
 import { saveTabBackToCollection } from '@/features/collections/lib/saveBack';
 import { type Keybinding, useKeybindings } from '@/hooks/useKeybindings';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
@@ -197,7 +198,9 @@ export default function Home() {
             useRequestStore.getState().clearTabDirty(tab.id);
           }
         } else {
-          setSaveDialogTabId(tab.id);
+          const blocked = saveToCollectionBlockedReason(tab);
+          if (blocked) toast.info(blocked);
+          else setSaveDialogTabId(tab.id);
         }
       },
     },

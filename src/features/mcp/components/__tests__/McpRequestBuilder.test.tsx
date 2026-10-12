@@ -193,6 +193,7 @@ vi.mock('@/features/mcp/components/McpInvokeForm', () => ({
 
 import McpRequestBuilder from '@/features/mcp/components/McpRequestBuilder';
 import { useMcpStore } from '@/features/mcp/store/useMcpStore';
+import { useRequestStore } from '@/store/useRequestStore';
 
 const FIRST_CAPABILITIES: McpServerCapabilities = {
   tools: [{ name: 'first-tool' }],
@@ -225,6 +226,9 @@ describe('McpRequestBuilder client ownership', () => {
       },
       activeConnectionId: 'first',
     });
+    useRequestStore.setState({ tabs: [], activeTabId: null, isLoading: false });
+    const tabId = useRequestStore.getState().createNewRequest('mcp');
+    useRequestStore.getState().updateRequestForTab(tabId, { url: 'https://first.example.com/mcp' });
   });
 
   it('disconnects a pending client on switch and ignores its late connect completion', async () => {
@@ -353,8 +357,10 @@ describe('McpRequestBuilder client ownership', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Browse tools' }));
     fireEvent.click(screen.getByRole('button', { name: 'Choose first tool' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Choose first prompt' }));
     fireEvent.click(screen.getByRole('button', { name: 'Invoke current tool' }));
+    // A request holds ONE operation: choosing a prompt replaces the tool.
+    fireEvent.click(screen.getByRole('button', { name: 'Choose first prompt' }));
+    expect(screen.getByRole('button', { name: 'Invoke current tool' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Get current prompt' }));
     fireEvent.click(screen.getByRole('button', { name: 'Read resource' }));
     await waitFor(() => expect(useMcpStore.getState().connections.first?.log).toHaveLength(3));
@@ -376,10 +382,14 @@ describe('McpRequestBuilder client ownership', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Set headers' }));
     });
 
-    expect(useMcpStore.getState().connections.first).toMatchObject({
+    const edited = {
       url: 'https://changed.example/mcp',
       transport: 'http-sse',
       headers: [{ id: 'header-1', key: 'x-token', value: 't' }],
-    });
+    };
+    // The tab's request is the source of truth (what Save to Collection stores)…
+    expect(useRequestStore.getState().getActiveTab()?.request).toMatchObject(edited);
+    // …mirrored one-way onto the connection profile AI Lab reads.
+    expect(useMcpStore.getState().connections.first).toMatchObject(edited);
   });
 });

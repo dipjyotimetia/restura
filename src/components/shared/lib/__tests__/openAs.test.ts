@@ -38,6 +38,20 @@ describe('openAs', () => {
     expect(sourceUrlOf(ws)).toBe('wss://echo.dev/ws');
 
     expect(sourceUrlOf(tab({ modeOverride: 'kafka' }))).toBe('');
+
+    // SSE/MCP keep their URL on the tab's request.
+    const sse = tab({
+      request: {
+        id: 's',
+        name: 'S',
+        type: 'sse',
+        url: 'https://h/stream',
+        headers: [],
+        params: [],
+        auth: { type: 'none' },
+      },
+    });
+    expect(sourceUrlOf(sse)).toBe('https://h/stream');
   });
 
   it('converts between http and ws schemes for the target', () => {
@@ -48,8 +62,16 @@ describe('openAs', () => {
   });
 
   it('only seeds targets that keep a URL per tab', () => {
-    const seeded: RequestMode[] = ['http', 'graphql', 'grpc', 'websocket', 'socketio'];
-    const shared: RequestMode[] = ['sse', 'mcp', 'kafka', 'mqtt'];
+    const seeded: RequestMode[] = [
+      'http',
+      'graphql',
+      'grpc',
+      'websocket',
+      'socketio',
+      'sse',
+      'mcp',
+    ];
+    const shared: RequestMode[] = ['kafka', 'mqtt'];
     expect(seeded.every(carriesUrl)).toBe(true);
     expect(shared.some(carriesUrl)).toBe(false);
   });
@@ -67,7 +89,7 @@ describe('openAs', () => {
     seedUrl('ignored', 'grpc', 'wss://h');
     expect(useRequestStore.getState().getActiveTab()?.request.url).toBe('https://h');
 
-    seedUrl('none', 'sse', 'https://h');
+    seedUrl('none', 'kafka', 'https://h');
     seedUrl('none', 'http', '');
     expect(useWebSocketStore.getState().connectionByTabId.none).toBeUndefined();
   });

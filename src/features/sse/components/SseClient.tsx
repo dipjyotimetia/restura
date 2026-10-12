@@ -12,7 +12,10 @@ import { createSseStreamSummary, getSseSummaryView } from '@/features/sse/lib/st
 import { useSseStore } from '@/features/sse/store/useSseStore';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
 import { keyValuePairsToRecord } from '@/lib/shared/utils';
+import { useActiveRequest, useActiveTabId } from '@/store/selectors';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import { useRequestStore } from '@/store/useRequestStore';
+import type { SseRequest } from '@/types';
 import SseAssembledOutput from './SseAssembledOutput';
 import SseCounters from './SseCounters';
 import SseEventTimeline from './SseEventTimeline';
@@ -32,9 +35,12 @@ const EMPTY_SUMMARY = createSseStreamSummary();
  *   │                            │ │ Counters (2×2)     │
  *   └────────────────────────────┘ └────────────────────┘
  *
- * All stream state still lives in `useSseStore` + `sseManager`. This file
- * only composes presentational pieces and derives display-time metrics
- * from the existing log.
+ * Request config (url, headers, params, auth, event filter, reconnect on
+ * resume) lives on the active tab's `SseRequest` and is edited through
+ * `useRequestStore.updateRequest` — exactly like the HTTP/gRPC builders — so
+ * Save to Collection persists what the user configured and opening a saved
+ * item hydrates the builder. `useSseStore` + `sseManager` keep only the
+ * runtime stream state (status, log, Last-Event-ID).
  */
 export default function SseClient() {
   const activeConnectionId = useSseStore((s) => s.activeConnectionId);
@@ -45,32 +51,21 @@ export default function SseClient() {
     activeConnectionId ? (s.summaries[activeConnectionId] ?? EMPTY_SUMMARY) : EMPTY_SUMMARY
   );
   const hasConnections = useSseStore((s) => Object.keys(s.connections).length > 0);
-  const {
-    createConnection,
-    updateConnectionUrl,
-    setReconnectOnResume,
-    clearLog,
-    setHeaders,
-    setAuth,
-    setSearchQuery,
-    setEventNameFilter,
-    searchQuery,
-    getFilteredLog,
-  } = useSseStore(
+  const { createConnection, clearLog, setSearchQuery, searchQuery, getFilteredLog } = useSseStore(
     useShallow((s) => ({
       createConnection: s.createConnection,
-      updateConnectionUrl: s.updateConnectionUrl,
-      setReconnectOnResume: s.setReconnectOnResume,
       clearLog: s.clearLog,
-      setHeaders: s.setHeaders,
-      setAuth: s.setAuth,
       setSearchQuery: s.setSearchQuery,
-      setEventNameFilter: s.setEventNameFilter,
       searchQuery: s.searchQuery,
       getFilteredLog: s.getFilteredLog,
     }))
   );
+  const request = useActiveRequest('sse');
+  const activeTabId = useActiveTabId();
+  const updateRequest = useRequestStore((s) => s.updateRequest);
+  const update = (patch: Partial<SseRequest>) => updateRequest(patch);
   const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
+  const eventNameFilter = request?.eventFilter?.[0] ?? 'all';
 
   // Auto-create a default connection on first mount if none exist
   useEffect(() => {
@@ -80,17 +75,18 @@ export default function SseClient() {
   }, [hasConnections, createConnection]);
 
   const filtered = useMemo(
-    () => (active ? getFilteredLog(active.id) : []),
-    [active, getFilteredLog]
+    () => (active ? getFilteredLog(active.id, eventNameFilter) : []),
+    [active, getFilteredLog, eventNameFilter]
   );
 
-  // Tear down any open stream when the component unmounts.
+  // Tear down any open stream when the component unmounts or the user moves
+  // to another SSE tab — the stream was opened with the previous tab's config.
   const activeIdForCleanup = active?.id;
   useEffect(() => {
     return () => {
       if (activeIdForCleanup) sseManager.disconnect(activeIdForCleanup);
     };
-  }, [activeIdForCleanup]);
+  }, [activeIdForCleanup, activeTabId]);
 
   const [headersOpen, setHeadersOpen] = useState(false);
 
@@ -99,24 +95,34 @@ export default function SseClient() {
   const isStreaming = isConnected || isConnecting;
 
   const handleConnect = () => {
-    if (!active) return;
-    const headers = keyValuePairsToRecord(active.headers);
+    if (!active || !request) return;
+    const headers = keyValuePairsToRecord(request.headers);
     const resolvedHeaders: Record<string, string> = {};
     for (const [k, v] of Object.entries(headers)) resolvedHeaders[k] = resolveVariables(v);
 
     // Header-based auth (basic/bearer/api-key/oauth2). Sign-at-wire types
     // (sigv4/oauth1/wsse) aren't applied to SSE streams — buildAuthCredential
     // no-ops them and the SSE handler doesn't sign.
-    const credential = buildAuthCredential(active.auth);
+    const credential = buildAuthCredential(request.auth);
     for (const [k, v] of Object.entries(credential.headers))
       resolvedHeaders[k] = resolveVariables(v);
 
-    let url = resolveVariables(active.url);
-    if (Object.keys(credential.params).length > 0) {
+    let url = resolveVariables(request.url);
+    // Enabled query params (parity with the workflow `startStream` path) plus
+    // any query-placed auth credential.
+    const queryParams: Array<[string, string]> = [
+      ...request.params
+        .filter((p) => p.enabled !== false && p.key)
+        .map((p): [string, string] => [resolveVariables(p.key), resolveVariables(p.value)]),
+      ...Object.entries(credential.params).map(([k, v]): [string, string] => [
+        k,
+        resolveVariables(v),
+      ]),
+    ];
+    if (queryParams.length > 0) {
       try {
         const u = new URL(url);
-        for (const [k, v] of Object.entries(credential.params))
-          u.searchParams.set(k, resolveVariables(v));
+        for (const [k, v] of queryParams) u.searchParams.set(k, v);
         url = u.toString();
       } catch {
         // Leave the URL untouched if it isn't yet a valid absolute URL;
@@ -124,7 +130,9 @@ export default function SseClient() {
       }
     }
 
-    sseManager.connect(active.id, url, resolvedHeaders);
+    sseManager.connect(active.id, url, resolvedHeaders, {
+      reconnectOnResume: request.reconnectOnResume ?? true,
+    });
   };
 
   const handleDisconnect = () => {
@@ -133,33 +141,52 @@ export default function SseClient() {
   };
 
   const derived = useMemo(() => getSseSummaryView(summary), [summary]);
+  // A filter restored from a saved request must stay selectable before any
+  // matching event has arrived.
+  const eventNames = useMemo(
+    () =>
+      eventNameFilter !== 'all' && !derived.eventNames.includes(eventNameFilter)
+        ? [eventNameFilter, ...derived.eventNames]
+        : derived.eventNames,
+    [derived.eventNames, eventNameFilter]
+  );
 
   const sendShortcut = useSendShortcut();
-  if (!active) return null;
+  if (!active || !request) return null;
 
-  sendShortcut.current = !isStreaming && active.url.trim() ? handleConnect : null;
+  sendShortcut.current = !isStreaming && request.url.trim() ? handleConnect : null;
 
   // Headers / auth / resume options; when open they get a resizable pane
   // above the log instead of pushing it down.
   const configPanel = (
     <div className="h-full overflow-auto p-3 bg-sp-surface-lo">
       <KeyValueTable
-        items={active.headers}
-        onChange={(headers) => setHeaders(active.id, headers)}
+        items={request.headers}
+        onChange={(headers) => update({ headers })}
         itemLabel="header"
         addLabel="Add header"
         resolvesVariables="connection"
         httpHeaders
       />
       <div className="pt-3 mt-3 border-t border-sp-line">
+        <Label className="text-sp-11 text-sp-muted mb-2 block">Query params</Label>
+        <KeyValueTable
+          items={request.params}
+          onChange={(params) => update({ params })}
+          itemLabel="param"
+          addLabel="Add param"
+          resolvesVariables="connection"
+        />
+      </div>
+      <div className="pt-3 mt-3 border-t border-sp-line">
         <Label className="text-sp-11 text-sp-muted mb-2 block">Auth</Label>
-        <AuthConfiguration auth={active.auth} onChange={(a) => setAuth(active.id, a)} />
+        <AuthConfiguration auth={request.auth} onChange={(auth) => update({ auth })} />
       </div>
       <div className="flex items-center gap-2 pt-3 mt-3 border-t border-sp-line">
         <Switch
           id="resume"
-          checked={active.reconnectOnResume}
-          onCheckedChange={(c) => setReconnectOnResume(active.id, c)}
+          checked={request.reconnectOnResume ?? true}
+          onCheckedChange={(reconnectOnResume) => update({ reconnectOnResume })}
         />
         <Label htmlFor="resume" className="text-sp-11 text-sp-muted">
           Reconnect on resume (Last-Event-ID)
@@ -183,11 +210,13 @@ export default function SseClient() {
           log={filtered}
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          eventNameFilter={active.eventNameFilter}
-          onEventNameFilterChange={(v) => setEventNameFilter(active.id, v)}
-          eventNames={derived.eventNames}
+          eventNameFilter={eventNameFilter}
+          onEventNameFilterChange={(v) =>
+            update(v === 'all' ? { eventFilter: undefined } : { eventFilter: [v] })
+          }
+          eventNames={eventNames}
           onClearLog={() => clearLog(active.id)}
-          exportName={sseExportName(active.url)}
+          exportName={sseExportName(request.url)}
         />
         <div className="flex flex-col gap-2.5 min-h-0">
           <SseAssembledOutput
@@ -210,13 +239,13 @@ export default function SseClient() {
   return (
     <div className="flex flex-col h-full overflow-hidden bg-transparent">
       <SseUrlBar
-        url={active.url}
-        onUrlChange={(v) => updateConnectionUrl(active.id, v)}
+        url={request.url}
+        onUrlChange={(url) => update({ url })}
         isStreaming={isConnected}
         isConnecting={isConnecting}
         onStream={handleConnect}
         onStop={handleDisconnect}
-        headerCount={active.headers.length}
+        headerCount={request.headers.length}
         headersOpen={headersOpen}
         onToggleHeaders={() => setHeadersOpen((s) => !s)}
       />

@@ -1,6 +1,4 @@
-import { useMcpStore } from '@/features/mcp/store/useMcpStore';
 import { useSocketIOStore } from '@/features/socketio/store/useSocketIOStore';
-import { useSseStore } from '@/features/sse/store/useSseStore';
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { RequestMode, RequestTab } from '@/types';
@@ -11,9 +9,9 @@ export function tabMode(tab: RequestTab): RequestMode {
 }
 
 /**
- * Modes whose URL lives with the tab itself, so "Open as" can seed it. SSE,
- * MCP, Kafka and MQTT keep one active connection shared across tabs — seeding
- * it would overwrite what other tabs of that protocol are pointed at.
+ * Modes whose URL lives with the tab itself, so "Open as" can seed it. SSE and
+ * MCP keep their request config on the tab (`tab.request.url`). Kafka and MQTT
+ * have no single URL (broker lists) — nothing to seed.
  */
 const SEEDABLE: ReadonlySet<RequestMode> = new Set([
   'http',
@@ -21,6 +19,8 @@ const SEEDABLE: ReadonlySet<RequestMode> = new Set([
   'grpc',
   'websocket',
   'socketio',
+  'sse',
+  'mcp',
 ]);
 
 export function carriesUrl(mode: RequestMode): boolean {
@@ -39,14 +39,6 @@ export function sourceUrlOf(tab: RequestTab): string {
       const s = useSocketIOStore.getState();
       const id = s.connectionByTabId[tab.id];
       return (id && s.connections[id]?.url) || '';
-    }
-    case 'sse': {
-      const s = useSseStore.getState();
-      return (s.activeConnectionId && s.connections[s.activeConnectionId]?.url) || '';
-    }
-    case 'mcp': {
-      const s = useMcpStore.getState();
-      return (s.activeConnectionId && s.connections[s.activeConnectionId]?.url) || '';
     }
     case 'kafka':
     case 'mqtt':

@@ -113,7 +113,7 @@ export const DEFAULT_REQUEST_URLS: ReadonlyMap<string, string> = new Map([
   ['New Request', ECHO_URLS.http],
   ['New GraphQL Request', ''],
   ['New gRPC Request', ECHO_URLS.grpc],
-  ['New SSE Request', ''],
+  ['New SSE Request', ECHO_URLS.sse],
   ['New MCP Request', ''],
 ]);
 
@@ -146,7 +146,9 @@ const createDefaultSseRequest = (): SseRequest => ({
   id: uuidv4(),
   name: 'New SSE Request',
   type: 'sse',
-  url: '',
+  // The SSE builder reads its URL from the tab, so seed the same echo
+  // placeholder the old connection-scoped store used.
+  url: ECHO_URLS.sse,
   headers: [],
   params: [],
   auth: { type: 'none' },

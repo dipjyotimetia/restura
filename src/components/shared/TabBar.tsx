@@ -27,6 +27,14 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Floater, ProtoChip } from '@/components/ui/spatial';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipPortal,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { saveToCollectionBlockedReason } from '@/features/collections/lib/collectable';
 import { saveTabBackToCollection } from '@/features/collections/lib/saveBack';
 import { CAPABILITIES } from '@/lib/shared/capabilities';
 import { isElectron } from '@/lib/shared/platform';
@@ -287,6 +295,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
             const isActive = tab.id === activeTabId;
             const isRenaming = tab.id === renamingTabId;
             const displayName = tabDisplayName(tab.request);
+            const saveBlockedReason = saveToCollectionBlockedReason(tab);
 
             return (
               <ContextMenu key={tab.id}>
@@ -432,9 +441,34 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                   >
                     Rename
                   </ContextMenuItem>
-                  <ContextMenuItem onClick={() => openSaveDialog(tab.id)}>
-                    Save to Collection…
-                  </ContextMenuItem>
+                  {saveBlockedReason ? (
+                    // Disabled items swallow pointer events, so the tooltip
+                    // hangs off a wrapper that still receives hover/focus.
+                    <TooltipProvider delayDuration={200}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="block" tabIndex={-1}>
+                            <ContextMenuItem disabled aria-description={saveBlockedReason}>
+                              Save to Collection…
+                              <span className="ml-auto pl-3 text-sp-11 text-sp-dim">
+                                Not supported yet
+                              </span>
+                            </ContextMenuItem>
+                          </span>
+                        </TooltipTrigger>
+                        {/* Portalled: the menu content clips overflow. */}
+                        <TooltipPortal>
+                          <TooltipContent side="right" className="max-w-[260px]">
+                            {saveBlockedReason}
+                          </TooltipContent>
+                        </TooltipPortal>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ) : (
+                    <ContextMenuItem onClick={() => openSaveDialog(tab.id)}>
+                      Save to Collection…
+                    </ContextMenuItem>
+                  )}
                   {tab.isDirty && tab.savedRequestId && (
                     <ContextMenuItem onClick={() => handleSaveBack(tab.id, tab.savedRequestId!)}>
                       Save changes
@@ -571,27 +605,28 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep open</AlertDialogCancel>
-            {pendingTab && (
-              <AlertDialogAction
-                onClick={(e) => {
-                  // Bound tab: write back, then close only if it saved. Keep the
-                  // dialog open on failure (preventDefault stops the action's
-                  // auto-close) so the user can retry or choose another option;
-                  // on success the tab is removed, which closes the dialog.
-                  // Unbound: hand off to the save dialog and leave the tab open.
-                  if (pendingTab.savedRequestId) {
-                    e.preventDefault();
-                    if (saveTabBackToCollection(pendingTab.request, pendingTab.savedRequestId)) {
-                      closeTab(pendingTab.id);
+            {pendingTab &&
+              (pendingTab.savedRequestId || !saveToCollectionBlockedReason(pendingTab)) && (
+                <AlertDialogAction
+                  onClick={(e) => {
+                    // Bound tab: write back, then close only if it saved. Keep the
+                    // dialog open on failure (preventDefault stops the action's
+                    // auto-close) so the user can retry or choose another option;
+                    // on success the tab is removed, which closes the dialog.
+                    // Unbound: hand off to the save dialog and leave the tab open.
+                    if (pendingTab.savedRequestId) {
+                      e.preventDefault();
+                      if (saveTabBackToCollection(pendingTab.request, pendingTab.savedRequestId)) {
+                        closeTab(pendingTab.id);
+                      }
+                    } else {
+                      openSaveDialog(pendingTab.id);
                     }
-                  } else {
-                    openSaveDialog(pendingTab.id);
-                  }
-                }}
-              >
-                {pendingTab.savedRequestId ? 'Save & close' : 'Save…'}
-              </AlertDialogAction>
-            )}
+                  }}
+                >
+                  {pendingTab.savedRequestId ? 'Save & close' : 'Save…'}
+                </AlertDialogAction>
+              )}
             <AlertDialogAction
               onClick={() => pendingTab && closeTab(pendingTab.id)}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"

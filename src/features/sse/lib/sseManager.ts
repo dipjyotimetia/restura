@@ -59,7 +59,16 @@ class SseManager {
     }
   }
 
-  connect(connectionId: string, url: string, headers?: Record<string, string>): void {
+  /**
+   * `options.reconnectOnResume` comes from the tab's `SseRequest` (request
+   * config is not kept in `useSseStore`); defaults to true.
+   */
+  connect(
+    connectionId: string,
+    url: string,
+    headers?: Record<string, string>,
+    options: { reconnectOnResume?: boolean } = {}
+  ): void {
     this.disconnect(connectionId);
 
     const store = useSseStore.getState();
@@ -74,7 +83,7 @@ class SseManager {
     store.setReconnectAttempts(connectionId, 0);
 
     const lastEventId = store.connections[connectionId]?.lastEventId;
-    const reconnectOnResume = store.connections[connectionId]?.reconnectOnResume ?? true;
+    const reconnectOnResume = options.reconnectOnResume ?? true;
     const headersWithResume: Record<string, string> = { ...(headers ?? {}) };
     if (reconnectOnResume && lastEventId !== undefined) {
       headersWithResume['Last-Event-ID'] = lastEventId;

@@ -95,9 +95,9 @@ describe('SSE proxy routing (security regression)', () => {
     };
 
     // Seed a connection in the store so `sseManager.connect(id, ...)` finds
-    // it for lastEventId / reconnectOnResume lookups.
+    // it for lastEventId lookups / status writes.
     const store = useSseStore.getState();
-    connectionId = store.createConnection(UPSTREAM);
+    connectionId = store.createConnection();
   });
 
   afterEach(() => {

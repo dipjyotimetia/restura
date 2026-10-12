@@ -1,5 +1,5 @@
 import { Play, Sparkles } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { TextField } from '@/components/ui/spatial';
@@ -19,13 +19,69 @@ interface McpInvokeFormProps {
   prompt: McpPromptDescriptor | null;
   onCall: (tool: McpToolDescriptor, args: Record<string, unknown>) => Promise<void>;
   onGet: (prompt: McpPromptDescriptor, args: Record<string, string>) => Promise<void>;
+  /**
+   * Saved argument values for `tool` (from the tab's request). Seeds the form
+   * when the tool loads; when undefined the schema template is used instead.
+   */
+  toolArguments?: Record<string, unknown> | undefined;
+  /** Reports the current (best-effort parsed) tool arguments on every edit. */
+  onToolArgumentsChange?: (args: Record<string, unknown>) => void;
+  /** Saved argument values for `prompt`. */
+  promptArguments?: Record<string, string> | undefined;
+  /** Reports the current prompt arguments on every edit. */
+  onPromptArgumentsChange?: (args: Record<string, string>) => void;
 }
 
 /** The invocation surface deliberately delegates transport work to the builder-owned client. */
-export function McpInvokeForm({ tab, tool, prompt, onCall, onGet }: McpInvokeFormProps) {
-  if (tab === 'tools') return <InvokeToolForm tool={tool} onCall={onCall} />;
-  if (tab === 'prompts') return <InvokePromptForm prompt={prompt} onGet={onGet} />;
+export function McpInvokeForm({
+  tab,
+  tool,
+  prompt,
+  onCall,
+  onGet,
+  toolArguments,
+  onToolArgumentsChange,
+  promptArguments,
+  onPromptArgumentsChange,
+}: McpInvokeFormProps) {
+  if (tab === 'tools')
+    return (
+      <InvokeToolForm
+        tool={tool}
+        onCall={onCall}
+        initialArguments={toolArguments}
+        onArgumentsChange={onToolArgumentsChange}
+      />
+    );
+  if (tab === 'prompts')
+    return (
+      <InvokePromptForm
+        prompt={prompt}
+        onGet={onGet}
+        initialArguments={promptArguments}
+        onArgumentsChange={onPromptArgumentsChange}
+      />
+    );
   return <EmptyMcpInvokeForm tab={tab} />;
+}
+
+/**
+ * Persistable view of the raw field strings: parsed where the value is valid
+ * for its schema type, the raw string otherwise (so half-typed JSON survives a
+ * save/reopen round-trip verbatim).
+ */
+function toPersistedArguments(
+  fields: McpArgumentFieldType[],
+  values: Record<string, string>
+): Record<string, unknown> {
+  const args: Record<string, unknown> = {};
+  for (const field of fields) {
+    const raw = values[field.name];
+    if (raw === undefined || raw === '') continue;
+    const parsed = parseMcpArgument(raw, field.type);
+    args[field.name] = parsed.ok ? parsed.value : raw;
+  }
+  return args;
 }
 
 export function flattenMcpArgumentFields(
@@ -61,29 +117,41 @@ function valueToString(value: unknown): string {
 function InvokeToolForm({
   tool,
   onCall,
+  initialArguments,
+  onArgumentsChange,
 }: {
   tool: McpToolDescriptor | null;
   onCall: (tool: McpToolDescriptor, args: Record<string, unknown>) => Promise<void>;
+  initialArguments?: Record<string, unknown> | undefined;
+  onArgumentsChange?: ((args: Record<string, unknown>) => void) | undefined;
 }) {
   const fields = useMemo(() => flattenMcpArgumentFields(tool?.inputSchema), [tool]);
   const [values, setValues] = useState<Record<string, string>>({});
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [running, setRunning] = useState(false);
+  // Read through refs so persisting an edit (which feeds back in as
+  // `initialArguments`) never re-runs the seeding effect below.
+  const initialArgumentsRef = useRef(initialArguments);
+  initialArgumentsRef.current = initialArguments;
+  const onArgumentsChangeRef = useRef(onArgumentsChange);
+  onArgumentsChangeRef.current = onArgumentsChange;
 
   useEffect(() => {
     if (!tool) {
       setValues({});
       return;
     }
-    const template = generateMcpTemplate(tool.inputSchema);
+    const saved = initialArgumentsRef.current;
+    const source: unknown = saved ?? generateMcpTemplate(tool.inputSchema);
     const next: Record<string, string> = {};
-    if (template && typeof template === 'object' && !Array.isArray(template)) {
+    if (source && typeof source === 'object' && !Array.isArray(source)) {
       for (const field of fields) {
-        next[field.name] = valueToString((template as Record<string, unknown>)[field.name]);
+        next[field.name] = valueToString((source as Record<string, unknown>)[field.name]);
       }
     }
     setValues(next);
     setValidationErrors({});
+    onArgumentsChangeRef.current?.(toPersistedArguments(fields, next));
   }, [tool, fields]);
 
   const handleCall = async () => {
@@ -150,7 +218,9 @@ function InvokeToolForm({
                 value={values[field.name] ?? ''}
                 error={validationErrors[field.name]}
                 onChange={(value) => {
-                  setValues((current) => ({ ...current, [field.name]: value }));
+                  const next = { ...values, [field.name]: value };
+                  setValues(next);
+                  onArgumentsChange?.(toPersistedArguments(fields, next));
                   setValidationErrors((current) => {
                     if (current[field.name] === undefined) return current;
                     const { [field.name]: _removed, ...remaining } = current;
@@ -169,16 +239,23 @@ function InvokeToolForm({
 function InvokePromptForm({
   prompt,
   onGet,
+  initialArguments,
+  onArgumentsChange,
 }: {
   prompt: McpPromptDescriptor | null;
   onGet: (prompt: McpPromptDescriptor, args: Record<string, string>) => Promise<void>;
+  initialArguments?: Record<string, string> | undefined;
+  onArgumentsChange?: ((args: Record<string, string>) => void) | undefined;
 }) {
   const [args, setArgs] = useState<Record<string, string>>({});
   const [running, setRunning] = useState(false);
+  const initialArgumentsRef = useRef(initialArguments);
+  initialArgumentsRef.current = initialArguments;
 
+  const promptName = prompt?.name;
   useEffect(() => {
-    setArgs({});
-  }, [prompt?.name]);
+    setArgs(promptName !== undefined ? (initialArgumentsRef.current ?? {}) : {});
+  }, [promptName]);
 
   if (!prompt) return <EmptyMcpInvokeForm tab="prompts" />;
   const fields = prompt.arguments ?? [];
@@ -238,9 +315,11 @@ function InvokePromptForm({
                 <TextField
                   mono
                   value={args[argument.name] ?? ''}
-                  onChange={(event) =>
-                    setArgs((current) => ({ ...current, [argument.name]: event.target.value }))
-                  }
+                  onChange={(event) => {
+                    const next = { ...args, [argument.name]: event.target.value };
+                    setArgs(next);
+                    onArgumentsChange?.(next);
+                  }}
                   placeholder=""
                   className="w-full"
                 />
