@@ -88,7 +88,7 @@ The legacy format prints a stderr deprecation warning the first time it's loaded
 | **GraphQL** | Runs as HTTP with body type `graphql` |
 | **gRPC** | Via **Connect protocol** (JSON-encoded, no proto compilation needed) |
 | **SSE** | Captures events for `--sse-duration` ms, or until `--sse-events N` |
-| **MCP** | Single JSON-RPC POST per request |
+| **MCP** | Single JSON-RPC POST per request, sending the saved operation — `defaultMethod` + `defaultParams` (e.g. `tools/call` with `{"name":"…","arguments":{…}}`), with `{{var}}`s resolved. An MCP item with no method **fails** with an actionable error instead of sending a `ping`. |
 | **WebSocket** | Not run in collection batches (matches the desktop collection runner, which skips streaming protocols) |
 
 <Aside type="caution" title="gRPC wire format">

@@ -13,6 +13,10 @@ Restura speaks the **Connect protocol** on the web target and **native gRPC** ov
 - **Upload a `.proto`** — drag in your `.proto` file and Restura compiles it on the fly. Imports are resolved from the same directory.
 - **Paste a FileDescriptorSet** — for monorepos that already ship a compiled `*.binpb`.
 
+### Saved requests keep their schema
+
+When you save a gRPC request to a collection, Restura stores a snapshot of the schema you loaded — the reflected descriptors or the uploaded `.proto` — together with the request's timeout. Reopening the request, running it in the collection runner, and exporting it to OpenCollection all reuse that snapshot (exports deduplicate identical snapshots; see [Restura extensions](/reference/opencollection/#restura-extensions)). A saved request without a snapshot falls back to server reflection when it runs on desktop; if the server doesn't offer reflection, the run fails asking you to open the request and reflect or upload a `.proto`.
+
 ## Streaming
 
 - **Unary** — request-response.

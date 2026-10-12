@@ -5,7 +5,7 @@ description: Move collections in and out of Restura — Postman, Insomnia, OpenA
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
 
-Restura imports from the major API client formats and exports to **OpenCollection** — the open, vendor-neutral collection spec — as well as Postman v2.1, Insomnia, Bruno, and OpenAPI 3.0.
+Restura imports from the major API client formats and exports to **OpenCollection** — the open, vendor-neutral collection spec — as well as Postman v2.1, Insomnia, and Bruno.
 
 **Drop a file anywhere** in the window to import it: Restura detects the format (Postman, Insomnia, OpenAPI, Hoppscotch, Bruno, `.http`, HAR, OpenCollection) and opens the import review — nothing is added until you confirm. You can also pick a format and choose a file from **Import collection**.
 
@@ -28,7 +28,7 @@ Restura imports from the major API client formats and exports to **OpenCollectio
     Both legacy `.bru` files in a directory (read as a whole tree) and Bruno 3.1+ collections, the latter via Bruno's OpenCollection export.
   </Card>
   <Card title="OpenCollection" icon="open-book">
-    Native format — both the bundled YAML file and the directory layout. Lossless round-trip.
+    Native format — both the bundled YAML file and the directory layout. Round-trips HTTP, GraphQL, gRPC, SSE, and MCP requests with their auth, scripts, and folders — see the [round-trip guarantees and known gaps](/reference/opencollection/#round-trip-guarantees).
   </Card>
 </CardGrid>
 
@@ -48,19 +48,18 @@ target is checked by the normal URL and DNS safety policy.
 
 From the collection menu:
 
-- **OpenCollection** (YAML) — the canonical export format. A single `.yml` file. Lossless.
+- **OpenCollection** (YAML) — the canonical export format. A single `.yml` file. See the [round-trip guarantees](/reference/opencollection/#round-trip-guarantees) for what is and isn't preserved.
 - **Postman v2.1** — for sharing with Postman users.
 - **Insomnia** — for sharing with Insomnia users.
 - **Bruno** (`.bru` archive) — for sharing with Bruno users.
-- **OpenAPI 3.0** (JSON) — generate an API specification from the collection’s HTTP requests.
 
 On desktop you can also **Save to Files / Sync to Disk** to write the collection as an OpenCollection **directory layout** — one file per request, friendly for `git`.
 
-Auth schemes that exist in Restura but not in the target format are persisted via the OpenCollection `extensions` field so they round-trip.
+In OpenCollection exports, data the OpenCollection schema has no slot for — SSE/MCP requests, gRPC schema snapshots and timeouts, and a few auth options (OAuth 1.0a `addParamsToBody`, NTLM `workstation`, WSSE `passwordType`) — is stored in `x-restura-*` entries of the root `extensions` field so it round-trips; see [Restura extensions](/reference/opencollection/#restura-extensions). Postman, Insomnia, and Bruno exports keep only what those formats can express.
 
 ## Secret redaction on export
 
-Exports are **redacted by default**. When a collection contains inline (plaintext) credentials, Restura warns before exporting and you choose **Export redacted** (the default — blanks every token, password, and key while keeping the auth shape: usernames, regions, key names, scopes) or explicitly opt in to **Include secrets**. `SecretRef` handles never carry plaintext and export as opaque `{{handle:label}}` placeholders. Always re-check an export before committing it to a public repo.
+Auth credentials are **redacted by default** in collection exports. When a collection contains inline (plaintext) auth credentials, Restura warns before exporting and you choose **Export redacted** (the default — blanks every token, password, and key while keeping the auth shape: usernames, regions, key names, scopes) or explicitly opt in to **Include secrets**. `SecretRef` handles never carry plaintext and export as opaque `{{handle:label}}` placeholders. Not covered by this prompt: Postman exports write collection variable values as they are, and Bruno exports include every environment in the app ([#975](https://github.com/dipjyotimetia/restura/issues/975)). Always re-check an export before committing it to a public repo.
 
 ## OpenCollection — why it exists
 
