@@ -603,6 +603,21 @@ footer span {
   font-size: 13px;
   color: var(--accent);
 }
+#detail-tracking ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 0;
+  list-style: none;
+}
+#detail-tracking a {
+  color: var(--accent);
+  font-size: 13px;
+  text-underline-offset: 4px;
+}
+.list-tracking a {
+  color: var(--accent);
+}
 #detail-planned-note {
   color: var(--muted);
   font-size: 13px;

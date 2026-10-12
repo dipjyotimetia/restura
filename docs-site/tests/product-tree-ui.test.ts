@@ -48,7 +48,7 @@ beforeEach(async () => {
     <div id="feature-list">${features.map((feature) => `<details data-list-feature="${feature.id}"><summary>${feature.title}</summary><div class="list-detail"></div></details>`).join('')}</div>
     <section id="feature-detail" hidden><button id="close-detail"></button><h3 id="detail-title" tabindex="-1"></h3><p id="detail-description"></p><p id="detail-status"></p>
     <h3 id="detail-platform-heading"></h3><p id="detail-platforms"></p><p id="detail-planned-note"></p>
-    <div id="detail-prerequisites"><ul></ul></div><div id="detail-unlocks"><ul></ul></div><a id="detail-docs"></a><button id="copy-link"></button><span id="copy-status"></span></section>`;
+    <div id="detail-prerequisites"><ul></ul></div><div id="detail-unlocks"><ul></ul></div><div id="detail-tracking" hidden><ul></ul></div><a id="detail-docs"></a><button id="copy-link"></button><span id="copy-status"></span></section>`;
   const viewport = document.getElementById('tree-viewport')!;
   Object.defineProperties(viewport, { clientWidth: { value: 1000 }, clientHeight: { value: 600 } });
   viewport.getBoundingClientRect = () => rect(0, 600);
@@ -155,4 +155,14 @@ it('lets the wheel scroll the page once the map reaches its edge', () => {
 it('frames one readable column on phones but fits the whole map on desktop', () => {
   expect(fitScale(390, 600)).toBe(1);
   expect(fitScale(800, 600)).toBeLessThan(0.5);
+});
+
+it('links a feature to its GitHub epic, issues, and known gaps', () => {
+  document.querySelector<HTMLButtonElement>('[data-feature="kafka"]')!.click();
+  const section = document.getElementById('detail-tracking')!;
+  expect(section.hidden).toBe(false);
+  const links = [...section.querySelectorAll('a')].map((link) => link.textContent);
+  expect(links).toEqual(['Epic #849', 'Open known gaps']);
+  document.querySelector<HTMLButtonElement>('[data-feature="nats"]')!.click();
+  expect(section.hidden).toBe(true);
 });

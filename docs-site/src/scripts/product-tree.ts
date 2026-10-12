@@ -14,6 +14,7 @@ import {
   nodeSize,
   type Status,
   statuses,
+  trackingLinks,
   treeParent,
 } from '../data/product-tree';
 
@@ -332,6 +333,23 @@ function initializeTree() {
       button.addEventListener('click', () => showFeature(child.id));
       item.append(button);
       childList?.append(item);
+    }
+    // Optional: epics, issues, and open known gaps on GitHub.
+    const trackingSection = document.getElementById('detail-tracking');
+    if (trackingSection) {
+      const links = trackingLinks(feature);
+      trackingSection.hidden = links.length === 0;
+      const trackingList = trackingSection.querySelector('ul');
+      trackingList?.replaceChildren();
+      for (const link of links) {
+        const item = document.createElement('li');
+        const anchor = document.createElement('a');
+        anchor.href = link.href;
+        anchor.rel = 'noopener';
+        anchor.textContent = link.text;
+        item.append(anchor);
+        trackingList?.append(item);
+      }
     }
     // Optional: unshipped work links to its milestone checklist.
     const planLink = document.getElementById('detail-plan') as HTMLAnchorElement | null;

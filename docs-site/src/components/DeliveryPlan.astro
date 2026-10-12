@@ -1,6 +1,14 @@
 ---
 import FeatureIcon from './FeatureIcon.astro';
-import { branches, features, highlights, progress, statuses } from '../data/product-tree';
+import {
+  branches,
+  features,
+  highlights,
+  issueUrl,
+  progress,
+  statuses,
+  trackingLinks,
+} from '../data/product-tree';
 
 const horizons = [
   { status: 'in-progress', name: 'Now', blurb: 'Being built or improved right now.' },
@@ -131,6 +139,11 @@ const shippedDays = [...new Set(highlights.map((highlight) => highlight.date))].
                           <span class="dp-check" aria-hidden="true">{milestone.done ? '✓' : ''}</span>
                           <span class="sr-only">{milestone.done ? 'Done: ' : 'To do: '}</span>
                           {milestone.title}
+                          {milestone.issue && (
+                            <a class="dp-issue" href={issueUrl(milestone.issue)} rel="noopener">
+                              #{milestone.issue}
+                            </a>
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -150,6 +163,11 @@ const shippedDays = [...new Set(highlights.map((highlight) => highlight.date))].
                 <div class="dp-links">
                   <a href={`/roadmap/#${feature.id}`}>See it on the roadmap</a>
                   {feature.href && <a href={feature.href}>Documentation</a>}
+                  {trackingLinks(feature).map((link) => (
+                    <a href={link.href} rel="noopener">
+                      {link.text}
+                    </a>
+                  ))}
                 </div>
               </li>
             );
@@ -368,6 +386,7 @@ const shippedDays = [...new Set(highlights.map((highlight) => highlight.date))].
     line-height: 1;
   }
   .done .dp-check { background: var(--dp-shipped); border-color: var(--dp-shipped); color: var(--sl-color-black); }
+  .dp-issue { margin-left: 0.4rem; font-size: var(--sl-text-xs); white-space: nowrap; }
   .dp-built-on { margin: 0.6rem 0 0; color: var(--sl-color-gray-3); font-size: var(--sl-text-xs); }
   .dp-links { display: flex; flex-wrap: wrap; gap: 0.25rem 1rem; font-size: var(--sl-text-xs); }
 

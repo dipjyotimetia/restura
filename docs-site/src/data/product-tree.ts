@@ -53,6 +53,8 @@ export type Platform =
 export interface Milestone {
   title: string;
   done: boolean;
+  /** GitHub issue that delivers this milestone. */
+  issue?: number;
 }
 /** Delivery detail for unshipped work. Milestones are checked against the source
  * tree, not estimated, so progress is simply the share that are done. */
@@ -73,6 +75,17 @@ export interface Feature {
   parent?: string;
   href?: string;
   plan?: Plan;
+  tracking?: Tracking;
+}
+/** Where the work for a feature is tracked on GitHub. Public issues only — never
+ * reference private security advisories here. */
+export interface Tracking {
+  /** Epic that groups the feature's open gaps. */
+  epic?: number;
+  /** Issues that deliver or fix the feature. */
+  issues?: readonly number[];
+  /** Repository label whose open audit issues are the feature's known gaps. */
+  label?: string;
 }
 const all: Platform[] = ['Web', 'Desktop', 'Self-hosted'];
 const desktop: Platform[] = ['Desktop'];
@@ -98,7 +111,11 @@ const entry = (
   ...(plan ? { plan } : {}),
 });
 const done = (title: string): Milestone => ({ title, done: true });
-const todo = (title: string): Milestone => ({ title, done: false });
+const todo = (title: string, issue?: number): Milestone => ({
+  title,
+  done: false,
+  ...(issue ? { issue } : {}),
+});
 export const features: Feature[] = [
   entry(
     'protocols',
@@ -205,7 +222,7 @@ export const features: Feature[] = [
         'The server-side ticket and relay routes exist behind the SSRF gate, but the web app still connects directly, so custom headers are dropped with a warning.',
       milestones: [
         done('Ticketed relay routes on the Worker and self-hosted server'),
-        todo('Web app connects through the relay when headers are set'),
+        todo('Web app connects through the relay when headers are set', 898),
         todo('Header policy and end-to-end tests'),
       ],
     }
@@ -261,7 +278,7 @@ export const features: Feature[] = [
       milestones: [
         done('Settings editors and validated configuration'),
         done('In-app notice that these schemes are not yet applied'),
-        todo('Digest challenge/response in the shared protocol core'),
+        todo('Digest challenge/response in the shared protocol core', 861),
         todo('Retry-on-401 in the desktop and web proxies'),
         todo('NTLM handshake over a kept-alive desktop connection'),
       ],
@@ -508,7 +525,7 @@ export const features: Feature[] = [
       milestones: [
         done('Bounded script sandbox shared across protocols'),
         todo('On-message script saved with WebSocket requests'),
-        todo('Run per incoming frame with time and rate limits'),
+        todo('Run per incoming frame with time and rate limits', 899),
         todo('rs.message and rs.ws.send scripting APIs'),
         todo('Script output and errors in the message log'),
       ],
@@ -547,7 +564,7 @@ export const features: Feature[] = [
         'A standalone WebSocket executor already exists in the CLI but nothing routes to it; per-domain certificates and protobuf bodies are documented as not yet supported.',
       milestones: [
         done('Standalone WebSocket executor'),
-        todo('Run WebSocket requests in collection runs'),
+        todo('Run WebSocket requests in collection runs', 881),
         todo('Honour per-domain client certificates'),
         todo('Protobuf request bodies'),
       ],
@@ -1196,7 +1213,7 @@ export const features: Feature[] = [
         'The CLI exposes SSE stream events to test scripts; in the app, scripts run only for HTTP, GraphQL, and unary gRPC.',
       milestones: [
         done('CLI stream-event script context'),
-        todo('In-app stream script hook'),
+        todo('In-app stream script hook', 899),
         todo('Assert-within-N-events helpers'),
         todo('WebSocket, MQTT, and Kafka sources'),
       ],
@@ -1216,7 +1233,7 @@ export const features: Feature[] = [
         'Connections are saved, but each message is typed by hand and variables are not resolved in message bodies.',
       milestones: [
         todo('Template list on saved connections'),
-        todo('Variable resolution at send time'),
+        todo('Variable resolution at send time', 927),
         todo('One-click send'),
       ],
     }
@@ -1234,7 +1251,7 @@ export const features: Feature[] = [
       today:
         'The operation type and name are read with pattern matching, and the first operation is always sent.',
       milestones: [
-        todo('Parse documents into operations'),
+        todo('Parse documents into operations', 870),
         todo('Operation chips in the editor'),
         todo('Route subscriptions to WebSocket automatically'),
       ],
@@ -1272,7 +1289,7 @@ export const features: Feature[] = [
         'Generators for WebSocket, SSE, MCP, and GraphQL are written but nothing in the interface uses them.',
       milestones: [
         done('WebSocket, SSE, MCP, and GraphQL generators'),
-        todo('Snippet panel on each protocol'),
+        todo('Snippet panel on each protocol', 916),
         todo('grpcurl and buf curl output'),
       ],
     }
@@ -1290,7 +1307,7 @@ export const features: Feature[] = [
       today:
         'Reflection fetches full descriptor sets, but nothing stores them on the request or compares versions.',
       milestones: [
-        todo('Schema snapshot saved on requests'),
+        todo('Schema snapshot saved on requests', 871),
         todo('Descriptor diff'),
         todo('Breaking-change warnings'),
       ],
@@ -1308,7 +1325,7 @@ export const features: Feature[] = [
     {
       today: 'Structured gRPC error details are received but not decoded or shown.',
       milestones: [
-        todo('Decode rich status details'),
+        todo('Decode rich status details', 883),
         todo('Map field violations to request paths'),
         todo('Inline editor highlights'),
       ],
@@ -1364,7 +1381,7 @@ export const features: Feature[] = [
       today:
         'Every consume joins a consumer group, so browsing a topic creates the group and commits offsets.',
       milestones: [
-        todo('Group-free partition assignment'),
+        todo('Group-free partition assignment', 930),
         todo('Start from time or offset'),
         todo('No-commit browsing mode'),
       ],
@@ -1382,7 +1399,7 @@ export const features: Feature[] = [
     {
       today: 'Producing with Schema Registry needs a numeric schema ID.',
       milestones: [
-        todo('Subject and version browser'),
+        todo('Subject and version browser', 926),
         todo('Latest-version produce'),
         todo('Schema shown beside records'),
       ],
@@ -1402,7 +1419,7 @@ export const features: Feature[] = [
         'Kafka and MQTT connections are saved locally with secrets in secure storage, but cannot go in a collection.',
       milestones: [
         done('Secure storage for broker secrets'),
-        todo('Connection item in collections'),
+        todo('Connection item in collections', 886),
         todo('Collection file format support'),
       ],
     }
@@ -1421,8 +1438,8 @@ export const features: Feature[] = [
         'The CLI can send MCP requests, but saved collections keep only a ping; the app runner skips MCP.',
       milestones: [
         done('Pooled JSON-RPC runner'),
-        todo('Method and arguments saved in collections'),
-        todo('In-app runner support'),
+        todo('Method and arguments saved in collections', 877),
+        todo('In-app runner support', 899),
         todo('Test scripts on MCP results'),
       ],
     }
@@ -1441,7 +1458,7 @@ export const features: Feature[] = [
       milestones: [
         todo('mcp.json parser'),
         todo('Remote server import'),
-        todo('Local command servers after stdio support'),
+        todo('Local command servers after stdio support', 854),
       ],
     }
   ),
@@ -1497,7 +1514,7 @@ export const features: Feature[] = [
         'The capability matrix is generated for the repository docs; the docs site keeps a hand-written summary.',
       milestones: [
         done('Generated capability matrix'),
-        todo('Docs-site summary from capabilities'),
+        todo('Docs-site summary from capabilities', 981),
         todo('Port table from the local stack'),
       ],
     }
@@ -1654,6 +1671,81 @@ const parents: Record<string, string> = {
   'mcp-conformance': 'mcp',
   'docs-try-it': 'web-app',
 };
+/** GitHub tracking: epics and issues per feature, so the roadmap links to the
+ * work behind each node. Public issues only. */
+export const featureTracking: Readonly<Record<string, Tracking>> = {
+  http: { epic: 843, label: 'http' },
+  graphql: { epic: 844, label: 'graphql' },
+  grpc: { epic: 845, label: 'grpc' },
+  'grpc-streaming': { epic: 845, issues: [879, 917] },
+  websocket: { epic: 846, label: 'websocket' },
+  'socket-io': { epic: 847, label: 'socketio' },
+  sse: { epic: 848, label: 'sse' },
+  kafka: { epic: 849, label: 'kafka' },
+  'kafka-schema-registry': { epic: 849, issues: [922, 926] },
+  mqtt: { epic: 850, label: 'mqtt' },
+  mcp: { epic: 851, label: 'mcp' },
+  'code-generation': { issues: [916] },
+  auth: { epic: 852, issues: [894] },
+  environments: { epic: 852, issues: [890] },
+  'import-export': { epic: 852, issues: [863, 866, 869, 909] },
+  collections: { epic: 852, issues: [873, 886] },
+  'tabs-history': { epic: 852, issues: [904, 924] },
+  cli: { epic: 852, issues: [877, 881, 932] },
+  'mock-server': { epic: 852, issues: [913] },
+  'secret-handles': { issues: [928, 896, 976] },
+  'ai-assistant': { issues: [977] },
+  'mcp-server': { issues: [979] },
+  'digest-ntlm': { issues: [861] },
+  'websocket-web-headers': { epic: 846, issues: [898] },
+  'websocket-scripts': { issues: [899] },
+  'cli-parity': { issues: [881] },
+  'streaming-timeline': { issues: [971] },
+  'stream-assertions': { issues: [936] },
+  'message-templates': { issues: [974] },
+  'graphql-operation-picker': { issues: [903] },
+  'graphql-error-navigation': { issues: [907] },
+  'streaming-code-snippets': { issues: [940] },
+  'grpc-schema-drift': { issues: [937] },
+  'grpc-field-errors': { issues: [941] },
+  'grpc-strict-send': { issues: [944] },
+  'mqtt-request-response': { issues: [978] },
+  'kafka-topic-browse': { issues: [980] },
+  'schema-registry-subjects': { issues: [982] },
+  'broker-presets': { issues: [984] },
+  'mcp-server-tests': { issues: [901] },
+  'mcp-config-import': { issues: [906] },
+  'mcp-conformance': { issues: [911] },
+  'docs-try-it': { issues: [1013] },
+  'docs-from-source': { issues: [1014] },
+  'docs-link-checks': { issues: [1015] },
+};
+for (const feature of features) {
+  const track = featureTracking[feature.id];
+  if (track) feature.tracking = track;
+}
+
+export const repositoryUrl = 'https://github.com/dipjyotimetia/restura';
+export const issueUrl = (issue: number) => `${repositoryUrl}/issues/${issue}`;
+/** Open issues from the protocol gap review that carry a feature's label. */
+export const knownGapsUrl = (label: string) =>
+  `${repositoryUrl}/issues?q=${encodeURIComponent(`is:issue is:open label:${label} label:"audit:2026-10-12"`)}`;
+export interface TrackingLink {
+  text: string;
+  href: string;
+}
+/** Links shown wherever a feature's details render (tree popover, list, plan). */
+export function trackingLinks(feature: Feature): TrackingLink[] {
+  const track = feature.tracking;
+  if (!track) return [];
+  const links: TrackingLink[] = [];
+  if (track.epic) links.push({ text: `Epic #${track.epic}`, href: issueUrl(track.epic) });
+  for (const issue of track.issues ?? [])
+    links.push({ text: `Issue #${issue}`, href: issueUrl(issue) });
+  if (track.label) links.push({ text: 'Open known gaps', href: knownGapsUrl(track.label) });
+  return links;
+}
+
 for (const feature of features) {
   const parent = parents[feature.id];
   if (parent) feature.parent = parent;

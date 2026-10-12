@@ -6,14 +6,17 @@ import {
   featureGrid,
   featurePosition,
   features,
+  featureTracking,
   findFeatures,
   highlights,
+  knownGapsUrl,
   labelWidth,
   layout,
   mapHeight,
   mapWidth,
   nodeSize,
   progress,
+  trackingLinks,
   treeParent,
 } from '../src/data/product-tree';
 
@@ -141,5 +144,47 @@ describe('public product tree', () => {
       (feature) => `${featureGrid(feature).column}:${featureGrid(feature).row}`
     );
     expect(new Set(rows).size).toBe(features.length);
+  });
+
+  it('tracks features with real GitHub issues and public known-gap searches', () => {
+    const ids = new Set(features.map((feature) => feature.id));
+    const isIssue = (value: number) => Number.isInteger(value) && value > 0;
+    for (const [id, track] of Object.entries(featureTracking)) {
+      expect(ids.has(id), id).toBe(true);
+      expect(track.epic ?? track.issues?.length ?? track.label, id).toBeTruthy();
+      if (track.epic) expect(isIssue(track.epic), id).toBe(true);
+      for (const issue of track.issues ?? []) expect(isIssue(issue), id).toBe(true);
+    }
+    for (const feature of features)
+      for (const milestone of feature.plan?.milestones ?? [])
+        if (milestone.issue !== undefined) {
+          expect(isIssue(milestone.issue), milestone.title).toBe(true);
+          expect(milestone.done, milestone.title).toBe(false);
+        }
+    // Every protocol links to its gap epic and its open known gaps.
+    for (const id of [
+      'http',
+      'graphql',
+      'grpc',
+      'websocket',
+      'socket-io',
+      'sse',
+      'kafka',
+      'mqtt',
+      'mcp',
+    ])
+      expect(
+        trackingLinks(features.find((feature) => feature.id === id)!).map((link) => link.text),
+        id
+      ).toEqual(expect.arrayContaining([expect.stringMatching(/^Epic #\d+$/), 'Open known gaps']));
+    expect(decodeURIComponent(knownGapsUrl('kafka'))).toContain(
+      'is:open label:kafka label:"audit:2026-10-12"'
+    );
+  });
+
+  it('links every exploring idea from the 2026-10-12 review to its feature issue', () => {
+    const exploring = features.filter((feature) => feature.status === 'exploring');
+    const tracked = exploring.filter((feature) => feature.tracking?.issues?.length);
+    expect(tracked.length).toBeGreaterThanOrEqual(19);
   });
 });

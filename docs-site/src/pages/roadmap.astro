@@ -21,6 +21,7 @@ import {
   rootX,
   rootLinkPath,
   edgePath,
+  trackingLinks,
 } from '../data/product-tree';
 const reviewedDate = new Intl.DateTimeFormat('en-AU', {
   day: 'numeric',
@@ -111,7 +112,7 @@ const totals = Object.keys(statuses).map((status) => ({
         </div>
         </div>
         <div id="feature-list" class="feature-list">
-          {branches.map((branch, index) => <section data-list-branch={branch.id} style={`--enter:${index * 50}ms`}><h2><span aria-hidden="true">{branch.symbol}</span> {branch.label}</h2><p>{branch.description}</p>{features.filter((feature) => feature.branch === branch.id).map((feature) => <details data-list-feature={feature.id} data-status={feature.status}><summary><span class="feature-label"><FeatureIcon id={feature.id} branch={feature.branch} />{feature.title}</span><span class="list-status"><i class={`status-dot ${feature.status}`} aria-hidden="true"></i>{statuses[feature.status]}</span></summary><div class="list-detail" id={feature.id}><p>{feature.description}</p><p><strong>{feature.status === 'shipped' ? 'Platforms:' : 'Intended platforms:'}</strong> {feature.platforms.join(', ')}</p>{feature.prerequisites.length > 0 && <p><strong>Prerequisites:</strong> {feature.prerequisites.map((id, index) => <><a href={`#${id}`}>{features.find((item) => item.id === id)?.title}</a>{index < feature.prerequisites.length - 1 ? ', ' : ''}</>)}</p>}{feature.href && <a href={feature.href}>Read documentation</a>}</div></details>)}</section>)}
+          {branches.map((branch, index) => <section data-list-branch={branch.id} style={`--enter:${index * 50}ms`}><h2><span aria-hidden="true">{branch.symbol}</span> {branch.label}</h2><p>{branch.description}</p>{features.filter((feature) => feature.branch === branch.id).map((feature) => <details data-list-feature={feature.id} data-status={feature.status}><summary><span class="feature-label"><FeatureIcon id={feature.id} branch={feature.branch} />{feature.title}</span><span class="list-status"><i class={`status-dot ${feature.status}`} aria-hidden="true"></i>{statuses[feature.status]}</span></summary><div class="list-detail" id={feature.id}><p>{feature.description}</p><p><strong>{feature.status === 'shipped' ? 'Platforms:' : 'Intended platforms:'}</strong> {feature.platforms.join(', ')}</p>{feature.prerequisites.length > 0 && <p><strong>Prerequisites:</strong> {feature.prerequisites.map((id, index) => <><a href={`#${id}`}>{features.find((item) => item.id === id)?.title}</a>{index < feature.prerequisites.length - 1 ? ', ' : ''}</>)}</p>}{trackingLinks(feature).length > 0 && <p class="list-tracking"><strong>Tracked on GitHub:</strong> {trackingLinks(feature).map((link, index) => <><a href={link.href} rel="noopener">{link.text}</a>{index < trackingLinks(feature).length - 1 ? ' · ' : ''}</>)}</p>}{feature.href && <a href={feature.href}>Read documentation</a>}</div></details>)}</section>)}
         </div>
       </section>
     </main>
@@ -121,6 +122,7 @@ const totals = Object.keys(statuses).map((status) => ({
       <p id="detail-status"></p><h3 id="detail-title" class="sr-only" tabindex="-1"></h3><p id="detail-description"></p>
       <h3 id="detail-platform-heading">Platforms</h3><p id="detail-platforms"></p><div id="detail-prerequisites"><h3>Built on</h3><ul></ul></div>
       <div id="detail-unlocks"><h3>Builds toward</h3><ul></ul></div>
+      <div id="detail-tracking" hidden><h3>Tracked on GitHub</h3><ul></ul></div>
       <p id="detail-planned-note" hidden>Planned availability is a direction, not a delivery commitment.</p>
       <div class="detail-actions"><a id="detail-plan" hidden>See milestones in the delivery plan</a><a id="detail-docs">Read documentation</a><a href="https://github.com/dipjyotimetia/restura/issues/new?template=feature_request.yml">Share feedback</a><button id="copy-link">Copy feature link</button><span id="copy-status" role="status"></span></div>
     </section>
