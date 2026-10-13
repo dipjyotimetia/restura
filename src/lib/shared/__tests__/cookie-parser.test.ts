@@ -35,10 +35,12 @@ describe('parseRequestCookies', () => {
 describe('parseResponseCookies', () => {
   it('handles array form (one Set-Cookie per element)', () => {
     const cookies = parseResponseCookies({
-      'set-cookie': [
-        'session=xyz; Path=/; HttpOnly; Secure; SameSite=Lax',
-        'theme=dark; Max-Age=3600',
-      ],
+      headers: {
+        'set-cookie': [
+          'session=xyz; Path=/; HttpOnly; Secure; SameSite=Lax',
+          'theme=dark; Max-Age=3600',
+        ],
+      },
     });
     expect(cookies).toHaveLength(2);
     expect(cookies[0]).toEqual({
@@ -54,7 +56,9 @@ describe('parseResponseCookies', () => {
 
   it('splits a concatenated string on cookie boundaries, keeping Expires dates intact', () => {
     const cookies = parseResponseCookies({
-      'set-cookie': 'a=1; Expires=Wed, 09 Jun 2027 10:18:14 GMT; Path=/, b=2; Path=/api',
+      headers: {
+        'set-cookie': 'a=1; Expires=Wed, 09 Jun 2027 10:18:14 GMT; Path=/, b=2; Path=/api',
+      },
     });
     expect(cookies.map((c) => c.name)).toEqual(['a', 'b']);
     expect(cookies[0]!.expires).toBe('Wed, 09 Jun 2027 10:18:14 GMT');
@@ -63,6 +67,22 @@ describe('parseResponseCookies', () => {
   });
 
   it('returns [] when no Set-Cookie header is present', () => {
-    expect(parseResponseCookies({})).toEqual([]);
+    expect(parseResponseCookies({ headers: {} })).toEqual([]);
+  });
+
+  it('prefers the per-field setCookies list over the flat header (#855)', () => {
+    const cookies = parseResponseCookies({
+      headers: { 'set-cookie': 'pref=dark' },
+      setCookies: ['session=abc; Path=/', 'csrf=xyz', 'pref=dark'],
+    });
+    expect(cookies.map((c) => c.name)).toEqual(['session', 'csrf', 'pref']);
+  });
+
+  it('shows names and attributes of console-redacted cookies', () => {
+    const cookies = parseResponseCookies({
+      headers: { 'set-cookie': '[REDACTED]' },
+      setCookies: ['session=[REDACTED]; Path=/; HttpOnly'],
+    });
+    expect(cookies).toEqual([{ name: 'session', value: '[REDACTED]', path: '/', httpOnly: true }]);
   });
 });

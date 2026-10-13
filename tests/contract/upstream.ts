@@ -10,6 +10,7 @@
  *   - GET  /echo/slow?ms=1500     → delays response by ms
  *   - GET  /echo/chunked          → chunked transfer-encoded body
  *   - GET  /echo/status/:code     → returns the requested status
+ *   - GET  /echo/cookies          → three separate Set-Cookie header fields
  *
  * Single port per test process; tests call `start()` / `stop()` from `beforeAll`
  * / `afterAll`. No global state shared across vitest workers.
@@ -17,6 +18,13 @@
 
 import * as http from 'node:http';
 import type { AddressInfo } from 'node:net';
+
+/** Served verbatim by GET /echo/cookies — `Expires` contains a comma on purpose. */
+export const MULTI_SET_COOKIES = [
+  'session=abc123; Path=/; HttpOnly',
+  'csrf=tok-1; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/',
+  'pref=dark; Max-Age=3600; Path=/',
+] as const;
 
 export interface Upstream {
   baseUrl: string;
@@ -122,6 +130,14 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse): Prom
     res.write('part-1\n');
     res.write('part-2\n');
     res.end('part-3\n');
+    return;
+  }
+
+  if (path === '/echo/cookies') {
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'text/plain');
+    res.setHeader('Set-Cookie', [...MULTI_SET_COOKIES]);
+    res.end('cookies');
     return;
   }
 

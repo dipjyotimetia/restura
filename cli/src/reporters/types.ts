@@ -33,6 +33,8 @@ export interface RequestRunResult {
   bodyBytes: number;
   errorMessage?: string;
   responseHeaders?: Record<string, string>;
+  /** Every Set-Cookie field, one entry each (RFC 6265 §3 — never folded). */
+  setCookies?: string[];
   /** Populated by test script `pm.test(...)` calls when scripts run. */
   assertions?: AssertionResult[];
   /** SSE / WebSocket events captured during streaming protocol runs. */

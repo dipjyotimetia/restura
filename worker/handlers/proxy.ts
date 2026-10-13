@@ -6,6 +6,10 @@ import {
   ProxyRequestBodySchema,
   type UpstreamProxyConfig,
 } from '@shared/protocol/proxy-schema';
+import {
+  encodeSetCookieSideChannel,
+  SET_COOKIE_SIDE_CHANNEL_HEADER,
+} from '@shared/protocol/set-cookie';
 import type { Fetcher } from '@shared/protocol/types';
 import { validateURL } from '@shared/protocol/url-validation';
 import type { Context } from 'hono';
@@ -244,9 +248,19 @@ export function createProxyHandler(
         return c.json(streamingResult.payload, streamingResult.status as 400 | 502 | 504);
       }
 
-      // Forward sanitised upstream headers verbatim to the renderer.
+      // Forward sanitised upstream headers verbatim to the renderer — except
+      // Set-Cookie: as a real header the browser would store the upstream's
+      // cookies on the Restura origin. Every cookie travels in the side channel
+      // instead; an upstream-sent side-channel header is dropped so it can't
+      // forge cookies into the renderer's jar.
       for (const [k, v] of Object.entries(streamingResult.response.headers)) {
+        const lower = k.toLowerCase();
+        if (lower === 'set-cookie' || lower === SET_COOKIE_SIDE_CHANNEL_HEADER) continue;
         c.header(k, v);
+      }
+      const streamCookies = streamingResult.response.setCookies;
+      if (streamCookies && streamCookies.length > 0) {
+        c.header(SET_COOKIE_SIDE_CHANNEL_HEADER, encodeSetCookieSideChannel(streamCookies));
       }
       // Forward the upstream status code (200 typical, but any 2xx/4xx/5xx is valid).
       c.status(streamingResult.response.status as StatusCode);
@@ -286,6 +300,9 @@ export function createProxyHandler(
       status: result.response.status,
       statusText: result.response.statusText,
       headers: result.response.headers,
+      // Set-Cookie can't be folded (RFC 6265 §3) and browsers can't read it off
+      // this response anyway (forbidden response header) — ship the list in the body.
+      ...(result.response.setCookies ? { setCookies: result.response.setCookies } : {}),
       data: result.response.body,
       size: result.response.size,
       ...(result.response.bodyEncoding ? { bodyEncoding: result.response.bodyEncoding } : {}),

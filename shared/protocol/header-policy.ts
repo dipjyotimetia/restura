@@ -52,3 +52,27 @@ export function sanitizeResponseHeaders(
   }
   return out;
 }
+
+/**
+ * Every `Set-Cookie` value on a response, one entry per header field.
+ *
+ * RFC 6265 §3 / RFC 9110 §5.3: Set-Cookie is the one header that must never be
+ * list-combined (cookie attributes such as `Expires` contain commas), so the
+ * flattened `Record<string, string>` from `sanitizeResponseHeaders` can't carry
+ * it faithfully. Fetch paths use `Headers.getSetCookie()`; Node/undici records
+ * already hold a `string[]`.
+ */
+export function extractSetCookies(input: Record<string, string | string[]> | Headers): string[] {
+  if (input instanceof Headers) {
+    if (typeof input.getSetCookie === 'function') return input.getSetCookie();
+    const v = input.get('set-cookie');
+    return v ? [v] : [];
+  }
+  const out: string[] = [];
+  for (const [k, v] of Object.entries(input)) {
+    if (k.toLowerCase() !== 'set-cookie') continue;
+    if (Array.isArray(v)) out.push(...v);
+    else if (typeof v === 'string' && v !== '') out.push(v);
+  }
+  return out;
+}

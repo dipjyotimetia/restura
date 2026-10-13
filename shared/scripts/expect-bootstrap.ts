@@ -75,7 +75,8 @@ export const PM_EXPECT_BOOTSTRAP = `
           }
           __pmAssert(got !== undefined, 'Expected header "' + key + '" to exist');
           if (value !== undefined) {
-            __pmAssert(got === value,
+            // Set-Cookie: also match any single cookie field (Postman HeaderList semantics).
+            __pmAssert(got === value || pm.response.headers.has(key, value),
               'Expected header "' + key + '" to be "' + value + '" but got "' + got + '"');
           }
         },
@@ -171,5 +172,77 @@ export const PM_EXPECT_BOOTSTRAP = `
   Object.defineProperty(pm.response, 'responseTime', { get: function () {
     return typeof response !== 'undefined' ? response.time : undefined;
   } });
+
+  // pm.response.headers — Postman HeaderList subset. get() returns the flat
+  // value (Set-Cookie = every cookie joined with ", "); all()/each() yield one
+  // row per Set-Cookie field. The executor normalises response.headers and
+  // response.setCookies identically on every harness.
+  function __pmHeaderRows() {
+    if (typeof response === 'undefined') return [];
+    var rows = [];
+    var headers = response.headers || {};
+    var cookies = response.setCookies || [];
+    for (var k in headers) {
+      if (!Object.prototype.hasOwnProperty.call(headers, k)) continue;
+      if (String(k).toLowerCase() === 'set-cookie' && cookies.length) {
+        for (var i = 0; i < cookies.length; i++) rows.push({ key: k, value: cookies[i] });
+      } else {
+        rows.push({ key: k, value: headers[k] });
+      }
+    }
+    return rows;
+  }
+  pm.response.headers = {
+    get: function (key) {
+      var headers = typeof response !== 'undefined' ? response.headers || {} : {};
+      var lk = String(key).toLowerCase();
+      for (var k in headers) {
+        if (Object.prototype.hasOwnProperty.call(headers, k) && String(k).toLowerCase() === lk) {
+          return headers[k];
+        }
+      }
+      return undefined;
+    },
+    has: function (key, value) {
+      var lk = String(key).toLowerCase();
+      if (value === undefined) return pm.response.headers.get(key) !== undefined;
+      if (pm.response.headers.get(key) === value) return true;
+      return __pmHeaderRows().some(function (row) {
+        return String(row.key).toLowerCase() === lk && row.value === value;
+      });
+    },
+    all: function () { return __pmHeaderRows(); },
+    each: function (fn) { __pmHeaderRows().forEach(fn); },
+    toObject: function () {
+      var out = {};
+      var headers = typeof response !== 'undefined' ? response.headers || {} : {};
+      for (var k in headers) {
+        if (Object.prototype.hasOwnProperty.call(headers, k)) out[k] = headers[k];
+      }
+      return out;
+    },
+  };
+
+  // pm.response.cookies — Postman CookieList subset over the response's own
+  // Set-Cookie fields (pm.cookies is the jar). Later fields win on name clash.
+  function __pmResponseCookies() {
+    return typeof response !== 'undefined' && response.cookies ? response.cookies.slice() : [];
+  }
+  pm.response.cookies = {
+    all: function () { return __pmResponseCookies(); },
+    toJSON: function () { return __pmResponseCookies(); },
+    each: function (fn) { __pmResponseCookies().forEach(fn); },
+    get: function (name) {
+      var all = __pmResponseCookies();
+      for (var i = all.length - 1; i >= 0; i--) if (all[i].name === name) return all[i].value;
+      return undefined;
+    },
+    has: function (name) { return pm.response.cookies.get(name) !== undefined; },
+    toObject: function () {
+      var out = {};
+      __pmResponseCookies().forEach(function (c) { out[c.name] = c.value; });
+      return out;
+    },
+  };
 })();
 `;

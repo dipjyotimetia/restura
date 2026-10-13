@@ -183,3 +183,35 @@ describe('Headers normalisation (Fix #10)', () => {
     expect(wire).toContain('authorization: bearer xyz');
   });
 });
+
+describe('response header parsing keeps repeated Set-Cookie fields (#855)', () => {
+  it('httpViaProxy surfaces each Set-Cookie via Headers.getSetCookie()', async () => {
+    const sock = new FakeSocket();
+    state.nextNetSocket = sock;
+    sock.onWrite = (s) => {
+      s.emit(
+        'data',
+        Buffer.from(
+          'HTTP/1.1 200 OK\r\n' +
+            'Set-Cookie: session=abc; Path=/\r\n' +
+            'Set-Cookie: csrf=xyz; Expires=Wed, 21 Oct 2026 07:28:00 GMT\r\n' +
+            'Set-Cookie: pref=dark\r\n' +
+            'Content-Length: 0\r\n\r\n'
+        )
+      );
+    };
+
+    const httpViaProxy = createHttpViaProxy({ allowPrivateIPs: false });
+    const res = await httpViaProxy(
+      new URL('http://example.com/'),
+      { host: 'proxy.example', port: 8080 },
+      { method: 'GET' },
+      new AbortController().signal
+    );
+    expect(res.headers.getSetCookie()).toEqual([
+      'session=abc; Path=/',
+      'csrf=xyz; Expires=Wed, 21 Oct 2026 07:28:00 GMT',
+      'pref=dark',
+    ]);
+  });
+});

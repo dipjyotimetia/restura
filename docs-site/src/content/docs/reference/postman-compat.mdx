@@ -12,7 +12,7 @@ Restura runs scripts in a **QuickJS WASM sandbox** built around a native `rs.*` 
 | Postman API | Restura support |
 |---|---|
 | `pm.request` | Read access to method, URL, headers, body. |
-| `pm.response` | `.code`, `.status`, `.text()`, `.json()`, `.responseTime`, `.headers.get(...)`, `.to.have.status/header/body/jsonBody`, `.to.be.ok/json/html/info/success/redirection/clientError/serverError/error`. |
+| `pm.response` | `.code`, `.status`, `.text()`, `.json()`, `.responseTime`, `.headers` (`get`/`has`/`all`/`each`/`toObject`), `.cookies` (`get`/`has`/`all`/`toJSON`/`each`/`toObject`), `.to.have.status/header/body/jsonBody`, `.to.be.ok/json/html/info/success/redirection/clientError/serverError/error`. With several `Set-Cookie` headers, `.headers.get('Set-Cookie')` returns them all joined with `", "` (Postman returns the last one), and `.to.have.header('Set-Cookie', v)` matches any single cookie. See [Set-Cookie in scripts](/guides/scripts/#set-cookie-in-scripts). |
 | `pm.environment` / `pm.collectionVariables` / `pm.globals` / `pm.variables` | Full `get`/`set`/`unset`/`has`. `pm.collectionVariables` reads/writes the request's actual owning collection and persists mutations back to it. |
 | `pm.test(name, fn)` | Test assertions with named scope. Sync or `async`. |
 | `pm.expect(value)` | `chai`-style assertions: `.to.equal`, `.to.be.a`, `.to.include`, `.to.have.property`, etc. |

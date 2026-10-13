@@ -88,6 +88,27 @@ isn't plain alphanumeric, and PHP and Ruby snippets emit it as a single-quoted
 literal, so a shared collection can't smuggle a command into a pasted snippet.
 Pinned by `tests/security/codegen-method-injection.test.ts`.
 
+### Upstream cookies
+
+Responses carry every upstream `Set-Cookie` field as `setCookies: string[]`
+(`shared/protocol/set-cookie.ts`), and the cookie jar, Headers view, network
+console, scripts and CLI all read from that list.
+
+- **The streaming proxy never sets upstream cookies on the Restura origin.**
+  On the Worker and self-host streaming path (SSE / NDJSON), forwarding a real
+  `Set-Cookie` header would make the browser store the upstream's cookies for
+  the Restura origin, where they'd ride along on later `/api/*` calls. The
+  proxy strips `Set-Cookie` and sends the cookies in the
+  `x-restura-set-cookies` header (a JSON array). It also drops any
+  `x-restura-set-cookies` header the upstream sends, so a server can't forge
+  entries into the client's jar.
+- **The network console redacts cookie values.** Its Cookies view lists each
+  response cookie's name and known attributes (`Domain`, `Path`, `Expires`,
+  `Max-Age`, `HttpOnly`, `Secure`, `SameSite`, `Partitioned`, `Priority`), with
+  the value replaced by `[REDACTED]`. Unknown attributes are dropped, and the
+  raw `set-cookie` header stays fully redacted
+  (`src/lib/shared/console-sanitization.ts`).
+
 ## SSRF / DNS-rebind guard (Electron)
 
 All Electron transports validate the destination against the shared SSRF

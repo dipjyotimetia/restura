@@ -98,6 +98,7 @@ The browser-capture extension's pipeline lives in a sibling module, `shared/capt
 | `shared/protocol/grpc-status.ts`    | gRPC status code enum + reverse map                                                                                 |
 | `shared/protocol/mcp-proxy.ts`      | `validateMcpSpec(spec, allowLocalhost)` — JSON-RPC envelope + URL validation                                        |
 | `shared/protocol/http-method.ts`    | Method policy: any RFC 9110 token sent verbatim; CONNECT/TRACE/TRACK denied in every casing                         |
+| `shared/protocol/set-cookie.ts`     | `setCookies: string[]` helpers (split, parse, `x-restura-set-cookies` side channel) for every harness               |
 
 ### Backend adapters
 
@@ -333,7 +334,7 @@ Restura streams `text/event-stream`, `application/x-ndjson`, and `application/js
 - `shared/protocol/ndjson-parser.ts` — line-delimited JSON parser with `__parseError` sentinel for malformed lines
 - `FetcherResponse.body?: ReadableStream<Uint8Array>` — optional streaming-mode field on the Fetcher contract; populated by Worker (native fetch) and Electron (undici)
 
-**Worker path:** When the request has `Accept: text/event-stream | application/x-ndjson | application/jsonl` (or `streamingMode: true`), `worker/handlers/proxy.ts` routes through `executeHttpProxyStreaming` and pipes the upstream body via Hono's `stream(c, ...)` helper. Otherwise the buffered path runs unchanged.
+**Worker path:** When the request has `Accept: text/event-stream | application/x-ndjson | application/jsonl` (or `streamingMode: true`), `worker/handlers/proxy.ts` routes through `executeHttpProxyStreaming` and pipes the upstream body via Hono's `stream(c, ...)` helper. Otherwise the buffered path runs unchanged. Upstream `Set-Cookie` is never forwarded as a real header on this path (the browser would store it for the Restura origin); every cookie travels as a JSON array in `x-restura-set-cookies`, which the renderer decodes into its cookie jar. Buffered responses carry the same list as `setCookies: string[]` (`shared/protocol/set-cookie.ts`).
 
 **Renderer:** `src/features/http/lib/streamingResponseReader.ts` consumes a `Response` as an `AsyncIterable<StreamEvent>` (sse | ndjson | raw + terminating end/error). The new `StreamingResponseViewer` (`src/components/shared/StreamingResponseViewer.tsx`) renders events incrementally via a tiny windowed-list helper (no `react-window` dep) with auto-scroll, pause/resume, and a "Jump to latest" pill.
 

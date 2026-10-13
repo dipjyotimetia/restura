@@ -1,3 +1,4 @@
+import { responseHeaderEntries, responseSetCookies } from '@shared/protocol/set-cookie';
 import { AlertTriangle, Braces, Check, Copy, Download, FileDown, Search, Zap } from 'lucide-react';
 import type * as Monaco from 'monaco-editor';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -234,16 +235,13 @@ function ResponseViewer() {
     (currentResponse?.body.length ?? 0) > PRETTY_PRINT_MAX_BYTES;
 
   const headerEntries = useMemo(
-    () => Object.entries(currentResponse?.headers ?? {}),
-    [currentResponse?.headers]
+    () => (currentResponse ? responseHeaderEntries(currentResponse) : []),
+    [currentResponse]
   );
 
   const cookies = useMemo(() => {
     if (!currentResponse) return [] as Array<{ name: string; value: string; attrs: string }>;
-    const raw = currentResponse.headers['set-cookie'] ?? currentResponse.headers['Set-Cookie'];
-    if (!raw) return [];
-    const list = Array.isArray(raw) ? raw : [raw];
-    return list.map((entry) => {
+    return responseSetCookies(currentResponse).map((entry) => {
       const [pair, ...rest] = entry.split(';');
       const eq = pair?.indexOf('=') ?? -1;
       const name = eq > 0 ? pair!.slice(0, eq).trim() : (pair ?? '');

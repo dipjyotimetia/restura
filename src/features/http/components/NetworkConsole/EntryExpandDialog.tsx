@@ -46,10 +46,7 @@ export default function EntryExpandDialog({ open, onOpenChange, entry }: EntryEx
       entry ? parseRequestCookies(entry.request.headers as Record<string, string | string[]>) : [],
     [entry]
   );
-  const resCookies = useMemo(
-    () => (entry ? parseResponseCookies(entry.response.headers) : []),
-    [entry]
-  );
+  const resCookies = useMemo(() => (entry ? parseResponseCookies(entry.response) : []), [entry]);
 
   if (!entry) return null;
 

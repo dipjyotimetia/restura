@@ -8,11 +8,22 @@
  * case, body framing, etc.), this test surfaces it before users do.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+// The real Electron fetcher module imports `electron` at load; stub its surface.
+vi.mock('electron', () => ({
+  ipcMain: { handle: vi.fn(), removeHandler: vi.fn() },
+  session: { defaultSession: { resolveProxy: vi.fn() } },
+}));
+
+import {
+  buildElectronFetcher,
+  type HttpRequestConfig,
+} from '../../electron/main/handlers/http-handler';
 import { executeHttpProxy } from '../../shared/protocol/http-proxy';
-import type { ExecuteResult, RequestSpec } from '../../shared/protocol/types';
+import type { ExecuteResult, Fetcher, RequestSpec } from '../../shared/protocol/types';
 import { FETCHER_TABLE } from './fetchers';
-import { startUpstream, type Upstream } from './upstream';
+import { MULTI_SET_COOKIES, startUpstream, type Upstream } from './upstream';
 
 let upstream: Upstream;
 
@@ -118,6 +129,30 @@ describe('contract: executeHttpProxy parity', () => {
       for (const other of rest) {
         expect(other.projected, `${other.name} vs ${first?.name}`).toEqual(first?.projected);
       }
+    });
+  }
+});
+
+describe('contract: multiple Set-Cookie fields survive every fetcher (RFC 6265 §3)', () => {
+  // Built per call: the upstream URL only exists once beforeAll has run.
+  const realElectronFetcher: Fetcher = (req) =>
+    buildElectronFetcher(
+      { method: req.method, url: req.url, verifySsl: true } as HttpRequestConfig,
+      null
+    )(req);
+  const table = [
+    ...FETCHER_TABLE,
+    // The production desktop fetcher (PAC/SOCKS/mTLS closure), not the contract mimic.
+    { name: 'electron (real buildElectronFetcher)', fetcher: realElectronFetcher },
+  ];
+  for (const { name, fetcher } of table) {
+    it(`${name} returns each Set-Cookie as its own entry`, async () => {
+      const result = await executeHttpProxy({ method: 'GET', url: url('/echo/cookies') }, fetcher, {
+        allowLocalhost: true,
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.response.setCookies).toEqual([...MULTI_SET_COOKIES]);
     });
   }
 });

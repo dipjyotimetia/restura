@@ -166,6 +166,13 @@ export interface NormalizedResponse {
   status: number;
   statusText: string;
   headers: Record<string, string>;
+  /**
+   * Every `Set-Cookie` header field, one entry each (RFC 6265 §3 — never
+   * folded). `headers` is a flat string map and can only hold one/joined
+   * value; this is the authoritative list for cookie jars and the Headers
+   * view. Absent when the response set no cookies.
+   */
+  setCookies?: string[];
   body: string;
   size: number;
   /**

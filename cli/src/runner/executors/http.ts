@@ -120,6 +120,7 @@ export async function executeHttp(
         durationMs,
         bodyBytes: result.response.size,
         responseHeaders: result.response.headers,
+        ...(result.response.setCookies ? { setCookies: result.response.setCookies } : {}),
         responseBody: result.response.body,
       };
     }

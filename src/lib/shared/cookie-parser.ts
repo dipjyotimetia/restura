@@ -1,26 +1,23 @@
 /**
  * Best-effort Cookie / Set-Cookie parsing for the console detail view.
- * Not RFC 6265 perfect, but it does keep `Expires=...; <day>, <date>` commas
- * intact when splitting a folded Set-Cookie header. We accept the array shape
- * the proxy already produces (each Set-Cookie is a separate array element) and
- * fall back to a comma-aware splitter only when given a single concatenated
- * string.
+ * Not RFC 6265 perfect. Response cookies come from the shared Set-Cookie
+ * module (`@shared/protocol/set-cookie`), which prefers the per-field list and
+ * keeps `Expires=...; <day>, <date>` commas intact when splitting a folded
+ * header.
  */
+
+import {
+  type ParsedSetCookie,
+  parseResponseSetCookies,
+  type SetCookieSource,
+} from '@shared/protocol/set-cookie';
 
 export interface RequestCookie {
   name: string;
   value: string;
 }
 
-export interface ResponseCookie extends RequestCookie {
-  domain?: string;
-  path?: string;
-  expires?: string;
-  maxAge?: number;
-  httpOnly?: boolean;
-  secure?: boolean;
-  sameSite?: string;
-}
+export type ResponseCookie = ParsedSetCookie;
 
 function findHeader(
   headers: Record<string, string | string[]>,
@@ -43,17 +40,13 @@ export function parseRequestCookies(headers: Record<string, string | string[]>):
     .filter((c): c is RequestCookie => c !== null);
 }
 
-/** Parse `Set-Cookie` (often an array) into structured response cookies. */
-export function parseResponseCookies(headers: Record<string, string | string[]>): ResponseCookie[] {
-  const raw = findHeader(headers, 'set-cookie');
-  if (raw === undefined) return [];
-  const list = Array.isArray(raw)
-    ? raw
-    : // Multiple Set-Cookie folded into one header — split on commas that
-      // precede a `name=` token, leaving date commas (e.g. `Expires=Wed, 01…`)
-      // intact.
-      raw.split(/,(?=\s*[A-Za-z0-9!#$%&'*+\-.^_`|~]+\s*=)/);
-  return list.map(parseSetCookieValue).filter((c): c is ResponseCookie => c !== null);
+/**
+ * Every Set-Cookie on a response, parsed. Reads the per-field `setCookies` list
+ * (#855) first; the flat header map (array, or a folded string split on cookie
+ * boundaries) is only the fallback for entries captured before the list.
+ */
+export function parseResponseCookies(response: SetCookieSource): ResponseCookie[] {
+  return parseResponseSetCookies(response);
 }
 
 function splitPairs(value: string, sep: string): string[] {
@@ -70,46 +63,4 @@ function parseNameValue(pair: string): RequestCookie | null {
   if (!name) return null;
   const value = pair.slice(eq + 1).trim();
   return { name, value };
-}
-
-function parseSetCookieValue(raw: string): ResponseCookie | null {
-  const parts = splitPairs(raw, ';');
-  if (parts.length === 0) return null;
-  const head = parseNameValue(parts[0]!);
-  if (!head) return null;
-  const out: ResponseCookie = { name: head.name, value: head.value };
-  for (let i = 1; i < parts.length; i++) {
-    const seg = parts[i]!;
-    const eq = seg.indexOf('=');
-    const key = (eq < 0 ? seg : seg.slice(0, eq)).trim().toLowerCase();
-    const val = eq < 0 ? '' : seg.slice(eq + 1).trim();
-    switch (key) {
-      case 'domain':
-        out.domain = val;
-        break;
-      case 'path':
-        out.path = val;
-        break;
-      case 'expires':
-        out.expires = val;
-        break;
-      case 'max-age': {
-        const n = Number(val);
-        if (Number.isFinite(n)) out.maxAge = n;
-        break;
-      }
-      case 'httponly':
-        out.httpOnly = true;
-        break;
-      case 'secure':
-        out.secure = true;
-        break;
-      case 'samesite':
-        out.sameSite = val;
-        break;
-      default:
-        /* unknown attribute — silently ignored */ break;
-    }
-  }
-  return out;
 }

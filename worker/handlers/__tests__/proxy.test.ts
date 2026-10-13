@@ -1,5 +1,9 @@
 // @vitest-environment node
 
+import {
+  decodeSetCookieSideChannel,
+  SET_COOKIE_SIDE_CHANNEL_HEADER,
+} from '@shared/protocol/set-cookie';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProxyHandler } from '../proxy';
@@ -60,6 +64,22 @@ describe('proxy handler', () => {
       expect(json).toHaveProperty('data');
       expect(json).toHaveProperty('size');
     });
+  });
+
+  it('returns every upstream Set-Cookie as its own setCookies entry (#855)', async () => {
+    const cookies = [
+      'session=abc; Path=/; HttpOnly',
+      'csrf=xyz; Expires=Wed, 21 Oct 2026 07:28:00 GMT',
+      'pref=dark',
+    ];
+    const headers = new Headers({ 'content-type': 'text/plain' });
+    for (const c of cookies) headers.append('Set-Cookie', c);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('ok', { status: 200, headers })));
+
+    const res = await makeRequest({ method: 'GET', url: 'https://example.com/api' });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { setCookies?: string[] };
+    expect(json.setCookies).toEqual(cookies);
   });
 
   it('disallowed method CONNECT returns 400', async () => {
@@ -286,6 +306,61 @@ describe('proxy handler', () => {
   });
 
   describe('streaming proxy', () => {
+    function streamingUpstream(headers: Headers) {
+      const upstreamBody = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('data: a\n\n'));
+          controller.close();
+        },
+      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(new Response(upstreamBody, { status: 200, headers }))
+      );
+    }
+
+    it('never forwards upstream Set-Cookie as a real header; carries every cookie in the side channel (#855)', async () => {
+      const cookies = [
+        'session=abc; Path=/; HttpOnly',
+        'csrf=xyz; Expires=Wed, 21 Oct 2037 07:28:00 GMT',
+      ];
+      const headers = new Headers({ 'content-type': 'text/event-stream' });
+      for (const c of cookies) headers.append('Set-Cookie', c);
+      streamingUpstream(headers);
+
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/sse',
+        headers: { Accept: 'text/event-stream' },
+      });
+
+      expect(res.status).toBe(200);
+      // A real Set-Cookie here would be stored by the browser on the Restura origin.
+      expect(res.headers.get('set-cookie')).toBeNull();
+      expect(res.headers.getSetCookie()).toEqual([]);
+      expect(decodeSetCookieSideChannel(res.headers.get(SET_COOKIE_SIDE_CHANNEL_HEADER))).toEqual(
+        cookies
+      );
+      expect(await res.text()).toContain('data: a');
+    });
+
+    it('drops an upstream-supplied side-channel header so upstreams cannot spoof cookies', async () => {
+      streamingUpstream(
+        new Headers({
+          'content-type': 'text/event-stream',
+          [SET_COOKIE_SIDE_CHANNEL_HEADER]: '["forged=1; Domain=example.org"]',
+        })
+      );
+
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/sse',
+        headers: { Accept: 'text/event-stream' },
+      });
+
+      expect(res.headers.get(SET_COOKIE_SIDE_CHANNEL_HEADER)).toBeNull();
+    });
+
     it('forwards a text/event-stream upstream as a streamed Response', async () => {
       const upstreamBody = new ReadableStream<Uint8Array>({
         start(controller) {

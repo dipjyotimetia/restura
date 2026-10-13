@@ -86,6 +86,12 @@ interface ParsedConnectResponse {
 }
 
 interface ParsedHttpResponse extends ParsedConnectResponse {
+  /**
+   * Every header field in wire order, duplicates kept. `headers` collapses
+   * repeats (last wins), which loses all but one `Set-Cookie` (#855) — build
+   * the `Response` from this list instead.
+   */
+  headerList: Array<[string, string]>;
   body: Buffer;
 }
 
@@ -191,6 +197,7 @@ function readHttpResponseBody(
     let total = 0;
     let headerBodySplit = -1;
     let headers: Record<string, string> = {};
+    let headerList: Array<[string, string]> = [];
     let statusLine = '';
     let contentLength: number | null = null;
     let bodyless = false;
@@ -206,7 +213,7 @@ function readHttpResponseBody(
       if (done) return;
       done = true;
       cleanup();
-      resolve({ statusLine, headers, body });
+      resolve({ statusLine, headers, headerList, body });
     };
     const fail = (err: Error) => {
       if (done) return;
@@ -228,10 +235,14 @@ function readHttpResponseBody(
       const lines = headBytes.split('\r\n');
       statusLine = lines[0] ?? '';
       headers = {};
+      headerList = [];
       for (const line of lines.slice(1)) {
         const colon = line.indexOf(':');
         if (colon !== -1) {
-          headers[line.slice(0, colon).trim().toLowerCase()] = line.slice(colon + 1).trim();
+          const name = line.slice(0, colon).trim().toLowerCase();
+          const value = line.slice(colon + 1).trim();
+          headers[name] = value;
+          headerList.push([name, value]);
         }
       }
       const cl = headers['content-length'];
@@ -428,12 +439,12 @@ export function createHttpsViaConnectProxy(dnsGuard?: NodeDnsGuardOptions) {
 
       const {
         statusLine: respStatusLine,
-        headers: respHeaders,
+        headerList: respHeaderList,
         body: respBody,
       } = await readHttpResponseBody(tlsSocket, signal);
       return new Response(respBody, {
         status: parseStatusCode(respStatusLine),
-        headers: respHeaders,
+        headers: respHeaderList,
       });
     } finally {
       tlsSocket.destroy();
@@ -482,12 +493,12 @@ export function createHttpViaProxy(dnsGuard?: NodeDnsGuardOptions) {
 
       const {
         statusLine,
-        headers: respHeaders,
+        headerList: respHeaderList,
         body: respBody,
       } = await readHttpResponseBody(socket, signal);
       return new Response(respBody, {
         status: parseStatusCode(statusLine),
-        headers: respHeaders,
+        headers: respHeaderList,
       });
     } finally {
       socket.destroy();

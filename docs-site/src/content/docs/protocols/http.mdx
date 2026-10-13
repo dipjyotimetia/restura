@@ -35,7 +35,7 @@ Custom methods must be a valid HTTP method token (RFC 9110: letters, digits and 
 - **Bulk edit** — switch params or headers to a text view with one `key: value` per line. Prefix a line with `//` to disable it.
 - **Variables** — hover a `{{variable}}` in the URL or a param value to see its value and where it comes from (environment, collection, folder, globals). Secret values are masked.
 - **Headers** — autocompletion for standard names + values where applicable.
-- **Cookies** — per-request override, plus a session-wide cookie jar on desktop.
+- **Cookies** — per-request override, plus a session-wide cookie jar. When a response sends several `Set-Cookie` headers (a session cookie plus a CSRF token, say), every one is kept: the cookie jar stores each, the response **Headers** tab shows each on its own row, scripts see them all, and `restura run` results list them all. Streaming responses (SSE, NDJSON) have no **Headers** tab, but their cookies still reach the jar. On the web they travel in an `x-restura-set-cookies` header, so the browser never stores them for the Restura site. The network console lists each response cookie's name and attributes with the value redacted.
 
 ## Authentication
 

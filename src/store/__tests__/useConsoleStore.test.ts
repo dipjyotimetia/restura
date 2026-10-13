@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { ConsoleEntrySchema } from '@/lib/shared/store-validators';
 import type { Response as ApiResponse, HttpRequest } from '@/types';
 import {
   CONSOLE_PROTOCOL_ACTIONS,
@@ -960,5 +961,33 @@ describe('native console drafts', () => {
     delete legacy.protocol;
     expect(getConsoleEntryActions(legacy)).toMatchObject({ exportHttp: true });
     expect(CONSOLE_PROTOCOL_ACTIONS.websocket.openNativeDraft).toBe(false);
+  });
+});
+
+describe('useConsoleStore — Set-Cookie (#855)', () => {
+  it('stores redacted-but-structured setCookies that survive the rehydrate schema', () => {
+    useConsoleStore.setState({ entries: [], preserveOnSend: true, captureEnabled: true });
+    useConsoleStore.getState().addEntry({
+      timestamp: 1,
+      protocol: 'http',
+      request: { method: 'GET', url: 'https://api.example.com', headers: {} },
+      response: {
+        id: 'resp',
+        requestId: 'req',
+        status: 200,
+        statusText: 'OK',
+        headers: { 'set-cookie': 'b=2' },
+        setCookies: ['a=1; Path=/', 'b=2; HttpOnly'],
+        body: '',
+        size: 0,
+        time: 1,
+        timestamp: 1,
+      },
+    });
+    const stored = useConsoleStore.getState().entries[0]!;
+    expect(stored.response.setCookies).toEqual(['a=[REDACTED]; Path=/', 'b=[REDACTED]; HttpOnly']);
+
+    const rehydrated = ConsoleEntrySchema.parse(JSON.parse(JSON.stringify(stored)));
+    expect(rehydrated.response.setCookies).toEqual(stored.response.setCookies);
   });
 });

@@ -1,6 +1,6 @@
-import type { Dispatcher } from 'undici';
 import type { Fetcher } from '@shared/protocol/types';
 import type { ExternalSecretResolver } from '@shared/secrets/external-secret-resolver';
+import type { Dispatcher } from 'undici';
 import type { LoadedRequest } from '../collectionLoader';
 
 /** Streaming event captured from SSE or WebSocket runs. */
@@ -27,6 +27,8 @@ export interface ExecuteOutcome {
   durationMs: number;
   bodyBytes: number;
   responseHeaders?: Record<string, string>;
+  /** Every Set-Cookie field, one entry each (RFC 6265 §3 — never folded). */
+  setCookies?: string[];
   responseBody?: string;
   errorMessage?: string;
   grpcStatus?: GrpcStatusInfo;

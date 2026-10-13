@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  extractSetCookies,
   REQUEST_DENY,
   RESPONSE_DENY,
   sanitizeRequestHeaders,
@@ -73,6 +74,32 @@ describe('sanitizeResponseHeaders', () => {
     expect(out['content-type']).toBe('application/json');
     expect(Object.keys(out).map((k) => k.toLowerCase())).not.toContain('transfer-encoding');
     expect(Object.keys(out).map((k) => k.toLowerCase())).not.toContain('connection');
+  });
+});
+
+describe('extractSetCookies (RFC 6265 §3 — Set-Cookie is never folded)', () => {
+  const cookies = [
+    'session=abc; Path=/; HttpOnly',
+    'csrf=xyz; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/',
+    'pref=dark; Max-Age=3600',
+  ];
+
+  it('returns every Set-Cookie value from a Fetch Headers instance', () => {
+    const headers = new Headers();
+    for (const c of cookies) headers.append('Set-Cookie', c);
+    headers.set('Content-Type', 'text/plain');
+    expect(extractSetCookies(headers)).toEqual(cookies);
+  });
+
+  it('returns every Set-Cookie value from a Node/undici record array (any key case)', () => {
+    expect(extractSetCookies({ 'Set-Cookie': [...cookies], 'content-type': 'x' })).toEqual(cookies);
+    expect(extractSetCookies({ 'set-cookie': [...cookies] })).toEqual(cookies);
+  });
+
+  it('wraps a single string value and returns [] when absent', () => {
+    expect(extractSetCookies({ 'set-cookie': cookies[0] as string })).toEqual([cookies[0]]);
+    expect(extractSetCookies({ 'content-type': 'x' })).toEqual([]);
+    expect(extractSetCookies(new Headers())).toEqual([]);
   });
 });
 

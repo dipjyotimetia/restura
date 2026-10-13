@@ -123,3 +123,22 @@ describe('useHistoryStore — addHistoryItem', () => {
     expect(history[0]?.request.name).toBe('b');
   });
 });
+
+describe('useHistoryStore — Set-Cookie persistence (#855)', () => {
+  it('keeps setCookies through partialize and a JSON (Dexie) round-trip', () => {
+    useHistoryStore.setState({ history: [], favorites: [], pageSize: 20 });
+    const req = makeHttp();
+    const setCookies = ['session=abc; Path=/', 'csrf=xyz; Expires=Wed, 21 Oct 2037 07:28:00 GMT'];
+    useHistoryStore.getState().addHistoryItem(req, {
+      ...makeResponse(req.id),
+      headers: { 'set-cookie': 'csrf=xyz' },
+      setCookies,
+    });
+
+    const partialize = useHistoryStore.persist.getOptions().partialize!;
+    const persisted = JSON.parse(JSON.stringify(partialize(useHistoryStore.getState()))) as {
+      history: Array<{ response?: ApiResponse }>;
+    };
+    expect(persisted.history[0]?.response?.setCookies).toEqual(setCookies);
+  });
+});

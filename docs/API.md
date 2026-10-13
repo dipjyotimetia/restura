@@ -77,7 +77,8 @@ Buffered success response (`200`):
 {
   "status": 200,
   "statusText": "OK",
-  "headers": { "content-type": "application/json" },
+  "headers": { "content-type": "application/json", "set-cookie": "a=1; Path=/, b=2; Path=/" },
+  "setCookies": ["a=1; Path=/", "b=2; Path=/"],
   "data": "{\"id\":1}",
   "size": 8,
   "bodyEncoding": "base64",
@@ -88,6 +89,10 @@ Buffered success response (`200`):
 `bodyEncoding: "base64"` appears only for binary content types (`data` is then base64); `timings` only when measured. The body is `data`, not `body` — the renderer's `src/features/http/lib/requestExecutor.ts` reads `proxyResponse.data`. The buffered response is capped at 10 MB. Streaming requests return the upstream bytes as a stream instead.
 
 The response may also carry `bodyNotice` (string): a human-readable note that the body was left undecoded — for example an unsupported or over-stacked `Content-Encoding` — and is shown above the body. Only the desktop (Electron) fetcher decodes bodies itself and sets it; the runtime `fetch` behind this API decodes on its own, so in practice this endpoint omits it.
+
+`setCookies` (`string[]`, optional) lists every upstream `Set-Cookie` field, one entry each. The flat `headers` map holds one string per name, so it can't represent several cookies (RFC 6265 forbids comma-folding them for processing); treat `setCookies` as authoritative and `headers["set-cookie"]` as display-only. It is omitted when the upstream set no cookies.
+
+Streaming responses (SSE / NDJSON, or `streamingMode: true`) are passed through with the upstream headers, **except** `Set-Cookie`. A real `Set-Cookie` header would make the browser store upstream cookies on the Restura origin, so it is never forwarded. Every upstream cookie travels in the `x-restura-set-cookies` response header instead: a JSON array of the raw `Set-Cookie` strings, with non-ASCII characters `\u`-escaped. An `x-restura-set-cookies` header sent by the upstream itself is dropped, so it can't forge cookies into the client's jar. CORS exposes this header (`exposeHeaders`), so a cross-origin SPA can read it.
 
 Errors are `{ "error": "<message>" }` with `400` (validation / SSRF block), `413` (too large), `500`, `502` (upstream failure), or `504` (timeout).
 

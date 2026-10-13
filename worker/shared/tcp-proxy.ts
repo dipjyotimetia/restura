@@ -85,6 +85,8 @@ function concatChunks(chunks: Uint8Array[], total: number): Uint8Array {
 async function readHttpResponse(readable: ReadableStream<Uint8Array>): Promise<{
   statusLine: string;
   headers: Record<string, string>;
+  /** Every header field in wire order, duplicates kept (repeated Set-Cookie, #855). */
+  headerList: Array<[string, string]>;
   body: Uint8Array;
 }> {
   const reader = readable.getReader();
@@ -97,6 +99,7 @@ async function readHttpResponse(readable: ReadableStream<Uint8Array>): Promise<{
   let headerText = '';
   let headerByteLen = -1; // bytes up to and including the \r\n\r\n terminator
   const headers: Record<string, string> = {};
+  const headerList: Array<[string, string]> = [];
   let statusLine = '';
   let contentLength: number | null = null;
 
@@ -121,7 +124,10 @@ async function readHttpResponse(readable: ReadableStream<Uint8Array>): Promise<{
       for (const line of lines.slice(1)) {
         const colon = line.indexOf(':');
         if (colon !== -1) {
-          headers[line.slice(0, colon).trim().toLowerCase()] = line.slice(colon + 1).trim();
+          const name = line.slice(0, colon).trim().toLowerCase();
+          const value = line.slice(colon + 1).trim();
+          headers[name] = value;
+          headerList.push([name, value]);
         }
       }
 
@@ -140,14 +146,14 @@ async function readHttpResponse(readable: ReadableStream<Uint8Array>): Promise<{
         contentLength !== null
           ? all.slice(headerByteLen, headerByteLen + contentLength)
           : all.slice(headerByteLen);
-      return { statusLine, headers, body };
+      return { statusLine, headers, headerList, body };
     }
   }
 
   reader.releaseLock();
   const all = concatChunks(chunks, totalBytes);
   const body = headerByteLen !== -1 ? all.slice(headerByteLen) : new Uint8Array(0);
-  return { statusLine, headers, body };
+  return { statusLine, headers, headerList, body };
 }
 
 export async function httpsViaConnectProxy(
@@ -197,13 +203,13 @@ export async function httpsViaConnectProxy(
 
     const {
       statusLine: respStatusLine,
-      headers: respHeaders,
+      headerList: respHeaderList,
       body: respBody,
     } = await readHttpResponse(tlsSocket.readable);
 
     return new Response(respBody, {
       status: parseStatusCode(respStatusLine),
-      headers: respHeaders,
+      headers: respHeaderList,
     });
   } finally {
     await tlsSocket.close();
@@ -258,13 +264,13 @@ export async function httpViaProxy(
 
   const {
     statusLine,
-    headers: respHeaders,
+    headerList: respHeaderList,
     body: respBody,
   } = await readHttpResponse(socket.readable);
   await socket.close();
 
   return new Response(respBody, {
     status: parseStatusCode(statusLine),
-    headers: respHeaders,
+    headers: respHeaderList,
   });
 }

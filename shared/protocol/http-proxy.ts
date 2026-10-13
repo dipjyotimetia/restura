@@ -1,7 +1,11 @@
 import { applyAuth, type SecretResolver, type SigV4Signer } from './auth-signer';
 import { bytesToBase64, getHeaderCI, isBinaryContentType, readStreamToBytes } from './binary';
 import { buildRequestBody } from './body-builder';
-import { sanitizeRequestHeaders, sanitizeResponseHeaders } from './header-policy';
+import {
+  extractSetCookies,
+  sanitizeRequestHeaders,
+  sanitizeResponseHeaders,
+} from './header-policy';
 import { checkHttpMethod } from './http-method';
 import { followRedirects, RedirectPolicyError } from './redirect-follower';
 import type {
@@ -168,6 +172,7 @@ export async function executeHttpProxy(
     }
 
     const responseHeaders = sanitizeResponseHeaders(response.headers);
+    const setCookies = extractSetCookies(response.headers);
 
     // Binary content types are base64-encoded so the raw bytes survive the
     // JSON transport to the renderer (text() would UTF-8-decode and corrupt
@@ -216,6 +221,7 @@ export async function executeHttpProxy(
         status: response.status,
         statusText: response.statusText,
         headers: responseHeaders,
+        ...(setCookies.length > 0 ? { setCookies } : {}),
         body: responseBody,
         size: responseSize,
         ...(bodyEncoding ? { bodyEncoding } : {}),
@@ -265,6 +271,8 @@ export interface StreamingResponseHandle {
   status: number;
   statusText: string;
   headers: Record<string, string>;
+  /** Every `Set-Cookie` field, one entry each (see NormalizedResponse.setCookies). */
+  setCookies?: string[];
   /** The upstream stream — caller is responsible for reading and closing it. */
   body: ReadableStream<Uint8Array>;
   negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
@@ -393,6 +401,8 @@ export async function executeHttpProxyStreaming(
       headers: sanitizeResponseHeaders(response.headers),
       body: response.body,
     };
+    const streamSetCookies = extractSetCookies(response.headers);
+    if (streamSetCookies.length > 0) handle.setCookies = streamSetCookies;
     if (response.negotiatedAlpn) {
       handle.negotiatedAlpn = response.negotiatedAlpn;
     }

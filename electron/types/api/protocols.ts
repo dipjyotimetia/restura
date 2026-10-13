@@ -66,6 +66,8 @@ export interface ElectronHttpResponse {
   status: number;
   statusText: string;
   headers: Record<string, string>;
+  /** Every Set-Cookie field, one entry each (RFC 6265 §3 — never folded). */
+  setCookies?: string[];
   data: unknown;
   /** Decoded byte size of the response body. */
   size?: number;
