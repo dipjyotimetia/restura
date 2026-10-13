@@ -156,6 +156,38 @@ describe('OpenCollection imported GraphQL schema extension', () => {
     expect(importWithExtension(ext)[0]?.graphqlSchema).toBeUndefined();
   });
 
+  it('attaches the schema to the GraphQL request, not a REST request with the same name path', () => {
+    const rest: HttpRequest = { ...gql('Same'), id: 'rest', body: { type: 'json', raw: '{}' } };
+    const collection: Collection = {
+      id: 'c',
+      name: 'Mixed',
+      items: [
+        { id: 'item-rest', type: 'request', name: 'Same', request: rest },
+        item(gql('Same', SCHEMA_A)),
+      ],
+    };
+    const yaml = serializeOpenCollectionYAML(internalToOC(collection));
+    const back = ocToInternal(parseOpenCollectionYAML(yaml));
+    const [first, second] = gqlRequests(back.items);
+    expect(first?.body?.type).toBe('json');
+    expect(first?.graphqlSchema).toBeUndefined();
+    expect(second?.graphqlSchema?.sdl).toBe(SCHEMA_A.sdl);
+  });
+
+  it('ignores an entry whose index points past the same-path requests', () => {
+    const oc = internalToOC({ id: 'c', name: 'One', items: [item(gql('Only'))] });
+    const hash = 'h';
+    oc.extensions = {
+      ...oc.extensions,
+      [GRAPHQL_EXTENSION_KEY]: {
+        schemas: { [hash]: { sdl: SCHEMA_A.sdl } },
+        requests: [{ path: ['Only'], index: 3, schema: hash, source: 'sdl', importedAt: 1 }],
+      },
+    };
+    const [only] = gqlRequests(ocToInternal(oc).items);
+    expect(only?.graphqlSchema).toBeUndefined();
+  });
+
   it('matches duplicate request names positionally and leaves unmatched entries unused', () => {
     const back = importWithExtension(
       {

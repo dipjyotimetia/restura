@@ -20,6 +20,14 @@ const SDL = /* GraphQL */ `
 `;
 
 describe('parseSchemaSource', () => {
+  it('rejects SDL that parses but is not a valid schema instead of throwing', () => {
+    // buildSchema only checks SDL syntax; a schema without a Query root fails
+    // full validation, which introspection runs.
+    const result = parseSchemaSource('type User { id: ID! }');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/Query root type must be provided/);
+  });
+
   it('measures the 20 MB limit in UTF-8 bytes, not UTF-16 code units', () => {
     // 7M three-byte characters: ~6.7M code units (under 20 MiB) but ~20.03 MiB of UTF-8.
     const comment = `# ${'€'.repeat(7_000_000)}\n`;

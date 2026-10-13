@@ -95,7 +95,7 @@ extensions:
 - **`x-restura-auth`** — auth options the schema's auth objects lack: OAuth 1.0a `addParamsToBody`, NTLM `workstation`, WSSE `passwordType`. An entry only applies to a node whose imported auth has the entry's `type`.
 - **`x-restura-http`** — per-request HTTP settings the schema's `http.settings` object can't hold. Today that is only the desktop HTTP version preference (`httpVersion`); `auto` is the default and isn't written. Import sets only `httpVersion` and ignores unknown values. A request's other settings (timeout, redirects, TLS verification) keep following your workspace defaults, because Restura stores request settings as a partial override.
 
-Request entries in `x-restura-grpc` / `x-restura-graphql` / `x-restura-auth` / `x-restura-http` are matched by name path in document order, so duplicate names resolve positionally. Tools that don't understand these extensions ignore them; Restura rebuilds them from the collection on every export and keeps any other `x-*` key from an imported file.
+Request entries in `x-restura-grpc` / `x-restura-graphql` / `x-restura-auth` / `x-restura-http` are matched by name path in document order, so duplicate names resolve positionally. A `x-restura-graphql` entry also carries `index` (its position among the HTTP requests sharing that path) whenever an earlier same-path request exists, so a REST request with the same name can't claim a GraphQL request's schema. Tools that don't understand these extensions ignore them; Restura rebuilds them from the collection on every export and keeps any other `x-*` key from an imported file.
 
 ## Authentication
 

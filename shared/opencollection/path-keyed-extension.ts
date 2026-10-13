@@ -25,6 +25,13 @@ import type { CollectionItem, Request } from '../types';
 
 export interface PathKeyedEntry {
   path: string[];
+  /**
+   * Position among the matching requests that share `path` (0-based). Omitted
+   * means "first unclaimed", which is what older files (and `x-restura-grpc`)
+   * rely on; emitted when an earlier same-path request carries no entry, so a
+   * sibling without data can't claim it.
+   */
+  index?: number;
 }
 
 /** Depth-first walk over the requests `match` accepts, with their name paths. */
@@ -88,9 +95,10 @@ export function isPathKeyedEntry(raw: unknown): raw is PathKeyedEntry {
 }
 
 /**
- * Match parsed request entries to the internal tree by name path (first
- * unclaimed entry wins, so duplicates resolve positionally) and hand each
- * matched pair to `apply`. Entries `parseEntry` rejects are ignored.
+ * Match parsed request entries to the internal tree by name path and hand each
+ * matched pair to `apply`. An entry with an `index` claims exactly that
+ * same-path request; one without claims the first unclaimed same-path request
+ * (so duplicates resolve positionally). Entries `parseEntry` rejects are ignored.
  */
 export function applyByPath<T extends Request, E extends PathKeyedEntry>(
   items: CollectionItem[] | undefined,
@@ -99,18 +107,40 @@ export function applyByPath<T extends Request, E extends PathKeyedEntry>(
   parseEntry: (raw: unknown) => E | undefined,
   apply: (request: T, entry: E) => void
 ): void {
-  const pending: E[] = [];
+  const entries: E[] = [];
   for (const raw of rawEntries) {
     const entry = parseEntry(raw);
-    if (entry) pending.push(entry);
+    if (entry) entries.push(entry);
   }
-  if (pending.length === 0) return;
-  const key = (path: string[]) => JSON.stringify(path);
+  if (entries.length === 0) return;
+  const byPath = new Map<string, { request: T; claimed: boolean }[]>();
   walkRequests(items, match, (request, path) => {
-    const k = key(path);
-    const idx = pending.findIndex((e) => key(e.path) === k);
-    if (idx < 0) return;
-    const [entry] = pending.splice(idx, 1);
-    if (entry) apply(request, entry);
+    const k = JSON.stringify(path);
+    const list = byPath.get(k) ?? [];
+    list.push({ request, claimed: false });
+    byPath.set(k, list);
   });
+  for (const entry of entries) {
+    const candidates = byPath.get(JSON.stringify(entry.path)) ?? [];
+    const target =
+      entry.index === undefined ? candidates.find((c) => !c.claimed) : candidates[entry.index];
+    if (!target || target.claimed) continue;
+    target.claimed = true;
+    apply(target.request, entry);
+  }
+}
+
+/**
+ * The `index` to record for each visited request: its position among
+ * same-path matches, but only when an earlier sibling at that path exists
+ * (keeps the common no-duplicates case byte-identical to older output).
+ */
+export function createSamePathIndexer(): (path: string[]) => number | undefined {
+  const seen = new Map<string, number>();
+  return (path) => {
+    const k = JSON.stringify(path);
+    const n = seen.get(k) ?? 0;
+    seen.set(k, n + 1);
+    return n > 0 ? n : undefined;
+  };
 }

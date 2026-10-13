@@ -3,6 +3,7 @@ import { graphqlImportedSchemaSchema } from '../schemas/app';
 import type { CollectionItem, GraphQLImportedSchema, HttpRequest, Request } from '../types';
 import {
   applyByPath,
+  createSamePathIndexer,
   createSchemaTable,
   type PathKeyedEntry,
   readPathKeyedExtension,
@@ -54,9 +55,11 @@ const isHttp = (r: Request): r is HttpRequest => r.type === 'http';
 /** Only the SDL is content; provenance must not split identical schemas. */
 const schemaContentOnly = (s: GraphQLSchemaContent): GraphQLSchemaContent => ({ sdl: s.sdl });
 
-const requestEntrySchema = graphqlImportedSchemaSchema
-  .omit({ sdl: true })
-  .extend({ path: z.array(z.string()), schema: z.string() });
+const requestEntrySchema = graphqlImportedSchemaSchema.omit({ sdl: true }).extend({
+  path: z.array(z.string()),
+  index: z.number().int().nonnegative().optional(),
+  schema: z.string(),
+});
 
 const schemaContentSchema = z.object({ sdl: z.string() });
 
@@ -66,11 +69,16 @@ export function buildGraphQLExtension(
 ): GraphQLExtension | undefined {
   const table = createSchemaTable(schemaContentOnly);
   const requests: GraphQLExtensionRequestEntry[] = [];
+  const indexFor = createSamePathIndexer();
   walkRequests(items, isHttp, (req, path) => {
+    // Count every same-path HTTP request, not just schema-bearing ones, so a
+    // REST sibling sharing the name path can't claim this entry on import.
+    const index = indexFor(path);
     if (!req.graphqlSchema) return;
     const { sdl, source, fileName, importedAt } = req.graphqlSchema;
     requests.push({
       path,
+      ...(index !== undefined ? { index } : {}),
       schema: table.add({ sdl }),
       source,
       ...(fileName ? { fileName } : {}),
@@ -95,7 +103,7 @@ export function applyGraphQLExtension(items: CollectionItem[] | undefined, raw: 
       const parsed = requestEntrySchema.safeParse(e);
       return parsed.success ? parsed.data : undefined;
     },
-    (req, { schema: hash, path: _path, ...provenance }) => {
+    (req, { schema: hash, path: _path, index: _index, ...provenance }) => {
       const content = schemaContentSchema.safeParse(ext.schemas[hash]);
       if (!content.success) return;
       // Both halves are already validated: the entry by requestEntrySchema, the SDL here.

@@ -6,6 +6,7 @@ import {
   type IntrospectionQuery,
   introspectionFromSchema,
   printSchema,
+  validateSchema,
 } from 'graphql';
 import type { GraphQLImportedSchema } from '@/types';
 import type { GraphQLSchema, IntrospectionResult } from '../types';
@@ -97,6 +98,14 @@ export function parseSchemaSource(
       return { ok: false, error: describeError(error) };
     }
     source = 'sdl';
+  }
+
+  // buildSchema / buildClientSchema only check syntax and shape; introspection
+  // (and every consumer) needs a schema that passes full validation.
+  const [firstError, ...otherErrors] = validateSchema(schema);
+  if (firstError) {
+    const more = otherErrors.length > 0 ? ` (+${otherErrors.length} more)` : '';
+    return { ok: false, error: `Invalid schema: ${firstError.message}${more}` };
   }
 
   const sdl = source === 'sdl' ? trimmed : printSchema(schema);
