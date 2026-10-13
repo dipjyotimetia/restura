@@ -1,11 +1,12 @@
 import { AlertTriangle } from 'lucide-react';
 
 /**
- * Digest and NTLM configurations persist, but no current backend applies
- * either scheme. Keep the warning beside the editable credentials so callers
- * cannot mistake stored data for wire authentication.
+ * NTLM configurations persist, but no current backend applies the scheme
+ * (tracked in #1069). Keep the warning beside the editable credentials so
+ * callers cannot mistake stored data for wire authentication. Digest is
+ * answered at the wire by the shared HTTP proxy, so it no longer uses this.
  */
-export function UnappliedAuthNotice({ scheme }: { scheme: 'Digest' | 'NTLM' }) {
+export function UnappliedAuthNotice({ scheme }: { scheme: 'NTLM' }) {
   return (
     <p
       className="p-3 rounded bg-amber-500/10 border border-amber-500/20 text-xs text-amber-500 flex items-center gap-2"

@@ -103,7 +103,8 @@ Request entries in `x-restura-grpc` / `x-restura-graphql` / `x-restura-auth` / `
 | --------------------------------------------------------------------------- | ------------------------- | ------------------------------------------------------------ |
 | `none`, `basic`, `bearer`, `apikey`, `oauth2`, `awsv4`                      | ✅ Mapped to Restura auth | ✅                                                            |
 | `oauth1`, `wsse`                                                            | ✅ Mapped to Restura auth | ✅ Signed at the wire (HTTP)                                  |
-| `digest`, `ntlm`                                                            | ✅ Mapped to Restura auth | ❌ Not yet ([#861](https://github.com/dipjyotimetia/restura/issues/861)) |
+| `digest`                                                                    | ✅ Mapped to Restura auth | ✅ Answered after the 401 challenge (HTTP)                     |
+| `ntlm`                                                                      | ✅ Mapped to Restura auth | ❌ Not yet ([#1069](https://github.com/dipjyotimetia/restura/issues/1069)) |
 
 OAuth 1.0a signature methods Restura can't sign with (`RSA-*`, `HMAC-SHA512`) import as the signer default; the original block survives verbatim only while the imported item is unedited. Auth types the mapper doesn't know import as `none` and likewise survive only via the cached document.
 

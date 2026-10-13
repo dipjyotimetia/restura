@@ -20,6 +20,7 @@ description: What each regression test in tests/security/ guards against, from S
 | `visualizer-sandbox.test.tsx` | The Visualizer's iframe (`VisualizerFrame`, rendering a user- or collection-supplied template) losing its `sandbox="allow-scripts"`-only isolation or its strict CSP (`default-src 'none'`, `img-src data:` only, `form-action 'none'`) that blocks outbound egress from injected scripts. |
 | `http-method-policy.test.ts` | The shared HTTP core's method policy (`shared/protocol/http-method.ts`) loosening: any RFC 9110 token is sent verbatim on the buffered and streaming paths, but `CONNECT` (raw tunnel) and `TRACE` / `TRACK` (header and credential reflection) must be refused in every casing before any upstream call, along with non-token methods. |
 | `codegen-method-injection.test.ts` | A stored or imported extension method smuggling shell or string-interpolation syntax (`` ` ``, `\|`, `&`, `$`, `#{…}`) into generated code. Every generator, plus the network console's "Copy as cURL", must emit the method as an inert literal, and the cURL output is checked by actually running it through a shell. |
+| `digest-auth.test.ts` | Digest auth (RFC 7616) leaking credentials: the first request must carry none; a non-Digest `401` is never retried; a `401` reached through a redirect chain that left the origin on **any** hop is never answered; the single retry shares the redirect budget; the password never appears on the wire, in the result, or in the console; and a desktop-only secret handle fails fast on the Worker. |
 
 ## Related
 

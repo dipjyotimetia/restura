@@ -64,6 +64,18 @@ On the web and self-hosted server, streaming responses (SSE, NDJSON) are passed 
 
 The network console lists each response cookie's name and attributes, but replaces the value with `[REDACTED]`. Cookie values are credentials.
 
+### Digest auth
+
+Digest is answered in the shared HTTP core, so web, self-hosted, desktop and the CLI follow the same rules ([ADR 0029](/architecture/adrs/0029-digest-auth-challenge-retry/)):
+
+- The first request carries **no credentials**. Restura only answers a `401` that carries a Digest challenge.
+- The challenge is answered only if **every hop** of the redirect chain stayed on the original origin. If any hop left it, the `401` is returned unanswered.
+- There is **exactly one retry**, and it shares the request's redirect budget.
+- The password is resolved where the request is sent: in the desktop main process for keychain-stored secrets. The hosted proxy refuses keychain handles. Only a hash goes on the wire.
+- The desktop app no longer re-sends credentials for 300, 304, 305 or 306 responses. Like the web, it returns them as-is.
+
+**Residual risk:** over plain `http:`, an attacker on the network can strip a SHA-256 challenge and force MD5, and can see the exchange anyway. Use `https:` for Digest-protected APIs.
+
 ## Renderer lockdown (desktop)
 
 The Electron renderer is sandboxed (`sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`) and pinned down by two policies in `electron/main/main.ts`:
@@ -116,6 +128,7 @@ Local dev bypasses auth only when Miniflare is detected or `DEV_BYPASS_AUTH=true
 - [ADR 0006 — Electron connection + DNS hardening](/architecture/adrs/)
 - [ADR 0007 — SecretRef pattern](/architecture/adrs/)
 - [ADR 0027 — Telemetry and privacy-preserving usage signal](/architecture/adrs/0027-telemetry-and-privacy-preserving-usage-analytics/)
+- [ADR 0029 — Digest auth via challenge-retry](/architecture/adrs/0029-digest-auth-challenge-retry/)
 </Aside>
 
 ## Reporting

@@ -125,5 +125,9 @@ These are connection-based or lossy on OpenCollection import — use the manifes
   `GET /oauth1/protected` verifies the signature end-to-end via an independent
   RFC 5849 verifier (`e2e/mocks/oauth1Verify.ts`) that shares no code with the
   client signer.
-- **Digest / NTLM** — Restura doesn't apply these on send yet (on any platform);
-  the server's `/digest-auth/:user/:pass` route exists for reference only.
+- **Digest** — answered after the server's `401` challenge on web, self-host,
+  desktop and the CLI. Point a Digest-auth request at
+  `GET /digest-auth/:user/:pass` (MD5, `qop=auth`) with the same user/password
+  to exercise the challenge/retry end-to-end.
+- **NTLM** — not applied on send yet on any platform
+  ([#1069](https://github.com/dipjyotimetia/restura/issues/1069)).

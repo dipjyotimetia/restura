@@ -19,8 +19,8 @@ vi.mock('@/features/auth/lib/oauth2', () => ({
   pollForDeviceToken: vi.fn(),
 }));
 
-import * as platform from '@/lib/shared/platform';
 import * as oauth2 from '@/features/auth/lib/oauth2';
+import * as platform from '@/lib/shared/platform';
 import AuthConfiguration from '../AuthConfig';
 
 const noneAuth: AuthConfigType = { type: 'none' };
@@ -61,15 +61,14 @@ describe('AuthConfiguration — new auth variants', () => {
   });
 
   describe('Digest', () => {
-    it('warns that Digest auth is not applied to the request', () => {
+    it('no longer warns that Digest auth is unapplied (it is answered at the wire)', () => {
       const digestAuth: AuthConfigType = {
         type: 'digest',
         digest: { username: '', password: '' },
       };
       render(<AuthConfiguration auth={digestAuth} onChange={vi.fn()} />);
-      expect(screen.getByTestId('digest-unimplemented-warning')).toHaveTextContent(
-        /isn’t applied yet/i
-      );
+      expect(screen.queryByTestId('digest-unimplemented-warning')).toBeNull();
+      expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
     });
   });
 

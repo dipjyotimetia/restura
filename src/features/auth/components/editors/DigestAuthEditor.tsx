@@ -1,12 +1,10 @@
 import { Input } from '@/components/ui/input';
 import SecretInput from '../SecretInput';
-import { UnappliedAuthNotice } from './UnappliedAuthNotice';
 import type { AuthEditorProps } from './types';
 
 export function DigestAuthEditor({ auth, onChange }: AuthEditorProps) {
   return (
     <div className="space-y-4">
-      <UnappliedAuthNotice scheme="Digest" />
       <div>
         <label htmlFor="auth-digest-username" className="text-sm font-medium mb-2 block">
           Username

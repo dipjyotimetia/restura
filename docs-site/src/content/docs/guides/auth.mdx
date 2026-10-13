@@ -1,6 +1,6 @@
 ---
 title: Authentication
-description: Every auth scheme Restura applies on send — Bearer, Basic, API Key, OAuth 2.0, OAuth 1.0a, AWS SigV4, WSSE, and mTLS — plus the configurable-only Digest and NTLM.
+description: Every auth scheme Restura applies on send — Bearer, Basic, API Key, OAuth 2.0, OAuth 1.0a, AWS SigV4, WSSE, Digest, and mTLS — plus the configurable-only NTLM.
 ---
 
 import { Badge, Aside } from '@astrojs/starlight/components';
@@ -44,9 +44,21 @@ For AWS APIs (S3, DynamoDB, EC2, etc.). Pick the region and service; Restura com
 
 `X-WSSE` UsernameToken header with `PasswordDigest` (default — fresh nonce and timestamp per send) or `PasswordText`. Common for SOAP-y APIs. Signed at the wire.
 
-### Digest and NTLM <Badge text="not yet sent" variant="caution" />
+### Digest
 
-You can select Digest or NTLM, fill in the credentials, and they are saved and inherited like any other scheme (several importers also map them). **Restura does not yet perform the Digest or NTLM challenge/response when sending**, so requests go out without an `Authorization` header for these schemes. Use Basic, a pre-computed header, or another tool for these upstreams until support lands — [track progress](/overview/delivery-plan/#plan-digest-ntlm).
+HTTP Digest (RFC 7616) works on web, self-hosted, desktop, and the CLI. The first request goes out **without** credentials; when the server answers `401` with a `WWW-Authenticate: Digest …` challenge, Restura retries exactly once with an `Authorization: Digest …` header. Only a hash goes on the wire — never the password.
+
+- Algorithms: `MD5`, `MD5-sess`, `SHA-256`, `SHA-256-sess` (the strongest offered is picked), with `qop=auth` or the legacy no-qop form. `auth-int` and `SHA-512-256` are not supported.
+- The retry replays the same method and body, and the digest `uri` is the exact request-target that was sent.
+- A `401` that isn't a Digest challenge is returned as-is. If any redirect along the way left the original origin, even one that comes back, the challenge is never answered.
+- The retry counts against the same redirect limit as the first request; it doesn't get a fresh one. Digest and redirects also work through a SOCKS proxy on desktop.
+- Over plain `http:`, an attacker on the network can strip a stronger challenge and force `MD5`, and can see the exchange anyway. Use `https:` for Digest-protected APIs.
+- Desktop keychain passwords are resolved in the main process at send time. Web can't use keychain-stored passwords.
+- Digest applies to HTTP (and GraphQL over HTTP) requests. It isn’t used for SSE, WebSocket, gRPC, or GraphQL subscriptions.
+
+### NTLM <Badge text="not yet sent" variant="caution" />
+
+You can select NTLM, fill in the credentials, and they are saved and inherited like any other scheme (several importers also map them). **Restura does not yet perform the NTLM handshake when sending**, so requests go out without an `Authorization` header. Use another tool for these upstreams until support lands — [track progress](/overview/delivery-plan/#plan-digest-ntlm).
 
 ### mTLS (client certificates) <Badge text="desktop only" variant="caution" />
 
