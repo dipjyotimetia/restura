@@ -1,3 +1,4 @@
+import { isKnownHttpMethod, normalizeHttpMethod } from '@shared/protocol/http-method';
 import { v4 as uuidv4 } from 'uuid';
 import { isConfiguredAuth } from '@/features/auth/lib/authInheritance';
 import { migrateScriptRsToPm } from '@/features/scripts/lib/scriptMigrations';
@@ -490,7 +491,13 @@ function buildHarPostData(body: HttpRequest['body']): { mimeType: string; text: 
 }
 
 // Export to OpenAPI 3.0 Format
-export function exportToOpenAPI(collection: Collection): object {
+/**
+ * OpenAPI 3.0 path items only allow the fixed operation keys (get, put, post,
+ * delete, options, head, patch, trace). Extension methods (#857) such as
+ * PROPFIND or QUERY have no slot, so they are skipped and reported through
+ * the optional `warnings` sink instead of emitting an invalid document.
+ */
+export function exportToOpenAPI(collection: Collection, warnings?: string[]): object {
   const paths: Record<string, Record<string, unknown>> = {};
 
   function collectRequests(items: CollectionItem[]) {
@@ -499,8 +506,13 @@ export function exportToOpenAPI(collection: Collection): object {
         collectRequests(item.items || []);
       } else if (item.request?.type === 'http') {
         const req = item.request as HttpRequest;
+        const normalized = normalizeHttpMethod(req.method);
+        if (!isKnownHttpMethod(normalized)) {
+          warnings?.push(`OpenAPI 3.0 has no operation for ${normalized} — skipped "${item.name}"`);
+          continue;
+        }
         const pathKey = toOpenAPIPath(req.url);
-        const method = req.method.toLowerCase();
+        const method = normalized.toLowerCase();
 
         if (!paths[pathKey]) paths[pathKey] = {};
 

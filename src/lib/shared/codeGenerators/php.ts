@@ -1,4 +1,5 @@
-import { escapeJson, type GenerateOptions, urlWithVariables } from './types';
+import { normalizeHttpMethod } from '@shared/protocol/http-method';
+import { escapeJson, type GenerateOptions, singleQuotedLiteral, urlWithVariables } from './types';
 
 export const generatePhp = (options: GenerateOptions): string => {
   const { request, resolvedUrl, resolvedHeaders, resolvedParams } = options;
@@ -18,8 +19,9 @@ export const generatePhp = (options: GenerateOptions): string => {
   php += `$url = "${escapeJson(urlStr)}";\n\n`;
   php += `$ch = curl_init($url);\n\n`;
 
-  if (request.method !== 'GET') {
-    php += `curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "${request.method}");\n`;
+  const method = normalizeHttpMethod(request.method);
+  if (method !== 'GET') {
+    php += `curl_setopt($ch, CURLOPT_CUSTOMREQUEST, ${singleQuotedLiteral(method)});\n`;
   }
 
   if (Object.keys(resolvedHeaders).length > 0) {

@@ -15,6 +15,7 @@ export { parseOpenCollectionYAML, serializeOpenCollectionYAML } from './serializ
 export {
   getAndResetUnrecognizedBodyCount,
   getAndResetUnrecognizedScripts,
+  getAndResetUnsupportedMethods,
   ocToInternal,
   ocVariableToKeyValue,
 } from './to-internal';

@@ -1,3 +1,4 @@
+import { checkHttpMethod } from '@shared/protocol/http-method';
 import type { Collection, Environment, HttpMethod } from '@/types';
 
 /**
@@ -22,31 +23,21 @@ export type ImportWarning =
   | { kind: 'unsupported-option'; option: string }
   | { kind: 'unresolved-file'; option: string; path: string };
 
-const HTTP_METHODS: ReadonlySet<string> = new Set([
-  'GET',
-  'POST',
-  'PUT',
-  'DELETE',
-  'PATCH',
-  'OPTIONS',
-  'HEAD',
-]);
-
 /**
- * Coerce a source-format method string into the canonical `HttpMethod` union.
- * Real collections carry methods Restura can't send (PURGE, PROPFIND,
- * TRACE…); without coercion they'd fail the import validation gate and sink
- * the whole import. Out-of-union methods downgrade to GET with a warning so
- * the rest of the collection still lands (partial-import philosophy).
+ * Coerce a source-format method string into a sendable `HttpMethod`.
+ * Known methods are upper-cased; RFC 9110 extension tokens (PURGE, PROPFIND,
+ * QUERY…) are preserved verbatim (#857). Methods Restura refuses to send
+ * (CONNECT/TRACE/TRACK) or non-token garbage downgrade to GET with a warning so the
+ * rest of the collection still lands (partial-import philosophy).
  */
 export function coerceHttpMethod(
   raw: string | undefined,
   requestName: string,
   warnings?: ImportWarning[]
 ): HttpMethod {
-  const method = (raw ?? 'GET').toUpperCase();
-  if (HTTP_METHODS.has(method)) return method as HttpMethod;
-  warnings?.push({ kind: 'unsupported-method', method, requestName });
+  const check = checkHttpMethod((raw ?? 'GET').trim());
+  if (check.ok) return check.method;
+  warnings?.push({ kind: 'unsupported-method', method: (raw ?? '').toUpperCase(), requestName });
   return 'GET';
 }
 

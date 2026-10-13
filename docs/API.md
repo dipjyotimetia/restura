@@ -56,7 +56,7 @@ Request body — `ProxyRequestBodySchema` in `shared/protocol/proxy-schema.ts`:
 
 | Field                                                | Type                                                                         | Notes                                                                                                                                                           |
 | ---------------------------------------------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `method`                                             | `string`                                                                     | Checked against the allow-list in `shared/protocol/http-proxy.ts`.                                                                                              |
+| `method`                                             | `string`                                                                     | Any RFC 9110 method token (≤ 64 chars); `CONNECT`, `TRACE` and `TRACK` are refused in any casing. See [Methods](#methods).                                    |
 | `url`                                                | `string` (≤ 2048)                                                            | Absolute URL; validated by the SSRF guard (`shared/protocol/url-validation.ts`).                                                                                |
 | `headers`                                            | `Record<string, string>`                                                     | Sanitised by `shared/protocol/header-policy.ts` (hop-by-hop and forbidden headers dropped).                                                                     |
 | `params`                                             | `Record<string, string>`                                                     | Appended to the query string.                                                                                                                                   |
@@ -90,6 +90,12 @@ Buffered success response (`200`):
 The response may also carry `bodyNotice` (string): a human-readable note that the body was left undecoded — for example an unsupported or over-stacked `Content-Encoding` — and is shown above the body. Only the desktop (Electron) fetcher decodes bodies itself and sets it; the runtime `fetch` behind this API decodes on its own, so in practice this endpoint omits it.
 
 Errors are `{ "error": "<message>" }` with `400` (validation / SSRF block), `413` (too large), `500`, `502` (upstream failure), or `504` (timeout).
+
+### Methods
+
+`shared/protocol/http-method.ts` is the method policy for every harness. Any RFC 9110 `token` is accepted. The seven standard methods are sent upper-cased; extension methods (`PROPFIND`, `QUERY`, `PURGE`, …) are sent exactly as given, case included. `CONNECT` (would turn the proxy into a tunnel) and `TRACE` / `TRACK` (reflect request headers, credentials included) are refused with `400` in any casing, as is anything that isn't a token.
+
+The hosted Cloudflare Worker has one extra limit: workerd only sends methods from a fixed list — the standard methods, `PURGE`, the WebDAV/DeltaV set (`COPY`, `LOCK`, `MKCOL`, `MOVE`, `PROPFIND`, `PROPPATCH`, `UNLOCK`, `ACL`, `REPORT`, `MKACTIVITY`, `CHECKOUT`, `MERGE`), `SEARCH`, `QUERY`, `NOTIFY`, `SUBSCRIBE`, `UNSUBSCRIBE`, `MSEARCH` and `BAN` — and upper-cases them on the wire. Any other token gets `400` with an error that names the method and points to the desktop app or a self-hosted server (`worker/handlers/proxy.ts`). The self-hosted Node server, the desktop app, and the CLI send any token verbatim. Wire signers see the method as sent: SigV4 signs it as-is, and OAuth 1.0a upper-cases and percent-encodes it in the signature base string (RFC 5849).
 
 ## `POST /api/import/fetch`
 

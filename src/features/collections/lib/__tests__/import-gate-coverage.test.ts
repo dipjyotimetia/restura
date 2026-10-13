@@ -10,12 +10,13 @@ import { validateImportedCollection } from '../importers/validateImported';
 /**
  * Regression net for the import validation gate: every importer's output must
  * pass `validateImportedCollection`, INCLUDING for real-world inputs that
- * carry methods outside Restura's HttpMethod union (PURGE, PROPFIND, TRACE).
- * Before method coercion landed, any one of these rejected the entire import.
+ * carry extension methods (PURGE, PROPFIND, LINK) or denied ones (TRACE).
+ * Extension tokens are preserved verbatim (#857); only CONNECT/TRACE/TRACK and
+ * non-token garbage downgrade to GET with a warning.
  */
 
-describe('import gate coverage — out-of-union methods do not sink the import', () => {
-  it('Postman: PURGE downgrades to GET with a warning; gate passes', async () => {
+describe('import gate coverage — extension methods survive, denied methods do not sink the import', () => {
+  it('Postman: PURGE is preserved verbatim; gate passes', async () => {
     const postman: PostmanCollection = {
       info: {
         name: 'Varnish Tools',
@@ -36,20 +37,16 @@ describe('import gate coverage — out-of-union methods do not sink the import',
     const collection = await importPostmanCollection(postman, warnings);
 
     expect(validateImportedCollection(collection)).toEqual({ ok: true });
-    expect(warnings).toContainEqual({
-      kind: 'unsupported-method',
-      method: 'PURGE',
-      requestName: 'Purge cache',
-    });
+    expect(warnings.filter((w) => w.kind === 'unsupported-method')).toEqual([]);
     // The rest of the collection is untouched.
     expect(collection.items).toHaveLength(2);
     const purge = collection.items[0]!.request;
     const normal = collection.items[1]!.request;
-    expect(purge && 'method' in purge && purge.method).toBe('GET');
+    expect(purge && 'method' in purge && purge.method).toBe('PURGE');
     expect(normal && 'method' in normal && normal.method).toBe('POST');
   });
 
-  it('Insomnia: PROPFIND downgrades to GET with a warning; gate passes', () => {
+  it('Insomnia: PROPFIND is preserved verbatim; gate passes', () => {
     const { collection, warnings } = importInsomniaCollection({
       _type: 'export',
       __export_format: 4,
@@ -67,11 +64,9 @@ describe('import gate coverage — out-of-union methods do not sink the import',
       ],
     });
     expect(validateImportedCollection(collection)).toEqual({ ok: true });
-    expect(warnings).toContainEqual({
-      kind: 'unsupported-method',
-      method: 'PROPFIND',
-      requestName: 'List folder',
-    });
+    expect(warnings.filter((w) => w.kind === 'unsupported-method')).toEqual([]);
+    const req = collection.items[0]!.request;
+    expect(req && 'method' in req && req.method).toBe('PROPFIND');
   });
 
   it('OpenAPI: a trace operation downgrades to GET with a warning; gate passes', async () => {
@@ -93,7 +88,7 @@ describe('import gate coverage — out-of-union methods do not sink the import',
     );
   });
 
-  it('Hoppscotch: a custom method downgrades to GET with a warning; gate passes', () => {
+  it('Hoppscotch: a custom method (LINK) is preserved verbatim; gate passes', () => {
     const { collection, warnings } = importHoppscotchCollection({
       v: 6,
       name: 'Custom methods',
@@ -112,11 +107,9 @@ describe('import gate coverage — out-of-union methods do not sink the import',
       ],
     });
     expect(validateImportedCollection(collection)).toEqual({ ok: true });
-    expect(warnings).toContainEqual({
-      kind: 'unsupported-method',
-      method: 'LINK',
-      requestName: 'Link resource',
-    });
+    expect(warnings.filter((w) => w.kind === 'unsupported-method')).toEqual([]);
+    const req = collection.items[0]!.request;
+    expect(req && 'method' in req && req.method).toBe('LINK');
   });
 });
 

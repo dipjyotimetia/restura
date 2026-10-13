@@ -9,7 +9,13 @@ The bread and butter. Restura's HTTP client supports every method, every body sh
 
 ## Methods
 
-GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, and any custom verb you type.
+GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS, and custom methods — WebDAV (`PROPFIND`, `MKCOL`, `REPORT`), `QUERY`, cache `PURGE`, `LINK`/`UNLINK`, and so on. Open the method picker and type the method into the **Custom…** field. The desktop app, a self-hosted server, and the CLI send any custom method you type; the hosted web app supports a fixed list (see below).
+
+Custom methods must be a valid HTTP method token (RFC 9110: letters, digits and a few symbols such as `-`, `_`, `.`, `!`, no spaces). They're sent exactly as typed, case included; the seven standard methods are always sent in upper case. Custom methods survive OpenCollection, Postman and HAR import (HAR keeps the case too) and OpenCollection and Postman export. Workflows and AI Lab accept them, and the CLI runs them. Postman stores methods in upper case, so a mixed-case custom method comes back upper-cased from a Postman round trip. OpenAPI 3.0 has no slot for custom methods, so an OpenAPI export skips those requests and warns.
+
+**Hosted web app:** the Cloudflare Workers runtime can only send a fixed set of methods: the standard ones, `PURGE`, the WebDAV/DeltaV set (`COPY`, `LOCK`, `MKCOL`, `MOVE`, `PROPFIND`, `PROPPATCH`, `UNLOCK`, `ACL`, `REPORT`, `MKACTIVITY`, `CHECKOUT`, `MERGE`), `SEARCH`, `QUERY`, `NOTIFY`, `SUBSCRIBE`, `UNSUBSCRIBE`, `MSEARCH` and `BAN`. They go out in upper case. Any other method, `LINK` included, fails with a clear error. Use the desktop app or a self-hosted server for those.
+
+`CONNECT`, `TRACE` and `TRACK` are always refused, whatever the casing. `CONNECT` would turn the proxy into a raw tunnel, and `TRACE` (and its IIS alias `TRACK`) echoes your request headers, credentials included, back in the response. Importing a collection that uses them falls back to `GET` and shows a warning.
 
 ## Body types
 

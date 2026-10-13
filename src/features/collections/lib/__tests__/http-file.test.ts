@@ -67,18 +67,28 @@ GET https://api.example.com/search?q=restura&limit={{limit}}
       expect(req.params[1]).toMatchObject({ key: 'limit', value: '{{limit}}', enabled: true });
     });
 
-    it('downgrades an out-of-union method to GET with a warning', () => {
+    it('downgrades a denied method (TRACE) to GET with a warning', () => {
       const source = `### Weird
-PURGE https://api.example.com/cache
+TRACE https://api.example.com/cache
 `;
       const result = importHttpFile(source);
       const req = asHttpRequest(itemAt(result.collection.items, 0).request);
       expect(req.method).toBe('GET');
       expect(result.warnings).toContainEqual({
         kind: 'unsupported-method',
-        method: 'PURGE',
+        method: 'TRACE',
         requestName: 'Weird',
       });
+    });
+
+    it('preserves an extension method (PURGE) verbatim', () => {
+      const source = `### Purge
+PURGE https://api.example.com/cache
+`;
+      const result = importHttpFile(source);
+      const req = asHttpRequest(itemAt(result.collection.items, 0).request);
+      expect(req.method).toBe('PURGE');
+      expect(result.warnings.some((w) => w.kind === 'unsupported-method')).toBe(false);
     });
 
     it('flags {{$dynamicVar}} system variables but preserves the literal token', () => {

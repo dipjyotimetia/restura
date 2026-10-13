@@ -179,7 +179,9 @@ export async function httpsViaConnectProxy(
 
   try {
     // Make the real request over the TLS tunnel
-    const method = (requestInit.method ?? 'GET').toUpperCase();
+    // Verbatim (#857): the shared core already normalised known methods; extension
+    // tokens are case-sensitive and must match what auth signers signed.
+    const method = requestInit.method ?? 'GET';
     const headers = toRecord(requestInit.headers);
     delete headers['host'];
     delete headers['Host'];
@@ -218,7 +220,9 @@ export async function httpViaProxy(
 
   signal.addEventListener('abort', () => void socket.close(), { once: true });
 
-  const method = (requestInit.method ?? 'GET').toUpperCase();
+  // Verbatim (#857): the shared core already normalised known methods; extension
+  // tokens are case-sensitive and must match what auth signers signed.
+  const method = requestInit.method ?? 'GET';
   const headers = toRecord(requestInit.headers);
   delete headers['host'];
   delete headers['Host'];

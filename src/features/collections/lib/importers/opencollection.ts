@@ -3,6 +3,7 @@ import {
   assertBoundedDocument,
   getAndResetUnrecognizedBodyCount,
   getAndResetUnrecognizedScripts,
+  getAndResetUnsupportedMethods,
   type OpenCollection,
   ocToInternal,
   ocVariableToKeyValue,
@@ -53,6 +54,10 @@ export function importOpenCollection(data: unknown): ImportResult {
       scriptType: s.type,
       requestName: s.requestName,
     });
+  }
+
+  for (const m of getAndResetUnsupportedMethods()) {
+    warnings.push({ kind: 'unsupported-method', method: m.method, requestName: m.requestName });
   }
 
   return { collection, environments, warnings };

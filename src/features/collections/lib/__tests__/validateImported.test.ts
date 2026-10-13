@@ -57,13 +57,21 @@ describe('validateImportedCollection', () => {
     const bad = structuredClone(valid) as unknown as {
       items: Array<{ request: { method: string } }>;
     };
-    bad.items[0]!.request.method = 'TELEPORT';
+    bad.items[0]!.request.method = 'NOT A TOKEN';
     const result = validateImportedCollection(bad as unknown as Collection);
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.issues.length).toBeGreaterThan(0);
       expect(result.issues.join(' ')).toContain('items');
     }
+  });
+
+  it('accepts an RFC 9110 extension method token', () => {
+    const custom = structuredClone(valid) as unknown as {
+      items: Array<{ request: { method: string } }>;
+    };
+    custom.items[0]!.request.method = 'PROPFIND';
+    expect(validateImportedCollection(custom as unknown as Collection)).toEqual({ ok: true });
   });
 
   it('rejects a collection with a missing name', () => {

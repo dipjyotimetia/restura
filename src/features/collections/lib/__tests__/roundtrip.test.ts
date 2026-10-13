@@ -129,6 +129,29 @@ describe('Postman export → import round trip', () => {
   });
 });
 
+describe('extension HTTP methods round-trip (#857)', () => {
+  const withMethod = (method: string): Collection => ({
+    id: 'col-m',
+    name: 'Methods',
+    items: [
+      { id: 'm1', name: 'Custom', type: 'request', request: httpRequest('Custom', { method }) },
+    ],
+  });
+
+  // The Postman SDK upper-cases every method on parse, so Postman (unlike
+  // OpenCollection) cannot carry a mixed-case extension token.
+  it.each(['PROPFIND', 'QUERY', 'PURGE'])('Postman preserves %s verbatim', async (method) => {
+    const reimported = await importPostmanCollection(exportToPostman(withMethod(method)));
+    expect(validateImportedCollection(reimported)).toEqual({ ok: true });
+    expect(findRequest(reimported.items, 'Custom')?.method).toBe(method);
+  });
+
+  it('Insomnia preserves PROPFIND verbatim', () => {
+    const { collection } = importInsomniaCollection(exportToInsomnia(withMethod('PROPFIND')));
+    expect(findRequest(collection.items, 'Custom')?.method).toBe('PROPFIND');
+  });
+});
+
 describe('Insomnia export → import round trip', () => {
   it('preserves structure, request auth, headers, params, and bodies', () => {
     const exported = exportToInsomnia(fixture);

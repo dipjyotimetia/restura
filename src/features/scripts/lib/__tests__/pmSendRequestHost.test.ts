@@ -117,7 +117,7 @@ describe('makeRendererSendRequest — method allowlist', () => {
   it('rejects an unsupported method', async () => {
     const send = makeRendererSendRequest();
     await expect(send({ url: 'https://x', method: 'CONNECT' })).rejects.toThrow(
-      /method CONNECT is not allowed/
+      /Method CONNECT is not allowed/
     );
     expect(executeProxiedRequestMock).not.toHaveBeenCalled();
   });
@@ -126,6 +126,26 @@ describe('makeRendererSendRequest — method allowlist', () => {
     const send = makeRendererSendRequest();
     await send({ url: 'https://x', method: 'post' });
     expect(getDispatchedSpec().method).toBe('POST');
+  });
+
+  it('passes an extension method (PROPFIND) through verbatim', async () => {
+    const send = makeRendererSendRequest();
+    await send({ url: 'https://x', method: 'PROPFIND' });
+    expect(getDispatchedSpec().method).toBe('PROPFIND');
+  });
+
+  it('surfaces the policy reason for a non-token method', async () => {
+    const send = makeRendererSendRequest();
+    await expect(send({ url: 'https://x', method: 'BAD METHOD' })).rejects.toThrow(
+      'pm.sendRequest: Method "BAD METHOD" is not a valid HTTP method token'
+    );
+    expect(executeProxiedRequestMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects TRACE in any casing', async () => {
+    const send = makeRendererSendRequest();
+    await expect(send({ url: 'https://x', method: 'trace' })).rejects.toThrow(/not allowed/);
+    expect(executeProxiedRequestMock).not.toHaveBeenCalled();
   });
 });
 

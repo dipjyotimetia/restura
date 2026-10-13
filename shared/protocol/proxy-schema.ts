@@ -147,8 +147,9 @@ export const RedirectPolicySchema = z.object({
 });
 
 export const ProxyRequestBodySchema = z.object({
-  // Permissive on method: `executeHttpProxy` enforces its own `ALLOWED_METHODS`
-  // allow-list, so the precise 400 message comes from there, not from Zod.
+  // Permissive on method: `executeHttpProxy` enforces the shared method policy
+  // (`checkHttpMethod` in http-method.ts — RFC 9110 token, CONNECT/TRACE/TRACK
+  // denied), so the precise 400 message comes from there, not from Zod.
   method: z.string().min(1),
   url: z.string().min(1).max(2048),
   headers: z.record(z.string(), z.string()).optional(),

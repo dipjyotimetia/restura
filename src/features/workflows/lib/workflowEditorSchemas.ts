@@ -5,6 +5,31 @@
  */
 import { OWS_RESOURCE_ID_PATTERN, OWS_TASK_PATH_PATTERN } from '@shared/ows/bindings';
 import { OWS_SEMVER_PATTERN, OWS_TASK_NAME_PATTERN } from '@shared/ows/workflow-profile';
+import {
+  DENIED_HTTP_METHODS,
+  HTTP_METHOD_TOKEN_RE,
+  KNOWN_HTTP_METHODS,
+  MAX_HTTP_METHOD_LENGTH,
+} from '@shared/protocol/http-method';
+
+/**
+ * Shared method policy (#857) as JSON Schema: the known methods (offered as
+ * completions) or any RFC 9110 token that is not denied in any casing. JSON
+ * Schema regexes have no `(?i)`, so the deny list is spelled per character.
+ */
+const anyCase = (word: string) =>
+  [...word].map((c) => `[${c.toUpperCase()}${c.toLowerCase()}]`).join('');
+const HTTP_METHOD_SCHEMA = {
+  anyOf: [
+    { enum: [...KNOWN_HTTP_METHODS] },
+    {
+      type: 'string',
+      pattern: HTTP_METHOD_TOKEN_RE.source,
+      maxLength: MAX_HTTP_METHOD_LENGTH,
+      not: { pattern: `^(${DENIED_HTTP_METHODS.map(anyCase).join('|')})$` },
+    },
+  ],
+};
 
 export const WORKFLOW_SCHEMA_URI = 'restura://schemas/workflow.ows.safe.schema.json';
 export const BINDINGS_SCHEMA_URI = 'restura://schemas/workflow.bindings.safe.schema.json';
@@ -71,7 +96,7 @@ const TASK = {
           required: ['method', 'endpoint'],
           additionalProperties: false,
           properties: {
-            method: { enum: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'] },
+            method: HTTP_METHOD_SCHEMA,
             endpoint: {
               type: 'object',
               required: ['uri'],

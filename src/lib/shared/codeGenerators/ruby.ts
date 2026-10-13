@@ -1,4 +1,5 @@
-import { escapeJson, type GenerateOptions, urlWithVariables } from './types';
+import { isKnownHttpMethod, normalizeHttpMethod } from '@shared/protocol/http-method';
+import { escapeJson, type GenerateOptions, singleQuotedLiteral, urlWithVariables } from './types';
 
 export const generateRuby = (options: GenerateOptions): string => {
   const { request, resolvedUrl, resolvedHeaders, resolvedParams } = options;
@@ -16,13 +17,20 @@ export const generateRuby = (options: GenerateOptions): string => {
 
   let ruby = `require 'net/http'\nrequire 'json'\n\n`;
   ruby += `uri = URI("${escapeJson(urlStr)}")\n\n`;
-  ruby += `request = Net::HTTP::${request.method.charAt(0) + request.method.slice(1).toLowerCase()}.new(uri)\n`;
+  const hasBody = request.body.type !== 'none' && Boolean(request.body.raw);
+  const method = normalizeHttpMethod(request.method);
+  if (isKnownHttpMethod(method)) {
+    ruby += `request = Net::HTTP::${method.charAt(0) + method.slice(1).toLowerCase()}.new(uri)\n`;
+  } else {
+    // No Net::HTTP class for extension tokens (PURGE, QUERY…) — #857.
+    ruby += `request = Net::HTTPGenericRequest.new(${singleQuotedLiteral(method)}, ${hasBody}, true, uri)\n`;
+  }
 
   Object.entries(resolvedHeaders).forEach(([key, value]) => {
     ruby += `request["${escapeJson(key)}"] = "${escapeJson(value)}"\n`;
   });
 
-  if (request.body.type !== 'none' && request.body.raw) {
+  if (hasBody && request.body.raw) {
     ruby += `request.body = ${request.body.type === 'json' ? request.body.raw : `"${escapeJson(request.body.raw)}"`}\n`;
   }
 

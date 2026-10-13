@@ -1,3 +1,4 @@
+import { checkHttpMethod } from '@shared/protocol/http-method';
 import { executeHttpProxy, executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
 import {
   containsAuthHandle,
@@ -49,6 +50,42 @@ function isStreamingRequest(body: ProxyRequestBody): boolean {
   if (body.streamingMode === true) return true;
   const accept = body.headers?.['Accept'] ?? body.headers?.['accept'] ?? '';
   return parseAcceptMediaTypes(accept).some((mt) => STREAMING_MEDIA_TYPES.has(mt));
+}
+
+/**
+ * Cloudflare's workerd only sends methods from a fixed list (standard methods,
+ * PURGE, WebDAV, QUERY, …) and its Request constructor throws
+ * `TypeError: Invalid HTTP method string` for any other RFC 9110 token. Probe
+ * the runtime the same way fetch() would, so the hosted web proxy answers with
+ * a clear 400 instead of a generic 502. Node (self-host) accepts any token,
+ * so this never fires there.
+ *
+ * workerd also upper-cases the registered methods it does accept
+ * (`propFind` goes out as `PROPFIND`); returning the runtime's own form lets
+ * the shared core sign (SigV4 / Digest) exactly what goes on the wire.
+ *
+ * Policy failures (non-token, CONNECT/TRACE/TRACK) pass through unchanged so
+ * the shared core produces its own 400.
+ */
+function resolveRuntimeMethod(
+  method: string
+): { ok: true; method: string } | { ok: false; error: string } {
+  const check = checkHttpMethod(method);
+  if (!check.ok) return { ok: true, method };
+  try {
+    return {
+      ok: true,
+      method: new Request('https://method-probe.invalid/', { method: check.method }).method,
+    };
+  } catch {
+    return {
+      ok: false,
+      error:
+        `HTTP method ${check.method} cannot be sent by the hosted web proxy — the Cloudflare ` +
+        'Workers runtime supports only a fixed method list. Use the Restura desktop app or a ' +
+        'self-hosted server for this method.',
+    };
+  }
 }
 
 function buildFetcher(
@@ -163,6 +200,15 @@ export function createProxyHandler(
       );
     }
 
+    // Only the direct fetch() path is limited by the runtime; the upstream-proxy
+    // path writes the request line itself over a raw socket.
+    let method = body.method;
+    if (!body.upstreamProxy) {
+      const runtimeMethod = resolveRuntimeMethod(body.method);
+      if (!runtimeMethod.ok) return c.json({ error: runtimeMethod.error }, 400);
+      method = runtimeMethod.method;
+    }
+
     // Self-hosted enterprises with internal upstreams can opt into private-IP
     // access via ALLOW_PRIVATE_IPS=true. Distinct from `isDev` so that production
     // self-hosted deployments don't accidentally also relax other dev guards.
@@ -178,7 +224,7 @@ export function createProxyHandler(
     if (isStreamingRequest(body)) {
       const streamingResult = await executeHttpProxyStreaming(
         {
-          method: body.method,
+          method,
           url: body.url,
           headers: body.headers,
           params: body.params,
@@ -215,7 +261,7 @@ export function createProxyHandler(
 
     const result = await executeHttpProxy(
       {
-        method: body.method,
+        method,
         url: body.url,
         headers: body.headers,
         params: body.params,

@@ -68,6 +68,26 @@ hostile upstream can cause:
 The Worker and self-host server use the runtime `fetch`, which decodes
 responses itself.
 
+### HTTP methods
+
+`shared/protocol/http-method.ts` is the single method policy for the Worker,
+self-host server, Electron and the CLI. Any RFC 9110 method token is accepted
+and sent verbatim (the seven standard methods are upper-cased). `CONNECT`,
+`TRACE` and `TRACK` are refused in every casing: `CONNECT` would turn the proxy
+into a raw tunnel, and `TRACE` (with IIS's `TRACK` alias) reflects request
+headers, credentials included, back to the caller. Persisted and imported state
+accepts any token, so one bad method can't invalidate a whole collection; the
+refusal happens at send time, and importers downgrade a denied or invalid
+method to `GET` with a warning. Pinned by
+`tests/security/http-method-policy.test.ts`.
+
+Code generation treats the method as untrusted input, because RFC 9110 `tchar`
+includes shell and interpolation metacharacters (`` ` | & $ ' # ``). cURL
+snippets (including the network console's "Copy as cURL") quote any method that
+isn't plain alphanumeric, and PHP and Ruby snippets emit it as a single-quoted
+literal, so a shared collection can't smuggle a command into a pasted snippet.
+Pinned by `tests/security/codegen-method-injection.test.ts`.
+
 ## SSRF / DNS-rebind guard (Electron)
 
 All Electron transports validate the destination against the shared SSRF

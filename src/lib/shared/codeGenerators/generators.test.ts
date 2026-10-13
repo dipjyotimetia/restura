@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { HttpRequest, RequestSettings } from '@/types';
 import { generateCurl } from './curl';
+import { generateGo } from './go';
 import { generateJavaScript } from './javascript';
+import { generateNodeJS } from './nodejs';
+import { generatePhp } from './php';
 import { generatePython } from './python';
+import { generateRuby } from './ruby';
 import type { GenerateOptions } from './types';
 
 const request = (body: HttpRequest['body']): HttpRequest => ({
@@ -139,5 +143,58 @@ describe('urlWithVariables', () => {
   it('keeps {{var}} references readable after query serialization', () => {
     const out = generateCurl(opts({ resolvedParams: { t: '{{token}}', q: 'a b' } }));
     expect(out).toContain("'https://api.dev/x?t={{token}}&q=a+b'");
+  });
+});
+
+describe('extension HTTP methods (#857)', () => {
+  const custom = (method: string): GenerateOptions =>
+    opts({ request: { ...request({ type: 'json', raw: '{"q":1}' }), method } });
+
+  it('cURL, fetch, Go and PHP send the token verbatim', () => {
+    expect(generateCurl(custom('PROPFIND'))).toContain('curl -X PROPFIND');
+    expect(generateJavaScript(custom('QUERY'))).toContain('method: "QUERY"');
+    expect(generateGo(custom('PURGE'))).toContain('http.NewRequest("PURGE"');
+    expect(generatePhp(custom('MKCOL'))).toContain("CURLOPT_CUSTOMREQUEST, 'MKCOL'");
+  });
+
+  it('Python uses requests.request for extension methods, shorthand for known ones', () => {
+    const out = generatePython(custom('PROPFIND'));
+    expect(out).toContain('requests.request(\n    "PROPFIND",\n    url');
+    expect(out).not.toContain('requests.propfind');
+    expect(generatePython(opts())).toContain('requests.put(');
+  });
+
+  it('axios keeps an extension method verbatim', () => {
+    expect(generateNodeJS(custom('customVerb'))).toContain('method: "customVerb"');
+    expect(generateNodeJS(opts())).toContain('method: "put"');
+  });
+
+  it('Ruby uses HTTPGenericRequest for methods without a Net::HTTP class', () => {
+    const out = generateRuby(custom('PURGE'));
+    expect(out).toContain("Net::HTTPGenericRequest.new('PURGE', true, true, uri)");
+    expect(out).not.toContain('Net::HTTP::Purge');
+    expect(generateRuby(opts())).toContain('Net::HTTP::Put.new(uri)');
+  });
+
+  // Single-quoted PHP/Ruby strings only interpret \\ and \' — no `$var`,
+  // `{$x}`, `#{x}`, `#$x`, `#@x` interpolation from a hostile token.
+  const singleQuoted = (m: string) => `'${m.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
+
+  it.each(['$HOME', '{$x}', "it's"])('PHP emits %j as an inert single-quoted literal', (m) => {
+    expect(generatePhp(custom(m))).toContain(`CURLOPT_CUSTOMREQUEST, ${singleQuoted(m)});`);
+  });
+
+  it.each(['#{x}', '#$x', '#@x', "it's"])(
+    'Ruby emits %j as an inert single-quoted literal',
+    (m) => {
+      expect(generateRuby(custom(m))).toContain(`Net::HTTPGenericRequest.new(${singleQuoted(m)}, `);
+    }
+  );
+
+  it('normalises a stored lower-case known method before picking an idiom', () => {
+    expect(generatePython(custom('post'))).toContain('requests.post(');
+    expect(generateRuby(custom('delete'))).toContain('Net::HTTP::Delete.new(uri)');
+    expect(generateNodeJS(custom('Patch'))).toContain('method: "patch"');
+    expect(generatePhp(custom('get'))).not.toContain('CURLOPT_CUSTOMREQUEST');
   });
 });

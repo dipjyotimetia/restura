@@ -2,6 +2,7 @@ import { applyAuth, type SecretResolver, type SigV4Signer } from './auth-signer'
 import { bytesToBase64, getHeaderCI, isBinaryContentType, readStreamToBytes } from './binary';
 import { buildRequestBody } from './body-builder';
 import { sanitizeRequestHeaders, sanitizeResponseHeaders } from './header-policy';
+import { checkHttpMethod } from './http-method';
 import { followRedirects, RedirectPolicyError } from './redirect-follower';
 import type {
   ConnectionTimings,
@@ -13,7 +14,6 @@ import type {
 import { validateURL } from './url-validation';
 
 export const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
-const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD']);
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 function byteLength(s: string): number {
@@ -69,11 +69,11 @@ export async function executeHttpProxy(
   fetcher: Fetcher,
   options: ExecuteHttpProxyOptions
 ): Promise<ExecuteResult> {
-  const method = spec.method.toUpperCase();
-
-  if (!ALLOWED_METHODS.has(method)) {
-    return { ok: false, status: 400, payload: { error: `Method ${spec.method} is not allowed` } };
+  const methodCheck = checkHttpMethod(spec.method);
+  if (!methodCheck.ok) {
+    return { ok: false, status: 400, payload: { error: methodCheck.error } };
   }
+  const method = methodCheck.method;
 
   const validation = validateURL(spec.url, {
     allowPrivateIPs: options.allowPrivateIPs === true,
@@ -295,15 +295,11 @@ export async function executeHttpProxyStreaming(
   fetcher: Fetcher,
   options: ExecuteHttpProxyOptions
 ): Promise<StreamingExecuteResult> {
-  const method = spec.method.toUpperCase();
-
-  if (!ALLOWED_METHODS.has(method)) {
-    return {
-      ok: false,
-      status: 400,
-      payload: { error: `Method ${spec.method} is not allowed` },
-    };
+  const methodCheck = checkHttpMethod(spec.method);
+  if (!methodCheck.ok) {
+    return { ok: false, status: 400, payload: { error: methodCheck.error } };
   }
+  const method = methodCheck.method;
 
   const validation = validateURL(spec.url, {
     allowPrivateIPs: options.allowPrivateIPs === true,

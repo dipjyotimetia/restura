@@ -116,6 +116,47 @@ describe('httpsViaConnectProxy — CONNECT response handling (Fix #2)', () => {
   });
 });
 
+describe('extension methods go out verbatim through the upstream proxy (#857)', () => {
+  it('httpViaProxy writes a mixed-case extension method unchanged', async () => {
+    const sock = new FakeSocket();
+    state.nextNetSocket = sock;
+    sock.onWrite = (s) => {
+      s.emit('data', Buffer.from('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n'));
+    };
+    await createHttpViaProxy({ allowPrivateIPs: false })(
+      new URL('http://example.com/x'),
+      { host: 'proxy.example', port: 8080 },
+      { method: 'propFind' },
+      new AbortController().signal
+    );
+    expect(Buffer.concat(sock.written).toString('utf-8')).toMatch(
+      /^propFind http:\/\/example\.com\/x HTTP\/1\.1\r\n/
+    );
+  });
+
+  it('httpsViaConnectProxy writes a mixed-case extension method unchanged', async () => {
+    const proxySock = new FakeSocket();
+    const tlsSock = new FakeSocket();
+    state.nextNetSocket = proxySock;
+    state.nextTlsSocket = tlsSock;
+    proxySock.onWrite = (s) => {
+      s.emit('data', Buffer.from('HTTP/1.1 200 Connection established\r\n\r\n'));
+    };
+    tlsSock.onWrite = (s) => {
+      s.emit('data', Buffer.from('HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n'));
+    };
+    await createHttpsViaConnectProxy({ allowPrivateIPs: false })(
+      new URL('https://example.com/x'),
+      { host: 'proxy.example', port: 8080 },
+      { method: 'customVerb' },
+      new AbortController().signal
+    );
+    expect(Buffer.concat(tlsSock.written).toString('utf-8')).toMatch(
+      /^customVerb \/x HTTP\/1\.1\r\n/
+    );
+  });
+});
+
 describe('Headers normalisation (Fix #10)', () => {
   it('preserves headers passed as a Headers instance through httpViaProxy', async () => {
     const sock = new FakeSocket();

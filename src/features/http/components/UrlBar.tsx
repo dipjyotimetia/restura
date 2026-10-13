@@ -1,31 +1,30 @@
 'use client';
 
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import {
+  checkHttpMethod,
+  isKnownHttpMethod,
+  KNOWN_HTTP_METHODS,
+} from '@shared/protocol/http-method';
 import { Code2, Link2, Loader2, Send } from 'lucide-react';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
-import { Floater, hasVariableToken, Kbd, MethodChip, methodLabel } from '@/components/ui/spatial';
+import { Floater, hasVariableToken, Kbd, MethodChip } from '@/components/ui/spatial';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { modLabel } from '@/lib/shared/shortcuts';
 import { cn } from '@/lib/shared/utils';
-import type { HttpMethod } from '@/types';
+import type { HttpMethod, KnownHttpMethod } from '@/types';
 import { looksLikeCurl } from '../lib/urlQuery';
 
-const HTTP_METHODS: ReadonlyArray<HttpMethod> = [
-  'GET',
-  'POST',
-  'PUT',
-  'PATCH',
-  'DELETE',
-  'HEAD',
-  'OPTIONS',
-];
+// The preset list is the shared method policy's well-known set (#857) —
+// anything else goes through the free-text CustomMethodField below.
+const HTTP_METHODS: ReadonlyArray<KnownHttpMethod> = KNOWN_HTTP_METHODS;
 
 // Mirrors MethodChip's method→token map so a method renders the same color in
 // the URL bar and its chip (single --color-method-* family, not the semantic
 // status tokens).
-const METHOD_TEXT: Record<HttpMethod, string> = {
+const METHOD_TEXT: Record<KnownHttpMethod, string> = {
   GET: 'var(--color-method-get)',
   POST: 'var(--color-method-post)',
   PUT: 'var(--color-method-put)',
@@ -65,6 +64,7 @@ export function UrlBar({
   onOpenCodeGen,
 }: UrlBarProps) {
   const [urlError, setUrlError] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   // While focused, show exactly what the user typed: the store copy is
   // re-derived from url + params, which would drop a trailing "?" or "&"
   // mid-edit. The draft is discarded on blur.
@@ -126,14 +126,14 @@ export function UrlBar({
               so it escapes the parent Floater's backdrop-filter stacking
               context (which otherwise traps a locally-positioned dropdown
               underneath the sibling SubTabBar). */}
-          <DropdownMenu.Root>
+          <DropdownMenu.Root open={pickerOpen} onOpenChange={setPickerOpen}>
             <DropdownMenu.Trigger asChild>
               <button
                 type="button"
                 aria-label={`HTTP method: ${method}`}
                 className="focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--sp-accent-glow-33)] rounded-sp-btn shrink-0"
               >
-                <MethodChip method={methodLabel(method)} hasPicker />
+                <MethodChip method={method} hasPicker />
               </button>
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
@@ -141,7 +141,7 @@ export function UrlBar({
                 align="start"
                 sideOffset={8}
                 className={cn(
-                  'z-50 w-32 rounded-sp-panel sp-floater-lg overflow-hidden p-0.5',
+                  'z-50 w-40 rounded-sp-panel sp-floater-lg overflow-hidden p-0.5',
                   'data-[state=open]:animate-sp-fade-in'
                 )}
               >
@@ -160,6 +160,14 @@ export function UrlBar({
                     {m === 'DELETE' ? 'DEL' : m}
                   </DropdownMenu.Item>
                 ))}
+                <DropdownMenu.Separator className="my-0.5 h-px bg-sp-line" />
+                <CustomMethodField
+                  initial={isKnownHttpMethod(method) ? '' : method}
+                  onCommit={(m) => {
+                    onMethodChange(m);
+                    setPickerOpen(false);
+                  }}
+                />
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
@@ -242,6 +250,73 @@ export function UrlBar({
       {urlError && (
         <p id="url-error" role="alert" className="mt-1 px-3 text-sp-11 text-rose-400 font-medium">
           {urlError}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Free-text method entry (#857). Any RFC 9110 token is accepted and committed
+ * verbatim on Enter; CONNECT/TRACE/TRACK and non-tokens show an inline error. Keys
+ * are stopped from bubbling so the menu's typeahead/arrow handling doesn't
+ * steal them from the input.
+ */
+function CustomMethodField({
+  initial,
+  onCommit,
+}: {
+  initial: string;
+  onCommit: (method: HttpMethod) => void;
+}) {
+  const [value, setValue] = useState(initial);
+  const [error, setError] = useState<string | null>(null);
+  const errorId = useId();
+
+  const commit = () => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    const check = checkHttpMethod(trimmed);
+    if (!check.ok) {
+      setError(check.error);
+      return;
+    }
+    setError(null);
+    onCommit(check.method);
+  };
+
+  return (
+    <div className="px-1 py-1">
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => {
+          setValue(e.target.value);
+          setError(null);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          }
+          if (e.key !== 'Escape') e.stopPropagation();
+        }}
+        placeholder="Custom…"
+        aria-label="Custom HTTP method"
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
+        spellCheck={false}
+        autoComplete="off"
+        className={cn(
+          'w-full h-7 px-2 rounded-sp-btn bg-sp-surface outline-none',
+          'font-mono font-semibold text-sp-12 text-sp-text placeholder:text-sp-dim',
+          'border border-sp-line focus:border-sp-accent',
+          error && 'border-rose-400'
+        )}
+      />
+      {error && (
+        <p id={errorId} role="alert" className="mt-1 px-1 text-sp-11 text-rose-400">
+          {error}
         </p>
       )}
     </div>

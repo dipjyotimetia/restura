@@ -1,18 +1,19 @@
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
+import { shellMethodWord } from '@/lib/shared/codeGenerators/types';
 import {
   isConsoleCredentialHeader,
   sanitizeConsoleEntry,
   sanitizeConsoleFrame,
   sanitizeConsoleUrl,
 } from '@/lib/shared/console-sanitization';
+import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { ConsoleEntrySchema } from '@/lib/shared/store-validators';
 import { truncateForPersist as truncate } from '@/lib/shared/utils';
 import type {
-  GrpcRequest,
   Response as ApiResponse,
+  GrpcRequest,
   HttpMethod,
   HttpRequest,
   RequestBody,
@@ -676,7 +677,7 @@ export function entryToCurl(entry: ConsoleEntry): string {
   // A curl command needs the real URL — `entry.request.url` may still be an
   // unresolved `{{var}}` template.
   const url = safe.resolvedUrl ?? safe.request.url;
-  const parts = [`curl -X ${safe.request.method} ${escape(url)}`];
+  const parts = [`curl -X ${shellMethodWord(safe.request.method)} ${escape(url)}`];
   for (const [key, value] of Object.entries(safe.request.headers)) {
     if (isConsoleCredentialHeader(key)) continue;
     parts.push(`-H ${escape(`${key}: ${value}`)}`);
