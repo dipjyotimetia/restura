@@ -19,6 +19,12 @@ type Json = Record<string, unknown>;
 
 const { user: USER, aws: AWS } = TEST_AUTH_FIXTURES;
 
+// Restura's per-request httpVersion has no slot in the strict OC HTTP item; it
+// rides in the collection-level `x-restura-http` extension keyed by node path
+// (shared/opencollection/http-settings-extension.ts).
+const H2C_NAME = 'HTTP/2 cleartext (h2c prior knowledge)';
+const FORCED_H1_NAME = 'HTTP/1.1 forced against an h2 server';
+
 function httpItem(seq: number, name: string, method: string, url: string, auth?: Json): Json {
   return {
     info: { type: 'http', name, seq },
@@ -65,6 +71,9 @@ export function buildCollection(host = 'localhost'): Json {
       region: AWS.region,
       service: AWS.service,
     }),
+    // Desktop only (#864): the HTTP version setting is set via x-restura-http.
+    httpItem(7, H2C_NAME, 'GET', `http://${host}:${PORTS.h2c}/`),
+    httpItem(8, FORCED_H1_NAME, 'GET', `https://${host}:${PORTS.h2}/`),
     {
       info: { type: 'graphql', name: 'GraphQL echo' },
       graphql: { url: `${http}/graphql`, query: 'query { __typename }' },
@@ -99,6 +108,12 @@ export function buildCollection(host = 'localhost'): Json {
           mcp: { url: mcp, transport: 'streamable-http' },
         },
       ],
+      'x-restura-http': {
+        requests: [
+          { path: [H2C_NAME], httpVersion: 'h2c-prior-knowledge' },
+          { path: [FORCED_H1_NAME], httpVersion: 'http1.1' },
+        ],
+      },
     },
   };
 }

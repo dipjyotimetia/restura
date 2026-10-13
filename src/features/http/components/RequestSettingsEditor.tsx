@@ -14,12 +14,27 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
+import { CAPABILITIES, isCapableHere } from '@/lib/shared/capabilities';
+import { isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
-import type { GlobalSettings, MinTlsVersion, RequestSettings } from '@/types';
+import type {
+  GlobalSettings,
+  HttpVersionPreference,
+  MinTlsVersion,
+  RequestSettings,
+  RequestSettingsOverride,
+} from '@/types';
 import { CertificateOverride } from './CertificateOverride';
 
+const HTTP_VERSION_OPTIONS: ReadonlyArray<{ value: HttpVersionPreference; label: string }> = [
+  { value: 'auto', label: 'Auto (negotiate via ALPN)' },
+  { value: 'http1.1', label: 'HTTP/1.1 only' },
+  { value: 'http2', label: 'HTTP/2 only' },
+  { value: 'h2c-prior-knowledge', label: 'HTTP/2 cleartext (h2c, prior knowledge)' },
+];
+
 interface RequestSettingsEditorProps {
-  settings: RequestSettings | undefined;
+  settings: RequestSettingsOverride | undefined;
   globalSettings: GlobalSettings;
   onSettingsChange: (updates: Partial<RequestSettings>) => void;
   onToggleOverride: (enabled: boolean) => void;
@@ -34,6 +49,10 @@ export default function RequestSettingsEditor({
   onProxyOverrideChange,
 }: RequestSettingsEditorProps) {
   const [tlsAdvancedOpen, setTlsAdvancedOpen] = useState(false);
+  // HTTP version control follows the capability matrix (ADR-0012): today it is
+  // desktop-only — the web Worker's runtime owns protocol negotiation, so web
+  // always shows (and sends) `auto`.
+  const httpVersionCapable = isCapableHere('http.version', isElectron());
 
   // Shares the executor's fold so the controls below display exactly the
   // effective settings that will reach the wire (no per-request override → the
@@ -210,6 +229,50 @@ export default function RequestSettingsEditor({
                 </div>
               </div>
             )}
+
+            {/* HTTP version (#864) — desktop-only; web is pinned to Auto */}
+            <div className="space-y-2">
+              <div className="flex items-center">
+                <Label htmlFor="httpVersion">HTTP version</Label>
+                {!httpVersionCapable && (
+                  <DesktopOnlyBadge title={CAPABILITIES['http.version'].notes ?? ''} />
+                )}
+              </div>
+              <Select
+                value={httpVersionCapable ? (getEffectiveSettings().httpVersion ?? 'auto') : 'auto'}
+                disabled={!httpVersionCapable}
+                onValueChange={(value) => {
+                  if (value === 'auto') {
+                    // EOPT: explicit undefined clears the key (see minTlsVersion).
+                    onSettingsChange({
+                      httpVersion: undefined,
+                    } as unknown as Partial<RequestSettings>);
+                  } else {
+                    onSettingsChange({ httpVersion: value as HttpVersionPreference });
+                  }
+                }}
+              >
+                <SelectTrigger
+                  id="httpVersion"
+                  aria-label="HTTP version"
+                  className="w-80 bg-background border-border"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {HTTP_VERSION_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {httpVersionCapable
+                  ? 'The protocol actually used is shown as the HTTP stat on the response.'
+                  : 'The web runtime negotiates the protocol — open the desktop app to force HTTP/1.1, HTTP/2 or h2c.'}
+              </p>
+            </div>
 
             {/* Encode URL automatically — standalone (default ON) */}
             <div className="flex items-center justify-between">

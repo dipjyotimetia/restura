@@ -1,5 +1,6 @@
 import { FormFieldSchema } from '@shared/protocol/proxy-schema';
 import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema';
+import { httpVersionPreferenceSchema } from '@shared/schemas/app';
 import { z } from 'zod';
 
 // ===========================
@@ -298,6 +299,8 @@ export const HttpRequestConfigSchema = z.object({
   serverCipherOrder: z.boolean().optional(),
   minTlsVersion: z.enum(['TLSv1', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3']).optional(),
   cipherSuites: z.string().optional(),
+  // HTTP version preference (#864; desktop-only — honoured by buildElectronFetcher)
+  httpVersion: httpVersionPreferenceSchema.optional(),
   secretVariables: z.record(z.string(), protocolSecretValueSchema).optional(),
 });
 

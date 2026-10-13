@@ -10,6 +10,24 @@ import type { CaCert, ClientCert, MinTlsVersion, ProxyConfig } from './security'
 export type { KnownHttpMethod };
 export type HttpMethod = KnownHttpMethod | (string & {});
 
+/**
+ * Per-request HTTP protocol version preference (#864). Desktop-only — the web
+ * Worker's runtime owns protocol negotiation, so web always behaves as `auto`.
+ *  - `auto`: ALPN offers h2 + http/1.1 over TLS; cleartext is HTTP/1.1.
+ *  - `http1.1`: ALPN offers http/1.1 only (debug h2-specific server bugs).
+ *  - `http2`: TLS requires ALPN h2 (fails if the server can't); cleartext
+ *    uses h2c prior knowledge (there is no h2c Upgrade path in undici).
+ *  - `h2c-prior-knowledge`: cleartext HTTP/2 without Upgrade (RFC 9113 §3.3);
+ *    on an https: URL it behaves like `http2`.
+ */
+export const HTTP_VERSION_PREFERENCES = [
+  'auto',
+  'http1.1',
+  'http2',
+  'h2c-prior-knowledge',
+] as const;
+export type HttpVersionPreference = (typeof HTTP_VERSION_PREFERENCES)[number];
+
 // Body Types
 export type BodyType =
   | 'none'
@@ -56,7 +74,7 @@ export interface HttpRequest {
   auth: AuthConfig;
   preRequestScript?: string;
   testScript?: string;
-  settings?: RequestSettings;
+  settings?: RequestSettingsOverride;
   /**
    * Human-readable, markdown documentation for this request. Surfaced in
    * generated collection docs (see docGenerator) and editable in the request
@@ -125,6 +143,14 @@ export interface Response {
 
 // Request Settings (per-request configuration)
 //
+/**
+ * A request's settings override. Partial: omitted fields follow the workspace
+ * defaults at send time (`resolveEffectiveSettings`). The Settings editor seeds
+ * a full object when the user turns the override on; importers may carry only
+ * the fields they know (e.g. `httpVersion` from `x-restura-http`).
+ */
+export type RequestSettingsOverride = Partial<RequestSettings>;
+
 // NOTE: the redirect-policy fields below are mirrored as `RedirectPolicy` in
 // `shared/protocol/types.ts`. They must move in lockstep — the parity test
 // `tests/redirect-policy-parity.test.ts` guards against drift.
@@ -160,4 +186,8 @@ export interface RequestSettings {
   minTlsVersion?: MinTlsVersion;
   /** OpenSSL-format cipher list, e.g. "ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384". */
   cipherSuites?: string;
+
+  // --- Protocol version (desktop-only; honoured by the Electron undici dispatcher) ---
+  /** HTTP version preference. Omitted ≡ 'auto'. */
+  httpVersion?: HttpVersionPreference;
 }

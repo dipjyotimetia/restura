@@ -124,4 +124,17 @@ describe('buildDesktopTransportConfig', () => {
       buildDesktopTransportConfig(settings({ verifySsl: false }), app(), URL_)?.verifySsl
     ).toBe(false);
   });
+
+  it('threads a per-request httpVersion (no global equivalent)', () => {
+    expect(
+      buildDesktopTransportConfig(settings({ httpVersion: 'http1.1' }), app(), URL_)?.httpVersion
+    ).toBe('http1.1');
+  });
+
+  it("omits httpVersion when 'auto' or unset (handler default)", () => {
+    expect(
+      buildDesktopTransportConfig(settings({ httpVersion: 'auto' }), app(), URL_)
+    ).not.toHaveProperty('httpVersion');
+    expect(buildDesktopTransportConfig(settings(), app(), URL_)).not.toHaveProperty('httpVersion');
+  });
 });

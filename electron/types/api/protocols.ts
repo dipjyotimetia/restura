@@ -60,6 +60,8 @@ export interface ElectronHttpRequestConfig {
   serverCipherOrder?: boolean;
   minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
   cipherSuites?: string;
+  // HTTP version preference (#864; desktop-only)
+  httpVersion?: import('../../../shared/types/http').HttpVersionPreference;
 }
 
 export interface ElectronHttpResponse {

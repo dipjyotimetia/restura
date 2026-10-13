@@ -1,13 +1,33 @@
 import { applyVarMutations } from '@shared/collections/variable-mutations';
 import type { ExternalSecretResolver } from '@shared/secrets/external-secret-resolver';
+import type { HttpRequest } from '@shared/types';
 import type { Reporter, RequestRunResult, RunMeta, RunResult } from '../reporters/types.js';
-import { loadCollection } from './collectionLoader.js';
+import { type LoadedRequest, loadCollection } from './collectionLoader.js';
 import type { CliIterationRow } from './dataLoader.js';
 import { executeRequest } from './executors/dispatch.js';
 import { applyFilters, type FilterOptions } from './filter.js';
 import { DEFAULT_RETRY, type RetryOptions, withRetry } from './retry.js';
 import { type RunScriptResult, runPreRequestScript, runTestScript } from './scriptRunner.js';
 import { buildDispatcher, type TlsOptions } from './undiciFetcher.js';
+
+/**
+ * The CLI does not apply the per-request HTTP version preference (#864, a
+ * desktop-only setting): undici negotiates the protocol as usual. Returns the
+ * one warning to print for a run, or undefined when no request forces one.
+ */
+export function httpVersionWarning(requests: readonly LoadedRequest[]): string | undefined {
+  const forced = requests.filter((r) => {
+    if (r.type !== 'http') return false;
+    const v = (r.request as HttpRequest).settings?.httpVersion;
+    return v !== undefined && v !== 'auto';
+  }).length;
+  if (forced === 0) return undefined;
+  const noun = forced === 1 ? '1 request sets' : `${forced} requests set`;
+  return (
+    `[restura] WARNING: ${noun} an httpVersion preference that the CLI does not apply; ` +
+    'the protocol is negotiated as usual. Use the desktop app to force HTTP/1.1, HTTP/2 or h2c.\n'
+  );
+}
 
 export interface RunOptions {
   envVars: Record<string, string>;
@@ -76,6 +96,8 @@ export async function runCollection(
     applyVarMutations(collectionVars, mutations);
 
   const filtered = options.filter ? applyFilters(loaded.requests, options.filter) : loaded.requests;
+  const versionWarning = httpVersionWarning(filtered);
+  if (versionWarning) process.stderr.write(versionWarning);
 
   // One iteration (with empty row vars) by default; multiple when --data is set.
   let iterations = options.iterations && options.iterations.length > 0 ? options.iterations : [{}];

@@ -39,6 +39,69 @@ describe('store-validators', () => {
       expect(result.type).toBe('http');
     });
 
+    it('persists the per-request httpVersion setting', () => {
+      const request: HttpRequest = {
+        id: 'req-v',
+        name: 'h2c',
+        type: 'http',
+        method: 'GET',
+        url: 'http://localhost:8090',
+        headers: [],
+        params: [],
+        body: { type: 'none' },
+        auth: { type: 'none' },
+        settings: {
+          timeout: 30000,
+          followRedirects: true,
+          maxRedirects: 10,
+          verifySsl: true,
+          httpVersion: 'h2c-prior-knowledge',
+        },
+      };
+
+      const result = validateRequest(request) as HttpRequest;
+      expect(result.settings?.httpVersion).toBe('h2c-prior-knowledge');
+    });
+
+    it('accepts a partial per-request settings override (e.g. only httpVersion)', () => {
+      const request: HttpRequest = {
+        id: 'req-p',
+        name: 'partial',
+        type: 'http',
+        method: 'GET',
+        url: 'https://example.com',
+        headers: [],
+        params: [],
+        body: { type: 'none' },
+        auth: { type: 'none' },
+        settings: { httpVersion: 'http2' },
+      };
+      const result = validateRequest(request) as HttpRequest;
+      expect(result.settings).toEqual({ httpVersion: 'http2' });
+    });
+
+    it('rejects an unknown httpVersion literal', () => {
+      const request = {
+        id: 'req-v',
+        name: 'bad',
+        type: 'http',
+        method: 'GET',
+        url: 'https://example.com',
+        headers: [],
+        params: [],
+        body: { type: 'none' },
+        auth: { type: 'none' },
+        settings: {
+          timeout: 30000,
+          followRedirects: true,
+          maxRedirects: 10,
+          verifySsl: true,
+          httpVersion: 'http3',
+        },
+      };
+      expect(() => validateRequest(request)).toThrow('Request validation failed');
+    });
+
     it('should validate a valid gRPC request', () => {
       const request: GrpcRequest = {
         id: 'grpc-1',

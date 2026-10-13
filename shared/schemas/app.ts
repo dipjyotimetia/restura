@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { HTTP_METHOD_TOKEN_RE, MAX_HTTP_METHOD_LENGTH } from '../protocol/http-method';
 import { secretValueSchema } from '../secrets/secret-ref';
+import { HTTP_VERSION_PREFERENCES } from '../types/http';
 
 // HTTP Method Schema
 // Any RFC 9110 token (#857). CONNECT/TRACE/TRACK are deliberately NOT rejected here:
@@ -55,6 +56,10 @@ export const proxyConfigSchema = z.object({
 // src/types/index.ts (Node tls.connect minVersion values).
 export const minTlsVersionSchema = z.enum(['TLSv1', 'TLSv1.1', 'TLSv1.2', 'TLSv1.3']);
 
+// Per-request HTTP version preference (#864) — derived from the single list in
+// shared/types/http.ts. Desktop-only at the wire.
+export const httpVersionPreferenceSchema = z.enum(HTTP_VERSION_PREFERENCES);
+
 // Request Settings Schema
 export const requestSettingsSchema = z.object({
   timeout: z.number(),
@@ -74,6 +79,8 @@ export const requestSettingsSchema = z.object({
   serverCipherOrder: z.boolean().optional(),
   minTlsVersion: minTlsVersionSchema.optional(),
   cipherSuites: z.string().optional(),
+  // Protocol version (desktop-only enforcement)
+  httpVersion: httpVersionPreferenceSchema.optional(),
 });
 
 // Auth Schema
@@ -207,7 +214,8 @@ export const httpRequestSchema = z.object({
   preRequestScript: z.string().optional(),
   testScript: z.string().optional(),
   description: z.string().optional(),
-  settings: requestSettingsSchema.optional(),
+  // Partial: omitted fields follow the workspace defaults (RequestSettingsOverride).
+  settings: requestSettingsSchema.partial().optional(),
 });
 
 // gRPC Request Schema

@@ -38,6 +38,8 @@ export function buildManifest(opts: { host: string; certs?: EchoCerts | undefine
       https,
       mtls: `https://${host}:${PORTS.mtls}  (requires client cert)`,
       'mtls.whoami': `https://${host}:${PORTS.mtls}/mtls/whoami`,
+      h2c: `http://${host}:${PORTS.h2c}  (HTTP/2 cleartext, prior knowledge only — set HTTP version to h2c; desktop)`,
+      h2: `https://${host}:${PORTS.h2}  (HTTP/2 over TLS with http/1.1 fallback — echoes the negotiated version)`,
       graphql: `${http}/graphql  (POST query/mutation — Query.users, hello, user, boom; introspection / "Refresh Schema" works on desktop)`,
       sse: `${http}/stream/sse  (also /stream/sse-named /stream/sse-resume /stream/sse-comments; structured auth + per-connection event-name filter configurable in the UI — local routes are open, no auth required)`,
       proxy: `http://${host}:${PORTS.proxy}  (HTTP forward + CONNECT)`,

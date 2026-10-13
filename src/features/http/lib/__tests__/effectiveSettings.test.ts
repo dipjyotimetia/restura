@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AppSettings, RequestSettings } from '@/types';
+import type { AppSettings, RequestSettingsOverride } from '@/types';
 import { resolveEffectiveSettings } from '../effectiveSettings';
 
 const globalSettings = {
@@ -25,11 +25,11 @@ const globalSettings = {
 
 describe('resolveEffectiveSettings', () => {
   it('inherits omitted request fields while preserving explicit overrides', () => {
-    const requestSettings = {
+    const requestSettings: RequestSettingsOverride = {
       timeout: 5_000,
       followRedirects: false,
       disableCookieJar: true,
-    } as RequestSettings;
+    };
 
     expect(resolveEffectiveSettings(requestSettings, globalSettings)).toEqual({
       timeout: 5_000,
@@ -40,6 +40,17 @@ describe('resolveEffectiveSettings', () => {
       followOriginalMethod: false,
       disableCookieJar: true,
       minTlsVersion: 'TLSv1.2',
+    });
+  });
+
+  it('an httpVersion-only override (OpenCollection import) keeps every workspace default', () => {
+    const effective = resolveEffectiveSettings({ httpVersion: 'http2' }, globalSettings);
+    expect(effective).toMatchObject({
+      timeout: 30_000,
+      followRedirects: true,
+      maxRedirects: 10,
+      verifySsl: true,
+      httpVersion: 'http2',
     });
   });
 });

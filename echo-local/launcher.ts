@@ -9,6 +9,7 @@
 
 import { type ChildProcess, spawn } from 'node:child_process';
 import { resolve } from 'node:path';
+import { startMockHttp2Server } from '../e2e/mocks/http2Server';
 import {
   type MockHttpServerHandle,
   startMockHttpServer,
@@ -84,7 +85,7 @@ export async function launch(opts: LaunchOptions): Promise<LaunchResult> {
     return true;
   };
 
-  if ((wanted('https') || wanted('mtls') || wanted('wss')) && !opts.certs) {
+  if ((wanted('https') || wanted('mtls') || wanted('h2') || wanted('wss')) && !opts.certs) {
     throw new Error('TLS services requested but no cert material supplied');
   }
 
@@ -110,6 +111,17 @@ export async function launch(opts: LaunchOptions): Promise<LaunchResult> {
       requestCert: true,
     });
     services.push({ id: 'mtls', close: h.close });
+  }
+  if (wanted('h2c')) {
+    const h = await startMockHttp2Server({ port: PORTS.h2c });
+    services.push({ id: 'h2c', close: h.close });
+  }
+  if (wanted('h2') && opts.certs) {
+    const h = await startMockHttp2Server({
+      port: PORTS.h2,
+      tls: { key: opts.certs.serverKey, cert: opts.certs.serverCert },
+    });
+    services.push({ id: 'h2', close: h.close });
   }
   if (wanted('proxy')) {
     const h = await startMockProxyServer({ port: PORTS.proxy });

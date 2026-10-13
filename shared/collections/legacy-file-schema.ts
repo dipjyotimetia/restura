@@ -99,7 +99,7 @@ export const fileHttpRequestSchema = z.object({
   auth: fileAuthConfigSchema.optional(),
   preRequestScript: z.string().optional(),
   testScript: z.string().optional(),
-  settings: requestSettingsSchema.optional(),
+  settings: requestSettingsSchema.partial().optional(),
 });
 
 export type FileHttpRequest = z.infer<typeof fileHttpRequestSchema>;
