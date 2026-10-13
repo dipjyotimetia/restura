@@ -46,23 +46,6 @@ const KIND_COLOR: Record<Kind, string> = {
   INTERFACE: 'var(--color-info)',
 };
 
-function kindFor(typeKind: GraphQLTypeKind): Kind {
-  switch (typeKind) {
-    case 'OBJECT':
-      return 'OBJECT';
-    case 'ENUM':
-      return 'ENUM';
-    case 'SCALAR':
-      return 'SCALAR';
-    case 'INPUT_OBJECT':
-      return 'INPUT';
-    case 'INTERFACE':
-      return 'INTERFACE';
-    default:
-      return 'OBJECT';
-  }
-}
-
 function KindBadge({ kind }: { kind: Kind }) {
   const color = KIND_COLOR[kind];
   return (
@@ -133,18 +116,18 @@ export default function SchemaExplorer({
     if (roots.subscription)
       rows.push({ name: roots.subscription, kind: 'OBJECT', isRoot: 'subscription' });
 
-    const pushKind = (k: GraphQLTypeKind) => {
-      for (const t of getTypesByKind(schema, k)) {
+    const pushKind = (typeKind: GraphQLTypeKind, kind: Kind) => {
+      for (const t of getTypesByKind(schema, typeKind)) {
         if (!t.name || rootNames.has(t.name)) continue;
-        rows.push({ name: t.name, kind: kindFor(t.kind) });
+        rows.push({ name: t.name, kind });
       }
     };
 
-    pushKind('OBJECT');
-    pushKind('INTERFACE');
-    pushKind('INPUT_OBJECT');
-    pushKind('ENUM');
-    pushKind('SCALAR');
+    pushKind('OBJECT', 'OBJECT');
+    pushKind('INTERFACE', 'INTERFACE');
+    pushKind('INPUT_OBJECT', 'INPUT');
+    pushKind('ENUM', 'ENUM');
+    pushKind('SCALAR', 'SCALAR');
 
     return rows;
   }, [schema]);

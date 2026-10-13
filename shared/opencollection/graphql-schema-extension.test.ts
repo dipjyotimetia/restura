@@ -124,4 +124,46 @@ describe('OpenCollection imported GraphQL schema extension', () => {
     const back = ocToInternal(oc);
     expect(gqlRequests(back.items)[0]?.graphqlSchema).toBeUndefined();
   });
+  function importWithExtension(ext: unknown, items = [item(gql('A1'))]): HttpRequest[] {
+    const oc = internalToOC({ id: 'c', name: 'X', items });
+    (oc as { extensions?: Record<string, unknown> }).extensions = { [GRAPHQL_EXTENSION_KEY]: ext };
+    return gqlRequests(ocToInternal(oc).items);
+  }
+
+  const entry = (path: string[], schema: string) => ({
+    path,
+    schema,
+    source: 'sdl',
+    importedAt: 1,
+  });
+
+  it('ignores a well-formed entry whose schema hash is missing from the table', () => {
+    const back = importWithExtension({
+      schemas: { known: { sdl: SCHEMA_A.sdl } },
+      requests: [entry(['A1'], 'unknown')],
+    });
+    expect(back[0]?.graphqlSchema).toBeUndefined();
+  });
+
+  it.each([
+    ['a non-object extension', 'x-restura-graphql: yes'],
+    ['a schemas table that is not an object', { schemas: 'nope', requests: [entry(['A1'], 'h')] }],
+    [
+      'a requests list that is not an array',
+      { schemas: { h: { sdl: SCHEMA_A.sdl } }, requests: {} },
+    ],
+  ])('ignores %s', (_label, ext) => {
+    expect(importWithExtension(ext)[0]?.graphqlSchema).toBeUndefined();
+  });
+
+  it('matches duplicate request names positionally and leaves unmatched entries unused', () => {
+    const back = importWithExtension(
+      {
+        schemas: { a: { sdl: SCHEMA_A.sdl }, b: { sdl: SCHEMA_B.sdl } },
+        requests: [entry(['Dup'], 'a'), entry(['Dup'], 'b'), entry(['Gone'], 'a')],
+      },
+      [item(gql('Dup')), { ...item(gql('Dup')), id: 'item-Dup-2' }]
+    );
+    expect(back.map((r) => r.graphqlSchema?.sdl)).toEqual([SCHEMA_A.sdl, SCHEMA_B.sdl]);
+  });
 });

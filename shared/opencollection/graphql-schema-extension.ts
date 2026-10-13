@@ -98,11 +98,8 @@ export function applyGraphQLExtension(items: CollectionItem[] | undefined, raw: 
     (req, { schema: hash, path: _path, ...provenance }) => {
       const content = schemaContentSchema.safeParse(ext.schemas[hash]);
       if (!content.success) return;
-      const schema = graphqlImportedSchemaSchema.safeParse({
-        sdl: content.data.sdl,
-        ...provenance,
-      });
-      if (schema.success) req.graphqlSchema = schema.data;
+      // Both halves are already validated: the entry by requestEntrySchema, the SDL here.
+      req.graphqlSchema = { sdl: content.data.sdl, ...provenance };
     }
   );
 }

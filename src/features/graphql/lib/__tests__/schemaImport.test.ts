@@ -27,6 +27,25 @@ describe('parseSchemaSource', () => {
     expect(result).toEqual({ ok: false, error: 'Schema is too large (max 20 MB).' });
   });
 
+  it('refuses text longer than the limit without encoding it', () => {
+    const result = parseSchemaSource(`# ${'a'.repeat(20 * 1024 * 1024)}\ntype Query { a: Int }`);
+    expect(result).toEqual({ ok: false, error: 'Schema is too large (max 20 MB).' });
+  });
+
+  it('reports a JSON array as not an introspection result', () => {
+    const result = parseSchemaSource('[{ "__schema": {} }]');
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/not an introspection result/);
+  });
+
+  it('reports an introspection object graphql-js cannot build', () => {
+    const result = parseSchemaSource('{ "__schema": { "queryType": null } }');
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/^Invalid introspection result: /);
+  });
+
   it('accepts SDL text', () => {
     const result = parseSchemaSource(SDL);
     expect(result.ok).toBe(true);
@@ -136,6 +155,21 @@ describe('loadImportedSchema', () => {
     if (!loaded.ok) throw new Error(loaded.error);
     const result = importedSchemaToResult({ ...imported }, 'https://api.example/graphql');
     expect(result.introspection).toBe(loaded.introspection);
+  });
+
+  it('evicts the least recently used SDL once the cache is full', () => {
+    const sdls = [1, 2, 3, 4, 5].map((n) => `type Query { evict${n}: Int }`);
+    const first = loadImportedSchema(sdls[0] as string);
+    for (const sdl of sdls.slice(1)) loadImportedSchema(sdl);
+    const rebuilt = loadImportedSchema(sdls[0] as string);
+    expect(first.ok && rebuilt.ok).toBe(true);
+    if (!first.ok || !rebuilt.ok) return;
+    expect(rebuilt.executable).not.toBe(first.executable);
+    // The most recent entry is still shared.
+    const latest = loadImportedSchema(sdls[4] as string);
+    const latestAgain = loadImportedSchema(sdls[4] as string);
+    if (!latest.ok || !latestAgain.ok) throw new Error('expected a built schema');
+    expect(latestAgain.executable).toBe(latest.executable);
   });
 
   it('reports a parse error for SDL that no longer builds', () => {

@@ -42,8 +42,8 @@ function countUserTypes(schema: GQLSchema): number {
     .length;
 }
 
-function extractIntrospection(raw: unknown): IntrospectionQuery | null {
-  if (!raw || typeof raw !== 'object') return null;
+/** `raw` is a parsed JSON object or array (the caller only parses `{`/`[` text). */
+function extractIntrospection(raw: object): IntrospectionQuery | null {
   const obj = raw as Record<string, unknown>;
   if (obj.__schema && typeof obj.__schema === 'object') return obj as unknown as IntrospectionQuery;
   const data = obj.data as Record<string, unknown> | undefined;
@@ -70,9 +70,9 @@ export function parseSchemaSource(
   let schema: GQLSchema;
   let source: GraphQLImportedSchema['source'];
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-    let raw: unknown;
+    let raw: object;
     try {
-      raw = JSON.parse(trimmed);
+      raw = JSON.parse(trimmed) as object;
     } catch (error) {
       return { ok: false, error: `Invalid JSON: ${describeError(error)}` };
     }
@@ -136,9 +136,9 @@ const importedSchemaCache = new Map<string, LoadedImportedSchema>();
 function rememberImportedSchema(sdl: string, loaded: LoadedImportedSchema): LoadedImportedSchema {
   importedSchemaCache.delete(sdl);
   importedSchemaCache.set(sdl, loaded);
-  while (importedSchemaCache.size > IMPORTED_SCHEMA_CACHE_SIZE) {
-    const oldest = importedSchemaCache.keys().next().value;
-    if (oldest === undefined) break;
+  // Map iteration is insertion-ordered, so the first keys are the least recent.
+  for (const oldest of importedSchemaCache.keys()) {
+    if (importedSchemaCache.size <= IMPORTED_SCHEMA_CACHE_SIZE) break;
     importedSchemaCache.delete(oldest);
   }
   return loaded;

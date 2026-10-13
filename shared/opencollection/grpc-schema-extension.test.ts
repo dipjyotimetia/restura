@@ -117,6 +117,25 @@ describe('OpenCollection gRPC schema snapshot extension', () => {
     );
   });
 
+  it('carries a timeout-only request without an empty schemas table', () => {
+    const collection: Collection = {
+      id: 'c',
+      name: 'Timeout only',
+      items: [item(grpc('Slow', { timeout: 30_000 }))],
+    };
+    const ext = (internalToOC(collection).extensions as Record<string, unknown>)[
+      GRPC_EXTENSION_KEY
+    ];
+    expect(ext).toEqual({ requests: [{ path: ['Slow'], timeout: 30_000 }] });
+
+    const back = grpcRequests(
+      ocToInternal(parseOpenCollectionYAML(serializeOpenCollectionYAML(internalToOC(collection))))
+        .items
+    );
+    expect(back[0]?.timeout).toBe(30_000);
+    expect(back[0]?.schema).toBeUndefined();
+  });
+
   it('ignores unknown hashes and malformed entries on import', () => {
     const oc = internalToOC(fixture());
     const ext = (oc.extensions as Record<string, unknown>)[GRPC_EXTENSION_KEY] as {
