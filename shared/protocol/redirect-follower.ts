@@ -102,6 +102,12 @@ export interface FollowRedirectsOptions {
    * 3xx response is returned as-is). Omit to use the default.
    */
   maxRedirects?: number;
+  /**
+   * Hops already spent earlier in the same logical request — the Digest
+   * challenge/retry continues the original chain, so it shares one budget
+   * instead of getting a fresh `maxRedirects`.
+   */
+  hopsUsed?: number;
 }
 
 export async function followRedirects(
@@ -111,7 +117,7 @@ export async function followRedirects(
 ): Promise<FetcherResponse> {
   let req = initialReq;
   let response = await fetcher(req);
-  let hops = 0;
+  let hops = options.hopsUsed ?? 0;
 
   // maxRedirects: 0 means "do not follow" — return the 3xx response unfollowed
   // (parity with axios `maxRedirects: 0` and the browser interactive path, so a

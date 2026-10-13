@@ -37,4 +37,21 @@ describe('materializeExternalProtocolAuth', () => {
       } as never)
     ).rejects.toThrow('Azure Key Vault profile is unavailable.');
   });
+
+  it('fails closed for a digest password before the challenge retry computes a hash', async () => {
+    await expect(
+      materializeExternalProtocolAuth({
+        type: 'digest',
+        digest: {
+          username: 'alice',
+          password: {
+            kind: 'external',
+            provider: 'azure-key-vault',
+            profileId: 'missing',
+            secretId: 'pw',
+          },
+        },
+      })
+    ).rejects.toThrow('Azure Key Vault profile is unavailable.');
+  });
 });

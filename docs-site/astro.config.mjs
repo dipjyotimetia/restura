@@ -243,6 +243,10 @@ export default defineConfig({
                   label: '0028 — TypeScript architecture boundaries',
                   slug: 'architecture/adrs/0028-typescript-architecture-boundaries',
                 },
+                {
+                  label: '0029 — Digest auth via challenge-retry',
+                  slug: 'architecture/adrs/0029-digest-auth-challenge-retry',
+                },
               ],
             },
           ],

@@ -38,6 +38,7 @@ timeline
   2026-07-02 : 0026 — Electron CSP + permission hardening
   2026-07-03 : 0027 — Telemetry + privacy-preserving usage
   2026-07-16 : 0028 — TypeScript architecture boundaries
+  2026-10-13 : 0029 — Digest auth via challenge-retry
 ```
 
 <CardGrid>
@@ -180,6 +181,11 @@ timeline
     title="0028 — TypeScript architecture boundaries"
     description="Executable source-zone directions, runtime-cycle detection, and non-growing file-size and source-pattern ratchets enforced by npm run architecture:check."
     href="/architecture/adrs/0028-typescript-architecture-boundaries/"
+  />
+  <LinkCard
+    title="0029 — Digest auth via challenge-retry"
+    description="Digest answered once in the shared HTTP core: no credentials before the 401, one same-origin retry sharing the redirect budget, secrets resolved at the wire."
+    href="/architecture/adrs/0029-digest-auth-challenge-retry/"
   />
 </CardGrid>
 

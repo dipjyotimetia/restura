@@ -93,6 +93,12 @@ export const ProtocolAuthConfigSchema = z.object({
       passwordType: z.enum(['PasswordDigest', 'PasswordText']).optional(),
     })
     .optional(),
+  digest: z
+    .object({
+      username: z.string(),
+      password: protocolSecretValueSchema,
+    })
+    .optional(),
 });
 
 /**
@@ -118,6 +124,7 @@ export function containsAuthHandle(
   }
   if (auth.ntlm && isProtocolSecretHandle(auth.ntlm.password)) return true;
   if (auth.wsse && isProtocolSecretHandle(auth.wsse.password)) return true;
+  if (auth.digest && isProtocolSecretHandle(auth.digest.password)) return true;
   return false;
 }
 

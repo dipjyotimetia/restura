@@ -1,6 +1,6 @@
+import { fetchClientCredentialsToken, tokenExpiresAt } from '@shared/auth/oauth2';
 import type { ProtocolAuthConfig, ProtocolAuthType } from '@shared/protocol/types';
 import { validateURL } from '@shared/protocol/url-validation';
-import { fetchClientCredentialsToken, tokenExpiresAt } from '@shared/auth/oauth2';
 import type { AuthConfig } from '@shared/types';
 import { resolveVarsDeep } from '../varResolver';
 
@@ -9,8 +9,9 @@ import { resolveVarsDeep } from '../varResolver';
  *
  * Header/query-based schemes (Bearer, Basic, API-key, OAuth2) are materialised
  * into headers/params here — the renderer normally does this before the proxy.
- * Wire-signed schemes (AWS SigV4, OAuth1, WSSE) need byte-exact signing and are
- * forwarded as a `ProtocolAuthConfig` to `executeHttpProxy` (HTTP path only).
+ * Wire-signed schemes (AWS SigV4, OAuth1, WSSE) need byte-exact signing, and
+ * Digest is answered after the server's 401 challenge; both are forwarded as a
+ * `ProtocolAuthConfig` to `executeHttpProxy` (HTTP path only).
  */
 
 /**
@@ -77,7 +78,8 @@ export function applyAuthHeaders(
       }
       return;
     }
-    // aws-signature, oauth1, ntlm, wsse are sign-at-wire — handled by toProtocolAuth.
+    // aws-signature, oauth1, ntlm, wsse are sign-at-wire and digest is answered
+    // after the 401 challenge — all handled by toProtocolAuth.
   }
 }
 
@@ -172,7 +174,7 @@ function withAccessToken(
  */
 export function toProtocolAuth(auth: AuthConfig | undefined): ProtocolAuthConfig | undefined {
   if (!auth) return undefined;
-  const wireTypes: ProtocolAuthType[] = ['aws-signature', 'oauth1', 'ntlm', 'wsse'];
+  const wireTypes: ProtocolAuthType[] = ['aws-signature', 'oauth1', 'ntlm', 'wsse', 'digest'];
   if (!wireTypes.includes(auth.type as ProtocolAuthType)) return undefined;
   const out: ProtocolAuthConfig = { type: auth.type as ProtocolAuthType };
   if (auth.awsSignature) {
@@ -208,6 +210,12 @@ export function toProtocolAuth(auth: AuthConfig | undefined): ProtocolAuthConfig
       password: secretString(auth.ntlm.password) ?? '',
       ...(auth.ntlm.domain ? { domain: auth.ntlm.domain } : {}),
       ...(auth.ntlm.workstation ? { workstation: auth.ntlm.workstation } : {}),
+    };
+  }
+  if (auth.digest) {
+    out.digest = {
+      username: auth.digest.username,
+      password: secretString(auth.digest.password) ?? '',
     };
   }
   if (auth.wsse) {

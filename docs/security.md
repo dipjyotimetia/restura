@@ -109,6 +109,37 @@ console, scripts and CLI all read from that list.
   raw `set-cookie` header stays fully redacted
   (`src/lib/shared/console-sanitization.ts`).
 
+### Digest auth
+
+Digest (RFC 7616) is answered in the shared HTTP core
+(`shared/protocol/digest-auth.ts`), so the Worker, self-host server, Electron
+and the CLI apply the same rules. See
+[ADR 0029](adr/0029-digest-auth-challenge-retry.md).
+
+- **No credentials before the challenge.** The first request carries no
+  Digest credentials in any form.
+- **Same origin on every hop.** A `401` Digest challenge is answered only if
+  every hop of the redirect chain stayed on the initial origin. A chain that
+  touched another origin on any hop (including `A → evil → A`) gets its `401`
+  back unanswered, and so does a non-Digest `401`.
+- **One retry, shared redirect budget.** Exactly one retry is sent, and it
+  continues the original `maxRedirects` budget instead of starting a fresh
+  one.
+- **Secrets resolved at the wire.** The password is resolved in the process
+  that sends the request (Electron main for keychain `SecretRef` handles, per
+  ADR 0007); the Worker rejects handles with `400`. Only the hash is sent.
+- **Single redirect owner on desktop.** Electron no longer runs its own
+  redirect loop around the shared follower. That loop re-sent Digest,
+  `Authorization` and `Cookie` for the 3xx statuses the follower deliberately
+  doesn't follow (300, 304, 305, 306). Desktop now returns those as-is, like
+  the web.
+- **Residual risk: MD5 downgrade over `http:`.** The strongest offered
+  algorithm is chosen (SHA-256 over MD5), but an on-path attacker on plain
+  `http:` can strip the SHA-256 challenge and can see the exchange anyway.
+  Use `https:`. `auth-int` and `userhash` are not supported.
+
+Pinned by `tests/security/digest-auth.test.ts`.
+
 ## SSRF / DNS-rebind guard (Electron)
 
 All Electron transports validate the destination against the shared SSRF

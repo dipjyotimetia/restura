@@ -18,7 +18,7 @@ Postman's format is locked. Insomnia's is locked. Bruno's is its own. Switching 
 - Environments with scoped variables.
 - Scripts (pre-request and test) — sandbox-portable JavaScript.
 - Workflows — separately stored OWS orchestration artifacts that reference saved HTTP requests. The currently executable profile is deliberately bounded; see the [workflow guide](/guides/workflows/).
-- Auth schemes — Basic, Bearer, API key, OAuth 2.0, AWS SigV4, Digest, OAuth 1.0a, NTLM, and WSSE, at request, folder and collection level. Secrets held as `SecretRef` handles export value-less (`{{handle:label}}`), never as plaintext. Digest and NTLM round-trip but are not yet applied when a request is sent ([#861](https://github.com/dipjyotimetia/restura/issues/861)).
+- Auth schemes — Basic, Bearer, API key, OAuth 2.0, AWS SigV4, Digest, OAuth 1.0a, NTLM, and WSSE, at request, folder and collection level. Secrets held as `SecretRef` handles export value-less (`{{handle:label}}`), never as plaintext. NTLM round-trips but is not yet applied when a request is sent ([#1069](https://github.com/dipjyotimetia/restura/issues/1069)); Digest is applied after the server's 401 challenge.
 - Vendor extensions via the `extensions` field — so tools can persist proprietary data while staying spec-compliant.
 
 ## Two layouts

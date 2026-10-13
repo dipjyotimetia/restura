@@ -35,6 +35,10 @@ The renderer still applies the schemes that are just static headers (Bearer, Bas
 - Auth logic is split: simple header schemes in the renderer, wire-signing schemes in the backend. Contributors must know which side a new scheme belongs on.
 - The backend must reconstruct enough request context (region/service for SigV4, realm for OAuth1) to sign, so that metadata has to flow through the `RequestSpec`.
 
+## Addendum (2026-10-13): Digest
+
+Digest auth also runs in the backend that sends the bytes, but it is challenge/response, not up-front signing: nothing is added to the first request, and a same-origin `401` Digest challenge is answered with exactly one retry inside the shared redirect follower. Its redirect, same-origin, and secret-resolution rules are recorded separately in [ADR 0029](/architecture/adrs/0029-digest-auth-challenge-retry/). NTLM remains unsent ([#1069](https://github.com/dipjyotimetia/restura/issues/1069)).
+
 ## Related
 
 - [Guide: Authentication](/guides/auth/) — the auth schemes covered here.

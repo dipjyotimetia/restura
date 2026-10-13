@@ -11,6 +11,7 @@ const FIELDS: Array<[string, string[]]> = [
   ['oauth1', ['consumerSecret', 'accessToken', 'accessTokenSecret']],
   ['ntlm', ['password']],
   ['wsse', ['password']],
+  ['digest', ['password']],
 ];
 
 /** Resolve only external values in trusted main, preserving existing handle resolution. */

@@ -51,7 +51,7 @@ describe('AuthType / ProtocolAuthType parity', () => {
 });
 
 describe('sign-at-wire auth sub-shapes are mutually assignable', () => {
-  it('aws-signature / oauth1 / ntlm / wsse match between renderer and protocol (compile-time)', () => {
+  it('aws-signature / oauth1 / ntlm / wsse / digest match between renderer and protocol (compile-time)', () => {
     // These are the only auth shapes the shared core acts on; they must stay
     // structurally interchangeable with the renderer's (modulo SecretValue,
     // itself guarded by tests/secret-ref-parity.test.ts).
@@ -59,6 +59,7 @@ describe('sign-at-wire auth sub-shapes are mutually assignable', () => {
     expectTypeEqual<Equals<AuthConfig['oauth1'], ProtocolAuthConfig['oauth1']>>();
     expectTypeEqual<Equals<AuthConfig['ntlm'], ProtocolAuthConfig['ntlm']>>();
     expectTypeEqual<Equals<AuthConfig['wsse'], ProtocolAuthConfig['wsse']>>();
+    expectTypeEqual<Equals<AuthConfig['digest'], ProtocolAuthConfig['digest']>>();
   });
 
   it('representative sign-at-wire configs parse against the protocol schema (runtime)', () => {
@@ -73,6 +74,7 @@ describe('sign-at-wire auth sub-shapes are mutually assignable', () => {
       },
       { type: 'ntlm', ntlm: { username: 'u', password: { kind: 'handle', id: 'h1' } } },
       { type: 'wsse', wsse: { username: 'u', password: 'p', passwordType: 'PasswordDigest' } },
+      { type: 'digest', digest: { username: 'u', password: { kind: 'handle', id: 'h2' } } },
     ];
     for (const s of samples) {
       expect(ProtocolAuthConfigSchema.safeParse(s).success).toBe(true);

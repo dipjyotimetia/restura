@@ -19,7 +19,6 @@ import type {
 import { createLogger } from '@shared/runtime/logger';
 import type { HttpVersionPreference } from '@shared/types';
 import { ipcMain, session } from 'electron';
-import type * as net from 'net';
 import { Agent, buildConnector, ProxyAgent, request as undiciRequest } from 'undici';
 import { IPC } from '../../shared/channels';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
@@ -50,9 +49,9 @@ import {
   wrapConnectorForTiming,
   wrapConnectorRequireH2,
 } from './http-connector-wrappers';
+import { subscribeProxyAlpnCapture } from './http-proxy-alpn';
 import { decodeResponseBody, tryParseJson, wireCodings } from './http-response-stream';
 import { createSecureLookup, openSocksSocket } from './http-secure-connection';
-import { subscribeProxyAlpnCapture } from './http-proxy-alpn';
 import { createSocksDispatcher } from './http-socks-dispatcher';
 import { h2NotNegotiatedError, resolveHttpVersionPlan } from './http-version';
 import { interceptorRegistry } from './interceptor-registry';
@@ -75,8 +74,8 @@ const log = createLogger('http');
 //   Connection timeout                       → Agent({ connect: { timeout } })
 //   Manual req.write + req.end               → body: BodyInit (string | Uint8Array | …)
 //   Buffered chunks via res.on('data')       → response.body.text()
-//   Manual redirects (301/302/etc)           → makeHttpRequest wrapper handles it
-//                                              (maxRedirections: 0 on undici call)
+//   Manual redirects (301/302/303/307/308)   → shared followRedirects in executeHttpProxy
+//                                              (undici's default: no auto-follow)
 //   ALPN visibility                          → custom connector wraps default and
 //                                              snapshots socket.alpnProtocol; surfaced
 //                                              via response.negotiatedAlpn for HTTP/2
@@ -277,13 +276,32 @@ function buildConnectOptions(
 // propagation, ALPN capture) live inside this closure.
 // Exported as a test seam so the full form-data/binary/gzip round-trip can be
 // exercised against a local mock upstream without standing up IPC.
-export function buildElectronFetcher(
-  electronConfig: HttpRequestConfig,
-  socksSocket: net.Socket | null
-): Fetcher {
+export function buildElectronFetcher(electronConfig: HttpRequestConfig): Fetcher {
   return async (req: FetcherRequest): Promise<FetcherResponse> => {
     const url = new URL(req.url);
     const isHttps = url.protocol === 'https:';
+    const signal = electronConfig.signal
+      ? AbortSignal.any([req.signal, electronConfig.signal])
+      : req.signal;
+    // SOCKS: one tunnel per fetcher call, to THIS hop's target. The shared core
+    // calls the fetcher again for a Digest retry or a followed redirect; a
+    // tunnel is single-use (undici owns and closes it with the dispatcher) and
+    // is bound to the host it was opened for. The hop URL was already
+    // SSRF-validated by the shared core (initial URL + every redirect hop).
+    const socksProxy =
+      electronConfig.proxy?.enabled &&
+      electronConfig.proxy.host &&
+      (electronConfig.proxy.type === 'socks4' || electronConfig.proxy.type === 'socks5')
+        ? electronConfig.proxy
+        : undefined;
+    const socksSocket = socksProxy
+      ? await openSocksSocket(
+          socksProxy,
+          url.hostname,
+          parseInt(url.port || (isHttps ? '443' : '80'), 10),
+          signal
+        )
+      : null;
     const verifySsl = electronConfig.verifySsl !== false;
     if (!verifySsl) {
       log.warn('SSL certificate verification disabled for this request');
@@ -363,7 +381,7 @@ export function buildElectronFetcher(
           const upstreamPort = url.port ? parseInt(url.port, 10) : isHttps ? 443 : 80;
           unsubscribeProxyAlpn = subscribeProxyAlpnCapture(url.hostname, upstreamPort, alpnHolder);
         }
-      } else if ((proxyType === 'socks4' || proxyType === 'socks5') && socksSocket) {
+      } else if (socksSocket) {
         dispatcher = createSocksDispatcher(
           socksSocket,
           url,
@@ -526,17 +544,16 @@ export function buildElectronFetcher(
           : never,
         headers: outHeaders,
         body: undiciBody,
-        signal: electronConfig.signal
-          ? AbortSignal.any([req.signal, electronConfig.signal])
-          : req.signal,
+        signal,
         dispatcher,
-        // undici's default is maxRedirections: 0 (no auto-follow); manual redirect handling
-        // lives in makeHttpRequest, so we rely on that default.
+        // undici's default is no auto-follow; redirects are followed (and
+        // credentials stripped cross-origin) by the shared followRedirects.
       });
     } catch (err) {
-      // Connection / dispatch failed — release the dispatcher and any
-      // diagnostic-channel listener immediately.
+      // Connection / dispatch failed — release the dispatcher, the SOCKS
+      // tunnel, and any diagnostic-channel listener immediately.
       cleanup();
+      if (socksSocket && !socksSocket.destroyed) socksSocket.destroy();
       // Translate undici's connect-timeout error into the legacy message shape so existing
       // callers / log output stay consistent.
       if (err instanceof Error && /connect timeout|UND_ERR_CONNECT_TIMEOUT/i.test(err.message)) {
@@ -621,10 +638,11 @@ export function buildElectronFetcher(
   };
 }
 
-async function makeHttpRequest(
-  config: HttpRequestConfig,
-  redirectCount = 0
-): Promise<HttpResponse> {
+// Redirects are owned by the shared follower inside executeHttpProxy (per-hop
+// SSRF re-validation + cross-origin credential stripping). Any 3xx it hands
+// back — 300/304/305/306, or a hop past maxRedirects=0 — is returned as-is,
+// never re-sent with the original credentials.
+async function makeHttpRequest(config: HttpRequestConfig): Promise<HttpResponse> {
   config = await materializeSecretVariables(config, config.signal);
   let policyConfig: HttpRequestConfig;
   try {
@@ -696,142 +714,79 @@ async function makeHttpRequest(
 
   const interceptedConfig = await interceptorRegistry.runRequest(resolvedConfig);
 
-  // Pre-establish SOCKS tunnel (must be async, before invoking the fetcher)
-  let socksSocket: net.Socket | null = null;
-  if (
-    interceptedConfig.proxy?.enabled &&
-    (interceptedConfig.proxy.type === 'socks4' || interceptedConfig.proxy.type === 'socks5')
-  ) {
-    const socksUrl = new URL(interceptedConfig.url);
-    const socksTargetPort = parseInt(
-      socksUrl.port || (socksUrl.protocol === 'https:' ? '443' : '80'),
-      10
-    );
-    socksSocket = await openSocksSocket(
-      interceptedConfig.proxy,
-      socksUrl.hostname,
-      socksTargetPort,
-      interceptedConfig.signal
-    );
+  const mainAuth = await materializeHttpAuth(interceptedConfig);
+
+  const fetcher = buildElectronFetcher(interceptedConfig);
+  const redirectPolicy: {
+    followOriginalMethod?: boolean;
+    followAuthHeader?: boolean;
+    stripReferer?: boolean;
+    maxRedirects?: number;
+  } = {};
+  if (interceptedConfig.followOriginalMethod !== undefined) {
+    redirectPolicy.followOriginalMethod = interceptedConfig.followOriginalMethod;
+  }
+  if (interceptedConfig.followAuthHeader !== undefined) {
+    redirectPolicy.followAuthHeader = interceptedConfig.followAuthHeader;
+  }
+  if (interceptedConfig.stripReferer !== undefined) {
+    redirectPolicy.stripReferer = interceptedConfig.stripReferer;
+  }
+  if (interceptedConfig.maxRedirects !== undefined) {
+    redirectPolicy.maxRedirects = interceptedConfig.maxRedirects;
+  }
+  const result = await executeHttpProxy(
+    {
+      method: interceptedConfig.method ?? 'GET',
+      url: interceptedConfig.url,
+      headers: mainAuth.headers,
+      params: mainAuth.params,
+      // Honour an explicit bodyType (form-data/binary/etc.); legacy callers that
+      // only send `data` keep the raw-when-present default.
+      bodyType: interceptedConfig.bodyType ?? (interceptedConfig.data ? 'raw' : 'none'),
+      ...(interceptedConfig.data !== undefined ? { data: interceptedConfig.data } : {}),
+      ...(interceptedConfig.formData ? { formData: interceptedConfig.formData } : {}),
+      ...(interceptedConfig.timeout !== undefined ? { timeout: interceptedConfig.timeout } : {}),
+      ...(mainAuth.auth ? { auth: mainAuth.auth } : {}),
+      ...(Object.keys(redirectPolicy).length > 0 ? { redirectPolicy } : {}),
+      ...(interceptedConfig.encodeUrlAutomatically !== undefined
+        ? { encodeUrl: interceptedConfig.encodeUrlAutomatically }
+        : {}),
+    },
+    fetcher,
+    {
+      // Shared outbound-network policy (Settings → Security), same snapshot
+      // every desktop transport reads. Cloud metadata stays blocked inside
+      // the shared URL guard regardless.
+      ...getExecutionPolicy().security,
+      resolveSecret: (v) => unwrapSecretValueMain(v) ?? '',
+      // Desktop signs AWS SigV4 with the official @smithy/signature-v4; the
+      // Worker keeps the built-in Web-Crypto signer.
+      sigV4Signer: smithySigV4Signer,
+    }
+  );
+
+  if (!result.ok) {
+    throw new Error(result.payload.error);
   }
 
-  let rawResult: HttpResponse;
-  try {
-    const mainAuth = await materializeHttpAuth(interceptedConfig);
-
-    const fetcher = buildElectronFetcher(interceptedConfig, socksSocket);
-    const redirectPolicy: {
-      followOriginalMethod?: boolean;
-      followAuthHeader?: boolean;
-      stripReferer?: boolean;
-      maxRedirects?: number;
-    } = {};
-    if (interceptedConfig.followOriginalMethod !== undefined) {
-      redirectPolicy.followOriginalMethod = interceptedConfig.followOriginalMethod;
-    }
-    if (interceptedConfig.followAuthHeader !== undefined) {
-      redirectPolicy.followAuthHeader = interceptedConfig.followAuthHeader;
-    }
-    if (interceptedConfig.stripReferer !== undefined) {
-      redirectPolicy.stripReferer = interceptedConfig.stripReferer;
-    }
-    if (interceptedConfig.maxRedirects !== undefined) {
-      redirectPolicy.maxRedirects = interceptedConfig.maxRedirects;
-    }
-    const result = await executeHttpProxy(
-      {
-        method: interceptedConfig.method ?? 'GET',
-        url: interceptedConfig.url,
-        headers: mainAuth.headers,
-        params: mainAuth.params,
-        // Honour an explicit bodyType (form-data/binary/etc.); legacy callers that
-        // only send `data` keep the raw-when-present default.
-        bodyType: interceptedConfig.bodyType ?? (interceptedConfig.data ? 'raw' : 'none'),
-        ...(interceptedConfig.data !== undefined ? { data: interceptedConfig.data } : {}),
-        ...(interceptedConfig.formData ? { formData: interceptedConfig.formData } : {}),
-        ...(interceptedConfig.timeout !== undefined ? { timeout: interceptedConfig.timeout } : {}),
-        ...(mainAuth.auth ? { auth: mainAuth.auth } : {}),
-        ...(Object.keys(redirectPolicy).length > 0 ? { redirectPolicy } : {}),
-        ...(interceptedConfig.encodeUrlAutomatically !== undefined
-          ? { encodeUrl: interceptedConfig.encodeUrlAutomatically }
-          : {}),
-      },
-      fetcher,
-      {
-        // Shared outbound-network policy (Settings → Security), same snapshot
-        // every desktop transport reads. Cloud metadata stays blocked inside
-        // the shared URL guard regardless.
-        ...getExecutionPolicy().security,
-        resolveSecret: (v) => unwrapSecretValueMain(v) ?? '',
-        // Desktop signs AWS SigV4 with the official @smithy/signature-v4; the
-        // Worker keeps the built-in Web-Crypto signer.
-        sigV4Signer: smithySigV4Signer,
-      }
-    );
-
-    if (!result.ok) {
-      throw new Error(result.payload.error);
-    }
-
-    // Translate NormalizedResponse → legacy IPC HttpResponse shape (parses JSON when possible).
-    // Base64 binary bodies are passed through verbatim — never JSON-parsed.
-    rawResult = {
-      status: result.response.status,
-      statusText: result.response.statusText,
-      headers: result.response.headers,
-      data:
-        result.response.bodyEncoding === 'base64'
-          ? result.response.body
-          : tryParseJson(result.response.body),
-      size: result.response.size,
-      ...(result.response.setCookies && { setCookies: result.response.setCookies }),
-      ...(result.response.bodyEncoding && { bodyEncoding: result.response.bodyEncoding }),
-      ...(result.response.negotiatedAlpn && { negotiatedAlpn: result.response.negotiatedAlpn }),
-      ...(result.response.bodyNotice && { bodyNotice: result.response.bodyNotice }),
-      ...(result.response.timings && { timings: result.response.timings }),
-    };
-
-    // Manual redirect handling — undici is configured with maxRedirections: 0.
-    const isRedirect = rawResult.status >= 300 && rawResult.status < 400;
-    if (isRedirect) {
-      const locationHeader = rawResult.headers['location'];
-      const maxRedirects = interceptedConfig.maxRedirects ?? 5;
-      if (locationHeader && redirectCount < maxRedirects) {
-        const locationStr = Array.isArray(locationHeader)
-          ? locationHeader[0]
-          : (locationHeader as string);
-        if (locationStr) {
-          try {
-            const redirectUrl = new URL(locationStr, interceptedConfig.url).href;
-            // For 301, 302, 303: change POST to GET. For 307, 308: keep original method.
-            const isMethodReset =
-              (rawResult.status === 301 || rawResult.status === 302 || rawResult.status === 303) &&
-              interceptedConfig.method?.toUpperCase() === 'POST';
-            const newMethod = isMethodReset ? 'GET' : interceptedConfig.method;
-
-            // Destroy the SOCKS socket before recursing — the next request opens its own tunnel.
-            if (socksSocket && !socksSocket.destroyed) socksSocket.destroy();
-
-            const next: HttpRequestConfig = {
-              ...interceptedConfig,
-              url: redirectUrl,
-              method: newMethod,
-              ...(isMethodReset ? { data: undefined } : {}),
-            };
-            return makeHttpRequest(next, redirectCount + 1);
-          } catch (err) {
-            // If redirect URL is invalid, fall through and return current response.
-            log.error('invalid redirect URL', {
-              error: err instanceof Error ? err.message : String(err),
-            });
-          }
-        }
-      }
-    }
-  } catch (err) {
-    if (socksSocket && !socksSocket.destroyed) socksSocket.destroy();
-    throw err;
-  }
+  // Translate NormalizedResponse → legacy IPC HttpResponse shape (parses JSON when possible).
+  // Base64 binary bodies are passed through verbatim — never JSON-parsed.
+  const rawResult: HttpResponse = {
+    status: result.response.status,
+    statusText: result.response.statusText,
+    headers: result.response.headers,
+    data:
+      result.response.bodyEncoding === 'base64'
+        ? result.response.body
+        : tryParseJson(result.response.body),
+    size: result.response.size,
+    ...(result.response.setCookies && { setCookies: result.response.setCookies }),
+    ...(result.response.bodyEncoding && { bodyEncoding: result.response.bodyEncoding }),
+    ...(result.response.negotiatedAlpn && { negotiatedAlpn: result.response.negotiatedAlpn }),
+    ...(result.response.bodyNotice && { bodyNotice: result.response.bodyNotice }),
+    ...(result.response.timings && { timings: result.response.timings }),
+  };
 
   return interceptorRegistry.runResponse(rawResult, interceptedConfig);
 }

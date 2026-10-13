@@ -27,10 +27,11 @@ afterAll(async () => {
 describe('GraphQL introspection over the Electron fetcher', () => {
   it('POSTs the introspection query and gets a usable __schema back', async () => {
     const url = `${server.url}/graphql`;
-    const fetcher = buildElectronFetcher(
-      { method: 'POST', url, verifySsl: true } as HttpRequestConfig,
-      null
-    );
+    const fetcher = buildElectronFetcher({
+      method: 'POST',
+      url,
+      verifySsl: true,
+    } as HttpRequestConfig);
     const result = await executeHttpProxy(
       {
         method: 'POST',

@@ -104,7 +104,7 @@ Some protocols and auth schemes are connection-based, or lossy on OpenCollection
 - **OAuth2** — configure client-credentials manually: token URL `http://localhost:8080/oauth/token`, client `restura-client`/`restura-secret`, scope `read`; call `GET /oauth/protected`. OpenCollection import drops the grant type, so this can't be a click-Send collection entry.
 - **WSSE** — import is lossy, so configure manually (UsernameToken / PasswordDigest). `GET /wsse/protected` verifies the `X-WSSE` digest end-to-end.
 - **OAuth1** — signed at the wire; import is lossy, so configure manually. `GET /oauth1/protected` verifies the signature end-to-end via an independent RFC 5849 verifier (`e2e/mocks/oauth1Verify.ts`) that does not share code with the client signer.
-- **Digest / NTLM** — Restura doesn't apply these on send yet (on any platform); the server's `/digest-auth/:user/:pass` route exists for reference only.
+- **Digest** — the server's `/digest-auth/:user/:pass` route (MD5, `qop=auth`) exercises Restura's 401 challenge/retry. **NTLM** isn't applied on send yet.
 
 ## Related
 

@@ -136,10 +136,11 @@ describe('contract: executeHttpProxy parity', () => {
 describe('contract: multiple Set-Cookie fields survive every fetcher (RFC 6265 §3)', () => {
   // Built per call: the upstream URL only exists once beforeAll has run.
   const realElectronFetcher: Fetcher = (req) =>
-    buildElectronFetcher(
-      { method: req.method, url: req.url, verifySsl: true } as HttpRequestConfig,
-      null
-    )(req);
+    buildElectronFetcher({
+      method: req.method,
+      url: req.url,
+      verifySsl: true,
+    } as HttpRequestConfig)(req);
   const table = [
     ...FETCHER_TABLE,
     // The production desktop fetcher (PAC/SOCKS/mTLS closure), not the contract mimic.
