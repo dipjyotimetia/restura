@@ -114,4 +114,15 @@ describe('desktop SOCKS tunnel per fetcher call', () => {
     expect(res.data).toBe('other');
     expect(socks.connectHosts()).toEqual([`127.0.0.1:${digest.port}`, `127.0.0.1:${other.port}`]);
   });
+
+  it('opens no tunnel when request setup fails before dispatch', async () => {
+    // An unresolvable client-cert passphrase handle throws while building TLS
+    // material; a tunnel opened before that step would leak.
+    await expect(
+      send(`https://127.0.0.1:${digest.port}/secret`, {
+        clientCert: { pfx: 'AA==', passphrase: { kind: 'handle', id: 'missing-handle' } },
+      })
+    ).rejects.toThrow();
+    expect(socks.connectHosts()).toEqual([]);
+  });
 });

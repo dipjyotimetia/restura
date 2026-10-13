@@ -283,25 +283,42 @@ export function buildElectronFetcher(electronConfig: HttpRequestConfig): Fetcher
     const signal = electronConfig.signal
       ? AbortSignal.any([req.signal, electronConfig.signal])
       : req.signal;
-    // SOCKS: one tunnel per fetcher call, to THIS hop's target. The shared core
-    // calls the fetcher again for a Digest retry or a followed redirect; a
-    // tunnel is single-use (undici owns and closes it with the dispatcher) and
-    // is bound to the host it was opened for. The hop URL was already
-    // SSRF-validated by the shared core (initial URL + every redirect hop).
-    const socksProxy =
-      electronConfig.proxy?.enabled &&
-      electronConfig.proxy.host &&
-      (electronConfig.proxy.type === 'socks4' || electronConfig.proxy.type === 'socks5')
-        ? electronConfig.proxy
-        : undefined;
-    const socksSocket = socksProxy
-      ? await openSocksSocket(
-          socksProxy,
-          url.hostname,
-          parseInt(url.port || (isHttps ? '443' : '80'), 10),
-          signal
-        )
-      : null;
+    // undici accepts plain-object headers; the redirect-follower hands us a
+    // Headers instance on follow-up hops, so flatten when needed. Spread-clone
+    // so the FormData branch below can set Content-Type without mutating the
+    // caller's headers object (flattenHeaders may return it by reference).
+    const outHeaders = { ...flattenHeaders(req.headers) };
+
+    // Convert the FetcherRequest body (BodyInit | undefined) into something
+    // undici accepts (string | Uint8Array | Readable | null | undefined).
+    let undiciBody: string | Uint8Array | Readable | null | undefined;
+    if (req.body === undefined) {
+      undiciBody = undefined;
+    } else if (typeof req.body === 'string') {
+      undiciBody = req.body;
+    } else if (req.body instanceof Uint8Array) {
+      undiciBody = req.body;
+    } else if (req.body instanceof ArrayBuffer) {
+      undiciBody = new Uint8Array(req.body);
+    } else if (typeof FormData !== 'undefined' && req.body instanceof FormData) {
+      // The shared body-builder produces a web FormData for multipart bodies;
+      // undici.request can't consume it directly. Serialize via the platform's
+      // multipart encoder (Response) to get the bytes AND the boundary'd
+      // Content-Type, then set that header — the builder left it unset because
+      // the boundary isn't known until encoding.
+      const encoded = new Response(req.body);
+      const ct = encoded.headers.get('content-type');
+      undiciBody = new Uint8Array(await encoded.arrayBuffer());
+      for (const key of Object.keys(outHeaders)) {
+        if (key.toLowerCase() === 'content-type') delete outHeaders[key];
+      }
+      if (ct) outHeaders['content-type'] = ct;
+    } else {
+      // Other BodyInit variants (Blob, URLSearchParams, ReadableStream) aren't
+      // produced by the Electron IPC code path.
+      throw new Error('Unsupported body type for Electron fetcher');
+    }
+
     const verifySsl = electronConfig.verifySsl !== false;
     if (!verifySsl) {
       log.warn('SSL certificate verification disabled for this request');
@@ -336,6 +353,25 @@ export function buildElectronFetcher(electronConfig: HttpRequestConfig): Fetcher
     // rides there to put h2 first in the ALPN list.
     const versionTls = versionPlan.preferH2 ? { preferH2: true } : {};
 
+    // SOCKS: one tunnel per fetcher call, to THIS hop's target (the shared core
+    // calls the fetcher again for a Digest retry or a followed redirect). A
+    // tunnel is single-use and host-bound; undici closes it with the dispatcher.
+    // Opened after every setup step that can throw, so setup never leaks it.
+    // The hop URL was SSRF-validated by the shared core (every redirect hop).
+    const socksProxy =
+      electronConfig.proxy?.enabled &&
+      electronConfig.proxy.host &&
+      (electronConfig.proxy.type === 'socks4' || electronConfig.proxy.type === 'socks5')
+        ? electronConfig.proxy
+        : undefined;
+    const socksSocket = socksProxy
+      ? await openSocksSocket(
+          socksProxy,
+          url.hostname,
+          parseInt(url.port || (isHttps ? '443' : '80'), 10),
+          signal
+        )
+      : null;
     // Choose a dispatcher based on proxy configuration.
     let dispatcher: Agent | ProxyAgent;
     // ALPN is meaningful for TLS; for h2c prior knowledge undici stamps 'h2'
@@ -497,42 +533,6 @@ export function buildElectronFetcher(electronConfig: HttpRequestConfig): Fetcher
         /* ignore */
       });
     };
-
-    // undici accepts plain-object headers; the redirect-follower hands us a
-    // Headers instance on follow-up hops, so flatten when needed. Spread-clone
-    // so the FormData branch below can set Content-Type without mutating the
-    // caller's headers object (flattenHeaders may return it by reference).
-    const outHeaders = { ...flattenHeaders(req.headers) };
-
-    // Convert the FetcherRequest body (BodyInit | undefined) into something
-    // undici accepts (string | Uint8Array | Readable | null | undefined).
-    let undiciBody: string | Uint8Array | Readable | null | undefined;
-    if (req.body === undefined) {
-      undiciBody = undefined;
-    } else if (typeof req.body === 'string') {
-      undiciBody = req.body;
-    } else if (req.body instanceof Uint8Array) {
-      undiciBody = req.body;
-    } else if (req.body instanceof ArrayBuffer) {
-      undiciBody = new Uint8Array(req.body);
-    } else if (typeof FormData !== 'undefined' && req.body instanceof FormData) {
-      // The shared body-builder produces a web FormData for multipart bodies;
-      // undici.request can't consume it directly. Serialize via the platform's
-      // multipart encoder (Response) to get the bytes AND the boundary'd
-      // Content-Type, then set that header — the builder left it unset because
-      // the boundary isn't known until encoding.
-      const encoded = new Response(req.body);
-      const ct = encoded.headers.get('content-type');
-      undiciBody = new Uint8Array(await encoded.arrayBuffer());
-      for (const key of Object.keys(outHeaders)) {
-        if (key.toLowerCase() === 'content-type') delete outHeaders[key];
-      }
-      if (ct) outHeaders['content-type'] = ct;
-    } else {
-      // Other BodyInit variants (Blob, URLSearchParams, ReadableStream) aren't
-      // produced by the Electron IPC code path.
-      throw new Error('Unsupported body type for Electron fetcher');
-    }
 
     let response: Awaited<ReturnType<typeof undiciRequest>>;
     try {
