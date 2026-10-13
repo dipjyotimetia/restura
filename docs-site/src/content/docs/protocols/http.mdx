@@ -61,6 +61,7 @@ Every send is recorded to history with status, timing, request hash, and a quick
   - Everywhere: *Waiting* (time to response headers, including any redirects), *Download* (the body), and the remaining overhead. On the web this is the round trip to the Restura *Proxy*; on desktop it's *App* time such as scripts and IPC.
   - Desktop only: *DNS* and *Connect + TLS* are also measured for direct connections. They're left out when a proxy is used, because they would describe the connection to the proxy.
 - **Size**: the decoded body size.
+- **Compression**: compressed bodies are decoded before display. On desktop this covers `gzip`, `br`, `deflate` and `zstd`, including stacked codings such as `Content-Encoding: gzip, br`. If a response uses a coding the app can't decode, the raw bytes are shown with a notice above the body, and the `Content-Encoding` header is kept. The same happens when a response stacks more than three codings. The 10 MB response size limit applies to the decoded body and is checked after every decoding step. zstd bodies that need more than an 8 MB window are refused. HEAD, 204 and 304 responses and empty bodies are never decoded.
 - **Headers**: filter by name or value; *Copy all* copies one `Name: value` line per value.
 - **Body**:
   - pretty-printed JSON with a collapsible **Tree** view (*Copy path* gives a JSONPath you can paste into the JSONPath box)

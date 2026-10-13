@@ -94,6 +94,11 @@ export interface Response {
    */
   negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
   /**
+   * Why the body is shown undecoded, when it is — e.g. the desktop fetcher met
+   * an unsupported Content-Encoding and kept the raw bytes. Shown above the body.
+   */
+  bodyNotice?: string;
+  /**
    * Where the time went, as measured by the proxy core: time to headers and
    * body download everywhere; DNS and connect (incl. TLS) on desktop direct
    * connections. Absent for responses that predate it. `time` stays the

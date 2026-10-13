@@ -87,6 +87,8 @@ Buffered success response (`200`):
 
 `bodyEncoding: "base64"` appears only for binary content types (`data` is then base64); `timings` only when measured. The body is `data`, not `body` — the renderer's `src/features/http/lib/requestExecutor.ts` reads `proxyResponse.data`. The buffered response is capped at 10 MB. Streaming requests return the upstream bytes as a stream instead.
 
+The response may also carry `bodyNotice` (string): a human-readable note that the body was left undecoded — for example an unsupported or over-stacked `Content-Encoding` — and is shown above the body. Only the desktop (Electron) fetcher decodes bodies itself and sets it; the runtime `fetch` behind this API decodes on its own, so in practice this endpoint omits it.
+
 Errors are `{ "error": "<message>" }` with `400` (validation / SSRF block), `413` (too large), `500`, `502` (upstream failure), or `504` (timeout).
 
 ## `POST /api/import/fetch`

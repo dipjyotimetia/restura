@@ -76,6 +76,8 @@ export interface ElectronHttpResponse {
    * Surfaced by the renderer as a small "HTTP/2" / "HTTP/1.1" badge.
    */
   negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
+  /** Why the body was left undecoded (e.g. unsupported Content-Encoding), when it was. */
+  bodyNotice?: string;
   /** Timing breakdown of the final hop (shared/protocol ResponseTimings). */
   timings?: import('../../../shared/protocol/types').ResponseTimings;
 }

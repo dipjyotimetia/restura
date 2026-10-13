@@ -50,7 +50,7 @@ import {
   wrapConnectorForAlpn,
   wrapConnectorForTiming,
 } from './http-connector-wrappers';
-import { capBodyStream, decodeBodyStream, tryParseJson } from './http-response-stream';
+import { decodeResponseBody, tryParseJson, wireCodings } from './http-response-stream';
 import { createSecureLookup, openSocksSocket } from './http-secure-connection';
 import { interceptorRegistry } from './interceptor-registry';
 
@@ -165,6 +165,8 @@ export interface HttpResponse {
   bodyEncoding?: 'base64';
   /** Negotiated ALPN protocol (h2 or h1.1) when available — populated by undici's TLS handshake. */
   negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
+  /** Why the body was left undecoded (e.g. unsupported Content-Encoding), when it was. */
+  bodyNotice?: string;
   /** Timing breakdown of the final hop (see ResponseTimings). */
   timings?: ResponseTimings;
 }
@@ -636,23 +638,17 @@ export function buildElectronFetcher(
       if (v !== undefined) headersOut[k.toLowerCase()] = v as string | string[];
     }
 
-    // Decompress to match the fetch-based backends. When we decode, the original
-    // content-encoding/content-length no longer describe the body the caller
-    // reads, so drop them.
-    const contentEncoding = headersOut['content-encoding'];
-    const bodyStream = decodeBodyStream(
-      response.body,
-      Array.isArray(contentEncoding) ? contentEncoding[0] : contentEncoding
-    );
-    const decoded = bodyStream !== response.body;
+    // Decode (ordered Content-Encoding list) + size-cap. Once decoded, content-encoding/
+    // -length no longer describe the body, so drop them; unsupported codings stay raw.
+    const {
+      body: cappedBody,
+      decoded,
+      notice: bodyNotice,
+    } = decodeResponseBody(response.body, wireCodings(req.method, response.statusCode, headersOut));
     if (decoded) {
       delete headersOut['content-encoding'];
       delete headersOut['content-length'];
     }
-
-    // A decoded stream is already size-capped by decodeBodyStream; a non-decoded
-    // body is not, so cap it here before text()/arrayBuffer()/body buffer it.
-    const cappedBody = decoded ? bodyStream : capBodyStream(bodyStream);
 
     // Determine ALPN. Prefer explicit holder; for SOCKS we re-read the holder we attached.
     let negotiatedAlpn: 'h1.1' | 'h2' | undefined;
@@ -686,6 +682,7 @@ export function buildElectronFetcher(
       body: Readable.toWeb(cappedBody) as ReadableStream<Uint8Array>,
     };
     if (negotiatedAlpn) result.negotiatedAlpn = negotiatedAlpn;
+    if (bodyNotice) result.bodyNotice = bodyNotice;
     if (connectionTimings.connect !== undefined)
       result.connectionTimings = { ...connectionTimings };
     return result;
@@ -862,6 +859,7 @@ async function makeHttpRequest(
     if (result.response.negotiatedAlpn) {
       rawResult.negotiatedAlpn = result.response.negotiatedAlpn;
     }
+    if (result.response.bodyNotice) rawResult.bodyNotice = result.response.bodyNotice;
     if (result.response.timings) {
       rawResult.timings = result.response.timings;
     }

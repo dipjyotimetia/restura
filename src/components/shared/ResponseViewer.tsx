@@ -1,4 +1,4 @@
-import { Braces, Check, Copy, Download, FileDown, Search, Zap } from 'lucide-react';
+import { AlertTriangle, Braces, Check, Copy, Download, FileDown, Search, Zap } from 'lucide-react';
 import type * as Monaco from 'monaco-editor';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
@@ -524,6 +524,16 @@ function ResponseViewer() {
                   ) : undefined
                 }
               />
+
+              {currentResponse.bodyNotice && (
+                <div
+                  role="status"
+                  className="flex items-center gap-2 px-4 py-1.5 border-b border-amber-500/30 bg-amber-500/10 text-sp-12 text-amber-500"
+                >
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  <span>{currentResponse.bodyNotice}</span>
+                </div>
+              )}
 
               <div className="flex-1 min-h-0 overflow-hidden">
                 <SubTabPanel tabKey={activeTab} className="h-full">

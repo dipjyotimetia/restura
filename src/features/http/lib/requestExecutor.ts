@@ -534,6 +534,7 @@ export async function executeRequest(
       ...(proxyResponse.negotiatedAlpn !== undefined
         ? { negotiatedAlpn: proxyResponse.negotiatedAlpn }
         : {}),
+      ...(proxyResponse.bodyNotice !== undefined ? { bodyNotice: proxyResponse.bodyNotice } : {}),
       ...(proxyResponse.timings !== undefined ? { timings: proxyResponse.timings } : {}),
     };
   } catch (err) {

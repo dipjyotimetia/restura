@@ -24,6 +24,8 @@ export interface ProxyJsonResponse {
   /** Present when `data` is base64 of a binary body (see shared/protocol/binary.ts). */
   bodyEncoding?: 'base64';
   negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
+  /** Why the body was left undecoded (desktop: unsupported Content-Encoding). */
+  bodyNotice?: string;
   /** Timing breakdown measured by the proxy core (shared/protocol ResponseTimings). */
   timings?: ResponseTimings;
 }
@@ -245,6 +247,7 @@ async function executeViaElectronIpc(
     ...(result.size !== undefined ? { size: result.size } : {}),
     ...(result.bodyEncoding !== undefined ? { bodyEncoding: result.bodyEncoding } : {}),
     ...(result.negotiatedAlpn !== undefined ? { negotiatedAlpn: result.negotiatedAlpn } : {}),
+    ...(result.bodyNotice !== undefined ? { bodyNotice: result.bodyNotice } : {}),
     ...(result.timings !== undefined ? { timings: result.timings } : {}),
   };
 }

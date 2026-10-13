@@ -181,6 +181,12 @@ export interface NormalizedResponse {
    * (via undici) and surfaced informationally in the response viewer.
    */
   negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
+  /**
+   * Human-readable notice about how the body was (not) decoded — e.g. an
+   * unsupported Content-Encoding left the bytes raw. Populated by Electron's
+   * undici fetcher; the response viewer shows it above the body.
+   */
+  bodyNotice?: string;
   /** Timing breakdown measured by the shared proxy (see ResponseTimings). */
   timings?: ResponseTimings;
 }
@@ -234,6 +240,8 @@ export interface FetcherResponse {
   body?: ReadableStream<Uint8Array> | null;
   /** Negotiated ALPN for this response. Populated by Electron's undici fetcher. */
   negotiatedAlpn?: 'h1.1' | 'h2' | 'h3';
+  /** See NormalizedResponse.bodyNotice. Set when the fetcher couldn't decode the body. */
+  bodyNotice?: string;
   /**
    * Connection phases of the final hop, when the fetcher can observe them
    * (Electron's direct connections). Absent for runtimes that hide sockets

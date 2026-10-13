@@ -49,6 +49,25 @@ The Worker does not store user data. Requests are proxied and forgotten.
 Cloudflare's network-level encryption applies; no application-layer
 encryption is performed.
 
+## HTTP request and response handling
+
+### Response decompression limits (desktop)
+
+The Electron HTTP handler decodes `Content-Encoding` itself
+(`electron/main/handlers/http-response-stream.ts`), so it bounds the work a
+hostile upstream can cause:
+
+- At most **3 stacked codings** are decoded. A longer list is left raw, with a
+  notice above the body (`bodyNotice`) instead of an error.
+- **zstd** frames needing a window larger than **8 MB** (windowLog 23, RFC 9659)
+  are rejected, instead of zstd's 128 MB default.
+- The **10 MB** response cap is enforced after **every** decode stage, not just
+  on the final output, so an intermediate layer cannot inflate past it.
+- HEAD, 204 and 304 responses, and empty bodies, never reach a decoder.
+
+The Worker and self-host server use the runtime `fetch`, which decodes
+responses itself.
+
 ## SSRF / DNS-rebind guard (Electron)
 
 All Electron transports validate the destination against the shared SSRF

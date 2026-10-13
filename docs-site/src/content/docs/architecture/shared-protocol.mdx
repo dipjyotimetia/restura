@@ -89,6 +89,10 @@ This single module is called by the Worker, the Node server, and the Electron ma
 
 The renderer hands the auth *spec* (method, credentials, region for SigV4, etc.) to the wire layer; the wire layer signs.
 
+## Response decoding and `bodyNotice`
+
+On the Worker and the Node server, the runtime's `fetch` decompresses response bodies. The Electron fetcher uses undici, which does not, so `electron/main/handlers/http-response-stream.ts` decodes `gzip`, `br`, `deflate` and `zstd`, including stacked codings. It decodes at most 3 stacked codings, limits zstd to an 8 MB window, and enforces the 10 MB response cap after every stage. When it can't decode a body, the fetcher returns the raw bytes and sets `FetcherResponse.bodyNotice`. The shared core copies that onto the response, and the viewer shows it above the body. Only the Electron fetcher sets `bodyNotice`.
+
 ## Adding a new protocol
 
 The recipe is now:

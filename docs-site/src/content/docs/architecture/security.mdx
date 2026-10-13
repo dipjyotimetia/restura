@@ -48,6 +48,10 @@ AWS SigV4, OAuth 1.0a, and WSSE are all signed in the **Worker / Electron main p
 
 `shared/protocol/header-policy.ts` strips hop-by-hop headers (`Connection`, `Keep-Alive`, `Proxy-Authenticate`, `Transfer-Encoding`, `TE`, `Trailers`, `Upgrade`) from both directions and rejects header names with control characters.
 
+### Decompression limits (desktop)
+
+The desktop app decodes compressed responses itself, so it caps the work a hostile server can cause. It decodes at most **3 stacked `Content-Encoding`s** (more are left raw, with a notice above the body). It refuses **zstd** frames that need a window over **8 MB** (RFC 9659). And it checks the **10 MB** response limit after **every** decode stage, so a middle layer can't inflate past it. HEAD, 204 and 304 responses and empty bodies are never decoded. On the web, the runtime's `fetch` decodes responses.
+
 ## Renderer lockdown (desktop)
 
 The Electron renderer is sandboxed (`sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`) and pinned down by two policies in `electron/main/main.ts`:

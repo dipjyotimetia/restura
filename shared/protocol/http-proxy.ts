@@ -224,6 +224,9 @@ export async function executeHttpProxy(
     if (normalized.ok && response.negotiatedAlpn) {
       normalized.response.negotiatedAlpn = response.negotiatedAlpn;
     }
+    if (normalized.ok && response.bodyNotice) {
+      normalized.response.bodyNotice = response.bodyNotice;
+    }
     if (normalized.ok) {
       normalized.response.timings = buildTimings(
         startedAt,

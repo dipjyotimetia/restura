@@ -129,6 +129,33 @@ describe('ResponseViewer HTML preview', () => {
     expect(screen.getByText('HTTP/2')).toBeInTheDocument();
   });
 
+  it('shows the body notice when the response body could not be decoded', () => {
+    const notice =
+      'Response body not decoded: unsupported Content-Encoding "compress" (compress). Showing raw bytes.';
+    act(() => {
+      useRequestStore.setState({
+        tabs: [
+          {
+            id: 'tab-raw',
+            request: htmlRequest,
+            response: {
+              ...htmlResponse,
+              id: 'response-raw',
+              headers: { 'content-type': 'text/plain', 'content-encoding': 'compress' },
+              body: 'raw-lzw-bytes',
+              bodyNotice: notice,
+            },
+            isDirty: false,
+          },
+        ],
+        activeTabId: 'tab-raw',
+        isLoading: false,
+      });
+    });
+    render(<ResponseViewer />);
+    expect(screen.getByRole('status')).toHaveTextContent(notice);
+  });
+
   it('renders filtered headers, parsed cookies, and server timing details', () => {
     const headers = Object.fromEntries(
       Array.from({ length: 9 }, (_, index) => [`x-header-${index}`, `value-${index}`])
