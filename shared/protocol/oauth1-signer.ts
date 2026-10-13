@@ -145,9 +145,13 @@ export function buildOAuth1Header(
 
   // Per RFC 5849 §3.4.1.3.1, application/x-www-form-urlencoded body params
   // participate in the signature. addParamsToBody opts in to that behaviour.
+  // RFC 5849 §3.4.1.1: the base string carries the method upper-cased, and a
+  // custom method MUST be percent-encoded (§3.6) — tchar allows `!`, `*`, `'`
+  // etc. outside the unreserved set (#857). The server rebuilds the same form
+  // from the received method, so this is deliberately not "verbatim".
   const requestData: OAuth.RequestOptions = {
     url,
-    method: method.toUpperCase(),
+    method: oauth.percentEncode(method.toUpperCase()),
   };
   if (authConfig.addParamsToBody) {
     requestData.data = bodyParams;

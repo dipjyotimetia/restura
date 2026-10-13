@@ -13,7 +13,9 @@
  * existing ai:chat channel after each user-approved step. Strict propose-&-apply
  * holds throughout: every mutation still waits for an explicit Apply.
  */
+
 import type { AiToolDef } from '@shared/protocol/ai/types';
+import { checkHttpMethod } from '@shared/protocol/http-method';
 import { v4 as uuidv4 } from 'uuid';
 import { z } from 'zod';
 import { useRequestStore } from '@/store/useRequestStore';
@@ -95,11 +97,13 @@ const createHttpRequest: AgentTool = {
     const parsed = parseInput(createReqSchema, raw);
     if (!parsed.ok) return parsed;
     const input = parsed.value;
+    const method = checkHttpMethod(input.method);
+    if (!method.ok) return { ok: false, error: method.error };
     const req: HttpRequest = {
       id: uuidv4(),
       name: input.name ?? 'AI request',
       type: 'http',
-      method: input.method.toUpperCase() as HttpRequest['method'],
+      method: method.method,
       url: input.url,
       headers: toKeyValues(input.headers),
       params: [],
@@ -201,8 +205,12 @@ const updateHttpRequest: AgentTool = {
 
     const input = parsed.value;
     const update: Partial<HttpRequest> = {};
-    if (input.method !== undefined)
-      update.method = input.method.toUpperCase() as HttpRequest['method'];
+    if (input.method !== undefined) {
+      // Same token/denylist policy as the wire (#857) — refuse CONNECT/TRACE/TRACK.
+      const method = checkHttpMethod(input.method);
+      if (!method.ok) return { ok: false, error: method.error };
+      update.method = method.method;
+    }
     if (input.url !== undefined) update.url = input.url;
     if (input.name !== undefined) update.name = input.name;
     if (input.headers !== undefined) update.headers = toKeyValues(input.headers);

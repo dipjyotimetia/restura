@@ -33,11 +33,19 @@ const styles: Record<MethodBadge, string> = {
 };
 
 export function methodLabel(method: string): MethodBadge {
+  return knownBadge(method) ?? 'GET';
+}
+
+function knownBadge(method: string): MethodBadge | undefined {
   const upper = method.toUpperCase();
   if (upper === 'DEL' || upper === 'DELETE') return 'DELETE';
   if (upper in styles) return upper as MethodBadge;
-  return 'GET';
+  return undefined;
 }
+
+// Extension methods (PROPFIND, QUERY…, #857) render verbatim in the neutral
+// OPTIONS hue rather than masquerading as GET.
+const CUSTOM_METHOD_TOKEN = '--color-method-options';
 
 function displayLabel(method: MethodBadge): string {
   return method === 'DELETE' ? 'DEL' : method;
@@ -59,13 +67,14 @@ export function MethodChip({
   ref,
   ...props
 }: MethodChipProps) {
-  const key = methodLabel(method);
-  const token = styles[key];
+  const key = knownBadge(method);
+  const token = key ? styles[key] : CUSTOM_METHOD_TOKEN;
   return (
     <span
       ref={ref}
       className={cn(
-        'inline-flex items-center font-mono font-bold uppercase tabular-nums tracking-wide',
+        'inline-flex items-center font-mono font-bold tabular-nums tracking-wide',
+        key && 'uppercase',
         size === 'sm'
           ? 'h-5 px-1.5 text-sp-9 rounded-sp-chip'
           : 'h-7 px-3 text-sp-12 rounded-sp-btn',
@@ -78,7 +87,13 @@ export function MethodChip({
       }}
       {...props}
     >
-      {displayLabel(key)}
+      {key ? (
+        displayLabel(key)
+      ) : (
+        <span className="truncate max-w-[12ch]" title={method}>
+          {method}
+        </span>
+      )}
       {hasPicker && (
         <svg
           aria-hidden="true"

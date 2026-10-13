@@ -1,4 +1,5 @@
 import { v4 as uuid } from 'uuid';
+import { checkHttpMethod } from '../protocol/http-method';
 import type {
   AuthConfig,
   BodyType,
@@ -52,6 +53,7 @@ export function ocToInternal(oc: OpenCollection): WithOC<Collection> {
   // afterward get this run's tally.
   unrecognizedBodyCount = 0;
   unrecognizedScriptDetails.length = 0;
+  unsupportedMethodDetails.length = 0;
   const variables = extractRootVariables(oc);
   const items: WithOC<CollectionItem>[] = ((oc.items ?? []) as unknown[]).flatMap((it) =>
     itemToInternal(it)
@@ -223,7 +225,7 @@ function httpToInternal(item: Record<string, unknown>): HttpRequest {
     id: uuid(),
     name,
     type: 'http',
-    method: ((http.method as string) ?? 'GET').toUpperCase() as HttpMethod,
+    method: importMethod(http.method, name),
     url: (http.url as string) ?? '',
     headers: ((http.headers as unknown[]) ?? []).map(kvToInternal),
     params: ((http.params as unknown[]) ?? []).map(kvToInternal),
@@ -401,6 +403,29 @@ export function getAndResetUnrecognizedScripts(): Array<{ type: string; requestN
   const out = unrecognizedScriptDetails.slice();
   unrecognizedScriptDetails.length = 0;
   return out;
+}
+
+const unsupportedMethodDetails: Array<{ method: string; requestName: string }> = [];
+
+/** Methods downgraded to GET during the most recent ocToInternal call (#857). */
+export function getAndResetUnsupportedMethods(): Array<{ method: string; requestName: string }> {
+  const out = unsupportedMethodDetails.slice();
+  unsupportedMethodDetails.length = 0;
+  return out;
+}
+
+/**
+ * Same policy as the other importers' coerceHttpMethod (#857): known methods
+ * upper-cased, extension tokens verbatim, and a non-token or denied method
+ * (CONNECT/TRACE/TRACK) downgrades to GET with a warning — otherwise one bad
+ * request would fail persisted-store validation for the whole collection.
+ */
+function importMethod(raw: unknown, requestName: string): HttpMethod {
+  const value = typeof raw === 'string' ? raw.trim() : 'GET';
+  const check = checkHttpMethod(value);
+  if (check.ok) return check.method;
+  unsupportedMethodDetails.push({ method: value.toUpperCase(), requestName });
+  return 'GET';
 }
 
 function bodyToInternal(body: unknown, context: string): RequestBody {

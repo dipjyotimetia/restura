@@ -72,7 +72,7 @@ describe('store-validators', () => {
         id: 'req-1',
         name: 'Test Request',
         type: 'http',
-        method: 'INVALID_METHOD', // Invalid method
+        method: 'NOT A TOKEN', // Spaces are not allowed in an RFC 9110 token
         url: 'https://api.example.com',
         headers: [],
         params: [],
@@ -81,6 +81,22 @@ describe('store-validators', () => {
       };
 
       expect(() => validateRequest(invalidRequest)).toThrow('Request validation failed');
+    });
+
+    it('accepts an RFC 9110 extension method (#857)', () => {
+      const request = {
+        id: 'req-1',
+        name: 'Test Request',
+        type: 'http',
+        method: 'PROPFIND',
+        url: 'https://api.example.com',
+        headers: [],
+        params: [],
+        body: { type: 'none' },
+        auth: { type: 'none' },
+      };
+
+      expect(() => validateRequest(request)).not.toThrow();
     });
 
     it('should throw error for invalid body type', () => {

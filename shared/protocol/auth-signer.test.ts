@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyAuth } from './auth-signer';
+import { hmacSha1Base64 } from './oauth1-signer';
 
 describe('applyAuth', () => {
   it('returns empty headers for undefined auth', async () => {
@@ -241,5 +242,86 @@ describe('applyAuth', () => {
     } finally {
       (globalThis as unknown as { Date: typeof Date }).Date = realDate;
     }
+  });
+});
+
+describe('extension-method signing (#857)', () => {
+  const sigv4 = {
+    type: 'aws-signature' as const,
+    awsSignature: {
+      accessKey: 'AKIAIOSFODNN7EXAMPLE',
+      secretKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+      region: 'us-east-1',
+      service: 'execute-api',
+    },
+  };
+
+  async function sigv4Signature(method: string): Promise<string> {
+    const fixedIso = '2024-01-15T12:34:56.000Z';
+    const realDate = Date;
+    class MockDate extends realDate {
+      constructor() {
+        super(fixedIso);
+      }
+      static override now(): number {
+        return new realDate(fixedIso).getTime();
+      }
+    }
+    (globalThis as unknown as { Date: typeof Date }).Date = MockDate as unknown as typeof Date;
+    try {
+      const { headers } = await applyAuth(sigv4, {
+        method,
+        url: 'https://api.example.com/x',
+        headers: {},
+        body: undefined,
+      });
+      return /Signature=([a-f0-9]{64})/.exec(headers.Authorization ?? '')?.[1] ?? '';
+    } finally {
+      (globalThis as unknown as { Date: typeof Date }).Date = realDate;
+    }
+  }
+
+  it('SigV4 signs a mixed-case extension method exactly as it goes on the wire', async () => {
+    // The wire sends `propFind` verbatim (RFC 9110 methods are case-sensitive),
+    // and AWS / @smithy/signature-v4 put the method into the canonical request
+    // as received — upper-casing here would make sign ≠ send.
+    const mixed = await sigv4Signature('propFind');
+    const upper = await sigv4Signature('PROPFIND');
+    expect(mixed).toMatch(/^[a-f0-9]{64}$/);
+    expect(mixed).not.toBe(upper);
+  });
+
+  const oauth1 = (method: string) =>
+    applyAuth(
+      {
+        type: 'oauth1',
+        oauth1: {
+          consumerKey: 'ck',
+          consumerSecret: 'cs',
+          signatureMethod: 'HMAC-SHA1',
+          nonce: 'n0nce',
+          timestamp: '1700000000',
+        },
+      },
+      { method, url: 'https://api.example.com/x', headers: {}, body: undefined }
+    ).then((r) => /oauth_signature="([^"]+)"/.exec(r.headers.Authorization ?? '')?.[1] ?? '');
+
+  it('OAuth1 upper-cases the method in the base string (RFC 5849 §3.4.1.1)', async () => {
+    // Servers rebuild the base string from the upper-cased received method, so
+    // signing verbatim would break interop for mixed-case extension methods.
+    expect(await oauth1('propFind')).toBe(await oauth1('PROPFIND'));
+  });
+
+  it('OAuth1 percent-encodes method characters outside unreserved (§3.6)', async () => {
+    const enc = (s: string) =>
+      encodeURIComponent(s).replace(
+        /[!'()*]/g,
+        (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`
+      );
+    const params =
+      'oauth_consumer_key=ck&oauth_nonce=n0nce&oauth_signature_method=HMAC-SHA1&oauth_timestamp=1700000000&oauth_version=1.0';
+    const base = `M%21X&${enc('https://api.example.com/x')}&${enc(params)}`;
+    const expected = enc(hmacSha1Base64(base, 'cs&'));
+    expect(await oauth1('m!x')).toBe(expected);
   });
 });

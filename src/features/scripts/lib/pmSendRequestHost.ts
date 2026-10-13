@@ -22,12 +22,11 @@
  * `pm.sendRequest` native binding wraps the response in a Postman-shaped
  * object inside QuickJS.
  */
+import { checkHttpMethod } from '@shared/protocol/http-method';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import { injectString } from '@/features/workflows/lib/variableHelpers';
 import { executeProxiedRequest } from '@/lib/shared/transport';
 import type { PmSendRequestInput, PmSubResponse } from './scriptExecutor';
-
-const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
 
 function inferBody(body: unknown): { bodyType?: ProxyRequestBody['bodyType']; data?: string } {
   if (body == null) return {};
@@ -86,10 +85,14 @@ export function makeRendererSendRequest(
   const resolve = (s: string): string => injectString(s, variables);
 
   return async (input) => {
-    const method = (input.method ?? 'GET').toUpperCase();
-    if (!ALLOWED_METHODS.has(method)) {
-      throw new Error(`pm.sendRequest: method ${method} is not allowed`);
+    // Same policy as the shared core (#857): any RFC 9110 token, verbatim;
+    // denied methods and non-tokens refused before any dispatch, with the
+    // policy's own reason (non-token vs. not allowed).
+    const methodCheck = checkHttpMethod(input.method ?? 'GET');
+    if (!methodCheck.ok) {
+      throw new Error(`pm.sendRequest: ${methodCheck.error}`);
     }
+    const method = methodCheck.method;
     // Merge order: inherited (lowest), user-supplied (highest). Resolve
     // {{var}} on both sides; the user's literal `"Bearer {{token}}"` is
     // legitimate Postman idiom.

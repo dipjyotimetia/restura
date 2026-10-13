@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { flattenHeaders } from '@shared/protocol/header-utils';
+import { checkHttpMethod } from '@shared/protocol/http-method';
 import type { Fetcher, FetcherRequest, FetcherResponse } from '@shared/protocol/types';
 import { Agent, type Dispatcher, ProxyAgent, request as undiciRequest } from 'undici';
 
@@ -86,10 +87,6 @@ export function buildDispatcher(tls?: TlsOptions, proxy?: string): Dispatcher | 
   return undefined;
 }
 
-const ALLOWED_METHODS = new Set(['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD']);
-
-type UndiciMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' | 'HEAD';
-
 /**
  * Build a `Fetcher` backed by `undici.request`, optionally bound to a
  * `dispatcher` (e.g. one carrying TLS options). With no dispatcher it uses
@@ -106,10 +103,13 @@ type UndiciMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' | 'H
  */
 export function createUndiciFetcher(dispatcher?: Dispatcher): Fetcher {
   return async (req: FetcherRequest): Promise<FetcherResponse> => {
-    const method = (req.method ?? 'GET').toUpperCase();
-    if (!ALLOWED_METHODS.has(method)) {
-      throw new Error(`Method ${method} not supported by CLI fetcher`);
+    // Same token/denylist policy as the shared core (#857): extension methods
+    // go out verbatim; CONNECT/TRACE/TRACK and non-token strings are refused.
+    const methodCheck = checkHttpMethod(req.method ?? 'GET');
+    if (!methodCheck.ok) {
+      throw new Error(`Method ${req.method} not supported by CLI fetcher: ${methodCheck.error}`);
     }
+    const method = methodCheck.method;
 
     // Body coercion: undici accepts string / Buffer / Uint8Array / ReadableStream.
     // The shared protocol layer hands us BodyInit which may also be FormData
@@ -139,7 +139,7 @@ export function createUndiciFetcher(dispatcher?: Dispatcher): Fetcher {
     const headers = flattenHeaders(req.headers);
     if (multipartContentType) headers['content-type'] = multipartContentType;
     const response = await undiciRequest(req.url, {
-      method: method as UndiciMethod,
+      method: method as Dispatcher.HttpMethod,
       headers,
       body,
       signal: req.signal,

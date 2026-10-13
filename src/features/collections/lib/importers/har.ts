@@ -1,5 +1,6 @@
 import { redactExchange } from '@shared/capture/secret-extractor';
 import type { CapturedExchange } from '@shared/capture/types';
+import { MAX_HTTP_METHOD_LENGTH, normalizeHttpMethod } from '@shared/protocol/http-method';
 import { v4 as uuid } from 'uuid';
 import type { Collection, FormDataItem, HttpRequest, KeyValue } from '@/types';
 import { coerceHttpMethod, type ImportResult, type ImportWarning } from './types';
@@ -85,7 +86,10 @@ export function parseHarImport(source: string): HarImportPreview {
   for (const [index, rawEntry] of log.entries.entries()) {
     const entry = record(rawEntry, `HAR entry ${index + 1}`);
     const rawRequest = record(entry.request, `HAR entry ${index + 1} request`);
-    const method = safeText(rawRequest.method, 'GET', 16).toUpperCase();
+    // Case-preserving (#857): coerceHttpMethod upper-cases the known methods and
+    // keeps extension tokens verbatim. +1 so an overlong method fails the token
+    // check instead of being truncated into a different, valid token.
+    const method = safeText(rawRequest.method, 'GET', MAX_HTTP_METHOD_LENGTH + 1);
     const url = safeText(rawRequest.url, '', 64 * 1024);
     if (!url) {
       warnings.push({
@@ -106,7 +110,7 @@ export function parseHarImport(source: string): HarImportPreview {
 
     const pageRef = typeof entry.pageref === 'string' ? entry.pageref : undefined;
     const group = getGroup(groups, pageRef, pageNames, url);
-    const requestName = requestNameFor(method, url, index + 1);
+    const requestName = requestNameFor(normalizeHttpMethod(method), url, index + 1);
     const headers = toHeaders(rawRequest.headers, requestName, warnings);
     const cookies = Array.isArray(rawRequest.cookies) ? rawRequest.cookies.length : 0;
     if (cookies > 0 || headers.some((header) => header.key.toLowerCase() === 'cookie')) {

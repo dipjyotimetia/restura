@@ -38,6 +38,18 @@ describe('extractRequestSpec', () => {
     expect(r.ok).toBe(false);
   });
 
+  it('follows the shared method policy (#857)', () => {
+    const method = (m: string) => {
+      const r = extractRequestSpec(JSON.stringify({ method: m, url: 'https://x.test' }), 'json');
+      return r.ok ? r.request.method : `error: ${r.error}`;
+    };
+    expect(method('propFind')).toBe('propFind');
+    expect(method('QUERY')).toBe('QUERY');
+    expect(method('patch')).toBe('PATCH');
+    expect(method('track')).toMatch(/^error: .*not allowed/);
+    expect(method('BAD METHOD')).toMatch(/^error: .*not a valid HTTP method token/);
+  });
+
   it('fails on non-JSON', () => {
     const r = extractRequestSpec('no json here', 'json');
     expect(r.ok).toBe(false);

@@ -18,6 +18,8 @@ description: What each regression test in tests/security/ guards against, from S
 | `path-traversal.test.ts` | Path-traversal escapes (e.g. `../../etc/passwd`) from Electron's allowed storage directories (userData, documents, home), pinning `isPathSafe` in `electron/main/storage/file-operations.ts`. |
 | `response-viewer-sandbox.test.ts` | The HTTP response Preview tab's `srcDoc` iframe combining `sandbox="allow-scripts"` with `allow-same-origin`, which together would let a response-embedded script execute in the renderer's own origin and reach cookies, storage, and the same-origin `/api` proxy. |
 | `visualizer-sandbox.test.tsx` | The Visualizer's iframe (`VisualizerFrame`, rendering a user- or collection-supplied template) losing its `sandbox="allow-scripts"`-only isolation or its strict CSP (`default-src 'none'`, `img-src data:` only, `form-action 'none'`) that blocks outbound egress from injected scripts. |
+| `http-method-policy.test.ts` | The shared HTTP core's method policy (`shared/protocol/http-method.ts`) loosening: any RFC 9110 token is sent verbatim on the buffered and streaming paths, but `CONNECT` (raw tunnel) and `TRACE` / `TRACK` (header and credential reflection) must be refused in every casing before any upstream call, along with non-token methods. |
+| `codegen-method-injection.test.ts` | A stored or imported extension method smuggling shell or string-interpolation syntax (`` ` ``, `\|`, `&`, `$`, `#{…}`) into generated code. Every generator, plus the network console's "Copy as cURL", must emit the method as an inert literal, and the cURL output is checked by actually running it through a shell. |
 
 ## Related
 

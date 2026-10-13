@@ -464,4 +464,26 @@ describe('HAR importer', () => {
       expect.objectContaining({ pageRef: 'page-1', timeMs: 42 }),
     ]);
   });
+
+  it('preserves extension-method case and normalises known methods (#857)', () => {
+    const har = (method: string) =>
+      JSON.stringify({
+        log: {
+          version: '1.2',
+          entries: [{ request: { method, url: 'https://api.example.test/x', headers: [] } }],
+        },
+      });
+    const methodOf = (method: string) => {
+      const preview = parseHarImport(har(method));
+      const request = buildHarImportCollections(
+        preview,
+        new Set([preview.groups[0]!.entries[0]!.id])
+      )[0]!.collection.items[0]?.request;
+      return request?.type === 'http' ? request.method : undefined;
+    };
+    expect(methodOf('propFind')).toBe('propFind');
+    expect(methodOf('get')).toBe('GET');
+    // Long registered methods are not truncated into a different token.
+    expect(methodOf('UPDATEREDIRECTREF')).toBe('UPDATEREDIRECTREF');
+  });
 });

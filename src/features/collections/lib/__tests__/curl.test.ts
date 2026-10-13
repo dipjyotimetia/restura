@@ -103,7 +103,7 @@ describe('importCurlCommand', () => {
 
   it('handles aliases, defaulting, TLS settings, and downgraded methods', () => {
     const result = importCurlCommand(
-      'curl --url https://api.example.com --header malformed --cookie a=1 --cookie b=2 --user ada --request PURGE --proxy socks5://proxy.example.com --max-redirs 0 --max-time 1.5 --tlsv1.2 --tlsv1.3'
+      'curl --url https://api.example.com --header malformed --cookie a=1 --cookie b=2 --user ada --request TRACE --proxy socks5://proxy.example.com --max-redirs 0 --max-time 1.5 --tlsv1.2 --tlsv1.3'
     );
     const request = result.collection.items[0]!.request as HttpRequest;
 
@@ -123,9 +123,16 @@ describe('importCurlCommand', () => {
     expect(result.warnings).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ kind: 'unsupported-option', option: '-H (malformed header)' }),
-        expect.objectContaining({ kind: 'unsupported-method', method: 'PURGE' }),
+        expect.objectContaining({ kind: 'unsupported-method', method: 'TRACE' }),
       ])
     );
+  });
+
+  it('preserves an extension method (PURGE) verbatim', () => {
+    const result = importCurlCommand('curl -X PURGE https://cdn.example.com/page');
+    const request = result.collection.items[0]!.request as HttpRequest;
+    expect(request.method).toBe('PURGE');
+    expect(result.warnings.some((w) => w.kind === 'unsupported-method')).toBe(false);
   });
 
   it('reports malformed values without treating them as shell input', () => {

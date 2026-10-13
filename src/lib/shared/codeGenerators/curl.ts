@@ -1,10 +1,10 @@
 import { unwrapSecret } from '@/lib/shared/secretRef';
-import { escapeShell, type GenerateOptions, urlWithVariables } from './types';
+import { escapeShell, type GenerateOptions, shellMethodWord, urlWithVariables } from './types';
 
 export const generateCurl = (options: GenerateOptions): string => {
   const { request, resolvedUrl, resolvedHeaders, resolvedParams, settings, formData } = options;
 
-  let curl = `curl -X ${request.method}`;
+  let curl = `curl -X ${shellMethodWord(request.method)}`;
 
   const urlStr = resolvedUrl || 'https://api.example.com';
   try {

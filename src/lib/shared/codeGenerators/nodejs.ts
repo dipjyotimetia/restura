@@ -1,3 +1,4 @@
+import { isKnownHttpMethod, normalizeHttpMethod } from '@shared/protocol/http-method';
 import { unwrapSecret } from '@/lib/shared/secretRef';
 import { escapeJson, type GenerateOptions } from './types';
 
@@ -10,7 +11,10 @@ export const generateNodeJS = (options: GenerateOptions): string => {
 
   node += `const url = "${escapeJson(resolvedUrl)}";\n\n`;
   node += `const config = {\n`;
-  node += `  method: "${request.method.toLowerCase()}",\n`;
+  // Lower-case the well-known methods (axios idiom); extension tokens verbatim (#857).
+  const normalized = normalizeHttpMethod(request.method);
+  const method = isKnownHttpMethod(normalized) ? normalized.toLowerCase() : normalized;
+  node += `  method: "${method}",\n`;
   node += `  url: url,\n`;
 
   if (Object.keys(resolvedParams).length > 0) {

@@ -1,9 +1,14 @@
+import type { KnownHttpMethod } from '../protocol/http-method';
 import type { AuthConfig } from './auth';
 import type { KeyValue, MultipartPart } from './common';
 import type { CaCert, ClientCert, MinTlsVersion, ProxyConfig } from './security';
 
-// HTTP Methods
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'OPTIONS' | 'HEAD';
+// HTTP Methods — the seven well-known methods plus any RFC 9110 token
+// (PROPFIND, QUERY, PURGE…). `string & {}` keeps literal autocomplete for the
+// known set. Validation (token regex, CONNECT/TRACE/TRACK denylist) lives in
+// shared/protocol/http-method.ts and is enforced at the wire (#857).
+export type { KnownHttpMethod };
+export type HttpMethod = KnownHttpMethod | (string & {});
 
 // Body Types
 export type BodyType =

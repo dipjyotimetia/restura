@@ -174,6 +174,21 @@ describe('undiciFetcher', () => {
     await expect(undiciFetcher(req as any)).rejects.toThrow(/not supported/i);
   });
 
+  it.each(['CONNECT', 'trace', 'BAD METHOD'])('rejects denied/non-token method %j', async (m) => {
+    const req = makeReq({ url: `${baseUrl}/json`, method: m });
+    // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
+    await expect(undiciFetcher(req as any)).rejects.toThrow(/not supported/i);
+  });
+
+  it('sends an extension method (PROPFIND) verbatim', async () => {
+    requestLog.length = 0;
+    const req = makeReq({ url: `${baseUrl}/json`, method: 'PROPFIND' });
+    // biome-ignore lint/suspicious/noExplicitAny: legacy type boundary
+    const res = await undiciFetcher(req as any);
+    expect(res.status).toBe(200);
+    expect(requestLog.at(-1)?.method).toBe('PROPFIND');
+  });
+
   it('rejects Blob / URLSearchParams bodies (FormData is serialised, not rejected)', async () => {
     const req = makeReq({
       url: `${baseUrl}/json`,

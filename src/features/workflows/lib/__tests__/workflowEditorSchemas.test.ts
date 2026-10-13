@@ -21,6 +21,27 @@ const safeWorkflow = {
 };
 
 describe('Restura workflow editor schemas', () => {
+  it('accepts extension methods and rejects denied / non-token methods (#857)', () => {
+    const validate = new Ajv({ strict: false }).compile(RESTURA_OWS_SCHEMA);
+    const withMethod = (method: string) => ({
+      ...safeWorkflow,
+      do: [
+        {
+          fetch: {
+            call: 'http',
+            with: { method, endpoint: { uri: 'restura://saved-request' } },
+          },
+        },
+      ],
+    });
+    for (const ok of ['GET', 'PROPFIND', 'QUERY', 'customVerb']) {
+      expect(validate(withMethod(ok)), ok).toBe(true);
+    }
+    for (const bad of ['TRACE', 'trace', 'Connect', 'TRACK', 'BAD METHOD', '']) {
+      expect(validate(withMethod(bad)), bad).toBe(false);
+    }
+  });
+
   it('accepts the Restura-safe OWS profile and rejects unsupported executable controls', () => {
     const validate = new Ajv({ strict: false }).compile(RESTURA_OWS_SCHEMA);
 

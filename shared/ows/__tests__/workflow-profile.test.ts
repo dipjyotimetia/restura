@@ -343,6 +343,33 @@ do:
     });
   });
 
+  const bindingCall = (method: string) =>
+    ({
+      ...supportedWorkflow,
+      do: [
+        {
+          request: {
+            call: 'http',
+            with: { method, endpoint: { uri: 'restura://saved-request' } },
+          },
+        },
+      ],
+    }) as OwsWorkflow;
+
+  it.each(['PROPFIND', 'QUERY', 'customVerb'])(
+    'accepts a binding call with extension method %s (shared policy, #857)',
+    (method) => {
+      expect(validateOwsProfile(bindingCall(method)).ok).toBe(true);
+    }
+  );
+
+  it.each(['TRACK', 'connect', 'BAD METHOD', 'get'])(
+    'rejects a binding call with method %j (denied, non-token, or non-canonical)',
+    (method) => {
+      expect(validateOwsProfile(bindingCall(method)).ok).toBe(false);
+    }
+  );
+
   it('projects nested do, try, and catch tasks without adding visual nodes to workflow data', () => {
     const workflow = {
       ...supportedWorkflow,

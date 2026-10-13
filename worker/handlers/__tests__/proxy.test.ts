@@ -67,6 +67,60 @@ describe('proxy handler', () => {
     expect(res.status).toBe(400);
   });
 
+  describe('runtime method support (#857)', () => {
+    it('passes an extension method through verbatim where the runtime accepts it (Node)', async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response('ok', { status: 207 }));
+      vi.stubGlobal('fetch', fetchMock);
+      const res = await makeRequest({ method: 'customVerb', url: 'https://example.com/dav' });
+      expect(res.status).toBe(200);
+      expect(fetchMock.mock.calls[0]![1]).toMatchObject({ method: 'customVerb' });
+    });
+
+    it('returns a clear 400 when the runtime cannot send the method (workerd)', async () => {
+      // workerd only accepts a fixed method list (GET…PATCH, PURGE, WebDAV,
+      // QUERY, …) and throws `TypeError: Invalid HTTP method string` for any
+      // other token — verified under Miniflare. Simulate that Request ctor.
+      const RealRequest = globalThis.Request;
+      class WorkerdRequest extends RealRequest {
+        constructor(input: RequestInfo | URL, init?: RequestInit) {
+          if (init?.method === 'FOO') throw new TypeError('Invalid HTTP method string: FOO');
+          super(input, init);
+        }
+      }
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+      vi.stubGlobal('Request', WorkerdRequest);
+      const res = await makeRequest({ method: 'FOO', url: 'https://example.com/x' });
+      vi.stubGlobal('Request', RealRequest);
+      expect(res.status).toBe(400);
+      const json = (await res.json()) as { error: string };
+      expect(json.error).toMatch(/method FOO/);
+      expect(json.error).toMatch(/desktop app or a self-hosted server/);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('signs and sends the method the runtime will actually put on the wire', async () => {
+      // workerd upper-cases registered methods (propFind → PROPFIND). Adopt
+      // the runtime's form up front so SigV4/Digest sign what goes out.
+      const RealRequest = globalThis.Request;
+      class WorkerdRequest extends RealRequest {
+        constructor(input: RequestInfo | URL, init?: RequestInit) {
+          super(input, {
+            ...init,
+            ...(init?.method === 'propFind' ? { method: 'PROPFIND' } : {}),
+          });
+        }
+      }
+      const fetchMock = vi.fn().mockResolvedValue(new Response('ok'));
+      vi.stubGlobal('fetch', fetchMock);
+      vi.stubGlobal('Request', WorkerdRequest);
+      const res = await makeRequest({ method: 'propFind', url: 'https://example.com/dav' });
+      vi.stubGlobal('Request', RealRequest);
+      expect(res.status).toBe(200);
+      expect(fetchMock.mock.calls[0]![1]).toMatchObject({ method: 'PROPFIND' });
+    });
+  });
+
   it('malformed JSON body returns 400 with Malformed JSON error', async () => {
     const res = await app.request(
       '/proxy',

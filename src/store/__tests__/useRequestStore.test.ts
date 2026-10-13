@@ -153,8 +153,8 @@ describe('useRequestStore — tabs', () => {
     it('rejects invalid updates and does not mutate the active tab', () => {
       // Toast is mocked via the test setup; we verify the store doesn't mutate.
       useRequestStore.getState().openTab(makeHttp({ url: 'https://a.com', method: 'GET' }));
-      // The validator should reject a method value that isn't a valid HTTP method
-      useRequestStore.getState().updateRequest({ method: 'NOTAVERB' as unknown as 'GET' });
+      // The validator should reject a method value that isn't a valid RFC 9110 token
+      useRequestStore.getState().updateRequest({ method: 'NOT A VERB' });
       const tab = useRequestStore.getState().getActiveTab()!;
       expect((tab.request as HttpRequest).url).toBe('https://a.com');
       expect((tab.request as HttpRequest).method).toBe('GET'); // unchanged
@@ -211,9 +211,7 @@ describe('useRequestStore — tabs', () => {
         .openTab(makeHttp({ url: 'https://active.example' }));
 
       expect(
-        useRequestStore
-          .getState()
-          .updateRequestForTab(originTabId, { method: 'NOTAVERB' as unknown as 'GET' })
+        useRequestStore.getState().updateRequestForTab(originTabId, { method: 'NOT A VERB' })
       ).toBe(false);
 
       const state = useRequestStore.getState();

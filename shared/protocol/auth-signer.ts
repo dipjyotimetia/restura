@@ -230,8 +230,12 @@ async function signSigV4(
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
     .join('&');
 
+  // The method goes in exactly as it is sent (#857): RFC 9110 methods are
+  // case-sensitive, extension tokens go out verbatim, and AWS (like
+  // @smithy/signature-v4 on desktop) canonicalises the received method as-is.
+  // Known methods are already upper-cased by normalizeHttpMethod upstream.
   const canonicalRequest = [
-    args.method.toUpperCase(),
+    args.method,
     parsedUrl.pathname || '/',
     queryParams,
     canonicalHeaders,

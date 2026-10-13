@@ -1,16 +1,15 @@
 import { z } from 'zod';
+import { HTTP_METHOD_TOKEN_RE, MAX_HTTP_METHOD_LENGTH } from '../protocol/http-method';
 import { secretValueSchema } from '../secrets/secret-ref';
 
 // HTTP Method Schema
-export const httpMethodSchema = z.enum([
-  'GET',
-  'POST',
-  'PUT',
-  'DELETE',
-  'PATCH',
-  'OPTIONS',
-  'HEAD',
-]);
+// Any RFC 9110 token (#857). CONNECT/TRACE/TRACK are deliberately NOT rejected here:
+// persisted/imported state must not be dropped wholesale for one bad method —
+// the shared HTTP core refuses them at send time instead.
+export const httpMethodSchema = z
+  .string()
+  .max(MAX_HTTP_METHOD_LENGTH)
+  .regex(HTTP_METHOD_TOKEN_RE, { message: 'Invalid HTTP method token' });
 
 // URL Schema
 export const urlSchema = z

@@ -97,6 +97,7 @@ The browser-capture extension's pipeline lives in a sibling module, `shared/capt
 | `shared/protocol/grpc-proxy.ts`     | `executeGrpcProxy(spec, fetcher, options)` — Connect-protocol orchestrator                                          |
 | `shared/protocol/grpc-status.ts`    | gRPC status code enum + reverse map                                                                                 |
 | `shared/protocol/mcp-proxy.ts`      | `validateMcpSpec(spec, allowLocalhost)` — JSON-RPC envelope + URL validation                                        |
+| `shared/protocol/http-method.ts`    | Method policy: any RFC 9110 token sent verbatim; CONNECT/TRACE/TRACK denied in every casing                         |
 
 ### Backend adapters
 

@@ -1,5 +1,6 @@
 import type { Specification } from '@openworkflowspec/sdk';
 import * as yaml from 'js-yaml';
+import { isCanonicalHttpMethod } from '../protocol/http-method';
 import { evaluateOwsCondition, isOwsPathExpression } from './runtime-expression';
 
 /** The sole workflow DSL Restura reads or writes. */
@@ -36,7 +37,6 @@ const TASK_DISCRIMINATORS = [
   'wait',
 ] as const;
 const SAFE_TASKS = new Set(['do', 'for', 'set', 'try', 'wait']);
-const SAFE_HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
 const DURATION_FIELDS = new Set(['days', 'hours', 'minutes', 'seconds', 'milliseconds']);
 const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const DOCUMENT_FIELDS = new Set([
@@ -250,7 +250,9 @@ function validateBoundHttpCall(
     return;
   }
   const method = task.with.method;
-  if (typeof method !== 'string' || !SAFE_HTTP_METHODS.has(method)) {
+  // Shared method policy (#857): any sendable token in canonical form, so it
+  // can match the bound saved request's stored method exactly.
+  if (typeof method !== 'string' || !isCanonicalHttpMethod(method)) {
     issues.push(
       profileError(
         `${path}/with/method`,

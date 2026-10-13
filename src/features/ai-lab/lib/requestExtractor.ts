@@ -4,6 +4,7 @@
 // executor, and score the upstream response. No renderer/IPC deps — unit-tested
 // against raw strings.
 import { extractFirstJsonObject } from '@shared/protocol/ai/json-extract';
+import { checkHttpMethod } from '@shared/protocol/http-method';
 
 /** How to pull the request JSON out of the model output. */
 export type ParseMode = 'json' | 'fenced';
@@ -18,8 +19,6 @@ export interface ExtractedRequest {
 }
 
 export type ExtractResult = { ok: true; request: ExtractedRequest } | { ok: false; error: string };
-
-const METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
 
 /** Grab the first ```json fenced block (or any fenced block) from text. */
 function firstFencedBlock(text: string): string | undefined {
@@ -52,10 +51,13 @@ export function extractRequestSpec(text: string, mode: ParseMode): ExtractResult
   }
 
   const obj = parsed as Record<string, unknown>;
-  const method = typeof obj.method === 'string' ? obj.method.toUpperCase() : 'GET';
-  if (!METHODS.has(method)) {
-    return { ok: false, error: `unsupported method "${method}"` };
+  // Same policy as the wire (#857): known methods upper-cased, extension
+  // tokens verbatim, CONNECT/TRACE/TRACK and non-tokens refused.
+  const methodCheck = checkHttpMethod(typeof obj.method === 'string' ? obj.method.trim() : 'GET');
+  if (!methodCheck.ok) {
+    return { ok: false, error: methodCheck.error };
   }
+  const method = methodCheck.method;
   const url = typeof obj.url === 'string' ? obj.url.trim() : '';
   if (!url) return { ok: false, error: 'request is missing a url' };
 

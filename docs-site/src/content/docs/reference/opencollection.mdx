@@ -39,6 +39,8 @@ Known gaps — these are **not** preserved yet:
 - OAuth 1.0a signature methods Restura can't sign with (`RSA-*`, `HMAC-SHA512`) import as the signer default; the original value survives only while the imported item is unedited.
 - WebSocket and Socket.IO items (see [What it covers](#what-it-covers)).
 
+HTTP methods round-trip as written, including extension methods such as `PROPFIND` or `QUERY` (case preserved). An imported request whose method is invalid or refused (`CONNECT`, `TRACE`, `TRACK`) becomes `GET`, and Restura shows a warning naming the request.
+
 Importing a Postman v2.1 collection into Restura and exporting as OpenCollection keeps the fields Restura models; round-tripping back to Postman is best-effort (some Restura-specific features have no Postman equivalent).
 
 ## Restura extensions

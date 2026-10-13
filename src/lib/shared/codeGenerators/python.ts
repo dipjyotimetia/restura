@@ -1,3 +1,4 @@
+import { isKnownHttpMethod, normalizeHttpMethod } from '@shared/protocol/http-method';
 import { unwrapSecret } from '@/lib/shared/secretRef';
 import { escapeJson, type GenerateOptions } from './types';
 
@@ -61,7 +62,14 @@ export const generatePython = (options: GenerateOptions): string => {
     python += `}\n\n`;
   }
 
-  python += `response = requests.${request.method.toLowerCase()}(\n`;
+  // `requests` only has shorthands for the well-known methods; extension
+  // tokens (PROPFIND, QUERY…) go through `requests.request` verbatim (#857).
+  const method = normalizeHttpMethod(request.method);
+  if (isKnownHttpMethod(method)) {
+    python += `response = requests.${method.toLowerCase()}(\n`;
+  } else {
+    python += `response = requests.request(\n    "${method}",\n`;
+  }
   python += `    url`;
   if (Object.keys(resolvedParams).length > 0) python += `,\n    params=params`;
   if (Object.keys(resolvedHeaders).length > 0) python += `,\n    headers=headers`;

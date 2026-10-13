@@ -372,7 +372,9 @@ async function buildTunneledRequest(
   targetUrl: URL,
   requestInit: RequestInit
 ): Promise<{ wire: Buffer }> {
-  const method = (requestInit.method ?? 'GET').toUpperCase();
+  // Verbatim (#857): the shared core already normalised known methods; extension
+  // tokens are case-sensitive and must match what auth signers signed.
+  const method = requestInit.method ?? 'GET';
   const headers = toRecord(requestInit.headers);
   // Force Host to the target authority so we round-trip the right header
   // even if the caller supplied a stale value.
@@ -452,7 +454,9 @@ export function createHttpViaProxy(dnsGuard?: NodeDnsGuardOptions) {
     const socket = await connectTcp(proxy.host, proxy.port, signal);
 
     try {
-      const method = (requestInit.method ?? 'GET').toUpperCase();
+      // Verbatim (#857): the shared core already normalised known methods; extension
+      // tokens are case-sensitive and must match what auth signers signed.
+      const method = requestInit.method ?? 'GET';
       const headers = toRecord(requestInit.headers);
       delete headers['host'];
       delete headers['Host'];

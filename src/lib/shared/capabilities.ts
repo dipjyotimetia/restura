@@ -78,7 +78,13 @@ export interface CapabilityRow {
 }
 
 export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
-  'http.basic': { label: 'HTTP / REST requests', web: true, desktop: true },
+  'http.basic': {
+    label: 'HTTP / REST requests',
+    web: true,
+    desktop: true,
+    notes:
+      'Hosted web (Cloudflare Workers) sends only the runtime fixed method list (standard, WebDAV, PURGE, QUERY and a few more), upper-cased; other extension methods need desktop or self-host',
+  },
   'graphql.basic': {
     label: 'GraphQL query / mutation',
     web: true,

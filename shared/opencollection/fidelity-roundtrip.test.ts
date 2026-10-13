@@ -518,3 +518,24 @@ extensions:
     expect(yaml2).toBe(yaml1);
   });
 });
+
+describe('HTTP extension methods round-trip (#857)', () => {
+  const withMethod = (method: string): Collection => ({
+    id: 'c',
+    name: 'Methods',
+    items: [reqItem({ ...HTTP_FIXTURE, method }, 'root')],
+  });
+
+  it.each(['PROPFIND', 'QUERY', 'PURGE', 'customVerb'])(
+    'preserves %s verbatim through export → YAML → import',
+    (method) => {
+      const r = findRequest(roundTrip(withMethod(method)).items, HTTP_FIXTURE.name);
+      expect((r as HttpRequest).method).toBe(method);
+    }
+  );
+
+  it('normalises a lower-case known method to upper case on import', () => {
+    const r = findRequest(roundTrip(withMethod('post')).items, HTTP_FIXTURE.name);
+    expect((r as HttpRequest).method).toBe('POST');
+  });
+});

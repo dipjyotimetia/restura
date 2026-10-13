@@ -1,3 +1,4 @@
+import { KNOWN_HTTP_METHODS } from '@shared/protocol/http-method';
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -61,6 +62,65 @@ describe('UrlBar', () => {
       const { props } = renderUrlBar({ url: 'https://example.com' });
       await user.click(screen.getByRole('button', { name: /send request/i }));
       expect(props.onSend).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('method picker (#857)', () => {
+    it('shows an extension method verbatim on the chip', () => {
+      renderUrlBar({ method: 'PROPFIND' });
+      const trigger = screen.getByRole('button', { name: 'HTTP method: PROPFIND' });
+      expect(trigger).toHaveTextContent('PROPFIND');
+    });
+
+    it('selects a well-known method from the list', async () => {
+      const user = userEvent.setup();
+      const { props } = renderUrlBar();
+      await user.click(screen.getByRole('button', { name: /HTTP method/ }));
+      await user.click(await screen.findByRole('menuitem', { name: 'POST' }));
+      expect(props.onMethodChange).toHaveBeenCalledWith('POST');
+    });
+
+    it('accepts a typed custom method on Enter, verbatim', async () => {
+      const user = userEvent.setup();
+      const { props } = renderUrlBar();
+      await user.click(screen.getByRole('button', { name: /HTTP method/ }));
+      const input = await screen.findByRole('textbox', { name: 'Custom HTTP method' });
+      await user.type(input, 'PROPFIND{Enter}');
+      expect(props.onMethodChange).toHaveBeenCalledWith('PROPFIND');
+    });
+
+    it.each([
+      ['TRACE', /not allowed/i],
+      ['BAD METHOD', /valid HTTP method/i],
+    ])('refuses %s with an inline error', async (typed, error) => {
+      const user = userEvent.setup();
+      const { props } = renderUrlBar();
+      await user.click(screen.getByRole('button', { name: /HTTP method/ }));
+      const input = await screen.findByRole('textbox', { name: 'Custom HTTP method' });
+      await user.type(input, `${typed}{Enter}`);
+      expect(props.onMethodChange).not.toHaveBeenCalled();
+      expect(await screen.findByText(error)).toBeInTheDocument();
+    });
+
+    it('links the inline error via a per-instance id (useId, not a fixed id)', async () => {
+      const user = userEvent.setup();
+      renderUrlBar();
+      await user.click(screen.getByRole('button', { name: /HTTP method/ }));
+      const input = await screen.findByRole('textbox', { name: 'Custom HTTP method' });
+      await user.type(input, 'TRACE{Enter}');
+      const alert = await screen.findByRole('alert');
+      expect(alert.id).not.toBe('custom-method-error');
+      expect(input).toHaveAttribute('aria-describedby', alert.id);
+    });
+
+    it('lists every well-known method from the shared policy', async () => {
+      const user = userEvent.setup();
+      renderUrlBar();
+      await user.click(screen.getByRole('button', { name: /HTTP method/ }));
+      const items = await screen.findAllByRole('menuitem');
+      expect(items.map((i) => i.textContent)).toEqual(
+        KNOWN_HTTP_METHODS.map((m) => (m === 'DELETE' ? 'DEL' : m))
+      );
     });
   });
 

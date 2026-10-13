@@ -16,6 +16,31 @@ describe('importOpenCollection', () => {
     expect(result.warnings).toEqual([]);
   });
 
+  it('downgrades a non-sendable method to GET with a warning instead of rejecting (#857)', () => {
+    const http = (name: string, method: string) => ({
+      info: { type: 'http', name },
+      http: { method, url: 'https://example.com' },
+    });
+    const result = importOpenCollection({
+      opencollection: '1.0.0',
+      info: { name: 'Methods' },
+      items: [
+        http('Bad', 'GET /x'),
+        http('Tunnel', 'connect'),
+        http('Ext', 'propFind'),
+        http('Known', 'post'),
+      ],
+    });
+    const methods = result.collection.items.map(
+      (i) => i.request?.type === 'http' && i.request.method
+    );
+    expect(methods).toEqual(['GET', 'GET', 'propFind', 'POST']);
+    expect(result.warnings).toEqual([
+      { kind: 'unsupported-method', method: 'GET /X', requestName: 'Bad' },
+      { kind: 'unsupported-method', method: 'CONNECT', requestName: 'Tunnel' },
+    ]);
+  });
+
   it('throws a readable error on invalid input', () => {
     expect(() => importOpenCollection({ opencollection: '1.0.0', info: {} })).toThrow(
       /Invalid OpenCollection document/

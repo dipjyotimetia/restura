@@ -11,7 +11,7 @@ rather than discover it experimentally.
 
 | Capability | Web | Desktop | Notes |
 | --- | :-: | :-: | --- |
-| HTTP / REST requests | ✅ | ✅ |  |
+| HTTP / REST requests | ✅ | ✅ | Hosted web (Cloudflare Workers) sends only the runtime fixed method list (standard, WebDAV, PURGE, QUERY and a few more), upper-cased; other extension methods need desktop or self-host |
 | GraphQL query / mutation | ✅ | ✅ | Rides the HTTP proxy (POST { query, variables, operationName }) |
 | SOCKS5 proxy | ❌ | ✅ | Browser fetch cannot route through SOCKS |
 | PAC proxy script resolution | ❌ | ❌ | Not wired end-to-end: the renderer ProxyType cannot emit a PAC proxy and the PAC script is never loaded via session.setProxy — only handler scaffolding exists. Marked unsupported until the renderer + setProxy path land. |
