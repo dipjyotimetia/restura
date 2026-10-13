@@ -170,6 +170,21 @@ function quote(value: string): string {
   return `"${value.replace(/[\\"]/g, '\\$&')}"`;
 }
 
+/**
+ * The `username` parameter. Printable ASCII goes in a quoted-string; anything
+ * else (e.g. `ä`, CJK) can't travel in a header value as-is, so RFC 7616
+ * §3.4.4 sends `username*` with an RFC 8187 UTF-8 ext-value instead. The hash
+ * always uses the UTF-8 username either way.
+ */
+function usernameParam(username: string): string {
+  if (/^[\x20-\x7e]*$/.test(username)) return `username=${quote(username)}`;
+  const encoded = encodeURIComponent(username).replace(
+    /['()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+  return `username*=UTF-8''${encoded}`;
+}
+
 function randomHex(bytes: number): string {
   return bytesToHex(crypto.getRandomValues(new Uint8Array(bytes)));
 }
@@ -202,7 +217,7 @@ export async function buildDigestAuthorization(
     : await H(`${ha1}:${challenge.nonce}:${ha2}`);
 
   const parts = [
-    `username=${quote(creds.username)}`,
+    usernameParam(creds.username),
     `realm=${quote(challenge.realm)}`,
     `nonce=${quote(challenge.nonce)}`,
     `uri=${quote(target.uri)}`,

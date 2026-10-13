@@ -184,4 +184,31 @@ describe('buildDigestAuthorization', () => {
     );
     expect(h).toContain('username="a\\"b\\\\c"');
   });
+
+  it('sends a non-ASCII username as RFC 7616 username* (header-safe, UTF-8 hashed)', async () => {
+    const challenge = { realm: 'r', nonce: 'n', qop: ['auth'] };
+    const h = await buildDigestAuthorization(
+      challenge,
+      { username: "J\u00e4s\u00f8n D\u00f6e 's*", password: 'p' },
+      { method: 'GET', uri: '/' },
+      { cnonce: 'c' }
+    );
+    expect(h).toContain("username*=UTF-8''J%C3%A4s%C3%B8n%20D%C3%B6e%20%27s%2A");
+    expect(h).not.toMatch(/username="/);
+    expect([...h].every((ch) => ch.charCodeAt(0) <= 0x7e)).toBe(true);
+    expect(() => new Headers({ Authorization: h })).not.toThrow();
+    const ha1 = md5Hex("J\u00e4s\u00f8n D\u00f6e 's*:r:p");
+    const ha2 = md5Hex('GET:/');
+    expect(h).toContain(`response="${md5Hex(`${ha1}:n:00000001:c:auth:${ha2}`)}"`);
+  });
+
+  it('sends a CJK username without making the header value throw', async () => {
+    const h = await buildDigestAuthorization(
+      { realm: 'r', nonce: 'n' },
+      { username: '\u7528\u6237', password: 'p' },
+      { method: 'GET', uri: '/' }
+    );
+    expect(h).toContain("username*=UTF-8''%E7%94%A8%E6%88%B7");
+    expect(() => new Headers({ Authorization: h })).not.toThrow();
+  });
 });
