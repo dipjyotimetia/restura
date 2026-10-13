@@ -173,6 +173,12 @@ export function buildDesktopTransportConfig(
   const cipherSuites = effectiveSettings.cipherSuites ?? globalSettings.cipherSuites;
   if (cipherSuites !== undefined) out.cipherSuites = cipherSuites;
 
+  // Per-request only (no workspace default). 'auto' is the handler default, so
+  // it isn't sent — keeps the IPC payload identical for untouched requests.
+  if (effectiveSettings.httpVersion && effectiveSettings.httpVersion !== 'auto') {
+    out.httpVersion = effectiveSettings.httpVersion;
+  }
+
   return Object.keys(out).length > 0 ? out : undefined;
 }
 

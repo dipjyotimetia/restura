@@ -30,6 +30,12 @@ The original wording above overstated the result: through 2026-10 SSE/MCP fields
 - **Collection-level extensions keyed by node path.** `x-restura-sse` / `x-restura-mcp` entries carry a `folderPath`; `x-restura-grpc` (schema snapshots deduplicated by sha-256 content hash, plus per-request `timeout`) and `x-restura-auth` (OAuth1 `addParamsToBody`, NTLM `workstation`, WSSE `passwordType`, with a `target` of collection/folder/request and the auth `type`) use `path` = folder names + item name, matched in document order.
 - **Fidelity is tested, not assumed.** `shared/opencollection/fidelity-roundtrip.test.ts` round-trips a fully-populated fixture per request type whose field policy is exhaustive over the type; fields not yet carried (HTTP `settings`, `contractRef`, the header `secret` marker) are listed there as known gaps and documented in `docs/opencollection.md`.
 
+## Amendment (2026-10-13): `x-restura-http` and partial request settings
+
+The per-request HTTP version preference ([#864](https://github.com/dipjyotimetia/restura/issues/864), desktop-only) has no slot in the schema's `http.settings`, so it is carried in a new collection-level extension, `x-restura-http` (`requests: [{ path, httpVersion }]`, matched by name path like `x-restura-grpc`; `auto` is not emitted). It is the one HTTP setting that now round-trips; the rest of `settings` stays a known gap.
+
+Import applies **only** `httpVersion`. `HttpRequest.settings` became a partial override (`RequestSettingsOverride`) resolved field by field against the workspace defaults, so importing a version preference no longer pins timeout, redirect, and TLS-verification values on the request. Unknown or malformed entries are ignored and the request stays on `auto`.
+
 ## Consequences
 
 **Positive**

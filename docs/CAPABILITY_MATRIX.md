@@ -21,6 +21,7 @@ rather than discover it experimentally.
 | DNS / connect timing breakdown | ❌ | ✅ | Both show time to headers, download and the remaining overhead; DNS and connect (incl. TLS) are measured only on desktop direct connections, not through proxies |
 | DNS-pinning SSRF guard | ❌ | ✅ | Browser fetch resolves DNS opaquely |
 | TLS cipher suite + server-order control | ❌ | ✅ | No per-request TLS handshake control in Cloudflare Workers / browsers |
+| HTTP version control (force HTTP/1.1, HTTP/2, h2c prior knowledge) | ❌ | ✅ | Web always negotiates via the runtime (Auto). h2c prior knowledge works direct and through SOCKS, not through an HTTP proxy |
 | Incremental HTTP response streaming | ✅ | ❌ | Web streams via the Worker proxy; Electron IPC buffers the full response (renderer falls back to the buffered path) |
 | Load / performance testing | ✅ | ✅ | Fidelity differs: web is capped by ~6 browser connections per origin and the Worker proxy rate limit (100 req/min); desktop by the IPC rate budget. Results above those budgets include self-inflicted throttling |
 | WebSocket connect | ✅ | ✅ |  |

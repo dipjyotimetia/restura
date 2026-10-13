@@ -12,6 +12,11 @@ export const PORTS = {
   https: 8443,
   /** HTTPS that demands a client cert — mutual TLS. */
   mtls: 8444,
+  /** Cleartext HTTP/2 — prior knowledge only (h2c, RFC 9113 §3.3). Pair with
+   *  the request's HTTP version = "HTTP/2 cleartext (h2c)" setting. */
+  h2c: 8090,
+  /** HTTP/2 over TLS (ALPN h2 + http/1.1) — try forcing HTTP/1.1 against it. */
+  h2: 8446,
   /** Forward + CONNECT HTTP proxy. */
   proxy: 8888,
   /** SOCKS5 CONNECT proxy for raw TCP clients such as MQTT. */
@@ -50,6 +55,8 @@ export const IN_PROCESS_SERVICES = [
   'http',
   'https',
   'mtls',
+  'h2c',
+  'h2',
   'proxy',
   'socks',
   'grpc',
@@ -64,6 +71,6 @@ export type ServiceId = (typeof IN_PROCESS_SERVICES)[number];
 /**
  * Services skipped entirely when `--no-tls` is passed (they need cert material).
  */
-export const TLS_SERVICES: ReadonlySet<ServiceId> = new Set(['https', 'mtls', 'wss']);
+export const TLS_SERVICES: ReadonlySet<ServiceId> = new Set(['https', 'mtls', 'h2', 'wss']);
 
 export const DEFAULT_HOST = 'localhost';

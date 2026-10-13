@@ -10,7 +10,13 @@ import type { ResponseTimings } from '@shared/protocol/types';
 import axios, { type AxiosError } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import type { SecretValue } from '@/lib/shared/secretRef';
-import type { CaCert, ClientCert, MinTlsVersion, ProxyConfig } from '@/types';
+import type {
+  CaCert,
+  ClientCert,
+  HttpVersionPreference,
+  MinTlsVersion,
+  ProxyConfig,
+} from '@/types';
 import { getElectronAPI, isElectron, workerAuthHeaders, workerBaseUrl } from './platform';
 
 /** Buffered JSON response shape returned by the Worker's `/api/proxy`. */
@@ -54,6 +60,8 @@ export interface DesktopTransportConfig {
   serverCipherOrder?: boolean;
   minTlsVersion?: MinTlsVersion;
   cipherSuites?: string;
+  /** Per-request HTTP version preference (#864). Omitted ≡ 'auto'. */
+  httpVersion?: HttpVersionPreference;
   /** Opaque variable handles resolved only by the Electron main process. */
   secretVariables?: Record<string, SecretValue>;
 }
@@ -222,6 +230,7 @@ async function executeViaElectronIpc(
       : {}),
     ...(desktop?.minTlsVersion !== undefined ? { minTlsVersion: desktop.minTlsVersion } : {}),
     ...(desktop?.cipherSuites !== undefined ? { cipherSuites: desktop.cipherSuites } : {}),
+    ...(desktop?.httpVersion !== undefined ? { httpVersion: desktop.httpVersion } : {}),
     ...(desktop?.secretVariables ? { secretVariables: desktop.secretVariables } : {}),
   };
 

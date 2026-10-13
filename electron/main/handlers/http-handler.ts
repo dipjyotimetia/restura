@@ -18,9 +18,10 @@ import type {
   ProtocolSecretValue as SecretValue,
 } from '@shared/protocol/types';
 import { createLogger } from '@shared/runtime/logger';
+import type { HttpVersionPreference } from '@shared/types';
 import { ipcMain, session } from 'electron';
 import type * as net from 'net';
-import * as tls from 'tls';
+import type * as tls from 'tls';
 import { Agent, buildConnector, ProxyAgent, request as undiciRequest } from 'undici';
 import { IPC } from '../../shared/channels';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
@@ -49,9 +50,12 @@ import {
   withTimedLookup,
   wrapConnectorForAlpn,
   wrapConnectorForTiming,
+  wrapConnectorRequireH2,
 } from './http-connector-wrappers';
 import { decodeResponseBody, tryParseJson, wireCodings } from './http-response-stream';
 import { createSecureLookup, openSocksSocket } from './http-secure-connection';
+import { createSocksDispatcher } from './http-socks-dispatcher';
+import { h2NotNegotiatedError, resolveHttpVersionPlan } from './http-version';
 import { interceptorRegistry } from './interceptor-registry';
 
 export { decodeBodyStream } from './http-response-stream';
@@ -142,6 +146,8 @@ export interface HttpRequestConfig {
   serverCipherOrder?: boolean;
   minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
   cipherSuites?: string;
+  /** HTTP version preference (#864); omitted ≡ 'auto'. */
+  httpVersion?: HttpVersionPreference;
   secretVariables?: Record<string, SecretValue>;
   /** Main-process-only cancellation signal; never crosses IPC. */
   signal?: AbortSignal;
@@ -311,78 +317,6 @@ function buildConnectOptions(
   return connectOpts;
 }
 
-/**
- * Creates an Agent that routes connections through a pre-established SOCKS socket.
- * Replaces the Node http.Agent / https.Agent subclass that overrode createConnection
- * in the previous implementation — same idea, expressed via undici's connect factory.
- */
-interface SocksTlsKnobs {
-  serverCipherOrder?: boolean;
-  cipherSuites?: string;
-  minTlsVersion?: 'TLSv1' | 'TLSv1.1' | 'TLSv1.2' | 'TLSv1.3';
-}
-
-function createSocksDispatcher(
-  socksSocket: net.Socket,
-  targetUrl: URL,
-  isHttps: boolean,
-  verifySsl: boolean,
-  allowH2: boolean,
-  tlsKnobs?: SocksTlsKnobs,
-  /**
-   * mTLS client cert + custom CA material from `buildTlsClientMaterial`. Spread
-   * into the SOCKS TLS handshake so certificates work through a SOCKS proxy
-   * exactly as they do on the direct/HTTP-proxy paths. Omitting this silently
-   * dropped mTLS and custom-CA settings whenever a SOCKS proxy was configured.
-   */
-  certMaterial?: Record<string, unknown>
-): Agent {
-  // undici's connector callback type is strictly [Error, null] | [null, Socket]; assert
-  // through unknown so the TLSSocket / Socket variants are accepted.
-  type SocksCallback = (err: Error | null, socket: net.Socket | null) => void;
-  return new Agent({
-    allowH2,
-    connect: ((_opts: unknown, cb: SocksCallback) => {
-      try {
-        if (isHttps) {
-          // Match the per-request TLS knobs honoured by buildConnectOptions so
-          // SOCKS-tunneled requests get the same hardening (cipher list, min
-          // protocol, server cipher order) plus mTLS client cert + custom CA.
-          const tlsSocket = tls.connect({
-            socket: socksSocket,
-            servername: targetUrl.hostname,
-            rejectUnauthorized: verifySsl,
-            ALPNProtocols: allowH2 ? ['h2', 'http/1.1'] : ['http/1.1'],
-            ...(tlsKnobs?.serverCipherOrder && { honorCipherOrder: true }),
-            ...(tlsKnobs?.cipherSuites && { ciphers: tlsKnobs.cipherSuites }),
-            ...(tlsKnobs?.minTlsVersion && { minVersion: tlsKnobs.minTlsVersion }),
-            ...(certMaterial ?? {}),
-          });
-          tlsSocket.once('secureConnect', () => {
-            // Snapshot the negotiated ALPN into the holder attached to the SOCKS socket
-            // so the response builder can surface it in the response viewer.
-            const holder = (socksSocket as unknown as { __alpnHolder?: { alpn?: string } })
-              .__alpnHolder;
-            if (holder && tlsSocket.alpnProtocol) {
-              holder.alpn = tlsSocket.alpnProtocol;
-            }
-            cb(null, tlsSocket);
-          });
-          tlsSocket.once('error', (err) => cb(err, null));
-        } else {
-          // Match undici's socket contract: HTTP needs alpnProtocol set on the raw socket
-          // for the dispatcher to choose H1. We set 'http/1.1' explicitly because plaintext
-          // connections cannot upgrade to H2 here.
-          (socksSocket as unknown as { alpnProtocol?: string }).alpnProtocol = 'http/1.1';
-          cb(null, socksSocket);
-        }
-      } catch (err) {
-        cb(err as Error, null);
-      }
-    }) as unknown as ReturnType<typeof buildConnector>,
-  });
-}
-
 // Build the Electron-side fetcher closure that the shared core invokes after URL validation,
 // header sanitisation, and body building. All Electron-specific transport concerns
 // (undici dispatcher choice, SOCKS tunnel splice, mTLS, CA, connection timer, abort
@@ -410,13 +344,31 @@ export function buildElectronFetcher(
     // Holder filled in by the wrapped connector after the TLS handshake.
     const alpnHolder: { alpn?: string } = {};
 
-    // We allow HTTP/2 negotiation by default for direct/HTTP-proxy paths.
-    // SOCKS path also opts in (it builds a brand new TLS socket above).
-    const allowH2 = isHttps;
+    // HTTP version (#864). 'auto' keeps the historical behaviour: h2 offered
+    // via ALPN over TLS, HTTP/1.1 over cleartext. The plan feeds every
+    // dispatcher path below (direct, HTTP/env proxy, SOCKS).
+    const versionPlan = resolveHttpVersionPlan(electronConfig.httpVersion, isHttps);
+    const { allowH2 } = versionPlan;
+    // undici's ProxyAgent sends cleartext targets as forward-proxy HTTP/1.1
+    // requests; it cannot speak h2c through the proxy. Fail loudly rather than
+    // silently downgrading to HTTP/1.1. (SOCKS tunnels raw TCP, so it can.)
+    const assertNoH2cViaHttpProxy = (): void => {
+      if (versionPlan.h2cPriorKnowledge) {
+        throw new Error(
+          'HTTP/2 prior knowledge (h2c) is not supported through an HTTP proxy. ' +
+            'Disable the proxy for this request or use a SOCKS proxy.'
+        );
+      }
+    };
+    // ProxyAgent builds its upstream connector from requestTls, so preferH2
+    // rides there to put h2 first in the ALPN list.
+    const versionTls = versionPlan.preferH2 ? { preferH2: true } : {};
 
     // Choose a dispatcher based on proxy configuration.
     let dispatcher: Agent | ProxyAgent;
-    const captureAlpn = isHttps; // only meaningful for HTTPS
+    // ALPN is meaningful for TLS; for h2c prior knowledge undici stamps 'h2'
+    // on the cleartext socket, which surfaces as the negotiated protocol.
+    const captureAlpn = isHttps || versionPlan.h2cPriorKnowledge;
     // Set if we subscribed to the global 'undici:client:connected' channel for
     // proxy-path ALPN capture; called after the request completes to avoid
     // leaking the listener across requests.
@@ -433,12 +385,13 @@ export function buildElectronFetcher(
       const proxyType = electronConfig.proxy.type;
       if (proxyType === 'http' || proxyType === 'https') {
         // HTTP/HTTPS proxy via undici ProxyAgent.
+        assertNoH2cViaHttpProxy();
         const proxyUri = `${proxyType}://${electronConfig.proxy.host}:${electronConfig.proxy.port}`;
         const proxyOpts: ProxyAgent.Options = {
           uri: proxyUri,
           allowH2,
           // requestTls applies to the upstream TLS handshake — that's where mTLS and ALPN matter.
-          requestTls: { ...connectOpts } as ProxyAgent.Options['requestTls'],
+          requestTls: { ...connectOpts, ...versionTls } as ProxyAgent.Options['requestTls'],
         };
         const proxyPassword = unwrapSecretValueMain(electronConfig.proxy.auth?.password);
         if (electronConfig.proxy.auth?.username && proxyPassword) {
@@ -462,7 +415,7 @@ export function buildElectronFetcher(
           url,
           isHttps,
           verifySsl,
-          allowH2,
+          versionPlan,
           {
             ...(electronConfig.serverCipherOrder !== undefined && {
               serverCipherOrder: electronConfig.serverCipherOrder,
@@ -478,14 +431,18 @@ export function buildElectronFetcher(
           certMaterial
         );
         // SOCKS path: TLS happens inside our custom connector — capture ALPN there.
-        if (isHttps) {
+        if (captureAlpn) {
           (socksSocket as unknown as { __alpnHolder?: { alpn?: string } }).__alpnHolder =
             alpnHolder;
         }
       } else {
         dispatcher = new Agent({
           allowH2,
-          connect: connectOpts as Parameters<typeof buildConnector>[0],
+          connect: {
+            ...connectOpts,
+            ...versionTls,
+            ...(versionPlan.h2cPriorKnowledge ? { useH2c: true } : {}),
+          } as Parameters<typeof buildConnector>[0],
         });
       }
     } else if (envProxy) {
@@ -494,11 +451,12 @@ export function buildElectronFetcher(
       // ProxyAgent exactly like an explicit HTTP/HTTPS proxy so the upstream
       // TLS handshake (requestTls → mTLS / custom CA) and ALPN capture keep
       // working through the env proxy.
+      assertNoH2cViaHttpProxy();
       const proxyUri = `${envProxy.type}://${envProxy.host}:${envProxy.port}`;
       const proxyOpts: ProxyAgent.Options = {
         uri: proxyUri,
         allowH2,
-        requestTls: { ...connectOpts } as ProxyAgent.Options['requestTls'],
+        requestTls: { ...connectOpts, ...versionTls } as ProxyAgent.Options['requestTls'],
       };
       if (envProxy.auth) {
         const auth = Buffer.from(`${envProxy.auth.username}:${envProxy.auth.password}`).toString(
@@ -516,13 +474,24 @@ export function buildElectronFetcher(
       // time DNS (the lookup) and the connector (TCP + TLS). The Agent is
       // per-request, so every request opens — and times — its own connection.
       // Proxied paths are not timed: the phases would describe the proxy.
-      const innerConnector = buildConnector(
-        withTimedLookup(connectOpts, connectionTimings) as Parameters<typeof buildConnector>[0]
-      );
+      // The version plan must reach buildConnector itself: it computes the
+      // ALPN list (and the h2c marker) from its own options, ignoring the
+      // Agent-level allowH2 once a custom connect function is supplied.
+      const innerConnector = buildConnector({
+        ...withTimedLookup(connectOpts, connectionTimings),
+        allowH2,
+        ...versionTls,
+        ...(versionPlan.h2cPriorKnowledge ? { useH2c: true } : {}),
+      } as Parameters<typeof buildConnector>[0]);
+      const alpnConnector = captureAlpn
+        ? wrapConnectorForAlpn(innerConnector, alpnHolder)
+        : innerConnector;
       dispatcher = new Agent({
         allowH2,
         connect: wrapConnectorForTiming(
-          captureAlpn ? wrapConnectorForAlpn(innerConnector, alpnHolder) : innerConnector,
+          versionPlan.requireH2
+            ? wrapConnectorRequireH2(alpnConnector, h2NotNegotiatedError)
+            : alpnConnector,
           connectionTimings
         ),
       });
@@ -657,6 +626,13 @@ export function buildElectronFetcher(
     let raw = alpnHolder.alpn;
     if (!raw && socksSocket) {
       raw = (socksSocket as unknown as { __alpnHolder?: { alpn?: string } }).__alpnHolder?.alpn;
+    }
+    // Backstop for paths whose connector we don't own (HTTP/env ProxyAgent):
+    // a required h2 that wasn't negotiated is an error, not a silent HTTP/1.1.
+    if (versionPlan.requireH2 && raw !== 'h2') {
+      cleanup();
+      response.body.destroy();
+      throw h2NotNegotiatedError(raw);
     }
     if (raw === 'h2') negotiatedAlpn = 'h2';
     else if (

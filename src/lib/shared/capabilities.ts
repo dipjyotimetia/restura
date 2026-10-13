@@ -21,6 +21,7 @@ export type CapabilityName =
   | 'http.connectionTimings'
   | 'http.tls.cipherSuite'
   | 'http.tls.minVersion'
+  | 'http.version'
   | 'http.streamingResponse'
   | 'loadTesting.basic'
   | 'websocket.basic'
@@ -136,6 +137,13 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: false,
     desktop: true,
     notes: "Web client uses the runtime's default TLS floor",
+  },
+  'http.version': {
+    label: 'HTTP version control (force HTTP/1.1, HTTP/2, h2c prior knowledge)',
+    web: false,
+    desktop: true,
+    notes:
+      'Web always negotiates via the runtime (Auto). h2c prior knowledge works direct and through SOCKS, not through an HTTP proxy',
   },
   'http.streamingResponse': {
     label: 'Incremental HTTP response streaming',

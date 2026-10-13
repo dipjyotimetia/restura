@@ -34,7 +34,7 @@ Exporting a collection and importing it back into Restura preserves HTTP, GraphQ
 
 Known gaps — these are **not** preserved yet:
 
-- HTTP per-request **settings** (timeout, redirects, TLS verification) and the **contract link** (`contractRef`).
+- HTTP per-request **settings** (timeout, redirects, TLS verification) and the **contract link** (`contractRef`). The HTTP version preference is the exception: it round-trips through `x-restura-http`.
 - The **secret** marker on individual headers (the header value itself is exported).
 - OAuth 1.0a signature methods Restura can't sign with (`RSA-*`, `HMAC-SHA512`) import as the signer default; the original value survives only while the imported item is unedited.
 - WebSocket and Socket.IO items (see [What it covers](#what-it-covers)).
@@ -52,6 +52,7 @@ The OpenCollection v1.0.0 JSON Schema has no item type for SSE or MCP, and its r
 | `x-restura-sse`, `x-restura-mcp` | SSE / MCP requests (all fields). A `folderPath` (ancestor folder names) records the folder an item lives in; entries without one load at the collection root. An MCP request stores one operation: `defaultMethod` (e.g. `tools/call`) plus `defaultParams`. |
 | `x-restura-grpc` | gRPC schema snapshots (reflected descriptors or an uploaded `.proto`), stored once per content hash (`schemas`), plus per-request `timeout`. `requests` entries reference a snapshot by hash and are matched to items by `path` (folder names + request name). |
 | `x-restura-auth` | Auth options the schema's auth objects lack: OAuth 1.0a `addParamsToBody`, NTLM `workstation`, WSSE `passwordType`. Each entry names its `target` (`collection`, `folder` or `request`), `path` and auth `type`, and only applies to a node whose auth has that type. |
+| `x-restura-http` | Per-request HTTP settings the schema can't hold. Today that is only the desktop **HTTP version** preference (`httpVersion`: `http1.1`, `http2` or `h2c-prior-knowledge`; `auto` isn't written). Entries are matched by `path`. Import sets only the HTTP version; the request's other settings keep following your workspace defaults. |
 | `x-restura-contract` | The collection's linked API contract. |
 
 Other tools ignore these keys; Restura rebuilds them on every export and keeps unknown `x-*` keys from an imported file.

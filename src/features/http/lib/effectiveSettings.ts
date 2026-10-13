@@ -1,4 +1,4 @@
-import type { AppSettings, RequestSettings } from '@/types';
+import type { AppSettings, RequestSettings, RequestSettingsOverride } from '@/types';
 
 /**
  * Project workspace (global) settings into the `RequestSettings` shape a request
@@ -53,7 +53,7 @@ export function globalSettingsToRequestSettings(globalSettings: AppSettings): Re
  * per-request Settings editor so the fallback shape stays in one place.
  */
 export function resolveEffectiveSettings(
-  requestSettings: RequestSettings | undefined,
+  requestSettings: RequestSettingsOverride | undefined,
   globalSettings: AppSettings
 ): RequestSettings {
   return { ...globalSettingsToRequestSettings(globalSettings), ...requestSettings };

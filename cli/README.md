@@ -122,6 +122,8 @@ TLS options apply to all HTTPS traffic for the run (HTTP/GraphQL/gRPC/SSE/MCP). 
 
 Proxies: the standard `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` environment variables are honored automatically, or pass `--proxy <url>` to set one explicitly (this is the form that composes with the TLS flags above — the env var does not). SOCKS proxies and collection-scoped proxy config are not yet supported.
 
+HTTP version: a request's desktop-only **HTTP version** setting (`settings.httpVersion`, saved in OpenCollection as `x-restura-http`) is not applied by the CLI — undici negotiates the protocol as usual. When any request in the run sets a non-`auto` value, `restura run` prints one warning to stderr for the whole run rather than per request.
+
 ### External secrets
 
 Auth fields can reference a secret held in a cloud secret manager instead of carrying the value. The CLI resolves those references only when you pass `--external-secrets-config` with an explicit profile for each provider; without it, a request that uses one errors instead of being sent unauthenticated. Profiles carry identity metadata only — never credentials — and no default credential chain or custom endpoint is used:

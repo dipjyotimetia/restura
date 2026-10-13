@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Reporter } from '../../reporters/types';
 import { runCollection } from '../runner';
 
@@ -75,5 +75,39 @@ describe('runCollection — per-request settings', () => {
     const r = result.requests.find((x) => x.request.request.name === 'Fast')!;
     expect(r.passed).toBe(true);
     expect(r.status).toBe(200);
+  });
+
+  it('warns once per run that a per-request httpVersion is not applied by the CLI', async () => {
+    const dir = makeCollection('Forced h2', '/fast', { httpVersion: 'http2' });
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const result = await runCollection(dir, RUN_OPTS, new NoopReporter());
+      // The request still runs (undici negotiates as usual).
+      expect(result.requests[0]?.passed).toBe(true);
+      const warnings = write.mock.calls
+        .map((c) => String(c[0]))
+        .filter((m) => /httpVersion/.test(m));
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toMatch(/1 request/);
+      expect(warnings[0]).toMatch(/desktop app/);
+      // Per run, not per process: a second run warns again.
+      await runCollection(dir, RUN_OPTS, new NoopReporter());
+      expect(
+        write.mock.calls.map((c) => String(c[0])).filter((m) => /httpVersion/.test(m))
+      ).toHaveLength(2);
+    } finally {
+      write.mockRestore();
+    }
+  });
+
+  it('does not warn when every request is on auto', async () => {
+    const dir = makeCollection('Auto', '/fast', { httpVersion: 'auto' });
+    const write = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      await runCollection(dir, RUN_OPTS, new NoopReporter());
+      expect(write.mock.calls.some((c) => /httpVersion/.test(String(c[0])))).toBe(false);
+    } finally {
+      write.mockRestore();
+    }
   });
 });

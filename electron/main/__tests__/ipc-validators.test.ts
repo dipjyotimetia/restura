@@ -129,6 +129,31 @@ describe('validateIpcInput', () => {
         'http:request'
       );
     });
+    it.each(['auto', 'http1.1', 'http2', 'h2c-prior-knowledge'] as const)(
+      'keeps httpVersion %s through validation',
+      (httpVersion) => {
+        const input = {
+          requestId: '11111111-1111-4111-8111-111111111111',
+          method: 'GET',
+          url: 'https://example.com',
+          httpVersion,
+        };
+        const parsed = validateIpcInput(HttpRequestConfigSchema, input, 'http:request');
+        expect(parsed.httpVersion).toBe(httpVersion);
+      }
+    );
+
+    it('rejects an unknown httpVersion literal', () => {
+      const input = {
+        requestId: '11111111-1111-4111-8111-111111111111',
+        method: 'GET',
+        url: 'https://example.com',
+        httpVersion: 'http3',
+      };
+      expect(() => validateIpcInput(HttpRequestConfigSchema, input, 'http:request')).toThrow(
+        /httpVersion/
+      );
+    });
   });
 
   describe('GrpcRequestConfigSchema', () => {

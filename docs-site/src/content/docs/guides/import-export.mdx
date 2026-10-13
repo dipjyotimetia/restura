@@ -55,7 +55,7 @@ From the collection menu:
 
 On desktop you can also **Save to Files / Sync to Disk** to write the collection as an OpenCollection **directory layout** — one file per request, friendly for `git`.
 
-In OpenCollection exports, data the OpenCollection schema has no slot for — SSE/MCP requests, gRPC schema snapshots and timeouts, and a few auth options (OAuth 1.0a `addParamsToBody`, NTLM `workstation`, WSSE `passwordType`) — is stored in `x-restura-*` entries of the root `extensions` field so it round-trips; see [Restura extensions](/reference/opencollection/#restura-extensions). Postman, Insomnia, and Bruno exports keep only what those formats can express.
+In OpenCollection exports, data the OpenCollection schema has no slot for — SSE/MCP requests, gRPC schema snapshots and timeouts, the desktop HTTP version preference, and a few auth options (OAuth 1.0a `addParamsToBody`, NTLM `workstation`, WSSE `passwordType`) — is stored in `x-restura-*` entries of the root `extensions` field so it round-trips; see [Restura extensions](/reference/opencollection/#restura-extensions). Postman, Insomnia, and Bruno exports keep only what those formats can express.
 
 ## Secret redaction on export
 

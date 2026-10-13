@@ -16,6 +16,7 @@ import type {
 } from '../types';
 import { AUTH_EXTENSION_KEY, applyAuthExtension } from './auth-extension';
 import { applyGrpcExtension, GRPC_EXTENSION_KEY } from './grpc-schema-extension';
+import { applyHttpExtension, HTTP_EXTENSION_KEY } from './http-settings-extension';
 import type { OpenCollection } from './schemas';
 
 /**
@@ -38,6 +39,9 @@ import type { OpenCollection } from './schemas';
  *                       root/folder/request auth (see auth-extension.ts).
  *   - extensions['x-restura-grpc'] → schema snapshots / timeouts re-inlined onto
  *                     gRPC requests (see grpc-schema-extension.ts).
+ *   - extensions['x-restura-http'] → per-request HTTP settings with no OC slot
+ *                     (httpVersion) re-applied onto HTTP requests
+ *                     (see http-settings-extension.ts).
  *
  * Every emitted node also carries a non-typed `_oc` property holding the verbatim
  * OpenCollection input. The from-internal mapper (Task 10) consults this to emit
@@ -65,6 +69,12 @@ export function ocToInternal(oc: OpenCollection): WithOC<Collection> {
   applyGrpcExtension(
     items,
     (oc.extensions as Record<string, unknown> | undefined)?.[GRPC_EXTENSION_KEY]
+  );
+  // Per-request HTTP settings with no OC slot (httpVersion) — same path-keyed
+  // sidecar convention (see http-settings-extension.ts).
+  applyHttpExtension(
+    items,
+    (oc.extensions as Record<string, unknown> | undefined)?.[HTTP_EXTENSION_KEY]
   );
   const collection: WithOC<Collection> = {
     id: uuid(),

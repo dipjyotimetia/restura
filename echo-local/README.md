@@ -39,7 +39,7 @@ Generated on each run (git-ignored): `echo-local/manifest.json`,
 
 ```bash
 npm run echo:local -- --only http,grpc,ws     # subset of in-process services
-npm run echo:local -- --no-tls                # skip https/mtls
+npm run echo:local -- --no-tls                # skip https/mtls/h2/wss
 npm run echo:local -- --domain echo.local     # certs SAN + manifest use a custom host
 npm run echo:local:certs                      # (re)generate the CA + leaf certs, exit
 npm run echo:local:collection                 # write the importable collection, exit
@@ -51,24 +51,26 @@ npm run echo:local -- manifest                # write + print the manifest, exit
 
 ## Ports
 
-| Service          | URL                                                | Notes                                                                        |
-| ---------------- | -------------------------------------------------- | ---------------------------------------------------------------------------- |
-| HTTP             | `http://localhost:8080`                            | echo + all OAuth/JWT/SigV4/Digest/API-key routes                             |
-| HTTPS            | `https://localhost:8443`                           | CA-signed server cert                                                        |
-| HTTPS mTLS       | `https://localhost:8444`                           | requires a client cert; `GET /mtls/whoami` confirms it                       |
-| HTTP proxy       | `http://localhost:8888`                            | forward + CONNECT                                                            |
-| SOCKS proxy      | `socks5://localhost:1080`                          | SOCKS5 CONNECT; MQTT global-proxy verification                               |
-| gRPC             | `grpc://localhost:50051`                           | `echo.v1.EchoService`, reflection on                                         |
-| WebSocket        | `ws://localhost:8085/echo`                         | also `/chat` `/graphql` `/ping` `/close`                                     |
-| Secure WebSocket | `wss://localhost:8543/echo`                        | same paths over TLS (CA-signed); the packaged desktop CSP allows `wss:` only |
-| Socket.IO        | `http://localhost:8086`                            | namespaces `/` `/chat` `/admin`                                              |
-| MCP              | `http://localhost:8087/mcp`                        | streamable-http                                                              |
-| MQTT             | `mqtt://localhost:1883` / `mqtts://localhost:8883` | EMQX MQTT 5 (Docker); dashboard `:18083` (admin/public)                      |
-| Kafka            | `localhost:9092`                                   | Redpanda PLAINTEXT (Docker)                                                  |
-| Kafka SSL        | `localhost:9093`                                   | TLS, no SASL; self-signed broker cert (verify-SSL off)                       |
-| Kafka SASL       | `localhost:9094`                                   | SASL_PLAINTEXT, SCRAM-SHA-256 (`restura` / `restura-secret`)                 |
-| Kafka SASL_SSL   | `localhost:9095`                                   | SCRAM-SHA-256 over TLS; self-signed broker cert (verify-SSL off)             |
-| Schema Registry  | `http://localhost:8081`                            | Confluent-compatible, bundled with Redpanda, no auth                         |
+| Service          | URL                                                | Notes                                                                          |
+| ---------------- | -------------------------------------------------- | ------------------------------------------------------------------------------ |
+| HTTP             | `http://localhost:8080`                            | echo + all OAuth/JWT/SigV4/Digest/API-key routes                               |
+| HTTPS            | `https://localhost:8443`                           | CA-signed server cert                                                          |
+| HTTPS mTLS       | `https://localhost:8444`                           | requires a client cert; `GET /mtls/whoami` confirms it                         |
+| HTTP/2 (h2c)     | `http://localhost:8090`                            | cleartext HTTP/2, prior knowledge only — set the request's HTTP version to h2c |
+| HTTP/2 (TLS)     | `https://localhost:8446`                           | ALPN h2 + http/1.1; echoes the version used — try forcing HTTP/1.1             |
+| HTTP proxy       | `http://localhost:8888`                            | forward + CONNECT                                                              |
+| SOCKS proxy      | `socks5://localhost:1080`                          | SOCKS5 CONNECT; MQTT global-proxy verification                                 |
+| gRPC             | `grpc://localhost:50051`                           | `echo.v1.EchoService`, reflection on                                           |
+| WebSocket        | `ws://localhost:8085/echo`                         | also `/chat` `/graphql` `/ping` `/close`                                       |
+| Secure WebSocket | `wss://localhost:8543/echo`                        | same paths over TLS (CA-signed); the packaged desktop CSP allows `wss:` only   |
+| Socket.IO        | `http://localhost:8086`                            | namespaces `/` `/chat` `/admin`                                                |
+| MCP              | `http://localhost:8087/mcp`                        | streamable-http                                                                |
+| MQTT             | `mqtt://localhost:1883` / `mqtts://localhost:8883` | EMQX MQTT 5 (Docker); dashboard `:18083` (admin/public)                        |
+| Kafka            | `localhost:9092`                                   | Redpanda PLAINTEXT (Docker)                                                    |
+| Kafka SSL        | `localhost:9093`                                   | TLS, no SASL; self-signed broker cert (verify-SSL off)                         |
+| Kafka SASL       | `localhost:9094`                                   | SASL_PLAINTEXT, SCRAM-SHA-256 (`restura` / `restura-secret`)                   |
+| Kafka SASL_SSL   | `localhost:9095`                                   | SCRAM-SHA-256 over TLS; self-signed broker cert (verify-SSL off)               |
+| Schema Registry  | `http://localhost:8081`                            | Confluent-compatible, bundled with Redpanda, no auth                           |
 
 ## Credentials
 
