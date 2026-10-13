@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { buildSchema, introspectionFromSchema } from 'graphql';
+import { toast } from 'sonner';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HttpRequest } from '@/types';
 
@@ -124,6 +125,26 @@ describe('GraphQLRequestBuilder — load schema', () => {
     expect(activeRequest().graphqlSchema?.sdl).toContain('type Account');
   });
 
+  it('rejects an oversized schema file before reading it', async () => {
+    render(<GraphQLRequestBuilder />);
+    const dialog = openLoadDialog();
+    const file = new File([SDL], 'huge.graphqls', { type: '' });
+    Object.defineProperty(file, 'size', { value: 20 * 1024 * 1024 + 1 });
+    const read = vi.spyOn(file, 'text');
+
+    await act(async () => {
+      fireEvent.change(within(dialog).getByLabelText(/choose schema file/i), {
+        target: { files: [file] },
+      });
+    });
+
+    expect(within(dialog).getByRole('alert').textContent).toBe(
+      'huge.graphqls: Schema is too large (max 20 MB).'
+    );
+    expect(read).not.toHaveBeenCalled();
+    expect(activeRequest().graphqlSchema).toBeUndefined();
+  });
+
   it('does not let Refresh replace an imported schema without confirmation', async () => {
     useRequestStore.setState({
       tabs: [
@@ -148,11 +169,58 @@ describe('GraphQLRequestBuilder — load schema', () => {
     expect(fetchSchema).not.toHaveBeenCalled();
     expect(activeRequest().graphqlSchema).toBeDefined();
 
+    fetchSchema.mockResolvedValue({
+      success: true,
+      schema: introspectionFromSchema(buildSchema(SDL)).__schema,
+      endpoint: 'https://no-introspection.example/graphql',
+      timestamp: 2,
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Refresh schema' }));
     const confirmAgain = await screen.findByRole('alertdialog');
     fireEvent.click(within(confirmAgain).getByRole('button', { name: 'Replace' }));
 
     await waitFor(() => expect(fetchSchema).toHaveBeenCalledTimes(1));
-    expect(activeRequest().graphqlSchema).toBeUndefined();
+    await waitFor(() => expect(activeRequest().graphqlSchema).toBeUndefined());
+  });
+
+  it('keeps the imported schema and reports the error when the confirmed refresh fails', async () => {
+    const imported = { sdl: SDL, source: 'sdl' as const, importedAt: 1 };
+    useRequestStore.setState({
+      tabs: [{ id: 'tab', request: makeRequest({ graphqlSchema: imported }), isDirty: false }],
+      activeTabId: 'tab',
+    });
+    let resolveFetch: (value: unknown) => void = () => {};
+    fetchSchema.mockReturnValue(
+      new Promise((resolve) => {
+        resolveFetch = resolve;
+      })
+    );
+    render(<GraphQLRequestBuilder />);
+    fireEvent.click(screen.getByRole('button', { name: /schema/i, pressed: false }));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh schema' }));
+    const confirm = await screen.findByRole('alertdialog');
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Replace' }));
+    await waitFor(() => expect(fetchSchema).toHaveBeenCalledTimes(1));
+
+    // Not cleared while introspection is in flight.
+    expect(activeRequest().graphqlSchema).toEqual(imported);
+
+    await act(async () => {
+      resolveFetch({
+        success: false,
+        schema: null,
+        error: 'Introspection is disabled',
+        endpoint: 'https://no-introspection.example/graphql',
+        timestamp: 2,
+      });
+    });
+
+    expect(activeRequest().graphqlSchema).toEqual(imported);
+    expect(screen.getByText('IMPORTED')).toBeTruthy();
+    expect(vi.mocked(toast.error)).toHaveBeenCalledWith(
+      expect.stringMatching(/kept the imported schema/i),
+      expect.objectContaining({ description: 'Introspection is disabled' })
+    );
   });
 });

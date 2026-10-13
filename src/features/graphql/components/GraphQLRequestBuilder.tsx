@@ -30,6 +30,7 @@ import {
   extractGraphQLErrors,
   extractOperationType,
 } from '@/features/graphql/lib/queryParser';
+import { describeSchemaProvenance } from '@/features/graphql/lib/schemaImport';
 import { GraphQLSubscriptionClient } from '@/features/graphql/lib/subscriptionClient';
 import {
   appendSubscriptionLog,
@@ -81,11 +82,10 @@ function GraphQLRequestBuilder() {
   const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const fetchSchema = useGraphQLSchemaStore((s) => s.fetchSchema);
   const importedSchema = currentRequest?.graphqlSchema;
-  const {
-    result: schemaResult,
-    executable: executableSchema,
-    isImported: schemaIsImported,
-  } = useEffectiveGraphQLSchema(url, importedSchema);
+  const { result: schemaResult, executable: executableSchema } = useEffectiveGraphQLSchema(
+    url,
+    importedSchema
+  );
   const schemaLoading = useGraphQLSchemaStore((s) => (url ? (s.loading[url] ?? false) : false));
   const { run: runViaRegistry, abort: abortRun } = useRequestRunner();
   const [activeTab, setActiveTab] = useState<TabValue>('query');
@@ -350,15 +350,27 @@ function GraphQLRequestBuilder() {
       toast.error('Set a URL first');
       return;
     }
-    // An imported schema exists because introspection may be unavailable —
-    // never discard it without the user's say-so.
-    if (importedSchema) {
-      if (!(await confirmReplaceImported())) return;
-      updateRequest({ graphqlSchema: undefined });
-    }
     // Introspection runs through the same executor as Send, seeded with this
     // tab's auth, headers and settings (see introspectSchema).
-    void fetchSchema(url, { request: httpRequest });
+    if (!importedSchema) {
+      void fetchSchema(url, { request: httpRequest });
+      return;
+    }
+    // An imported schema exists because introspection may be unavailable —
+    // never discard it without the user's say-so, and only once introspection
+    // has actually produced a replacement.
+    if (!(await confirmReplaceImported())) return;
+    const originTabId = activeTabId;
+    const result = await fetchSchema(url, { request: httpRequest });
+    if (result?.success) {
+      if (originTabId) {
+        useRequestStore.getState().updateRequestForTab(originTabId, { graphqlSchema: undefined });
+      }
+      return;
+    }
+    toast.error('Introspection failed — kept the imported schema', {
+      description: result?.error ?? 'Unknown error',
+    });
   };
 
   const renderSendButton = () => {
@@ -499,16 +511,7 @@ function GraphQLRequestBuilder() {
             onClearImported={handleClearImportedSchema}
             loading={schemaLoading}
             loaded={Boolean(schemaResult?.success)}
-            imported={schemaIsImported}
-            {...(importedSchema
-              ? {
-                  importedLabel: importedSchema.fileName
-                    ? `From ${importedSchema.fileName}`
-                    : importedSchema.source === 'introspection'
-                      ? 'From introspection JSON'
-                      : 'From pasted SDL',
-                }
-              : {})}
+            importedFrom={importedSchema ? describeSchemaProvenance(importedSchema) : undefined}
           />
         )}
 
@@ -574,7 +577,7 @@ function GraphQLRequestBuilder() {
                 query={query}
                 variables={graphqlVariables}
                 url={httpRequest.url}
-                {...(importedSchema ? { importedSchema } : {})}
+                importedSchema={importedSchema}
                 onQueryChange={(q) => updateRequest({ body: { ...httpRequest.body, raw: q } })}
                 onVariablesChange={handleVariablesChange}
               />

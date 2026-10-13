@@ -73,6 +73,30 @@ describe('OpenCollection imported GraphQL schema extension', () => {
     expect(ext.requests[0]?.schema).toBe(ext.requests[1]?.schema);
   });
 
+  it('dedupes the same SDL imported at different times / from different files', () => {
+    const later: GraphQLImportedSchema = {
+      sdl: SCHEMA_A.sdl,
+      source: 'introspection',
+      importedAt: SCHEMA_A.importedAt + 60_000,
+    };
+    const collection: Collection = {
+      id: 'c',
+      name: 'Same SDL',
+      items: [item(gql('First', SCHEMA_A)), item(gql('Second', later))],
+    };
+    const ext = (internalToOC(collection).extensions as Record<string, unknown>)[
+      GRAPHQL_EXTENSION_KEY
+    ] as { schemas: Record<string, unknown>; requests: Array<{ schema: string }> };
+
+    expect(Object.keys(ext.schemas)).toHaveLength(1);
+    expect(ext.requests[0]?.schema).toBe(ext.requests[1]?.schema);
+
+    // Provenance stays per request.
+    const yaml = serializeOpenCollectionYAML(internalToOC(collection));
+    const back = gqlRequests(ocToInternal(parseOpenCollectionYAML(yaml)).items);
+    expect(back.map((r) => r.graphqlSchema)).toEqual([SCHEMA_A, later]);
+  });
+
   it('omits the extension when no request has an imported schema', () => {
     const oc = internalToOC({ id: 'c', name: 'Plain', items: [item(gql('None'))] });
     expect((oc.extensions ?? {})[GRAPHQL_EXTENSION_KEY]).toBeUndefined();

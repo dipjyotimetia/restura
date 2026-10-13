@@ -66,10 +66,13 @@ extensions:
         timeout: 5000
   x-restura-graphql:
     schemas:
-      <sha-256 hex>: { sdl: 'type Query { ... }', source: sdl, fileName: api.graphqls, importedAt: 1700000000000 }
+      <sha-256 hex>: { sdl: 'type Query { ... }' }
     requests:
       - path: [Folder, Get viewer]
         schema: <sha-256 hex>
+        source: sdl
+        fileName: api.graphqls
+        importedAt: 1700000000000
   x-restura-auth:
     entries:
       - target: collection # collection | folder | request
@@ -88,7 +91,7 @@ extensions:
 
 - **`x-restura-sse` / `x-restura-mcp`** — SSE and MCP requests with all their fields. `folderPath` places the item back in its folder on import; entries without one (or whose folder no longer exists) load at the collection root. A saved MCP request is one operation: `defaultMethod` (`tools/call`, `resources/read`, `prompts/get`, …) plus JSON `defaultParams`. The CLI fails an MCP item that has no `defaultMethod` rather than sending a `ping`.
 - **`x-restura-grpc`** — gRPC schema snapshots (reflected `FileDescriptorProto`s as base64 `descriptors`, or an uploaded `.proto`) deduplicated by content hash, plus per-request `timeout`. Import re-inlines them onto the requests so a saved gRPC request runs without re-reflecting.
-- **`x-restura-graphql`** — GraphQL schemas the user loaded by hand (SDL or introspection JSON, stored as SDL), deduplicated by content hash. Import re-inlines them onto the requests so completion and validation work without introspection.
+- **`x-restura-graphql`** — GraphQL schemas the user loaded by hand (SDL or introspection JSON, stored as SDL), deduplicated by a hash of the SDL alone; provenance (`source`, `fileName`, `importedAt`) stays on each request entry. Import re-inlines them onto the requests so completion and validation work without introspection.
 - **`x-restura-auth`** — auth options the schema's auth objects lack: OAuth 1.0a `addParamsToBody`, NTLM `workstation`, WSSE `passwordType`. An entry only applies to a node whose imported auth has the entry's `type`.
 - **`x-restura-http`** — per-request HTTP settings the schema's `http.settings` object can't hold. Today that is only the desktop HTTP version preference (`httpVersion`); `auto` is the default and isn't written. Import sets only `httpVersion` and ignores unknown values. A request's other settings (timeout, redirects, TLS verification) keep following your workspace defaults, because Restura stores request settings as a partial override.
 

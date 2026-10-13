@@ -28,10 +28,11 @@ interface SchemaExplorerProps {
   onClearImported?: () => void;
   loading?: boolean;
   loaded?: boolean;
-  /** The schema shown came from the request's imported schema. */
-  imported?: boolean;
-  /** Provenance line for an imported schema (e.g. its file name). */
-  importedLabel?: string;
+  /**
+   * Provenance of the request's imported schema (e.g. "From api.graphqls").
+   * Set only when the schema shown was imported by hand.
+   */
+  importedFrom?: string | undefined;
 }
 
 type Kind = 'OBJECT' | 'ENUM' | 'SCALAR' | 'INPUT' | 'INTERFACE';
@@ -102,9 +103,9 @@ export default function SchemaExplorer({
   onClearImported,
   loading = false,
   loaded = false,
-  imported = false,
-  importedLabel,
+  importedFrom,
 }: SchemaExplorerProps) {
+  const imported = importedFrom !== undefined;
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set());
 
@@ -206,8 +207,8 @@ export default function SchemaExplorer({
 
       {imported && (
         <div className="flex items-center gap-1 px-3 h-7 border-b border-sp-line shrink-0 text-sp-11 text-sp-muted">
-          <span className="truncate" title={importedLabel}>
-            {importedLabel ?? 'Loaded by hand'}
+          <span className="truncate" title={importedFrom}>
+            {importedFrom}
           </span>
           {onClearImported && (
             <button

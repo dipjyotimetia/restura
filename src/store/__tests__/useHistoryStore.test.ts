@@ -54,6 +54,20 @@ describe('useHistoryStore — addHistoryItem', () => {
     expect(useHistoryStore.getState().history).toHaveLength(1);
   });
 
+  it('does not store an imported GraphQL schema on the history entry', () => {
+    const req = makeHttp({
+      body: { type: 'graphql', raw: '{ viewer { id } }' },
+      graphqlSchema: { sdl: 'type Query { viewer: ID }', source: 'sdl', importedAt: 1 },
+    });
+    useHistoryStore.getState().addHistoryItem(req, makeResponse(req.id));
+
+    const stored = useHistoryStore.getState().history[0]?.request as HttpRequest;
+    expect(stored.graphqlSchema).toBeUndefined();
+    expect(stored.body.raw).toBe('{ viewer { id } }');
+    // The caller's (tab's) request keeps its schema.
+    expect(req.graphqlSchema).toBeDefined();
+  });
+
   it('respects settings.maxHistoryItems when capping', () => {
     useSettingsStore.setState({
       settings: { ...defaultSettings, maxHistoryItems: 3 },

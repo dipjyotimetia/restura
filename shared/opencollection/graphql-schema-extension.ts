@@ -1,89 +1,83 @@
-import { sha256HexSync } from '../protocol/crypto-utils';
-import type { CollectionItem, GraphQLImportedSchema, HttpRequest } from '../types';
+import { z } from 'zod';
+import { graphqlImportedSchemaSchema } from '../schemas/app';
+import type { CollectionItem, GraphQLImportedSchema, HttpRequest, Request } from '../types';
+import {
+  applyByPath,
+  createSchemaTable,
+  type PathKeyedEntry,
+  readPathKeyedExtension,
+  walkRequests,
+} from './path-keyed-extension';
 
 /**
  * `extensions['x-restura-graphql']` — Restura-owned, collection-level carrier
  * for user-imported GraphQL schemas (SDL / introspection JSON stored as SDL on
  * `HttpRequest.graphqlSchema`). The canonical OpenCollection GraphQL item has
- * no schema slot, so — like `x-restura-grpc` — schemas are deduplicated by
- * content hash and requests reference them by name path:
+ * no schema slot, so — like `x-restura-grpc` — schemas are deduplicated by a
+ * hash of the SDL alone and requests reference them by name path. Provenance
+ * (source, file name, import time) stays on each request entry, so the same
+ * SDL imported twice is stored once:
  *
  * ```yaml
  * extensions:
  *   x-restura-graphql:
  *     schemas:
- *       <sha-256 hex>: { sdl: "type Query { … }", source: sdl, fileName: api.graphqls, importedAt: 1700000000000 }
+ *       <sha-256 hex>: { sdl: "type Query { … }" }
  *     requests:
  *       - path: [Folder, Request name]
  *         schema: <sha-256 hex>
+ *         source: sdl
+ *         fileName: api.graphqls
+ *         importedAt: 1700000000000
  * ```
  *
- * Request entries are matched by name path in document order, so duplicate
- * names resolve positionally. Both directions walk the INTERNAL tree.
+ * The walk / hash-dedupe / path-matching machinery is shared with
+ * `x-restura-grpc` (see path-keyed-extension.ts).
  */
 export const GRAPHQL_EXTENSION_KEY = 'x-restura-graphql';
 
-interface GraphQLExtensionRequestEntry {
-  path: string[];
+interface GraphQLSchemaContent {
+  sdl: string;
+}
+
+interface GraphQLExtensionRequestEntry extends PathKeyedEntry, Omit<GraphQLImportedSchema, 'sdl'> {
   schema: string;
 }
 
 export interface GraphQLExtension {
-  schemas: Record<string, GraphQLImportedSchema>;
+  schemas: Record<string, GraphQLSchemaContent>;
   requests: GraphQLExtensionRequestEntry[];
 }
 
-function canonical(s: GraphQLImportedSchema): GraphQLImportedSchema {
-  return {
-    sdl: s.sdl,
-    source: s.source,
-    ...(s.fileName ? { fileName: s.fileName } : {}),
-    importedAt: s.importedAt,
-  };
-}
+const isHttp = (r: Request): r is HttpRequest => r.type === 'http';
 
-function walkHttp(
-  items: CollectionItem[] | undefined,
-  parents: string[],
-  visit: (req: HttpRequest, path: string[]) => void
-): void {
-  for (const it of items ?? []) {
-    if (it.type === 'folder') {
-      walkHttp(it.items, [...parents, it.name], visit);
-      continue;
-    }
-    if (it.request?.type === 'http') visit(it.request, [...parents, it.name]);
-  }
-}
+/** Only the SDL is content; provenance must not split identical schemas. */
+const schemaContentOnly = (s: GraphQLSchemaContent): GraphQLSchemaContent => ({ sdl: s.sdl });
+
+const requestEntrySchema = graphqlImportedSchemaSchema
+  .omit({ sdl: true })
+  .extend({ path: z.array(z.string()), schema: z.string() });
+
+const schemaContentSchema = z.object({ sdl: z.string() });
 
 /** Build the extension from the internal tree; undefined when nothing to carry. */
 export function buildGraphQLExtension(
   items: CollectionItem[] | undefined
 ): GraphQLExtension | undefined {
-  const schemas: Record<string, GraphQLImportedSchema> = {};
+  const table = createSchemaTable(schemaContentOnly);
   const requests: GraphQLExtensionRequestEntry[] = [];
-  walkHttp(items, [], (req, path) => {
+  walkRequests(items, isHttp, (req, path) => {
     if (!req.graphqlSchema) return;
-    const snapshot = canonical(req.graphqlSchema);
-    const hash = sha256HexSync(JSON.stringify(snapshot));
-    schemas[hash] ??= snapshot;
-    requests.push({ path, schema: hash });
+    const { sdl, source, fileName, importedAt } = req.graphqlSchema;
+    requests.push({
+      path,
+      schema: table.add({ sdl }),
+      source,
+      ...(fileName ? { fileName } : {}),
+      importedAt,
+    });
   });
-  return requests.length > 0 ? { schemas, requests } : undefined;
-}
-
-function parseSchema(raw: unknown): GraphQLImportedSchema | undefined {
-  if (!raw || typeof raw !== 'object') return undefined;
-  const r = raw as Record<string, unknown>;
-  if (typeof r.sdl !== 'string') return undefined;
-  if (r.source !== 'sdl' && r.source !== 'introspection') return undefined;
-  if (typeof r.importedAt !== 'number' || !Number.isFinite(r.importedAt)) return undefined;
-  return {
-    sdl: r.sdl,
-    source: r.source,
-    ...(typeof r.fileName === 'string' && r.fileName ? { fileName: r.fileName } : {}),
-    importedAt: r.importedAt,
-  };
+  return requests.length > 0 ? { schemas: table.schemas, requests } : undefined;
 }
 
 /**
@@ -91,29 +85,24 @@ function parseSchema(raw: unknown): GraphQLImportedSchema | undefined {
  * HTTP requests in place). Malformed entries / unknown hashes are ignored.
  */
 export function applyGraphQLExtension(items: CollectionItem[] | undefined, raw: unknown): void {
-  if (!raw || typeof raw !== 'object') return;
-  const ext = raw as Record<string, unknown>;
-  const schemas = (ext.schemas && typeof ext.schemas === 'object' ? ext.schemas : {}) as Record<
-    string,
-    unknown
-  >;
-  const pending = (Array.isArray(ext.requests) ? ext.requests : []).filter(
-    (e): e is GraphQLExtensionRequestEntry =>
-      !!e &&
-      typeof e === 'object' &&
-      Array.isArray((e as { path?: unknown }).path) &&
-      (e as { path: unknown[] }).path.every((p) => typeof p === 'string') &&
-      typeof (e as { schema?: unknown }).schema === 'string'
+  const ext = readPathKeyedExtension(raw);
+  if (!ext) return;
+  applyByPath(
+    items,
+    isHttp,
+    ext.requests,
+    (e) => {
+      const parsed = requestEntrySchema.safeParse(e);
+      return parsed.success ? parsed.data : undefined;
+    },
+    (req, { schema: hash, path: _path, ...provenance }) => {
+      const content = schemaContentSchema.safeParse(ext.schemas[hash]);
+      if (!content.success) return;
+      const schema = graphqlImportedSchemaSchema.safeParse({
+        sdl: content.data.sdl,
+        ...provenance,
+      });
+      if (schema.success) req.graphqlSchema = schema.data;
+    }
   );
-  if (pending.length === 0) return;
-  const key = (path: string[]) => JSON.stringify(path);
-  walkHttp(items, [], (req, path) => {
-    const k = key(path);
-    const idx = pending.findIndex((e) => key(e.path) === k);
-    if (idx < 0) return;
-    const [entry] = pending.splice(idx, 1);
-    if (!entry) return;
-    const schema = parseSchema(schemas[entry.schema]);
-    if (schema) req.graphqlSchema = schema;
-  });
 }

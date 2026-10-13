@@ -1,7 +1,12 @@
 import { buildSchema, introspectionFromSchema, parse, validate } from 'graphql';
 import { describe, expect, it } from 'vitest';
 import { buildSchemaFromIntrospection } from '../introspection';
-import { importedSchemaToResult, parseSchemaSource } from '../schemaImport';
+import {
+  describeSchemaProvenance,
+  importedSchemaToResult,
+  loadImportedSchema,
+  parseSchemaSource,
+} from '../schemaImport';
 
 const SDL = /* GraphQL */ `
   type Query {
@@ -15,6 +20,13 @@ const SDL = /* GraphQL */ `
 `;
 
 describe('parseSchemaSource', () => {
+  it('measures the 20 MB limit in UTF-8 bytes, not UTF-16 code units', () => {
+    // 7M three-byte characters: ~6.7M code units (under 20 MiB) but ~20.03 MiB of UTF-8.
+    const comment = `# ${'€'.repeat(7_000_000)}\n`;
+    const result = parseSchemaSource(`${comment}type Query { a: Int }`);
+    expect(result).toEqual({ ok: false, error: 'Schema is too large (max 20 MB).' });
+  });
+
   it('accepts SDL text', () => {
     const result = parseSchemaSource(SDL);
     expect(result.ok).toBe(true);
@@ -102,5 +114,45 @@ describe('importedSchemaToResult', () => {
     );
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/Syntax Error/);
+  });
+});
+
+describe('loadImportedSchema', () => {
+  it('builds each distinct SDL once and shares the result across consumers', () => {
+    const sdl = 'type Query { shared: Int }';
+    const first = loadImportedSchema(sdl);
+    // A different request object carrying the same SDL (e.g. builder vs body editor).
+    const second = loadImportedSchema(`${sdl}`);
+    expect(first.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    expect(second.executable).toBe(first.executable);
+    expect(second.introspection).toBe(first.introspection);
+    expect(first.executable.getQueryType()?.getFields().shared).toBeDefined();
+  });
+
+  it('feeds importedSchemaToResult so the explorer reuses the shared introspection', () => {
+    const imported = { sdl: 'type Query { reused: Int }', source: 'sdl' as const, importedAt: 1 };
+    const loaded = loadImportedSchema(imported.sdl);
+    if (!loaded.ok) throw new Error(loaded.error);
+    const result = importedSchemaToResult({ ...imported }, 'https://api.example/graphql');
+    expect(result.introspection).toBe(loaded.introspection);
+  });
+
+  it('reports a parse error for SDL that no longer builds', () => {
+    expect(loadImportedSchema('type Query {')).toEqual({
+      ok: false,
+      error: expect.stringMatching(/Syntax Error/),
+    });
+  });
+});
+
+describe('describeSchemaProvenance', () => {
+  it.each([
+    [{ fileName: 'api.graphqls', source: 'sdl' as const }, 'From api.graphqls'],
+    [{ fileName: 'dump.json', source: 'introspection' as const }, 'From dump.json'],
+    [{ source: 'introspection' as const }, 'From introspection JSON'],
+    [{ source: 'sdl' as const }, 'From pasted SDL'],
+  ])('%o → %s', (provenance, label) => {
+    expect(describeSchemaProvenance({ sdl: '', importedAt: 1, ...provenance })).toBe(label);
   });
 });

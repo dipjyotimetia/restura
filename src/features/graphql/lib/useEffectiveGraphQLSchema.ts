@@ -4,15 +4,13 @@ import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
 import type { GraphQLImportedSchema } from '@/types';
 import type { IntrospectionResult } from '../types';
 import { buildSchemaFromIntrospection } from './introspection';
-import { importedSchemaToResult } from './schemaImport';
+import { importedSchemaToResult, loadImportedSchema } from './schemaImport';
 
 export interface EffectiveGraphQLSchema {
   /** Introspection-shaped result for the explorer + autocomplete. */
   result: IntrospectionResult | null;
   /** Executable schema for validation / diagnostics / SDL export. */
   executable: GQLSchema | null;
-  /** True when the schema came from the request's imported schema. */
-  isImported: boolean;
 }
 
 /**
@@ -24,14 +22,18 @@ export function useEffectiveGraphQLSchema(
   imported: GraphQLImportedSchema | undefined
 ): EffectiveGraphQLSchema {
   const introspected = useGraphQLSchemaStore((s) => (url ? (s.schemas[url] ?? null) : null));
-  const importedResult = useMemo(
-    () => (imported ? importedSchemaToResult(imported, url) : null),
-    [imported, url]
+  const importedSchema = useMemo(() => {
+    if (!imported) return null;
+    // Shared, SDL-keyed: the builder and body editor reuse one built schema.
+    const loaded = loadImportedSchema(imported.sdl);
+    return {
+      result: importedSchemaToResult(imported, url),
+      executable: loaded.ok ? loaded.executable : null,
+    };
+  }, [imported, url]);
+  const introspectedExecutable = useMemo(
+    () => (!importedSchema && introspected ? buildSchemaFromIntrospection(introspected) : null),
+    [importedSchema, introspected]
   );
-  const result = importedResult ?? introspected;
-  const executable = useMemo(
-    () => (result ? buildSchemaFromIntrospection(result) : null),
-    [result]
-  );
-  return { result, executable, isImported: importedResult !== null };
+  return importedSchema ?? { result: introspected, executable: introspectedExecutable };
 }

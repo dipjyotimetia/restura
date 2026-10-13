@@ -1,5 +1,13 @@
-import { sha256HexSync } from '../protocol/crypto-utils';
-import type { CollectionItem, GrpcRequest, GrpcSchemaSnapshot } from '../types';
+import type { CollectionItem, GrpcRequest, GrpcSchemaSnapshot, Request } from '../types';
+import {
+  applyByPath,
+  contentHash,
+  createSchemaTable,
+  isPathKeyedEntry,
+  type PathKeyedEntry,
+  readPathKeyedExtension,
+  walkRequests,
+} from './path-keyed-extension';
 
 /**
  * `extensions['x-restura-grpc']` — Restura-owned, collection-level carrier for
@@ -23,14 +31,12 @@ import type { CollectionItem, GrpcRequest, GrpcSchemaSnapshot } from '../types';
  * import re-inlines it onto `GrpcRequest.schema`. Request entries are matched
  * by name path in document order, so duplicate names resolve positionally.
  *
- * Both directions walk the INTERNAL tree: `ocToInternal` preserves folder
- * names, gRPC item names and their relative order, so the export walk and the
- * post-import walk see the same sequence.
+ * The walk / hash-dedupe / path-matching machinery is shared with
+ * `x-restura-graphql` (see path-keyed-extension.ts).
  */
 export const GRPC_EXTENSION_KEY = 'x-restura-grpc';
 
-interface GrpcExtensionRequestEntry {
-  path: string[];
+interface GrpcExtensionRequestEntry extends PathKeyedEntry {
   schema?: string;
   timeout?: number;
 }
@@ -49,39 +55,25 @@ function canonicalSnapshot(s: GrpcSchemaSnapshot): GrpcSchemaSnapshot {
 
 /** sha-256 hex over the canonical JSON of a snapshot. */
 export function grpcSchemaHash(s: GrpcSchemaSnapshot): string {
-  return sha256HexSync(JSON.stringify(canonicalSnapshot(s)));
+  return contentHash(canonicalSnapshot(s));
 }
 
-function walkGrpc(
-  items: CollectionItem[] | undefined,
-  parents: string[],
-  visit: (req: GrpcRequest, path: string[]) => void
-): void {
-  for (const it of items ?? []) {
-    if (it.type === 'folder') {
-      walkGrpc(it.items, [...parents, it.name], visit);
-      continue;
-    }
-    if (it.request?.type === 'grpc') visit(it.request, [...parents, it.name]);
-  }
-}
+const isGrpc = (r: Request): r is GrpcRequest => r.type === 'grpc';
 
 /** Build the extension from the internal tree; undefined when nothing to carry. */
 export function buildGrpcExtension(items: CollectionItem[] | undefined): GrpcExtension | undefined {
-  const schemas: Record<string, GrpcSchemaSnapshot> = {};
+  const table = createSchemaTable(canonicalSnapshot);
   const requests: GrpcExtensionRequestEntry[] = [];
-  walkGrpc(items, [], (req, path) => {
+  walkRequests(items, isGrpc, (req, path) => {
     const entry: GrpcExtensionRequestEntry = { path };
-    if (req.schema) {
-      const hash = grpcSchemaHash(req.schema);
-      schemas[hash] ??= canonicalSnapshot(req.schema);
-      entry.schema = hash;
-    }
+    if (req.schema) entry.schema = table.add(req.schema);
     if (typeof req.timeout === 'number') entry.timeout = req.timeout;
     if (entry.schema !== undefined || entry.timeout !== undefined) requests.push(entry);
   });
   if (requests.length === 0) return undefined;
-  return Object.keys(schemas).length > 0 ? { schemas, requests } : { requests };
+  return Object.keys(table.schemas).length > 0
+    ? { schemas: table.schemas, requests }
+    : { requests };
 }
 
 function parseSnapshot(raw: unknown): GrpcSchemaSnapshot | undefined {
@@ -106,33 +98,25 @@ function parseSnapshot(raw: unknown): GrpcSchemaSnapshot | undefined {
  * the request simply has no snapshot and the runner falls back to reflection.
  */
 export function applyGrpcExtension(items: CollectionItem[] | undefined, raw: unknown): void {
-  if (!raw || typeof raw !== 'object') return;
-  const ext = raw as Record<string, unknown>;
-  const schemas = (ext.schemas && typeof ext.schemas === 'object' ? ext.schemas : {}) as Record<
-    string,
-    unknown
-  >;
-  const pending = (Array.isArray(ext.requests) ? ext.requests : []).filter(
-    (e): e is GrpcExtensionRequestEntry =>
-      !!e &&
-      typeof e === 'object' &&
-      Array.isArray((e as { path?: unknown }).path) &&
-      (e as { path: unknown[] }).path.every((p) => typeof p === 'string')
+  const ext = readPathKeyedExtension(raw);
+  if (!ext) return;
+  applyByPath(
+    items,
+    isGrpc,
+    ext.requests,
+    (e) => (isPathKeyedEntry(e) ? (e as GrpcExtensionRequestEntry) : undefined),
+    (req, entry) => {
+      if (typeof entry.schema === 'string') {
+        const snapshot = parseSnapshot(ext.schemas[entry.schema]);
+        if (snapshot) req.schema = snapshot;
+      }
+      if (
+        typeof entry.timeout === 'number' &&
+        Number.isFinite(entry.timeout) &&
+        entry.timeout > 0
+      ) {
+        req.timeout = entry.timeout;
+      }
+    }
   );
-  if (pending.length === 0) return;
-  const key = (path: string[]) => JSON.stringify(path);
-  walkGrpc(items, [], (req, path) => {
-    const k = key(path);
-    const idx = pending.findIndex((e) => key(e.path) === k);
-    if (idx < 0) return;
-    const [entry] = pending.splice(idx, 1);
-    if (!entry) return;
-    if (typeof entry.schema === 'string') {
-      const snapshot = parseSnapshot(schemas[entry.schema]);
-      if (snapshot) req.schema = snapshot;
-    }
-    if (typeof entry.timeout === 'number' && Number.isFinite(entry.timeout) && entry.timeout > 0) {
-      req.timeout = entry.timeout;
-    }
-  });
 }

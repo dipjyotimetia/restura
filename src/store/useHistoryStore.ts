@@ -35,6 +35,18 @@ interface HistoryState {
 const DEFAULT_MAX_HISTORY_ITEMS = 100;
 const DEFAULT_PAGE_SIZE = 20;
 
+/**
+ * History is a log of what was sent, not an editing surface: an imported
+ * GraphQL schema (up to 20 MB of SDL) stays on the tab / saved request and is
+ * not copied into every history entry. Re-opening from history falls back to
+ * the per-URL introspection cache.
+ */
+function toHistoryRequest(request: Request): Request {
+  if (request.type !== 'http' || request.graphqlSchema === undefined) return request;
+  const { graphqlSchema: _omitted, ...rest } = request;
+  return rest;
+}
+
 export const useHistoryStore = create<HistoryState>()(
   persist(
     (set, get) => ({
@@ -55,7 +67,7 @@ export const useHistoryStore = create<HistoryState>()(
 
           const newItem: HistoryItem = {
             id: `history-${Date.now()}`,
-            request,
+            request: toHistoryRequest(request),
             ...(response !== undefined && { response }),
             ...(resolvedUrl !== undefined && { resolvedUrl }),
             timestamp: Date.now(),

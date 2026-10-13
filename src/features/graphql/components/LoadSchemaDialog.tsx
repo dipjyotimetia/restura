@@ -13,7 +13,11 @@ import {
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import type { GraphQLImportedSchema } from '@/types';
-import { parseSchemaSource } from '../lib/schemaImport';
+import {
+  MAX_SCHEMA_SOURCE_BYTES,
+  parseSchemaSource,
+  SCHEMA_TOO_LARGE_ERROR,
+} from '../lib/schemaImport';
 
 interface LoadSchemaDialogProps {
   open: boolean;
@@ -39,7 +43,7 @@ export function LoadSchemaDialog({ open, onOpenChange, onLoad }: LoadSchemaDialo
   };
 
   const tryLoad = (source: string, fileName?: string) => {
-    const parsed = parseSchemaSource(source, fileName ? { fileName } : {});
+    const parsed = parseSchemaSource(source, { fileName });
     if (!parsed.ok) {
       setError(fileName ? `${fileName}: ${parsed.error}` : parsed.error);
       return;
@@ -50,6 +54,11 @@ export function LoadSchemaDialog({ open, onOpenChange, onLoad }: LoadSchemaDialo
 
   const handleFile = async (file: File | undefined) => {
     if (!file) return;
+    // Refuse before reading: file.text() would pull the whole file into memory.
+    if (file.size > MAX_SCHEMA_SOURCE_BYTES) {
+      setError(`${file.name}: ${SCHEMA_TOO_LARGE_ERROR}`);
+      return;
+    }
     try {
       tryLoad(await file.text(), file.name);
     } catch (err) {
