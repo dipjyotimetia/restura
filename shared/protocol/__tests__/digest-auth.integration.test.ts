@@ -39,10 +39,7 @@ beforeAll(async () => {
         res.end('challenge');
         return;
       }
-      const p: Record<string, string> = {};
-      for (const m of auth.slice(7).matchAll(/(\w+)=(?:"([^"]*)"|([^,\s]+))/g)) {
-        p[m[1]!] = m[2] ?? m[3]!;
-      }
+      const p = parseAuthParams(auth.slice(7));
       const ha1 = hash(alg, `${USER}:it:${PASS}`);
       const ha2 = hash(alg, `${req.method}:${req.url}`);
       const expected = hash(alg, `${ha1}:n-123:${p.nc}:${p.cnonce}:auth:${ha2}`);
@@ -54,6 +51,36 @@ beforeAll(async () => {
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
+
+/**
+ * Linear `key=value, key="quoted"` parser for the server side of the test.
+ * A regex with `(\w+)=` under matchAll is quadratic on header input with no
+ * `=` (CodeQL js/polynomial-redos); indexOf scanning keeps it O(n).
+ */
+function parseAuthParams(s: string): Record<string, string> {
+  const params: Record<string, string> = {};
+  let i = 0;
+  while (i < s.length) {
+    const eq = s.indexOf('=', i);
+    if (eq < 0) break;
+    const key = s.slice(i, eq).trim();
+    let value: string;
+    let next: number;
+    if (s[eq + 1] === '"') {
+      const close = s.indexOf('"', eq + 2);
+      if (close < 0) break;
+      value = s.slice(eq + 2, close);
+      next = s.indexOf(',', close);
+    } else {
+      next = s.indexOf(',', eq + 1);
+      value = s.slice(eq + 1, next < 0 ? undefined : next).trim();
+    }
+    params[key] = value;
+    if (next < 0) break;
+    i = next + 1;
+  }
+  return params;
+}
 
 afterAll(() => new Promise<void>((r) => server.close(() => r())));
 
