@@ -13,6 +13,7 @@ import type {
 } from '../types';
 import { AUTH_EXTENSION_KEY, buildAuthExtension, stripAuthExtras } from './auth-extension';
 import { authFromInternal, unwrapAuthForCompare } from './auth-from-internal';
+import { buildGraphQLExtension, GRAPHQL_EXTENSION_KEY } from './graphql-schema-extension';
 import { buildGrpcExtension, GRPC_EXTENSION_KEY } from './grpc-schema-extension';
 import { buildHttpExtension, HTTP_EXTENSION_KEY } from './http-settings-extension';
 import type { OpenCollection } from './schemas';
@@ -111,14 +112,15 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
   // Restura-managed extensions, rebuilt fresh on every export (undefined =
   // omit): SSE/MCP items, the contract, OAuth1/NTLM/WSSE knobs the schema's
   // closed auth objects can't hold (x-restura-auth) and deduped gRPC schema
-  // snapshots / timeouts (x-restura-grpc), and HTTP settings the closed
-  // HttpRequest item can't hold, e.g. httpVersion (x-restura-http).
+  // snapshots / timeouts (x-restura-grpc), imported GraphQL schemas
+  // (x-restura-graphql) and httpVersion (x-restura-http).
   const managed: Record<string, unknown> = {
     'x-restura-sse': sseItems.length > 0 ? sseItems : undefined,
     'x-restura-mcp': mcpItems.length > 0 ? mcpItems : undefined,
     'x-restura-contract': c.contractSpec,
     [AUTH_EXTENSION_KEY]: buildAuthExtension(c),
     [GRPC_EXTENSION_KEY]: buildGrpcExtension(c.items),
+    [GRAPHQL_EXTENSION_KEY]: buildGraphQLExtension(c.items),
     [HTTP_EXTENSION_KEY]: buildHttpExtension(c.items),
   };
 

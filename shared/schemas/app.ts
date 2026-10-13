@@ -183,6 +183,14 @@ export const authConfigSchema = z.object({
     .optional(),
 });
 
+// Imported GraphQL schema (SDL / introspection JSON stored as canonical SDL).
+export const graphqlImportedSchemaSchema = z.object({
+  sdl: z.string(),
+  source: z.enum(['sdl', 'introspection']),
+  fileName: z.string().optional(),
+  importedAt: z.number(),
+});
+
 // HTTP Request Schema
 export const httpRequestSchema = z.object({
   id: z.string(),
@@ -206,6 +214,7 @@ export const httpRequestSchema = z.object({
       'multipart-mixed',
     ]),
     raw: z.string().optional(),
+    graphqlVariables: z.string().optional(),
     formData: z.array(z.any()).optional(),
     binary: z.any().optional(),
     multipartParts: z.array(z.any()).optional(),
@@ -216,6 +225,7 @@ export const httpRequestSchema = z.object({
   description: z.string().optional(),
   // Partial: omitted fields follow the workspace defaults (RequestSettingsOverride).
   settings: requestSettingsSchema.partial().optional(),
+  graphqlSchema: graphqlImportedSchemaSchema.optional(),
 });
 
 // gRPC Request Schema

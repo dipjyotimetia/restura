@@ -6,12 +6,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { registerGraphQLCompletionProvider } from '@/features/graphql/lib/completionProvider';
 import { setupDebouncedDiagnostics } from '@/features/graphql/lib/diagnosticsProvider';
-import { buildSchemaFromIntrospection } from '@/features/graphql/lib/introspection';
 import { generateVariablesTemplate, parseVariables } from '@/features/graphql/lib/queryParser';
+import { useEffectiveGraphQLSchema } from '@/features/graphql/lib/useEffectiveGraphQLSchema';
 import { validateQuery } from '@/features/graphql/lib/validation';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { useActiveTab } from '@/store/selectors';
-import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
+import type { GraphQLImportedSchema } from '@/types';
 
 const CodeEditor = lazyComponent(
   () => import('@/components/shared/CodeEditor'),
@@ -24,6 +24,8 @@ interface GraphQLBodyEditorProps {
   query: string;
   variables: string;
   url: string;
+  /** The request's imported schema; wins over the introspection cache. */
+  importedSchema?: GraphQLImportedSchema;
   onQueryChange: (query: string) => void;
   onVariablesChange: (variables: string) => void;
 }
@@ -43,17 +45,16 @@ export default function GraphQLBodyEditor({
   query,
   variables,
   url,
+  importedSchema,
   onQueryChange,
   onVariablesChange,
 }: GraphQLBodyEditorProps) {
   const [showVariables, setShowVariables] = useState(true);
   const diagnosticsRef = useRef<Monaco.IDisposable | null>(null);
   const activeTabId = useActiveTab()?.id;
-  const schemaResult = useGraphQLSchemaStore((s) => (url ? (s.schemas[url] ?? null) : null));
-
-  const executableSchema = useMemo(
-    () => (schemaResult ? buildSchemaFromIntrospection(schemaResult) : null),
-    [schemaResult]
+  const { result: schemaResult, executable: executableSchema } = useEffectiveGraphQLSchema(
+    url,
+    importedSchema
   );
 
   // Refs so Monaco providers always read the latest schema without re-registering

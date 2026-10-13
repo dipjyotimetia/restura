@@ -3,6 +3,7 @@
 import {
   CheckCircle,
   Download,
+  FileUp,
   Loader2,
   PanelLeft,
   Plug,
@@ -10,9 +11,10 @@ import {
   Send,
   Wand2,
 } from 'lucide-react';
-import { useMemo, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
+import { useConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { KeyValueTable } from '@/components/shared/KeyValueTable';
 import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
@@ -22,10 +24,7 @@ import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import { formatQuery } from '@/features/graphql/lib/formatter';
-import {
-  buildSchemaFromIntrospection,
-  exportSchemaToSDL,
-} from '@/features/graphql/lib/introspection';
+import { exportSchemaToSDL } from '@/features/graphql/lib/introspection';
 import {
   buildGraphQLRequestBody,
   extractGraphQLErrors,
@@ -37,6 +36,7 @@ import {
   emptySubscriptionLog,
   type SubscriptionLogState,
 } from '@/features/graphql/lib/subscriptionLog';
+import { useEffectiveGraphQLSchema } from '@/features/graphql/lib/useEffectiveGraphQLSchema';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
@@ -49,8 +49,16 @@ import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useUiStore } from '@/store/useUiStore';
-import type { AuthConfig as AuthConfigType, HttpRequest } from '@/types';
+import type { AuthConfig as AuthConfigType, GraphQLImportedSchema, HttpRequest } from '@/types';
+import { LoadSchemaDialog } from './LoadSchemaDialog';
 import SchemaExplorer from './SchemaExplorer';
+
+const REPLACE_IMPORTED_CONFIRM = {
+  title: 'Replace imported schema?',
+  description:
+    'This request uses a schema you loaded by hand. Introspecting the endpoint will replace it with whatever the server returns (introspection may be disabled).',
+  confirmText: 'Replace',
+} as const;
 
 const GraphQLBodyEditor = lazyComponent(() => import('./GraphQLBodyEditor'));
 const CodeEditor = lazyComponent(
@@ -72,7 +80,12 @@ function GraphQLRequestBuilder() {
   const url = currentRequest?.url ?? '';
   const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const fetchSchema = useGraphQLSchemaStore((s) => s.fetchSchema);
-  const schemaResult = useGraphQLSchemaStore((s) => (url ? (s.schemas[url] ?? null) : null));
+  const importedSchema = currentRequest?.graphqlSchema;
+  const {
+    result: schemaResult,
+    executable: executableSchema,
+    isImported: schemaIsImported,
+  } = useEffectiveGraphQLSchema(url, importedSchema);
   const schemaLoading = useGraphQLSchemaStore((s) => (url ? (s.loading[url] ?? false) : false));
   const { run: runViaRegistry, abort: abortRun } = useRequestRunner();
   const [activeTab, setActiveTab] = useState<TabValue>('query');
@@ -87,11 +100,9 @@ function GraphQLRequestBuilder() {
     useState<SubscriptionLogState>(emptySubscriptionLog);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const subscriptionClientRef = useRef<GraphQLSubscriptionClient | null>(null);
-
-  const executableSchema = useMemo(
-    () => (schemaResult ? buildSchemaFromIntrospection(schemaResult) : null),
-    [schemaResult]
-  );
+  const [loadSchemaOpen, setLoadSchemaOpen] = useState(false);
+  const { confirm: confirmReplaceImported, DialogComponent: ReplaceImportedDialog } =
+    useConfirmDialog(REPLACE_IMPORTED_CONFIRM);
 
   const sendShortcut = useSendShortcut();
   if (!currentRequest) {
@@ -321,10 +332,29 @@ function GraphQLRequestBuilder() {
     setActiveTab('query');
   };
 
-  const handleRefreshSchema = () => {
+  const handleSchemaLoaded = (schema: GraphQLImportedSchema, typeCount: number) => {
+    if (!updateRequest({ graphqlSchema: schema })) return;
+    setLoadSchemaOpen(false);
+    setShowSchema(true);
+    toast.success('Schema loaded', {
+      description: `${typeCount} type${typeCount === 1 ? '' : 's'}${schema.fileName ? ` from ${schema.fileName}` : ''}`,
+    });
+  };
+
+  const handleClearImportedSchema = () => {
+    updateRequest({ graphqlSchema: undefined });
+  };
+
+  const handleRefreshSchema = async () => {
     if (!url) {
       toast.error('Set a URL first');
       return;
+    }
+    // An imported schema exists because introspection may be unavailable —
+    // never discard it without the user's say-so.
+    if (importedSchema) {
+      if (!(await confirmReplaceImported())) return;
+      updateRequest({ graphqlSchema: undefined });
     }
     // Introspection runs through the same executor as Send, seeded with this
     // tab's auth, headers and settings (see introspectSchema).
@@ -464,9 +494,21 @@ function GraphQLRequestBuilder() {
           <SchemaExplorer
             schema={schemaResult?.schema ?? null}
             onFieldSelect={handleFieldSelect}
-            onRefresh={handleRefreshSchema}
+            onRefresh={() => void handleRefreshSchema()}
+            onImport={() => setLoadSchemaOpen(true)}
+            onClearImported={handleClearImportedSchema}
             loading={schemaLoading}
             loaded={Boolean(schemaResult?.success)}
+            imported={schemaIsImported}
+            {...(importedSchema
+              ? {
+                  importedLabel: importedSchema.fileName
+                    ? `From ${importedSchema.fileName}`
+                    : importedSchema.source === 'introspection'
+                      ? 'From introspection JSON'
+                      : 'From pasted SDL',
+                }
+              : {})}
           />
         )}
 
@@ -492,6 +534,16 @@ function GraphQLRequestBuilder() {
                   >
                     <Wand2 className="h-3 w-3" />
                     Prettify
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLoadSchemaOpen(true)}
+                    aria-label="Load schema"
+                    title="Load schema from an SDL file, pasted SDL or introspection JSON"
+                    className="inline-flex items-center gap-1 h-6 px-2 rounded-sp-chip text-sp-11 font-medium text-sp-muted hover:text-sp-text hover:bg-sp-hover transition-colors"
+                  >
+                    <FileUp className="h-3 w-3" />
+                    Load
                   </button>
                   <button
                     type="button"
@@ -522,6 +574,7 @@ function GraphQLRequestBuilder() {
                 query={query}
                 variables={graphqlVariables}
                 url={httpRequest.url}
+                {...(importedSchema ? { importedSchema } : {})}
                 onQueryChange={(q) => updateRequest({ body: { ...httpRequest.body, raw: q } })}
                 onVariablesChange={handleVariablesChange}
               />
@@ -626,6 +679,12 @@ function GraphQLRequestBuilder() {
           </SubTabPanel>
         </Floater>
       </div>
+      <LoadSchemaDialog
+        open={loadSchemaOpen}
+        onOpenChange={setLoadSchemaOpen}
+        onLoad={handleSchemaLoaded}
+      />
+      <ReplaceImportedDialog />
     </div>
   );
 }

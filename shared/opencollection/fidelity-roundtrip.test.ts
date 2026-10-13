@@ -102,6 +102,8 @@ const HTTP_FIELDS = {
   // Not yet carried by the OC serializer — out of scope for #863/#869.
   settings: 'known-gap',
   contractRef: 'known-gap',
+  // Carried by the collection-level x-restura-graphql extension (#867).
+  graphqlSchema: 'roundtrip',
 } as const satisfies Record<keyof HttpRequest, FieldPolicy>;
 
 const HTTP_FIXTURE: Required<HttpRequest> = {
@@ -122,6 +124,12 @@ const HTTP_FIXTURE: Required<HttpRequest> = {
   description: 'Creates a user',
   settings: { timeout: 1000, followRedirects: true, maxRedirects: 5, verifySsl: true },
   contractRef: { operationId: 'createUser' },
+  graphqlSchema: {
+    sdl: 'type Query {\n  user: String\n}',
+    source: 'introspection',
+    fileName: 'schema.json',
+    importedAt: 1700000000000,
+  },
 };
 
 const GRPC_FIELDS = {

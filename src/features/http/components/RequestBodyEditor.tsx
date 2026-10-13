@@ -7,7 +7,7 @@ import { useVariableStatus } from '@/hooks/useVariableStatus';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { urlEncodedItems } from '@/lib/shared/urlEncodedBody';
 import { useActiveTab } from '@/store/selectors';
-import type { FormDataItem, RequestBody } from '@/types';
+import type { FormDataItem, GraphQLImportedSchema, RequestBody } from '@/types';
 
 const CodeEditor = lazyComponent(
   () => import('@/components/shared/CodeEditor'),
@@ -37,6 +37,8 @@ interface RequestBodyEditorProps {
   onFormDataChange?: (items: FormDataItem[]) => void;
   onUrlEncodedChange?: (items: FormDataItem[]) => void;
   url?: string;
+  /** Imported GraphQL schema of the request (GraphQL bodies only). */
+  graphqlSchema?: GraphQLImportedSchema;
   graphqlVariables?: string;
   onGraphQLVariablesChange?: (variables: string) => void;
 }
@@ -47,6 +49,7 @@ export default function RequestBodyEditor({
   onFormDataChange,
   onUrlEncodedChange,
   url = '',
+  graphqlSchema,
   graphqlVariables = '{}',
   onGraphQLVariablesChange,
 }: RequestBodyEditorProps) {
@@ -71,6 +74,7 @@ export default function RequestBodyEditor({
         query={body.raw || ''}
         variables={graphqlVariables}
         url={url}
+        {...(graphqlSchema ? { importedSchema: graphqlSchema } : {})}
         onQueryChange={onBodyContentChange}
         onVariablesChange={onGraphQLVariablesChange || (() => {})}
       />

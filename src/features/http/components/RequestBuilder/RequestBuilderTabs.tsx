@@ -292,6 +292,7 @@ export function RequestBuilderTabs({
                 onFormDataChange={handlers.changeFormData}
                 onUrlEncodedChange={handlers.changeUrlEncoded}
                 url={request.url}
+                {...(request.graphqlSchema ? { graphqlSchema: request.graphqlSchema } : {})}
               />
             </div>
 

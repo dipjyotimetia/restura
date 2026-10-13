@@ -10,6 +10,7 @@ GraphQL in Restura is HTTP underneath, but the editor knows the spec: it can int
 ## What works
 
 - **Introspection** — "Refresh Schema" against any GraphQL endpoint; Restura fetches the schema and uses it for completion and validation. Runs through the shared proxy (so it carries the request's auth + TLS/proxy config and works on desktop, where a direct fetch is CSP-blocked).
+- **Load a schema by hand** — for endpoints with introspection disabled. **Load** (next to the SDL download in the query toolbar, or the upload icon in the schema explorer) accepts a `.graphql` / `.graphqls` / `.gql` SDL file, pasted SDL, or an introspection JSON result (`{ "data": { "__schema": … } }` or `{ "__schema": … }`). Parse errors are shown with their line and column. The schema is saved on the request — it survives reload and travels with the request when saved to a collection or exported to OpenCollection — and drives completion, validation and the schema explorer (marked **IMPORTED**). Refresh asks before replacing an imported schema with an introspection result.
 - **Query / Mutation / Subscription** — operation type detected from the document.
 - **Variables** — separate JSON editor; resolves environment placeholders (`{{userId}}`).
 - **`{{variables}}` in the URL** — autocompleted and highlighted (unresolved names are flagged). Resolved from the active environment and globals at send time.
@@ -40,7 +41,7 @@ Only header-shaped auth applies to a subscription handshake: Bearer, Basic, API 
 
 ## Tips
 
-- If the server gates introspection in production, paste the schema manually under **Schema** to keep completions working.
+- If the server gates introspection in production, use **Load** to paste the SDL or load a schema file (or an introspection JSON exported from a staging server) to keep completions and validation working.
 - Subscriptions count as a long-lived response — see also [SSE](/protocols/sse/) and [WebSocket](/protocols/websocket/) for raw transport access.
 - For load-style testing, drive a GraphQL collection through the [CLI](/reference/cli/) — same wire format as HTTP, JUnit / HTML / JSON reporters included.
 - To try GraphQL against a real server locally, `echo-local` serves query/mutation over its HTTP endpoint (`http://localhost:8080/graphql`, POST — already in the generated collection with working auth) and a subscription endpoint over WebSocket (`ws://localhost:8085/graphql`, `subscription { tick(count) { n timestamp } }`) that you drive manually. See [Local test stack](/testing/local-stack/).

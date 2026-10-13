@@ -298,6 +298,53 @@ describe('store-validators', () => {
       expect(result.method).toBe('POST');
       expect(result.name).toBe('Test');
     });
+
+    it('keeps an imported GraphQL schema and GraphQL variables on the request', () => {
+      const current: HttpRequest = {
+        id: 'req-gql',
+        name: 'GQL',
+        type: 'http',
+        method: 'POST',
+        url: 'https://api.example.com/graphql',
+        headers: [],
+        params: [],
+        body: { type: 'graphql', raw: '{ ping }' },
+        auth: { type: 'none' },
+      };
+      const graphqlSchema = {
+        sdl: 'type Query { ping: String }',
+        source: 'sdl' as const,
+        fileName: 'schema.graphql',
+        importedAt: 1700000000000,
+      };
+
+      const result = validateRequestUpdate(current, {
+        graphqlSchema,
+        body: { type: 'graphql', raw: '{ ping }', graphqlVariables: '{"a":1}' },
+      }) as HttpRequest;
+
+      expect(result.graphqlSchema).toEqual(graphqlSchema);
+      expect(result.body.graphqlVariables).toBe('{"a":1}');
+    });
+
+    it('rejects a malformed imported GraphQL schema', () => {
+      const current: HttpRequest = {
+        id: 'req-gql',
+        name: 'GQL',
+        type: 'http',
+        method: 'POST',
+        url: '',
+        headers: [],
+        params: [],
+        body: { type: 'graphql', raw: '' },
+        auth: { type: 'none' },
+      };
+      expect(() =>
+        validateRequestUpdate(current, {
+          graphqlSchema: { sdl: 42, source: 'sdl', importedAt: 1 } as never,
+        })
+      ).toThrow('Request validation failed');
+    });
   });
 
   describe('validateEnvironment', () => {

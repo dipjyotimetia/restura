@@ -61,6 +61,21 @@ export interface RequestBody {
   multipartParts?: MultipartPart[];
 }
 
+/**
+ * A GraphQL schema the user loaded by hand (SDL file, pasted SDL or an
+ * introspection JSON result) for endpoints that disable introspection.
+ * Stored as canonical SDL — introspection JSON is converted on import — so
+ * persisted tabs/collections stay compact and diffable.
+ */
+export interface GraphQLImportedSchema {
+  sdl: string;
+  /** What the user supplied: SDL text/file or an introspection JSON result. */
+  source: 'sdl' | 'introspection';
+  fileName?: string;
+  /** Epoch ms of the import. */
+  importedAt: number;
+}
+
 // HTTP Request
 export interface HttpRequest {
   id: string;
@@ -92,6 +107,13 @@ export interface HttpRequest {
   contractRef?: {
     operationId: string;
   };
+  /**
+   * GraphQL only: a schema imported by the user. When present it takes
+   * precedence over the introspection cache for autocomplete, validation and
+   * the schema explorer; re-introspecting replaces it only after the user
+   * confirms.
+   */
+  graphqlSchema?: GraphQLImportedSchema;
 }
 
 // Response
