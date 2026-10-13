@@ -22,7 +22,7 @@ import type {
   ScriptHostBridges,
   ScriptResult,
 } from './script-executor-types';
-import { makeJSValue, normalizeSendRequestInput } from './script-executor-values';
+import { makeJSValue, normalizeSendRequestInput, sandboxResponse } from './script-executor-values';
 
 export type {
   PmCookieAdapter,
@@ -361,7 +361,7 @@ class ScriptExecutor {
       handle.dispose();
     }
     if (context.response) {
-      const handle = makeJSValue(vm, context.response);
+      const handle = makeJSValue(vm, sandboxResponse(context.response));
       vm.setProp(vm.global, 'response', handle);
       handle.dispose();
     }
@@ -478,7 +478,7 @@ class ScriptExecutor {
           // and was already freed. Note: `errH = vm.null` / `nullH = vm.null`
           // are shared QuickJS singletons — never call `.dispose()` on them.
           if (!this.runtime || !this.pendingHostCleanups.has(cleanup)) return;
-          const respJs = makeJSValue(vm, response as unknown);
+          const respJs = makeJSValue(vm, sandboxResponse(response));
           deferred.resolve(respJs);
           if (cbHandle) {
             const errH = vm.null;

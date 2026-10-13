@@ -46,6 +46,8 @@ export interface PmSubResponse {
   code: number;
   status: string;
   headers: Record<string, string>;
+  /** Every Set-Cookie field, one entry each (the flat map can't hold them all). */
+  setCookies?: string[];
   body: string;
   responseTime: number;
   responseSize: number;
@@ -79,6 +81,8 @@ export interface ScriptContext {
     status: number;
     statusText: string;
     headers: Record<string, string>;
+    /** Every Set-Cookie field, one entry each (the flat map can't hold them all). */
+    setCookies?: string[];
     body: unknown;
     time: number;
     size: number;

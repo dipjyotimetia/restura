@@ -36,6 +36,35 @@ describe('console sanitization edge cases', () => {
     });
   });
 
+  it('redacts every setCookies value but keeps names + known attributes for the Cookies view (#855)', () => {
+    const entry = sanitizeConsoleEntry({
+      timestamp: 1,
+      protocol: 'http',
+      request: { method: 'GET', url: 'https://api.example.test', headers: {} },
+      response: {
+        ...response,
+        headers: { 'set-cookie': 'pref=dark' },
+        setCookies: [
+          'session=plaintext-secret; Path=/; HttpOnly; Secure; SameSite=Lax',
+          'csrf=tok; Expires=Wed, 21 Oct 2037 07:28:00 GMT; Max-Age=60; Domain=example.test',
+          'pref=dark; X-Custom=leaky-secret; Partitioned',
+          'no-pair-secret',
+        ],
+      },
+    });
+    expect(entry.response.headers['set-cookie']).toBe('[REDACTED]');
+    expect(entry.response.setCookies).toEqual([
+      'session=[REDACTED]; Path=/; HttpOnly; Secure; SameSite=Lax',
+      'csrf=[REDACTED]; Expires=Wed, 21 Oct 2037 07:28:00 GMT; Max-Age=60; Domain=example.test',
+      'pref=[REDACTED]; Partitioned',
+      '[REDACTED]',
+    ]);
+    const json = JSON.stringify(entry);
+    for (const secret of ['plaintext-secret', '=tok', 'dark', 'leaky-secret', 'no-pair-secret']) {
+      expect(json).not.toContain(secret);
+    }
+  });
+
   it('preserves optional native-draft fields after sanitization', () => {
     const http = sanitizeConsoleEntry({
       timestamp: 1,

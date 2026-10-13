@@ -18,6 +18,8 @@ export interface ProxyJsonResponse {
   status: number;
   statusText: string;
   headers: Record<string, string | string[]>;
+  /** Every Set-Cookie field, one entry each (RFC 6265 §3 — never folded). */
+  setCookies?: string[];
   /** Worker returns the body under `data` (historical wire shape). */
   data: unknown;
   size?: number;
@@ -243,6 +245,7 @@ async function executeViaElectronIpc(
     status: result.status,
     statusText: result.statusText,
     headers: result.headers,
+    ...(result.setCookies !== undefined ? { setCookies: result.setCookies } : {}),
     data: result.data,
     ...(result.size !== undefined ? { size: result.size } : {}),
     ...(result.bodyEncoding !== undefined ? { bodyEncoding: result.bodyEncoding } : {}),

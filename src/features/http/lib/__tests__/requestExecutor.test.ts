@@ -1,14 +1,20 @@
+import {
+  encodeSetCookieSideChannel,
+  SET_COOKIE_SIDE_CHANNEL_HEADER,
+} from '@shared/protocol/set-cookie';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useCookieStore } from '@/features/http/store/useCookieStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { HttpRequest, RequestSettings } from '@/types';
 
 const executeProxiedRequestMock = vi.fn();
+const executeProxiedStreamingRequestMock = vi.fn();
 const makeRendererSendRequestMock = vi.fn((_options: unknown) => vi.fn());
 
 vi.mock('@/lib/shared/transport', () => ({
   executeProxiedRequest: (...args: unknown[]) => executeProxiedRequestMock(...args),
-  executeProxiedStreamingRequest: vi.fn(),
+  executeProxiedStreamingRequest: (...args: unknown[]) =>
+    executeProxiedStreamingRequestMock(...args),
   ProxyTransportError: class ProxyTransportError extends Error {},
 }));
 
@@ -16,7 +22,7 @@ vi.mock('@/features/scripts/lib/pmSendRequestHost', () => ({
   makeRendererSendRequest: (options: unknown) => makeRendererSendRequestMock(options),
 }));
 
-import { executeRequest, isStreamingAccept } from '../requestExecutor';
+import { executeRequest, executeStreamingRequest, isStreamingAccept } from '../requestExecutor';
 
 function makeRequest(overrides: Partial<HttpRequest> = {}): HttpRequest {
   return {
@@ -66,6 +72,67 @@ describe('executeRequest — cookie settings inheritance', () => {
     });
 
     expect(useCookieStore.getState().cookies).toEqual([]);
+  });
+
+  it('stores every cookie from a multi-Set-Cookie response and keeps the list on the response (#855)', async () => {
+    const setCookies = [
+      'session=abc; Path=/; HttpOnly',
+      'csrf=xyz; Expires=Wed, 21 Oct 2037 07:28:00 GMT; Path=/',
+      'pref=dark; Path=/',
+    ];
+    executeProxiedRequestMock.mockResolvedValueOnce({
+      status: 200,
+      statusText: 'OK',
+      // A flat header map can only hold one value — the list is authoritative.
+      headers: { 'set-cookie': 'pref=dark; Path=/' },
+      setCookies,
+      data: '',
+      size: 0,
+    });
+
+    const result = await executeRequest({
+      request: makeRequest(),
+      envVars: {},
+      globalSettings: originalSettings,
+      resolveVariables: (text) => text,
+    });
+
+    const stored = useCookieStore.getState().cookies.map((c) => [c.key, c.value]);
+    expect(stored).toEqual([
+      ['session', 'abc'],
+      ['csrf', 'xyz'],
+      ['pref', 'dark'],
+    ]);
+    expect(result.response.setCookies).toEqual(setCookies);
+  });
+
+  it('hands the test script every cookie and a deterministic joined set-cookie header (#855)', async () => {
+    const setCookies = ['session=abc; Path=/', 'pref=dark; Path=/'];
+    executeProxiedRequestMock.mockResolvedValueOnce({
+      status: 200,
+      statusText: 'OK',
+      headers: { 'set-cookie': 'pref=dark; Path=/' },
+      setCookies,
+      data: '',
+      size: 0,
+    });
+
+    const result = await executeRequest({
+      request: makeRequest({
+        testScript: [
+          `pm.test('joined', () => pm.expect(response.headers['set-cookie']).to.equal(${JSON.stringify(setCookies.join(', '))}));`,
+          "pm.test('parsed', () => pm.expect(pm.response.cookies.get('session')).to.equal('abc'));",
+        ].join('\n'),
+      }),
+      envVars: {},
+      globalSettings: originalSettings,
+      resolveVariables: (text) => text,
+    });
+
+    expect(result.scriptResult?.test?.tests?.map((t) => [t.name, t.passed])).toEqual([
+      ['joined', true],
+      ['parsed', true],
+    ]);
   });
 
   it('forwards the caller AbortSignal to the buffered proxy transport', async () => {
@@ -377,5 +444,80 @@ describe('isStreamingAccept', () => {
     expect(isStreamingAccept({ Accept: 'text/event-stream-alt' })).toBe(true);
     // But "application/event-json" should not match any streaming type
     expect(isStreamingAccept({ Accept: 'application/event-json' })).toBe(false);
+  });
+});
+
+describe('executeStreamingRequest — Set-Cookie side channel (#855)', () => {
+  const originalSettings = useSettingsStore.getState().settings;
+  const cookies = ['session=abc; Path=/; HttpOnly', 'csrf=xyz; Path=/'];
+
+  function streamResponse(): Response {
+    return new Response('data: a\n\n', {
+      status: 200,
+      headers: {
+        'content-type': 'text/event-stream',
+        [SET_COOKIE_SIDE_CHANNEL_HEADER]: encodeSetCookieSideChannel(cookies),
+      },
+    });
+  }
+
+  beforeEach(() => {
+    useCookieStore.setState({ cookies: [] });
+    executeProxiedStreamingRequestMock.mockReset();
+  });
+
+  afterEach(() => {
+    useCookieStore.setState({ cookies: [] });
+  });
+
+  it('surfaces every cookie on the response meta and stores each in the jar', async () => {
+    executeProxiedStreamingRequestMock.mockResolvedValueOnce(streamResponse());
+
+    const { responseMeta } = await executeStreamingRequest({
+      request: makeRequest({
+        headers: [{ id: 'h1', key: 'Accept', value: 'text/event-stream', enabled: true }],
+      }),
+      envVars: {},
+      globalSettings: originalSettings,
+      resolveVariables: (text) => text,
+    });
+
+    expect(responseMeta.setCookies).toEqual(cookies);
+    expect(responseMeta.headers[SET_COOKIE_SIDE_CHANNEL_HEADER]).toBeUndefined();
+    expect(responseMeta.headers['content-type']).toBe('text/event-stream');
+    expect(useCookieStore.getState().cookies.map((c) => [c.key, c.value, c.domain])).toEqual([
+      ['session', 'abc', 'api.example.com'],
+      ['csrf', 'xyz', 'api.example.com'],
+    ]);
+  });
+
+  it('honours a disabled cookie jar', async () => {
+    executeProxiedStreamingRequestMock.mockResolvedValueOnce(streamResponse());
+
+    const { responseMeta } = await executeStreamingRequest({
+      request: makeRequest(),
+      envVars: {},
+      globalSettings: { ...originalSettings, disableCookieJar: true },
+      resolveVariables: (text) => text,
+    });
+
+    expect(responseMeta.setCookies).toEqual(cookies);
+    expect(useCookieStore.getState().cookies).toEqual([]);
+  });
+
+  it('omits setCookies when the upstream set none', async () => {
+    executeProxiedStreamingRequestMock.mockResolvedValueOnce(
+      new Response('data: a\n\n', { headers: { 'content-type': 'text/event-stream' } })
+    );
+
+    const { responseMeta } = await executeStreamingRequest({
+      request: makeRequest(),
+      envVars: {},
+      globalSettings: originalSettings,
+      resolveVariables: (text) => text,
+    });
+
+    expect(responseMeta.setCookies).toBeUndefined();
+    expect(useCookieStore.getState().cookies).toEqual([]);
   });
 });

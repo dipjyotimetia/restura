@@ -58,6 +58,12 @@ Any RFC 9110 method token is allowed, but `CONNECT`, `TRACE` and `TRACK` are ref
 
 Generated code treats the method as untrusted, because valid method tokens can contain shell characters such as `` ` ``, `|`, `&` and `$`. cURL snippets quote any method that isn't plain letters and digits, and PHP and Ruby snippets use single-quoted strings. A shared collection can't hide a command in a "Copy as cURL" snippet.
 
+### Upstream cookies stay off the Restura origin
+
+On the web and self-hosted server, streaming responses (SSE, NDJSON) are passed through the proxy almost as-is. The exception is `Set-Cookie`: as a real header it would make your browser store the upstream's cookies for the Restura site itself. The proxy strips it and sends the cookies in an `x-restura-set-cookies` header instead, which the app reads into its own cookie jar. If the upstream sends its own `x-restura-set-cookies` header, the proxy drops it, so a server can't forge entries into your jar.
+
+The network console lists each response cookie's name and attributes, but replaces the value with `[REDACTED]`. Cookie values are credentials.
+
 ## Renderer lockdown (desktop)
 
 The Electron renderer is sandboxed (`sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`) and pinned down by two policies in `electron/main/main.ts`:

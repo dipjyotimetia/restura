@@ -119,6 +119,46 @@ interface ResturaPmResponse {
   readonly status: string;
   /** Response time in milliseconds. */
   readonly responseTime: number;
+  /** Response headers. Set-Cookie: get() returns every cookie joined with ", "; all() lists one row per cookie. */
+  headers: ResturaHeaderList;
+  /** Cookies this response set (parsed Set-Cookie fields; rs.cookies is the jar). */
+  cookies: ResturaResponseCookies;
+}
+
+/** A parsed Set-Cookie field. */
+interface ResturaResponseCookie {
+  name: string;
+  value: string;
+  domain?: string;
+  path?: string;
+  expires?: string;
+  maxAge?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+  sameSite?: string;
+}
+
+/** Response header list (rs.response.headers). */
+interface ResturaHeaderList {
+  /** Case-insensitive header value. */
+  get(name: string): string | undefined;
+  /** Header present (optionally with this value — matches any single Set-Cookie). */
+  has(name: string, value?: string): boolean;
+  /** One { key, value } row per header field. */
+  all(): Array<{ key: string; value: string }>;
+  each(fn: (header: { key: string; value: string }) => void): void;
+  toObject(): Record<string, string>;
+}
+
+/** Cookies set by the response (rs.response.cookies). */
+interface ResturaResponseCookies {
+  /** Value of the named cookie (last one wins). */
+  get(name: string): string | undefined;
+  has(name: string): boolean;
+  all(): ResturaResponseCookie[];
+  toJSON(): ResturaResponseCookie[];
+  each(fn: (cookie: ResturaResponseCookie) => void): void;
+  toObject(): Record<string, string>;
 }
 
 /** Outgoing request as seen by the script (rs.request). */
@@ -152,6 +192,10 @@ interface ResturaSendResponse {
   code: number;
   status: string;
   headers: Record<string, string>;
+  /** Every Set-Cookie field, one entry each. */
+  setCookies: string[];
+  /** The Set-Cookie fields parsed. */
+  cookies: ResturaResponseCookie[];
   body: unknown;
   responseTime: number;
   responseSize: number;
@@ -250,6 +294,10 @@ interface ResturaResponseGlobal {
   status: number;
   statusText: string;
   headers: Record<string, string>;
+  /** Every Set-Cookie field, one entry each (headers['set-cookie'] joins them with ", "). */
+  setCookies: string[];
+  /** The Set-Cookie fields parsed. */
+  cookies: ResturaResponseCookie[];
   body: unknown;
   /** Response time in milliseconds. */
   time: number;

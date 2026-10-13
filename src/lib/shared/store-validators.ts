@@ -65,6 +65,7 @@ export const ConsoleEntrySchema = z.object({
     status: z.number(),
     statusText: z.string(),
     headers: z.record(z.string(), z.union([z.string(), z.array(z.string())])),
+    setCookies: z.array(z.string()).optional(),
     body: z.string(),
     size: z.number(),
     time: z.number(),

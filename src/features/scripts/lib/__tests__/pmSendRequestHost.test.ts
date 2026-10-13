@@ -158,3 +158,24 @@ describe('makeRendererSendRequest — abort propagation', () => {
     expect(opts?.signal).toBe(ctrl.signal);
   });
 });
+
+describe('makeRendererSendRequest — Set-Cookie (#855)', () => {
+  it('returns every Set-Cookie field alongside the flat headers', async () => {
+    const cookies = ['a=1; Path=/', 'b=2'];
+    executeProxiedRequestMock.mockResolvedValueOnce({
+      status: 200,
+      statusText: 'OK',
+      headers: { 'set-cookie': 'b=2' },
+      setCookies: cookies,
+      data: '',
+      size: 0,
+    });
+    const res = await makeRendererSendRequest({})({ url: 'https://x' });
+    expect(res.setCookies).toEqual(cookies);
+  });
+
+  it('omits setCookies when the response has none', async () => {
+    const res = await makeRendererSendRequest({})({ url: 'https://x' });
+    expect(res).not.toHaveProperty('setCookies');
+  });
+});

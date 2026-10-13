@@ -30,6 +30,7 @@ The script editors are Monaco with full type definitions registered for the API 
 - **`rs.sendRequest(...)`** — fire an ad-hoc HTTP request from inside a script (routes through the same SSRF-guarded proxy as a normal request).
 - **`rs.vault`** (desktop only) — read/write an OS-keychain-backed secret vault (`await rs.vault.get('token')`), so secrets stay out of variables and exports.
 - **`rs.cookies`** — read the cookie jar, plus an async `rs.cookies.jar()` for get/set/clear.
+- **Response headers and cookies** — `rs.response.headers` (`get`, `has`, `all`, `each`, `toObject`) and `rs.response.cookies`, the cookies *this response* set (`get`, `has`, `all`, `toJSON`, `each`, `toObject`; `rs.cookies` is the jar). See [Set-Cookie in scripts](#set-cookie-in-scripts).
 - **`rs.execution`** — runner flow control: `setNextRequest(name)`, `skipRequest()`.
 - **`rs.visualizer.set(template, data)`** — render a custom HTML view of the response.
 - **`require(name)`** — a curated library set is bundled (see below).
@@ -55,6 +56,24 @@ rs.variables.set('signature', sig);
 - DOM globals and the filesystem.
 
 These limits are deliberate: collections are often shared, and a script in a downloaded collection should never be able to exfiltrate data or reach into your machine. Memory and execution-time caps mean a runaway loop can't take down the app.
+
+## Set-Cookie in scripts
+
+A response can send several `Set-Cookie` headers. Scripts see all of them, the same way on web, desktop, and the CLI:
+
+- `response.headers['set-cookie']` (and `rs.response.headers.get('Set-Cookie')`) is every cookie joined with `", "`. Postman's `get` returns only the last cookie, so this differs.
+- `response.setCookies` is a `string[]` with one raw `Set-Cookie` value per cookie.
+- `response.cookies` is the same list parsed into `{ name, value, domain, path, expires, maxAge, httpOnly, secure, sameSite }` objects. `rs.response.cookies.get(name)` reads it; if a name repeats, the last one wins.
+- `rs.response.headers.all()` and `.each()` give one row per cookie, and `.has('Set-Cookie', value)` matches any single cookie.
+- `rs.response.to.have.header('Set-Cookie', value)` passes when any one cookie equals `value`.
+- Responses from `rs.sendRequest(...)` carry `setCookies` and `cookies` too.
+
+```js
+rs.test('sets a session cookie', () => {
+  rs.expect(rs.response.cookies.has('session')).to.be.true;
+  rs.expect(response.setCookies.some((c) => c.startsWith('csrf='))).to.be.true;
+});
+```
 
 ## Example: a test script
 

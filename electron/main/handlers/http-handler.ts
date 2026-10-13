@@ -158,6 +158,8 @@ export interface HttpResponse {
   status: number;
   statusText: string;
   headers: Record<string, string | string[]>;
+  /** Every Set-Cookie field, one entry each (RFC 6265 §3 — never folded). */
+  setCookies?: string[];
   data: unknown;
   /** Decoded byte size of the response body. */
   size?: number;
@@ -852,17 +854,12 @@ async function makeHttpRequest(
           ? result.response.body
           : tryParseJson(result.response.body),
       size: result.response.size,
+      ...(result.response.setCookies && { setCookies: result.response.setCookies }),
+      ...(result.response.bodyEncoding && { bodyEncoding: result.response.bodyEncoding }),
+      ...(result.response.negotiatedAlpn && { negotiatedAlpn: result.response.negotiatedAlpn }),
+      ...(result.response.bodyNotice && { bodyNotice: result.response.bodyNotice }),
+      ...(result.response.timings && { timings: result.response.timings }),
     };
-    if (result.response.bodyEncoding) {
-      rawResult.bodyEncoding = result.response.bodyEncoding;
-    }
-    if (result.response.negotiatedAlpn) {
-      rawResult.negotiatedAlpn = result.response.negotiatedAlpn;
-    }
-    if (result.response.bodyNotice) rawResult.bodyNotice = result.response.bodyNotice;
-    if (result.response.timings) {
-      rawResult.timings = result.response.timings;
-    }
 
     // Manual redirect handling — undici is configured with maxRedirections: 0.
     const isRedirect = rawResult.status >= 300 && rawResult.status < 400;

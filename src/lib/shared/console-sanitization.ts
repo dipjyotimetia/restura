@@ -87,6 +87,39 @@ export function sanitizeConsoleUrl(value: string): string {
   }
 }
 
+/** RFC 6265 attributes safe to keep visible; anything else is dropped. */
+const SET_COOKIE_ATTRIBUTES = new Set([
+  'domain',
+  'path',
+  'expires',
+  'max-age',
+  'httponly',
+  'secure',
+  'samesite',
+  'partitioned',
+  'priority',
+]);
+
+/**
+ * `name=value; attrs` → `name=[REDACTED]; <known attrs>` so the console Cookies
+ * view still lists each cookie. A field without a `name=` pair, and any
+ * unknown attribute (could carry anything), is redacted / dropped wholesale.
+ */
+export function redactSetCookie(raw: string): string {
+  const [pair = '', ...attrs] = raw.split(';').map((s) => s.trim());
+  const eq = pair.indexOf('=');
+  const name = eq < 0 ? '' : pair.slice(0, eq).trim();
+  if (!name) return CONSOLE_REDACTED;
+  const kept = attrs.filter((attr) => {
+    const i = attr.indexOf('=');
+    return SET_COOKIE_ATTRIBUTES.has((i < 0 ? attr : attr.slice(0, i)).trim().toLowerCase());
+  });
+  return [
+    `${sanitizeConsoleText(name)}=${CONSOLE_REDACTED}`,
+    ...kept.map(sanitizeConsoleText),
+  ].join('; ');
+}
+
 export function sanitizeConsoleHeaders<T extends Record<string, string | string[]>>(headers: T): T {
   return Object.fromEntries(
     Object.entries(headers).map(([key, value]) => [
@@ -159,6 +192,11 @@ export function sanitizeConsoleEntry(entry: Omit<ConsoleEntry, 'id'>): Omit<Cons
       ...entry.response,
       statusText: sanitizeConsoleText(entry.response.statusText),
       headers: sanitizeConsoleHeaders(entry.response.headers),
+      // Cookie values are credentials (the set-cookie header stays fully
+      // redacted); names + known attributes survive so the Cookies view works.
+      ...(entry.response.setCookies && {
+        setCookies: entry.response.setCookies.map(redactSetCookie),
+      }),
       body: sanitizeConsoleText(entry.response.body),
     },
     ...(entry.scriptLogs && {

@@ -200,6 +200,42 @@ describe('ResponseViewer HTML preview', () => {
     expect(screen.getByText('warm')).toBeInTheDocument();
   });
 
+  it('shows one Headers row and one Cookies row per Set-Cookie field (#855)', () => {
+    const setCookies = [
+      'session=abc; Path=/; HttpOnly',
+      'csrf=xyz; Expires=Wed, 21 Oct 2026 07:28:00 GMT',
+      'pref=dark',
+    ];
+    useRequestStore.setState({
+      tabs: [
+        {
+          id: 'tab-cookies',
+          request: htmlRequest,
+          response: {
+            ...htmlResponse,
+            id: 'response-cookies',
+            // The flat map only holds the last field; the list is authoritative.
+            headers: { 'content-type': 'text/html', 'set-cookie': 'pref=dark' },
+            setCookies,
+          },
+          isDirty: false,
+        },
+      ],
+      activeTabId: 'tab-cookies',
+      isLoading: false,
+    });
+    render(<ResponseViewer />);
+
+    fireEvent.click(screen.getByRole('tab', { name: /Headers/ }));
+    expect(screen.getAllByText('set-cookie')).toHaveLength(3);
+    for (const c of setCookies) expect(screen.getByText(c)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: /Cookies/ }));
+    expect(screen.getByText('session')).toBeInTheDocument();
+    expect(screen.getByText('csrf')).toBeInTheDocument();
+    expect(screen.getByText('pref')).toBeInTheDocument();
+  });
+
   it('selects CSV tables and binary download affordances from response metadata', () => {
     useRequestStore.setState({
       tabs: [

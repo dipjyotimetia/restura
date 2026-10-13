@@ -102,7 +102,7 @@ export default function NetworkEntryDetail({
     [entry]
   );
   const responseCookies = useMemo(
-    () => (entry ? parseResponseCookies(entry.response.headers) : []),
+    () => (entry ? parseResponseCookies(entry.response) : []),
     [entry]
   );
 

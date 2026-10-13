@@ -118,6 +118,7 @@ export function makeRendererSendRequest(
       code: proxy.status,
       status: proxy.statusText ?? '',
       headers: proxy.headers as Record<string, string>,
+      ...(proxy.setCookies !== undefined ? { setCookies: proxy.setCookies } : {}),
       body: bodyString,
       responseTime: Date.now() - started,
       responseSize: proxy.size ?? bodyString.length,

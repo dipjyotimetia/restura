@@ -1,3 +1,9 @@
+import {
+  combineSetCookieHeader,
+  type ParsedSetCookie,
+  parseResponseSetCookies,
+  responseSetCookies,
+} from '@shared/protocol/set-cookie';
 import type { QuickJSContext, QuickJSHandle } from 'quickjs-emscripten';
 import type { PmSendRequestInput } from './script-executor-types';
 
@@ -48,4 +54,31 @@ export function makeJSValue(vm: QuickJSContext, value: unknown): QuickJSHandle {
     return object;
   }
   return vm.undefined;
+}
+
+/**
+ * Shape a response (test-script `response` global or a `pm.sendRequest`
+ * sub-response) for the sandbox so every harness looks the same (#855):
+ * `headers['set-cookie']` is every cookie joined with `", "` (Fetch
+ * `Headers.get()` semantics) whether the harness kept the last cookie or a
+ * folded list; `setCookies` is the one-per-field list; `cookies` is that list
+ * parsed (backs `pm.response.cookies`).
+ */
+export function sandboxResponse<
+  T extends { headers?: Record<string, string>; setCookies?: string[] | undefined },
+>(
+  response: T
+): Omit<T, 'headers' | 'setCookies'> & {
+  headers: Record<string, string>;
+  setCookies: string[];
+  cookies: ParsedSetCookie[];
+} {
+  const source = { headers: response.headers ?? {}, setCookies: response.setCookies };
+  const setCookies = responseSetCookies(source);
+  return {
+    ...response,
+    headers: combineSetCookieHeader(source.headers, setCookies),
+    setCookies,
+    cookies: parseResponseSetCookies({ headers: {}, setCookies }),
+  };
 }

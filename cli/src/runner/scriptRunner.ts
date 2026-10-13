@@ -108,6 +108,7 @@ export async function runTestScript(
     status: outcome.status,
     statusText: '',
     headers: outcome.responseHeaders ?? {},
+    ...(outcome.setCookies ? { setCookies: outcome.setCookies } : {}),
     body: tryParseJson(outcome.responseBody ?? ''),
     time: outcome.durationMs,
     size: outcome.bodyBytes,

@@ -60,34 +60,38 @@ export function ResponseHeadersPanel({ entries }: { entries: HeaderEntry[] }) {
         <p className="px-4 py-6 text-center text-sp-12 text-sp-dim">No headers match “{filter}”.</p>
       )}
       <div className="px-3 py-1">
-        {visible.map(([key, value]) => (
-          <div
-            key={key}
-            className="group grid grid-cols-[200px_1fr_auto] gap-3 py-1.5 border-b border-sp-line items-start"
-          >
-            <span className="font-mono text-sp-12 text-sp-muted truncate">{key}</span>
-            <span className="font-mono text-sp-12 text-sp-text break-all">
-              {Array.isArray(value) ? value.join(', ') : value}
-            </span>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => void copy(key, headersToText([[key, value]]), 'Header')}
-                  aria-label={copied === key ? 'Copied!' : 'Copy header'}
-                  className="size-5 inline-flex items-center justify-center text-sp-dim hover:text-sp-text opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity rounded-sp-chip hover:bg-sp-hover"
-                >
-                  {copied === key ? (
-                    <Check className="h-3 w-3 text-emerald-400" />
-                  ) : (
-                    <Copy className="h-3 w-3" />
-                  )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{copied === key ? 'Copied!' : 'Copy header'}</TooltipContent>
-            </Tooltip>
-          </div>
-        ))}
+        {visible.map(([key, value], index) => {
+          // Repeated names (one row per Set-Cookie) need a per-row identity.
+          const rowId = `${key}#${index}`;
+          return (
+            <div
+              key={rowId}
+              className="group grid grid-cols-[200px_1fr_auto] gap-3 py-1.5 border-b border-sp-line items-start"
+            >
+              <span className="font-mono text-sp-12 text-sp-muted truncate">{key}</span>
+              <span className="font-mono text-sp-12 text-sp-text break-all">
+                {Array.isArray(value) ? value.join(', ') : value}
+              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => void copy(rowId, headersToText([[key, value]]), 'Header')}
+                    aria-label={copied === rowId ? 'Copied!' : 'Copy header'}
+                    className="size-5 inline-flex items-center justify-center text-sp-dim hover:text-sp-text opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity rounded-sp-chip hover:bg-sp-hover"
+                  >
+                    {copied === rowId ? (
+                      <Check className="h-3 w-3 text-emerald-400" />
+                    ) : (
+                      <Copy className="h-3 w-3" />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{copied === rowId ? 'Copied!' : 'Copy header'}</TooltipContent>
+              </Tooltip>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

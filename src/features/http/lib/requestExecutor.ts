@@ -1,5 +1,11 @@
 import type { ProxyBodyType } from '@shared/protocol/body-builder';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
+import {
+  decodeSetCookieSideChannel,
+  responseSetCookies,
+  SET_COOKIE_SIDE_CHANNEL_HEADER,
+  type SetCookieSource,
+} from '@shared/protocol/set-cookie';
 import { Cookie } from 'tough-cookie';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -29,7 +35,6 @@ import {
   type DesktopTransportConfig,
   executeProxiedRequest,
   executeProxiedStreamingRequest,
-  type ProxyJsonResponse,
   ProxyTransportError,
 } from '@/lib/shared/transport';
 import { makeVaultAdapter } from '@/lib/shared/vaultClient';
@@ -349,11 +354,8 @@ async function buildProxyRequestSpec(options: RequestExecutorOptions): Promise<B
   };
 }
 
-function persistResponseCookies(response: ProxyJsonResponse, resolvedUrl: string): void {
-  const setCookie = response.headers['set-cookie'] ?? response.headers['Set-Cookie'];
-  if (!setCookie) return;
-  const list = Array.isArray(setCookie) ? setCookie : [setCookie];
-  for (const cookieStr of list) {
+function persistResponseCookies(response: SetCookieSource, resolvedUrl: string): void {
+  for (const cookieStr of responseSetCookies(response)) {
     const parsed = Cookie.parse(cookieStr);
     if (!parsed) continue;
     const expires =
@@ -524,6 +526,7 @@ export async function executeRequest(
       status: proxyResponse.status,
       statusText: proxyResponse.statusText,
       headers: proxyResponse.headers,
+      ...(proxyResponse.setCookies !== undefined ? { setCookies: proxyResponse.setCookies } : {}),
       body: bodyString,
       size: proxyResponse.size ?? new Blob([bodyString]).size,
       time: endTime - startTime,
@@ -598,6 +601,7 @@ export async function executeRequest(
         status: responseData.status,
         statusText: responseData.statusText,
         headers: responseData.headers as Record<string, string>,
+        ...(responseData.setCookies !== undefined ? { setCookies: responseData.setCookies } : {}),
         body: responseData.body,
         time: responseData.time,
         size: responseData.size,
@@ -660,6 +664,8 @@ export interface StreamingExecutionResult {
     status: number;
     statusText: string;
     headers: Record<string, string>;
+    /** Every upstream Set-Cookie, one entry each (from the Worker side channel). */
+    setCookies?: string[];
   };
 }
 
@@ -669,7 +675,7 @@ export async function executeStreamingRequest(
   options: RequestExecutorOptions
 ): Promise<StreamingExecutionResult> {
   options.signal?.throwIfAborted();
-  const { spec } = await buildProxyRequestSpec(options);
+  const { spec, effectiveSettings } = await buildProxyRequestSpec(options);
 
   const streamingSpec: ProxyRequestBody = {
     ...spec,
@@ -684,10 +690,24 @@ export async function executeStreamingRequest(
     options.signal ? { signal: options.signal } : {}
   );
 
-  const responseMeta = {
+  // The Worker never forwards upstream Set-Cookie as a real header (the
+  // browser would store it on the Restura origin); every cookie arrives in the
+  // side channel instead.
+  const setCookies = decodeSetCookieSideChannel(
+    response.headers.get(SET_COOKIE_SIDE_CHANNEL_HEADER)
+  );
+  const headers: Record<string, string> = {};
+  for (const [k, v] of response.headers.entries()) {
+    if (k !== SET_COOKIE_SIDE_CHANNEL_HEADER) headers[k] = v;
+  }
+  if (setCookies.length > 0 && !effectiveSettings.disableCookieJar) {
+    persistResponseCookies({ headers, setCookies }, spec.url);
+  }
+  const responseMeta: StreamingExecutionResult['responseMeta'] = {
     status: response.status,
     statusText: response.statusText,
-    headers: Object.fromEntries(response.headers.entries()),
+    headers,
+    ...(setCookies.length > 0 ? { setCookies } : {}),
   };
 
   const events = readStreamingResponse(response);

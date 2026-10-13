@@ -178,6 +178,18 @@ describe('CORS closed-by-default when ALLOWED_ORIGIN is unset', () => {
     );
     expect(res.headers.get('access-control-allow-origin')).toBe('http://localhost:5173');
   });
+
+  it('exposes the streaming Set-Cookie side channel to an allowed cross-origin SPA (#855)', async () => {
+    const res = await app.request(
+      '/api/feature-flags',
+      { method: 'GET', headers: { Origin: 'http://localhost:5173' } },
+      { ENVIRONMENT: 'development', DEV_BYPASS_AUTH: 'true' }
+    );
+    expect(res.headers.get('access-control-allow-origin')).toBe('http://localhost:5173');
+    expect(res.headers.get('access-control-expose-headers')?.toLowerCase()).toContain(
+      'x-restura-set-cookies'
+    );
+  });
 });
 
 // Smoke-test the new /health endpoint. Was added alongside the Docker

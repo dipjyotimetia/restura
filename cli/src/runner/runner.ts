@@ -1,4 +1,5 @@
 import { applyVarMutations } from '@shared/collections/variable-mutations';
+import type { ExternalSecretResolver } from '@shared/secrets/external-secret-resolver';
 import type { Reporter, RequestRunResult, RunMeta, RunResult } from '../reporters/types.js';
 import { loadCollection } from './collectionLoader.js';
 import type { CliIterationRow } from './dataLoader.js';
@@ -7,7 +8,6 @@ import { applyFilters, type FilterOptions } from './filter.js';
 import { DEFAULT_RETRY, type RetryOptions, withRetry } from './retry.js';
 import { type RunScriptResult, runPreRequestScript, runTestScript } from './scriptRunner.js';
 import { buildDispatcher, type TlsOptions } from './undiciFetcher.js';
-import type { ExternalSecretResolver } from '@shared/secrets/external-secret-resolver';
 
 export interface RunOptions {
   envVars: Record<string, string>;
@@ -205,6 +205,7 @@ export async function runCollection(
         durationMs: outcome.durationMs,
         bodyBytes: outcome.bodyBytes,
         ...(outcome.responseHeaders ? { responseHeaders: outcome.responseHeaders } : {}),
+        ...(outcome.setCookies ? { setCookies: outcome.setCookies } : {}),
         ...(outcome.errorMessage !== undefined
           ? {
               errorMessage: scriptError

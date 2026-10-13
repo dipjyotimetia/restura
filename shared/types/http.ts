@@ -83,6 +83,12 @@ export interface Response {
   status: number;
   statusText: string;
   headers: Record<string, string | string[]>;
+  /**
+   * Every `Set-Cookie` field, one entry each (RFC 6265 §3 — never folded).
+   * `headers` is a flat map and holds at most one/joined value; this list is
+   * authoritative for the cookie jar and the Headers view.
+   */
+  setCookies?: string[];
   body: string;
   size: number;
   time: number;
