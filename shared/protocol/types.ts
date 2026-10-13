@@ -80,8 +80,13 @@ export interface ProtocolAuthConfig {
     password: ProtocolSecretValue;
     passwordType?: 'PasswordDigest' | 'PasswordText';
   };
-  // Other auth shapes (basic/bearer/apiKey/oauth2/digest) intentionally omitted —
-  // the shared core only needs to act on `aws-signature`, `oauth1`, `ntlm`, `wsse`.
+  /** Digest (RFC 7616) — answered by one retry after a 401 challenge; see digest-auth.ts. */
+  digest?: {
+    username: string;
+    password: ProtocolSecretValue;
+  };
+  // Other auth shapes (basic/bearer/apiKey/oauth2) intentionally omitted —
+  // the shared core only acts on `aws-signature`, `oauth1`, `ntlm`, `wsse`, `digest`.
   // Passing through unknown auth types is a no-op.
 }
 

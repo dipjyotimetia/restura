@@ -49,10 +49,11 @@ afterAll(async () => {
 
 async function get(path: string) {
   const url = `${baseUrl}${path}`;
-  const fetcher = buildElectronFetcher(
-    { method: 'GET', url, verifySsl: true } as HttpRequestConfig,
-    null
-  );
+  const fetcher = buildElectronFetcher({
+    method: 'GET',
+    url,
+    verifySsl: true,
+  } as HttpRequestConfig);
   const result = await executeHttpProxy({ method: 'GET', url }, fetcher, { allowLocalhost: true });
   if (!result.ok) throw new Error(result.payload.error);
   return result.response;

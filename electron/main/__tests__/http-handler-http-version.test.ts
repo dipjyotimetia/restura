@@ -22,7 +22,6 @@ import {
   buildElectronFetcher,
   type ElectronProxyConfig,
   type HttpRequestConfig,
-  openSocksSocket,
 } from '../handlers/http-handler';
 
 let h2Tls: MockHttp2ServerHandle;
@@ -52,12 +51,7 @@ async function send(url: string, httpVersion?: HttpVersionPreference, proxy?: El
     ...(httpVersion ? { httpVersion } : {}),
     ...(proxy ? { proxy } : {}),
   } as HttpRequestConfig;
-  const target = new URL(url);
-  const socksSocket =
-    proxy && proxy.type === 'socks5'
-      ? await openSocksSocket(proxy, target.hostname, Number(target.port))
-      : null;
-  const fetcher = buildElectronFetcher(config, socksSocket);
+  const fetcher = buildElectronFetcher(config);
   return executeHttpProxy({ method: 'GET', url }, fetcher, { allowLocalhost: true });
 }
 

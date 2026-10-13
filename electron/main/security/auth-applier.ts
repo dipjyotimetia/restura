@@ -6,9 +6,10 @@
  * resolve the handle main-side and emit the header/query before dispatching.
  *
  * The remaining types (aws-signature, oauth1, wsse, ntlm, digest) are handled
- * downstream — most by `shared/protocol/auth-signer.ts` via the `resolveSecret`
- * option threaded through `executeHttpProxy`. This helper returns nothing for
- * them.
+ * downstream — most by `shared/protocol/auth-signer.ts` (digest by the 401
+ * challenge/retry in `shared/protocol/digest-auth.ts`) via the `resolveSecret`
+ * option threaded through `executeHttpProxy`, so a digest password handle is
+ * resolved here in main at wire time. This helper returns nothing for them.
  */
 
 import type { ProtocolAuthConfig } from '@shared/protocol/types';
@@ -63,7 +64,8 @@ export function applyNonSignAtWireAuth(auth: AnyAuth | undefined): AppliedCreden
       const tokenType = auth.oauth2?.tokenType || 'Bearer';
       return { headers: { Authorization: `${tokenType} ${token}` }, params: {} };
     }
-    // Sign-at-wire types — caller's `executeHttpProxy(resolveSecret)` handles these.
+    // Sign-at-wire types (and digest's challenge/retry) — caller's
+    // `executeHttpProxy(resolveSecret)` handles these.
     case 'digest':
     case 'oauth1':
     case 'aws-signature':

@@ -54,6 +54,32 @@ export function sanitizeResponseHeaders(
 }
 
 /**
+ * Every value of the response header field `name` (lower-case), one entry per
+ * field line. Node/undici records hold repeated fields as a `string[]`; a Fetch
+ * `Headers` can only return the comma-joined value — except for `set-cookie`,
+ * which `Headers.getSetCookie()` returns unfolded.
+ */
+export function headerFieldValues(
+  input: Record<string, string | string[]> | Headers,
+  name: string
+): string[] {
+  if (input instanceof Headers) {
+    if (name === 'set-cookie' && typeof input.getSetCookie === 'function') {
+      return input.getSetCookie();
+    }
+    const v = input.get(name);
+    return v ? [v] : [];
+  }
+  const out: string[] = [];
+  for (const [k, v] of Object.entries(input)) {
+    if (k.toLowerCase() !== name) continue;
+    if (Array.isArray(v)) out.push(...v);
+    else if (typeof v === 'string' && v !== '') out.push(v);
+  }
+  return out;
+}
+
+/**
  * Every `Set-Cookie` value on a response, one entry per header field.
  *
  * RFC 6265 §3 / RFC 9110 §5.3: Set-Cookie is the one header that must never be
@@ -63,16 +89,5 @@ export function sanitizeResponseHeaders(
  * already hold a `string[]`.
  */
 export function extractSetCookies(input: Record<string, string | string[]> | Headers): string[] {
-  if (input instanceof Headers) {
-    if (typeof input.getSetCookie === 'function') return input.getSetCookie();
-    const v = input.get('set-cookie');
-    return v ? [v] : [];
-  }
-  const out: string[] = [];
-  for (const [k, v] of Object.entries(input)) {
-    if (k.toLowerCase() !== 'set-cookie') continue;
-    if (Array.isArray(v)) out.push(...v);
-    else if (typeof v === 'string' && v !== '') out.push(v);
-  }
-  return out;
+  return headerFieldValues(input, 'set-cookie');
 }

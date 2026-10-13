@@ -1,13 +1,19 @@
-import { applyAuth, type SecretResolver, type SigV4Signer } from './auth-signer';
+import {
+  applyAuth,
+  inlineOnlySecretResolver,
+  type SecretResolver,
+  type SigV4Signer,
+} from './auth-signer';
 import { bytesToBase64, getHeaderCI, isBinaryContentType, readStreamToBytes } from './binary';
 import { buildRequestBody } from './body-builder';
+import { type DigestRetryOptions, followRedirectsWithDigest } from './digest-auth';
 import {
   extractSetCookies,
   sanitizeRequestHeaders,
   sanitizeResponseHeaders,
 } from './header-policy';
 import { checkHttpMethod } from './http-method';
-import { followRedirects, RedirectPolicyError } from './redirect-follower';
+import { RedirectPolicyError } from './redirect-follower';
 import type {
   ConnectionTimings,
   ExecuteResult,
@@ -68,6 +74,29 @@ export interface ExecuteHttpProxyOptions {
   sigV4Signer?: SigV4Signer;
 }
 
+/**
+ * Digest (RFC 7616) is challenge/response: nothing is added to the first
+ * request; `followRedirectsWithDigest` answers a same-origin 401 Digest
+ * challenge with exactly one retry. The password is resolved here — in the
+ * process that sends the request (Electron main for desktop handles) — and
+ * only its hash goes on the wire.
+ */
+function digestRetryFor(
+  spec: RequestSpec,
+  options: ExecuteHttpProxyOptions
+): DigestRetryOptions | undefined {
+  if (spec.auth?.type !== 'digest' || !spec.auth.digest) return undefined;
+  const resolve = options.resolveSecret ?? inlineOnlySecretResolver;
+  return {
+    credentials: {
+      username: spec.auth.digest.username,
+      password: resolve(spec.auth.digest.password),
+    },
+    rebuildBody: () =>
+      buildRequestBody({ bodyType: spec.bodyType, data: spec.data, formData: spec.formData }).body,
+  };
+}
+
 export async function executeHttpProxy(
   spec: RequestSpec,
   fetcher: Fetcher,
@@ -113,6 +142,7 @@ export async function executeHttpProxy(
     // Apply sign-at-wire auth (currently AWS SigV4) AFTER body construction
     // and BEFORE the fetcher — the signature must cover the exact bytes the
     // upstream receives, including the canonical URL with query params.
+    let digest: DigestRetryOptions | undefined;
     if (spec.auth && spec.auth.type !== 'none') {
       try {
         const applied = await applyAuth(spec.auth, {
@@ -124,6 +154,7 @@ export async function executeHttpProxy(
           ...(options.sigV4Signer ? { sigV4Signer: options.sigV4Signer } : {}),
         });
         Object.assign(headers, applied.headers);
+        digest = digestRetryFor(spec, options);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'unknown';
         return {
@@ -135,7 +166,7 @@ export async function executeHttpProxy(
     }
 
     const startedAt = performance.now();
-    const response = await followRedirects(
+    const response = await followRedirectsWithDigest(
       {
         url: wireUrl,
         method,
@@ -159,7 +190,8 @@ export async function executeHttpProxy(
         ...(spec.redirectPolicy?.maxRedirects !== undefined && {
           maxRedirects: spec.redirectPolicy.maxRedirects,
         }),
-      }
+      },
+      digest
     );
 
     const headersAt = performance.now();
@@ -339,6 +371,7 @@ export async function executeHttpProxyStreaming(
 
     // Apply sign-at-wire auth (currently AWS SigV4) AFTER body construction
     // and BEFORE the fetcher. See executeHttpProxy above for rationale.
+    let digest: DigestRetryOptions | undefined;
     if (spec.auth && spec.auth.type !== 'none') {
       try {
         const applied = await applyAuth(spec.auth, {
@@ -350,6 +383,7 @@ export async function executeHttpProxyStreaming(
           ...(options.sigV4Signer ? { sigV4Signer: options.sigV4Signer } : {}),
         });
         Object.assign(headers, applied.headers);
+        digest = digestRetryFor(spec, options);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'unknown';
         return {
@@ -360,7 +394,7 @@ export async function executeHttpProxyStreaming(
       }
     }
 
-    const response = await followRedirects(
+    const response = await followRedirectsWithDigest(
       {
         url: wireUrl,
         method,
@@ -384,7 +418,8 @@ export async function executeHttpProxyStreaming(
         ...(spec.redirectPolicy?.maxRedirects !== undefined && {
           maxRedirects: spec.redirectPolicy.maxRedirects,
         }),
-      }
+      },
+      digest
     );
 
     if (!response.body) {

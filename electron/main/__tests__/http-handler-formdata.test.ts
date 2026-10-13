@@ -33,10 +33,11 @@ const b64 = (s: string): string => Buffer.from(s, 'utf8').toString('base64');
 
 // Run a spec through the real Electron fetcher, exactly as the IPC handler does.
 async function run(url: string, spec: Record<string, unknown>) {
-  const fetcher = buildElectronFetcher(
-    { method: 'POST', url, verifySsl: true } as HttpRequestConfig,
-    null
-  );
+  const fetcher = buildElectronFetcher({
+    method: 'POST',
+    url,
+    verifySsl: true,
+  } as HttpRequestConfig);
   return executeHttpProxy({ method: 'POST', url, ...spec }, fetcher, { allowLocalhost: true });
 }
 

@@ -89,6 +89,8 @@ This single module is called by the Worker, the Node server, and the Electron ma
 
 The renderer hands the auth *spec* (method, credentials, region for SigV4, etc.) to the wire layer; the wire layer signs.
 
+**Digest** is the challenge/response exception. Nothing is added to the first request. If the response is a `401` with a `WWW-Authenticate: Digest` challenge, `followRedirectsWithDigest` (`digest-auth.ts`) retries exactly once with an `Authorization: Digest` header. It only does this when every hop of the redirect chain stayed on the original origin, and the retry continues the same redirect budget. Both the buffered and the streaming paths do this, so every backend gets it. See [ADR 0029](/architecture/adrs/0029-digest-auth-challenge-retry/).
+
 ## Response decoding and `bodyNotice`
 
 On the Worker and the Node server, the runtime's `fetch` decompresses response bodies. The Electron fetcher uses undici, which does not, so `electron/main/handlers/http-response-stream.ts` decodes `gzip`, `br`, `deflate` and `zstd`, including stacked codings. It decodes at most 3 stacked codings, limits zstd to an 8 MB window, and enforces the 10 MB response cap after every stage. When it can't decode a body, the fetcher returns the raw bytes and sets `FetcherResponse.bodyNotice`. The shared core copies that onto the response, and the viewer shows it above the body. Only the Electron fetcher sets `bodyNotice`.
@@ -111,7 +113,9 @@ SSRF guards, header sanitisers, body construction, and timeouts are all free.
 
 ## Where backend-specific code lives
 
-Electron-only capabilities (PAC resolution, SOCKS4/5, mTLS, custom CA, pre-flight DNS guard via `dns-guard.ts`, manual redirect handling) live **inside the Electron fetcher closure** — not in `shared/protocol/`. Keep `shared/` backend-agnostic. ADR 0006 codifies this rule.
+Electron-only capabilities (PAC resolution, SOCKS4/5, mTLS, custom CA, pre-flight DNS guard via `dns-guard.ts`, the HTTP version override) live **inside the Electron fetcher closure** — not in `shared/protocol/`. Keep `shared/` backend-agnostic. ADR 0006 codifies this rule.
+
+Redirects are the counter-example: every backend's fetcher sends with `redirect: 'manual'` and the shared `followRedirects` (`redirect-follower.ts`) follows 301/302/303/307/308, re-validating each hop against the SSRF guard and stripping credentials across origins. Electron used to wrap this in its own outer loop; that loop was removed because it re-sent credentials for the 300/304/305/306 responses the follower deliberately returns, so desktop now returns those as-is, like the web.
 
 <Aside title="Deep dive">
 See [`docs/ARCHITECTURE.md`](https://github.com/dipjyotimetia/restura/blob/main/docs/ARCHITECTURE.md) and [ADR 0001](/architecture/adrs/) for the full design rationale.

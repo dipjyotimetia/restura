@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   extractSetCookies,
+  headerFieldValues,
   REQUEST_DENY,
   RESPONSE_DENY,
   sanitizeRequestHeaders,
@@ -100,6 +101,26 @@ describe('extractSetCookies (RFC 6265 §3 — Set-Cookie is never folded)', () =
     expect(extractSetCookies({ 'set-cookie': cookies[0] as string })).toEqual([cookies[0]]);
     expect(extractSetCookies({ 'content-type': 'x' })).toEqual([]);
     expect(extractSetCookies(new Headers())).toEqual([]);
+  });
+});
+
+describe('headerFieldValues', () => {
+  it('returns every field line from a Node/undici record, case-insensitively', () => {
+    expect(
+      headerFieldValues(
+        { 'WWW-Authenticate': ['Basic realm="a"', 'Digest realm="b", nonce="n"'], other: 'x' },
+        'www-authenticate'
+      )
+    ).toEqual(['Basic realm="a"', 'Digest realm="b", nonce="n"']);
+    expect(headerFieldValues({ 'www-authenticate': '' }, 'www-authenticate')).toEqual([]);
+  });
+
+  it('returns the combined value from Fetch Headers, or nothing when absent', () => {
+    const h = new Headers();
+    h.append('www-authenticate', 'Basic realm="a"');
+    h.append('www-authenticate', 'Digest realm="b"');
+    expect(headerFieldValues(h, 'www-authenticate')).toEqual(['Basic realm="a", Digest realm="b"']);
+    expect(headerFieldValues(h, 'location')).toEqual([]);
   });
 });
 

@@ -22,7 +22,7 @@ This is an honest picture of what's done, what's being worked on, and what's nex
 
 ### Auth
 
-Basic, Bearer, API Key, OAuth 2.0 (auth code with PKCE, client credentials, device, password), OAuth 1.0, AWS SigV4, WSSE, mTLS (desktop). Body- and URL-dependent schemes (SigV4, OAuth 1.0, WSSE) sign at the wire — in the Worker or Electron main process — not in the renderer. Digest and NTLM can be selected and saved, but the challenge/response is not yet implemented on send (planned).
+Basic, Bearer, API Key, OAuth 2.0 (auth code with PKCE, client credentials, device, password), OAuth 1.0, AWS SigV4, WSSE, Digest, mTLS (desktop). Body- and URL-dependent schemes (SigV4, OAuth 1.0, WSSE) sign at the wire — in the Worker or Electron main process — not in the renderer. Digest (RFC 7616) is answered by one retry after a 401 challenge in the shared protocol core. NTLM can be selected and saved, but its handshake is not yet implemented on send (planned).
 
 ### Collections and environments
 
@@ -93,7 +93,7 @@ These are things that are clearly needed and will happen, roughly in order of ho
 
 **AI on web** — the AI assistant currently only works on the desktop app because there's no `/api/ai` route in the Worker. Adding web support requires some care around API key handling in the browser, but it's wanted.
 
-**Digest and NTLM execution** — complete the challenge/response handshake when sending requests; configuration and credential inheritance already exist. NTLM is expected to be desktop-only.
+**NTLM execution** — complete the NTLM handshake when sending requests; configuration and credential inheritance already exist. Expected to be desktop-only ([#1069](https://github.com/dipjyotimetia/restura/issues/1069)). Digest shipped in [#861](https://github.com/dipjyotimetia/restura/issues/861).
 
 **Passphrase-protected web storage** — the key provider exists; it needs a Settings screen to set and unlock a passphrase.
 
