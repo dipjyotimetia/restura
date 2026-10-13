@@ -1,4 +1,3 @@
-import * as diagnosticsChannel from 'node:diagnostics_channel';
 import { Readable } from 'node:stream';
 import {
   arrayBuffer as readStreamArrayBuffer,
@@ -21,7 +20,6 @@ import { createLogger } from '@shared/runtime/logger';
 import type { HttpVersionPreference } from '@shared/types';
 import { ipcMain, session } from 'electron';
 import type * as net from 'net';
-import type * as tls from 'tls';
 import { Agent, buildConnector, ProxyAgent, request as undiciRequest } from 'undici';
 import { IPC } from '../../shared/channels';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
@@ -54,6 +52,7 @@ import {
 } from './http-connector-wrappers';
 import { decodeResponseBody, tryParseJson, wireCodings } from './http-response-stream';
 import { createSecureLookup, openSocksSocket } from './http-secure-connection';
+import { subscribeProxyAlpnCapture } from './http-proxy-alpn';
 import { createSocksDispatcher } from './http-socks-dispatcher';
 import { h2NotNegotiatedError, resolveHttpVersionPlan } from './http-version';
 import { interceptorRegistry } from './interceptor-registry';
@@ -230,51 +229,6 @@ export function resolveHttpExecutionPolicy(config: HttpRequestConfig): HttpReque
 
 // Connection timeout (10 seconds) — operates below the shared core's request timeout.
 const CONNECTION_TIMEOUT = 10000;
-
-/**
- * Subscribes to undici's `undici:client:connected` diagnostics channel for
- * the lifetime of a single request through an HTTP/HTTPS proxy. The TLS
- * handshake to the upstream happens inside ProxyAgent (after the CONNECT
- * tunnel) and we have no public hook to wrap that connector — so we listen
- * on the global channel and correlate by host/port from `connectParams`.
- *
- * Returns an unsubscribe function the caller MUST invoke once the request
- * finishes or errors, otherwise the listener leaks.
- */
-function subscribeProxyAlpnCapture(
-  hostname: string,
-  port: number,
-  holder: { alpn?: string }
-): () => void {
-  type ConnectedEvent = {
-    connectParams?: { host?: string; hostname?: string; port?: number; protocol?: string };
-    socket?: net.Socket | tls.TLSSocket;
-  };
-  const handler = (raw: unknown): void => {
-    const evt = raw as ConnectedEvent;
-    const cp = evt.connectParams;
-    if (!cp) return;
-    const cpHost = (cp.hostname ?? cp.host ?? '').toLowerCase();
-    const cpPort = cp.port ?? (cp.protocol === 'https:' ? 443 : 80);
-    if (cpHost !== hostname.toLowerCase() || cpPort !== port) return;
-    const sock = evt.socket as tls.TLSSocket | undefined;
-    const alpn = sock && 'alpnProtocol' in sock ? sock.alpnProtocol : undefined;
-    if (typeof alpn === 'string' && alpn.length > 0) {
-      holder.alpn = alpn;
-    }
-  };
-  diagnosticsChannel.subscribe('undici:client:connected', handler);
-  let unsubscribed = false;
-  return () => {
-    if (unsubscribed) return;
-    unsubscribed = true;
-    try {
-      diagnosticsChannel.unsubscribe('undici:client:connected', handler);
-    } catch {
-      // ignore — best-effort cleanup
-    }
-  };
-}
 
 /**
  * Builds the connector options shared by every dispatcher we construct

@@ -137,6 +137,17 @@ describe('Electron fetcher — httpVersion', () => {
       expect(echoed(result.response.body).httpVersion).toBe('1.1');
     });
 
+    it('http2 is accepted through an HTTP CONNECT proxy when the upstream negotiates h2', async () => {
+      // The ALPN snapshot for ProxyAgent paths comes from undici's diagnostics
+      // channel, whose connectParams.port is the URL's *string* port ('' for
+      // the scheme default) — it must still match the upstream we dialled.
+      const result = await send(`${h2Tls.url}/v`, 'http2', viaHttp());
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.response.negotiatedAlpn).toBe('h2');
+      expect(echoed(result.response.body).httpVersion).toBe('2.0');
+    });
+
     it('h2c prior knowledge is rejected through an HTTP proxy instead of downgrading', async () => {
       const result = await send(`${h2c.url}/v`, 'h2c-prior-knowledge', viaHttp());
       expect(result.ok).toBe(false);
