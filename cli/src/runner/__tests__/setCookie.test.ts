@@ -66,7 +66,8 @@ describe('CLI runner — multiple Set-Cookie', () => {
     const dir = mkdtempSync(join(tmpdir(), 'restura-cookies-'));
     writeFileSync(join(dir, '_collection.yaml'), 'name: Cookies\n', 'utf-8');
     const script = [
-      `pm.test('joined', () => pm.expect(response.headers['set-cookie']).to.equal(${JSON.stringify(COOKIES.join(', '))}));`,
+      // Expected value written as a literal: building script source from data is what CodeQL flags.
+      "pm.test('joined', () => pm.expect(response.headers['set-cookie']).to.equal('session=abc; Path=/; HttpOnly, csrf=xyz; Expires=Wed, 21 Oct 2026 07:28:00 GMT; Path=/, pref=dark'));",
       `pm.test('list', () => pm.expect(response.setCookies.length).to.equal(3));`,
       `pm.test('parsed', () => pm.expect(pm.response.cookies.get('csrf')).to.equal('xyz'));`,
     ].join('\n  ');

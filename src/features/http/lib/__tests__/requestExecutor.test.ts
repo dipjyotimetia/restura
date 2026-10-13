@@ -120,7 +120,7 @@ describe('executeRequest — cookie settings inheritance', () => {
     const result = await executeRequest({
       request: makeRequest({
         testScript: [
-          `pm.test('joined', () => pm.expect(response.headers['set-cookie']).to.equal(${JSON.stringify(setCookies.join(', '))}));`,
+          "pm.test('joined', () => pm.expect(response.headers['set-cookie']).to.equal('session=abc; Path=/, pref=dark; Path=/'));",
           "pm.test('parsed', () => pm.expect(pm.response.cookies.get('session')).to.equal('abc'));",
         ].join('\n'),
       }),
