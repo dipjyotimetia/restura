@@ -1,4 +1,6 @@
+import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
+import { useStreamMessageLog } from '../../hooks/useStreamMessageLog';
 import {
   appendRetained,
   emptyRetained,
@@ -48,5 +50,20 @@ describe('appendRetained', () => {
   it('wraps a finished response window', () => {
     expect(retainedFrom(['ab', 'c'], 4)).toEqual({ items: ['ab', 'c'], bytes: 3, dropped: 4 });
     expect(retainedFrom(undefined)).toEqual({ items: [], bytes: 0, dropped: 0 });
+  });
+});
+
+describe('useStreamMessageLog', () => {
+  it('appends, replaces with a finished window (dropped defaults to 0) and resets', () => {
+    const { result } = renderHook(() => useStreamMessageLog());
+    act(() => result.current.append('a'));
+    act(() => result.current.append('b'));
+    expect(result.current.messages).toEqual(['a', 'b']);
+    act(() => result.current.replace(['x'], 4));
+    expect(result.current).toMatchObject({ messages: ['x'], dropped: 4 });
+    act(() => result.current.replace(['y']));
+    expect(result.current).toMatchObject({ messages: ['y'], dropped: 0 });
+    act(() => result.current.reset());
+    expect(result.current).toMatchObject({ messages: [], dropped: 0 });
   });
 });

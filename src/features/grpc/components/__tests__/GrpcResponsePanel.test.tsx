@@ -119,4 +119,29 @@ describe('GrpcResponsePanel', () => {
     await userEvent.click(screen.getByRole('button', { name: /b\.c\[0\]\s*second/ }));
     expect(useGrpcViolationFocus.getState().pending).toMatchObject({ tabId: 'tab', index: 1 });
   });
+
+  it('counts dropped stream messages in Frames and says how many were evicted', () => {
+    const streamed = (droppedMessages: number) =>
+      useRequestStore.setState({
+        tabs: [
+          {
+            id: 'tab',
+            request: { id: 'req', name: 'Watch', type: 'grpc' } as GrpcRequest,
+            response: { ...response, messages: ['{"n":1}', '{"n":2}'], droppedMessages },
+          },
+        ] as never,
+        activeTabId: 'tab',
+      });
+    streamed(1);
+    const { unmount } = render(<GrpcResponsePanel />);
+    expect(screen.getByText('Frames').parentElement).toHaveTextContent('3');
+    expect(screen.getByRole('status')).toHaveTextContent('1 earlier message dropped');
+    unmount();
+
+    streamed(1500);
+    render(<GrpcResponsePanel />);
+    expect(screen.getByRole('status')).toHaveTextContent(
+      `${(1500).toLocaleString()} earlier messages dropped`
+    );
+  });
 });
