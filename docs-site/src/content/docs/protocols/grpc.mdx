@@ -17,6 +17,10 @@ Restura speaks the **Connect protocol** on the web target and **native gRPC** ov
 
 When you save a gRPC request to a collection, Restura stores a snapshot of the schema you loaded — the reflected descriptors, the uploaded `.proto`, or the compiled descriptors of a multi-file / FileDescriptorSet upload — together with the request's timeout. Reopening the request, running it in the collection runner, and exporting it to OpenCollection all reuse that snapshot (exports deduplicate identical snapshots; see [Restura extensions](/reference/opencollection/#restura-extensions)). A saved request without a snapshot falls back to server reflection when it runs on desktop; if the server doesn't offer reflection, the run fails asking you to open the request and reflect or upload a `.proto`.
 
+### Unknown request fields
+
+When the request has a schema (an upload, or reflection descriptors on desktop), keys in the request JSON that the method's input message doesn't define are rejected before anything is sent, with `INVALID_ARGUMENT` and a did-you-mean hint (`nmae (did you mean "name"?)`). Previously they were silently dropped and the server received the field's default value.
+
 ## Streaming
 
 - **Unary** — request-response.

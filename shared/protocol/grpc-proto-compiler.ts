@@ -102,6 +102,7 @@ export interface DescriptorLike {
   name?: string;
   field?: FieldDescriptorLike[];
   nestedType?: DescriptorLike[];
+  options?: { mapEntry?: boolean };
 }
 
 /** proto3 canonical lowerCamelCase JSON name (matches protoc / the spec). */
@@ -119,7 +120,8 @@ export function toJsonName(protoName: string): string {
 function repairDescriptor(
   messageTypes: DescriptorLike[] = [],
   root: protobuf.Root,
-  parentFqn: string
+  parentFqn: string,
+  parentScope: protobuf.Namespace = root
 ): void {
   for (const mt of messageTypes) {
     const fqn = parentFqn ? `${parentFqn}.${mt.name}` : (mt.name ?? '');
@@ -129,14 +131,31 @@ function repairDescriptor(
     } catch {
       protoType = null;
     }
+    // Synthetic map-entry types (`FooEntry`) exist only in the descriptor, not
+    // in protobufjs — resolve their value type from the enclosing message.
+    const scope = protoType ?? parentScope;
+    const mapEntries = new Set(
+      (mt.nestedType ?? []).filter((n) => n.options?.mapEntry).map((n) => n.name)
+    );
     for (const f of mt.field ?? []) {
       if (f.name) f.jsonName = toJsonName(f.name);
-      if ((f.type === 11 || f.type === 14) && f.typeName && !f.typeName.startsWith('.')) {
-        const resolved = protoType?.fields?.[f.name ?? '']?.resolvedType?.fullName;
+      if (f.typeName && mapEntries.has(f.typeName)) {
+        // A map field references its synthetic `XxxEntry` type, which must be
+        // qualified as nested in this message (not as the map's value type).
+        f.typeName = `.${fqn}.${f.typeName}`;
+      } else if ((f.type === 11 || f.type === 14) && f.typeName && !f.typeName.startsWith('.')) {
+        let resolved = protoType?.fields?.[f.name ?? '']?.resolvedType?.fullName;
+        if (!resolved) {
+          try {
+            resolved = scope.lookupTypeOrEnum(f.typeName).fullName;
+          } catch {
+            resolved = undefined;
+          }
+        }
         if (resolved) f.typeName = resolved;
       }
     }
-    repairDescriptor(mt.nestedType, root, fqn);
+    repairDescriptor(mt.nestedType, root, fqn, scope);
   }
 }
 

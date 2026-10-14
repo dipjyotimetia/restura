@@ -46,7 +46,10 @@ import {
   wellKnownFileProto,
 } from './grpc-proto-compiler';
 
+import { findUnknownJsonFields, GrpcUnknownFieldsError } from './grpc-unknown-fields';
+
 export { ProtoImportError, type ProtoSourceFile } from './grpc-proto-compiler';
+export { GrpcUnknownFieldsError, type UnknownJsonField } from './grpc-unknown-fields';
 
 /** Restura's call-type discriminator (matches `GrpcRequest.methodType`). */
 export type GrpcCallKind =
@@ -292,11 +295,32 @@ export function callKindOf(method: DescMethod): GrpcCallKind {
 
 /**
  * Parse editor JSON into a method-input message. Uses protobuf JSON semantics
- * (accepts both camelCase `jsonName` and the original snake_case field name)
- * and ignores unknown fields so a partially-filled request body still sends.
+ * (accepts both camelCase `jsonName` and the original snake_case field name).
+ *
+ * Strict by default, as the proto3 JSON mapping recommends (#925): a key the
+ * input type doesn't define throws a `GrpcUnknownFieldsError` (INVALID_ARGUMENT)
+ * listing every unknown key with a did-you-mean suggestion, instead of silently
+ * sending the field's default value. `ignoreUnknownFields: true` is the
+ * explicit opt-out (the user chose to send anyway).
  */
-export function inputFromJson(method: DescMethod, json: unknown): unknown {
-  return fromJson(method.input, (json ?? {}) as JsonValue, { ignoreUnknownFields: true });
+export function inputFromJson(
+  method: DescMethod,
+  json: unknown,
+  options: GrpcJsonOptions = {}
+): unknown {
+  const value = (json ?? {}) as JsonValue;
+  if (options.ignoreUnknownFields) {
+    return fromJson(method.input, value, { ignoreUnknownFields: true });
+  }
+  const unknown = findUnknownJsonFields(method.input, value);
+  if (unknown.length > 0) throw new GrpcUnknownFieldsError(unknown, method.input.typeName);
+  return fromJson(method.input, value);
+}
+
+/** Options for `inputFromJson`. */
+export interface GrpcJsonOptions {
+  /** Drop keys the input type doesn't define instead of rejecting them. */
+  ignoreUnknownFields?: boolean;
 }
 
 /**

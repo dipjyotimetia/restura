@@ -42,6 +42,11 @@ import type { Response as ApiResponse, GrpcRequest, GrpcResponse, Request } from
 import { makeElectronGrpcRequest, makeProxyGrpcRequest } from './lib/grpcClient';
 import { reflectionCredentialsFor } from './lib/grpcReflection';
 import { discoverDescriptorsForRequest } from './lib/grpcSchemaSnapshot';
+import {
+  schemaSourceFromSnapshot,
+  unknownFieldsResponse,
+  unknownRequestFields,
+} from './lib/unknownFields';
 
 function createDefaultGrpcRequest(): GrpcRequest {
   return {
@@ -184,7 +189,18 @@ export const grpcProtocol: ProtocolModule = {
 
     let response: GrpcResponse;
     const resolve = (text: string) => defaultResolveVariables(text, scriptEnvVars);
-    if (isElectron()) {
+    // #925: refuse unknown request keys before anything is sent. On web the
+    // message is relayed as JSON (never encoded here), so this is the only
+    // place a typo is caught; on desktop it fails fast before the IPC hop.
+    // Only authoritative schemas count: reflection descriptors or the saved
+    // snapshot — never the lossy `.proto` text reconstructed from reflection.
+    const schemaSource = opts.descriptors?.length
+      ? { descriptors: opts.descriptors }
+      : schemaSourceFromSnapshot(request.schema);
+    const unknown = unknownRequestFields(request, schemaSource, resolve(request.message));
+    if (unknown.length > 0) {
+      response = unknownFieldsResponse(request.id, unknown, request.method);
+    } else if (isElectron()) {
       let descriptors = opts.descriptors?.length ? opts.descriptors : undefined;
       if (!descriptors && (!opts.protoContent || !opts.protoFileName)) {
         // No schema supplied (e.g. a saved request run from a collection with

@@ -88,6 +88,17 @@ describe('grpc-proto-compiler: well-known type imports (#891)', () => {
     expect(outputToJson(method, tick)).toEqual({ at: '2026-10-14T10:00:00Z', extra: { a: 1 } });
   });
 
+  it('emits map fields as maps (entry type qualified, message and scalar values)', () => {
+    const registry = registryFromProtoText(
+      'syntax = "proto3"; package p; message I { string a = 1; } message O { map<string, I> m = 1; map<string, int32> n = 2; } service S { rpc R(O) returns (O); }'
+    );
+    const fields = registry.getMessage('p.O')!.fields;
+    expect(fields.map((f) => f.fieldKind)).toEqual(['map', 'map']);
+    const { method } = resolveMethod(registry, 'p.S', 'R');
+    const msg = inputFromJson(method, { m: { k: { a: 'x' } }, n: { z: 1 } });
+    expect(outputToJson(method, msg)).toEqual({ m: { k: { a: 'x' } }, n: { z: 1 } });
+  });
+
   it('resolves the bundled google/api annotations import', () => {
     const proto = `syntax = "proto3";
 package gw.v1;
