@@ -4,7 +4,7 @@ import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
 import { base64ToBytes, bytesToBase64 } from '@shared/protocol/grpc-web-framing';
 import type { GrpcWebEvent } from '@shared/protocol/grpc-web-proxy';
 import { Hono } from 'hono';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { type MockGrpcServerHandle, startMockGrpcServer } from '../../../e2e/mocks/grpcServer';
 import { EchoReplySchema, EchoRequestSchema } from '../../../e2e/mocks/proto/gen/echo_pb';
 import { createGrpcWebHandler } from '../grpc-web';
@@ -126,5 +126,64 @@ describe('/api/grpc-web against a real gRPC-Web endpoint', () => {
   it('rejects a malformed body with a 400', async () => {
     const res = await call({ url: server.url });
     expect(res.status).toBe(400);
+  });
+});
+
+const base = {
+  service: 'echo.v1.EchoService',
+  method: 'UnaryEcho',
+  message: bytesToBase64(new Uint8Array([1])),
+};
+
+describe('/api/grpc-web Worker fetcher security', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('never follows redirects (a 3xx surfaces as an error status)', async () => {
+    const fetchMock = vi.fn(
+      async () => new Response(null, { status: 302, headers: { location: 'http://10.0.0.1/' } })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const app = new Hono();
+    app.post('/api/grpc-web', createGrpcWebHandler());
+    const res = await app.request(
+      '/api/grpc-web',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...base, url: 'https://grpc.example.com' }),
+      },
+      {}
+    );
+    const lines = (await res.text()).trim().split('\n');
+    const end = JSON.parse(lines.at(-1) as string);
+    expect(end.grpcStatus).not.toBe(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const init = fetchMock.mock.calls[0]?.[1 as never] as unknown as RequestInit;
+    expect(init.redirect).toBe('manual');
+  });
+
+  it('runs the Node hostname (DNS) guard before connecting', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const guard = vi.fn(async () => {
+      throw new Error('resolves to a private address');
+    });
+    const app = new Hono();
+    app.post('/api/grpc-web', createGrpcWebHandler(guard));
+    const res = await app.request(
+      '/api/grpc-web',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...base, url: 'https://rebind.example.com' }),
+      },
+      {}
+    );
+    const end = JSON.parse((await res.text()).trim().split('\n').at(-1) as string);
+    expect(guard).toHaveBeenCalledWith('rebind.example.com', expect.any(Object));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(end.grpcStatus).toBe(14);
   });
 });

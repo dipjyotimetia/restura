@@ -1,4 +1,10 @@
-import type { CollectionItem, GrpcRequest, GrpcSchemaSnapshot, Request } from '../types';
+import type {
+  CollectionItem,
+  GrpcRequest,
+  GrpcSchemaSnapshot,
+  GrpcWireProtocol,
+  Request,
+} from '../types';
 import {
   applyByPath,
   contentHash,
@@ -13,7 +19,7 @@ import {
  * `extensions['x-restura-grpc']` — Restura-owned, collection-level carrier for
  * gRPC data the canonical OpenCollection gRPC item cannot hold
  * (`GrpcRequest`/`GrpcRequestDetails` are `additionalProperties: false`, and
- * have no schema-snapshot or timeout slot):
+ * have no schema-snapshot, timeout or wire-protocol slot):
  *
  * ```yaml
  * extensions:
@@ -24,6 +30,7 @@ import {
  *       - path: [Folder, Request name]   # folder names + item name
  *         schema: <sha-256 hex>
  *         timeout: 5000
+ *         wireProtocol: grpc-web     # absent = auto
  * ```
  *
  * Snapshots are deduplicated by content hash (many requests against one
@@ -39,7 +46,15 @@ export const GRPC_EXTENSION_KEY = 'x-restura-grpc';
 interface GrpcExtensionRequestEntry extends PathKeyedEntry {
   schema?: string;
   timeout?: number;
+  wireProtocol?: GrpcWireProtocol;
 }
+
+const WIRE_PROTOCOLS: ReadonlySet<string> = new Set<GrpcWireProtocol>([
+  'grpc',
+  'connect',
+  'grpc-web',
+  'grpc-web-text',
+]);
 
 export interface GrpcExtension {
   schemas?: Record<string, GrpcSchemaSnapshot>;
@@ -69,7 +84,14 @@ export function buildGrpcExtension(items: CollectionItem[] | undefined): GrpcExt
     const entry: GrpcExtensionRequestEntry = { path };
     if (req.schema) entry.schema = table.add(req.schema);
     if (typeof req.timeout === 'number') entry.timeout = req.timeout;
-    if (entry.schema !== undefined || entry.timeout !== undefined) requests.push(entry);
+    if (req.wireProtocol) entry.wireProtocol = req.wireProtocol;
+    if (
+      entry.schema !== undefined ||
+      entry.timeout !== undefined ||
+      entry.wireProtocol !== undefined
+    ) {
+      requests.push(entry);
+    }
   });
   if (requests.length === 0) return undefined;
   return Object.keys(table.schemas).length > 0
@@ -121,6 +143,9 @@ export function applyGrpcExtension(items: CollectionItem[] | undefined, raw: unk
         entry.timeout >= 0
       ) {
         req.timeout = entry.timeout;
+      }
+      if (typeof entry.wireProtocol === 'string' && WIRE_PROTOCOLS.has(entry.wireProtocol)) {
+        req.wireProtocol = entry.wireProtocol;
       }
     }
   );

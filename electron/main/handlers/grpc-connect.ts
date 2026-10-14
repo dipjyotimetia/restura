@@ -34,6 +34,7 @@ import { resolveUrlHostnameSafe } from '../security/dns-guard';
 import { getExecutionPolicy } from '../security/execution-policy';
 import { buildTlsClientMaterial } from '../security/tls-material';
 import type { GrpcTlsConfig } from './grpc-credentials';
+import { pinnedTransportPlan, type WireProtocolArgs } from './grpc-wire-protocol';
 
 // gRPC URL schemes the SSRF guard accepts (renderer + reflection emit grpc://).
 const GRPC_ALLOWED_SCHEMES = ['http:', 'https:', 'grpc:', 'grpcs:'];
@@ -202,14 +203,14 @@ export function resetProtocolFallbackStateForTests(): void {
 }
 
 interface TransportAttempt {
-  protocol: 'grpc' | 'connect';
+  protocol: 'grpc' | 'connect' | 'grpc-web';
   transport: Transport;
 }
 
-// The ordered transports to try for one call. Injected transports (tests) disable
-// the implicit fallback; `fallbackTransport` opts back in to a second attempt.
-// Live calls skip the native attempt once an origin is known to reject it.
+// Ordered transports for one call: a pinned wireProtocol (#914) is the sole attempt;
+// injected (test) transports skip the implicit fallback; known-rejecting origins skip native.
 function transportPlan(t: TransportArgs): TransportAttempt[] {
+  if (t.wireProtocol) return pinnedTransportPlan(t, buildNodeTransportBase) ?? [];
   if (t.transport) {
     const attempts: TransportAttempt[] = [{ protocol: 'grpc', transport: t.transport }];
     if (t.fallbackTransport) attempts.push({ protocol: 'connect', transport: t.fallbackTransport });
@@ -242,7 +243,7 @@ function buildRegistry(descriptors?: string[], protoContent?: string): Registry 
   throw new Error('No proto source: provide reflection descriptors or proto content');
 }
 
-interface TransportArgs {
+interface TransportArgs extends WireProtocolArgs {
   url: string;
   dial: PinnedDial;
   tls?: GrpcTlsConfig;
@@ -275,7 +276,7 @@ function resolveInvoker(
   return { method, invoke };
 }
 
-export interface ConnectUnaryArgs {
+export interface ConnectUnaryArgs extends WireProtocolArgs {
   url: string;
   dial: PinnedDial;
   tls?: GrpcTlsConfig;
@@ -420,7 +421,7 @@ export interface ConnectStreamControls {
   end: () => void;
 }
 
-export interface ConnectStreamArgs {
+export interface ConnectStreamArgs extends WireProtocolArgs {
   url: string;
   dial: PinnedDial;
   tls?: GrpcTlsConfig;

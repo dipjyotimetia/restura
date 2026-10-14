@@ -32,13 +32,21 @@ import type { GrpcRequest } from '@/types';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
 import {
   buildAuthMetadata,
+  desktopWireProtocol,
   grpcAuthNeedsMainSideApply,
   prepareGrpcRequest,
   validateGrpcUrl,
   validateMethodName,
   validateServiceName,
+  webWireProtocolError,
 } from './grpcClient';
 import { resolveGrpcTls } from './grpcTls';
+import {
+  decodeGrpcWebMessage,
+  isGrpcWebWire,
+  prepareGrpcWebCall,
+  streamGrpcWebViaWorker,
+} from './grpcWebClient';
 import { grpcUnknownFieldsMode, resolveInputMessage, withoutUnknownFields } from './unknownFields';
 
 export interface GrpcStreamFinal {
@@ -142,6 +150,16 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
       `${args.request.methodType} is currently available in the desktop app only. ` +
         `Use the Electron desktop app to send and receive client or bidirectional streams.`
     );
+  }
+
+  const wireError = webWireProtocolError(args.request.wireProtocol);
+  if (wireError) throw new Error(wireError.message);
+
+  // gRPC-Web (#914): relayed through the Worker, which streams each message
+  // back as it arrives — reaches Envoy grpc_web / grpcwebproxy endpoints that
+  // the browser-direct Connect transport below cannot.
+  if (isGrpcWebWire(args.request.wireProtocol)) {
+    return startGrpcWebServerStream<TIn, TOut>(args);
   }
 
   // Resolve variables; prepareGrpcRequest also parses the message JSON. It
@@ -313,6 +331,95 @@ function startConnectServerStream<TIn, TOut>(
   };
 }
 
+/**
+ * Server-streaming over gRPC-Web via the Worker's `/api/grpc-web` NDJSON relay.
+ * Same contract as startConnectServerStream: errors surface as an iterator
+ * throw and `done` always resolves with the final status.
+ */
+function startGrpcWebServerStream<TIn, TOut>(
+  args: StartGrpcStreamArgs
+): GrpcStreamingHandle<TIn, TOut> {
+  const { spec, method } = prepareGrpcWebCall(
+    args.request,
+    args.resolveVariables,
+    args.timeoutMs ?? DEFAULT_TIMEOUT,
+    {
+      ...(args.descriptors?.length ? { descriptors: args.descriptors } : {}),
+      ...(args.protoContent ? { protoContent: args.protoContent } : {}),
+    }
+  );
+  const controller = new AbortController();
+  let resolveDone!: (v: GrpcStreamFinal) => void;
+  const done = new Promise<GrpcStreamFinal>((res) => {
+    resolveDone = res;
+  });
+  let headers: Record<string, string> = {};
+  let consumed = false;
+
+  async function* iterate(): AsyncIterable<TOut> {
+    if (consumed) throw new Error('Stream messages can only be iterated once');
+    consumed = true;
+    try {
+      for await (const ev of streamGrpcWebViaWorker(spec, controller.signal)) {
+        if (ev.type === 'headers') {
+          headers = ev.headers;
+        } else if (ev.type === 'message') {
+          yield decodeGrpcWebMessage(method, ev.data) as TOut;
+        } else {
+          const status = ev.grpcStatus as GrpcStatusCode;
+          resolveDone({
+            headers,
+            trailers: ev.trailers,
+            status,
+            ...(ev.grpcMessage ? { statusMessage: ev.grpcMessage } : {}),
+          });
+          if (status !== GrpcStatusCode.OK) {
+            throw new Error(ev.grpcMessage || GrpcStatusCodeName[status] || 'Stream error');
+          }
+          return;
+        }
+      }
+      resolveDone({
+        headers,
+        trailers: {},
+        status: GrpcStatusCode.INTERNAL,
+        statusMessage: 'gRPC-Web stream ended without a status',
+      });
+    } catch (err) {
+      if (controller.signal.aborted) {
+        resolveDone({
+          headers,
+          trailers: {},
+          status: GrpcStatusCode.CANCELLED,
+          statusMessage: 'Stream cancelled',
+        });
+        return;
+      }
+      throw err;
+    }
+  }
+
+  return {
+    messages: iterate(),
+    async send() {
+      throw new Error('send() is not supported for server-streaming methods');
+    },
+    closeSend() {
+      // no-op for server-streaming
+    },
+    cancel() {
+      controller.abort();
+      resolveDone({
+        headers: {},
+        trailers: {},
+        status: GrpcStatusCode.CANCELLED,
+        statusMessage: 'Stream cancelled',
+      });
+    },
+    done,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Electron IPC interactive streaming (client-streaming & bidirectional-streaming)
 // ---------------------------------------------------------------------------
@@ -380,6 +487,7 @@ function startElectronInteractiveStream<TIn, TOut>(
   // encoder only ever rejects them in block mode.
   const lenientInput =
     grpcUnknownFieldsMode() === 'block' ? null : resolveInputMessage(args.request, args);
+  const wireProtocol = desktopWireProtocol(args.request.wireProtocol);
 
   let cancelled = false;
 
@@ -462,6 +570,7 @@ function startElectronInteractiveStream<TIn, TOut>(
       ...(args.protoFileName ? { protoFileName: args.protoFileName } : {}),
       ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}),
       ...(args.useCompression !== undefined ? { useCompression: args.useCompression } : {}),
+      ...(wireProtocol ? { wireProtocol } : {}),
       ...(grpcAuthNeedsMainSideApply(args.request.auth) ? { auth: args.request.auth } : {}),
       // resolveGrpcTls already omits absent keys, so spread it whole.
       ...(tls ?? {}),

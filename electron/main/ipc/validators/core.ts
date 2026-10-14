@@ -352,6 +352,9 @@ export const GrpcRequestConfigSchema = z
       .max(1024, 'Too many descriptors')
       .optional(),
     useCompression: z.boolean().optional(),
+    // Pinned wire protocol (#914). Absent = native gRPC with Connect fallback.
+    // grpc-web-text is web-only (connect-node implements binary gRPC-Web only).
+    wireProtocol: z.enum(['grpc', 'connect', 'grpc-web']).optional(),
     // Per-call deadline in ms, applied as the ConnectRPC `timeoutMs` call option.
     // A finite deadline is capped at 10min. `0` = "no deadline" — streaming
     // methods only (refine below), so watch/subscribe streams can stay open.

@@ -23,6 +23,7 @@ import type {
   AuthConfig,
   GrpcRequest,
   GrpcResponse,
+  GrpcWireProtocol,
   ProtoFileInfo,
   ProtoMessageDefinition,
   ProtoServiceDefinition,
@@ -138,6 +139,31 @@ export function grpcAuthNeedsMainSideApply(auth: AuthConfig): boolean {
   return (
     buildAuthCredential(auth, { headerCase: 'lower', basicRequiresPassword: true })
       .requiresMainSideApply === true
+  );
+}
+
+/**
+ * The wire protocol to pin on the desktop IPC path. grpc-web-text is web-only
+ * (connect-node implements binary gRPC-Web only).
+ */
+export function desktopWireProtocol(
+  wire: GrpcWireProtocol | undefined
+): Exclude<GrpcWireProtocol, 'grpc-web-text'> | undefined {
+  if (wire === 'grpc-web-text') {
+    throw new GrpcClientError(
+      'gRPC-Web text mode is available on the web app only. Use binary gRPC-Web on desktop.',
+      GrpcStatusCode.UNIMPLEMENTED
+    );
+  }
+  return wire;
+}
+
+/** Error for wire protocols the web app cannot speak, else null. */
+export function webWireProtocolError(wire: GrpcWireProtocol | undefined): GrpcClientError | null {
+  if (wire !== 'grpc') return null;
+  return new GrpcClientError(
+    'Native gRPC (HTTP/2 trailers) needs the Restura desktop app. On the web, choose gRPC-Web or Connect.',
+    GrpcStatusCode.UNIMPLEMENTED
   );
 }
 
@@ -381,6 +407,7 @@ export async function makeElectronGrpcRequest(
   const startTime = Date.now();
 
   try {
+    const wireProtocol = desktopWireProtocol(request.wireProtocol);
     const api = getElectronAPI();
     if (!api) throw new Error('Electron API not available');
 
@@ -400,6 +427,7 @@ export async function makeElectronGrpcRequest(
       ...(descriptors?.length ? { descriptors } : {}),
       timeoutMs,
       useCompression,
+      ...(wireProtocol ? { wireProtocol } : {}),
       // Hand the descriptor to the main process only when it holds a handle the
       // renderer couldn't resolve; inline/plain creds are already in `metadata`.
       ...(grpcAuthNeedsMainSideApply(request.auth) ? { auth: request.auth } : {}),
@@ -590,6 +618,8 @@ export async function makeProxyGrpcRequest(
   resolveVariables: (text: string) => string,
   timeoutMs: number = 30000
 ): Promise<GrpcResponse> {
+  const wireError = webWireProtocolError(request.wireProtocol);
+  if (wireError) return createErrorResponse(request.id, wireError, Date.now());
   // Handle-backed secrets can only be resolved in the Electron main process
   // (OS keychain); the Worker proxy has no access. Fail fast with a clear cause
   // instead of silently sending an unauthenticated request that 401s upstream.

@@ -30,11 +30,11 @@ import {
   validateServiceField,
 } from '@/features/grpc/lib/grpcValidation';
 import { useSubTabWithViolationJump } from '@/features/grpc/lib/grpcViolationFocus';
+import { canUseDescriptorSnapshot } from '@/features/grpc/lib/grpcWebClient';
 import { uploadedDescriptors } from '@/features/grpc/lib/protoUpload';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
-import { isElectron } from '@/lib/shared/platform';
 import { useActiveRequest, useActiveTab } from '@/store/selectors';
 import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
@@ -354,7 +354,7 @@ function GrpcRequestBuilder() {
         descriptors = reflection.selectedService.descriptors;
         protoContent = generateProtoFromReflection(grpcRequest.service, reflection.selectedService);
         protoFileName = 'generated.proto';
-      } else if (grpcRequest.schema?.kind === 'descriptors' && isElectron()) {
+      } else if (canUseDescriptorSnapshot(grpcRequest)) {
         // Persisted reflection snapshot (reflection unreachable right now) —
         // Electron loads descriptors directly; proto text is then unused.
         descriptors = grpcRequest.schema.descriptors;
@@ -691,6 +691,8 @@ function GrpcRequestBuilder() {
                   onRetryMaxAttemptsChange={setRetryMaxAttempts}
                   onRetryDelayMsChange={setRetryDelayMs}
                   onUseCompressionChange={setUseCompression}
+                  wireProtocol={grpcRequest.wireProtocol}
+                  onWireProtocolChange={(wireProtocol) => updateRequest({ wireProtocol })}
                 />
               </div>
             )}
