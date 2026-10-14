@@ -257,27 +257,27 @@ describe('reflection carries request metadata / auth (#887)', () => {
     expect(seen?.get('connect-protocol-version')).toBe('1');
   });
 
-  it('rejects oversize metadata (per-entry cap) with 400 before any upstream call', async () => {
-    const fetchSpy = vi.fn();
-    const res = await appWith(fetchSpy)({
+  it('passes a multi-KB bearer token validation, like the call path (#895)', async () => {
+    const res = await appWith(vi.fn())({
       url: 'https://grpc.example.com',
       request: { listServices: '' },
       metadata: { authorization: `Bearer ${'a'.repeat(2048)}` },
     });
-    expect(res.status).toBe(400);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(res.status).not.toBe(400);
   });
 
-  it('rejects total metadata over 8KB with 400', async () => {
+  it('rejects total metadata over 16 KiB with 400 before any upstream call', async () => {
+    const fetchSpy = vi.fn();
     const metadata = Object.fromEntries(
-      Array.from({ length: 12 }, (_, i) => [`x-k${i}`, 'v'.repeat(900)])
+      Array.from({ length: 18 }, (_, i) => [`x-k${i}`, 'v'.repeat(1000)])
     );
-    const res = await appWith(vi.fn())({
+    const res = await appWith(fetchSpy)({
       url: 'https://grpc.example.com',
       request: { listServices: '' },
       metadata,
     });
     expect(res.status).toBe(400);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('rejects CR/LF in metadata values (header injection) with 400', async () => {
