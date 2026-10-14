@@ -82,11 +82,6 @@ export function wellKnownFileProto(path: string): FileDescriptorProto | undefine
   return WKT_FILES[path]?.proto;
 }
 
-/** True for paths served from the built-in WKT / bundled set (not user uploads). */
-export function isBuiltinProtoPath(path: string): boolean {
-  return path in WKT_FILES || path in BUNDLED_PROTO_SOURCES;
-}
-
 // ---------------------------------------------------------------------------
 // Descriptor repair (protobufjs output → what bufbuild accepts)
 // ---------------------------------------------------------------------------
@@ -226,7 +221,6 @@ function withFile<T>(path: string, fn: () => T): T {
   try {
     return fn();
   } catch (err) {
-    if (err instanceof ProtoImportError) throw err;
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(msg.includes(path) ? msg : `${path}: ${msg}`);
   }
