@@ -12,7 +12,7 @@ This is an honest picture of what's done, what's being worked on, and what's nex
 
 - HTTP/REST — all methods, body types, cookies, code gen (cURL, JS, Python, Go, Ruby, PHP)
 - GraphQL — query builder, schema introspection, subscriptions (on web, subscriptions connect browser-direct rather than through the Worker)
-- gRPC — unary calls, server streaming, server reflection, and desktop client/bidirectional streaming; web uses Connect transport
+- gRPC — unary calls, server streaming, server reflection, and desktop client/bidirectional streaming; web uses Connect transport. Rich error details (`google.rpc.Status`) are decoded on every harness, and `BadRequest` field violations are highlighted in the request editor
 - WebSocket — connect, send/receive, live message log for the session
 - Socket.IO — emit/listen, acks, full transcript (web, desktop, and self-hosted)
 - Server-Sent Events — live stream viewer; manual reconnect resumes with `Last-Event-ID`
@@ -143,7 +143,6 @@ Illustrative, not committed. Each has a feature issue with a design sketch.
 - Click-through GraphQL errors to query and response locations ([#907](https://github.com/dipjyotimetia/restura/issues/907))
 - Code snippets for every protocol, plus `grpcurl` / `buf curl` ([#940](https://github.com/dipjyotimetia/restura/issues/940))
 - gRPC schema snapshot and drift check ([#937](https://github.com/dipjyotimetia/restura/issues/937))
-- gRPC field errors highlighted in the request editor ([#941](https://github.com/dipjyotimetia/restura/issues/941))
 - gRPC unknown-field warnings before send ([#944](https://github.com/dipjyotimetia/restura/issues/944))
 - MQTT 5 request/response mode with round-trip latency ([#978](https://github.com/dipjyotimetia/restura/issues/978))
 - Read-only Kafka topic browser without a consumer group ([#980](https://github.com/dipjyotimetia/restura/issues/980))

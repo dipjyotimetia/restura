@@ -31,6 +31,7 @@ import {
   validateMethodField,
   validateServiceField,
 } from '@/features/grpc/lib/grpcValidation';
+import { useSubTabWithViolationJump } from '@/features/grpc/lib/grpcViolationFocus';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
@@ -81,7 +82,7 @@ function GrpcRequestBuilder() {
   const addHistoryItem = useHistoryStore((s) => s.addHistoryItem);
   const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const { run: runViaRegistry } = useRequestRunner();
-  const [activeTab, setActiveTab] = useState<GrpcSubTab>('message');
+  const [activeTab, setActiveTab] = useSubTabWithViolationJump<GrpcSubTab>('message', activeTabId);
   const [resolvedProto, setResolvedProto] = useState<{
     content: string;
     fileName: string;

@@ -11,6 +11,7 @@ import { formatBytes, formatTime } from '@/lib/shared/utils';
 import { useActiveResponse } from '@/store/selectors';
 import { useRequestStore } from '@/store/useRequestStore';
 import { type GrpcResponse, type GrpcStatusCode, GrpcStatusCodeName } from '@/types';
+import { useGrpcViolationFocus } from '../lib/grpcViolationFocus';
 import { GrpcStatusDetailsView } from './GrpcStatusDetailsView';
 
 /**
@@ -40,6 +41,7 @@ export function GrpcResponsePanel() {
   const activeTabId = useRequestStore((s) => s.activeTabId);
   const activeTabName = useRequestStore((s) => s.getActiveTab()?.request.name);
   const [activeTab, setActiveTab] = useState<GrpcResponseTab>('body');
+  const focusViolation = useGrpcViolationFocus((s) => s.focus);
   const response =
     activeResponse && 'grpcStatus' in activeResponse ? (activeResponse as GrpcResponse) : null;
 
@@ -129,7 +131,12 @@ export function GrpcResponsePanel() {
           className={shownTab === 'body' ? 'h-full' : 'h-full overflow-auto'}
         >
           {shownTab === 'details' ? (
-            <GrpcStatusDetailsView details={statusDetails} />
+            <GrpcStatusDetailsView
+              details={statusDetails}
+              onJumpToViolation={
+                activeTabId ? (index) => focusViolation(activeTabId, index) : undefined
+              }
+            />
           ) : shownTab === 'body' ? (
             resultText ? (
               <JsonBodyView
