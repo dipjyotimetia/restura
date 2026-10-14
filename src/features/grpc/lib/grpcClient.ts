@@ -1,4 +1,9 @@
-import { registryFromDescriptors, registryFromProtoText } from '@shared/protocol/grpc-registry';
+import { FieldDescriptorProto_Type } from '@bufbuild/protobuf/wkt';
+import {
+  listServices,
+  registryFromDescriptors,
+  registryFromProtoText,
+} from '@shared/protocol/grpc-registry';
 import {
   type GrpcStatusDetail,
   redecodeRawStatusDetails,
@@ -135,146 +140,40 @@ export function grpcAuthNeedsMainSideApply(auth: AuthConfig): boolean {
   );
 }
 
-// Proto File Parser (Basic implementation)
-export function parseProtoFile(content: string): ProtoFileInfo {
-  // Phase 1: strip comments.
-  const noBlockComments = content.replace(/\/\*[\s\S]*?\*\//g, '');
-  const cleanLines = noBlockComments
-    .split('\n')
-    .map((line) => line.replace(/\/\/.*$/, '').trimEnd())
-    .filter((line) => line.trim() !== '');
-
-  // Phase 2: normalize logical lines — join multi-line constructs.
-  const normalizedLines: string[] = [];
-  let i = 0;
-  while (i < cleanLines.length) {
-    const trimmed = cleanLines[i]!.trim();
-
-    // service/message name with `{` on the next line
-    if (/^(service|message)\s+\w+\s*$/.test(trimmed)) {
-      let j = i + 1;
-      while (j < cleanLines.length && cleanLines[j]!.trim() === '') j++;
-      if (j < cleanLines.length && cleanLines[j]!.trim() === '{') {
-        normalizedLines.push(trimmed + ' {');
-        i = j + 1;
-        continue;
-      }
-    }
-
-    // multi-line rpc — accumulate until returns(Type) is fully matched
-    if (trimmed.startsWith('rpc ')) {
-      let accumulated = trimmed;
-      const rpcComplete = /rpc\s+\w+\s*\([^)]*\)\s+returns\s*\([^)]*\)/;
-      let j = i + 1;
-      while (!rpcComplete.test(accumulated) && j < cleanLines.length) {
-        accumulated += ' ' + cleanLines[j]!.trim();
-        j++;
-      }
-      normalizedLines.push(accumulated);
-      i = j;
-      continue;
-    }
-
-    normalizedLines.push(trimmed);
-    i++;
+// Proto file → service/method/message summary (#905). Read off the real
+// descriptors (shared registry, same compiler the call path uses) rather than a
+// regex over the text, so package-qualified (`google.protobuf.Empty`), nested
+// (`Outer.Inner`) and leading-dot (`.pkg.Type`) references are all listed and
+// type names come back fully qualified. A schema that can't be compiled (e.g.
+// an import that wasn't uploaded) throws instead of silently dropping RPCs.
+export function parseProtoFile(content: string, fileName = 'schema.proto'): ProtoFileInfo {
+  const registry = registryFromProtoText(content, fileName);
+  const fileStem = fileName.replace(/\.proto$/, '');
+  const messages: Record<string, ProtoMessageDefinition> = {};
+  let pkg = '';
+  for (const desc of registry) {
+    if (desc.kind !== 'message' || desc.file.name !== fileStem || desc.parent) continue;
+    pkg = desc.file.proto.package;
+    messages[desc.name] = {
+      name: desc.name,
+      fields: desc.fields.map((f) => ({
+        name: f.name,
+        type:
+          f.message?.typeName ??
+          f.enum?.typeName ??
+          FieldDescriptorProto_Type[f.proto.type].replace(/^TYPE_/, '').toLowerCase(),
+        number: f.number,
+        repeated: f.fieldKind === 'list',
+        optional: f.proto.proto3Optional,
+      })),
+    };
   }
-
-  // Phase 3: parse normalized lines with original state machine.
-  const protoInfo: ProtoFileInfo = {
-    fileName: '',
-    package: '',
-    services: [],
-    messages: {},
-  };
-
-  let currentService: ProtoServiceDefinition | null = null;
-  let currentMessage: ProtoMessageDefinition | null = null;
-  let braceDepth = 0;
-  let inService = false;
-  let inMessage = false;
-
-  for (const trimmedLine of normalizedLines) {
-    const packageMatch = trimmedLine.match(/^package\s+([^;]+);/);
-    if (packageMatch && packageMatch[1]) {
-      protoInfo.package = packageMatch[1].trim();
-      continue;
-    }
-
-    const serviceMatch = trimmedLine.match(/^service\s+(\w+)\s*\{/);
-    if (serviceMatch && serviceMatch[1]) {
-      currentService = {
-        name: serviceMatch[1],
-        fullName: protoInfo.package ? `${protoInfo.package}.${serviceMatch[1]}` : serviceMatch[1],
-        methods: [],
-      };
-      inService = true;
-      braceDepth = 1;
-      continue;
-    }
-
-    const messageMatch = trimmedLine.match(/^message\s+(\w+)\s*\{/);
-    if (messageMatch && messageMatch[1] && !inService) {
-      currentMessage = {
-        name: messageMatch[1],
-        fields: [],
-      };
-      inMessage = true;
-      braceDepth = 1;
-      continue;
-    }
-
-    if (inService && currentService) {
-      const rpcMatch = trimmedLine.match(
-        /rpc\s+(\w+)\s*\(\s*(stream\s+)?(\w+)\s*\)\s+returns\s+\(\s*(stream\s+)?(\w+)\s*\)/
-      );
-      if (rpcMatch && rpcMatch[1] && rpcMatch[3] && rpcMatch[5]) {
-        currentService.methods.push({
-          name: rpcMatch[1],
-          inputType: rpcMatch[3],
-          outputType: rpcMatch[5],
-          clientStreaming: !!rpcMatch[2],
-          serverStreaming: !!rpcMatch[4],
-        });
-      }
-
-      if (trimmedLine.includes('{')) braceDepth++;
-      if (trimmedLine.includes('}')) {
-        braceDepth--;
-        if (braceDepth === 0) {
-          protoInfo.services.push(currentService);
-          currentService = null;
-          inService = false;
-        }
-      }
-    }
-
-    if (inMessage && currentMessage) {
-      const fieldMatch = trimmedLine.match(
-        /^\s*(repeated\s+)?(optional\s+)?(\w+)\s+(\w+)\s*=\s*(\d+)/
-      );
-      if (fieldMatch && fieldMatch[3] && fieldMatch[4] && fieldMatch[5]) {
-        currentMessage.fields.push({
-          name: fieldMatch[4],
-          type: fieldMatch[3],
-          number: parseInt(fieldMatch[5], 10),
-          repeated: !!fieldMatch[1],
-          optional: !!fieldMatch[2],
-        });
-      }
-
-      if (trimmedLine.includes('{')) braceDepth++;
-      if (trimmedLine.includes('}')) {
-        braceDepth--;
-        if (braceDepth === 0) {
-          protoInfo.messages[currentMessage.name] = currentMessage;
-          currentMessage = null;
-          inMessage = false;
-        }
-      }
-    }
+  const services: ProtoServiceDefinition[] = listServices(registry);
+  const firstService = services[0];
+  if (!pkg && firstService) {
+    pkg = firstService.fullName.slice(0, Math.max(0, firstService.fullName.lastIndexOf('.')));
   }
-
-  return protoInfo;
+  return { fileName, package: pkg, services, messages };
 }
 
 // Validate gRPC URL format
