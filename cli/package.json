@@ -49,8 +49,8 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@aws-sdk/client-secrets-manager": "^3.1144.0",
-    "@aws-sdk/credential-providers": "^3.1144.0",
+    "@aws-sdk/client-secrets-manager": "^3.1148.0",
+    "@aws-sdk/credential-providers": "^3.1148.0",
     "@azure/identity": "^4.13.3",
     "@azure/keyvault-secrets": "^4.11.2",
     "@clack/prompts": "^1.8.1",
@@ -58,16 +58,16 @@
     "@google-cloud/secret-manager": "^7.1.1",
     "commander": "^15.0.0",
     "csv-parse": "^7.0.3",
-    "js-yaml": "^5.4.2",
+    "js-yaml": "^5.4.3",
     "log-update": "^8.0.0",
     "quickjs-emscripten": "^0.32.0",
     "undici": "^8.11.2",
-    "uuid": "^14.0.2",
+    "uuid": "^14.0.3",
     "ws": "^8.22.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@types/node": "^26.6.4",
+    "@types/node": "^26.6.5",
     "@types/ws": "^8.18.1",
     "tsup": "^8.5.1",
     "typescript": "^7",
