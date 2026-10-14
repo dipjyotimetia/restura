@@ -106,4 +106,29 @@ describe('ScriptExecutor — pre-request metadata mutation (#910)', () => {
     });
     expect(result.requestMetadata).toBeUndefined();
   });
+
+  it('keeps only scalar entries and never lets a script smuggle in __proto__', async () => {
+    const result = await new ScriptExecutor().executeScript(
+      `
+      var m = JSON.parse('{"__proto__": "polluted"}');
+      m['x-a'] = '1';
+      m['x-flag'] = true;
+      m['x-obj'] = { nested: 1 };
+      m['x-list'] = ['a'];
+      rs.request.metadata = m;
+      `,
+      { request: request() }
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.requestMetadata).toEqual({ 'x-a': '1', 'x-flag': 'true' });
+    expect(Object.getPrototypeOf(result.requestMetadata)).toBe(Object.prototype);
+  });
+
+  it('ignores metadata the sandbox cannot serialise (cyclic object)', async () => {
+    const result = await new ScriptExecutor().executeScript(
+      `var m = { 'x-a': '2' }; m.self = m; rs.request.metadata = m;`,
+      { request: request() }
+    );
+    expect(result.requestMetadata).toBeUndefined();
+  });
 });
