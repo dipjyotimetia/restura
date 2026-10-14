@@ -32,6 +32,11 @@ export function grpcRunOptionsFromRequest(request: GrpcRequest): GrpcSchemaRunOp
   return out;
 }
 
+/** True when the snapshot came from a user upload rather than server reflection. */
+export function isUploadedSchema(schema: GrpcSchemaSnapshot | undefined): boolean {
+  return schema?.kind === 'proto' || (schema?.kind === 'descriptors' && Boolean(schema.fileName));
+}
+
 /** Snapshot of a reflected service, or undefined when reflection carried no descriptors (web). */
 export function snapshotFromReflection(
   service: Pick<ReflectionServiceInfo, 'descriptors'>
@@ -52,6 +57,7 @@ export function sameSnapshot(
   }
   if (a.kind === 'descriptors' && b.kind === 'descriptors') {
     return (
+      a.fileName === b.fileName &&
       a.descriptors.length === b.descriptors.length &&
       a.descriptors.every((d, i) => d === b.descriptors[i])
     );
@@ -63,8 +69,9 @@ export function sameSnapshot(
  * The snapshot to persist after the user (or auto-discovery) selects a
  * reflected service, or undefined when nothing should change:
  *  - web reflection carries no descriptors → nothing to snapshot;
- *  - an uploaded `.proto` is an explicit user choice and keeps precedence (as
- *    on Send), so reflection never overwrites it;
+ *  - an uploaded schema (`.proto`, or descriptors from a multi-file /
+ *    FileDescriptorSet upload — marked by `fileName`) is an explicit user
+ *    choice and keeps precedence (as on Send), so reflection never overwrites it;
  *  - an identical snapshot is not rewritten (avoids dirtying the tab on every
  *    remount-triggered auto-discovery).
  */
@@ -74,7 +81,7 @@ export function reflectionSnapshotUpdate(
 ): GrpcSchemaSnapshot | undefined {
   const snapshot = snapshotFromReflection(service);
   const existing = current?.type === 'grpc' ? current.schema : undefined;
-  if (!snapshot || existing?.kind === 'proto' || sameSnapshot(existing, snapshot)) return undefined;
+  if (!snapshot || isUploadedSchema(existing) || sameSnapshot(existing, snapshot)) return undefined;
   return snapshot;
 }
 

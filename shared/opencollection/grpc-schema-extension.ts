@@ -48,9 +48,10 @@ export interface GrpcExtension {
 
 /** Canonical (key-ordered) form so equal snapshots hash identically. */
 function canonicalSnapshot(s: GrpcSchemaSnapshot): GrpcSchemaSnapshot {
-  return s.kind === 'descriptors'
-    ? { kind: 'descriptors', descriptors: [...s.descriptors] }
-    : { kind: 'proto', fileName: s.fileName, text: s.text };
+  if (s.kind === 'proto') return { kind: 'proto', fileName: s.fileName, text: s.text };
+  return s.fileName
+    ? { kind: 'descriptors', descriptors: [...s.descriptors], fileName: s.fileName }
+    : { kind: 'descriptors', descriptors: [...s.descriptors] };
 }
 
 /** sha-256 hex over the canonical JSON of a snapshot. */
@@ -84,7 +85,10 @@ function parseSnapshot(raw: unknown): GrpcSchemaSnapshot | undefined {
     Array.isArray(r.descriptors) &&
     r.descriptors.every((d) => typeof d === 'string')
   ) {
-    return { kind: 'descriptors', descriptors: [...(r.descriptors as string[])] };
+    const descriptors = [...(r.descriptors as string[])];
+    return typeof r.fileName === 'string' && r.fileName
+      ? { kind: 'descriptors', descriptors, fileName: r.fileName }
+      : { kind: 'descriptors', descriptors };
   }
   if (r.kind === 'proto' && typeof r.fileName === 'string' && typeof r.text === 'string') {
     return { kind: 'proto', fileName: r.fileName, text: r.text };

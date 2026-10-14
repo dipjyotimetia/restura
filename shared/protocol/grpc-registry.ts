@@ -11,10 +11,13 @@
 //  - `registryFromDescriptors`: base64 `FileDescriptorProto`s from server
 //    reflection (lossless — enums / WKT / maps / oneofs / cross-file refs all
 //    survive). Preferred path.
-//  - `registryFromProtoText`: a hand-written `.proto`, bridged through
-//    `protobufjs` (which has the only runtime `.proto` text parser available;
-//    `@bufbuild/protobuf` has none). `protobufjs` is already a dependency and
-//    runs in the browser, so this stays backend-agnostic.
+//  - `registryFromProtoText` / `registryFromProtoFiles`: hand-written `.proto`
+//    source(s), compiled by `grpc-proto-compiler` (protobufjs parser → protoc-
+//    shaped per-file descriptors). Imports resolve against the other uploaded
+//    files, the google/protobuf well-known types, and a few bundled google/api
+//    protos.
+//  - `descriptorsFromDescriptorSet`: a protoc `FileDescriptorSet`
+//    (`.binpb` / `.protoset` / `.desc`) split into the reflection shape above.
 //
 // Pure + dependency-free of any Node/Electron API so it loads in the renderer,
 // the Cloudflare Worker, and the Electron main process alike.
@@ -27,11 +30,23 @@ import {
   fromJson,
   type JsonValue,
   type Registry,
+  toBinary,
   toJson,
 } from '@bufbuild/protobuf';
-import { FileDescriptorProtoSchema, FileDescriptorSetSchema } from '@bufbuild/protobuf/wkt';
-import * as protobuf from 'protobufjs';
-import descriptorExt from 'protobufjs/ext/descriptor';
+import {
+  type FileDescriptorProto,
+  FileDescriptorProtoSchema,
+  FileDescriptorSetSchema,
+} from '@bufbuild/protobuf/wkt';
+import {
+  compileProtoFiles,
+  type DescriptorLike,
+  type ProtoSourceFile,
+  toJsonName,
+  wellKnownFileProto,
+} from './grpc-proto-compiler';
+
+export { ProtoImportError, type ProtoSourceFile } from './grpc-proto-compiler';
 
 /** Restura's call-type discriminator (matches `GrpcRequest.methodType`). */
 export type GrpcCallKind =
@@ -39,65 +54,6 @@ export type GrpcCallKind =
   | 'server-streaming'
   | 'client-streaming'
   | 'bidirectional-streaming';
-
-/** Minimal protobufjs descriptor shape we walk to fix `json_name` + `type_name`. */
-interface FieldDescriptorLike {
-  name?: string;
-  jsonName?: string;
-  /** FieldDescriptorProto.Type: 11 = message, 14 = enum. */
-  type?: number;
-  typeName?: string;
-}
-interface DescriptorLike {
-  name?: string;
-  field?: FieldDescriptorLike[];
-  nestedType?: DescriptorLike[];
-}
-interface FileDescriptorLike {
-  package?: string;
-  messageType?: DescriptorLike[];
-}
-
-/** proto3 canonical lowerCamelCase JSON name (matches protoc / the spec). */
-function toJsonName(protoName: string): string {
-  return protoName.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
-}
-
-/**
- * Repair protobufjs's FileDescriptorProto output so bufbuild's strict
- * createFileRegistry accepts it, recursively over every message + nested type:
- *  - `json_name`: protobufjs leaves it empty for no-underscore fields, and
- *    bufbuild reads it verbatim (serialising under ""), so set the canonical one.
- *  - `type_name`: protobufjs emits the SHORT, unqualified name for message-/
- *    enum-typed fields (e.g. `ExtensionRequest`), which bufbuild rejects. Use
- *    protobufjs's resolved type (`resolvedType.fullName`, leading-dot FQN) to
- *    fully-qualify it.
- */
-function repairDescriptor(
-  messageTypes: DescriptorLike[] = [],
-  root: protobuf.Root,
-  pkg: string,
-  parentFqn = ''
-): void {
-  for (const mt of messageTypes) {
-    const fqn = parentFqn ? `${parentFqn}.${mt.name}` : pkg ? `${pkg}.${mt.name}` : (mt.name ?? '');
-    const protoType = (() => {
-      try {
-        return root.lookup(fqn) as protobuf.Type | null;
-      } catch {
-        return null;
-      }
-    })();
-    for (const f of mt.field ?? []) {
-      if (f.name) f.jsonName = toJsonName(f.name);
-      if ((f.type === 11 || f.type === 14) && f.typeName && !f.typeName.startsWith('.')) {
-        const resolved = protoType?.fields?.[f.name ?? '']?.resolvedType?.fullName;
-        if (resolved) f.typeName = resolved;
-      }
-    }
-    repairDescriptor(mt.nestedType, root, pkg, fqn);
-  }
-}
 
 /** Portable base64 → bytes (atob exists in browser, workerd, and Node 24+). */
 function base64ToBytes(b64: string): Uint8Array {
@@ -130,12 +86,54 @@ function cachedRegistry(key: string, build: () => Registry): Registry {
   return reg;
 }
 
+/** Portable bytes → base64 (btoa exists in browser, workerd, and Node 24+). */
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+
 /**
- * Build a registry from base64 `FileDescriptorProto`s (server reflection).
- * The bytes are decoded with bufbuild and assembled into a `FileDescriptorSet`
- * message handed straight to `createFileRegistry` — no manual varint framing.
- * The descriptor list must include every transitive dependency (reflection
- * returns them); `createFileRegistry` resolves cross-file references.
+ * Order a descriptor list dependencies-first (createFileRegistry resolves each
+ * file against the ones already added) and back-fill any google/protobuf WKT a
+ * set references but omits (`protoc` without `--include_imports`). A missing
+ * non-WKT dependency throws naming the import.
+ */
+function closeAndOrder(files: FileDescriptorProto[]): FileDescriptorProto[] {
+  const byName = new Map(files.map((f) => [f.name, f]));
+  const ordered: FileDescriptorProto[] = [];
+  const state = new Map<string, 'visiting' | 'done'>();
+  const visit = (fd: FileDescriptorProto) => {
+    if (state.has(fd.name)) return; // done, or a cycle createFileRegistry reports
+    state.set(fd.name, 'visiting');
+    for (const dep of fd.dependency) {
+      let depFile = byName.get(dep);
+      if (!depFile) {
+        depFile = wellKnownFileProto(dep);
+        if (!depFile) {
+          throw new Error(
+            `Descriptor set is missing "${dep}" (imported by ${fd.name}). ` +
+              'Regenerate it with all imports included (protoc --include_imports / buf build).'
+          );
+        }
+        byName.set(dep, depFile);
+      }
+      visit(depFile);
+    }
+    state.set(fd.name, 'done');
+    ordered.push(fd);
+  };
+  for (const fd of files) visit(fd);
+  return ordered;
+}
+
+/**
+ * Build a registry from base64 `FileDescriptorProto`s (server reflection, or a
+ * FileDescriptorSet upload split by `descriptorsFromDescriptorSet`). The list
+ * should include every transitive dependency; missing WKTs are back-filled and
+ * the files are ordered dependencies-first before `createFileRegistry`.
  */
 export function registryFromDescriptors(base64Descriptors: string[]): Registry {
   if (base64Descriptors.length === 0) {
@@ -147,9 +145,49 @@ export function registryFromDescriptors(base64Descriptors: string[]): Registry {
       fixEmptyJsonNames(fd.messageType as DescriptorLike[]);
       return fd;
     });
-    const set = create(FileDescriptorSetSchema, { file });
-    return createFileRegistry(set);
+    return createFileRegistry(create(FileDescriptorSetSchema, { file: closeAndOrder(file) }));
   });
+}
+
+/**
+ * Split a binary `google.protobuf.FileDescriptorSet` (`protoc -o x.binpb
+ * --include_imports`, `buf build -o x.binpb`, grpcurl `.protoset`) into
+ * per-file base64 FileDescriptorProtos — the same shape reflection yields, so
+ * it persists and travels through every harness unchanged. Validates by
+ * building the registry (throws on a malformed set or a missing import).
+ */
+export function descriptorsFromDescriptorSet(bytes: Uint8Array): string[] {
+  let set: ReturnType<typeof fromBinary<typeof FileDescriptorSetSchema>>;
+  try {
+    set = fromBinary(FileDescriptorSetSchema, bytes);
+  } catch (err) {
+    throw new Error(
+      `Not a valid FileDescriptorSet: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+  if (set.file.length === 0) throw new Error('FileDescriptorSet contains no files');
+  const descriptors = set.file.map((f) => bytesToBase64(toBinary(FileDescriptorProtoSchema, f)));
+  registryFromDescriptors(descriptors);
+  return descriptors;
+}
+
+/**
+ * Compile several `.proto` sources (multi-file / folder upload) into per-file
+ * base64 FileDescriptorProtos — the full dependency closure incl. WKTs — so the
+ * upload persists and travels exactly like a reflection snapshot.
+ */
+export function descriptorsFromProtoFiles(files: ProtoSourceFile[]): string[] {
+  return compileProtoFiles(files).map((fd) =>
+    bytesToBase64(toBinary(FileDescriptorProtoSchema, fd))
+  );
+}
+
+/** Build a registry straight from `.proto` sources (see `compileProtoFiles`). */
+export function registryFromProtoFiles(files: ProtoSourceFile[]): Registry {
+  const key = `f:${JSON.stringify(files.map((f) => [f.path, f.content]))}`;
+  return cachedRegistry(key, () =>
+    createFileRegistry(create(FileDescriptorSetSchema, { file: compileProtoFiles(files) }))
+  );
 }
 
 /**
@@ -171,35 +209,13 @@ function fixEmptyJsonNames(messageTypes: DescriptorLike[] = []): void {
 }
 
 /**
- * Build a registry from `.proto` source text. `protobufjs` parses the text and
- * emits a `google.protobuf.FileDescriptorSet`, which is re-decoded by bufbuild
- * and registered. `json_name` may be absent from protobufjs output; bufbuild
- * then derives the canonical camelCase JSON name itself, so JSON field mapping
- * stays correct (this is what the old `keepCase` proto-loader path got wrong).
- *
- * Limitation (same as the previous proto-loader path): a `.proto` with `import`
- * statements needs its imported files too; a single uploaded file with imports
- * will fail to resolve. Reflection (above) avoids this.
+ * Build a registry from a single `.proto` source text. Imports of the
+ * google/protobuf well-known types (and the bundled google/api protos) resolve
+ * automatically; importing any other file throws a `ProtoImportError` naming
+ * it — upload the files together (`registryFromProtoFiles`) or use reflection.
  */
-export function registryFromProtoText(protoText: string): Registry {
-  return cachedRegistry(`p:${protoText}`, () => {
-    // keepCase: true preserves canonical snake_case field names in the descriptor
-    // (keepCase: false rewrites them to camelCase, losing the proto name).
-    const parsed = protobuf.parse(protoText, { keepCase: true });
-    // `parse` (unlike `load`) leaves type references unresolved; without this the
-    // emitted descriptor has bare `input_type: "EchoRequest"` instead of the
-    // fully-qualified `.echo.v1.EchoRequest`, which createFileRegistry rejects.
-    parsed.root.resolveAll();
-    // `toDescriptor` is patched onto Root.prototype by importing ext/descriptor.
-    const fdsMessage = parsed.root.toDescriptor('proto3') as unknown as {
-      file?: FileDescriptorLike[];
-    };
-    for (const file of fdsMessage.file ?? []) {
-      repairDescriptor(file.messageType, parsed.root, file.package ?? '');
-    }
-    const bytes = descriptorExt.FileDescriptorSet.encode(fdsMessage).finish();
-    return createFileRegistry(fromBinary(FileDescriptorSetSchema, bytes));
-  });
+export function registryFromProtoText(protoText: string, fileName = 'schema.proto'): Registry {
+  return registryFromProtoFiles([{ path: fileName, content: protoText }]);
 }
 
 /**
@@ -221,6 +237,43 @@ export function resolveMethod(
     throw new Error(`Method "${methodName}" not found on service "${serviceName}"`);
   }
   return { service, method };
+}
+
+/** A service as listed for the method picker (type names fully qualified, no leading dot). */
+export interface RegistryServiceInfo {
+  name: string;
+  fullName: string;
+  methods: Array<{
+    name: string;
+    inputType: string;
+    outputType: string;
+    clientStreaming: boolean;
+    serverStreaming: boolean;
+  }>;
+}
+
+/**
+ * Every service in a registry with its methods, in declaration order — read off
+ * the real descriptors, so package-qualified, nested and leading-dot type
+ * references are all listed (a regex over the `.proto` text dropped them).
+ */
+export function listServices(registry: Registry): RegistryServiceInfo[] {
+  const out: RegistryServiceInfo[] = [];
+  for (const desc of registry) {
+    if (desc.kind !== 'service') continue;
+    out.push({
+      name: desc.name,
+      fullName: desc.typeName,
+      methods: desc.methods.map((m) => ({
+        name: m.name,
+        inputType: m.input.typeName,
+        outputType: m.output.typeName,
+        clientStreaming: m.methodKind === 'client_streaming' || m.methodKind === 'bidi_streaming',
+        serverStreaming: m.methodKind === 'server_streaming' || m.methodKind === 'bidi_streaming',
+      })),
+    });
+  }
+  return out;
 }
 
 /** Map a bufbuild `DescMethod.methodKind` to Restura's `GrpcCallKind`. */
