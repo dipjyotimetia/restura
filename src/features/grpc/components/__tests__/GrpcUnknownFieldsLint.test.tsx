@@ -90,4 +90,13 @@ describe('GrpcUnknownFieldsLint', () => {
     rerender(<GrpcUnknownFieldsLint onMessageChange={vi.fn()} />);
     expect(container.firstChild).toBeNull();
   });
+
+  it('uses the singular when exactly one key is unknown', () => {
+    seed('{"nmae": "x"}');
+    const onChange = vi.fn();
+    render(<GrpcUnknownFieldsLint onMessageChange={onChange} />);
+    expect(screen.getByRole('status').textContent).toContain('Unknown field for HelloRequest');
+    fireEvent.click(screen.getByRole('button', { name: 'Remove it' }));
+    expect(JSON.parse(onChange.mock.calls[0]![0] as string)).toEqual({});
+  });
 });

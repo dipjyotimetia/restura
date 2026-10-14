@@ -1,14 +1,23 @@
-import { registryFromProtoText, resolveMethod } from '@shared/protocol/grpc-registry';
+import {
+  descriptorsFromProtoFiles,
+  registryFromProtoText,
+  resolveMethod,
+} from '@shared/protocol/grpc-registry';
 import { findUnknownJsonFields } from '@shared/protocol/grpc-unknown-fields';
 import { describe, expect, it } from 'vitest';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import type { GrpcRequest } from '@/types';
 import {
   applyUnknownFieldPolicy,
+  grpcUnknownFieldsMode,
   maskTemplateVariables,
   parseMessageForLint,
   removeJsonKeys,
   renameJsonKey,
   resolveInputMessage,
+  schemaSourceFromSnapshot,
+  unknownFieldsResponse,
+  unknownRequestFields,
   withoutUnknownFields,
 } from '../unknownFields';
 
@@ -112,5 +121,61 @@ describe('applyUnknownFieldPolicy (#944)', () => {
     const clean = req('{"name": "x"}');
     expect(applyUnknownFieldPolicy(clean, source, resolve, 'warn').request).toBe(clean);
     expect(applyUnknownFieldPolicy(clean, source, resolve, 'block').refused).toBeUndefined();
+  });
+});
+
+describe('unknown-field lint inputs that cannot be checked (#944)', () => {
+  it('stays quiet without a service or method, or when the text is not JSON', () => {
+    expect(resolveInputMessage({ service: '', method: 'Place' }, source)).toBeNull();
+    expect(unknownRequestFields({ ...req('{"nmae": 1}'), method: '' }, source)).toEqual([]);
+    expect(unknownRequestFields(req('{"nmae": '), source)).toEqual([]);
+  });
+
+  it('treats a blank editor as an empty message', () => {
+    expect(parseMessageForLint('   ')).toEqual({});
+    expect(unknownRequestFields(req(''), source)).toEqual([]);
+  });
+
+  it('leaves the text unchanged when a quick fix targets a key that is gone', () => {
+    const [nmae] = findUnknownJsonFields(input(), parseMessageForLint(TEXT));
+    expect(renameJsonKey('{"name": "x"}', nmae!, 'name')).toBe('{"name": "x"}');
+    expect(renameJsonKey('', nmae!, 'name')).toBe('');
+  });
+
+  it('words the refusal generically when the request has no method', () => {
+    const [nmae] = findUnknownJsonFields(input(), parseMessageForLint(TEXT));
+    const r = unknownFieldsResponse('r1', [nmae!], '');
+    expect(r.grpcStatus).toBe(3);
+    expect(JSON.parse(r.body)).toMatchObject({
+      error: expect.stringContaining('Unknown field(s) in the request message'),
+      details: 'nmae (did you mean "name"?)',
+    });
+  });
+});
+
+describe('schema sources for the lint (#944)', () => {
+  it('lints against a reflection snapshot as well as uploaded proto text', () => {
+    const fromReflection = schemaSourceFromSnapshot({
+      kind: 'descriptors',
+      descriptors: descriptorsFromProtoFiles([{ path: 'shop.proto', content: PROTO }]),
+    });
+    const fromUpload = schemaSourceFromSnapshot({
+      kind: 'proto',
+      fileName: 'shop.proto',
+      text: PROTO,
+    });
+    for (const s of [fromReflection, fromUpload]) {
+      expect(unknownRequestFields(req('{"nmae": "x"}'), s).map((f) => f.path)).toEqual(['nmae']);
+    }
+    expect(schemaSourceFromSnapshot(undefined)).toEqual({});
+  });
+
+  it('defaults the policy to warn until the user picks one', () => {
+    const settings = useSettingsStore.getState().settings;
+    useSettingsStore.setState({ settings: { ...settings, grpcUnknownFields: undefined } });
+    expect(grpcUnknownFieldsMode()).toBe('warn');
+    useSettingsStore.setState({ settings: { ...settings, grpcUnknownFields: 'block' } });
+    expect(grpcUnknownFieldsMode()).toBe('block');
+    useSettingsStore.setState({ settings });
   });
 });

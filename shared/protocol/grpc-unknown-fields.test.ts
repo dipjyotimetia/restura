@@ -6,6 +6,7 @@ import {
   editDistance,
   findUnknownJsonFields,
   GrpcUnknownFieldsError,
+  removeUnknownJsonFields,
   suggestFieldName,
 } from './grpc-unknown-fields';
 
@@ -118,5 +119,33 @@ describe('inputFromJson strict mode (#925)', () => {
   it('still parses a valid message', () => {
     const msg = inputFromJson(method(), { name: 'ok', items: [{ sku_id: 'a', qty: 2 }] });
     expect((msg as { items: Array<{ skuId: string }> }).items[0]?.skuId).toBe('a');
+  });
+});
+
+describe('removeUnknownJsonFields (#944)', () => {
+  it('returns a clean message as-is (no copy)', () => {
+    const json = { name: 'a', items: [{ skuId: 'x' }] };
+    expect(removeUnknownJsonFields(method().input, json)).toBe(json);
+  });
+
+  it('strips unknown keys at every depth without touching the original', () => {
+    const json = {
+      name: 'a',
+      nmae: 'typo',
+      primary: { skuId: 'p', qyt: 1 },
+      items: [{ skuId: 'x', zzz: true }],
+      bySku: { k: { qty: 1, bogus: 2 } },
+    };
+    expect(removeUnknownJsonFields(method().input, json)).toEqual({
+      name: 'a',
+      primary: { skuId: 'p' },
+      items: [{ skuId: 'x' }],
+      bySku: { k: { qty: 1 } },
+    });
+    expect(json.nmae).toBe('typo');
+  });
+
+  it('does not descend into a null message field (proto3 JSON default)', () => {
+    expect(findUnknownJsonFields(method().input, { primary: null, name: 'a' })).toEqual([]);
   });
 });
