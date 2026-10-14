@@ -54,6 +54,23 @@ describe('worker api middleware', () => {
     expect(res.status).toBe(401);
   });
 
+  it('/api/grpc-web is not public: 503 unconfigured, 401 bad token', async () => {
+    const post = (headers: Record<string, string>, env: Partial<Env>) =>
+      app.request(
+        '/api/grpc-web',
+        { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: '{}' },
+        env
+      );
+    expect((await post({}, { ENVIRONMENT: 'production' })).status).toBe(503);
+    const bad = await post(
+      { 'X-Restura-Proxy-Token': 'nope' },
+      { ENVIRONMENT: 'production', WORKER_PROXY_TOKEN: 'secret-token' }
+    );
+    expect(bad.status).toBe(401);
+    const none = await post({}, { ENVIRONMENT: 'production', WORKER_PROXY_TOKEN: 'secret-token' });
+    expect(none.status).toBe(401);
+  });
+
   it('allows configured preview origins and denies other origins', async () => {
     const allowed = await app.request(
       '/api/proxy',

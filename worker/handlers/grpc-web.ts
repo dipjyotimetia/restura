@@ -1,4 +1,4 @@
-import { executeGrpcWebProxy } from '@shared/protocol/grpc-web-proxy';
+import { executeGrpcWebProxy, MAX_GRPC_WEB_REQUEST_BYTES } from '@shared/protocol/grpc-web-proxy';
 import { GrpcWebProxyRequestBodySchema } from '@shared/protocol/grpc-web-schema';
 import type { Fetcher } from '@shared/protocol/types';
 import type { Context } from 'hono';
@@ -6,6 +6,9 @@ import type { NodeHostnameGuard } from '../adapters';
 import type { Env } from '../env';
 import { allowPrivateIPs, isLocalDevBypass } from '../shared/env';
 import { parseJsonBody } from '../shared/validate-body';
+
+// Base64 inflation (4/3) of the message cap plus room for metadata/envelope.
+const MAX_GRPC_WEB_BODY_BYTES = Math.ceil((MAX_GRPC_WEB_REQUEST_BYTES * 4) / 3) + 256 * 1024;
 
 function buildFetcher(
   isDev: boolean,
@@ -49,7 +52,9 @@ function buildFetcher(
 export function createGrpcWebHandler(nodeHostnameGuard?: NodeHostnameGuard) {
   return async function grpcWebHandler(c: Context<{ Bindings: Env }>) {
     const isDev = isLocalDevBypass(c.env);
-    const parsed = await parseJsonBody(c.req.raw, GrpcWebProxyRequestBodySchema);
+    const parsed = await parseJsonBody(c.req.raw, GrpcWebProxyRequestBodySchema, {
+      maxBytes: MAX_GRPC_WEB_BODY_BYTES,
+    });
     if (!parsed.ok) {
       return c.json({ error: parsed.error }, parsed.status);
     }

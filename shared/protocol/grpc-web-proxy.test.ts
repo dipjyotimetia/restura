@@ -302,3 +302,81 @@ describe('grpcWebStatusFromHttp', () => {
     expect(grpcWebStatusFromHttp(418)).toBe(2);
   });
 });
+
+describe('executeGrpcWebProxy — hardening', () => {
+  it('cancels the upstream body on a non-200 response', async () => {
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      pull(c) {
+        c.enqueue(new Uint8Array(1024));
+      },
+      cancel,
+    });
+    const fetcher: Fetcher = async () => ({
+      status: 502,
+      statusText: 'Bad Gateway',
+      headers: new Headers({ 'content-type': 'text/html' }),
+      text: async () => '',
+      contentLengthHeader: null,
+      body,
+    });
+    const out = await run(spec(), fetcher);
+    expect(out.end.grpcStatus).not.toBe(0);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(cancel).toHaveBeenCalled();
+  });
+
+  it('keeps a completed call OK after releasing the body', async () => {
+    const out = await run(spec(), fetcherReturning(trailerFrame('grpc-status: 0\r\n')));
+    expect(out.end.grpcStatus).toBe(0);
+  });
+
+  it('strips query and fragment from the base URL when building the target', async () => {
+    let seen = '';
+    await run(
+      spec({ url: 'https://grpc.example.com/base/?a=b#frag' }),
+      fetcherReturning(trailerFrame('grpc-status: 0\r\n'), {}, (r) => {
+        seen = r.url;
+      })
+    );
+    expect(seen).toBe('https://grpc.example.com/base/echo.v1.EchoService/UnaryEcho');
+  });
+
+  it('maps malformed mid-stream base64 in text mode to INTERNAL', async () => {
+    const good = bytesToBase64(encodeGrpcWebFrame(new Uint8Array([1])));
+    const out = await run(
+      spec({ format: 'text' }),
+      fetcherReturning(`${good}@@@@AAAA`, {
+        headers: { 'content-type': 'application/grpc-web-text' },
+      })
+    );
+    expect(out.end.grpcStatus).toBe(13);
+  });
+
+  it('treats a __proto__ trailer line as plain data', async () => {
+    const out = await run(
+      spec(),
+      fetcherReturning(trailerFrame('grpc-status: 0\r\n__proto__: polluted\r\n'))
+    );
+    expect(out.end.grpcStatus).toBe(0);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(Object.getPrototypeOf(out.end.trailers)).toBe(Object.prototype);
+  });
+});
+
+describe('GrpcWebProxyRequestBodySchema — metadata bounds', () => {
+  const base = { url: 'https://x.example.com', service: 's', method: 'm', message: '' };
+  it('rejects more than 128 entries', () => {
+    const metadata = Object.fromEntries(Array.from({ length: 129 }, (_, i) => [`k${i}`, 'v']));
+    expect(GrpcWebProxyRequestBodySchema.safeParse({ ...base, metadata }).success).toBe(false);
+  });
+  it('rejects an oversized value', () => {
+    const metadata = { k: 'x'.repeat(8 * 1024 + 1) };
+    expect(GrpcWebProxyRequestBodySchema.safeParse({ ...base, metadata }).success).toBe(false);
+  });
+  it('accepts normal metadata', () => {
+    expect(GrpcWebProxyRequestBodySchema.safeParse({ ...base, metadata: { a: 'b' } }).success).toBe(
+      true
+    );
+  });
+});

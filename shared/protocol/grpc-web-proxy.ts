@@ -250,8 +250,12 @@ export function executeGrpcWebProxy(
 
   const frame = encodeGrpcWebFrame(payload);
   const body = textMode ? bytesToBase64(frame) : frame;
-  const baseUrl = spec.url.endsWith('/') ? spec.url.slice(0, -1) : spec.url;
-  const target = `${baseUrl}/${spec.service}/${spec.method}`;
+  // Build via URL so a query/fragment in spec.url can't swallow the path.
+  const targetUrl = new URL(spec.url);
+  targetUrl.search = '';
+  targetUrl.hash = '';
+  targetUrl.pathname = `${targetUrl.pathname.replace(/\/+$/, '')}/${spec.service}/${spec.method}`;
+  const target = targetUrl.toString();
 
   const controller = new AbortController();
   let cancelled = false;
@@ -263,12 +267,12 @@ export function executeGrpcWebProxy(
       controller.abort();
     }, timeout);
     let size = 0;
+    let res: FetcherResponse | undefined;
     const abortEnd = (): GrpcWebEndEvent =>
       timedOut
         ? endEvent(GrpcStatusCode.DEADLINE_EXCEEDED, `Request timeout after ${timeout}ms`, {}, size)
         : endEvent(GrpcStatusCode.CANCELLED, 'Call cancelled', {}, size);
     try {
-      let res: FetcherResponse;
       try {
         res = await fetcher({
           url: target,
@@ -380,6 +384,10 @@ export function executeGrpcWebProxy(
       );
     } finally {
       clearTimeout(timer);
+      // Release the upstream body on every exit path (trailers-only, non-200,
+      // wrong content-type, cap, normal finish) without aborting the call.
+      // A reader-locked body was already cancelled by readChunks.
+      if (res?.body && !res.body.locked) res.body.cancel().catch(() => {});
     }
   }
 

@@ -44,43 +44,67 @@ export function encodeGrpcWebFrame(payload: Uint8Array, flags = 0): Uint8Array {
  * declared length up front, before the bytes are buffered.
  */
 export class GrpcWebFrameDecoder {
-  private buffer = new Uint8Array(0);
+  /** Unconsumed chunks (oldest first) and their combined byte length. */
+  private chunks: Uint8Array[] = [];
+  private buffered = 0;
 
   constructor(private readonly maxFrameBytes: number = Number.POSITIVE_INFINITY) {}
 
   push(chunk: Uint8Array): GrpcWebFrame[] {
     if (chunk.length > 0) {
-      const merged = new Uint8Array(this.buffer.length + chunk.length);
-      merged.set(this.buffer, 0);
-      merged.set(chunk, this.buffer.length);
-      this.buffer = merged;
+      this.chunks.push(chunk);
+      this.buffered += chunk.length;
     }
     const frames: GrpcWebFrame[] = [];
-    let offset = 0;
-    while (this.buffer.length - offset >= HEADER_BYTES) {
-      const flags = this.buffer[offset] as number;
-      const length = new DataView(
-        this.buffer.buffer,
-        this.buffer.byteOffset + offset + 1,
-        4
-      ).getUint32(0, false);
+    while (this.buffered >= HEADER_BYTES) {
+      const header = this.take(HEADER_BYTES, false);
+      const flags = header[0] as number;
+      const length = new DataView(header.buffer, header.byteOffset + 1, 4).getUint32(0, false);
+      // Checked before the payload is buffered or assembled.
       if (length > this.maxFrameBytes) {
         throw new GrpcWebFramingError(
           `gRPC-Web frame of ${length} bytes exceeds the ${this.maxFrameBytes}-byte limit`
         );
       }
-      if (this.buffer.length - offset - HEADER_BYTES < length) break;
-      const start = offset + HEADER_BYTES;
-      frames.push({ flags, data: this.buffer.slice(start, start + length) });
-      offset = start + length;
+      if (this.buffered - HEADER_BYTES < length) break;
+      this.take(HEADER_BYTES, true);
+      frames.push({ flags, data: this.take(length, true) });
     }
-    if (offset > 0) this.buffer = this.buffer.slice(offset);
     return frames;
+  }
+
+  /**
+   * Assemble the first `n` buffered bytes into one array. With `consume` the
+   * bytes are removed from the buffer. Each byte is copied once per frame.
+   */
+  private take(n: number, consume: boolean): Uint8Array {
+    const out = new Uint8Array(n);
+    let filled = 0;
+    let used = 0;
+    while (filled < n) {
+      const c = this.chunks[used] as Uint8Array;
+      const need = n - filled;
+      if (c.length <= need) {
+        out.set(c, filled);
+        filled += c.length;
+        used += 1;
+      } else {
+        out.set(c.subarray(0, need), filled);
+        filled += need;
+        if (consume) this.chunks[used] = c.subarray(need);
+        break;
+      }
+    }
+    if (consume) {
+      this.chunks.splice(0, used);
+      this.buffered -= n;
+    }
+    return out;
   }
 
   /** Bytes received that don't yet form a complete frame. */
   get pendingBytes(): number {
-    return this.buffer.length;
+    return this.buffered;
   }
 }
 

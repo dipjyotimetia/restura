@@ -187,3 +187,18 @@ describe('/api/grpc-web Worker fetcher security', () => {
     expect(end.grpcStatus).toBe(14);
   });
 });
+
+describe('/api/grpc-web body cap', () => {
+  it('rejects an oversized declared body with 413', async () => {
+    const res = await app.request(
+      '/api/grpc-web',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'content-length': String(50 * 1024 * 1024) },
+        body: '{}',
+      },
+      DEV_ENV
+    );
+    expect(res.status).toBe(413);
+  });
+});

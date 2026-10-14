@@ -106,3 +106,28 @@ describe('GrpcWebTextDecoder', () => {
     expect(() => new GrpcWebTextDecoder().push(enc.encode('!!!!'))).toThrow(GrpcWebFramingError);
   });
 });
+
+describe('GrpcWebFrameDecoder — bounded buffering', () => {
+  it('decodes a large frame drip-fed in tiny chunks', () => {
+    const payload = new Uint8Array(100_000).map((_, i) => i % 251);
+    const wire = encodeGrpcWebFrame(payload);
+    const dec = new GrpcWebFrameDecoder();
+    const out: { data: Uint8Array }[] = [];
+    for (let i = 0; i < wire.length; i += 7) out.push(...dec.push(wire.subarray(i, i + 7)));
+    expect(out).toHaveLength(1);
+    expect(out[0]?.data).toEqual(payload);
+    expect(dec.pendingBytes).toBe(0);
+  });
+
+  it('rejects a declared length over the cap before buffering the payload', () => {
+    const dec = new GrpcWebFrameDecoder(10);
+    expect(() => dec.push(new Uint8Array([0, 0, 0, 0, 11]))).toThrow(GrpcWebFramingError);
+  });
+
+  it('rejects 0xFFFFFFFF declared length', () => {
+    const dec = new GrpcWebFrameDecoder(1024);
+    expect(() => dec.push(new Uint8Array([0, 0xff, 0xff, 0xff, 0xff]))).toThrow(
+      GrpcWebFramingError
+    );
+  });
+});
