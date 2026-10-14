@@ -39,6 +39,10 @@ The request's **Settings → Wire Protocol** selector is saved with the request 
 
 gRPC-Web has no request streaming, so client and bidirectional streaming need native gRPC on desktop.
 
+### Schema drift
+
+Each snapshot records a content hash and the time it was captured. When you reflect again and the server's schema no longer matches the saved snapshot, the builder shows **Schema changed since saved** with a count of breaking and non-breaking changes. **Details** lists each change with its rule — removed services, methods, messages, fields, enums or enum values; changed request/response types; client- or server-streaming changes; field type, cardinality or oneof changes; and renamed fields, JSON names or enum values (breaking because requests are written as JSON). Additions are non-breaking. **Update snapshot** saves the new schema; **Keep saved** leaves the saved one in place. Until you update, the collection runner keeps using the saved snapshot. An uploaded `.proto` is never replaced by reflection.
+
 ## Streaming
 
 - **Unary** — request-response.

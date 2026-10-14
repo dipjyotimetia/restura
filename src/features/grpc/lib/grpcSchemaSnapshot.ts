@@ -1,5 +1,5 @@
 /**
- * gRPC schema snapshot helpers (#871 / #921).
+ * gRPC schema snapshot helpers (#871 / #921 / #937).
  *
  * A saved `GrpcRequest` carries an optional `schema` snapshot (reflection
  * descriptors or uploaded `.proto` text) and `timeout`, so it can run outside
@@ -8,6 +8,8 @@
  * shape `grpcProtocol.runRequest` consumes, and provide the reflection
  * fallback used when a request has no snapshot.
  */
+import { grpcSchemaHash } from '@shared/opencollection/grpc-schema-extension';
+import { diffGrpcSnapshots, type GrpcSchemaDiff } from '@shared/protocol/grpc-schema-drift';
 import type { GrpcRequest, GrpcSchemaSnapshot, ReflectionServiceInfo, Request } from '@/types';
 import { GrpcReflectionClient, type ReflectionCredentials } from './grpcReflection';
 
@@ -37,15 +39,28 @@ export function isUploadedSchema(schema: GrpcSchemaSnapshot | undefined): boolea
   return schema?.kind === 'proto' || (schema?.kind === 'descriptors' && Boolean(schema.fileName));
 }
 
-/** Snapshot of a reflected service, or undefined when reflection carried no descriptors (web). */
+/**
+ * Stamp snapshot content with provenance (#937): the content hash (identical
+ * to the `x-restura-grpc` OpenCollection table key) and the capture time.
+ */
+export function stampSnapshot(
+  content: GrpcSchemaSnapshot,
+  now: number = Date.now()
+): GrpcSchemaSnapshot {
+  return { ...content, hash: grpcSchemaHash(content), fetchedAt: now };
+}
+
+/** Stamped snapshot of a reflected service, or undefined when reflection carried no descriptors (web). */
 export function snapshotFromReflection(
-  service: Pick<ReflectionServiceInfo, 'descriptors'>
+  service: Pick<ReflectionServiceInfo, 'descriptors'>,
+  now: number = Date.now()
 ): GrpcSchemaSnapshot | undefined {
   return service.descriptors?.length
-    ? { kind: 'descriptors', descriptors: [...service.descriptors] }
+    ? stampSnapshot({ kind: 'descriptors', descriptors: [...service.descriptors] }, now)
     : undefined;
 }
 
+/** Content equality — provenance (`hash`, `fetchedAt`) is ignored. */
 export function sameSnapshot(
   a: GrpcSchemaSnapshot | undefined,
   b: GrpcSchemaSnapshot | undefined
@@ -65,24 +80,45 @@ export function sameSnapshot(
   return false;
 }
 
+export type ReflectionSnapshotDecision =
+  | { action: 'keep' }
+  | { action: 'write'; snapshot: GrpcSchemaSnapshot }
+  | { action: 'drift'; snapshot: GrpcSchemaSnapshot; diff: GrpcSchemaDiff };
+
 /**
- * The snapshot to persist after the user (or auto-discovery) selects a
- * reflected service, or undefined when nothing should change:
- *  - web reflection carries no descriptors → nothing to snapshot;
- *  - an uploaded schema (`.proto`, or descriptors from a multi-file /
- *    FileDescriptorSet upload — marked by `fileName`) is an explicit user
- *    choice and keeps precedence (as on Send), so reflection never overwrites it;
- *  - an identical snapshot is not rewritten (avoids dirtying the tab on every
- *    remount-triggered auto-discovery).
+ * What to do with the request's schema snapshot after the user (or
+ * auto-discovery) selects a reflected service:
+ *  - `keep` — web reflection carries no descriptors; an uploaded schema
+ *    (`.proto`, or descriptors from a multi-file / FileDescriptorSet upload —
+ *    marked by `fileName`) is an explicit user choice and keeps precedence (as
+ *    on Send), so reflection never overwrites it; or the content is unchanged
+ *    (not rewritten, so remount-triggered auto-discovery doesn't dirty the tab);
+ *  - `write` — no snapshot yet, the bytes changed without any semantic schema
+ *    change, or the saved snapshot can't be decoded (nothing to compare);
+ *  - `drift` (#937) — the server schema changed since the snapshot was saved.
+ *    The saved snapshot is held until the user accepts the new one, and the
+ *    classified diff (breaking vs non-breaking) is surfaced.
  */
-export function reflectionSnapshotUpdate(
+export function reflectionSnapshotDecision(
   service: Pick<ReflectionServiceInfo, 'descriptors'>,
-  current: Request | undefined
-): GrpcSchemaSnapshot | undefined {
-  const snapshot = snapshotFromReflection(service);
+  current: Request | undefined,
+  now: number = Date.now()
+): ReflectionSnapshotDecision {
+  const snapshot = snapshotFromReflection(service, now);
   const existing = current?.type === 'grpc' ? current.schema : undefined;
-  if (!snapshot || isUploadedSchema(existing) || sameSnapshot(existing, snapshot)) return undefined;
-  return snapshot;
+  if (!snapshot || isUploadedSchema(existing) || sameSnapshot(existing, snapshot)) {
+    return { action: 'keep' };
+  }
+  if (!existing) return { action: 'write', snapshot };
+  let diff: GrpcSchemaDiff;
+  try {
+    diff = diffGrpcSnapshots(existing, snapshot);
+  } catch {
+    return { action: 'write', snapshot };
+  }
+  return diff.changes.length === 0
+    ? { action: 'write', snapshot }
+    : { action: 'drift', snapshot, diff };
 }
 
 // One discoverServices() fans out into several reflection round-trips

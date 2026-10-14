@@ -1,8 +1,12 @@
 /**
  * #871 / #921 — the builder persists the gRPC schema snapshot (reflection
  * descriptors or uploaded .proto) and the timeout on the request itself, so
- * they survive tab switches/reload and travel with Save-to-Collection.
+ * they survive tab switches/reload and travel with Save-to-Collection; a
+ * changed schema on re-reflect is surfaced as drift (#937).
  */
+import { type FileRegistry, toBinary } from '@bufbuild/protobuf';
+import { FileDescriptorProtoSchema } from '@bufbuild/protobuf/wkt';
+import { registryFromProtoText } from '@shared/protocol/grpc-registry';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UseGrpcReflectionOptions } from '@/features/grpc/hooks/useGrpcReflection';
@@ -55,6 +59,22 @@ vi.mock('sonner', () => ({
 import { useRequestStore } from '@/store/useRequestStore';
 import GrpcRequestBuilder from '../GrpcRequestBuilder';
 
+const PROTO_V1 = `syntax = "proto3";
+package test.v1;
+message Req { string id = 1; int32 qty = 2; }
+service TestService { rpc Ping (Req) returns (Req); }
+`;
+
+/** Reflection-shaped base64 descriptors for a .proto (via the shared registry). */
+function descriptorsOf(text: string): string[] {
+  const reg = registryFromProtoText(text) as FileRegistry;
+  return [...reg.files].map((f) => {
+    let bin = '';
+    for (const b of toBinary(FileDescriptorProtoSchema, f.proto)) bin += String.fromCharCode(b);
+    return btoa(bin);
+  });
+}
+
 function makeRequest(extra: Partial<GrpcRequest> = {}): GrpcRequest {
   return {
     id: 'req-1',
@@ -106,7 +126,12 @@ describe('GrpcRequestBuilder — persisted schema snapshot + timeout', () => {
     seed();
     render(<GrpcRequestBuilder />);
     act(() => mocks.reflectionOptions?.onServiceSelected?.(reflectedService));
-    expect(activeRequest().schema).toEqual({ kind: 'descriptors', descriptors: ['REFLECTED='] });
+    expect(activeRequest().schema).toMatchObject({
+      kind: 'descriptors',
+      descriptors: ['REFLECTED='],
+      hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+      fetchedAt: expect.any(Number),
+    });
   });
 
   it('does not let reflection overwrite an uploaded .proto snapshot', () => {
@@ -125,7 +150,12 @@ describe('GrpcRequestBuilder — persisted schema snapshot + timeout', () => {
     const file = new File([text], 'test.proto', { type: 'text/plain' });
     fireEvent.change(screen.getByLabelText('Upload .proto file'), { target: { files: [file] } });
     await waitFor(() =>
-      expect(activeRequest().schema).toEqual({ kind: 'proto', fileName: 'test.proto', text })
+      expect(activeRequest().schema).toMatchObject({
+        kind: 'proto',
+        fileName: 'test.proto',
+        text,
+        hash: expect.any(String),
+      })
     );
     // Survives a remount (tab switch) — the uploader shows the saved name.
     expect(screen.getByRole('button', { name: /test\.proto/ })).toBeTruthy();
@@ -174,6 +204,46 @@ describe('GrpcRequestBuilder — persisted schema snapshot + timeout', () => {
     await waitFor(() => expect(mocks.run).toHaveBeenCalled());
     const opts = mocks.run.mock.calls[0]![2].protocolOptions;
     expect(opts.descriptors).toEqual(schema.descriptors);
+  });
+
+  it('holds a drifted re-reflection behind a banner until the user accepts it (#937)', () => {
+    const saved = {
+      kind: 'descriptors' as const,
+      descriptors: descriptorsOf(PROTO_V1),
+      hash: 'h',
+      fetchedAt: 1,
+    };
+    const next = descriptorsOf(PROTO_V1.replace(' int32 qty = 2;', ''));
+    seed({ schema: saved });
+    render(<GrpcRequestBuilder />);
+    act(() =>
+      mocks.reflectionOptions?.onServiceSelected?.({ ...reflectedService, descriptors: next })
+    );
+
+    // Saved snapshot is untouched; the banner reports the breaking change.
+    expect(activeRequest().schema).toEqual(saved);
+    expect(screen.getByRole('status', { name: 'gRPC schema drift' }).textContent).toMatch(
+      /Schema changed since saved — 1 breaking/
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Details/ }));
+    expect(screen.getByText('FIELD_NO_DELETE')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Update snapshot' }));
+    expect(activeRequest().schema).toMatchObject({ kind: 'descriptors', descriptors: next });
+    expect(screen.queryByRole('status', { name: 'gRPC schema drift' })).toBeNull();
+  });
+
+  it('"Keep saved" dismisses the drift notice without touching the snapshot', () => {
+    const saved = { kind: 'descriptors' as const, descriptors: descriptorsOf(PROTO_V1) };
+    seed({ schema: saved });
+    render(<GrpcRequestBuilder />);
+    const next = descriptorsOf(PROTO_V1.replace('int32 qty = 2', 'int64 qty = 2'));
+    act(() =>
+      mocks.reflectionOptions?.onServiceSelected?.({ ...reflectedService, descriptors: next })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Keep saved' }));
+    expect(screen.queryByRole('status', { name: 'gRPC schema drift' })).toBeNull();
+    expect(activeRequest().schema).toEqual(saved);
   });
 
   it('persists the timeout on the request and sends it as timeoutMs', async () => {
