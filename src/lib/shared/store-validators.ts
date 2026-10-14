@@ -729,6 +729,7 @@ export const appSettingsSchema = z
       .optional()
       .catch(undefined),
     nativeAppDownloadBannerDismissedUntil: z.number().int().positive().optional().catch(undefined),
+    grpcUnknownFields: z.enum(['warn', 'block', 'off']).optional().catch(undefined),
   })
   .passthrough();
 

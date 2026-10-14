@@ -71,7 +71,14 @@ export interface AppSettings {
   judge?: JudgeSettings;
   // Web native-app banner dismissal; the banner is shown again after this timestamp.
   nativeAppDownloadBannerDismissedUntil?: number;
+  // gRPC request JSON keys the method's input type doesn't define (#944):
+  // `warn` (default) lints them live and sends without them, `block` refuses
+  // the send, `off` drops them silently.
+  grpcUnknownFields?: GrpcUnknownFieldsMode;
 }
+
+/** How unknown gRPC request fields are handled. Absent = `warn`. */
+export type GrpcUnknownFieldsMode = 'warn' | 'block' | 'off';
 
 /**
  * Config for the LLM-as-judge backing `rs.judge(...)` in test scripts.

@@ -19,7 +19,13 @@ When you save a gRPC request to a collection, Restura stores a snapshot of the s
 
 ### Unknown request fields
 
-When the request has a schema (an upload, or reflection descriptors on desktop), keys in the request JSON that the method's input message doesn't define are rejected before anything is sent, with `INVALID_ARGUMENT` and a did-you-mean hint (`nmae (did you mean "name"?)`). Previously they were silently dropped and the server received the field's default value.
+When the request has a schema (an upload, or reflection descriptors on desktop), the message editor flags JSON keys the method's input message doesn't define — nested, repeated and map-value messages included — as you type, with a **Rename to "…"** quick fix for near misses (`nmae` → `name`) and a **Remove** action. What happens on send follows **Settings → Requests → gRPC → Unknown request fields**:
+
+- **Warn** (default) — the editor shows the warning and the request is sent without the unknown keys.
+- **Block** — the send is refused with `INVALID_ARGUMENT` listing the keys and suggestions.
+- **Off** — no lint; unknown keys are dropped silently.
+
+The same policy applies to collection runs and to every message of a stream. Previously unknown keys were always dropped silently, so a typo sent the field's default value.
 
 ## Streaming
 

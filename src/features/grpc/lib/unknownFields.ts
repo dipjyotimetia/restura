@@ -18,9 +18,12 @@ import {
   describeUnknownFields,
   findUnknownJsonFields,
   GrpcUnknownFieldsError,
+  removeUnknownJsonFields,
   type UnknownJsonField,
 } from '@shared/protocol/grpc-unknown-fields';
-import type { GrpcRequest, GrpcResponse, GrpcSchemaSnapshot } from '@/types';
+import { applyEdits, findNodeAtLocation, modify, parseTree } from 'jsonc-parser';
+import { useSettingsStore } from '@/store/useSettingsStore';
+import type { GrpcRequest, GrpcResponse, GrpcSchemaSnapshot, GrpcUnknownFieldsMode } from '@/types';
 import { GrpcStatusCode } from '@/types';
 import { createErrorResponse, GrpcClientError } from './grpcClient';
 
@@ -112,4 +115,79 @@ export function unknownFieldsResponse(
     ),
     Date.now()
   );
+}
+
+/** The configured unknown-field policy (#944). Absent setting = `warn`. */
+export function grpcUnknownFieldsMode(): GrpcUnknownFieldsMode {
+  return useSettingsStore.getState().settings.grpcUnknownFields ?? 'warn';
+}
+
+/** Locate a key's token in the (variable-masked) JSON text. */
+function keyRange(
+  text: string,
+  field: UnknownJsonField
+): { offset: number; length: number } | null {
+  const root = parseTree(maskTemplateVariables(text));
+  const value = root ? findNodeAtLocation(root, [...field.parentPath, field.key]) : undefined;
+  const key = value?.parent?.type === 'property' ? value.parent.children?.[0] : undefined;
+  return key ? { offset: key.offset, length: key.length } : null;
+}
+
+/**
+ * Quick fix: rename one unknown key in the editor text, preserving formatting
+ * and `{{variables}}`. Returns the text unchanged when the key isn't found.
+ */
+export function renameJsonKey(text: string, field: UnknownJsonField, newKey: string): string {
+  const range = keyRange(text, field);
+  if (!range) return text;
+  return (
+    text.slice(0, range.offset) + JSON.stringify(newKey) + text.slice(range.offset + range.length)
+  );
+}
+
+/** Remove the given keys (and their values) from the editor text. */
+export function removeJsonKeys(text: string, fields: readonly UnknownJsonField[]): string {
+  let out = text;
+  // Last first, re-parsing between edits so every edit sees current offsets.
+  for (const field of [...fields].reverse()) {
+    const edits = modify(
+      maskTemplateVariables(out),
+      [...field.parentPath, field.key],
+      undefined,
+      {}
+    );
+    out = applyEdits(out, edits);
+  }
+  return out;
+}
+
+/**
+ * Apply the unknown-field policy to a unary request before it is sent:
+ *  - `block`: unknown keys (checked on the variable-resolved message) refuse
+ *    the send with an INVALID_ARGUMENT response listing them;
+ *  - `warn` / `off`: the keys are removed from the message text, so the
+ *    strict encoder downstream never sees them (the editor lint is the
+ *    warning — the runner also serves headless collection runs).
+ */
+export function applyUnknownFieldPolicy(
+  request: GrpcRequest,
+  source: GrpcSchemaSource,
+  resolve: (text: string) => string,
+  mode: GrpcUnknownFieldsMode = grpcUnknownFieldsMode()
+): { request: GrpcRequest; refused?: GrpcResponse } {
+  if (mode === 'block') {
+    const unknown = unknownRequestFields(request, source, resolve(request.message));
+    return unknown.length > 0
+      ? { request, refused: unknownFieldsResponse(request.id, unknown, request.method) }
+      : { request };
+  }
+  const drop = unknownRequestFields(request, source);
+  return drop.length > 0
+    ? { request: { ...request, message: removeJsonKeys(request.message, drop) } }
+    : { request };
+}
+
+/** Strip unknown keys from an already-parsed message (streaming sends). */
+export function withoutUnknownFields<T>(input: DescMessage | null, message: T): T {
+  return input ? removeUnknownJsonFields(input, message) : message;
 }

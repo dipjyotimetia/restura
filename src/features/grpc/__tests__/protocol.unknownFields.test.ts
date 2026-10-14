@@ -1,6 +1,7 @@
 /**
- * #925 — a typo in the request JSON is refused before anything is sent, on
- * both transports (the web path relays JSON and never encodes it client-side).
+ * #925 / #944 — unknown request JSON keys are handled before anything is sent,
+ * on both transports (the web path relays JSON and never encodes it
+ * client-side): refused in `block` mode, stripped in `warn` (default) / `off`.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GrpcRequest, GrpcResponse } from '@/types';
@@ -19,6 +20,7 @@ vi.mock('@/features/grpc/lib/grpcClient', async (importActual) => ({
   makeProxyGrpcRequest: (...args: unknown[]) => wire.proxy(...args),
 }));
 
+import { useSettingsStore } from '@/store/useSettingsStore';
 import { grpcProtocol } from '../protocol';
 
 const PROTO = `syntax = "proto3";
@@ -72,11 +74,17 @@ describe.each([
   ['web', false],
   ['desktop', true],
 ])('grpcProtocol unknown request fields (%s)', (_label, electron) => {
+  const setMode = (grpcUnknownFields: 'warn' | 'block' | 'off' | undefined) =>
+    useSettingsStore.setState((s) => ({ settings: { ...s.settings, grpcUnknownFields } }));
+  const sentMessage = () =>
+    ((electron ? wire.electron : wire.proxy).mock.calls[0]?.[0] as GrpcRequest).message;
+
   beforeEach(() => {
     platform.electron = electron;
+    setMode('block');
   });
 
-  it('refuses a typo with INVALID_ARGUMENT listing the key, sending nothing', async () => {
+  it('block: refuses a typo with INVALID_ARGUMENT listing the key, sending nothing', async () => {
     const res = await run(request('{"nmae": "{{who}}"}'));
     expect(wire.electron).not.toHaveBeenCalled();
     expect(wire.proxy).not.toHaveBeenCalled();
@@ -88,4 +96,14 @@ describe.each([
     await run(request('{"name": "{{who}}"}'));
     expect(electron ? wire.electron : wire.proxy).toHaveBeenCalledTimes(1);
   });
+
+  it.each([undefined, 'warn', 'off'] as const)(
+    '%s (default warn): sends the message without the unknown key',
+    async (mode) => {
+      setMode(mode);
+      const res = await run(request('{"nmae": "x", "name": "{{who}}"}'));
+      expect(res.grpcStatus).toBe(0);
+      expect(JSON.parse(sentMessage())).toEqual({ name: '{{who}}' });
+    }
+  );
 });

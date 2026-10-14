@@ -129,6 +129,22 @@ export function findUnknownJsonFields(desc: DescMessage, json: unknown): Unknown
   return out;
 }
 
+/**
+ * A copy of `json` without the keys `findUnknownJsonFields` reports — what the
+ * lenient (`warn` / `off`) modes send, so the strict encoder never sees them.
+ */
+export function removeUnknownJsonFields<T>(desc: DescMessage, json: T): T {
+  const unknown = findUnknownJsonFields(desc, json);
+  if (unknown.length === 0) return json;
+  const copy = structuredClone(json);
+  for (const f of unknown) {
+    let holder: unknown = copy;
+    for (const seg of f.parentPath) holder = (holder as Record<string | number, unknown>)?.[seg];
+    if (isPlainObject(holder)) delete holder[f.key];
+  }
+  return copy;
+}
+
 /** `nmae (did you mean "name"?), items[0].qyt` — for error / warning text. */
 export function describeUnknownFields(fields: readonly UnknownJsonField[]): string {
   return fields
@@ -148,7 +164,7 @@ export class GrpcUnknownFieldsError extends ConnectError {
   ) {
     super(
       `Unknown field(s) in ${messageType} request message: ${describeUnknownFields(fields)}. ` +
-        'Fix or remove them; unknown fields are rejected rather than silently dropped.',
+        'Fix them, or set Settings → Requests → gRPC "Unknown request fields" to Warn or Off to send without them.',
       Code.InvalidArgument
     );
     // `name` stays "ConnectError" so `instanceof ConnectError` / ConnectError.from

@@ -61,6 +61,7 @@ import GrpcProtoUploader from './GrpcProtoUploader';
 import { GrpcSettingsPanel } from './GrpcSettingsPanel';
 import { GrpcStreamingMessages } from './GrpcStreamingControls';
 import { GrpcStreamingPanel } from './GrpcStreamingPanel';
+import { GrpcUnknownFieldsLint } from './GrpcUnknownFieldsLint';
 import { GrpcUnsupportedAuthNotice } from './GrpcUnsupportedAuthNotice';
 
 type GrpcSubTab =
@@ -261,7 +262,6 @@ function GrpcRequestBuilder() {
   const timeoutMs = grpcDeadlineMs(grpcRequest);
   const protoSnapshot = grpcRequest.schema?.kind === 'proto' ? grpcRequest.schema : null;
   const uploaded = uploadedDescriptors(grpcRequest.schema);
-  const streamDescs = uploaded?.descriptors ?? reflection.selectedService?.descriptors;
   const reflectionResult = reflection.result;
   const reflectionServices: ReflectionServiceInfo[] = reflectionResult?.success
     ? reflectionResult.services
@@ -690,6 +690,7 @@ function GrpcRequestBuilder() {
           <SubTabPanel tabKey={activeTab} className="flex-1 min-h-0 overflow-auto">
             {activeTab === 'message' && (
               <div className="p-3">
+                <GrpcUnknownFieldsLint onMessageChange={handleMessageChange} />
                 <GrpcMessageEditor
                   value={grpcRequest.message}
                   onChange={handleMessageChange}
@@ -768,7 +769,7 @@ function GrpcRequestBuilder() {
                 request={grpcRequest}
                 {...(resolvedProto?.content ? { protoContent: resolvedProto.content } : {})}
                 {...(resolvedProto?.fileName ? { protoFileName: resolvedProto.fileName } : {})}
-                {...(streamDescs?.length ? { descriptors: streamDescs } : {})}
+                descriptors={uploaded?.descriptors ?? reflection.selectedService?.descriptors}
               />
             )}
           </SubTabPanel>

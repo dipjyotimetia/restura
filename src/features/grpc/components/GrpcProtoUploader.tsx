@@ -3,6 +3,12 @@
 import { FileText, FolderUp, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { loadProtoUpload, PROTO_UPLOAD_ACCEPT } from '@/features/grpc/lib/protoUpload';
 import type { GrpcMethodType, GrpcSchemaSnapshot, ProtoFileInfo } from '@/types';
 
@@ -74,7 +80,7 @@ export default function GrpcProtoUploader({
   };
 
   return (
-    <div className="relative flex shrink-0 items-center gap-1">
+    <div className="relative shrink-0">
       <input
         type="file"
         aria-label="Upload .proto file"
@@ -93,29 +99,31 @@ export default function GrpcProtoUploader({
         className="hidden"
         id="proto-upload-folder"
       />
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => document.getElementById('proto-upload')?.click()}
-        title={
-          protoFileName ??
-          'Upload .proto file(s) — select every file the schema imports — or a FileDescriptorSet (.binpb / .protoset)'
-        }
-        className="h-8 shrink-0 text-sp-12 max-w-[180px]"
-      >
-        <Upload className="mr-1.5 h-3.5 w-3.5" />
-        <span className="truncate">{protoFileName ?? 'Upload .proto'}</span>
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => document.getElementById('proto-upload-folder')?.click()}
-        title="Upload a folder of .proto files (imports resolve within it)"
-        aria-label="Upload proto folder"
-        className="h-8 w-8 shrink-0 p-0"
-      >
-        <FolderUp className="h-3.5 w-3.5" />
-      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            title={protoFileName ?? 'Upload .proto file(s), a folder, or a FileDescriptorSet'}
+            className="h-8 shrink-0 text-sp-12 max-w-[180px]"
+          >
+            <Upload className="mr-1.5 h-3.5 w-3.5" />
+            <span className="truncate">{protoFileName ?? 'Upload .proto'}</span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => document.getElementById('proto-upload')?.click()}>
+            <FileText className="mr-2 h-3.5 w-3.5" />
+            Files… (.proto, .binpb, .protoset)
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => document.getElementById('proto-upload-folder')?.click()}
+          >
+            <FolderUp className="mr-2 h-3.5 w-3.5" />
+            Folder of .proto files…
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
