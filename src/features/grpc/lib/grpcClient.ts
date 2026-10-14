@@ -1,3 +1,4 @@
+import { MAX_GRPC_METADATA_BYTES } from '@shared/protocol/header-policy';
 import { v4 as uuidv4 } from 'uuid';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import {
@@ -17,6 +18,8 @@ import type {
 } from '@/types';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
 import { resolveGrpcTls } from './grpcTls';
+
+export { MAX_GRPC_METADATA_BYTES };
 
 // gRPC Client Error
 export class GrpcClientError extends Error {
@@ -363,26 +366,17 @@ export function prepareGrpcRequest(
   const authMetadata = buildAuthMetadata(request.auth);
   Object.assign(metadata, authMetadata);
 
-  // Validate metadata size limits
-  const MAX_METADATA_SIZE = 8 * 1024; // 8KB total
-  const MAX_HEADER_SIZE = 1024; // 1KB per header
+  // Validate the aggregate metadata size (#895). No per-entry cap — a 2 KB
+  // bearer JWT is ordinary — only a total-bytes ceiling, measured in UTF-8.
+  const encoder = new TextEncoder();
   let totalSize = 0;
-
   for (const [key, value] of Object.entries(metadata)) {
-    const headerSize = key.length + value.length;
-    if (headerSize > MAX_HEADER_SIZE) {
-      throw new GrpcClientError(
-        `Metadata header '${key}' exceeds maximum size of ${MAX_HEADER_SIZE} bytes`,
-        GrpcStatusCode.INVALID_ARGUMENT,
-        'Reduce the size of metadata headers'
-      );
-    }
-    totalSize += headerSize;
+    totalSize += encoder.encode(key).length + encoder.encode(value).length;
   }
 
-  if (totalSize > MAX_METADATA_SIZE) {
+  if (totalSize > MAX_GRPC_METADATA_BYTES) {
     throw new GrpcClientError(
-      `Total metadata size (${totalSize} bytes) exceeds maximum of ${MAX_METADATA_SIZE} bytes`,
+      `Total metadata size (${totalSize} bytes) exceeds maximum of ${MAX_GRPC_METADATA_BYTES} bytes`,
       GrpcStatusCode.INVALID_ARGUMENT,
       'Reduce the number or size of metadata headers'
     );

@@ -13,6 +13,7 @@ import {
   grpcAuthNeedsMainSideApply,
   httpStatusToGrpcStatus,
   isGrpcError,
+  MAX_GRPC_METADATA_BYTES,
   makeElectronGrpcRequest,
   makeProxyGrpcRequest,
   parseProtoFile,
@@ -651,23 +652,55 @@ message PingRequest
       auth: { type: 'none' },
     };
 
-    it('throws when a single metadata header exceeds 1KB', () => {
+    // #895: ordinary bearer JWTs (Azure AD, Auth0, GCP ID tokens) are 1.2–2 KB.
+    it('accepts a 2 KB bearer token (no per-header cap)', () => {
+      const token = 'eyJ'.padEnd(2048, 'a');
       const req: GrpcRequest = {
         ...baseGrpcReq,
-        metadata: [{ id: '1', key: 'x-big', value: 'x'.repeat(1025), enabled: true }],
+        auth: { type: 'bearer', bearer: { token } },
+      };
+      const result = prepareGrpcRequest(req, (s) => s);
+      expect(result.metadata.authorization).toBe(`Bearer ${token}`);
+    });
+
+    it('accepts a single large user metadata value under the aggregate cap', () => {
+      const req: GrpcRequest = {
+        ...baseGrpcReq,
+        metadata: [{ id: '1', key: 'x-big', value: 'x'.repeat(4096), enabled: true }],
+      };
+      expect(prepareGrpcRequest(req, (s) => s).metadata['x-big']).toHaveLength(4096);
+    });
+
+    it('throws a clear error when total metadata exceeds the aggregate cap', () => {
+      const entries = Array.from({ length: 20 }, (_, i) => ({
+        id: String(i),
+        key: `x-key-${i}`,
+        value: 'x'.repeat(1024),
+        enabled: true,
+      }));
+      const req: GrpcRequest = { ...baseGrpcReq, metadata: entries };
+      expect(() => prepareGrpcRequest(req, (s) => s)).toThrow(
+        new RegExp(`exceeds maximum of ${MAX_GRPC_METADATA_BYTES} bytes`)
+      );
+      try {
+        prepareGrpcRequest(req, (s) => s);
+      } catch (err) {
+        expect(err).toBeInstanceOf(GrpcClientError);
+        expect((err as GrpcClientError).statusCode).toBe(GrpcStatusCode.INVALID_ARGUMENT);
+      }
+    });
+
+    it('measures the aggregate cap in UTF-8 bytes, not UTF-16 code units', () => {
+      // 6000 × '€' = 6000 UTF-16 units but 18000 UTF-8 bytes.
+      const req: GrpcRequest = {
+        ...baseGrpcReq,
+        metadata: [{ id: '1', key: 'x-euro', value: '€'.repeat(6000), enabled: true }],
       };
       expect(() => prepareGrpcRequest(req, (s) => s)).toThrow(GrpcClientError);
     });
 
-    it('throws when total metadata exceeds 8KB', () => {
-      const entries = Array.from({ length: 20 }, (_, i) => ({
-        id: String(i),
-        key: `x-key-${i}`,
-        value: 'x'.repeat(450),
-        enabled: true,
-      }));
-      const req: GrpcRequest = { ...baseGrpcReq, metadata: entries };
-      expect(() => prepareGrpcRequest(req, (s) => s)).toThrow(GrpcClientError);
+    it('caps total metadata at 16 KiB', () => {
+      expect(MAX_GRPC_METADATA_BYTES).toBe(16 * 1024);
     });
   });
 

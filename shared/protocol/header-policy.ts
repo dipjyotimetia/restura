@@ -21,6 +21,16 @@ export const RESPONSE_DENY = new Set<string>([
   'upgrade',
 ]);
 
+/**
+ * Aggregate cap on outbound gRPC metadata (sum of UTF-8 key + value bytes).
+ *
+ * There is deliberately no per-entry cap: HTTP/2 imposes none, and ordinary
+ * bearer JWTs (Azure AD, Auth0 with claims, GCP ID tokens) run 1.2–2 KB. 16 KiB
+ * matches common server defaults (grpc-go / nginx / Envoy accept at least this
+ * much) while still catching runaway metadata before it hits the wire (#895).
+ */
+export const MAX_GRPC_METADATA_BYTES = 16 * 1024;
+
 export type RequestPolicy = 'default' | 'mcp';
 
 export function sanitizeRequestHeaders(

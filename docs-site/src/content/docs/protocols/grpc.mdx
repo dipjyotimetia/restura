@@ -32,7 +32,7 @@ When you save a gRPC request to a collection, Restura stores a snapshot of the s
 All the HTTP auth schemes apply (Bearer is the common one), plus:
 
 - **AWS SigV4** signed at the wire (Worker / Electron, not the renderer).
-- **Custom metadata** — gRPC uses metadata in place of HTTP headers; edit it in the same table as HTTP headers, with bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row. Values resolve `{{variables}}`.
+- **Custom metadata** — gRPC uses metadata in place of HTTP headers; edit it in the same table as HTTP headers, with bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row. Values resolve `{{variables}}`. There is no per-entry size limit (multi-KB bearer JWTs are fine); total metadata, including auth, is capped at 16 KiB.
 
 ## Tracing
 
