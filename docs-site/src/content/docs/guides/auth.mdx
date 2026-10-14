@@ -38,11 +38,11 @@ Full HMAC-SHA1 signing per request — useful for legacy APIs (Twitter v1, Magen
 
 ### AWS Signature v4
 
-For AWS APIs (S3, DynamoDB, EC2, etc.). Pick the region and service; Restura computes the canonical request and signs at the wire. Works across HTTP, gRPC (Connect), and SSE.
+For AWS APIs (S3, DynamoDB, EC2, etc.). Pick the region and service; Restura computes the canonical request and signs at the wire. Works for HTTP and SSE; gRPC isn't signed yet, so a gRPC call using it is blocked (see [gRPC authentication](/protocols/grpc/#authentication)).
 
 ### WSSE
 
-`X-WSSE` UsernameToken header with `PasswordDigest` (default — fresh nonce and timestamp per send) or `PasswordText`. Common for SOAP-y APIs. Signed at the wire.
+`X-WSSE` UsernameToken header with `PasswordDigest` (default — fresh nonce and timestamp per send) or `PasswordText`. Common for SOAP-y APIs. Signed at the wire for HTTP requests (not yet for gRPC).
 
 ### Digest
 

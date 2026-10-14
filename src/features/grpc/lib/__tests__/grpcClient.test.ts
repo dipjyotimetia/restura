@@ -6,11 +6,13 @@ import {
   buildGrpcPath,
   createErrorResponse,
   createSuccessResponse,
+  describeGrpcAuthMetadata,
   formatGrpcStatus,
   GrpcClientError,
   getMethodTypeDescription,
   getSuggestedAction,
   grpcAuthNeedsMainSideApply,
+  grpcUnsupportedAuthMessage,
   httpStatusToGrpcStatus,
   isGrpcError,
   MAX_GRPC_METADATA_BYTES,
@@ -22,6 +24,22 @@ import {
   validateMethodName,
   validateServiceName,
 } from '../grpcClient';
+
+const UNSUPPORTED_AUTHS: AuthConfig[] = [
+  { type: 'digest', digest: { username: 'user', password: 'pass' } },
+  {
+    type: 'aws-signature',
+    awsSignature: {
+      accessKey: 'AKIAIOSFODNN7EXAMPLE',
+      secretKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+      region: 'us-east-1',
+      service: 'execute-api',
+    },
+  },
+  { type: 'oauth1', oauth1: { consumerKey: 'ck', consumerSecret: 'cs' } } as AuthConfig,
+  { type: 'ntlm', ntlm: { username: 'u', password: 'p' } } as AuthConfig,
+  { type: 'wsse', wsse: { username: 'u', password: 'p' } } as AuthConfig,
+];
 
 describe('grpcClient', () => {
   describe('buildAuthMetadata', () => {
@@ -96,39 +114,77 @@ describe('grpcClient', () => {
       });
     });
 
-    it('should handle digest auth (not supported for gRPC)', () => {
-      const auth: AuthConfig = {
-        type: 'digest',
-        digest: { username: 'user', password: 'pass' },
-      };
+    it.each(UNSUPPORTED_AUTHS)('returns no metadata for $type without logging', (auth) => {
       const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const result = buildAuthMetadata(auth);
-      // Digest auth is not supported for gRPC - should return empty metadata
-      expect(result).toEqual({});
-      expect(consoleSpy).toHaveBeenCalledWith(
-        'Digest authentication is not supported for gRPC. Please use Basic or Bearer authentication.'
-      );
+      expect(buildAuthMetadata(auth)).toEqual({});
+      expect(consoleSpy).not.toHaveBeenCalled();
       consoleSpy.mockRestore();
     });
+  });
 
-    it('should handle AWS signature auth (not implemented for gRPC)', () => {
-      const auth: AuthConfig = {
-        type: 'aws-signature',
-        awsSignature: {
-          accessKey: 'AKIAIOSFODNN7EXAMPLE',
-          secretKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
-          region: 'us-east-1',
-          service: 's3',
-        },
-      };
-      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
-      const result = buildAuthMetadata(auth);
-      // AWS Signature auth is not yet implemented for gRPC - should return empty metadata
-      expect(result).toEqual({});
-      expect(consoleSpy).toHaveBeenCalledWith(
-        'AWS Signature authentication is not yet implemented for gRPC. Please use Bearer authentication with an AWS token.'
+  // #900: sign-at-wire / challenge auth has no gRPC binding yet. Sending would
+  // silently go out unauthenticated, so the call is blocked with a clear error.
+  describe('unsupported gRPC auth types (#900)', () => {
+    const baseReq: GrpcRequest = {
+      id: 'req-auth',
+      name: 'Test',
+      type: 'grpc',
+      methodType: 'unary',
+      url: 'https://api.example.com',
+      service: 'svc.v1.Service',
+      method: 'Call',
+      metadata: [],
+      message: '{}',
+      auth: { type: 'none' },
+    };
+
+    it.each(UNSUPPORTED_AUTHS)('reports $type as unsupported', (auth) => {
+      const message = grpcUnsupportedAuthMessage(auth);
+      expect(message).toMatch(/not supported for gRPC/);
+      expect(message).toMatch(/without credentials/i);
+    });
+
+    it.each<AuthConfig>([
+      { type: 'none' },
+      { type: 'bearer', bearer: { token: 't' } },
+      { type: 'basic', basic: { username: 'u', password: 'p' } },
+      { type: 'api-key', apiKey: { key: 'x-api-key', value: 'v', in: 'header' } },
+      { type: 'oauth2', oauth2: { accessToken: 'a' } },
+    ])('does not flag $type', (auth) => {
+      expect(grpcUnsupportedAuthMessage(auth)).toBeNull();
+    });
+
+    it.each(UNSUPPORTED_AUTHS)('auth preview explains $type is not sent', (auth) => {
+      expect(describeGrpcAuthMetadata(auth)).toBe(grpcUnsupportedAuthMessage(auth));
+    });
+
+    it('auth preview masks supported credentials', () => {
+      expect(
+        describeGrpcAuthMetadata({ type: 'bearer', bearer: { token: 'secret-token-value' } })
+      ).toBe('authorization: Bearer sec...');
+      expect(describeGrpcAuthMetadata({ type: 'none' })).toBe('No authentication configured');
+    });
+
+    it.each(UNSUPPORTED_AUTHS)('prepareGrpcRequest blocks the send for $type', (auth) => {
+      let caught: unknown;
+      try {
+        prepareGrpcRequest({ ...baseReq, auth }, (s) => s);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(GrpcClientError);
+      expect((caught as GrpcClientError).statusCode).toBe(GrpcStatusCode.FAILED_PRECONDITION);
+      expect((caught as GrpcClientError).message).toBe(grpcUnsupportedAuthMessage(auth));
+    });
+
+    it.each(UNSUPPORTED_AUTHS)('web proxy never sends a $type request', async (auth) => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal('fetch', fetchSpy);
+      await expect(makeProxyGrpcRequest({ ...baseReq, auth }, (s) => s)).rejects.toThrow(
+        /not supported for gRPC/
       );
-      consoleSpy.mockRestore();
+      expect(fetchSpy).not.toHaveBeenCalled();
+      vi.unstubAllGlobals();
     });
   });
 

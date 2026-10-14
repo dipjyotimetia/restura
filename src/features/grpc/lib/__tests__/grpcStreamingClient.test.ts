@@ -80,6 +80,23 @@ describe('startGrpcStream — validation', () => {
     ).rejects.toThrow(/Invalid JSON/);
   });
 
+  // #900: sign-at-wire auth must not silently open an unauthenticated stream.
+  it('blocks a stream whose auth type gRPC cannot apply', async () => {
+    await expect(
+      startGrpcStream({
+        request: {
+          ...baseRequest,
+          auth: {
+            type: 'aws-signature',
+            awsSignature: { accessKey: 'AK', secretKey: 'SK', region: 'us-east-1', service: 'x' },
+          },
+        },
+        resolveVariables: (s) => s,
+        protoContent: ECHO_PROTO,
+      })
+    ).rejects.toThrow(/not supported for gRPC/);
+  });
+
   it('rejects an invalid URL before opening the stream', async () => {
     await expect(
       startGrpcStream({

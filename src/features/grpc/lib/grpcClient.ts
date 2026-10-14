@@ -41,6 +41,35 @@ export class GrpcClientError extends Error {
   }
 }
 
+/**
+ * Auth types with no gRPC binding yet (#900). Each needs either the exact wire
+ * bytes (SigV4, OAuth 1.0 sign the encoded body/URL), a challenge/response
+ * round-trip (Digest, NTLM), or a per-call computed header the gRPC handlers
+ * don't build (WSSE). Rather than silently sending without credentials, the
+ * send is blocked with this explanation and the auth tab shows it inline.
+ */
+const GRPC_UNSUPPORTED_AUTH: Partial<Record<AuthConfig['type'], string>> = {
+  digest: 'Digest',
+  'aws-signature': 'AWS Signature (SigV4)',
+  oauth1: 'OAuth 1.0',
+  ntlm: 'NTLM',
+  wsse: 'WSSE',
+};
+
+/**
+ * User-facing reason a gRPC call can't apply this auth, or `null` when the
+ * auth type is supported (none / basic / bearer / api-key / oauth2).
+ */
+export function grpcUnsupportedAuthMessage(auth: AuthConfig): string | null {
+  const label = GRPC_UNSUPPORTED_AUTH[auth.type];
+  if (!label) return null;
+  return (
+    `${label} authentication is not supported for gRPC, and Restura won't send the call ` +
+    'without credentials. Use Bearer, Basic, API Key or OAuth 2.0, or add the credential ' +
+    'as a metadata entry.'
+  );
+}
+
 // Auth to Metadata Converter
 //
 // Common credential shaping (Basic / Bearer / API-Key / OAuth2) is delegated
@@ -49,39 +78,43 @@ export class GrpcClientError extends Error {
 // flavour uses lowercase keys (canonical for HTTP/2 metadata) and requires
 // BOTH username AND password for Basic auth — both behaviours preserved.
 //
-// The protocol-specific bits live here: warnings for unsupported types
-// (digest, aws-signature). API-key in `query` mode is dropped on the floor
-// for gRPC (no URL query string in the metadata frame) — matched by
-// returning only `headers`.
+// Sign-at-wire / challenge types (see `GRPC_UNSUPPORTED_AUTH`) produce no
+// metadata; `prepareGrpcRequest` blocks the send for them instead. API-key in
+// `query` mode is dropped on the floor for gRPC (no URL query string in the
+// metadata frame) — matched by returning only `headers`.
 export function buildAuthMetadata(auth: AuthConfig): Record<string, string> {
-  switch (auth.type) {
-    case 'digest':
-      // Digest auth requires challenge-response, not directly applicable to gRPC metadata
-      // This auth type is not supported for gRPC - use Basic or Bearer auth instead
-      console.warn(
-        'Digest authentication is not supported for gRPC. Please use Basic or Bearer authentication.'
-      );
-      return {};
+  if (grpcUnsupportedAuthMessage(auth)) return {};
+  const credential = buildAuthCredential(auth, {
+    headerCase: 'lower',
+    basicRequiresPassword: true,
+  });
+  // SecretRef-handle credentials resolve to empty headers here (the renderer
+  // can't read handle plaintext). On Electron they're resolved main-side by
+  // the gRPC IPC handler — see `grpcAuthNeedsMainSideApply` / the `auth`
+  // field threaded into the startStream/request payloads. The web path
+  // rejects them up front (handles are desktop-only).
+  return { ...credential.headers };
+}
 
-    case 'aws-signature':
-      console.warn(
-        'AWS Signature authentication is not yet implemented for gRPC. Please use Bearer authentication with an AWS token.'
-      );
-      return {};
-
-    default: {
-      const credential = buildAuthCredential(auth, {
-        headerCase: 'lower',
-        basicRequiresPassword: true,
-      });
-      // SecretRef-handle credentials resolve to empty headers here (the renderer
-      // can't read handle plaintext). On Electron they're resolved main-side by
-      // the gRPC IPC handler — see `grpcAuthNeedsMainSideApply` / the `auth`
-      // field threaded into the startStream/request payloads. The web path
-      // rejects them up front (handles are desktop-only).
-      return { ...credential.headers };
-    }
-  }
+/**
+ * Human-readable preview of the auth metadata a gRPC call will carry, with
+ * credential values truncated. Unsupported auth types (#900) explain why
+ * nothing is sent instead of claiming no auth is configured.
+ */
+export function describeGrpcAuthMetadata(auth: AuthConfig): string {
+  const unsupported = grpcUnsupportedAuthMessage(auth);
+  if (unsupported) return unsupported;
+  const authMetadata = buildAuthMetadata(auth);
+  if (Object.keys(authMetadata).length === 0) return 'No authentication configured';
+  return Object.entries(authMetadata)
+    .map(([key, value]) => {
+      const maskedValue =
+        key.includes('authorization') || key.includes('password')
+          ? value.substring(0, 10) + '...'
+          : value;
+      return `${key}: ${maskedValue}`;
+    })
+    .join('\n');
 }
 
 /**
@@ -345,6 +378,18 @@ export function prepareGrpcRequest(
   request: GrpcRequest,
   resolveVariables: (text: string) => string
 ): PreparedGrpcRequest {
+  // Block auth types gRPC can't apply rather than sending unauthenticated
+  // (#900). Every harness (Electron IPC, web proxy, web streaming) prepares
+  // through here, so this is the single choke point.
+  const unsupportedAuth = grpcUnsupportedAuthMessage(request.auth);
+  if (unsupportedAuth) {
+    throw new GrpcClientError(
+      unsupportedAuth,
+      GrpcStatusCode.FAILED_PRECONDITION,
+      'Choose a gRPC-compatible auth type'
+    );
+  }
+
   // Resolve environment variables in URL
   const resolvedUrl = resolveVariables(request.url);
 
