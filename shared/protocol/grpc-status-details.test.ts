@@ -228,3 +228,111 @@ describe('typeNameFromUrl', () => {
     expect(typeNameFromUrl('google.rpc.Help')).toBe('google.rpc.Help');
   });
 });
+
+describe('wire-level robustness of the well-known decoder', () => {
+  const retry = (inner: Uint8Array) => new BinaryWriter().tag(1, 2).bytes(inner).finish();
+
+  it('formats negative and microsecond-precision RetryInfo delays', () => {
+    const negative = new BinaryWriter().tag(1, 0).int64(-1).tag(2, 0).int32(-500_000_000).finish();
+    expect(decodeStatusDetail('google.rpc.RetryInfo', retry(negative)).value).toEqual({
+      retryDelay: '-1.500s',
+    });
+    const micros = new BinaryWriter().tag(2, 0).int32(1_500).finish();
+    expect(decodeStatusDetail('google.rpc.RetryInfo', retry(micros)).value).toEqual({
+      retryDelay: '0.000001500s',
+    });
+    const fractional = new BinaryWriter().tag(2, 0).int32(250_000).finish();
+    expect(decodeStatusDetail('google.rpc.RetryInfo', retry(fractional)).value).toEqual({
+      retryDelay: '0.000250s',
+    });
+  });
+
+  it('skips fields from newer schemas at every nesting level', () => {
+    const duration = new BinaryWriter().tag(1, 0).int64(3).tag(9, 0).int32(1).finish();
+    const withUnknown = new BinaryWriter()
+      .tag(1, 2)
+      .bytes(duration)
+      .tag(15, 2)
+      .string('future field')
+      .finish();
+    expect(decodeStatusDetail('google.rpc.RetryInfo', withUnknown).value).toEqual({
+      retryDelay: '3s',
+    });
+    const entry = new BinaryWriter()
+      .tag(1, 2)
+      .string('k')
+      .tag(3, 0)
+      .int32(1)
+      .tag(2, 2)
+      .string('v')
+      .finish();
+    const errorInfo = new BinaryWriter().tag(3, 2).bytes(entry).finish();
+    expect(decodeStatusDetail('google.rpc.ErrorInfo', errorInfo).value).toEqual({
+      metadata: { k: 'v' },
+    });
+  });
+
+  it('falls back to raw when a known field arrives with the wrong wire type', () => {
+    const wrongWire = new BinaryWriter().tag(1, 0).int32(7).finish(); // reason as varint
+    expect(decodeStatusDetail('google.rpc.ErrorInfo', wrongWire)).toEqual({
+      type: 'google.rpc.ErrorInfo',
+      raw: base64Encode(wrongWire),
+    });
+  });
+});
+
+describe('detail envelopes with missing or malformed parts', () => {
+  it('treats a Connect JSON detail with no value as an empty message', () => {
+    expect(statusDetailsFromConnectJson([{ type: 'google.rpc.ErrorInfo' }])).toEqual([
+      { type: 'google.rpc.ErrorInfo', value: {} },
+    ]);
+  });
+
+  it('keeps undecodable base64 as raw text, with debug when present', () => {
+    expect(
+      statusDetailsFromConnectJson([
+        { type: 'type.googleapis.com/acme.v1.X', value: '%%%', debug: { trace: 1 } },
+        { type: 'acme.v1.Y', value: '%%%' },
+      ])
+    ).toEqual([
+      { type: 'acme.v1.X', raw: '%%%', debug: { trace: 1 } },
+      { type: 'acme.v1.Y', raw: '%%%' },
+    ]);
+  });
+
+  it('drops ConnectError entries that are neither packed nor descriptor-backed', () => {
+    expect(
+      connectErrorDetails({
+        details: [
+          { type: 42, value: new Uint8Array() },
+          { type: 'google.rpc.Help', value: 'not-bytes' },
+        ],
+      })
+    ).toBeUndefined();
+  });
+
+  it('skips unknown Status/Any fields, untyped Anys, and details past the cap', () => {
+    const anyOf = (typeUrl: string) =>
+      new BinaryWriter()
+        .tag(1, 2)
+        .string(typeUrl)
+        .tag(4, 0)
+        .int32(1)
+        .tag(2, 2)
+        .bytes(new Uint8Array())
+        .finish();
+    const status = new BinaryWriter();
+    status.tag(3, 2).bytes(
+      new BinaryWriter()
+        .tag(2, 2)
+        .bytes(new Uint8Array([1]))
+        .finish()
+    );
+    for (let i = 0; i < MAX_STATUS_DETAILS + 2; i++) {
+      status.tag(3, 2).bytes(anyOf('type.googleapis.com/google.rpc.Help'));
+    }
+    const out = statusDetailsFromStatusBin(base64Encode(status.finish()));
+    expect(out).toHaveLength(MAX_STATUS_DETAILS);
+    expect(out[0]).toEqual({ type: 'google.rpc.Help', value: {} });
+  });
+});
