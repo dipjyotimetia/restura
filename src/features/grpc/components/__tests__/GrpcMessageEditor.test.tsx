@@ -165,3 +165,86 @@ describe('useSubTabWithViolationJump', () => {
     expect(result.current[0]).toBe('message');
   });
 });
+
+describe('GrpcMessageEditor marker text and edge cases', () => {
+  beforeEach(() => {
+    fake = makeMonaco(MESSAGE);
+    useGrpcViolationFocus.setState({ pending: null });
+  });
+
+  function withViolations(fieldViolations: Array<Record<string, string>>): GrpcResponse {
+    return {
+      ...errorResponse,
+      statusDetails: [{ type: 'google.rpc.BadRequest', value: { fieldViolations } }],
+    };
+  }
+
+  function lastMarkers(): Array<Record<string, unknown>> {
+    return (fake.monaco.editor.setModelMarkers.mock.calls.at(-1)?.[2] ?? []) as Array<
+      Record<string, unknown>
+    >;
+  }
+
+  it('describes the reason, a field missing from the request, and a whole-request violation', async () => {
+    setActive(
+      withViolations([
+        { field: 'book.display_name', description: 'too short', reason: 'MIN_LENGTH' },
+        { field: 'book.isbn', description: 'required' },
+        { field: '', description: '' },
+      ])
+    );
+    render(<GrpcMessageEditor value={MESSAGE} onChange={() => {}} isValid modelOwner="tab" />);
+    await waitFor(() => expect(lastMarkers()).toHaveLength(3));
+    expect(lastMarkers().map((m) => m.message)).toEqual([
+      'book.display_name: too short [MIN_LENGTH]',
+      'book.isbn: required (field not present in the request)',
+      '(request): rejected by the server',
+    ]);
+    expect(screen.getByText(/The server rejected 3 fields/)).toBeInTheDocument();
+  });
+
+  it('uses the singular for one rejected field and shows the local parse error', () => {
+    setActive(withViolations([{ field: 'book.display_name', description: 'x' }]));
+    render(
+      <GrpcMessageEditor
+        value={MESSAGE}
+        onChange={() => {}}
+        isValid={false}
+        error="Unexpected token"
+        modelOwner="tab"
+        editorPath="grpc://tab/message.json"
+      />
+    );
+    expect(screen.getByText(/The server rejected 1 field —/)).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Unexpected token');
+  });
+
+  it('consumes a jump to a violation it cannot locate without moving the cursor', async () => {
+    fake = makeMonaco('   ');
+    setActive(withViolations([{ field: 'book', description: 'x' }]));
+    render(<GrpcMessageEditor value="   " onChange={() => {}} isValid modelOwner="tab" />);
+    await waitFor(() => expect(fake.monaco.editor.setModelMarkers).toHaveBeenCalled());
+    expect(lastMarkers()).toEqual([]);
+    act(() => useGrpcViolationFocus.getState().focus('tab', 0));
+    await waitFor(() => expect(useGrpcViolationFocus.getState().pending).toBeNull());
+    expect(fake.editor.revealRangeInCenter).not.toHaveBeenCalled();
+  });
+
+  it('clears its markers when the editor unmounts', async () => {
+    setActive(errorResponse);
+    const { unmount } = render(
+      <GrpcMessageEditor value={MESSAGE} onChange={() => {}} isValid modelOwner="tab" />
+    );
+    await waitFor(() => expect(lastMarkers()).toHaveLength(2));
+    unmount();
+    expect(lastMarkers()).toEqual([]);
+  });
+
+  it('shows an empty message as {} and ignores a response without gRPC status', () => {
+    const { grpcStatus: _omit, ...plain } = errorResponse;
+    setActive(plain as GrpcResponse);
+    render(<GrpcMessageEditor value="" onChange={() => {}} isValid modelOwner="tab" />);
+    expect(screen.getByTestId('editor')).toHaveTextContent('{}');
+    expect(screen.queryByText(/The server rejected/)).not.toBeInTheDocument();
+  });
+});

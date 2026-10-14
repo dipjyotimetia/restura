@@ -1,3 +1,10 @@
+import { create, toBinary } from '@bufbuild/protobuf';
+import {
+  FieldDescriptorProto_Label,
+  FieldDescriptorProto_Type,
+  FileDescriptorProtoSchema,
+} from '@bufbuild/protobuf/wkt';
+import { bytesToBase64 } from '@shared/protocol/binary';
 import { describe, expect, it } from 'vitest';
 import {
   fieldViolationsOf,
@@ -182,5 +189,146 @@ describe('locateFieldViolations', () => {
       input
     );
     expect(textAt(templated, tag?.range ?? null)).toBe('"a"');
+  });
+});
+
+describe('malformed BadRequest payloads', () => {
+  it('skips non-array violation lists and non-object entries, blanking non-string fields', () => {
+    expect(
+      fieldViolationsOf([
+        { type: 'google.rpc.BadRequest', value: { fieldViolations: 'nope' } },
+        {
+          type: 'google.rpc.BadRequest',
+          value: { fieldViolations: [null, 7, { field: 42, description: 'D', reason: '' }] },
+        },
+      ])
+    ).toEqual([{ field: '', description: 'D' }]);
+  });
+
+  it('ignores empty bracket segments', () => {
+    expect(parseFieldPath('items[].name')).toEqual(['items', 'name']);
+  });
+});
+
+describe('map fields resolved through the descriptor', () => {
+  // A reflection snapshot (descriptor kind), as servers report map fields:
+  // a repeated synthetic `*Entry` message with `map_entry = true`.
+  const T = FieldDescriptorProto_Type;
+  const L = FieldDescriptorProto_Label;
+  const entry = (name: string, value: Partial<{ type: number; typeName: string }>) => ({
+    name,
+    options: { mapEntry: true },
+    field: [
+      { name: 'key', number: 1, type: T.STRING, label: L.OPTIONAL, jsonName: 'key' },
+      { name: 'value', number: 2, label: L.OPTIONAL, jsonName: 'value', type: T.STRING, ...value },
+    ],
+  });
+  const file = create(FileDescriptorProtoSchema, {
+    name: 'inv.proto',
+    package: 'inv.v1',
+    syntax: 'proto3',
+    messageType: [
+      {
+        name: 'PutRequest',
+        field: [
+          {
+            name: 'items_by_sku',
+            jsonName: 'itemsBySku',
+            number: 1,
+            label: L.REPEATED,
+            type: T.MESSAGE,
+            typeName: '.inv.v1.PutRequest.ItemsBySkuEntry',
+          },
+          {
+            name: 'labels',
+            jsonName: 'labels',
+            number: 2,
+            label: L.REPEATED,
+            type: T.MESSAGE,
+            typeName: '.inv.v1.PutRequest.LabelsEntry',
+          },
+          { name: 'count', jsonName: 'count', number: 3, label: L.OPTIONAL, type: T.INT32 },
+        ],
+        nestedType: [
+          entry('ItemsBySkuEntry', { type: T.MESSAGE, typeName: '.inv.v1.Item' }),
+          entry('LabelsEntry', {}),
+        ],
+      },
+      {
+        name: 'Item',
+        field: [
+          {
+            name: 'display_name',
+            jsonName: 'displayName',
+            number: 1,
+            label: L.OPTIONAL,
+            type: T.STRING,
+          },
+        ],
+      },
+    ],
+    service: [
+      {
+        name: 'Inventory',
+        method: [
+          { name: 'Put', inputType: '.inv.v1.PutRequest', outputType: '.inv.v1.PutRequest' },
+        ],
+      },
+    ],
+  });
+  const mapInput = inputDescriptorFor(
+    {
+      kind: 'descriptors',
+      descriptors: [bytesToBase64(toBinary(FileDescriptorProtoSchema, file))],
+    },
+    'inv.v1.Inventory',
+    'Put'
+  );
+  const doc = {
+    itemsBySku: { 'sku-1': { displayName: 'Widget' } },
+    labels: { env: 'prod' },
+    count: 3,
+  };
+
+  it('descends into message-valued map entries by key', () => {
+    expect(
+      resolveViolationPath(parseFieldPath('items_by_sku["sku-1"].display_name'), doc, mapInput)
+    ).toEqual({ path: ['itemsBySku', 'sku-1', 'displayName'], exact: true });
+  });
+
+  it('stops at the map for a missing key, and treats scalar map values as leaves', () => {
+    expect(
+      resolveViolationPath(parseFieldPath('items_by_sku["sku-9"].display_name'), doc, mapInput)
+    ).toEqual({ path: ['itemsBySku'], exact: false });
+    expect(resolveViolationPath(parseFieldPath('labels.env'), doc, mapInput)).toEqual({
+      path: ['labels', 'env'],
+      exact: true,
+    });
+  });
+
+  it('reports a path that runs through a scalar on the scalar itself', () => {
+    expect(resolveViolationPath(parseFieldPath('count.value'), doc, mapInput)).toEqual({
+      path: ['count'],
+      exact: false,
+    });
+  });
+
+  it('returns no descriptor for an empty reflection snapshot', () => {
+    expect(
+      inputDescriptorFor({ kind: 'descriptors', descriptors: [] }, 'inv.v1.Inventory', 'Put')
+    ).toBeUndefined();
+  });
+});
+
+describe('unlocatable violations', () => {
+  it('keeps violations listed with no range when the text has no JSON tree', () => {
+    const [v] = locateFieldViolations('', [{ field: 'a', description: 'required' }]);
+    expect(v).toMatchObject({ field: 'a', path: [], exact: false, range: null });
+  });
+
+  it('marks only the first character when the document root is not an object', () => {
+    const text = '"just a string"';
+    const [v] = locateFieldViolations(text, [{ field: 'a.b', description: 'x' }]);
+    expect(v).toMatchObject({ path: [], exact: false, range: { start: 0, end: 1 } });
   });
 });
