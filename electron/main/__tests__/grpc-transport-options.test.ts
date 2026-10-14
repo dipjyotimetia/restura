@@ -4,9 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // compression / lookup mapping isn't observable through a live call.
 const createGrpcTransportMock = vi.fn((_opts: unknown) => ({ kind: 'mock-transport' }));
 const createConnectTransportMock = vi.fn((_opts: unknown) => ({ kind: 'mock-connect-transport' }));
+const createGrpcWebTransportMock = vi.fn((_opts: unknown) => ({ kind: 'mock-grpc-web-transport' }));
 vi.mock('@connectrpc/connect-node', () => ({
   createGrpcTransport: (opts: unknown) => createGrpcTransportMock(opts),
   createConnectTransport: (opts: unknown) => createConnectTransportMock(opts),
+  createGrpcWebTransport: (opts: unknown) => createGrpcWebTransportMock(opts),
   compressionGzip: { name: 'gzip' },
 }));
 
@@ -20,6 +22,7 @@ import {
   buildConnectTransport,
   type PinnedDial,
 } from '../handlers/grpc-connect';
+import { createPinnedTransport, type GrpcWireProtocolChoice } from '../handlers/grpc-wire-protocol';
 
 interface CapturedOptions {
   baseUrl: string;
@@ -45,6 +48,7 @@ function lastOptions(): CapturedOptions {
 beforeEach(() => {
   createGrpcTransportMock.mockClear();
   createConnectTransportMock.mockClear();
+  createGrpcWebTransportMock.mockClear();
 });
 
 describe('buildConnectTransport', () => {
@@ -133,6 +137,31 @@ describe('response-size caps (SEC-G1)', () => {
       expect(opts.writeMaxBytes).toBe(MAX_RESPONSE_SIZE);
     }
   });
+});
+
+describe('pinned wire-protocol transports (#914) keep the response-size caps', () => {
+  const base = {
+    baseUrl: 'http://api.example.com:50051',
+    nodeOptions: { lookup: () => {} },
+    readMaxBytes: MAX_RESPONSE_SIZE,
+    writeMaxBytes: MAX_RESPONSE_SIZE,
+  };
+  const mocks: Record<GrpcWireProtocolChoice, ReturnType<typeof vi.fn>> = {
+    grpc: createGrpcTransportMock,
+    connect: createConnectTransportMock,
+    'grpc-web': createGrpcWebTransportMock,
+  };
+
+  for (const wireProtocol of ['grpc', 'connect', 'grpc-web'] as const) {
+    it(`${wireProtocol}: forwards readMaxBytes / writeMaxBytes and the pinned dial`, () => {
+      createPinnedTransport({ url: base.baseUrl, dial: DIAL, wireProtocol }, () => base);
+      const opts = mocks[wireProtocol].mock.calls.at(-1)?.[0] as Record<string, unknown>;
+      expect(opts.readMaxBytes).toBe(MAX_RESPONSE_SIZE);
+      expect(opts.writeMaxBytes).toBe(MAX_RESPONSE_SIZE);
+      expect(opts.nodeOptions).toBe(base.nodeOptions);
+      expect(opts.baseUrl).toBe(base.baseUrl);
+    });
+  }
 });
 
 describe('buildConnectFallbackTransport', () => {
