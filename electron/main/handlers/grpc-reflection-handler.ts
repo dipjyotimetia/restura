@@ -1,3 +1,4 @@
+import { dropReservedReflectionMetadata } from '@shared/protocol/grpc-reflection-proxy';
 import { sanitizeRequestHeaders } from '@shared/protocol/header-policy';
 import { ipcMain } from 'electron';
 import { IPC } from '../../shared/channels';
@@ -9,7 +10,7 @@ import {
 import { materializeExternalProtocolAuth } from '../security/external-secret-materializer';
 import { executeConnectReflection, resolveGrpcDialAddress } from './grpc-connect';
 import { resolveGrpcReflectionExecutionPolicy } from './grpc-credentials';
-import { mergeMainSideAuth } from './grpc-handler';
+import { mergeMainSideAuth, sanitizeErrorMessage } from './grpc-handler';
 
 /** The subset of ServerReflectionResponse the renderer consumes. */
 interface RawReflectionResponse {
@@ -36,7 +37,7 @@ async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawRe
     return {
       errorResponse: {
         errorCode: 2,
-        errorMessage: `gRPC reflection setup failed: ${err instanceof Error ? err.message : String(err)}`,
+        errorMessage: `gRPC reflection setup failed: ${sanitizeErrorMessage(err instanceof Error ? err.message : String(err))}`,
       },
     };
   }
@@ -57,29 +58,36 @@ async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawRe
   let metadata: Record<string, string>;
   try {
     const auth = await materializeExternalProtocolAuth(policyConfig.auth);
-    metadata = mergeMainSideAuth(sanitizeRequestHeaders(policyConfig.metadata), auth);
+    metadata = mergeMainSideAuth(
+      sanitizeRequestHeaders(dropReservedReflectionMetadata(policyConfig.metadata)),
+      auth
+    );
   } catch (err) {
     return {
       errorResponse: {
         errorCode: 2,
-        errorMessage: `gRPC reflection auth setup failed: ${err instanceof Error ? err.message : String(err)}`,
+        errorMessage: `gRPC reflection auth setup failed: ${sanitizeErrorMessage(err instanceof Error ? err.message : String(err))}`,
       },
     };
   }
 
-  return executeConnectReflection({
-    url: urlWithScheme,
-    dial,
-    tls: {
-      verifySsl: policyConfig.verifySsl,
-      clientCert: policyConfig.clientCert,
-      caCert: policyConfig.caCert,
-    },
-    version,
-    request: request as Record<string, unknown>,
-    metadata,
-    timeoutMs: timeout,
-  });
+  try {
+    return await executeConnectReflection({
+      url: urlWithScheme,
+      dial,
+      tls: {
+        verifySsl: policyConfig.verifySsl,
+        clientCert: policyConfig.clientCert,
+        caCert: policyConfig.caCert,
+      },
+      version,
+      request: request as Record<string, unknown>,
+      metadata,
+      timeoutMs: timeout,
+    });
+  } catch (err) {
+    throw new Error(sanitizeErrorMessage(err instanceof Error ? err.message : String(err)));
+  }
 }
 
 export function registerGrpcReflectionIPC(): void {

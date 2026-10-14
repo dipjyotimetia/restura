@@ -290,6 +290,40 @@ describe('reflection carries request metadata / auth (#887)', () => {
   });
 });
 
+describe('reflection tolerates malformed Connect streams', () => {
+  function rawFetch(bytes: Uint8Array): ReflectionFetch {
+    return async () =>
+      new Response(bytes, { status: 200, headers: { 'content-type': 'application/connect+json' } });
+  }
+  function env(flags: number, payload: Uint8Array, declared = payload.byteLength): Uint8Array {
+    const out = new Uint8Array(5 + payload.byteLength);
+    out[0] = flags;
+    new DataView(out.buffer).setUint32(1, declared, false);
+    out.set(payload, 5);
+    return out;
+  }
+  const call = (bytes: Uint8Array) =>
+    appWith(rawFetch(bytes))({ url: 'https://grpc.example.com', request: { listServices: '' } });
+
+  it('end-stream envelope with malformed JSON yields a clean 500', async () => {
+    const res = await call(env(0b10, new TextEncoder().encode('{not json')));
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { error: string }).error).toMatch(/Reflection failed on v1/);
+  });
+
+  it('truncated envelope header yields a clean 500', async () => {
+    const res = await call(new Uint8Array([0, 0, 0]));
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { error: string }).error).toMatch(/truncated envelope header/);
+  });
+
+  it('declared length larger than the body yields a clean 500', async () => {
+    const res = await call(env(0, new TextEncoder().encode('{}'), 9999));
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { error: string }).error).toMatch(/truncated envelope payload/);
+  });
+});
+
 describe('reflection over a real HTTP/2 Connect server (Node self-host fetch)', () => {
   let server: Http2SecureServer;
   let baseUrl: string;

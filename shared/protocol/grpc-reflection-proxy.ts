@@ -119,6 +119,23 @@ async function readBoundedBytes(response: FetcherResponse): Promise<Uint8Array> 
   throw new Error('Fetcher exposes no binary body for a Connect stream');
 }
 
+/**
+ * Drop `connect-*` / `grpc-*` metadata keys (case-insensitive): those belong to
+ * the transport, and a caller-supplied one (e.g. `grpc-timeout`,
+ * `connect-content-encoding`) could desync the framing we negotiate.
+ */
+export function dropReservedReflectionMetadata(
+  metadata: Record<string, string> | undefined
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(metadata ?? {})) {
+    const lower = k.toLowerCase();
+    if (lower.startsWith('connect-') || lower.startsWith('grpc-')) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
 function httpFailureMessage(status: number, statusText: string): string {
   const base = `HTTP ${status}${statusText ? ` ${statusText}` : ''}`;
   if (status === 505) {
@@ -151,7 +168,9 @@ async function reflectOnce(
   // Request metadata/auth (#887) first — hop-by-hop and proxy headers dropped —
   // then the protocol headers via set(), so a user-supplied `content-type`
   // can't merge into an `a, b` value and break the Connect negotiation.
-  const headers = new Headers(sanitizeRequestHeaders(spec.metadata));
+  const headers = new Headers(
+    sanitizeRequestHeaders(dropReservedReflectionMetadata(spec.metadata))
+  );
   headers.set('content-type', 'application/connect+json');
   headers.set('connect-protocol-version', '1');
   headers.set('connect-timeout-ms', String(timeout));
@@ -172,6 +191,7 @@ async function reflectOnce(
       throw new Error(httpFailureMessage(response.status, response.statusText));
     }
     if (Number(response.contentLengthHeader) > MAX_RESPONSE_SIZE) {
+      await response.body?.cancel().catch(() => undefined);
       throw new ReflectionTooLargeError();
     }
     const contentType = headerValue(response.headers, 'content-type').toLowerCase();

@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockExecuteConnectReflection = vi.hoisted(() => vi.fn());
 const mockResolveGrpcDialAddress = vi.hoisted(() => vi.fn());
+const mockMaterialize = vi.hoisted(() => vi.fn());
 
 vi.mock('../handlers/grpc-connect', () => ({
   executeConnectReflection: mockExecuteConnectReflection,
@@ -26,6 +27,12 @@ vi.mock('../handlers/grpc-credentials', () => ({
     verifySsl: true,
   }),
 }));
+
+vi.mock('../security/external-secret-materializer', async (orig) => {
+  const actual = await orig<typeof import('../security/external-secret-materializer')>();
+  mockMaterialize.mockImplementation(actual.materializeExternalProtocolAuth);
+  return { ...actual, materializeExternalProtocolAuth: mockMaterialize };
+});
 
 vi.mock('../security/secret-handle-store', () => ({
   unwrapSecretValueMain: (v: unknown) =>
@@ -110,6 +117,35 @@ describe('desktop reflection metadata / auth (#887)', () => {
       })
     ).rejects.toThrow();
     expect(mockExecuteConnectReflection).not.toHaveBeenCalled();
+    expect(mockMaterialize).not.toHaveBeenCalled();
+  });
+
+  it('drops connect-* / grpc-* metadata keys', async () => {
+    await reflectHandler()(trustedEvent, {
+      ...base,
+      metadata: { 'Grpc-Timeout': '1n', 'connect-timeout-ms': '1', 'x-ok': '1' },
+    });
+    const args = mockExecuteConnectReflection.mock.calls[0]?.[0];
+    expect(args.metadata).toEqual({ 'x-ok': '1' });
+  });
+
+  it('sanitizes errors propagated from the reflection call', async () => {
+    mockExecuteConnectReflection.mockRejectedValueOnce(
+      new Error('boom at /Users/me/app/secret.ts\n    at foo (/x/y.js:1:1)')
+    );
+    const err = await reflectHandler()(trustedEvent, base).catch((e: Error) => e);
+    expect((err as Error).message).not.toContain('/Users/me');
+    expect((err as Error).message).not.toContain('at foo');
+  });
+
+  it('sanitizes the auth setup failure message', async () => {
+    mockMaterialize.mockRejectedValueOnce(new Error('keychain failed in /opt/app/store.ts'));
+    const res = (await reflectHandler()(trustedEvent, {
+      ...base,
+      auth: { type: 'bearer', bearer: { token: { kind: 'handle', id: 'h-1' } } },
+    })) as { errorResponse: { errorMessage: string } };
+    expect(res.errorResponse.errorMessage).toContain('auth setup failed');
+    expect(res.errorResponse.errorMessage).not.toContain('/opt/app');
   });
 });
 

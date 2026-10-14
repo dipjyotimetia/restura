@@ -108,4 +108,53 @@ describe('gRPC reflection proxy security', () => {
     if (!r.ok) expect(r.status).toBe(413);
     expect(pulled).toBeLessThan(170);
   });
+
+  it('drops connect-* / grpc-* metadata keys case-insensitively', async () => {
+    const { fetcher, calls } = capturingFetcher();
+    await executeGrpcReflectionProxy(
+      {
+        url: 'https://grpc.example.com',
+        request: { listServices: '' },
+        metadata: {
+          'Grpc-Timeout': '1n',
+          'grpc-encoding': 'gzip',
+          'Connect-Content-Encoding': 'gzip',
+          'x-ok': '1',
+        },
+      },
+      fetcher,
+      OPTS
+    );
+    const headers = new Headers(calls[0]?.headers);
+    expect(headers.get('grpc-timeout')).toBeNull();
+    expect(headers.get('grpc-encoding')).toBeNull();
+    expect(headers.get('connect-content-encoding')).toBeNull();
+    expect(headers.get('x-ok')).toBe('1');
+  });
+
+  it('cancels the body when the declared content-length exceeds the cap', async () => {
+    const cancel = vi.fn();
+    const fetcher: Fetcher = async () => ({
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-type': 'application/connect+json' },
+      text: async () => '',
+      body: new ReadableStream<Uint8Array>({ cancel }),
+      contentLengthHeader: String(100 * 1024 * 1024),
+    });
+    const r = await executeGrpcReflectionProxy(
+      { url: 'https://grpc.example.com', request: { listServices: '' } },
+      fetcher,
+      OPTS
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.status).toBe(413);
+    expect(cancel).toHaveBeenCalled();
+  });
+
+  it('rejects timeout 0 at the schema boundary', () => {
+    const base = { url: 'https://grpc.example.com', request: { listServices: '' } };
+    expect(GrpcReflectionRequestBodySchema.safeParse({ ...base, timeout: 0 }).success).toBe(false);
+    expect(GrpcReflectionRequestBodySchema.safeParse({ ...base, timeout: 1 }).success).toBe(true);
+  });
 });

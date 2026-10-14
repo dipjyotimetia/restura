@@ -74,7 +74,7 @@ export const GrpcReflectionRequestBodySchema = z.object({
     fileByFilename: z.string().optional(),
   }),
   metadata: GrpcReflectionMetadataSchema.optional(),
-  timeout: z.number().int().min(0).max(300_000).optional(),
+  timeout: z.number().int().min(1).max(300_000).optional(),
 });
 
 export type GrpcReflectionRequestBody = z.infer<typeof GrpcReflectionRequestBodySchema>;

@@ -160,7 +160,7 @@ function estimateSize(obj: unknown): number {
 }
 
 // Sanitize error messages to remove internal details
-function sanitizeErrorMessage(message: string | undefined): string {
+export function sanitizeErrorMessage(message: string | undefined): string {
   if (!message) return 'Unknown error';
 
   // Remove file paths
