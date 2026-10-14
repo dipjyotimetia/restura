@@ -247,3 +247,85 @@ describe('grpc-registry: FileDescriptorSet uploads (#891)', () => {
     );
   });
 });
+
+describe('grpc-proto-compiler: import resolution edge cases (#891)', () => {
+  it('rejects an empty upload', () => {
+    expect(() => compileProtoFiles([])).toThrow('No .proto files provided');
+  });
+
+  it('names a nameless upload schema.proto', () => {
+    const [fd] = compileProtoFiles([{ path: '', content: 'syntax = "proto3"; message A {}' }]);
+    expect(fd?.name).toBe('schema.proto');
+  });
+
+  it('prefers the shortest path when several uploads end with the import path', () => {
+    const fds = compileProtoFiles([
+      {
+        path: 'app/main.proto',
+        content: 'syntax = "proto3"; package app; import "common/money.proto"; message M {}',
+      },
+      { path: 'x/common/money.proto', content: 'syntax = "proto3"; package near; message N {}' },
+      { path: 'x/y/common/money.proto', content: 'syntax = "proto3"; package far; message F {}' },
+    ]);
+    expect(fds.find((f) => f.name === 'app/main.proto')?.dependency).toEqual([
+      'x/common/money.proto',
+    ]);
+  });
+
+  it('reports an import cycle between uploaded files', () => {
+    expect(() =>
+      compileProtoFiles([
+        {
+          path: 'a.proto',
+          content: 'syntax = "proto3"; package c; import "b.proto"; message A {}',
+        },
+        {
+          path: 'b.proto',
+          content: 'syntax = "proto3"; package c; import "a.proto"; message B {}',
+        },
+      ])
+    ).toThrow('Import cycle: b.proto → a.proto');
+  });
+
+  it('emits each well-known file once even when imported directly and transitively', () => {
+    const fds = compileProtoFiles([
+      {
+        path: 'svc.proto',
+        content: `syntax = "proto3"; package s;
+import "google/protobuf/api.proto";
+import "google/protobuf/type.proto";
+message M { google.protobuf.Api api = 1; google.protobuf.Type type = 2; }`,
+      },
+    ]);
+    const names = fds.map((f) => f.name);
+    expect(names.filter((n) => n === 'google/protobuf/type.proto')).toHaveLength(1);
+    expect(names.indexOf('google/protobuf/type.proto')).toBeLessThan(
+      names.indexOf('google/protobuf/api.proto')
+    );
+  });
+});
+
+describe('grpc-proto-compiler: descriptor emission (#891)', () => {
+  it('compiles a package-less proto2 file with nested types referenced by short name', () => {
+    const [fd] = compileProtoFiles([
+      {
+        path: 'legacy.proto',
+        content: `syntax = "proto2";
+message Outer {
+  message Inner { optional string note = 1; }
+  enum Kind { KIND_A = 0; }
+  optional Inner inner = 1;
+  optional Kind kind = 2;
+}
+message User { optional Outer.Inner pinned = 1; }`,
+      },
+    ]);
+    expect(fd?.syntax).toBe('proto2');
+    expect(fd?.package).toBe('');
+    const outer = fd?.messageType.find((m) => m.name === 'Outer');
+    expect(outer?.field.map((f) => f.typeName)).toEqual(['.Outer.Inner', '.Outer.Kind']);
+    const user = fd?.messageType.find((m) => m.name === 'User');
+    expect(user?.field[0]?.typeName).toBe('.Outer.Inner');
+    expect(user?.field[0]?.jsonName).toBe('pinned');
+  });
+});

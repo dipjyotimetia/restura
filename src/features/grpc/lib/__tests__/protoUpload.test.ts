@@ -84,4 +84,19 @@ describe('loadProtoUpload (#891)', () => {
       loadProtoUpload([textFile('a.proto', TYPES), binFile('b.binpb', new Uint8Array())])
     ).rejects.toThrow(/not both/);
   });
+
+  it('rejects more than one FileDescriptorSet', async () => {
+    await expect(
+      loadProtoUpload([binFile('a.binpb', new Uint8Array()), binFile('b.binpb', new Uint8Array())])
+    ).rejects.toThrow('Upload one FileDescriptorSet at a time.');
+  });
+
+  it('labels a service-less multi-file upload by its first file', async () => {
+    const { schema, services } = await loadProtoUpload([
+      textFile('types.proto', TYPES),
+      textFile('more.proto', 'syntax = "proto3";\npackage ping.v1;\nmessage Extra {}'),
+    ]);
+    expect(schema).toMatchObject({ kind: 'descriptors', fileName: 'types.proto +1' });
+    expect(services).toEqual([]);
+  });
 });
