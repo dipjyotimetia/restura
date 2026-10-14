@@ -245,6 +245,25 @@ describe('gRPC streaming through the protocol runner (#917)', () => {
     expect(scripts?.test?.tests?.[0]?.passed).toBe(true);
   });
 
+  it('carries decoded rich error details to the response and scripts (#883)', async () => {
+    const statusDetails = [{ type: 'google.rpc.ErrorInfo', value: { reason: 'QUOTA' } }];
+    nextStream = () =>
+      fakeStream([], {
+        headers: {},
+        trailers: {},
+        status: 8,
+        statusMessage: 'quota',
+        statusDetails,
+      });
+    const { res, scripts } = await run(
+      grpcReq({
+        testScript: `pm.test('details', () => pm.expect(pm.response.statusDetails[0].value.reason).to.equal('QUOTA'));`,
+      })
+    );
+    expect(res.statusDetails).toEqual(statusDetails);
+    expect(scripts?.test?.tests?.[0]?.passed).toBe(true);
+  });
+
   it('cancels the stream when the run is aborted', async () => {
     const stream = fakeStream([{ n: 1 }], okFinal, { waitForClose: true });
     nextStream = () => stream;

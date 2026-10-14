@@ -6,11 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import type { AuthConfig, GrpcRequest } from '@/types';
 import { GrpcStatusCode } from '@/types';
-import {
-  createInteractiveGrpcStreamForTest,
-  startGrpcStream,
-  streamErrorResponse,
-} from '../grpcStreamingClient';
+import { createInteractiveGrpcStreamForTest, startGrpcStream } from '../grpcStreamingClient';
 
 const ECHO_PROTO = readFileSync(
   resolve(__dirname, '../../../../../e2e/mocks/proto/echo.proto'),
@@ -512,28 +508,5 @@ describe('startGrpcStream — Electron interactive (IPC) path', () => {
     } finally {
       uninstallElectronMock();
     }
-  });
-});
-
-describe('streamErrorResponse', () => {
-  it('maps a failed stream final onto a response-panel GrpcResponse with its details (#883)', () => {
-    const statusDetails = [{ type: 'google.rpc.ErrorInfo', value: { reason: 'R' } }];
-    const r = streamErrorResponse(
-      'req-1',
-      {
-        headers: { h: '1' },
-        trailers: { t: '2' },
-        status: GrpcStatusCode.FAILED_PRECONDITION,
-        statusMessage: 'nope',
-        statusDetails,
-      },
-      Date.now()
-    );
-    expect(r.requestId).toBe('req-1');
-    expect(r.grpcStatus).toBe(GrpcStatusCode.FAILED_PRECONDITION);
-    expect(r.grpcStatusText).toBe('FAILED_PRECONDITION');
-    expect(JSON.parse(r.body)).toEqual({ error: 'nope' });
-    expect(r.trailers).toEqual({ t: '2' });
-    expect(r.statusDetails).toEqual(statusDetails);
   });
 });
