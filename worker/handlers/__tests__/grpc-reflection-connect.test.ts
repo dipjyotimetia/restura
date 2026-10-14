@@ -63,14 +63,23 @@ interface SeenCall {
 }
 
 /** A standard reflection implementation: one response per request message. */
-function registerReflection(router: ConnectRouter, version: 'v1' | 'v1alpha', seen: SeenCall[]) {
+function registerReflection(
+  router: ConnectRouter,
+  version: 'v1' | 'v1alpha',
+  seen: SeenCall[],
+  opts: { requireAuthorization?: string } = {}
+) {
   router.service(reflectionService(version), {
     async *serverReflectionInfo(
       reqs: AsyncIterable<{ messageRequest: { case?: string; value?: unknown } }>,
       ctx: { requestHeader: Headers }
     ) {
       seen.push({ headers: new Headers(ctx.requestHeader) });
-      if (ctx.requestHeader.get('x-deny') === 'yes') {
+      const denied =
+        ctx.requestHeader.get('x-deny') === 'yes' ||
+        (opts.requireAuthorization !== undefined &&
+          ctx.requestHeader.get('authorization') !== opts.requireAuthorization);
+      if (denied) {
         throw new ConnectError('reflection requires credentials', Code.Unauthenticated);
       }
       for await (const req of reqs) {
@@ -97,11 +106,12 @@ function registerReflection(router: ConnectRouter, version: 'v1' | 'v1alpha', se
 /** Serve a Connect router through a fetch() stub, as an h2 (or h1) upstream would. */
 function routerFetch(
   versions: Array<'v1' | 'v1alpha'>,
-  httpVersion: '2' | '1.1' = '2'
+  httpVersion: '2' | '1.1' = '2',
+  opts: { requireAuthorization?: string } = {}
 ): { fetch: ReflectionFetch; seen: SeenCall[] } {
   const seen: SeenCall[] = [];
   const router = createConnectRouter();
-  for (const v of versions) registerReflection(router, v, seen);
+  for (const v of versions) registerReflection(router, v, seen, opts);
   return {
     seen,
     fetch: async (input, init) => {
@@ -201,6 +211,82 @@ describe('reflection against a standard Connect server (#875)', () => {
     expect(res.status).toBe(500);
     const json = (await res.json()) as { error: string };
     expect(json.error).toMatch(/HTTP 505.*requires HTTP\/2/);
+  });
+});
+
+describe('reflection carries request metadata / auth (#887)', () => {
+  const AUTH = 'Bearer good-token';
+
+  it('succeeds against an auth-required server when metadata carries the credential', async () => {
+    const upstream = routerFetch(['v1'], '2', { requireAuthorization: AUTH });
+    const res = await appWith(upstream.fetch)({
+      url: 'https://grpc.example.com',
+      request: { listServices: '' },
+      metadata: { authorization: AUTH, 'x-tenant': 'acme' },
+    });
+    expect(res.status).toBe(200);
+    expect(upstream.seen[0]?.headers.get('authorization')).toBe(AUTH);
+    expect(upstream.seen[0]?.headers.get('x-tenant')).toBe('acme');
+  });
+
+  it('is UNAUTHENTICATED against the same server without metadata', async () => {
+    const res = await appWith(routerFetch(['v1'], '2', { requireAuthorization: AUTH }).fetch)({
+      url: 'https://grpc.example.com',
+      request: { listServices: '' },
+    });
+    expect(res.status).toBe(500);
+    expect(((await res.json()) as { error: string }).error).toMatch(/unauthenticated/);
+  });
+
+  it('drops deny-listed headers and never lets metadata override the protocol headers', async () => {
+    const upstream = routerFetch(['v1']);
+    const res = await appWith(upstream.fetch)({
+      url: 'https://grpc.example.com',
+      request: { listServices: '' },
+      metadata: {
+        'proxy-authorization': 'Basic c2VjcmV0',
+        connection: 'close',
+        'content-type': 'text/plain',
+        'connect-protocol-version': '9',
+      },
+    });
+    expect(res.status).toBe(200);
+    const seen = upstream.seen[0]?.headers;
+    expect(seen?.get('proxy-authorization')).toBeNull();
+    expect(seen?.get('content-type')).toBe('application/connect+json');
+    expect(seen?.get('connect-protocol-version')).toBe('1');
+  });
+
+  it('rejects oversize metadata (per-entry cap) with 400 before any upstream call', async () => {
+    const fetchSpy = vi.fn();
+    const res = await appWith(fetchSpy)({
+      url: 'https://grpc.example.com',
+      request: { listServices: '' },
+      metadata: { authorization: `Bearer ${'a'.repeat(2048)}` },
+    });
+    expect(res.status).toBe(400);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects total metadata over 8KB with 400', async () => {
+    const metadata = Object.fromEntries(
+      Array.from({ length: 12 }, (_, i) => [`x-k${i}`, 'v'.repeat(900)])
+    );
+    const res = await appWith(vi.fn())({
+      url: 'https://grpc.example.com',
+      request: { listServices: '' },
+      metadata,
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects CR/LF in metadata values (header injection) with 400', async () => {
+    const res = await appWith(vi.fn())({
+      url: 'https://grpc.example.com',
+      request: { listServices: '' },
+      metadata: { 'x-a': 'ok\r\nx-injected: 1' },
+    });
+    expect(res.status).toBe(400);
   });
 });
 

@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { GrpcReflectionClient } from '@/features/grpc/lib/grpcReflection';
+import { GrpcReflectionClient, reflectionCredentialsFor } from '@/features/grpc/lib/grpcReflection';
 import { validateGrpcUrl } from '@/features/grpc/lib/grpcValidation';
-import type { ReflectionMethodInfo, ReflectionResult, ReflectionServiceInfo } from '@/types';
+import type {
+  GrpcRequest,
+  ReflectionMethodInfo,
+  ReflectionResult,
+  ReflectionServiceInfo,
+} from '@/types';
 
 const AUTO_DISCOVER_DEBOUNCE_MS = 1500;
 
@@ -36,6 +41,12 @@ export interface UseGrpcReflectionOptions {
    */
   currentServiceName?: string;
   currentMethodName?: string;
+  /**
+   * The request being edited. Reflection sends its enabled metadata + auth
+   * (#887), read at discovery time so editing metadata doesn't re-trigger
+   * auto-discovery.
+   */
+  request?: GrpcRequest;
 }
 
 export interface UseGrpcReflectionResult {
@@ -86,7 +97,14 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
     onMethodSelected,
     currentServiceName,
     currentMethodName,
+    request,
   } = options;
+  // Latest-value ref: the request changes on every metadata keystroke, and
+  // `discover` (an auto-discover effect dep) must not churn with it.
+  const requestRef = useRef(request);
+  useEffect(() => {
+    requestRef.current = request;
+  }, [request]);
 
   const [result, setResult] = useState<ReflectionResult | null>(null);
   const [selectedService, setSelectedService] = useState<ReflectionServiceInfo | null>(null);
@@ -147,7 +165,9 @@ export function useGrpcReflection(options: UseGrpcReflectionOptions): UseGrpcRef
 
       try {
         const resolvedUrl = resolveVariables(rawUrl);
-        const client = new GrpcReflectionClient(resolvedUrl);
+        const req = requestRef.current;
+        const credentials = req ? reflectionCredentialsFor(req, resolveVariables) : undefined;
+        const client = new GrpcReflectionClient(resolvedUrl, undefined, credentials);
         const discoveryResult = await client.discoverServices();
 
         if (discoveryResult.success) {

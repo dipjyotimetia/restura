@@ -7,5 +7,7 @@ export {
   getCachedEnumSchema,
   getCachedMessageSchema,
   getFieldTypeDescription,
+  type ReflectionCredentials,
+  reflectionCredentialsFor,
   validateRequestAgainstSchema,
 } from './reflection';

@@ -14,10 +14,40 @@ vi.mock('@/features/grpc/lib/grpcReflection', () => ({
     return { discoverServices: discoverMock };
   }),
   generateRequestTemplate: vi.fn(() => '{}'),
+  reflectionCredentialsFor: vi.fn((req: { id: string }) => ({ metadata: { 'x-req': req.id } })),
 }));
 
 import { toast } from 'sonner';
+import { GrpcReflectionClient } from '@/features/grpc/lib/grpcReflection';
+import type { GrpcRequest } from '@/types';
 import { useGrpcReflection } from '../useGrpcReflection';
+
+describe('useGrpcReflection credentials (#887)', () => {
+  it("passes the request's metadata/auth credentials to the reflection client", async () => {
+    discoverMock.mockResolvedValueOnce({
+      success: true,
+      services: [],
+      serverUrl: 'https://api.example.com',
+      timestamp: 1,
+    });
+    const { result } = renderHook(() =>
+      useGrpcReflection({
+        url: 'https://api.example.com',
+        resolveVariables: (t: string) => t,
+        autoDiscover: false,
+        request: { id: 'req-1' } as GrpcRequest,
+      })
+    );
+    await act(async () => {
+      await result.current.discover(true);
+    });
+    expect(vi.mocked(GrpcReflectionClient)).toHaveBeenLastCalledWith(
+      'https://api.example.com',
+      undefined,
+      { metadata: { 'x-req': 'req-1' } }
+    );
+  });
+});
 
 const buildMethod = (overrides: Partial<ReflectionMethodInfo> = {}): ReflectionMethodInfo =>
   ({

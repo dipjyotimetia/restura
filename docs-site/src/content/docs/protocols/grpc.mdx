@@ -9,7 +9,7 @@ Restura speaks the **Connect protocol** on the web target and **native gRPC** ov
 
 ## Discovering the service
 
-- **Server reflection** — the fastest path. Hit the **Reflect** button and Restura lists available services and methods.
+- **Server reflection** — the fastest path. Hit the **Reflect** button and Restura lists available services and methods. Reflection sends the request's enabled **Metadata** and **Auth** (variables resolved), so servers that require credentials for reflection — API gateways, Envoy, Cloud Run with IAM — can be discovered. Credentials stored as secret handles are resolved by the desktop app only; on the web, switch them to an inline value.
 - **Upload a `.proto`** — drag in your `.proto` file and Restura compiles it on the fly. Imports are resolved from the same directory.
 - **Paste a FileDescriptorSet** — for monorepos that already ship a compiled `*.binpb`.
 

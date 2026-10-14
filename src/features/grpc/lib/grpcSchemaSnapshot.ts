@@ -9,7 +9,7 @@
  * fallback used when a request has no snapshot.
  */
 import type { GrpcRequest, GrpcSchemaSnapshot, ReflectionServiceInfo, Request } from '@/types';
-import { GrpcReflectionClient } from './grpcReflection';
+import { GrpcReflectionClient, type ReflectionCredentials } from './grpcReflection';
 
 export interface GrpcSchemaRunOptions {
   descriptors?: string[];
@@ -104,14 +104,20 @@ function actionableError(service: string, url: string, reason: string): Error {
  */
 export async function discoverDescriptorsForRequest(
   resolvedUrl: string,
-  service: string
+  service: string,
+  /** The request's metadata/auth, so reflection behind an auth gateway works (#887). */
+  credentials?: ReflectionCredentials
 ): Promise<string[]> {
   const now = Date.now();
   let services = reflectionCache.get(resolvedUrl);
   if (!services || now - services.at > REFLECTION_CACHE_TTL_MS) {
     let result: Awaited<ReturnType<GrpcReflectionClient['discoverServices']>>;
     try {
-      result = await new GrpcReflectionClient(resolvedUrl).discoverServices();
+      result = await new GrpcReflectionClient(
+        resolvedUrl,
+        undefined,
+        credentials
+      ).discoverServices();
     } catch (err) {
       throw actionableError(
         service,

@@ -185,6 +185,7 @@ function GrpcRequestBuilder() {
   const reflection = useGrpcReflection({
     url: grpcUrl,
     resolveVariables,
+    ...(currentRequest && { request: currentRequest }), // reflection sends its metadata/auth
     autoDiscover: !!currentRequest,
     onServiceSelected: handleReflectionServiceSelected,
     onMethodSelected: handleReflectionMethodSelected,

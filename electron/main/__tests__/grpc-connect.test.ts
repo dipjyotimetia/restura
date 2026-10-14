@@ -446,6 +446,32 @@ describe('executeConnectReflection', () => {
     });
     expect(r.errorResponse).toEqual({ errorCode: 5, errorMessage: 'not found' });
   });
+
+  it('sends request metadata as call headers (#887)', async () => {
+    let seenAuth: string | null = null;
+    const service = registryFromProtoText(reflectionProto('v1')).getService(
+      'grpc.reflection.v1.ServerReflection'
+    )!;
+    const transport = createRouterTransport((router) => {
+      router.service(service, {
+        async *serverReflectionInfo(reqs: AsyncIterable<unknown>, ctx: { requestHeader: Headers }) {
+          seenAuth = ctx.requestHeader.get('authorization');
+          for await (const _req of reqs) {
+            yield {
+              messageResponse: { case: 'listServicesResponse', value: { service: [] } },
+            };
+          }
+        },
+      } as never);
+    });
+    await executeConnectReflection({
+      ...reflBase,
+      request: { listServices: '' },
+      metadata: { authorization: 'Bearer t' },
+      transport,
+    });
+    expect(seenAuth).toBe('Bearer t');
+  });
 });
 
 // --- Connect-protocol fallback ----------------------------------------------

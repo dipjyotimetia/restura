@@ -40,6 +40,7 @@ import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import type { Response as ApiResponse, GrpcRequest, GrpcResponse, Request } from '@/types';
 import { makeElectronGrpcRequest, makeProxyGrpcRequest } from './lib/grpcClient';
+import { reflectionCredentialsFor } from './lib/grpcReflection';
 import { discoverDescriptorsForRequest } from './lib/grpcSchemaSnapshot';
 
 function createDefaultGrpcRequest(): GrpcRequest {
@@ -189,7 +190,11 @@ export const grpcProtocol: ProtocolModule = {
         // No schema supplied (e.g. a saved request run from a collection with
         // no snapshot): try server reflection; throws an actionable error
         // ("reflect or upload a .proto") when that is unavailable.
-        descriptors = await discoverDescriptorsForRequest(resolve(request.url), request.service);
+        descriptors = await discoverDescriptorsForRequest(
+          resolve(request.url),
+          request.service,
+          reflectionCredentialsFor(request, resolve)
+        );
       }
       response = await makeElectronGrpcRequest(
         request,

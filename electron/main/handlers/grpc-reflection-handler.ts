@@ -1,3 +1,4 @@
+import { sanitizeRequestHeaders } from '@shared/protocol/header-policy';
 import { ipcMain } from 'electron';
 import { IPC } from '../../shared/channels';
 import {
@@ -5,8 +6,10 @@ import {
   type ReflectionIpcConfig,
   ReflectionIpcConfigSchema,
 } from '../ipc/ipc-validators';
+import { materializeExternalProtocolAuth } from '../security/external-secret-materializer';
 import { executeConnectReflection, resolveGrpcDialAddress } from './grpc-connect';
 import { resolveGrpcReflectionExecutionPolicy } from './grpc-credentials';
+import { mergeMainSideAuth } from './grpc-handler';
 
 /** The subset of ServerReflectionResponse the renderer consumes. */
 interface RawReflectionResponse {
@@ -38,6 +41,7 @@ async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawRe
     };
   }
   const { url, reflectionService, request, timeout } = policyConfig;
+
   const version: 'v1' | 'v1alpha' = reflectionService.includes('v1alpha') ? 'v1alpha' : 'v1';
 
   // Same SSRF resolve+pin (closes the DNS-rebind window) and TLS trust material
@@ -45,6 +49,23 @@ async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawRe
   // connect-node — no @grpc/reflection / proto-loader.
   const urlWithScheme = url.includes('://') ? url : `grpc://${url}`;
   const dial = await resolveGrpcDialAddress(urlWithScheme);
+
+  // Reflection carries the request's metadata + auth like any gRPC call (#887).
+  // Handle-backed credentials resolve here (after the SSRF pre-flight, as on
+  // the call path) via the OS keychain — the plaintext never reaches the
+  // renderer — and hop-by-hop / proxy headers are dropped first.
+  let metadata: Record<string, string>;
+  try {
+    const auth = await materializeExternalProtocolAuth(policyConfig.auth);
+    metadata = mergeMainSideAuth(sanitizeRequestHeaders(policyConfig.metadata), auth);
+  } catch (err) {
+    return {
+      errorResponse: {
+        errorCode: 2,
+        errorMessage: `gRPC reflection auth setup failed: ${err instanceof Error ? err.message : String(err)}`,
+      },
+    };
+  }
 
   return executeConnectReflection({
     url: urlWithScheme,
@@ -56,6 +77,7 @@ async function sendReflectionRequest(config: ReflectionIpcConfig): Promise<RawRe
     },
     version,
     request: request as Record<string, unknown>,
+    metadata,
     timeoutMs: timeout,
   });
 }

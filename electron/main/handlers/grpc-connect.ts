@@ -704,12 +704,6 @@ export function reflectionProto(version: 'v1' | 'v1alpha'): string {
   return `syntax = "proto3";\npackage grpc.reflection.${version};\n${REFLECTION_PROTO_BODY}`;
 }
 
-// registryFromProtoText caches by content, so the reflection proto (constant per
-// version) builds once and is reused — no separate cache needed here.
-function reflectionRegistry(version: 'v1' | 'v1alpha'): Registry {
-  return registryFromProtoText(reflectionProto(version));
-}
-
 /** Subset of ServerReflectionResponse this client consumes (matches RawReflectionResponse). */
 export interface ElectronReflectionResult {
   listServicesResponse?: { service: Array<{ name: string }> };
@@ -758,6 +752,7 @@ export interface ConnectReflectionArgs {
   version: 'v1' | 'v1alpha';
   /** ServerReflectionRequest oneof, e.g. { fileContainingSymbol } or { listServices }. */
   request: Record<string, unknown>;
+  metadata?: Record<string, string>; // request metadata + resolved auth (#887)
   timeoutMs: number;
   transport?: Transport;
   /** Inject the Connect-fallback transport for tests (second attempt). */
@@ -775,7 +770,8 @@ export interface ConnectReflectionArgs {
 export async function executeConnectReflection(
   args: ConnectReflectionArgs
 ): Promise<ElectronReflectionResult> {
-  const registry = reflectionRegistry(args.version);
+  // registryFromProtoText caches by content: the per-version proto builds once.
+  const registry = registryFromProtoText(reflectionProto(args.version));
   const serviceName = `grpc.reflection.${args.version}.ServerReflection`;
   const attempts = transportPlan(args);
   let rejection: ConnectError | null = null;
@@ -796,7 +792,8 @@ export async function executeConnectReflection(
     }
 
     try {
-      const stream = invoke(once(), { timeoutMs: args.timeoutMs }) as AsyncIterable<unknown>;
+      const callOptions = { timeoutMs: args.timeoutMs, headers: args.metadata };
+      const stream = invoke(once(), callOptions) as AsyncIterable<unknown>;
       for await (const resp of stream) {
         // Returning breaks the for-await, which cancels the bidi after the single
         // response — exactly what the grpc-js path did with write()+end()+first data.

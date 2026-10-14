@@ -109,6 +109,13 @@ export interface GrpcReflectionConfig {
   reflectionService: string;
   request: Record<string, unknown>;
   timeout?: number;
+  /** Request metadata (incl. inline auth headers) sent with reflection (#887). */
+  metadata?: Record<string, string>;
+  /**
+   * Auth descriptor, only when it holds a SecretRef handle the renderer can't
+   * read; resolved main-side (ADR-0007). Validated by ReflectionIpcConfigSchema.
+   */
+  auth?: unknown;
   // TLS trust / mTLS material (resolved per-host from cert-override settings),
   // so Discover reaches a self-signed / private-CA / mTLS server.
   verifySsl?: boolean;

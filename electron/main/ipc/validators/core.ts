@@ -1,3 +1,4 @@
+import { GrpcReflectionMetadataSchema } from '@shared/protocol/grpc-schema';
 import { FormFieldSchema } from '@shared/protocol/proxy-schema';
 import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema';
 import { httpVersionPreferenceSchema } from '@shared/schemas/app';
@@ -482,6 +483,13 @@ export const ReflectionIpcConfigSchema = z.object({
   reflectionService: z.string().min(1, 'Reflection service name is required'),
   request: z.record(z.string(), z.unknown()),
   timeout: z.number().int().positive().optional(),
+  // The request's resolved metadata (incl. inline auth headers) so reflection
+  // works behind an auth gateway (#887). Same token / CRLF / size policy as the
+  // Worker route; hop-by-hop headers are dropped by the handler.
+  metadata: GrpcReflectionMetadataSchema.optional(),
+  // Present only when a credential is a SecretRef handle the renderer cannot
+  // read (ADR-0007); resolved main-side and merged into the metadata.
+  auth: AuthConfigSchema.optional(),
   // Reflection dials the same TLS endpoint as the call, so it needs the same
   // trust material (otherwise Discover silently fails against a self-signed /
   // private-CA / mTLS server while the call would have worked).

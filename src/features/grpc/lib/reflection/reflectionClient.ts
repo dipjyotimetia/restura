@@ -1,7 +1,12 @@
 import { isElectron, workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platform';
-import type { ReflectionResult, ReflectionServiceInfo } from '@/types';
+import type { AuthConfig, GrpcRequest, ReflectionResult, ReflectionServiceInfo } from '@/types';
 import { GrpcStatusCode } from '@/types';
-import { GrpcClientError, httpStatusToGrpcStatus } from '../grpcClient';
+import {
+  GrpcClientError,
+  grpcAuthNeedsMainSideApply,
+  httpStatusToGrpcStatus,
+  prepareGrpcRequest,
+} from '../grpcClient';
 import { type GrpcTlsOptions, resolveGrpcTls } from '../grpcTls';
 import { cacheMessageTypes, parseFileDescriptor } from './protoParser';
 import { buildServiceInfo } from './serviceDiscovery';
@@ -11,18 +16,52 @@ import {
   REFLECTION_SERVICE_V1_ALPHA,
 } from './types';
 
+/**
+ * Metadata + auth a reflection query carries (#887) — the same the request
+ * would send, so reflection works behind an auth gateway.
+ */
+export interface ReflectionCredentials {
+  /** Resolved metadata, incl. inline auth headers (lowercase keys). */
+  metadata: Record<string, string>;
+  /**
+   * Present only when the auth carries a SecretRef handle the renderer can't
+   * read: desktop resolves it main-side; web rejects it (handles are desktop-only).
+   */
+  auth?: AuthConfig;
+}
+
+/**
+ * Build reflection credentials from the request being edited: enabled
+ * metadata with `{{vars}}` resolved plus inline auth headers — the exact
+ * metadata a call would send — via the call path's own `prepareGrpcRequest`
+ * (header-size policy included). The message body is irrelevant to
+ * reflection, so an unfinished/invalid message is ignored.
+ */
+export function reflectionCredentialsFor(
+  request: GrpcRequest,
+  resolveVariables: (text: string) => string
+): ReflectionCredentials {
+  const { metadata } = prepareGrpcRequest({ ...request, message: '' }, resolveVariables);
+  return {
+    metadata,
+    ...(grpcAuthNeedsMainSideApply(request.auth) ? { auth: request.auth } : {}),
+  };
+}
+
 export class GrpcReflectionClient {
   private baseUrl: string;
   private reflectionVersion: 'v1' | 'v1alpha' = 'v1';
   private timeout: number;
+  private credentials: ReflectionCredentials | undefined;
   // Resolved once — baseUrl is fixed for the client's lifetime, so every
   // reflection round-trip (listServices + each fileContainingSymbol/byFilename)
   // shares the same per-host TLS material instead of re-scanning the cert lists.
   private tls: GrpcTlsOptions | undefined;
 
-  constructor(baseUrl: string, timeout = 30000) {
+  constructor(baseUrl: string, timeout = 30000, credentials?: ReflectionCredentials) {
     this.baseUrl = baseUrl.replace(/\/$/, '');
     this.timeout = timeout;
+    this.credentials = credentials;
     this.tls = resolveGrpcTls(this.baseUrl);
   }
 
@@ -206,6 +245,9 @@ export class GrpcReflectionClient {
         reflectionService: reflectionServiceName,
         request: request as Record<string, unknown>,
         timeout: this.timeout,
+        // Request metadata + any handle-backed auth descriptor (resolved in main).
+        ...(this.credentials?.metadata && { metadata: this.credentials.metadata }),
+        ...(this.credentials?.auth && { auth: this.credentials.auth }),
         ...(this.tls ?? {}),
       });
       return response as RawReflectionResponse;
@@ -219,6 +261,15 @@ export class GrpcReflectionClient {
   }
 
   private async sendReflectionRequestViaProxy(request: unknown): Promise<RawReflectionResponse> {
+    // Handle-backed secrets resolve only in the desktop main process; fail
+    // fast instead of reflecting unauthenticated (mirrors makeProxyGrpcRequest).
+    if (this.credentials?.auth) {
+      throw new GrpcClientError(
+        'This credential uses a stored secret handle, which is only available in the Restura desktop app. ' +
+          'Switch the credential to an inline value to reflect on the web.',
+        GrpcStatusCode.UNAUTHENTICATED
+      );
+    }
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
@@ -226,7 +277,12 @@ export class GrpcReflectionClient {
       const response = await fetch(`${workerBaseUrl()}/api/grpc/reflection`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...workerAuthHeaders() },
-        body: JSON.stringify({ url: this.baseUrl, request, timeout: this.timeout }),
+        body: JSON.stringify({
+          url: this.baseUrl,
+          request,
+          timeout: this.timeout,
+          ...(this.credentials?.metadata && { metadata: this.credentials.metadata }),
+        }),
         signal: controller.signal,
       });
 

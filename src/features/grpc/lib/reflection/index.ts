@@ -1,5 +1,9 @@
 export { clearReflectionCache, getCachedEnumSchema, getCachedMessageSchema } from './protoParser';
-export { GrpcReflectionClient } from './reflectionClient';
+export {
+  GrpcReflectionClient,
+  type ReflectionCredentials,
+  reflectionCredentialsFor,
+} from './reflectionClient';
 export {
   formatMessageSchemaForDisplay,
   generateProtoFromReflection,

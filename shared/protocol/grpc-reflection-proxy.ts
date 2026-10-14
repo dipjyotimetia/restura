@@ -17,6 +17,7 @@
  */
 import { readStreamToBytes } from './binary';
 import type { GrpcReflectionRequestBody } from './grpc-schema';
+import { sanitizeRequestHeaders } from './header-policy';
 import { MAX_RESPONSE_SIZE } from './http-proxy';
 import type { Fetcher, FetcherResponse } from './types';
 import { validateURL } from './url-validation';
@@ -49,9 +50,9 @@ class ReflectionTooLargeError extends Error {
 }
 
 /** Wrap one JSON message in a Connect streaming envelope (flags=0). */
-export function encodeConnectEnvelope(message: unknown, flags = 0): Uint8Array {
+export function encodeConnectEnvelope(message: unknown, flags = 0): Uint8Array<ArrayBuffer> {
   const payload = new TextEncoder().encode(JSON.stringify(message));
-  const out = new Uint8Array(ENVELOPE_HEADER_BYTES + payload.byteLength);
+  const out = new Uint8Array(new ArrayBuffer(ENVELOPE_HEADER_BYTES + payload.byteLength));
   const view = new DataView(out.buffer);
   view.setUint8(0, flags);
   view.setUint32(1, payload.byteLength, false);
@@ -147,7 +148,10 @@ async function reflectOnce(
   timeout: number
 ): Promise<Record<string, unknown>> {
   const url = `${baseUrl.replace(/\/$/, '')}/${serviceName}/ServerReflectionInfo`;
-  const headers = new Headers();
+  // Request metadata/auth (#887) first — hop-by-hop and proxy headers dropped —
+  // then the protocol headers via set(), so a user-supplied `content-type`
+  // can't merge into an `a, b` value and break the Connect negotiation.
+  const headers = new Headers(sanitizeRequestHeaders(spec.metadata));
   headers.set('content-type', 'application/connect+json');
   headers.set('connect-protocol-version', '1');
   headers.set('connect-timeout-ms', String(timeout));
