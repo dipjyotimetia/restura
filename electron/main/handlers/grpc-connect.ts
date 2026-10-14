@@ -206,10 +206,9 @@ interface TransportAttempt {
   transport: Transport;
 }
 
-// The ordered transports to try for one call. Injected transports (tests)
-// disable the implicit fallback; `fallbackTransport` opts back in to a second
-// attempt. Live calls skip the native attempt once an origin is known to
-// reject it.
+// The ordered transports to try for one call. Injected transports (tests) disable
+// the implicit fallback; `fallbackTransport` opts back in to a second attempt.
+// Live calls skip the native attempt once an origin is known to reject it.
 function transportPlan(t: TransportArgs): TransportAttempt[] {
   if (t.transport) {
     const attempts: TransportAttempt[] = [{ protocol: 'grpc', transport: t.transport }];
