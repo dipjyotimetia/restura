@@ -1321,7 +1321,7 @@ export const features: Feature[] = [
     ['websocket'],
     {
       today:
-        'The CLI exposes SSE stream events to test scripts; in the app, scripts run only for HTTP, GraphQL, and unary gRPC.',
+        'The CLI exposes SSE stream events to test scripts; in the app, scripts run for HTTP, GraphQL and every gRPC call type (gRPC stream tests see all messages via rs.response.messages).',
       milestones: [
         done('CLI stream-event script context'),
         todo('In-app stream script hook', 899),

@@ -9,6 +9,7 @@ import { grpcRunOptionsFromRequest } from '@/features/grpc/lib/grpcSchemaSnapsho
 import { protocolRegistry } from '@/features/registry/registry';
 import type { ProtocolScriptResult } from '@/features/registry/types';
 import { applyVarMutations } from '@/lib/shared/collectionVarMutations';
+import { isElectron } from '@/lib/shared/platform';
 import { buildValueMap } from '@/lib/shared/variableScopes';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import type { Response as ApiResponse, Collection, GrpcRequest, Request } from '@/types';
@@ -18,7 +19,7 @@ import type { RunnableRequest } from './flattenRunnables';
 /**
  * Postman-style collection / folder runner. Mirrors the CLI's orchestration
  * (`cli/src/runner/runner.ts`) but dispatches through the in-app protocol
- * registry instead of the CLI's executor, so HTTP/gRPC-unary run through the
+ * registry instead of the CLI's executor, so HTTP/gRPC run through the
  * exact same wire path (and SSRF/secret resolution) as a normal send.
  *
  * Dispatch is imperative — `protocol.injectVariables` then `runRequest(ctx)` —
@@ -26,8 +27,9 @@ import type { RunnableRequest } from './flattenRunnables';
  * deliberately NOT used: it writes history and pushes script results to the
  * active tab's Console, neither of which a batch run should do.
  *
- * Protocols whose `runRequest` throws (SSE/MCP/WebSocket/streaming-gRPC) are
- * skipped with a reason rather than invoked.
+ * Protocols whose `runRequest` throws (SSE/MCP/WebSocket) are skipped with a
+ * reason rather than invoked. gRPC streams run to completion (client / bidi
+ * on desktop only).
  */
 
 export interface RunnerAssertion {
@@ -277,9 +279,14 @@ export async function runCollection(
         idx++;
         continue;
       }
+      // gRPC streams run through the protocol runner (#917): server streams on
+      // every platform; client / bidi send the request's message(s) and
+      // half-close, which needs a duplex transport — desktop only.
+      const grpcMethodType = (runnable.request as { methodType?: string }).methodType;
       if (
         protocolId === 'grpc' &&
-        (runnable.request as { methodType?: string }).methodType !== 'unary'
+        (grpcMethodType === 'client-streaming' || grpcMethodType === 'bidirectional-streaming') &&
+        !isElectron()
       ) {
         results.push({
           itemId: runnable.itemId,
@@ -288,7 +295,7 @@ export async function runCollection(
           iteration: iter,
           status: 'skipped',
           assertions: [],
-          skippedReason: 'Only unary gRPC is supported in the runner',
+          skippedReason: `gRPC ${grpcMethodType} runs in the desktop app only`,
         });
         emit(false);
         idx++;

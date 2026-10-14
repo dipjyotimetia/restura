@@ -269,6 +269,21 @@ export const PM_EXPECT_BOOTSTRAP = `
     },
   };
 
+  // gRPC streams: pm.response.messages over every inbound message (parsed),
+  // collected before the test script runs (#917). Empty for single responses.
+  function __pmMessages() {
+    return typeof response !== 'undefined' && Array.isArray(response.messages)
+      ? response.messages.slice()
+      : [];
+  }
+  pm.response.messages = {
+    all: function () { return __pmMessages(); },
+    count: function () { return __pmMessages().length; },
+    idx: function (i) { return __pmMessages()[i]; },
+    each: function (fn) { __pmMessages().forEach(fn); },
+    toJSON: function () { return __pmMessages(); },
+  };
+
   // pm.response.cookies — Postman CookieList subset over the response's own
   // Set-Cookie fields (pm.cookies is the jar). Later fields win on name clash.
   function __pmResponseCookies() {

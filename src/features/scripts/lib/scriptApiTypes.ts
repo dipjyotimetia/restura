@@ -130,8 +130,20 @@ interface ResturaPmResponse {
   metadata: ResturaHeaderList;
   /** gRPC: trailing metadata (grpc-status, grpc-message, custom trailers). Empty for other protocols. */
   trailers: ResturaHeaderList;
+  /** gRPC streams: every inbound message (parsed), collected before the test script runs. */
+  messages: ResturaMessageList;
   /** Cookies this response set (parsed Set-Cookie fields; rs.cookies is the jar). */
   cookies: ResturaResponseCookies;
+}
+
+/** Streamed response messages (rs.response.messages). */
+interface ResturaMessageList {
+  all(): any[];
+  count(): number;
+  /** Message at index \`i\` (0-based). */
+  idx(i: number): any;
+  each(fn: (message: any, index: number) => void): void;
+  toJSON(): any[];
 }
 
 /** A parsed Set-Cookie field. */
@@ -313,6 +325,8 @@ interface ResturaResponseGlobal {
   cookies: ResturaResponseCookie[];
   /** gRPC trailing metadata. */
   trailers?: Record<string, string>;
+  /** gRPC streams: every inbound message, parsed. */
+  messages?: unknown[];
   body: unknown;
   /** Response time in milliseconds. */
   time: number;

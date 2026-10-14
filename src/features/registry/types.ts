@@ -48,6 +48,32 @@ export interface RunContext {
    * through the registry — the protocol module narrows internally.
    */
   protocolOptions?: Record<string, unknown>;
+  /**
+   * Live hooks for request/response streams run through `runRequest` (gRPC
+   * server / client / bidi). `runRequest` still resolves once, after the
+   * stream ends and the test script ran, with an aggregated response; these
+   * hooks let an interactive caller watch and drive the stream meanwhile.
+   * Without `onOpen`, a protocol sends the request's own message(s) and
+   * half-closes (non-interactive runs — collection runner).
+   */
+  stream?: StreamRunHooks;
+}
+
+/** Controls handed to `StreamRunHooks.onOpen` once the stream is open. */
+export interface StreamRunControls {
+  /** Send one outbound message (client / bidi streams). */
+  send(message: unknown): Promise<void>;
+  /** Half-close the outbound side. */
+  closeSend(): void;
+  /** Cancel the whole call. `runRequest` still resolves (status CANCELLED). */
+  cancel(): void;
+}
+
+export interface StreamRunHooks {
+  /** Called once with live controls; when present the caller owns outbound sends. */
+  onOpen?: (controls: StreamRunControls) => void;
+  /** Called for each inbound message as it arrives. */
+  onMessage?: (message: unknown) => void;
 }
 
 export interface ProtocolModule {

@@ -91,6 +91,8 @@ export interface ScriptContext {
     setCookies?: string[];
     /** gRPC trailing metadata (`rs.response.trailers`). */
     trailers?: Record<string, string>;
+    /** gRPC streams: every inbound message, parsed (`rs.response.messages`). */
+    messages?: unknown[];
     body: unknown;
     time: number;
     size: number;

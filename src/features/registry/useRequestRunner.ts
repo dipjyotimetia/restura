@@ -23,7 +23,7 @@ import { useHistoryStore } from '@/store/useHistoryStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { AuthConfig, Request, Response } from '@/types';
 import { protocolRegistry } from './registry';
-import type { ProtocolScriptResult } from './types';
+import type { ProtocolScriptResult, StreamRunHooks } from './types';
 
 export interface RegistryRunResult {
   response: Response;
@@ -46,6 +46,11 @@ export interface RegistryRunOptions {
    * protocol extensions. Cross-protocol callers can omit it.
    */
   protocolOptions?: Record<string, unknown>;
+  /**
+   * Live stream hooks forwarded as `RunContext.stream` (gRPC streams). `run()`
+   * still resolves once, after the stream ends, and records one history entry.
+   */
+  stream?: StreamRunHooks;
 }
 
 export function useRequestRunner() {
@@ -117,6 +122,7 @@ export function useRequestRunner() {
         onScriptResult,
         onAuthRefreshed,
         ...(options?.protocolOptions ? { protocolOptions: options.protocolOptions } : {}),
+        ...(options?.stream ? { stream: options.stream } : {}),
       });
       const durationMs = performance.now() - startedAt;
 

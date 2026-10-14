@@ -1,12 +1,15 @@
 /**
  * gRPC protocol module.
  *
- * Drives **unary** gRPC calls through the registry runner. Streaming
- * (server / client / bidi) is intentionally out of scope — see the
- * TODO(registry-streaming) note below — so the GrpcRequestBuilder keeps
- * its bespoke wiring for those paths via `startGrpcStream`.
+ * Drives every gRPC call type through the registry runner. Unary calls
+ * resolve to the single response; server / client / bidi streams run via
+ * `runGrpcStreamCall` (#917) — `runRequest` resolves once the stream ends,
+ * with an aggregated response (all messages, metadata, trailers, final
+ * status), and `ctx.stream` hooks let the interactive builder watch and
+ * drive the stream meanwhile. So streams get the same pre-request / test
+ * scripts, history entries and collection-runner support as unary.
  *
- * Two transport branches:
+ * Two unary transport branches (streams use `startGrpcStream` on both):
  *  - Electron: needs a schema — reflection `descriptors` or uploaded
  *    `protoContent` / `protoFileName` via `ctx.protocolOptions` (the
  *    builder passes its live state; the collection runner passes the
@@ -43,6 +46,7 @@ import type { Response as ApiResponse, GrpcRequest, GrpcResponse, Request } from
 import { makeElectronGrpcRequest, makeProxyGrpcRequest } from './lib/grpcClient';
 import { reflectionCredentialsFor } from './lib/grpcReflection';
 import { discoverDescriptorsForRequest } from './lib/grpcSchemaSnapshot';
+import { runGrpcStreamCall } from './lib/grpcStreamRun';
 import { applyUnknownFieldPolicy, schemaSourceFromSnapshot } from './lib/unknownFields';
 
 function createDefaultGrpcRequest(): GrpcRequest {
@@ -223,6 +227,7 @@ function joinMultiValued(
 async function runGrpcTestScript(
   request: GrpcRequest,
   response: GrpcResponse,
+  streamMessages: unknown[] | undefined,
   scriptEnvVars: Record<string, string>,
   scriptInfo: ScriptInfo,
   opts: GrpcProtocolOptions
@@ -241,6 +246,8 @@ async function runGrpcTestScript(
       statusText: response.grpcStatusText ?? '',
       headers: joinMultiValued(response.headers),
       trailers: response.trailers ?? {},
+      // Streams: every inbound message, parsed (`rs.response.messages`).
+      ...(streamMessages ? { messages: streamMessages } : {}),
       body: response.body,
       time: response.time,
       size: response.size,
@@ -260,21 +267,13 @@ export const grpcProtocol: ProtocolModule = {
   defaultRequest: createDefaultGrpcRequest,
   injectVariables: injectGrpcVariables,
   // Builder is intentionally undefined — GrpcRequestBuilder remains
-  // mounted by the route. It calls `useRequestRunner` for unary and
-  // talks to startGrpcStream directly for streaming methods.
+  // mounted by the route and calls `useRequestRunner` for every call type
+  // (streams pass `stream` hooks for live messages + outbound controls).
   runRequest: async (rawRequest, ctx): Promise<ApiResponse> => {
     if (rawRequest.type !== 'grpc') {
       throw new Error(`gRPC protocol cannot run ${rawRequest.type} request`);
     }
     let request: GrpcRequest = rawRequest;
-    if (request.methodType !== 'unary') {
-      // TODO(registry-streaming): server / client / bidirectional streams
-      // need an iterator-shaped contract on RunContext. Until then the
-      // builder owns these paths via startGrpcStream.
-      throw new Error(
-        `gRPC ${request.methodType} requires the streaming pipeline; use startGrpcStream, not the registry runner.`
-      );
-    }
     if (ctx.signal.aborted) {
       throw new DOMException('Request aborted', 'AbortError');
     }
@@ -290,6 +289,7 @@ export const grpcProtocol: ProtocolModule = {
     request = pre.request;
 
     let response: GrpcResponse;
+    let streamMessages: unknown[] | undefined;
     const resolve = (text: string) => defaultResolveVariables(text, scriptEnvVars);
     // Electron needs a schema; a request without one (e.g. a saved request run
     // from a collection with no snapshot) falls back to server reflection,
@@ -302,17 +302,33 @@ export const grpcProtocol: ProtocolModule = {
         reflectionCredentialsFor(request, resolve)
       );
     }
-    // #925 / #944: unknown request keys are checked before anything is sent —
+    const isStream = request.methodType !== 'unary';
+    // #925 / #944: unary request keys are checked before anything is sent —
     // refused (block) or stripped (warn / off). On web the message is relayed
     // as JSON, so this is the only place a typo is caught. Only authoritative
     // schemas count: descriptors or the saved snapshot, never the lossy
-    // `.proto` text reconstructed from reflection.
-    const policy = applyUnknownFieldPolicy(
-      request,
-      descriptors ? { descriptors } : schemaSourceFromSnapshot(request.schema),
-      resolve
-    );
-    if (policy.refused) {
+    // `.proto` text reconstructed from reflection. Streams apply the same
+    // policy per message inside the streaming client.
+    const policy: ReturnType<typeof applyUnknownFieldPolicy> = isStream
+      ? { request }
+      : applyUnknownFieldPolicy(
+          request,
+          descriptors ? { descriptors } : schemaSourceFromSnapshot(request.schema),
+          resolve
+        );
+    if (isStream) {
+      ({ response, messages: streamMessages } = await runGrpcStreamCall({
+        request,
+        resolveVariables: resolve,
+        signal: ctx.signal,
+        ...(ctx.stream ? { hooks: ctx.stream } : {}),
+        ...(opts.protoContent ? { protoContent: opts.protoContent } : {}),
+        ...(opts.protoFileName ? { protoFileName: opts.protoFileName } : {}),
+        ...(descriptors ? { descriptors } : {}),
+        timeoutMs,
+        ...(opts.useCompression !== undefined ? { useCompression: opts.useCompression } : {}),
+      }));
+    } else if (policy.refused) {
       response = policy.refused;
     } else if (isElectron()) {
       response = await makeElectronGrpcRequest(
@@ -330,7 +346,14 @@ export const grpcProtocol: ProtocolModule = {
 
     // Test script — receives the response so users can assert on
     // grpcStatus, body, response metadata (headers) and trailers.
-    const testResult = await runGrpcTestScript(request, response, scriptEnvVars, scriptInfo, opts);
+    const testResult = await runGrpcTestScript(
+      request,
+      response,
+      streamMessages,
+      scriptEnvVars,
+      scriptInfo,
+      opts
+    );
 
     if (ctx.onScriptResult && (preRequestResult || testResult)) {
       const result: { preRequest?: ScriptResult; test?: ScriptResult } = {};

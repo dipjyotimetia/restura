@@ -168,4 +168,55 @@ describe('GrpcRequestBuilder request completion routing', () => {
       expect(state.tabs.find((tab) => tab.id === 'tab-other')?.response).toBeUndefined();
     });
   });
+
+  it('runs a server stream through the registry runner with live hooks (#917)', async () => {
+    useRequestStore.setState({
+      tabs: [
+        {
+          id: 'tab-origin',
+          request: { ...makeRequest('request-origin', 'Origin'), methodType: 'server-streaming' },
+          isDirty: false,
+        },
+      ],
+      activeTabId: 'tab-origin',
+    });
+    const streamed: GrpcResponse = {
+      ...makeResponse('request-origin'),
+      body: '[{"n":1},{"n":2}]',
+      messages: ['{"n":1}', '{"n":2}'],
+      isStreaming: true,
+    };
+    runnerMocks.run.mockImplementation(
+      async (
+        _req: GrpcRequest,
+        _protocol: string,
+        options: {
+          stream?: {
+            onOpen?: (c: unknown) => void;
+            onMessage?: (m: unknown) => void;
+          };
+        }
+      ) => {
+        options.stream?.onOpen?.({ send: vi.fn(), closeSend: vi.fn(), cancel: vi.fn() });
+        options.stream?.onMessage?.({ n: 1 });
+        options.stream?.onMessage?.({ n: 2 });
+        return { response: streamed, durationMs: 3 };
+      }
+    );
+    render(<GrpcRequestBuilder />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Invoke gRPC method' }));
+
+    await waitFor(() => {
+      const tab = useRequestStore.getState().tabs.find((t) => t.id === 'tab-origin');
+      expect(tab?.response).toEqual(streamed);
+    });
+    expect(runnerMocks.run).toHaveBeenCalledTimes(1);
+    expect(runnerMocks.run.mock.calls[0]?.[1]).toBe('grpc');
+    expect(runnerMocks.run.mock.calls[0]?.[2]).toMatchObject({
+      stream: { onOpen: expect.any(Function), onMessage: expect.any(Function) },
+    });
+    expect(await screen.findByText('Stream')).toBeInTheDocument();
+    expect(useRequestStore.getState().isLoading).toBe(false);
+  });
 });
