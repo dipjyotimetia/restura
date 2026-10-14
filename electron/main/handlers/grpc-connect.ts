@@ -98,12 +98,11 @@ function transportBaseUrl(url: string, dial: PinnedDial): string {
   return `${useTls ? 'https' : 'http'}://${new URL(url).hostname}:${dial.port}`;
 }
 
-// Shared baseUrl + Node http2/tls options + size caps for both transport
-// flavours. The request's trust material (custom CA / mTLS / verify toggle) maps
-// onto Node's options, with SNI + cert hostname check kept on the real hostname.
-// readMaxBytes (SEC-G1, #929) replaces connect's ~4 GiB default: it is checked
-// per message on the envelope length prefix BEFORE buffering, and handed to
-// gzip/brotli as maxOutputLength (decompression bombs) → RESOURCE_EXHAUSTED.
+// Shared baseUrl + Node http2/tls options + size caps for every transport flavour. The
+// request's trust material (custom CA / mTLS / verify toggle) maps onto Node's options, with
+// SNI + cert hostname check kept on the real hostname. readMaxBytes (SEC-G1, #929) replaces
+// connect's ~4 GiB default: checked per message on the envelope length prefix BEFORE
+// buffering, and handed to gzip/brotli as maxOutputLength (bombs) → RESOURCE_EXHAUSTED.
 function buildNodeTransportBase(url: string, dial: PinnedDial, tls?: GrpcTlsConfig) {
   const host = new URL(url).hostname;
   const useTls = url.startsWith('https://') || url.startsWith('grpcs://');
