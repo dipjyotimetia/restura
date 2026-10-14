@@ -72,6 +72,8 @@ the snippet — most gaps are quick to close.
 | `pm.info.requestName`, `requestId`, `iteration`, `iterationCount`, `eventName` | ✅                                    |
 | `pm.execution.location` (`collectionName`, `currentRequestName`, `folderPath`) | ✅ populated during collection runs   |
 | `pm.request.url`, `.method`, `.headers`, `.body` (read-only)                   | ✅ via the top-level `request` global |
+| `pm.request.metadata` (gRPC)                                                   | ✅ editable in pre-request scripts; `pm.request.headers` is the same object and edits are sent with the call |
+| `pm.response.metadata`, `pm.response.trailers` (gRPC)                          | ✅ `get/has/all/each/toObject`; raw maps on `response.headers` / `response.trailers` |
 
 ### Network, flow control, and libraries
 

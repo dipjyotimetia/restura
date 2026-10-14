@@ -1,5 +1,6 @@
+import { applyScriptMetadata, grpcMetadataForScript } from '@shared/scripts/grpc-script-metadata';
 import ScriptExecutor, { type ScriptResult } from '@shared/scripts/script-executor';
-import type { HttpRequest } from '@shared/types';
+import type { GrpcRequest, HttpRequest } from '@shared/types';
 import type { LoadedRequest } from './collectionLoader.js';
 import type { ExecuteOutcome } from './executors/types.js';
 
@@ -16,6 +17,8 @@ export interface RunScriptResult {
   execution?: ScriptResult['execution'];
   /** `pm.collectionVariables.set/unset` mutations, when the script touched them. */
   collectionMutations?: Record<string, string | null>;
+  /** gRPC: the pre-request script's edited `rs.request.metadata`, when it changed it. */
+  requestMetadata?: Record<string, string>;
 }
 
 /** Run-scoped context threaded into `pm.collectionVariables` / `pm.iterationData` / `pm.info`. */
@@ -108,6 +111,7 @@ export async function runTestScript(
     status: outcome.status,
     statusText: '',
     headers: outcome.responseHeaders ?? {},
+    ...(outcome.responseTrailers ? { trailers: outcome.responseTrailers } : {}),
     ...(outcome.setCookies ? { setCookies: outcome.setCookies } : {}),
     body: tryParseJson(outcome.responseBody ?? ''),
     time: outcome.durationMs,
@@ -135,6 +139,19 @@ function buildRequestContext(
       method: req.method,
       headers,
       body: req.body.raw,
+    };
+  }
+  if (item.type === 'grpc') {
+    const req = item.request as GrpcRequest;
+    // `rs.request.metadata` (aliased as `headers`) — editable in pre-request
+    // scripts; edits are folded back by `applyPreRequestMetadata` (#910).
+    const metadata = grpcMetadataForScript(req.metadata ?? [], (v) => resolveVars(v, vars));
+    return {
+      url: resolveVars(req.url, vars),
+      method: req.methodType ?? 'unary',
+      headers: metadata,
+      metadata,
+      body: req.message,
     };
   }
   // Non-HTTP protocols still expose URL + method so scripts can introspect.
@@ -165,7 +182,26 @@ function toRunScriptResult(
     variables: { ...originalVars, ...result.variables },
     ...(result.execution ? { execution: result.execution } : {}),
     ...(result.collectionMutations ? { collectionMutations: result.collectionMutations } : {}),
+    ...(result.requestMetadata ? { requestMetadata: result.requestMetadata } : {}),
   };
+}
+
+/**
+ * Fold a gRPC pre-request script's `rs.request.metadata` edits into the item
+ * that is about to be sent (#910). Identity for other protocols / no edits.
+ * `vars` must be the map the script saw (the pre-script variables).
+ */
+export function applyPreRequestMetadata(
+  item: LoadedRequest,
+  pre: Pick<RunScriptResult, 'requestMetadata'> | undefined,
+  vars: Record<string, string>
+): LoadedRequest {
+  if (item.type !== 'grpc' || !pre?.requestMetadata) return item;
+  const req = item.request as GrpcRequest;
+  const metadata = applyScriptMetadata(req.metadata ?? [], pre.requestMetadata, (v) =>
+    resolveVars(v, vars)
+  );
+  return { ...item, request: { ...req, metadata } };
 }
 
 function tryParseJson(text: string): unknown {

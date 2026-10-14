@@ -99,6 +99,7 @@ export async function executeGrpc(
         durationMs,
         bodyBytes: result.response.size,
         responseHeaders: result.response.headers,
+        responseTrailers: result.response.trailers,
         responseBody:
           typeof result.response.data === 'string'
             ? result.response.data
@@ -122,6 +123,8 @@ export async function executeGrpc(
       passed: false,
       durationMs,
       bodyBytes: payload.size,
+      responseHeaders: payload.headers,
+      responseTrailers: payload.trailers,
       grpcStatus: { code: payload.grpcStatus, message: payload.grpcStatusText },
       errorMessage: `gRPC ${payload.grpcStatusText}`,
     };

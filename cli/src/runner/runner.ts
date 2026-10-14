@@ -7,7 +7,12 @@ import type { CliIterationRow } from './dataLoader.js';
 import { executeRequest } from './executors/dispatch.js';
 import { applyFilters, type FilterOptions } from './filter.js';
 import { DEFAULT_RETRY, type RetryOptions, withRetry } from './retry.js';
-import { type RunScriptResult, runPreRequestScript, runTestScript } from './scriptRunner.js';
+import {
+  applyPreRequestMetadata,
+  type RunScriptResult,
+  runPreRequestScript,
+  runTestScript,
+} from './scriptRunner.js';
 import { buildDispatcher, type TlsOptions } from './undiciFetcher.js';
 
 /**
@@ -164,10 +169,14 @@ export async function runCollection(
         iterationCount: iterations.length,
       };
 
+      // The item actually sent: a gRPC pre-request script may edit metadata.
+      let sendItem = item;
       if (preScript) {
         try {
+          const preVars = perRequestVars;
           const pre = await runPreRequestScript(preScript, item, perRequestVars, runCtx);
           preResult = pre;
+          sendItem = applyPreRequestMetadata(item, pre, preVars);
           perRequestVars = pre.variables;
           for (const k of Object.keys(pre.variables)) allVars[k] = pre.variables[k]!;
           applyCollectionMutations(pre.collectionMutations);
@@ -180,7 +189,7 @@ export async function runCollection(
 
       const outcome = await withRetry(
         () =>
-          executeRequest(item, {
+          executeRequest(sendItem, {
             vars: perRequestVars,
             timeoutMs: options.timeoutMs,
             allowLocalhost: options.allowLocalhost,
@@ -198,7 +207,7 @@ export async function runCollection(
 
       if (testScript) {
         try {
-          const test = await runTestScript(testScript, item, outcome, perRequestVars, runCtx);
+          const test = await runTestScript(testScript, sendItem, outcome, perRequestVars, runCtx);
           testResult = test;
           for (const k of Object.keys(test.variables)) allVars[k] = test.variables[k]!;
           applyCollectionMutations(test.collectionMutations);

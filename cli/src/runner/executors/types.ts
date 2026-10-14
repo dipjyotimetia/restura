@@ -30,6 +30,8 @@ export interface ExecuteOutcome {
   /** Every Set-Cookie field, one entry each (RFC 6265 §3 — never folded). */
   setCookies?: string[];
   responseBody?: string;
+  /** gRPC trailing metadata (`rs.response.trailers` in test scripts). */
+  responseTrailers?: Record<string, string>;
   errorMessage?: string;
   grpcStatus?: GrpcStatusInfo;
   streamEvents?: StreamEvent[];
