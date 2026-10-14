@@ -15,6 +15,7 @@ import type {
   SseRequest,
 } from '../types';
 import { internalToOC } from './from-internal';
+import { grpcSchemaHash } from './grpc-schema-extension';
 import { parseOpenCollectionYAML, serializeOpenCollectionYAML } from './serializer';
 import { ocToInternal } from './to-internal';
 
@@ -164,7 +165,18 @@ const GRPC_FIXTURE: Required<GrpcRequest> = {
   auth: AUTHS.ntlm,
   preRequestScript: 'rs.variables.set("g", 1);',
   testScript: 'rs.test("grpc", () => {});',
-  schema: { kind: 'proto', fileName: 'greet.proto', text: 'syntax = "proto3";\npackage greet.v1;' },
+  // Provenance (hash + fetchedAt, #937) round-trips with the snapshot.
+  schema: {
+    kind: 'proto',
+    fileName: 'greet.proto',
+    text: 'syntax = "proto3";\npackage greet.v1;',
+    hash: grpcSchemaHash({
+      kind: 'proto',
+      fileName: 'greet.proto',
+      text: 'syntax = "proto3";\npackage greet.v1;',
+    }),
+    fetchedAt: 1_760_000_000_000,
+  },
   timeout: 5000,
   wireProtocol: 'grpc-web',
 };

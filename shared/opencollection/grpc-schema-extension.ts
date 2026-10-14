@@ -29,13 +29,17 @@ import {
  *     requests:
  *       - path: [Folder, Request name]   # folder names + item name
  *         schema: <sha-256 hex>
+ *         schemaFetchedAt: 1760000000000   # snapshot capture time (#937)
  *         timeout: 5000
  *         wireProtocol: grpc-web     # absent = auto
  * ```
  *
  * Snapshots are deduplicated by content hash (many requests against one
  * server share one descriptor set). Requests reference a snapshot by hash;
- * import re-inlines it onto `GrpcRequest.schema`. Request entries are matched
+ * import re-inlines it onto `GrpcRequest.schema`. Snapshot provenance
+ * (`hash`, `fetchedAt` — #937) never enters the content-addressed table: the
+ * hash IS the table key (recomputed on import) and the capture time rides on
+ * the request entry, so equal content still dedupes. Request entries are matched
  * by name path in document order, so duplicate names resolve positionally.
  *
  * The walk / hash-dedupe / path-matching machinery is shared with
@@ -45,6 +49,7 @@ export const GRPC_EXTENSION_KEY = 'x-restura-grpc';
 
 interface GrpcExtensionRequestEntry extends PathKeyedEntry {
   schema?: string;
+  schemaFetchedAt?: number;
   timeout?: number;
   wireProtocol?: GrpcWireProtocol;
 }
@@ -82,7 +87,10 @@ export function buildGrpcExtension(items: CollectionItem[] | undefined): GrpcExt
   const requests: GrpcExtensionRequestEntry[] = [];
   walkRequests(items, isGrpc, (req, path) => {
     const entry: GrpcExtensionRequestEntry = { path };
-    if (req.schema) entry.schema = table.add(req.schema);
+    if (req.schema) {
+      entry.schema = table.add(req.schema);
+      if (typeof req.schema.fetchedAt === 'number') entry.schemaFetchedAt = req.schema.fetchedAt;
+    }
     if (typeof req.timeout === 'number') entry.timeout = req.timeout;
     if (req.wireProtocol) entry.wireProtocol = req.wireProtocol;
     if (
@@ -134,7 +142,12 @@ export function applyGrpcExtension(items: CollectionItem[] | undefined, raw: unk
     (req, entry) => {
       if (typeof entry.schema === 'string') {
         const snapshot = parseSnapshot(ext.schemas[entry.schema]);
-        if (snapshot) req.schema = snapshot;
+        const at = entry.schemaFetchedAt;
+        // Provenance is restored only for stamped (post-#937) snapshots, so
+        // legacy snapshots round-trip unchanged.
+        if (snapshot && typeof at === 'number' && Number.isFinite(at)) {
+          req.schema = { ...snapshot, hash: grpcSchemaHash(snapshot), fetchedAt: at };
+        } else if (snapshot) req.schema = snapshot;
       }
       if (
         typeof entry.timeout === 'number' &&

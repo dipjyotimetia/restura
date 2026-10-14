@@ -121,6 +121,32 @@ describe('store-validators', () => {
       expect(result.type).toBe('grpc');
     });
 
+    it('keeps gRPC schema snapshot provenance (hash + fetchedAt) and legacy snapshots (#937)', () => {
+      const base: GrpcRequest = {
+        id: 'grpc-2',
+        name: 'Snap',
+        type: 'grpc',
+        methodType: 'unary',
+        url: 'https://grpc.example.com',
+        service: 'S',
+        method: 'M',
+        metadata: [],
+        message: '{}',
+        auth: { type: 'none' },
+      };
+      const stamped = {
+        kind: 'descriptors' as const,
+        descriptors: ['AA=='],
+        hash: 'ab',
+        fetchedAt: 7,
+      };
+      expect((validateRequest({ ...base, schema: stamped }) as GrpcRequest).schema).toEqual(
+        stamped
+      );
+      const legacy = { kind: 'proto' as const, fileName: 'a.proto', text: 'x' };
+      expect((validateRequest({ ...base, schema: legacy }) as GrpcRequest).schema).toEqual(legacy);
+    });
+
     it('should throw error if validation fails', () => {
       const invalidRequest = {
         id: 'invalid',

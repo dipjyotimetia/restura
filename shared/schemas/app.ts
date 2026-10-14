@@ -249,8 +249,16 @@ export const grpcRequestSchema = z.object({
         descriptors: z.array(z.string()),
         // Set for a user upload (multi-file .proto / FileDescriptorSet) — #891.
         fileName: z.string().optional(),
+        hash: z.string().optional(),
+        fetchedAt: z.number().optional(),
       }),
-      z.object({ kind: z.literal('proto'), fileName: z.string(), text: z.string() }),
+      z.object({
+        kind: z.literal('proto'),
+        fileName: z.string(),
+        text: z.string(),
+        hash: z.string().optional(),
+        fetchedAt: z.number().optional(),
+      }),
     ])
     .optional(),
   // 0 = "no deadline" (streaming methods only; unary falls back to the default).
