@@ -14,6 +14,7 @@ import type { StreamRunHooks } from '@/features/registry/types';
 import type { GrpcRequest, GrpcResponse, GrpcStatusCode } from '@/types';
 import { GrpcStatusCodeName } from '@/types';
 import { type GrpcStreamFinal, startGrpcStream } from './grpcStreamingClient';
+import { StreamMessageBuffer } from './streamRetention';
 
 export interface GrpcStreamRunArgs {
   request: GrpcRequest;
@@ -29,7 +30,10 @@ export interface GrpcStreamRunArgs {
 
 export interface GrpcStreamRunResult {
   response: GrpcResponse;
-  /** Inbound messages as parsed JSON (bound to `rs.response.messages`). */
+  /**
+   * Inbound messages as parsed JSON (bound to `rs.response.messages`) — the
+   * most recent ones only; `response.droppedMessages` counts the evicted rest.
+   */
   messages: unknown[];
 }
 
@@ -70,7 +74,8 @@ export async function runGrpcStreamCall(args: GrpcStreamRunArgs): Promise<GrpcSt
 
   const onAbort = () => handle.cancel();
   signal.addEventListener('abort', onAbort, { once: true });
-  const messages: unknown[] = [];
+  // Bounded: a long-lived stream must not grow renderer memory without limit.
+  const retained = new StreamMessageBuffer<{ msg: unknown; text: string }>();
   try {
     if (interactive) {
       hooks?.onOpen?.({
@@ -84,7 +89,8 @@ export async function runGrpcStreamCall(args: GrpcStreamRunArgs): Promise<GrpcSt
     }
     try {
       for await (const msg of handle.messages) {
-        messages.push(msg);
+        const text = JSON.stringify(msg) ?? 'null';
+        retained.push({ msg, text }, text.length);
         hooks?.onMessage?.(msg);
       }
     } catch {
@@ -92,7 +98,11 @@ export async function runGrpcStreamCall(args: GrpcStreamRunArgs): Promise<GrpcSt
       // that status + trailers, which is what the response reports.
     }
     const final = await handle.done;
-    return { response: aggregate(request, final, messages, startedAt), messages };
+    const kept = retained.snapshot();
+    const messages = kept.items.map((m) => m.msg);
+    const response = aggregate(request, final, kept.items, startedAt);
+    if (kept.dropped > 0) response.droppedMessages = kept.dropped;
+    return { response, messages };
   } catch (err) {
     // A failed send / hook must not leave the call half-open.
     handle.cancel();
@@ -105,12 +115,13 @@ export async function runGrpcStreamCall(args: GrpcStreamRunArgs): Promise<GrpcSt
 function aggregate(
   request: GrpcRequest,
   final: GrpcStreamFinal,
-  messages: unknown[],
+  retained: Array<{ msg: unknown; text: string }>,
   startedAt: number
 ): GrpcResponse {
+  const messages = retained.map((m) => m.msg);
   const status = final.status as GrpcStatusCode;
   const statusText = final.statusMessage || GrpcStatusCodeName[status] || 'UNKNOWN';
-  const messageStrs = messages.map((m) => JSON.stringify(m));
+  const messageStrs = retained.map((m) => m.text);
   // A client stream answers with exactly one message — show it as the body.
   const bodyValue =
     request.methodType === 'client-streaming' && messages.length === 1

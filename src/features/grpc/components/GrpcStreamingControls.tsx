@@ -87,22 +87,43 @@ export default function GrpcStreamingControls({
 }
 
 // Component for displaying streaming messages
-export function GrpcStreamingMessages({ messages }: { messages: string[] }) {
+export function GrpcStreamingMessages({
+  messages,
+  dropped = 0,
+}: {
+  messages: string[];
+  /** Earlier messages evicted by the renderer's retention bound. */
+  dropped?: number;
+}) {
   if (messages.length === 0) return null;
 
   return (
     <div className="space-y-2">
       <div className="text-sm text-muted-foreground mb-2">
-        Streaming messages received: {messages.length}
+        Streaming messages received: {messages.length + dropped}
       </div>
+      {dropped > 0 && <StreamDroppedNotice dropped={dropped} />}
       <div className="space-y-2 max-h-96 overflow-y-auto">
         {messages.map((message, index) => (
-          <div key={index} className="bg-muted p-2 rounded border border-border">
-            <div className="text-xs font-medium mb-1">Message {index + 1}</div>
+          <div key={dropped + index} className="bg-muted p-2 rounded border border-border">
+            <div className="text-xs font-medium mb-1">Message {dropped + index + 1}</div>
             <pre className="text-xs whitespace-pre-wrap">{message}</pre>
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** "N earlier messages dropped" — shown when the retained window evicted messages. */
+export function StreamDroppedNotice({ dropped }: { dropped: number }) {
+  return (
+    <div
+      role="status"
+      className="text-xs text-muted-foreground border border-border rounded px-2 py-1"
+    >
+      {dropped.toLocaleString()} earlier {dropped === 1 ? 'message' : 'messages'} dropped — only the
+      most recent are kept to bound memory.
     </div>
   );
 }

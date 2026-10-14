@@ -91,6 +91,11 @@ export interface GrpcResponse extends Response {
   messages?: string[]; // For streaming responses, each message as JSON string
   isStreaming?: boolean;
   /**
+   * Streams only: how many of the earliest inbound messages were dropped to
+   * keep the renderer's retained window bounded (`messages` holds the rest).
+   */
+  droppedMessages?: number;
+  /**
    * Decoded rich error details (google.rpc.Status `details`: BadRequest,
    * ErrorInfo, RetryInfo, …). Unknown types carry `raw` base64. Absent on OK.
    */

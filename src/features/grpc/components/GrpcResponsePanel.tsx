@@ -82,7 +82,8 @@ export function GrpcResponsePanel() {
   const pillText =
     grpcStatus == null ? '—' : isOk ? 'OK' : (GrpcStatusCodeName[grpcStatus] ?? 'ERR');
 
-  const frameCount = response.messages?.length ?? (response.body ? 1 : 0);
+  const dropped = response.droppedMessages ?? 0;
+  const frameCount = (response.messages?.length ?? (response.body ? 1 : 0)) + dropped;
   // Try to read a content-encoding/grpc-encoding trailer for compression.
   const compression = trailers['grpc-encoding'] ?? trailers['content-encoding'] ?? 'identity';
   const extraTrailers = Object.entries(trailers).filter(
@@ -120,6 +121,11 @@ export function GrpcResponsePanel() {
         <Stat label="Time" value={formatTime(response.time)} />
         <Stat label="Size" value={formatBytes(response.size)} />
         <Stat label="Frames" value={String(frameCount)} />
+        {dropped > 0 && (
+          <span role="status" className="text-sp-11 text-sp-dim">
+            {dropped.toLocaleString()} earlier {dropped === 1 ? 'message' : 'messages'} dropped
+          </span>
+        )}
         <Stat label="Compr" value={compression} />
       </div>
 
