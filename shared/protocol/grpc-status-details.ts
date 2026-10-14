@@ -38,7 +38,7 @@ export const MAX_STATUS_DETAILS = 32;
 // Table-driven decoder for google/rpc/error_details.proto
 // ---------------------------------------------------------------------------
 
-type Kind = 'string' | 'int32' | 'int64' | 'duration' | 'message' | 'stringMap';
+type Kind = 'string' | 'int64' | 'duration' | 'message' | 'stringMap';
 interface FieldSpec {
   no: number;
   json: string;
@@ -190,10 +190,6 @@ function decodeTable(bytes: Uint8Array, fields: FieldSpec[]): Record<string, unk
         expectWire(wt, WireType.LengthDelimited);
         value = r.string();
         break;
-      case 'int32':
-        expectWire(wt, WireType.Varint);
-        value = r.int32();
-        break;
       case 'int64':
         expectWire(wt, WireType.Varint);
         value = String(r.int64()); // proto3 JSON renders 64-bit ints as strings
@@ -234,11 +230,6 @@ function decodeTable(bytes: Uint8Array, fields: FieldSpec[]): Record<string, unk
 export function typeNameFromUrl(typeUrl: string): string {
   const slash = typeUrl.lastIndexOf('/');
   return slash >= 0 ? typeUrl.slice(slash + 1) : typeUrl;
-}
-
-/** True for the google.rpc types this module decodes without a registry. */
-export function isWellKnownStatusDetail(typeName: string): boolean {
-  return typeName in WELL_KNOWN;
 }
 
 export interface DecodeStatusDetailOptions {
