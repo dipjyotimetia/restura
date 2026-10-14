@@ -47,4 +47,41 @@ describe('GrpcResponsePanel', () => {
     expect(screen.getByText('x-request-id')).toBeInTheDocument();
     expect(screen.getByText('abc')).toBeInTheDocument();
   });
+
+  it('has no Error details tab when the response carries none', () => {
+    render(<GrpcResponsePanel />);
+    expect(screen.queryByRole('tab', { name: /Error details/ })).not.toBeInTheDocument();
+  });
+
+  it('renders decoded rich error details, unknown Any as raw base64 (#883)', async () => {
+    useRequestStore.setState({
+      tabs: [
+        {
+          id: 'tab',
+          request: { id: 'req', name: 'Echo', type: 'grpc' } as GrpcRequest,
+          response: {
+            ...response,
+            grpcStatus: 3,
+            grpcStatusText: 'INVALID_ARGUMENT',
+            statusDetails: [
+              {
+                type: 'google.rpc.BadRequest',
+                value: { fieldViolations: [{ field: 'user.email', description: 'invalid' }] },
+              },
+              { type: 'acme.v1.Custom', raw: 'AQI=', debug: { hint: 'x' } },
+            ],
+          },
+        },
+      ] as never,
+      activeTabId: 'tab',
+    });
+    render(<GrpcResponsePanel />);
+    await userEvent.click(screen.getByRole('tab', { name: /Error details/ }));
+    const list = screen.getByRole('list', { name: 'Error details' });
+    expect(list).toHaveTextContent('BadRequest');
+    expect(list).toHaveTextContent('"field": "user.email"');
+    expect(list).toHaveTextContent('acme.v1.Custom');
+    expect(list).toHaveTextContent('AQI=');
+    expect(list).toHaveTextContent('"hint": "x"');
+  });
 });

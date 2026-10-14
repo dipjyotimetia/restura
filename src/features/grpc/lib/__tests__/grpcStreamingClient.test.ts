@@ -6,7 +6,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import type { AuthConfig, GrpcRequest } from '@/types';
 import { GrpcStatusCode } from '@/types';
-import { createInteractiveGrpcStreamForTest, startGrpcStream } from '../grpcStreamingClient';
+import {
+  createInteractiveGrpcStreamForTest,
+  startGrpcStream,
+  streamErrorResponse,
+} from '../grpcStreamingClient';
 
 const ECHO_PROTO = readFileSync(
   resolve(__dirname, '../../../../../e2e/mocks/proto/echo.proto'),
@@ -210,6 +214,36 @@ describe('startGrpcStream — web server-streaming via ConnectRPC', () => {
     const final = await handle.done; // resolves (never rejects) → no unhandled rejection
     expect(final.status).toBe(GrpcStatusCode.PERMISSION_DENIED);
     expect(final.statusMessage).toBe('no');
+  });
+
+  it('carries decoded rich error details on done (#883)', async () => {
+    const transport = echoTransport(async function* () {
+      const err = new ConnectError('bad', Code.InvalidArgument);
+      // google.rpc.BadRequest { field_violations: [{ field: "a", description: "b" }] }
+      err.details.push({
+        type: 'google.rpc.BadRequest',
+        value: new Uint8Array([0x0a, 0x06, 0x0a, 0x01, 0x61, 0x12, 0x01, 0x62]),
+      });
+      throw err;
+    });
+    const handle = await startGrpcStream({
+      request: baseRequest,
+      resolveVariables: (s) => s,
+      protoContent: ECHO_PROTO,
+      transport,
+    });
+    await expect(
+      (async () => {
+        for await (const _ of handle.messages) void _;
+      })()
+    ).rejects.toThrow('bad');
+    const final = await handle.done;
+    expect(final.statusDetails).toEqual([
+      {
+        type: 'google.rpc.BadRequest',
+        value: { fieldViolations: [{ field: 'a', description: 'b' }] },
+      },
+    ]);
   });
 
   it('cancel() aborts the call and finalises with CANCELLED', async () => {
@@ -438,13 +472,20 @@ describe('startGrpcStream — Electron interactive (IPC) path', () => {
         }
       })();
 
-      emit('error', { status: 9, details: 'failed precondition', trailers: { 'x-t': 'z' } });
+      const statusDetails = [{ type: 'google.rpc.ErrorInfo', value: { reason: 'R' } }];
+      emit('error', {
+        status: 9,
+        details: 'failed precondition',
+        trailers: { 'x-t': 'z' },
+        statusDetails,
+      });
       await iter;
 
       expect(thrown).toBeInstanceOf(Error);
       const final = await handle.done;
       expect(final.status).toBe(9);
       expect(final.trailers['x-t']).toBe('z');
+      expect(final.statusDetails).toEqual(statusDetails);
     } finally {
       uninstallElectronMock();
     }
@@ -471,5 +512,28 @@ describe('startGrpcStream — Electron interactive (IPC) path', () => {
     } finally {
       uninstallElectronMock();
     }
+  });
+});
+
+describe('streamErrorResponse', () => {
+  it('maps a failed stream final onto a response-panel GrpcResponse with its details (#883)', () => {
+    const statusDetails = [{ type: 'google.rpc.ErrorInfo', value: { reason: 'R' } }];
+    const r = streamErrorResponse(
+      'req-1',
+      {
+        headers: { h: '1' },
+        trailers: { t: '2' },
+        status: GrpcStatusCode.FAILED_PRECONDITION,
+        statusMessage: 'nope',
+        statusDetails,
+      },
+      Date.now()
+    );
+    expect(r.requestId).toBe('req-1');
+    expect(r.grpcStatus).toBe(GrpcStatusCode.FAILED_PRECONDITION);
+    expect(r.grpcStatusText).toBe('FAILED_PRECONDITION');
+    expect(JSON.parse(r.body)).toEqual({ error: 'nope' });
+    expect(r.trailers).toEqual({ t: '2' });
+    expect(r.statusDetails).toEqual(statusDetails);
   });
 });

@@ -863,6 +863,24 @@ message PingRequest
         expect(result.status).toBe(0);
         expect(result.grpcStatus).toBe(0);
         expect(mockElectron.grpc.request).toHaveBeenCalledOnce();
+        expect(result.statusDetails).toBeUndefined();
+
+        const statusDetails = [{ type: 'google.rpc.RetryInfo', value: { retryDelay: '2s' } }];
+        mockElectron.grpc.request.mockResolvedValueOnce({
+          status: 8,
+          statusText: 'RESOURCE_EXHAUSTED',
+          headers: {},
+          trailers: {},
+          error: 'slow down',
+          statusDetails,
+        });
+        const failed = await makeElectronGrpcRequest(
+          grpcReq,
+          'syntax = "proto3";',
+          't.proto',
+          (s) => s
+        );
+        expect(failed.statusDetails).toEqual(statusDetails);
       } finally {
         Object.defineProperty(window, 'electron', {
           value: undefined,
@@ -1023,6 +1041,46 @@ message PingRequest
       const result = await makeProxyGrpcRequest(grpcReq, (s) => s);
       expect(result.status).toBe(0);
       expect(result.grpcStatus).toBe(0);
+    });
+
+    it('carries decoded statusDetails from the proxy error response (#883)', async () => {
+      const statusDetails = [{ type: 'google.rpc.ErrorInfo', value: { reason: 'R' } }];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                grpcStatus: 3,
+                grpcStatusText: 'INVALID_ARGUMENT',
+                data: { error: 'bad' },
+                headers: {},
+                trailers: {},
+                size: 10,
+                statusDetails,
+              }),
+              { status: 200 }
+            )
+        )
+      );
+      const { makeProxyGrpcRequest } = await import('../grpcClient');
+      const result = await makeProxyGrpcRequest(
+        {
+          id: 'req-proxy-details',
+          name: 'Test',
+          type: 'grpc',
+          methodType: 'unary',
+          url: 'https://grpc.example.com',
+          service: 'svc.TestService',
+          method: 'GetUser',
+          metadata: [],
+          message: '{}',
+          auth: { type: 'none' },
+        },
+        (s) => s
+      );
+      expect(result.grpcStatus).toBe(3);
+      expect(result.statusDetails).toEqual(statusDetails);
     });
 
     it('returns error response when fetch throws', async () => {

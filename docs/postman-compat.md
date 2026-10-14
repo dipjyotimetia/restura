@@ -51,6 +51,7 @@ the snippet — most gaps are quick to close.
 | `pm.response.code`, `.status`, `.responseTime` (accessor properties) | ✅     |
 | `pm.response.headers.get/has/all/each/toObject`                      | ✅ ¹   |
 | `pm.response.cookies.get/has/all/toJSON/each/toObject`               | ✅     |
+| `pm.response.statusDetails` (gRPC rich error details; Restura extension) | ✅  |
 
 ¹ A response can carry several `Set-Cookie` headers. `pm.response.headers.get('Set-Cookie')` returns all of them joined with `", "` (Postman returns only the last). `all()` / `each()` give one row per cookie, and `has('Set-Cookie', v)` and `pm.response.to.have.header('Set-Cookie', v)` match any single cookie. The raw list is `response.setCookies` (`string[]`) and the parsed one `response.cookies`. Both behave the same on web, desktop and the CLI, and `pm.sendRequest` responses carry them too. `pm.response.cookies` covers only the cookies this response set; `pm.cookies` is the jar.
 

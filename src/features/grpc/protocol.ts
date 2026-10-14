@@ -243,6 +243,7 @@ export const grpcProtocol: ProtocolModule = {
           body: response.body,
           time: response.time,
           size: response.size,
+          ...(response.statusDetails ? { statusDetails: response.statusDetails } : {}),
         },
       });
       if (testResult.globalsMutations) {

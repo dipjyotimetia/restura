@@ -89,6 +89,45 @@ describe('executeGrpcProxy', () => {
     }
   });
 
+  it('decodes rich error details from the Connect error JSON (#883)', async () => {
+    // google.rpc.BadRequest { field_violations: [{ field: "a", description: "b" }] }
+    const badRequest = 'CgYKAWESAWI';
+    const fetcher = makeFetcher(
+      JSON.stringify({
+        code: 'invalid_argument',
+        message: 'bad',
+        details: [
+          { type: 'google.rpc.BadRequest', value: badRequest, debug: { x: 1 } },
+          { type: 'acme.v1.Custom', value: 'AQI' },
+        ],
+      }),
+      400
+    );
+    const r = await executeGrpcProxy(
+      { url: 'https://example.com', service: 'svc.Foo', method: 'Bar', timeout: 1000 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok && r.response.statusDetails).toEqual([
+      {
+        type: 'google.rpc.BadRequest',
+        value: { fieldViolations: [{ field: 'a', description: 'b' }] },
+        debug: { x: 1 },
+      },
+      { type: 'acme.v1.Custom', raw: 'AQI=' },
+    ]);
+  });
+
+  it('omits statusDetails when the error carries none', async () => {
+    const fetcher = makeFetcher(JSON.stringify({ code: 'internal', message: 'x' }), 500);
+    const r = await executeGrpcProxy(
+      { url: 'https://example.com', service: 'svc.Foo', method: 'Bar', timeout: 1000 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok && 'statusDetails' in r.response).toBe(false);
+  });
+
   it('separates trailer-prefixed headers into trailers map', async () => {
     const fetcher = makeFetcher('{}', 200, {
       'content-type': 'application/json',

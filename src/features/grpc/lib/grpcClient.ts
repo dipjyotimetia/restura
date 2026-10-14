@@ -530,6 +530,7 @@ export async function makeElectronGrpcRequest(
       trailers: response.trailers,
       messages: messagesStrs,
       isStreaming: !!response.messages,
+      ...(response.statusDetails?.length ? { statusDetails: response.statusDetails } : {}),
     };
   } catch (error: unknown) {
     return createErrorResponse(request.id, error, startTime);
@@ -736,6 +737,9 @@ export async function makeProxyGrpcRequest(
       grpcStatus: result.grpcStatus,
       grpcStatusText: result.grpcStatusText,
       trailers: result.trailers || {},
+      ...(Array.isArray(result.statusDetails) && result.statusDetails.length > 0
+        ? { statusDetails: result.statusDetails }
+        : {}),
     };
   } catch (error: unknown) {
     return createErrorResponse(request.id, error, startTime);

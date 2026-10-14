@@ -22,7 +22,7 @@ import {
   validateRequestAgainstSchema,
 } from '@/features/grpc/lib/grpcReflection';
 import { reflectionSnapshotUpdate } from '@/features/grpc/lib/grpcSchemaSnapshot';
-import { startGrpcStream } from '@/features/grpc/lib/grpcStreamingClient';
+import { startGrpcStream, streamErrorResponse } from '@/features/grpc/lib/grpcStreamingClient';
 import {
   type GrpcValidationState,
   INITIAL_VALIDATION_STATE,
@@ -435,6 +435,8 @@ function GrpcRequestBuilder() {
                 GrpcStatusCodeName[final.status as GrpcStatusCode] ||
                 'Stream error';
               streamFrame('system', `stream closed — ${final.status} ${description}`);
+              const errorResponse = streamErrorResponse(grpcRequest.id, final, startTime);
+              setCurrentResponseForTab(originTabId, errorResponse);
               toast.error(`gRPC Error: ${final.status}`, { description });
             }
           } catch (err) {

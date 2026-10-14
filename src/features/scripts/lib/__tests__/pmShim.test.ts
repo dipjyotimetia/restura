@@ -24,6 +24,7 @@ interface TestResponse {
   body: unknown;
   time: number;
   size: number;
+  statusDetails?: unknown[];
 }
 
 const baseResponse: TestResponse = {
@@ -220,6 +221,40 @@ describe('pm.response — status / headers / body / time', () => {
       pm.test('code', function () { pm.expect(pm.response.code).to.equal(200); });
       pm.test('responseTime', function () { pm.expect(pm.response.responseTime).to.be.below(1000); });
     `);
+    expectAllTestsPass(r);
+  });
+
+  it('pm.response.statusDetails exposes gRPC rich error details (#883)', async () => {
+    const r = await runScript(
+      `
+      pm.test('details', function () {
+        var d = pm.response.statusDetails;
+        pm.expect(d.length).to.equal(1);
+        pm.expect(d[0].type).to.equal('google.rpc.BadRequest');
+        pm.expect(d[0].value.fieldViolations[0].field).to.equal('user.email');
+        pm.expect(response.statusDetails[0].type).to.equal('google.rpc.BadRequest');
+      });
+    `,
+      {
+        response: {
+          ...baseResponse,
+          status: 3,
+          statusDetails: [
+            {
+              type: 'google.rpc.BadRequest',
+              value: { fieldViolations: [{ field: 'user.email', description: 'invalid' }] },
+            },
+          ],
+        },
+      }
+    );
+    expectAllTestsPass(r);
+  });
+
+  it('pm.response.statusDetails is [] when the response has none', async () => {
+    const r = await runScript(
+      `pm.test('empty', function () { pm.expect(pm.response.statusDetails).to.eql([]); });`
+    );
     expectAllTestsPass(r);
   });
 });

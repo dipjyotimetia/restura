@@ -1,4 +1,5 @@
 import { GrpcStatusCode, GrpcStatusCodeName } from '@shared/protocol/grpc-status';
+import type { GrpcStatusDetail } from '@shared/protocol/grpc-status-details';
 import type { AuthConfig } from './auth';
 import type { KeyValue } from './common';
 import type { Response } from './http';
@@ -60,7 +61,14 @@ export interface GrpcResponse extends Response {
   trailers?: Record<string, string>;
   messages?: string[]; // For streaming responses, each message as JSON string
   isStreaming?: boolean;
+  /**
+   * Decoded rich error details (google.rpc.Status `details`: BadRequest,
+   * ErrorInfo, RetryInfo, …). Unknown types carry `raw` base64. Absent on OK.
+   */
+  statusDetails?: GrpcStatusDetail[];
 }
+
+export type { GrpcStatusDetail };
 
 // Proto File Definition (parsed)
 export interface ProtoServiceDefinition {
