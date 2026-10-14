@@ -136,6 +136,19 @@ describe('OpenCollection gRPC schema snapshot extension', () => {
     expect(back[0]?.schema).toBeUndefined();
   });
 
+  it('round-trips a streaming request\'s "No deadline" (timeout 0)', () => {
+    const collection: Collection = {
+      id: 'c',
+      name: 'Watch',
+      items: [item(grpc('Watch', { methodType: 'server-streaming', timeout: 0 }))],
+    };
+    const back = grpcRequests(
+      ocToInternal(parseOpenCollectionYAML(serializeOpenCollectionYAML(internalToOC(collection))))
+        .items
+    );
+    expect(back[0]?.timeout).toBe(0);
+  });
+
   it('ignores unknown hashes and malformed entries on import', () => {
     const oc = internalToOC(fixture());
     const ext = (oc.extensions as Record<string, unknown>)[GRPC_EXTENSION_KEY] as {

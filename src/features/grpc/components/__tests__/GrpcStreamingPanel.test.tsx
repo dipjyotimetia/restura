@@ -100,6 +100,24 @@ describe('GrpcStreamingPanel', () => {
     useConsoleStore.setState({ frames: [] });
   });
 
+  // GRPC-3 (#879): the request's deadline is forwarded — "No deadline" (0)
+  // included — instead of the transport's 30s default.
+  it.each([
+    [undefined, 30000],
+    [5000, 5000],
+    [0, 0],
+  ])('starts the stream with the request deadline (timeout %s → %s)', async (timeout, expected) => {
+    const { handle } = makeControlledHandle();
+    vi.mocked(streamingModule.startGrpcStream).mockResolvedValue(handle as never);
+    render(<GrpcStreamingPanel request={{ ...mockRequest, timeout }} />);
+    fireEvent.click(screen.getByRole('button', { name: /start stream/i }));
+    await waitFor(() =>
+      expect(streamingModule.startGrpcStream).toHaveBeenCalledWith(
+        expect.objectContaining({ timeoutMs: expected })
+      )
+    );
+  });
+
   it('starts streaming and renders messages as they arrive', async () => {
     async function* messageGen() {
       yield { i: 1 };

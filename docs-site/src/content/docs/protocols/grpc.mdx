@@ -27,6 +27,12 @@ When you save a gRPC request to a collection, Restura stores a snapshot of the s
 - **Response** — the **Body** tab offers Pretty / Raw / Tree views, a JSONPath query, find, copy, and download (a streamed response's frames appear as one JSON array, indexed by frame). **Headers** shows the server's leading metadata and **Trailers** the `grpc-status` / `grpc-message` and any trailing metadata.
 - **`{{variables}}` in the URL** — autocompleted and highlighted (unresolved names are flagged). Resolved from the active environment and globals at call time.
 
+### Deadlines and long-lived streams
+
+Each call has a deadline, set in the **Timeout (ms)** field next to the request tabs. The default is 30 seconds. Streaming methods also have a **No deadline** checkbox, so watch or subscribe streams can stay open until you cancel them. Unary calls and collection runs always have a deadline.
+
+On desktop, a stream with no messages in either direction for 15 minutes is closed. Its activity resets that timer, so a stream that keeps sending messages stays open. Every way a stream can end sends a final status, so the request leaves the streaming state. That includes a deadline, an idle close, and a cancel. Each message can be up to 10 MB; a bigger one ends the call with `RESOURCE_EXHAUSTED`.
+
 ## Authentication
 
 **Bearer**, **Basic**, **API Key** (header placement) and **OAuth 2.0** are sent as lowercase metadata. Keychain-stored secrets are resolved in the main process on desktop.

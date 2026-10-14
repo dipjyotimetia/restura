@@ -351,9 +351,11 @@ export const GrpcRequestConfigSchema = z
       .max(1024, 'Too many descriptors')
       .optional(),
     useCompression: z.boolean().optional(),
-    // Per-call deadline in ms. Applied as the ConnectRPC `timeoutMs` call option
-    // on unary and streaming invocations; omitted → no deadline. Capped at 10min.
-    timeoutMs: z.number().int().positive().max(600_000).optional(),
+    // Per-call deadline in ms, applied as the ConnectRPC `timeoutMs` call option.
+    // A finite deadline is capped at 10min. `0` = "no deadline" — streaming
+    // methods only (refine below), so watch/subscribe streams can stay open.
+    // The buffered `grpc:request` path applies a default when 0/omitted.
+    timeoutMs: z.number().int().min(0).max(600_000).optional(),
     // Present only when a credential carries a SecretRef handle the renderer
     // cannot resolve (ADR-0007). The handler resolves it main-side via the OS
     // keychain and merges it into the metadata. Inline/plain creds are already
@@ -365,6 +367,10 @@ export const GrpcRequestConfigSchema = z
   .refine((c) => Boolean(c.protoContent) || Boolean(c.descriptors?.length), {
     message: 'Either protoContent or descriptors is required',
     path: ['protoContent'],
+  })
+  .refine((c) => !(c.methodType === 'unary' && c.timeoutMs === 0), {
+    message: 'A unary call needs a deadline; "no deadline" (0) is for streaming methods only',
+    path: ['timeoutMs'],
   });
 
 export type GrpcRequestConfig = z.infer<typeof GrpcRequestConfigSchema>;

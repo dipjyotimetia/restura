@@ -183,6 +183,35 @@ describe('validateIpcInput', () => {
       const input = { ...validGrpc, protoContent: 'x'.repeat(MAX_PROTO_CONTENT_BYTES + 1) };
       expect(() => validateIpcInput(GrpcRequestConfigSchema, input, 'grpc:invoke')).toThrow();
     });
+
+    // GRPC-3 (#879): timeoutMs 0 = "no deadline", allowed for streaming only.
+    it.each(['server-streaming', 'client-streaming', 'bidirectional-streaming'] as const)(
+      'accepts timeoutMs 0 (no deadline) for %s',
+      (methodType) => {
+        const result = GrpcRequestConfigSchema.safeParse({
+          ...validGrpc,
+          methodType,
+          timeoutMs: 0,
+        });
+        expect(result.success).toBe(true);
+      }
+    );
+
+    it('rejects timeoutMs 0 (no deadline) for unary', () => {
+      const result = GrpcRequestConfigSchema.safeParse({ ...validGrpc, timeoutMs: 0 });
+      expect(result.success).toBe(false);
+    });
+
+    it('still caps a finite deadline at 10 minutes and rejects negatives', () => {
+      for (const timeoutMs of [600_001, -1]) {
+        const result = GrpcRequestConfigSchema.safeParse({
+          ...validGrpc,
+          methodType: 'server-streaming',
+          timeoutMs,
+        });
+        expect(result.success).toBe(false);
+      }
+    });
   });
 
   describe('FilePathSchema', () => {

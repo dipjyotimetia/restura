@@ -16,6 +16,7 @@ import { useConsoleStore } from '@/store/useConsoleStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import type { GrpcRequest, GrpcStatusCode } from '@/types';
 import { GrpcStatusCodeName } from '@/types';
+import { grpcDeadlineMs } from '../lib/grpcDeadline';
 import { type GrpcStreamingHandle, startGrpcStream } from '../lib/grpcStreamingClient';
 
 export interface GrpcStreamingPanelProps {
@@ -117,6 +118,9 @@ export function GrpcStreamingPanel({
         protoContent,
         protoFileName,
         ...(descriptors?.length ? { descriptors } : {}),
+        // The request's deadline (0 = "No deadline" for streams) — not the
+        // transport default, which cut every web stream off at 30s.
+        timeoutMs: grpcDeadlineMs(request),
       });
       handleRef.current = handle;
       streamFrame('system', `stream opened — ${request.methodType}`);
