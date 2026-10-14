@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { BinaryWriter, base64Encode } from '@bufbuild/protobuf/wire';
 import { describe, expect, it, vi } from 'vitest';
 import { type Equals, expectTypeEqual } from '../../tests/helpers/typeEquality';
 import {
@@ -71,6 +72,31 @@ function fetcherReturning(
       body: streamOf([bytes.subarray(0, 3), bytes.subarray(3)]),
     };
   };
+}
+
+/** base64 google.rpc.Status{code 8, details:[Any(ErrorInfo{reason, domain})]}. */
+function statusBinWithErrorInfo(): string {
+  const info = new BinaryWriter()
+    .tag(1, 2)
+    .string('QUOTA')
+    .tag(2, 2)
+    .string('example.com')
+    .finish();
+  const any = new BinaryWriter()
+    .tag(1, 2)
+    .string('type.googleapis.com/google.rpc.ErrorInfo')
+    .tag(2, 2)
+    .bytes(info)
+    .finish();
+  const status = new BinaryWriter()
+    .tag(1, 0)
+    .int32(8)
+    .tag(2, 2)
+    .string('quota')
+    .tag(3, 2)
+    .bytes(any)
+    .finish();
+  return base64Encode(status);
 }
 
 async function run(s: GrpcWebSpec, fetcher: Fetcher, opts: ExecuteGrpcWebOptions = OPTS) {
@@ -231,6 +257,38 @@ describe('executeGrpcWebProxy — response parsing', () => {
     expect(out.end.grpcStatus).toBe(5);
     expect(out.end.grpcStatusText).toBe('NOT_FOUND');
     expect(out.end.grpcMessage).toBe('no such thing');
+  });
+
+  it('decodes grpc-status-details-bin into end.statusDetails (#883)', async () => {
+    const bin = statusBinWithErrorInfo();
+    const out = await run(
+      spec(),
+      fetcherReturning(
+        trailerFrame(`grpc-status: 8\r\ngrpc-message: quota\r\ngrpc-status-details-bin: ${bin}\r\n`)
+      )
+    );
+    expect(out.end.grpcStatus).toBe(8);
+    expect(out.end.statusDetails).toEqual([
+      { type: 'google.rpc.ErrorInfo', value: { reason: 'QUOTA', domain: 'example.com' } },
+    ]);
+    // The raw trailer stays available for a schema-aware re-decode.
+    expect(out.end.trailers['grpc-status-details-bin']).toBe(bin);
+  });
+
+  it('decodes status details from trailers-only headers and skips them on OK', async () => {
+    const bin = statusBinWithErrorInfo();
+    const failed = await run(
+      spec(),
+      fetcherReturning(new Uint8Array(0), {
+        headers: { 'grpc-status': '8', 'grpc-status-details-bin': bin },
+      })
+    );
+    expect(failed.end.statusDetails?.[0]?.type).toBe('google.rpc.ErrorInfo');
+    const ok = await run(
+      spec(),
+      fetcherReturning(trailerFrame(`grpc-status: 0\r\ngrpc-status-details-bin: ${bin}\r\n`))
+    );
+    expect(ok.end.statusDetails).toBeUndefined();
   });
 
   it('handles trailers-only responses (status in HTTP headers)', async () => {
