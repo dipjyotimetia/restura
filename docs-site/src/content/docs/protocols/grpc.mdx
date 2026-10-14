@@ -27,6 +27,18 @@ When the request has a schema (an upload, or reflection descriptors on desktop),
 
 The same policy applies to collection runs and to every message of a stream. Previously unknown keys were always dropped silently, so a typo sent the field's default value.
 
+## Wire protocol
+
+The request's **Settings → Wire Protocol** selector is saved with the request (and in OpenCollection exports):
+
+- **Auto** (default) — desktop dials native gRPC and falls back to Connect when the server rejects it; web sends Connect JSON through the Worker (unary, no schema needed).
+- **gRPC** <Badge text="desktop" variant="caution" /> — native gRPC over HTTP/2 only, no fallback.
+- **gRPC-Web** — binary `application/grpc-web+proto`, for servers behind an Envoy `grpc_web` filter, grpcwebproxy, or any Connect/gRPC-Web server. Unary and server streaming work on web (relayed by the Worker's `/api/grpc-web`, messages streamed as they arrive) and desktop. Needs the schema — reflect or upload a `.proto` first.
+- **gRPC-Web text** <Badge text="web" variant="note" /> — the base64 `application/grpc-web-text` variant.
+- **Connect** — Connect protocol only.
+
+gRPC-Web has no request streaming, so client and bidirectional streaming need native gRPC on desktop.
+
 ## Streaming
 
 - **Unary** — request-response.

@@ -41,6 +41,7 @@ The Worker runs as a Cloudflare Pages Function, co-deployed with the SPA. It han
 - HTTP proxying (`/api/proxy`)
 - gRPC unary + streaming (`/api/grpc`)
 - gRPC reflection (`/api/grpc/reflection`)
+- gRPC-Web unary + server streaming (`/api/grpc-web`)
 - MCP server proxy (`/api/mcp`)
 
 SSRF guards in `shared/protocol/url-validation.ts` block private/localhost URLs in production. See [Shared Protocol Layer](#shared-protocol-layer) below — the same guard runs on the desktop side.
@@ -403,6 +404,7 @@ The Worker is a Hono application deployed as a Cloudflare Pages Function (`_work
 | `POST /api/proxy`           | `proxy.ts`           | HTTP/HTTPS request proxying |
 | `POST /api/grpc`            | `grpc.ts`            | gRPC unary + streaming      |
 | `POST /api/grpc/reflection` | `grpc-reflection.ts` | gRPC server reflection      |
+| `POST /api/grpc-web`        | `grpc-web.ts`        | gRPC-Web unary + streaming  |
 | `POST /api/mcp`             | `mcp.ts`             | MCP server proxy            |
 
 ---
