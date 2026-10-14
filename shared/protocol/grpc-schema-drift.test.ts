@@ -215,3 +215,44 @@ service NewService { rpc A (GetReq) returns (GetRes); }
     expect(() => diffGrpcSnapshots(proto('this is not proto'), proto(BASE))).toThrow();
   });
 });
+
+describe('diffGrpcSnapshots — reverse and element-type changes', () => {
+  const variant = (edit: (s: string) => string) => proto(edit(BASE));
+
+  it('reports streaming being turned on as well as off', () => {
+    const unary = variant((s) => s.replace('returns (stream GetRes)', 'returns (GetRes)'));
+    const clientStream = variant((s) => s.replace('rpc Get (GetReq)', 'rpc Get (stream GetReq)'));
+    expect(
+      find(diffGrpcSnapshots(unary, proto(BASE)).changes, 'RPC_SAME_SERVER_STREAMING')?.message
+    ).toBe('Server streaming enabled');
+    expect(
+      find(diffGrpcSnapshots(clientStream, proto(BASE)).changes, 'RPC_SAME_CLIENT_STREAMING')
+        ?.message
+    ).toBe('Client streaming disabled');
+  });
+
+  it('reports a field moving into a oneof', () => {
+    const outside = variant((s) =>
+      s.replace(
+        'oneof key { string sku = 2; string ean = 3; }',
+        'string sku = 2; oneof key { string ean = 3; }'
+      )
+    );
+    expect(find(diffGrpcSnapshots(outside, proto(BASE)).changes, 'FIELD_SAME_ONEOF')?.message).toBe(
+      'Oneof changed: (none) → key'
+    );
+  });
+
+  it('names enum and message element types of repeated and map fields', () => {
+    const repeatedEnum = variant((s) => s.replace('repeated string tags', 'repeated Status tags'));
+    const repeatedMsg = variant((s) => s.replace('repeated string tags', 'repeated Item tags'));
+    expect(diffGrpcSnapshots(repeatedEnum, repeatedMsg).changes[0]?.message).toBe(
+      'Type changed: repeated shop.v1.Status → repeated shop.v1.Item'
+    );
+    const mapEnum = variant((s) => s.replace('map<string, int32>', 'map<string, Status>'));
+    const mapMsg = variant((s) => s.replace('map<string, int32>', 'map<string, Item>'));
+    expect(diffGrpcSnapshots(mapEnum, mapMsg).changes[0]?.message).toBe(
+      'Type changed: map<string, shop.v1.Status> → map<string, shop.v1.Item>'
+    );
+  });
+});
