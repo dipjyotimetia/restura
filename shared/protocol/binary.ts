@@ -92,3 +92,30 @@ export async function readStreamToBytes(
   }
   return out;
 }
+
+/** A response-like object: a body stream when the runtime surfaces one, else `text()`. */
+export interface BoundedReadable {
+  body?: ReadableStream<Uint8Array> | null;
+  text: () => Promise<string>;
+}
+
+/**
+ * Read a response body as UTF-8 text without buffering more than `maxBytes`.
+ * Streams when a body stream is available — cancelling the upstream the moment
+ * the cap is crossed, so a chunked (no content-length) body can't grow the
+ * isolate's memory unbounded. Falls back to `text()` + a length check only for
+ * fetchers that expose no stream. Returns `null` when the body is oversize.
+ */
+export async function readBoundedText(
+  response: BoundedReadable,
+  maxBytes: number
+): Promise<{ text: string; bytes: number } | null> {
+  if (response.body) {
+    const bytes = await readStreamToBytes(response.body, maxBytes);
+    if (bytes === null) return null;
+    return { text: new TextDecoder().decode(bytes), bytes: bytes.byteLength };
+  }
+  const text = await response.text();
+  const bytes = new TextEncoder().encode(text).byteLength;
+  return bytes > maxBytes ? null : { text, bytes };
+}

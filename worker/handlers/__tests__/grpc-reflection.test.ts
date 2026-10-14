@@ -3,6 +3,7 @@
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createGrpcReflectionHandler, grpcReflection } from '../grpc-reflection';
+import { endlessChunkedBody, MAX_PULLS_FOR_10MB_CAP } from './chunked-body';
 
 const app = new Hono<{ Bindings: { ENVIRONMENT?: string } }>();
 app.post('/grpc/reflection', grpcReflection);
@@ -178,5 +179,26 @@ describe('grpcReflection handler', () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as Record<string, unknown>;
     expect(json.reflectionVersion).toBe('v1alpha');
+  });
+});
+
+describe('grpcReflection bounded upstream read (#933)', () => {
+  it('aborts a chunked oversize body with 413 and does not retry v1alpha', async () => {
+    const { stream, state } = endlessChunkedBody();
+    const mockFetch = vi.fn().mockResolvedValue(new Response(stream, { status: 200 }));
+    vi.stubGlobal('fetch', mockFetch);
+
+    const res = await makeRequest({
+      url: 'https://api.example.com',
+      request: { listServices: '' },
+    });
+
+    expect(res.status).toBe(413);
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.grpcStatusText).toBe('RESOURCE_EXHAUSTED');
+    expect(json.error).toMatch(/exceeds maximum/);
+    expect(state.cancelled).toBe(true);
+    expect(state.pulled).toBeLessThan(MAX_PULLS_FOR_10MB_CAP);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });

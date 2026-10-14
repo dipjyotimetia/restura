@@ -1,3 +1,4 @@
+import { readBoundedText } from '@shared/protocol/binary';
 import {
   type GrpcReflectionRequestBody,
   GrpcReflectionRequestBodySchema,
@@ -12,6 +13,17 @@ import { parseJsonBody } from '../shared/validate-body';
 
 const REFLECTION_SERVICE_V1 = 'grpc.reflection.v1.ServerReflection';
 const REFLECTION_SERVICE_V1_ALPHA = 'grpc.reflection.v1alpha.ServerReflection';
+
+/**
+ * The upstream answered but its body crossed `MAX_RESPONSE_SIZE`. Distinct so
+ * the handler maps it to 413 and skips the v1alpha retry (the server spoke).
+ */
+export class ReflectionTooLargeError extends Error {
+  constructor() {
+    super(`Response size exceeds maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`);
+    this.name = 'ReflectionTooLargeError';
+  }
+}
 
 async function sendReflectionRequest(
   baseUrl: string,
@@ -47,26 +59,28 @@ async function sendReflectionRequest(
       signal: controller.signal,
     });
 
-    clearTimeout(timeoutId);
-
     if (!response.ok) {
       throw new Error(`Reflection request failed: ${response.statusText}`);
     }
 
     const contentLength = response.headers.get('content-length');
     if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_SIZE) {
-      throw new Error(
-        `Response size exceeds maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`
-      );
+      throw new ReflectionTooLargeError();
     }
 
-    return await response.json();
+    // Bounded read (#933): a chunked body without content-length is cut off
+    // at the cap rather than buffered whole by response.json().
+    const read = await readBoundedText(response, MAX_RESPONSE_SIZE);
+    if (read === null) throw new ReflectionTooLargeError();
+    return JSON.parse(read.text);
   } catch (error) {
-    clearTimeout(timeoutId);
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error('Reflection request timed out');
     }
     throw error;
+  } finally {
+    // Covers the body read too, so a slow-drip body can't outlive the timeout.
+    clearTimeout(timeoutId);
   }
 }
 
@@ -105,6 +119,9 @@ export function createGrpcReflectionHandler(nodeHostnameGuard?: NodeHostnameGuar
         dnsGuardOptions
       );
     } catch (err) {
+      if (err instanceof ReflectionTooLargeError) {
+        return c.json({ error: err.message, grpcStatusText: 'RESOURCE_EXHAUSTED' }, 413);
+      }
       v1Error = err;
       reflectionVersion = 'v1alpha';
       try {
@@ -116,6 +133,9 @@ export function createGrpcReflectionHandler(nodeHostnameGuard?: NodeHostnameGuar
           dnsGuardOptions
         );
       } catch (alphaErr) {
+        if (alphaErr instanceof ReflectionTooLargeError) {
+          return c.json({ error: alphaErr.message, grpcStatusText: 'RESOURCE_EXHAUSTED' }, 413);
+        }
         const v1Msg = v1Error instanceof Error ? v1Error.message : String(v1Error);
         const alphaMsg = alphaErr instanceof Error ? alphaErr.message : String(alphaErr);
         return c.json(
