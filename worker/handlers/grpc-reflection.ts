@@ -1,156 +1,78 @@
-import { readBoundedText } from '@shared/protocol/binary';
-import {
-  type GrpcReflectionRequestBody,
-  GrpcReflectionRequestBodySchema,
-} from '@shared/protocol/grpc-schema';
-import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
-import { validateURL } from '@shared/protocol/url-validation';
+import { executeGrpcReflectionProxy } from '@shared/protocol/grpc-reflection-proxy';
+import { GrpcReflectionRequestBodySchema } from '@shared/protocol/grpc-schema';
+import type { Fetcher } from '@shared/protocol/types';
 import type { Context } from 'hono';
 import type { NodeHostnameGuard } from '../adapters';
 import type { Env } from '../env';
 import { allowPrivateIPs, isLocalDevBypass } from '../shared/env';
 import { parseJsonBody } from '../shared/validate-body';
 
-const REFLECTION_SERVICE_V1 = 'grpc.reflection.v1.ServerReflection';
-const REFLECTION_SERVICE_V1_ALPHA = 'grpc.reflection.v1alpha.ServerReflection';
-
 /**
- * The upstream answered but its body crossed `MAX_RESPONSE_SIZE`. Distinct so
- * the handler maps it to 413 and skips the v1alpha retry (the server spoke).
+ * Fetch used for the reflection upstream hop. Reflection is a bidi-streaming
+ * RPC that Connect servers only accept over HTTP/2, so the Node entry injects
+ * an h2-capable fetch (undici `allowH2`); Workers use the runtime fetch.
  */
-export class ReflectionTooLargeError extends Error {
-  constructor() {
-    super(`Response size exceeds maximum limit of ${MAX_RESPONSE_SIZE / 1024 / 1024}MB`);
-    this.name = 'ReflectionTooLargeError';
-  }
-}
+export type ReflectionFetch = (input: string, init: RequestInit) => Promise<Response>;
 
-async function sendReflectionRequest(
-  baseUrl: string,
-  reflectionServiceName: string,
-  request: GrpcReflectionRequestBody['request'],
-  timeout: number,
-  dnsGuardOptions?: {
-    guard: NodeHostnameGuard;
-    allowLocalhost: boolean;
-    allowPrivateIPs: boolean;
-  }
-): Promise<unknown> {
-  const path = `/${reflectionServiceName}/ServerReflectionInfo`;
-  const url = `${baseUrl.replace(/\/$/, '')}${path}`;
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-  try {
-    if (dnsGuardOptions) {
-      await dnsGuardOptions.guard(new URL(url).hostname, {
-        allowLocalhost: dnsGuardOptions.allowLocalhost,
-        allowPrivateIPs: dnsGuardOptions.allowPrivateIPs,
+function buildFetcher(
+  fetchImpl: ReflectionFetch,
+  isDev: boolean,
+  permitPrivateIPs: boolean,
+  nodeHostnameGuard?: NodeHostnameGuard
+): Fetcher {
+  return async (req) => {
+    if (nodeHostnameGuard) {
+      await nodeHostnameGuard(new URL(req.url).hostname, {
+        allowLocalhost: isDev,
+        allowPrivateIPs: permitPrivateIPs,
       });
     }
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      body: JSON.stringify(request),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      throw new Error(`Reflection request failed: ${response.statusText}`);
-    }
-
-    const contentLength = response.headers.get('content-length');
-    if (contentLength && parseInt(contentLength, 10) > MAX_RESPONSE_SIZE) {
-      throw new ReflectionTooLargeError();
-    }
-
-    // Bounded read (#933): a chunked body without content-length is cut off
-    // at the cap rather than buffered whole by response.json().
-    const read = await readBoundedText(response, MAX_RESPONSE_SIZE);
-    if (read === null) throw new ReflectionTooLargeError();
-    return JSON.parse(read.text);
-  } catch (error) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('Reflection request timed out');
-    }
-    throw error;
-  } finally {
-    // Covers the body read too, so a slow-drip body can't outlive the timeout.
-    clearTimeout(timeoutId);
-  }
+    const init: RequestInit = {
+      method: req.method,
+      headers: req.headers,
+      signal: req.signal,
+      // Never follow a redirect off the SSRF-validated host.
+      redirect: 'manual',
+    };
+    if (req.body !== undefined) init.body = req.body;
+    const r = await fetchImpl(req.url, init);
+    return {
+      status: r.status,
+      statusText: r.statusText,
+      headers: r.headers,
+      text: () => r.text(),
+      arrayBuffer: () => r.arrayBuffer(),
+      body: r.body,
+      contentLengthHeader: r.headers.get('content-length'),
+    };
+  };
 }
 
-export function createGrpcReflectionHandler(nodeHostnameGuard?: NodeHostnameGuard) {
+export function createGrpcReflectionHandler(
+  nodeHostnameGuard?: NodeHostnameGuard,
+  fetchImpl?: ReflectionFetch
+) {
   return async function grpcReflectionHandler(c: Context<{ Bindings: Env }>) {
     const parsed = await parseJsonBody(c.req.raw, GrpcReflectionRequestBodySchema);
     if (!parsed.ok) {
       return c.json({ error: parsed.error }, parsed.status);
     }
-    const { url, request, timeout = 30000 } = parsed.value;
 
     // Same gate as worker/index.ts auth — see proxy.ts for rationale.
     const isDev = isLocalDevBypass(c.env);
     const permitPrivateIPs = allowPrivateIPs(c.env);
-    const urlValidation = validateURL(url, {
-      allowPrivateIPs: permitPrivateIPs,
-      allowLocalhost: isDev,
-    });
-    if (!urlValidation.valid) {
-      return c.json({ error: `Invalid URL: ${urlValidation.error}` }, 400);
+    // Resolve the global lazily so tests (and runtimes) that swap it are honoured.
+    const doFetch: ReflectionFetch = fetchImpl ?? ((input, init) => fetch(input, init));
+
+    const result = await executeGrpcReflectionProxy(
+      parsed.value,
+      buildFetcher(doFetch, isDev, permitPrivateIPs, nodeHostnameGuard),
+      { allowLocalhost: isDev, allowPrivateIPs: permitPrivateIPs }
+    );
+    if (!result.ok) {
+      return c.json(result.payload, result.status as 400 | 413 | 500);
     }
-
-    let response: unknown;
-    let reflectionVersion = 'v1';
-    let v1Error: unknown;
-    const dnsGuardOptions = nodeHostnameGuard
-      ? { guard: nodeHostnameGuard, allowLocalhost: isDev, allowPrivateIPs: permitPrivateIPs }
-      : undefined;
-
-    try {
-      response = await sendReflectionRequest(
-        url,
-        REFLECTION_SERVICE_V1,
-        request,
-        timeout,
-        dnsGuardOptions
-      );
-    } catch (err) {
-      if (err instanceof ReflectionTooLargeError) {
-        return c.json({ error: err.message, grpcStatusText: 'RESOURCE_EXHAUSTED' }, 413);
-      }
-      v1Error = err;
-      reflectionVersion = 'v1alpha';
-      try {
-        response = await sendReflectionRequest(
-          url,
-          REFLECTION_SERVICE_V1_ALPHA,
-          request,
-          timeout,
-          dnsGuardOptions
-        );
-      } catch (alphaErr) {
-        if (alphaErr instanceof ReflectionTooLargeError) {
-          return c.json({ error: alphaErr.message, grpcStatusText: 'RESOURCE_EXHAUSTED' }, 413);
-        }
-        const v1Msg = v1Error instanceof Error ? v1Error.message : String(v1Error);
-        const alphaMsg = alphaErr instanceof Error ? alphaErr.message : String(alphaErr);
-        return c.json(
-          { error: `Reflection failed on v1 (${v1Msg}) and v1alpha (${alphaMsg})` },
-          500
-        );
-      }
-    }
-
-    const responseData =
-      typeof response === 'object' && response !== null
-        ? { ...(response as Record<string, unknown>), reflectionVersion }
-        : { data: response, reflectionVersion };
-
-    return c.json(responseData);
+    return c.json(result.response);
   };
 }
 

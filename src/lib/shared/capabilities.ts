@@ -196,7 +196,13 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     notes:
       'Web uses Connect transport (unary via /api/grpc; server-streaming connects directly, CORS permitting) — client/bidi streaming is desktop-only; desktop uses native gRPC with automatic Connect-protocol fallback',
   },
-  'grpc.reflection': { label: 'gRPC reflection', web: true, desktop: true },
+  'grpc.reflection': {
+    label: 'gRPC reflection',
+    web: true,
+    desktop: true,
+    notes:
+      'Web reflects Connect-protocol servers (v1 with v1alpha fallback) via /api/grpc/reflection; the bidi RPC needs an HTTP/2 upstream hop (self-host negotiates h2 over TLS) — gRPC-only servers need desktop',
+  },
   'kafka.basic': {
     label: 'Kafka produce / consume',
     web: false,

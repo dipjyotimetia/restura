@@ -135,10 +135,11 @@ async function* bodyToIterable(body: ReadableStream<Uint8Array> | null): AsyncIt
 export async function connectEcho(req: Request): Promise<Response | null> {
   const url = new URL(req.url);
 
-  // Plain-JSON reflection shim — the format the web Worker proxy sends
-  // (worker/handlers/grpc-reflection.ts). Connect-framed reflection
-  // (application/connect+*) falls through to the router's real
-  // ServerReflection service below.
+  // LEGACY plain-JSON reflection shim, kept only for web builds that predate
+  // #875. The Worker proxy (shared/protocol/grpc-reflection-proxy.ts) now
+  // sends Connect streaming framing (application/connect+json), which falls
+  // through to the router's real ServerReflection service below — exactly
+  // what any standard Connect server sees. Safe to delete once old clients age out.
   const mediaType = (req.headers.get('content-type') ?? '').split(';')[0]?.trim().toLowerCase();
   if (REFLECTION_PATHS.has(url.pathname) && mediaType === 'application/json') {
     if (req.method !== 'POST') return new Response(null, { status: 405 });

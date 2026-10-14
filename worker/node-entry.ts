@@ -11,7 +11,7 @@ import { serve } from '@hono/node-server';
 import { serveStatic } from '@hono/node-server/serve-static';
 import { createNodeWebSocket } from '@hono/node-ws';
 import { Hono } from 'hono';
-import { EnvHttpProxyAgent, setGlobalDispatcher } from 'undici';
+import { Agent, EnvHttpProxyAgent, setGlobalDispatcher, fetch as undiciFetch } from 'undici';
 import { createApp } from './app';
 import type { Env } from './env';
 import { createNodeWebsocketHandler } from './handlers/websocket-node';
@@ -31,14 +31,28 @@ const HOST = process.env.HOST ?? '0.0.0.0';
 // through the operator's proxy with NO_PROXY bypass. The explicit per-request
 // `upstreamProxy` path frames its own CONNECT/HTTP via node:net and bypasses
 // global fetch entirely, so it keeps precedence. No-op when neither var is set.
-if (
+const hasEnvProxy = Boolean(
   process.env.HTTP_PROXY ||
-  process.env.http_proxy ||
-  process.env.HTTPS_PROXY ||
-  process.env.https_proxy
-) {
+    process.env.http_proxy ||
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy
+);
+if (hasEnvProxy) {
   setGlobalDispatcher(new EnvHttpProxyAgent());
 }
+
+// gRPC reflection (ServerReflectionInfo) is bidi-streaming; Connect servers
+// reject it over HTTP/1.1 with 505. Node's built-in fetch never negotiates h2,
+// so reflection uses npm undici with `allowH2` (ALPN over TLS; cleartext h2c
+// upstreams are not reachable this way). Same env-proxy behaviour as above.
+const reflectionDispatcher = hasEnvProxy
+  ? new EnvHttpProxyAgent({ allowH2: true })
+  : new Agent({ allowH2: true });
+const grpcReflectionFetch = (input: string, init: RequestInit): Promise<Response> =>
+  undiciFetch(input, {
+    ...(init as Parameters<typeof undiciFetch>[1]),
+    dispatcher: reflectionDispatcher,
+  }) as unknown as Promise<Response>;
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -107,6 +121,7 @@ createApp(
       dnsGuardOpts
     ),
     nodeHostnameGuard: assertNodeHostnameSafe,
+    grpcReflectionFetch,
   },
   app
 );

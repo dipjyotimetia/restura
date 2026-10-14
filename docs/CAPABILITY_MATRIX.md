@@ -31,7 +31,7 @@ rather than discover it experimentally.
 | SSE with custom headers | ✅ | ✅ | Web streams via the Worker /api/proxy (fetch-based, not EventSource), so custom headers are forwarded |
 | MCP streamable-http / http-sse | ✅ | ✅ | http-sse transport is desktop-only; web supports streamable-http and rejects http-sse at connect time |
 | gRPC unary + streaming | ✅ | ✅ | Web uses Connect transport (unary via /api/grpc; server-streaming connects directly, CORS permitting) — client/bidi streaming is desktop-only; desktop uses native gRPC with automatic Connect-protocol fallback |
-| gRPC reflection | ✅ | ✅ |  |
+| gRPC reflection | ✅ | ✅ | Web reflects Connect-protocol servers (v1 with v1alpha fallback) via /api/grpc/reflection; the bidi RPC needs an HTTP/2 upstream hop (self-host negotiates h2 over TLS) — gRPC-only servers need desktop |
 | Kafka produce / consume | ❌ | ✅ | Native broker protocol; no browser TCP |
 | MQTT publish / subscribe | ❌ | ✅ | Native broker protocol over raw TCP/TLS; no browser TCP |
 | Socket.IO client | ✅ | ✅ |  |

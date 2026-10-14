@@ -169,7 +169,10 @@ export function createApp(
   app.post('/api/proxy', createProxyHandler(deps.tcpProxy, deps.nodeHostnameGuard));
   app.post('/api/import/fetch', createRemoteImportHandler(deps.nodeHostnameGuard));
   app.post('/api/grpc', createGrpcHandler(deps.nodeHostnameGuard));
-  app.post('/api/grpc/reflection', createGrpcReflectionHandler(deps.nodeHostnameGuard));
+  app.post(
+    '/api/grpc/reflection',
+    createGrpcReflectionHandler(deps.nodeHostnameGuard, deps.grpcReflectionFetch)
+  );
   app.post('/api/mcp', createMcpHandler(deps.nodeHostnameGuard));
   app.post('/api/telemetry/error', telemetryError);
   app.get('/api/feature-flags', featureFlags);

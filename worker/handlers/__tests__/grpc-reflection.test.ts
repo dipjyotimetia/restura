@@ -4,6 +4,7 @@ import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createGrpcReflectionHandler, grpcReflection } from '../grpc-reflection';
 import { endlessChunkedBody, MAX_PULLS_FOR_10MB_CAP } from './chunked-body';
+import { connectStreamResponse } from './connect-stream';
 
 const app = new Hono<{ Bindings: { ENVIRONMENT?: string } }>();
 app.post('/grpc/reflection', grpcReflection);
@@ -28,13 +29,7 @@ describe('grpcReflection handler', () => {
   it('successful v1 reflection returns reflectionVersion v1', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ services: ['helloworld.Greeter'] }), {
-          status: 200,
-          statusText: 'OK',
-          headers: { 'content-type': 'application/json' },
-        })
-      )
+      vi.fn().mockResolvedValue(connectStreamResponse({ services: ['helloworld.Greeter'] }))
     );
 
     const res = await makeRequest({
@@ -52,13 +47,7 @@ describe('grpcReflection handler', () => {
     const mockFetch = vi
       .fn()
       .mockRejectedValueOnce(new Error('v1 not implemented'))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ services: ['helloworld.Greeter'] }), {
-          status: 200,
-          statusText: 'OK',
-          headers: { 'content-type': 'application/json' },
-        })
-      );
+      .mockResolvedValueOnce(connectStreamResponse({ services: ['helloworld.Greeter'] }));
     vi.stubGlobal('fetch', mockFetch);
 
     const res = await makeRequest({
@@ -162,13 +151,7 @@ describe('grpcReflection handler', () => {
     const mockFetch = vi
       .fn()
       .mockRejectedValueOnce(abortError)
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ services: ['helloworld.Greeter'] }), {
-          status: 200,
-          statusText: 'OK',
-          headers: { 'content-type': 'application/json' },
-        })
-      );
+      .mockResolvedValueOnce(connectStreamResponse({ services: ['helloworld.Greeter'] }));
     vi.stubGlobal('fetch', mockFetch);
 
     const res = await makeRequest({
@@ -185,7 +168,12 @@ describe('grpcReflection handler', () => {
 describe('grpcReflection bounded upstream read (#933)', () => {
   it('aborts a chunked oversize body with 413 and does not retry v1alpha', async () => {
     const { stream, state } = endlessChunkedBody();
-    const mockFetch = vi.fn().mockResolvedValue(new Response(stream, { status: 200 }));
+    const mockFetch = vi.fn().mockResolvedValue(
+      new Response(stream, {
+        status: 200,
+        headers: { 'content-type': 'application/connect+json' },
+      })
+    );
     vi.stubGlobal('fetch', mockFetch);
 
     const res = await makeRequest({

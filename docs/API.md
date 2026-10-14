@@ -108,7 +108,7 @@ Body `{ "url": string }` (≤ 2048 chars, 4 KB body cap). Fetches a public impor
 
 ## gRPC and MCP
 
-- `/api/grpc` and `/api/grpc/reflection` run `shared/protocol/grpc-proxy.ts` (Connect protocol over HTTP/1.1). Web supports unary and server streaming; client and bidirectional streaming are desktop-only. Status mapping and Connect envelope framing live in the shared core — see [ADR 0022](adr/0022-grpc-connectrpc-transport.md).
+- `/api/grpc` runs `shared/protocol/grpc-proxy.ts` (Connect protocol over HTTP/1.1). `/api/grpc/reflection` runs `shared/protocol/grpc-reflection-proxy.ts`: `ServerReflectionInfo` is bidi-streaming, so it is sent with Connect streaming framing (`application/connect+json`, enveloped messages; v1, then v1alpha) and needs an HTTP/2 upstream hop — Connect servers answer 505 over HTTP/1.1. The Node/Docker entry negotiates h2 over TLS (undici `allowH2`); cleartext h2c upstreams are desktop-only. Upstream bodies are read with a 10 MB streaming cap (413 / `RESOURCE_EXHAUSTED`). Web supports unary and server streaming; client and bidirectional streaming are desktop-only. Status mapping and Connect envelope framing live in the shared core — see [ADR 0022](adr/0022-grpc-connectrpc-transport.md).
 - `/api/mcp` runs `shared/protocol/mcp-proxy.ts` for streamable-HTTP MCP servers; the HTTP-SSE transport is desktop-only.
 
 Both apply the same SSRF guard as `/api/proxy`. The [capability matrix](CAPABILITY_MATRIX.md) is the authoritative web-vs-desktop breakdown.

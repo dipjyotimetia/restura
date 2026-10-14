@@ -38,4 +38,11 @@ export interface AppDeps {
   tcpProxy: TcpProxyAdapter;
   websocketHandler: WebSocketHandler;
   nodeHostnameGuard?: NodeHostnameGuard;
+  /**
+   * Fetch for the gRPC reflection upstream hop. Reflection is a bidi-streaming
+   * RPC that Connect servers only accept over HTTP/2; Node's built-in fetch
+   * speaks HTTP/1.1, so the Node entry supplies an undici `allowH2` fetch.
+   * Omitted on Cloudflare (runtime fetch).
+   */
+  grpcReflectionFetch?: (input: string, init: RequestInit) => Promise<Response>;
 }
