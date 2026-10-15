@@ -220,6 +220,45 @@ describe('buildSubscriptionHandshake — secret variables', () => {
     expect(JSON.stringify(hs)).not.toContain('LEAKED');
   });
 
+  it('detects and shields whitespace-padded secret tokens like {{ apiSecret }}', () => {
+    const resolveVariables = (text: string) => text.replace(/\{\{\s*apiSecret\s*\}\}/g, 'LEAKED');
+    const desktop = buildSubscriptionHandshake(
+      input({
+        desktop: true,
+        secretVariables,
+        resolveVariables,
+        request: request({
+          headers: [{ id: 'h', key: 'X-Secret', value: 'a {{ apiSecret }} b', enabled: true }],
+          auth: {
+            type: 'bearer',
+            bearer: { token: { kind: 'inline', value: '{{  apiSecret}}' } },
+          },
+        }),
+      })
+    );
+    // Canonicalised token, never resolved in the renderer, forwarded main-side.
+    expect(desktop.headers['X-Secret']).toBe('a {{apiSecret}} b');
+    expect(desktop.connectionParams['X-Secret']).toBeUndefined();
+    expect(desktop.headers.Authorization).toBeUndefined();
+    expect(desktop.mainSide).toEqual({
+      auth: { type: 'bearer', bearer: { token: { kind: 'inline', value: '{{apiSecret}}' } } },
+      secretVariables,
+    });
+    expect(JSON.stringify(desktop)).not.toContain('LEAKED');
+
+    const web = buildSubscriptionHandshake(
+      input({
+        secretVariables,
+        resolveVariables,
+        request: request({
+          headers: [{ id: 'h', key: 'X-Secret', value: '{{ apiSecret }}', enabled: true }],
+        }),
+      })
+    );
+    expect(web.connectionParams['X-Secret']).toBeUndefined();
+    expect(web.unapplied).toEqual([expect.stringContaining('{{apiSecret}}')]);
+  });
+
   it('web: reports referenced secret variables as unapplied', () => {
     const hs = buildSubscriptionHandshake(
       input({

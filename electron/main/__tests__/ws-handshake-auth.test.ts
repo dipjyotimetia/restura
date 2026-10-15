@@ -231,6 +231,39 @@ describe('materializeWsHandshakeAuth', () => {
       expect(out.headers).toEqual({ Authorization: 'Bearer keychain-token' });
     });
 
+    it('substitutes secret variables inside inline SecretRef auth values', async () => {
+      const vars = { tok: handle('h-token'), pass: handle('h-pass') };
+      const bearer = await materializeWsHandshakeAuth({
+        url: 'wss://a.example/x',
+        auth: { type: 'bearer', bearer: { token: { kind: 'inline', value: '{{tok}}' } } } as Auth,
+        secretVariables: vars,
+      });
+      expect(bearer.headers.Authorization).toBe('Bearer keychain-token');
+
+      const basic = await materializeWsHandshakeAuth({
+        url: 'wss://a.example/x',
+        auth: {
+          type: 'basic',
+          basic: { username: 'u', password: { kind: 'inline', value: 'x-{{ pass }}' } },
+        } as Auth,
+        secretVariables: vars,
+      });
+      expect(basic.headers.Authorization).toBe(
+        `Basic ${Buffer.from('u:x-keychain-pass').toString('base64')}`
+      );
+      expect(basic.redact('x-keychain-pass')).toBe('[redacted]');
+
+      const apiKey = await materializeWsHandshakeAuth({
+        url: 'wss://a.example/x',
+        auth: {
+          type: 'api-key',
+          apiKey: { key: 'k', value: { kind: 'inline', value: '{{tok}}' }, in: 'query' },
+        } as Auth,
+        secretVariables: vars,
+      });
+      expect(apiKey.url).toBe('wss://a.example/x?k=keychain-token');
+    });
+
     it('never substitutes secret variables into the API key NAME', async () => {
       await expect(
         materializeWsHandshakeAuth({

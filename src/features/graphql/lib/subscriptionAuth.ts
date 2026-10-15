@@ -109,10 +109,20 @@ function authStrings(auth: AuthConfig): string[] {
   return out;
 }
 
+/**
+ * `{{name}}` with optional inner whitespace — the same token grammar Electron
+ * main's `replaceSecretVariableTokens` accepts, so `{{ apiSecret }}` is
+ * detected and shielded too.
+ */
+function secretTokenPattern(name: string, flags = ''): RegExp {
+  return new RegExp(`\\{\\{\\s*${escapeRegExp(name)}\\s*\\}\\}`, flags);
+}
+
 function referencedSecrets(texts: string[], secretVariables: Record<string, SecretValue>) {
-  return Object.keys(secretVariables).filter((name) =>
-    texts.some((text) => text.includes(`{{${name}}}`))
-  );
+  return Object.keys(secretVariables).filter((name) => {
+    const pattern = secretTokenPattern(name);
+    return texts.some((text) => pattern.test(text));
+  });
 }
 
 function appendQueryParams(url: string, params: Record<string, string>): string {
@@ -149,11 +159,12 @@ export function buildSubscriptionHandshake(
     }
     const shielded = new Map<string, string>();
     for (const key of Object.keys(secretVariables)) {
-      const token = `{{${key}}}`;
-      if (result.includes(token)) {
+      const pattern = secretTokenPattern(key, 'g');
+      if (secretTokenPattern(key).test(result)) {
         const marker = `__restura_secret_${shielded.size}__`;
-        result = result.replaceAll(token, marker);
-        shielded.set(marker, token);
+        result = result.replace(pattern, marker);
+        // Restore the canonical token (main resolves either form).
+        shielded.set(marker, `{{${key}}}`);
       }
     }
     result = input.resolveVariables(result);
