@@ -3,6 +3,9 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { internalToOC } from '@shared/opencollection/from-internal';
+import { serializeOpenCollectionYAML } from '@shared/opencollection/serializer';
+import type { HttpRequest } from '@shared/types';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Reporter } from '../../reporters/types';
 import { runCollection } from '../runner';
@@ -118,5 +121,66 @@ describe('CLI body building — XML', () => {
   it('keeps a Content-Type the request sets', async () => {
     const last = await run('headers:\n  - { key: content-type, value: text/xml, enabled: true }\n');
     expect(last.contentType).toBe('text/xml');
+  });
+});
+
+describe('CLI body building — GraphQL', () => {
+  // Bundled OpenCollection export of one GraphQL request: the selected
+  // operation rides the x-restura-graphql extension, like an app export.
+  const run = async (body: HttpRequest['body']) => {
+    const request: HttpRequest = {
+      id: 'g',
+      name: 'Gql',
+      type: 'http',
+      method: 'POST',
+      url: `${baseUrl}/graphql`,
+      headers: [],
+      params: [],
+      body,
+      auth: { type: 'none' },
+    };
+    const dir = mkdtempSync(join(tmpdir(), 'restura-gql-'));
+    const file = join(dir, 'collection.yaml');
+    writeFileSync(
+      file,
+      serializeOpenCollectionYAML(
+        internalToOC({
+          id: 'c',
+          name: 'Gql',
+          items: [{ id: 'i', type: 'request', name: 'Gql', request }],
+        })
+      ),
+      'utf-8'
+    );
+    await runCollection(
+      file,
+      { envVars: {}, bail: false, timeoutMs: 5000, allowLocalhost: true },
+      new NoopReporter()
+    );
+    return JSON.parse(captured[captured.length - 1]!.body) as Record<string, unknown>;
+  };
+
+  it('sends the selected operationName of a multi-operation document (#874)', async () => {
+    const sent = await run({
+      type: 'graphql',
+      raw: 'query A { a }\nquery B { b }',
+      graphqlOperationName: 'B',
+      graphqlVariables: '{"x":1}',
+    });
+    expect(sent).toEqual({
+      query: 'query A { a }\nquery B { b }',
+      variables: { x: 1 },
+      operationName: 'B',
+    });
+  });
+
+  it('defaults to the first operation and omits the name for anonymous documents', async () => {
+    expect((await run({ type: 'graphql', raw: 'query A { a } query B { b }' })).operationName).toBe(
+      'A'
+    );
+    expect(await run({ type: 'graphql', raw: '# query Fake\n{ a }' })).toEqual({
+      query: '# query Fake\n{ a }',
+      variables: {},
+    });
   });
 });

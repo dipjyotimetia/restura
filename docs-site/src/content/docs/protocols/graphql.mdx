@@ -11,7 +11,8 @@ GraphQL in Restura is HTTP underneath, but the editor knows the spec: it can int
 
 - **Introspection** — "Refresh Schema" against any GraphQL endpoint; Restura fetches the schema and uses it for completion and validation. The query asks for the full October 2021 spec surface — deprecated arguments and input fields, scalar `specifiedByURL`, repeatable directives and `@oneOf` input objects — and steps down automatically when a server rejects those fields: first without `@oneOf` (for servers that implement the 2021 spec but not `@oneOf`), then the classic introspection query. Other errors, such as introspection being disabled, are shown as-is without a retry. The schema explorer strikes through deprecated fields (reason on hover) and tags `@oneOf` / `@specifiedBy` types; the SDL download keeps all of it. Runs through the shared proxy (so it carries the request's auth + TLS/proxy config and works on desktop, where a direct fetch is CSP-blocked).
 - **Load a schema by hand** — for endpoints with introspection disabled. **Load** (next to the SDL download in the query toolbar, or the upload icon in the schema explorer) accepts a `.graphql` / `.graphqls` / `.gql` SDL file, pasted SDL, or an introspection JSON result (`{ "data": { "__schema": … } }` or `{ "__schema": … }`). Parse errors are shown with their line and column. The schema is saved on the request — it survives reload and travels with the request when saved to a collection or exported to OpenCollection — and drives completion, validation and the schema explorer (marked **IMPORTED**). Refresh asks before replacing an imported schema with an introspection result.
-- **Query / Mutation / Subscription** — operation type detected from the document.
+- **Query / Mutation / Subscription** — the operation type is read from the parsed document, so a leading `#` comment or fragment definition never hides a subscription, and shorthand `{ … }` counts as a query. Queries and mutations POST over HTTP; subscriptions open a `graphql-ws` WebSocket. The send button says which: **Run query**, **Run mutation** or **Subscribe**.
+- **Multiple operations** — when a document defines more than one operation, chips above the editor list them (with a query / mutation / subscription icon). The selected operation is saved on the request (and carried through OpenCollection export/import) and sent as `operationName` — over HTTP and in the subscription's `subscribe` payload. Picking an operation narrows the variables JSON to that operation's variables, keeping values you already typed for names they share. With no selection, the first operation runs.
 - **Variables** — separate JSON editor; resolves environment placeholders (`{{userId}}`).
 - **`{{variables}}` in the URL** — autocompleted and highlighted (unresolved names are flagged). Resolved from the active environment and globals at send time.
 - **Persisted queries** — send by hash if the server supports it.
@@ -35,7 +36,7 @@ WebSocket URLs are derived from the request URL by swapping the scheme (`http(s)
 - **Lifecycle** — the response panel steps through **connecting** → **connected** → a stream of **data** messages → **complete** (or **error** if the server rejects the connection or the document). A 30-second connection timeout aborts the attempt if the server never acknowledges.
 - **Web** — uses the browser's native `WebSocket`. Browsers can't set custom handshake headers, so auth rides the `connection_init` payload instead (Restura's request headers become `connectionParams`).
 - **Desktop** — the socket is tunnelled over the WebSocket IPC bridge, which *can* set real handshake headers, so auth is sent as actual headers on the WS upgrade request rather than (or in addition to) `connection_init`.
-- **Switching operations** — selecting a different operation in a multi-operation document disconnects the previous subscription before starting the new one.
+- **Switching operations** — selecting a different operation in a multi-operation document disconnects the running subscription; the chosen operation's name rides the `subscribe` payload as `operationName`.
 
 <Aside type="note">
 Only header-shaped auth applies to a subscription handshake: Bearer, Basic, API Key, and OAuth 2.0 tokens. Sign-at-wire schemes — Digest, OAuth 1.0a, AWS SigV4, NTLM, WSSE — need the full request body or a challenge/response round-trip, which a WebSocket upgrade doesn't have, so they're not applied to subscriptions even if they're configured on the request.
@@ -46,7 +47,8 @@ Only header-shaped auth applies to a subscription handshake: Bearer, Basic, API 
 - Syntax highlighting + bracket matching.
 - Auto-format (`Cmd+Shift+F` / `Ctrl+Shift+F`).
 - Inline error markers when the document doesn't validate against the schema.
-- Quick switch between operations if the document defines multiple.
+- Operation chips to switch between operations when the document defines several.
+- `Cmd+Enter` / `Ctrl+Enter` inside the query editor runs the operation under the cursor (selecting it); elsewhere it runs the selected operation.
 
 ## Tips
 

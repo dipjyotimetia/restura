@@ -7,6 +7,7 @@ import {
   generateDefaultValue,
   generateVariablesTemplate,
   parseVariables,
+  scopeVariablesToOperation,
   validateGraphQLSyntax,
 } from '../queryParser';
 
@@ -127,6 +128,63 @@ describe('extractOperationName', () => {
   it('returns null for empty string', () => {
     expect(extractOperationName('')).toBeNull();
   });
+
+  it('never takes a name from a comment or a string (GQL-2)', () => {
+    expect(extractOperationName('# query Fake\n{ user { id } }')).toBeNull();
+    expect(extractOperationName('{ search(q: "mutation Nope") { id } }')).toBeNull();
+  });
+
+  it('returns the selected operation name, defaulting to the first', () => {
+    const doc = 'query A { a } query B { b }';
+    expect(extractOperationName(doc)).toBe('A');
+    expect(extractOperationName(doc, 'B')).toBe('B');
+    expect(extractOperationName(doc, 'Stale')).toBe('A');
+  });
+});
+
+describe('parseVariables — operation scoping', () => {
+  const doc = 'query A($id: ID!) { a(id: $id) } mutation B($input: In!, $n: Int = 3) { b }';
+
+  it('returns only the selected operation variables', () => {
+    expect(parseVariables(doc, 'B').map((v) => v.name)).toEqual(['input', 'n']);
+    expect(parseVariables(doc, 'B')[1]).toMatchObject({ defaultValue: '3', isRequired: false });
+  });
+
+  it('defaults to the first operation', () => {
+    expect(parseVariables(doc).map((v) => v.name)).toEqual(['id']);
+  });
+
+  it('falls back to a text scan while the document does not parse', () => {
+    expect(parseVariables('query Q($id: ID!) { user(id: $id) {').map((v) => v.name)).toEqual([
+      'id',
+    ]);
+  });
+});
+
+describe('scopeVariablesToOperation', () => {
+  const vars = parseVariables('query Q($id: ID!, $limit: Int = 5, $tags: [String]) { q }');
+
+  it('keeps values for shared names, adds defaults, drops the rest', () => {
+    const out = scopeVariablesToOperation('{"id":"u-1","stale":true}', vars);
+    expect(JSON.parse(out ?? '')).toEqual({ id: 'u-1', limit: 5, tags: [] });
+  });
+
+  it('treats empty input as an empty object', () => {
+    expect(JSON.parse(scopeVariablesToOperation('', vars) ?? '')).toEqual({
+      id: '',
+      limit: 5,
+      tags: [],
+    });
+  });
+
+  it('returns null (leave untouched) for invalid or non-object JSON', () => {
+    expect(scopeVariablesToOperation('{', vars)).toBeNull();
+    expect(scopeVariablesToOperation('[1]', vars)).toBeNull();
+  });
+
+  it('returns null when nothing would change', () => {
+    expect(scopeVariablesToOperation('{"id":"x","limit":1,"tags":[]}', vars)).toBeNull();
+  });
 });
 
 describe('buildGraphQLRequestBody', () => {
@@ -148,6 +206,11 @@ describe('buildGraphQLRequestBody', () => {
   it('picks the first named operation in a multi-operation document', () => {
     const doc = 'query First { a } query Second { b }';
     expect(buildGraphQLRequestBody(doc, {}).operationName).toBe('First');
+  });
+
+  it('sends the selected operation name', () => {
+    const doc = 'query First { a } query Second { b }';
+    expect(buildGraphQLRequestBody(doc, {}, 'Second').operationName).toBe('Second');
   });
 });
 
@@ -190,8 +253,30 @@ describe('extractOperationType', () => {
     expect(extractOperationType('subscription OnEvent { eventAdded { id } }')).toBe('subscription');
   });
 
-  it('returns null for shorthand query (no keyword)', () => {
-    expect(extractOperationType('{ user { id } }')).toBeNull();
+  it('detects shorthand `{ … }` as a query', () => {
+    expect(extractOperationType('{ user { id } }')).toBe('query');
+  });
+
+  it('detects a comment-first subscription (GQL-1)', () => {
+    expect(extractOperationType('# live\nsubscription OnEvent { eventAdded { id } }')).toBe(
+      'subscription'
+    );
+  });
+
+  it('detects a fragment-first subscription (GQL-1)', () => {
+    expect(
+      extractOperationType('fragment F on E { id }\nsubscription OnEvent { eventAdded { ...F } }')
+    ).toBe('subscription');
+  });
+
+  it('returns the selected operation type in a multi-operation document', () => {
+    const doc = 'query A { a }\nsubscription B { b }';
+    expect(extractOperationType(doc)).toBe('query');
+    expect(extractOperationType(doc, 'B')).toBe('subscription');
+  });
+
+  it('still classifies a subscription that does not parse yet', () => {
+    expect(extractOperationType('# c\nsubscription S { a {')).toBe('subscription');
   });
 
   it('handles leading whitespace', () => {

@@ -3,7 +3,7 @@ import { type OperationDefinitionNode, parse } from 'graphql';
 export type GraphqlOperation = { kind: 'query' | 'mutation'; name?: string };
 
 interface GraphqlRequestShape {
-  body?: { type?: unknown; raw?: unknown };
+  body?: { type?: unknown; raw?: unknown; graphqlOperationName?: unknown };
 }
 
 /**
@@ -30,7 +30,9 @@ export function getGraphqlOperation(request: GraphqlRequestShape): GraphqlOperat
   const operations = parse(envelope.query).definitions.filter(
     (definition): definition is OperationDefinitionNode => definition.kind === 'OperationDefinition'
   );
-  const operationName = envelope.operationName;
+  // An envelope's own operationName wins; renderer-saved query text carries
+  // the picker's selection on the body instead.
+  const operationName = envelope.operationName ?? request.body.graphqlOperationName;
   const operation =
     typeof operationName === 'string'
       ? operations.find((candidate) => candidate.name?.value === operationName)

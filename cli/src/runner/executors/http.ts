@@ -1,3 +1,4 @@
+import { buildGraphQLRequestBody } from '@shared/graphql/operations';
 import type { FormField, ProxyBodyType as ProtocolBodyType } from '@shared/protocol/body-builder';
 import { executeHttpProxy } from '@shared/protocol/http-proxy';
 import type { RedirectPolicy } from '@shared/protocol/types';
@@ -183,18 +184,23 @@ function buildBody(body: HttpRequest['body'] | undefined, vars: Record<string, s
       }
       return {
         bodyType: 'json',
-        data: JSON.stringify({
-          query: raw,
-          variables: (() => {
-            if (body.graphqlVariables === undefined) return {};
-            try {
-              const parsed = JSON.parse(resolveVarsDeep(body.graphqlVariables, vars));
-              return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-            } catch {
-              return {};
-            }
-          })(),
-        }),
+        // Same envelope builder as the app: the selected operation's name
+        // (default: the first operation) rides along as operationName.
+        data: JSON.stringify(
+          buildGraphQLRequestBody(
+            raw,
+            (() => {
+              if (body.graphqlVariables === undefined) return {};
+              try {
+                const parsed = JSON.parse(resolveVarsDeep(body.graphqlVariables, vars));
+                return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+              } catch {
+                return {};
+              }
+            })(),
+            body.graphqlOperationName
+          )
+        ),
       };
     case 'xml':
       // 'raw' bodyType emits with no content-type; executeHttp defaults the

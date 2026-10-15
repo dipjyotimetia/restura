@@ -38,12 +38,16 @@ import {
  *         importedAt: 1700000000000
  *       - path: [Other request]
  *         subscriptionProtocol: graphql-sse
+ *         operationName: GetUser
  * ```
  *
  * Entries also carry the per-request subscription wire protocol (#889,
  * `HttpRequest.graphqlSubscriptionProtocol`), which the canonical
- * `GraphQLRequestSettings` (closed schema) has no slot for. An entry may
- * carry a schema, a subscription protocol, or both.
+ * `GraphQLRequestSettings` (closed schema) has no slot for, and the operation
+ * selected in a multi-operation document (#903, `operationName` from
+ * `body.graphqlOperationName`), which the OC GraphQL item has no slot for
+ * either. An entry may carry any combination of schema, subscription
+ * protocol and operation.
  *
  * The walk / hash-dedupe / path-matching machinery is shared with
  * `x-restura-grpc` (see path-keyed-extension.ts).
@@ -59,6 +63,7 @@ interface GraphQLExtensionRequestEntry
     Partial<Omit<GraphQLImportedSchema, 'sdl'>> {
   schema?: string;
   subscriptionProtocol?: GraphQLSubscriptionProtocol;
+  operationName?: string;
 }
 
 export interface GraphQLExtension {
@@ -81,6 +86,8 @@ const requestEntrySchema = graphqlImportedSchemaSchema
     // An unknown protocol (newer writer) degrades to "absent" (= auto) rather
     // than dropping the whole entry — the schema half must still apply.
     subscriptionProtocol: graphqlSubscriptionProtocolSchema.optional().catch(undefined),
+    // Likewise a malformed operation name degrades to "absent" (= first operation).
+    operationName: z.string().min(1).optional().catch(undefined),
   });
 
 const schemaContentSchema = z.object({ sdl: z.string() });
@@ -97,7 +104,9 @@ export function buildGraphQLExtension(
     // REST sibling sharing the name path can't claim this entry on import.
     const index = indexFor(path);
     const protocol = req.graphqlSubscriptionProtocol;
-    if (!req.graphqlSchema && protocol === undefined) return;
+    const operationName =
+      req.body.type === 'graphql' ? req.body.graphqlOperationName || undefined : undefined;
+    if (!req.graphqlSchema && protocol === undefined && !operationName) return;
     const entry: GraphQLExtensionRequestEntry = {
       path,
       ...(index !== undefined ? { index } : {}),
@@ -110,6 +119,7 @@ export function buildGraphQLExtension(
       entry.importedAt = importedAt;
     }
     if (protocol !== undefined) entry.subscriptionProtocol = protocol;
+    if (operationName) entry.operationName = operationName;
     requests.push(entry);
   });
   return requests.length > 0 ? { schemas: table.schemas, requests } : undefined;
@@ -133,6 +143,9 @@ export function applyGraphQLExtension(items: CollectionItem[] | undefined, raw: 
     (req, entry) => {
       if (entry.subscriptionProtocol !== undefined) {
         req.graphqlSubscriptionProtocol = entry.subscriptionProtocol;
+      }
+      if (entry.operationName && req.body.type === 'graphql') {
+        req.body = { ...req.body, graphqlOperationName: entry.operationName };
       }
       const { schema: hash, source, importedAt, fileName } = entry;
       if (hash === undefined || source === undefined || importedAt === undefined) return;

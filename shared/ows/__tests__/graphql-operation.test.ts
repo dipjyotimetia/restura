@@ -35,6 +35,18 @@ describe('workflow GraphQL operation classification', () => {
     ).toThrow('operationName');
   });
 
+  it('uses the operation selected on a renderer-saved request (#903)', () => {
+    expect(
+      getGraphqlOperation({
+        body: {
+          type: 'graphql',
+          raw: 'query Read { me { id } } mutation Update { update { id } }',
+          graphqlOperationName: 'Update',
+        },
+      })
+    ).toEqual({ kind: 'mutation', name: 'Update' });
+  });
+
   it('accepts renderer query text and unnamed single operations', () => {
     expect(
       getGraphqlOperation({ body: { type: 'graphql', raw: 'query { viewer { id } }' } })
