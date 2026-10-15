@@ -87,9 +87,14 @@ describe('executeProxiedRequestWithProgress — web', () => {
     expect(atob(out.data as string)).toBe('--b\r\n\r\n{}\r\n--b--');
   });
 
-  it('turns an unmarked reply (the proxy’s own JSON error) into a ProxyTransportError', async () => {
+  const proxyHeader = { 'x-restura-proxy': '1' };
+
+  it('turns a current proxy’s own (unmarked) reply into a ProxyTransportError', async () => {
     streamingMock.mockResolvedValue(
-      new Response(JSON.stringify({ error: 'Blocked private address' }), { status: 400 })
+      new Response(JSON.stringify({ error: 'Blocked private address' }), {
+        status: 400,
+        headers: proxyHeader,
+      })
     );
     await expect(executeProxiedRequestWithProgress(SPEC, () => undefined)).rejects.toMatchObject({
       name: 'ProxyTransportError',
@@ -97,13 +102,29 @@ describe('executeProxiedRequestWithProgress — web', () => {
       status: 400,
     });
 
-    streamingMock.mockResolvedValue(new Response(JSON.stringify({ error: 42 }), { status: 401 }));
-    const out = await executeProxiedRequestWithProgress(SPEC, () => undefined);
-    // `{ error }` that isn't a string isn't a proxy error envelope.
-    expect(out.status).toBe(401);
+    // Non-JSON, oversized or bodiless proxy errors fall back to a generic message.
+    for (const body of ['nope', 'x'.repeat(70 * 1024), null]) {
+      streamingMock.mockResolvedValueOnce(
+        new Response(body, { status: 401, headers: proxyHeader })
+      );
+      await expect(executeProxiedRequestWithProgress(SPEC, () => undefined)).rejects.toMatchObject({
+        message: 'Proxy request failed (401)',
+      });
+    }
   });
 
-  it('treats unmarked 2xx or non-envelope replies as upstream (older Worker, version skew)', async () => {
+  it('never judges by body: an upstream `{ error }` from an older Worker stays the upstream reply', async () => {
+    // No capability header ⇒ older Worker (version skew) ⇒ ambiguous ⇒ upstream.
+    streamingMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'unauthorized' }), {
+        status: 401,
+        headers: { 'content-type': 'application/json', 'www-authenticate': 'Bearer' },
+      })
+    );
+    const out = await executeProxiedRequestWithProgress(SPEC, () => undefined);
+    expect(out).toMatchObject({ status: 401, data: '{"error":"unauthorized"}' });
+    expect(out.headers['www-authenticate']).toBe('Bearer');
+
     streamingMock.mockResolvedValueOnce(
       new Response('{"data":{"a":1}}', {
         status: 200,
@@ -114,10 +135,17 @@ describe('executeProxiedRequestWithProgress — web', () => {
     const ok = await executeProxiedRequestWithProgress(SPEC, progress);
     expect(ok).toMatchObject({ status: 200, data: '{"data":{"a":1}}' });
     expect(progress).toHaveBeenCalled();
+  });
 
-    streamingMock.mockResolvedValueOnce(new Response('upstream says no', { status: 503 }));
-    const err = await executeProxiedRequestWithProgress(SPEC, () => undefined);
-    expect(err).toMatchObject({ status: 503, data: 'upstream says no' });
+  it('strips the capability header from a marked upstream reply', async () => {
+    streamingMock.mockResolvedValueOnce(
+      new Response('x', {
+        status: 200,
+        headers: { ...proxyHeader, 'x-restura-proxy-stream': '1', 'content-type': 'text/plain' },
+      })
+    );
+    const out = await executeProxiedRequestWithProgress(SPEC, () => undefined);
+    expect(out.headers).not.toHaveProperty('x-restura-proxy');
   });
 
   it('wraps network failures but lets aborts through untouched', async () => {

@@ -7,6 +7,7 @@
  * flags, telemetry, ws-ticket) is pure fetch / pure logic and reused.
  */
 import {
+  PROXY_CAPABILITY_HEADER,
   PROXY_STREAM_MARKER_HEADER,
   PROXY_UPSTREAM_HEADERS_HEADER,
   PROXY_UPSTREAM_STATUS_HEADER,
@@ -169,6 +170,7 @@ export function createApp(
       // SPA (VITE_WORKER_URL builds) can only read them when exposed.
       exposeHeaders: [
         SET_COOKIE_SIDE_CHANNEL_HEADER,
+        PROXY_CAPABILITY_HEADER,
         PROXY_STREAM_MARKER_HEADER,
         PROXY_UPSTREAM_STATUS_HEADER,
         PROXY_UPSTREAM_STATUS_TEXT_HEADER,
@@ -176,6 +178,12 @@ export function createApp(
       ],
     })
   );
+  // Before auth / rate limiting so the proxy's own rejections carry it too
+  // (the renderer tells them apart from upstream replies with it).
+  app.use('/api/*', async (c, next) => {
+    c.header(PROXY_CAPABILITY_HEADER, '1');
+    await next();
+  });
   app.use('/api/*', requestIdMiddleware);
   app.use('/api/*', proxyAuthMiddleware);
   app.use('/api/*', rateLimitMiddleware);

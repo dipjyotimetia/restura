@@ -209,6 +209,13 @@ describe('normalizeGraphQLResponse', () => {
     expect(out.headers).toEqual({ 'Content-Type': 'application/json; charset=utf-8' });
   });
 
+  it('drops the multipart Content-Length, which no longer matches the merged body', () => {
+    const out = normalizeGraphQLResponse(
+      apiResponse({ headers: { 'Content-Type': MULTIPART_CT, 'Content-Length': '999', a: 'b' } })
+    );
+    expect(out.headers).toEqual({ 'Content-Type': 'application/json; charset=utf-8', a: 'b' });
+  });
+
   it('decodes a base64 (binary-transported) multipart body first', () => {
     const b64 = btoa(YOGA_MULTIPART);
     const out = normalizeGraphQLResponse(apiResponse({ body: b64, bodyEncoding: 'base64' }));

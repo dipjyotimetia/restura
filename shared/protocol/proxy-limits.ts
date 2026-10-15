@@ -17,6 +17,15 @@ export const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
 export const PROXY_STREAM_MARKER_HEADER = 'x-restura-proxy-stream';
 
 /**
+ * Stamped by the proxy on every `/api/*` reply it produces — its own errors
+ * included. Together with the marker it disambiguates a streamed reply:
+ * capability header present + no marker ⇒ the proxy's own error; capability
+ * header absent ⇒ an older proxy (version skew) whose replies are ambiguous
+ * and are kept as the upstream's response rather than guessed at.
+ */
+export const PROXY_CAPABILITY_HEADER = 'x-restura-proxy';
+
+/**
  * The upstream's real status code / reason phrase on a streamed reply. The
  * proxy answers statuses the browser would act on itself (3xx redirects,
  * 401 / 407 auth prompts) with 200 and carries the real one here; the

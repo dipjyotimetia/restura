@@ -13,8 +13,12 @@
  * the buffered IPC call and reports the whole body as a single chunk once it
  * arrives. See the `graphql.incrementalDelivery` capability.
  */
-import { bytesToBase64, isBinaryContentType } from '@shared/protocol/binary';
-import { MAX_RESPONSE_SIZE, PROXY_STREAM_MARKER_HEADER } from '@shared/protocol/proxy-limits';
+import { bytesToBase64, isBinaryContentType, readStreamToBytes } from '@shared/protocol/binary';
+import {
+  MAX_RESPONSE_SIZE,
+  PROXY_CAPABILITY_HEADER,
+  PROXY_STREAM_MARKER_HEADER,
+} from '@shared/protocol/proxy-limits';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import {
   decodeSetCookieSideChannel,
@@ -54,25 +58,32 @@ function flatHeaders(headers: Record<string, string | string[]>): Record<string,
 }
 
 /**
- * An unmarked streamed reply is the proxy's own error — unless the Worker
+ * A streamed reply is the proxy's own error only when the proxy says so: it
+ * carries the capability header (so it is a current proxy) but not the
+ * upstream-reply marker. The body is never inspected — an upstream may well
+ * answer `{ "error": "…" }` itself. Without the capability header the proxy
  * predates the marker (version skew: a preview build against an older Worker,
- * or a Worker rollback). Proxy errors are always non-2xx JSON `{ error }`, so
- * a 2xx, or a body of any other shape, is treated as the upstream's reply.
+ * or a rollback), the reply is ambiguous, and it is kept as the upstream's.
  */
-async function isProxyError(response: Response): Promise<boolean> {
-  if (response.ok) return false;
-  try {
-    const payload = (await response.clone().json()) as { error?: unknown } | null;
-    return typeof payload?.error === 'string';
-  } catch {
-    return false;
-  }
+function isProxyError(response: Response): boolean {
+  return (
+    response.headers.get(PROXY_CAPABILITY_HEADER) !== null &&
+    response.headers.get(PROXY_STREAM_MARKER_HEADER) === null
+  );
 }
+
+/** Proxy-generated error bodies are small JSON; never read more than this. */
+const MAX_PROXY_ERROR_BYTES = 64 * 1024;
 
 async function readProxyError(response: Response): Promise<ProxyTransportError> {
   let message = `Proxy request failed (${response.status})`;
   try {
-    const payload = (await response.json()) as { error?: unknown };
+    const bytes = response.body
+      ? await readStreamToBytes(response.body, MAX_PROXY_ERROR_BYTES)
+      : new Uint8Array();
+    const payload = bytes
+      ? (JSON.parse(new TextDecoder().decode(bytes)) as { error?: unknown })
+      : null;
     if (payload && typeof payload.error === 'string') message = payload.error;
   } catch {
     // Not JSON — keep the generic message.
@@ -110,7 +121,7 @@ export async function executeProxiedRequestWithProgress(
     if (err instanceof DOMException && err.name === 'AbortError') throw err;
     throw new ProxyTransportError(err instanceof Error ? err.message : 'Proxy request failed');
   }
-  if (!response.headers.get(PROXY_STREAM_MARKER_HEADER) && (await isProxyError(response))) {
+  if (isProxyError(response)) {
     throw await readProxyError(response);
   }
 
@@ -119,7 +130,13 @@ export async function executeProxiedRequestWithProgress(
   );
   const headers: Record<string, string> = {};
   for (const [k, v] of response.headers.entries()) {
-    if (k === SET_COOKIE_SIDE_CHANNEL_HEADER || k === PROXY_STREAM_MARKER_HEADER) continue;
+    if (
+      k === SET_COOKIE_SIDE_CHANNEL_HEADER ||
+      k === PROXY_STREAM_MARKER_HEADER ||
+      k === PROXY_CAPABILITY_HEADER
+    ) {
+      continue;
+    }
     headers[k] = v;
   }
   const meta = { status: response.status, statusText: response.statusText, headers };

@@ -240,6 +240,7 @@ describe('CORS closed-by-default when ALLOWED_ORIGIN is unset', () => {
     );
     const exposed = res.headers.get('access-control-expose-headers')?.toLowerCase() ?? '';
     for (const h of [
+      'x-restura-proxy',
       'x-restura-proxy-stream',
       'x-restura-upstream-status',
       'x-restura-upstream-status-text',
@@ -252,6 +253,26 @@ describe('CORS closed-by-default when ALLOWED_ORIGIN is unset', () => {
 
 // Smoke-test the new /health endpoint. Was added alongside the Docker
 // self-hosting work and must answer 200 + JSON unauthenticated.
+describe('proxy capability header (#885)', () => {
+  it('is stamped on the proxy’s own auth rejection and on validation errors', async () => {
+    const unauth = await app.request(
+      '/api/proxy',
+      { method: 'POST', body: '{}', headers: { 'content-type': 'application/json' } },
+      { ENVIRONMENT: 'production', WORKER_PROXY_TOKEN: 'secret' }
+    );
+    expect(unauth.status).toBe(401);
+    expect(unauth.headers.get('x-restura-proxy')).toBe('1');
+
+    const invalid = await app.request(
+      '/api/proxy',
+      { method: 'POST', body: '{}', headers: { 'content-type': 'application/json' } },
+      { ENVIRONMENT: 'development', DEV_BYPASS_AUTH: 'true' }
+    );
+    expect(invalid.status).toBeGreaterThanOrEqual(400);
+    expect(invalid.headers.get('x-restura-proxy')).toBe('1');
+  });
+});
+
 describe('health probes', () => {
   it('returns 200 JSON for /health without auth', async () => {
     const res = await app.request('/health', { method: 'GET' });

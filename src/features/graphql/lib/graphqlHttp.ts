@@ -193,13 +193,17 @@ function contentTypeOf(headers: ApiResponse['headers']): string {
 /**
  * The merged body is JSON, so say so: downstream text/binary classification
  * (collection-run evidence, test scripts, the viewer) keys off Content-Type,
- * and `multipart/mixed` reads as binary. The notice records the original.
+ * and `multipart/mixed` reads as binary. The notice records the original. The
+ * multipart Content-Length is dropped: it measured the replaced body.
  */
 function withJsonContentType<T extends ApiResponse['headers']>(headers: T): T {
   const out: Record<string, string | string[]> = {};
   let replaced = false;
   for (const [k, v] of Object.entries(headers)) {
-    if (k.toLowerCase() === 'content-type') {
+    const lower = k.toLowerCase();
+    // The multipart body's length no longer describes the merged JSON body.
+    if (lower === 'content-length') continue;
+    if (lower === 'content-type') {
       out[k] = 'application/json; charset=utf-8';
       replaced = true;
     } else {
