@@ -612,6 +612,7 @@ function GrpcRequestBuilder() {
             onChange={setActiveTab}
             right={
               <GrpcDeadlineField
+                key={activeTabId ?? 'no-active-tab'}
                 request={grpcRequest}
                 onChange={(timeout) => updateRequest({ timeout })}
               />

@@ -69,4 +69,27 @@ describe('GrpcDeadlineField', () => {
     fireEvent.blur(input);
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it('drops an uncommitted draft when remounted for another tab (keyed by tab id)', () => {
+    const { rerender } = render(
+      <GrpcDeadlineField
+        key="tab-a"
+        request={{ methodType: 'unary', timeout: 30000 }}
+        onChange={vi.fn()}
+      />
+    );
+    const label = 'gRPC request timeout in milliseconds';
+    fireEvent.change(screen.getByLabelText(label), {
+      target: { value: '7777' },
+    });
+    expect(screen.getByLabelText(label)).toHaveValue(7777);
+    rerender(
+      <GrpcDeadlineField
+        key="tab-b"
+        request={{ methodType: 'unary', timeout: 12000 }}
+        onChange={vi.fn()}
+      />
+    );
+    expect(screen.getByLabelText(label)).toHaveValue(12000);
+  });
 });
