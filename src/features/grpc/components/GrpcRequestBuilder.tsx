@@ -10,8 +10,8 @@ import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import { useGrpcReflection } from '@/features/grpc/hooks/useGrpcReflection';
 import {
-  buildAuthMetadata,
   createErrorResponse,
+  describeGrpcAuthMetadata,
   GrpcClientError,
   getMethodTypeDescription,
 } from '@/features/grpc/lib/grpcClient';
@@ -57,6 +57,7 @@ import GrpcProtoUploader from './GrpcProtoUploader';
 import { GrpcSettingsPanel } from './GrpcSettingsPanel';
 import { GrpcStreamingMessages } from './GrpcStreamingControls';
 import { GrpcStreamingPanel } from './GrpcStreamingPanel';
+import { GrpcUnsupportedAuthNotice } from './GrpcUnsupportedAuthNotice';
 
 type GrpcSubTab =
   | 'message'
@@ -561,20 +562,6 @@ function GrpcRequestBuilder() {
     );
   };
 
-  const getAuthPreview = () => {
-    const authMetadata = buildAuthMetadata(grpcRequest.auth);
-    if (Object.keys(authMetadata).length === 0) return 'No authentication configured';
-    return Object.entries(authMetadata)
-      .map(([key, value]) => {
-        const maskedValue =
-          key.includes('authorization') || key.includes('password')
-            ? value.substring(0, 10) + '...'
-            : value;
-        return `${key}: ${maskedValue}`;
-      })
-      .join('\n');
-  };
-
   sendShortcut.current = !isLoading && isFormValid() ? () => void handleSendRequest() : null;
 
   return (
@@ -732,7 +719,7 @@ function GrpcRequestBuilder() {
                   <div className="p-3 rounded-sp-btn border border-sp-line bg-sp-surface-lo">
                     <div className="sp-label mb-1">Auth Metadata (auto-injected)</div>
                     <pre className="text-sp-11 text-sp-muted whitespace-pre-wrap font-mono">
-                      {getAuthPreview()}
+                      {describeGrpcAuthMetadata(grpcRequest.auth)}
                     </pre>
                   </div>
                 )}
@@ -745,6 +732,7 @@ function GrpcRequestBuilder() {
                   Authentication will be automatically converted to gRPC metadata.
                 </p>
                 <InheritedAuthHint request={grpcRequest} />
+                <GrpcUnsupportedAuthNotice request={grpcRequest} />
                 <AuthConfiguration auth={grpcRequest.auth} onChange={handleAuthChange} />
               </div>
             )}
