@@ -1,3 +1,8 @@
+import { registryFromDescriptors, registryFromProtoText } from '@shared/protocol/grpc-registry';
+import {
+  type GrpcStatusDetail,
+  redecodeRawStatusDetails,
+} from '@shared/protocol/grpc-status-details';
 import { MAX_GRPC_METADATA_BYTES } from '@shared/protocol/header-policy';
 import { v4 as uuidv4 } from 'uuid';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
@@ -530,6 +535,7 @@ export async function makeElectronGrpcRequest(
       trailers: response.trailers,
       messages: messagesStrs,
       isStreaming: !!response.messages,
+      ...(response.statusDetails?.length ? { statusDetails: response.statusDetails } : {}),
     };
   } catch (error: unknown) {
     return createErrorResponse(request.id, error, startTime);
@@ -736,8 +742,29 @@ export async function makeProxyGrpcRequest(
       grpcStatus: result.grpcStatus,
       grpcStatusText: result.grpcStatusText,
       trailers: result.trailers || {},
+      ...(Array.isArray(result.statusDetails) && result.statusDetails.length > 0
+        ? { statusDetails: decodeWithSchema(result.statusDetails, request.schema) }
+        : {}),
     };
   } catch (error: unknown) {
     return createErrorResponse(request.id, error, startTime);
+  }
+}
+
+// The proxy has no schema, so custom detail types arrive as `{ type, raw }`;
+// decode the ones the request's loaded schema defines.
+function decodeWithSchema(
+  details: GrpcStatusDetail[],
+  schema: GrpcRequest['schema']
+): GrpcStatusDetail[] {
+  if (!schema || !details.some((d) => d.raw !== undefined)) return details;
+  try {
+    const registry =
+      schema.kind === 'descriptors'
+        ? registryFromDescriptors(schema.descriptors)
+        : registryFromProtoText(schema.text);
+    return redecodeRawStatusDetails(details, registry);
+  } catch {
+    return details; // a schema that doesn't build just keeps the raw rendering
   }
 }

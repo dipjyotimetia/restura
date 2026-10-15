@@ -27,6 +27,7 @@ import {
   resolveMethod,
 } from '@shared/protocol/grpc-registry';
 import { GrpcStatusCodeName } from '@shared/protocol/grpc-status';
+import { connectErrorDetails, type GrpcStatusDetail } from '@shared/protocol/grpc-status-details';
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { resolveUrlHostnameSafe } from '../security/dns-guard';
@@ -72,6 +73,7 @@ export interface ConnectCallResult {
   message?: unknown;
   error?: string;
   details?: string;
+  statusDetails?: GrpcStatusDetail[] | undefined; // decoded google.rpc.Status details
 }
 
 // Custom DNS lookup that pins every resolution to the pre-validated IP, closing
@@ -174,10 +176,8 @@ export function isProtocolRejectionError(err: unknown): boolean {
   );
 }
 
-// Per-origin memo of "this server needs the Connect fallback", so the many
-// reflection round-trips (listServices + one per service + dep closure) and
-// subsequent RPCs skip the doomed native attempt. Insertion-ordered Set as a
-// bounded LRU.
+// Per-origin memo of "this server needs the Connect fallback" so reflection
+// round-trips and later RPCs skip the doomed native attempt (bounded LRU Set).
 const CONNECT_PREFERRED_MAX = 100;
 const connectPreferred = new Set<string>();
 
@@ -206,10 +206,9 @@ interface TransportAttempt {
   transport: Transport;
 }
 
-// The ordered transports to try for one call. Injected transports (tests)
-// disable the implicit fallback; `fallbackTransport` opts back in to a second
-// attempt. Live calls skip the native attempt once an origin is known to
-// reject it.
+// The ordered transports to try for one call. Injected transports (tests) disable
+// the implicit fallback; `fallbackTransport` opts back in to a second attempt.
+// Live calls skip the native attempt once an origin is known to reject it.
 function transportPlan(t: TransportArgs): TransportAttempt[] {
   if (t.transport) {
     const attempts: TransportAttempt[] = [{ protocol: 'grpc', transport: t.transport }];
@@ -353,6 +352,7 @@ export async function executeConnectUnary(args: ConnectUnaryArgs): Promise<Conne
         headers,
         trailers,
         error: combinedErrorMessage(rejection, ce),
+        statusDetails: connectErrorDetails(ce, registry),
       };
     }
   }
@@ -407,8 +407,8 @@ export interface ConnectStreamHandlers {
   onMessage: (json: unknown) => void;
   onHeaders: (headers: Record<string, string>) => void;
   onTrailers: (trailers: Record<string, string>) => void;
-  /** Terminal: code 0 = OK, non-zero = gRPC error. Fired at most once. */
-  onClose: (code: number, details: string) => void;
+  /** Terminal: code 0 = OK, non-zero = gRPC error (+ decoded status details). Fired at most once. */
+  onClose: (code: number, details: string, statusDetails?: GrpcStatusDetail[]) => void;
   /** The call was cancelled (aborted) — no terminal event should be emitted. */
   onCancelled: () => void;
 }
@@ -495,7 +495,8 @@ export function runConnectStream(
     flushHeld();
     const ce = ConnectError.from(err);
     handlers.onTrailers(flattenHeaders(ce.metadata));
-    handlers.onClose(ce.code as number, combinedErrorMessage(rejection, ce));
+    const msg = combinedErrorMessage(rejection, ce);
+    handlers.onClose(ce.code as number, msg, connectErrorDetails(ce, registry));
   };
 
   function startAttempt(): void {
@@ -637,7 +638,7 @@ export function executeConnectServerStreamCollect(
       },
       onHeaders: (h) => Object.assign(headers, h),
       onTrailers: (t) => Object.assign(trailers, t),
-      onClose: (code, details) =>
+      onClose: (code, details, statusDetails) =>
         code === 0
           ? finish({ status: 0, statusText: 'OK' })
           : finish({
@@ -645,6 +646,7 @@ export function executeConnectServerStreamCollect(
               statusText: GrpcStatusCodeName[code as keyof typeof GrpcStatusCodeName] ?? 'UNKNOWN',
               error: details,
               details,
+              statusDetails,
             }),
       onCancelled: () => finish({ status: 1, statusText: 'CANCELLED' }),
     });
@@ -655,9 +657,8 @@ export function executeConnectServerStreamCollect(
 // Server reflection (grpc.reflection.{v1,v1alpha}.ServerReflection)
 // ---------------------------------------------------------------------------
 
-// The reflection .proto, bundled so reflection runs over connect-node without
-// @grpc/reflection / proto-loader. v1 and v1alpha are byte-identical except the
-// package, so the package line is substituted per version.
+// The reflection .proto, bundled for connect-node. v1 and v1alpha differ only
+// in the package line, which is substituted per version.
 const REFLECTION_PROTO_BODY = `
 service ServerReflection {
   rpc ServerReflectionInfo(stream ServerReflectionRequest) returns (stream ServerReflectionResponse);
@@ -717,8 +718,7 @@ interface ReflectionResponseJson {
   errorResponse?: { errorCode?: number; errorMessage?: string };
 }
 
-// toJson of `repeated bytes` already yields base64 strings, and proto3 JSON
-// flattens the oneof, so the three response kinds appear at the top level.
+// toJson yields base64 for `repeated bytes` and flattens the oneof.
 function mapReflectionResponse(json: ReflectionResponseJson): ElectronReflectionResult {
   if (json.fileDescriptorResponse) {
     return {

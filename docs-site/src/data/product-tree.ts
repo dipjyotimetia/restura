@@ -1429,18 +1429,9 @@ export const features: Feature[] = [
     'grpc-field-errors',
     'gRPC field errors in the editor',
     'Highlight the request fields a server rejected, using its structured error details.',
-    'exploring',
+    'shipped',
     all,
-    undefined,
-    [],
-    {
-      today: 'Structured gRPC error details are received but not decoded or shown.',
-      milestones: [
-        todo('Decode rich status details', 883),
-        todo('Map field violations to request paths'),
-        todo('Inline editor highlights'),
-      ],
-    }
+    '/protocols/grpc/'
   ),
   entry(
     'protocols',

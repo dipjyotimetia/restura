@@ -12,7 +12,7 @@
  * Both expose the same async-iterator handle so the UI is transport-agnostic.
  */
 
-import type { DescMethod, DescService } from '@bufbuild/protobuf';
+import type { DescMethod, DescService, Registry } from '@bufbuild/protobuf';
 import { ConnectError, createClient, type Transport } from '@connectrpc/connect';
 import { createConnectTransport } from '@connectrpc/connect-web';
 import {
@@ -23,11 +23,12 @@ import {
   registryFromProtoText,
   resolveMethod,
 } from '@shared/protocol/grpc-registry';
+import { connectErrorDetails, type GrpcStatusDetail } from '@shared/protocol/grpc-status-details';
 import { flattenHeaders } from '@shared/protocol/header-utils';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
-import type { GrpcRequest } from '@/types';
+import type { GrpcRequest, GrpcResponse } from '@/types';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
 import {
   buildAuthMetadata,
@@ -44,6 +45,8 @@ export interface GrpcStreamFinal {
   trailers: Record<string, string>;
   status: GrpcStatusCode;
   statusMessage?: string;
+  /** Decoded google.rpc.Status details when the stream ended in an error (#883). */
+  statusDetails?: GrpcStatusDetail[];
 }
 
 export interface GrpcStreamingHandle<TIn = unknown, TOut = unknown> {
@@ -80,6 +83,36 @@ export interface StartGrpcStreamArgs {
 }
 
 const DEFAULT_TIMEOUT = 30_000;
+
+/**
+ * The response-panel view of a stream that ended in a gRPC error: status,
+ * headers, trailers and the decoded rich error details (#883), with the status
+ * message as the body. Messages already received stay in the Stream tab.
+ */
+export function streamErrorResponse(
+  requestId: string,
+  final: GrpcStreamFinal,
+  startTime: number
+): GrpcResponse {
+  const name = GrpcStatusCodeName[final.status] ?? 'UNKNOWN';
+  const body = JSON.stringify({ error: final.statusMessage || name }, null, 2);
+  return {
+    id: crypto.randomUUID(),
+    requestId,
+    status: final.status,
+    statusText: name,
+    headers: final.headers,
+    body,
+    size: new Blob([body]).size,
+    time: Date.now() - startTime,
+    timestamp: Date.now(),
+    grpcStatus: final.status,
+    grpcStatusText: name,
+    trailers: final.trailers,
+    isStreaming: true,
+    ...(final.statusDetails?.length ? { statusDetails: final.statusDetails } : {}),
+  };
+}
 
 /**
  * Start a gRPC stream against the request's method. Electron handles all four
@@ -188,6 +221,7 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
 
   return startConnectServerStream<TIn, TOut>({
     transport,
+    registry,
     service,
     method,
     input: inputFromJson(method, prepared.message),
@@ -198,6 +232,8 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
 
 interface ConnectServerStreamArgs {
   transport: Transport;
+  /** The call's schema — also decodes non-google.rpc error detail types. */
+  registry: Registry;
   service: DescService;
   method: DescMethod;
   /** The request message, already parsed into a schema message via inputFromJson. */
@@ -272,11 +308,13 @@ function startConnectServerStream<TIn, TOut>(
       }
       // Connect's Code enum is numerically identical to the gRPC status codes.
       const ce = ConnectError.from(err);
+      const statusDetails = connectErrorDetails(ce, args.registry);
       resolveDone({
         headers: flattenHeaders(header),
         trailers: flattenHeaders(trailer ?? ce.metadata),
         status: ce.code as unknown as GrpcStatusCode,
         statusMessage: ce.rawMessage,
+        ...(statusDetails ? { statusDetails } : {}),
       });
       throw new Error(ce.rawMessage);
     }
@@ -378,6 +416,7 @@ function startElectronInteractiveStream<TIn, TOut>(
     details?: string;
     headers?: Record<string, string>;
     trailers?: Record<string, string>;
+    statusDetails?: GrpcStatusDetail[];
   };
 
   const onData = (data: unknown) => {
@@ -398,6 +437,9 @@ function startElectronInteractiveStream<TIn, TOut>(
       trailers: p.trailers ?? {},
       status,
       statusMessage: message,
+      ...(Array.isArray(p.statusDetails) && p.statusDetails.length > 0
+        ? { statusDetails: p.statusDetails }
+        : {}),
     });
     cleanup();
   };

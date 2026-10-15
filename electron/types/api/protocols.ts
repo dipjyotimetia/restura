@@ -102,6 +102,8 @@ export interface GrpcIpcResult {
   trailers: Record<string, string>;
   error?: string;
   details?: string;
+  /** Decoded google.rpc.Status error details (see shared/protocol/grpc-status-details). */
+  statusDetails?: import('../../../shared/protocol/grpc-status-details').GrpcStatusDetail[];
 }
 
 export interface GrpcReflectionConfig {

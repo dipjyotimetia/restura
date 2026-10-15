@@ -172,6 +172,10 @@ export const PM_EXPECT_BOOTSTRAP = `
   Object.defineProperty(pm.response, 'responseTime', { get: function () {
     return typeof response !== 'undefined' ? response.time : undefined;
   } });
+  // gRPC rich error details (google.rpc.Status) — [] when none / non-gRPC.
+  Object.defineProperty(pm.response, 'statusDetails', { get: function () {
+    return typeof response !== 'undefined' && response.statusDetails ? response.statusDetails : [];
+  } });
 
   // pm.response.headers — Postman HeaderList subset. get() returns the flat
   // value (Set-Cookie = every cookie joined with ", "); all()/each() yield one

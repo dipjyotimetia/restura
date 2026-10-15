@@ -1,3 +1,4 @@
+import type { GrpcStatusDetail } from '@shared/protocol/grpc-status-details';
 import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import { createLogger } from '@shared/runtime/logger';
 import { ipcMain, type WebContents } from 'electron';
@@ -41,6 +42,8 @@ interface GrpcResponse {
   trailers: Record<string, string>;
   error?: string;
   details?: string;
+  /** Decoded google.rpc.Status error details (#883) — server data, passed through. */
+  statusDetails?: GrpcStatusDetail[];
 }
 
 interface ActiveCall {
@@ -392,6 +395,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
       };
       if (r.error) out.error = sanitizeErrorMessage(r.error);
       if (r.details) out.details = sanitizeErrorMessage(r.details);
+      if (r.statusDetails) out.statusDetails = r.statusDetails;
       return out;
     }
     if (config.methodType === 'server-streaming') {
@@ -404,6 +408,7 @@ async function makeGrpcRequest(config: GrpcRequestConfig): Promise<GrpcResponse>
         messages: r.messages,
       };
       if (r.error) out.error = sanitizeErrorMessage(r.error);
+      if (r.statusDetails) out.statusDetails = r.statusDetails;
       return out;
     }
     // client/bidi aren't buffered — they run live via grpc:start-stream.
@@ -589,7 +594,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
           // Guarded so the first terminal signal wins — a connect-node close
           // (status/error), a size-limit trip, or a deadline. Previously this hardcoded
           // status 0 and dropped headers/trailers on every streaming call.
-          const finalize = (code: number, details: string) => {
+          const finalize = (code: number, details: string, statusDetails?: GrpcStatusDetail[]) => {
             if (finalized || !isCurrentCall()) return;
             finalized = true;
             if (code === 0) {
@@ -605,6 +610,7 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
                 details: sanitizeErrorMessage(details),
                 headers: capturedHeaders,
                 trailers: capturedTrailers,
+                ...(statusDetails ? { statusDetails } : {}),
               });
             }
             if (onComplete) {

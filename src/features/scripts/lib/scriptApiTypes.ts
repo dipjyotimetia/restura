@@ -119,6 +119,11 @@ interface ResturaPmResponse {
   readonly status: string;
   /** Response time in milliseconds. */
   readonly responseTime: number;
+  /**
+   * gRPC only: decoded google.rpc.Status error details (BadRequest, ErrorInfo,
+   * RetryInfo, …). Unknown types carry \`raw\` base64. Empty when none.
+   */
+  readonly statusDetails: Array<{ type: string; value?: any; raw?: string; debug?: any }>;
   /** Response headers. Set-Cookie: get() returns every cookie joined with ", "; all() lists one row per cookie. */
   headers: ResturaHeaderList;
   /** Cookies this response set (parsed Set-Cookie fields; rs.cookies is the jar). */

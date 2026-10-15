@@ -86,6 +86,8 @@ export interface ScriptContext {
     body: unknown;
     time: number;
     size: number;
+    /** gRPC only: decoded google.rpc.Status error details (`pm.response.statusDetails`). */
+    statusDetails?: unknown[];
   };
   environment: {
     get: (key: string) => string | undefined;

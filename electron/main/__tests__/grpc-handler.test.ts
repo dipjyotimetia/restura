@@ -50,7 +50,7 @@ type StreamCallbacks = {
   onMessage: (message: unknown) => void;
   onHeaders: (headers: Record<string, string>) => void;
   onTrailers: (trailers: Record<string, string>) => void;
-  onClose: (code: number, details: string) => void;
+  onClose: (code: number, details: string, statusDetails?: unknown[]) => void;
   onCancelled: () => void;
 };
 
@@ -269,6 +269,23 @@ describe('grpc stream ownership', () => {
     owner.destroy();
 
     expect(controls.cancel).toHaveBeenCalledOnce();
+  });
+
+  it('forwards decoded status details on the stream error event (#883)', async () => {
+    const owner = makeEvent();
+    let callbacks: StreamCallbacks | undefined;
+    mockRunConnectStream.mockImplementation((_args: unknown, cb: StreamCallbacks) => {
+      callbacks = cb;
+      return makeControls();
+    });
+    listenerFor(IPC.grpc.startStream)(owner.event, validStream('details'));
+    await waitForStreamCount(1);
+    const statusDetails = [{ type: 'google.rpc.ErrorInfo', value: { reason: 'QUOTA' } }];
+    callbacks?.onClose(3, 'bad', statusDetails);
+    expect(owner.send).toHaveBeenCalledWith(
+      'grpc:error:details',
+      expect.objectContaining({ status: 3, statusDetails })
+    );
   });
 
   it.each([

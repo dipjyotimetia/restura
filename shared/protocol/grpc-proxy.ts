@@ -1,5 +1,6 @@
 import { readBoundedText } from './binary';
 import { GrpcStatusCode, GrpcStatusCodeName } from './grpc-status';
+import { type GrpcStatusDetail, statusDetailsFromConnectJson } from './grpc-status-details';
 import { sanitizeRequestHeaders, sanitizeResponseHeaders } from './header-policy';
 import { MAX_RESPONSE_SIZE } from './http-proxy';
 import type { Fetcher } from './types';
@@ -21,6 +22,8 @@ export interface GrpcNormalizedResponse {
   trailers: Record<string, string>;
   data: unknown;
   size: number;
+  /** Decoded google.rpc.Status details of an error (absent when none were sent). */
+  statusDetails?: GrpcStatusDetail[];
 }
 
 export type GrpcExecuteResult =
@@ -71,13 +74,21 @@ function emptyGrpcResponse(code: GrpcStatusCode, error: string): GrpcNormalizedR
   };
 }
 
-function parseConnectError(body: string): { code: GrpcStatusCode; message: string } {
+function parseConnectError(body: string): {
+  code: GrpcStatusCode;
+  message: string;
+  details?: GrpcStatusDetail[];
+} {
   try {
     const error = JSON.parse(body);
     if (error.code && typeof error.code === 'string') {
+      // Rich error model: Connect carries google.rpc.Status details as
+      // `details: [{ type, value (base64), debug? }]` (#883).
+      const details = statusDetailsFromConnectJson(error.details);
       return {
         code: CONNECT_CODE_TO_GRPC[error.code] ?? GrpcStatusCode.UNKNOWN,
         message: error.message || 'Unknown error',
+        ...(details.length > 0 ? { details } : {}),
       };
     }
     return { code: GrpcStatusCode.UNKNOWN, message: error.message || body };
@@ -161,11 +172,13 @@ export async function executeGrpcProxy(
     let grpcStatus: GrpcStatusCode = GrpcStatusCode.OK;
     let grpcStatusText = 'OK';
     let data: unknown = {};
+    let statusDetails: GrpcStatusDetail[] | undefined;
     if (response.status < 200 || response.status >= 300) {
       const info = parseConnectError(text);
       grpcStatus = info.code;
       grpcStatusText = GrpcStatusCodeName[grpcStatus] ?? 'UNKNOWN';
       data = { error: info.message };
+      statusDetails = info.details;
     } else {
       try {
         data = text ? JSON.parse(text) : {};
@@ -183,6 +196,7 @@ export async function executeGrpcProxy(
         trailers,
         data,
         size: read.bytes,
+        ...(statusDetails ? { statusDetails } : {}),
       },
     };
   } catch (err) {

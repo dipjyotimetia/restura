@@ -22,7 +22,7 @@ import {
   validateRequestAgainstSchema,
 } from '@/features/grpc/lib/grpcReflection';
 import { reflectionSnapshotUpdate } from '@/features/grpc/lib/grpcSchemaSnapshot';
-import { startGrpcStream } from '@/features/grpc/lib/grpcStreamingClient';
+import { startGrpcStream, streamErrorResponse } from '@/features/grpc/lib/grpcStreamingClient';
 import {
   type GrpcValidationState,
   INITIAL_VALIDATION_STATE,
@@ -31,6 +31,7 @@ import {
   validateMethodField,
   validateServiceField,
 } from '@/features/grpc/lib/grpcValidation';
+import { useSubTabWithViolationJump } from '@/features/grpc/lib/grpcViolationFocus';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
@@ -81,7 +82,7 @@ function GrpcRequestBuilder() {
   const addHistoryItem = useHistoryStore((s) => s.addHistoryItem);
   const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const { run: runViaRegistry } = useRequestRunner();
-  const [activeTab, setActiveTab] = useState<GrpcSubTab>('message');
+  const [activeTab, setActiveTab] = useSubTabWithViolationJump<GrpcSubTab>('message', activeTabId);
   const [resolvedProto, setResolvedProto] = useState<{
     content: string;
     fileName: string;
@@ -435,6 +436,8 @@ function GrpcRequestBuilder() {
                 GrpcStatusCodeName[final.status as GrpcStatusCode] ||
                 'Stream error';
               streamFrame('system', `stream closed — ${final.status} ${description}`);
+              const errorResponse = streamErrorResponse(grpcRequest.id, final, startTime);
+              setCurrentResponseForTab(originTabId, errorResponse);
               toast.error(`gRPC Error: ${final.status}`, { description });
             }
           } catch (err) {

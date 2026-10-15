@@ -49,6 +49,25 @@ function echoTransport(unaryEcho: UnaryImpl): Transport {
   });
 }
 
+// google.rpc.BadRequest { field_violations: [{ field: "a", description: "b" }] }
+const BAD_REQUEST_BYTES = new Uint8Array([0x0a, 0x06, 0x0a, 0x01, 0x61, 0x12, 0x01, 0x62]);
+
+/** A server-side error carrying rich details (incoming-shape Any entries). */
+function richError(code = Code.InvalidArgument): ConnectError {
+  const err = new ConnectError('bad request', code);
+  err.details.push({ type: 'google.rpc.BadRequest', value: BAD_REQUEST_BYTES });
+  err.details.push({ type: 'acme.v1.Custom', value: new Uint8Array([1, 2]) });
+  return err;
+}
+
+const EXPECTED_DETAILS = [
+  {
+    type: 'google.rpc.BadRequest',
+    value: { fieldViolations: [{ field: 'a', description: 'b' }] },
+  },
+  { type: 'acme.v1.Custom', raw: 'AQI=' },
+];
+
 const baseArgs = {
   url: 'https://echo.example.com',
   dial: { ip: '127.0.0.1', port: 443, family: 4 as const },
@@ -82,6 +101,23 @@ describe('executeConnectUnary', () => {
     const r = await executeConnectUnary({ ...baseArgs, transport });
     expect(r.status).toBe(Code.PermissionDenied); // 7
     expect(r.error).toBe('nope');
+  });
+
+  it('decodes rich error details (google.rpc.BadRequest + unknown Any) (#883)', async () => {
+    const transport = echoTransport(() => {
+      throw richError();
+    });
+    const r = await executeConnectUnary({ ...baseArgs, transport });
+    expect(r.status).toBe(Code.InvalidArgument);
+    expect(r.statusDetails).toEqual(EXPECTED_DETAILS);
+  });
+
+  it('omits statusDetails when the error carries none', async () => {
+    const transport = echoTransport(() => {
+      throw new ConnectError('nope', Code.Internal);
+    });
+    const r = await executeConnectUnary({ ...baseArgs, transport });
+    expect(r.statusDetails).toBeUndefined();
   });
 
   it('forwards request metadata as gRPC headers', async () => {
@@ -139,7 +175,7 @@ interface Sink {
   messages: unknown[];
   headers: Record<string, string>;
   trailers: Record<string, string>;
-  closed: { code: number; details: string } | null;
+  closed: { code: number; details: string; statusDetails?: unknown } | null;
   cancelled: boolean;
 }
 
@@ -151,8 +187,8 @@ function makeSink(): { sink: Sink; handlers: ConnectStreamHandlers } {
       onMessage: (m) => sink.messages.push(m),
       onHeaders: (h) => Object.assign(sink.headers, h),
       onTrailers: (t) => Object.assign(sink.trailers, t),
-      onClose: (code, details) => {
-        sink.closed = { code, details };
+      onClose: (code, details, statusDetails) => {
+        sink.closed = { code, details, statusDetails };
       },
       onCancelled: () => {
         sink.cancelled = true;
@@ -286,6 +322,25 @@ describe('runConnectStream', () => {
     expect(sink.cancelled).toBe(false);
   });
 
+  it('passes decoded status details to onClose on a stream error (#883)', async () => {
+    const { sink, handlers } = makeSink();
+    const transport = echoStreamTransport({
+      serverStreamingEcho: async function* () {
+        yield { message: 'one', index: 0 };
+        throw richError();
+      },
+    });
+    runConnectStream(
+      { ...streamBase, method: 'ServerStreamingEcho', message: { message: 'x' }, transport },
+      handlers
+    );
+    await vi.waitFor(() => {
+      if (!sink.closed) throw new Error('pending');
+    });
+    expect(sink.closed?.code).toBe(Code.InvalidArgument);
+    expect(sink.closed?.statusDetails).toEqual(EXPECTED_DETAILS);
+  });
+
   it('cancel(): fires onCancelled and no terminal close', async () => {
     const { sink, handlers } = makeSink();
     const transport = echoStreamTransport({
@@ -364,6 +419,23 @@ describe('executeConnectServerStreamCollect', () => {
     expect(r.status).toBe(Code.Unavailable); // 14
     expect(r.messages).toEqual([{ message: 'one', index: 0 }]);
     expect(r.error).toBe('boom');
+  });
+
+  it('keeps decoded status details on a collected stream error (#883)', async () => {
+    const transport = echoStreamTransport({
+      serverStreamingEcho: async function* () {
+        yield* [];
+        throw richError(Code.FailedPrecondition);
+      },
+    });
+    const r = await executeConnectServerStreamCollect({
+      ...streamBase,
+      method: 'ServerStreamingEcho',
+      message: { message: 'x' },
+      transport,
+    });
+    expect(r.status).toBe(Code.FailedPrecondition);
+    expect(r.statusDetails).toEqual(EXPECTED_DETAILS);
   });
 });
 

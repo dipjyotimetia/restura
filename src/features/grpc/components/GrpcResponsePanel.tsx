@@ -11,6 +11,8 @@ import { formatBytes, formatTime } from '@/lib/shared/utils';
 import { useActiveResponse } from '@/store/selectors';
 import { useRequestStore } from '@/store/useRequestStore';
 import { type GrpcResponse, type GrpcStatusCode, GrpcStatusCodeName } from '@/types';
+import { useGrpcViolationFocus } from '../lib/grpcViolationFocus';
+import { GrpcStatusDetailsView } from './GrpcStatusDetailsView';
 
 /**
  * The result as one text: a streamed response's frames as a JSON array (the
@@ -23,7 +25,7 @@ export function grpcResultText(response: Pick<GrpcResponse, 'body' | 'messages'>
   return response.body;
 }
 
-type GrpcResponseTab = 'body' | 'metadata' | 'trailers';
+type GrpcResponseTab = 'body' | 'metadata' | 'trailers' | 'details';
 
 /**
  * Spatial Depth response panel for gRPC. Mirrors the HTTP ResponseViewer's
@@ -39,6 +41,7 @@ export function GrpcResponsePanel() {
   const activeTabId = useRequestStore((s) => s.activeTabId);
   const activeTabName = useRequestStore((s) => s.getActiveTab()?.request.name);
   const [activeTab, setActiveTab] = useState<GrpcResponseTab>('body');
+  const focusViolation = useGrpcViolationFocus((s) => s.focus);
   const response =
     activeResponse && 'grpcStatus' in activeResponse ? (activeResponse as GrpcResponse) : null;
 
@@ -86,6 +89,12 @@ export function GrpcResponsePanel() {
     ([k]) => k !== 'grpc-status' && k !== 'grpc-message'
   );
 
+  const statusDetails = response.statusDetails ?? [];
+  // A stale 'details' selection falls back to the body once a response without
+  // details (e.g. a later OK call) replaces it.
+  const shownTab: GrpcResponseTab =
+    activeTab === 'details' && statusDetails.length === 0 ? 'body' : activeTab;
+
   const tabs: ReadonlyArray<SubTab<GrpcResponseTab>> = [
     { value: 'body', label: 'Body', badge: 'JSON' },
     // Leading metadata (response headers), as returned by both backends —
@@ -93,6 +102,10 @@ export function GrpcResponsePanel() {
     { value: 'metadata', label: 'Headers', count: metadataEntries.length },
     // grpc-status + grpc-message rows always render, hence the +2.
     { value: 'trailers', label: 'Trailers', count: extraTrailers.length + 2 },
+    // Rich google.rpc.Status details (#883) — only when the error carried some.
+    ...(statusDetails.length > 0
+      ? [{ value: 'details' as const, label: 'Error details', count: statusDetails.length }]
+      : []),
   ];
 
   return (
@@ -110,14 +123,21 @@ export function GrpcResponsePanel() {
         <Stat label="Compr" value={compression} />
       </div>
 
-      <SubTabBar tabs={tabs} value={activeTab} onChange={setActiveTab} />
+      <SubTabBar tabs={tabs} value={shownTab} onChange={setActiveTab} />
 
       <div className="flex-1 min-h-0 overflow-hidden" style={{ background: 'var(--sp-code)' }}>
         <SubTabPanel
-          tabKey={activeTab}
-          className={activeTab === 'body' ? 'h-full' : 'h-full overflow-auto'}
+          tabKey={shownTab}
+          className={shownTab === 'body' ? 'h-full' : 'h-full overflow-auto'}
         >
-          {activeTab === 'body' ? (
+          {shownTab === 'details' ? (
+            <GrpcStatusDetailsView
+              details={statusDetails}
+              onJumpToViolation={
+                activeTabId ? (index) => focusViolation(activeTabId, index) : undefined
+              }
+            />
+          ) : shownTab === 'body' ? (
             resultText ? (
               <JsonBodyView
                 text={resultText}
@@ -127,7 +147,7 @@ export function GrpcResponsePanel() {
             ) : (
               <p className="px-3.5 py-3 font-mono text-sp-12-5 text-sp-dim">(empty body)</p>
             )
-          ) : activeTab === 'metadata' ? (
+          ) : shownTab === 'metadata' ? (
             // The headers panel's copy button carries a tooltip.
             <TooltipProvider delayDuration={300}>
               <ResponseHeadersPanel entries={metadataEntries} />
