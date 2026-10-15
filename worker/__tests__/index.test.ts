@@ -231,6 +231,23 @@ describe('CORS closed-by-default when ALLOWED_ORIGIN is unset', () => {
       'x-restura-set-cookies'
     );
   });
+
+  it('exposes the streamed-reply marker, real status and withheld headers (#885)', async () => {
+    const res = await app.request(
+      '/api/feature-flags',
+      { method: 'GET', headers: { Origin: 'http://localhost:5173' } },
+      { ENVIRONMENT: 'development', DEV_BYPASS_AUTH: 'true' }
+    );
+    const exposed = res.headers.get('access-control-expose-headers')?.toLowerCase() ?? '';
+    for (const h of [
+      'x-restura-proxy-stream',
+      'x-restura-upstream-status',
+      'x-restura-upstream-status-text',
+      'x-restura-upstream-headers',
+    ]) {
+      expect(exposed).toContain(h);
+    }
+  });
 });
 
 // Smoke-test the new /health endpoint. Was added alongside the Docker

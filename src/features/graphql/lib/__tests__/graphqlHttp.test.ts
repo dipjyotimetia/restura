@@ -155,6 +155,15 @@ describe('buildGraphQLWireRequest — GET', () => {
     expect(headerMap(wire.request)).toEqual({ Accept: GRAPHQL_ACCEPT });
   });
 
+  it('forces URL encoding even when the request opted out', () => {
+    const wire = buildGraphQLWireRequest(
+      req({ method: 'GET', settings: { encodeUrlAutomatically: false, timeout: 5 } }),
+      { query: '{ a(x: "#&") }' }
+    );
+    if (!wire.ok) throw new Error(wire.error);
+    expect(wire.request.settings).toEqual({ encodeUrlAutomatically: true, timeout: 5 });
+  });
+
   it('omits empty variables / extensions', () => {
     const wire = buildGraphQLWireRequest(req({ method: 'GET' }), {
       query: '{ a }',
@@ -184,6 +193,15 @@ describe('normalizeGraphQLResponse', () => {
     const out = normalizeGraphQLResponse(apiResponse({ body: b64, bodyEncoding: 'base64' }));
     expect(out.bodyEncoding).toBeUndefined();
     expect(JSON.parse(out.body)).toEqual({ data: { hello: 'world', slow: 'done' } });
+  });
+
+  it('keeps the raw body when the merged result cannot be serialised', () => {
+    const deep = `{"data":${'{"a":'.repeat(20_000)}1${'}'.repeat(20_000)}}`;
+    const body = `--b\r\n\r\n${deep}\r\n--b--`;
+    const r = apiResponse({ headers: { 'content-type': 'multipart/mixed; boundary=b' }, body });
+    const out = normalizeGraphQLResponse(r);
+    // Either merged fine or fell back to the untouched response — never throws.
+    expect(out === r || typeof out.body === 'string').toBe(true);
   });
 
   it('leaves non-multipart, undecodable or JSON-free bodies untouched', () => {
@@ -229,6 +247,104 @@ describe('createIncrementalProgress', () => {
     const text = createIncrementalProgress(onSnapshot);
     text({ ...meta, chunk: enc('\r\n---\r\n\r\nnot json\r\n---\r\n\r\n{}\r\n---') });
     expect(onSnapshot).not.toHaveBeenCalled();
+  });
+});
+
+describe('createIncrementalProgress — coalescing', () => {
+  const enc = (s: string) => new TextEncoder().encode(s);
+  const meta = { status: 200, statusText: 'OK', headers: { 'content-type': MULTIPART_CT } };
+  const part = (json: unknown) =>
+    `\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(json)}\r\n---`;
+
+  function harness() {
+    let clock = 0;
+    const timers: Array<{ fn: () => void; at: number; id: number }> = [];
+    let nextId = 0;
+    const onSnapshot = vi.fn();
+    const progress = createIncrementalProgress(onSnapshot, {
+      now: () => clock,
+      setTimer: (fn, ms) => {
+        const id = ++nextId;
+        timers.push({ fn, at: clock + ms, id });
+        return id;
+      },
+      clearTimer: (id) => {
+        const i = timers.findIndex((t) => t.id === id);
+        if (i >= 0) timers.splice(i, 1);
+      },
+    });
+    const advance = (ms: number) => {
+      clock += ms;
+      for (const t of timers.filter((x) => x.at <= clock)) {
+        timers.splice(timers.indexOf(t), 1);
+        t.fn();
+      }
+    };
+    return { onSnapshot, progress, advance, timers };
+  }
+
+  it('10k tiny @stream parts in one window cost two snapshots (first + final)', () => {
+    const { onSnapshot, progress } = harness();
+    progress({
+      ...meta,
+      chunk: enc(
+        `\r\n---${part({ data: { l: [] }, pending: [{ id: '0', path: ['l'] }], hasNext: true })}`
+      ),
+    });
+    const started = performance.now();
+    for (let i = 0; i < 10_000; i++) {
+      progress({
+        ...meta,
+        chunk: enc(part({ incremental: [{ id: '0', items: [i] }], hasNext: true })),
+      });
+    }
+    progress({ ...meta, chunk: enc(`${part({ hasNext: false })}\r\n-----\r\n`) });
+    expect(performance.now() - started).toBeLessThan(5_000);
+    expect(onSnapshot).toHaveBeenCalledTimes(2);
+    const last = onSnapshot.mock.calls[1]![0];
+    expect(last.hasNext).toBe(false);
+    expect((last.result.data as { l: number[] }).l).toHaveLength(10_000);
+  });
+
+  it('flushes a trailing snapshot after the interval, and dispose cancels it', () => {
+    const { onSnapshot, progress, advance, timers } = harness();
+    progress({ ...meta, chunk: enc(`\r\n---${part({ data: { a: 1 }, hasNext: true })}`) });
+    expect(onSnapshot).toHaveBeenCalledTimes(1);
+    advance(10);
+    progress({ ...meta, chunk: enc(part({ data: { b: 2 }, hasNext: true })) });
+    progress({ ...meta, chunk: enc(part({ data: { c: 3 }, hasNext: true })) });
+    expect(onSnapshot).toHaveBeenCalledTimes(1);
+    expect(timers).toHaveLength(1);
+    advance(100);
+    expect(onSnapshot).toHaveBeenCalledTimes(2);
+    expect(onSnapshot.mock.calls[1]![0].result).toEqual({ data: { a: 1, b: 2, c: 3 } });
+
+    progress({ ...meta, chunk: enc(part({ data: { d: 4 }, hasNext: true })) });
+    expect(timers).toHaveLength(1);
+    progress.dispose();
+    expect(timers).toHaveLength(0);
+    advance(1_000);
+    progress({ ...meta, chunk: enc(part({ data: { e: 5 }, hasNext: false })) });
+    expect(onSnapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops live updates when the sink throws or a part is oversized', () => {
+    const throwing = vi.fn(() => {
+      throw new RangeError('too deep');
+    });
+    const p1 = createIncrementalProgress(throwing);
+    p1({ ...meta, chunk: enc(`\r\n---${part({ data: { a: 1 }, hasNext: false })}`) });
+    p1({ ...meta, chunk: enc(part({ data: { a: 2 }, hasNext: false })) });
+    expect(throwing).toHaveBeenCalledTimes(1);
+
+    const sink = vi.fn();
+    const p2 = createIncrementalProgress(sink);
+    p2({ ...meta, chunk: enc('\r\n---\r\n\r\n') });
+    const big = enc('x'.repeat(17 * 1024 * 1024));
+    p2({ ...meta, chunk: big });
+    p2({ ...meta, chunk: enc(`\r\n---${part({ data: {}, hasNext: false })}`) });
+    expect(sink).not.toHaveBeenCalled();
+    p2.dispose();
   });
 });
 

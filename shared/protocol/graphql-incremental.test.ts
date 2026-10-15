@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   GraphQLIncrementalMerger,
+  MAX_MERGE_DEPTH,
   mergeMultipartGraphQLBody,
   parseIncrementalPart,
 } from './graphql-incremental';
@@ -198,6 +199,65 @@ describe('GraphQLIncrementalMerger — edge cases', () => {
     m.apply({ incremental: [{ data: { a: 1 }, path: [] }] });
     m.apply({ incremental: [{ data: { b: 2 }, path: [] }] });
     expect(m.result).toEqual({ data: { a: 1, b: 2 } });
+  });
+
+  it('never creates sparse holes: far-out stream indexes and patch paths are ignored', () => {
+    const m = new GraphQLIncrementalMerger();
+    m.apply({ data: { a: [1] } });
+    m.apply({ incremental: [{ items: [9], path: ['a', 6_000_000] }] });
+    m.apply({ incremental: [{ items: [9], path: ['a', 4_294_967_294] }] });
+    m.apply({ incremental: [{ items: [9], path: ['a', -1] }] });
+    m.apply({ incremental: [{ items: [9], path: ['a', 1.5] }] });
+    m.apply({ incremental: [{ data: { x: 1 }, path: ['a', 5] }] });
+    m.apply({ incremental: [{ data: { x: 1 }, path: ['b', 7, 'c'] }] });
+    expect(m.result).toEqual({ data: { a: [1] } });
+    expect(JSON.stringify(m.result).length).toBeLessThan(50);
+  });
+
+  it('rejects "length" and string keys on arrays, numeric keys on objects', () => {
+    const m = new GraphQLIncrementalMerger();
+    m.apply({ data: { a: [1], o: {} } });
+    expect(() =>
+      m.apply({
+        incremental: [
+          { data: 4_294_967_295, path: ['a', 'length'] },
+          { items: [1], path: ['a', 'length', 0] },
+          { data: { x: 1 }, path: ['o', 0] },
+        ],
+      })
+    ).not.toThrow();
+    expect(m.result).toEqual({ data: { a: [1], o: {} } });
+  });
+
+  it('overwrites in place and appends at exactly the list length', () => {
+    const m = new GraphQLIncrementalMerger();
+    m.apply({ data: { a: ['x', 'y'] } });
+    m.apply({ incremental: [{ items: ['Y', 'z'], path: ['a', 1] }] });
+    m.apply({ incremental: [{ data: { n: 1 }, path: ['b', 0] }] });
+    expect(m.result).toEqual({ data: { a: ['x', 'Y', 'z'], b: [{ n: 1 }] } });
+  });
+
+  it('survives pathologically deep payloads without overflowing the stack', () => {
+    const deep = (n: number) => {
+      let v: Record<string, unknown> = {};
+      for (let i = 0; i < n; i++) v = { a: v };
+      return v;
+    };
+    const m = new GraphQLIncrementalMerger();
+    m.apply({ data: deep(200_000) });
+    expect(() => m.apply({ data: deep(200_000) })).not.toThrow();
+    // A patch path deeper than the cap is ignored rather than walked.
+    const longPath = Array.from({ length: MAX_MERGE_DEPTH + 5 }, () => 'a');
+    expect(() => m.apply({ incremental: [{ data: { z: 1 }, path: longPath }] })).not.toThrow();
+  });
+
+  it('handles very large errors / items arrays without spreading', () => {
+    const many = Array.from({ length: 300_000 }, (_, i) => i);
+    const m = new GraphQLIncrementalMerger();
+    m.apply({ data: { l: [] }, pending: [{ id: '0', path: ['l'] }], errors: many });
+    m.apply({ incremental: [{ id: '0', items: many }] });
+    expect((m.result.data as { l: number[] }).l).toHaveLength(300_000);
+    expect(m.result.errors).toHaveLength(300_000);
   });
 
   it('parseIncrementalPart returns undefined for non-JSON', () => {

@@ -198,19 +198,26 @@ export const graphqlProtocol: ProtocolModule = {
     const variables = ctx.variables ?? {};
     const executable = toExecutable(request as HttpRequest);
     const onMessage = ctx.stream?.onMessage;
-    const result = await executeRequest({
-      request: executable,
-      envVars: { ...variables },
-      globalSettings,
-      signal: ctx.signal,
-      resolveVariables: (text) => defaultResolveVariables(text, variables),
-      ...(ctx.secretVariables ? { secretVariables: ctx.secretVariables } : {}),
-      // `multipart/mixed` incremental (@defer / @stream) responses are folded
-      // into one result before test scripts and history see them; a live
-      // caller additionally gets each merged snapshot as parts arrive.
-      transformResponse: normalizeGraphQLResponse,
-      ...(onMessage ? { onResponseProgress: createIncrementalProgress(onMessage) } : {}),
-    });
+    const progress = onMessage ? createIncrementalProgress(onMessage) : undefined;
+    let result: Awaited<ReturnType<typeof executeRequest>>;
+    try {
+      result = await executeRequest({
+        request: executable,
+        envVars: { ...variables },
+        globalSettings,
+        signal: ctx.signal,
+        resolveVariables: (text) => defaultResolveVariables(text, variables),
+        ...(ctx.secretVariables ? { secretVariables: ctx.secretVariables } : {}),
+        // `multipart/mixed` incremental (@defer / @stream) responses are folded
+        // into one result before test scripts and history see them; a live
+        // caller additionally gets (coalesced) merged snapshots as parts arrive.
+        transformResponse: normalizeGraphQLResponse,
+        ...(progress ? { onResponseProgress: progress } : {}),
+      });
+    } finally {
+      // A trailing snapshot must never land after the final response.
+      progress?.dispose();
+    }
     if (ctx.onScriptResult && result.scriptResult) {
       ctx.onScriptResult(result.scriptResult);
     }

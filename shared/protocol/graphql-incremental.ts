@@ -39,6 +39,32 @@ export interface GraphQLIncrementalResult {
 
 const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
+/**
+ * Nesting depth past which merging stops recursing and the incoming value
+ * simply replaces the existing one — a hostile 200k-deep payload must not
+ * overflow the stack. Real GraphQL results are nowhere near this deep.
+ */
+export const MAX_MERGE_DEPTH = 256;
+
+/**
+ * Whether `key` may address a slot in `container`. Arrays take only integer
+ * indexes up to their length (overwrite or append — never a hole, so a path
+ * like `["list", 6000000]` cannot allocate a sparse array that serialises to
+ * megabytes of `null`); objects take only string keys that cannot reach
+ * `Object.prototype`.
+ */
+function slotAllowed(container: JsonObject | Json[], key: PathSegment): boolean {
+  if (Array.isArray(container)) {
+    return Number.isInteger(key) && (key as number) >= 0 && (key as number) <= container.length;
+  }
+  return typeof key === 'string' && !UNSAFE_KEYS.has(key);
+}
+
+function pushAll(target: Json[], items: readonly Json[]): void {
+  // A loop, not push(...items): spread hits the engine's argument limit.
+  for (const item of items) target.push(item);
+}
+
 function isObject(value: Json): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -47,18 +73,19 @@ function isPath(value: Json): value is PathSegment[] {
   return Array.isArray(value) && value.every((s) => typeof s === 'string' || typeof s === 'number');
 }
 
-function deepMerge(target: Json, source: Json): Json {
+function deepMerge(target: Json, source: Json, depth = 0): Json {
+  if (depth >= MAX_MERGE_DEPTH) return source;
   if (Array.isArray(target) && Array.isArray(source)) {
     const out = target.slice();
     source.forEach((item, i) => {
-      out[i] = i < out.length ? deepMerge(out[i], item) : item;
+      out[i] = i < out.length ? deepMerge(out[i], item, depth + 1) : item;
     });
     return out;
   }
   if (isObject(target) && isObject(source)) {
     for (const [key, value] of Object.entries(source)) {
       if (UNSAFE_KEYS.has(key)) continue;
-      target[key] = key in target ? deepMerge(target[key], value) : value;
+      target[key] = Object.hasOwn(target, key) ? deepMerge(target[key], value, depth + 1) : value;
     }
     return target;
   }
@@ -110,12 +137,12 @@ export class GraphQLIncrementalMerger {
     if (Array.isArray(payload.completed)) {
       for (const done of payload.completed) {
         if (!isObject(done)) continue;
-        if (Array.isArray(done.errors)) this.errors.push(...done.errors);
+        if (Array.isArray(done.errors)) pushAll(this.errors, done.errors);
         if (typeof done.id === 'string') this.pending.delete(done.id);
       }
     }
 
-    if (Array.isArray(payload.errors)) this.errors.push(...payload.errors);
+    if (Array.isArray(payload.errors)) pushAll(this.errors, payload.errors);
     if (isObject(payload.extensions)) this.mergeExtensions(payload.extensions);
     if (typeof payload.hasNext === 'boolean') this.next = payload.hasNext;
   }
@@ -151,14 +178,15 @@ export class GraphQLIncrementalMerger {
       if (byId) {
         // Newer format: the path names the list; append.
         const list = this.ensureList(path);
-        if (list) list.push(...item.items);
+        if (list) pushAll(list, item.items);
       } else {
         // deferSpec=20220824: the path ends with the first item's index.
-        const index = path[path.length - 1];
+        // Only overwrite or append (index <= length): no sparse holes.
+        const index = path[path.length - 1] as PathSegment;
         const list = this.ensureList(path.slice(0, -1));
-        if (list && typeof index === 'number' && index >= 0) {
-          item.items.forEach((v, i) => {
-            list[index + i] = v;
+        if (list && slotAllowed(list, index)) {
+          (item.items as Json[]).forEach((v, i) => {
+            list[(index as number) + i] = v;
           });
         }
       }
@@ -166,7 +194,7 @@ export class GraphQLIncrementalMerger {
       this.mergeAt(path, item.data);
     }
 
-    if (Array.isArray(item.errors)) this.errors.push(...item.errors);
+    if (Array.isArray(item.errors)) pushAll(this.errors, item.errors);
     if (isObject(item.extensions)) this.mergeExtensions(item.extensions);
   }
 
@@ -183,16 +211,17 @@ export class GraphQLIncrementalMerger {
     }
     const parent = this.walk(path, path.length - 1);
     const key = path[path.length - 1] as PathSegment;
-    if (!parent || (typeof key === 'string' && UNSAFE_KEYS.has(key))) return;
+    if (!parent || !slotAllowed(parent, key)) return;
     const container = parent as Record<PathSegment, Json>;
-    container[key] = key in container ? deepMerge(container[key], value) : value;
+    const existing = container[key];
+    container[key] = existing === undefined ? value : deepMerge(existing, value, path.length);
   }
 
   private ensureList(path: PathSegment[]): Json[] | null {
     if (path.length === 0) return null;
     const parent = this.walk(path, path.length - 1);
     const key = path[path.length - 1] as PathSegment;
-    if (!parent || (typeof key === 'string' && UNSAFE_KEYS.has(key))) return null;
+    if (!parent || !slotAllowed(parent, key)) return null;
     const container = parent as Record<PathSegment, Json>;
     if (container[key] === undefined || container[key] === null) container[key] = [];
     const list = container[key];
@@ -204,6 +233,7 @@ export class GraphQLIncrementalMerger {
    * along the way — a list when the following segment is an index.
    */
   private walk(path: PathSegment[], depth: number): JsonObject | Json[] | null {
+    if (depth >= MAX_MERGE_DEPTH) return null;
     if (!this.hasData || !isObject(this.data)) {
       if (this.hasData && this.data !== null && this.data !== undefined) return null;
       this.data = {};
@@ -212,12 +242,15 @@ export class GraphQLIncrementalMerger {
     let node: Json = this.data;
     for (let i = 0; i < depth; i++) {
       const seg = path[i] as PathSegment;
-      if (typeof seg === 'string' && UNSAFE_KEYS.has(seg)) return null;
       if (!isObject(node) && !Array.isArray(node)) return null;
+      if (!slotAllowed(node, seg)) return null;
       const container = node as Record<PathSegment, Json>;
       let child = container[seg];
       if (child === undefined || child === null) {
-        child = typeof path[i + 1] === 'number' ? [] : {};
+        const fresh: JsonObject | Json[] = typeof path[i + 1] === 'number' ? [] : {};
+        // Don't create a container the next segment couldn't address anyway.
+        if (i + 1 < path.length && !slotAllowed(fresh, path[i + 1] as PathSegment)) return null;
+        child = fresh;
         container[seg] = child;
       }
       node = child;

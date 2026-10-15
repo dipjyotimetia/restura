@@ -22,6 +22,52 @@ export const RESPONSE_DENY = new Set<string>([
 ]);
 
 /**
+ * Upstream headers that must not reach the browser on the Worker's streamed
+ * pass-through: the browser would act on them against the Restura origin
+ * (wipe its storage, pin HSTS / keys, switch protocols, pop a native auth
+ * prompt, follow or refresh to an upstream-chosen URL, preload resources).
+ * The buffered proxy is unaffected — it returns headers as JSON data.
+ * `Set-Cookie` is handled separately (cookie side channel).
+ */
+export const STREAM_FORWARD_DENY = new Set<string>([
+  ...RESPONSE_DENY,
+  'alt-svc',
+  'clear-site-data',
+  'content-security-policy',
+  'content-security-policy-report-only',
+  'link',
+  'location',
+  'nel',
+  'public-key-pins',
+  'public-key-pins-report-only',
+  'refresh',
+  'report-to',
+  'reporting-endpoints',
+  'set-cookie',
+  'strict-transport-security',
+  'www-authenticate',
+]);
+
+/**
+ * Split upstream response headers for a streamed pass-through: `forward` may
+ * be set on the proxy's reply; `withheld` (minus Set-Cookie, which has its own
+ * side channel) is what the renderer should still be able to display.
+ */
+export function splitStreamForwardHeaders(input: Record<string, string>): {
+  forward: Record<string, string>;
+  withheld: Record<string, string>;
+} {
+  const forward: Record<string, string> = {};
+  const withheld: Record<string, string> = {};
+  for (const [k, v] of Object.entries(input)) {
+    const lower = k.toLowerCase();
+    if (!STREAM_FORWARD_DENY.has(lower)) forward[k] = v;
+    else if (lower !== 'set-cookie' && !RESPONSE_DENY.has(lower)) withheld[k] = v;
+  }
+  return { forward, withheld };
+}
+
+/**
  * Aggregate cap on outbound gRPC metadata (sum of UTF-8 key + value bytes).
  *
  * There is deliberately no per-entry cap: HTTP/2 imposes none, and ordinary

@@ -6,6 +6,12 @@
  * adapters. Everything else (CORS, auth, rate limiting, gRPC, MCP, feature
  * flags, telemetry, ws-ticket) is pure fetch / pure logic and reused.
  */
+import {
+  PROXY_STREAM_MARKER_HEADER,
+  PROXY_UPSTREAM_HEADERS_HEADER,
+  PROXY_UPSTREAM_STATUS_HEADER,
+  PROXY_UPSTREAM_STATUS_TEXT_HEADER,
+} from '@shared/protocol/proxy-limits';
 import { SET_COOKIE_SIDE_CHANNEL_HEADER } from '@shared/protocol/set-cookie';
 import type { Context, Next } from 'hono';
 import { Hono } from 'hono';
@@ -158,9 +164,16 @@ export function createApp(
     '/api/*',
     cors({
       origin: (origin, c) => resolveCorsOrigin(origin, c.env),
-      // The streaming proxy carries upstream cookies in this header (never as a
-      // real Set-Cookie); a cross-origin SPA can only read it when exposed.
-      exposeHeaders: [SET_COOKIE_SIDE_CHANNEL_HEADER],
+      // The streaming proxy carries upstream cookies, the real status, withheld
+      // headers and its upstream-reply marker in these headers; a cross-origin
+      // SPA (VITE_WORKER_URL builds) can only read them when exposed.
+      exposeHeaders: [
+        SET_COOKIE_SIDE_CHANNEL_HEADER,
+        PROXY_STREAM_MARKER_HEADER,
+        PROXY_UPSTREAM_STATUS_HEADER,
+        PROXY_UPSTREAM_STATUS_TEXT_HEADER,
+        PROXY_UPSTREAM_HEADERS_HEADER,
+      ],
     })
   );
   app.use('/api/*', requestIdMiddleware);

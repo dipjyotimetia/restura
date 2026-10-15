@@ -70,6 +70,13 @@ export class MultipartMixedParser {
   private scanFrom = 0;
   /** Start offset of the current part's content, or -1 while in the preamble. */
   private partStart = -1;
+  /**
+   * Offset of a delimiter whose line is still incomplete but whose preceding
+   * part was already emitted (-1 when none). Servers flush `\r\n--b` right
+   * after a payload and send the line end only with the next part, so waiting
+   * for the full line would hold every part back by one.
+   */
+  private earlyAt = -1;
   private closed = false;
 
   constructor(boundary: string, options: { maxPartChars?: number } = {}) {
@@ -96,7 +103,7 @@ export class MultipartMixedParser {
     if (this.closed) return [];
     this.buffer += this.decoder.decode();
     const out = this.drain(true);
-    if (!this.closed && this.partStart >= 0) {
+    if (!this.closed && this.partStart >= 0 && this.earlyAt < 0) {
       const part = toPart(this.buffer.slice(this.partStart));
       if (part) out.push(part);
     }
@@ -115,11 +122,32 @@ export class MultipartMixedParser {
         break;
       }
       const after = idx + this.delimiter.length;
-      const isClose = this.buffer.startsWith('--', after);
       const lineEnd = this.buffer.indexOf('\n', after);
-      // `--boundary` with no line end yet: might still become `--boundary--`.
-      if (!isClose && lineEnd < 0 && !atEnd) break;
-      if (this.partStart >= 0) {
+      const rest = this.buffer.slice(after, lineEnd < 0 ? undefined : lineEnd);
+      if (lineEnd < 0 && !atEnd) {
+        // The line is incomplete, so `--b`, `--b--` and `--bX` can't be told
+        // apart yet. The boundary may not occur at a line start inside a part
+        // (RFC 2046), so if what we have can still become a valid delimiter
+        // line, release the part before it now.
+        if (this.partStart >= 0 && this.earlyAt !== idx && /^(?:-|--)?[ \t]*\r?$/.test(rest)) {
+          const part = toPart(this.buffer.slice(this.partStart, idx));
+          if (part) out.push(part);
+          this.earlyAt = idx;
+        }
+        break;
+      }
+      // RFC 2046: the boundary may be followed only by transport padding
+      // (spaces / tabs), or by `--` for the close delimiter.
+      const isClose = /^--[ \t]*\r?$/.test(rest);
+      if (!isClose && !/^[ \t]*\r?$/.test(rest)) {
+        // Not a delimiter after all. If its part went out early, the text
+        // from here on belongs to a continuation of that part.
+        if (this.earlyAt === idx) this.partStart = idx;
+        this.earlyAt = -1;
+        this.scanFrom = idx + 1;
+        continue;
+      }
+      if (this.partStart >= 0 && this.earlyAt !== idx) {
         const part = toPart(this.buffer.slice(this.partStart, idx));
         if (part) out.push(part);
       }
@@ -134,6 +162,7 @@ export class MultipartMixedParser {
         this.buffer = '';
         break;
       }
+      this.earlyAt = -1;
       // Compact: drop everything before the new part's content.
       this.buffer = this.buffer.slice(lineEnd + 1);
       this.partStart = 0;

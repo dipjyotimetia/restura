@@ -112,13 +112,16 @@ export async function executeProxiedRequestWithProgress(
   let size = 0;
   if (response.body) {
     const reader = response.body.getReader();
+    let finished = false;
     try {
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          finished = true;
+          break;
+        }
         size += value.byteLength;
         if (size > MAX_RESPONSE_SIZE) {
-          void reader.cancel().catch(() => undefined);
           throw new ProxyTransportError(
             `Response too large (max ${MAX_RESPONSE_SIZE / 1024 / 1024}MB)`,
             413
@@ -128,6 +131,9 @@ export async function executeProxiedRequestWithProgress(
         onProgress({ ...meta, chunk: value });
       }
     } finally {
+      // Any throw (size cap, a failing progress sink, a read error) must tear
+      // down the upstream body, not just release the lock and leave it open.
+      if (!finished) await reader.cancel().catch(() => undefined);
       reader.releaseLock();
     }
   }

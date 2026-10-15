@@ -102,6 +102,36 @@ describe('MultipartMixedParser', () => {
     expect(parts.map((p) => p.body)).toEqual(['{"s":"a--b"}']);
   });
 
+  it('only accepts a boundary line followed by padding or the closing --', () => {
+    // `--bX` and `--b junk` are body text, not delimiters; padding is allowed.
+    const parts = parseMultipartMixed(
+      '--b \t\r\n\r\nA\n--bX\n--b junk\r\n--b\t\nB\n--b-- \r\n',
+      'b'
+    );
+    expect(parts.map((p) => p.body)).toEqual(['A\n--bX\n--b junk', 'B']);
+  });
+
+  it('releases a part as soon as the next delimiter starts, before its line ends', () => {
+    // graphql-yoga writes `<json>\r\n---` and sends the line end with the next part.
+    const parser = new MultipartMixedParser('-');
+    expect(parser.feed('\r\n---\r\n\r\n{"a":1}\r\n---').map((p) => p.body)).toEqual(['{"a":1}']);
+    expect(parser.feed('\r\n\r\n{"b":2}\r\n---').map((p) => p.body)).toEqual(['{"b":2}']);
+    expect(parser.feed('--\r\n')).toEqual([]);
+    expect(parser.done).toBe(true);
+  });
+
+  it('does not re-emit an early part at end-of-stream', () => {
+    const parser = new MultipartMixedParser('b');
+    expect(parser.feed('--b\n\nA\n--b')).toHaveLength(1);
+    expect(parser.flush()).toEqual([]);
+  });
+
+  it('continues the part when an early-released delimiter line proves invalid', () => {
+    const parser = new MultipartMixedParser('b');
+    expect(parser.feed('--b\n\nA\n--b').map((p) => p.body)).toEqual(['A']);
+    expect(parser.feed('X more\n--b--\n')).toEqual([{ headers: {}, body: '--bX more' }]);
+  });
+
   it('discards the preamble and the epilogue', () => {
     const parts = parseMultipartMixed('preamble\r\n--b\r\n\r\nX\r\n--b--\r\nepilogue', 'b');
     expect(parts.map((p) => p.body)).toEqual(['X']);
@@ -129,15 +159,17 @@ describe('MultipartMixedParser', () => {
 
   it('treats a bare delimiter at end-of-stream as the close', () => {
     const parser = new MultipartMixedParser('b');
-    expect(parser.feed('--b\n\nA\n--b')).toEqual([]);
-    expect(parser.flush()).toEqual([{ headers: {}, body: 'A' }]);
+    expect(parser.feed('--b\n\nA\n--b \t')).toEqual([{ headers: {}, body: 'A' }]);
+    expect(parser.flush()).toEqual([]);
+    expect(parseMultipartMixed('--b\n\nA\n--b', 'b')).toEqual([{ headers: {}, body: 'A' }]);
   });
 
   it('waits for the delimiter line end before deciding close vs. next part', () => {
     const parser = new MultipartMixedParser('b');
-    expect(parser.feed('--b\n\nA\n--b')).toEqual([]);
+    expect(parser.feed('--b\n\nA\n--b')).toEqual([{ headers: {}, body: 'A' }]);
     expect(parser.feed('-')).toEqual([]);
-    expect(parser.feed('-\n')).toEqual([{ headers: {}, body: 'A' }]);
+    expect(parser.done).toBe(false);
+    expect(parser.feed('-\n')).toEqual([]);
     expect(parser.done).toBe(true);
   });
 

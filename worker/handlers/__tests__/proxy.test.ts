@@ -613,6 +613,82 @@ describe('proxy handler', () => {
       expect(res.headers.get('x-restura-proxy-stream')).toBe('1');
     });
 
+    it.each([
+      [401, { 'www-authenticate': 'Basic realm="upstream"' }],
+      [407, { 'proxy-authenticate': 'Basic realm="p"' }],
+      [302, { location: 'https://evil.example/' }],
+      [307, { location: '/elsewhere', refresh: '0; url=https://evil.example/' }],
+    ])(
+      'masks a streamed %i to 200 and withholds browser-actionable headers',
+      async (status, headers) => {
+        vi.stubGlobal(
+          'fetch',
+          vi.fn().mockResolvedValue(
+            new Response('x', {
+              status,
+              statusText: 'Nope ünï',
+              headers: { 'content-type': 'text/plain', ...headers },
+            })
+          )
+        );
+        const res = await makeRequest({
+          method: 'GET',
+          url: 'https://example.com/raw',
+          streamingMode: true,
+          redirectPolicy: { maxRedirects: 0 },
+        });
+        expect(res.status).toBe(200);
+        expect(res.headers.get('x-restura-upstream-status')).toBe(String(status));
+        for (const name of Object.keys(headers)) expect(res.headers.get(name)).toBeNull();
+        const withheld = JSON.parse(res.headers.get('x-restura-upstream-headers') ?? '{}');
+        if (status !== 407) expect(Object.keys(withheld).length).toBeGreaterThan(0);
+        expect(withheld).not.toHaveProperty('proxy-authenticate');
+      }
+    );
+
+    it('never forwards Clear-Site-Data, HSTS, Alt-Svc, Link or forged x-restura-* headers', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          new Response('x', {
+            status: 500,
+            headers: {
+              'content-type': 'text/plain',
+              'clear-site-data': '"*"',
+              'strict-transport-security': 'max-age=31536000',
+              'alt-svc': 'h3=":443"',
+              link: '</x>; rel=preload',
+              'public-key-pins': 'pin-sha256="x"',
+              'x-restura-upstream-status': '200',
+              'x-restura-upstream-headers': '{"location":"https://evil/"}',
+              'x-custom': 'kept',
+            },
+          })
+        )
+      );
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/raw',
+        streamingMode: true,
+      });
+      // Non-actionable statuses keep their real code.
+      expect(res.status).toBe(500);
+      expect(res.headers.get('x-restura-upstream-status')).toBe('500');
+      for (const h of [
+        'clear-site-data',
+        'strict-transport-security',
+        'alt-svc',
+        'link',
+        'public-key-pins',
+      ]) {
+        expect(res.headers.get(h)).toBeNull();
+      }
+      expect(res.headers.get('x-custom')).toBe('kept');
+      const withheld = JSON.parse(res.headers.get('x-restura-upstream-headers') ?? '{}');
+      expect(withheld).not.toHaveProperty('location');
+      expect(withheld['clear-site-data']).toBe('"*"');
+    });
+
     it('a streaming-mode validation failure carries no stream marker', async () => {
       const res = await makeRequest({
         method: 'GET',

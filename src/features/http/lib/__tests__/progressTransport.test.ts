@@ -126,6 +126,25 @@ describe('executeProxiedRequestWithProgress — web', () => {
     });
   });
 
+  it('cancels the upstream body when the read loop throws', async () => {
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(enc('a'));
+      },
+      cancel,
+    });
+    streamingMock.mockResolvedValue(
+      new Response(body, { status: 200, headers: { 'x-restura-proxy-stream': '1' } })
+    );
+    await expect(
+      executeProxiedRequestWithProgress(SPEC, () => {
+        throw new Error('sink failed');
+      })
+    ).rejects.toThrow('sink failed');
+    expect(cancel).toHaveBeenCalled();
+  });
+
   it('handles a reply with no body', async () => {
     streamingMock.mockResolvedValue(
       new Response(null, { status: 204, headers: { 'x-restura-proxy-stream': '1' } })
