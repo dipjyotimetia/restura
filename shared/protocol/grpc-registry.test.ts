@@ -84,6 +84,16 @@ message Nested { message Leaf { int32 n = 1; } }`;
     expect(fieldType('leaf')).toBe('t.v1.Nested.Leaf');
   });
 
+  it('qualifies map fields (synthetic nested map-entry message)', () => {
+    const registry = registryFromProtoText(`syntax = "proto3";
+package t.v1;
+enum Color { COLOR_UNSPECIFIED = 0; }
+message Bag { map<string, int32> counts = 1; map<string, Color> colors = 2; }`);
+    const field = (n: string) => registry.getMessage('t.v1.Bag')!.fields.find((f) => f.name === n);
+    expect(field('counts')).toMatchObject({ fieldKind: 'map', mapKind: 'scalar' });
+    expect(field('colors')).toMatchObject({ fieldKind: 'map', mapKind: 'enum' });
+  });
+
   it('serialises a snake_case output field as its camelCase jsonName', () => {
     const { method } = resolveMethod(
       registryFromProtoText(ECHO_PROTO),

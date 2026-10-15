@@ -8,6 +8,7 @@ import { Floater, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import { useGrpcReflection } from '@/features/grpc/hooks/useGrpcReflection';
+import { useGrpcSchemaDrift } from '@/features/grpc/hooks/useGrpcSchemaDrift';
 import {
   createErrorResponse,
   describeGrpcAuthMetadata,
@@ -20,7 +21,6 @@ import {
   generateRequestTemplate,
   validateRequestAgainstSchema,
 } from '@/features/grpc/lib/grpcReflection';
-import { reflectionSnapshotUpdate } from '@/features/grpc/lib/grpcSchemaSnapshot';
 import {
   type GrpcValidationState,
   INITIAL_VALIDATION_STATE,
@@ -54,6 +54,7 @@ import { GrpcMessageEditor } from './GrpcMessageEditor';
 import { GrpcMethodContext } from './GrpcMethodContext';
 import { GrpcMethodSelector } from './GrpcMethodSelector';
 import GrpcProtoUploader from './GrpcProtoUploader';
+import { GrpcSchemaDriftBanner } from './GrpcSchemaDriftBanner';
 import { GrpcSettingsPanel } from './GrpcSettingsPanel';
 import { GrpcStreamingMessages } from './GrpcStreamingControls';
 import { GrpcStreamingPanel } from './GrpcStreamingPanel';
@@ -81,6 +82,7 @@ function GrpcRequestBuilder() {
   const addHistoryItem = useHistoryStore((s) => s.addHistoryItem);
   const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const { run: runViaRegistry } = useRequestRunner();
+  const schemaDrift = useGrpcSchemaDrift();
   const [activeTab, setActiveTab] = useSubTabWithViolationJump<GrpcSubTab>('message', activeTabId);
   const [resolvedProto, setResolvedProto] = useState<{
     content: string;
@@ -131,14 +133,10 @@ function GrpcRequestBuilder() {
     (service: ReflectionServiceInfo) => {
       updateRequest({ service: service.fullName });
       validateService(service.fullName);
-      // Persist the reflected descriptors as the request's schema snapshot so
-      // it runs outside the builder (collection runner, reopened tab) — #871.
-      const state = useRequestStore.getState();
-      const active = state.tabs.find((t) => t.id === state.activeTabId)?.request;
-      const next = reflectionSnapshotUpdate(service, active);
-      if (next) updateRequest({ schema: next });
+      // Snapshot the reflected descriptors (#871); a changed schema is held as drift (#937).
+      schemaDrift.onServiceReflected(service);
     },
-    [updateRequest, validateService]
+    [updateRequest, validateService, schemaDrift.onServiceReflected]
   );
 
   // Apply parent-side effects when the reflection hook surfaces a method
@@ -609,7 +607,7 @@ function GrpcRequestBuilder() {
             </Button>
             <GrpcProtoUploader
               protoFileName={protoSnapshot?.fileName ?? uploaded?.fileName ?? null}
-              onSchemaLoaded={(schema) => updateRequest({ schema })}
+              onSchemaLoaded={schemaDrift.saveUpload}
               onServiceChange={handleServiceChange}
               onMethodChange={handleMethodChange}
               onMethodTypeChange={handleMethodTypeChange}
@@ -628,6 +626,8 @@ function GrpcRequestBuilder() {
               </span>
             </div>
           )}
+
+          <GrpcSchemaDriftBanner drift={schemaDrift} />
 
           <div className="text-sp-11 font-mono text-sp-muted px-3 py-1.5 border-b border-sp-line">
             {getMethodTypeDescription(grpcRequest.methodType)}

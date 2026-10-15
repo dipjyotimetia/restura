@@ -120,6 +120,39 @@ describe('OpenCollection gRPC schema snapshot extension', () => {
     expect(reqs[2]).toMatchObject({ schema: PROTO, timeout: 1500 });
   });
 
+  it('round-trips snapshot provenance (hash + fetchedAt) without breaking dedupe (#937)', () => {
+    const stamp = (s: GrpcSchemaSnapshot, fetchedAt: number): GrpcSchemaSnapshot => ({
+      ...s,
+      hash: grpcSchemaHash(s),
+      fetchedAt,
+    });
+    const collection: Collection = {
+      id: 'c',
+      name: 'stamped',
+      items: [
+        item(grpc('A', { schema: stamp(DESCRIPTORS, 1_700_000_000_000) })),
+        item(grpc('B', { schema: stamp(DESCRIPTORS, 1_700_000_500_000) })),
+        item(grpc('Legacy', { schema: PROTO })),
+      ],
+    };
+    const oc = internalToOC(collection);
+    const ext = (oc.extensions as Record<string, unknown>)[GRPC_EXTENSION_KEY] as {
+      schemas: Record<string, unknown>;
+      requests: Array<Record<string, unknown>>;
+    };
+    // Provenance never splits the content-addressed table, and the stored
+    // hash equals the table key.
+    expect(Object.keys(ext.schemas)).toHaveLength(2);
+    expect(ext.schemas[grpcSchemaHash(DESCRIPTORS)]).toEqual(DESCRIPTORS);
+    expect(ext.requests[0]).toMatchObject({ schemaFetchedAt: 1_700_000_000_000 });
+    expect(ext.requests[2]).not.toHaveProperty('schemaFetchedAt');
+
+    const back = grpcRequests(
+      ocToInternal(parseOpenCollectionYAML(serializeOpenCollectionYAML(oc))).items
+    );
+    expect(back.map((r) => r.schema)).toEqual(grpcRequests(collection.items).map((r) => r.schema));
+  });
+
   it('omits the extension when no gRPC request carries a snapshot or timeout', () => {
     const oc = internalToOC({ id: 'c', name: 'plain', items: [item(grpc('x'))] });
     expect((oc.extensions as Record<string, unknown> | undefined)?.[GRPC_EXTENSION_KEY]).toBe(

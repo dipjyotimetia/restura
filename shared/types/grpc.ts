@@ -26,9 +26,22 @@ export { GrpcStatusCode, GrpcStatusCodeName };
  * with `fileName` set: the upload label, which also marks it as a user choice
  * that server reflection must not overwrite.
  */
-export type GrpcSchemaSnapshot =
+export type GrpcSchemaSnapshot = (
   | { kind: 'descriptors'; descriptors: string[]; fileName?: string }
-  | { kind: 'proto'; fileName: string; text: string };
+  | { kind: 'proto'; fileName: string; text: string }
+) &
+  GrpcSchemaSnapshotMeta;
+
+/**
+ * Provenance stamped when a snapshot is captured (#937). Optional — snapshots
+ * saved before #937 carry neither. `hash` is the sha-256 of the content (same
+ * value as the `x-restura-grpc` OpenCollection schema-table key), used to spot
+ * drift cheaply on re-reflect; `fetchedAt` is epoch ms of the capture.
+ */
+export interface GrpcSchemaSnapshotMeta {
+  hash?: string;
+  fetchedAt?: number;
+}
 
 /**
  * Per-request wire protocol (#914). Absent = auto: desktop dials native gRPC
