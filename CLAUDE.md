@@ -2,18 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## OpenWiki
-
-This repository has documentation located in the /openwiki directory.
-
-Start here:
-
-- [OpenWiki quickstart](openwiki/quickstart.md)
-
-OpenWiki includes repository overview, architecture notes, workflows, domain concepts, operations, integrations, testing guidance, and source maps.
-
-When working in this repository, read the OpenWiki quickstart first, then follow its links to the relevant architecture, workflow, domain, operation, and testing notes.
-
 ## Project Overview
 
 Restura is a multi-protocol API client supporting **HTTP/REST, GraphQL, gRPC, WebSocket, Socket.IO, SSE, Kafka, MQTT, and MCP** (Model Context Protocol), plus an **AI assistant** that can read request context. It ships from a single React renderer to three targets: a web app (Cloudflare Pages + Workers), a self-hostable Node/Docker server, and an Electron desktop app. Restura can also act _as_ an MCP server (`src/features/mcp-server`, `electron/main/handlers/mcp-server-handler.ts`). Node.js 24+ required.
@@ -28,7 +16,7 @@ npm run preview                # Preview production build
 npm run type-check             # TypeScript strict mode — renderer only (excludes worker, electron/main, cli)
 npm run type-check:all         # Full type-check across all tsconfigs — what CI runs
 npm run architecture:check     # Enforce runtime boundaries, acyclic imports, file-size + source-pattern ratchets
-npm run lint                   # Biome lint over src/ shared/ electron/main/ worker/ echo/ echo-local/ cli/ tests/ scripts/
+npm run lint                   # Biome lint over src/ shared/ electron/main/ worker/ echo/ echo-local/ cli/ extension/ tests/ scripts/
 npm run lint:fix               # Biome lint --write
 npm run format                 # Biome format (write)
 npm run format:check           # Biome format check
@@ -119,6 +107,8 @@ Key modules:
 - `shared/protocol/ai/` — AI chat orchestrator (`ai-proxy.ts`) + per-provider wire shapes (`provider-routes.ts`) and decoders (`providers/{openai,anthropic,openrouter}.ts`, each paired with a fixture). The orchestrator is provider-agnostic and emits raw SSE bytes downstream; `redaction.ts` scrubs secrets from prompts/context. See AI assistant note below.
 - `shared/protocol/auth-signer.ts`, `oauth1-signer.ts`, `wsse-header.ts` — auth signing **at the wire** (Worker/Electron, not the renderer) so signatures match exact upstream bytes.
 - `shared/protocol/secret-value-schema.ts`, `crypto-utils.ts` — `SecretRef` handle-based secrets (ADR-0007); see State + Persistence below.
+- gRPC (ADR 0022) is split across `grpc-proxy.ts` (Connect unary/stream), `grpc-web-proxy.ts` + `grpc-web-framing.ts` + `grpc-web-schema.ts` (gRPC-Web, `/api/grpc-web`), `grpc-reflection-proxy.ts`, `grpc-proto-compiler.ts` + `grpc-registry.ts` (proto/descriptor uploads), `grpc-status.ts` + `grpc-status-details.ts` (`google.rpc.Status`), `grpc-unknown-fields.ts`, and `grpc-schema-drift.ts`. Reuse these rather than adding gRPC logic per backend.
+- `digest-auth.ts` (Digest challenge retry, ADR 0029) and `redirect-follower.ts` (manual redirects with per-hop SSRF checks).
 
 **When adding a new protocol**: add `shared/protocol/<name>-proxy.ts` exposing `execute<Name>Proxy(spec, fetcher, options)`, then ~30 lines of Fetcher adapter each in `worker/handlers/` and `electron/main/`. SSRF, headers, body, timeouts come for free. The Electron HTTP adapter (`electron/main/handlers/http-handler.ts`) is the exception and is far larger: PAC, SOCKS, mTLS, ALPN capture and manual redirects live inside its fetcher closure (ADR-0006).
 
@@ -128,7 +118,7 @@ A chat assistant that can read the current request/response context. **Electron-
 
 ### AI Lab (`src/features/ai-lab/`) — Electron-only LLM/eval workbench
 
-A separate workbench for testing prompts and models: per-provider config, a multi-model Playground, datasets, an eval runner with LLM-as-judge + scorers, OpenAPI-driven test generation, and an **Arena** (round-robin pairwise model-vs-model judging → Elo leaderboard + win-rate matrix, `Arena.tsx`/`lib/elo.ts`/`lib/arenaRunner.ts`/`store/useArenaStore.ts`). Renderer state persists to Dexie tables `aiLab`/`evalRuns`/`arenaRuns` (the last added in `database.ts` version 13); provider API keys are stored only as `SecretRef` handles (`apiKeyHandleId`, resolved in main). Backed by `electron/main/handlers/ai-lab-handler.ts` — a sibling to `ai-handler.ts` kept separate so the chat path is untouched. It adds a non-streaming `complete` (used heavily by the eval runner/judge, bounded by a queueing semaphore), model discovery + connection test, and a **localhost SSRF carve-out**: the same shared URL guard runs, but `allowLocalhost` is derived from provider kind — true only for local runtimes (Ollama, OpenAI-compatible), never for cloud providers.
+A separate workbench for testing prompts and models: per-provider config, a multi-model Playground, datasets, an eval runner with LLM-as-judge + scorers, OpenAPI-driven test generation, and an **Arena** (round-robin pairwise model-vs-model judging → Elo leaderboard + win-rate matrix, `Arena.tsx`/`lib/elo.ts`/`lib/arenaRunner.ts`/`store/useArenaStore.ts`). Renderer state persists to Dexie tables `aiLab`/`evalRuns`/`arenaRuns` (added in `database.ts` version 13; the schema is now at version 14); provider API keys are stored only as `SecretRef` handles (`apiKeyHandleId`, resolved in main). Backed by `electron/main/handlers/ai-lab-handler.ts` — a sibling to `ai-handler.ts` kept separate so the chat path is untouched. It adds a non-streaming `complete` (used heavily by the eval runner/judge, bounded by a queueing semaphore), model discovery + connection test, and a **localhost SSRF carve-out**: the same shared URL guard runs, but `allowLocalhost` is derived from provider kind — true only for local runtimes (Ollama, OpenAI-compatible), never for cloud providers.
 
 Scorers include deterministic checks, `script` (QuickJS), `judge` (multi-criteria weighted LLM-as-judge with self-consistency + anchors + gates in `shared/protocol/ai/judge.ts`), `tool-call` (function-call correctness), and `pairwise` (preference judging via `runPairwiseJudge`, with position-bias swap). Datasets can be hand-written, OpenAPI-generated, adversarial/red-team-generated, imported from request **history/collections** (`lib/datasetFromHistory.ts` + `ImportFromHistoryDialog`, secrets redacted via `shared/protocol/ai/redaction.ts`), or CSV/JSONL imported/exported; cases support multi-turn conversations. An **`http-exec` eval target** (ADR 0023) parses an HTTP/GraphQL request out of the model output (`lib/requestExtractor.ts`), executes it through the **real request executor** (`src/features/http/lib/requestExecutor.ts` via `lib/execCell.ts` — SSRF guard/redirects/cookies inherited, no parallel path), and scores the upstream response instead of the model prose. Reports add CSV/JSON/Markdown export, per-case drill-down, and cross-model diff.
 
@@ -161,7 +151,7 @@ All global state lives in Zustand stores with the `persist` middleware. Stores a
 - **Desktop** — `src/lib/shared/secure-storage.ts` (encrypted electron-store via IPC; key wrapped by Electron `safeStorage` → OS keychain).
 - **The legacy localStorage adapter has been removed.** Don't add new persistence through `window.localStorage`.
 
-Stores: `useRequestStore` (tabs[] + activeTabId — multi-tab model), `useCollectionStore`, `useEnvironmentStore`, `useHistoryStore`, `useSettingsStore`, `useWorkflowStore`, `useKafkaStore`, `useCollectionRunStore` (persisted run history, Dexie `collectionRuns`), AI store (`src/features/ai/store.ts`).
+Global stores live in `src/store/` (see its `README.md`) — notably `useRequestStore` (tabs[] + activeTabId — multi-tab model), `useCollectionStore`, `useEnvironmentStore`, `useHistoryStore`, `useSettingsStore`, `useWorkflowStore`, `useCollectionRunStore` (persisted run history, Dexie `collectionRuns`), `useProtoRegistryStore`. Feature-owned stores live with their feature (e.g. `useKafkaStore` in `src/features/kafka`, the AI store in `src/features/ai/store.ts`, AI Lab stores in `src/features/ai-lab/store`).
 
 **Secret handling — `SecretRef` (ADR-0007).** Secret-bearing auth fields are migrating from plaintext `string` to `SecretValue = string | SecretRef`, where `SecretRef` is `{ kind: 'inline'; value }` or `{ kind: 'handle'; id; label? }`. With a `handle`, the renderer **never sees the plaintext** — `electron/main/security/secret-handle-store.ts` (electron-store + `safeStorage`) holds the encrypted value and resolves it only at wire-signing time in the main process. This keeps secrets out of the Zustand store, Dexie/electron-store persistence, exported collections, crash logs, and the MCP-server's agent-readable surface. Migration is incremental (per-descriptor); see `docs/adr/0007-secret-ref-pattern.md` and `electron/main/security/collection-export-redactor.ts`.
 
@@ -175,7 +165,7 @@ The main process is organised into purpose-based subfolders. Files that compute 
   - `preload.ts` — context-isolated IPC entry that composes domain APIs from `preload/`; bundled by esbuild (`electron:bundle-preload`) so the sandboxed preload is self-contained. Channel names come from `electron/shared/channels.ts`; the exposed surface is type-checked against the modules under `electron/types/api/` via `satisfies ElectronAPI`.
   - `notifications.ts` — native notifications + its rate limiter.
 
-- **`handlers/`** — one handler per protocol/concern: `http-handler.ts`, `grpc-handler.ts`, `grpc-reflection-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`, `sse-handler.ts`, `mcp-handler.ts`, `kafka-handler.ts`, `mqtt-handler.ts`, `ai-handler.ts`, `ai-lab-handler.ts`, `mcp-server-handler.ts` (+ `mcp-context-loader.ts`), `mock-server-handler.ts`, `git-handler.ts`, plus shared helpers `interceptor-registry.ts`, `channel-event-bridge.ts`, `fetch-fetcher.ts`, `grpc-connect.ts`, `grpc-credentials.ts`, `kafka-serde.ts`, `sse-parser.ts`.
+- **`handlers/`** — one handler per protocol/concern: `http-handler.ts`, `grpc-handler.ts`, `grpc-reflection-handler.ts`, `websocket-handler.ts`, `socketio-handler.ts`, `sse-handler.ts`, `mcp-handler.ts`, `kafka-handler.ts`, `mqtt-handler.ts`, `ai-handler.ts`, `ai-lab-handler.ts`, `mcp-server-handler.ts` (+ `mcp-context-loader.ts`), `mock-server-handler.ts`, `git-handler.ts`, plus shared helpers `interceptor-registry.ts`, `channel-event-bridge.ts`, `fetch-fetcher.ts`, `grpc-connect.ts`, `grpc-credentials.ts`, `grpc-wire-protocol.ts` (per-request gRPC/Connect/gRPC-Web transport), `kafka-serde.ts`, `sse-parser.ts`. The HTTP adapter's PAC/SOCKS/ALPN/TLS pieces are split into `http-*.ts` helpers (`http-socks-dispatcher.ts`, `http-proxy-alpn.ts`, `http-secure-connection.ts`, `http-version.ts`, …). Also: `capture-bridge-*.ts` (browser-extension loopback bridge), `ows-workspace-handler.ts`, `git-merge-handler.ts`, and the `kafka/` subfolder.
 
 - **`ipc/`** — the IPC boundary: domain-owned Zod modules live under `ipc/validators/`; `ipc-validators.ts` is the stable compatibility barrel. Rate limiting, stream ownership, and cleanup remain in `ipc-rate-limiter.ts`, `stream-registry.ts`, and `connection-cleanup.ts`. The shared registry owns connection maps, replace/reject behavior, renderer-destroyed cleanup, templated events, and `disposeAll`; per-protocol policy stays in each handler.
 
@@ -184,6 +174,8 @@ The main process is organised into purpose-based subfolders. Files that compute 
   - `safe-connect.ts` — SSRF-guarded `net`/`tls` connect helper shared by streaming handlers; `auth-applier.ts` — applies resolved auth/secrets to outbound requests; `aws-sigv4-smithy.ts`, `env-proxy.ts`, `collection-export-redactor.ts`.
   - `kafka-broker-guard.ts`, `mqtt-broker-guard.ts` — broker-address SSRF guards for the Kafka/MQTT handlers.
   - `secret-handle-store.ts`, `encrypted-key.ts`, `keychain-status-handler.ts` — `SecretRef` handle store + key management (see ADR-0007).
+  - `*-materializer.ts` (`http-auth-materializer.ts`, `secret-variable-materializer.ts`, `external-secret-materializer.ts`) resolve secrets at wire time; `external-secret-providers.ts` / `external-secret-profile-store.ts` back external secret managers.
+  - `execution-policy.ts`, `broker-execution-policy.ts`, `policy-transport.ts` — execution-policy gating for outbound and broker connections; `proxy-bypass.ts`, `tls-material.ts`.
 
 - **`storage/`** — persistence bridge: `store-handler.ts`, `collection-manager.ts` (encryption key fetched from OS keychain via `safeStorage`; warns at startup if unavailable), `vault-handler.ts`, `file-operations.ts` (async fs helpers).
 
@@ -195,7 +187,7 @@ Electron-only capabilities (PAC resolution, SOCKS4/5, mTLS, custom CA, pre-fligh
 
 ### Worker (`worker/`)
 
-Hono app (`createApp` in `worker/app.ts`, composed with Cloudflare adapters in `worker/index.ts`) deployed as Cloudflare Pages Functions. Routes: `/health`, `/ready`, `/api/proxy`, `/api/grpc`, `/api/grpc/reflection`, `/api/grpc-web`, `/api/mcp`, `/api/telemetry/error`, `/api/feature-flags`, `/api/ws-ticket`, `/api/ws`. The same `createApp` is reused by the Node/Docker entry (`worker/node-entry.ts`). Notable bits:
+Hono app (`createApp` in `worker/app.ts`, composed with Cloudflare adapters in `worker/index.ts`) deployed as Cloudflare Pages Functions. Routes: `/health`, `/ready`, `/api/proxy`, `/api/import/fetch`, `/api/grpc`, `/api/grpc/reflection`, `/api/grpc-web`, `/api/mcp`, `/api/telemetry/error`, `/api/feature-flags`, `/api/ws-ticket`, `/api/ws`. The same `createApp` is reused by the Node/Docker entry (`worker/node-entry.ts`). Notable bits:
 
 - The web build (`@cloudflare/vite-plugin`, active only when **not** an Electron/Docker build) emits the SPA to `dist/web/client/` and the Worker bundle + `wrangler.json` to `dist/web/restura/` — the two `npm run deploy` targets.
 - `nodejs_compat` flag enabled (for `Buffer` etc.) — see `wrangler.jsonc`.
@@ -215,6 +207,10 @@ A developer-facing, full-protocol local upstream for manually testing the **desk
 ### CLI subproject (`cli/`)
 
 npm package `restura-cli` (binary `restura`; an npm workspace with its own `package.json`, built with `tsup`). Runs collections (`restura run`), OWS workflows (`restura workflow run`), and agent suites (`restura agent eval`) in CI with tui/live/JSON/JUnit/HTML/stats reporters. Has its own deps and tests; `cli/README.md` is the canonical reference.
+
+### Extensions (`extension/chrome`, `extension/vscode`)
+
+Two more npm workspaces alongside `cli/`: the Chrome browser-capture extension (`@restura/extension`, ADR 0024; pushes captures to the desktop app via `electron/main/handlers/capture-bridge-*.ts`) and the VS Code extension (`restura-vscode`, ADR 0025). Both are built by `npm run validate` (`build:workspaces`) and linted with the rest of the repo; the Chrome extension has its own Playwright suite (`npm run test:e2e:extension`).
 
 ### Docs site (`docs-site/`)
 
@@ -258,7 +254,7 @@ How to run agentic work in this repo (loop primitives → repo tooling):
 - **Time loops** — `/babysit-prs` is one idempotent iteration of PR care (CI fixes, review comments); drive it with `/loop 15m /babysit-prs` locally, or `subscribe_pr_activity` in remote sessions (events beat polling).
 - **Proactive loops** — `/triage-maintenance` sweeps dependabot PRs, security-audit findings, and skill metrics in one pass; pilot manually, then `/schedule` it.
 - **Pre-PR gate** — `/ship-check` fans out the review agents (`restura-security-auditor`, `restura-parity-checker`, `restura-docs-steward`) **in parallel** plus a fresh-context `/code-review`.
-- **Parallel sessions** — independent fixes get independent sessions in separate git worktrees (one topic per branch/PR); don't stack unrelated fixes serially on one branch.
+- **Parallel sessions** — independent fixes get independent sessions in separate git worktrees (one topic per branch/PR); don't stack unrelated fixes serially on one branch (see *Shipping multi-PR work* below).
 - **When a loop's output misses the bar**: don't just fix the instance — encode the fix (skill, hook, command, CLAUDE.md note) so every future iteration inherits it.
 
 ### Shipping multi-PR work
