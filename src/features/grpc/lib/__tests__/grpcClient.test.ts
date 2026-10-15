@@ -1083,6 +1083,95 @@ message PingRequest
       expect(result.statusDetails).toEqual(statusDetails);
     });
 
+    it('decodes raw proxy details the request schema defines, keeps others raw (#883)', async () => {
+      const raw = 'CAcSAmhp'; // acme.v1.Custom { code: 7, note: "hi" }
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                grpcStatus: 3,
+                grpcStatusText: 'INVALID_ARGUMENT',
+                data: { error: 'bad' },
+                headers: {},
+                trailers: {},
+                size: 10,
+                statusDetails: [
+                  { type: 'acme.v1.Custom', raw },
+                  { type: 'other.Unknown', raw },
+                ],
+              }),
+              { status: 200 }
+            )
+        )
+      );
+      const { makeProxyGrpcRequest } = await import('../grpcClient');
+      const result = await makeProxyGrpcRequest(
+        {
+          id: 'req-proxy-schema',
+          name: 'Test',
+          type: 'grpc',
+          methodType: 'unary',
+          url: 'https://grpc.example.com',
+          service: 'svc.TestService',
+          method: 'GetUser',
+          metadata: [],
+          message: '{}',
+          auth: { type: 'none' },
+          schema: {
+            kind: 'proto',
+            fileName: 'c.proto',
+            text: 'syntax = "proto3"; package acme.v1; message Custom { int32 code = 1; string note = 2; }',
+          },
+        },
+        (s) => s
+      );
+      expect(result.statusDetails).toEqual([
+        { type: 'acme.v1.Custom', value: { code: 7, note: 'hi' } },
+        { type: 'other.Unknown', raw },
+      ]);
+    });
+
+    it('keeps raw details when the schema snapshot does not build', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(
+          async () =>
+            new Response(
+              JSON.stringify({
+                grpcStatus: 3,
+                grpcStatusText: 'INVALID_ARGUMENT',
+                data: {},
+                headers: {},
+                trailers: {},
+                size: 1,
+                statusDetails: [{ type: 'acme.v1.Custom', raw: 'CAcSAmhp' }],
+              }),
+              { status: 200 }
+            )
+        )
+      );
+      const { makeProxyGrpcRequest } = await import('../grpcClient');
+      const result = await makeProxyGrpcRequest(
+        {
+          id: 'req-proxy-badschema',
+          name: 'Test',
+          type: 'grpc',
+          methodType: 'unary',
+          url: 'https://grpc.example.com',
+          service: 'svc.TestService',
+          method: 'GetUser',
+          metadata: [],
+          message: '{}',
+          auth: { type: 'none' },
+          schema: { kind: 'proto', fileName: 'c.proto', text: 'not a proto' },
+        },
+        (s) => s
+      );
+      expect(result.statusDetails).toEqual([{ type: 'acme.v1.Custom', raw: 'CAcSAmhp' }]);
+    });
+
     it('returns error response when fetch throws', async () => {
       vi.stubGlobal(
         'fetch',

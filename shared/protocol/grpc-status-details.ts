@@ -294,6 +294,29 @@ export function statusDetailsFromConnectJson(
   return out;
 }
 
+/**
+ * Re-decode details the schema-less Worker / self-host proxy could only return
+ * as `{ type, raw }`, using the renderer's loaded registry. Entries that are
+ * already decoded, or whose type the registry doesn't define, pass through.
+ */
+export function redecodeRawStatusDetails(
+  details: GrpcStatusDetail[],
+  registry: Registry
+): GrpcStatusDetail[] {
+  return details.map((d) => {
+    if (d.raw === undefined || d.value !== undefined || !registry.getMessage(d.type)) return d;
+    try {
+      const out = decodeStatusDetail(d.type, base64Decode(d.raw), {
+        registry,
+        debug: d.debug,
+      });
+      return out.raw === undefined ? out : d;
+    } catch {
+      return d;
+    }
+  });
+}
+
 /** Structural view of `ConnectError.details` (incoming or outgoing entries). */
 type ConnectDetailLike =
   | { type: string; value: Uint8Array; debug?: unknown }

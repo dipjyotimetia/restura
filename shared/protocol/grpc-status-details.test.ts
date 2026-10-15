@@ -6,6 +6,7 @@ import {
   connectErrorDetails,
   decodeStatusDetail,
   MAX_STATUS_DETAILS,
+  redecodeRawStatusDetails,
   statusDetailsFromConnectJson,
   statusDetailsFromStatusBin,
   typeNameFromUrl,
@@ -334,5 +335,29 @@ describe('detail envelopes with missing or malformed parts', () => {
     const out = statusDetailsFromStatusBin(base64Encode(status.finish()));
     expect(out).toHaveLength(MAX_STATUS_DETAILS);
     expect(out[0]).toEqual({ type: 'google.rpc.Help', value: {} });
+  });
+});
+
+describe('redecodeRawStatusDetails', () => {
+  const registry = registryFromProtoText(
+    'syntax = "proto3"; package acme.v1; message Custom { int32 code = 1; string note = 2; }'
+  );
+  const raw = base64Encode(new Uint8Array([8, 7, 18, 2, 104, 105]));
+
+  it('decodes raw entries whose type the registry defines, passes others through', () => {
+    const unknown = { type: 'other.Unknown', raw };
+    const decoded = { type: 'google.rpc.ErrorInfo', value: { reason: 'R' } };
+    const out = redecodeRawStatusDetails(
+      [{ type: 'acme.v1.Custom', raw }, unknown, decoded],
+      registry
+    );
+    expect(out[0]).toEqual({ type: 'acme.v1.Custom', value: { code: 7, note: 'hi' } });
+    expect(out[1]).toBe(unknown);
+    expect(out[2]).toBe(decoded);
+  });
+
+  it('keeps the raw entry when the bytes are malformed', () => {
+    const bad = { type: 'acme.v1.Custom', raw: '!!!' };
+    expect(redecodeRawStatusDetails([bad], registry)[0]).toBe(bad);
   });
 });
