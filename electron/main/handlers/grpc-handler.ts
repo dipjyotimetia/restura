@@ -323,6 +323,7 @@ function toConnectArgs(config: GrpcRequestConfig, dial: PinnedDial, timeoutMs = 
     // 0 / undefined = no deadline (grpc-connect only sets a truthy timeoutMs).
     timeoutMs,
     useCompression: config.useCompression,
+    wireProtocol: config.wireProtocol,
   };
 }
 

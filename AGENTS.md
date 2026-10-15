@@ -194,7 +194,7 @@ composed by `electron-api.ts` — or the call breaks at runtime on desktop.
 Hono app (`createApp` in `worker/app.ts`, composed with Cloudflare adapters in
 `worker/index.ts`), deployed as Cloudflare Pages Functions and reused by the
 Node/Docker entry. Routes: `/health`, `/ready`, `/api/proxy`, `/api/grpc`,
-`/api/grpc/reflection`, `/api/mcp`, `/api/ws`, and more.
+`/api/grpc/reflection`, `/api/grpc-web`, `/api/mcp`, `/api/ws`, and more.
 
 - Bundled into `dist/web/restura/` by `@cloudflare/vite-plugin` during build.
 - `nodejs_compat` flag enabled for `Buffer` etc. (see `wrangler.jsonc`).

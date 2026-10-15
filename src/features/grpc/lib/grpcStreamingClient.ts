@@ -32,13 +32,22 @@ import type { GrpcRequest } from '@/types';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
 import {
   buildAuthMetadata,
+  desktopWireProtocol,
+  GrpcClientError,
   grpcAuthNeedsMainSideApply,
   prepareGrpcRequest,
   validateGrpcUrl,
   validateMethodName,
   validateServiceName,
+  webWireProtocolError,
 } from './grpcClient';
 import { resolveGrpcTls } from './grpcTls';
+import {
+  decodeGrpcWebMessage,
+  isGrpcWebWire,
+  prepareGrpcWebCall,
+  streamGrpcWebViaWorker,
+} from './grpcWebClient';
 import { grpcUnknownFieldsMode, resolveInputMessage, withoutUnknownFields } from './unknownFields';
 
 export interface GrpcStreamFinal {
@@ -142,6 +151,16 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
       `${args.request.methodType} is currently available in the desktop app only. ` +
         `Use the Electron desktop app to send and receive client or bidirectional streams.`
     );
+  }
+
+  const wireError = webWireProtocolError(args.request.wireProtocol);
+  if (wireError) throw new Error(wireError.message);
+
+  // gRPC-Web (#914): relayed through the Worker, which streams each message
+  // back as it arrives — reaches Envoy grpc_web / grpcwebproxy endpoints that
+  // the browser-direct Connect transport below cannot.
+  if (isGrpcWebWire(args.request.wireProtocol)) {
+    return startGrpcWebServerStream<TIn, TOut>(args);
   }
 
   // Resolve variables; prepareGrpcRequest also parses the message JSON. It
@@ -313,6 +332,127 @@ function startConnectServerStream<TIn, TOut>(
   };
 }
 
+/**
+ * Server-streaming over gRPC-Web via the Worker's `/api/grpc-web` NDJSON relay.
+ * Same contract as startConnectServerStream: errors surface as an iterator
+ * throw and `done` always resolves with the final status.
+ */
+function startGrpcWebServerStream<TIn, TOut>(
+  args: StartGrpcStreamArgs
+): GrpcStreamingHandle<TIn, TOut> {
+  const { spec, method } = prepareGrpcWebCall(
+    args.request,
+    args.resolveVariables,
+    args.timeoutMs ?? DEFAULT_TIMEOUT,
+    {
+      ...(args.descriptors?.length ? { descriptors: args.descriptors } : {}),
+      ...(args.protoContent ? { protoContent: args.protoContent } : {}),
+    }
+  );
+  const controller = new AbortController();
+  let resolveDone!: (v: GrpcStreamFinal) => void;
+  const done = new Promise<GrpcStreamFinal>((res) => {
+    resolveDone = res;
+  });
+  let headers: Record<string, string> = {};
+  let consumed = false;
+
+  async function* iterate(): AsyncIterable<TOut> {
+    if (consumed) throw new Error('Stream messages can only be iterated once');
+    consumed = true;
+    try {
+      let decodeError: unknown;
+      for await (const ev of streamGrpcWebViaWorker(spec, controller.signal)) {
+        if (ev.type === 'headers') {
+          headers = ev.headers;
+        } else if (ev.type === 'message') {
+          // After a bad message stop yielding but keep draining so the
+          // terminal status and trailers still reach `done`.
+          if (decodeError !== undefined) continue;
+          let decoded: TOut;
+          try {
+            decoded = decodeGrpcWebMessage(method, ev.data) as TOut;
+          } catch (error: unknown) {
+            decodeError = error;
+            continue;
+          }
+          yield decoded;
+        } else {
+          let status = ev.grpcStatus as GrpcStatusCode;
+          let statusMessage = ev.grpcMessage;
+          if (decodeError !== undefined && status === GrpcStatusCode.OK) {
+            // The server succeeded but a reply was undecodable: fail locally,
+            // keeping the received trailers.
+            const reason = decodeError instanceof Error ? decodeError.message : String(decodeError);
+            status = GrpcStatusCode.INTERNAL;
+            statusMessage = `Failed to decode gRPC-Web response message: ${reason}`;
+          }
+          resolveDone({
+            headers,
+            trailers: ev.trailers,
+            status,
+            ...(statusMessage ? { statusMessage } : {}),
+          });
+          if (status !== GrpcStatusCode.OK) {
+            throw new GrpcClientError(
+              statusMessage || GrpcStatusCodeName[status] || 'Stream error',
+              status
+            );
+          }
+          return;
+        }
+      }
+      // Relay closed with no terminal event: surface a pending decode error as-is.
+      if (decodeError !== undefined) throw decodeError;
+      resolveDone({
+        headers,
+        trailers: {},
+        status: GrpcStatusCode.INTERNAL,
+        statusMessage: 'gRPC-Web stream ended without a status',
+      });
+    } catch (err) {
+      if (controller.signal.aborted) {
+        resolveDone({
+          headers,
+          trailers: {},
+          status: GrpcStatusCode.CANCELLED,
+          statusMessage: 'Stream cancelled',
+        });
+        return;
+      }
+      // Relay/transport/decode failure before a terminal event: still settle
+      // `done` (no-op if an `end` event already did) so awaiting callers finish.
+      resolveDone({
+        headers,
+        trailers: {},
+        status: err instanceof GrpcClientError ? err.statusCode : GrpcStatusCode.UNKNOWN,
+        statusMessage: err instanceof Error ? err.message : String(err),
+      });
+      throw err;
+    }
+  }
+
+  return {
+    messages: iterate(),
+    async send() {
+      throw new Error('send() is not supported for server-streaming methods');
+    },
+    closeSend() {
+      // no-op for server-streaming
+    },
+    cancel() {
+      controller.abort();
+      resolveDone({
+        headers: {},
+        trailers: {},
+        status: GrpcStatusCode.CANCELLED,
+        statusMessage: 'Stream cancelled',
+      });
+    },
+    done,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Electron IPC interactive streaming (client-streaming & bidirectional-streaming)
 // ---------------------------------------------------------------------------
@@ -380,6 +520,7 @@ function startElectronInteractiveStream<TIn, TOut>(
   // encoder only ever rejects them in block mode.
   const lenientInput =
     grpcUnknownFieldsMode() === 'block' ? null : resolveInputMessage(args.request, args);
+  const wireProtocol = desktopWireProtocol(args.request.wireProtocol);
 
   let cancelled = false;
 
@@ -462,6 +603,7 @@ function startElectronInteractiveStream<TIn, TOut>(
       ...(args.protoFileName ? { protoFileName: args.protoFileName } : {}),
       ...(args.timeoutMs !== undefined ? { timeoutMs: args.timeoutMs } : {}),
       ...(args.useCompression !== undefined ? { useCompression: args.useCompression } : {}),
+      ...(wireProtocol ? { wireProtocol } : {}),
       ...(grpcAuthNeedsMainSideApply(args.request.auth) ? { auth: args.request.auth } : {}),
       // resolveGrpcTls already omits absent keys, so spread it whole.
       ...(tls ?? {}),

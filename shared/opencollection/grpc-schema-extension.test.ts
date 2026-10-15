@@ -159,6 +159,27 @@ describe('OpenCollection gRPC schema snapshot extension', () => {
     expect(back[0]?.timeout).toBe(0);
   });
 
+  it('round-trips the wire protocol selector and drops unknown values (#914)', () => {
+    const collection: Collection = {
+      id: 'c',
+      name: 'Wire',
+      items: [item(grpc('Envoy', { wireProtocol: 'grpc-web' })), item(grpc('Auto'))],
+    };
+    const oc = internalToOC(collection);
+    const ext = (oc.extensions as Record<string, unknown>)[GRPC_EXTENSION_KEY] as {
+      requests: Array<Record<string, unknown>>;
+    };
+    expect(ext).toEqual({ requests: [{ path: ['Envoy'], wireProtocol: 'grpc-web' }] });
+
+    const back = grpcRequests(
+      ocToInternal(parseOpenCollectionYAML(serializeOpenCollectionYAML(oc))).items
+    );
+    expect(back.map((r) => r.wireProtocol)).toEqual(['grpc-web', undefined]);
+
+    (ext.requests[0] as Record<string, unknown>).wireProtocol = 'carrier-pigeon';
+    expect(grpcRequests(ocToInternal(oc).items)[0]?.wireProtocol).toBeUndefined();
+  });
+
   it('ignores unknown hashes and malformed entries on import', () => {
     const oc = internalToOC(fixture());
     const ext = (oc.extensions as Record<string, unknown>)[GRPC_EXTENSION_KEY] as {

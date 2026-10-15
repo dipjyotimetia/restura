@@ -255,6 +255,7 @@ export const grpcRequestSchema = z.object({
     .optional(),
   // 0 = "no deadline" (streaming methods only; unary falls back to the default).
   timeout: z.number().int().nonnegative().optional(),
+  wireProtocol: z.enum(['grpc', 'connect', 'grpc-web', 'grpc-web-text']).optional(),
 });
 
 // SSE Request Schema

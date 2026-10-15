@@ -11,6 +11,9 @@ import { z } from 'zod';
  * `ReflectionRequest` interface in `worker/handlers/grpc-reflection.ts`.
  */
 
+/** Max per-call deadline (ms) the Worker relays (`/api/grpc`, `/api/grpc-web`) accept. */
+export const GRPC_PROXY_MAX_TIMEOUT_MS = 300_000;
+
 /** Mirrors `GrpcSpec` in `./grpc-proxy.ts`. Guarded by `tests/grpc-spec-parity.test.ts`. */
 export const GrpcProxyRequestBodySchema = z.object({
   url: z.string().min(1),
@@ -21,7 +24,7 @@ export const GrpcProxyRequestBodySchema = z.object({
   // `executeGrpcProxy`, which JSON-stringifies it before sending to Connect.
   // We accept `unknown` so the renderer can send any JSON-serialisable value.
   message: z.unknown().optional(),
-  timeout: z.number().int().min(0).max(300_000).optional(),
+  timeout: z.number().int().min(0).max(GRPC_PROXY_MAX_TIMEOUT_MS).optional(),
 });
 
 export type GrpcProxyRequestBody = z.infer<typeof GrpcProxyRequestBodySchema>;

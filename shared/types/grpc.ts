@@ -30,6 +30,17 @@ export type GrpcSchemaSnapshot =
   | { kind: 'descriptors'; descriptors: string[]; fileName?: string }
   | { kind: 'proto'; fileName: string; text: string };
 
+/**
+ * Per-request wire protocol (#914). Absent = auto: desktop dials native gRPC
+ * with a Connect fallback; web sends Connect JSON through the Worker.
+ *  - `grpc`          native gRPC over HTTP/2 (desktop only)
+ *  - `connect`       Connect protocol
+ *  - `grpc-web`      gRPC-Web binary (`application/grpc-web+proto`)
+ *  - `grpc-web-text` gRPC-Web base64 text (web/self-host only)
+ * The gRPC-Web modes need a schema (reflection or an uploaded `.proto`).
+ */
+export type GrpcWireProtocol = 'grpc' | 'connect' | 'grpc-web' | 'grpc-web-text';
+
 // gRPC Request
 //
 // NOTE: structurally mirrors `GrpcSpec` in `shared/protocol/grpc-proxy.ts`.
@@ -55,6 +66,8 @@ export interface GrpcRequest {
    * calls always get one.
    */
   timeout?: number;
+  /** Wire protocol selector (see GrpcWireProtocol); absent = auto. */
+  wireProtocol?: GrpcWireProtocol;
 }
 
 // gRPC Response (specialized for gRPC)

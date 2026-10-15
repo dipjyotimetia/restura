@@ -16,9 +16,10 @@
  *    request's persisted `schema` snapshot). Without either it falls back
  *    to server reflection, and fails with an actionable error when that is
  *    unavailable rather than silently degrading to the proxy.
- *  - Web: routed through the worker `/api/grpc` proxy which accepts the
- *    request shape directly (no proto needed — the worker uses gRPC-Web
- *    framing).
+ *  - Web: routed through the worker `/api/grpc` proxy as schema-less
+ *    Connect JSON by default; when the request's `wireProtocol` is
+ *    `grpc-web` / `grpc-web-text` it goes through `/api/grpc-web` instead,
+ *    encoded with the schema (descriptors / proto text / saved snapshot).
  *
  * Pre-request and test scripts run inline here so the registry-side seam
  * matches HTTP — `executeRequest` does the same for HTTP. Builders that
@@ -47,6 +48,7 @@ import { makeElectronGrpcRequest, makeProxyGrpcRequest } from './lib/grpcClient'
 import { reflectionCredentialsFor } from './lib/grpcReflection';
 import { discoverDescriptorsForRequest } from './lib/grpcSchemaSnapshot';
 import { runGrpcStreamCall } from './lib/grpcStreamRun';
+import { isGrpcWebWire, makeGrpcWebRequest } from './lib/grpcWebClient';
 import { applyUnknownFieldPolicy, schemaSourceFromSnapshot } from './lib/unknownFields';
 
 function createDefaultGrpcRequest(): GrpcRequest {
@@ -340,6 +342,13 @@ export const grpcProtocol: ProtocolModule = {
         opts.useCompression ?? false,
         descriptors
       );
+    } else if (isGrpcWebWire(request.wireProtocol)) {
+      // gRPC-Web through the Worker's /api/grpc-web relay — needs the schema
+      // to encode/decode protobuf (live builder state or the saved snapshot).
+      response = await makeGrpcWebRequest(policy.request, resolve, timeoutMs, {
+        ...(descriptors?.length ? { descriptors } : {}),
+        ...(opts.protoContent ? { protoContent: opts.protoContent } : {}),
+      });
     } else {
       response = await makeProxyGrpcRequest(policy.request, resolve, timeoutMs);
     }
