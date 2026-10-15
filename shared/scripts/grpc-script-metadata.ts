@@ -22,29 +22,37 @@ export function grpcMetadataForScript(
 
 /**
  * Fold a script's final metadata map back onto the request's entries.
- * Entries whose resolved value is unchanged are kept verbatim (so `{{var}}`
- * templates survive); edited values are replaced; keys the script deleted are
- * disabled; new keys are appended. Disabled entries are left untouched.
+ * Keys are matched case-insensitively; a mixed-case write
+ * (`metadata['Authorization'] = …`) beats the untouched lowercase original.
+ * Keys whose value is unchanged keep every entry verbatim (so duplicates and
+ * `{{var}}` templates survive); edited values replace the first entry and
+ * disable its duplicates; keys the script deleted are disabled; new keys are
+ * appended. Disabled entries are left untouched.
  */
 export function applyScriptMetadata(
   metadata: readonly KeyValue[],
   final: Readonly<Record<string, string>>,
   resolve: (text: string) => string
 ): KeyValue[] {
+  const original = grpcMetadataForScript(metadata, resolve);
+  const lowered: Record<string, string> = {};
+  for (const [key, value] of Object.entries(final)) {
+    const lower = key.toLowerCase();
+    if (!Object.hasOwn(lowered, lower) || value !== original[lower]) lowered[lower] = value;
+  }
   const seen = new Set<string>();
   const next: KeyValue[] = metadata.map((m) => {
     if (!m.enabled || !m.key) return m;
     const key = m.key.toLowerCase();
-    if (seen.has(key) || !Object.hasOwn(final, key)) return { ...m, enabled: false };
+    if (!Object.hasOwn(lowered, key)) return { ...m, enabled: false };
+    const value = lowered[key] as string;
+    const unchanged = value === original[key];
+    if (!unchanged && seen.has(key)) return { ...m, enabled: false };
     seen.add(key);
-    const value = final[key] as string;
-    return resolve(m.value) === value ? m : { ...m, value };
+    return unchanged || resolve(m.value) === value ? m : { ...m, value };
   });
-  for (const [key, value] of Object.entries(final)) {
-    const lower = key.toLowerCase();
-    if (seen.has(lower)) continue;
-    seen.add(lower);
-    next.push({ id: `script:${lower}`, key: lower, value, enabled: true });
+  for (const [key, value] of Object.entries(lowered)) {
+    if (!seen.has(key)) next.push({ id: `script:${key}`, key, value, enabled: true });
   }
   return next;
 }

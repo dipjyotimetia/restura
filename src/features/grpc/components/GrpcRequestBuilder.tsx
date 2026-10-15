@@ -200,6 +200,9 @@ function GrpcRequestBuilder() {
   useEffect(() => {
     streamControlRef.current = streamControl;
   }, [streamControl]);
+  // Send generation: a cancelled stream settles after Cancel re-enables Send,
+  // so its late callbacks must not clobber a newer send's response / controls.
+  const sendRunRef = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -326,6 +329,7 @@ function GrpcRequestBuilder() {
       }
     }
 
+    const runId = ++sendRunRef.current;
     setLoading(true);
     setStreamingMessages([]);
     setScriptResultForTab(originTabId, null);
@@ -383,26 +387,29 @@ function GrpcRequestBuilder() {
         // the runner resolves after the stream ends with the aggregated
         // response. The web supports server streams only — client / bidi
         // fail with a desktop-only error from the streaming client.
+        const current = () => sendRunRef.current === runId;
         void runBuilderStream({
           request: grpcRequest,
           protocolOptions,
           run: runViaRegistry,
           retryMaxAttempts,
           retryDelayMs,
-          onMessage: (text) => setStreamingMessages((prev) => [...prev, text]),
-          onReset: () => setStreamingMessages([]),
-          setStreamControl,
+          onMessage: (text) => current() && setStreamingMessages((prev) => [...prev, text]),
+          onReset: () => current() && setStreamingMessages([]),
+          setStreamControl: (control) => current() && setStreamControl(control),
         })
-          .then((response) => setCurrentResponseForTab(originTabId, response))
+          .then((response) => current() && setCurrentResponseForTab(originTabId, response))
           .catch((err: unknown) => {
             const errorResponse = createErrorResponse(grpcRequest.id, err, startTime);
-            setCurrentResponseForTab(originTabId, errorResponse);
             addHistoryItem(grpcRequest, errorResponse);
+            if (!current()) return;
+            setCurrentResponseForTab(originTabId, errorResponse);
             toast.error('gRPC stream error', {
               description: err instanceof Error ? err.message : String(err),
             });
           })
           .finally(() => {
+            if (!current()) return;
             setLoading(false);
             setStreamControl(null);
           });

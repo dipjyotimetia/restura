@@ -40,4 +40,23 @@ describe('applyScriptMetadata', () => {
     const next = applyScriptMetadata(md, { 'x-a': '9' }, resolve);
     expect(next.filter((m) => m.enabled)).toEqual([{ ...md[0], value: '9' }]);
   });
+
+  it('applies a mixed-case script write over the existing lowercase key', () => {
+    const md = [kv('authorization', 'old')];
+    const next = applyScriptMetadata(md, { authorization: 'old', Authorization: 'new' }, resolve);
+    expect(next).toEqual([{ ...md[0], value: 'new' }]);
+  });
+
+  it('keeps an unchanged lowercase value when a mixed-case alias repeats it', () => {
+    const md = [kv('x-a', '1')];
+    const next = applyScriptMetadata(md, { 'X-A': '1', 'x-a': '1' }, resolve);
+    expect(next).toEqual(md);
+  });
+
+  it('preserves unchanged duplicate entries while another key changes', () => {
+    const md = [kv('x-tag', '{{t}}'), kv('X-Tag', 'b'), kv('x-other', '1')];
+    const final = { ...grpcMetadataForScript(md, resolve), 'x-other': '2' };
+    const next = applyScriptMetadata(md, final, resolve);
+    expect(next).toEqual([md[0], md[1], { ...md[2], value: '2' }]);
+  });
 });
