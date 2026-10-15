@@ -27,6 +27,7 @@ import type { GrpcRequest, GrpcResponse, GrpcSchemaSnapshot, GrpcWireProtocol } 
 import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
 import {
   createErrorResponse,
+  assertProxyDeadline,
   GrpcClientError,
   grpcAuthNeedsMainSideApply,
   prepareGrpcRequest,
@@ -187,6 +188,7 @@ export function prepareGrpcWebCall(
       GrpcStatusCode.UNAUTHENTICATED
     );
   }
+  assertProxyDeadline(timeoutMs);
   const prepared = prepareGrpcRequest(request, resolveVariables);
   const { method } = registryForGrpcWeb(
     { ...src, ...(request.schema ? { snapshot: request.schema } : {}) },

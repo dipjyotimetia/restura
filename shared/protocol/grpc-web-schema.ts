@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { GRPC_PROXY_MAX_TIMEOUT_MS } from './grpc-schema';
 import { MAX_GRPC_WEB_REQUEST_BYTES } from './grpc-web-proxy';
 
 const MAX_METADATA_ENTRIES = 128;
@@ -22,7 +23,7 @@ export const GrpcWebProxyRequestBodySchema = z.object({
     .optional(),
   // base64 inflates by 4/3; the decoded-size cap is re-checked in the core.
   message: z.string().max(Math.ceil((MAX_GRPC_WEB_REQUEST_BYTES * 4) / 3) + 4),
-  timeout: z.number().int().min(0).max(300_000).optional(),
+  timeout: z.number().int().min(0).max(GRPC_PROXY_MAX_TIMEOUT_MS).optional(),
   format: z.enum(['binary', 'text']).optional(),
 });
 

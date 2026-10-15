@@ -9,6 +9,7 @@ import {
   type GrpcStatusDetail,
   redecodeRawStatusDetails,
 } from '@shared/protocol/grpc-status-details';
+import { GRPC_PROXY_MAX_TIMEOUT_MS } from '@shared/protocol/grpc-schema';
 import { MAX_GRPC_METADATA_BYTES } from '@shared/protocol/header-policy';
 import { v4 as uuidv4 } from 'uuid';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
@@ -50,6 +51,21 @@ export class GrpcClientError extends Error {
     this.statusCode = statusCode;
     this.details = details;
     this.metadata = metadata;
+  }
+}
+
+/**
+ * The Worker relays (`/api/grpc`, `/api/grpc-web`) reject deadlines above
+ * GRPC_PROXY_MAX_TIMEOUT_MS with a late HTTP 400; fail fast client-side instead.
+ * 0 (no deadline) is allowed through.
+ */
+export function assertProxyDeadline(timeoutMs: number): void {
+  if (timeoutMs > GRPC_PROXY_MAX_TIMEOUT_MS) {
+    throw new GrpcClientError(
+      `The web proxy supports deadlines up to ${GRPC_PROXY_MAX_TIMEOUT_MS / 1000}s; ` +
+        `${timeoutMs / 1000}s is too long. Lower the deadline or use the desktop app.`,
+      GrpcStatusCode.INVALID_ARGUMENT
+    );
   }
 }
 
@@ -633,6 +649,12 @@ export async function makeProxyGrpcRequest(
       ),
       Date.now()
     );
+  }
+
+  try {
+    assertProxyDeadline(timeoutMs);
+  } catch (e) {
+    return createErrorResponse(request.id, e, Date.now());
   }
 
   const prepared = prepareGrpcRequest(request, resolveVariables);

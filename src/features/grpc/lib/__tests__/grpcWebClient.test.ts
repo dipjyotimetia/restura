@@ -196,6 +196,16 @@ describe('makeGrpcWebRequest (web → Worker → real gRPC-Web server)', () => {
     expect(res.grpcStatus).toBe(GrpcStatusCode.UNIMPLEMENTED);
   });
 
+  it('rejects a deadline above the Worker cap client-side; 0 stays allowed', async () => {
+    const res = await makeGrpcWebRequest(request(), resolveVars, 300_001, {
+      protoContent: ECHO_PROTO,
+    });
+    expect(res.grpcStatus).toBe(GrpcStatusCode.INVALID_ARGUMENT);
+    expect(JSON.parse(res.body).error).toMatch(/up to 300s/);
+    const ok = await makeGrpcWebRequest(request(), resolveVars, 0, { protoContent: ECHO_PROTO });
+    expect(ok.grpcStatus).toBe(GrpcStatusCode.OK);
+  });
+
   it('surfaces a Worker validation rejection (SSRF) as INVALID_ARGUMENT', async () => {
     const res = await makeGrpcWebRequest(
       request({ url: 'http://169.254.169.254' }),
@@ -251,5 +261,11 @@ describe('wire protocol guards on web', () => {
     const res = await makeProxyGrpcRequest(request({ wireProtocol: 'grpc' }), resolveVars);
     expect(res.grpcStatus).toBe(GrpcStatusCode.UNIMPLEMENTED);
     expect(JSON.parse(res.body).error).toMatch(/desktop app/);
+  });
+
+  it('Connect proxy path rejects a deadline above the Worker cap too', async () => {
+    const res = await makeProxyGrpcRequest(request(), resolveVars, 300_001);
+    expect(res.grpcStatus).toBe(GrpcStatusCode.INVALID_ARGUMENT);
+    expect(JSON.parse(res.body).error).toMatch(/up to 300s/);
   });
 });
