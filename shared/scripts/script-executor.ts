@@ -13,6 +13,7 @@ import { getQuickJS } from 'quickjs-emscripten';
 import { PM_EXPECT_BOOTSTRAP } from './expect-bootstrap';
 import { buildRequireShimSource, loadSandboxLibraries } from './sandbox-libraries';
 import { bindPmCookies, buildKvNamespace } from './script-executor-namespaces';
+import { bindRequestGlobal, readRequestMetadata } from './script-executor-request';
 import type {
   PmCookieAdapter,
   PmExecutionLocation,
@@ -355,11 +356,7 @@ class ScriptExecutor {
     // when no host.cookies is wired in (CLI without a jar file), pm.cookies
     // methods will return empty results via the undefined-adapter guard.
     this.callCookieAdapter = this.host.cookies?.(context.request?.url);
-    if (context.request) {
-      const handle = makeJSValue(vm, context.request);
-      vm.setProp(vm.global, 'request', handle);
-      handle.dispose();
-    }
+    if (context.request) bindRequestGlobal(vm, context.request);
     if (context.response) {
       const handle = makeJSValue(vm, sandboxResponse(context.response));
       vm.setProp(vm.global, 'response', handle);
@@ -802,6 +799,7 @@ class ScriptExecutor {
     // permissive behaviour.
     const execution = this.readExecutionSentinel(vm);
     const visualization = this.readVisualizationSentinel(vm);
+    const requestMetadata = readRequestMetadata(vm, context.request);
 
     const hasGlobalsMutations = Object.keys(this.globalsMutations).length > 0;
     const hasCollectionMutations = Object.keys(this.collectionMutations).length > 0;
@@ -816,6 +814,7 @@ class ScriptExecutor {
       ...(hasCollectionMutations && { collectionMutations: { ...this.collectionMutations } }),
       ...(execution && { execution }),
       ...(visualization && { visualization }),
+      ...(requestMetadata && { requestMetadata }),
     };
   }
 

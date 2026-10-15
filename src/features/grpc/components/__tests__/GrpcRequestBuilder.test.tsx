@@ -51,6 +51,9 @@ vi.mock('@/features/grpc/hooks/useGrpcReflection', () => ({
   }),
 }));
 
+// Monaco can't load in jsdom; the editor surface is irrelevant here.
+vi.mock('@/components/shared/CodeEditor', () => ({ default: () => null }));
+
 vi.mock('sonner', () => ({
   toast: {
     dismiss: vi.fn(),
@@ -167,5 +170,107 @@ describe('GrpcRequestBuilder request completion routing', () => {
       });
       expect(state.tabs.find((tab) => tab.id === 'tab-other')?.response).toBeUndefined();
     });
+  });
+
+  it('runs a server stream through the registry runner with live hooks (#917)', async () => {
+    useRequestStore.setState({
+      tabs: [
+        {
+          id: 'tab-origin',
+          request: { ...makeRequest('request-origin', 'Origin'), methodType: 'server-streaming' },
+          isDirty: false,
+        },
+      ],
+      activeTabId: 'tab-origin',
+    });
+    const streamed: GrpcResponse = {
+      ...makeResponse('request-origin'),
+      body: '[{"n":1},{"n":2}]',
+      messages: ['{"n":1}', '{"n":2}'],
+      isStreaming: true,
+    };
+    runnerMocks.run.mockImplementation(
+      async (
+        _req: GrpcRequest,
+        _protocol: string,
+        options: {
+          stream?: {
+            onOpen?: (c: unknown) => void;
+            onMessage?: (m: unknown) => void;
+          };
+        }
+      ) => {
+        options.stream?.onOpen?.({ send: vi.fn(), closeSend: vi.fn(), cancel: vi.fn() });
+        options.stream?.onMessage?.({ n: 1 });
+        options.stream?.onMessage?.({ n: 2 });
+        return { response: streamed, durationMs: 3 };
+      }
+    );
+    render(<GrpcRequestBuilder />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Invoke gRPC method' }));
+
+    await waitFor(() => {
+      const tab = useRequestStore.getState().tabs.find((t) => t.id === 'tab-origin');
+      expect(tab?.response).toEqual(streamed);
+    });
+    expect(runnerMocks.run).toHaveBeenCalledTimes(1);
+    expect(runnerMocks.run.mock.calls[0]?.[1]).toBe('grpc');
+    expect(runnerMocks.run.mock.calls[0]?.[2]).toMatchObject({
+      stream: { onOpen: expect.any(Function), onMessage: expect.any(Function) },
+    });
+    expect(await screen.findByText('Stream')).toBeInTheDocument();
+    expect(useRequestStore.getState().isLoading).toBe(false);
+  });
+  it('ignores a cancelled stream that settles after a newer send started', async () => {
+    useRequestStore.setState({
+      tabs: [
+        {
+          id: 'tab-origin',
+          request: { ...makeRequest('request-origin', 'Origin'), methodType: 'server-streaming' },
+          isDirty: false,
+        },
+      ],
+      activeTabId: 'tab-origin',
+    });
+    type StreamOpts = { stream?: { onOpen?: (c: unknown) => void } };
+    const settles: Array<(r: { response: GrpcResponse; durationMs: number }) => void> = [];
+    const cancels: Array<ReturnType<typeof vi.fn>> = [];
+    runnerMocks.run.mockImplementation(
+      (_req: GrpcRequest, _protocol: string, options: StreamOpts) =>
+        new Promise((resolve) => {
+          const cancel = vi.fn();
+          cancels.push(cancel);
+          options.stream?.onOpen?.({ send: vi.fn(), closeSend: vi.fn(), cancel });
+          settles.push(resolve);
+        })
+    );
+    render(<GrpcRequestBuilder />);
+    const cancelButton = () => screen.getAllByRole('button', { name: /Cancel/ }).at(-1) as Element;
+
+    fireEvent.click(screen.getByRole('button', { name: 'Invoke gRPC method' }));
+    await waitFor(() => expect(cancels).toHaveLength(1));
+    fireEvent.click(cancelButton());
+    expect(cancels[0]).toHaveBeenCalled();
+    expect(useRequestStore.getState().isLoading).toBe(false);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Invoke gRPC method' }));
+    await waitFor(() => expect(cancels).toHaveLength(2));
+    const stale = { ...makeResponse('request-origin'), id: 'stale', grpcStatus: 1 };
+    await act(async () => {
+      settles[0]?.({ response: stale, durationMs: 1 });
+    });
+
+    // The first run's late completion leaves the live second stream intact.
+    expect(useRequestStore.getState().tabs[0]?.response).toBeUndefined();
+    expect(useRequestStore.getState().isLoading).toBe(true);
+    fireEvent.click(cancelButton());
+    expect(cancels[1]).toHaveBeenCalled();
+
+    const fresh = { ...makeResponse('request-origin'), id: 'fresh' };
+    await act(async () => {
+      settles[1]?.({ response: fresh, durationMs: 1 });
+    });
+    await waitFor(() => expect(useRequestStore.getState().tabs[0]?.response).toEqual(fresh));
   });
 });

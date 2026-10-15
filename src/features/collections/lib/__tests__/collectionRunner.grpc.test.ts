@@ -12,10 +12,16 @@ import type { RunnableRequest } from '../flattenRunnables';
 
 const electronCall = vi.fn();
 const discoverServices = vi.fn();
+const startStream = vi.fn();
+const platform = vi.hoisted(() => ({ electron: true }));
 
 vi.mock('@/lib/shared/platform', async (importActual) => ({
   ...(await importActual<typeof import('@/lib/shared/platform')>()),
-  isElectron: () => true,
+  isElectron: () => platform.electron,
+}));
+
+vi.mock('@/features/grpc/lib/grpcStreamingClient', () => ({
+  startGrpcStream: (...args: unknown[]) => startStream(...args),
 }));
 
 vi.mock('@/features/grpc/lib/grpcClient', async (importActual) => ({
@@ -93,6 +99,8 @@ async function run(request: GrpcRequest) {
 }
 
 beforeEach(() => {
+  platform.electron = true;
+  startStream.mockReset();
   electronCall.mockReset().mockResolvedValue(okResponse());
   discoverServices.mockReset();
   clearReflectionFallbackCache();
@@ -170,4 +178,72 @@ describe('collection runner — desktop gRPC schema snapshot (#871)', () => {
     const result = await run(grpcReq());
     expect(result.requests[0]?.error).toMatch(/does not expose that service/);
   });
+});
+
+/** A finished stream handle yielding `inbound` then settling OK. */
+function streamHandle(inbound: unknown[]) {
+  const sent: unknown[] = [];
+  return {
+    sent,
+    handle: {
+      messages: (async function* () {
+        yield* inbound;
+      })(),
+      send: async (m: unknown) => {
+        sent.push(m);
+      },
+      closeSend: () => {},
+      cancel: () => {},
+      done: Promise.resolve({ headers: {}, trailers: { 'x-t': '1' }, status: 0 }),
+    },
+  };
+}
+
+describe('collection runner — gRPC streams (#917)', () => {
+  it.each([true, false])(
+    'runs a server-streaming request and its test script (desktop=%s)',
+    async (desktop) => {
+      platform.electron = desktop;
+      const s = streamHandle([{ n: 1 }, { n: 2 }]);
+      startStream.mockResolvedValue(s.handle);
+      const result = await run(
+        grpcReq({
+          methodType: 'server-streaming',
+          schema: { kind: 'descriptors', descriptors: ['AAA='] },
+          testScript: `rs.test('two', () => rs.expect(rs.response.messages.count()).to.equal(2));
+rs.test('trailer', () => rs.expect(rs.response.trailers.get('x-t')).to.equal('1'));`,
+        })
+      );
+      const r = result.requests[0];
+      expect(r?.status).toBe('success');
+      expect(r?.assertions.map((a) => a.passed)).toEqual([true, true]);
+      expect(startStream).toHaveBeenCalledTimes(1);
+      expect(electronCall).not.toHaveBeenCalled();
+    }
+  );
+
+  it('runs a client stream on desktop, sending the request messages', async () => {
+    const s = streamHandle([{ total: 2 }]);
+    startStream.mockResolvedValue(s.handle);
+    const result = await run(
+      grpcReq({
+        methodType: 'client-streaming',
+        message: '[{"v":1},{"v":2}]',
+        schema: { kind: 'descriptors', descriptors: ['AAA='] },
+      })
+    );
+    expect(result.requests[0]?.status).toBe('success');
+    expect(s.sent).toEqual([{ v: 1 }, { v: 2 }]);
+  });
+
+  it.each(['client-streaming', 'bidirectional-streaming'] as const)(
+    'skips %s on the web with a desktop-only reason',
+    async (methodType) => {
+      platform.electron = false;
+      const result = await run(grpcReq({ methodType }));
+      expect(result.requests[0]?.status).toBe('skipped');
+      expect(result.requests[0]?.skippedReason).toMatch(/desktop app only/);
+      expect(startStream).not.toHaveBeenCalled();
+    }
+  );
 });

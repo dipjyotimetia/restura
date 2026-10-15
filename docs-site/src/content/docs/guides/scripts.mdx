@@ -31,6 +31,7 @@ The script editors are Monaco with full type definitions registered for the API 
 - **`rs.vault`** (desktop only) — read/write an OS-keychain-backed secret vault (`await rs.vault.get('token')`), so secrets stay out of variables and exports.
 - **`rs.cookies`** — read the cookie jar, plus an async `rs.cookies.jar()` for get/set/clear.
 - **Response headers and cookies** — `rs.response.headers` (`get`, `has`, `all`, `each`, `toObject`) and `rs.response.cookies`, the cookies *this response* set (`get`, `has`, `all`, `toJSON`, `each`, `toObject`; `rs.cookies` is the jar). See [Set-Cookie in scripts](#set-cookie-in-scripts).
+- **gRPC metadata and trailers** — test scripts read `rs.response.metadata` (the leading metadata; same as `rs.response.headers`) and `rs.response.trailers` (`grpc-status`, `grpc-message`, custom trailers), each with `get`, `has`, `all`, `each`, `toObject`. Pre-request scripts can edit `rs.request.metadata` (a plain object; `rs.request.headers` is the same object) and the call goes out with your changes. For gRPC streams, `rs.response.messages` (`all`, `count`, `idx`, `each`) holds every message received; the test script runs once the stream ends. See [gRPC scripts](/protocols/grpc/#scripts).
 - **`rs.execution`** — runner flow control: `setNextRequest(name)`, `skipRequest()`.
 - **`rs.visualizer.set(template, data)`** — render a custom HTML view of the response.
 - **`require(name)`** — a curated library set is bundled (see below).

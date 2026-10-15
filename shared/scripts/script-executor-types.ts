@@ -75,6 +75,12 @@ export interface ScriptContext {
     url: string;
     method: string;
     headers: Record<string, string>;
+    /**
+     * gRPC outgoing metadata. When supplied, `request.headers` is bound as a
+     * live alias of it and a pre-request script's edits are reported back on
+     * `ScriptResult.requestMetadata` (#910).
+     */
+    metadata?: Record<string, string>;
     body?: unknown;
   };
   response?: {
@@ -83,6 +89,10 @@ export interface ScriptContext {
     headers: Record<string, string>;
     /** Every Set-Cookie field, one entry each (the flat map can't hold them all). */
     setCookies?: string[];
+    /** gRPC trailing metadata (`rs.response.trailers`). */
+    trailers?: Record<string, string>;
+    /** gRPC streams: every inbound message, parsed (`rs.response.messages`). */
+    messages?: unknown[];
     body: unknown;
     time: number;
     size: number;

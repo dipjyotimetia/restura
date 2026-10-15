@@ -227,6 +227,63 @@ export const PM_EXPECT_BOOTSTRAP = `
     },
   };
 
+  // gRPC: pm.response.metadata is the initial (header) metadata — an alias of
+  // pm.response.headers — and pm.response.trailers the trailing metadata
+  // (grpc-status etc.). Both read the bound response global, so they are
+  // empty maps for protocols without trailers (#910).
+  pm.response.metadata = pm.response.headers;
+  function __pmTrailers() {
+    return typeof response !== 'undefined' && response.trailers ? response.trailers : {};
+  }
+  pm.response.trailers = {
+    get: function (key) {
+      var trailers = __pmTrailers();
+      var lk = String(key).toLowerCase();
+      for (var k in trailers) {
+        if (Object.prototype.hasOwnProperty.call(trailers, k) && String(k).toLowerCase() === lk) {
+          return trailers[k];
+        }
+      }
+      return undefined;
+    },
+    has: function (key, value) {
+      var got = pm.response.trailers.get(key);
+      return value === undefined ? got !== undefined : got === value;
+    },
+    all: function () {
+      var trailers = __pmTrailers();
+      var rows = [];
+      for (var k in trailers) {
+        if (Object.prototype.hasOwnProperty.call(trailers, k)) rows.push({ key: k, value: trailers[k] });
+      }
+      return rows;
+    },
+    each: function (fn) { pm.response.trailers.all().forEach(fn); },
+    toObject: function () {
+      var out = {};
+      var trailers = __pmTrailers();
+      for (var k in trailers) {
+        if (Object.prototype.hasOwnProperty.call(trailers, k)) out[k] = trailers[k];
+      }
+      return out;
+    },
+  };
+
+  // gRPC streams: pm.response.messages over every inbound message (parsed),
+  // collected before the test script runs (#917). Empty for single responses.
+  function __pmMessages() {
+    return typeof response !== 'undefined' && Array.isArray(response.messages)
+      ? response.messages.slice()
+      : [];
+  }
+  pm.response.messages = {
+    all: function () { return __pmMessages(); },
+    count: function () { return __pmMessages().length; },
+    idx: function (i) { return __pmMessages()[i]; },
+    each: function (fn) { __pmMessages().forEach(fn); },
+    toJSON: function () { return __pmMessages(); },
+  };
+
   // pm.response.cookies — Postman CookieList subset over the response's own
   // Set-Cookie fields (pm.cookies is the jar). Later fields win on name clash.
   function __pmResponseCookies() {

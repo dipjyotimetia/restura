@@ -1,7 +1,6 @@
 import { AlertCircle, Loader2, Radio } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { v4 as uuidv4 } from 'uuid';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { KeyValueTable } from '@/components/shared/KeyValueTable';
 import { Button } from '@/components/ui/button';
@@ -22,7 +21,6 @@ import {
   validateRequestAgainstSchema,
 } from '@/features/grpc/lib/grpcReflection';
 import { reflectionSnapshotUpdate } from '@/features/grpc/lib/grpcSchemaSnapshot';
-import { startGrpcStream, streamErrorResponse } from '@/features/grpc/lib/grpcStreamingClient';
 import {
   type GrpcValidationState,
   INITIAL_VALIDATION_STATE,
@@ -47,11 +45,9 @@ import type {
   GrpcMethodType,
   GrpcRequest,
   GrpcResponse,
-  GrpcStatusCode,
   ReflectionMethodInfo,
   ReflectionServiceInfo,
 } from '@/types';
-import { GrpcStatusCodeName } from '@/types';
 import { GrpcDeadlineField } from './GrpcDeadlineField';
 import { GrpcInvocationBar } from './GrpcInvocationBar';
 import { GrpcMessageEditor } from './GrpcMessageEditor';
@@ -63,6 +59,7 @@ import { GrpcStreamingMessages } from './GrpcStreamingControls';
 import { GrpcStreamingPanel } from './GrpcStreamingPanel';
 import { GrpcUnknownFieldsLint } from './GrpcUnknownFieldsLint';
 import { GrpcUnsupportedAuthNotice } from './GrpcUnsupportedAuthNotice';
+import { runBuilderStream } from './runBuilderStream';
 
 type GrpcSubTab =
   | 'message'
@@ -203,6 +200,9 @@ function GrpcRequestBuilder() {
   useEffect(() => {
     streamControlRef.current = streamControl;
   }, [streamControl]);
+  // Send generation: a cancelled stream settles after Cancel re-enables Send,
+  // so its late callbacks must not clobber a newer send's response / controls.
+  const sendRunRef = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -329,6 +329,7 @@ function GrpcRequestBuilder() {
       }
     }
 
+    const runId = ++sendRunRef.current;
     setLoading(true);
     setStreamingMessages([]);
     setScriptResultForTab(originTabId, null);
@@ -369,99 +370,10 @@ function GrpcRequestBuilder() {
 
       setResolvedProto({ content: protoContent, fileName: protoFileName });
 
-      if (grpcRequest.methodType !== 'unary') {
-        // Streaming paths stay on the bespoke startGrpcStream handle — the
-        // registry runner doesn't model long-lived streams yet
-        // (TODO(registry-streaming) on grpcProtocol). This builder gates
-        // streaming to Electron; the web Connect path lives in
-        // GrpcStreamingPanel (the "Web Stream" tab).
-        if (!isElectron()) {
-          toast.error('Streaming gRPC requires the desktop app', {
-            description: 'Unary requests are supported in the browser via the proxy.',
-          });
-          setLoading(false);
-          return;
-        }
-        const handle = await startGrpcStream({
-          request: grpcRequest,
-          resolveVariables,
-          protoContent,
-          protoFileName,
-          ...(descriptors?.length ? { descriptors } : {}),
-          timeoutMs,
-          useCompression,
-        });
-        // Mirror streaming traffic into the unified console Frames tab — the
-        // bespoke streaming handle never routed through the runner, so before
-        // this gRPC streams were invisible in the console (only the in-panel
-        // message list showed them). One connection id per invocation groups
-        // a single stream's frames together; the label is the called method.
-        const streamLabel = `${grpcRequest.service}/${grpcRequest.method}`;
-        const streamConnId = `grpc-${uuidv4().slice(0, 8)}`;
-        const streamFrame = (direction: 'in' | 'out' | 'system', payload: string) =>
-          useConsoleStore.getState().addFrame({
-            timestamp: Date.now(),
-            protocol: 'grpc',
-            direction,
-            connectionId: streamConnId,
-            label: streamLabel,
-            payload,
-            // System frames are lifecycle markers, not wire payloads — leave
-            // `bytes` unset so the UI doesn't show a meaningless size for them.
-            ...(direction === 'system' ? {} : { bytes: new TextEncoder().encode(payload).length }),
-          });
-        streamFrame('system', `stream opened — ${grpcRequest.methodType}`);
-        // Adapt the async-iterator handle to the streamControl shape the
-        // invocation bar / streaming controls already consume.
-        setStreamControl({
-          sendMessage: (msg: unknown) => {
-            streamFrame('out', typeof msg === 'string' ? msg : JSON.stringify(msg, null, 2));
-            void handle.send(msg);
-          },
-          endStream: () => handle.closeSend(),
-          cancelStream: () => handle.cancel(),
-        });
-        // Drain inbound messages as they arrive, then settle on the final gRPC
-        // status. The iterator throws if the stream errors; `done` always
-        // resolves (carrying the status + trailers), so the error is reported
-        // once, from the catch.
-        void (async () => {
-          try {
-            for await (const msg of handle.messages) {
-              const text = JSON.stringify(msg, null, 2);
-              setStreamingMessages((prev) => [...prev, text]);
-              streamFrame('in', text);
-            }
-            const final = await handle.done;
-            if (final.status === 0) {
-              streamFrame('system', 'stream completed — OK');
-              toast.success('Stream completed');
-            } else {
-              const description =
-                final.statusMessage ||
-                GrpcStatusCodeName[final.status as GrpcStatusCode] ||
-                'Stream error';
-              streamFrame('system', `stream closed — ${final.status} ${description}`);
-              const errorResponse = streamErrorResponse(grpcRequest.id, final, startTime);
-              setCurrentResponseForTab(originTabId, errorResponse);
-              toast.error(`gRPC Error: ${final.status}`, { description });
-            }
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            streamFrame('system', `stream error — ${message}`);
-            toast.error('gRPC stream error', { description: message });
-          } finally {
-            setLoading(false);
-            setStreamControl(null);
-          }
-        })();
-        return;
-      }
-
-      // Unary path: route through the registry runner. The gRPC protocol
-      // module handles transport selection (Electron vs proxy), pre/test
-      // scripts, and history persistence — Electron requires proto bytes
-      // via protocolOptions which the proxy ignores.
+      // Every call type runs through the registry runner. The gRPC protocol
+      // module handles transport selection (Electron vs proxy / Connect),
+      // pre/test scripts, and history persistence — Electron requires proto
+      // bytes via protocolOptions which the proxy ignores.
       const protocolOptions = {
         protoContent,
         protoFileName,
@@ -469,6 +381,40 @@ function GrpcRequestBuilder() {
         timeoutMs,
         useCompression,
       };
+
+      if (grpcRequest.methodType !== 'unary') {
+        // Streams (#917): live messages + outbound controls via stream hooks;
+        // the runner resolves after the stream ends with the aggregated
+        // response. The web supports server streams only — client / bidi
+        // fail with a desktop-only error from the streaming client.
+        const current = () => sendRunRef.current === runId;
+        void runBuilderStream({
+          request: grpcRequest,
+          protocolOptions,
+          run: runViaRegistry,
+          retryMaxAttempts,
+          retryDelayMs,
+          onMessage: (text) => current() && setStreamingMessages((prev) => [...prev, text]),
+          onReset: () => current() && setStreamingMessages([]),
+          setStreamControl: (control) => current() && setStreamControl(control),
+        })
+          .then((response) => current() && setCurrentResponseForTab(originTabId, response))
+          .catch((err: unknown) => {
+            const errorResponse = createErrorResponse(grpcRequest.id, err, startTime);
+            addHistoryItem(grpcRequest, errorResponse);
+            if (!current()) return;
+            setCurrentResponseForTab(originTabId, errorResponse);
+            toast.error('gRPC stream error', {
+              description: err instanceof Error ? err.message : String(err),
+            });
+          })
+          .finally(() => {
+            if (!current()) return;
+            setLoading(false);
+            setStreamControl(null);
+          });
+        return;
+      }
 
       const runOnce = () => runViaRegistry(grpcRequest, 'grpc', { protocolOptions });
 

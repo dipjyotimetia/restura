@@ -33,6 +33,8 @@ The same policy applies to collection runs and to every message of a stream. Pre
 - **Server streaming** — single request, streamed responses. Live updates land in the response panel.
 - **Client streaming** — multiple requests, single response. <Badge text="desktop" variant="caution" /> for full HTTP/2 streaming; browser fetch limits client streaming on the web target.
 - **Bidirectional streaming** — same caveat as client streaming.
+- **Collection runs** — the collection runner runs streaming requests to completion. Server streams run on web and desktop. Client and bidirectional streams run on desktop only: the runner sends the request message (a top-level JSON array sends one message per element), then closes the client side. On the web they're skipped.
+- **Retries** — the request's retry policy also applies to server streams: a stream that ends with a non-OK status runs again.
 - **Stream log** — streamed messages can be searched, filtered by direction, frozen, cleared, and exported as JSON or NDJSON.
 - **Response** — the **Body** tab offers Pretty / Raw / Tree views, a JSONPath query, find, copy, and download (a streamed response's frames appear as one JSON array, indexed by frame). **Headers** shows the server's leading metadata and **Trailers** the `grpc-status` / `grpc-message` and any trailing metadata.
 - **Rich error details** — when an error carries `google.rpc.Status` details (from the `grpc-status-details-bin` trailer or Connect's error JSON), an **Error details** tab decodes them: `BadRequest`, `ErrorInfo`, `RetryInfo`, `QuotaFailure`, `PreconditionFailure`, `DebugInfo`, `RequestInfo`, `ResourceInfo`, `Help` and `LocalizedMessage` as JSON, types from your loaded schema likewise, and anything else as its type plus raw base64 (Connect's `debug` rendering is shown too). Test scripts read the same list as `pm.response.statusDetails`. Works on web, self-hosted and desktop, unary and streaming.
@@ -51,6 +53,28 @@ On desktop, a stream with no messages in either direction for 15 minutes is clos
 
 - **Not supported for gRPC yet:** AWS SigV4, OAuth 1.0, WSSE, Digest and NTLM. These need the exact wire bytes or a challenge round-trip that the gRPC transports don't do. The auth tab shows a warning, and Send is blocked with an error rather than sending the call without credentials. As a workaround, set Auth to **No Auth** (on the request and on any folder or collection it inherits from) and put a pre-computed credential in a metadata entry. Inherited folder/collection auth is checked the same way as the request's own, for unary and streaming calls.
 - **Custom metadata** — gRPC uses metadata in place of HTTP headers; edit it in the same table as HTTP headers, with bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row. Values resolve `{{variables}}`. There is no per-entry size limit (multi-KB bearer JWTs are fine); total metadata, including auth, is capped at 16 KiB.
+
+## Scripts
+
+Pre-request and test scripts run for every gRPC call type with the same `rs.*` / `pm.*` API as HTTP ([Scripts](/guides/scripts/)), on web and desktop; the CLI runs unary calls only.
+
+- **Streams** — the pre-request script runs before the stream opens and the test script once it ends. `rs.response.messages` holds every message received (`all()`, `count()`, `idx(i)`, `each(fn)`); `rs.response.code` is the final gRPC status and `rs.response.json()` returns the messages as an array. Each stream also gets one History entry.
+
+- **Edit outgoing metadata** — in a pre-request script, `rs.request.metadata` holds the enabled metadata rows (lowercased keys, `{{variables}}` resolved). Add, change or `delete` keys and the call is sent with the result. Auth metadata is added after the script and isn't visible to it.
+- **Assert on metadata and trailers** — in a test script, `rs.response.metadata` (alias of `rs.response.headers`) and `rs.response.trailers` expose the leading and trailing metadata; the raw maps are `response.headers` and `response.trailers`.
+
+```js
+// pre-request
+rs.request.metadata['x-request-id'] = require('uuid').v4();
+
+// test
+rs.test('trailer present', () => {
+  rs.expect(rs.response.trailers.get('x-checksum')).to.exist;
+});
+
+// test, server stream
+rs.test('three updates', () => rs.expect(rs.response.messages.count()).to.equal(3));
+```
 
 ## Tracing
 

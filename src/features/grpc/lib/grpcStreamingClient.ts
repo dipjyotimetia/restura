@@ -28,7 +28,7 @@ import { flattenHeaders } from '@shared/protocol/header-utils';
 import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
 import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
-import type { GrpcRequest, GrpcResponse } from '@/types';
+import type { GrpcRequest } from '@/types';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
 import {
   buildAuthMetadata,
@@ -84,37 +84,6 @@ export interface StartGrpcStreamArgs {
 }
 
 const DEFAULT_TIMEOUT = 30_000;
-
-/**
- * The response-panel view of a stream that ended in a gRPC error: status,
- * headers, trailers and the decoded rich error details (#883), with the status
- * message as the body. Messages already received stay in the Stream tab.
- */
-export function streamErrorResponse(
-  requestId: string,
-  final: GrpcStreamFinal,
-  startTime: number
-): GrpcResponse {
-  const name = GrpcStatusCodeName[final.status] ?? 'UNKNOWN';
-  const body = JSON.stringify({ error: final.statusMessage || name }, null, 2);
-  return {
-    id: crypto.randomUUID(),
-    requestId,
-    status: final.status,
-    statusText: name,
-    headers: final.headers,
-    body,
-    size: new Blob([body]).size,
-    time: Date.now() - startTime,
-    timestamp: Date.now(),
-    grpcStatus: final.status,
-    grpcStatusText: name,
-    trailers: final.trailers,
-    isStreaming: true,
-    ...(final.statusDetails?.length ? { statusDetails: final.statusDetails } : {}),
-  };
-}
-
 /**
  * Start a gRPC stream against the request's method. Electron handles all four
  * call types via IPC; the web path supports `server-streaming` only (browser

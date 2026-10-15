@@ -126,8 +126,24 @@ interface ResturaPmResponse {
   readonly statusDetails: Array<{ type: string; value?: any; raw?: string; debug?: any }>;
   /** Response headers. Set-Cookie: get() returns every cookie joined with ", "; all() lists one row per cookie. */
   headers: ResturaHeaderList;
+  /** gRPC: initial response metadata (alias of headers). */
+  metadata: ResturaHeaderList;
+  /** gRPC: trailing metadata (grpc-status, grpc-message, custom trailers). Empty for other protocols. */
+  trailers: ResturaHeaderList;
+  /** gRPC streams: every inbound message (parsed), collected before the test script runs. */
+  messages: ResturaMessageList;
   /** Cookies this response set (parsed Set-Cookie fields; rs.cookies is the jar). */
   cookies: ResturaResponseCookies;
+}
+
+/** Streamed response messages (rs.response.messages). */
+interface ResturaMessageList {
+  all(): any[];
+  count(): number;
+  /** Message at index \`i\` (0-based). */
+  idx(i: number): any;
+  each(fn: (message: any, index: number) => void): void;
+  toJSON(): any[];
 }
 
 /** A parsed Set-Cookie field. */
@@ -172,8 +188,10 @@ interface ResturaPmRequest {
   url: string;
   /** HTTP method. */
   method: string;
-  /** Request headers map. */
+  /** Request headers map (gRPC: alias of metadata). */
   headers: Record<string, string>;
+  /** gRPC: outgoing metadata. Edits in a pre-request script are sent with the call. */
+  metadata?: Record<string, string>;
   /** Request body (parsed when JSON, else raw). */
   body?: unknown;
 }
@@ -291,6 +309,8 @@ interface ResturaRequestGlobal {
   url: string;
   method: string;
   headers: Record<string, string>;
+  /** gRPC: outgoing metadata (editable in pre-request scripts). */
+  metadata?: Record<string, string>;
   body?: unknown;
 }
 
@@ -303,6 +323,10 @@ interface ResturaResponseGlobal {
   setCookies: string[];
   /** The Set-Cookie fields parsed. */
   cookies: ResturaResponseCookie[];
+  /** gRPC trailing metadata. */
+  trailers?: Record<string, string>;
+  /** gRPC streams: every inbound message, parsed. */
+  messages?: unknown[];
   body: unknown;
   /** Response time in milliseconds. */
   time: number;
