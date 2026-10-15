@@ -18,6 +18,7 @@
  */
 
 import { GrpcStatusCode, GrpcStatusCodeName } from './grpc-status';
+import { type GrpcStatusDetail, statusDetailsFromStatusBin } from './grpc-status-details';
 import {
   base64ToBytes,
   bytesToBase64,
@@ -67,6 +68,12 @@ export type GrpcWebEvent =
       trailers: Record<string, string>;
       /** Response body bytes read from upstream. */
       size: number;
+      /**
+       * Rich error details decoded from the `grpc-status-details-bin` trailer
+       * (#883) — well-known google.rpc types as JSON, others as raw base64.
+       * Schema-less here; the renderer re-decodes with the request's schema.
+       */
+      statusDetails?: GrpcStatusDetail[];
     };
 
 export type GrpcWebEndEvent = Extract<GrpcWebEvent, { type: 'end' }>;
@@ -153,12 +160,17 @@ function statusFromTrailers(
   const code = Number.parseInt(raw, 10);
   const valid = Number.isInteger(code) && code >= 0 && code <= 16;
   const message = trailers['grpc-message'];
-  return endEvent(
+  const end = endEvent(
     valid ? code : GrpcStatusCode.UNKNOWN,
     valid ? (message ? decodeGrpcMessage(message) : undefined) : `invalid grpc-status "${raw}"`,
     trailers,
     size
   );
+  if (end.grpcStatus !== GrpcStatusCode.OK) {
+    const details = statusDetailsFromStatusBin(trailers['grpc-status-details-bin']);
+    if (details.length > 0) end.statusDetails = details;
+  }
+  return end;
 }
 
 function lowerCaseRecord(input: Record<string, string>): Record<string, string> {

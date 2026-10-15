@@ -18,6 +18,7 @@ vi.mock('@/lib/shared/platform', async (orig) => ({
   isElectron: () => platform.electron,
 }));
 
+import { startGrpcStream } from '../grpcStreamingClient';
 import {
   canUseDescriptorSnapshot,
   makeGrpcWebRequest,
@@ -25,7 +26,6 @@ import {
   registryForGrpcWeb,
   streamGrpcWebViaWorker,
 } from '../grpcWebClient';
-import { startGrpcStream } from '../grpcStreamingClient';
 
 const PROTO = `syntax = "proto3";
 package demo.v1;

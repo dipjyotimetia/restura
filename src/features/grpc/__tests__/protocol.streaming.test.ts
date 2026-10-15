@@ -26,6 +26,7 @@ vi.mock('@/features/grpc/lib/grpcStreamingClient', () => ({
   },
 }));
 
+import { MAX_RETAINED_STREAM_MESSAGES } from '@/features/grpc/lib/streamRetention';
 import { grpcProtocol } from '../protocol';
 
 interface FakeStream {
@@ -261,6 +262,21 @@ describe('gRPC streaming through the protocol runner (#917)', () => {
       })
     );
     expect(res.statusDetails).toEqual(statusDetails);
+    expect(scripts?.test?.tests?.[0]?.passed).toBe(true);
+  });
+
+  it('bounds retained messages on a long stream and reports how many were dropped', async () => {
+    const total = MAX_RETAINED_STREAM_MESSAGES + 25;
+    const inbound = Array.from({ length: total }, (_, n) => ({ n }));
+    nextStream = () => fakeStream(inbound, okFinal);
+    const { res, scripts } = await run(
+      grpcReq({
+        testScript: `rs.test('count', () => rs.expect(rs.response.messages.count()).to.equal(${MAX_RETAINED_STREAM_MESSAGES}));`,
+      })
+    );
+    expect(res.messages).toHaveLength(MAX_RETAINED_STREAM_MESSAGES);
+    expect(res.messages?.[0]).toBe('{"n":25}');
+    expect(res.droppedMessages).toBe(25);
     expect(scripts?.test?.tests?.[0]?.passed).toBe(true);
   });
 

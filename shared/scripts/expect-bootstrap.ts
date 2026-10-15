@@ -269,7 +269,8 @@ export const PM_EXPECT_BOOTSTRAP = `
     },
   };
 
-  // gRPC streams: pm.response.messages over every inbound message (parsed),
+  // gRPC streams: pm.response.messages over the retained inbound messages (parsed;
+  // the renderer keeps the most recent ones — see streamRetention.ts),
   // collected before the test script runs (#917). Empty for single responses.
   function __pmMessages() {
     return typeof response !== 'undefined' && Array.isArray(response.messages)

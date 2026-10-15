@@ -44,6 +44,7 @@ import {
 import { resolveGrpcTls } from './grpcTls';
 import {
   decodeGrpcWebMessage,
+  grpcWebStatusDetails,
   isGrpcWebWire,
   prepareGrpcWebCall,
   streamGrpcWebViaWorker,
@@ -340,7 +341,7 @@ function startConnectServerStream<TIn, TOut>(
 function startGrpcWebServerStream<TIn, TOut>(
   args: StartGrpcStreamArgs
 ): GrpcStreamingHandle<TIn, TOut> {
-  const { spec, method } = prepareGrpcWebCall(
+  const { spec, method, registry } = prepareGrpcWebCall(
     args.request,
     args.resolveVariables,
     args.timeoutMs ?? DEFAULT_TIMEOUT,
@@ -387,11 +388,13 @@ function startGrpcWebServerStream<TIn, TOut>(
             status = GrpcStatusCode.INTERNAL;
             statusMessage = `Failed to decode gRPC-Web response message: ${reason}`;
           }
+          const statusDetails = grpcWebStatusDetails(ev, registry);
           resolveDone({
             headers,
             trailers: ev.trailers,
             status,
             ...(statusMessage ? { statusMessage } : {}),
+            ...(statusDetails ? { statusDetails } : {}),
           });
           if (status !== GrpcStatusCode.OK) {
             throw new GrpcClientError(

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_GRPC_METADATA_BYTES } from './header-policy';
 
 /**
  * Zod schemas for the JSON bodies POSTed to `/api/grpc` and
@@ -29,10 +30,13 @@ export const GrpcProxyRequestBodySchema = z.object({
 
 export type GrpcProxyRequestBody = z.infer<typeof GrpcProxyRequestBodySchema>;
 
-/** Per-entry cap (key + value bytes) — mirrors the renderer's call-path limit. */
-export const GRPC_REFLECTION_METADATA_MAX_ENTRY_BYTES = 1024;
-/** Total cap across all entries — mirrors the renderer's call-path limit. */
-export const GRPC_REFLECTION_METADATA_MAX_TOTAL_BYTES = 8 * 1024;
+/**
+ * Aggregate cap (UTF-8 key + value bytes) — the SAME limit as the call path
+ * (`MAX_GRPC_METADATA_BYTES`, #895). No per-entry cap: a 1–2 KB bearer JWT that
+ * a call accepts must not be rejected when it is sent with reflection (#887).
+ */
+export const GRPC_REFLECTION_METADATA_MAX_TOTAL_BYTES = MAX_GRPC_METADATA_BYTES;
+const utf8 = new TextEncoder();
 // RFC 9110 field-name token; values may not carry CR/LF/NUL (header injection).
 const HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const HEADER_VALUE_RE = /^[^\r\n\0]*$/;
@@ -51,14 +55,7 @@ export const GrpcReflectionMetadataSchema = z
   .superRefine((metadata, ctx) => {
     let total = 0;
     for (const [key, value] of Object.entries(metadata)) {
-      const size = key.length + value.length;
-      if (size > GRPC_REFLECTION_METADATA_MAX_ENTRY_BYTES) {
-        ctx.addIssue({
-          code: 'custom',
-          message: `Metadata '${key}' exceeds ${GRPC_REFLECTION_METADATA_MAX_ENTRY_BYTES} bytes`,
-        });
-      }
-      total += size;
+      total += utf8.encode(key).length + utf8.encode(value).length;
     }
     if (total > GRPC_REFLECTION_METADATA_MAX_TOTAL_BYTES) {
       ctx.addIssue({

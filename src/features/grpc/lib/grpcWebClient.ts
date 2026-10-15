@@ -18,6 +18,10 @@ import {
   registryFromProtoText,
   resolveMethod,
 } from '@shared/protocol/grpc-registry';
+import {
+  type GrpcStatusDetail,
+  statusDetailsFromStatusBin,
+} from '@shared/protocol/grpc-status-details';
 import { base64ToBytes, bytesToBase64 } from '@shared/protocol/grpc-web-framing';
 import type { GrpcWebEndEvent, GrpcWebEvent, GrpcWebSpec } from '@shared/protocol/grpc-web-proxy';
 import { NdjsonParser } from '@shared/protocol/ndjson-parser';
@@ -172,6 +176,23 @@ function syntheticEnd(code: GrpcStatusCode, message: string): GrpcWebEndEvent {
 export interface PreparedGrpcWebCall {
   spec: GrpcWebSpec;
   method: DescMethod;
+  /** The request's schema — decodes the user's own error-detail types too. */
+  registry: Registry;
+}
+
+/**
+ * Rich error details for a gRPC-Web `end` event (#883): re-decoded from the
+ * `grpc-status-details-bin` trailer with the request's registry (so the
+ * user's own detail types decode), else the proxy's schema-less decode.
+ */
+export function grpcWebStatusDetails(
+  end: GrpcWebEndEvent,
+  registry?: Registry
+): GrpcStatusDetail[] | undefined {
+  if (end.grpcStatus === GrpcStatusCode.OK) return undefined;
+  const bin = end.trailers['grpc-status-details-bin'];
+  const details = bin ? statusDetailsFromStatusBin(bin, registry) : (end.statusDetails ?? []);
+  return details.length > 0 ? details : undefined;
 }
 
 /** Resolve variables, auth metadata and schema into a Worker spec. */
@@ -190,7 +211,7 @@ export function prepareGrpcWebCall(
   }
   assertProxyDeadline(timeoutMs);
   const prepared = prepareGrpcRequest(request, resolveVariables);
-  const { method } = registryForGrpcWeb(
+  const { registry, method } = registryForGrpcWeb(
     { ...src, ...(request.schema ? { snapshot: request.schema } : {}) },
     request.service,
     request.method
@@ -204,6 +225,7 @@ export function prepareGrpcWebCall(
   }
   return {
     method,
+    registry,
     spec: {
       url: prepared.url,
       service: request.service,
@@ -228,7 +250,12 @@ export async function makeGrpcWebRequest(
 ): Promise<GrpcResponse> {
   const startTime = Date.now();
   try {
-    const { spec, method } = prepareGrpcWebCall(request, resolveVariables, timeoutMs, src);
+    const { spec, method, registry } = prepareGrpcWebCall(
+      request,
+      resolveVariables,
+      timeoutMs,
+      src
+    );
     let headers: Record<string, string> = {};
     const messages: unknown[] = [];
     let decodeError: unknown;
@@ -269,6 +296,7 @@ export async function makeGrpcWebRequest(
       : { error: end.grpcMessage ?? end.grpcStatusText };
     const body = JSON.stringify(payload, null, 2);
     const messageStrs = streaming ? messages.map((m) => JSON.stringify(m)) : undefined;
+    const statusDetails = grpcWebStatusDetails(end, registry);
     return {
       id: uuidv4(),
       requestId: request.id,
@@ -283,6 +311,7 @@ export async function makeGrpcWebRequest(
       grpcStatusText: end.grpcStatusText,
       trailers: end.trailers,
       ...(messageStrs ? { messages: messageStrs, isStreaming: true } : {}),
+      ...(statusDetails ? { statusDetails } : {}),
     };
   } catch (error: unknown) {
     return createErrorResponse(request.id, error, startTime);

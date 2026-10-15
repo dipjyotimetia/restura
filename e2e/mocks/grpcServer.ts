@@ -64,6 +64,8 @@ export const FAIL_TRIGGERS = {
   Unavailable: 'FAIL_UNAVAILABLE',
   DeadlineExceeded: 'FAIL_DEADLINE_EXCEEDED',
   Unimplemented: 'FAIL_UNIMPLEMENTED',
+  /** FAILED_PRECONDITION carrying a google.rpc.Status detail (an EchoReply). */
+  WithDetails: 'FAIL_WITH_DETAILS',
 } as const;
 
 export function slowMessage(ms: number, body: string): string {
@@ -83,6 +85,16 @@ const ERROR_TRIGGERS: Record<string, Code> = {
 };
 
 function maybeThrow(message: string): void {
+  if (message === FAIL_TRIGGERS.WithDetails) {
+    // Rich error details: a schema type the client must decode with its own
+    // registry (grpc-status-details-bin on gRPC / gRPC-Web, JSON on Connect).
+    throw new ConnectError(
+      'mock-server triggered FAIL_WITH_DETAILS',
+      Code.FailedPrecondition,
+      undefined,
+      [{ desc: EchoReplySchema, value: { message: 'detail', index: 7 } }]
+    );
+  }
   const code = ERROR_TRIGGERS[message];
   if (code !== undefined) {
     throw new ConnectError(`mock-server triggered ${message}`, code);

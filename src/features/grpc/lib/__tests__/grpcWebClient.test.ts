@@ -186,6 +186,20 @@ describe('makeGrpcWebRequest (web → Worker → real gRPC-Web server)', () => {
     expect(JSON.parse(res.body).error).toMatch(/FAIL_PERMISSION_DENIED/);
   });
 
+  it('decodes rich error details from grpc-status-details-bin with the request schema (#883)', async () => {
+    const res = await makeGrpcWebRequest(
+      request({ message: '{"message":"FAIL_WITH_DETAILS"}' }),
+      resolveVars,
+      5000,
+      { protoContent: ECHO_PROTO }
+    );
+    expect(res.grpcStatus).toBe(GrpcStatusCode.FAILED_PRECONDITION);
+    // echo.v1.EchoReply is not a well-known type: only the schema decodes it.
+    expect(res.statusDetails).toEqual([
+      { type: 'echo.v1.EchoReply', value: { message: 'detail', index: 7 } },
+    ]);
+  });
+
   it('rejects client-streaming methods (no request streaming in gRPC-Web)', async () => {
     const res = await makeGrpcWebRequest(
       request({ method: 'ClientStreamingEcho', methodType: 'client-streaming' }),
@@ -313,6 +327,30 @@ describe('startGrpcStream over gRPC-Web on web', () => {
       }
     }).rejects.toThrow(/FAIL_NOT_FOUND/);
     expect((await handle.done).status).toBe(GrpcStatusCode.NOT_FOUND);
+  });
+});
+
+describe('startGrpcStream over gRPC-Web — rich error details', () => {
+  it('carries decoded details on the final status (#883)', async () => {
+    const handle = await startGrpcStream({
+      request: request({
+        methodType: 'server-streaming',
+        method: 'ServerStreamingEcho',
+        message: '{"message":"FAIL_WITH_DETAILS"}',
+      }),
+      resolveVariables: resolveVars,
+      protoContent: ECHO_PROTO,
+    });
+    await expect(async () => {
+      for await (const _ of handle.messages) {
+        // drain
+      }
+    }).rejects.toThrow(/FAIL_WITH_DETAILS/);
+    const final = await handle.done;
+    expect(final.status).toBe(GrpcStatusCode.FAILED_PRECONDITION);
+    expect(final.statusDetails).toEqual([
+      { type: 'echo.v1.EchoReply', value: { message: 'detail', index: 7 } },
+    ]);
   });
 });
 

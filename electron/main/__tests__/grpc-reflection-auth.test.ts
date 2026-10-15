@@ -172,11 +172,20 @@ describe('ReflectionIpcConfigSchema metadata policy (#887)', () => {
     ).toBe(false);
   });
 
-  it('rejects oversize metadata', () => {
+  it('accepts a multi-KB bearer token, like the call path (#895)', () => {
     expect(
       ReflectionIpcConfigSchema.safeParse({
         ...base,
-        metadata: { authorization: 'a'.repeat(2048) },
+        metadata: { authorization: `Bearer ${'a'.repeat(2048)}` },
+      }).success
+    ).toBe(true);
+  });
+
+  it('rejects metadata over the 16 KiB aggregate', () => {
+    expect(
+      ReflectionIpcConfigSchema.safeParse({
+        ...base,
+        metadata: { authorization: 'a'.repeat(16 * 1024) },
       }).success
     ).toBe(false);
   });

@@ -27,27 +27,35 @@ interface PinnableArgs<D> extends WireProtocolArgs {
   useCompression?: boolean;
 }
 
-type BuildBase<D> = (
-  url: string,
-  dial: D,
-  tls?: GrpcTlsConfig
-) => { baseUrl: string; nodeOptions: Record<string, unknown> };
+/**
+ * The caller's shared transport options. The size caps are required so a pinned
+ * transport can never fall back to connect-node's ~4 GiB default (SEC-G1, #929).
+ */
+export interface PinnedTransportBase {
+  baseUrl: string;
+  nodeOptions: Record<string, unknown>;
+  readMaxBytes: number;
+  writeMaxBytes: number;
+}
+
+type BuildBase<D> = (url: string, dial: D, tls?: GrpcTlsConfig) => PinnedTransportBase;
 
 /** Build the single pinned transport for `t.wireProtocol`. */
 export function createPinnedTransport<D>(
   t: PinnableArgs<D> & { wireProtocol: GrpcWireProtocolChoice },
   buildBase: BuildBase<D>
 ): Transport {
-  const { baseUrl, nodeOptions } = buildBase(t.url, t.dial, t.tls);
+  // baseUrl + pinned-dial nodeOptions + readMaxBytes/writeMaxBytes caps.
+  const base = buildBase(t.url, t.dial, t.tls);
   const compression = t.useCompression ? { sendCompression: compressionGzip } : {};
   switch (t.wireProtocol) {
     case 'grpc':
-      return createGrpcTransport({ baseUrl, nodeOptions, ...compression });
+      return createGrpcTransport({ ...base, ...compression });
     case 'connect':
-      return createConnectTransport({ baseUrl, httpVersion: '2', nodeOptions, ...compression });
+      return createConnectTransport({ ...base, httpVersion: '2', ...compression });
     case 'grpc-web':
       // gRPC-Web endpoints (e.g. Envoy's grpc_web filter) are HTTP/1.1.
-      return createGrpcWebTransport({ baseUrl, httpVersion: '1.1', nodeOptions, ...compression });
+      return createGrpcWebTransport({ ...base, httpVersion: '1.1', ...compression });
   }
 }
 

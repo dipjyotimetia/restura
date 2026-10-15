@@ -9,6 +9,7 @@ import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import { useGrpcReflection } from '@/features/grpc/hooks/useGrpcReflection';
 import { useGrpcSchemaDrift } from '@/features/grpc/hooks/useGrpcSchemaDrift';
+import { useStreamMessageLog } from '@/features/grpc/hooks/useStreamMessageLog';
 import {
   createErrorResponse,
   describeGrpcAuthMetadata,
@@ -89,7 +90,8 @@ function GrpcRequestBuilder() {
     fileName: string;
   } | null>(null);
   const [validation, setValidation] = useState<GrpcValidationState>(INITIAL_VALIDATION_STATE);
-  const [streamingMessages, setStreamingMessages] = useState<string[]>([]);
+  const streamLog = useStreamMessageLog();
+  const streamingMessages = streamLog.messages;
   const [streamControl, setStreamControl] = useState<{
     sendMessage: (msg: unknown) => void;
     endStream: () => void;
@@ -235,7 +237,7 @@ function GrpcRequestBuilder() {
       { value: 'settings', label: 'Settings' },
       { value: 'scripts', label: 'Scripts', ...(hasScripts ? { badge: 'on' } : {}) },
     ];
-    if (streamingMessages.length > 0) {
+    if (streamingMessages.length > 0 || streamLog.dropped > 0) {
       tabs.push({ value: 'streaming', label: 'Stream', count: streamingMessages.length });
     }
     if (currentRequest?.methodType && currentRequest.methodType !== 'unary') {
@@ -247,6 +249,7 @@ function GrpcRequestBuilder() {
     currentRequest?.auth.type,
     currentRequest?.methodType,
     hasScripts,
+    streamLog.dropped,
     streamingMessages.length,
   ]);
 
@@ -267,7 +270,7 @@ function GrpcRequestBuilder() {
 
   const handleMethodTypeChange = (methodType: GrpcMethodType) => {
     updateRequest({ methodType });
-    setStreamingMessages([]);
+    streamLog.reset();
   };
 
   const handleUrlChange = (url: string) => {
@@ -329,7 +332,7 @@ function GrpcRequestBuilder() {
 
     const runId = ++sendRunRef.current;
     setLoading(true);
-    setStreamingMessages([]);
+    streamLog.reset();
     setScriptResultForTab(originTabId, null);
     const startTime = Date.now();
 
@@ -392,8 +395,8 @@ function GrpcRequestBuilder() {
           run: runViaRegistry,
           retryMaxAttempts,
           retryDelayMs,
-          onMessage: (text) => current() && setStreamingMessages((prev) => [...prev, text]),
-          onReset: () => current() && setStreamingMessages([]),
+          onMessage: (text) => current() && streamLog.append(text),
+          onReset: () => current() && streamLog.reset(),
           setStreamControl: (control) => current() && setStreamControl(control),
         })
           .then((response) => current() && setCurrentResponseForTab(originTabId, response))
@@ -478,7 +481,7 @@ function GrpcRequestBuilder() {
 
       if (grpcResponse.grpcStatus === 0) {
         if (grpcResponse.messages) {
-          setStreamingMessages(grpcResponse.messages);
+          streamLog.replace(grpcResponse.messages, grpcResponse.droppedMessages);
         }
       } else {
         toast.error(`gRPC Error: ${grpcResponse.grpcStatus}`, {
@@ -706,11 +709,16 @@ function GrpcRequestBuilder() {
               />
             )}
 
-            {activeTab === 'streaming' && streamingMessages.length > 0 && (
-              <div className="p-3">
-                <GrpcStreamingMessages messages={streamingMessages} />
-              </div>
-            )}
+            {activeTab === 'streaming' &&
+              (streamingMessages.length > 0 || streamLog.dropped > 0) && (
+                <div className="p-3">
+                  <GrpcStreamingMessages
+                    messages={streamingMessages}
+                    dropped={streamLog.dropped}
+                    positions={streamLog.positions}
+                  />
+                </div>
+              )}
 
             {activeTab === 'web-stream' && grpcRequest.methodType !== 'unary' && (
               <GrpcStreamingPanel

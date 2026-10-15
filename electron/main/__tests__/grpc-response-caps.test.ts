@@ -6,6 +6,7 @@
 // transport) against a local HTTP/2 server so the transport-level caps
 // (readMaxBytes, post-decompression bound) are exercised end to end.
 import { readFileSync } from 'node:fs';
+import * as http from 'node:http';
 import * as http2 from 'node:http2';
 import type { AddressInfo } from 'node:net';
 import { resolve } from 'node:path';
@@ -39,12 +40,12 @@ interface ServerOpts {
   payload: string;
 }
 
-let server: http2.Http2Server | null = null;
+let server: http2.Http2Server | http.Server | null = null;
 // Open HTTP/2 sessions — connect-node keeps client sessions alive while idle,
 // and `server.close()` only calls back once every session has closed.
 const sessions = new Set<http2.ServerHttp2Session>();
 
-async function startServer(opts: ServerOpts): Promise<number> {
+async function startServer(opts: ServerOpts, http1 = false): Promise<number> {
   const service = registryFromProtoText(ECHO_PROTO).getService(SERVICE)!;
   const handler = connectNodeAdapter({
     acceptCompression: opts.acceptCompression,
@@ -66,8 +67,9 @@ async function startServer(opts: ServerOpts): Promise<number> {
       } as never);
     },
   });
-  server = http2.createServer(handler);
-  server.on('session', (session) => {
+  // gRPC-Web is pinned to HTTP/1.1 on desktop, so it needs an HTTP/1.1 server.
+  server = http1 ? http.createServer(handler) : http2.createServer(handler);
+  server.on('session', (session: http2.ServerHttp2Session) => {
     sessions.add(session);
     session.once('close', () => sessions.delete(session));
   });
@@ -97,6 +99,7 @@ afterEach(async () => {
   const closed = new Promise<void>((done) => s.close(() => done()));
   for (const session of sessions) session.destroy();
   sessions.clear();
+  if (s instanceof http.Server) s.closeAllConnections();
   await closed;
 });
 
@@ -121,6 +124,19 @@ describe('gRPC response caps (SEC-G1)', () => {
     // Proves the compressed path tripped the post-decompression bound.
     expect(r.error).toMatch(/after decompression/);
   });
+
+  for (const wireProtocol of ['grpc', 'connect', 'grpc-web'] as const) {
+    it(`caps an oversized unary response on a pinned ${wireProtocol} transport (#914)`, async () => {
+      const port = await startServer(
+        { acceptCompression: [], payload: OVERSIZED },
+        wireProtocol === 'grpc-web'
+      );
+      const r = await executeConnectUnary({ ...argsFor(port, 'UnaryEcho'), wireProtocol });
+      expect(r.status).toBe(Code.ResourceExhausted);
+      expect(r.message).toBeUndefined();
+      expect(r.error).toMatch(/readMaxBytes/);
+    });
+  }
 
   it('still accepts an in-limit unary response', async () => {
     const port = await startServer({ acceptCompression: [compressionGzip], payload: 'ok' });
