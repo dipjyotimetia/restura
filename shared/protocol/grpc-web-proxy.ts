@@ -46,7 +46,10 @@ export interface GrpcWebSpec {
   metadata?: Record<string, string>;
   /** Base64 of the protobuf-encoded request message (unframed). */
   message: string;
-  /** Overall call deadline in ms (default 30s). */
+  /**
+   * Overall call deadline in ms. Omitted = 30s default; `0` = no deadline (the
+   * renderer only sends 0 for streaming methods that opted out).
+   */
   timeout?: number;
   /** `binary` = application/grpc-web+proto (default); `text` = grpc-web-text. */
   format?: GrpcWebFormat;
@@ -231,7 +234,8 @@ export function executeGrpcWebProxy(
 
   const textMode = spec.format === 'text';
   const contentType = textMode ? 'application/grpc-web-text' : 'application/grpc-web+proto';
-  const timeout = spec.timeout && spec.timeout > 0 ? spec.timeout : DEFAULT_TIMEOUT_MS;
+  // 0 = "No deadline" (streaming opt-out): no timer and no grpc-timeout header.
+  const timeout = spec.timeout === 0 ? 0 : (spec.timeout ?? DEFAULT_TIMEOUT_MS);
   const maxBytes = options.maxResponseBytes ?? MAX_RESPONSE_SIZE;
 
   const metadata: Record<string, string> = {};
@@ -245,7 +249,7 @@ export function executeGrpcWebProxy(
     accept: contentType,
     'x-grpc-web': '1',
     'grpc-accept-encoding': 'identity',
-    'grpc-timeout': `${Math.ceil(timeout)}m`,
+    ...(timeout > 0 ? { 'grpc-timeout': `${Math.ceil(timeout)}m` } : {}),
   };
 
   const frame = encodeGrpcWebFrame(payload);
@@ -262,10 +266,13 @@ export function executeGrpcWebProxy(
   let timedOut = false;
 
   async function* run(): AsyncGenerator<GrpcWebEvent, void, void> {
-    const timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, timeout);
+    const timer =
+      timeout > 0
+        ? setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+          }, timeout)
+        : undefined;
     let size = 0;
     let res: FetcherResponse | undefined;
     const abortEnd = (): GrpcWebEndEvent =>
@@ -383,7 +390,7 @@ export function executeGrpcWebProxy(
         size
       );
     } finally {
-      clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
       // Release the upstream body on every exit path (trailers-only, non-200,
       // wrong content-type, cap, normal finish) without aborting the call.
       // A reader-locked body was already cancelled by readChunks.

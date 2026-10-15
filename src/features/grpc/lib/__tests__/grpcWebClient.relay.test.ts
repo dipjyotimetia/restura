@@ -25,6 +25,7 @@ import {
   registryForGrpcWeb,
   streamGrpcWebViaWorker,
 } from '../grpcWebClient';
+import { startGrpcStream } from '../grpcStreamingClient';
 
 const PROTO = `syntax = "proto3";
 package demo.v1;
@@ -228,5 +229,50 @@ describe('makeGrpcWebRequest', () => {
     const res = await makeGrpcWebRequest(request({ method: 'Watch' }), (s) => s, 1000, {});
     expect(res.messages).toEqual(['{"text":"a"}', '{"text":"b"}']);
     expect(res.isStreaming).toBe(true);
+  });
+});
+
+describe('startGrpcStream over gRPC-Web', () => {
+  const watch = () =>
+    startGrpcStream({
+      request: request({ method: 'Watch', methodType: 'server-streaming' }),
+      resolveVariables: (s) => s,
+      timeoutMs: 0,
+    });
+
+  it('settles done when the relay fetch fails before a terminal event', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('network down');
+      })
+    );
+    const handle = await watch();
+    await expect(collect(handle.messages as AsyncIterable<GrpcWebEvent>)).rejects.toThrow(
+      'network down'
+    );
+    await expect(handle.done).resolves.toMatchObject({
+      status: GrpcStatusCode.UNKNOWN,
+      statusMessage: 'network down',
+    });
+  });
+
+  it('settles done when a streamed message fails to decode', async () => {
+    stubRelay([
+      { type: 'headers', headers: { a: '1' } },
+      { type: 'message', data: '/w==' },
+    ]);
+    const handle = await watch();
+    await expect(collect(handle.messages as AsyncIterable<GrpcWebEvent>)).rejects.toThrow();
+    await expect(handle.done).resolves.toMatchObject({ headers: { a: '1' } });
+  });
+
+  it('forwards a "No deadline" stream as timeout 0', async () => {
+    const fetchMock = stubRelay([end(0)]);
+    const handle = await watch();
+    await collect(handle.messages as AsyncIterable<GrpcWebEvent>);
+    const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(body.timeout).toBe(0);
+    await expect(handle.done).resolves.toMatchObject({ status: GrpcStatusCode.OK });
   });
 });

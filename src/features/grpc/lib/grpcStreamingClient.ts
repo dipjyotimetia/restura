@@ -33,6 +33,7 @@ import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
 import {
   buildAuthMetadata,
   desktopWireProtocol,
+  GrpcClientError,
   grpcAuthNeedsMainSideApply,
   prepareGrpcRequest,
   validateGrpcUrl,
@@ -395,6 +396,14 @@ function startGrpcWebServerStream<TIn, TOut>(
         });
         return;
       }
+      // Relay/transport/decode failure before a terminal event: still settle
+      // `done` (no-op if an `end` event already did) so awaiting callers finish.
+      resolveDone({
+        headers,
+        trailers: {},
+        status: err instanceof GrpcClientError ? err.statusCode : GrpcStatusCode.UNKNOWN,
+        statusMessage: err instanceof Error ? err.message : String(err),
+      });
       throw err;
     }
   }

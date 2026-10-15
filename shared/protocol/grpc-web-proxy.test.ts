@@ -115,6 +115,42 @@ describe('executeGrpcWebProxy — request shaping', () => {
     expect(Array.from(seen?.body as Uint8Array)).toEqual([0, 0, 0, 0, 4, 10, 2, 104, 105]);
   });
 
+  it('defaults to a 30s deadline when timeout is omitted', async () => {
+    let seen: FetcherRequest | undefined;
+    await run(
+      spec(),
+      fetcherReturning(concat(trailerFrame('grpc-status: 0\r\n')), {}, (r) => {
+        seen = r;
+      })
+    );
+    expect((seen?.headers as Record<string, string>)['grpc-timeout']).toBe('30000m');
+  });
+
+  it('timeout 0 means no deadline: no grpc-timeout header and no 30s abort', async () => {
+    vi.useFakeTimers();
+    try {
+      let seen: FetcherRequest | undefined;
+      let release!: () => void;
+      const gate = new Promise<void>((r) => {
+        release = r;
+      });
+      const slow: Fetcher = async (req) => {
+        seen = req;
+        await gate;
+        return fetcherReturning(concat(trailerFrame('grpc-status: 0\r\n')))(req);
+      };
+      const pending = run(spec({ timeout: 0 }), slow);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(seen?.signal?.aborted).toBe(false);
+      release();
+      const out = await pending;
+      expect(out.end.grpcStatus).toBe(0);
+      expect(Object.keys(seen?.headers as Record<string, string>)).not.toContain('grpc-timeout');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('base64-encodes the framed body in text mode', async () => {
     let seen: FetcherRequest | undefined;
     await run(
