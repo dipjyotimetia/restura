@@ -261,6 +261,16 @@ How to run agentic work in this repo (loop primitives → repo tooling):
 - **Parallel sessions** — independent fixes get independent sessions in separate git worktrees (one topic per branch/PR); don't stack unrelated fixes serially on one branch.
 - **When a loop's output misses the bar**: don't just fix the instance — encode the fix (skill, hook, command, CLAUDE.md note) so every future iteration inherits it.
 
+### Shipping multi-PR work
+
+Learned from the gRPC #845 stack (9 layers, 4 bot-review rounds, a restack after every merge):
+
+- **Independent PRs off `main` by default** — one per file-overlap cluster, mergeable in any order. Stack only a true code dependency, at most ~3 layers. Never add a separate "integration" layer: fold a cross-layer fix into the PR that introduced the code.
+- **Review before opening** — run `/ship-check` (or `/code-review` + the security/parity agents) on each PR's diff, and grep every consumer of a changed wire format (`e2e/mocks/`, `echo/`, `echo-local/`, `cli/`). Each PR must pass `npm run test:coverage` on its own — the uncovered-item budget in `vitest.config.ts` is global, so PRs that pass alone can fail combined.
+- **Push hygiene** — `git fetch` and rebase onto `origin/main` right before pushing (GitHub may already have rebased the remote branch). Push branches one at a time: each push runs the coverage pre-push hook, and parallel runs flake under load. Never run two git or vitest processes in the same worktree.
+- **Bot review rounds** — wait until CodeRabbit and Sentry have finished on every PR, including the "Outside diff range" sections of review bodies, then fix everything in one batch, push once, reply and resolve. Don't push mid-round; each push triggers a fresh review.
+- **Merge plan up front** — say how to merge when opening the PRs. Independent PRs: `gh pr merge <n> --admin --squash` in any order. A stack squash-merged one PR at a time leaves the next PR conflicting (it still carries the squashed commits), so either approve all and run `gh stack merge --squash` once (it can't use the admin bypass), merge with `--rebase`, or restack after each merge with `git rebase --update-refs --onto origin/main <merged-branch> <top-branch>` after checking `git diff origin/main <merged-branch>` is empty.
+
 ## Summary instructions (for context compaction)
 
 When this conversation is summarized to free context, **preserve** the following — they are load-bearing for Restura work and expensive to reconstruct:
