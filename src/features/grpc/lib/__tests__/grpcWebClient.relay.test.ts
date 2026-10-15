@@ -267,6 +267,40 @@ describe('startGrpcStream over gRPC-Web', () => {
     await expect(handle.done).resolves.toMatchObject({ headers: { a: '1' } });
   });
 
+  it('keeps a non-OK terminal status and trailers after a decode failure', async () => {
+    stubRelay([
+      { type: 'message', data: '/w==' },
+      { type: 'message', data: pong('later') },
+      end(GrpcStatusCode.NOT_FOUND, { grpcMessage: 'gone', trailers: { 'x-t': '1' } }),
+    ]);
+    const handle = await watch();
+    const got: unknown[] = [];
+    await expect(
+      (async () => {
+        for await (const m of handle.messages) got.push(m);
+      })()
+    ).rejects.toMatchObject({ statusCode: GrpcStatusCode.NOT_FOUND, message: 'gone' });
+    expect(got).toEqual([]);
+    await expect(handle.done).resolves.toMatchObject({
+      status: GrpcStatusCode.NOT_FOUND,
+      statusMessage: 'gone',
+      trailers: { 'x-t': '1' },
+    });
+  });
+
+  it('reports INTERNAL with trailers when a decode failure precedes an OK end', async () => {
+    stubRelay([{ type: 'message', data: '/w==' }, end(0, { trailers: { 'x-t': '2' } })]);
+    const handle = await watch();
+    await expect(collect(handle.messages as AsyncIterable<GrpcWebEvent>)).rejects.toMatchObject({
+      statusCode: GrpcStatusCode.INTERNAL,
+    });
+    await expect(handle.done).resolves.toMatchObject({
+      status: GrpcStatusCode.INTERNAL,
+      statusMessage: expect.stringContaining('Failed to decode gRPC-Web response message'),
+      trailers: { 'x-t': '2' },
+    });
+  });
+
   it('forwards a "No deadline" stream as timeout 0', async () => {
     const fetchMock = stubRelay([end(0)]);
     const handle = await watch();

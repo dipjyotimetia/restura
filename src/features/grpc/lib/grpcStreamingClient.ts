@@ -361,25 +361,49 @@ function startGrpcWebServerStream<TIn, TOut>(
     if (consumed) throw new Error('Stream messages can only be iterated once');
     consumed = true;
     try {
+      let decodeError: unknown;
       for await (const ev of streamGrpcWebViaWorker(spec, controller.signal)) {
         if (ev.type === 'headers') {
           headers = ev.headers;
         } else if (ev.type === 'message') {
-          yield decodeGrpcWebMessage(method, ev.data) as TOut;
+          // After a bad message stop yielding but keep draining so the
+          // terminal status and trailers still reach `done`.
+          if (decodeError !== undefined) continue;
+          let decoded: TOut;
+          try {
+            decoded = decodeGrpcWebMessage(method, ev.data) as TOut;
+          } catch (error: unknown) {
+            decodeError = error;
+            continue;
+          }
+          yield decoded;
         } else {
-          const status = ev.grpcStatus as GrpcStatusCode;
+          let status = ev.grpcStatus as GrpcStatusCode;
+          let statusMessage = ev.grpcMessage;
+          if (decodeError !== undefined && status === GrpcStatusCode.OK) {
+            // The server succeeded but a reply was undecodable: fail locally,
+            // keeping the received trailers.
+            const reason = decodeError instanceof Error ? decodeError.message : String(decodeError);
+            status = GrpcStatusCode.INTERNAL;
+            statusMessage = `Failed to decode gRPC-Web response message: ${reason}`;
+          }
           resolveDone({
             headers,
             trailers: ev.trailers,
             status,
-            ...(ev.grpcMessage ? { statusMessage: ev.grpcMessage } : {}),
+            ...(statusMessage ? { statusMessage } : {}),
           });
           if (status !== GrpcStatusCode.OK) {
-            throw new Error(ev.grpcMessage || GrpcStatusCodeName[status] || 'Stream error');
+            throw new GrpcClientError(
+              statusMessage || GrpcStatusCodeName[status] || 'Stream error',
+              status
+            );
           }
           return;
         }
       }
+      // Relay closed with no terminal event: surface a pending decode error as-is.
+      if (decodeError !== undefined) throw decodeError;
       resolveDone({
         headers,
         trailers: {},
