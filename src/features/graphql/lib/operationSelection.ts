@@ -50,7 +50,12 @@ export function applyOperationSelection(
   operation: GraphQLOperationInfo,
   variablesText: string
 ): { body: RequestBody; variables: string } {
-  const variables = scopeVariablesToOperation(variablesText, operation.variables) ?? variablesText;
+  // A document that doesn't parse has unknown variable definitions: keep the
+  // user's JSON rather than scoping it to an empty list.
+  const variables =
+    (operation.variablesKnown
+      ? scopeVariablesToOperation(variablesText, operation.variables)
+      : null) ?? variablesText;
   const { graphqlOperationName: _previous, ...rest } = body;
   return {
     body: {

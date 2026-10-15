@@ -55,6 +55,7 @@ describe('listGraphQLOperations — AST path', () => {
       { name: 'tags', type: '[String!]', isRequired: false, defaultValue: '["x"]' },
     ]);
     expect(b?.variables).toEqual([{ name: 'input', type: 'In!', isRequired: true }]);
+    expect(a?.variablesKnown).toBe(true);
   });
 
   it('records source offsets for each operation', () => {
@@ -76,7 +77,9 @@ describe('listGraphQLOperations — fallback scan on parse errors', () => {
     const parsed = listGraphQLOperations('# c\nsubscription OnEvent { eventAdded { ');
     expect(parsed.parsed).toBe(false);
     expect(parsed.error).toBeTruthy();
-    expect(parsed.operations).toMatchObject([{ name: 'OnEvent', type: 'subscription' }]);
+    expect(parsed.operations).toMatchObject([
+      { name: 'OnEvent', type: 'subscription', variablesKnown: false },
+    ]);
   });
 
   it('skips fragments, comments and strings while scanning', () => {

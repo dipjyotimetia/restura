@@ -38,6 +38,8 @@ export interface GraphQLOperationInfo {
   type: GraphQLOperationType;
   /** Variable definitions (empty when the document didn't parse). */
   variables: GraphQLOperationVariable[];
+  /** False for fallback-scanned operations: `variables` is unknown, not empty. */
+  variablesKnown: boolean;
   /** Character offsets of the definition in the document (end exclusive). */
   start: number;
   end: number;
@@ -94,6 +96,7 @@ function fromAst(def: OperationDefinitionNode): GraphQLOperationInfo {
     name: def.name?.value ?? null,
     type: def.operation as GraphQLOperationType,
     variables,
+    variablesKnown: true,
     start: def.loc?.start ?? 0,
     end: def.loc?.end ?? 0,
   };
@@ -125,6 +128,7 @@ function scanOperations(query: string): GraphQLOperationInfo[] {
             name: next.kind === TokenKind.NAME ? next.value : null,
             type: tok.value as GraphQLOperationType,
             variables: [],
+            variablesKnown: false,
             start: tok.start,
             end: query.length,
           };
@@ -145,6 +149,7 @@ function scanOperations(query: string): GraphQLOperationInfo[] {
               name: null,
               type: 'query',
               variables: [],
+              variablesKnown: false,
               start: tok.start,
               end: query.length,
             };

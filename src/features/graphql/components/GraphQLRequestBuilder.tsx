@@ -193,7 +193,10 @@ function GraphQLRequestBuilder() {
       variables,
       headers,
       protocol: httpRequest.graphqlSubscriptionProtocol ?? 'auto',
+      // A torn-down client (operation switch) can still deliver late
+      // messages; only the current client may touch state.
       onMessage: (msg) => {
+        if (subscriptionClientRef.current !== client) return;
         setSubscriptionLog((prev) => appendSubscriptionLog(prev, msg));
         const nextErrors = msg.type === 'data' ? parseGraphQLErrors(msg.payload) : [];
         if (originTabId && nextErrors.length > 0) {
@@ -205,6 +208,7 @@ function GraphQLRequestBuilder() {
         }
       },
       onError: () => {
+        if (subscriptionClientRef.current !== client) return;
         setIsSubscribed(false);
         subscriptionClientRef.current = null;
         toast.error('Subscription error');

@@ -76,6 +76,18 @@ describe('applyOperationSelection', () => {
     expect(next.body.graphqlVariables).toBe('{ broken');
   });
 
+  it('keeps the variables when the document does not parse (definitions unknown)', () => {
+    const broken = 'query A($id: ID!) { a(id: $id) }\nmutation B($n: Int) { b(n: $n';
+    const [, b] = resolveGraphQLOperationState(broken, undefined).operations;
+    expect(b?.variablesKnown).toBe(false);
+    const next = applyOperationSelection(body, b!, '{"id":"7","n":2}');
+    expect(next.variables).toBe('{"id":"7","n":2}');
+    expect(next.body).toMatchObject({
+      graphqlOperationName: 'B',
+      graphqlVariables: next.variables,
+    });
+  });
+
   it('clears the stored name for an anonymous operation', () => {
     const [anon] = resolveGraphQLOperationState('{ a }', undefined).operations;
     const next = applyOperationSelection({ ...body, graphqlOperationName: 'Old' }, anon!, '{}');

@@ -186,4 +186,33 @@ describe('GraphQLRequestBuilder — operation picker + transport (#903)', () => 
       variables: { id: '', name: '' },
     });
   });
+
+  it('ignores late callbacks from a torn-down subscription', () => {
+    const twoSubs = `${DOC}\nsubscription Other { other { n } }`;
+    seed({ raw: twoSubs, graphqlOperationName: 'Ticks' });
+    render(<GraphQLRequestBuilder />);
+    fireEvent.click(screen.getByRole('button', { name: /Subscribe/ }));
+    const stale = mocks.connect.mock.calls[0]?.[0] as {
+      onMessage: (m: { id: string; type: string; timestamp: number }) => void;
+      onError: (e: unknown) => void;
+    };
+
+    // Switch to the other subscription: the first client is torn down and a
+    // new one starts.
+    fireEvent.click(screen.getByRole('tab', { name: /^Query/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'pick Other' }));
+    fireEvent.click(screen.getByRole('button', { name: /Subscribe/ }));
+    expect(mocks.connect).toHaveBeenCalledTimes(2);
+    const disconnectsBefore = mocks.disconnect.mock.calls.length;
+
+    act(() => {
+      stale.onMessage({ id: 'late', type: 'complete', timestamp: 0 });
+      stale.onError(new Error('late'));
+    });
+
+    // The live subscription is still tracked and can be torn down.
+    const unsubscribe = screen.getByRole('button', { name: /Unsubscribe/ });
+    fireEvent.click(unsubscribe);
+    expect(mocks.disconnect.mock.calls.length).toBe(disconnectsBefore + 1);
+  });
 });
