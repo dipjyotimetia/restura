@@ -1,8 +1,9 @@
 /**
  * GraphQL protocol module.
  *
- * GraphQL is HTTP under the hood — a POST to the endpoint with a JSON body
- * of shape `{ query, variables, operationName? }`. The protocol module here
+ * GraphQL is HTTP under the hood — a POST with a JSON body of shape
+ * `{ query, variables, operationName? }`, or (queries only) a GET with those
+ * fields URL-encoded; `lib/graphqlHttp.ts` shapes both. The protocol module here
  * exists so the registry has a `graphql` entry (for code-gen, mode picker,
  * future analytics) while delegating the actual transport to the HTTP
  * executor. The Builder is responsible for shaping `body.raw` to the JSON
@@ -16,6 +17,12 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import { GRAPHQL_SENT_BODY_OPTION } from '@/features/graphql/lib/graphqlErrors';
+import {
+  buildGraphQLWireRequest,
+  createIncrementalProgress,
+  type GraphQLEnvelope,
+  normalizeGraphQLResponse,
+} from '@/features/graphql/lib/graphqlHttp';
 import { buildGraphQLRequestBody } from '@/features/graphql/lib/queryParser';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
 import type { ProtocolModule } from '@/features/registry/types';
@@ -128,12 +135,12 @@ function injectInJson(value: unknown, inject: (s: string) => string): unknown {
 
 /**
  * Turn a saved GraphQL body (`type: 'graphql'`, `raw` = query document or an
- * envelope, `graphqlVariables` = variables JSON) into the JSON envelope the
- * executor sends. A plain document goes through `buildGraphQLRequestBody`, the
+ * envelope, `graphqlVariables` = variables JSON) into the envelope the wire
+ * builder sends. A plain document goes through `buildGraphQLRequestBody`, the
  * same builder interactive Send uses, so both paths put the same bytes on the
  * wire (including the derived `operationName`).
  */
-function toJsonEnvelopeBody(body: HttpRequest['body']): HttpRequest['body'] {
+function toEnvelope(body: HttpRequest['body']): GraphQLEnvelope {
   const storedVariables = (() => {
     if (body.graphqlVariables === undefined) return undefined;
     try {
@@ -151,10 +158,23 @@ function toJsonEnvelopeBody(body: HttpRequest['body']): HttpRequest['body'] {
   } catch {
     // Not JSON: a plain query document.
   }
-  const out = envelope
-    ? { ...envelope, ...(storedVariables === undefined ? {} : { variables: storedVariables }) }
-    : buildGraphQLRequestBody(raw, storedVariables ?? {}, body.graphqlOperationName);
-  return { ...body, type: 'json', raw: JSON.stringify(out) };
+  return (
+    envelope
+      ? { ...envelope, ...(storedVariables === undefined ? {} : { variables: storedVariables }) }
+      : buildGraphQLRequestBody(raw, storedVariables ?? {}, body.graphqlOperationName)
+  ) as GraphQLEnvelope;
+}
+
+/**
+ * Saved GraphQL requests retain the query document as `body.raw` and a
+ * `graphql` body marker; shape them for the wire (method, Accept, envelope or
+ * GET params). Interactive Send arrives already shaped and passes through.
+ */
+function toExecutable(http: HttpRequest): HttpRequest {
+  if (http.body.type !== 'graphql') return http;
+  const wire = buildGraphQLWireRequest(http, toEnvelope(http.body));
+  if (!wire.ok) throw new Error(wire.error);
+  return wire.request;
 }
 
 export const graphqlProtocol: ProtocolModule = {
@@ -176,12 +196,8 @@ export const graphqlProtocol: ProtocolModule = {
     }
     const globalSettings = useSettingsStore.getState().settings;
     const variables = ctx.variables ?? {};
-    const http = request as HttpRequest;
-    // Saved GraphQL requests retain the query document as `body.raw` and a
-    // `graphql` body marker. The normal request executor transports JSON, so
-    // shape the standard { query, variables, operationName? } envelope here.
-    const executable =
-      http.body.type === 'graphql' ? { ...http, body: toJsonEnvelopeBody(http.body) } : http;
+    const executable = toExecutable(request as HttpRequest);
+    const onMessage = ctx.stream?.onMessage;
     const result = await executeRequest({
       request: executable,
       envVars: { ...variables },
@@ -189,6 +205,11 @@ export const graphqlProtocol: ProtocolModule = {
       signal: ctx.signal,
       resolveVariables: (text) => defaultResolveVariables(text, variables),
       ...(ctx.secretVariables ? { secretVariables: ctx.secretVariables } : {}),
+      // `multipart/mixed` incremental (@defer / @stream) responses are folded
+      // into one result before test scripts and history see them; a live
+      // caller additionally gets each merged snapshot as parts arrive.
+      transformResponse: normalizeGraphQLResponse,
+      ...(onMessage ? { onResponseProgress: createIncrementalProgress(onMessage) } : {}),
     });
     if (ctx.onScriptResult && result.scriptResult) {
       ctx.onScriptResult(result.scriptResult);

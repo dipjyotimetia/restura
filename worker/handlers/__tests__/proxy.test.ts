@@ -591,6 +591,36 @@ describe('proxy handler', () => {
       expect(res.status).toBe(200);
       const text = await res.text();
       expect(text).toBe('chunk1');
+      // Marks the reply as the upstream's (not the proxy's own JSON error).
+      expect(res.headers.get('x-restura-proxy-stream')).toBe('1');
+    });
+
+    it('drops an upstream-sent stream marker and re-stamps its own', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          new Response('x', {
+            status: 200,
+            headers: { 'content-type': 'text/plain', 'x-restura-proxy-stream': 'forged' },
+          })
+        )
+      );
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'https://example.com/raw',
+        streamingMode: true,
+      });
+      expect(res.headers.get('x-restura-proxy-stream')).toBe('1');
+    });
+
+    it('a streaming-mode validation failure carries no stream marker', async () => {
+      const res = await makeRequest({
+        method: 'GET',
+        url: 'http://169.254.169.254/latest',
+        streamingMode: true,
+      });
+      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(res.headers.get('x-restura-proxy-stream')).toBeNull();
     });
   });
 

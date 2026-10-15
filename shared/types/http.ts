@@ -177,6 +177,12 @@ export interface Response {
    */
   bodyNotice?: string;
   /**
+   * True on a provisional response that is still arriving — a GraphQL
+   * `@defer` / `@stream` result rendered part by part. The viewer shows it in
+   * place of the loading skeleton; the complete response replaces it.
+   */
+  partial?: boolean;
+  /**
    * Where the time went, as measured by the proxy core: time to headers and
    * body download everywhere; DNS and connect (incl. TLS) on desktop direct
    * connections. Absent for responses that predate it. `time` stays the

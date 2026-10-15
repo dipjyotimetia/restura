@@ -1,5 +1,9 @@
 import { checkHttpMethod } from '@shared/protocol/http-method';
-import { executeHttpProxy, executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
+import {
+  executeHttpProxy,
+  executeHttpProxyStreaming,
+  PROXY_STREAM_MARKER_HEADER,
+} from '@shared/protocol/http-proxy';
 import {
   containsAuthHandle,
   type ProxyRequestBody,
@@ -255,9 +259,16 @@ export function createProxyHandler(
       // forge cookies into the renderer's jar.
       for (const [k, v] of Object.entries(streamingResult.response.headers)) {
         const lower = k.toLowerCase();
-        if (lower === 'set-cookie' || lower === SET_COOKIE_SIDE_CHANNEL_HEADER) continue;
+        if (
+          lower === 'set-cookie' ||
+          lower === SET_COOKIE_SIDE_CHANNEL_HEADER ||
+          lower === PROXY_STREAM_MARKER_HEADER
+        ) {
+          continue;
+        }
         c.header(k, v);
       }
+      c.header(PROXY_STREAM_MARKER_HEADER, '1');
       const streamCookies = streamingResult.response.setCookies;
       if (streamCookies && streamCookies.length > 0) {
         c.header(SET_COOKIE_SIDE_CHANNEL_HEADER, encodeSetCookieSideChannel(streamCookies));

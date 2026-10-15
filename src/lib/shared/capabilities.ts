@@ -12,6 +12,7 @@
 export type CapabilityName =
   | 'http.basic'
   | 'graphql.basic'
+  | 'graphql.incrementalDelivery'
   | 'http.proxy.socks'
   | 'http.proxy.pac'
   | 'http.mtls'
@@ -91,7 +92,15 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     label: 'GraphQL query / mutation',
     web: true,
     desktop: true,
-    notes: 'Rides the HTTP proxy (POST { query, variables, operationName })',
+    notes:
+      'Rides the HTTP proxy: POST { query, variables, operationName } or, for queries, GET with them URL-encoded; sends Accept: application/graphql-response+json, application/json;q=0.9',
+  },
+  'graphql.incrementalDelivery': {
+    label: 'GraphQL @defer / @stream (multipart/mixed incremental delivery)',
+    web: true,
+    desktop: true,
+    notes:
+      'Both merge the multipart parts into one result. Web renders each part as it arrives (Worker streaming pass-through); desktop shows the merged result once the response completes (Electron HTTP IPC buffers)',
   },
   'http.proxy.socks': {
     label: 'SOCKS5 proxy',

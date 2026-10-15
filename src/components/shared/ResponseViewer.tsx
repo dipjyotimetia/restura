@@ -438,7 +438,7 @@ function ResponseViewer({ protocol }: ResponseViewerProps) {
   return (
     <TooltipProvider delayDuration={300}>
       <AnimatePresence mode="wait">
-        {isLoading ? (
+        {isLoading && !currentResponse?.partial ? (
           <motion.div
             key="loading"
             initial={{ opacity: 0 }}
