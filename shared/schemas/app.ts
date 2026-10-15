@@ -244,7 +244,12 @@ export const grpcRequestSchema = z.object({
   testScript: z.string().optional(),
   schema: z
     .discriminatedUnion('kind', [
-      z.object({ kind: z.literal('descriptors'), descriptors: z.array(z.string()) }),
+      z.object({
+        kind: z.literal('descriptors'),
+        descriptors: z.array(z.string()),
+        // Set for a user upload (multi-file .proto / FileDescriptorSet) — #891.
+        fileName: z.string().optional(),
+      }),
       z.object({ kind: z.literal('proto'), fileName: z.string(), text: z.string() }),
     ])
     .optional(),

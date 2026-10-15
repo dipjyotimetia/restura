@@ -1,109 +1,130 @@
 'use client';
 
-import { FileText, Upload } from 'lucide-react';
+import { FileText, FolderUp, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { parseProtoFile } from '@/features/grpc/lib/grpcClient';
-import type { GrpcMethodType, ProtoFileInfo } from '@/types';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { loadProtoUpload, PROTO_UPLOAD_ACCEPT } from '@/features/grpc/lib/protoUpload';
+import type { GrpcMethodType, GrpcSchemaSnapshot, ProtoFileInfo } from '@/types';
 
 interface GrpcProtoUploaderProps {
-  /** File name of the proto snapshot persisted on the request, if any. */
+  /** Label of the uploaded schema persisted on the request, if any. */
   protoFileName: string | null;
-  /** Called with the uploaded file's name + text (persisted as the request's schema snapshot). */
-  onProtoLoaded: (proto: { fileName: string; text: string }) => void;
+  /** Called with the schema snapshot to persist on the request. */
+  onSchemaLoaded: (schema: GrpcSchemaSnapshot) => void;
   onServiceChange: (service: string) => void;
   onMethodChange: (method: string) => void;
   onMethodTypeChange: (methodType: GrpcMethodType) => void;
 }
 
+// Non-standard but supported by Chromium (web + Electron): pick a whole folder.
+const FOLDER_PICKER_PROPS = { webkitdirectory: '' } as Record<string, string>;
+
+/**
+ * Schema upload: one `.proto`, several `.proto` files (imports resolved across
+ * them), a whole folder, or a FileDescriptorSet (`.binpb` / `.protoset`).
+ * google/protobuf well-known types resolve automatically.
+ */
 export default function GrpcProtoUploader({
   protoFileName,
-  onProtoLoaded,
+  onSchemaLoaded,
   onServiceChange,
   onMethodChange,
   onMethodTypeChange,
 }: GrpcProtoUploaderProps) {
-  const handleProtoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    if (!file.name.endsWith('.proto')) {
-      toast.error('Invalid file type', {
-        description: 'Please upload a .proto file',
-      });
-      return;
-    }
+  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    // Reset so re-picking the same file(s) fires onChange again.
+    event.target.value = '';
+    if (files.length === 0) return;
 
     try {
-      const content = await file.text();
-      onProtoLoaded({ fileName: file.name, text: content });
-      const parsed = parseProtoFile(content);
+      const { schema, services } = await loadProtoUpload(files);
+      onSchemaLoaded(schema);
 
-      // Auto-fill service if available
-      if (parsed.services.length > 0) {
-        const firstService = parsed.services[0];
-        if (firstService) {
-          onServiceChange(firstService.fullName);
-
-          // Auto-fill first method if available
-          if (firstService.methods.length > 0) {
-            const firstMethod = firstService.methods[0];
-            if (firstMethod) {
-              onMethodChange(firstMethod.name);
-
-              // Set method type based on streaming config
-              let methodType: GrpcMethodType = 'unary';
-              if (firstMethod.clientStreaming && firstMethod.serverStreaming) {
-                methodType = 'bidirectional-streaming';
-              } else if (firstMethod.serverStreaming) {
-                methodType = 'server-streaming';
-              } else if (firstMethod.clientStreaming) {
-                methodType = 'client-streaming';
-              }
-              onMethodTypeChange(methodType);
-            }
-          }
-        }
-
-        toast.success('Proto file parsed', {
-          description: `Found ${parsed.services.length} service(s) and ${Object.keys(parsed.messages).length} message type(s)`,
-        });
-      } else {
+      const firstService = services[0];
+      if (!firstService) {
         toast.warning('No services found', {
-          description: 'The proto file does not contain any service definitions',
+          description: 'The uploaded schema does not contain any service definitions',
         });
+        return;
       }
+      onServiceChange(firstService.fullName);
+      const firstMethod = firstService.methods[0];
+      if (firstMethod) {
+        onMethodChange(firstMethod.name);
+        let methodType: GrpcMethodType = 'unary';
+        if (firstMethod.clientStreaming && firstMethod.serverStreaming) {
+          methodType = 'bidirectional-streaming';
+        } else if (firstMethod.serverStreaming) {
+          methodType = 'server-streaming';
+        } else if (firstMethod.clientStreaming) {
+          methodType = 'client-streaming';
+        }
+        onMethodTypeChange(methodType);
+      }
+      const methodCount = services.reduce((n, s) => n + s.methods.length, 0);
+      toast.success('Schema loaded', {
+        description: `Found ${services.length} service(s) and ${methodCount} method(s)`,
+      });
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to parse proto file';
       toast.error('Proto parsing failed', {
-        description: errorMessage,
+        description: error instanceof Error ? error.message : 'Failed to parse the schema',
       });
     }
   };
 
   return (
-    <>
-      <div className="relative">
-        <input
-          type="file"
-          aria-label="Upload .proto file"
-          accept=".proto"
-          onChange={handleProtoUpload}
-          className="hidden"
-          id="proto-upload"
-        />
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => document.getElementById('proto-upload')?.click()}
-          title={protoFileName ?? 'Upload a .proto file'}
-          className="h-8 shrink-0 text-sp-12 max-w-[180px]"
-        >
-          <Upload className="mr-1.5 h-3.5 w-3.5" />
-          <span className="truncate">{protoFileName ?? 'Upload .proto'}</span>
-        </Button>
-      </div>
-    </>
+    <div className="relative shrink-0">
+      <input
+        type="file"
+        aria-label="Upload .proto file"
+        accept={PROTO_UPLOAD_ACCEPT}
+        multiple
+        onChange={handleUpload}
+        className="hidden"
+        id="proto-upload"
+      />
+      <input
+        type="file"
+        aria-label="Upload a folder of .proto files"
+        {...FOLDER_PICKER_PROPS}
+        multiple
+        onChange={handleUpload}
+        className="hidden"
+        id="proto-upload-folder"
+      />
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            title={protoFileName ?? 'Upload .proto file(s), a folder, or a FileDescriptorSet'}
+            className="h-8 shrink-0 text-sp-12 max-w-[180px]"
+          >
+            <Upload className="mr-1.5 h-3.5 w-3.5" />
+            <span className="truncate">{protoFileName ?? 'Upload .proto'}</span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => document.getElementById('proto-upload')?.click()}>
+            <FileText className="mr-2 h-3.5 w-3.5" />
+            Files… (.proto, .binpb, .protoset)
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={() => document.getElementById('proto-upload-folder')?.click()}
+          >
+            <FolderUp className="mr-2 h-3.5 w-3.5" />
+            Folder of .proto files…
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
 

@@ -42,6 +42,7 @@ import type { Response as ApiResponse, GrpcRequest, GrpcResponse, Request } from
 import { makeElectronGrpcRequest, makeProxyGrpcRequest } from './lib/grpcClient';
 import { reflectionCredentialsFor } from './lib/grpcReflection';
 import { discoverDescriptorsForRequest } from './lib/grpcSchemaSnapshot';
+import { applyUnknownFieldPolicy, schemaSourceFromSnapshot } from './lib/unknownFields';
 
 function createDefaultGrpcRequest(): GrpcRequest {
   return {
@@ -184,20 +185,32 @@ export const grpcProtocol: ProtocolModule = {
 
     let response: GrpcResponse;
     const resolve = (text: string) => defaultResolveVariables(text, scriptEnvVars);
-    if (isElectron()) {
-      let descriptors = opts.descriptors?.length ? opts.descriptors : undefined;
-      if (!descriptors && (!opts.protoContent || !opts.protoFileName)) {
-        // No schema supplied (e.g. a saved request run from a collection with
-        // no snapshot): try server reflection; throws an actionable error
-        // ("reflect or upload a .proto") when that is unavailable.
-        descriptors = await discoverDescriptorsForRequest(
-          resolve(request.url),
-          request.service,
-          reflectionCredentialsFor(request, resolve)
-        );
-      }
+    // Electron needs a schema; a request without one (e.g. a saved request run
+    // from a collection with no snapshot) falls back to server reflection,
+    // which throws an actionable error ("reflect or upload a .proto").
+    let descriptors = opts.descriptors?.length ? opts.descriptors : undefined;
+    if (isElectron() && !descriptors && (!opts.protoContent || !opts.protoFileName)) {
+      descriptors = await discoverDescriptorsForRequest(
+        resolve(request.url),
+        request.service,
+        reflectionCredentialsFor(request, resolve)
+      );
+    }
+    // #925 / #944: unknown request keys are checked before anything is sent —
+    // refused (block) or stripped (warn / off). On web the message is relayed
+    // as JSON, so this is the only place a typo is caught. Only authoritative
+    // schemas count: descriptors or the saved snapshot, never the lossy
+    // `.proto` text reconstructed from reflection.
+    const policy = applyUnknownFieldPolicy(
+      request,
+      descriptors ? { descriptors } : schemaSourceFromSnapshot(request.schema),
+      resolve
+    );
+    if (policy.refused) {
+      response = policy.refused;
+    } else if (isElectron()) {
       response = await makeElectronGrpcRequest(
-        request,
+        policy.request,
         opts.protoContent ?? '',
         opts.protoFileName ?? 'generated.proto',
         resolve,
@@ -206,7 +219,7 @@ export const grpcProtocol: ProtocolModule = {
         descriptors
       );
     } else {
-      response = await makeProxyGrpcRequest(request, resolve, timeoutMs);
+      response = await makeProxyGrpcRequest(policy.request, resolve, timeoutMs);
     }
 
     // Test script — receives the response so users can assert on

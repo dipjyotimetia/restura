@@ -94,6 +94,16 @@ describe('OpenCollection gRPC schema snapshot extension', () => {
     expect(grpcRequests(back.items).map(salient)).toEqual(grpcRequests(src.items).map(salient));
   });
 
+  it('round-trips an uploaded descriptor snapshot with its label (#891)', () => {
+    const uploaded: GrpcSchemaSnapshot = { ...DESCRIPTORS, fileName: 'api.binpb' };
+    const src: Collection = { id: 'c', name: 'u', items: [item(grpc('Up', { schema: uploaded }))] };
+    const back = ocToInternal(
+      parseOpenCollectionYAML(serializeOpenCollectionYAML(internalToOC(src)))
+    );
+    expect(grpcRequests(back.items)[0]?.schema).toEqual(uploaded);
+    expect(grpcSchemaHash(uploaded)).not.toBe(grpcSchemaHash(DESCRIPTORS));
+  });
+
   it('a re-export of an imported collection keeps the snapshot (root-preserving path)', () => {
     const imported = ocToInternal(
       parseOpenCollectionYAML(serializeOpenCollectionYAML(internalToOC(fixture())))

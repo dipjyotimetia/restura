@@ -272,6 +272,12 @@ describe('grpcClient', () => {
   });
 
   describe('parseProtoFile', () => {
+    it('lists top-level messages for the default and custom .proto file names', () => {
+      const proto = 'syntax = "proto3"; package p.v1; message Foo { string a = 1; }';
+      expect(Object.keys(parseProtoFile(proto).messages)).toEqual(['Foo']);
+      expect(Object.keys(parseProtoFile(proto, 'dir\\my.proto').messages)).toEqual(['Foo']);
+    });
+
     it('should parse simple proto file', () => {
       const protoContent = `
 syntax = "proto3";
@@ -296,15 +302,18 @@ message HelloResponse {
       expect(result.services[0]!.fullName).toBe('greet.v1.GreetService');
       expect(result.services[0]!.methods).toHaveLength(1);
       expect(result.services[0]!.methods[0]!.name).toBe('SayHello');
-      expect(result.services[0]!.methods[0]!.inputType).toBe('HelloRequest');
-      expect(result.services[0]!.methods[0]!.outputType).toBe('HelloResponse');
+      expect(result.services[0]!.methods[0]!.inputType).toBe('greet.v1.HelloRequest');
+      expect(result.services[0]!.methods[0]!.outputType).toBe('greet.v1.HelloResponse');
       expect(result.services[0]!.methods[0]!.clientStreaming).toBe(false);
       expect(result.services[0]!.methods[0]!.serverStreaming).toBe(false);
     });
 
     it('should parse streaming methods', () => {
       const protoContent = `
+syntax = "proto3";
 package stream.v1;
+message Request {}
+message Response {}
 
 service StreamService {
   rpc ServerStream (Request) returns (stream Response);
@@ -331,8 +340,55 @@ service StreamService {
       expect(bidiStream.serverStreaming).toBe(true);
     });
 
+    // #905: the old regex only matched bare `\w+` type names, so these RPCs
+    // vanished from the list without an error.
+    it('lists RPCs with package-qualified, nested and leading-dot types', () => {
+      const protoContent = `
+syntax = "proto3";
+package foo.v1;
+import "google/protobuf/empty.proto";
+
+message Outer { message Inner { string id = 1; } }
+message Pong { string msg = 1; }
+
+service PingService {
+  rpc Ping(google.protobuf.Empty) returns (foo.v1.Pong);
+  rpc Nested(Outer.Inner) returns (.foo.v1.Pong);
+  rpc Watch(stream .google.protobuf.Empty) returns (stream foo.v1.Outer.Inner);
+}
+`;
+      const methods = parseProtoFile(protoContent).services[0]!.methods;
+      expect(methods.map((m) => [m.name, m.inputType, m.outputType])).toEqual([
+        ['Ping', 'google.protobuf.Empty', 'foo.v1.Pong'],
+        ['Nested', 'foo.v1.Outer.Inner', 'foo.v1.Pong'],
+        ['Watch', 'google.protobuf.Empty', 'foo.v1.Outer.Inner'],
+      ]);
+      expect(methods[2]).toMatchObject({ clientStreaming: true, serverStreaming: true });
+      expect(methods[0]).toMatchObject({ clientStreaming: false, serverStreaming: false });
+    });
+
+    it('lists every service in the file', () => {
+      const result = parseProtoFile(`
+syntax = "proto3";
+package multi.v1;
+message M {}
+service A { rpc One(M) returns (M); }
+service B { rpc Two(M) returns (M); }
+`);
+      expect(result.services.map((s) => s.fullName)).toEqual(['multi.v1.A', 'multi.v1.B']);
+    });
+
+    it('throws a clear error for an unresolvable import instead of dropping RPCs', () => {
+      expect(() =>
+        parseProtoFile(
+          'syntax = "proto3"; package x; import "other.proto"; service S { rpc A(O) returns (O); }'
+        )
+      ).toThrow(/"other\.proto"/);
+    });
+
     it('should parse message fields', () => {
       const protoContent = `
+syntax = "proto3";
 package test.v1;
 
 message TestMessage {
@@ -366,22 +422,24 @@ message TestMessage {
       expect(result.messages).toEqual({});
     });
 
-    it('should strip block comments before parsing', () => {
+    it('should ignore comments', () => {
       const protoContent = `
 /* file-level comment */
+syntax = "proto3";
 package comments.v1;
 
 /*
  * Multi-line block comment
  */
 service CommentService {
-  /* inline */ rpc GetData (DataRequest) returns (DataResponse);
+  /* inline */ rpc GetData (DataRequest) returns (DataResponse); // trailing
 }
 
 message DataRequest {
   /* comment */ string id = 1;
   int32 count = 2;
 }
+message DataResponse {}
 `;
       const result = parseProtoFile(protoContent);
       expect(result.package).toBe('comments.v1');
@@ -397,7 +455,12 @@ message DataRequest {
 
     it('should parse rpc definitions that span multiple lines', () => {
       const protoContent = `
+syntax = "proto3";
 package multiline.v1;
+message UnaryRequest {}
+message UnaryResponse {}
+message StreamRequest {}
+message StreamResponse {}
 
 service MultilineService {
   rpc UnaryCall (
@@ -415,8 +478,8 @@ service MultilineService {
       expect(result.services[0]!.methods).toHaveLength(2);
       const unary = result.services[0]!.methods[0]!;
       expect(unary.name).toBe('UnaryCall');
-      expect(unary.inputType).toBe('UnaryRequest');
-      expect(unary.outputType).toBe('UnaryResponse');
+      expect(unary.inputType).toBe('multiline.v1.UnaryRequest');
+      expect(unary.outputType).toBe('multiline.v1.UnaryResponse');
       expect(unary.clientStreaming).toBe(false);
       expect(unary.serverStreaming).toBe(false);
       const streaming = result.services[0]!.methods[1]!;
@@ -427,11 +490,12 @@ service MultilineService {
 
     it('should parse service and message with opening brace on next line', () => {
       const protoContent = `
+syntax = "proto3";
 package nextline.v1;
 
 service NextLineService
 {
-  rpc Ping (PingRequest) returns (PingResponse);
+  rpc Ping (PingRequest) returns (PingRequest);
 }
 
 message PingRequest

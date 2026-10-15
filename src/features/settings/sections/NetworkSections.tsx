@@ -6,7 +6,7 @@ import { Floater, Segmented, Stepper, TextField, ToggleField } from '@/component
 import SecretInput from '@/features/auth/components/SecretInput';
 import { cn } from '@/lib/shared/utils';
 import { useSettingsStore } from '@/store/useSettingsStore';
-import type { MinTlsVersion, ProxyType } from '@/types';
+import type { GrpcUnknownFieldsMode, MinTlsVersion, ProxyType } from '@/types';
 import {
   FieldGroup,
   FieldRow,
@@ -141,6 +141,25 @@ export function RequestsSection() {
               checked={settings.disableCookieJar === true}
               onChange={(value) => updateSettings({ disableCookieJar: value })}
               ariaLabel="Disable cookie jar"
+            />
+          }
+        />
+      </FieldGroup>
+      <FieldGroup label="gRPC">
+        <FieldRow
+          label="Unknown request fields"
+          hint="Keys the method's input message doesn't define. Warn flags them in the editor and sends without them; Block refuses to send; Off drops them silently."
+          control={
+            <Segmented<GrpcUnknownFieldsMode>
+              value={settings.grpcUnknownFields ?? 'warn'}
+              onChange={(value) => updateSettings({ grpcUnknownFields: value })}
+              size="sm"
+              options={[
+                { value: 'warn', label: 'Warn' },
+                { value: 'block', label: 'Block' },
+                { value: 'off', label: 'Off' },
+              ]}
+              ariaLabel="Unknown gRPC request fields"
             />
           }
         />

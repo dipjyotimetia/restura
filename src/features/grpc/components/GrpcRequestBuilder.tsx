@@ -32,6 +32,7 @@ import {
   validateServiceField,
 } from '@/features/grpc/lib/grpcValidation';
 import { useSubTabWithViolationJump } from '@/features/grpc/lib/grpcViolationFocus';
+import { uploadedDescriptors } from '@/features/grpc/lib/protoUpload';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
@@ -60,6 +61,7 @@ import GrpcProtoUploader from './GrpcProtoUploader';
 import { GrpcSettingsPanel } from './GrpcSettingsPanel';
 import { GrpcStreamingMessages } from './GrpcStreamingControls';
 import { GrpcStreamingPanel } from './GrpcStreamingPanel';
+import { GrpcUnknownFieldsLint } from './GrpcUnknownFieldsLint';
 import { GrpcUnsupportedAuthNotice } from './GrpcUnsupportedAuthNotice';
 
 type GrpcSubTab =
@@ -259,6 +261,7 @@ function GrpcRequestBuilder() {
   // 0 = no deadline (streaming opt-out); unary always gets one.
   const timeoutMs = grpcDeadlineMs(grpcRequest);
   const protoSnapshot = grpcRequest.schema?.kind === 'proto' ? grpcRequest.schema : null;
+  const uploaded = uploadedDescriptors(grpcRequest.schema);
   const reflectionResult = reflection.result;
   const reflectionServices: ReflectionServiceInfo[] = reflectionResult?.success
     ? reflectionResult.services
@@ -332,7 +335,7 @@ function GrpcRequestBuilder() {
     const startTime = Date.now();
 
     try {
-      let protoContent: string;
+      let protoContent = '';
       let protoFileName: string;
       // Raw reflection descriptors (Electron only) — preferred over the
       // reconstructed `.proto` text, which is lossy (drops enums / well-known
@@ -343,6 +346,9 @@ function GrpcRequestBuilder() {
       if (protoSnapshot) {
         protoContent = protoSnapshot.text;
         protoFileName = protoSnapshot.fileName;
+      } else if (uploaded) {
+        descriptors = uploaded.descriptors; // an upload beats reflection (#891)
+        protoFileName = uploaded.fileName;
       } else if (reflection.result?.success && reflection.selectedService) {
         descriptors = reflection.selectedService.descriptors;
         protoContent = generateProtoFromReflection(grpcRequest.service, reflection.selectedService);
@@ -656,10 +662,8 @@ function GrpcRequestBuilder() {
               {reflection.loading ? 'Discovering…' : 'Discover'}
             </Button>
             <GrpcProtoUploader
-              protoFileName={protoSnapshot?.fileName ?? null}
-              onProtoLoaded={({ fileName, text }) =>
-                updateRequest({ schema: { kind: 'proto', fileName, text } })
-              }
+              protoFileName={protoSnapshot?.fileName ?? uploaded?.fileName ?? null}
+              onSchemaLoaded={(schema) => updateRequest({ schema })}
               onServiceChange={handleServiceChange}
               onMethodChange={handleMethodChange}
               onMethodTypeChange={handleMethodTypeChange}
@@ -686,6 +690,7 @@ function GrpcRequestBuilder() {
           <SubTabPanel tabKey={activeTab} className="flex-1 min-h-0 overflow-auto">
             {activeTab === 'message' && (
               <div className="p-3">
+                <GrpcUnknownFieldsLint onMessageChange={handleMessageChange} />
                 <GrpcMessageEditor
                   value={grpcRequest.message}
                   onChange={handleMessageChange}
@@ -764,9 +769,7 @@ function GrpcRequestBuilder() {
                 request={grpcRequest}
                 {...(resolvedProto?.content ? { protoContent: resolvedProto.content } : {})}
                 {...(resolvedProto?.fileName ? { protoFileName: resolvedProto.fileName } : {})}
-                {...(reflection.selectedService?.descriptors?.length
-                  ? { descriptors: reflection.selectedService.descriptors }
-                  : {})}
+                descriptors={uploaded?.descriptors ?? reflection.selectedService?.descriptors}
               />
             )}
           </SubTabPanel>

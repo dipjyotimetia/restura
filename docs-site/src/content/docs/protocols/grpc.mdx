@@ -10,12 +10,22 @@ Restura speaks the **Connect protocol** on the web target and **native gRPC** ov
 ## Discovering the service
 
 - **Server reflection** — the fastest path. Hit the **Reflect** button and Restura lists available services and methods. Reflection sends the request's enabled **Metadata** and **Auth** (variables resolved), so servers that require credentials for reflection — API gateways, Envoy, Cloud Run with IAM — can be discovered. Credentials stored as secret handles are resolved by the desktop app only; on the web, switch them to an inline value.
-- **Upload a `.proto`** — drag in your `.proto` file and Restura compiles it on the fly. Imports are resolved from the same directory.
-- **Paste a FileDescriptorSet** — for monorepos that already ship a compiled `*.binpb`.
+- **Upload `.proto` files** — pick one file, several files, or a whole folder (the folder button) and Restura compiles them on the fly. Imports resolve against the other uploaded files (by import path, relative to the importing file, or by file name). The `google/protobuf/*` well-known types (`timestamp.proto`, `empty.proto`, `struct.proto`, …) and `google/api/annotations.proto` / `http.proto` / `field_behavior.proto` are built in. An import that can't be resolved fails the upload with an error naming the missing file.
+- **Upload a FileDescriptorSet** — for monorepos that already ship a compiled set (`.binpb`, `.protoset`, `.desc`, `.pb` — e.g. `buf build -o api.binpb` or `protoc --include_imports -o api.binpb`). Well-known types the set leaves out are filled in.
 
 ### Saved requests keep their schema
 
-When you save a gRPC request to a collection, Restura stores a snapshot of the schema you loaded — the reflected descriptors or the uploaded `.proto` — together with the request's timeout. Reopening the request, running it in the collection runner, and exporting it to OpenCollection all reuse that snapshot (exports deduplicate identical snapshots; see [Restura extensions](/reference/opencollection/#restura-extensions)). A saved request without a snapshot falls back to server reflection when it runs on desktop; if the server doesn't offer reflection, the run fails asking you to open the request and reflect or upload a `.proto`.
+When you save a gRPC request to a collection, Restura stores a snapshot of the schema you loaded — the reflected descriptors, the uploaded `.proto`, or the compiled descriptors of a multi-file / FileDescriptorSet upload — together with the request's timeout. Reopening the request, running it in the collection runner, and exporting it to OpenCollection all reuse that snapshot (exports deduplicate identical snapshots; see [Restura extensions](/reference/opencollection/#restura-extensions)). A saved request without a snapshot falls back to server reflection when it runs on desktop; if the server doesn't offer reflection, the run fails asking you to open the request and reflect or upload a `.proto`.
+
+### Unknown request fields
+
+When the request has a schema (an upload, or reflection descriptors on desktop), the message editor flags JSON keys the method's input message doesn't define — nested, repeated and map-value messages included — as you type, with a **Rename to "…"** quick fix for near misses (`nmae` → `name`) and a **Remove** action. What happens on send follows **Settings → Requests → gRPC → Unknown request fields**:
+
+- **Warn** (default) — the editor shows the warning and the request is sent without the unknown keys.
+- **Block** — the send is refused with `INVALID_ARGUMENT` listing the keys and suggestions.
+- **Off** — no lint; unknown keys are dropped silently.
+
+The same policy applies to collection runs and to every message of a stream. Previously unknown keys were always dropped silently, so a typo sent the field's default value.
 
 ## Streaming
 

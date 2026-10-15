@@ -22,9 +22,12 @@ export { GrpcStatusCode, GrpcStatusCodeName };
  * the builder's live reflection state (collection runner, reopened tabs,
  * OpenCollection export/import). Captured when the user reflects (raw base64
  * FileDescriptorProtos — lossless) or uploads a `.proto` (file name + text).
+ * A multi-file `.proto` or FileDescriptorSet upload is stored as `descriptors`
+ * with `fileName` set: the upload label, which also marks it as a user choice
+ * that server reflection must not overwrite.
  */
 export type GrpcSchemaSnapshot =
-  | { kind: 'descriptors'; descriptors: string[] }
+  | { kind: 'descriptors'; descriptors: string[]; fileName?: string }
   | { kind: 'proto'; fileName: string; text: string };
 
 // gRPC Request

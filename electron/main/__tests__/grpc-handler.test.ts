@@ -517,6 +517,30 @@ describe('grpc stream lifetime', () => {
     expect(errorEvents(owner.send, 'long')).toEqual([expect.objectContaining({ status: 8 })]);
   });
 
+  it('ends the stream with INVALID_ARGUMENT when an outbound message fails to encode (#944)', async () => {
+    const owner = makeEvent();
+    listenerFor(IPC.grpc.startStream)(owner.event, validStream('bad-write'));
+    await waitForStreamCount(1);
+    controls[0]!.write.mockImplementation(() => {
+      throw Object.assign(new Error('[invalid_argument] Unknown field(s)'), {
+        rawMessage: 'Unknown field(s) in Chat request message: nmae',
+      });
+    });
+
+    expect(() =>
+      listenerFor(IPC.grpc.sendMessage)(owner.event, 'bad-write', { nmae: 'x' })
+    ).not.toThrow();
+
+    expect(controls[0]!.cancel).toHaveBeenCalledOnce();
+    expect(errorEvents(owner.send, 'bad-write')).toEqual([
+      expect.objectContaining({ status: 3, details: expect.stringContaining('nmae') }),
+    ]);
+    // The stream is gone; later sends are dropped.
+    controls[0]!.write.mockReset();
+    listenerFor(IPC.grpc.sendMessage)(owner.event, 'bad-write', { name: 'x' });
+    expect(controls[0]!.write).not.toHaveBeenCalled();
+  });
+
   it('forwards "no deadline" (timeoutMs 0) for a stream without a deadline', async () => {
     const owner = makeEvent();
     listenerFor(IPC.grpc.startStream)(owner.event, { ...validStream('forever'), timeoutMs: 0 });

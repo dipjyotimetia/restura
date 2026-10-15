@@ -680,7 +680,16 @@ export function registerGrpcHandlerIPC(onComplete?: (entry: LogEntry) => void): 
               cancel: controls.cancel,
               write: (msg: unknown) => {
                 touch();
-                controls.write(msg);
+                // An outbound message the strict encoder rejects (e.g. unknown
+                // keys in block mode, #944) must not vanish in the IPC
+                // listener: end the stream with INVALID_ARGUMENT so the
+                // renderer sees why.
+                try {
+                  controls.write(msg);
+                } catch (err) {
+                  const e = err as { rawMessage?: string; message?: string };
+                  terminate(3, e.rawMessage ?? e.message ?? String(err));
+                }
               },
               end: () => {
                 touch();

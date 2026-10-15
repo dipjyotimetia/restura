@@ -39,6 +39,7 @@ import {
   validateServiceName,
 } from './grpcClient';
 import { resolveGrpcTls } from './grpcTls';
+import { grpcUnknownFieldsMode, resolveInputMessage, withoutUnknownFields } from './unknownFields';
 
 export interface GrpcStreamFinal {
   headers: Record<string, string>;
@@ -224,7 +225,9 @@ export async function startGrpcStream<TIn = unknown, TOut = unknown>(
     registry,
     service,
     method,
-    input: inputFromJson(method, prepared.message),
+    input: inputFromJson(method, prepared.message, {
+      ignoreUnknownFields: grpcUnknownFieldsMode() !== 'block',
+    }),
     headers: { ...prepared.metadata, ...buildAuthMetadata(args.request.auth) },
     timeoutMs: args.timeoutMs ?? DEFAULT_TIMEOUT,
   });
@@ -404,6 +407,10 @@ function startElectronInteractiveStream<TIn, TOut>(
 
   const prepared = prepareGrpcRequest(args.request, args.resolveVariables);
   const authMetadata = buildAuthMetadata(args.request.auth);
+  // #944: in warn / off mode unknown keys are dropped here, so main's strict
+  // encoder only ever rejects them in block mode.
+  const lenientInput =
+    grpcUnknownFieldsMode() === 'block' ? null : resolveInputMessage(args.request, args);
 
   let cancelled = false;
 
@@ -478,7 +485,7 @@ function startElectronInteractiveStream<TIn, TOut>(
       method: args.request.method,
       methodType: args.request.methodType,
       metadata: { ...prepared.metadata, ...authMetadata },
-      message: prepared.message,
+      message: withoutUnknownFields(lenientInput, prepared.message),
       // Send descriptors (reflection) and/or proto text (upload); the main
       // process prefers descriptors. One of them must be present.
       ...(args.descriptors?.length ? { descriptors: args.descriptors } : {}),
@@ -498,7 +505,7 @@ function startElectronInteractiveStream<TIn, TOut>(
   return {
     messages: queue[Symbol.asyncIterator](),
     async send(message: TIn) {
-      api.grpc.sendMessage(requestId, message);
+      api.grpc.sendMessage(requestId, withoutUnknownFields(lenientInput, message));
     },
     closeSend() {
       api.grpc.endStream(requestId);

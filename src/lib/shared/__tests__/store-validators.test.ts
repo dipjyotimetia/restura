@@ -571,6 +571,20 @@ describe('store-validators', () => {
       expect(result.followRedirects).toBe(true);
     });
 
+    it('keeps a valid gRPC unknown-fields mode and drops an invalid one (#944)', () => {
+      expect(
+        (
+          validatePersistedSettings({ grpcUnknownFields: 'block' }, DEFAULTS) as Record<
+            string,
+            unknown
+          >
+        ).grpcUnknownFields
+      ).toBe('block');
+      expect(
+        'grpcUnknownFields' in validatePersistedSettings({ grpcUnknownFields: 'loud' }, DEFAULTS)
+      ).toBe(false);
+    });
+
     it('coerces a corrupt scalar back to a sane value (per-field .catch)', () => {
       const result = validatePersistedSettings(
         { theme: 'neon', maxRedirects: 9999, defaultTimeout: -5 },
