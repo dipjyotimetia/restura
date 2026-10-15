@@ -248,7 +248,8 @@ export const grpcRequestSchema = z.object({
       z.object({ kind: z.literal('proto'), fileName: z.string(), text: z.string() }),
     ])
     .optional(),
-  timeout: z.number().int().positive().optional(),
+  // 0 = "no deadline" (streaming methods only; unary falls back to the default).
+  timeout: z.number().int().nonnegative().optional(),
 });
 
 // SSE Request Schema

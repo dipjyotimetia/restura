@@ -345,6 +345,27 @@ describe('store-validators', () => {
         })
       ).toThrow('Request validation failed');
     });
+
+    it('accepts timeout 0 ("No deadline") on a gRPC streaming request', () => {
+      const current: GrpcRequest = {
+        id: 'grpc-stream',
+        name: 'Watch',
+        type: 'grpc',
+        methodType: 'server-streaming',
+        url: 'https://grpc.example.com',
+        service: 'WatchService',
+        method: 'Watch',
+        metadata: [],
+        message: '{}',
+        auth: { type: 'none' },
+        timeout: 30000,
+      };
+      const result = validateRequestUpdate(current, { timeout: 0 }) as GrpcRequest;
+      expect(result.timeout).toBe(0);
+      expect(() => validateRequestUpdate(current, { timeout: -1 })).toThrow(
+        'Request validation failed'
+      );
+    });
   });
 
   describe('validateEnvironment', () => {

@@ -35,4 +35,38 @@ describe('GrpcDeadlineField', () => {
     fireEvent.click(screen.getByLabelText('No deadline'));
     expect(onChange).toHaveBeenCalledWith(30000);
   });
+
+  it('lets the user type a multi-digit deadline and only commits (clamped) on blur', () => {
+    const onChange = vi.fn();
+    render(
+      <GrpcDeadlineField request={{ methodType: 'unary', timeout: 30000 }} onChange={onChange} />
+    );
+    const input = screen.getByLabelText('gRPC request timeout in milliseconds');
+    fireEvent.change(input, { target: { value: '' } });
+    expect(input).toHaveValue(null);
+    fireEvent.change(input, { target: { value: '5' } });
+    expect(input).toHaveValue(5);
+    fireEvent.change(input, { target: { value: '5000' } });
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.blur(input);
+    expect(onChange).toHaveBeenCalledWith(5000);
+  });
+
+  it('clamps a too-small draft and restores the default for an empty draft on commit', () => {
+    const onChange = vi.fn();
+    render(
+      <GrpcDeadlineField request={{ methodType: 'unary', timeout: 30000 }} onChange={onChange} />
+    );
+    const input = screen.getByLabelText('gRPC request timeout in milliseconds');
+    fireEvent.change(input, { target: { value: '5' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onChange).toHaveBeenLastCalledWith(1000);
+    fireEvent.change(input, { target: { value: '' } });
+    fireEvent.blur(input);
+    expect(onChange).toHaveBeenLastCalledWith(30000);
+    // Blur without an edit commits nothing.
+    onChange.mockClear();
+    fireEvent.blur(input);
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });

@@ -40,6 +40,9 @@ interface ServerOpts {
 }
 
 let server: http2.Http2Server | null = null;
+// Open HTTP/2 sessions — connect-node keeps client sessions alive while idle,
+// and `server.close()` only calls back once every session has closed.
+const sessions = new Set<http2.ServerHttp2Session>();
 
 async function startServer(opts: ServerOpts): Promise<number> {
   const service = registryFromProtoText(ECHO_PROTO).getService(SERVICE)!;
@@ -64,6 +67,10 @@ async function startServer(opts: ServerOpts): Promise<number> {
     },
   });
   server = http2.createServer(handler);
+  server.on('session', (session) => {
+    sessions.add(session);
+    session.once('close', () => sessions.delete(session));
+  });
   await new Promise<void>((done) => server!.listen(0, '127.0.0.1', done));
   return (server!.address() as AddressInfo).port;
 }
@@ -86,7 +93,11 @@ beforeEach(resetProtocolFallbackStateForTests);
 afterEach(async () => {
   const s = server;
   server = null;
-  if (s) await new Promise<void>((done) => s.close(() => done()));
+  if (!s) return;
+  const closed = new Promise<void>((done) => s.close(() => done()));
+  for (const session of sessions) session.destroy();
+  sessions.clear();
+  await closed;
 });
 
 describe('gRPC response caps (SEC-G1)', () => {
