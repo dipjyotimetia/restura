@@ -81,13 +81,20 @@ export function reflectionSnapshotUpdate(
 // One discoverServices() fans out into several reflection round-trips
 // (list + one per service + transitive file closure), so a collection run with
 // N snapshot-less requests against one server would otherwise reflect N times.
-// Cache successful discoveries briefly, keyed by resolved URL.
+// Cache successful discoveries briefly, keyed by resolved URL. Only
+// credential-free discoveries are cached: what reflection exposes can depend on
+// the caller's identity, so a credentialed result must never be served to a
+// request carrying different (or no) credentials.
 const REFLECTION_CACHE_TTL_MS = 30_000;
 const reflectionCache = new Map<string, { at: number; services: ReflectionServiceInfo[] }>();
 
 /** @internal test seam */
 export function clearReflectionFallbackCache(): void {
   reflectionCache.clear();
+}
+
+function hasReflectionCredentials(credentials: ReflectionCredentials | undefined): boolean {
+  return Boolean(credentials && (credentials.auth || Object.keys(credentials.metadata).length > 0));
 }
 
 function actionableError(service: string, url: string, reason: string): Error {
@@ -109,7 +116,8 @@ export async function discoverDescriptorsForRequest(
   credentials?: ReflectionCredentials
 ): Promise<string[]> {
   const now = Date.now();
-  let services = reflectionCache.get(resolvedUrl);
+  const cacheable = !hasReflectionCredentials(credentials);
+  let services = cacheable ? reflectionCache.get(resolvedUrl) : undefined;
   if (!services || now - services.at > REFLECTION_CACHE_TTL_MS) {
     let result: Awaited<ReturnType<GrpcReflectionClient['discoverServices']>>;
     try {
@@ -129,7 +137,7 @@ export async function discoverDescriptorsForRequest(
       throw actionableError(service, resolvedUrl, `failed (${result.error ?? 'unknown error'})`);
     }
     services = { at: now, services: result.services };
-    reflectionCache.set(resolvedUrl, services);
+    if (cacheable) reflectionCache.set(resolvedUrl, services);
   }
   const match = services.services.find((s) => s.fullName === service);
   if (!match) {
