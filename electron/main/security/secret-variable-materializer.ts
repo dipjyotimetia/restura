@@ -18,7 +18,8 @@ export async function resolveSecretVariableValues(
   secretVariables: Record<string, SecretValue>,
   signal?: AbortSignal
 ): Promise<Record<string, string>> {
-  const values: Record<string, string> = {};
+  // Null prototype: a variable named `__proto__` / `constructor` is plain data.
+  const values: Record<string, string> = Object.create(null);
   for (const [name, value] of Object.entries(secretVariables)) {
     const plaintext = isProtocolExternalSecret(value)
       ? await desktopExternalSecretResolver.resolve(value, { signal })
@@ -32,7 +33,11 @@ export async function resolveSecretVariableValues(
 
 /** Replace `{{name}}` tokens with resolved secret-variable values; unknown tokens stay. */
 export function replaceSecretVariableTokens(text: string, values: Record<string, string>): string {
-  return text.replace(/\{\{\s*([^{}\s]+)\s*\}\}/g, (match, name: string) => values[name] ?? match);
+  // Own-property lookup only: `{{constructor}}` / `{{toString}}` must not
+  // resolve to inherited Object.prototype members.
+  return text.replace(/\{\{\s*([^{}\s]+)\s*\}\}/g, (match, name: string) =>
+    Object.hasOwn(values, name) ? (values[name] ?? match) : match
+  );
 }
 
 /** Materialize opaque SecretRef variables only in Electron main, before the wire request. */

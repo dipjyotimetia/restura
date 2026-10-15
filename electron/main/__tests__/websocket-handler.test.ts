@@ -21,12 +21,16 @@ const wsMock = vi.hoisted(() => {
     readyState = 1; // OPEN
     protocol = '';
     url: string;
-    options: { headers?: Record<string, string> } | undefined;
+    options: { headers?: Record<string, string>; followRedirects?: boolean } | undefined;
     send = vi.fn();
     close = vi.fn();
     terminate = vi.fn();
     private listeners = new Map<string, Array<(...args: unknown[]) => void>>();
-    constructor(url: string, _protocols?: unknown, options?: { headers?: Record<string, string> }) {
+    constructor(
+      url: string,
+      _protocols?: unknown,
+      options?: { headers?: Record<string, string>; followRedirects?: boolean }
+    ) {
       this.url = url;
       this.options = options;
       FakeWebSocket.instances.push(this);
@@ -62,6 +66,16 @@ vi.mock('../security/secret-handle-store', () => ({
     if (ref?.kind === 'handle') return ref.id ? KEYCHAIN[ref.id] : undefined;
     return undefined;
   },
+}));
+// External-vault resolver: per-test overridable so a connect can be held
+// mid-materialization (race tests).
+const mockVaultResolve = vi.hoisted(() =>
+  vi.fn(
+    async (ref: { secretId: string }, _opts?: { signal?: AbortSignal }) => `vault:${ref.secretId}`
+  )
+);
+vi.mock('../security/external-secret-providers', () => ({
+  desktopExternalSecretResolver: { resolve: mockVaultResolve },
 }));
 vi.mock('../security/safe-connect', () => ({
   resolveSafeAddress: mockResolveSafe,
@@ -503,6 +517,140 @@ describe('websocket-handler', () => {
       expect(res.error).toMatch(/WebSocket auth setup failed: Secret variable "gone"/);
       expect(mockResolveSafe).not.toHaveBeenCalled();
       expect(wsMock.FakeWebSocket.instances).toHaveLength(0);
+    });
+
+    const vaultRef = {
+      kind: 'external',
+      provider: 'aws-secrets-manager',
+      profileId: 'p',
+      secretId: 'tok',
+    } as const;
+    const vaultConnect = (connectionId: string) => ({
+      ...validConnect(connectionId),
+      headers: { 'X-Secret': '{{v}}' },
+      secretVariables: { v: vaultRef },
+    });
+    /** Hold the next vault lookup open; expose its abort signal. */
+    function holdVault() {
+      const gate = deferred<string>();
+      let signal: AbortSignal | undefined;
+      mockVaultResolve.mockImplementationOnce(async (_ref, opts) => {
+        signal = opts?.signal;
+        return gate.promise;
+      });
+      return { gate, signal: () => signal };
+    }
+
+    it('never follows handshake redirects with main-side credentials (plain connects still do)', async () => {
+      const { event } = makeEvent();
+      await handlerFor(IPC.ws.connect)(event, validConnect('plain'));
+      await handlerFor(IPC.ws.connect)(event, {
+        ...validConnect('authed'),
+        auth: { type: 'bearer', bearer: { token: { kind: 'handle', id: 'h-token' } } },
+      });
+      const [plain, authed] = wsMock.FakeWebSocket.instances;
+      expect(plain?.options?.followRedirects).toBe(true);
+      expect(authed?.options?.followRedirects).toBe(false);
+    });
+
+    it('fails closed when a handle-backed credential is revoked', async () => {
+      const { event } = makeEvent();
+      const res = await handlerFor(IPC.ws.connect)(event, {
+        ...validConnect('revoked'),
+        auth: { type: 'bearer', bearer: { token: { kind: 'handle', id: 'revoked' } } },
+      });
+      expect(res).toEqual({
+        success: false,
+        error: 'WebSocket auth setup failed: Auth credential is unavailable on this device',
+      });
+      expect(wsMock.FakeWebSocket.instances).toHaveLength(0);
+    });
+
+    it('does not burn a rate-limit token on a policy rejection', async () => {
+      setExecutionPolicy({
+        security: { allowLocalhost: true, allowPrivateIPs: false },
+        proxy: { enabled: true, type: 'http', host: 'p.example', port: 3128, bypassList: [] },
+        timeout: 30_000,
+        tls: { verifySsl: true, serverCipherOrder: false },
+        certificates: { clientCertificates: [], caCertificates: [] },
+      });
+      const { event, senderId } = makeEvent();
+      const spy = vi.spyOn(wsRateLimiter, 'check');
+      try {
+        const res = await handlerFor(IPC.ws.connect)(event, vaultConnect('policy-first'));
+        expect(res.success).toBe(false);
+        expect(spy).not.toHaveBeenCalled();
+        expect(mockVaultResolve).not.toHaveBeenCalled();
+      } finally {
+        spy.mockRestore();
+        wsRateLimiter.dispose(senderId);
+      }
+    });
+
+    it('cancels a connect still resolving credentials when the renderer disconnects', async () => {
+      const { event } = makeEvent();
+      const held = holdVault();
+      const pending = handlerFor(IPC.ws.connect)(event, vaultConnect('cancel-me'));
+      await vi.waitFor(() => expect(held.signal()).toBeDefined());
+
+      await handlerFor(IPC.ws.disconnect)(event, { connectionId: 'cancel-me' });
+      expect(held.signal()?.aborted).toBe(true);
+      held.gate.resolve('late-secret');
+
+      await expect(pending).resolves.toEqual({ success: false, error: 'Not connected' });
+      expect(mockResolveSafe).not.toHaveBeenCalled();
+      expect(wsMock.FakeWebSocket.instances).toHaveLength(0);
+    });
+
+    it('rejects a same-id connect while the first is still resolving credentials', async () => {
+      const { event } = makeEvent();
+      const held = holdVault();
+      const first = handlerFor(IPC.ws.connect)(event, vaultConnect('dup'));
+      await vi.waitFor(() => expect(held.signal()).toBeDefined());
+      await expect(handlerFor(IPC.ws.connect)(event, validConnect('dup'))).resolves.toEqual({
+        success: false,
+        error: 'Not connected',
+      });
+      held.gate.resolve('secret');
+      await expect(first).resolves.toEqual({ success: true });
+      expect(wsMock.FakeWebSocket.instances).toHaveLength(1);
+    });
+
+    it('drops the connect when its renderer is destroyed mid-resolution', async () => {
+      const { event, destroy } = makeEvent();
+      const held = holdVault();
+      const pending = handlerFor(IPC.ws.connect)(event, vaultConnect('destroyed'));
+      await vi.waitFor(() => expect(held.signal()).toBeDefined());
+
+      destroy();
+      expect(held.signal()?.aborted).toBe(true);
+      held.gate.resolve('late-secret');
+
+      await expect(pending).resolves.toEqual({ success: false, error: 'Not connected' });
+      expect(wsMock.FakeWebSocket.instances).toHaveLength(0);
+    });
+
+    it('counts connects that are resolving credentials against the connection cap', async () => {
+      const gates: Array<ReturnType<typeof deferred<string>>> = [];
+      mockVaultResolve.mockImplementation(async () => {
+        const gate = deferred<string>();
+        gates.push(gate);
+        return gate.promise;
+      });
+      try {
+        const inFlight = Array.from({ length: 50 }, (_, i) =>
+          handlerFor(IPC.ws.connect)(makeEvent().event, vaultConnect(`cap-${i}`))
+        );
+        await vi.waitFor(() => expect(gates).toHaveLength(50));
+        await expect(
+          handlerFor(IPC.ws.connect)(makeEvent().event, validConnect('cap-over'))
+        ).resolves.toEqual({ success: false, error: 'Too many open connections.' });
+        for (const gate of gates) gate.resolve('s');
+        await Promise.all(inFlight);
+      } finally {
+        mockVaultResolve.mockReset();
+        mockVaultResolve.mockImplementation(async (ref) => `vault:${ref.secretId}`);
+      }
     });
 
     it('rejects malformed auth / oversized secretVariables at the Zod boundary', async () => {

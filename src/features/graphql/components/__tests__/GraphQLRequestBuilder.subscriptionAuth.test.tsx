@@ -122,5 +122,34 @@ describe('GraphQLRequestBuilder — subscription auth', () => {
       /connection_init payload/
     );
     expect(screen.getByTestId('subscription-unapplied-auth')).toHaveTextContent(/desktop app/);
+    expect(screen.queryByTestId('subscription-keychain-handshake-only')).toBeNull();
+  });
+
+  it('desktop: passes keychain auth main-side and says it is not in connection_init', () => {
+    (window as unknown as { electron?: unknown }).electron = { isElectron: true };
+    try {
+      const token = { kind: 'handle', id: 'h' } as const;
+      openTab(subscriptionRequest({ type: 'bearer', bearer: { token } }));
+      render(<GraphQLRequestBuilder />);
+
+      fireEvent.click(screen.getByRole('button', { name: /Subscribe/ }));
+      expect(toastMocks.warning).not.toHaveBeenCalled();
+      const [, headers, options] = subMocks.ctor.mock.calls[0] as [
+        string,
+        Record<string, string>,
+        { mainSide?: unknown; connectionParams: Record<string, string> },
+      ];
+      expect(headers.Authorization).toBeUndefined();
+      expect(options.connectionParams.Authorization).toBeUndefined();
+      expect(options.mainSide).toEqual({ auth: { type: 'bearer', bearer: { token } } });
+
+      fireEvent.click(screen.getByRole('tab', { name: /Auth/ }));
+      expect(screen.getByTestId('subscription-keychain-handshake-only')).toHaveTextContent(
+        /not included in the connection_init payload/
+      );
+      expect(screen.queryByTestId('subscription-unapplied-auth')).toBeNull();
+    } finally {
+      delete (window as unknown as { electron?: unknown }).electron;
+    }
   });
 });

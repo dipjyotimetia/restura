@@ -22,6 +22,7 @@ vi.mock('../security/external-secret-providers', () => ({
   },
 }));
 
+import { replaceSecretVariableTokens } from '../security/secret-variable-materializer';
 import { materializeWsHandshakeAuth } from '../security/ws-handshake-auth';
 
 const handle = (id: string) => ({ kind: 'handle' as const, id });
@@ -29,10 +30,9 @@ type Auth = Parameters<typeof materializeWsHandshakeAuth>[0]['auth'];
 
 describe('materializeWsHandshakeAuth', () => {
   it('is a no-op without auth or secret variables', async () => {
-    expect(await materializeWsHandshakeAuth({ url: 'wss://a.example/x' })).toEqual({
-      url: 'wss://a.example/x',
-      headers: {},
-    });
+    const out = await materializeWsHandshakeAuth({ url: 'wss://a.example/x' });
+    expect(out).toMatchObject({ url: 'wss://a.example/x', headers: {} });
+    expect(out.redact('anything')).toBe('anything');
   });
 
   it('resolves a handle-backed Bearer into the handshake headers', async () => {
@@ -149,7 +149,7 @@ describe('materializeWsHandshakeAuth', () => {
         url: 'wss://a.example/{{p}}',
         secretVariables: { p: { kind: 'inline', value: 'x' } },
       })
-    ).resolves.toEqual({ url: 'wss://a.example/x', headers: {} });
+    ).resolves.toMatchObject({ url: 'wss://a.example/x', headers: {} });
     await expect(
       materializeWsHandshakeAuth({
         url: '{{u}}',
@@ -162,5 +162,127 @@ describe('materializeWsHandshakeAuth', () => {
         secretVariables: { u: { kind: 'inline', value: 'not a url' } },
       })
     ).rejects.toThrow(/Invalid WebSocket URL/);
+  });
+
+  describe('fail-closed + hygiene (security review)', () => {
+    it.each([
+      ['bearer', { type: 'bearer', bearer: { token: handle('revoked') } }],
+      ['basic', { type: 'basic', basic: { username: '', password: handle('revoked') } }],
+      ['api-key', { type: 'api-key', apiKey: { key: 'k', value: handle('revoked'), in: 'query' } }],
+      ['oauth2', { type: 'oauth2', oauth2: { accessToken: handle('revoked') } }],
+      ['digest (never header-shaped)', { type: 'digest' }],
+    ])('refuses to open unauthenticated when %s resolves to nothing', async (_n, auth) => {
+      await expect(
+        materializeWsHandshakeAuth({ url: 'wss://a.example/x', auth: auth as Auth })
+      ).rejects.toThrow('Auth credential is unavailable on this device');
+    });
+
+    it('treats auth type none as nothing to apply', async () => {
+      await expect(
+        materializeWsHandshakeAuth({ url: 'wss://a.example/x', auth: { type: 'none' } as Auth })
+      ).resolves.toMatchObject({ headers: {} });
+    });
+
+    it('rejects CRLF in a secret-derived header value without echoing the value', async () => {
+      const err = await materializeWsHandshakeAuth({
+        url: 'wss://a.example/x',
+        headers: { 'X-Secret': '{{s}}' },
+        secretVariables: { s: { kind: 'inline', value: 'top\r\nX-Injected: secret-crlf' } },
+      }).catch((e: Error) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toBe('Header "X-Secret" contains invalid characters');
+      expect((err as Error).message).not.toContain('secret-crlf');
+    });
+
+    it('rejects CRLF in a handle-backed bearer token', async () => {
+      HANDLES['h-crlf'] = 'tok\nevil';
+      await expect(
+        materializeWsHandshakeAuth({
+          url: 'wss://a.example/x',
+          auth: { type: 'bearer', bearer: { token: handle('h-crlf') } } as Auth,
+        })
+      ).rejects.toThrow('Header "Authorization" contains invalid characters');
+    });
+
+    it.each([
+      'Sec-WebSocket-Protocol',
+      'Sec-WebSocket-Extensions',
+      'sec-websocket-key',
+      'Proxy-Authorization',
+      'Upgrade',
+    ])('rejects an API-key header named %s', async (key) => {
+      await expect(
+        materializeWsHandshakeAuth({
+          url: 'wss://a.example/x',
+          auth: {
+            type: 'api-key',
+            apiKey: { key, value: handle('h-token'), in: 'header' },
+          } as Auth,
+        })
+      ).rejects.toThrow(/not allowed on a WebSocket handshake/);
+    });
+
+    it('replaces a case-duplicate user Authorization header instead of sending two', async () => {
+      const out = await materializeWsHandshakeAuth({
+        url: 'wss://a.example/x',
+        headers: { authorization: 'Bearer user-typed', AUTHORIZATION: 'x' },
+        auth: { type: 'bearer', bearer: { token: handle('h-token') } } as Auth,
+      });
+      expect(out.headers).toEqual({ Authorization: 'Bearer keychain-token' });
+    });
+
+    it('never substitutes secret variables into the API key NAME', async () => {
+      await expect(
+        materializeWsHandshakeAuth({
+          url: 'wss://a.example/x',
+          auth: { type: 'api-key', apiKey: { key: '{{name}}', value: 'v', in: 'header' } } as Auth,
+          secretVariables: { name: { kind: 'inline', value: 'Host' } },
+        })
+      ).resolves.toMatchObject({ headers: { '{{name}}': 'v' } });
+    });
+
+    it('does not resolve inherited Object.prototype members as variables', async () => {
+      const out = await materializeWsHandshakeAuth({
+        url: 'wss://a.example/{{constructor}}/{{toString}}/{{__proto__}}',
+        secretVariables: { real: { kind: 'inline', value: 'r' } },
+      });
+      expect(out.url).toBe('wss://a.example/{{constructor}}/{{toString}}/{{__proto__}}');
+      expect(out.url).not.toContain('function');
+    });
+
+    it('stops when aborted before applying credentials', async () => {
+      const ctrl = new AbortController();
+      ctrl.abort();
+      await expect(
+        materializeWsHandshakeAuth(
+          { url: 'wss://a.example/x', secretVariables: { s: { kind: 'inline', value: 'v' } } },
+          ctrl.signal
+        )
+      ).rejects.toThrow();
+    });
+
+    it('redact scrubs raw, URI- and form-encoded plaintext (Basic password included)', async () => {
+      const out = await materializeWsHandshakeAuth({
+        url: 'wss://a.example/x',
+        auth: { type: 'basic', basic: { username: 'u', password: 'p@ss word&1' } } as Auth,
+        secretVariables: { s: { kind: 'inline', value: 'host-secret' } },
+      });
+      const leak = `p@ss word&1 ${encodeURIComponent('p@ss word&1')} p%40ss+word%261 host-secret ${Buffer.from('u:p@ss word&1').toString('base64')}`;
+      const scrubbed = out.redact(leak);
+      expect(scrubbed).not.toMatch(/p@ss|p%40ss|host-secret/);
+      expect(scrubbed).not.toContain(Buffer.from('u:p@ss word&1').toString('base64'));
+    });
+  });
+});
+
+describe('replaceSecretVariableTokens', () => {
+  it('only resolves own properties', () => {
+    expect(replaceSecretVariableTokens('{{constructor}}-{{a}}', { a: '1' })).toBe(
+      '{{constructor}}-1'
+    );
+    const values = Object.create(null) as Record<string, string>;
+    const ownKey: string = 'constructor';
+    values[ownKey] = 'own';
+    expect(replaceSecretVariableTokens('{{constructor}}', values)).toBe('own');
   });
 });

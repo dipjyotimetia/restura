@@ -16,7 +16,7 @@ export function SubscriptionAuthNotice({ request }: { request: HttpRequest }) {
   const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const desktop = isElectron();
   const { values, secretVariables } = buildActiveRequestVariableResolution();
-  const { unapplied } = buildSubscriptionHandshake({
+  const { unapplied, mainSide } = buildSubscriptionHandshake({
     request,
     ...(inherited ? { inheritedAuth: inherited.auth } : {}),
     values,
@@ -29,10 +29,20 @@ export function SubscriptionAuthNotice({ request }: { request: HttpRequest }) {
     <div className="mb-4 space-y-2" data-testid="subscription-auth-notice">
       <p className="text-sp-11 text-sp-muted font-mono">
         {desktop
-          ? 'For subscriptions, header auth is sent as WebSocket handshake headers and in the graphql-ws connection_init payload. Keychain-stored secrets are resolved by the desktop app and sent as handshake headers only.'
+          ? 'For subscriptions, header auth is sent as WebSocket handshake headers and in the graphql-ws connection_init payload.'
           : 'For subscriptions, browsers can’t set WebSocket handshake headers, so header auth is sent in the graphql-ws connection_init payload.'}{' '}
         An API key set to Query Params is added to the socket URL.
       </p>
+      {desktop && mainSide && (
+        <p
+          className="text-sp-11 text-sp-muted font-mono"
+          data-testid="subscription-keychain-handshake-only"
+        >
+          Keychain-stored secrets are resolved by the desktop app at connect time and sent as
+          WebSocket handshake headers only — they are not included in the connection_init payload,
+          so servers that read auth only from connection_init won’t see them.
+        </p>
+      )}
       {unapplied.map((message) => (
         <UnappliedAuthNotice key={message} message={message} testId="subscription-unapplied-auth" />
       ))}

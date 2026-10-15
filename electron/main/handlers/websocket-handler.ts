@@ -20,7 +20,11 @@ import {
   resolvePolicyTransport,
 } from '../security/policy-transport';
 import { createPinnedLookup, resolveSafeAddress } from '../security/safe-connect';
-import { materializeWsHandshakeAuth } from '../security/ws-handshake-auth';
+import {
+  materializeWsHandshakeAuth,
+  needsWsHandshakeMaterialization,
+  type SecretRedactor,
+} from '../security/ws-handshake-auth';
 
 const log = createLogger('websocket');
 
@@ -61,13 +65,20 @@ interface PendingWebSocketClaim {
   webContentsId: number;
   token: symbol;
   ownerEntry?: ActiveWebSocket;
+  /**
+   * Present only for connects that resolve opaque credentials main-side
+   * (#878/#882): aborted when the claim is cancelled (ws:disconnect, renderer
+   * destroyed, teardown) so in-flight keychain / vault work stops.
+   */
+  abort?: AbortController;
 }
 
 const pendingConnections = new Map<string, PendingWebSocketClaim>();
 
 function reserveWebSocketClaim(
   connectionId: string,
-  webContents: WebContents
+  webContents: WebContents,
+  cancellable = false
 ): PendingWebSocketClaim | undefined {
   const key = ownerScopedKey(connectionId, webContents.id);
   if (pendingConnections.has(key)) return undefined;
@@ -78,12 +89,19 @@ function reserveWebSocketClaim(
     webContentsId: webContents.id,
     token: Symbol(connectionId),
     ownerEntry,
+    ...(cancellable ? { abort: new AbortController() } : {}),
   };
   pendingConnections.set(key, claim);
   bindRendererCleanup(pendingConnections, webContents, (deadId) =>
-    disposeByOwner(pendingConnections, deadId, () => {})
+    disposeByOwner(pendingConnections, deadId, (pending) => pending.abort?.abort())
   );
   return pendingConnections.get(key) === claim ? claim : undefined;
+}
+
+function isClaimLive(connectionId: string, claim: PendingWebSocketClaim): boolean {
+  return (
+    pendingConnections.get(ownerScopedKey(connectionId, claim.webContentsId))?.token === claim.token
+  );
 }
 
 function releaseWebSocketClaim(connectionId: string, claim: PendingWebSocketClaim): void {
@@ -114,44 +132,14 @@ export function registerWebSocketHandlerIPC(): void {
     const validated = validateIpcInput(WsConnectSchema, rawConfig, IPC.ws.connect);
     const connectionId = validated.connectionId;
     const webContentsId = event.sender.id;
+    // GraphQL subscriptions (#878/#882) may carry SecretRef-handle auth and
+    // SecretRef-backed {{vars}} that only main can resolve (ADR-0007).
+    const materialize = needsWsHandshakeMaterialization(validated);
 
-    if (!wsRateLimiter.check(webContentsId)) {
-      return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
-    }
-
-    if (connections.size() + pendingConnections.size >= MAX_CONCURRENT_WS_CONNECTIONS) {
-      return { success: false, error: 'Too many open connections.' };
-    }
-
-    // Opaque handshake credentials (GraphQL subscriptions, #878/#882): SecretRef
-    // handle auth and SecretRef-backed {{vars}} resolve here, after the rate /
-    // capacity gates (no free keychain or vault lookups) and BEFORE the policy
-    // and SSRF checks, which must see the final URL. Plaintext stays in main
-    // (ADR-0007) and is never echoed back. Plain connects skip this entirely
-    // (no await), so their claim is still reserved synchronously.
-    let config = validated;
-    if (validated.auth !== undefined || Object.keys(validated.secretVariables ?? {}).length > 0) {
-      try {
-        config = {
-          ...validated,
-          ...(await materializeWsHandshakeAuth({
-            url: validated.url,
-            headers: validated.headers,
-            auth: validated.auth,
-            secretVariables: validated.secretVariables,
-          })),
-        };
-      } catch (err) {
-        return {
-          success: false,
-          error: `WebSocket auth setup failed: ${err instanceof Error ? err.message : 'unknown error'}`,
-        };
-      }
-    }
-
+    // Cheap, local and secret-free: a policy rejection never burns a rate token.
     let policyConfig: ReturnType<typeof applyWebSocketPolicyConfig>;
     try {
-      policyConfig = applyWebSocketPolicyConfig(config.url);
+      policyConfig = applyWebSocketPolicyConfig(validated.url);
     } catch (err) {
       return {
         success: false,
@@ -159,12 +147,65 @@ export function registerWebSocketHandlerIPC(): void {
       };
     }
 
-    // Reserve this renderer's id synchronously before DNS or transport
-    // construction. Another renderer may independently use the same external id.
-    const claim = reserveWebSocketClaim(connectionId, event.sender);
+    if (!wsRateLimiter.check(webContentsId)) {
+      return { success: false, error: 'Rate limit exceeded. Please wait before connecting.' };
+    }
+
+    // Capacity check and reservation are synchronous together, so concurrent
+    // connects (including ones about to await credential resolution) can't
+    // overshoot the cap.
+    if (connections.size() + pendingConnections.size >= MAX_CONCURRENT_WS_CONNECTIONS) {
+      return { success: false, error: 'Too many open connections.' };
+    }
+
+    // Reserve this renderer's id synchronously before credential resolution, DNS
+    // or transport construction. Another renderer may independently use the
+    // same external id. Plain connects stay fully synchronous up to the DNS await.
+    const claim = reserveWebSocketClaim(connectionId, event.sender, materialize);
     if (!claim) return { success: false, error: 'Not connected' };
 
+    // Scrubs resolved plaintext from everything this connection sends back to
+    // the renderer (replies, error/close events) and to logs.
+    let redact: SecretRedactor = (text) => text;
+    let config = validated;
+
     try {
+      if (materialize) {
+        // Resolved after the rate / capacity gates (no free keychain or vault
+        // lookups) and BEFORE the SSRF check, which must see the final URL.
+        // Cancelled by ws:disconnect / renderer teardown via the claim's signal.
+        try {
+          const materialized = await materializeWsHandshakeAuth(
+            {
+              url: validated.url,
+              headers: validated.headers,
+              auth: validated.auth,
+              secretVariables: validated.secretVariables,
+            },
+            claim.abort?.signal
+          );
+          config = { ...validated, url: materialized.url, headers: materialized.headers };
+          redact = materialized.redact;
+        } catch (err) {
+          if (!isClaimLive(connectionId, claim)) return { success: false, error: 'Not connected' };
+          // Materializer errors are plaintext-free by construction.
+          return {
+            success: false,
+            error: `WebSocket auth setup failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+          };
+        }
+        if (!isClaimLive(connectionId, claim)) return { success: false, error: 'Not connected' };
+        // Re-evaluate policy against the final (secret-resolved) URL.
+        try {
+          policyConfig = applyWebSocketPolicyConfig(config.url);
+        } catch (err) {
+          return {
+            success: false,
+            error: redact(err instanceof Error ? err.message : 'Connection policy rejected'),
+          };
+        }
+      }
+
       // Resolve + validate once, then PIN the handshake to that IP via a Node
       // `lookup` hook (closes the DNS-rebind window pre-flight validation alone
       // leaves open). The URL keeps the original hostname so SNI + Host header
@@ -178,7 +219,7 @@ export function registerWebSocketHandlerIPC(): void {
       } catch (err) {
         return {
           success: false,
-          error: err instanceof Error ? err.message : 'URL rejected by SSRF policy',
+          error: redact(err instanceof Error ? err.message : 'URL rejected by SSRF policy'),
         };
       }
 
@@ -201,7 +242,9 @@ export function registerWebSocketHandlerIPC(): void {
           // than the validated one (an attacker can't 3xx into an internal/metadata
           // target). Cross-host handshake redirects are rare and not supported by
           // design; the abort surfaces as a normal `ws` 'error' event below.
-          followRedirects: true,
+          // Never with main-side-resolved credentials: a same-host redirect may
+          // downgrade wss→ws (or change path) and would replay keychain secrets.
+          followRedirects: !materialize,
           handshakeTimeout: policyConfig.timeout,
           lookup: createPinnedLookup(pinned.host, pinned.ip),
         });
@@ -243,9 +286,10 @@ export function registerWebSocketHandlerIPC(): void {
         });
 
         ws.on('error', (err: Error) => {
-          log.warn('socket error', { connectionId, error: err.message });
+          const message = redact(err.message);
+          log.warn('socket error', { connectionId, error: message });
           if (connections.get(connectionId, webContentsId) !== entry) return;
-          connections.emit(connectionId, webContentsId, 'error', { message: err.message });
+          connections.emit(connectionId, webContentsId, 'error', { message });
         });
 
         ws.on('close', (code: number, reason: Buffer) => {
@@ -258,7 +302,7 @@ export function registerWebSocketHandlerIPC(): void {
           if (!explicitlyClosed) {
             connections.emitAndRemove(connectionId, webContentsId, 'close', {
               code,
-              reason: reason.toString(),
+              reason: redact(reason.toString()),
             });
           } else {
             connections.remove(connectionId, webContentsId);
@@ -285,7 +329,7 @@ export function registerWebSocketHandlerIPC(): void {
 
         return { success: true };
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to connect';
+        const message = redact(err instanceof Error ? err.message : 'Failed to connect');
         log.warn('connect failed', { connectionId, error: message });
         return {
           success: false,
@@ -329,6 +373,15 @@ export function registerWebSocketHandlerIPC(): void {
     IPC.ws.disconnect,
     createValidatedEventHandler(IPC.ws.disconnect, WsDisconnectSchema, async (config, event) => {
       const connectionId = config.connectionId;
+      // A connect still resolving main-side credentials is cancelled outright —
+      // it must not open a socket after the renderer asked to disconnect.
+      // (Plain connects keep their existing semantics.)
+      const pendingKey = ownerScopedKey(connectionId, event.sender.id);
+      const pending = pendingConnections.get(pendingKey);
+      if (pending?.abort) {
+        pending.abort.abort();
+        pendingConnections.delete(pendingKey);
+      }
       const entry = connections.getForOwner(connectionId, event.sender.id);
       if (entry) {
         // Graceful close (1000) for an explicit disconnect — distinct from the
@@ -345,6 +398,7 @@ export function registerWebSocketHandlerIPC(): void {
 }
 
 export function stopWebSocketCleanup(): void {
+  for (const pending of pendingConnections.values()) pending.abort?.abort();
   pendingConnections.clear();
   connections.disposeAll();
 }
