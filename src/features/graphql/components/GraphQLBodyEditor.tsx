@@ -6,9 +6,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { registerGraphQLCompletionProvider } from '@/features/graphql/lib/completionProvider';
 import { setupDebouncedDiagnostics } from '@/features/graphql/lib/diagnosticsProvider';
+import { buildErrorMarkers, locationToRange } from '@/features/graphql/lib/graphqlErrors';
 import { generateVariablesTemplate, parseVariables } from '@/features/graphql/lib/queryParser';
 import { useEffectiveGraphQLSchema } from '@/features/graphql/lib/useEffectiveGraphQLSchema';
 import { validateQuery } from '@/features/graphql/lib/validation';
+import { useGraphQLErrorStore } from '@/features/graphql/store/useGraphQLErrorStore';
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { useActiveTab } from '@/store/selectors';
 import type { GraphQLImportedSchema } from '@/types';
@@ -19,6 +21,9 @@ const CodeEditor = lazyComponent(
 );
 
 let completionProviderRegistered = false;
+
+/** Marker owner for errors returned by the server (vs. local validation). */
+const RESPONSE_MARKER_OWNER = 'graphql-response-errors';
 
 interface GraphQLBodyEditorProps {
   query: string;
@@ -51,7 +56,17 @@ export default function GraphQLBodyEditor({
 }: GraphQLBodyEditorProps) {
   const [showVariables, setShowVariables] = useState(true);
   const diagnosticsRef = useRef<Monaco.IDisposable | null>(null);
+  const editorRef = useRef<{
+    editor: Monaco.editor.IStandaloneCodeEditor;
+    monaco: typeof Monaco;
+    model: Monaco.editor.ITextModel;
+  } | null>(null);
+  const [editorGeneration, setEditorGeneration] = useState(0);
   const activeTabId = useActiveTab()?.id;
+  const responseErrors = useGraphQLErrorStore((s) =>
+    activeTabId ? s.byTab[activeTabId] : undefined
+  );
+  const focusRequest = useGraphQLErrorStore((s) => s.focus);
   const { result: schemaResult, executable: executableSchema } = useEffectiveGraphQLSchema(
     url,
     importedSchema
@@ -86,10 +101,12 @@ export default function GraphQLBodyEditor({
 
   const handleQueryModelChange = useCallback(
     (
-      _editor: Monaco.editor.IStandaloneCodeEditor,
+      editor: Monaco.editor.IStandaloneCodeEditor,
       monaco: typeof Monaco,
       model: Monaco.editor.ITextModel
     ) => {
+      editorRef.current = { editor, monaco, model };
+      setEditorGeneration((g) => g + 1);
       if (!completionProviderRegistered) {
         registerGraphQLCompletionProvider(monaco, () => schemaRef.current?.schema ?? null);
         completionProviderRegistered = true;
@@ -110,6 +127,32 @@ export default function GraphQLBodyEditor({
     },
     []
   );
+
+  // Server-reported error locations index into the query that was SENT, so
+  // markers only show while the editor still holds that exact text (they
+  // vanish on edit and come back on undo).
+  // `editorGeneration` re-runs this once Monaco hands over a model.
+  useEffect(() => {
+    const ctx = editorRef.current;
+    if (!ctx || ctx.model.isDisposed()) return;
+    const markers =
+      responseErrors && responseErrors.query === query
+        ? buildErrorMarkers(query, responseErrors.errors)
+        : [];
+    ctx.monaco.editor.setModelMarkers(ctx.model, RESPONSE_MARKER_OWNER, markers);
+  }, [responseErrors, query, editorGeneration]);
+
+  // "Jump to location" from an errors panel. `editorGeneration` lets a request
+  // made before the editor mounted (e.g. from another sub-tab) land once it exists.
+  useEffect(() => {
+    const ctx = editorRef.current;
+    if (!ctx || !focusRequest || focusRequest.tabId !== activeTabId) return;
+    const range = locationToRange(ctx.model.getValue(), focusRequest.location);
+    ctx.editor.revealRangeInCenter(range);
+    ctx.editor.setSelection(range);
+    ctx.editor.focus();
+    useGraphQLErrorStore.getState().consumeFocus(focusRequest.nonce);
+  }, [focusRequest, activeTabId, editorGeneration]);
 
   const variablesValid = isVariablesValid(variables);
 

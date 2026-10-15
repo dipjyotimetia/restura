@@ -29,6 +29,13 @@ import {
 } from '@/components/ui/spatial';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { AiActionsMenu } from '@/features/ai/components/AiActionsMenu';
+import { GraphQLErrorsPanel } from '@/features/graphql/components/GraphQLErrorsPanel';
+import {
+  errorTreeHighlights,
+  errorTreePath,
+  parseGraphQLErrorsFromBody,
+  resolveExistingPath,
+} from '@/features/graphql/lib/graphqlErrors';
 import { classifyRequestError } from '@/features/http/lib/classifyRequestError';
 import { base64ToBytes } from '@/lib/shared/binaryBody';
 import { detectLanguage } from '@/lib/shared/console-format';
@@ -128,10 +135,23 @@ function ResponseSkeleton() {
   );
 }
 
-type ResponseTab = 'body' | 'headers' | 'cookies' | 'timeline' | 'tests' | 'preview' | 'visualize';
+type ResponseTab =
+  | 'body'
+  | 'errors'
+  | 'headers'
+  | 'cookies'
+  | 'timeline'
+  | 'tests'
+  | 'preview'
+  | 'visualize';
 type BodyFormat = 'pretty' | 'raw' | 'table' | 'tree';
 
-function ResponseViewer() {
+interface ResponseViewerProps {
+  /** `graphql` adds the Errors tab and error highlighting in the tree. */
+  protocol?: 'graphql';
+}
+
+function ResponseViewer({ protocol }: ResponseViewerProps) {
   const currentResponse = useActiveResponse();
   const streamingEvents = useActiveStreamingEvents();
   const activeTab_ = useActiveTab();
@@ -148,6 +168,8 @@ function ResponseViewer() {
   const [showJsonPath, setShowJsonPath] = useState(false);
   // Opt-in to pretty-printing a body above PRETTY_PRINT_MAX_BYTES (per response).
   const [forceFormat, setForceFormat] = useState(false);
+  // "Jump to" target in the tree (GraphQL error paths); nonce re-triggers.
+  const [treeFocus, setTreeFocus] = useState<{ path: (string | number)[]; nonce: number }>();
   const [copiedBody, setCopiedBody] = useState(false);
   const copyBodyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const responseEditorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -196,7 +218,40 @@ function ResponseViewer() {
     setBodyFormat(isCsv ? 'table' : 'pretty');
     setShowJsonPath(false);
     setForceFormat(false);
+    setTreeFocus(undefined);
   }, [currentResponse?.id]);
+
+  // GraphQL `errors[]` (HTTP 200 + partial data is common) — listed in the
+  // Errors tab and flagged in the tree. Cheap substring gate before parsing.
+  const graphqlErrors = useMemo(
+    () =>
+      protocol === 'graphql' &&
+      currentResponse &&
+      !isBase64 &&
+      currentResponse.body.includes('"errors"')
+        ? parseGraphQLErrorsFromBody(currentResponse.body)
+        : [],
+    [protocol, currentResponse, isBase64]
+  );
+  // The Errors tab only exists while there are errors — don't strand the user on it.
+  useEffect(() => {
+    if (activeTab === 'errors' && graphqlErrors.length === 0) setActiveTab('body');
+  }, [activeTab, graphqlErrors.length]);
+  const showErrorPathInTree = (path: (string | number)[]) => {
+    let root: unknown;
+    try {
+      root = JSON.parse(currentResponse?.body ?? '');
+    } catch {
+      return;
+    }
+    setActiveTab('body');
+    setShowJsonPath(false);
+    setBodyFormat('tree');
+    setTreeFocus((prev) => ({
+      path: resolveExistingPath(root, errorTreePath(path)),
+      nonce: (prev?.nonce ?? 0) + 1,
+    }));
+  };
 
   // Pretty-printing a large JSON body can stall the main thread, so only
   // compute it when the body/preview tab is actually visible.
@@ -225,6 +280,14 @@ function ResponseViewer() {
       return null;
     }
   }, [bodyFormat, currentResponse]);
+
+  const treeHighlights = useMemo(
+    () =>
+      treeValue && graphqlErrors.length > 0
+        ? errorTreeHighlights(treeValue.value, graphqlErrors)
+        : undefined,
+    [treeValue, graphqlErrors]
+  );
 
   // Pretty view of an oversized JSON body is shown unformatted — say so.
   const formattingSkipped =
@@ -340,6 +403,9 @@ function ResponseViewer() {
       label: 'Body',
       ...(language !== 'text' && { badge: language.toUpperCase() }),
     },
+    ...(graphqlErrors.length > 0
+      ? [{ value: 'errors' as const, label: 'Errors', count: graphqlErrors.length }]
+      : []),
     { value: 'headers' as const, label: 'Headers', count: headerEntries.length },
     { value: 'cookies' as const, label: 'Cookies', count: cookies.length },
     { value: 'timeline' as const, label: 'Timeline' },
@@ -568,7 +634,11 @@ function ResponseViewer() {
                         />
                       ) : bodyFormat === 'tree' ? (
                         treeValue ? (
-                          <JsonTree value={treeValue.value} />
+                          <JsonTree
+                            value={treeValue.value}
+                            {...(treeHighlights && { highlights: treeHighlights })}
+                            {...(treeFocus && { focus: treeFocus })}
+                          />
                         ) : (
                           <p className="p-4 text-sp-12 text-sp-dim">
                             This body isn’t valid JSON, so it can’t be shown as a tree.
@@ -618,6 +688,16 @@ function ResponseViewer() {
                       className="w-full h-full bg-white border-0"
                       title="HTML Preview"
                     />
+                  )}
+
+                  {activeTab === 'errors' && (
+                    <div className="h-full overflow-auto">
+                      <GraphQLErrorsPanel
+                        items={graphqlErrors.map((error) => ({ key: String(error.index), error }))}
+                        tabId={activeTabId}
+                        onSelectPath={(_item, path) => showErrorPathInTree(path)}
+                      />
+                    </div>
                   )}
 
                   {activeTab === 'headers' && <ResponseHeadersPanel entries={headerEntries} />}

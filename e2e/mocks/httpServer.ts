@@ -5,22 +5,22 @@ import {
   type ServerResponse,
 } from 'node:http';
 import { createServer as createHttpsServer, type Server as HttpsServer } from 'node:https';
-import { gzipSync } from 'node:zlib';
 import { URL } from 'node:url';
-import { execute, parse, validate, type DocumentNode } from 'graphql';
+import { gzipSync } from 'node:zlib';
 import { createSession, type Session } from 'better-sse';
-import { getSelfSignedCert } from './cert';
-import { schema as graphqlSchema } from './graphqlSchema';
+import { type DocumentNode, execute, GraphQLError, parse, validate } from 'graphql';
 import {
   applyCors,
   bindLocalhost,
   closeServer,
   handlePreflight,
   isSecure,
-  readBody,
   writeJson as json,
+  readBody,
 } from '../utils/serverHelpers';
 import { authRoutes, resetAuthState, TEST_AUTH_FIXTURES } from './authRoutes';
+import { getSelfSignedCert } from './cert';
+import { schema as graphqlSchema } from './graphqlSchema';
 
 export interface MockHttpServerHandle {
   port: number;
@@ -626,13 +626,26 @@ interface GraphQLBody {
   operationName?: string | null;
 }
 
+interface GraphQLPayloadError {
+  message: string;
+  locations?: ReadonlyArray<{ line: number; column: number }>;
+  path?: ReadonlyArray<string | number>;
+  extensions?: Record<string, unknown>;
+}
+
 interface GraphQLPayload {
   data?: unknown;
-  errors?: Array<{
-    message: string;
-    path?: ReadonlyArray<string | number>;
-    extensions?: Record<string, unknown>;
-  }>;
+  errors?: GraphQLPayloadError[];
+}
+
+/** Spec-shaped error (§7.1.2): message + locations/path/extensions when present. */
+function formatError(e: GraphQLError): GraphQLPayloadError {
+  return {
+    message: e.message,
+    ...(e.locations ? { locations: e.locations } : {}),
+    ...(e.path ? { path: e.path } : {}),
+    ...(e.extensions ? { extensions: e.extensions } : {}),
+  };
 }
 
 async function executeOne(op: GraphQLBody): Promise<GraphQLPayload> {
@@ -643,11 +656,15 @@ async function executeOne(op: GraphQLBody): Promise<GraphQLPayload> {
   try {
     document = parse(op.query);
   } catch (err) {
-    return { errors: [{ message: (err as Error).message }] };
+    return {
+      errors: [
+        err instanceof GraphQLError ? formatError(err) : { message: (err as Error).message },
+      ],
+    };
   }
   const validationErrors = validate(graphqlSchema, document);
   if (validationErrors.length > 0) {
-    return { errors: validationErrors.map((e) => ({ message: e.message })) };
+    return { errors: validationErrors.map(formatError) };
   }
   const result = await execute({
     schema: graphqlSchema,
@@ -659,11 +676,7 @@ async function executeOne(op: GraphQLBody): Promise<GraphQLPayload> {
     ...(result.data !== undefined ? { data: result.data } : {}),
     ...(result.errors
       ? {
-          errors: result.errors.map((e) => ({
-            message: e.message,
-            ...(e.path ? { path: e.path } : {}),
-            ...(e.extensions ? { extensions: e.extensions } : {}),
-          })),
+          errors: result.errors.map(formatError),
         }
       : {}),
   };

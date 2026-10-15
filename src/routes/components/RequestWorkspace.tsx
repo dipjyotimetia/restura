@@ -62,7 +62,7 @@ export function RequestWorkspace({
       return (
         <ResizableLayout {...splitProps}>
           <GraphQLRequestBuilder />
-          <ResponseViewer />
+          <ResponseViewer protocol="graphql" />
         </ResizableLayout>
       );
     case 'websocket':
