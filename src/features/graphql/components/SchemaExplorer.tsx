@@ -14,9 +14,42 @@ import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Floater, TextField } from '@/components/ui/spatial';
-import { getRootTypes, getTypeFields, getTypesByKind } from '../lib/introspection';
-import type { GraphQLSchema, GraphQLTypeKind } from '../types';
+import { getRootTypes, getTypeByName, getTypesByKind } from '../lib/introspection';
+import type { GraphQLSchema, GraphQLTypeKind, GraphQLTypeRef } from '../types';
 import { formatTypeRef } from '../types';
+
+/** A field (object/interface) or input field (input object) row. */
+interface Member {
+  name: string;
+  type: GraphQLTypeRef;
+  isDeprecated?: boolean;
+  deprecationReason?: string | null;
+}
+
+/** Fields of an output type, or input fields of an input object. */
+function getMembers(schema: GraphQLSchema, typeName: string): Member[] {
+  const type = getTypeByName(schema, typeName);
+  if (!type) return [];
+  return type.kind === 'INPUT_OBJECT' ? (type.inputFields ?? []) : (type.fields ?? []);
+}
+
+function MemberName({ member }: { member: Member }) {
+  const deprecated = member.isDeprecated === true;
+  return (
+    <span
+      className={`font-mono text-sp-11 truncate ${deprecated ? 'text-sp-dim line-through' : 'text-sp-text'}`}
+      title={
+        deprecated
+          ? member.deprecationReason
+            ? `Deprecated: ${member.deprecationReason}`
+            : 'Deprecated'
+          : undefined
+      }
+    >
+      {member.name}
+    </span>
+  );
+}
 
 interface SchemaExplorerProps {
   schema: GraphQLSchema | null;
@@ -108,6 +141,8 @@ export default function SchemaExplorer({
       name: string;
       kind: Kind;
       isRoot?: 'query' | 'mutation' | 'subscription';
+      /** `@oneOf` input objects / `@specifiedBy` scalars (extended introspection). */
+      tag?: { label: string; title: string };
     };
 
     const rows: Row[] = [];
@@ -119,7 +154,13 @@ export default function SchemaExplorer({
     const pushKind = (typeKind: GraphQLTypeKind, kind: Kind) => {
       for (const t of getTypesByKind(schema, typeKind)) {
         if (!t.name || rootNames.has(t.name)) continue;
-        rows.push({ name: t.name, kind });
+        const row: Row = { name: t.name, kind };
+        if (t.isOneOf) {
+          row.tag = { label: '@oneOf', title: 'Exactly one field must be provided' };
+        } else if (t.specifiedByURL) {
+          row.tag = { label: '@specifiedBy', title: t.specifiedByURL };
+        }
+        rows.push(row);
       }
     };
 
@@ -239,11 +280,12 @@ export default function SchemaExplorer({
                 if (!searchQuery) return true;
                 if (filterBySearch(row.name)) return true;
                 // also match if any field matches
-                const fields = getTypeFields(schema, row.name);
+                const fields = getMembers(schema, row.name);
                 return fields.some((f) => filterBySearch(f.name));
               })
               .map((row) => {
-                const fields = getTypeFields(schema, row.name);
+                const fields = getMembers(schema, row.name);
+                const selectable = row.kind !== 'INPUT';
                 const filteredFields = fields.filter((f) =>
                   searchQuery ? filterBySearch(f.name) || filterBySearch(row.name) : true
                 );
@@ -275,25 +317,45 @@ export default function SchemaExplorer({
                           {row.isRoot}
                         </span>
                       )}
+                      {row.tag && (
+                        <span
+                          className="sp-label ml-auto"
+                          style={{ fontSize: '8.5px' }}
+                          title={row.tag.title}
+                        >
+                          {row.tag.label}
+                        </span>
+                      )}
                     </button>
 
                     {isExpanded && hasFields && (
                       <div className="ml-4 pl-2 border-l border-sp-line flex flex-col gap-0.5 mt-0.5 mb-1">
-                        {filteredFields.map((field) => (
-                          <button
-                            key={field.name}
-                            type="button"
-                            onClick={() => onFieldSelect?.(field.name)}
-                            className="flex items-center justify-between gap-2 w-full text-left px-1.5 h-5 rounded-sp-chip hover:bg-sp-hover transition-colors"
-                          >
-                            <span className="font-mono text-sp-11 text-sp-text truncate">
-                              {field.name}
-                            </span>
-                            <span className="font-mono text-sp-11 text-sp-dim truncate">
-                              {formatTypeRef(field.type)}
-                            </span>
-                          </button>
-                        ))}
+                        {filteredFields.map((field) =>
+                          selectable ? (
+                            <button
+                              key={field.name}
+                              type="button"
+                              onClick={() => onFieldSelect?.(field.name)}
+                              className="flex items-center justify-between gap-2 w-full text-left px-1.5 h-5 rounded-sp-chip hover:bg-sp-hover transition-colors"
+                            >
+                              <MemberName member={field} />
+                              <span className="font-mono text-sp-11 text-sp-dim truncate">
+                                {formatTypeRef(field.type)}
+                              </span>
+                            </button>
+                          ) : (
+                            // Input fields can't be selected into a query.
+                            <div
+                              key={field.name}
+                              className="flex items-center justify-between gap-2 w-full px-1.5 h-5"
+                            >
+                              <MemberName member={field} />
+                              <span className="font-mono text-sp-11 text-sp-dim truncate">
+                                {formatTypeRef(field.type)}
+                              </span>
+                            </div>
+                          )
+                        )}
                       </div>
                     )}
                   </div>

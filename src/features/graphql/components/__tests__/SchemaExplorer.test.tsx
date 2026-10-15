@@ -156,3 +156,61 @@ describe('SchemaExplorer type list', () => {
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 });
+
+const extendedSchema = importedSchemaToResult(
+  {
+    sdl: /* GraphQL */ `
+      type Query {
+        user(id: ID!): User
+        legacyUser: User @deprecated(reason: "Use user")
+      }
+      type User {
+        id: ID!
+        seenAt: DateTime
+      }
+      input Lookup @oneOf {
+        id: ID
+        email: String
+      }
+      input Paging {
+        limit: Int
+        first: Int @deprecated(reason: "Use limit")
+      }
+      scalar DateTime @specifiedBy(url: "https://scalars.graphql.org/andimarek/date-time")
+    `,
+    source: 'sdl',
+    importedAt: 1,
+  },
+  'https://api.example/graphql'
+).schema;
+
+describe('SchemaExplorer extended introspection metadata', () => {
+  const typeRow = (name: string) => screen.getByText(name, { selector: 'span.font-mono' });
+
+  it('marks deprecated fields with their reason', () => {
+    render(<SchemaExplorer schema={extendedSchema} />);
+    fireEvent.click(typeRow('Query'));
+    const legacy = screen.getByText('legacyUser');
+    expect(legacy.className).toContain('line-through');
+    expect(legacy.getAttribute('title')).toBe('Deprecated: Use user');
+    expect(screen.getByText('user').className).not.toContain('line-through');
+  });
+
+  it('expands input objects to their input fields (not selectable) and marks deprecated ones', () => {
+    const onFieldSelect = vi.fn();
+    render(<SchemaExplorer schema={extendedSchema} onFieldSelect={onFieldSelect} />);
+    fireEvent.click(typeRow('Paging'));
+    const first = screen.getByText('first');
+    expect(first.className).toContain('line-through');
+    expect(first.getAttribute('title')).toBe('Deprecated: Use limit');
+    fireEvent.click(screen.getByText('limit'));
+    expect(onFieldSelect).not.toHaveBeenCalled();
+  });
+
+  it('tags @oneOf input objects and scalars with a specifiedBy URL', () => {
+    render(<SchemaExplorer schema={extendedSchema} />);
+    expect(screen.getByText('@oneOf')).toBeTruthy();
+    const spec = screen.getByText('@specifiedBy');
+    expect(spec.getAttribute('title')).toBe('https://scalars.graphql.org/andimarek/date-time');
+  });
+});
