@@ -65,8 +65,9 @@ export function grpcUnsupportedAuthMessage(auth: AuthConfig): string | null {
   if (!label) return null;
   return (
     `${label} authentication is not supported for gRPC, and Restura won't send the call ` +
-    'without credentials. Use Bearer, Basic, API Key or OAuth 2.0, or add the credential ' +
-    'as a metadata entry.'
+    'without credentials. Use Bearer, Basic, API Key or OAuth 2.0, or set Auth to No Auth ' +
+    '(including any folder or collection it inherits from) and add a pre-computed ' +
+    'credential as a metadata entry.'
   );
 }
 

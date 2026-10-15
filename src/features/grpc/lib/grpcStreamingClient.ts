@@ -24,6 +24,8 @@ import {
   resolveMethod,
 } from '@shared/protocol/grpc-registry';
 import { flattenHeaders } from '@shared/protocol/header-utils';
+import { withEffectiveAuth } from '@/features/auth/lib/authInheritance';
+import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import type { GrpcRequest } from '@/types';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
@@ -85,8 +87,16 @@ const DEFAULT_TIMEOUT = 30_000;
  * fetch can't duplex), so client/bidi throw a desktop-only error there.
  */
 export async function startGrpcStream<TIn = unknown, TOut = unknown>(
-  args: StartGrpcStreamArgs
+  rawArgs: StartGrpcStreamArgs
 ): Promise<GrpcStreamingHandle<TIn, TOut>> {
+  // Folder/collection auth inheritance, matching unary sends (the registry
+  // runner applies `withEffectiveAuth` before `prepareGrpcRequest`). Without
+  // this an inherited unsupported type (e.g. SigV4) slipped past the #900
+  // block and inherited Bearer/Basic was silently dropped from streams.
+  const inherited = resolveInheritedAuthFor(rawArgs.request);
+  const args: StartGrpcStreamArgs = inherited
+    ? { ...rawArgs, request: withEffectiveAuth(rawArgs.request, inherited.auth) }
+    : rawArgs;
   // Basic validation — leverage existing helpers
   const urlCheck = validateGrpcUrl(args.request.url);
   if (!urlCheck.valid) {

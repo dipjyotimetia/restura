@@ -2,8 +2,9 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Code, ConnectError, createRouterTransport, type Transport } from '@connectrpc/connect';
 import { registryFromProtoText } from '@shared/protocol/grpc-registry';
-import { describe, expect, it, vi } from 'vitest';
-import type { GrpcRequest } from '@/types';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useCollectionStore } from '@/store/useCollectionStore';
+import type { AuthConfig, GrpcRequest } from '@/types';
 import { GrpcStatusCode } from '@/types';
 import { createInteractiveGrpcStreamForTest, startGrpcStream } from '../grpcStreamingClient';
 
@@ -11,6 +12,29 @@ const ECHO_PROTO = readFileSync(
   resolve(__dirname, '../../../../../e2e/mocks/proto/echo.proto'),
   'utf8'
 );
+
+afterEach(() => useCollectionStore.setState({ collections: [] }));
+
+/** Put `baseRequest` inside a folder carrying `auth` so it inherits it. */
+function seedInheritedAuth(auth: AuthConfig) {
+  useCollectionStore.setState({
+    collections: [
+      {
+        id: 'c',
+        name: 'Shop',
+        items: [
+          {
+            id: 'f',
+            name: 'Folder',
+            type: 'folder',
+            auth,
+            items: [{ id: 'r1', name: 'Echo', type: 'request', request: baseRequest }],
+          },
+        ],
+      },
+    ],
+  } as unknown as Partial<ReturnType<typeof useCollectionStore.getState>>);
+}
 
 const baseRequest: GrpcRequest = {
   id: 'r1',
@@ -91,6 +115,22 @@ describe('startGrpcStream — validation', () => {
             awsSignature: { accessKey: 'AK', secretKey: 'SK', region: 'us-east-1', service: 'x' },
           },
         },
+        resolveVariables: (s) => s,
+        protoContent: ECHO_PROTO,
+      })
+    ).rejects.toThrow(/not supported for gRPC/);
+  });
+
+  // Streams resolve inherited folder/collection auth like unary sends do, so an
+  // inherited unsupported type is blocked too rather than sent unauthenticated.
+  it('blocks a stream whose inherited auth type gRPC cannot apply', async () => {
+    seedInheritedAuth({
+      type: 'aws-signature',
+      awsSignature: { accessKey: 'AK', secretKey: 'SK', region: 'us-east-1', service: 'x' },
+    });
+    await expect(
+      startGrpcStream({
+        request: baseRequest,
         resolveVariables: (s) => s,
         protoContent: ECHO_PROTO,
       })
@@ -315,6 +355,27 @@ describe('startGrpcStream — Electron interactive (IPC) path', () => {
       expect(final.trailers['x-t']).toBe('2');
 
       expect(grpc.removeListener).toHaveBeenCalledTimes(3);
+    } finally {
+      uninstallElectronMock();
+    }
+  });
+
+  it('applies inherited folder auth to the IPC stream metadata', async () => {
+    seedInheritedAuth({ type: 'bearer', bearer: { token: 'inherited-tok' } } as AuthConfig);
+    const { grpc } = installElectronMock();
+    try {
+      const handle = await startGrpcStream({
+        request: baseRequest,
+        resolveVariables: (s) => s,
+        protoContent: proto,
+        protoFileName: 'f.proto',
+      });
+      expect(grpc.startStream).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({ authorization: 'Bearer inherited-tok' }),
+        })
+      );
+      handle.cancel();
     } finally {
       uninstallElectronMock();
     }
