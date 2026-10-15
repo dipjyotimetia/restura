@@ -1,4 +1,5 @@
 import { FieldDescriptorProto_Type } from '@bufbuild/protobuf/wkt';
+import { normalizeProtoPath } from '@shared/protocol/grpc-proto-compiler';
 import {
   listServices,
   registryFromDescriptors,
@@ -148,7 +149,8 @@ export function grpcAuthNeedsMainSideApply(auth: AuthConfig): boolean {
 // an import that wasn't uploaded) throws instead of silently dropping RPCs.
 export function parseProtoFile(content: string, fileName = 'schema.proto'): ProtoFileInfo {
   const registry = registryFromProtoText(content, fileName);
-  const fileStem = fileName.replace(/\.proto$/, '');
+  // bufbuild's DescFile.name is the normalized path without `.proto`.
+  const fileStem = (normalizeProtoPath(fileName) || 'schema.proto').replace(/\.proto$/, '');
   const messages: Record<string, ProtoMessageDefinition> = {};
   let pkg = '';
   for (const desc of registry) {

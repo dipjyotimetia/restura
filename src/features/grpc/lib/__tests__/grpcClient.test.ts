@@ -272,6 +272,12 @@ describe('grpcClient', () => {
   });
 
   describe('parseProtoFile', () => {
+    it('lists top-level messages for the default and custom .proto file names', () => {
+      const proto = 'syntax = "proto3"; package p.v1; message Foo { string a = 1; }';
+      expect(Object.keys(parseProtoFile(proto).messages)).toEqual(['Foo']);
+      expect(Object.keys(parseProtoFile(proto, 'dir\\my.proto').messages)).toEqual(['Foo']);
+    });
+
     it('should parse simple proto file', () => {
       const protoContent = `
 syntax = "proto3";
