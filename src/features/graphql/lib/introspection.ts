@@ -19,7 +19,7 @@ import type { GraphQLSchema, IntrospectionResult } from '../types';
  * `@oneOf` RFC) exposes: scalar `specifiedByURL`, directive `isRepeatable`,
  * deprecated arguments / input fields, and `isOneOf` on input objects. Older
  * servers reject these fields with validation errors, so `introspectSchema`
- * retries once with {@link LEGACY_INTROSPECTION_QUERY}.
+ * steps down through {@link INTROSPECTION_QUERY_TIERS}.
  */
 export const EXTENDED_INTROSPECTION_QUERY = getIntrospectionQuery({
   descriptions: true,
@@ -29,8 +29,41 @@ export const EXTENDED_INTROSPECTION_QUERY = getIntrospectionQuery({
   oneOf: true,
 });
 
+/**
+ * The Oct-2021 fields without `isOneOf` — for servers that implement the 2021
+ * spec but predate the `@oneOf` RFC (e.g. graphql-js 16.0–16.8).
+ */
+export const OCT2021_INTROSPECTION_QUERY = getIntrospectionQuery({
+  descriptions: true,
+  specifiedByUrl: true,
+  directiveIsRepeatable: true,
+  inputValueDeprecation: true,
+});
+
 /** The library-default query every spec-compliant server accepts. */
 export const LEGACY_INTROSPECTION_QUERY = getIntrospectionQuery();
+
+/** Tried in order; the next tier runs only when the server rejects the extended fields. */
+export const INTROSPECTION_QUERY_TIERS = [
+  EXTENDED_INTROSPECTION_QUERY,
+  OCT2021_INTROSPECTION_QUERY,
+  LEGACY_INTROSPECTION_QUERY,
+] as const;
+
+/**
+ * Names only the extended tiers ask for. A validation error naming one of them
+ * (`Cannot query field "isOneOf" on type "__Type"`, `Unknown argument
+ * "includeDeprecated" on field "__Field.args"`, graphql-java's
+ * `Field 'specifiedByURL' in type '__Type' is undefined`, …) means the server
+ * doesn't support that tier. Anything else — introspection disabled, rate
+ * limits, auth errors — is a real failure and is returned as-is.
+ */
+const EXTENDED_FIELD_PATTERN =
+  /\b(?:specifiedByU(?:RL|rl)|isRepeatable|isOneOf|includeDeprecated)\b/;
+
+function isUnsupportedFieldError(message: string): boolean {
+  return EXTENDED_FIELD_PATTERN.test(message);
+}
 
 /**
  * Non-2xx statuses on which a GraphQL error body can mean "this query failed
@@ -163,7 +196,9 @@ async function attemptIntrospection(
     const errorMessage = json.errors.map((e) => e.message).join(', ');
     return {
       result: failure(endpoint, `GraphQL errors: ${errorMessage}`),
-      rejectedQuery: !json.data?.__schema,
+      rejectedQuery:
+        !json.data?.__schema &&
+        json.errors.every((e) => isUnsupportedFieldError(String(e?.message ?? ''))),
     };
   }
 
@@ -202,23 +237,16 @@ export async function introspectSchema(
   const { timeout = 30000 } = options;
 
   try {
-    const extended = await attemptIntrospection(
-      endpoint,
-      options,
-      timeout,
-      EXTENDED_INTROSPECTION_QUERY
-    );
-    if (!extended.rejectedQuery) return extended.result;
-
-    // Pre-2021 servers fail validation on specifiedByURL / isRepeatable /
-    // includeDeprecated args / isOneOf. Retry once with the default query.
-    const legacy = await attemptIntrospection(
-      endpoint,
-      options,
-      timeout,
-      LEGACY_INTROSPECTION_QUERY
-    );
-    return legacy.result;
+    // Servers without @oneOf reject isOneOf; pre-2021 servers also reject
+    // specifiedByURL / isRepeatable / includeDeprecated args. Step down a
+    // tier only on those rejections; the default query is the last resort.
+    let result = failure(endpoint, 'Introspection failed');
+    for (const query of INTROSPECTION_QUERY_TIERS) {
+      const attempt = await attemptIntrospection(endpoint, options, timeout, query);
+      result = attempt.result;
+      if (!attempt.rejectedQuery) break;
+    }
+    return result;
   } catch (error) {
     let errorMessage = 'Unknown error occurred';
 
