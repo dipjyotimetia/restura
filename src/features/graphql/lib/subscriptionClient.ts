@@ -6,6 +6,7 @@ import { subscribeGraphQLSse } from './graphqlSseSubscription';
 import { runLegacyWsSubscription } from './legacyWsSubscription';
 import {
   AUTO_SUBPROTOCOLS,
+  assertWebSocketUrl,
   describeSubscriptionError,
   GRAPHQL_TRANSPORT_WS_SUBPROTOCOL,
   LEGACY_GRAPHQL_WS_SUBPROTOCOL,
@@ -80,6 +81,16 @@ export class GraphQLSubscriptionClient {
       this.timeoutId = null;
       sink.error(new Error('Connection timeout'));
     }, CONNECT_TIMEOUT_MS);
+    try {
+      this.start(options, sink);
+    } catch (err) {
+      // e.g. the browser WebSocket constructor throws a SyntaxError on a
+      // malformed / unresolved-{{var}} URL — fail now, not at the 30 s timeout.
+      sink.error(err);
+    }
+  }
+
+  private start(options: SubscriptionOptions, sink: SubscriptionSink): void {
     const protocol = options.protocol ?? 'auto';
 
     switch (protocol) {
@@ -205,6 +216,11 @@ export class GraphQLSubscriptionClient {
   /**
    * `auto`: open one socket offering both subprotocols and hand it to the client
    * for whichever the server selected — no second handshake.
+   *
+   * Legacy `subscriptions-transport-ws` servers on a default `ws` server accept
+   * the FIRST offered subprotocol (`graphql-transport-ws`) and then close with
+   * 1002 because it isn't theirs. When the adopted socket closes like that
+   * before any frame arrives, fall back once to a legacy-only socket.
    */
   private negotiate(options: SubscriptionOptions, sink: SubscriptionSink): void {
     const wsUrl = toWebSocketUrl(options.url);
@@ -226,7 +242,11 @@ export class GraphQLSubscriptionClient {
       this.negotiating = null;
       socket.onopen = null;
       socket.onerror = null;
-      socket.onclose = null;
+      // Buffer a close that lands before the graphql-ws client adopts the socket.
+      let earlyClose: { code: number; reason: string } | null = null;
+      socket.onclose = (ev) => {
+        earlyClose = ev;
+      };
       if (socket.protocol === LEGACY_GRAPHQL_WS_SUBPROTOCOL) {
         this.unsubscribe = runLegacyWsSubscription(
           socket,
@@ -235,7 +255,44 @@ export class GraphQLSubscriptionClient {
         );
         return;
       }
-      this.runTransportWs(options, sink, socket);
+      const gen = this.generation;
+      let fellBack = false;
+      const guarded: SubscriptionSink = {
+        connected: (p) => {
+          if (!fellBack) sink.connected(p);
+        },
+        next: (v) => {
+          if (!fellBack) sink.next(v);
+        },
+        error: (e) => {
+          if (!fellBack) sink.error(e);
+        },
+        complete: () => {
+          if (!fellBack) sink.complete();
+        },
+      };
+      const fallBackToLegacy = (): void => {
+        if (fellBack || gen !== this.generation) return;
+        fellBack = true;
+        const client = this.client;
+        this.client = null;
+        this.unsubscribe = null;
+        client?.dispose();
+        try {
+          this.unsubscribe = runLegacyWsSubscription(
+            openSubscriptionSocket(wsUrl, [LEGACY_GRAPHQL_WS_SUBPROTOCOL], this.headers),
+            { ...this.operation(options), ...this.connectionParams() },
+            sink
+          );
+        } catch (err) {
+          sink.error(err);
+        }
+      };
+      this.runTransportWs(options, guarded, {
+        socket,
+        takeEarlyClose: () => earlyClose,
+        onProtocolRejected: fallBackToLegacy,
+      });
     };
   }
 
@@ -243,9 +300,10 @@ export class GraphQLSubscriptionClient {
   private runTransportWs(
     options: SubscriptionOptions,
     sink: SubscriptionSink,
-    adopted?: SubscriptionSocket
+    adopted?: AdoptedSocket
   ): void {
     const wsUrl = toWebSocketUrl(options.url);
+    assertWebSocketUrl(wsUrl);
     // Desktop: a renderer-direct WebSocket is CSP-blocked, so tunnel graphql-ws
     // over the WebSocket IPC bridge. Web keeps the native WebSocket.
     const webSocketImpl = adopted
@@ -279,13 +337,24 @@ export class GraphQLSubscriptionClient {
   }
 }
 
+/** Close codes meaning "the server doesn't actually speak graphql-transport-ws". */
+const PROTOCOL_REJECTED_CLOSE_CODES = new Set([1002, 4406]);
+
+interface AdoptedSocket {
+  socket: SubscriptionSocket;
+  /** A close that arrived between negotiation and adoption, if any. */
+  takeEarlyClose: () => { code: number; reason: string } | null;
+  /** Called (instead of surfacing the close) when the server rejects the protocol pre-frame. */
+  onProtocolRejected: () => void;
+}
+
 /**
  * A WebSocket class for graphql-ws's `webSocketImpl` whose FIRST instance adopts
  * the socket `auto` already negotiated on (firing `onopen` once graphql-ws has
  * attached its handlers); retries open fresh graphql-transport-ws sockets.
  */
-function createAdoptingSocketClass(adopted: SubscriptionSocket, headers: Record<string, string>) {
-  let pending: SubscriptionSocket | null = adopted;
+function createAdoptingSocketClass(adopted: AdoptedSocket, headers: Record<string, string>) {
+  let pending: SubscriptionSocket | null = adopted.socket;
   return class AdoptingSocket {
     static readonly CONNECTING = 0;
     static readonly OPEN = 1;
@@ -304,11 +373,26 @@ function createAdoptingSocketClass(adopted: SubscriptionSocket, headers: Record<
       pending = null;
       this.inner =
         reuse ?? openSubscriptionSocket(url, [GRAPHQL_TRANSPORT_WS_SUBPROTOCOL], headers);
+      let sawFrame = false;
+      const handleClose = (ev: { code: number; reason: string }): void => {
+        if (reuse && !sawFrame && PROTOCOL_REJECTED_CLOSE_CODES.has(ev.code)) {
+          adopted.onProtocolRejected();
+          return;
+        }
+        this.onclose?.(ev);
+      };
       this.inner.onopen = (ev) => this.onopen?.(ev);
-      this.inner.onmessage = (ev) => this.onmessage?.(ev);
+      this.inner.onmessage = (ev) => {
+        sawFrame = true;
+        this.onmessage?.(ev);
+      };
       this.inner.onerror = (ev) => this.onerror?.(ev);
-      this.inner.onclose = (ev) => this.onclose?.(ev);
-      if (reuse && reuse.readyState === SOCKET_OPEN) {
+      this.inner.onclose = handleClose;
+      if (!reuse) return;
+      const early = adopted.takeEarlyClose();
+      if (early) {
+        queueMicrotask(() => handleClose(early));
+      } else if (reuse.readyState === SOCKET_OPEN) {
         queueMicrotask(() => this.onopen?.({ type: 'open' }));
       }
     }

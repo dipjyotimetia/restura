@@ -54,7 +54,15 @@ export interface LegacyGraphqlWsServerHandle {
 }
 
 export async function startLegacyGraphqlWsServer(
-  opts: { rejectInit?: boolean } = {}
+  opts: {
+    rejectInit?: boolean;
+    /**
+     * Mimic the real `subscriptions-transport-ws` server: no `handleProtocols`,
+     * so `ws` accepts the FIRST offered subprotocol, then the server closes
+     * with 1002 unless that subprotocol is `graphql-ws`.
+     */
+    acceptFirstOffered?: boolean;
+  } = {}
 ): Promise<LegacyGraphqlWsServerHandle> {
   const received: Array<Record<string, unknown>> = [];
   let lastProtocol: string | undefined;
@@ -65,11 +73,20 @@ export async function startLegacyGraphqlWsServer(
     server: http,
     perMessageDeflate: false,
     // Only the legacy subprotocol — a modern-only offer fails the handshake.
-    handleProtocols: (protocols) => (protocols.has('graphql-ws') ? 'graphql-ws' : false),
+    ...(opts.acceptFirstOffered
+      ? {}
+      : {
+          handleProtocols: (protocols: Set<string>) =>
+            protocols.has('graphql-ws') ? 'graphql-ws' : false,
+        }),
   });
 
   wss.on('connection', (ws) => {
     lastProtocol = ws.protocol;
+    if (ws.protocol !== 'graphql-ws') {
+      ws.close(1002, 'Unsupported subprotocol');
+      return;
+    }
     const ops = new Map<string, AsyncGenerator<ExecutionResult>>();
     const send = (msg: Record<string, unknown>): void => {
       if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));

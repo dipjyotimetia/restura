@@ -77,8 +77,29 @@ export function openSubscriptionSocket(
   protocols: string[],
   headers: Record<string, string>
 ): SubscriptionSocket {
+  assertWebSocketUrl(url);
   if (isElectron()) return new ElectronGraphQLSocket(url, protocols, headers);
   return new WebSocket(url, protocols) as unknown as SubscriptionSocket;
+}
+
+/**
+ * Throw synchronously on a URL no WebSocket can open (malformed, unresolved
+ * `{{var}}`, wrong scheme) so callers fail fast instead of waiting for the
+ * connect timeout — graphql-ws would otherwise swallow the constructor error
+ * inside its async connect loop.
+ */
+export function assertWebSocketUrl(url: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new SyntaxError(`Invalid WebSocket URL: ${url}`);
+  }
+  if (parsed.protocol !== 'ws:' && parsed.protocol !== 'wss:') {
+    throw new SyntaxError(
+      `Invalid WebSocket URL scheme "${parsed.protocol}" (expected ws/wss or http/https)`
+    );
+  }
 }
 
 /** Human-readable message for an error value from any protocol client. */

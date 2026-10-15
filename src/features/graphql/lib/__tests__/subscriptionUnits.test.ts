@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runLegacyWsSubscription } from '../legacyWsSubscription';
 import { GraphQLSubscriptionClient, type SubscriptionMessage } from '../subscriptionClient';
 import {
+  assertWebSocketUrl,
   describeSubscriptionError,
   operationPayload,
   type SubscriptionSink,
@@ -62,6 +63,12 @@ afterEach(() => {
 });
 
 describe('subscriptionSocket helpers', () => {
+  it('rejects URLs no WebSocket can open', () => {
+    expect(() => assertWebSocketUrl('wss://api.example/graphql')).not.toThrow();
+    expect(() => assertWebSocketUrl('{{base}}/graphql')).toThrow(/Invalid WebSocket URL/);
+    expect(() => assertWebSocketUrl('ftp://x/graphql')).toThrow(/scheme "ftp:"/);
+  });
+
   it('converts URL schemes both ways', () => {
     expect(toWebSocketUrl('https://a/g')).toBe('wss://a/g');
     expect(toWebSocketUrl('http://a/g')).toBe('ws://a/g');
@@ -212,6 +219,106 @@ describe('GraphQLSubscriptionClient', () => {
     await vi.waitFor(() =>
       expect(messages.find((m) => m.type === 'connected')?.protocol).toBe('graphql-transport-ws')
     );
+    client.disconnect();
+  });
+
+  it.each(['auto', 'graphql-transport-ws', 'subscriptions-transport-ws'] as const)(
+    'fails immediately when the WebSocket constructor throws (%s)',
+    async (protocol) => {
+      vi.useFakeTimers();
+      vi.stubGlobal(
+        'WebSocket',
+        class {
+          constructor() {
+            throw new SyntaxError(
+              "Failed to construct 'WebSocket': The URL '{{base}}' is invalid."
+            );
+          }
+        }
+      );
+      const messages: SubscriptionMessage[] = [];
+      const onError = vi.fn();
+      const client = new GraphQLSubscriptionClient('{{base}}', {});
+      client.connect({
+        url: '{{base}}',
+        query: 'subscription { a }',
+        protocol,
+        onMessage: (m) => messages.push(m),
+        onError,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(onError).toHaveBeenCalledTimes(1);
+      expect(messages.at(-1)?.error).toMatch(/invalid/i);
+      expect(client.isConnected).toBe(false);
+      // The connect timeout was cleared: no second (timeout) error later.
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(messages.filter((m) => m.type === 'error')).toHaveLength(1);
+    }
+  );
+
+  it('fails immediately when the browser WebSocket constructor throws for a valid URL', () => {
+    vi.stubGlobal(
+      'WebSocket',
+      class {
+        constructor() {
+          throw new DOMException('blocked by CSP', 'SecurityError');
+        }
+      }
+    );
+    const messages: SubscriptionMessage[] = [];
+    const onError = vi.fn();
+    const client = new GraphQLSubscriptionClient('ws://x', {});
+    client.connect({
+      url: 'ws://x',
+      query: 'subscription { a }',
+      protocol: 'subscriptions-transport-ws',
+      onMessage: (m) => messages.push(m),
+      onError,
+    });
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(messages.at(-1)).toMatchObject({ type: 'error', error: 'blocked by CSP' });
+  });
+
+  it('auto: a 1002 close buffered before adoption falls back to a legacy-only socket', async () => {
+    vi.stubGlobal('WebSocket', FakeSocket);
+    const client = new GraphQLSubscriptionClient('ws://x', {});
+    const messages: SubscriptionMessage[] = [];
+    client.connect({
+      url: 'ws://x',
+      query: 'subscription { a }',
+      onMessage: (m) => messages.push(m),
+    });
+    const first = FakeSocket.instances[0]!;
+    first.open('graphql-transport-ws');
+    // Server rejects the subprotocol before graphql-ws has adopted the socket.
+    first.readyState = 3;
+    first.onclose?.({ code: 1002, reason: 'Unsupported subprotocol' });
+    await vi.waitFor(() => expect(FakeSocket.instances).toHaveLength(2));
+    const legacy = FakeSocket.instances[1]!;
+    expect(legacy.protocols).toEqual(['graphql-ws']);
+    legacy.open('graphql-ws');
+    legacy.receive({ type: 'connection_ack' });
+    expect(messages.find((m) => m.type === 'connected')?.protocol).toBe('graphql-ws');
+    expect(messages.filter((m) => m.type === 'error')).toEqual([]);
+    client.disconnect();
+  });
+
+  it('auto: other close codes after adoption surface as errors (no fallback)', async () => {
+    vi.stubGlobal('WebSocket', FakeSocket);
+    const client = new GraphQLSubscriptionClient('ws://x', {});
+    const messages: SubscriptionMessage[] = [];
+    client.connect({
+      url: 'ws://x',
+      query: 'subscription { a }',
+      onMessage: (m) => messages.push(m),
+    });
+    const first = FakeSocket.instances[0]!;
+    first.open('graphql-transport-ws');
+    await vi.waitFor(() => expect(first.sent[0]?.type).toBe('connection_init'));
+    first.readyState = 3;
+    first.onclose?.({ code: 4400, reason: 'Bad init' });
+    await vi.waitFor(() => expect(messages.some((m) => m.type === 'error')).toBe(true));
+    expect(FakeSocket.instances).toHaveLength(1);
     client.disconnect();
   });
 });

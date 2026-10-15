@@ -318,6 +318,36 @@ describe('auto subprotocol negotiation', () => {
     expect(dataOf(msgs)).toHaveLength(3);
   });
 
+  it('falls back to legacy when a first-offered server accepts graphql-transport-ws then closes 1002', async () => {
+    const naive = await startLegacyGraphqlWsServer({ acceptFirstOffered: true });
+    try {
+      const { log } = installFakeElectron();
+      const msgs = await run(naive.url, { operationName: 'Ticks' });
+      expect(log.wsConnects.map((c) => c.protocols)).toEqual([
+        ['graphql-transport-ws', 'graphql-ws'],
+        ['graphql-ws'],
+      ]);
+      expect(connectedProtocol(msgs)).toBe('graphql-ws');
+      expect(dataOf(msgs)).toHaveLength(3);
+      expect(msgs.filter((m) => m.type === 'error')).toEqual([]);
+      expect(msgs.at(-1)?.type).toBe('complete');
+    } finally {
+      await naive.close();
+    }
+  });
+
+  it('falls back to legacy on web too', async () => {
+    vi.stubGlobal('WebSocket', WebSocket);
+    const naive = await startLegacyGraphqlWsServer({ acceptFirstOffered: true });
+    try {
+      const msgs = await run(naive.url, {});
+      expect(connectedProtocol(msgs)).toBe('graphql-ws');
+      expect(dataOf(msgs)).toHaveLength(3);
+    } finally {
+      await naive.close();
+    }
+  });
+
   it('reports a failed handshake', async () => {
     installFakeElectron();
     // The plain mock server rejects unknown subprotocol offers on non-graphql paths.
