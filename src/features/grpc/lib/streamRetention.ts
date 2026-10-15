@@ -36,8 +36,9 @@ export function emptyRetained<T>(): RetainedMessages<T> {
 
 /**
  * Mutable bounded FIFO for a single stream run. Sizes are tracked alongside
- * items so eviction never re-measures. The newest message is always kept, even
- * when it alone exceeds the byte budget (it already passed the per-message cap).
+ * items so eviction never re-measures. A single message larger than the byte
+ * budget is dropped (and counted) rather than retained, so the budget is a hard
+ * ceiling even when decoded JSON expands past the wire-level frame cap.
  */
 export class StreamMessageBuffer<T> {
   private readonly items: T[] = [];
@@ -48,6 +49,10 @@ export class StreamMessageBuffer<T> {
   constructor(private readonly limits: StreamRetentionLimits = DEFAULT_LIMITS) {}
 
   push(item: T, size: number): void {
+    if (size > this.limits.maxBytes) {
+      this.dropped += 1;
+      return;
+    }
     this.items.push(item);
     this.sizes.push(size);
     this.bytes += size;

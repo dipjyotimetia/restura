@@ -22,11 +22,11 @@ describe('StreamMessageBuffer', () => {
     expect(buf.snapshot()).toEqual({ items: ['bbbb', 'cccc'], bytes: 8, dropped: 1 });
   });
 
-  it('always keeps the newest message even when it alone exceeds the byte budget', () => {
+  it('drops (and counts) a single message that alone exceeds the byte budget', () => {
     const buf = new StreamMessageBuffer<string>({ maxMessages: 100, maxBytes: 4 });
     buf.push('ab', 2);
     buf.push('0123456789', 10);
-    expect(buf.snapshot()).toEqual({ items: ['0123456789'], bytes: 10, dropped: 1 });
+    expect(buf.snapshot()).toEqual({ items: ['ab'], bytes: 2, dropped: 1 });
   });
 
   it('defaults to the documented message cap', () => {
