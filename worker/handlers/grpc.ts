@@ -31,6 +31,9 @@ function buildFetcher(
       statusText: r.statusText,
       headers: r.headers,
       text: () => r.text(),
+      // Expose the stream so the shared core can read it with a byte cap
+      // instead of buffering a chunked body whole via text() (#933).
+      body: r.body,
       contentLengthHeader: r.headers.get('content-length'),
     };
   };

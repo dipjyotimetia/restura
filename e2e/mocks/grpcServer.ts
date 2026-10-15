@@ -4,20 +4,14 @@ import {
   type Http2Server,
   type ServerHttp2Session,
 } from 'node:http2';
+import { create } from '@bufbuild/protobuf';
 import {
-  ConnectError,
   Code,
+  ConnectError,
   type ConnectRouter as ConnectRouterType,
   type HandlerContext,
 } from '@connectrpc/connect';
 import { connectNodeAdapter } from '@connectrpc/connect-node';
-import { create } from '@bufbuild/protobuf';
-import {
-  EchoService,
-  EchoReplySchema,
-  EchoSummarySchema,
-  type EchoRequest,
-} from './proto/gen/echo_pb';
 import {
   applyCors,
   bindLocalhost,
@@ -25,6 +19,12 @@ import {
   handlePreflight,
   readJson,
 } from '../utils/serverHelpers';
+import {
+  EchoReplySchema,
+  type EchoRequest,
+  EchoService,
+  EchoSummarySchema,
+} from './proto/gen/echo_pb';
 
 export interface MockGrpcServerHandle {
   port: number;
@@ -176,22 +176,55 @@ export async function startMockGrpcServer(): Promise<MockGrpcServerHandle> {
     routes: (router) => registerRoutes(router, counters),
   });
 
-  // The Restura worker POSTs Connect-RPC-shaped JSON to a reflection path that
-  // doesn't exist on the Connect router; intercept those POSTs and respond
-  // with the minimal `listServicesResponse` the UI's reflection client needs.
-  type ReflectionReq = Pick<import('node:http').IncomingMessage, 'method' | 'url'> & {
+  // The Connect router has no ServerReflection service, so intercept reflection
+  // POSTs and answer with the minimal `listServicesResponse` the UI needs. The
+  // Restura Worker sends Connect streaming framing (application/connect+json,
+  // #875) — answer in kind: one data envelope, then an end-stream envelope.
+  // Plain application/json is still accepted for older callers.
+  type ReflectionReq = Pick<import('node:http').IncomingMessage, 'method' | 'url' | 'headers'> & {
     [Symbol.asyncIterator](): AsyncIterableIterator<unknown>;
   };
   type ReflectionRes = {
     setHeader: (name: string, value: string) => unknown;
     writeHead: (status: number, headers?: Record<string, string>) => unknown;
-    end: (chunk?: string) => unknown;
+    end: (chunk?: string | Uint8Array) => unknown;
+  };
+
+  const envelope = (flags: number, payload: unknown): Buffer => {
+    const json = Buffer.from(JSON.stringify(payload));
+    const header = Buffer.alloc(5);
+    header.writeUInt8(flags, 0);
+    header.writeUInt32BE(json.length, 1);
+    return Buffer.concat([header, json]);
   };
 
   async function handleReflection(req: ReflectionReq, res: ReflectionRes): Promise<void> {
     counters.reflection += 1;
-    const body = await readJson<Record<string, unknown>>(req as never);
     res.setHeader('access-control-allow-origin', '*');
+    const contentType = String(req.headers['content-type'] ?? '')
+      .split(';')[0]
+      ?.trim()
+      .toLowerCase();
+
+    if (contentType === 'application/connect+json') {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk as Uint8Array));
+      const raw = Buffer.concat(chunks);
+      const length = raw.length >= 5 ? raw.readUInt32BE(1) : 0;
+      const body = JSON.parse(raw.subarray(5, 5 + length).toString() || '{}') as Record<
+        string,
+        unknown
+      >;
+      const reply =
+        typeof body['listServices'] !== 'undefined'
+          ? { listServicesResponse: { service: [{ name: 'echo.v1.EchoService' }] } }
+          : {};
+      res.writeHead(200, { 'content-type': 'application/connect+json' });
+      res.end(Buffer.concat([envelope(0, reply), envelope(0x02, {})]));
+      return;
+    }
+
+    const body = await readJson<Record<string, unknown>>(req as never);
     if (body && typeof body['listServices'] !== 'undefined') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(

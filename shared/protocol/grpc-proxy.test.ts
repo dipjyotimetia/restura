@@ -176,3 +176,78 @@ describe('executeGrpcProxy', () => {
     }
   });
 });
+
+/**
+ * A chunked (no content-length) body that would grow without bound. `pulled`
+ * counts chunks handed out so tests can prove the read stops at the cap rather
+ * than draining the upstream; `cancelled` flips when the reader gives up.
+ */
+function endlessChunkedBody(chunkBytes = 64 * 1024) {
+  const state = { pulled: 0, cancelled: false };
+  const chunk = new Uint8Array(chunkBytes).fill(0x61);
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      state.pulled++;
+      controller.enqueue(chunk);
+    },
+    cancel() {
+      state.cancelled = true;
+    },
+  });
+  return { stream, state };
+}
+
+describe('executeGrpcProxy bounded body read (#933)', () => {
+  it('aborts a chunked oversize body at the cap with RESOURCE_EXHAUSTED / 413', async () => {
+    const { stream, state } = endlessChunkedBody();
+    const text = vi.fn(async () => 'should not be buffered');
+    const fetcher: Fetcher = async () => ({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      text,
+      body: stream,
+      contentLengthHeader: null,
+    });
+    const r = await executeGrpcProxy(
+      { url: 'https://example.com', service: 'svc.Foo', method: 'Bar', timeout: 5000 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.status).toBe(413);
+      expect((r.payload as { grpcStatus: number }).grpcStatus).toBe(
+        GrpcStatusCode.RESOURCE_EXHAUSTED
+      );
+    }
+    expect(text).not.toHaveBeenCalled();
+    expect(state.cancelled).toBe(true);
+    // 10MB cap / 64KB chunks ≈ 161 pulls (+ the stream's high-water prefetch).
+    expect(state.pulled).toBeLessThan(170);
+  });
+
+  it('reads a streamed body under the cap as JSON', async () => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ ok: 'streamed' }));
+    const fetcher: Fetcher = async () => ({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      text: async () => {
+        throw new Error('text() must not be used when a stream is available');
+      },
+      body: new Response(bytes).body,
+      contentLengthHeader: null,
+    });
+    const r = await executeGrpcProxy(
+      { url: 'https://example.com', service: 'svc.Foo', method: 'Bar', timeout: 5000 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.response.data).toEqual({ ok: 'streamed' });
+      expect(r.response.size).toBe(bytes.byteLength);
+    }
+  });
+});

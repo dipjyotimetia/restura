@@ -3,6 +3,7 @@
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createGrpcHandler, grpc } from '../grpc';
+import { endlessChunkedBody, MAX_PULLS_FOR_10MB_CAP } from './chunked-body';
 
 const app = new Hono<{ Bindings: { ENVIRONMENT?: string } }>();
 app.post('/grpc', grpc);
@@ -230,5 +231,25 @@ describe('grpc handler', () => {
     });
 
     expect(capturedUrl).toBe('https://api.example.com/helloworld.Greeter/SayHello');
+  });
+});
+
+describe('grpc handler bounded upstream read (#933)', () => {
+  it('aborts a chunked oversize upstream body with 413 RESOURCE_EXHAUSTED', async () => {
+    const { stream, state } = endlessChunkedBody();
+    // No content-length: the pre-read header check can't catch it.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(stream, { status: 200 })));
+
+    const res = await makeRequest({
+      url: 'https://api.example.com',
+      service: 'helloworld.Greeter',
+      method: 'SayHello',
+    });
+
+    expect(res.status).toBe(413);
+    const json = (await res.json()) as Record<string, unknown>;
+    expect(json.grpcStatusText).toBe('RESOURCE_EXHAUSTED');
+    expect(state.cancelled).toBe(true);
+    expect(state.pulled).toBeLessThan(MAX_PULLS_FOR_10MB_CAP);
   });
 });

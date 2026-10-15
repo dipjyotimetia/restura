@@ -1,3 +1,4 @@
+import { readBoundedText } from './binary';
 import { GrpcStatusCode, GrpcStatusCodeName } from './grpc-status';
 import { sanitizeRequestHeaders, sanitizeResponseHeaders } from './header-policy';
 import { MAX_RESPONSE_SIZE } from './http-proxy';
@@ -39,10 +40,6 @@ export interface ExecuteGrpcOptions {
 const SERVICE_RE = /^[a-zA-Z][a-zA-Z0-9_.]*$/;
 const METHOD_RE = /^[A-Za-z][a-zA-Z0-9]*$/;
 const DEFAULT_TIMEOUT_MS = 30_000;
-
-function byteLength(s: string): number {
-  return new Blob([s]).size;
-}
 
 const CONNECT_CODE_TO_GRPC: Record<string, GrpcStatusCode> = {
   canceled: GrpcStatusCode.CANCELLED,
@@ -138,14 +135,17 @@ export async function executeGrpcProxy(
         payload: emptyGrpcResponse(GrpcStatusCode.RESOURCE_EXHAUSTED, tooLargeMsg),
       };
     }
-    const text = await response.text();
-    if (text.length > MAX_RESPONSE_SIZE) {
+    // Bounded read: a chunked upstream (no content-length) is cut off at the
+    // cap instead of being buffered whole before the size check.
+    const read = await readBoundedText(response, MAX_RESPONSE_SIZE);
+    if (read === null) {
       return {
         ok: false,
         status: 413,
         payload: emptyGrpcResponse(GrpcStatusCode.RESOURCE_EXHAUSTED, tooLargeMsg),
       };
     }
+    const text = read.text;
 
     const sanitized = sanitizeResponseHeaders(response.headers);
     const trailers: Record<string, string> = {};
@@ -182,7 +182,7 @@ export async function executeGrpcProxy(
         headers: headersOut,
         trailers,
         data,
-        size: byteLength(text),
+        size: read.bytes,
       },
     };
   } catch (err) {

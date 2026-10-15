@@ -54,7 +54,7 @@ export const architecturePolicy: ArchitecturePolicy = {
     'shared/scripts/script-executor.ts': 1_195,
     'electron/main/handlers/http-handler.ts': 861,
     'electron/main/handlers/kafka-handler.ts': 728,
-    'electron/main/handlers/grpc-connect.ts': 819,
+    'electron/main/handlers/grpc-connect.ts': 816,
   },
   // Type scale (UI/UX Phase 6): sizes come from the text-sp-* tokens, 11px
   // minimum. Both counts may only go down.
