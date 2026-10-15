@@ -426,6 +426,43 @@ describe('introspectSchema — extended fields and fallback', () => {
     }
   );
 
+  it.each(['Access to isOneOf is denied', 'Field isRepeatable is restricted for your role'])(
+    'does not retry an unrelated error that merely names an extended field (%s)',
+    async (message) => {
+      mockExecute.mockResolvedValueOnce({
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        data: { errors: [{ message }] },
+      });
+
+      const result = await introspectSchema('https://example.test/graphql');
+
+      expect(mockExecute).toHaveBeenCalledTimes(1);
+      expect(result.success).toBe(false);
+      expect(result.error).toBe(`GraphQL errors: ${message}`);
+    }
+  );
+
+  it.each([
+    "Validation error (FieldUndefined@[__schema/types/isOneOf]) : Field 'isOneOf' in type '__Type' is undefined",
+    "field 'isOneOf' not found in type: '__Type'",
+    'Unknown field "isOneOf" on type "__Type"',
+  ])("steps down a tier on other servers' unsupported-field wording (%s)", async (message) => {
+    mockExecute.mockResolvedValueOnce({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: { errors: [{ message }] },
+    });
+    mockExecute.mockResolvedValueOnce(okIntrospectionResponse());
+
+    const result = await introspectSchema('https://example.test/graphql');
+
+    expect(sentQueries()).toEqual([EXTENDED_INTROSPECTION_QUERY, OCT2021_INTROSPECTION_QUERY]);
+    expect(result.success).toBe(true);
+  });
+
   it('does not retry when an unsupported-field error is mixed with an unrelated one', async () => {
     mockExecute.mockResolvedValueOnce({
       status: 200,

@@ -51,18 +51,23 @@ export const INTROSPECTION_QUERY_TIERS = [
 ] as const;
 
 /**
- * Names only the extended tiers ask for. A validation error naming one of them
- * (`Cannot query field "isOneOf" on type "__Type"`, `Unknown argument
+ * A tier is unsupported when the server answers with a validation rejection
+ * that names a field only the extended tiers ask for: graphql-js's
+ * `Cannot query field "isOneOf" on type "__Type"` / `Unknown argument
  * "includeDeprecated" on field "__Field.args"`, graphql-java's
- * `Field 'specifiedByURL' in type '__Type' is undefined`, …) means the server
- * doesn't support that tier. Anything else — introspection disabled, rate
- * limits, auth errors — is a real failure and is returned as-is.
+ * `Field 'specifiedByURL' in type '__Type' is undefined` /
+ * `(FieldUndefined@[…])`, Hasura's `field 'isRepeatable' not found in type`, …
+ * Both parts must match. Anything else — introspection disabled, rate limits,
+ * auth or access denials (even one naming `isOneOf`) — is a real failure and is
+ * returned as-is.
  */
 const EXTENDED_FIELD_PATTERN =
   /\b(?:specifiedByU(?:RL|rl)|isRepeatable|isOneOf|includeDeprecated)\b/;
+const VALIDATION_REJECTION_PATTERN =
+  /cannot query field|unknown (?:argument|field)|is (?:undefined|not defined)|not found in type|does(?:n't| not) exist|no such (?:field|argument)|FieldUndefined|UnknownArgument/i;
 
 function isUnsupportedFieldError(message: string): boolean {
-  return EXTENDED_FIELD_PATTERN.test(message);
+  return EXTENDED_FIELD_PATTERN.test(message) && VALIDATION_REJECTION_PATTERN.test(message);
 }
 
 /**
