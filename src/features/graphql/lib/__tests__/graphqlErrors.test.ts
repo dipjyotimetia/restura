@@ -246,6 +246,37 @@ describe('sentLocationToRange (variable-substituted queries)', () => {
     });
   });
 
+  it('rejects ambiguous alignments where a value contains the next literal', () => {
+    // `a` between the placeholders could be any of the three sent `a`s.
+    expect(sentLocationToRange('{ {{x}}a{{y}} }', '{ aaa }', { line: 1, column: 3 })).toBeNull();
+    expect(
+      buildErrorMarkers(
+        '{ {{x}}a{{y}} }',
+        parseGraphQLErrors({ errors: [{ message: 'm', locations: [{ line: 1, column: 3 }] }] }),
+        '{ aaa }'
+      )
+    ).toEqual([]);
+  });
+
+  it('still maps when a repeated literal has only one feasible position', () => {
+    // The value `b` can't contain `, ` so the middle literal is pinned.
+    const raw = 'f(a: {{x}}, b: {{y}}) { nme }';
+    const sent = 'f(a: 1, b: 2) { nme }';
+    const range = sentLocationToRange(raw, sent, { line: 1, column: sent.indexOf('nme') + 1 });
+    expect(range?.startColumn).toBe(raw.indexOf('nme') + 1);
+  });
+
+  it('handles a query that starts or ends with a placeholder', () => {
+    const raw = '{{op}} { nme }';
+    const sent = 'query Q { nme }';
+    expect(sentLocationToRange(raw, sent, { line: 1, column: 11 })?.startColumn).toBe(
+      raw.indexOf('nme') + 1
+    );
+    expect(sentLocationToRange('{ a }{{tail}}', '{ a }\n', { line: 1, column: 3 })).toEqual(
+      locationToRange('{ a }', { line: 1, column: 3 })
+    );
+  });
+
   it('returns null when the sent text cannot be aligned with the editor text', () => {
     expect(sentLocationToRange('{ a }', '{ b }', { line: 1, column: 3 })).toBeNull();
     expect(sentLocationToRange('{ {{x}} }', 'query { 1 }', { line: 1, column: 3 })).toBeNull();

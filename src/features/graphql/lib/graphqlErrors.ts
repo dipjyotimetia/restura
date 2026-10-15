@@ -267,6 +267,22 @@ function alignSentText(raw: string, sent: string): AlignedSegment[] | null {
     });
     pos = at + text.length;
   }
+
+  // Ambiguity check: the forward pass placed every literal at its EARLIEST
+  // feasible position; a backward pass places each at its LATEST. Any valid
+  // alignment lies between the two, so they agree iff the alignment is unique.
+  // When they differ, a substituted value contains a following literal (e.g.
+  // `{ {{x}}a{{y}} }` sent as `{ aaa }`) and we can't tell which match is real.
+  let end = sent.length;
+  // Index 0 is the first literal, pinned at offset 0 by `startsWith`.
+  for (let i = segments.length - 1; i > 0; i--) {
+    const seg = segments[i]!;
+    if (seg.kind !== 'literal') continue;
+    const len = seg.sentEnd - seg.sentStart;
+    const latest = sent.lastIndexOf(raw.slice(seg.rawStart, seg.rawEnd), end - len);
+    if (latest !== seg.sentStart) return null;
+    end = latest;
+  }
   return segments;
 }
 
