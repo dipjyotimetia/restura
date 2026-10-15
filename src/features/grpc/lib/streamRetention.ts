@@ -28,6 +28,15 @@ export interface RetainedMessages<T> {
   items: T[];
   bytes: number;
   dropped: number;
+  /** Per-item UTF-8 sizes parallel to `items`; re-measured when absent. */
+  sizes?: number[];
+}
+
+const encoder = new TextEncoder();
+
+/** UTF-8 byte length of `text` — the unit the retention budget is expressed in. */
+export function utf8Bytes(text: string): number {
+  return encoder.encode(text).length;
 }
 
 export function emptyRetained<T>(): RetainedMessages<T> {
@@ -67,14 +76,19 @@ export class StreamMessageBuffer<T> {
   }
 
   snapshot(): RetainedMessages<T> {
-    return { items: [...this.items], bytes: this.bytes, dropped: this.dropped };
+    return {
+      items: [...this.items],
+      bytes: this.bytes,
+      dropped: this.dropped,
+      sizes: [...this.sizes],
+    };
   }
 }
 
 /**
  * Immutable append for React state: returns a new window with `text` added and
- * the oldest messages evicted past the limits. Size is the UTF-16 length, a
- * cheap proxy for the retained string's memory.
+ * the oldest messages evicted past the limits. Sizes are UTF-8 bytes; retained
+ * items keep their measured size so reseeding never re-encodes them.
  */
 export function appendRetained(
   prev: RetainedMessages<string>,
@@ -83,8 +97,8 @@ export function appendRetained(
 ): RetainedMessages<string> {
   const buf = new StreamMessageBuffer<string>(limits);
   // Re-seeding keeps eviction in one place; windows are small (≤ maxMessages).
-  for (const item of prev.items) buf.push(item, item.length);
-  buf.push(text, text.length);
+  prev.items.forEach((item, i) => buf.push(item, prev.sizes?.[i] ?? utf8Bytes(item)));
+  buf.push(text, utf8Bytes(text));
   const next = buf.snapshot();
   return { ...next, dropped: prev.dropped + next.dropped };
 }
@@ -92,5 +106,6 @@ export function appendRetained(
 /** Wrap an already-bounded list (e.g. a finished response's messages). */
 export function retainedFrom(items: string[] | undefined, dropped = 0): RetainedMessages<string> {
   const list = items ?? [];
-  return { items: list, bytes: list.reduce((n, s) => n + s.length, 0), dropped };
+  const sizes = list.map(utf8Bytes);
+  return { items: list, bytes: sizes.reduce((n, b) => n + b, 0), dropped, sizes };
 }

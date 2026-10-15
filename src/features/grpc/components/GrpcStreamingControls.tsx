@@ -95,7 +95,7 @@ export function GrpcStreamingMessages({
   /** Earlier messages evicted by the renderer's retention bound. */
   dropped?: number;
 }) {
-  if (messages.length === 0) return null;
+  if (messages.length === 0 && dropped === 0) return null;
 
   return (
     <div className="space-y-2">

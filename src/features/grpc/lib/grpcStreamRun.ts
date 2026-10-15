@@ -14,7 +14,7 @@ import type { StreamRunHooks } from '@/features/registry/types';
 import type { GrpcRequest, GrpcResponse, GrpcStatusCode } from '@/types';
 import { GrpcStatusCodeName } from '@/types';
 import { type GrpcStreamFinal, startGrpcStream } from './grpcStreamingClient';
-import { StreamMessageBuffer } from './streamRetention';
+import { StreamMessageBuffer, utf8Bytes } from './streamRetention';
 
 export interface GrpcStreamRunArgs {
   request: GrpcRequest;
@@ -90,7 +90,7 @@ export async function runGrpcStreamCall(args: GrpcStreamRunArgs): Promise<GrpcSt
     try {
       for await (const msg of handle.messages) {
         const text = JSON.stringify(msg) ?? 'null';
-        retained.push({ msg, text }, text.length);
+        retained.push({ msg, text }, utf8Bytes(text));
         hooks?.onMessage?.(msg);
       }
     } catch {

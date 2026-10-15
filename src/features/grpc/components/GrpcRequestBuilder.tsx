@@ -237,7 +237,7 @@ function GrpcRequestBuilder() {
       { value: 'settings', label: 'Settings' },
       { value: 'scripts', label: 'Scripts', ...(hasScripts ? { badge: 'on' } : {}) },
     ];
-    if (streamingMessages.length > 0) {
+    if (streamingMessages.length > 0 || streamLog.dropped > 0) {
       tabs.push({ value: 'streaming', label: 'Stream', count: streamingMessages.length });
     }
     if (currentRequest?.methodType && currentRequest.methodType !== 'unary') {
@@ -249,6 +249,7 @@ function GrpcRequestBuilder() {
     currentRequest?.auth.type,
     currentRequest?.methodType,
     hasScripts,
+    streamLog.dropped,
     streamingMessages.length,
   ]);
 
@@ -708,11 +709,12 @@ function GrpcRequestBuilder() {
               />
             )}
 
-            {activeTab === 'streaming' && streamingMessages.length > 0 && (
-              <div className="p-3">
-                <GrpcStreamingMessages messages={streamingMessages} dropped={streamLog.dropped} />
-              </div>
-            )}
+            {activeTab === 'streaming' &&
+              (streamingMessages.length > 0 || streamLog.dropped > 0) && (
+                <div className="p-3">
+                  <GrpcStreamingMessages messages={streamingMessages} dropped={streamLog.dropped} />
+                </div>
+              )}
 
             {activeTab === 'web-stream' && grpcRequest.methodType !== 'unary' && (
               <GrpcStreamingPanel

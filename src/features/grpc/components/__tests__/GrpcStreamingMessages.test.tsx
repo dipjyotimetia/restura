@@ -16,4 +16,9 @@ describe('GrpcStreamingMessages', () => {
     expect(screen.getByText('Message 4')).toBeTruthy();
     expect(screen.getByText('Message 5')).toBeTruthy();
   });
+
+  it('still shows the dropped notice when no messages are retained', () => {
+    render(<GrpcStreamingMessages messages={[]} dropped={1} />);
+    expect(screen.getByRole('status').textContent).toMatch(/1 earlier message dropped/);
+  });
 });
