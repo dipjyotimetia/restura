@@ -148,6 +148,13 @@ export interface ElectronWebSocketAPI {
     url: string;
     headers?: Record<string, string>;
     protocols?: string[];
+    /**
+     * Header-shaped auth descriptor whose SecretRef handle(s) the renderer
+     * can't read; resolved main-side into the handshake (ADR-0007).
+     */
+    auth?: unknown;
+    /** SecretRef-backed `{{vars}}` referenced from url/headers/auth. */
+    secretVariables?: Record<string, ProtocolSecretValue>;
   }) => Promise<{ success: boolean; error?: string }>;
   send: (config: {
     connectionId: string;

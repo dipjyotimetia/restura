@@ -20,6 +20,7 @@ import {
   resolvePolicyTransport,
 } from '../security/policy-transport';
 import { createPinnedLookup, resolveSafeAddress } from '../security/safe-connect';
+import { materializeWsHandshakeAuth } from '../security/ws-handshake-auth';
 
 const log = createLogger('websocket');
 
@@ -110,17 +111,8 @@ export function registerWebSocketHandlerIPC(): void {
   // event.sender.id and target IPC emissions to the originating renderer window.
   ipcMain.handle(IPC.ws.connect, async (event, rawConfig: unknown) => {
     assertTrustedSender(IPC.ws.connect, event);
-    const config = validateIpcInput(WsConnectSchema, rawConfig, IPC.ws.connect);
-    let policyConfig: ReturnType<typeof applyWebSocketPolicyConfig>;
-    try {
-      policyConfig = applyWebSocketPolicyConfig(config.url);
-    } catch (err) {
-      return {
-        success: false,
-        error: err instanceof Error ? err.message : 'Connection policy rejected',
-      };
-    }
-    const connectionId = config.connectionId;
+    const validated = validateIpcInput(WsConnectSchema, rawConfig, IPC.ws.connect);
+    const connectionId = validated.connectionId;
     const webContentsId = event.sender.id;
 
     if (!wsRateLimiter.check(webContentsId)) {
@@ -129,6 +121,42 @@ export function registerWebSocketHandlerIPC(): void {
 
     if (connections.size() + pendingConnections.size >= MAX_CONCURRENT_WS_CONNECTIONS) {
       return { success: false, error: 'Too many open connections.' };
+    }
+
+    // Opaque handshake credentials (GraphQL subscriptions, #878/#882): SecretRef
+    // handle auth and SecretRef-backed {{vars}} resolve here, after the rate /
+    // capacity gates (no free keychain or vault lookups) and BEFORE the policy
+    // and SSRF checks, which must see the final URL. Plaintext stays in main
+    // (ADR-0007) and is never echoed back. Plain connects skip this entirely
+    // (no await), so their claim is still reserved synchronously.
+    let config = validated;
+    if (validated.auth !== undefined || Object.keys(validated.secretVariables ?? {}).length > 0) {
+      try {
+        config = {
+          ...validated,
+          ...(await materializeWsHandshakeAuth({
+            url: validated.url,
+            headers: validated.headers,
+            auth: validated.auth,
+            secretVariables: validated.secretVariables,
+          })),
+        };
+      } catch (err) {
+        return {
+          success: false,
+          error: `WebSocket auth setup failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+        };
+      }
+    }
+
+    let policyConfig: ReturnType<typeof applyWebSocketPolicyConfig>;
+    try {
+      policyConfig = applyWebSocketPolicyConfig(config.url);
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : 'Connection policy rejected',
+      };
     }
 
     // Reserve this renderer's id synchronously before DNS or transport

@@ -21,12 +21,14 @@ const wsMock = vi.hoisted(() => {
     readyState = 1; // OPEN
     protocol = '';
     url: string;
+    options: { headers?: Record<string, string> } | undefined;
     send = vi.fn();
     close = vi.fn();
     terminate = vi.fn();
     private listeners = new Map<string, Array<(...args: unknown[]) => void>>();
-    constructor(url: string) {
+    constructor(url: string, _protocols?: unknown, options?: { headers?: Record<string, string> }) {
       this.url = url;
+      this.options = options;
       FakeWebSocket.instances.push(this);
     }
     on(evt: string, cb: (...args: unknown[]) => void): this {
@@ -47,6 +49,20 @@ vi.mock('ws', () => ({ default: wsMock.FakeWebSocket }));
 // StreamRegistry emits through ipc-utils; mock it so emissions are observable
 // and the real `electron` import inside ipc-utils never loads.
 vi.mock('../ipc/ipc-utils', () => ({ emitTo: mockEmitTo }));
+// Keychain stand-in for SecretRef handles (#882): only "main" can map a
+// handle id to plaintext.
+const KEYCHAIN: Record<string, string> = {
+  'h-token': 'keychain-token',
+};
+vi.mock('../security/secret-handle-store', () => ({
+  unwrapSecretValueMain: (v: unknown): string | undefined => {
+    if (typeof v === 'string') return v;
+    const ref = v as { kind?: string; value?: string; id?: string } | undefined;
+    if (ref?.kind === 'inline') return ref.value;
+    if (ref?.kind === 'handle') return ref.id ? KEYCHAIN[ref.id] : undefined;
+    return undefined;
+  },
+}));
 vi.mock('../security/safe-connect', () => ({
   resolveSafeAddress: mockResolveSafe,
   createPinnedLookup: () => vi.fn(),
@@ -431,6 +447,77 @@ describe('websocket-handler', () => {
     for (const ws of wsMock.FakeWebSocket.instances) {
       expect(ws.terminate).toHaveBeenCalled();
     }
+  });
+
+  describe('main-side handshake auth (GraphQL subscriptions, #878/#882)', () => {
+    it('resolves a handle-backed Bearer into the upgrade headers; IPC reply carries no plaintext', async () => {
+      const { event } = makeEvent();
+      const res = await handlerFor(IPC.ws.connect)(event, {
+        ...validConnect('gql-1'),
+        headers: { 'X-Tenant': 'acme' },
+        auth: { type: 'bearer', bearer: { token: { kind: 'handle', id: 'h-token' } } },
+      });
+      expect(res).toEqual({ success: true });
+      expect(JSON.stringify(res)).not.toContain('keychain-token');
+      const ws = wsMock.FakeWebSocket.instances[0]!;
+      expect(ws.options?.headers).toEqual({
+        'X-Tenant': 'acme',
+        Authorization: 'Bearer keychain-token',
+      });
+    });
+
+    it('appends a handle-backed query API key before the SSRF check', async () => {
+      const { event } = makeEvent();
+      await handlerFor(IPC.ws.connect)(event, {
+        ...validConnect('gql-2'),
+        auth: {
+          type: 'api-key',
+          apiKey: { key: 'api_key', value: { kind: 'handle', id: 'h-token' }, in: 'query' },
+        },
+      });
+      const finalUrl = 'wss://echo.example.com/socket?api_key=keychain-token';
+      expect(mockResolveSafe).toHaveBeenCalledWith(finalUrl, expect.anything());
+      expect(wsMock.FakeWebSocket.instances[0]?.url).toBe(finalUrl);
+    });
+
+    it('materializes SecretRef-backed {{vars}} in handshake headers', async () => {
+      const { event } = makeEvent();
+      await handlerFor(IPC.ws.connect)(event, {
+        connectionId: 'gql-3',
+        url: 'wss://placeholder.invalid/graphql',
+        headers: { 'X-Secret': '{{tok}}' },
+        secretVariables: { tok: { kind: 'handle', id: 'h-token' } },
+      });
+      expect(wsMock.FakeWebSocket.instances[0]?.options?.headers).toEqual({
+        'X-Secret': 'keychain-token',
+      });
+    });
+
+    it('fails without a socket when a handle is unavailable, without echoing secrets', async () => {
+      const { event } = makeEvent();
+      const res = await handlerFor(IPC.ws.connect)(event, {
+        ...validConnect('gql-4'),
+        secretVariables: { gone: { kind: 'handle', id: 'missing' } },
+      });
+      expect(res.success).toBe(false);
+      expect(res.error).toMatch(/WebSocket auth setup failed: Secret variable "gone"/);
+      expect(mockResolveSafe).not.toHaveBeenCalled();
+      expect(wsMock.FakeWebSocket.instances).toHaveLength(0);
+    });
+
+    it('rejects malformed auth / oversized secretVariables at the Zod boundary', async () => {
+      const { event } = makeEvent();
+      await expect(
+        handlerFor(IPC.ws.connect)(event, { ...validConnect('gql-5'), auth: { type: 'kerberos' } })
+      ).rejects.toThrow(/Invalid IPC payload for ws:connect/);
+      const tooMany = Object.fromEntries(
+        Array.from({ length: 101 }, (_, i) => [`v${i}`, { kind: 'handle', id: `h${i}` }])
+      );
+      await expect(
+        handlerFor(IPC.ws.connect)(event, { ...validConnect('gql-6'), secretVariables: tooMany })
+      ).rejects.toThrow(/Invalid IPC payload for ws:connect/);
+      expect(wsMock.FakeWebSocket.instances).toHaveLength(0);
+    });
   });
 
   it('fails clearly when execution policy proxy cannot be honored by DNS-pinned lookup', async () => {

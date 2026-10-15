@@ -1,6 +1,6 @@
 import type { FormField } from '@shared/protocol/body-builder';
-import type { ProtocolSecretValue as SecretValue } from '@shared/protocol/types';
 import { isProtocolExternalSecret } from '@shared/protocol/secret-value-schema';
+import type { ProtocolSecretValue as SecretValue } from '@shared/protocol/types';
 import { desktopExternalSecretResolver } from './external-secret-providers';
 import { unwrapSecretValueMain } from './secret-handle-store';
 
@@ -13,14 +13,13 @@ export interface SecretVariableHttpConfig {
   secretVariables?: Record<string, SecretValue>;
 }
 
-/** Materialize opaque SecretRef variables only in Electron main, before the wire request. */
-export async function materializeSecretVariables<T extends SecretVariableHttpConfig>(
-  config: T,
+/** Resolve SecretRef-backed variables to plaintext (main process only). */
+export async function resolveSecretVariableValues(
+  secretVariables: Record<string, SecretValue>,
   signal?: AbortSignal
-): Promise<T> {
-  if (!config.secretVariables || Object.keys(config.secretVariables).length === 0) return config;
+): Promise<Record<string, string>> {
   const values: Record<string, string> = {};
-  for (const [name, value] of Object.entries(config.secretVariables)) {
+  for (const [name, value] of Object.entries(secretVariables)) {
     const plaintext = isProtocolExternalSecret(value)
       ? await desktopExternalSecretResolver.resolve(value, { signal })
       : unwrapSecretValueMain(value);
@@ -28,8 +27,22 @@ export async function materializeSecretVariables<T extends SecretVariableHttpCon
       throw new Error(`Secret variable "${name}" is unavailable on this desktop device`);
     values[name] = plaintext;
   }
-  const replace = (text: string) =>
-    text.replace(/\{\{\s*([^{}\s]+)\s*\}\}/g, (match, name: string) => values[name] ?? match);
+  return values;
+}
+
+/** Replace `{{name}}` tokens with resolved secret-variable values; unknown tokens stay. */
+export function replaceSecretVariableTokens(text: string, values: Record<string, string>): string {
+  return text.replace(/\{\{\s*([^{}\s]+)\s*\}\}/g, (match, name: string) => values[name] ?? match);
+}
+
+/** Materialize opaque SecretRef variables only in Electron main, before the wire request. */
+export async function materializeSecretVariables<T extends SecretVariableHttpConfig>(
+  config: T,
+  signal?: AbortSignal
+): Promise<T> {
+  if (!config.secretVariables || Object.keys(config.secretVariables).length === 0) return config;
+  const values = await resolveSecretVariableValues(config.secretVariables, signal);
+  const replace = (text: string) => replaceSecretVariableTokens(text, values);
   return {
     ...config,
     url: replace(config.url),

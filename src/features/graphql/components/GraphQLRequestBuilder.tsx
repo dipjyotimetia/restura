@@ -22,7 +22,6 @@ import { Button } from '@/components/ui/button';
 import { Floater, type SubTab, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
-import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import { formatQuery } from '@/features/graphql/lib/formatter';
 import {
   GRAPHQL_SENT_BODY_OPTION,
@@ -42,6 +41,7 @@ import {
 } from '@/features/graphql/lib/operationSelection';
 import { buildGraphQLRequestBody } from '@/features/graphql/lib/queryParser';
 import { describeSchemaProvenance } from '@/features/graphql/lib/schemaImport';
+import { prepareSubscriptionHandshake } from '@/features/graphql/lib/subscriptionAuth';
 import { GraphQLSubscriptionClient } from '@/features/graphql/lib/subscriptionClient';
 import {
   appendSubscriptionLog,
@@ -61,7 +61,6 @@ import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { cn } from '@/lib/shared/utils';
 import { useActiveRequest, useActiveTab } from '@/store/selectors';
 import { createProtocolConsoleEntry, useConsoleStore } from '@/store/useConsoleStore';
-import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useUiStore } from '@/store/useUiStore';
@@ -70,6 +69,7 @@ import { GraphQLSubscriptionErrors } from './GraphQLSubscriptionErrors';
 import { LoadSchemaDialog } from './LoadSchemaDialog';
 import SchemaExplorer from './SchemaExplorer';
 import { SubscriptionProtocolSelect } from './SubscriptionProtocolSelect';
+import { SubscriptionAuthNotice } from './SubscriptionAuthNotice';
 
 const REPLACE_IMPORTED_CONFIRM = {
   title: 'Replace imported schema?',
@@ -96,7 +96,6 @@ function GraphQLRequestBuilder() {
   const setScriptResultForTab = useRequestStore((s) => s.setScriptResultForTab);
   const isLoading = useRequestStore((s) => s.isLoading);
   const url = currentRequest?.url ?? '';
-  const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const fetchSchema = useGraphQLSchemaStore((s) => s.fetchSchema);
   const importedSchema = currentRequest?.graphqlSchema;
   const { result: schemaResult, executable: executableSchema } = useEffectiveGraphQLSchema(
@@ -145,25 +144,14 @@ function GraphQLRequestBuilder() {
   })();
   const queryBytes = new Blob([query]).size;
 
-  const buildHeaders = (): Record<string, string> => {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    for (const header of httpRequest.headers) {
-      if (header.enabled && header.key) {
-        headers[resolveVariables(header.key)] = resolveVariables(header.value);
-      }
-    }
-    const credential = buildAuthCredential(httpRequest.auth);
-    Object.assign(headers, credential.headers);
-    return headers;
-  };
-
   const handleSubscribe = (
     operationName = operationState.operationName,
     variablesText = graphqlVariables
   ) => {
-    const resolvedUrl = resolveVariables(httpRequest.url);
+    // Effective auth (inherited, {{vars}} resolved, keychain refs main-side) —
+    // see lib/subscriptionAuth.ts (#878, #882).
+    const handshake = prepareSubscriptionHandshake(httpRequest);
+    const resolvedUrl = handshake.url;
     if (!resolvedUrl) {
       toast.error('URL required');
       return;
@@ -182,8 +170,12 @@ function GraphQLRequestBuilder() {
     const originTabId = activeTabId;
     if (originTabId) useGraphQLErrorStore.getState().clear(originTabId);
 
-    const headers = buildHeaders();
-    const client = new GraphQLSubscriptionClient(resolvedUrl, headers);
+    for (const message of handshake.unapplied) toast.warning(message);
+    const { headers } = handshake;
+    const client = new GraphQLSubscriptionClient(resolvedUrl, headers, {
+      connectionParams: handshake.connectionParams,
+      ...(handshake.mainSide ? { mainSide: handshake.mainSide } : {}),
+    });
     subscriptionClientRef.current = client;
 
     client.connect({
@@ -697,9 +689,7 @@ function GraphQLRequestBuilder() {
 
             {activeTab === 'auth' && (
               <div className="p-3 overflow-auto h-full">
-                <p className="text-sp-11 text-sp-muted font-mono mb-4">
-                  For subscriptions, credentials are sent as WebSocket connection params.
-                </p>
+                {isSubscription && <SubscriptionAuthNotice request={httpRequest} />}
                 <InheritedAuthHint request={httpRequest} />
                 <AuthConfiguration auth={httpRequest.auth} onChange={handleAuthChange} />
               </div>

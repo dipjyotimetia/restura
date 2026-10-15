@@ -1,5 +1,5 @@
 import { isElectron } from '@/lib/shared/platform';
-import { ElectronGraphQLSocket } from './electronGraphQLSocket';
+import { ElectronGraphQLSocket, type MainSideHandshakeAuth } from './electronGraphQLSocket';
 
 /** Subprotocol of the modern graphql-ws protocol. */
 export const GRAPHQL_TRANSPORT_WS_SUBPROTOCOL = 'graphql-transport-ws';
@@ -70,15 +70,17 @@ export function toHttpUrl(url: string): string {
  * Open a WebSocket offering `protocols`. Desktop tunnels over the WS IPC bridge
  * (renderer-direct ws: is CSP-blocked) and sends `headers` on the handshake;
  * the browser API cannot set handshake headers, so web callers carry
- * credentials in the protocol's connection payload instead.
+ * credentials in the protocol's connection payload instead. `mainSide`
+ * (desktop only) carries opaque SecretRef auth resolved by Electron main.
  */
 export function openSubscriptionSocket(
   url: string,
   protocols: string[],
-  headers: Record<string, string>
+  headers: Record<string, string>,
+  mainSide?: MainSideHandshakeAuth
 ): SubscriptionSocket {
   assertWebSocketUrl(url);
-  if (isElectron()) return new ElectronGraphQLSocket(url, protocols, headers);
+  if (isElectron()) return new ElectronGraphQLSocket(url, protocols, headers, mainSide);
   return new WebSocket(url, protocols) as unknown as SubscriptionSocket;
 }
 

@@ -34,12 +34,13 @@ Query and mutation documents POST through the shared HTTP proxy, same as any oth
 WebSocket URLs are derived from the request URL by swapping the scheme (`http(s)://` → `ws(s)://`); graphql-sse does the reverse. The negotiated protocol is shown on the **connected** line of the response panel.
 
 - **Lifecycle** — the response panel steps through **connecting** → **connected** → a stream of **data** messages → **complete** (or **error** if the server rejects the connection or the document). A 30-second connection timeout aborts the attempt if the server never acknowledges.
-- **Web** — uses the browser's native `WebSocket`. Browsers can't set custom handshake headers, so auth rides the `connection_init` payload instead (Restura's request headers become `connectionParams`).
-- **Desktop** — the socket is tunnelled over the WebSocket IPC bridge, which *can* set real handshake headers, so auth is sent as actual headers on the WS upgrade request rather than (or in addition to) `connection_init`.
+- **Same auth as queries** — every protocol uses the tab's *effective* auth: a request with no auth of its own inherits its folder's or collection's, and `{{variables}}` are resolved in the URL, headers, and auth fields. An API key set to **Query Params** is appended to the socket (or graphql-sse request) URL.
+- **Web** — uses the browser's native `WebSocket`. Browsers can't set custom handshake headers, so auth rides the `connection_init` payload instead (Restura's request headers become `connectionParams`); graphql-sse sends it as real HTTP headers through the proxy. Keychain-stored secrets and secret variables can't be resolved on the web; Restura warns and opens the subscription without them rather than sending a placeholder.
+- **Desktop** — the socket is tunnelled over the WebSocket IPC bridge, which *can* set real handshake headers, so auth is sent as actual headers on the WS upgrade request and also in `connection_init`. Keychain-stored secrets (and secret variables) are resolved by the desktop app's main process at connect time and sent as **handshake headers only** (or graphql-sse request headers) — their plaintext never reaches the UI, so it isn't copied into `connection_init`.
 - **Switching operations** — selecting a different operation in a multi-operation document disconnects the running subscription; the chosen operation's name rides the subscription payload as `operationName` on whichever protocol is selected.
 
 <Aside type="note">
-Only header-shaped auth applies to a subscription handshake: Bearer, Basic, API Key, and OAuth 2.0 tokens. Sign-at-wire schemes — Digest, OAuth 1.0a, AWS SigV4, NTLM, WSSE — need the full request body or a challenge/response round-trip, which a WebSocket upgrade doesn't have, so they're not applied to subscriptions even if they're configured on the request.
+Only header-shaped auth applies to a subscription handshake: Bearer, Basic, API Key, and OAuth 2.0 tokens. Sign-at-wire schemes — Digest, OAuth 1.0a, AWS SigV4, NTLM, WSSE — need the full request body or a challenge/response round-trip, which a WebSocket upgrade doesn't have, so they're not applied to subscriptions. The Auth tab shows a warning (and Subscribe raises one) whenever configured auth won't be sent.
 </Aside>
 
 ## Editor features

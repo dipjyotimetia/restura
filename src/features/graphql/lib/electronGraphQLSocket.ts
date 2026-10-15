@@ -1,4 +1,6 @@
 import { getElectronAPI } from '@/lib/shared/platform';
+import type { SecretValue } from '@/lib/shared/secretRef';
+import type { AuthConfig } from '@/types';
 
 // graphql-ws drives a standard WebSocket. On desktop the renderer can't open one
 // directly (packaged CSP blocks ws:/wss:), so this adapter implements the slice
@@ -9,6 +11,15 @@ import { getElectronAPI } from '@/lib/shared/platform';
 // graphql-ws constructs the impl as `new Impl(url, GRAPHQL_TRANSPORT_WS_PROTOCOL)`,
 // so handshake headers (auth) can't ride the constructor — they're closed over by
 // the factory and sent as WS handshake headers via the IPC connect call.
+// SecretRef-handle auth and SecretRef-backed variables travel as opaque refs
+// (`mainSide`) and are resolved in Electron main at wire time (ADR-0007) — the
+// renderer never holds their plaintext.
+
+/** Opaque credential refs Electron main resolves into the WS handshake. */
+export interface MainSideHandshakeAuth {
+  auth?: AuthConfig;
+  secretVariables?: Record<string, SecretValue>;
+}
 
 type Listener = (...args: unknown[]) => void;
 type CloseHandler = (ev: { code: number; reason: string }) => void;
@@ -21,12 +32,15 @@ const channel = (kind: string, id: string): string => `ws:${kind}:${id}`;
  * Build a WebSocket-compatible class (for graphql-ws `webSocketImpl`) that tunnels
  * over the Electron WS IPC bridge. `headers` are sent as handshake headers.
  */
-export function createElectronGraphQLSocketClass(headers: Record<string, string>): {
+export function createElectronGraphQLSocketClass(
+  headers: Record<string, string>,
+  mainSide?: MainSideHandshakeAuth
+): {
   new (url: string, protocol?: string | string[]): ElectronGraphQLSocket;
 } {
   return class extends ElectronGraphQLSocket {
     constructor(url: string, protocol?: string | string[]) {
-      super(url, protocol, headers);
+      super(url, protocol, headers, mainSide);
     }
   };
 }
@@ -57,7 +71,8 @@ export class ElectronGraphQLSocket {
   constructor(
     url: string,
     protocol: string | string[] | undefined,
-    headers: Record<string, string>
+    headers: Record<string, string>,
+    mainSide?: MainSideHandshakeAuth
   ) {
     this.url = url;
     this.connectionId = `gql-sub-${crypto.randomUUID()}`;
@@ -95,6 +110,10 @@ export class ElectronGraphQLSocket {
         url,
         headers,
         ...(protocols.length > 0 ? { protocols } : {}),
+        ...(mainSide?.auth ? { auth: mainSide.auth } : {}),
+        ...(mainSide?.secretVariables && Object.keys(mainSide.secretVariables).length > 0
+          ? { secretVariables: mainSide.secretVariables }
+          : {}),
       })
       .then((res) => {
         if (!res.success) this.fail(res.error ?? 'Connection failed');

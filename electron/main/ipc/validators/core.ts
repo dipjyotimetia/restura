@@ -548,6 +548,11 @@ const WS_HEADER_DENYLIST = new Set([
   'proxy-connection',
 ]);
 
+/** True for handshake headers a WebSocket connect must never forward. */
+export function isDeniedWsHeader(name: string): boolean {
+  return WS_HEADER_DENYLIST.has(name.toLowerCase());
+}
+
 export const WsConnectSchema = z.object({
   connectionId: WsConnectionIdSchema,
   url: z
@@ -566,6 +571,17 @@ export const WsConnectSchema = z.object({
     )
     .optional(),
   protocols: z.array(z.string()).optional(),
+  // GraphQL subscriptions (#878/#882): header-shaped auth whose SecretRef
+  // handle(s) the renderer can't read, and the SecretRef-backed `{{vars}}`
+  // referenced from url/headers/auth. Resolved main-side into the handshake
+  // (ADR-0007) — plaintext never crosses IPC.
+  auth: AuthConfigSchema.optional(),
+  secretVariables: z
+    .record(z.string().min(1).max(256), protocolSecretValueSchema)
+    .refine((vars) => Object.keys(vars).length <= 100, {
+      message: 'Too many secret variables (max 100)',
+    })
+    .optional(),
 });
 
 export const WsSendSchema = z.object({
