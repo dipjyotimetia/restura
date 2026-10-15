@@ -68,6 +68,16 @@ hostile upstream can cause:
 The Worker and self-host server use the runtime `fetch`, which decodes
 responses itself.
 
+### gRPC response limits (desktop)
+
+Both connect-node transports in `electron/main/handlers/grpc-connect.ts` set
+`readMaxBytes` (and `writeMaxBytes`) to the same 10 MB `MAX_RESPONSE_SIZE`
+instead of connect's ~4 GiB default. The limit applies per message: it is
+checked against the envelope length prefix before the payload is buffered, and
+it is handed to gzip/brotli as `maxOutputLength`, so a decompression bomb is
+cut off at the cap. Either trip ends the call with `RESOURCE_EXHAUSTED`
+(status 8) for unary, streaming and reflection calls alike.
+
 ### HTTP methods
 
 `shared/protocol/http-method.ts` is the single method policy for the Worker,

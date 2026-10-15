@@ -4,10 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockRunConnectStream = vi.hoisted(() => vi.fn());
 const mockResolveGrpcDialAddress = vi.hoisted(() => vi.fn());
+const mockExecuteConnectUnary = vi.hoisted(() => vi.fn());
+const mockExecuteConnectServerStreamCollect = vi.hoisted(() => vi.fn());
 
 vi.mock('../handlers/grpc-connect', () => ({
-  executeConnectServerStreamCollect: vi.fn(),
-  executeConnectUnary: vi.fn(),
+  executeConnectServerStreamCollect: mockExecuteConnectServerStreamCollect,
+  executeConnectUnary: mockExecuteConnectUnary,
   resolveGrpcDialAddress: mockResolveGrpcDialAddress,
   runConnectStream: mockRunConnectStream,
 }));
@@ -30,9 +32,12 @@ vi.mock('../security/secret-handle-store', () => ({
 import { ipcMain } from 'electron';
 import { IPC } from '../../shared/channels';
 import {
+  DEFAULT_SYNC_DEADLINE_MS,
   mergeMainSideAuth,
   registerGrpcHandlerIPC,
+  STREAM_IDLE_TIMEOUT_MS,
   stopStreamCleanup,
+  sweepIdleStreams,
 } from '../handlers/grpc-handler';
 
 type StreamControls = {
@@ -368,5 +373,192 @@ describe('mergeMainSideAuth (SecretRef handle resolution)', () => {
     expect(original['traceparent' as keyof typeof original]).toBe('x');
     expect(Object.keys(original)).toEqual(['traceparent']);
     expect(merged).not.toBe(original);
+  });
+});
+
+// GRPC-3 (#879): long-lived streams — idle (not age) sweep, a terminal event on
+// every termination path, and opt-in "no deadline" for streaming only.
+describe('grpc stream lifetime', () => {
+  let callbacks: StreamCallbacks[];
+  let controls: StreamControls[];
+
+  beforeEach(() => {
+    mockOn.mockClear();
+    mockRunConnectStream.mockReset();
+    mockResolveGrpcDialAddress.mockReset();
+    mockResolveGrpcDialAddress.mockResolvedValue(pinnedDial);
+    callbacks = [];
+    controls = [];
+    mockRunConnectStream.mockImplementation((_args: unknown, cb: StreamCallbacks) => {
+      callbacks.push(cb);
+      const c = makeControls();
+      controls.push(c);
+      return c;
+    });
+    registerGrpcHandlerIPC();
+  });
+
+  afterEach(() => {
+    stopStreamCleanup();
+    vi.restoreAllMocks();
+  });
+
+  const errorEvents = (send: ReturnType<typeof vi.fn>, id: string) =>
+    send.mock.calls.filter(([channel]) => channel === `grpc:error:${id}`).map(([, p]) => p);
+
+  it('does not sweep a stream that stays active past the old 5-minute age limit', async () => {
+    const owner = makeEvent();
+    const t0 = Date.now();
+    listenerFor(IPC.grpc.startStream)(owner.event, validStream('active'));
+    await waitForStreamCount(1);
+
+    // Traffic keeps arriving well past 5 minutes of age.
+    vi.spyOn(Date, 'now').mockReturnValue(t0 + STREAM_IDLE_TIMEOUT_MS - 1000);
+    callbacks[0]!.onMessage({ tick: 1 });
+    sweepIdleStreams(t0 + STREAM_IDLE_TIMEOUT_MS + 60_000);
+
+    expect(controls[0]!.cancel).not.toHaveBeenCalled();
+    expect(errorEvents(owner.send, 'active')).toEqual([]);
+    // Still registered: outbound writes reach the call.
+    listenerFor(IPC.grpc.sendMessage)(owner.event, 'active', { text: 'still-open' });
+    expect(controls[0]!.write).toHaveBeenCalledWith({ text: 'still-open' });
+  });
+
+  it('counts outbound writes as activity', async () => {
+    const owner = makeEvent();
+    const t0 = Date.now();
+    listenerFor(IPC.grpc.startStream)(owner.event, validStream('outbound'));
+    await waitForStreamCount(1);
+
+    vi.spyOn(Date, 'now').mockReturnValue(t0 + STREAM_IDLE_TIMEOUT_MS - 1000);
+    listenerFor(IPC.grpc.sendMessage)(owner.event, 'outbound', { text: 'ping' });
+    sweepIdleStreams(t0 + STREAM_IDLE_TIMEOUT_MS + 60_000);
+
+    expect(controls[0]!.cancel).not.toHaveBeenCalled();
+  });
+
+  it('sweeps an idle stream and emits a final CANCELLED event so the UI settles', async () => {
+    const owner = makeEvent();
+    const t0 = Date.now();
+    listenerFor(IPC.grpc.startStream)(owner.event, validStream('idle'));
+    await waitForStreamCount(1);
+    callbacks[0]!.onHeaders({ 'x-server': 'a' });
+
+    sweepIdleStreams(t0 + STREAM_IDLE_TIMEOUT_MS + 60_000);
+
+    expect(controls[0]!.cancel).toHaveBeenCalledOnce();
+    const errors = errorEvents(owner.send, 'idle');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      status: 1,
+      details: expect.stringMatching(/idle/i),
+      headers: { 'x-server': 'a' },
+    });
+
+    // The late onCancelled from the aborted call does not emit a second event.
+    callbacks[0]!.onCancelled();
+    expect(errorEvents(owner.send, 'idle')).toHaveLength(1);
+    // And the stream is gone.
+    listenerFor(IPC.grpc.sendMessage)(owner.event, 'idle', { text: 'late' });
+    expect(controls[0]!.write).not.toHaveBeenCalled();
+  });
+
+  it('emits a final CANCELLED event on an explicit cancel', async () => {
+    const owner = makeEvent();
+    listenerFor(IPC.grpc.startStream)(owner.event, validStream('cancel-me'));
+    await waitForStreamCount(1);
+
+    listenerFor(IPC.grpc.cancelStream)(owner.event, 'cancel-me');
+
+    expect(controls[0]!.cancel).toHaveBeenCalledOnce();
+    expect(errorEvents(owner.send, 'cancel-me')).toEqual([expect.objectContaining({ status: 1 })]);
+  });
+
+  it('emits a final CANCELLED event when the call aborts on its own', async () => {
+    const owner = makeEvent();
+    listenerFor(IPC.grpc.startStream)(owner.event, validStream('aborted'));
+    await waitForStreamCount(1);
+
+    callbacks[0]!.onCancelled();
+
+    expect(errorEvents(owner.send, 'aborted')).toEqual([expect.objectContaining({ status: 1 })]);
+  });
+
+  it('caps each live message, not the stream total, so long streams are not cut at 10 MB', async () => {
+    const owner = makeEvent();
+    listenerFor(IPC.grpc.startStream)(owner.event, validStream('long'));
+    await waitForStreamCount(1);
+
+    const chunk = { payload: 'x'.repeat(1024 * 1024) };
+    for (let i = 0; i < 12; i++) callbacks[0]!.onMessage(chunk);
+    expect(controls[0]!.cancel).not.toHaveBeenCalled();
+    expect(errorEvents(owner.send, 'long')).toEqual([]);
+
+    // A single message over the cap still ends the stream with RESOURCE_EXHAUSTED.
+    callbacks[0]!.onMessage({ payload: 'x'.repeat(10 * 1024 * 1024 + 1) });
+    expect(controls[0]!.cancel).toHaveBeenCalledOnce();
+    expect(errorEvents(owner.send, 'long')).toEqual([expect.objectContaining({ status: 8 })]);
+  });
+
+  it('forwards "no deadline" (timeoutMs 0) for a stream without a deadline', async () => {
+    const owner = makeEvent();
+    listenerFor(IPC.grpc.startStream)(owner.event, { ...validStream('forever'), timeoutMs: 0 });
+    await waitForStreamCount(1);
+    const args = mockRunConnectStream.mock.calls[0]![0] as { timeoutMs?: number };
+    expect(args.timeoutMs ?? 0).toBe(0);
+  });
+});
+
+describe('grpc:request deadlines', () => {
+  type Handler = (event: unknown, config: unknown) => Promise<unknown>;
+  const mockHandle = vi.mocked(ipcMain.handle);
+
+  beforeEach(() => {
+    mockHandle.mockClear();
+    mockExecuteConnectUnary.mockReset();
+    mockExecuteConnectServerStreamCollect.mockReset();
+    mockResolveGrpcDialAddress.mockReset();
+    mockResolveGrpcDialAddress.mockResolvedValue(pinnedDial);
+    mockExecuteConnectUnary.mockResolvedValue({
+      status: 0,
+      statusText: 'OK',
+      headers: {},
+      trailers: {},
+    });
+    mockExecuteConnectServerStreamCollect.mockResolvedValue({
+      status: 0,
+      statusText: 'OK',
+      headers: {},
+      trailers: {},
+      messages: [],
+    });
+    registerGrpcHandlerIPC();
+  });
+
+  afterEach(() => stopStreamCleanup());
+
+  const invoke = (config: unknown) => {
+    const call = mockHandle.mock.calls.find(([channel]) => channel === IPC.grpc.request);
+    return (call?.[1] as Handler)(makeEvent().event, config);
+  };
+
+  it('applies the default deadline to a unary call that omits one', async () => {
+    await invoke({ ...validStream('u1'), methodType: 'unary' });
+    const args = mockExecuteConnectUnary.mock.calls[0]![0] as { timeoutMs?: number };
+    expect(args.timeoutMs).toBe(DEFAULT_SYNC_DEADLINE_MS);
+  });
+
+  it('keeps an explicit unary deadline', async () => {
+    await invoke({ ...validStream('u2'), methodType: 'unary', timeoutMs: 5000 });
+    const args = mockExecuteConnectUnary.mock.calls[0]![0] as { timeoutMs?: number };
+    expect(args.timeoutMs).toBe(5000);
+  });
+
+  it('never runs a buffered server-stream collect without a deadline', async () => {
+    await invoke({ ...validStream('s1'), methodType: 'server-streaming', timeoutMs: 0 });
+    const args = mockExecuteConnectServerStreamCollect.mock.calls[0]![0] as {
+      timeoutMs?: number;
+    };
+    expect(args.timeoutMs).toBe(DEFAULT_SYNC_DEADLINE_MS);
   });
 });

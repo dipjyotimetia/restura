@@ -113,7 +113,8 @@ export function applyGrpcExtension(items: CollectionItem[] | undefined, raw: unk
       if (
         typeof entry.timeout === 'number' &&
         Number.isFinite(entry.timeout) &&
-        entry.timeout > 0
+        // 0 = "No deadline" on a streaming request (unary falls back to the default).
+        entry.timeout >= 0
       ) {
         req.timeout = entry.timeout;
       }

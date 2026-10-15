@@ -239,6 +239,44 @@ describe('startGrpcStream — web server-streaming via ConnectRPC', () => {
   });
 });
 
+describe('startGrpcStream — web server-streaming deadlines (GRPC-3)', () => {
+  const slowTransport = () =>
+    echoTransport(async function* () {
+      await new Promise((res) => setTimeout(res, 80));
+      yield { message: 'late', index: 0 };
+    });
+
+  it('runs with no deadline when timeoutMs is 0', async () => {
+    const handle = await startGrpcStream({
+      request: baseRequest,
+      resolveVariables: (s) => s,
+      protoContent: ECHO_PROTO,
+      transport: slowTransport(),
+      timeoutMs: 0,
+    });
+    const collected: unknown[] = [];
+    for await (const m of handle.messages) collected.push(m);
+    expect(collected).toEqual([{ message: 'late', index: 0 }]);
+    expect((await handle.done).status).toBe(GrpcStatusCode.OK);
+  });
+
+  it('still enforces a finite deadline', async () => {
+    const handle = await startGrpcStream({
+      request: baseRequest,
+      resolveVariables: (s) => s,
+      protoContent: ECHO_PROTO,
+      transport: slowTransport(),
+      timeoutMs: 10,
+    });
+    await expect(
+      (async () => {
+        for await (const _ of handle.messages) void _;
+      })()
+    ).rejects.toThrow();
+    expect((await handle.done).status).toBe(GrpcStatusCode.DEADLINE_EXCEEDED);
+  });
+});
+
 describe('createInteractiveGrpcStreamForTest', () => {
   it('supports client-streaming send and close through an injected transport', async () => {
     const writes: unknown[] = [];

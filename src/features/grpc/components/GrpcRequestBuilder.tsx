@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { KeyValueTable } from '@/components/shared/KeyValueTable';
 import { Button } from '@/components/ui/button';
-import { Floater, SubTabBar, SubTabPanel, TextField } from '@/components/ui/spatial';
+import { Floater, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
 import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import { useGrpcReflection } from '@/features/grpc/hooks/useGrpcReflection';
@@ -15,6 +15,7 @@ import {
   GrpcClientError,
   getMethodTypeDescription,
 } from '@/features/grpc/lib/grpcClient';
+import { grpcDeadlineMs } from '@/features/grpc/lib/grpcDeadline';
 import {
   generateProtoFromReflection,
   generateRequestTemplate,
@@ -49,6 +50,7 @@ import type {
   ReflectionServiceInfo,
 } from '@/types';
 import { GrpcStatusCodeName } from '@/types';
+import { GrpcDeadlineField } from './GrpcDeadlineField';
 import { GrpcInvocationBar } from './GrpcInvocationBar';
 import { GrpcMessageEditor } from './GrpcMessageEditor';
 import { GrpcMethodContext } from './GrpcMethodContext';
@@ -252,7 +254,8 @@ function GrpcRequestBuilder() {
   }
 
   const grpcRequest: GrpcRequest = currentRequest;
-  const timeoutMs = grpcRequest.timeout ?? 30000;
+  // 0 = no deadline (streaming opt-out); unary always gets one.
+  const timeoutMs = grpcDeadlineMs(grpcRequest);
   const protoSnapshot = grpcRequest.schema?.kind === 'proto' ? grpcRequest.schema : null;
   const reflectionResult = reflection.result;
   const reflectionServices: ReflectionServiceInfo[] = reflectionResult?.success
@@ -608,24 +611,11 @@ function GrpcRequestBuilder() {
             value={activeTab}
             onChange={setActiveTab}
             right={
-              <div className="flex items-center gap-2 py-1.5">
-                <span className="sp-label">Timeout (ms)</span>
-                <TextField
-                  mono
-                  size="sm"
-                  type="number"
-                  value={timeoutMs}
-                  onChange={(e) =>
-                    updateRequest({
-                      timeout: Math.max(1000, parseInt(e.target.value, 10) || 30000),
-                    })
-                  }
-                  min={1000}
-                  step={1000}
-                  aria-label="gRPC request timeout in milliseconds"
-                  className="w-24"
-                />
-              </div>
+              <GrpcDeadlineField
+                key={activeTabId ?? 'no-active-tab'}
+                request={grpcRequest}
+                onChange={(timeout) => updateRequest({ timeout })}
+              />
             }
           />
 

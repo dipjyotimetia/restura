@@ -45,7 +45,11 @@ export interface GrpcRequest {
   testScript?: string;
   /** Schema snapshot from reflection or an uploaded `.proto` (see GrpcSchemaSnapshot). */
   schema?: GrpcSchemaSnapshot;
-  /** Per-request deadline in ms (builder default: 30000). */
+  /**
+   * Per-request deadline in ms (builder default: 30000). `0` on a streaming
+   * method = no deadline (see src/features/grpc/lib/grpcDeadline.ts); unary
+   * calls always get one.
+   */
   timeout?: number;
 }
 

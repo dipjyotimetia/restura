@@ -142,9 +142,10 @@ describe('GrpcRequestBuilder — persisted schema snapshot + timeout', () => {
     seed();
     render(<GrpcRequestBuilder />);
     fireEvent.click(screen.getByRole('tab', { name: /Settings/ }));
-    fireEvent.change(screen.getByLabelText('gRPC request timeout in milliseconds'), {
-      target: { value: '5000' },
-    });
+    const timeoutInput = screen.getByLabelText('gRPC request timeout in milliseconds');
+    fireEvent.change(timeoutInput, { target: { value: '5000' } });
+    // The deadline field commits on blur/Enter, not per keystroke.
+    fireEvent.blur(timeoutInput);
     expect(activeRequest().timeout).toBe(5000);
     fireEvent.click(screen.getByRole('button', { name: 'Invoke gRPC method' }));
     await waitFor(() => expect(mocks.run).toHaveBeenCalled());

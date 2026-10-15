@@ -52,6 +52,8 @@ AWS SigV4, OAuth 1.0a, and WSSE are all signed in the **Worker / Electron main p
 
 The desktop app decodes compressed responses itself, so it caps the work a hostile server can cause. It decodes at most **3 stacked `Content-Encoding`s** (more are left raw, with a notice above the body). It refuses **zstd** frames that need a window over **8 MB** (RFC 9659). And it checks the **10 MB** response limit after **every** decode stage, so a middle layer can't inflate past it. HEAD, 204 and 304 responses and empty bodies are never decoded. On the web, the runtime's `fetch` decodes responses.
 
+Desktop gRPC calls have the same **10 MB** limit, per message. It is checked before a message is buffered and again after gzip or brotli decompression, so a small compressed message can't expand past it. A message over the limit ends the call with `RESOURCE_EXHAUSTED`.
+
 ### HTTP method policy
 
 Any RFC 9110 method token is allowed, but `CONNECT`, `TRACE` and `TRACK` are refused in any casing, on every platform. `CONNECT` would turn the proxy into a raw tunnel, and `TRACE` (and IIS's `TRACK`) echo your request headers, credentials included, back in the response. Imports never fail on a bad method: a denied or invalid one becomes `GET`, with a warning.

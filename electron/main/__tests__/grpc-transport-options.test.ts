@@ -14,6 +14,7 @@ vi.mock('../security/secret-handle-store', () => ({
   unwrapSecretValueMain: (v: unknown) => (typeof v === 'string' ? v : undefined),
 }));
 
+import { MAX_RESPONSE_SIZE } from '@shared/protocol/http-proxy';
 import {
   buildConnectFallbackTransport,
   buildConnectTransport,
@@ -118,6 +119,19 @@ describe('buildConnectTransport', () => {
   it('enables gzip send compression when useCompression is set', () => {
     buildConnectTransport('grpc://api.example.com:50051', DIAL, undefined, true);
     expect(lastOptions().sendCompression).toEqual({ name: 'gzip' });
+  });
+});
+
+describe('response-size caps (SEC-G1)', () => {
+  it('caps reads + writes on both transports at MAX_RESPONSE_SIZE (not the ~4 GiB default)', () => {
+    buildConnectTransport('grpc://api.example.com:50051', DIAL);
+    buildConnectFallbackTransport('grpc://api.example.com:50051', DIAL);
+    const native = createGrpcTransportMock.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    const fallback = createConnectTransportMock.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    for (const opts of [native, fallback]) {
+      expect(opts.readMaxBytes).toBe(MAX_RESPONSE_SIZE);
+      expect(opts.writeMaxBytes).toBe(MAX_RESPONSE_SIZE);
+    }
   });
 });
 
