@@ -5,7 +5,7 @@ description: Query builder with schema introspection, variables, subscriptions, 
 
 import { Aside } from '@astrojs/starlight/components';
 
-GraphQL in Restura is HTTP underneath, but the editor knows the spec: it can introspect the endpoint, hint completions from the schema, and run subscriptions over a `graphql-ws` WebSocket.
+GraphQL in Restura is HTTP underneath, but the editor knows the spec: it can introspect the endpoint, hint completions from the schema, and run subscriptions over WebSocket (`graphql-transport-ws` or legacy Apollo `subscriptions-transport-ws`) or Server-Sent Events (`graphql-sse`).
 
 ## What works
 
@@ -17,14 +17,23 @@ GraphQL in Restura is HTTP underneath, but the editor knows the spec: it can int
 - **Persisted queries** — send by hash if the server supports it.
 - **Authentication** — the same auth schemes as HTTP. Most teams ship a Bearer token here.
 - **Headers** — bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row; header values resolve `{{variables}}`.
-- **Subscriptions** — `graphql-ws` over a WebSocket, for servers that support it. Live events stream into the response panel. On desktop the `graphql-ws` socket is tunnelled over the WebSocket IPC bridge (the packaged CSP blocks renderer `ws:`/`wss:`), with header auth carried on the handshake.
+- **Subscriptions** — over WebSocket (`graphql-transport-ws`, or Apollo's legacy `subscriptions-transport-ws`) or `graphql-sse`, picked per request with the **Protocol** selector in the Subscription tab (default **Auto**). Live events stream into the response panel. On desktop the socket is tunnelled over the WebSocket IPC bridge and graphql-sse over the SSE IPC handler (the packaged CSP blocks renderer `ws:`/`wss:`/`http:`), with header auth carried on the handshake.
 
 ## Subscriptions in depth
 
-Query and mutation documents POST through the shared HTTP proxy, same as any other HTTP request. A subscription is different: Restura opens a `graphql-transport-ws` connection instead, derived from the request URL by swapping the scheme (`http(s)://` → `ws(s)://`).
+Query and mutation documents POST through the shared HTTP proxy, same as any other HTTP request. A subscription is different: Restura opens a long-lived connection using the request's **Protocol** setting (saved on the request and carried through OpenCollection export):
+
+| Protocol | Wire | Notes |
+| --- | --- | --- |
+| **Auto** (default) | WebSocket | Offers both `graphql-transport-ws` and `graphql-ws` in `Sec-WebSocket-Protocol` and speaks whichever the server selects (one handshake). A server that selects none is treated as `graphql-transport-ws`. |
+| `graphql-transport-ws` | WebSocket | The modern [graphql-ws](https://github.com/enisdenjo/graphql-ws/blob/master/PROTOCOL.md) protocol. |
+| `subscriptions-transport-ws` | WebSocket, subprotocol `graphql-ws` | Apollo's [legacy protocol](https://github.com/apollographql/subscriptions-transport-ws/blob/master/PROTOCOL.md) (`connection_init` → `start` → `data`/`error`/`complete`, `ka` keep-alives ignored). |
+| `graphql-sse` | HTTP `POST` → `text/event-stream` | [graphql-sse](https://github.com/enisdenjo/graphql-sse/blob/master/PROTOCOL.md) *distinct connections* mode only (single-connection mode isn't supported). Streams through the same path as the [SSE](/protocols/sse/) feature: the Worker proxy on web, the SSE IPC handler on desktop — so the SSRF policy applies. Request headers are sent as real HTTP headers. |
+
+WebSocket URLs are derived from the request URL by swapping the scheme (`http(s)://` → `ws(s)://`); graphql-sse does the reverse. The negotiated protocol is shown on the **connected** line of the response panel.
 
 - **Lifecycle** — the response panel steps through **connecting** → **connected** → a stream of **data** messages → **complete** (or **error** if the server rejects the connection or the document). A 30-second connection timeout aborts the attempt if the server never acknowledges.
-- **Web** — uses the browser's native `WebSocket`. Browsers can't set custom handshake headers, so auth rides the `graphql-ws` `connection_init` payload instead (Restura's request headers become `connectionParams`).
+- **Web** — uses the browser's native `WebSocket`. Browsers can't set custom handshake headers, so auth rides the `connection_init` payload instead (Restura's request headers become `connectionParams`).
 - **Desktop** — the socket is tunnelled over the WebSocket IPC bridge, which *can* set real handshake headers, so auth is sent as actual headers on the WS upgrade request rather than (or in addition to) `connection_init`.
 - **Switching operations** — selecting a different operation in a multi-operation document disconnects the previous subscription before starting the new one.
 

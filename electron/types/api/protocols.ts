@@ -165,6 +165,8 @@ export interface ElectronSseAPI {
     connectionId: string;
     url: string;
     headers?: Record<string, string>;
+    /** POST this JSON body instead of a plain GET (GraphQL over SSE). */
+    jsonBody?: string;
   }) => Promise<{ success: boolean; error?: string }>;
   disconnect: (config: { connectionId: string }) => Promise<{ success: boolean }>;
   on: (channel: string, callback: (...args: unknown[]) => void) => void;

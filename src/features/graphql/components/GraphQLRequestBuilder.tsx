@@ -53,6 +53,7 @@ import { useUiStore } from '@/store/useUiStore';
 import type { AuthConfig as AuthConfigType, GraphQLImportedSchema, HttpRequest } from '@/types';
 import { LoadSchemaDialog } from './LoadSchemaDialog';
 import SchemaExplorer from './SchemaExplorer';
+import { SubscriptionProtocolSelect } from './SubscriptionProtocolSelect';
 
 const REPLACE_IMPORTED_CONFIRM = {
   title: 'Replace imported schema?',
@@ -166,6 +167,7 @@ function GraphQLRequestBuilder() {
       query,
       variables,
       headers,
+      protocol: httpRequest.graphqlSubscriptionProtocol ?? 'auto',
       onMessage: (msg) => {
         setSubscriptionLog((prev) => appendSubscriptionLog(prev, msg));
         if (msg.type === 'complete') {
@@ -643,6 +645,13 @@ function GraphQLRequestBuilder() {
 
             {activeTab === 'subscription' && isSubscription && (
               <div className="p-3 overflow-auto h-full">
+                <div className="mb-3">
+                  <SubscriptionProtocolSelect
+                    value={httpRequest.graphqlSubscriptionProtocol}
+                    onChange={(p) => updateRequest({ graphqlSubscriptionProtocol: p })}
+                    disabled={isSubscribed}
+                  />
+                </div>
                 {subscriptionLog.messages.length === 0 ? (
                   <div className="text-center py-8 text-sp-muted font-mono text-sp-12">
                     {isSubscribed
@@ -667,6 +676,7 @@ function GraphQLRequestBuilder() {
                       >
                         <div className="flex items-center gap-2 mb-1 sp-label">
                           <span>{msg.type}</span>
+                          {msg.protocol && <span>{msg.protocol}</span>}
                           <span>{new Date(msg.timestamp).toLocaleTimeString()}</span>
                         </div>
                         {msg.payload !== undefined && (

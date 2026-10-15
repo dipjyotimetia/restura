@@ -50,6 +50,23 @@ describe('SseConnectSchema', () => {
     expect(result.success).toBe(false);
   });
 
+  it('accepts a JSON body string (graphql-sse POST)', () => {
+    const result = SseConnectSchema.safeParse({
+      connectionId: 'abc',
+      url: 'https://example.com/graphql/stream',
+      jsonBody: '{"query":"subscription { a }"}',
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects a non-string or oversized jsonBody', () => {
+    const base = { connectionId: 'abc', url: 'https://example.com' };
+    expect(SseConnectSchema.safeParse({ ...base, jsonBody: { query: 'x' } }).success).toBe(false);
+    expect(
+      SseConnectSchema.safeParse({ ...base, jsonBody: 'x'.repeat(1024 * 1024 + 1) }).success
+    ).toBe(false);
+  });
+
   it('accepts safe custom headers', () => {
     const result = SseConnectSchema.safeParse({
       connectionId: 'abc',

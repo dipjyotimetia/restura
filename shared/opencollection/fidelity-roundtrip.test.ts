@@ -105,6 +105,8 @@ const HTTP_FIELDS = {
   contractRef: 'known-gap',
   // Carried by the collection-level x-restura-graphql extension (#867).
   graphqlSchema: 'roundtrip',
+  // Carried by the same x-restura-graphql extension entries (#889).
+  graphqlSubscriptionProtocol: 'roundtrip',
 } as const satisfies Record<keyof HttpRequest, FieldPolicy>;
 
 const HTTP_FIXTURE: Required<HttpRequest> = {
@@ -131,6 +133,7 @@ const HTTP_FIXTURE: Required<HttpRequest> = {
     fileName: 'schema.json',
     importedAt: 1700000000000,
   },
+  graphqlSubscriptionProtocol: 'subscriptions-transport-ws',
 };
 
 const GRPC_FIELDS = {

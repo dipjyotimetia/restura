@@ -1,12 +1,28 @@
 import { type Client, createClient, type Sink } from 'graphql-ws';
 import { isElectron } from '@/lib/shared/platform';
+import type { GraphQLSubscriptionProtocol } from '@/types';
 import { createElectronGraphQLSocketClass } from './electronGraphQLSocket';
+import { subscribeGraphQLSse } from './graphqlSseSubscription';
+import { runLegacyWsSubscription } from './legacyWsSubscription';
+import {
+  AUTO_SUBPROTOCOLS,
+  describeSubscriptionError,
+  GRAPHQL_TRANSPORT_WS_SUBPROTOCOL,
+  LEGACY_GRAPHQL_WS_SUBPROTOCOL,
+  openSubscriptionSocket,
+  SOCKET_OPEN,
+  type SubscriptionSink,
+  type SubscriptionSocket,
+  toWebSocketUrl,
+} from './subscriptionSocket';
 
 export interface SubscriptionMessage {
   id: string;
   type: 'data' | 'error' | 'complete' | 'connecting' | 'connected';
   payload?: unknown;
   error?: string;
+  /** On `connected`: the negotiated wire protocol (e.g. `graphql-ws`, `graphql-sse`). */
+  protocol?: string;
   timestamp: number;
 }
 
@@ -14,131 +30,98 @@ export interface SubscriptionOptions {
   url: string;
   query: string;
   variables?: Record<string, unknown>;
+  /** Selects the operation when the document holds several. */
+  operationName?: string;
   headers?: Record<string, string>;
+  /** Wire protocol; defaults to `auto` (negotiate between the two WS subprotocols). */
+  protocol?: GraphQLSubscriptionProtocol;
   onMessage: (msg: SubscriptionMessage) => void;
   onConnected?: () => void;
   onError?: (err: unknown) => void;
   onComplete?: () => void;
 }
 
+const CONNECT_TIMEOUT_MS = 30_000;
+
+const makeId = (): string => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+/**
+ * Runs one GraphQL subscription over the selected protocol (#889):
+ *
+ * - `graphql-transport-ws` — the `graphql-ws` SDK client.
+ * - `subscriptions-transport-ws` — hand-rolled legacy Apollo client (`legacyWsSubscription`).
+ * - `graphql-sse` — distinct-connections GraphQL over SSE (`graphqlSseSubscription`).
+ * - `auto` — one WebSocket offering both subprotocols; dispatch on the server's pick
+ *   (an empty pick falls back to graphql-transport-ws).
+ *
+ * Handshake headers ride the WebSocket upgrade on desktop (IPC bridge) and are
+ * also sent as connection params; graphql-sse sends them as HTTP headers.
+ */
 export class GraphQLSubscriptionClient {
   private client: Client | null = null;
   private unsubscribe: (() => void) | null = null;
   private headers: Record<string, string>;
   private timeoutId: ReturnType<typeof setTimeout> | null = null;
+  private negotiating: SubscriptionSocket | null = null;
+  /** Bumped per connect/disconnect so a superseded run's late events are dropped. */
+  private generation = 0;
 
   constructor(_url: string, headers: Record<string, string> = {}) {
     this.headers = headers;
   }
 
-  private toWebSocketUrl(url: string): string {
-    return url.replace(/^http:\/\//, 'ws://').replace(/^https:\/\//, 'wss://');
-  }
-
   connect(options: SubscriptionOptions): void {
     this.disconnect();
 
-    const wsUrl = this.toWebSocketUrl(options.url);
-    const makeId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    options.onMessage({ id: makeId(), type: 'connecting', timestamp: Date.now() });
 
-    options.onMessage({
-      id: makeId(),
-      type: 'connecting',
-      timestamp: Date.now(),
-    });
-
+    const sink = this.createSink(options);
     this.timeoutId = setTimeout(() => {
       this.timeoutId = null;
-      options.onMessage({
-        id: makeId(),
-        type: 'error',
-        error: 'Connection timeout',
-        timestamp: Date.now(),
-      });
-      this.disconnect();
-    }, 30_000);
+      sink.error(new Error('Connection timeout'));
+    }, CONNECT_TIMEOUT_MS);
+    const protocol = options.protocol ?? 'auto';
 
-    this.client = createClient({
-      url: wsUrl,
-      connectionParams: Object.keys(this.headers).length > 0 ? this.headers : undefined,
-      // Desktop: a renderer-direct WebSocket is CSP-blocked, so tunnel graphql-ws
-      // over the WebSocket IPC bridge. Web keeps the native WebSocket.
-      ...(isElectron() ? { webSocketImpl: createElectronGraphQLSocketClass(this.headers) } : {}),
-      on: {
-        connected: () => {
-          if (this.timeoutId !== null) {
-            clearTimeout(this.timeoutId);
-            this.timeoutId = null;
-          }
-          options.onMessage({
-            id: makeId(),
-            type: 'connected',
-            timestamp: Date.now(),
-          });
-          options.onConnected?.();
-        },
-        error: (err) => {
-          if (this.timeoutId !== null) {
-            clearTimeout(this.timeoutId);
-            this.timeoutId = null;
-          }
-          options.onMessage({
-            id: makeId(),
-            type: 'error',
-            error: err instanceof Error ? err.message : 'Connection error',
-            timestamp: Date.now(),
-          });
-          options.onError?.(err);
-        },
-      },
-    });
-
-    const sink: Sink = {
-      next: (value) => {
-        options.onMessage({
-          id: makeId(),
-          type: 'data',
-          payload: value,
-          timestamp: Date.now(),
-        });
-      },
-      error: (err) => {
-        options.onMessage({
-          id: makeId(),
-          type: 'error',
-          error:
-            err instanceof Error
-              ? err.message
-              : Array.isArray(err)
-                ? err.map((e) => (e instanceof Error ? e.message : String(e))).join(', ')
-                : 'Subscription error',
-          timestamp: Date.now(),
-        });
-        options.onError?.(err);
-      },
-      complete: () => {
-        options.onMessage({
-          id: makeId(),
-          type: 'complete',
-          timestamp: Date.now(),
-        });
-        options.onComplete?.();
-      },
-    };
-
-    this.unsubscribe = this.client.subscribe(
-      {
-        query: options.query,
-        variables: options.variables,
-      },
-      sink
-    );
+    switch (protocol) {
+      case 'graphql-transport-ws':
+        this.runTransportWs(options, sink);
+        return;
+      case 'subscriptions-transport-ws':
+        this.unsubscribe = runLegacyWsSubscription(
+          openSubscriptionSocket(
+            toWebSocketUrl(options.url),
+            [LEGACY_GRAPHQL_WS_SUBPROTOCOL],
+            this.headers
+          ),
+          { ...this.operation(options), ...this.connectionParams() },
+          sink
+        );
+        return;
+      case 'graphql-sse':
+        this.unsubscribe = subscribeGraphQLSse(
+          { url: options.url, headers: this.headers, ...this.operation(options) },
+          sink
+        );
+        return;
+      default:
+        this.negotiate(options, sink);
+    }
   }
 
   disconnect(): void {
-    if (this.timeoutId !== null) {
-      clearTimeout(this.timeoutId);
-      this.timeoutId = null;
+    this.generation++;
+    this.clearTimer();
+    if (this.negotiating) {
+      const socket = this.negotiating;
+      this.negotiating = null;
+      socket.onopen = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      try {
+        socket.close();
+      } catch {
+        /* already closed */
+      }
     }
     this.unsubscribe?.();
     this.unsubscribe = null;
@@ -147,6 +130,203 @@ export class GraphQLSubscriptionClient {
   }
 
   get isConnected(): boolean {
-    return this.client !== null && this.unsubscribe !== null;
+    return this.unsubscribe !== null || this.negotiating !== null;
   }
+
+  // ---------------------------------------------------------------- private
+
+  private clearTimer(): void {
+    if (this.timeoutId !== null) {
+      clearTimeout(this.timeoutId);
+      this.timeoutId = null;
+    }
+  }
+
+  private operation(options: SubscriptionOptions) {
+    return {
+      query: options.query,
+      ...(options.variables !== undefined ? { variables: options.variables } : {}),
+      ...(options.operationName ? { operationName: options.operationName } : {}),
+    };
+  }
+
+  private connectionParams(): { connectionParams?: Record<string, unknown> } {
+    return Object.keys(this.headers).length > 0 ? { connectionParams: this.headers } : {};
+  }
+
+  /**
+   * Adapts the protocol-neutral sink onto SubscriptionMessage + the caller's
+   * callbacks. Terminal events are reported once and tear the run down (so a
+   * failed graphql-ws client stops retrying in the background).
+   */
+  private createSink(options: SubscriptionOptions): SubscriptionSink {
+    const gen = this.generation;
+    let settled = false;
+    const live = (): boolean => !settled && gen === this.generation;
+    const terminate = (): void => {
+      settled = true;
+      queueMicrotask(() => {
+        if (gen === this.generation) this.disconnect();
+      });
+    };
+    return {
+      connected: (protocol) => {
+        if (!live()) return;
+        this.clearTimer();
+        options.onMessage({ id: makeId(), type: 'connected', protocol, timestamp: Date.now() });
+        options.onConnected?.();
+      },
+      next: (value) => {
+        if (!live()) return;
+        options.onMessage({ id: makeId(), type: 'data', payload: value, timestamp: Date.now() });
+      },
+      error: (err) => {
+        if (!live()) return;
+        terminate();
+        this.clearTimer();
+        options.onMessage({
+          id: makeId(),
+          type: 'error',
+          error: describeSubscriptionError(err, 'Subscription error'),
+          timestamp: Date.now(),
+        });
+        options.onError?.(err);
+      },
+      complete: () => {
+        if (!live()) return;
+        terminate();
+        this.clearTimer();
+        options.onMessage({ id: makeId(), type: 'complete', timestamp: Date.now() });
+        options.onComplete?.();
+      },
+    };
+  }
+
+  /**
+   * `auto`: open one socket offering both subprotocols and hand it to the client
+   * for whichever the server selected — no second handshake.
+   */
+  private negotiate(options: SubscriptionOptions, sink: SubscriptionSink): void {
+    const wsUrl = toWebSocketUrl(options.url);
+    const socket = openSubscriptionSocket(wsUrl, AUTO_SUBPROTOCOLS, this.headers);
+    this.negotiating = socket;
+    const abandon = (err: unknown): void => {
+      if (this.negotiating !== socket) return;
+      this.negotiating = null;
+      socket.onopen = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      sink.error(err);
+    };
+    socket.onerror = (ev) => abandon(new Error(describeSubscriptionError(ev, 'Connection error')));
+    socket.onclose = (ev) =>
+      abandon(new Error(`Connection closed (${ev.code}${ev.reason ? `: ${ev.reason}` : ''})`));
+    socket.onopen = () => {
+      if (this.negotiating !== socket) return;
+      this.negotiating = null;
+      socket.onopen = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      if (socket.protocol === LEGACY_GRAPHQL_WS_SUBPROTOCOL) {
+        this.unsubscribe = runLegacyWsSubscription(
+          socket,
+          { ...this.operation(options), ...this.connectionParams() },
+          sink
+        );
+        return;
+      }
+      this.runTransportWs(options, sink, socket);
+    };
+  }
+
+  /** graphql-transport-ws via the graphql-ws SDK, optionally adopting an already-open socket. */
+  private runTransportWs(
+    options: SubscriptionOptions,
+    sink: SubscriptionSink,
+    adopted?: SubscriptionSocket
+  ): void {
+    const wsUrl = toWebSocketUrl(options.url);
+    // Desktop: a renderer-direct WebSocket is CSP-blocked, so tunnel graphql-ws
+    // over the WebSocket IPC bridge. Web keeps the native WebSocket.
+    const webSocketImpl = adopted
+      ? createAdoptingSocketClass(adopted, this.headers)
+      : isElectron()
+        ? createElectronGraphQLSocketClass(this.headers)
+        : undefined;
+
+    this.client = createClient({
+      url: wsUrl,
+      connectionParams: Object.keys(this.headers).length > 0 ? this.headers : undefined,
+      ...(webSocketImpl ? { webSocketImpl } : {}),
+      on: {
+        connected: (socket) => {
+          const negotiated = (socket as { protocol?: string } | undefined)?.protocol;
+          sink.connected(negotiated || GRAPHQL_TRANSPORT_WS_SUBPROTOCOL);
+        },
+        // A transport error is terminal for the request builder: report it now
+        // rather than after graphql-ws exhausts its silent retries.
+        error: (err) => sink.error(err),
+      },
+    });
+
+    const wsSink: Sink = {
+      next: (value) => sink.next(value),
+      error: (err) => sink.error(err),
+      complete: () => sink.complete(),
+    };
+
+    this.unsubscribe = this.client.subscribe(this.operation(options), wsSink);
+  }
+}
+
+/**
+ * A WebSocket class for graphql-ws's `webSocketImpl` whose FIRST instance adopts
+ * the socket `auto` already negotiated on (firing `onopen` once graphql-ws has
+ * attached its handlers); retries open fresh graphql-transport-ws sockets.
+ */
+function createAdoptingSocketClass(adopted: SubscriptionSocket, headers: Record<string, string>) {
+  let pending: SubscriptionSocket | null = adopted;
+  return class AdoptingSocket {
+    static readonly CONNECTING = 0;
+    static readonly OPEN = 1;
+    static readonly CLOSING = 2;
+    static readonly CLOSED = 3;
+
+    onopen: ((ev: unknown) => void) | null = null;
+    onmessage: ((ev: { data: unknown }) => void) | null = null;
+    onerror: ((ev: unknown) => void) | null = null;
+    onclose: ((ev: { code: number; reason: string }) => void) | null = null;
+
+    private readonly inner: SubscriptionSocket;
+
+    constructor(url: string) {
+      const reuse = pending;
+      pending = null;
+      this.inner =
+        reuse ?? openSubscriptionSocket(url, [GRAPHQL_TRANSPORT_WS_SUBPROTOCOL], headers);
+      this.inner.onopen = (ev) => this.onopen?.(ev);
+      this.inner.onmessage = (ev) => this.onmessage?.(ev);
+      this.inner.onerror = (ev) => this.onerror?.(ev);
+      this.inner.onclose = (ev) => this.onclose?.(ev);
+      if (reuse && reuse.readyState === SOCKET_OPEN) {
+        queueMicrotask(() => this.onopen?.({ type: 'open' }));
+      }
+    }
+
+    get protocol(): string {
+      return this.inner.protocol;
+    }
+
+    get readyState(): number {
+      return this.inner.readyState;
+    }
+
+    send(data: string): void {
+      this.inner.send(data);
+    }
+
+    close(code?: number, reason?: string): void {
+      this.inner.close(code, reason);
+    }
+  };
 }

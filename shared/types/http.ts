@@ -50,6 +50,22 @@ export interface FormDataItem extends KeyValue {
   contentType?: string;
 }
 
+/**
+ * GraphQL subscription wire protocol (#889).
+ * - `auto` — WebSocket offering both `graphql-transport-ws` and the legacy
+ *   `graphql-ws` subprotocol; dispatch on the one the server selects.
+ * - `graphql-transport-ws` — the modern graphql-ws protocol.
+ * - `subscriptions-transport-ws` — Apollo's legacy protocol (subprotocol `graphql-ws`).
+ * - `graphql-sse` — GraphQL over Server-Sent Events (distinct connections mode).
+ */
+export const GRAPHQL_SUBSCRIPTION_PROTOCOLS = [
+  'auto',
+  'graphql-transport-ws',
+  'subscriptions-transport-ws',
+  'graphql-sse',
+] as const;
+export type GraphQLSubscriptionProtocol = (typeof GRAPHQL_SUBSCRIPTION_PROTOCOLS)[number];
+
 // Request Body Type (extracted for reusability)
 export interface RequestBody {
   type: BodyType;
@@ -114,6 +130,11 @@ export interface HttpRequest {
    * confirms.
    */
   graphqlSchema?: GraphQLImportedSchema;
+  /**
+   * GraphQL only: wire protocol for subscriptions. Absent means `'auto'`
+   * (offer both WebSocket subprotocols and follow the server's pick).
+   */
+  graphqlSubscriptionProtocol?: GraphQLSubscriptionProtocol;
 }
 
 // Response

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { HTTP_METHOD_TOKEN_RE, MAX_HTTP_METHOD_LENGTH } from '../protocol/http-method';
 import { secretValueSchema } from '../secrets/secret-ref';
-import { HTTP_VERSION_PREFERENCES } from '../types/http';
+import { GRAPHQL_SUBSCRIPTION_PROTOCOLS, HTTP_VERSION_PREFERENCES } from '../types/http';
 
 // HTTP Method Schema
 // Any RFC 9110 token (#857). CONNECT/TRACE/TRACK are deliberately NOT rejected here:
@@ -191,6 +191,8 @@ export const graphqlImportedSchemaSchema = z.object({
   importedAt: z.number(),
 });
 
+export const graphqlSubscriptionProtocolSchema = z.enum(GRAPHQL_SUBSCRIPTION_PROTOCOLS);
+
 // HTTP Request Schema
 export const httpRequestSchema = z.object({
   id: z.string(),
@@ -226,6 +228,7 @@ export const httpRequestSchema = z.object({
   // Partial: omitted fields follow the workspace defaults (RequestSettingsOverride).
   settings: requestSettingsSchema.partial().optional(),
   graphqlSchema: graphqlImportedSchemaSchema.optional(),
+  graphqlSubscriptionProtocol: graphqlSubscriptionProtocolSchema.optional(),
 });
 
 // gRPC Request Schema

@@ -245,9 +245,13 @@ export function registerSseHandlerIPC(): void {
       // window the URL parse can't cover is now closed.
       const result = await executeHttpProxyStreaming(
         {
-          method: 'GET',
+          // graphql-sse (#889) POSTs its operation; plain SSE stays a GET.
+          method: config.jsonBody !== undefined ? 'POST' : 'GET',
           url: policyConfig.url,
           headers: { Accept: 'text/event-stream', ...(config.headers ?? {}) },
+          ...(config.jsonBody !== undefined
+            ? { bodyType: 'json' as const, data: config.jsonBody }
+            : {}),
           timeout: policyConfig.timeout,
         },
         sseFetcher,
