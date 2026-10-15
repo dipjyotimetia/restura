@@ -177,6 +177,25 @@ describe('diffGrpcSnapshots', () => {
     expect(rules(d.changes).sort()).toEqual(['ENUM_NO_DELETE', 'FIELD_NO_DELETE']);
   });
 
+  it('does not report aliased enum values (allow_alias) as renamed', () => {
+    const aliased = BASE.replace(
+      'enum Status { STATUS_UNSPECIFIED = 0;',
+      'enum Status { option allow_alias = true; STATUS_UNSPECIFIED = 0; STATUS_DEFAULT = 0;'
+    );
+    expect(diffGrpcSnapshots(proto(aliased), proto(aliased)).changes).toEqual([]);
+    expect(diffGrpcSnapshots(descriptors(aliased), proto(aliased)).changes).toEqual([]);
+    const dropped = diffGrpcSnapshots(
+      proto(aliased),
+      proto(aliased.replace(' STATUS_DEFAULT = 0;', ''))
+    );
+    expect(dropped.changes).toEqual([
+      expect.objectContaining({
+        rule: 'ENUM_VALUE_SAME_NAME',
+        path: 'shop.v1.Status.STATUS_DEFAULT',
+      }),
+    ]);
+  });
+
   it('flags additions as non-breaking', () => {
     const d = diffWith(
       (s) =>

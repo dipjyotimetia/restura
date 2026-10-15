@@ -103,6 +103,31 @@ describe('reflectionSnapshotDecision', () => {
     expect(d.diff.changes.map((c) => c.rule)).toEqual(['FIELD_NO_DELETE', 'FIELD_ADDED']);
   });
 
+  it('writes (no false drift) when switching to a service from a different file', () => {
+    const saved = stampSnapshot({ kind: 'descriptors', descriptors: descriptorsOf(PROTO_V1) }, 1);
+    const other = descriptorsOf(`syntax = "proto3";
+package t.other;
+message Ping { string x = 1; }
+service Other { rpc Echo (Ping) returns (Ping); }
+`);
+    const d = reflectionSnapshotDecision(
+      { fullName: 't.other.Other', descriptors: other },
+      grpc(saved),
+      4
+    );
+    expect(d).toEqual({
+      action: 'write',
+      snapshot: stampSnapshot({ kind: 'descriptors', descriptors: other }, 4),
+    });
+  });
+
+  it('still raises drift for the same service when its fullName is supplied', () => {
+    const saved = stampSnapshot({ kind: 'descriptors', descriptors: descriptorsOf(PROTO_V1) }, 1);
+    const next = descriptorsOf(PROTO_V1.replace(' int32 qty = 2;', ''));
+    const d = reflectionSnapshotDecision({ fullName: 't.v1.S', descriptors: next }, grpc(saved), 2);
+    expect(d.action).toBe('drift');
+  });
+
   it('silently refreshes when bytes differ but nothing semantic changed', () => {
     const saved = stampSnapshot({ kind: 'descriptors', descriptors: descriptorsOf(PROTO_V1) }, 1);
     // Re-ordered message declarations: different bytes, same schema.

@@ -262,14 +262,27 @@ export function diffGrpcRegistries(oldRegistry: Registry, nextRegistry: Registry
       add('ENUM_ADDED', name, `Enum ${name} was added`);
       continue;
     }
-    const nByNumber = new Map(n.values.map((v) => [v.number, v]));
-    const oByNumber = new Map(o.values.map((v) => [v.number, v]));
+    // `allow_alias` lets several names share one number, so index every name
+    // per number — a single-value map would pair an alias with its sibling and
+    // report a false rename.
+    const namesByNumber = (e: DescEnum): Map<number, string[]> => {
+      const m = new Map<number, string[]>();
+      for (const v of e.values) m.set(v.number, [...(m.get(v.number) ?? []), v.name]);
+      return m;
+    };
+    const nByNumber = namesByNumber(n);
+    const oByNumber = namesByNumber(o);
     for (const a of o.values) {
-      const b = nByNumber.get(a.number);
+      const names = nByNumber.get(a.number);
       const path = `${name}.${a.name}`;
-      if (!b) add('ENUM_VALUE_NO_DELETE', path, `Enum value ${a.name} (${a.number}) was removed`);
-      else if (a.name !== b.name) {
-        add('ENUM_VALUE_SAME_NAME', path, `Enum value ${a.number} renamed: ${a.name} → ${b.name}`);
+      if (!names)
+        add('ENUM_VALUE_NO_DELETE', path, `Enum value ${a.name} (${a.number}) was removed`);
+      else if (!names.includes(a.name)) {
+        add(
+          'ENUM_VALUE_SAME_NAME',
+          path,
+          `Enum value ${a.number} renamed: ${a.name} → ${names.join(' / ')}`
+        );
       }
     }
     for (const b of n.values) {

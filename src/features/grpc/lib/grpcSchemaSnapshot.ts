@@ -9,7 +9,11 @@
  * fallback used when a request has no snapshot.
  */
 import { grpcSchemaHash } from '@shared/opencollection/grpc-schema-extension';
-import { diffGrpcSnapshots, type GrpcSchemaDiff } from '@shared/protocol/grpc-schema-drift';
+import {
+  diffGrpcRegistries,
+  type GrpcSchemaDiff,
+  registryFromSnapshot,
+} from '@shared/protocol/grpc-schema-drift';
 import type { GrpcRequest, GrpcSchemaSnapshot, ReflectionServiceInfo, Request } from '@/types';
 import { GrpcReflectionClient, type ReflectionCredentials } from './grpcReflection';
 
@@ -94,13 +98,17 @@ export type ReflectionSnapshotDecision =
  *    on Send), so reflection never overwrites it; or the content is unchanged
  *    (not rewritten, so remount-triggered auto-discovery doesn't dirty the tab);
  *  - `write` — no snapshot yet, the bytes changed without any semantic schema
- *    change, or the saved snapshot can't be decoded (nothing to compare);
+ *    change, the saved snapshot can't be decoded (nothing to compare), or it
+ *    doesn't define the selected service — the user switched to a service from
+ *    a different file, so the old snapshot is a different schema, not an older
+ *    version of this one;
  *  - `drift` (#937) — the server schema changed since the snapshot was saved.
  *    The saved snapshot is held until the user accepts the new one, and the
  *    classified diff (breaking vs non-breaking) is surfaced.
  */
 export function reflectionSnapshotDecision(
-  service: Pick<ReflectionServiceInfo, 'descriptors'>,
+  service: Pick<ReflectionServiceInfo, 'descriptors'> &
+    Partial<Pick<ReflectionServiceInfo, 'fullName'>>,
   current: Request | undefined,
   now: number = Date.now()
 ): ReflectionSnapshotDecision {
@@ -112,7 +120,11 @@ export function reflectionSnapshotDecision(
   if (!existing) return { action: 'write', snapshot };
   let diff: GrpcSchemaDiff;
   try {
-    diff = diffGrpcSnapshots(existing, snapshot);
+    const saved = registryFromSnapshot(existing);
+    if (service.fullName && !saved.getService(service.fullName)) {
+      return { action: 'write', snapshot };
+    }
+    diff = diffGrpcRegistries(saved, registryFromSnapshot(snapshot));
   } catch {
     return { action: 'write', snapshot };
   }
