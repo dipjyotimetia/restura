@@ -20,6 +20,7 @@ import {
   type Registry,
   ScalarType,
 } from '@bufbuild/protobuf';
+import { FeatureSet_FieldPresence } from '@bufbuild/protobuf/wkt';
 import type { GrpcSchemaSnapshot } from '../types/grpc';
 import { registryFromDescriptors, registryFromProtoText } from './grpc-registry';
 
@@ -37,6 +38,8 @@ export type GrpcSchemaChangeRule =
   | 'FIELD_SAME_JSON_NAME'
   | 'FIELD_SAME_TYPE'
   | 'FIELD_SAME_ONEOF'
+  | 'FIELD_SAME_LABEL'
+  | 'FIELD_REQUIRED_ADDED'
   | 'ENUM_NO_DELETE'
   | 'ENUM_VALUE_NO_DELETE'
   | 'ENUM_VALUE_SAME_NAME'
@@ -128,6 +131,10 @@ function fieldType(f: DescField): string {
     }
   }
 }
+
+/** proto2 `required` (or Editions LEGACY_REQUIRED) — absence fails validation. */
+const isRequired = (f: DescField): boolean =>
+  f.presence === FeatureSet_FieldPresence.LEGACY_REQUIRED;
 
 function sortedKeys<T>(a: Map<string, T>, b: Map<string, T>): string[] {
   return [...new Set([...a.keys(), ...b.keys()])].sort();
@@ -243,10 +250,24 @@ export function diffGrpcRegistries(oldRegistry: Registry, nextRegistry: Registry
           `Oneof changed: ${oneofA ?? '(none)'} → ${oneofB ?? '(none)'}`
         );
       }
+      // optional ↔ required (repeated is a cardinality change, already a FIELD_SAME_TYPE break).
+      if (isRequired(a) !== isRequired(b)) {
+        const label = (f: DescField) => (isRequired(f) ? 'required' : 'optional');
+        add('FIELD_SAME_LABEL', path, `Label changed: ${label(a)} → ${label(b)}`);
+      }
     }
     for (const b of n.fields) {
       if (!oByNumber.has(b.number)) {
-        add('FIELD_ADDED', `${name}.${b.name}`, `Field ${b.name} (#${b.number}) was added`);
+        // A new required field breaks saved requests that cannot populate it.
+        if (isRequired(b)) {
+          add(
+            'FIELD_REQUIRED_ADDED',
+            `${name}.${b.name}`,
+            `Required field ${b.name} (#${b.number}) was added`
+          );
+        } else {
+          add('FIELD_ADDED', `${name}.${b.name}`, `Field ${b.name} (#${b.number}) was added`);
+        }
       }
     }
   }

@@ -37,7 +37,18 @@ export interface UseGrpcSchemaDrift {
 export function useGrpcSchemaDrift(): UseGrpcSchemaDrift {
   const activeTabId = useActiveTab()?.id;
   const updateRequest = useRequestStore((s) => s.updateRequest);
-  const [pending, setPending] = useState<(GrpcSchemaDriftState & { tabId: string }) | null>(null);
+  // Keyed by tab id so a reflect/upload on one tab never replaces or clears
+  // drift still pending on another.
+  const [pending, setPending] = useState<Record<string, GrpcSchemaDriftState>>({});
+
+  const clearTab = useCallback((tabId: string | null | undefined) => {
+    if (!tabId) return;
+    setPending((current) => {
+      if (!(tabId in current)) return current;
+      const { [tabId]: _cleared, ...rest } = current;
+      return rest;
+    });
+  }, []);
 
   const onServiceReflected = useCallback(
     (service: ReflectionServiceInfo) => {
@@ -46,31 +57,34 @@ export function useGrpcSchemaDrift(): UseGrpcSchemaDrift {
       const decision = reflectionSnapshotDecision(service, tab?.request);
       if (decision.action === 'drift' && tab) {
         const saved = tab.request.type === 'grpc' ? tab.request.schema : undefined;
-        setPending({ tabId: tab.id, saved, next: decision.snapshot, diff: decision.diff });
+        setPending((current) => ({
+          ...current,
+          [tab.id]: { saved, next: decision.snapshot, diff: decision.diff },
+        }));
         return;
       }
       if (decision.action === 'write') updateRequest({ schema: decision.snapshot });
-      setPending(null);
+      clearTab(tab?.id);
     },
-    [updateRequest]
+    [updateRequest, clearTab]
   );
 
   const saveUpload = useCallback(
     (schema: GrpcSchemaSnapshot) => {
       updateRequest({ schema: stampSnapshot(schema) });
-      setPending(null);
+      clearTab(useRequestStore.getState().activeTabId);
     },
-    [updateRequest]
+    [updateRequest, clearTab]
   );
 
-  const visible = pending && pending.tabId === activeTabId ? pending : null;
+  const visible = activeTabId ? (pending[activeTabId] ?? null) : null;
 
   const accept = useCallback(() => {
     if (visible) updateRequest({ schema: visible.next });
-    setPending(null);
-  }, [visible, updateRequest]);
+    clearTab(activeTabId);
+  }, [visible, activeTabId, updateRequest, clearTab]);
 
-  const dismiss = useCallback(() => setPending(null), []);
+  const dismiss = useCallback(() => clearTab(activeTabId), [activeTabId, clearTab]);
 
   return { drift: visible, onServiceReflected, saveUpload, accept, dismiss };
 }

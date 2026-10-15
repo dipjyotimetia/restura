@@ -275,3 +275,40 @@ describe('diffGrpcSnapshots — reverse and element-type changes', () => {
     );
   });
 });
+
+describe('diffGrpcSnapshots — proto2 required fields', () => {
+  const P2 = `syntax = "proto2";
+package p;
+message M { optional string a = 1; }
+service S { rpc Get (M) returns (M); }
+`;
+  const p2 = (edit: (s: string) => string = (s) => s) => proto(edit(P2));
+
+  it('FIELD_REQUIRED_ADDED — adding a required field is breaking', () => {
+    const d = diffGrpcSnapshots(
+      p2(),
+      p2((s) => s.replace('optional string a = 1;', 'optional string a = 1; required int32 b = 2;'))
+    );
+    expect(d.changes).toEqual([
+      {
+        rule: 'FIELD_REQUIRED_ADDED',
+        severity: 'breaking',
+        path: 'p.M.b',
+        message: 'Required field b (#2) was added',
+      },
+    ]);
+  });
+
+  it('FIELD_SAME_LABEL — optional ↔ required is breaking in both directions', () => {
+    const required = p2((s) => s.replace('optional string a', 'required string a'));
+    expect(find(diffGrpcSnapshots(p2(), required).changes, 'FIELD_SAME_LABEL')).toMatchObject({
+      severity: 'breaking',
+      path: 'p.M.a',
+      message: 'Label changed: optional → required',
+    });
+    expect(find(diffGrpcSnapshots(required, p2()).changes, 'FIELD_SAME_LABEL')?.message).toBe(
+      'Label changed: required → optional'
+    );
+    expect(diffGrpcSnapshots(descriptors(P2), required).breaking).toBe(1);
+  });
+});
