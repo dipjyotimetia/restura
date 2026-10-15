@@ -6,7 +6,7 @@ import {
 } from '@bufbuild/protobuf/wkt';
 import { createClient, createRouterTransport } from '@connectrpc/connect';
 import { describe, expect, it } from 'vitest';
-import { compileProtoFiles, normalizeProtoPath } from './grpc-proto-compiler';
+import { compileProtoFiles, normalizeProtoPath, wellKnownFileProto } from './grpc-proto-compiler';
 import {
   callKindOf,
   descriptorsFromDescriptorSet,
@@ -257,6 +257,18 @@ describe('grpc-proto-compiler: import resolution edge cases (#891)', () => {
     const [fd] = compileProtoFiles([{ path: '', content: 'syntax = "proto3"; message A {}' }]);
     expect(fd?.name).toBe('schema.proto');
   });
+
+  it.each(['constructor', 'toString', '__proto__'])(
+    'names an import that only matches an Object.prototype key (%s)',
+    (name) => {
+      expect(() =>
+        compileProtoFiles([
+          { path: 'a.proto', content: `syntax = "proto3"; import "${name}"; message A {}` },
+        ])
+      ).toThrow(ProtoImportError);
+      expect(wellKnownFileProto(name)).toBeUndefined();
+    }
+  );
 
   it('prefers the shortest path when several uploads end with the import path', () => {
     const fds = compileProtoFiles([

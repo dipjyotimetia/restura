@@ -165,9 +165,13 @@ export function removeJsonKeys(text: string, fields: readonly UnknownJsonField[]
  * Apply the unknown-field policy to a unary request before it is sent:
  *  - `block`: unknown keys (checked on the variable-resolved message) refuse
  *    the send with an INVALID_ARGUMENT response listing them;
- *  - `warn` / `off`: the keys are removed from the message text, so the
- *    strict encoder downstream never sees them (the editor lint is the
- *    warning — the runner also serves headless collection runs).
+ *  - `warn` / `off`: the keys are removed from the message, so the strict
+ *    encoder downstream never sees them (the editor lint is the warning —
+ *    the runner also serves headless collection runs).
+ *
+ * Both modes check the variable-resolved message: a `{{body}}` value or a
+ * `"{{fieldName}}"` key is only known once resolved. When keys are stripped
+ * the resolved (stripped) text is sent in place of the template.
  */
 export function applyUnknownFieldPolicy(
   request: GrpcRequest,
@@ -175,16 +179,13 @@ export function applyUnknownFieldPolicy(
   resolve: (text: string) => string,
   mode: GrpcUnknownFieldsMode = grpcUnknownFieldsMode()
 ): { request: GrpcRequest; refused?: GrpcResponse } {
+  const resolved = resolve(request.message);
+  const unknown = unknownRequestFields(request, source, resolved);
+  if (unknown.length === 0) return { request };
   if (mode === 'block') {
-    const unknown = unknownRequestFields(request, source, resolve(request.message));
-    return unknown.length > 0
-      ? { request, refused: unknownFieldsResponse(request.id, unknown, request.method) }
-      : { request };
+    return { request, refused: unknownFieldsResponse(request.id, unknown, request.method) };
   }
-  const drop = unknownRequestFields(request, source);
-  return drop.length > 0
-    ? { request: { ...request, message: removeJsonKeys(request.message, drop) } }
-    : { request };
+  return { request: { ...request, message: removeJsonKeys(resolved, unknown) } };
 }
 
 /** Strip unknown keys from an already-parsed message (streaming sends). */

@@ -117,6 +117,30 @@ describe('applyUnknownFieldPolicy (#944)', () => {
     });
   });
 
+  it.each(['warn', 'off'] as const)(
+    '%s: strips unknown keys a whole-body variable expands to',
+    (mode) => {
+      const body = (t: string) => t.replace('{{body}}', '{"name": "x", "nmae": "y"}');
+      const r = applyUnknownFieldPolicy(req('{{body}}'), source, body, mode);
+      expect(r.refused).toBeUndefined();
+      expect(JSON.parse(r.request.message)).toEqual({ name: 'x' });
+    }
+  );
+
+  it.each(['warn', 'off'] as const)('%s: keeps a valid key spelled by a variable', (mode) => {
+    const key = (t: string) => t.replace('{{field}}', 'name');
+    const r = applyUnknownFieldPolicy(req('{"{{field}}": "x"}'), source, key, mode);
+    expect(r.refused).toBeUndefined();
+    expect(JSON.parse(key(r.request.message))).toEqual({ name: 'x' });
+  });
+
+  it('block: refuses unknown keys a whole-body variable expands to', () => {
+    const body = (t: string) => t.replace('{{body}}', '{"nmae": "y"}');
+    expect(applyUnknownFieldPolicy(req('{{body}}'), source, body, 'block').refused?.body).toContain(
+      'nmae'
+    );
+  });
+
   it('leaves a clean message untouched', () => {
     const clean = req('{"name": "x"}');
     expect(applyUnknownFieldPolicy(clean, source, resolve, 'warn').request).toBe(clean);

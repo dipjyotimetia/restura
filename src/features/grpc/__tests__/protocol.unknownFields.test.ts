@@ -103,7 +103,8 @@ describe.each([
       setMode(mode);
       const res = await run(request('{"nmae": "x", "name": "{{who}}"}'));
       expect(res.grpcStatus).toBe(0);
-      expect(JSON.parse(sentMessage())).toEqual({ name: '{{who}}' });
+      // Checked and stripped on the resolved text, which is what gets sent.
+      expect(JSON.parse(sentMessage())).toEqual({ name: 'world' });
     }
   );
 });

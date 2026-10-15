@@ -79,7 +79,7 @@ const WKT_FILES: Readonly<Record<string, DescFile>> = Object.fromEntries(
 
 /** Canonical bufbuild FileDescriptorProto for a google/protobuf WKT path, if known. */
 export function wellKnownFileProto(path: string): FileDescriptorProto | undefined {
-  return WKT_FILES[path]?.proto;
+  return Object.hasOwn(WKT_FILES, path) ? WKT_FILES[path]?.proto : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -184,7 +184,7 @@ function makeResolver(uploaded: Map<string, string>) {
   const paths = [...uploaded.keys()];
   return (importPath: string, importer: string): Resolved | null => {
     const want = normalizeProtoPath(importPath);
-    if (want in WKT_FILES) return { kind: 'wkt', path: want };
+    if (Object.hasOwn(WKT_FILES, want)) return { kind: 'wkt', path: want };
     if (uploaded.has(want)) return { kind: 'source', path: want };
     const relative = normalizeProtoPath(`${dirname(importer)}/${want}`);
     if (uploaded.has(relative)) return { kind: 'source', path: relative };
@@ -195,7 +195,7 @@ function makeResolver(uploaded: Map<string, string>) {
     }
     const byBase = paths.filter((p) => basename(p) === basename(want));
     if (byBase.length === 1) return { kind: 'source', path: byBase[0] as string };
-    if (want in BUNDLED_PROTO_SOURCES) return { kind: 'source', path: want };
+    if (Object.hasOwn(BUNDLED_PROTO_SOURCES, want)) return { kind: 'source', path: want };
     return null;
   };
 }
