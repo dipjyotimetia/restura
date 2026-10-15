@@ -9,6 +9,8 @@ import {
   parseGraphQLErrors,
   parseGraphQLErrorsFromBody,
   resolveExistingPath,
+  sentLocationToRange,
+  sentQueryFromBody,
   subscriptionErrors,
   summarizeGraphQLErrors,
 } from '../graphqlErrors';
@@ -191,6 +193,75 @@ describe('buildErrorMarkers', () => {
   });
 });
 
+describe('sentLocationToRange (variable-substituted queries)', () => {
+  it('maps 1:1 when the sent text equals the editor text', () => {
+    const q = '{\n  a\n}';
+    expect(sentLocationToRange(q, q, { line: 2, column: 3 })).toEqual(
+      locationToRange(q, { line: 2, column: 3 })
+    );
+  });
+
+  it('shifts columns after a placeholder whose value has a different length', () => {
+    const raw = '{ user(id: "{{userId}}") { nme } }';
+    const sent = '{ user(id: "1") { nme } }';
+    // `nme` is at column 19 in the sent text, column 26 in the editor.
+    expect(sentLocationToRange(raw, sent, { line: 1, column: 19 })).toEqual({
+      startLineNumber: 1,
+      startColumn: raw.indexOf('nme') + 1,
+      endLineNumber: 1,
+      endColumn: raw.indexOf('nme') + 4,
+    });
+  });
+
+  it('maps a location inside a substituted value onto the whole placeholder', () => {
+    const raw = 'query {\n  {{field}} { id }\n}';
+    const sent = 'query {\n  usr { id }\n}';
+    expect(sentLocationToRange(raw, sent, { line: 2, column: 3 })).toEqual({
+      startLineNumber: 2,
+      startColumn: 3,
+      endLineNumber: 2,
+      endColumn: 3 + '{{field}}'.length,
+    });
+  });
+
+  it('keeps later lines aligned when a value spans several lines', () => {
+    const raw = '{\n  {{frag}}\n  bad\n}';
+    const sent = '{\n  a\n  b\n  bad\n}';
+    expect(sentLocationToRange(raw, sent, { line: 4, column: 3 })).toEqual({
+      startLineNumber: 3,
+      startColumn: 3,
+      endLineNumber: 3,
+      endColumn: 6,
+    });
+  });
+
+  it('treats adjacent placeholders as one region', () => {
+    const raw = '{ {{a}}{{b}} }';
+    const sent = '{ xy }';
+    expect(sentLocationToRange(raw, sent, { line: 1, column: 4 })).toEqual({
+      startLineNumber: 1,
+      startColumn: 3,
+      endLineNumber: 1,
+      endColumn: 3 + '{{a}}{{b}}'.length,
+    });
+  });
+
+  it('returns null when the sent text cannot be aligned with the editor text', () => {
+    expect(sentLocationToRange('{ a }', '{ b }', { line: 1, column: 3 })).toBeNull();
+    expect(sentLocationToRange('{ {{x}} }', 'query { 1 }', { line: 1, column: 3 })).toBeNull();
+  });
+
+  it('buildErrorMarkers maps through the sent text and drops unmappable locations', () => {
+    const raw = '{ user(id: "{{userId}}") { nme } }';
+    const errors = parseGraphQLErrors({
+      errors: [{ message: 'bad', locations: [{ line: 1, column: 19 }] }],
+    });
+    const [marker] = buildErrorMarkers(raw, errors, '{ user(id: "1") { nme } }');
+    expect(marker?.startColumn).toBe(raw.indexOf('nme') + 1);
+    expect(buildErrorMarkers(raw, errors, 'totally different')).toEqual([]);
+  });
+});
+
 describe('formatErrorPath / errorTreePath', () => {
   it('renders object keys with dots and numeric segments as indices', () => {
     expect(formatErrorPath(['user', 'friends', 1, 'name'])).toBe('user.friends[1].name');
@@ -273,6 +344,17 @@ describe('errorTreeHighlights', () => {
     const errors = parseGraphQLErrors({ errors: [{ message: 'x', path: ['a'] }] });
     expect(errorTreeHighlights({ data: null }, errors)).toEqual([{ path: ['data'], label: 'x' }]);
     expect(errorTreeHighlights({}, errors)).toEqual([]);
+  });
+});
+
+describe('sentQueryFromBody', () => {
+  it('extracts the query from a sent GraphQL JSON envelope', () => {
+    expect(sentQueryFromBody('{"query":"{ a }","variables":{}}')).toBe('{ a }');
+  });
+  it('returns undefined for missing, non-JSON or query-less bodies', () => {
+    expect(sentQueryFromBody(undefined)).toBeUndefined();
+    expect(sentQueryFromBody('nope')).toBeUndefined();
+    expect(sentQueryFromBody('{"variables":{}}')).toBeUndefined();
   });
 });
 

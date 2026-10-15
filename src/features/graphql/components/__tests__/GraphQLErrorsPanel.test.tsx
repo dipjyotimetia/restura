@@ -2,7 +2,10 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseGraphQLErrors } from '@/features/graphql/lib/graphqlErrors';
 import { useGraphQLErrorStore } from '@/features/graphql/store/useGraphQLErrorStore';
+import { useRequestStore } from '@/store/useRequestStore';
 import { GraphQLErrorsPanel } from '../GraphQLErrorsPanel';
+
+const SENT = 'query {\n  partial(ids: ["1", "9"]) { id }\n}';
 
 const errors = parseGraphQLErrors({
   data: { partial: [{ id: '1' }, null] },
@@ -24,6 +27,26 @@ const items = errors.map((error) => ({ key: String(error.index), error }));
 describe('GraphQLErrorsPanel', () => {
   beforeEach(() => {
     useGraphQLErrorStore.setState({ byTab: {}, focus: null });
+    useRequestStore.setState({
+      tabs: [
+        {
+          id: 'tab-1',
+          request: {
+            id: 'r',
+            name: 'r',
+            type: 'http',
+            method: 'POST',
+            url: '',
+            headers: [],
+            params: [],
+            body: { type: 'graphql', raw: SENT },
+            auth: { type: 'none' },
+          },
+          isDirty: false,
+        },
+      ],
+      activeTabId: 'tab-1',
+    });
   });
 
   it('lists every error with message, code, path and locations', () => {
@@ -54,12 +77,28 @@ describe('GraphQLErrorsPanel', () => {
   });
 
   it('clicking a location requests editor focus for the tab', () => {
+    useGraphQLErrorStore.getState().publish('tab-1', SENT, errors);
     render(<GraphQLErrorsPanel items={items} tabId="tab-1" />);
     fireEvent.click(screen.getByRole('button', { name: 'Go to query line 7, column 2' }));
     expect(useGraphQLErrorStore.getState().focus).toMatchObject({
       tabId: 'tab-1',
       location: { line: 7, column: 2 },
     });
+  });
+
+  it('disables location jumps once the query changed or was never sent', () => {
+    const { unmount } = render(<GraphQLErrorsPanel items={items} tabId="tab-1" />);
+    const noRecord = screen.getByRole('button', { name: 'Go to query line 3, column 5' });
+    expect(noRecord).toBeDisabled();
+    unmount();
+
+    useGraphQLErrorStore.getState().publish('tab-1', `${SENT} # old`, errors);
+    render(<GraphQLErrorsPanel items={items} tabId="tab-1" />);
+    const stale = screen.getByRole('button', { name: 'Go to query line 3, column 5' });
+    expect(stale).toBeDisabled();
+    expect(stale.getAttribute('title')).toMatch(/query changed/);
+    fireEvent.click(stale);
+    expect(useGraphQLErrorStore.getState().focus).toBeNull();
   });
 
   it('renders the path as plain text when there is no tree to jump to', () => {

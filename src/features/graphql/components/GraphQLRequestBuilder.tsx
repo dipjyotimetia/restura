@@ -25,8 +25,10 @@ import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint'
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import { formatQuery } from '@/features/graphql/lib/formatter';
 import {
+  GRAPHQL_SENT_BODY_OPTION,
   parseGraphQLErrors,
   parseGraphQLErrorsFromBody,
+  sentQueryFromBody,
   summarizeGraphQLErrors,
 } from '@/features/graphql/lib/graphqlErrors';
 import { exportSchemaToSDL } from '@/features/graphql/lib/introspection';
@@ -249,7 +251,14 @@ function GraphQLRequestBuilder() {
     };
 
     try {
-      const { response, scriptResult: runScripts } = await runViaRegistry(wireRequest, 'graphql');
+      let sentBody: string | undefined;
+      const { response, scriptResult: runScripts } = await runViaRegistry(wireRequest, 'graphql', {
+        protocolOptions: {
+          [GRAPHQL_SENT_BODY_OPTION]: (body: string) => {
+            sentBody = body;
+          },
+        },
+      });
       setCurrentResponseForTab(originTabId, response);
 
       // Mirror interactive GraphQL sends into the unified console (previously
@@ -289,7 +298,9 @@ function GraphQLRequestBuilder() {
       // Locations index into the sent `query` → editor markers; the response
       // panel's Errors tab lists every entry with click-through.
       const graphqlErrors = parseGraphQLErrorsFromBody(response.body);
-      useGraphQLErrorStore.getState().publish(originTabId, query, graphqlErrors);
+      useGraphQLErrorStore
+        .getState()
+        .publish(originTabId, query, graphqlErrors, sentQueryFromBody(sentBody));
       if (response.status < 200 || response.status >= 300) {
         toast.error(`Request failed: ${response.status}`, {
           description: response.statusText,

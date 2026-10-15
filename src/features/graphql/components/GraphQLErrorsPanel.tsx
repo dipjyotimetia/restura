@@ -6,6 +6,7 @@ import {
 } from '@/features/graphql/lib/graphqlErrors';
 import { useGraphQLErrorStore } from '@/features/graphql/store/useGraphQLErrorStore';
 import { cn } from '@/lib/shared/utils';
+import { useRequestStore } from '@/store/useRequestStore';
 
 export interface GraphQLErrorsPanelItem {
   /** Stable React key. */
@@ -36,6 +37,14 @@ export function GraphQLErrorsPanel({
   className,
 }: GraphQLErrorsPanelProps) {
   const focusLocation = useGraphQLErrorStore((s) => s.focusLocation);
+  // Locations are only meaningful against the query as it was sent; once the
+  // editor text changes (or there's no record of the send), don't offer a jump.
+  const sentQuery = useGraphQLErrorStore((s) => (tabId ? s.byTab[tabId]?.query : undefined));
+  const editorQuery = useRequestStore((s) => {
+    const request = tabId ? s.tabs.find((t) => t.id === tabId)?.request : undefined;
+    return request?.type === 'http' ? request.body.raw : undefined;
+  });
+  const canLocate = Boolean(tabId) && sentQuery !== undefined && sentQuery === editorQuery;
 
   if (items.length === 0) {
     return (
@@ -87,9 +96,13 @@ export function GraphQLErrorsPanel({
                   <button
                     key={`${loc.line}:${loc.column}`}
                     type="button"
-                    disabled={!tabId}
+                    disabled={!canLocate}
                     onClick={() => tabId && focusLocation(tabId, loc)}
-                    title="Go to location in query"
+                    title={
+                      canLocate
+                        ? 'Go to location in query'
+                        : 'The query changed since this response; send it again to locate errors'
+                    }
                     aria-label={`Go to query line ${loc.line}, column ${loc.column}`}
                     className={cn(
                       chip,

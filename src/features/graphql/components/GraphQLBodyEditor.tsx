@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { registerGraphQLCompletionProvider } from '@/features/graphql/lib/completionProvider';
 import { setupDebouncedDiagnostics } from '@/features/graphql/lib/diagnosticsProvider';
-import { buildErrorMarkers, locationToRange } from '@/features/graphql/lib/graphqlErrors';
+import { buildErrorMarkers, sentLocationToRange } from '@/features/graphql/lib/graphqlErrors';
 import { generateVariablesTemplate, parseVariables } from '@/features/graphql/lib/queryParser';
 import { useEffectiveGraphQLSchema } from '@/features/graphql/lib/useEffectiveGraphQLSchema';
 import { validateQuery } from '@/features/graphql/lib/validation';
@@ -128,31 +128,41 @@ export default function GraphQLBodyEditor({
     []
   );
 
-  // Server-reported error locations index into the query that was SENT, so
-  // markers only show while the editor still holds that exact text (they
-  // vanish on edit and come back on undo).
+  // Server-reported error locations index into the query that was SENT
+  // (after `{{var}}` substitution), so they're mapped back onto the editor
+  // text, and only while the editor still holds the query as it was at send
+  // time (markers vanish on edit and come back on undo).
   // `editorGeneration` re-runs this once Monaco hands over a model.
+  const liveErrors = responseErrors && responseErrors.query === query ? responseErrors : undefined;
   useEffect(() => {
     const ctx = editorRef.current;
     if (!ctx || ctx.model.isDisposed()) return;
-    const markers =
-      responseErrors && responseErrors.query === query
-        ? buildErrorMarkers(query, responseErrors.errors)
-        : [];
+    const markers = liveErrors
+      ? buildErrorMarkers(query, liveErrors.errors, liveErrors.sentQuery ?? query)
+      : [];
     ctx.monaco.editor.setModelMarkers(ctx.model, RESPONSE_MARKER_OWNER, markers);
-  }, [responseErrors, query, editorGeneration]);
+  }, [liveErrors, query, editorGeneration]);
 
   // "Jump to location" from an errors panel. `editorGeneration` lets a request
-  // made before the editor mounted (e.g. from another sub-tab) land once it exists.
+  // made before the editor mounted (e.g. from another sub-tab) land once it
+  // exists. A request against a stale (edited) or unmappable query is
+  // discarded rather than selecting unrelated text.
   useEffect(() => {
     const ctx = editorRef.current;
     if (!ctx || !focusRequest || focusRequest.tabId !== activeTabId) return;
-    const range = locationToRange(ctx.model.getValue(), focusRequest.location);
+    const consume = () => useGraphQLErrorStore.getState().consumeFocus(focusRequest.nonce);
+    const range = liveErrors
+      ? sentLocationToRange(query, liveErrors.sentQuery ?? query, focusRequest.location)
+      : null;
+    if (!range) {
+      consume();
+      return;
+    }
     ctx.editor.revealRangeInCenter(range);
     ctx.editor.setSelection(range);
     ctx.editor.focus();
-    useGraphQLErrorStore.getState().consumeFocus(focusRequest.nonce);
-  }, [focusRequest, activeTabId, editorGeneration]);
+    consume();
+  }, [focusRequest, activeTabId, editorGeneration, liveErrors, query]);
 
   const variablesValid = isVariablesValid(variables);
 

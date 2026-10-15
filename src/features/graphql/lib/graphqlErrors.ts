@@ -40,6 +40,12 @@ export interface GraphQLErrorMarker extends GraphQLErrorRange {
   source: string;
 }
 
+/**
+ * `protocolOptions` key for a `(sentBody: string) => void` callback the GraphQL
+ * protocol invokes with the substituted body it sent.
+ */
+export const GRAPHQL_SENT_BODY_OPTION = 'onSentBody';
+
 /** Upper bound on errors we materialise — a hostile server can send millions. */
 export const MAX_GRAPHQL_ERRORS = 200;
 const MAX_LOCATIONS_PER_ERROR = 20;
@@ -176,21 +182,153 @@ export function locationToRange(source: string, loc: GraphQLErrorLocation): Grap
   };
 }
 
-/** Editor markers for every located error. */
+/** 1-based position of a 0-based offset (same line rules as {@link locationToOffset}). */
+function offsetToPosition(source: string, offset: number): { line: number; column: number } {
+  const starts = lineStarts(source);
+  let lineIdx = 0;
+  while (lineIdx + 1 < starts.length && (starts[lineIdx + 1] ?? Infinity) <= offset) lineIdx++;
+  return { line: lineIdx + 1, column: offset - (starts[lineIdx] ?? 0) + 1 };
+}
+
+function offsetsToRange(source: string, start: number, end: number): GraphQLErrorRange {
+  const a = offsetToPosition(source, start);
+  const b = offsetToPosition(source, end);
+  return {
+    startLineNumber: a.line,
+    startColumn: a.column,
+    endLineNumber: b.line,
+    endColumn: b.column,
+  };
+}
+
+const PLACEHOLDER = /\{\{[^{}]+\}\}/g;
+
+interface AlignedSegment {
+  kind: 'literal' | 'placeholder';
+  rawStart: number;
+  rawEnd: number;
+  sentStart: number;
+  sentEnd: number;
+}
+
+/**
+ * Line up the editor text (`raw`, with `{{var}}` placeholders) against the
+ * text that was actually sent (`sent`, placeholders substituted). Literal text
+ * between placeholders must appear verbatim and in order; adjacent
+ * placeholders collapse into one region. `null` when they can't be aligned
+ * (the sent text came from something other than substitution).
+ */
+function alignSentText(raw: string, sent: string): AlignedSegment[] | null {
+  const literals: Array<{ start: number; end: number }> = [];
+  const holes: Array<{ start: number; end: number }> = [];
+  let cursor = 0;
+  for (const m of raw.matchAll(PLACEHOLDER)) {
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
+    const prevHole = holes[holes.length - 1];
+    if (prevHole && prevHole.end === start) {
+      prevHole.end = end;
+    } else {
+      literals.push({ start: cursor, end: start });
+      holes.push({ start, end });
+    }
+    cursor = end;
+  }
+  literals.push({ start: cursor, end: raw.length });
+
+  const segments: AlignedSegment[] = [];
+  let pos = 0;
+  for (let i = 0; i < literals.length; i++) {
+    const lit = literals[i]!;
+    const text = raw.slice(lit.start, lit.end);
+    const isFirst = i === 0;
+    const isLast = i === literals.length - 1;
+    let at: number;
+    if (isFirst) at = sent.startsWith(text) ? 0 : -1;
+    else if (isLast) at = sent.endsWith(text) ? sent.length - text.length : -1;
+    else at = sent.indexOf(text, pos);
+    if (at < pos || (isFirst && isLast && text.length !== sent.length)) return null;
+    if (!isFirst) {
+      const hole = holes[i - 1]!;
+      segments.push({
+        kind: 'placeholder',
+        rawStart: hole.start,
+        rawEnd: hole.end,
+        sentStart: pos,
+        sentEnd: at,
+      });
+    }
+    segments.push({
+      kind: 'literal',
+      rawStart: lit.start,
+      rawEnd: lit.end,
+      sentStart: at,
+      sentEnd: at + text.length,
+    });
+    pos = at + text.length;
+  }
+  return segments;
+}
+
+/**
+ * Editor range for a location reported against the SENT query. The request
+ * executor substitutes `{{vars}}` in the query text before sending, so server
+ * coordinates index the substituted text; map them back onto the editor text.
+ * A location inside a substituted value highlights the whole placeholder.
+ * `null` when the two texts can't be aligned — better no marker than a wrong one.
+ */
+export function sentLocationToRange(
+  raw: string,
+  sent: string,
+  loc: GraphQLErrorLocation
+): GraphQLErrorRange | null {
+  if (raw === sent) return locationToRange(raw, loc);
+  const segments = alignSentText(raw, sent);
+  if (!segments) return null;
+  const sentRange = locationToRange(sent, loc);
+  const start = locationToOffset(sent, {
+    line: sentRange.startLineNumber,
+    column: sentRange.startColumn,
+  });
+  const end = start + (sentRange.endColumn - sentRange.startColumn);
+  const seg =
+    segments.find((s) => start >= s.sentStart && start < s.sentEnd) ??
+    segments[segments.length - 1];
+  if (!seg) return null;
+  if (seg.kind === 'placeholder') return offsetsToRange(raw, seg.rawStart, seg.rawEnd);
+  const rawStart = seg.rawStart + (start - seg.sentStart);
+  const rawEnd = seg.rawStart + (Math.min(end, seg.sentEnd) - seg.sentStart);
+  return offsetsToRange(raw, rawStart, Math.max(rawEnd, rawStart));
+}
+
+/** The `query` of a sent GraphQL JSON envelope, if that's what `body` is. */
+export function sentQueryFromBody(body: string | undefined): string | undefined {
+  if (!body) return undefined;
+  try {
+    const parsed = JSON.parse(body) as unknown;
+    return isRecord(parsed) && typeof parsed.query === 'string' ? parsed.query : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Editor markers for every located error. `sent` is the query text the server
+ * saw (after `{{var}}` substitution); locations that can't be mapped back onto
+ * `source` are dropped.
+ */
 export function buildErrorMarkers(
   source: string,
-  errors: readonly GraphQLErrorEntry[]
+  errors: readonly GraphQLErrorEntry[],
+  sent: string = source
 ): GraphQLErrorMarker[] {
   const markers: GraphQLErrorMarker[] = [];
   for (const error of errors) {
     const message = errorLabel(error);
     for (const loc of error.locations) {
-      markers.push({
-        severity: 8,
-        message,
-        source: 'GraphQL response',
-        ...locationToRange(source, loc),
-      });
+      const range = sentLocationToRange(source, sent, loc);
+      if (!range) continue;
+      markers.push({ severity: 8, message, source: 'GraphQL response', ...range });
     }
   }
   return markers;

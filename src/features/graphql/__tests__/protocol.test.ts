@@ -139,6 +139,27 @@ describe('graphqlProtocol envelope', () => {
     expect(onAuthRefreshed).toHaveBeenCalledWith(refreshed);
   });
 
+  it('hands the substituted sent body to an onSentBody protocol option', async () => {
+    const sentBody = '{"query":"{ user(id: \\"1\\") { id } }","variables":{}}';
+    executeRequestMock.mockResolvedValue({ response: { status: 200 }, sentBody });
+    const onSentBody = vi.fn();
+    await graphqlProtocol.runRequest(gqlRequest(ENVELOPE), {
+      signal: new AbortController().signal,
+      variables: {},
+      protocolOptions: { onSentBody },
+    } as never);
+    expect(onSentBody).toHaveBeenCalledWith(sentBody);
+
+    // No option, or no body → nothing to call / no crash.
+    executeRequestMock.mockResolvedValue({ response: { status: 200 } });
+    await graphqlProtocol.runRequest(gqlRequest(ENVELOPE), {
+      signal: new AbortController().signal,
+      variables: {},
+      protocolOptions: { onSentBody },
+    } as never);
+    expect(onSentBody).toHaveBeenCalledTimes(1);
+  });
+
   it('leaves operationName off an anonymous saved document, like interactive Send', async () => {
     const saved = gqlRequest('{ me { id } }');
     saved.body.type = 'graphql';

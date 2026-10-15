@@ -145,7 +145,45 @@ describe('GraphQLBodyEditor response-error markers', () => {
     expect(responseMarkerCalls().at(-1)?.[2]).toEqual([]);
   });
 
+  it('maps locations from the substituted (sent) query back onto the editor text', async () => {
+    const raw = 'query {\n  user(id: "{{userId}}") { nme }\n}';
+    const sent = 'query {\n  user(id: "1") { nme }\n}';
+    const located = parseGraphQLErrors({
+      errors: [{ message: 'bad', locations: [{ line: 2, column: 19 }] }],
+    });
+    useGraphQLErrorStore.getState().publish('tab-1', raw, located, sent);
+    renderEditor(raw);
+    await waitFor(() => expect(responseMarkerCalls().length).toBeGreaterThan(0));
+    const column = raw.split('\n')[1]!.indexOf('nme') + 1;
+    expect(responseMarkerCalls().at(-1)?.[2]).toEqual([
+      expect.objectContaining({ startLineNumber: 2, startColumn: column, endColumn: column + 3 }),
+    ]);
+
+    act(() => {
+      useGraphQLErrorStore.getState().focusLocation('tab-1', { line: 2, column: 19 });
+    });
+    expect(monacoMocks.editor.setSelection).toHaveBeenCalledWith({
+      startLineNumber: 2,
+      startColumn: column,
+      endLineNumber: 2,
+      endColumn: column + 3,
+    });
+  });
+
+  it('discards a focus request once the query no longer matches what was sent', async () => {
+    useGraphQLErrorStore.getState().publish('tab-1', QUERY, errors);
+    renderEditor(`${QUERY}\n# edited`);
+    await waitFor(() => expect(responseMarkerCalls().length).toBeGreaterThan(0));
+    act(() => {
+      useGraphQLErrorStore.getState().focusLocation('tab-1', { line: 3, column: 5 });
+    });
+    expect(monacoMocks.editor.setSelection).not.toHaveBeenCalled();
+    expect(monacoMocks.editor.focus).not.toHaveBeenCalled();
+    expect(useGraphQLErrorStore.getState().focus).toBeNull();
+  });
+
   it('reveals and selects a location requested from an errors panel', async () => {
+    useGraphQLErrorStore.getState().publish('tab-1', QUERY, errors);
     renderEditor(QUERY);
     await waitFor(() => expect(responseMarkerCalls().length).toBeGreaterThan(0));
     act(() => {

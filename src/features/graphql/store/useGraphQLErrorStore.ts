@@ -9,8 +9,13 @@ import type { GraphQLErrorEntry, GraphQLErrorLocation } from '@/features/graphql
  */
 
 export interface GraphQLErrorSnapshot {
-  /** The exact query document that was sent; locations index into it. */
+  /** The editor's query document at send time (unsubstituted). */
   query: string;
+  /**
+   * The query text the server saw, after `{{var}}` substitution — locations
+   * index into this. Omitted when identical to `query`.
+   */
+  sentQuery?: string;
   errors: GraphQLErrorEntry[];
 }
 
@@ -24,7 +29,7 @@ interface GraphQLErrorState {
   byTab: Record<string, GraphQLErrorSnapshot>;
   focus: GraphQLErrorFocusRequest | null;
   /** Record the errors for a sent query; an empty list clears the tab. */
-  publish: (tabId: string, query: string, errors: GraphQLErrorEntry[]) => void;
+  publish: (tabId: string, query: string, errors: GraphQLErrorEntry[], sentQuery?: string) => void;
   clear: (tabId: string) => void;
   focusLocation: (tabId: string, location: GraphQLErrorLocation) => void;
   /** Mark a focus request handled (no-op if a newer one superseded it). */
@@ -36,11 +41,16 @@ let nonce = 0;
 export const useGraphQLErrorStore = create<GraphQLErrorState>()((set) => ({
   byTab: {},
   focus: null,
-  publish: (tabId, query, errors) =>
+  publish: (tabId, query, errors, sentQuery) =>
     set((state) => {
       const byTab = { ...state.byTab };
-      if (errors.length > 0) byTab[tabId] = { query, errors };
-      else delete byTab[tabId];
+      if (errors.length > 0) {
+        byTab[tabId] = {
+          query,
+          errors,
+          ...(sentQuery !== undefined && sentQuery !== query ? { sentQuery } : {}),
+        };
+      } else delete byTab[tabId];
       return { byTab };
     }),
   clear: (tabId) =>

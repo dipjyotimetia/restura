@@ -101,6 +101,31 @@ describe('GraphQLRequestBuilder error routing', () => {
     });
   });
 
+  it('records the substituted query the server saw, for location mapping', async () => {
+    setRequest('{ user(id: "{{id}}") { boom } }');
+    mocks.run.mockImplementationOnce(
+      async (
+        _req: unknown,
+        _protocol: string,
+        options: { protocolOptions: { onSentBody: (body: string) => void } }
+      ) => {
+        options.protocolOptions.onSentBody(
+          JSON.stringify({ query: '{ user(id: "42") { boom } }', variables: {} })
+        );
+        return { response: response(errorBody) };
+      }
+    );
+    render(<GraphQLRequestBuilder />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send GraphQL query' }));
+    await screen.findByRole('button', { name: 'Send GraphQL query' });
+
+    expect(useGraphQLErrorStore.getState().byTab['tab-1']).toMatchObject({
+      query: '{ user(id: "{{id}}") { boom } }',
+      sentQuery: '{ user(id: "42") { boom } }',
+    });
+  });
+
   it('clears stale errors when a later send succeeds', async () => {
     setRequest('{ ok }');
     useGraphQLErrorStore

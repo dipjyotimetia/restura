@@ -90,6 +90,26 @@ describe('ResponseViewer GraphQL errors', () => {
     expect(row?.textContent).toContain('1:');
   });
 
+  it('does not offer a tree jump for bodies above the 1 MB tree cap', () => {
+    const big = JSON.stringify({ ...JSON.parse(body), padding: 'x'.repeat(1_000_001) });
+    useRequestStore.setState({
+      tabs: [
+        {
+          id: 'tab-gql',
+          request,
+          response: { ...response, id: 'resp-big', body: big, size: big.length },
+          isDirty: false,
+        },
+      ],
+    });
+    render(<ResponseViewer protocol="graphql" />);
+    fireEvent.click(screen.getByRole('tab', { name: /Errors/ }));
+    expect(screen.getByText('user 9 not found')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /in response/ })).toBeNull();
+    expect(screen.getByText('partial[1]')).toBeTruthy();
+    expect(screen.queryByRole('tree')).toBeNull();
+  });
+
   it('leaves the Errors tab when the next response has no errors', () => {
     const { rerender } = render(<ResponseViewer protocol="graphql" />);
     fireEvent.click(screen.getByRole('tab', { name: /Errors/ }));

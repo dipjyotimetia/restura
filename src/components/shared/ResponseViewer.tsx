@@ -238,6 +238,8 @@ function ResponseViewer({ protocol }: ResponseViewerProps) {
     if (activeTab === 'errors' && graphqlErrors.length === 0) setActiveTab('body');
   }, [activeTab, graphqlErrors.length]);
   const showErrorPathInTree = (path: (string | number)[]) => {
+    // Same 1 MB cap as the Tree option itself — never force a huge tree render.
+    if (!canShowTree) return;
     let root: unknown;
     try {
       root = JSON.parse(currentResponse?.body ?? '');
@@ -695,7 +697,10 @@ function ResponseViewer({ protocol }: ResponseViewerProps) {
                       <GraphQLErrorsPanel
                         items={graphqlErrors.map((error) => ({ key: String(error.index), error }))}
                         tabId={activeTabId}
-                        onSelectPath={(_item, path) => showErrorPathInTree(path)}
+                        {...(canShowTree && {
+                          onSelectPath: (_item: unknown, path: (string | number)[]) =>
+                            showErrorPathInTree(path),
+                        })}
                       />
                     </div>
                   )}
