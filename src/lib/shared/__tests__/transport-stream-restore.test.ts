@@ -38,6 +38,18 @@ describe('restoreUpstreamStatus', () => {
     expect(await out.text()).toBe('body');
   });
 
+  it('does not keep the masked wrapper phrase when the upstream sent none', () => {
+    const out = restoreUpstreamStatus(
+      new Response('x', {
+        status: 200,
+        statusText: 'OK',
+        headers: { 'x-restura-upstream-status': '401' },
+      })
+    );
+    expect(out.status).toBe(401);
+    expect(out.statusText).toBe('');
+  });
+
   it('handles null-body statuses, bad status values and malformed side channels', () => {
     const notModified = restoreUpstreamStatus(
       new Response('', { headers: { 'x-restura-upstream-status': '304' } })

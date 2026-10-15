@@ -29,6 +29,7 @@ import {
   hasIncrementalDirective,
   type IncrementalSnapshot,
   snapshotToResponse,
+  stoppedSnapshotResponse,
 } from '@/features/graphql/lib/graphqlHttp';
 import {
   GRAPHQL_SENT_BODY_OPTION,
@@ -259,16 +260,21 @@ function GraphQLRequestBuilder() {
     const startedAt = Date.now();
     useUiStore.getState().setInFlight({ tabId: originTabId, startedAt, cancel: abortRun });
 
+    // The latest live @defer / @stream snapshot, finalised if the run stops early.
+    let lastSnapshot: ReturnType<typeof snapshotToResponse> | undefined;
     try {
       let sentBody: string | undefined;
       // @defer / @stream: render each merged multipart part as it arrives.
       const stream = hasIncrementalDirective(query)
         ? {
-            onMessage: (snapshot: unknown) =>
-              setCurrentResponseForTab(
-                originTabId,
-                snapshotToResponse(snapshot as IncrementalSnapshot, httpRequest.id, startedAt)
-              ),
+            onMessage: (snapshot: unknown) => {
+              lastSnapshot = snapshotToResponse(
+                snapshot as IncrementalSnapshot,
+                httpRequest.id,
+                startedAt
+              );
+              setCurrentResponseForTab(originTabId, lastSnapshot);
+            },
           }
         : undefined;
       const { response, scriptResult: runScripts } = await runViaRegistry(wireRequest, 'graphql', {
@@ -331,7 +337,14 @@ function GraphQLRequestBuilder() {
         });
       }
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
+      const aborted = error instanceof Error && error.name === 'AbortError';
+      if (lastSnapshot) {
+        setCurrentResponseForTab(
+          originTabId,
+          stoppedSnapshotResponse(lastSnapshot, aborted ? 'cancelled' : 'failed')
+        );
+      }
+      if (aborted) {
         toast.info('Request cancelled', { duration: 2000 });
       } else {
         const errorMessage = error instanceof Error ? error.message : 'Request failed';

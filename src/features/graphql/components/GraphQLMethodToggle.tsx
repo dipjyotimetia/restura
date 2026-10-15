@@ -1,6 +1,7 @@
 'use client';
 
 import { type GraphQLHttpMethod, getRefusalReason } from '@/features/graphql/lib/graphqlHttp';
+import { extractOperationName } from '@/features/graphql/lib/queryParser';
 import { cn } from '@/lib/shared/utils';
 
 interface GraphQLMethodToggleProps {
@@ -34,7 +35,9 @@ export function GraphQLMethodToggle({
       </div>
     );
   }
-  const refusal = method === 'GET' ? getRefusalReason(query) : null;
+  // Same operation selection as Send (first named operation).
+  const refusal =
+    method === 'GET' ? getRefusalReason(query, extractOperationName(query) ?? undefined) : null;
   const next: GraphQLHttpMethod = method === 'GET' ? 'POST' : 'GET';
   return (
     <button

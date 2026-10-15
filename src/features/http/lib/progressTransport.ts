@@ -53,6 +53,22 @@ function flatHeaders(headers: Record<string, string | string[]>): Record<string,
   return out;
 }
 
+/**
+ * An unmarked streamed reply is the proxy's own error — unless the Worker
+ * predates the marker (version skew: a preview build against an older Worker,
+ * or a Worker rollback). Proxy errors are always non-2xx JSON `{ error }`, so
+ * a 2xx, or a body of any other shape, is treated as the upstream's reply.
+ */
+async function isProxyError(response: Response): Promise<boolean> {
+  if (response.ok) return false;
+  try {
+    const payload = (await response.clone().json()) as { error?: unknown } | null;
+    return typeof payload?.error === 'string';
+  } catch {
+    return false;
+  }
+}
+
 async function readProxyError(response: Response): Promise<ProxyTransportError> {
   let message = `Proxy request failed (${response.status})`;
   try {
@@ -94,7 +110,7 @@ export async function executeProxiedRequestWithProgress(
     if (err instanceof DOMException && err.name === 'AbortError') throw err;
     throw new ProxyTransportError(err instanceof Error ? err.message : 'Proxy request failed');
   }
-  if (!response.headers.get(PROXY_STREAM_MARKER_HEADER)) {
+  if (!response.headers.get(PROXY_STREAM_MARKER_HEADER) && (await isProxyError(response))) {
     throw await readProxyError(response);
   }
 

@@ -97,10 +97,27 @@ describe('executeProxiedRequestWithProgress — web', () => {
       status: 400,
     });
 
-    streamingMock.mockResolvedValue(new Response('nope', { status: 401 }));
-    await expect(executeProxiedRequestWithProgress(SPEC, () => undefined)).rejects.toMatchObject({
-      message: 'Proxy request failed (401)',
-    });
+    streamingMock.mockResolvedValue(new Response(JSON.stringify({ error: 42 }), { status: 401 }));
+    const out = await executeProxiedRequestWithProgress(SPEC, () => undefined);
+    // `{ error }` that isn't a string isn't a proxy error envelope.
+    expect(out.status).toBe(401);
+  });
+
+  it('treats unmarked 2xx or non-envelope replies as upstream (older Worker, version skew)', async () => {
+    streamingMock.mockResolvedValueOnce(
+      new Response('{"data":{"a":1}}', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    );
+    const progress = vi.fn();
+    const ok = await executeProxiedRequestWithProgress(SPEC, progress);
+    expect(ok).toMatchObject({ status: 200, data: '{"data":{"a":1}}' });
+    expect(progress).toHaveBeenCalled();
+
+    streamingMock.mockResolvedValueOnce(new Response('upstream says no', { status: 503 }));
+    const err = await executeProxiedRequestWithProgress(SPEC, () => undefined);
+    expect(err).toMatchObject({ status: 503, data: 'upstream says no' });
   });
 
   it('wraps network failures but lets aborts through untouched', async () => {

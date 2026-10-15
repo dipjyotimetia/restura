@@ -21,6 +21,7 @@ import {
   MultipartMixedParser,
   parseMultipartBoundary,
 } from '@shared/protocol/multipart-mixed-parser';
+import { Kind, type OperationDefinitionNode, parse } from 'graphql';
 import { extractOperationType } from '@/features/graphql/lib/queryParser';
 import type { ResponseProgress } from '@/features/http/lib/progressTransport';
 import { base64ToBytes } from '@/lib/shared/binaryBody';
@@ -54,11 +55,41 @@ export function hasIncrementalDirective(query: string): boolean {
 }
 
 /**
- * Why GET cannot carry this document, or null when it can. Anonymous
- * shorthand (`{ ... }`) and unparseable text count as queries.
+ * The type of the operation that would execute, judged from the parsed
+ * document so leading comments, fragments or earlier operations can't hide a
+ * mutation. With several operations: the one named by `operationName`; if it
+ * names none of them (or is absent), the most dangerous one present — GET must
+ * never carry a document that could run a mutation.
  */
-export function getRefusalReason(query: string): string | null {
-  const type = extractOperationType(query);
+function executedOperationType(query: string, operationName?: string): string | null {
+  let operations: OperationDefinitionNode[];
+  try {
+    operations = parse(query).definitions.filter(
+      (d): d is OperationDefinitionNode => d.kind === Kind.OPERATION_DEFINITION
+    );
+  } catch {
+    // Unparseable (the user is mid-edit): fall back to the leading keyword.
+    return extractOperationType(query.replace(/#[^\n\r]*/g, ''));
+  }
+  const named = operationName
+    ? operations.find((op) => op.name?.value === operationName)
+    : operations.length === 1
+      ? operations[0]
+      : undefined;
+  if (named) return named.operation;
+  return (
+    operations.find((op) => op.operation === 'mutation')?.operation ??
+    operations.find((op) => op.operation === 'subscription')?.operation ??
+    null
+  );
+}
+
+/**
+ * Why GET cannot carry this document, or null when it can. Anonymous
+ * shorthand (`{ ... }`) counts as a query.
+ */
+export function getRefusalReason(query: string, operationName?: string): string | null {
+  const type = executedOperationType(query, operationName);
   if (type === 'mutation' || type === 'subscription') {
     return `GET can only send query operations — switch the method to POST to send this ${type}.`;
   }
@@ -95,7 +126,7 @@ export function buildGraphQLWireRequest(
   }
 
   if (method === 'GET') {
-    const refusal = getRefusalReason(envelope.query);
+    const refusal = getRefusalReason(envelope.query, envelope.operationName);
     if (refusal) return { ok: false, error: refusal };
     const params = request.params.filter((p) => !(p.enabled && GET_PARAM_KEYS.has(p.key)));
     params.push(param('query', envelope.query));
@@ -159,10 +190,30 @@ function contentTypeOf(headers: ApiResponse['headers']): string {
   return '';
 }
 
+/**
+ * The merged body is JSON, so say so: downstream text/binary classification
+ * (collection-run evidence, test scripts, the viewer) keys off Content-Type,
+ * and `multipart/mixed` reads as binary. The notice records the original.
+ */
+function withJsonContentType<T extends ApiResponse['headers']>(headers: T): T {
+  const out: Record<string, string | string[]> = {};
+  let replaced = false;
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase() === 'content-type') {
+      out[k] = 'application/json; charset=utf-8';
+      replaced = true;
+    } else {
+      out[k] = v;
+    }
+  }
+  if (!replaced) out['content-type'] = 'application/json; charset=utf-8';
+  return out as T;
+}
+
 function partsNotice(parts: number, done: boolean): string {
   const noun = parts === 1 ? 'part' : 'parts';
   return done
-    ? `Incremental delivery: merged ${parts} multipart/mixed ${noun} (@defer / @stream) into one result.`
+    ? `Incremental delivery: merged ${parts} multipart/mixed ${noun} (@defer / @stream) into one JSON result.`
     : `Incremental delivery: ${parts} ${noun} received so far — more on the way…`;
 }
 
@@ -179,6 +230,7 @@ export function normalizeGraphQLResponse(response: ApiResponse): ApiResponse {
     const { bodyEncoding: _drop, ...rest } = response;
     return {
       ...rest,
+      headers: withJsonContentType(response.headers),
       body: JSON.stringify(merged.result, null, 2),
       bodyNotice: partsNotice(merged.parts, true),
     };
@@ -312,12 +364,28 @@ export function snapshotToResponse(
     requestId,
     status: snapshot.status,
     statusText: snapshot.statusText,
-    headers: snapshot.headers,
+    headers: withJsonContentType(snapshot.headers),
     body,
     size: new Blob([body]).size,
     time: now - startedAt,
     timestamp: now,
     bodyNotice: partsNotice(snapshot.parts, !snapshot.hasNext),
     partial: true,
+  };
+}
+
+/**
+ * The last live snapshot, finalised after the request stopped early (the user
+ * cancelled, or the transport failed mid-stream): no longer `partial` — the
+ * viewer must stop treating it as in flight — and labelled as incomplete.
+ */
+export function stoppedSnapshotResponse(
+  snapshot: ApiResponse,
+  reason: 'cancelled' | 'failed'
+): ApiResponse {
+  return {
+    ...snapshot,
+    partial: false,
+    bodyNotice: `Incremental delivery ${reason} — showing the partial result received before the request stopped.`,
   };
 }

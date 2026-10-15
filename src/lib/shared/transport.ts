@@ -162,7 +162,9 @@ export function restoreUpstreamStatus(response: Response): Response {
       // Malformed side channel — keep what was forwarded.
     }
   }
-  let statusText = response.statusText;
+  // The wrapper's own phrase ("OK" on a masked 200) never belongs to the
+  // upstream status; no text header means the upstream sent an empty phrase.
+  let statusText = '';
   const rawText = response.headers.get(PROXY_UPSTREAM_STATUS_TEXT_HEADER);
   if (rawText !== null) {
     try {

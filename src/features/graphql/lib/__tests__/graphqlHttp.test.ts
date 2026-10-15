@@ -10,6 +10,7 @@ import {
   hasIncrementalDirective,
   normalizeGraphQLResponse,
   snapshotToResponse,
+  stoppedSnapshotResponse,
 } from '../graphqlHttp';
 
 function req(overrides: Partial<HttpRequest> = {}): HttpRequest {
@@ -67,6 +68,25 @@ describe('graphqlMethodOf / hasIncrementalDirective / getRefusalReason', () => {
     expect(hasIncrementalDirective('{ list @stream(initialCount: 1) }')).toBe(true);
     expect(hasIncrementalDirective('{ a } # @defer later')).toBe(false);
     expect(hasIncrementalDirective('{ a @deferred }')).toBe(false);
+  });
+
+  it('judges the parsed document: comments, fragments and other operations cannot hide a mutation', () => {
+    expect(getRefusalReason('# create\nmutation { x }')).toMatch(/mutation/);
+    expect(getRefusalReason('fragment F on U { id } mutation M { x { ...F } }')).toMatch(
+      /mutation/
+    );
+    expect(getRefusalReason('fragment F on U { id } query Q { x { ...F } }')).toBeNull();
+    // Several operations: the selected one decides; without a match, the most dangerous.
+    const doc = 'query A { a } mutation B { b } subscription C { c }';
+    expect(getRefusalReason(doc, 'A')).toBeNull();
+    expect(getRefusalReason(doc, 'B')).toMatch(/mutation/);
+    expect(getRefusalReason(doc, 'C')).toMatch(/subscription/);
+    expect(getRefusalReason(doc)).toMatch(/mutation/);
+    expect(getRefusalReason('query A { a } subscription C { c }', 'nope')).toMatch(/subscription/);
+    expect(getRefusalReason('query A { a } query B { b }')).toBeNull();
+    // Unparseable text falls back to the leading keyword (comments ignored).
+    expect(getRefusalReason('# x\nmutation {')).toMatch(/mutation/);
+    expect(getRefusalReason('query {')).toBeNull();
   });
 
   it('refuses mutations and subscriptions over GET, allows queries and shorthand', () => {
@@ -185,7 +205,8 @@ describe('normalizeGraphQLResponse', () => {
     const out = normalizeGraphQLResponse(apiResponse());
     expect(JSON.parse(out.body)).toEqual({ data: { hello: 'world', slow: 'done' } });
     expect(out.bodyNotice).toMatch(/merged 2 multipart\/mixed parts/);
-    expect(out.headers).toEqual({ 'Content-Type': MULTIPART_CT });
+    // The body is JSON now, so the header says so (evidence/test scripts key off it).
+    expect(out.headers).toEqual({ 'Content-Type': 'application/json; charset=utf-8' });
   });
 
   it('decodes a base64 (binary-transported) multipart body first', () => {
@@ -348,6 +369,21 @@ describe('createIncrementalProgress — coalescing', () => {
   });
 });
 
+describe('stoppedSnapshotResponse', () => {
+  it('finalises a live snapshot as an incomplete, non-partial result', () => {
+    const live = snapshotToResponse(
+      { status: 200, statusText: 'OK', headers: {}, result: { data: {} }, parts: 2, hasNext: true },
+      'r',
+      Date.now()
+    );
+    const cancelled = stoppedSnapshotResponse(live, 'cancelled');
+    expect(cancelled.partial).toBe(false);
+    expect(cancelled.body).toBe(live.body);
+    expect(cancelled.bodyNotice).toMatch(/cancelled .*partial result/);
+    expect(stoppedSnapshotResponse(live, 'failed').bodyNotice).toMatch(/failed/);
+  });
+});
+
 describe('snapshotToResponse', () => {
   it('renders a provisional response with an in-progress notice', () => {
     const r = snapshotToResponse(
@@ -365,7 +401,7 @@ describe('snapshotToResponse', () => {
     expect(r).toMatchObject({
       requestId: 'req-9',
       status: 200,
-      headers: { a: 'b' },
+      headers: { a: 'b', 'content-type': 'application/json; charset=utf-8' },
       partial: true,
     });
     expect(JSON.parse(r.body)).toEqual({ data: { x: 1 } });
