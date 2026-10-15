@@ -712,7 +712,11 @@ function GrpcRequestBuilder() {
             {activeTab === 'streaming' &&
               (streamingMessages.length > 0 || streamLog.dropped > 0) && (
                 <div className="p-3">
-                  <GrpcStreamingMessages messages={streamingMessages} dropped={streamLog.dropped} />
+                  <GrpcStreamingMessages
+                    messages={streamingMessages}
+                    dropped={streamLog.dropped}
+                    positions={streamLog.positions}
+                  />
                 </div>
               )}
 

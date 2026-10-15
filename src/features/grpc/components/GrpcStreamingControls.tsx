@@ -90,10 +90,13 @@ export default function GrpcStreamingControls({
 export function GrpcStreamingMessages({
   messages,
   dropped = 0,
+  positions,
 }: {
   messages: string[];
-  /** Earlier messages evicted by the renderer's retention bound. */
+  /** Messages evicted or skipped (oversized) by the renderer's retention bound. */
   dropped?: number;
+  /** Original 1-based stream position per message; defaults to a contiguous tail. */
+  positions?: number[];
 }) {
   if (messages.length === 0 && dropped === 0) return null;
 
@@ -104,26 +107,29 @@ export function GrpcStreamingMessages({
       </div>
       {dropped > 0 && <StreamDroppedNotice dropped={dropped} />}
       <div className="space-y-2 max-h-96 overflow-y-auto">
-        {messages.map((message, index) => (
-          <div key={dropped + index} className="bg-muted p-2 rounded border border-border">
-            <div className="text-xs font-medium mb-1">Message {dropped + index + 1}</div>
-            <pre className="text-xs whitespace-pre-wrap">{message}</pre>
-          </div>
-        ))}
+        {messages.map((message, index) => {
+          const position = positions?.[index] ?? dropped + index + 1;
+          return (
+            <div key={position} className="bg-muted p-2 rounded border border-border">
+              <div className="text-xs font-medium mb-1">Message {position}</div>
+              <pre className="text-xs whitespace-pre-wrap">{message}</pre>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-/** "N earlier messages dropped" — shown when the retained window evicted messages. */
+/** "N messages dropped" — shown when the retained window evicted or skipped messages. */
 export function StreamDroppedNotice({ dropped }: { dropped: number }) {
   return (
     <div
       role="status"
       className="text-xs text-muted-foreground border border-border rounded px-2 py-1"
     >
-      {dropped.toLocaleString()} earlier {dropped === 1 ? 'message' : 'messages'} dropped — only the
-      most recent are kept to bound memory.
+      {dropped.toLocaleString()} {dropped === 1 ? 'message' : 'messages'} dropped — only the most
+      recent are kept to bound memory.
     </div>
   );
 }

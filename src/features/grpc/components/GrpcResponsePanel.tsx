@@ -123,7 +123,7 @@ export function GrpcResponsePanel() {
         <Stat label="Frames" value={String(frameCount)} />
         {dropped > 0 && (
           <span role="status" className="text-sp-11 text-sp-dim">
-            {dropped.toLocaleString()} earlier {dropped === 1 ? 'message' : 'messages'} dropped
+            {dropped.toLocaleString()} {dropped === 1 ? 'message' : 'messages'} dropped
           </span>
         )}
         <Stat label="Compr" value={compression} />

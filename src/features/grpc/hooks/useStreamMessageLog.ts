@@ -9,8 +9,10 @@ import {
 export interface StreamMessageLog {
   /** Retained messages (newest last). */
   messages: string[];
-  /** Earlier messages evicted to keep the window bounded. */
+  /** Messages evicted or skipped (oversized) to keep the window bounded. */
   dropped: number;
+  /** Original 1-based stream position of each retained message. */
+  positions: number[];
   append: (text: string) => void;
   reset: () => void;
   /** Replace the window with a finished response's (already bounded) messages. */
@@ -26,5 +28,6 @@ export function useStreamMessageLog(): StreamMessageLog {
     (messages: string[] | undefined, dropped = 0) => setLog(retainedFrom(messages, dropped)),
     []
   );
-  return { messages: log.items, dropped: log.dropped, append, reset, replace };
+  const positions = log.seqs ?? log.items.map((_, i) => log.dropped + i + 1);
+  return { messages: log.items, dropped: log.dropped, positions, append, reset, replace };
 }

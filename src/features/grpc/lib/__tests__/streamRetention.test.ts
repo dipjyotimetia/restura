@@ -14,7 +14,13 @@ describe('StreamMessageBuffer', () => {
   it('evicts the oldest messages past the count limit and counts them', () => {
     const buf = new StreamMessageBuffer<number>({ maxMessages: 3, maxBytes: 1_000 });
     for (let i = 1; i <= 5; i++) buf.push(i, 1);
-    expect(buf.snapshot()).toEqual({ items: [3, 4, 5], bytes: 3, dropped: 2, sizes: [1, 1, 1] });
+    expect(buf.snapshot()).toEqual({
+      items: [3, 4, 5],
+      bytes: 3,
+      dropped: 2,
+      sizes: [1, 1, 1],
+      seqs: [3, 4, 5],
+    });
   });
 
   it('evicts by total bytes', () => {
@@ -25,6 +31,7 @@ describe('StreamMessageBuffer', () => {
       bytes: 8,
       dropped: 1,
       sizes: [4, 4],
+      seqs: [2, 3],
     });
   });
 
@@ -32,7 +39,7 @@ describe('StreamMessageBuffer', () => {
     const buf = new StreamMessageBuffer<string>({ maxMessages: 100, maxBytes: 4 });
     buf.push('ab', 2);
     buf.push('0123456789', 10);
-    expect(buf.snapshot()).toEqual({ items: ['ab'], bytes: 2, dropped: 1, sizes: [2] });
+    expect(buf.snapshot()).toEqual({ items: ['ab'], bytes: 2, dropped: 1, sizes: [2], seqs: [1] });
   });
 
   it('defaults to the documented message cap', () => {
@@ -50,7 +57,7 @@ describe('appendRetained', () => {
     const limits = { maxMessages: 2, maxBytes: 1_000 };
     let log = emptyRetained<string>();
     for (const s of ['a', 'b', 'c', 'd']) log = appendRetained(log, s, limits);
-    expect(log).toEqual({ items: ['c', 'd'], bytes: 2, dropped: 2, sizes: [1, 1] });
+    expect(log).toEqual({ items: ['c', 'd'], bytes: 2, dropped: 2, sizes: [1, 1], seqs: [3, 4] });
   });
 
   it('measures UTF-8 bytes, not UTF-16 length', () => {
@@ -87,5 +94,35 @@ describe('useStreamMessageLog', () => {
     expect(result.current).toMatchObject({ messages: ['y'], dropped: 0 });
     act(() => result.current.reset());
     expect(result.current).toMatchObject({ messages: [], dropped: 0 });
+  });
+});
+describe('stream retention positions', () => {
+  it('keeps original positions across an oversized drop (buffer)', () => {
+    const buf = new StreamMessageBuffer<string>({ maxMessages: 10, maxBytes: 10 });
+    buf.push('a', 1);
+    buf.push('b', 1);
+    buf.push('big', 11);
+    buf.push('d', 1);
+    const snap = buf.snapshot();
+    expect(snap.items).toEqual(['a', 'b', 'd']);
+    expect(snap.seqs).toEqual([1, 2, 4]);
+    expect(snap.dropped).toBe(1);
+  });
+
+  it('keeps original positions across an oversized drop (appendRetained)', () => {
+    const limits = { maxMessages: 10, maxBytes: 10 };
+    let log = emptyRetained<string>();
+    for (const t of ['a', 'b', 'x'.repeat(11), 'd']) log = appendRetained(log, t, limits);
+    expect(log.items).toEqual(['a', 'b', 'd']);
+    expect(log.seqs).toEqual([1, 2, 4]);
+    expect(log.dropped).toBe(1);
+  });
+
+  it('keeps positions after prefix eviction', () => {
+    const limits = { maxMessages: 2, maxBytes: 10 };
+    let log = emptyRetained<string>();
+    for (const t of ['a', 'b', 'c']) log = appendRetained(log, t, limits);
+    expect(log.seqs).toEqual([2, 3]);
+    expect(log.dropped).toBe(1);
   });
 });

@@ -135,13 +135,13 @@ describe('GrpcResponsePanel', () => {
     streamed(1);
     const { unmount } = render(<GrpcResponsePanel />);
     expect(screen.getByText('Frames').parentElement).toHaveTextContent('3');
-    expect(screen.getByRole('status')).toHaveTextContent('1 earlier message dropped');
+    expect(screen.getByRole('status')).toHaveTextContent('1 message dropped');
     unmount();
 
     streamed(1500);
     render(<GrpcResponsePanel />);
     expect(screen.getByRole('status')).toHaveTextContent(
-      `${(1500).toLocaleString()} earlier messages dropped`
+      `${(1500).toLocaleString()} messages dropped`
     );
   });
 });

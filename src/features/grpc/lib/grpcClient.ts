@@ -5,11 +5,11 @@ import {
   registryFromDescriptors,
   registryFromProtoText,
 } from '@shared/protocol/grpc-registry';
+import { GRPC_PROXY_MAX_TIMEOUT_MS } from '@shared/protocol/grpc-schema';
 import {
   type GrpcStatusDetail,
   redecodeRawStatusDetails,
 } from '@shared/protocol/grpc-status-details';
-import { GRPC_PROXY_MAX_TIMEOUT_MS } from '@shared/protocol/grpc-schema';
 import { MAX_GRPC_METADATA_BYTES } from '@shared/protocol/header-policy';
 import { v4 as uuidv4 } from 'uuid';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';

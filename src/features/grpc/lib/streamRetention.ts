@@ -30,6 +30,13 @@ export interface RetainedMessages<T> {
   dropped: number;
   /** Per-item UTF-8 sizes parallel to `items`; re-measured when absent. */
   sizes?: number[];
+  /**
+   * Original 1-based stream positions parallel to `items`. Needed because an
+   * oversized message is dropped from the middle of the stream, so
+   * `dropped + index + 1` would mislabel everything after it. Absent for
+   * windows with no gaps (positions are then `dropped + index + 1`).
+   */
+  seqs?: number[];
 }
 
 const encoder = new TextEncoder();
@@ -52,18 +59,23 @@ export function emptyRetained<T>(): RetainedMessages<T> {
 export class StreamMessageBuffer<T> {
   private readonly items: T[] = [];
   private readonly sizes: number[] = [];
+  private readonly seqs: number[] = [];
   private bytes = 0;
   private dropped = 0;
+  private received = 0;
 
   constructor(private readonly limits: StreamRetentionLimits = DEFAULT_LIMITS) {}
 
-  push(item: T, size: number): void {
+  push(item: T, size: number, seq?: number): void {
+    this.received += 1;
+    const position = seq ?? this.received;
     if (size > this.limits.maxBytes) {
       this.dropped += 1;
       return;
     }
     this.items.push(item);
     this.sizes.push(size);
+    this.seqs.push(position);
     this.bytes += size;
     while (
       this.items.length > 1 &&
@@ -71,6 +83,7 @@ export class StreamMessageBuffer<T> {
     ) {
       this.items.shift();
       this.bytes -= this.sizes.shift() ?? 0;
+      this.seqs.shift();
       this.dropped += 1;
     }
   }
@@ -81,6 +94,7 @@ export class StreamMessageBuffer<T> {
       bytes: this.bytes,
       dropped: this.dropped,
       sizes: [...this.sizes],
+      seqs: [...this.seqs],
     };
   }
 }
@@ -97,8 +111,12 @@ export function appendRetained(
 ): RetainedMessages<string> {
   const buf = new StreamMessageBuffer<string>(limits);
   // Re-seeding keeps eviction in one place; windows are small (≤ maxMessages).
-  prev.items.forEach((item, i) => buf.push(item, prev.sizes?.[i] ?? utf8Bytes(item)));
-  buf.push(text, utf8Bytes(text));
+  // Positions are carried through so a dropped oversized message leaves a gap
+  // rather than shifting the labels of everything after it.
+  prev.items.forEach((item, i) =>
+    buf.push(item, prev.sizes?.[i] ?? utf8Bytes(item), prev.seqs?.[i] ?? prev.dropped + i + 1)
+  );
+  buf.push(text, utf8Bytes(text), prev.dropped + prev.items.length + 1);
   const next = buf.snapshot();
   return { ...next, dropped: prev.dropped + next.dropped };
 }
