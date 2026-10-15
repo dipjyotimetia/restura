@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Env } from '../env';
+import { MAX_GRPC_WEB_BODY_BYTES } from '../handlers/grpc-web';
 import app from '../index';
 
 function makeApiRequest(headers: Record<string, string> = {}, env: Record<string, string> = {}) {
@@ -69,6 +70,29 @@ describe('worker api middleware', () => {
     expect(bad.status).toBe(401);
     const none = await post({}, { ENVIRONMENT: 'production', WORKER_PROXY_TOKEN: 'secret-token' });
     expect(none.status).toBe(401);
+  });
+
+  it('/api/grpc-web caps an unsized (streamed) body before the handler parses it', async () => {
+    const chunk = new Uint8Array(1024 * 1024).fill(0x61);
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        // Bounded producer: well past the cap, but never infinite.
+        if (sent++ > MAX_GRPC_WEB_BODY_BYTES / chunk.length + 1) controller.close();
+        else controller.enqueue(chunk);
+      },
+    });
+    const res = await app.request(
+      '/api/grpc-web',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'X-Restura-Proxy-Token': 'secret-token' },
+        body,
+        duplex: 'half',
+      } as RequestInit,
+      { ENVIRONMENT: 'production', WORKER_PROXY_TOKEN: 'secret-token' }
+    );
+    expect(res.status).toBe(413);
   });
 
   it('allows configured preview origins and denies other origins', async () => {

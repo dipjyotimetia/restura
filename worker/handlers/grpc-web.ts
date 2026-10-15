@@ -1,14 +1,48 @@
-import { executeGrpcWebProxy, MAX_GRPC_WEB_REQUEST_BYTES } from '@shared/protocol/grpc-web-proxy';
-import { GrpcWebProxyRequestBodySchema } from '@shared/protocol/grpc-web-schema';
+import { executeGrpcWebProxy } from '@shared/protocol/grpc-web-proxy';
+import {
+  GrpcWebProxyRequestBodySchema,
+  MAX_GRPC_WEB_MESSAGE_FIELD_CHARS,
+  MAX_GRPC_WEB_METADATA_ENTRIES,
+  MAX_GRPC_WEB_METADATA_KEY_CHARS,
+  MAX_GRPC_WEB_METADATA_VALUE_CHARS,
+} from '@shared/protocol/grpc-web-schema';
 import type { Fetcher } from '@shared/protocol/types';
 import type { Context } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import type { NodeHostnameGuard } from '../adapters';
 import type { Env } from '../env';
 import { allowPrivateIPs, isLocalDevBypass } from '../shared/env';
 import { parseJsonBody } from '../shared/validate-body';
 
-// Base64 inflation (4/3) of the message cap plus room for metadata/envelope.
-const MAX_GRPC_WEB_BODY_BYTES = Math.ceil((MAX_GRPC_WEB_REQUEST_BYTES * 4) / 3) + 256 * 1024;
+// Worst-case UTF-8 bytes per UTF-16 code unit (zod `.max()` counts code units).
+const UTF8_BYTES_PER_CHAR = 3;
+// Per-entry JSON punctuation: two quoted strings, `:` and `,`.
+const METADATA_ENTRY_OVERHEAD_BYTES = 6;
+// url/service/method and the remaining JSON envelope.
+const ENVELOPE_ALLOWANCE_BYTES = 256 * 1024;
+
+/**
+ * Byte cap on the JSON body POSTed to `/api/grpc-web`, derived from the
+ * schema's own limits so every schema-valid request (max-size base64 message
+ * plus the full permitted metadata) fits under it.
+ */
+export const MAX_GRPC_WEB_BODY_BYTES =
+  MAX_GRPC_WEB_MESSAGE_FIELD_CHARS +
+  MAX_GRPC_WEB_METADATA_ENTRIES *
+    ((MAX_GRPC_WEB_METADATA_KEY_CHARS + MAX_GRPC_WEB_METADATA_VALUE_CHARS) * UTF8_BYTES_PER_CHAR +
+      METADATA_ENTRY_OVERHEAD_BYTES) +
+  ENVELOPE_ALLOWANCE_BYTES;
+
+/**
+ * Streaming body cap for `/api/grpc-web`. `parseJsonBody`'s `maxBytes` only
+ * pre-checks a declared `Content-Length`; a chunked body would otherwise be
+ * materialised by `req.json()` unbounded (the Node/self-host server imposes
+ * no limit of its own). Mount before the handler on every backend.
+ */
+export const grpcWebBodyLimit = bodyLimit({
+  maxSize: MAX_GRPC_WEB_BODY_BYTES,
+  onError: (c) => c.json({ error: 'Request body too large' }, 413),
+});
 
 function buildFetcher(
   isDev: boolean,

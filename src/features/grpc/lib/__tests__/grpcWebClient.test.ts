@@ -206,6 +206,66 @@ describe('makeGrpcWebRequest (web → Worker → real gRPC-Web server)', () => {
     expect(ok.grpcStatus).toBe(GrpcStatusCode.OK);
   });
 
+  describe('undecodable response message', () => {
+    // A lone 0xff byte is an invalid protobuf tag (wire type 7).
+    const BAD_MESSAGE = '/w==';
+
+    async function withRelayEvents(
+      grpcStatus: GrpcStatusCode,
+      grpcStatusText: string,
+      grpcMessage?: string
+    ) {
+      const lines = [
+        { type: 'headers', headers: { 'x-h': '1' } },
+        { type: 'message', data: BAD_MESSAGE },
+        {
+          type: 'end',
+          grpcStatus,
+          grpcStatusText,
+          ...(grpcMessage ? { grpcMessage } : {}),
+          trailers: { 'x-t': '2' },
+          size: 9,
+        },
+      ];
+      const saved = globalThis.fetch;
+      vi.stubGlobal(
+        'fetch',
+        async () =>
+          new Response(lines.map((l) => JSON.stringify(l)).join('\n'), {
+            headers: { 'content-type': 'application/x-ndjson' },
+          })
+      );
+      try {
+        return await makeGrpcWebRequest(request(), resolveVars, 5000, {
+          protoContent: ECHO_PROTO,
+        });
+      } finally {
+        vi.stubGlobal('fetch', saved);
+      }
+    }
+
+    it('fails locally with INTERNAL on an OK status, keeping headers and trailers', async () => {
+      const res = await withRelayEvents(GrpcStatusCode.OK, 'OK');
+      expect(res.grpcStatus).toBe(GrpcStatusCode.INTERNAL);
+      expect(res.grpcStatusText).toBe('INTERNAL');
+      expect(JSON.parse(res.body).error).toMatch(/Failed to decode gRPC-Web response message/);
+      expect(res.headers).toEqual({ 'x-h': '1' });
+      expect(res.trailers).toEqual({ 'x-t': '2' });
+    });
+
+    it('preserves a non-OK server status and its metadata', async () => {
+      const res = await withRelayEvents(
+        GrpcStatusCode.PERMISSION_DENIED,
+        'PERMISSION_DENIED',
+        'nope'
+      );
+      expect(res.grpcStatus).toBe(GrpcStatusCode.PERMISSION_DENIED);
+      expect(JSON.parse(res.body)).toEqual({ error: 'nope' });
+      expect(res.headers).toEqual({ 'x-h': '1' });
+      expect(res.trailers).toEqual({ 'x-t': '2' });
+    });
+  });
+
   it('surfaces a Worker validation rejection (SSRF) as INVALID_ARGUMENT', async () => {
     const res = await makeGrpcWebRequest(
       request({ url: 'http://169.254.169.254' }),

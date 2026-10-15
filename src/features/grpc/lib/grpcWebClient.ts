@@ -26,8 +26,8 @@ import { isElectron, workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platf
 import type { GrpcRequest, GrpcResponse, GrpcSchemaSnapshot, GrpcWireProtocol } from '@/types';
 import { GrpcStatusCode, GrpcStatusCodeName } from '@/types';
 import {
-  createErrorResponse,
   assertProxyDeadline,
+  createErrorResponse,
   GrpcClientError,
   grpcAuthNeedsMainSideApply,
   prepareGrpcRequest,
@@ -231,13 +231,34 @@ export async function makeGrpcWebRequest(
     const { spec, method } = prepareGrpcWebCall(request, resolveVariables, timeoutMs, src);
     let headers: Record<string, string> = {};
     const messages: unknown[] = [];
+    let decodeError: unknown;
     let end: GrpcWebEndEvent | undefined;
     for await (const ev of streamGrpcWebViaWorker(spec)) {
       if (ev.type === 'headers') headers = ev.headers;
-      else if (ev.type === 'message') messages.push(decodeGrpcWebMessage(method, ev.data));
-      else end = ev;
+      else if (ev.type === 'message') {
+        // Keep reading after a bad message so the terminal status and
+        // trailers still reach the response.
+        try {
+          messages.push(decodeGrpcWebMessage(method, ev.data));
+        } catch (error: unknown) {
+          decodeError ??= error;
+        }
+      } else end = ev;
     }
     end ??= syntheticEnd(GrpcStatusCode.INTERNAL, 'gRPC-Web stream ended without a status');
+    if (decodeError !== undefined && end.grpcStatus === GrpcStatusCode.OK) {
+      // The server succeeded but we couldn't decode its reply: fail locally,
+      // keeping the received trailers.
+      const reason = decodeError instanceof Error ? decodeError.message : String(decodeError);
+      end = {
+        ...syntheticEnd(
+          GrpcStatusCode.INTERNAL,
+          `Failed to decode gRPC-Web response message: ${reason}`
+        ),
+        trailers: end.trailers,
+        size: end.size,
+      };
+    }
 
     const ok = end.grpcStatus === GrpcStatusCode.OK;
     const streaming = callKindOf(method) === 'server-streaming';
