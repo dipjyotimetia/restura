@@ -6,7 +6,8 @@
 // that Electron main resolves at wire time. The resolved plaintext must never
 // travel back to the renderer: not in the `ws:connect` reply (success or any
 // failure branch), not in emitted `ws:error` / `ws:close` events, and not in
-// the main-process log line.
+// the main-process log line. The same holds for graphql-sse over `sse:connect`
+// (reply, `sse:error` / `sse:close` / `sse:event`, logs).
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -17,6 +18,7 @@ const mockHandle = vi.hoisted(() => vi.fn());
 const mockEmitTo = vi.hoisted(() => vi.fn());
 const mockResolveSafe = vi.hoisted(() => vi.fn());
 const mockLogWarn = vi.hoisted(() => vi.fn());
+const mockStreaming = vi.hoisted(() => vi.fn());
 
 const wsMock = vi.hoisted(() => {
   class FakeWebSocket {
@@ -55,7 +57,9 @@ vi.mock('../../electron/main/ipc/ipc-utils', () => ({ emitTo: mockEmitTo }));
 vi.mock('../../electron/main/security/safe-connect', () => ({
   resolveSafeAddress: mockResolveSafe,
   createPinnedLookup: () => vi.fn(),
+  createPinnedFetch: () => vi.fn(),
 }));
+vi.mock('@shared/protocol/http-proxy', () => ({ executeHttpProxyStreaming: mockStreaming }));
 vi.mock('../../electron/main/security/secret-handle-store', () => ({
   unwrapSecretValueMain: (v: unknown): string | undefined => {
     if (typeof v === 'string') return v;
@@ -66,6 +70,7 @@ vi.mock('../../electron/main/security/secret-handle-store', () => ({
   },
 }));
 
+import { registerSseHandlerIPC, stopSseCleanup } from '../../electron/main/handlers/sse-handler';
 import {
   registerWebSocketHandlerIPC,
   stopWebSocketCleanup,
@@ -199,5 +204,123 @@ describe('ws:connect never echoes main-resolved secrets', () => {
         'WebSocket auth setup failed: Secret variable "tok" is unavailable on this desktop device',
     });
     expect(wsMock.FakeWebSocket.instances).toHaveLength(0);
+  });
+});
+
+const sseHandler = () =>
+  mockHandle.mock.calls.find((c) => c[0] === IPC.sse.connect)?.[1] as (
+    e: unknown,
+    p: unknown
+  ) => Promise<Reply>;
+
+const sseSecretConnect = (connectionId: string) => ({
+  ...secretConnect(connectionId),
+  url: 'https://api.example.com/graphql/stream?tenant={{tenant}}',
+  jsonBody: '{"query":"subscription { tick }"}',
+});
+
+function sseBody(text = ''): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    start(c) {
+      if (text) c.enqueue(new TextEncoder().encode(text));
+      c.close();
+    },
+  });
+}
+
+describe('sse:connect (graphql-sse) never echoes main-resolved secrets', () => {
+  beforeEach(() => {
+    setExecutionPolicy({
+      security: { allowLocalhost: true, allowPrivateIPs: false },
+      proxy: { enabled: false, type: 'http', host: '', port: 8080, bypassList: [] },
+      timeout: 30_000,
+      tls: { verifySsl: true, serverCipherOrder: false },
+      certificates: { clientCertificates: [], caCertificates: [] },
+    });
+    stopSseCleanup();
+    mockHandle.mockClear();
+    mockEmitTo.mockClear();
+    mockLogWarn.mockClear();
+    mockStreaming.mockReset();
+    mockResolveSafe.mockReset();
+    mockResolveSafe.mockResolvedValue({
+      host: 'api.example.com',
+      ip: '203.0.113.9',
+      port: 443,
+      family: 4,
+    });
+    registerSseHandlerIPC();
+  });
+
+  it('applies the secrets on the wire but returns only { success: true }', async () => {
+    mockStreaming.mockResolvedValue({
+      ok: true,
+      response: { status: 200, statusText: 'OK', body: sseBody() },
+    });
+    const reply = await sseHandler()(makeEvent(), sseSecretConnect('ok'));
+    expect(reply).toEqual({ success: true });
+    const spec = mockStreaming.mock.calls[0]?.[0] as {
+      url: string;
+      headers: Record<string, string>;
+    };
+    expect(spec.url).toContain(encodeURIComponent(HOST_PART));
+    expect(spec.headers['X-Echo']).toBe(`v=${SECRET}`);
+    assertNoPlaintext('sse open events', mockEmitTo.mock.calls);
+  });
+
+  it('redacts an SSRF/DNS failure that quotes the resolved URL', async () => {
+    mockResolveSafe.mockImplementationOnce(async (url: string) => {
+      throw new Error(`URL rejected by policy: ${url}`);
+    });
+    const reply = await sseHandler()(makeEvent(), sseSecretConnect('dns'));
+    expect(reply.success).toBe(false);
+    expect(reply.error).toContain('[redacted]');
+    assertNoPlaintext('sse dns reply', reply);
+  });
+
+  it('redacts proxy failures, status lines, events and logs', async () => {
+    mockStreaming.mockResolvedValueOnce({
+      ok: false,
+      payload: { error: `Proxy request failed: ${SECRET} @ ${HOST_PART}` },
+    });
+    const failed = await sseHandler()(makeEvent(), sseSecretConnect('proxy'));
+    assertNoPlaintext('sse proxy reply', failed);
+
+    mockStreaming.mockResolvedValueOnce({
+      ok: true,
+      response: { status: 403, statusText: `denied ${SECRET}`, body: sseBody() },
+    });
+    const status = await sseHandler()(makeEvent(), sseSecretConnect('status'));
+    assertNoPlaintext('sse status reply', status);
+
+    mockStreaming.mockResolvedValueOnce({
+      ok: true,
+      response: {
+        status: 200,
+        statusText: 'OK',
+        body: sseBody(`id: ${SECRET}\nevent: ${HOST_PART}\ndata: ${SECRET}\n\n`),
+      },
+    });
+    await sseHandler()(makeEvent(), sseSecretConnect('events'));
+    await vi.waitFor(() =>
+      expect(mockEmitTo.mock.calls.some(([, ch]) => ch === 'sse:event:events')).toBe(true)
+    );
+    assertNoPlaintext('sse events', mockEmitTo.mock.calls);
+    assertNoPlaintext('sse log', mockLogWarn.mock.calls);
+  });
+
+  it('a missing secret fails closed without echoing any resolved value', async () => {
+    const reply = await sseHandler()(makeEvent(), {
+      ...sseSecretConnect('missing'),
+      secretVariables: {
+        tenant: { kind: 'handle', id: 'h-host' },
+        tok: { kind: 'handle', id: 'gone' },
+      },
+    });
+    expect(reply).toEqual({
+      success: false,
+      error: 'SSE auth setup failed: Secret variable "tok" is unavailable on this desktop device',
+    });
+    expect(mockStreaming).not.toHaveBeenCalled();
   });
 });

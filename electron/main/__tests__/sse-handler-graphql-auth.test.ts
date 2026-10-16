@@ -301,3 +301,174 @@ describe('sse:connect — graphql-sse main-side auth', () => {
     ).rejects.toThrow(/Invalid IPC payload/);
   });
 });
+
+describe('sse:connect — upstream lifetime, body release and event redaction', () => {
+  beforeEach(() => {
+    setExecutionPolicy({
+      security: { allowLocalhost: true, allowPrivateIPs: false },
+      proxy: { enabled: false, type: 'http', host: '', port: 8080, bypassList: [] },
+      timeout: 30_000,
+      tls: { verifySsl: true, serverCipherOrder: false },
+      certificates: { clientCertificates: [], caCertificates: [] },
+    });
+    mockHandle.mockClear();
+    mockEmitTo.mockClear();
+    mockResolveSafe.mockReset();
+    mockResolveSafe.mockResolvedValue({
+      host: 'api.example.com',
+      ip: '203.0.113.7',
+      port: 443,
+      family: 4,
+    });
+    mockStreaming.mockReset();
+    registerSseHandlerIPC();
+  });
+  afterEach(() => stopSseCleanup());
+
+  /** A body that stays open until cancelled; records the cancel. */
+  function openBody(chunks: string[] = []) {
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        for (const chunk of chunks) c.enqueue(new TextEncoder().encode(chunk));
+      },
+      cancel,
+    });
+    return { body, cancel };
+  }
+  const streamingSignal = (call = 0) =>
+    (mockStreaming.mock.calls[call]?.[2] as { signal?: AbortSignal } | undefined)?.signal;
+
+  it.each([
+    ['plain SSE', {}],
+    ['graphql-sse with main-side auth', { auth: handleBearer }],
+  ])(
+    '%s: sse:disconnect after the stream opened aborts the upstream request',
+    async (_n, extra) => {
+      const { body } = openBody();
+      mockStreaming.mockResolvedValue({
+        ok: true,
+        response: { status: 200, statusText: 'OK', body },
+      });
+      const { event } = makeEvent();
+      const res = await handlerFor(IPC.sse.connect)(event, gqlSse('live', extra));
+      expect(res).toEqual({ success: true });
+      const signal = streamingSignal();
+      expect(signal?.aborted).toBe(false);
+
+      await handlerFor(IPC.sse.disconnect)(event, { connectionId: 'live' });
+      expect(signal?.aborted).toBe(true);
+    }
+  );
+
+  it('renderer destroy and teardown abort the upstream request too', async () => {
+    mockStreaming.mockImplementation(async () => ({
+      ok: true,
+      response: { status: 200, statusText: 'OK', body: openBody().body },
+    }));
+    const destroyed = makeEvent();
+    await handlerFor(IPC.sse.connect)(destroyed.event, gqlSse('d1'));
+    const second = makeEvent();
+    await handlerFor(IPC.sse.connect)(second.event, gqlSse('d2'));
+
+    destroyed.destroy();
+    expect(streamingSignal(0)?.aborted).toBe(true);
+    expect(streamingSignal(1)?.aborted).toBe(false);
+    stopSseCleanup();
+    expect(streamingSignal(1)?.aborted).toBe(true);
+  });
+
+  it('cancels a non-2xx body and redacts the status line', async () => {
+    const { body, cancel } = openBody();
+    mockStreaming.mockResolvedValue({
+      ok: true,
+      response: { status: 401, statusText: `bad token ${SECRET}`, body },
+    });
+    const res = await handlerFor(IPC.sse.connect)(
+      makeEvent().event,
+      gqlSse('401', { auth: handleBearer })
+    );
+    expect(res).toEqual({ success: false, error: 'HTTP 401 bad token [redacted]' });
+    expect(cancel).toHaveBeenCalled();
+    expect(JSON.stringify(mockEmitTo.mock.calls)).not.toContain(SECRET);
+  });
+
+  it('a 3xx carrying the secret in Location returns only the status line', async () => {
+    const { body, cancel } = openBody();
+    mockStreaming.mockResolvedValue({
+      ok: true,
+      response: {
+        status: 302,
+        statusText: 'Found',
+        headers: { location: `https://evil.example/cb?token=${SECRET}` },
+        body,
+      },
+    });
+    const res = await handlerFor(IPC.sse.connect)(
+      makeEvent().event,
+      gqlSse('302', { auth: handleBearer })
+    );
+    expect(res).toEqual({ success: false, error: 'HTTP 302 Found' });
+    expect(cancel).toHaveBeenCalled();
+    expect(JSON.stringify(mockEmitTo.mock.calls)).not.toContain(SECRET);
+  });
+
+  it('cancels the body when the claim went stale while the request was in flight', async () => {
+    const { body, cancel } = openBody();
+    const gate = deferred<unknown>();
+    mockStreaming.mockImplementationOnce(() => gate.promise);
+    const { event, destroy } = makeEvent();
+    const pending = handlerFor(IPC.sse.connect)(event, gqlSse('stale'));
+    await vi.waitFor(() => expect(mockStreaming).toHaveBeenCalled());
+    destroy();
+    gate.resolve({ ok: true, response: { status: 200, statusText: 'OK', body } });
+    await expect(pending).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(cancel).toHaveBeenCalled();
+  });
+
+  it('redacts a server-reflected secret in event data/event/id for main-side-auth streams only', async () => {
+    const frame = `id: ${SECRET}\nevent: next\ndata: {"echo":"${SECRET}"}\n\n`;
+    mockStreaming.mockImplementation(async () => ({
+      ok: true,
+      response: { status: 200, statusText: 'OK', body: openBody([frame]).body },
+    }));
+    await handlerFor(IPC.sse.connect)(makeEvent().event, gqlSse('authed', { auth: handleBearer }));
+    await handlerFor(IPC.sse.connect)(makeEvent().event, gqlSse('plain'));
+    await vi.waitFor(() =>
+      expect(
+        mockEmitTo.mock.calls.filter(([, ch]) => String(ch).startsWith('sse:event:'))
+      ).toHaveLength(2)
+    );
+    const eventFor = (id: string) =>
+      mockEmitTo.mock.calls.find(([, ch]) => ch === `sse:event:${id}`)?.[2] as Record<
+        string,
+        string
+      >;
+    expect(JSON.stringify(eventFor('authed'))).not.toContain(SECRET);
+    expect(eventFor('authed').data).toBe('{"echo":"[redacted]"}');
+    // Plain SSE carries no main-resolved secret: payload untouched.
+    expect(eventFor('plain').data).toBe(`{"echo":"${SECRET}"}`);
+  });
+
+  it('sends jsonBody literally — secret-variable tokens are never substituted into it', async () => {
+    mockStreaming.mockResolvedValue({
+      ok: true,
+      response: { status: 200, statusText: 'OK', body: openBody().body },
+    });
+    const jsonBody = '{"query":"subscription { tick(t: \\"{{s}}\\") }"}';
+    await handlerFor(IPC.sse.connect)(
+      makeEvent().event,
+      gqlSse('body', {
+        jsonBody,
+        headers: { 'X-Secret': '{{s}}' },
+        secretVariables: { s: { kind: 'handle', id: 'h-token' } },
+      })
+    );
+    const spec = mockStreaming.mock.calls[0]?.[0] as {
+      data: string;
+      headers: Record<string, string>;
+    };
+    expect(spec.data).toBe(jsonBody);
+    expect(spec.headers['X-Secret']).toBe(SECRET);
+  });
+});

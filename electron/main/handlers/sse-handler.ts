@@ -34,7 +34,6 @@ const log = createLogger('sse');
 
 export const sseRateLimiter = createKeyedRateLimiter(20, 60_000);
 const MAX_CONCURRENT_SSE_CONNECTIONS = 50;
-const CONNECTION_TIMEOUT_MS = 30_000;
 
 /** Apply acknowledged desktop defaults before establishing an SSE stream. */
 export function resolveSseExecutionPolicy<T extends PolicyTransportConfig>(config: T) {
@@ -44,6 +43,10 @@ export function resolveSseExecutionPolicy<T extends PolicyTransportConfig>(confi
 interface ActiveSse {
   connectionId: string;
   url: string;
+  /**
+   * Aborts the upstream request for the stream's whole lifetime (chained into
+   * the shared proxy's controller) — disconnect / renderer destroy / teardown.
+   */
   abortController: AbortController;
   webContentsId: number;
   createdAt: number;
@@ -115,6 +118,21 @@ function releaseSseClaim(connectionId: string, claim: PendingSseClaim): void {
   }
 }
 
+function redactSseEvent(e: ParsedSseEvent, redact: SecretRedactor): ParsedSseEvent {
+  // Every string field (data, event, lastEventId, …) — not a fixed list, so a
+  // parser field added later can't become an unredacted side channel.
+  const out = { ...e } as ParsedSseEvent & Record<string, unknown>;
+  for (const [key, value] of Object.entries(out)) {
+    if (typeof value === 'string') out[key] = redact(value);
+  }
+  return out;
+}
+
+/** Release an unread upstream body (non-2xx / stale-claim early returns). */
+function discardBody(body: ReadableStream<Uint8Array> | null | undefined): void {
+  body?.cancel().catch(() => {});
+}
+
 async function readStream(
   entry: ActiveSse,
   body: ReadableStream<Uint8Array> | null
@@ -134,7 +152,9 @@ async function readStream(
 
   const onEvent = (e: ParsedSseEvent) => {
     if (connections.get(connectionId, webContentsId) !== entry) return;
-    connections.emit(connectionId, webContentsId, 'event', e);
+    // A server reflecting a main-resolved credential back (graphql-sse, #882)
+    // must not hand it to the renderer. Identity for plain SSE.
+    connections.emit(connectionId, webContentsId, 'event', redactSseEvent(e, entry.redact));
   };
 
   try {
@@ -203,7 +223,6 @@ export function registerSseHandlerIPC(): void {
     if (!claim) return { success: false, error: 'Not connected' };
 
     let claimedEntry: ActiveSse | undefined;
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     // Scrubs resolved plaintext from replies, events and logs for this connect.
     let redact: SecretRedactor = (text) => text;
     try {
@@ -265,11 +284,8 @@ export function registerSseHandlerIPC(): void {
         return { success: false, error: 'Not connected' };
       }
 
+      // The connect/headers phase is bounded by the proxy's own `spec.timeout`.
       const abortController = new AbortController();
-      timeoutId = setTimeout(
-        () => abortController.abort(),
-        policyConfig.timeout ?? CONNECTION_TIMEOUT_MS
-      );
 
       const entry: ActiveSse = {
         connectionId,
@@ -292,7 +308,6 @@ export function registerSseHandlerIPC(): void {
       if (!claimed) {
         entry.explicitlyClosed = true;
         abortController.abort();
-        if (timeoutId !== undefined) clearTimeout(timeoutId);
         return { success: false, error: 'Not connected' };
       }
       claimedEntry = entry;
@@ -327,9 +342,10 @@ export function registerSseHandlerIPC(): void {
         sseFetcher,
         // Same outbound-network policy as every other desktop transport
         // (Settings → Security), so localhost/private-IP rules stay consistent.
-        { ...getExecutionPolicy().security }
+        // `signal` lets disconnect / renderer destroy / teardown abort the
+        // upstream request and its read loop, not just our bookkeeping.
+        { ...getExecutionPolicy().security, signal: abortController.signal }
       );
-      if (timeoutId !== undefined) clearTimeout(timeoutId);
 
       if (!result.ok) {
         const message = redact(result.payload.error);
@@ -342,18 +358,20 @@ export function registerSseHandlerIPC(): void {
 
       const response = result.response;
       if (response.status < 200 || response.status >= 300) {
+        discardBody(response.body);
+        const message = redact(`HTTP ${response.status} ${response.statusText}`);
         if (connections.get(connectionId, webContentsId) === entry) {
-          connections.emit(connectionId, webContentsId, 'error', {
-            message: `HTTP ${response.status} ${response.statusText}`,
-          });
+          connections.emit(connectionId, webContentsId, 'error', { message });
           connections.emitAndRemove(connectionId, webContentsId, 'close', {
             reason: `HTTP ${response.status}`,
           });
         }
-        return { success: false, error: `HTTP ${response.status} ${response.statusText}` };
+        return { success: false, error: message };
       }
 
       if (connections.get(connectionId, webContentsId) !== entry) {
+        discardBody(response.body);
+        abortController.abort();
         return { success: false, error: 'Not connected' };
       }
       connections.emit(connectionId, webContentsId, 'open');
@@ -361,7 +379,6 @@ export function registerSseHandlerIPC(): void {
       void readStream(entry, response.body ?? null);
       return { success: true };
     } catch (err) {
-      if (timeoutId !== undefined) clearTimeout(timeoutId);
       if (claimedEntry && connections.get(connectionId, webContentsId) === claimedEntry) {
         connections.remove(connectionId, webContentsId);
       }

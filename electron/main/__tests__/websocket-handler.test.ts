@@ -653,6 +653,41 @@ describe('websocket-handler', () => {
       }
     });
 
+    it('redacts a server-reflected secret in text and binary frames for main-side-auth sockets only', async () => {
+      const { event, senderId } = makeEvent();
+      await handlerFor(IPC.ws.connect)(event, {
+        ...validConnect('authed-msg'),
+        auth: { type: 'bearer', bearer: { token: { kind: 'handle', id: 'h-token' } } },
+      });
+      await handlerFor(IPC.ws.connect)(event, validConnect('plain-msg'));
+      const [authed, plain] = wsMock.FakeWebSocket.instances;
+      mockEmitTo.mockClear();
+
+      authed!.fire('message', Buffer.from('{"echo":"keychain-token"}'), false);
+      authed!.fire('message', Buffer.from('bin keychain-token'), true);
+      authed!.fire('message', Buffer.from([0xff, 0x00, 0x01]), true);
+      plain!.fire('message', Buffer.from('{"echo":"keychain-token"}'), false);
+
+      expect(mockEmitTo).toHaveBeenCalledWith(senderId, 'ws:message:authed-msg', {
+        type: 'text',
+        data: '{"echo":"[redacted]"}',
+      });
+      expect(mockEmitTo).toHaveBeenCalledWith(senderId, 'ws:message:authed-msg', {
+        type: 'binary',
+        data: Buffer.from('bin [redacted]').toString('base64'),
+      });
+      // Binary frames without a secret pass through byte-for-byte.
+      expect(mockEmitTo).toHaveBeenCalledWith(senderId, 'ws:message:authed-msg', {
+        type: 'binary',
+        data: Buffer.from([0xff, 0x00, 0x01]).toString('base64'),
+      });
+      // Plain connections carry no main-resolved secret: untouched.
+      expect(mockEmitTo).toHaveBeenCalledWith(senderId, 'ws:message:plain-msg', {
+        type: 'text',
+        data: '{"echo":"keychain-token"}',
+      });
+    });
+
     it('rejects malformed auth / oversized secretVariables at the Zod boundary', async () => {
       const { event } = makeEvent();
       await expect(

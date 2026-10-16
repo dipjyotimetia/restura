@@ -270,17 +270,24 @@ export function registerWebSocketHandlerIPC(): void {
           if (connections.get(connectionId, webContentsId) !== entry) return;
           if (isBinary) {
             // Binary frames are encoded as base64 for IPC transport
-            const b64 = Buffer.isBuffer(data)
-              ? data.toString('base64')
-              : Buffer.from(data as ArrayBuffer).toString('base64');
+            let buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
+            if (materialize) {
+              // Main-side-auth connection: scrub a server-reflected credential
+              // (bytes untouched unless a secret is actually present).
+              const text = buf.toString('utf8');
+              const scrubbed = redact(text);
+              if (scrubbed !== text) buf = Buffer.from(scrubbed, 'utf8');
+            }
             connections.emit(connectionId, webContentsId, 'message', {
               type: 'binary',
-              data: b64,
+              data: buf.toString('base64'),
             });
           } else {
+            // A server reflecting a main-resolved credential (#882) must not
+            // hand it to the renderer. Identity for plain connections.
             connections.emit(connectionId, webContentsId, 'message', {
               type: 'text',
-              data: data.toString(),
+              data: redact(data.toString()),
             });
           }
         });
