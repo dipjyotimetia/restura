@@ -1,3 +1,8 @@
+import {
+  decodeWsBinaryFrame,
+  encodeWsBinaryFrame,
+  WS_IPC_MAX_MESSAGE_LENGTH,
+} from '@shared/protocol/ws-binary-codec';
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 
@@ -232,8 +237,19 @@ class WebSocketManager {
 
       const state = useWebSocketStore.getState();
       if (message instanceof ArrayBuffer) {
+        // IPC carries base64 (shared codec, same as main); hex is display-only.
+        const encoded = encodeWsBinaryFrame(message);
+        if (encoded.length > WS_IPC_MAX_MESSAGE_LENGTH) {
+          // Main's ws:send schema would reject it silently — refuse up front.
+          state.addMessage(
+            connectionId,
+            'system',
+            `Binary frame too large to send (${message.byteLength} bytes; desktop limit is ${(WS_IPC_MAX_MESSAGE_LENGTH / 4) * 3} bytes)`
+          );
+          return false;
+        }
         const hexString = this.arrayBufferToHex(message);
-        api.websocket.send({ connectionId, message: hexString, binary: true });
+        api.websocket.send({ connectionId, message: encoded, binary: true });
         state.addMessage(connectionId, 'sent', hexString, 'binary', message);
       } else {
         api.websocket.send({ connectionId, message });
@@ -303,9 +319,14 @@ class WebSocketManager {
       const msg = payload as { type: 'text' | 'binary'; data: string };
       const s = useWebSocketStore.getState();
       if (msg.type === 'binary') {
-        const bytes = msg.data.match(/.{1,2}/g)?.map((b) => parseInt(b, 16)) ?? [];
-        const buf = new Uint8Array(bytes).buffer;
-        s.addMessage(connectionId, 'received', msg.data, 'binary', buf);
+        let buf: ArrayBuffer;
+        try {
+          buf = decodeWsBinaryFrame(msg.data).buffer;
+        } catch {
+          s.addMessage(connectionId, 'system', 'Received a malformed binary frame payload');
+          return;
+        }
+        s.addMessage(connectionId, 'received', this.arrayBufferToHex(buf), 'binary', buf);
       } else {
         s.addMessage(connectionId, 'received', msg.data, 'text');
       }
@@ -468,12 +489,17 @@ class WebSocketManager {
       .join(' ');
   }
 
-  /** Parse a space-separated hex string (the binary compose format) into an ArrayBuffer for sending. */
+  /**
+   * Parse a space-separated hex string (the binary compose format) into an
+   * ArrayBuffer for sending. Throws on any token that is not whole hex bytes
+   * (e.g. `zz`, `123`) so nothing malformed is ever sent (#912).
+   */
   hexToArrayBuffer(hex: string): ArrayBuffer {
-    const bytes = hex
-      .split(/\s+/)
-      .filter((s) => s.length > 0)
-      .map((s) => parseInt(s, 16));
+    const bytes: number[] = [];
+    for (const token of hex.split(/\s+/).filter((s) => s.length > 0)) {
+      if (!/^(?:[0-9a-f]{2})+$/i.test(token)) throw new Error(`Invalid hex token "${token}"`);
+      for (let i = 0; i < token.length; i += 2) bytes.push(parseInt(token.slice(i, i + 2), 16));
+    }
     return new Uint8Array(bytes).buffer;
   }
 
