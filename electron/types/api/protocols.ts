@@ -148,6 +148,14 @@ export interface ElectronWebSocketAPI {
     url: string;
     headers?: Record<string, string>;
     protocols?: string[];
+    /**
+     * Header-shaped auth descriptor whose SecretRef handle(s) the renderer
+     * can't read; resolved main-side into the handshake (ADR-0007).
+     * Validated by `WsConnectSchema` (AuthConfigSchema).
+     */
+    auth?: import('../../../shared/types/auth').AuthConfig;
+    /** SecretRef-backed `{{vars}}` referenced from url/headers/auth. */
+    secretVariables?: Record<string, ProtocolSecretValue>;
   }) => Promise<{ success: boolean; error?: string }>;
   send: (config: {
     connectionId: string;
@@ -165,6 +173,10 @@ export interface ElectronSseAPI {
     connectionId: string;
     url: string;
     headers?: Record<string, string>;
+    /** graphql-sse: header-shaped auth with SecretRef handles, resolved main-side (ADR-0007). */
+    auth?: import('../../../shared/types/auth').AuthConfig;
+    /** graphql-sse: SecretRef-backed `{{vars}}` referenced from url/headers/auth. */
+    secretVariables?: Record<string, ProtocolSecretValue>;
     /** POST this JSON body instead of a plain GET (GraphQL over SSE). */
     jsonBody?: string;
   }) => Promise<{ success: boolean; error?: string }>;

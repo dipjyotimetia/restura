@@ -328,7 +328,10 @@ export type StreamingExecuteResult =
  * The caller owns the stream lifecycle: read it to completion or call cancel()
  * to free upstream resources. The timeout protects only the headers/connect
  * phase; once the fetcher returns, the timer is cleared and the caller may
- * read indefinitely. Caller-driven cancellation is via body.cancel().
+ * read indefinitely. Caller-driven cancellation is via body.cancel(), or via
+ * `options.signal`: it is chained into the request's controller for the whole
+ * lifetime of the stream (connect, headers AND body reads), so aborting it
+ * tears down the upstream request even after this function has returned.
  */
 export async function executeHttpProxyStreaming(
   spec: RequestSpec,
@@ -364,6 +367,13 @@ export async function executeHttpProxyStreaming(
 
   const timeout = spec.timeout ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
+  // Caller cancellation (optional; the Worker passes none). Unlike the buffered
+  // variant the listener stays attached on success — the stream outlives this
+  // call and must still be abortable; it's `once` and dropped with the signal.
+  const abortFromCaller = () => controller.abort();
+  if (options.signal?.aborted) controller.abort();
+  else options.signal?.addEventListener('abort', abortFromCaller, { once: true });
+  const detachCaller = () => options.signal?.removeEventListener('abort', abortFromCaller);
   const timer = timeout > 0 ? setTimeout(() => controller.abort(), timeout) : null;
 
   try {
@@ -386,6 +396,7 @@ export async function executeHttpProxyStreaming(
         digest = digestRetryFor(spec, options);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'unknown';
+        detachCaller();
         return {
           ok: false,
           status: 500,
@@ -423,6 +434,7 @@ export async function executeHttpProxyStreaming(
     );
 
     if (!response.body) {
+      detachCaller();
       return {
         ok: false,
         status: 502,
@@ -444,8 +456,12 @@ export async function executeHttpProxyStreaming(
 
     return { ok: true, response: handle };
   } catch (err) {
+    detachCaller();
     if (err instanceof RedirectPolicyError) {
       return { ok: false, status: 400, payload: { error: err.message } };
+    }
+    if (options.signal?.aborted) {
+      return { ok: false, status: 499, payload: { error: 'Request aborted' } };
     }
     const isAbort =
       controller.signal.aborted || (err instanceof Error && err.name === 'AbortError');

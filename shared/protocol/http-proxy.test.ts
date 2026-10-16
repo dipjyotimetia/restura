@@ -313,6 +313,62 @@ describe('executeHttpProxy with SigV4 auth', () => {
 });
 
 describe('executeHttpProxyStreaming', () => {
+  const streamingFetcher = () => {
+    let seen: AbortSignal | undefined;
+    const fetcher: Fetcher = vi.fn(async (req) => {
+      seen = req.signal;
+      return {
+        status: 200,
+        statusText: 'OK',
+        headers: { 'content-type': 'text/event-stream' },
+        text: async () => '',
+        contentLengthHeader: null,
+        body: new ReadableStream<Uint8Array>(),
+      };
+    });
+    return { fetcher, signal: () => seen };
+  };
+
+  it('chains a caller signal into the request for the stream lifetime (after success too)', async () => {
+    const { fetcher, signal } = streamingFetcher();
+    const caller = new AbortController();
+    const r = await executeHttpProxyStreaming(
+      { method: 'GET', url: 'https://example.com/sse', timeout: 1000 },
+      fetcher,
+      { allowLocalhost: false, signal: caller.signal }
+    );
+    expect(r.ok).toBe(true);
+    expect(signal()?.aborted).toBe(false);
+    caller.abort();
+    expect(signal()?.aborted).toBe(true);
+  });
+
+  it('reports an already-aborted caller signal as aborted, not a timeout', async () => {
+    const caller = new AbortController();
+    caller.abort();
+    const fetcher: Fetcher = vi.fn(async (req) => {
+      if (req.signal.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
+      throw new Error('unreachable');
+    });
+    const r = await executeHttpProxyStreaming(
+      { method: 'GET', url: 'https://example.com/sse', timeout: 1000 },
+      fetcher,
+      { allowLocalhost: false, signal: caller.signal }
+    );
+    expect(r).toEqual({ ok: false, status: 499, payload: { error: 'Request aborted' } });
+  });
+
+  it('without a caller signal behaves as before (timeout semantics untouched)', async () => {
+    const { fetcher, signal } = streamingFetcher();
+    const r = await executeHttpProxyStreaming(
+      { method: 'GET', url: 'https://example.com/sse', timeout: 1000 },
+      fetcher,
+      { allowLocalhost: false }
+    );
+    expect(r.ok).toBe(true);
+    expect(signal()?.aborted).toBe(false);
+  });
+
   it('returns the upstream body without calling text()', async () => {
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {

@@ -21,6 +21,12 @@ import {
   resolvePolicyTransport,
 } from '../security/policy-transport';
 import { resolveSafeAddress } from '../security/safe-connect';
+import {
+  materializeStreamingAuth,
+  needsWsHandshakeMaterialization,
+  type SecretRedactor,
+  SSE_REQUEST_TRANSPORT,
+} from '../security/ws-handshake-auth';
 import { makeFetchFetcher } from './fetch-fetcher';
 import { type ParsedSseEvent, SseParser } from './sse-parser';
 
@@ -28,7 +34,6 @@ const log = createLogger('sse');
 
 export const sseRateLimiter = createKeyedRateLimiter(20, 60_000);
 const MAX_CONCURRENT_SSE_CONNECTIONS = 50;
-const CONNECTION_TIMEOUT_MS = 30_000;
 
 /** Apply acknowledged desktop defaults before establishing an SSE stream. */
 export function resolveSseExecutionPolicy<T extends PolicyTransportConfig>(config: T) {
@@ -38,11 +43,17 @@ export function resolveSseExecutionPolicy<T extends PolicyTransportConfig>(confi
 interface ActiveSse {
   connectionId: string;
   url: string;
+  /**
+   * Aborts the upstream request for the stream's whole lifetime (chained into
+   * the shared proxy's controller) — disconnect / renderer destroy / teardown.
+   */
   abortController: AbortController;
   webContentsId: number;
   createdAt: number;
   /** Set to true when the renderer explicitly disconnects, to suppress the "stream closed" event */
   explicitlyClosed: boolean;
+  /** Scrubs main-resolved credentials (graphql-sse, #882) from events and logs. */
+  redact: SecretRedactor;
 }
 
 // Shared connection bookkeeping (map + same-id replace + renderer-destroyed
@@ -61,13 +72,20 @@ interface PendingSseClaim {
   webContentsId: number;
   token: symbol;
   ownerEntry?: ActiveSse;
+  /**
+   * Present only for connects resolving opaque credentials main-side
+   * (graphql-sse, #878/#882): aborted when the claim is cancelled
+   * (sse:disconnect, renderer destroyed, teardown).
+   */
+  abort?: AbortController;
 }
 
 const pendingConnections = new Map<string, PendingSseClaim>();
 
 function reserveSseClaim(
   connectionId: string,
-  webContents: WebContents
+  webContents: WebContents,
+  cancellable = false
 ): PendingSseClaim | undefined {
   const key = ownerScopedKey(connectionId, webContents.id);
   if (pendingConnections.has(key)) return undefined;
@@ -78,12 +96,19 @@ function reserveSseClaim(
     webContentsId: webContents.id,
     token: Symbol(connectionId),
     ownerEntry,
+    ...(cancellable ? { abort: new AbortController() } : {}),
   };
   pendingConnections.set(key, claim);
   bindRendererCleanup(pendingConnections, webContents, (deadId) =>
-    disposeByOwner(pendingConnections, deadId, () => {})
+    disposeByOwner(pendingConnections, deadId, (pending) => pending.abort?.abort())
   );
   return pendingConnections.get(key) === claim ? claim : undefined;
+}
+
+function isSseClaimLive(connectionId: string, claim: PendingSseClaim): boolean {
+  return (
+    pendingConnections.get(ownerScopedKey(connectionId, claim.webContentsId))?.token === claim.token
+  );
 }
 
 function releaseSseClaim(connectionId: string, claim: PendingSseClaim): void {
@@ -91,6 +116,21 @@ function releaseSseClaim(connectionId: string, claim: PendingSseClaim): void {
   if (pendingConnections.get(key)?.token === claim.token) {
     pendingConnections.delete(key);
   }
+}
+
+function redactSseEvent(e: ParsedSseEvent, redact: SecretRedactor): ParsedSseEvent {
+  // Every string field (data, event, lastEventId, …) — not a fixed list, so a
+  // parser field added later can't become an unredacted side channel.
+  const out = { ...e } as ParsedSseEvent & Record<string, unknown>;
+  for (const [key, value] of Object.entries(out)) {
+    if (typeof value === 'string') out[key] = redact(value);
+  }
+  return out;
+}
+
+/** Release an unread upstream body (non-2xx / stale-claim early returns). */
+function discardBody(body: ReadableStream<Uint8Array> | null | undefined): void {
+  body?.cancel().catch(() => {});
 }
 
 async function readStream(
@@ -112,7 +152,9 @@ async function readStream(
 
   const onEvent = (e: ParsedSseEvent) => {
     if (connections.get(connectionId, webContentsId) !== entry) return;
-    connections.emit(connectionId, webContentsId, 'event', e);
+    // A server reflecting a main-resolved credential back (graphql-sse, #882)
+    // must not hand it to the renderer. Identity for plain SSE.
+    connections.emit(connectionId, webContentsId, 'event', redactSseEvent(e, entry.redact));
   };
 
   try {
@@ -124,7 +166,7 @@ async function readStream(
     parser.feed(decoder.decode(), onEvent);
   } catch (err) {
     if (!entry.explicitlyClosed) {
-      const message = err instanceof Error ? err.message : 'Stream read error';
+      const message = entry.redact(err instanceof Error ? err.message : 'Stream read error');
       log.warn('stream read error', { connectionId: entry.connectionId, error: message });
       connections.emit(connectionId, webContentsId, 'error', { message });
     }
@@ -149,9 +191,13 @@ export function registerSseHandlerIPC(): void {
   // sse:connect is registered manually so we can capture event.sender.id for targeted IPC.
   ipcMain.handle(IPC.sse.connect, async (event, rawConfig: unknown) => {
     assertTrustedSender(IPC.sse.connect, event);
-    const config = validateIpcInput(SseConnectSchema, rawConfig, IPC.sse.connect);
-    const { connectionId } = config;
+    const validated = validateIpcInput(SseConnectSchema, rawConfig, IPC.sse.connect);
+    const { connectionId } = validated;
     const webContentsId = event.sender.id;
+    // graphql-sse (#878/#882) may carry SecretRef-handle auth / SecretRef-backed
+    // {{vars}} that only main can resolve (ADR-0007).
+    const materialize = needsWsHandshakeMaterialization(validated);
+    let config = validated;
 
     let policyConfig: ReturnType<typeof resolveSseExecutionPolicy>;
     try {
@@ -173,12 +219,51 @@ export function registerSseHandlerIPC(): void {
 
     // Reserve this renderer's id synchronously before DNS or transport
     // construction. Another renderer may independently use the same external id.
-    const claim = reserveSseClaim(connectionId, event.sender);
+    const claim = reserveSseClaim(connectionId, event.sender, materialize);
     if (!claim) return { success: false, error: 'Not connected' };
 
     let claimedEntry: ActiveSse | undefined;
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    // Scrubs resolved plaintext from replies, events and logs for this connect.
+    let redact: SecretRedactor = (text) => text;
     try {
+      if (materialize) {
+        // After the rate / capacity gates, before the SSRF check (which must
+        // see the final URL); cancelled via the claim's signal.
+        try {
+          const materialized = await materializeStreamingAuth(
+            {
+              url: validated.url,
+              headers: validated.headers,
+              auth: validated.auth,
+              secretVariables: validated.secretVariables,
+            },
+            SSE_REQUEST_TRANSPORT,
+            claim.abort?.signal
+          );
+          config = { ...validated, url: materialized.url, headers: materialized.headers };
+          redact = materialized.redact;
+        } catch (err) {
+          if (!isSseClaimLive(connectionId, claim)) {
+            return { success: false, error: 'Not connected' };
+          }
+          // Materializer errors are plaintext-free by construction.
+          return {
+            success: false,
+            error: `SSE auth setup failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+          };
+        }
+        if (!isSseClaimLive(connectionId, claim)) return { success: false, error: 'Not connected' };
+        try {
+          policyConfig = resolveSseExecutionPolicy(config);
+          assertPinnedFetchCanHonorPolicy(policyConfig);
+        } catch (err) {
+          return {
+            success: false,
+            error: redact(err instanceof Error ? err.message : 'Connection policy rejected'),
+          };
+        }
+      }
+
       // Resolve + validate once, then PIN the connection to that IP (closes the
       // DNS-rebind window a pre-flight-only check leaves open). createPinnedFetch
       // keeps SNI + Host header on the original hostname for TLS correctness.
@@ -188,7 +273,7 @@ export function registerSseHandlerIPC(): void {
       } catch (err) {
         return {
           success: false,
-          error: err instanceof Error ? err.message : 'URL rejected by SSRF policy',
+          error: redact(err instanceof Error ? err.message : 'URL rejected by SSRF policy'),
         };
       }
 
@@ -199,11 +284,8 @@ export function registerSseHandlerIPC(): void {
         return { success: false, error: 'Not connected' };
       }
 
+      // The connect/headers phase is bounded by the proxy's own `spec.timeout`.
       const abortController = new AbortController();
-      timeoutId = setTimeout(
-        () => abortController.abort(),
-        policyConfig.timeout ?? CONNECTION_TIMEOUT_MS
-      );
 
       const entry: ActiveSse = {
         connectionId,
@@ -212,6 +294,7 @@ export function registerSseHandlerIPC(): void {
         webContentsId,
         createdAt: Date.now(),
         explicitlyClosed: false,
+        redact,
       };
 
       // Commit only the exact live reservation. A reconnect may replace only
@@ -225,7 +308,6 @@ export function registerSseHandlerIPC(): void {
       if (!claimed) {
         entry.explicitlyClosed = true;
         abortController.abort();
-        if (timeoutId !== undefined) clearTimeout(timeoutId);
         return { success: false, error: 'Not connected' };
       }
       claimedEntry = entry;
@@ -253,40 +335,43 @@ export function registerSseHandlerIPC(): void {
             ? { bodyType: 'json' as const, data: config.jsonBody }
             : {}),
           timeout: policyConfig.timeout,
+          // Never replay main-resolved credentials across a redirect (scheme
+          // downgrade / path change): a 3xx is returned unfollowed → error.
+          ...(materialize ? { redirectPolicy: { maxRedirects: 0 } } : {}),
         },
         sseFetcher,
         // Same outbound-network policy as every other desktop transport
         // (Settings → Security), so localhost/private-IP rules stay consistent.
-        { ...getExecutionPolicy().security }
+        // `signal` lets disconnect / renderer destroy / teardown abort the
+        // upstream request and its read loop, not just our bookkeeping.
+        { ...getExecutionPolicy().security, signal: abortController.signal }
       );
-      if (timeoutId !== undefined) clearTimeout(timeoutId);
 
       if (!result.ok) {
+        const message = redact(result.payload.error);
         if (connections.get(connectionId, webContentsId) === entry) {
-          connections.emit(connectionId, webContentsId, 'error', {
-            message: result.payload.error,
-          });
-          connections.emitAndRemove(connectionId, webContentsId, 'close', {
-            reason: result.payload.error,
-          });
+          connections.emit(connectionId, webContentsId, 'error', { message });
+          connections.emitAndRemove(connectionId, webContentsId, 'close', { reason: message });
         }
-        return { success: false, error: result.payload.error };
+        return { success: false, error: message };
       }
 
       const response = result.response;
       if (response.status < 200 || response.status >= 300) {
+        discardBody(response.body);
+        const message = redact(`HTTP ${response.status} ${response.statusText}`);
         if (connections.get(connectionId, webContentsId) === entry) {
-          connections.emit(connectionId, webContentsId, 'error', {
-            message: `HTTP ${response.status} ${response.statusText}`,
-          });
+          connections.emit(connectionId, webContentsId, 'error', { message });
           connections.emitAndRemove(connectionId, webContentsId, 'close', {
             reason: `HTTP ${response.status}`,
           });
         }
-        return { success: false, error: `HTTP ${response.status} ${response.statusText}` };
+        return { success: false, error: message };
       }
 
       if (connections.get(connectionId, webContentsId) !== entry) {
+        discardBody(response.body);
+        abortController.abort();
         return { success: false, error: 'Not connected' };
       }
       connections.emit(connectionId, webContentsId, 'open');
@@ -294,15 +379,15 @@ export function registerSseHandlerIPC(): void {
       void readStream(entry, response.body ?? null);
       return { success: true };
     } catch (err) {
-      if (timeoutId !== undefined) clearTimeout(timeoutId);
       if (claimedEntry && connections.get(connectionId, webContentsId) === claimedEntry) {
         connections.remove(connectionId, webContentsId);
       }
       if (err instanceof RedirectPolicyError) {
-        log.warn('connect rejected by redirect policy', { connectionId, error: err.message });
-        return { success: false, error: err.message };
+        const message = redact(err.message);
+        log.warn('connect rejected by redirect policy', { connectionId, error: message });
+        return { success: false, error: message };
       }
-      const message = err instanceof Error ? err.message : 'Connection failed';
+      const message = redact(err instanceof Error ? err.message : 'Connection failed');
       log.warn('connect failed', { connectionId, error: message });
       return { success: false, error: message };
     } finally {
@@ -313,6 +398,14 @@ export function registerSseHandlerIPC(): void {
   ipcMain.handle(
     IPC.sse.disconnect,
     createValidatedEventHandler(IPC.sse.disconnect, SseDisconnectSchema, async (config, event) => {
+      // A graphql-sse connect still resolving main-side credentials is
+      // cancelled outright (plain connects keep their existing semantics).
+      const pendingKey = ownerScopedKey(config.connectionId, event.sender.id);
+      const pending = pendingConnections.get(pendingKey);
+      if (pending?.abort) {
+        pending.abort.abort();
+        pendingConnections.delete(pendingKey);
+      }
       // Missing and wrong-owner ids are deliberately indistinguishable.
       connections.cancelForOwner(config.connectionId, event.sender.id);
       return { success: true };
@@ -321,6 +414,7 @@ export function registerSseHandlerIPC(): void {
 }
 
 export function stopSseCleanup(): void {
+  for (const pending of pendingConnections.values()) pending.abort?.abort();
   pendingConnections.clear();
   connections.disposeAll();
 }

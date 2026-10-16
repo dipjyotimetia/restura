@@ -1,7 +1,10 @@
 import { type Client, createClient, type Sink } from 'graphql-ws';
 import { isElectron } from '@/lib/shared/platform';
 import type { GraphQLSubscriptionProtocol } from '@/types';
-import { createElectronGraphQLSocketClass } from './electronGraphQLSocket';
+import {
+  createElectronGraphQLSocketClass,
+  type MainSideHandshakeAuth,
+} from './electronGraphQLSocket';
 import { subscribeGraphQLSse } from './graphqlSseSubscription';
 import { runLegacyWsSubscription } from './legacyWsSubscription';
 import {
@@ -46,6 +49,20 @@ export interface SubscriptionOptions {
   onComplete?: () => void;
 }
 
+export interface SubscriptionClientOptions {
+  /**
+   * `connection_init` payload (both WS protocols). Defaults to `headers`. Never
+   * carries credentials resolved main-side — the renderer has no plaintext.
+   */
+  connectionParams?: Record<string, string>;
+  /**
+   * Desktop: auth / secret-variable refs Electron main resolves into the
+   * transport (WS handshake headers, or graphql-sse request headers) —
+   * ADR-0007, #878/#882.
+   */
+  mainSide?: MainSideHandshakeAuth;
+}
+
 const CONNECT_TIMEOUT_MS = 30_000;
 
 const makeId = (): string => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -66,13 +83,21 @@ export class GraphQLSubscriptionClient {
   private client: Client | null = null;
   private unsubscribe: (() => void) | null = null;
   private headers: Record<string, string>;
+  private initParams: Record<string, string>;
+  private mainSide: MainSideHandshakeAuth | undefined;
   private timeoutId: ReturnType<typeof setTimeout> | null = null;
   private negotiating: SubscriptionSocket | null = null;
   /** Bumped per connect/disconnect so a superseded run's late events are dropped. */
   private generation = 0;
 
-  constructor(_url: string, headers: Record<string, string> = {}) {
+  constructor(
+    _url: string,
+    headers: Record<string, string> = {},
+    options: SubscriptionClientOptions = {}
+  ) {
     this.headers = headers;
+    this.initParams = options.connectionParams ?? headers;
+    this.mainSide = options.mainSide;
   }
 
   connect(options: SubscriptionOptions): void {
@@ -106,7 +131,8 @@ export class GraphQLSubscriptionClient {
           openSubscriptionSocket(
             toWebSocketUrl(options.url),
             [LEGACY_GRAPHQL_WS_SUBPROTOCOL],
-            this.headers
+            this.headers,
+            this.mainSide
           ),
           { ...this.operation(options), ...this.connectionParams() },
           sink
@@ -114,7 +140,12 @@ export class GraphQLSubscriptionClient {
         return;
       case 'graphql-sse':
         this.unsubscribe = subscribeGraphQLSse(
-          { url: options.url, headers: this.headers, ...this.operation(options) },
+          {
+            url: options.url,
+            headers: this.headers,
+            ...(this.mainSide ? { mainSide: this.mainSide } : {}),
+            ...this.operation(options),
+          },
           sink
         );
         return;
@@ -166,7 +197,7 @@ export class GraphQLSubscriptionClient {
   }
 
   private connectionParams(): { connectionParams?: Record<string, unknown> } {
-    return Object.keys(this.headers).length > 0 ? { connectionParams: this.headers } : {};
+    return Object.keys(this.initParams).length > 0 ? { connectionParams: this.initParams } : {};
   }
 
   /**
@@ -228,7 +259,7 @@ export class GraphQLSubscriptionClient {
    */
   private negotiate(options: SubscriptionOptions, sink: SubscriptionSink): void {
     const wsUrl = toWebSocketUrl(options.url);
-    const socket = openSubscriptionSocket(wsUrl, AUTO_SUBPROTOCOLS, this.headers);
+    const socket = openSubscriptionSocket(wsUrl, AUTO_SUBPROTOCOLS, this.headers, this.mainSide);
     this.negotiating = socket;
     const abandon = (err: unknown): void => {
       if (this.negotiating !== socket) return;
@@ -284,7 +315,12 @@ export class GraphQLSubscriptionClient {
         client?.dispose();
         try {
           this.unsubscribe = runLegacyWsSubscription(
-            openSubscriptionSocket(wsUrl, [LEGACY_GRAPHQL_WS_SUBPROTOCOL], this.headers),
+            openSubscriptionSocket(
+              wsUrl,
+              [LEGACY_GRAPHQL_WS_SUBPROTOCOL],
+              this.headers,
+              this.mainSide
+            ),
             { ...this.operation(options), ...this.connectionParams() },
             sink
           );
@@ -311,14 +347,14 @@ export class GraphQLSubscriptionClient {
     // Desktop: a renderer-direct WebSocket is CSP-blocked, so tunnel graphql-ws
     // over the WebSocket IPC bridge. Web keeps the native WebSocket.
     const webSocketImpl = adopted
-      ? createAdoptingSocketClass(adopted, this.headers)
+      ? createAdoptingSocketClass(adopted, this.headers, this.mainSide)
       : isElectron()
-        ? createElectronGraphQLSocketClass(this.headers)
+        ? createElectronGraphQLSocketClass(this.headers, this.mainSide)
         : undefined;
 
     this.client = createClient({
       url: wsUrl,
-      connectionParams: Object.keys(this.headers).length > 0 ? this.headers : undefined,
+      connectionParams: Object.keys(this.initParams).length > 0 ? this.initParams : undefined,
       ...(webSocketImpl ? { webSocketImpl } : {}),
       on: {
         connected: (socket) => {
@@ -357,7 +393,11 @@ interface AdoptedSocket {
  * the socket `auto` already negotiated on (firing `onopen` once graphql-ws has
  * attached its handlers); retries open fresh graphql-transport-ws sockets.
  */
-function createAdoptingSocketClass(adopted: AdoptedSocket, headers: Record<string, string>) {
+function createAdoptingSocketClass(
+  adopted: AdoptedSocket,
+  headers: Record<string, string>,
+  mainSide?: MainSideHandshakeAuth
+) {
   let pending: SubscriptionSocket | null = adopted.socket;
   return class AdoptingSocket {
     static readonly CONNECTING = 0;
@@ -376,7 +416,7 @@ function createAdoptingSocketClass(adopted: AdoptedSocket, headers: Record<strin
       const reuse = pending;
       pending = null;
       this.inner =
-        reuse ?? openSubscriptionSocket(url, [GRAPHQL_TRANSPORT_WS_SUBPROTOCOL], headers);
+        reuse ?? openSubscriptionSocket(url, [GRAPHQL_TRANSPORT_WS_SUBPROTOCOL], headers, mainSide);
       let sawFrame = false;
       const handleClose = (ev: { code: number; reason: string }): void => {
         if (reuse && !sawFrame && PROTOCOL_REJECTED_CLOSE_CODES.has(ev.code)) {

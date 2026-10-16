@@ -1,6 +1,7 @@
 import { type ParsedSseEvent, SseStreamReader } from '@shared/protocol/sse-stream-reader';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { executeProxiedStreamingRequest } from '@/lib/shared/transport';
+import type { MainSideHandshakeAuth } from './electronGraphQLSocket';
 import {
   operationPayload,
   type SubscriptionOperation,
@@ -27,6 +28,12 @@ export const GRAPHQL_SSE_PROTOCOL = 'graphql-sse';
 export interface GraphQLSseOptions extends SubscriptionOperation {
   url: string;
   headers: Record<string, string>;
+  /**
+   * Desktop only: SecretRef auth / secret-variable refs that Electron main
+   * resolves into the request headers / URL (#878/#882, ADR-0007). Never set on
+   * web — handles can't be resolved there and are reported as unapplied.
+   */
+  mainSide?: MainSideHandshakeAuth;
 }
 
 /** Shared event dispatch for both transports. Returns true when the stream is complete. */
@@ -50,7 +57,9 @@ export function subscribeGraphQLSse(
   const url = toHttpUrl(options.url);
   const body = JSON.stringify(operationPayload(options));
   const headers = { ...options.headers, 'Content-Type': 'application/json' };
-  return isElectron() ? viaElectron(url, headers, body, sink) : viaProxy(url, headers, body, sink);
+  return isElectron()
+    ? viaElectron(url, headers, body, sink, options.mainSide)
+    : viaProxy(url, headers, body, sink);
 }
 
 function viaProxy(
@@ -122,7 +131,8 @@ function viaElectron(
   url: string,
   headers: Record<string, string>,
   body: string,
-  sink: SubscriptionSink
+  sink: SubscriptionSink,
+  mainSide?: MainSideHandshakeAuth
 ): () => void {
   const api = getElectronAPI()?.sse;
   if (!api) {
@@ -165,7 +175,16 @@ function viaElectron(
   });
 
   api
-    .connect({ connectionId, url, headers, jsonBody: body })
+    .connect({
+      connectionId,
+      url,
+      headers,
+      jsonBody: body,
+      ...(mainSide?.auth ? { auth: mainSide.auth } : {}),
+      ...(mainSide?.secretVariables && Object.keys(mainSide.secretVariables).length > 0
+        ? { secretVariables: mainSide.secretVariables }
+        : {}),
+    })
     .then((res) => {
       if (!res.success) settle(() => sink.error(new Error(res.error ?? 'Connection failed')));
     })
