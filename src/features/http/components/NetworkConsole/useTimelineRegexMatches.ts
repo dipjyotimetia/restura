@@ -14,6 +14,8 @@ export interface TimelineRegexState {
   pending: boolean;
   /** Matcher over results known so far (unsearched events don't match yet). */
   match: (event: StreamEvent) => boolean;
+  /** Cached per-event results for the current pattern (diagnostics/tests). */
+  cachedResults: number;
 }
 
 const matchAll = () => true;
@@ -59,28 +61,45 @@ export function useTimelineRegexMatches(
       cacheRef.current = { pattern, matches: new Map() };
     }
     const cache = cacheRef.current;
+    // Drop results for events the ring buffer has evicted, so the cache is
+    // bounded by the timeline itself on a long-running stream.
+    if (cache.matches.size > events.length) {
+      const live = new Set(events.map((e) => e.id));
+      for (const id of cache.matches.keys()) if (!live.has(id)) cache.matches.delete(id);
+    }
     const todo = events.filter((e) => !cache.matches.has(e.id));
     if (todo.length === 0) return;
     runnerRef.current ??= createRegexRunner(createTimelineRegexWorker);
     inflightRef.current = pattern;
     setPending(true);
-    void runnerRef.current.match(pattern, todo.flatMap(regexSearchTexts)).then((result) => {
-      // Superseded by a newer pattern, which now owns the in-flight slot.
-      if (!result.ok && result.cancelled) return;
+    const finish = () => {
       inflightRef.current = null;
       setPending(false);
-      if (!result.ok) {
-        setFailure({ pattern, error: result.error });
-        return;
-      }
-      todo.forEach((e, i) => {
-        cache.matches.set(
-          e.id,
-          result.results[2 * i] === true || result.results[2 * i + 1] === true
-        );
+    };
+    void runnerRef.current
+      .match(pattern, todo.flatMap(regexSearchTexts))
+      .then((result) => {
+        // Superseded by a newer pattern, which now owns the in-flight slot.
+        if (!result.ok && result.cancelled) return;
+        finish();
+        if (!result.ok) {
+          setFailure({ pattern, error: result.error });
+          return;
+        }
+        todo.forEach((e, i) => {
+          cache.matches.set(
+            e.id,
+            result.results[2 * i] === true || result.results[2 * i + 1] === true
+          );
+        });
+        setVersion((v) => v + 1);
+      })
+      .catch(() => {
+        // The runner resolves rather than rejects; this is a last-resort guard
+        // so the panel can never be left stuck on "Searching…".
+        finish();
+        setFailure({ pattern, error: 'Regex search failed' });
       });
-      setVersion((v) => v + 1);
-    });
   }, [events, pattern, rejection, failure, version]);
 
   // `version` bumps when the cache fills, rebuilding the matcher.
@@ -91,5 +110,10 @@ export function useTimelineRegexMatches(
   }, [pattern, rejection, version]);
 
   const error = rejection ?? (failure?.pattern === pattern ? failure.error : null);
-  return { error, pending: pending && !error && pattern !== '', match };
+  return {
+    error,
+    pending: pending && !error && pattern !== '',
+    match,
+    cachedResults: cacheRef.current.pattern === pattern ? cacheRef.current.matches.size : 0,
+  };
 }

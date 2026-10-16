@@ -18,32 +18,64 @@ export const REGEX_FLAGS = 'i';
 interface Frame {
   quantified: boolean;
   alternation: boolean;
-  /** The previous atom at this level carried an unbounded quantifier. */
-  prevUnbounded: boolean;
+  /**
+   * ASCII characters (bitmask) that the trailing run of unbounded, possibly
+   * empty-adjacent atoms at this level can consume. A new unbounded atom that
+   * overlaps it can split the same input many ways — `\w+\w+`, `.*.*`.
+   */
+  run: bigint;
 }
 
-const newFrame = (): Frame => ({ quantified: false, alternation: false, prevUnbounded: false });
+const ASCII_ALL = (BigInt(1) << BigInt(128)) - BigInt(1);
+const NONE = BigInt(0);
 
-/** Length and boundedness of the quantifier at `i`, or null when there is none. */
-function readQuantifier(p: string, i: number): { len: number; unbounded: boolean } | null {
+const newFrame = (): Frame => ({ quantified: false, alternation: false, run: NONE });
+
+interface Quantifier {
+  len: number;
+  min: number;
+  unbounded: boolean;
+}
+
+/** The quantifier at `i`, or null when there is none. */
+function readQuantifier(p: string, i: number): Quantifier | null {
   const ch = p[i];
-  let len = 0;
-  let unbounded = false;
-  if (ch === '*' || ch === '+') {
-    len = 1;
-    unbounded = true;
-  } else if (ch === '?') {
-    len = 1;
-  } else if (ch === '{') {
+  let q: Quantifier;
+  if (ch === '*') q = { len: 1, min: 0, unbounded: true };
+  else if (ch === '+') q = { len: 1, min: 1, unbounded: true };
+  else if (ch === '?') q = { len: 1, min: 0, unbounded: false };
+  else if (ch === '{') {
     const m = /^\{(\d+)(,(\d*))?\}/.exec(p.slice(i));
     if (!m) return null;
-    len = m[0].length;
-    unbounded = m[2] !== undefined && m[3] === '';
+    q = { len: m[0].length, min: Number(m[1]), unbounded: m[2] !== undefined && m[3] === '' };
   } else {
     return null;
   }
-  if (p[i + len] === '?') len += 1; // lazy modifier
-  return { len, unbounded };
+  if (p[i + q.len] === '?') q.len += 1; // lazy modifier
+  return q;
+}
+
+const maskCache = new Map<string, bigint>();
+
+/**
+ * Which ASCII characters a single-character atom (literal, escape, class or
+ * `.`) can match, as a bitmask. Probing 128 one-char strings against a
+ * one-atom regex is linear and cheap. Unknown shapes count as "anything".
+ */
+function atomMask(source: string): bigint {
+  const cached = maskCache.get(source);
+  if (cached !== undefined) return cached;
+  let mask = NONE;
+  try {
+    const re = new RegExp(`^(?:${source})$`, REGEX_FLAGS);
+    for (let c = 0; c < 128; c++) {
+      if (re.test(String.fromCharCode(c))) mask |= BigInt(1) << BigInt(c);
+    }
+  } catch {
+    mask = ASCII_ALL;
+  }
+  maskCache.set(source, mask);
+  return mask;
 }
 
 /** Index just past a `[...]` class starting at `i`. */
@@ -63,11 +95,13 @@ function skipGroupOpen(p: string, i: number): number {
 
 /**
  * Fast pre-reject for patterns with known catastrophic-backtracking shapes.
- * Not a safety guarantee — the worker budget is. Rejects:
+ * Not a safety guarantee — the worker budget is — so it errs towards letting
+ * patterns through. Rejects:
  * - over-long patterns and backreferences;
  * - a quantified group whose body (at any depth) contains a quantifier
  *   (`*`, `+`, `?`, `{n,m}`) or an alternation — `(a+)+`, `(a?a?)+`, `((a|a))*`;
- * - two adjacent unboundedly-quantified atoms — `\w+\w+`, `.*.*`.
+ * - adjacent unbounded quantifiers whose atoms can match the same character
+ *   — `\w+\w+`, `.*.*`, `\d+\s*\d+`. Disjoint runs such as `\s*\d+` pass.
  */
 export function validateTimelineRegex(pattern: string): string | null {
   if (pattern.length > MAX_REGEX_LENGTH) {
@@ -90,17 +124,13 @@ export function validateTimelineRegex(pattern: string): string | null {
       i = skipGroupOpen(pattern, i);
       continue;
     }
-    if (ch === '|') {
-      top.alternation = true;
-      top.prevUnbounded = false;
+    if (ch === '|' || ch === '^' || ch === '$') {
+      if (ch === '|') top.alternation = true;
+      top.run = NONE;
       i += 1;
       continue;
     }
-    if (ch === '^' || ch === '$') {
-      top.prevUnbounded = false;
-      i += 1;
-      continue;
-    }
+    const start = i;
     if (ch === ')') {
       group = stack.pop()!;
       i += 1;
@@ -121,13 +151,20 @@ export function validateTimelineRegex(pattern: string): string | null {
           ? 'Nested quantifiers are rejected (catastrophic backtracking) — simplify the pattern'
           : 'Quantified alternation is rejected (catastrophic backtracking) — simplify the pattern';
       }
-      if (q.unbounded && parent.prevUnbounded) {
-        return 'Adjacent unbounded quantifiers are rejected (polynomial backtracking) — simplify the pattern';
-      }
       parent.quantified = true;
-      parent.prevUnbounded = q.unbounded;
+      if (q.unbounded) {
+        const mask = group ? ASCII_ALL : atomMask(pattern.slice(start, i - q.len));
+        if ((parent.run & mask) !== NONE) {
+          return 'Overlapping adjacent unbounded quantifiers are rejected (polynomial backtracking) — simplify the pattern';
+        }
+        // A possibly-empty atom (`*`, `{0,}`) keeps earlier atoms adjacent to later ones.
+        parent.run = q.min === 0 ? parent.run | mask : mask;
+      } else if (q.min > 0) {
+        parent.run = NONE;
+      }
+      // `?` / `{0,n}` can match nothing, so the run stays adjacent across it.
     } else {
-      parent.prevUnbounded = false;
+      parent.run = NONE;
     }
     // Inner quantifiers/alternations stay visible to every enclosing group.
     if (group) {
@@ -140,6 +177,9 @@ export function validateTimelineRegex(pattern: string): string | null {
 
 // --- Worker-backed matching --------------------------------------------------
 
+/** How long a (cold) worker may take to load and receive the batch before we give up. */
+export const REGEX_STARTUP_MS = 5000;
+
 export interface RegexRequest {
   id: number;
   pattern: string;
@@ -147,15 +187,23 @@ export interface RegexRequest {
   texts: string[];
 }
 
-export interface RegexResponse {
-  id: number;
-  results: boolean[];
-}
+/**
+ * Worker → runner messages. `started` is posted right before matching begins,
+ * so worker load time and structured-cloning the batch don't count against
+ * the matching budget.
+ */
+export type RegexResponse = { id: number; started: true } | { id: number; results: boolean[] };
 
 /** Pure worker body: one boolean per input text. */
-export function runRegexRequest(req: RegexRequest): RegexResponse {
+export function runRegexRequest(req: RegexRequest): { id: number; results: boolean[] } {
   const re = new RegExp(req.pattern, req.flags);
   return { id: req.id, results: req.texts.map((t) => re.test(t)) };
+}
+
+/** Message handler shared by the real worker and test workers. */
+export function handleRegexMessage(req: RegexRequest, post: (msg: RegexResponse) => void): void {
+  post({ id: req.id, started: true });
+  post(runRegexRequest(req));
 }
 
 /** The slice of the DOM `Worker` API the runner needs (lets tests plug in node workers). */
@@ -176,12 +224,14 @@ export interface RegexRunner {
 }
 
 /**
- * One reusable worker; a request that overruns `budgetMs` terminates it (the
+ * One reusable worker. The matching budget starts when the worker reports it
+ * has begun matching; a request that overruns it terminates the worker (the
  * next request spawns a fresh one). A new request supersedes an in-flight one.
  */
 export function createRegexRunner(
   createWorker: () => WorkerLike,
-  budgetMs: number = REGEX_BUDGET_MS
+  budgetMs: number = REGEX_BUDGET_MS,
+  startupMs: number = REGEX_STARTUP_MS
 ): RegexRunner {
   let worker: WorkerLike | null = null;
   let nextId = 0;
@@ -203,13 +253,24 @@ export function createRegexRunner(
     resolve(result);
   };
 
+  const tooLong = () =>
+    settle(
+      { ok: false, error: `Regex took too long (>${budgetMs} ms) — simplify the pattern` },
+      true
+    );
+
   const ensureWorker = (): WorkerLike => {
     if (worker) return worker;
     const w = createWorker();
     w.onmessage = (event) => {
-      if (inflight && event.data.id === inflight.id) {
-        settle({ ok: true, results: event.data.results }, false);
+      const data = event.data;
+      if (!inflight || data.id !== inflight.id) return;
+      if ('started' in data) {
+        clearTimeout(inflight.timer);
+        inflight.timer = setTimeout(tooLong, budgetMs);
+        return;
       }
+      settle({ ok: true, results: data.results }, false);
     };
     w.onerror = () => settle({ ok: false, error: 'Regex search failed' }, true);
     worker = w;
@@ -221,17 +282,23 @@ export function createRegexRunner(
       settle({ ok: false, error: 'Superseded', cancelled: true }, true);
       const id = ++nextId;
       return new Promise<RegexMatchResult>((resolve) => {
-        const w = ensureWorker();
+        let w: WorkerLike;
+        try {
+          w = ensureWorker();
+        } catch {
+          resolve({ ok: false, error: 'Regex search is unavailable (worker failed to start)' });
+          return;
+        }
         const timer = setTimeout(
-          () =>
-            settle(
-              { ok: false, error: `Regex took too long (>${budgetMs} ms) — simplify the pattern` },
-              true
-            ),
-          budgetMs
+          () => settle({ ok: false, error: 'Regex worker failed to start' }, true),
+          startupMs
         );
         inflight = { id, timer, resolve };
-        w.postMessage({ id, pattern, flags: REGEX_FLAGS, texts });
+        try {
+          w.postMessage({ id, pattern, flags: REGEX_FLAGS, texts });
+        } catch {
+          settle({ ok: false, error: 'Regex search failed' }, true);
+        }
       });
     },
     dispose() {

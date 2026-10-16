@@ -4,7 +4,7 @@
  * terminate()s once it overruns its budget. Loaded as a Vite `?worker`
  * chunk (same-origin — allowed by both the web and Electron `worker-src`).
  */
-import { type RegexRequest, runRegexRequest } from './timeline-regex';
+import { handleRegexMessage, type RegexRequest } from './timeline-regex';
 
 const scope = self as unknown as {
   onmessage: ((event: { data: RegexRequest }) => void) | null;
@@ -12,5 +12,5 @@ const scope = self as unknown as {
 };
 
 scope.onmessage = (event) => {
-  scope.postMessage(runRegexRequest(event.data));
+  handleRegexMessage(event.data, (msg) => scope.postMessage(msg));
 };

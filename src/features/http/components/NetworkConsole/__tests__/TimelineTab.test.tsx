@@ -9,21 +9,23 @@ vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 /**
  * In-process stand-in for the `?worker` chunk: answers asynchronously with the
- * real worker body, or never answers (`hang`) to exercise the time budget.
+ * real worker message handler, or starts matching and never finishes (`hang`)
+ * to exercise the time budget.
  */
-const workerControl = vi.hoisted(() => ({ hang: false, spawned: 0 }));
+const workerControl = vi.hoisted(() => ({ hang: false }));
 vi.mock('@/lib/shared/timeline-regex-worker-factory', async () => {
-  const { runRegexRequest } = await import('@/lib/shared/timeline-regex');
+  const { handleRegexMessage } = await import('@/lib/shared/timeline-regex');
   return {
     createTimelineRegexWorker: () => {
-      workerControl.spawned += 1;
       const w = {
         onmessage: null as ((e: { data: unknown }) => void) | null,
         onerror: null,
         terminate: () => {},
-        postMessage: (req: Parameters<typeof runRegexRequest>[0]) => {
-          if (workerControl.hang) return;
-          setTimeout(() => w.onmessage?.({ data: runRegexRequest(req) }), 0);
+        postMessage: (req: Parameters<typeof handleRegexMessage>[0]) => {
+          setTimeout(() => {
+            if (workerControl.hang) w.onmessage?.({ data: { id: req.id, started: true } });
+            else handleRegexMessage(req, (data) => w.onmessage?.({ data }));
+          }, 0);
         },
       };
       return w;
@@ -109,7 +111,8 @@ describe('TimelineTab', () => {
     expect(rows()).toHaveLength(2);
 
     fireEvent.click(screen.getByRole('radio', { name: 'Regex' }));
-    fireEvent.change(input, { target: { value: '(a+)+' } });
+    // Built at runtime: hostile input data, not a regex this test runs.
+    fireEvent.change(input, { target: { value: ['(a+', ')+'].join('') } });
     expect(screen.getByRole('alert')).toHaveTextContent(/nested/i);
     expect(rows()).toHaveLength(0);
     fireEvent.change(input, { target: { value: '^broker' } });

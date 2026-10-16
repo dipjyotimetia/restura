@@ -30,7 +30,7 @@ Select a row to see the full payload and its protocol metadata, such as the Kafk
 - **Connection.** Narrow the timeline to a single connection.
 - **Search modes:**
   - **Text**: case-insensitive match on the payload, label and connection id.
-  - **Regex**: a JavaScript regular expression, matched case-insensitively against the label and the first 16 KB of each payload. Matching runs in a background worker with a 250 ms budget. A search that takes longer is stopped and reported as "Regex took too long", so a slow pattern can't freeze the app. Patterns that are known to backtrack badly are rejected up front with an explanation: patterns over 256 characters, backreferences, nested quantifiers like `(a+)+` or `(a?a?)+`, quantified alternations like `(a|aa)*`, and adjacent unbounded quantifiers like `\w+\w+` or `.*.*`.
+  - **Regex**: a JavaScript regular expression, matched case-insensitively against the label and the first 16 KB of each payload. Matching runs in a background worker with a 250 ms budget. A search that takes longer is stopped and reported as "Regex took too long", so a slow pattern can't freeze the app. Patterns that are known to backtrack badly are rejected up front with an explanation: patterns over 256 characters, backreferences, nested quantifiers like `(a+)+` or `(a?a?)+`, quantified alternations like `(a|aa)*`, and adjacent unbounded quantifiers that can match the same characters, like `\w+\w+` or `.*.*` (`\s*\d+` is fine).
   - **JSONPath**: an expression rooted at `$`, like `$.type` or `$[?(@.status == "failed")]`. An event matches when its JSON payload returns at least one result. Payloads that aren't JSON never match.
 
 ## Correlating events
