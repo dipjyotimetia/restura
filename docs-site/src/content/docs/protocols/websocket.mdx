@@ -13,7 +13,7 @@ Restura's WebSocket client gives you a full session viewer: every frame sent and
 - **Header table** — bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row. Handshake header values are sent exactly as typed (no `{{variable}}` resolution).
 - **Custom headers** during the upgrade — desktop only (sent natively via the main process); the browser `WebSocket` API can't set upgrade headers.
 - **Send text frames** with the editor; auto-detects JSON for pretty printing.
-- **Send binary frames** — paste hex, upload a file, or use a script.
+- **Send binary frames** — paste space-separated hex bytes (e.g. `48 65 6c 6c 6f`); each token must be whole bytes, and invalid hex is rejected without sending anything. Bytes go out unmodified on web and desktop.
 - **Auto-reconnect** — backoff with jitter, configurable per session.
 - **Resizable options pane** — with **Options** open, subprotocols and handshake headers get their own pane above the message log; drag the divider (or focus it and use the arrow keys) to resize. The position is remembered.
 - **Auth on connect** — Bearer, Basic, API Key, OAuth 2.0, carried as upgrade headers on desktop.
