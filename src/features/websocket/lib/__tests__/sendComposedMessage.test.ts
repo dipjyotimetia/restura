@@ -66,6 +66,25 @@ describe('sendComposedWebSocketMessage', () => {
     expect([...new Uint8Array(buffer)]).toEqual([0x48, 0x69, 0x21]);
   });
 
+  it('JSON-escapes variables inside string literals in json format', () => {
+    const quoty = { ...scope, values: { ...scope.values, q: 'a"b' } };
+    sendComposedWebSocketMessage(connectionId, '{"v":"{{q}}"}', 'json', quoty);
+    expect(send).toHaveBeenCalledWith(connectionId, '{"v":"a\\"b"}', {});
+  });
+
+  it('rejects unresolved or malformed hex tokens with the real parser (no zero bytes)', () => {
+    expect(sendComposedWebSocketMessage(connectionId, '48 {{nope}}', 'binary', scope)).toBe(false);
+    expect(sendComposedWebSocketMessage(connectionId, '4g', 'binary', scope)).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+    expect(systemMessages().filter((m) => m.startsWith('Invalid hex format'))).toHaveLength(2);
+  });
+
+  it('rejects hex that resolves to nothing', () => {
+    const empty = { ...scope, values: { blank: '  ' } };
+    expect(sendComposedWebSocketMessage(connectionId, '{{blank}}', 'binary', empty)).toBe(false);
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it('reports invalid hex without sending', () => {
     vi.spyOn(websocketManager, 'hexToArrayBuffer').mockImplementation(() => {
       throw new Error('bad');

@@ -38,6 +38,24 @@ describe('streaming stores emit into the unified timeline', () => {
     expect(e!.meta.namespace).toBe('/');
   });
 
+  it('Socket.IO resolved acks and ack timeouts', () => {
+    const id = useSocketIOStore.getState().createConnection('https://example.test');
+    useSocketIOStore.getState().resolveAck(id, 'a1', ['ok'], 'ok');
+    useSocketIOStore.getState().resolveAck(id, 'a2', [], 'timeout');
+    const events = flushed();
+    expect(events[0]).toMatchObject({
+      protocol: 'socketio',
+      direction: 'in',
+      kind: 'ack',
+      label: '<ack>',
+      payload: '["ok"]',
+    });
+    expect(events[0]!.meta.ackId).toBe('a1');
+    expect(events[1]).toMatchObject({ kind: 'error', label: '<ack timeout>' });
+    useSocketIOStore.getState().resolveAck('missing', 'a3', [], 'ok');
+    expect(flushed()).toHaveLength(2);
+  });
+
   it('SSE events and system messages', () => {
     const id = useSseStore.getState().createConnection();
     useSseStore.getState().appendEvent(id, { event: 'tick', data: '1', lastEventId: '7' });

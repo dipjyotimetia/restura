@@ -303,6 +303,17 @@ export const useSocketIOStore = create<SocketIOState>()(
             timestamp: Date.now(),
           };
           events.push(ackRow);
+          // Ack rows reach the unified Timeline too (timeouts as errors).
+          emitStreamEvent({
+            ts: ackRow.timestamp,
+            protocol: 'socketio',
+            connectionId,
+            direction: 'in',
+            kind: status === 'timeout' ? 'error' : 'ack',
+            label: ackRow.eventName,
+            payload: JSON.stringify(args),
+            meta: { ackId, namespace: c.namespace },
+          });
           return {
             connections: { ...state.connections, [connectionId]: { ...c, events } },
           };

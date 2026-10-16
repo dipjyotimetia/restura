@@ -87,14 +87,25 @@ describe('emitWithVariables', () => {
     expect(emit).not.toHaveBeenCalled();
   });
 
-  it('uses a generic error when only the resolved secret breaks the JSON', () => {
+  it('keeps a quote-containing value a single JSON string (no structure injection)', () => {
     const quoty: StreamingVariableScope = {
       ...scope,
-      values: { token: 'a"b' },
+      values: { token: 'a"b', room: 'lobby","admin":true,"x":"y' },
       secretNames: new Set(['token']),
     };
-    const out = emitWithVariables(id, { eventName: 'x', args: '["{{token}}"]', ack: false }, quoty);
-    expect(out).toEqual({ ok: false, error: 'Invalid JSON' });
+    const out = emitWithVariables(
+      id,
+      { eventName: 'x', args: '[{"room":"{{room}}"},"{{token}}"]', ack: false },
+      quoty
+    );
+    expect(out).toEqual({ ok: true });
+    expect(emit).toHaveBeenCalledWith(
+      id,
+      'x',
+      [{ room: 'lobby","admin":true,"x":"y' }, 'a"b'],
+      false,
+      { eventName: 'x', args: [{ room: 'lobby","admin":true,"x":"y' }, '••••••'] }
+    );
   });
 
   it('hides args entirely when the masked copy is not valid JSON', () => {

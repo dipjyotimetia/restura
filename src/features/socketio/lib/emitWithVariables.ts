@@ -42,7 +42,8 @@ export function emitWithVariables(
   scope: StreamingVariableScope = getActiveStreamingVariableScope()
 ): { ok: true } | { ok: false; error: string } {
   const name = resolveStreamingText(input.eventName.trim() || 'message', scope);
-  const args = resolveStreamingText(input.args, scope);
+  // JSON-aware: a value inside a string literal is escaped, never injected as structure.
+  const args = resolveStreamingText(input.args, scope, { json: true });
 
   const parsed = parseEmitArgs(args.wire);
   if (!parsed.ok) {

@@ -93,6 +93,37 @@ describe('resolveStreamingText', () => {
   });
 });
 
+describe('resolveStreamingText json mode', () => {
+  const s = () =>
+    scope({ room: 'lobby","admin":true,"x":"y', n: '7', tok: 'a"b', path: 'c:\\d' }, ['tok']);
+
+  it('JSON-escapes values substituted inside string literals', () => {
+    const out = resolveStreamingText('{"room":"{{room}}","p":"{{path}}"}', s(), { json: true });
+    expect(JSON.parse(out.wire)).toEqual({ room: 'lobby","admin":true,"x":"y', p: 'c:\\d' });
+  });
+
+  it('substitutes raw outside string literals (unquoted numbers / values)', () => {
+    const out = resolveStreamingText('[{{n}}, "{{n}}"]', s(), { json: true });
+    expect(JSON.parse(out.wire)).toEqual([7, '7']);
+  });
+
+  it('tracks escaped quotes when deciding whether a token is inside a string', () => {
+    const out = resolveStreamingText('{"a":"x\\"{{n}}", "b":{{n}}}', s(), { json: true });
+    expect(JSON.parse(out.wire)).toEqual({ a: 'x"7', b: 7 });
+  });
+
+  it('keeps secret values masked in the display copy and valid JSON on the wire', () => {
+    const out = resolveStreamingText('{"t":"{{tok}}"}', s(), { json: true });
+    expect(JSON.parse(out.wire)).toEqual({ t: 'a"b' });
+    expect(JSON.parse(out.display)).toEqual({ t: SECRET_MASK });
+  });
+
+  it('escapes dynamic helper output inside strings too', () => {
+    const out = resolveStreamingText('"{{$randomUUID}}"', s(), { json: true });
+    expect(JSON.parse(out.wire)).toMatch(/^[0-9a-f-]{36}$/);
+  });
+});
+
 describe('formatUnresolvedWarning', () => {
   it('lists names as tokens', () => {
     expect(formatUnresolvedWarning(['a', 'b'])).toBe(

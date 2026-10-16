@@ -37,7 +37,7 @@ export function sendComposedWebSocketMessage(
 ): boolean {
   if (!text.trim()) return false;
   const { addMessage } = useWebSocketStore.getState();
-  const resolved = resolveStreamingText(text, scope);
+  const resolved = resolveStreamingText(text, scope, { json: format === 'json' });
   if (resolved.unresolved.length > 0) {
     addMessage(connectionId, 'system', formatUnresolvedWarning(resolved.unresolved));
   }
@@ -46,6 +46,9 @@ export function sendComposedWebSocketMessage(
   if (format === 'binary') {
     let buffer: ArrayBuffer;
     try {
+      // The strict parser rejects malformed and unresolved `{{var}}` tokens;
+      // input that resolves to nothing is rejected too (no empty frame).
+      if (!resolved.wire.trim()) throw new Error('empty');
       buffer = websocketManager.hexToArrayBuffer(resolved.wire);
     } catch {
       const shown = resolved.display;

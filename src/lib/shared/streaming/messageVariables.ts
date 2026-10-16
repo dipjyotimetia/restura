@@ -50,9 +50,29 @@ export function getActiveStreamingVariableScope(): StreamingVariableScope {
   };
 }
 
+export interface ResolveStreamingOptions {
+  /**
+   * Treat the text as JSON: a token inside a string literal gets a
+   * JSON-escaped value, so a value containing `"` or `\` stays one string
+   * instead of injecting structure. Tokens outside strings substitute raw
+   * (unquoted numbers / objects keep working).
+   */
+  json?: boolean;
+}
+
+/** Advance the "inside a JSON string literal" state across `segment`. */
+function scanJsonString(segment: string, state: { inString: boolean; escaped: boolean }): void {
+  for (const ch of segment) {
+    if (state.escaped) state.escaped = false;
+    else if (ch === '\\' && state.inString) state.escaped = true;
+    else if (ch === '"') state.inString = !state.inString;
+  }
+}
+
 export function resolveStreamingText(
   text: string,
-  scope: StreamingVariableScope
+  scope: StreamingVariableScope,
+  options: ResolveStreamingOptions = {}
 ): ResolvedStreamingText {
   const tokens = findVariableTokens(text);
   if (tokens.length === 0) {
@@ -64,6 +84,11 @@ export function resolveStreamingText(
   let cursor = 0;
   let usedSecret = false;
   const unresolved: string[] = [];
+  const json = { inString: false, escaped: false };
+  // Token text (`{{name}}`) holds no quotes or backslashes, so the string
+  // state only needs advancing across the literal text between tokens.
+  const encode = (value: string) =>
+    options.json && json.inString ? JSON.stringify(value).slice(1, -1) : value;
 
   for (const token of tokens) {
     const raw = text.slice(token.start, token.end);
@@ -71,6 +96,7 @@ export function resolveStreamingText(
     wire += before;
     display += before;
     cursor = token.end;
+    if (options.json) scanJsonString(before, json);
 
     const { name } = token;
     if (name.startsWith('$')) {
@@ -80,20 +106,20 @@ export function resolveStreamingText(
         wire += raw;
         display += raw;
       } else {
-        wire += generated;
-        display += generated;
+        wire += encode(generated);
+        display += encode(generated);
       }
       continue;
     }
 
     if (Object.hasOwn(scope.values, name)) {
       const value = scope.values[name] as string;
-      wire += value;
+      wire += encode(value);
       if (scope.secretNames.has(name)) {
         usedSecret = true;
         display += SECRET_MASK;
       } else {
-        display += value;
+        display += encode(value);
       }
       continue;
     }
