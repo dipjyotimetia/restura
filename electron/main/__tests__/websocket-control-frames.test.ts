@@ -41,6 +41,13 @@ const wsMock = vi.hoisted(() => {
 vi.mock('electron', () => ({ ipcMain: { handle: mockHandle, removeHandler: vi.fn() } }));
 vi.mock('ws', () => ({ default: wsMock.FakeWebSocket }));
 vi.mock('../ipc/ipc-utils', () => ({ emitTo: mockEmitTo }));
+// Keychain stand-in so a main-side-auth connect exercises the redactor.
+vi.mock('../security/secret-handle-store', () => ({
+  unwrapSecretValueMain: (v: unknown): string | undefined => {
+    const ref = v as { kind?: string; id?: string } | undefined;
+    return ref?.kind === 'handle' && ref.id === 'h-token' ? 'keychain-token' : undefined;
+  },
+}));
 vi.mock('../security/safe-connect', () => ({
   resolveSafeAddress: vi.fn(async () => ({
     host: 'echo.example.com',
@@ -171,10 +178,36 @@ describe('websocket-handler control frames', () => {
       });
     });
 
-    it('defaults to an empty payload and refuses when not connected', async () => {
+    it('uses a per-ping nonce for an empty payload so a stray empty pong cannot fake RTT', async () => {
       const { event, ws } = await openSocket();
       await handlerFor(IPC.ws.ping)(event, { connectionId: 'c1' });
-      expect(ws.ping).toHaveBeenCalledWith(Buffer.alloc(0));
+      await handlerFor(IPC.ws.ping)(event, { connectionId: 'c1', payload: '' });
+      const first = (ws.ping.mock.calls[0]![0] as Buffer).toString('utf8');
+      const second = (ws.ping.mock.calls[1]![0] as Buffer).toString('utf8');
+      expect(first.length).toBeGreaterThan(0);
+      expect(Buffer.byteLength(first)).toBeLessThanOrEqual(125);
+      expect(second).not.toBe(first);
+
+      // Unsolicited empty pong: no RTT, and the outstanding pings stay pending.
+      ws.fire('pong', Buffer.alloc(0));
+      // The genuine pong echoes the nonce; the renderer sees the user's (empty) payload.
+      ws.fire('pong', Buffer.from(second));
+      const pongs = emitted('ws:pong:c1') as Array<{ data: string; rttMs?: number }>;
+      expect(pongs[0]).toEqual({ data: '' });
+      expect(pongs[1]?.data).toBe('');
+      expect(pongs[1]?.rttMs).toBeTypeOf('number');
+    });
+
+    it('refuses a ping for a connection owned by a different renderer', async () => {
+      const { ws } = await openSocket();
+      const other = makeEvent();
+      const res = await handlerFor(IPC.ws.ping)(other.event, { connectionId: 'c1' });
+      expect(res).toEqual({ success: false, error: 'Not connected' });
+      expect(ws.ping).not.toHaveBeenCalled();
+    });
+
+    it('refuses when not connected', async () => {
+      const { event, ws } = await openSocket();
 
       const missing = await handlerFor(IPC.ws.ping)(event, { connectionId: 'other' });
       expect(missing).toEqual({ success: false, error: 'Not connected' });
@@ -228,6 +261,17 @@ describe('websocket-handler control frames', () => {
         protocol: 'graphql-transport-ws',
         extensions: 'permessage-deflate; client_max_window_bits=15',
       });
+    });
+
+    it('redacts main-resolved secrets from the negotiated protocol and extensions', async () => {
+      const { senderId, ws } = await openSocket({
+        auth: { type: 'bearer', bearer: { token: { kind: 'handle', id: 'h-token' } } },
+      });
+      ws.protocol = 'proto-keychain-token';
+      ws.extensions = 'ext-keychain-token';
+      ws.fire('open');
+      const open = mockEmitTo.mock.calls.find((c) => c[0] === senderId && c[1] === 'ws:open:c1');
+      expect(JSON.stringify(open?.[2])).not.toContain('keychain-token');
     });
 
     it('falls back to ws.extensions when the upgrade header is absent', async () => {

@@ -47,8 +47,24 @@ interface ActiveWebSocket {
 }
 
 interface PendingPing {
+  /** Application data actually sent on the wire (and echoed by the pong). */
+  wire: string;
+  /** What the user typed — surfaced to the renderer instead of the wire nonce. */
   payload: string;
   sentAt: number;
+}
+
+let pingNonceCounter = 0;
+
+/**
+ * An empty user payload would let any empty (e.g. unsolicited) pong satisfy
+ * an outstanding ping and fake the RTT, so send a short unique nonce instead.
+ * User-supplied payloads go out unchanged. Well under the 125-byte limit.
+ */
+function pingWirePayload(payload: string): string {
+  if (payload) return payload;
+  pingNonceCounter = (pingNonceCounter + 1) % Number.MAX_SAFE_INTEGER;
+  return `restura-ping-${pingNonceCounter}`;
 }
 
 /** Bounds the outstanding-ping table so a silent peer can't grow it forever. */
@@ -59,11 +75,12 @@ const MAX_PENDING_PINGS = 32;
  * (RFC 6455 §5.5.3: a Pong echoes the Ping's payload). Returns the RTT in
  * whole ms, or undefined for an unsolicited pong.
  */
-function takePongRtt(entry: ActiveWebSocket, payload: string): number | undefined {
-  const idx = entry.pendingPings.findIndex((p) => p.payload === payload);
-  if (idx === -1) return undefined;
-  const [match] = entry.pendingPings.splice(idx, 1);
-  return match ? Math.round(performance.now() - match.sentAt) : undefined;
+function takePong(entry: ActiveWebSocket, wire: string): { payload: string; rttMs?: number } {
+  const idx = entry.pendingPings.findIndex((p) => p.wire === wire);
+  const [match] = idx === -1 ? [] : entry.pendingPings.splice(idx, 1);
+  return match
+    ? { payload: match.payload, rttMs: Math.round(performance.now() - match.sentAt) }
+    : { payload: wire };
 }
 
 // Shared connection bookkeeping. dispose() flags the connection as explicitly
@@ -300,7 +317,7 @@ export function registerWebSocketHandlerIPC(): void {
           // that verify it (graphql-transport-ws requires socket.protocol to match).
           // #923: also surface the negotiated extensions (e.g. permessage-deflate).
           connections.emit(connectionId, webContentsId, 'open', {
-            protocol: ws.protocol ?? '',
+            protocol: redact(ws.protocol ?? ''),
             extensions: redact(negotiatedExtensions ?? ws.extensions ?? ''),
           });
         });
@@ -315,8 +332,7 @@ export function registerWebSocketHandlerIPC(): void {
 
         ws.on('pong', (data: Buffer) => {
           if (connections.get(connectionId, webContentsId) !== entry) return;
-          const payload = data.toString('utf8');
-          const rttMs = takePongRtt(entry, payload);
+          const { payload, rttMs } = takePong(entry, data.toString('utf8'));
           connections.emit(connectionId, webContentsId, 'pong', {
             data: redact(payload),
             ...(rttMs !== undefined ? { rttMs } : {}),
@@ -441,12 +457,13 @@ export function registerWebSocketHandlerIPC(): void {
         return { success: false, error: 'Not connected' };
       }
       const payload = config.payload ?? '';
+      const wire = pingWirePayload(payload);
       try {
-        entry.ws.ping(Buffer.from(payload, 'utf8'));
+        entry.ws.ping(Buffer.from(wire, 'utf8'));
       } catch (err) {
         return { success: false, error: err instanceof Error ? err.message : 'Ping failed' };
       }
-      entry.pendingPings.push({ payload, sentAt: performance.now() });
+      entry.pendingPings.push({ wire, payload, sentAt: performance.now() });
       if (entry.pendingPings.length > MAX_PENDING_PINGS) entry.pendingPings.shift();
       return { success: true };
     })
