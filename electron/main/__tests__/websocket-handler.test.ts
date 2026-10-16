@@ -440,6 +440,21 @@ describe('websocket-handler', () => {
     expect(winner.terminate).not.toHaveBeenCalled();
   });
 
+  it('a disconnect while a plain connect is still resolving DNS cancels it (#908)', async () => {
+    const { event } = makeEvent();
+    const dns = deferred<{ host: string; ip: string; port: number; family: 4 }>();
+    mockResolveSafe.mockImplementationOnce(() => dns.promise);
+
+    const pending = handlerFor(IPC.ws.connect)(event, validConnect('early'));
+    await expect(handlerFor(IPC.ws.disconnect)(event, { connectionId: 'early' })).resolves.toEqual({
+      success: true,
+    });
+    dns.resolve({ host: 'echo.example.com', ip: '203.0.113.1', port: 443, family: 4 });
+
+    await expect(pending).resolves.toEqual({ success: false, error: 'Not connected' });
+    expect(wsMock.FakeWebSocket.instances).toHaveLength(0);
+  });
+
   it('tears down the connection when its renderer is destroyed', async () => {
     const { event, destroy } = makeEvent();
     await handlerFor(IPC.ws.connect)(event, validConnect('c1'));

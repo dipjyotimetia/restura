@@ -18,6 +18,12 @@ export function cleanupWebSocketElectronListeners(
   api?.websocket?.removeAllListeners(`ws:close:${connectionId}`);
 }
 
+interface ConnectArgs {
+  url: string;
+  protocols?: string[] | undefined;
+  headers?: Record<string, string> | undefined;
+}
+
 // Singleton manager for WebSocket connections
 class WebSocketManager {
   private connections: Map<string, WebSocket> = new Map();
@@ -25,6 +31,10 @@ class WebSocketManager {
   private reconnectTimeouts: Map<string, NodeJS.Timeout> = new Map();
   private connectionTimeouts: Map<string, NodeJS.Timeout> = new Map();
   private heartbeatIntervals: Map<string, NodeJS.Timeout> = new Map();
+  /** Args of the last connect, replayed verbatim by auto-reconnect (#902). */
+  private connectArgs: Map<string, ConnectArgs> = new Map();
+  /** Token of the live desktop attempt; stale IPC events/results are ignored (#908). */
+  private electronAttempts: Map<string, symbol> = new Map();
   private static DEFAULT_CONNECTION_TIMEOUT = 30000; // 30 seconds
 
   private validateUrl(url: string): { valid: boolean; error?: string } {
@@ -52,8 +62,15 @@ class WebSocketManager {
     protocols?: string[],
     headers?: Record<string, string>
   ): void {
+    this.open(connectionId, { url, protocols, headers }, false);
+  }
+
+  /** `isReconnect` keeps the attempt counter so maxReconnectAttempts is honoured. */
+  private open(connectionId: string, args: ConnectArgs, isReconnect: boolean): void {
+    const { url, protocols, headers } = args;
     // Close existing connection if any
     this.disconnect(connectionId, false);
+    this.connectArgs.set(connectionId, args);
 
     const store = useWebSocketStore.getState();
 
@@ -69,12 +86,12 @@ class WebSocketManager {
     // renderer's CSP forbids direct ws: connections in the packaged app, and
     // the main-process path adds custom headers + the DNS-pinned SSRF guard.
     if (isElectron()) {
-      this.connectViaElectron(connectionId, url, headers ?? {}, protocols);
+      this.connectViaElectron(connectionId, url, headers ?? {}, protocols, isReconnect);
       return;
     }
 
     store.updateConnectionStatus(connectionId, 'connecting');
-    store.setReconnectAttempts(connectionId, 0);
+    if (!isReconnect) store.setReconnectAttempts(connectionId, 0);
 
     // Browser path: the WebSocket API has no handshake-header support, so any
     // configured headers are silently unusable here — say so instead of
@@ -118,17 +135,7 @@ class WebSocketManager {
           this.connectionTimeouts.delete(connectionId);
         }
 
-        const state = useWebSocketStore.getState();
-        state.updateConnectionStatus(connectionId, 'connected');
-        state.setReconnectAttempts(connectionId, 0);
-        state.setLastConnectedAt(connectionId, Date.now());
-        state.addMessage(connectionId, 'system', `Connected to ${url}`);
-
-        // Start heartbeat if configured
-        const conn = state.connections[connectionId];
-        if (conn && conn.heartbeatInterval > 0) {
-          this.startHeartbeat(connectionId, conn.heartbeatInterval, conn.heartbeatMessage);
-        }
+        this.handleOpen(connectionId, url);
       };
 
       ws.onmessage = (event) => {
@@ -151,31 +158,8 @@ class WebSocketManager {
       };
 
       ws.onclose = (event) => {
-        const state = useWebSocketStore.getState();
-        const connection = state.connections[connectionId];
-
-        this.stopHeartbeat(connectionId);
-
-        state.addMessage(
-          connectionId,
-          'system',
-          `Connection closed (code: ${event.code}, reason: ${event.reason || 'No reason provided'})`
-        );
-
         this.connections.delete(connectionId);
-
-        // Handle auto-reconnect
-        if (
-          connection?.autoReconnect &&
-          event.code !== 1000 && // Normal closure
-          event.code !== 1001 && // Going away
-          connection.reconnectAttempts < connection.maxReconnectAttempts
-        ) {
-          // Use current URL from connection state (in case it was updated)
-          this.scheduleReconnect(connectionId);
-        } else {
-          state.updateConnectionStatus(connectionId, 'disconnected');
-        }
+        this.handleClose(connectionId, event.code, event.reason);
       };
 
       this.connections.set(connectionId, ws);
@@ -197,6 +181,10 @@ class WebSocketManager {
       if (timeout) {
         clearTimeout(timeout);
         this.reconnectTimeouts.delete(connectionId);
+        // Nothing else is live while waiting to reconnect; settle the UI.
+        const state = useWebSocketStore.getState();
+        state.updateConnectionStatus(connectionId, 'disconnected');
+        state.setReconnectAttempts(connectionId, 0);
       }
     }
 
@@ -209,12 +197,12 @@ class WebSocketManager {
 
     this.stopHeartbeat(connectionId);
 
-    // Handle Electron-managed connections
+    // Handle Electron-managed connections — tracked from connectViaElectron,
+    // so this also aborts an in-flight handshake (#908).
     if (this.electronConnections.has(connectionId)) {
       const api = getElectronAPI();
       api?.websocket?.disconnect({ connectionId });
-      this.electronConnections.delete(connectionId);
-      cleanupWebSocketElectronListeners(connectionId, api);
+      this.releaseElectron(connectionId, api);
       const state = useWebSocketStore.getState();
       state.updateConnectionStatus(connectionId, 'disconnected');
       state.setReconnectAttempts(connectionId, 0);
@@ -283,7 +271,8 @@ class WebSocketManager {
     connectionId: string,
     url: string,
     headers: Record<string, string>,
-    protocols?: string[]
+    protocols: string[] | undefined,
+    isReconnect: boolean
   ): void {
     const store = useWebSocketStore.getState();
     const api = getElectronAPI();
@@ -294,16 +283,17 @@ class WebSocketManager {
     }
 
     store.updateConnectionStatus(connectionId, 'connecting');
-    store.setReconnectAttempts(connectionId, 0);
+    if (!isReconnect) store.setReconnectAttempts(connectionId, 0);
+
+    // Electron-managed from the start (not from ws:open) so a Disconnect during
+    // the handshake reaches main; the token drops events of stale attempts.
+    const attempt = Symbol(connectionId);
+    this.electronConnections.add(connectionId);
+    this.electronAttempts.set(connectionId, attempt);
+    const isLive = () => this.electronAttempts.get(connectionId) === attempt;
 
     api.websocket.on(`ws:open:${connectionId}`, () => {
-      const s = useWebSocketStore.getState();
-      s.updateConnectionStatus(connectionId, 'connected');
-      s.setReconnectAttempts(connectionId, 0);
-      s.setLastConnectedAt(connectionId, Date.now());
-      s.addMessage(connectionId, 'system', `Connected to ${url}`);
-      // Mark as Electron-managed (no native ws in connections map)
-      this.electronConnections.add(connectionId);
+      if (isLive()) this.handleOpen(connectionId, url);
     });
 
     api.websocket.on(`ws:message:${connectionId}`, (payload: unknown) => {
@@ -324,17 +314,22 @@ class WebSocketManager {
     });
 
     api.websocket.on(`ws:close:${connectionId}`, (payload: unknown) => {
+      if (!isLive()) return;
       const ev = payload as { code: number; reason: string };
-      const s = useWebSocketStore.getState();
-      s.addMessage(
-        connectionId,
-        'system',
-        `Connection closed (code: ${ev.code}, reason: ${ev.reason || 'No reason provided'})`
-      );
-      s.updateConnectionStatus(connectionId, 'disconnected');
-      this.electronConnections.delete(connectionId);
-      cleanupWebSocketElectronListeners(connectionId, api);
+      this.releaseElectron(connectionId, api);
+      this.handleClose(connectionId, ev.code, ev.reason);
     });
+
+    const fail = (errMsg: string) => {
+      if (!isLive()) return;
+      this.releaseElectron(connectionId, api);
+      const s = useWebSocketStore.getState();
+      s.addMessage(connectionId, 'system', `Failed to connect: ${errMsg}`);
+      // A rejected first connect is final (policy/SSRF); a rejected reconnect
+      // (e.g. transient DNS failure) continues the backoff loop like a 1006.
+      if (isReconnect) this.handleClose(connectionId, 1006, '', false);
+      else s.updateConnectionStatus(connectionId, 'disconnected');
+    };
 
     api.websocket
       .connect({
@@ -343,25 +338,78 @@ class WebSocketManager {
         headers,
         ...(protocols !== undefined ? { protocols } : {}),
       })
-      .catch((err: unknown) => {
-        const errMsg = err instanceof Error ? err.message : 'Connection failed';
-        const s = useWebSocketStore.getState();
-        s.addMessage(connectionId, 'system', `Failed to connect: ${errMsg}`);
-        s.updateConnectionStatus(connectionId, 'disconnected');
-        this.electronConnections.delete(connectionId);
-        cleanupWebSocketElectronListeners(connectionId, api);
-      });
+      .then((res) => {
+        if (res && !res.success) fail(res.error ?? 'Connection failed');
+      })
+      .catch((err: unknown) => fail(err instanceof Error ? err.message : 'Connection failed'));
+  }
+
+  private releaseElectron(connectionId: string, api: ReturnType<typeof getElectronAPI>): void {
+    this.electronConnections.delete(connectionId);
+    this.electronAttempts.delete(connectionId);
+    cleanupWebSocketElectronListeners(connectionId, api);
+  }
+
+  /** Transport-agnostic open: status, counters and heartbeat for both paths. */
+  private handleOpen(connectionId: string, url: string): void {
+    const state = useWebSocketStore.getState();
+    state.updateConnectionStatus(connectionId, 'connected');
+    state.setReconnectAttempts(connectionId, 0);
+    state.setLastConnectedAt(connectionId, Date.now());
+    state.addMessage(connectionId, 'system', `Connected to ${url}`);
+
+    const conn = state.connections[connectionId];
+    if (conn && conn.heartbeatInterval > 0) {
+      this.startHeartbeat(connectionId, conn.heartbeatInterval, conn.heartbeatMessage);
+    }
+  }
+
+  /**
+   * Transport-agnostic unexpected close: reconnect per the connection's
+   * settings or settle disconnected. User disconnects never get here — the
+   * browser path nulls `onclose`, the IPC path removes its listeners first.
+   */
+  private handleClose(connectionId: string, code: number, reason: string, log = true): void {
+    this.stopHeartbeat(connectionId);
+    const state = useWebSocketStore.getState();
+    const connection = state.connections[connectionId];
+    if (log) {
+      state.addMessage(
+        connectionId,
+        'system',
+        `Connection closed (code: ${code}, reason: ${reason || 'No reason provided'})`
+      );
+    }
+    if (
+      connection?.autoReconnect &&
+      code !== 1000 && // Normal closure
+      code !== 1001 && // Going away
+      connection.reconnectAttempts < connection.maxReconnectAttempts
+    ) {
+      this.scheduleReconnect(connectionId);
+    } else {
+      state.updateConnectionStatus(connectionId, 'disconnected');
+    }
+  }
+
+  /** Sends a heartbeat over whichever transport owns the connection. */
+  private sendHeartbeat(connectionId: string, message: string): boolean {
+    if (this.electronConnections.has(connectionId)) {
+      const api = getElectronAPI();
+      if (!api?.websocket || !this.isConnected(connectionId)) return false;
+      void api.websocket.send({ connectionId, message });
+      return true;
+    }
+    const ws = this.connections.get(connectionId);
+    if (ws?.readyState !== WebSocket.OPEN) return false;
+    ws.send(message);
+    return true;
   }
 
   private startHeartbeat(connectionId: string, interval: number, message: string): void {
     this.stopHeartbeat(connectionId);
     const id = setInterval(() => {
-      const ws = this.connections.get(connectionId);
-      if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(message);
-      } else {
-        this.stopHeartbeat(connectionId);
-      }
+      if (!this.sendHeartbeat(connectionId, message)) this.stopHeartbeat(connectionId);
     }, interval);
     this.heartbeatIntervals.set(connectionId, id);
   }
@@ -398,13 +446,11 @@ class WebSocketManager {
 
     const timeout = setTimeout(() => {
       this.reconnectTimeouts.delete(connectionId);
-      // Get current URL and protocols from store (they may have been updated)
-      const currentState = useWebSocketStore.getState();
-      const currentConnection = currentState.connections[connectionId];
-      if (currentConnection) {
-        const protocols =
-          currentConnection.protocols.length > 0 ? currentConnection.protocols : undefined;
-        this.connect(connectionId, currentConnection.url, protocols);
+      // Replay the original (already variable-resolved) url, protocols and
+      // headers — desktop handshake headers must survive a reconnect.
+      const args = this.connectArgs.get(connectionId);
+      if (args && useWebSocketStore.getState().connections[connectionId]) {
+        this.open(connectionId, args, true);
       }
     }, delay);
 
@@ -435,8 +481,7 @@ class WebSocketManager {
 
   updateHeartbeat(connectionId: string, interval: number, message: string): void {
     this.stopHeartbeat(connectionId);
-    const ws = this.connections.get(connectionId);
-    if (ws?.readyState === WebSocket.OPEN && interval > 0) {
+    if (interval > 0 && this.isConnected(connectionId)) {
       this.startHeartbeat(connectionId, interval, message);
     }
   }
