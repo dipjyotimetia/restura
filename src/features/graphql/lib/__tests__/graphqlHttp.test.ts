@@ -431,6 +431,25 @@ describe('createIncrementalProgress — coalescing', () => {
     expect(onSnapshot).toHaveBeenCalledTimes(2);
   });
 
+  it('uses real timers by default for the trailing snapshot', () => {
+    vi.useFakeTimers();
+    try {
+      const onSnapshot = vi.fn();
+      const progress = createIncrementalProgress(onSnapshot);
+      progress({ ...meta, chunk: enc(`\r\n---${part({ data: { a: 1 }, hasNext: true })}`) });
+      progress({ ...meta, chunk: enc(part({ data: { b: 2 }, hasNext: true })) });
+      expect(onSnapshot).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(150);
+      expect(onSnapshot).toHaveBeenCalledTimes(2);
+      progress({ ...meta, chunk: enc(part({ data: { c: 3 }, hasNext: true })) });
+      progress.dispose();
+      vi.advanceTimersByTime(500);
+      expect(onSnapshot).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('stops live updates when the sink throws or a part is oversized', () => {
     const throwing = vi.fn(() => {
       throw new RangeError('too deep');

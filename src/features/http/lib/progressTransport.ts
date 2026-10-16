@@ -44,9 +44,9 @@ export interface ResponseProgress {
 
 export type ResponseProgressHandler = (progress: ResponseProgress) => void;
 
-function headerValue(headers: Record<string, string | string[]>, name: string): string {
+function headerValue(headers: Record<string, string>, name: string): string {
   for (const [k, v] of Object.entries(headers)) {
-    if (k.toLowerCase() === name) return Array.isArray(v) ? (v[0] ?? '') : v;
+    if (k.toLowerCase() === name) return v;
   }
   return '';
 }
