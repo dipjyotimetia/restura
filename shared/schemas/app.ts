@@ -217,6 +217,7 @@ export const httpRequestSchema = z.object({
     ]),
     raw: z.string().optional(),
     graphqlVariables: z.string().optional(),
+    graphqlOperationName: z.string().optional(),
     formData: z.array(z.any()).optional(),
     binary: z.any().optional(),
     multipartParts: z.array(z.any()).optional(),

@@ -160,6 +160,18 @@ describe('graphqlProtocol envelope', () => {
     expect(onSentBody).toHaveBeenCalledTimes(1);
   });
 
+  it('sends the operation selected on the saved request (#903)', async () => {
+    const saved = gqlRequest('query A { a }\nquery B { b }');
+    saved.body = { type: 'graphql', raw: saved.body.raw, graphqlOperationName: 'B' };
+    await graphqlProtocol.runRequest(saved, {
+      signal: new AbortController().signal,
+      variables: {},
+    } as never);
+
+    const passed = executeRequestMock.mock.calls[0]![0] as { request: HttpRequest };
+    expect(JSON.parse(passed.request.body.raw!).operationName).toBe('B');
+  });
+
   it('leaves operationName off an anonymous saved document, like interactive Send', async () => {
     const saved = gqlRequest('{ me { id } }');
     saved.body.type = 'graphql';

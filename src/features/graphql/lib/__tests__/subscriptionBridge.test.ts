@@ -89,4 +89,36 @@ describe('GraphQL subscriptions over the Electron WS IPC bridge', () => {
     const first = data[0]?.payload as { data?: { tick?: { n?: number } } } | undefined;
     expect(first?.data?.tick?.n).toBeTypeOf('number');
   });
+
+  it('runs the selected operation of a multi-operation document via operationName (#874)', async () => {
+    installFakeElectronWsApi();
+    server.reset();
+    const url = `${server.url}/graphql`;
+    const messages: SubscriptionMessage[] = [];
+    const client = new GraphQLSubscriptionClient(url, {});
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timeout waiting for subscription')), 8000);
+      client.connect({
+        url,
+        query: 'query Q { __typename }\nsubscription Ticks { tick(count: 2) { n } }',
+        operationName: 'Ticks',
+        onMessage: (m) => {
+          messages.push(m);
+          if (m.type === 'complete') {
+            clearTimeout(timer);
+            resolve();
+          }
+        },
+        onError: (e) => {
+          clearTimeout(timer);
+          reject(e instanceof Error ? e : new Error(String(e)));
+        },
+      });
+    });
+
+    client.disconnect();
+    expect(messages.filter((m) => m.type === 'data')).toHaveLength(2);
+    expect(server.graphqlSubscribePayloads().at(-1)).toMatchObject({ operationName: 'Ticks' });
+  });
 });

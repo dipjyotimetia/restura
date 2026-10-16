@@ -258,4 +258,121 @@ describe('OpenCollection imported GraphQL schema extension', () => {
       expect(back[0]?.graphqlSubscriptionProtocol).toBe('auto');
     });
   });
+
+  describe('selected operation (#903)', () => {
+    const withOp = (name: string, op: string, schema?: GraphQLImportedSchema): HttpRequest => {
+      const r = gql(name, schema);
+      return {
+        ...r,
+        body: { type: 'graphql', raw: 'query A { a } query B { b }', graphqlOperationName: op },
+      };
+    };
+
+    it('round-trips the selected operation with and without an imported schema', () => {
+      const collection: Collection = {
+        id: 'c',
+        name: 'Ops',
+        items: [
+          item(withOp('Plain', 'B')),
+          { id: 'f', type: 'folder', name: 'F', items: [item(withOp('Typed', 'A', SCHEMA_A))] },
+          item(gql('None')),
+        ],
+      };
+      const ext = (internalToOC(collection).extensions as Record<string, unknown>)[
+        GRAPHQL_EXTENSION_KEY
+      ] as { requests: Array<Record<string, unknown>> };
+      expect(ext.requests).toEqual([
+        { path: ['Plain'], operationName: 'B' },
+        expect.objectContaining({ path: ['F', 'Typed'], operationName: 'A', source: 'sdl' }),
+      ]);
+
+      const yaml = serializeOpenCollectionYAML(internalToOC(collection));
+      const back = gqlRequests(ocToInternal(parseOpenCollectionYAML(yaml)).items);
+      expect(back.map((r) => [r.name, r.body.graphqlOperationName, r.graphqlSchema])).toEqual([
+        ['Plain', 'B', undefined],
+        ['Typed', 'A', SCHEMA_A],
+        ['None', undefined, undefined],
+      ]);
+    });
+
+    it('carries schema, subscription protocol and operation on one entry in any combination', () => {
+      const all: HttpRequest = {
+        ...withOp('All', 'B', SCHEMA_A),
+        graphqlSubscriptionProtocol: 'graphql-sse',
+      };
+      const protoAndOp: HttpRequest = {
+        ...withOp('ProtoOp', 'A'),
+        graphqlSubscriptionProtocol: 'subscriptions-transport-ws',
+      };
+      const collection: Collection = {
+        id: 'c',
+        name: 'Combos',
+        items: [item(all), item(protoAndOp)],
+      };
+      const ext = (internalToOC(collection).extensions as Record<string, unknown>)[
+        GRAPHQL_EXTENSION_KEY
+      ] as { requests: Array<Record<string, unknown>> };
+      expect(ext.requests).toEqual([
+        expect.objectContaining({
+          path: ['All'],
+          source: 'sdl',
+          subscriptionProtocol: 'graphql-sse',
+          operationName: 'B',
+        }),
+        {
+          path: ['ProtoOp'],
+          subscriptionProtocol: 'subscriptions-transport-ws',
+          operationName: 'A',
+        },
+      ]);
+
+      const yaml = serializeOpenCollectionYAML(internalToOC(collection));
+      const back = gqlRequests(ocToInternal(parseOpenCollectionYAML(yaml)).items);
+      expect(
+        back.map((r) => [
+          r.name,
+          r.body.graphqlOperationName,
+          r.graphqlSubscriptionProtocol,
+          r.graphqlSchema,
+        ])
+      ).toEqual([
+        ['All', 'B', 'graphql-sse', SCHEMA_A],
+        ['ProtoOp', 'A', 'subscriptions-transport-ws', undefined],
+      ]);
+    });
+
+    it('degrades a malformed operation name to absent but applies the rest', () => {
+      const [a1] = importWithExtension({
+        schemas: { h: { sdl: SCHEMA_A.sdl } },
+        requests: [{ ...entry(['A1'], 'h'), operationName: 42, subscriptionProtocol: 'auto' }],
+      });
+      expect(a1?.body.graphqlOperationName).toBeUndefined();
+      expect(a1?.graphqlSchema?.sdl).toBe(SCHEMA_A.sdl);
+      expect(a1?.graphqlSubscriptionProtocol).toBe('auto');
+    });
+
+    it('applies the operation even when the schema half of the entry is unusable', () => {
+      const [a1] = importWithExtension({
+        schemas: {},
+        requests: [{ path: ['A1'], schema: 'missing', operationName: 'Op' }],
+      });
+      expect(a1?.body.graphqlOperationName).toBe('Op');
+      expect(a1?.graphqlSchema).toBeUndefined();
+    });
+
+    it('never puts an operation on a non-GraphQL body', () => {
+      const rest: HttpRequest = { ...gql('R'), body: { type: 'json', raw: '{}' } };
+      const [r] = importWithExtension(
+        { schemas: {}, requests: [{ path: ['R'], operationName: 'Op' }] },
+        [item(rest)]
+      );
+      expect(r?.body).toEqual({ type: 'json', raw: '{}' });
+    });
+
+    it('ignores an entry that carries neither a schema nor an operation', () => {
+      const [a1] = importWithExtension({ schemas: {}, requests: [{ path: ['A1'] }] });
+      expect(a1?.body.graphqlOperationName).toBeUndefined();
+      expect(a1?.graphqlSchema).toBeUndefined();
+    });
+  });
 });

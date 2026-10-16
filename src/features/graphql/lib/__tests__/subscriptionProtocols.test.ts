@@ -466,3 +466,52 @@ describe('graphql-sse client (distinct connections)', () => {
     expect(log.sseDisconnects.length).toBeGreaterThanOrEqual(1);
   });
 });
+
+// The builder passes the picker's selection straight through: a name for the
+// selected operation of a multi-operation document, `null` for an anonymous one.
+describe('operation picker selection on every protocol (#903)', () => {
+  const MULTI = 'query Q { __typename }\nsubscription Ticks { tick(count: 3) { n } }';
+
+  it('graphql-transport-ws runs the selected operation of a multi-operation document', async () => {
+    installFakeElectron();
+    modern.reset();
+    const msgs = await run(`${modern.url}/graphql`, {
+      protocol: 'graphql-transport-ws',
+      query: MULTI,
+      operationName: 'Ticks',
+    });
+    expect(dataOf(msgs)).toHaveLength(3);
+    expect(modern.graphqlSubscribePayloads()[0]).toMatchObject({
+      query: MULTI,
+      operationName: 'Ticks',
+    });
+  });
+
+  it('subscriptions-transport-ws sends the selection and omits a null name', async () => {
+    installFakeElectron();
+    await run(legacy.url, {
+      protocol: 'subscriptions-transport-ws',
+      query: MULTI,
+      operationName: 'Ticks',
+    });
+    const starts = () => legacy.received().filter((m) => m.type === 'start');
+    expect(starts().at(-1)?.payload).toMatchObject({ query: MULTI, operationName: 'Ticks' });
+
+    await run(legacy.url, { protocol: 'subscriptions-transport-ws', operationName: null });
+    expect(starts().at(-1)?.payload).not.toHaveProperty('operationName');
+  });
+
+  it('graphql-sse sends the selection and omits a null name', async () => {
+    const { log } = installFakeElectron();
+    await run(sseServer.url, { protocol: 'graphql-sse', query: MULTI, operationName: 'Ticks' });
+    expect(JSON.parse(log.sseConnects.at(-1)?.jsonBody ?? '{}')).toEqual({
+      query: MULTI,
+      operationName: 'Ticks',
+    });
+
+    await run(sseServer.url, { protocol: 'graphql-sse', operationName: null });
+    expect(JSON.parse(log.sseConnects.at(-1)?.jsonBody ?? '{}')).not.toHaveProperty(
+      'operationName'
+    );
+  });
+});

@@ -32,7 +32,15 @@ import {
   summarizeGraphQLErrors,
 } from '@/features/graphql/lib/graphqlErrors';
 import { exportSchemaToSDL } from '@/features/graphql/lib/introspection';
-import { buildGraphQLRequestBody, extractOperationType } from '@/features/graphql/lib/queryParser';
+import {
+  applyOperationSelection,
+  type GraphQLOperationInfo,
+  isSameOperation,
+  operationForRun,
+  resolveGraphQLOperationState,
+  runButtonLabel,
+} from '@/features/graphql/lib/operationSelection';
+import { buildGraphQLRequestBody } from '@/features/graphql/lib/queryParser';
 import { describeSchemaProvenance } from '@/features/graphql/lib/schemaImport';
 import { GraphQLSubscriptionClient } from '@/features/graphql/lib/subscriptionClient';
 import {
@@ -122,8 +130,9 @@ function GraphQLRequestBuilder() {
 
   const httpRequest: HttpRequest = currentRequest;
   const query = httpRequest.body.raw || '';
-  const operationType = extractOperationType(query);
-  const isSubscription = operationType === 'subscription';
+  // Operation + transport come from the AST of the selected operation (#903).
+  const operationState = resolveGraphQLOperationState(query, httpRequest.body.graphqlOperationName);
+  const { operationType, isSubscription } = operationState;
 
   const activeHeaderCount = httpRequest.headers.filter((h) => h.enabled && h.key).length;
   const detectedVarCount = (() => {
@@ -150,7 +159,10 @@ function GraphQLRequestBuilder() {
     return headers;
   };
 
-  const handleSubscribe = () => {
+  const handleSubscribe = (
+    operationName = operationState.operationName,
+    variablesText = graphqlVariables
+  ) => {
     const resolvedUrl = resolveVariables(httpRequest.url);
     if (!resolvedUrl) {
       toast.error('URL required');
@@ -159,7 +171,7 @@ function GraphQLRequestBuilder() {
 
     let variables: Record<string, unknown> = {};
     try {
-      variables = JSON.parse(graphqlVariables || '{}');
+      variables = JSON.parse(variablesText || '{}');
     } catch {
       toast.error('Invalid JSON in variables');
       return;
@@ -177,10 +189,14 @@ function GraphQLRequestBuilder() {
     client.connect({
       url: resolvedUrl,
       query,
+      operationName,
       variables,
       headers,
       protocol: httpRequest.graphqlSubscriptionProtocol ?? 'auto',
+      // A torn-down client (operation switch) can still deliver late
+      // messages; only the current client may touch state.
       onMessage: (msg) => {
+        if (subscriptionClientRef.current !== client) return;
         setSubscriptionLog((prev) => appendSubscriptionLog(prev, msg));
         const nextErrors = msg.type === 'data' ? parseGraphQLErrors(msg.payload) : [];
         if (originTabId && nextErrors.length > 0) {
@@ -192,6 +208,7 @@ function GraphQLRequestBuilder() {
         }
       },
       onError: () => {
+        if (subscriptionClientRef.current !== client) return;
         setIsSubscribed(false);
         subscriptionClientRef.current = null;
         toast.error('Subscription error');
@@ -208,7 +225,10 @@ function GraphQLRequestBuilder() {
     toast.info('Subscription cancelled');
   };
 
-  const handleSendRequest = async () => {
+  const handleSendRequest = async (
+    operationName = operationState.operationName,
+    variablesText = graphqlVariables
+  ) => {
     const originTabId = activeTabId;
     if (!originTabId) return;
     if (!httpRequest.url) {
@@ -218,7 +238,7 @@ function GraphQLRequestBuilder() {
 
     let parsedVariables: Record<string, unknown>;
     try {
-      parsedVariables = JSON.parse(graphqlVariables || '{}');
+      parsedVariables = JSON.parse(variablesText || '{}');
     } catch {
       toast.error('Invalid JSON in variables');
       return;
@@ -230,7 +250,7 @@ function GraphQLRequestBuilder() {
       .getState()
       .setInFlight({ tabId: originTabId, startedAt: Date.now(), cancel: abortRun });
 
-    const wireBody = JSON.stringify(buildGraphQLRequestBody(query, parsedVariables));
+    const wireBody = JSON.stringify(buildGraphQLRequestBody(query, parsedVariables, operationName));
     const wireHeaders = httpRequest.headers.slice();
     const hasContentType = wireHeaders.some(
       (h) => h.enabled && h.key.toLowerCase() === 'content-type'
@@ -333,6 +353,29 @@ function GraphQLRequestBuilder() {
     updateRequest({ body: { ...httpRequest.body, raw: formatted } });
   };
 
+  // Persist the picked operation and scope the variables to it; a live
+  // subscription for another operation is torn down first.
+  const selectOperation = (operation: GraphQLOperationInfo): string => {
+    if (isSameOperation(operation, operationState.selected)) return graphqlVariables;
+    if (subscriptionClientRef.current) handleUnsubscribe();
+    const next = applyOperationSelection(httpRequest.body, operation, graphqlVariables);
+    setGraphqlVariables(next.variables);
+    updateRequest({ body: next.body });
+    return next.variables;
+  };
+
+  // Cmd/Ctrl+Enter in the query editor: run the operation under the cursor.
+  const handleRunAtCursor = (offset: number) => {
+    const operation = operationForRun(operationState, offset);
+    if (!operation || !httpRequest.url) return;
+    const variablesText = selectOperation(operation);
+    if (operation.type === 'subscription') {
+      if (!subscriptionClientRef.current) handleSubscribe(operation.name, variablesText);
+    } else if (!isLoading) {
+      void handleSendRequest(operation.name, variablesText);
+    }
+  };
+
   const handleVariablesChange = (value: string) => {
     setGraphqlVariables(value);
     updateRequest({ body: { ...httpRequest.body, graphqlVariables: value } });
@@ -419,12 +462,13 @@ function GraphQLRequestBuilder() {
         <Button
           variant="cta"
           size="cta"
-          onClick={handleSubscribe}
+          onClick={() => handleSubscribe()}
           disabled={!httpRequest.url}
+          title="graphql-ws over WebSocket"
           className="min-w-[100px] shrink-0"
         >
           <Plug className="h-3.5 w-3.5" />
-          Subscribe
+          {runButtonLabel(operationType)}
         </Button>
       );
     }
@@ -446,13 +490,14 @@ function GraphQLRequestBuilder() {
       <Button
         variant="cta"
         size="cta"
-        onClick={handleSendRequest}
+        onClick={() => void handleSendRequest()}
         disabled={!httpRequest.url}
-        aria-label="Send GraphQL query"
+        aria-label={`Send GraphQL ${operationType === 'mutation' ? 'mutation' : 'query'}`}
+        title="HTTP POST"
         className="min-w-[72px] shrink-0"
       >
         <Send className="h-3.5 w-3.5" />
-        Send
+        {runButtonLabel(operationType)}
       </Button>
     );
   };
@@ -479,7 +524,7 @@ function GraphQLRequestBuilder() {
     : isSubscription
       ? isSubscribed
         ? null
-        : handleSubscribe
+        : () => handleSubscribe()
       : isLoading
         ? null
         : () => void handleSendRequest();
@@ -607,6 +652,9 @@ function GraphQLRequestBuilder() {
                 importedSchema={importedSchema}
                 onQueryChange={(q) => updateRequest({ body: { ...httpRequest.body, raw: q } })}
                 onVariablesChange={handleVariablesChange}
+                operationName={operationState.operationName}
+                onSelectOperation={selectOperation}
+                onRunAtCursor={handleRunAtCursor}
               />
             )}
 

@@ -31,8 +31,12 @@ export interface SubscriptionOptions {
   url: string;
   query: string;
   variables?: Record<string, unknown>;
-  /** Selects the operation when the document holds several. */
-  operationName?: string;
+  /**
+   * Operation to run in a multi-operation document, sent in the subscribe
+   * payload of every protocol (servers require it to pick an operation,
+   * GraphQL §6.1). Null/omitted for single or anonymous operations.
+   */
+  operationName?: string | null;
   headers?: Record<string, string>;
   /** Wire protocol; defaults to `auto` (negotiate between the two WS subprotocols). */
   protocol?: GraphQLSubscriptionProtocol;

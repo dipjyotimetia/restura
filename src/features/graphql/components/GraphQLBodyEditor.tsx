@@ -7,6 +7,10 @@ import { CodeEditorSkeleton } from '@/components/shared/CodeEditorSkeleton';
 import { registerGraphQLCompletionProvider } from '@/features/graphql/lib/completionProvider';
 import { setupDebouncedDiagnostics } from '@/features/graphql/lib/diagnosticsProvider';
 import { buildErrorMarkers, sentLocationToRange } from '@/features/graphql/lib/graphqlErrors';
+import {
+  type GraphQLOperationInfo,
+  resolveGraphQLOperationState,
+} from '@/features/graphql/lib/operationSelection';
 import { generateVariablesTemplate, parseVariables } from '@/features/graphql/lib/queryParser';
 import { useEffectiveGraphQLSchema } from '@/features/graphql/lib/useEffectiveGraphQLSchema';
 import { validateQuery } from '@/features/graphql/lib/validation';
@@ -14,6 +18,7 @@ import { useGraphQLErrorStore } from '@/features/graphql/store/useGraphQLErrorSt
 import { lazyComponent } from '@/lib/shared/lazyComponent';
 import { useActiveTab } from '@/store/selectors';
 import type { GraphQLImportedSchema } from '@/types';
+import { GraphQLOperationPicker } from './GraphQLOperationPicker';
 
 const CodeEditor = lazyComponent(
   () => import('@/components/shared/CodeEditor'),
@@ -21,6 +26,8 @@ const CodeEditor = lazyComponent(
 );
 
 let completionProviderRegistered = false;
+// Editors that already carry the run-operation-at-cursor action.
+const runActionEditors = new WeakSet<Monaco.editor.IStandaloneCodeEditor>();
 
 /** Marker owner for errors returned by the server (vs. local validation). */
 const RESPONSE_MARKER_OWNER = 'graphql-response-errors';
@@ -33,6 +40,12 @@ interface GraphQLBodyEditorProps {
   importedSchema?: GraphQLImportedSchema;
   onQueryChange: (query: string) => void;
   onVariablesChange: (variables: string) => void;
+  /** Selected operation (multi-operation documents); scopes the variables template. */
+  operationName?: string | null;
+  /** When set, operation chips render above the editor for multi-operation documents. */
+  onSelectOperation?: (operation: GraphQLOperationInfo) => void;
+  /** When set, Cmd/Ctrl+Enter in the query editor runs the operation under the cursor. */
+  onRunAtCursor?: (offset: number) => void;
 }
 
 function isVariablesValid(raw: string): boolean {
@@ -53,6 +66,9 @@ export default function GraphQLBodyEditor({
   importedSchema,
   onQueryChange,
   onVariablesChange,
+  operationName,
+  onSelectOperation,
+  onRunAtCursor,
 }: GraphQLBodyEditorProps) {
   const [showVariables, setShowVariables] = useState(true);
   const diagnosticsRef = useRef<Monaco.IDisposable | null>(null);
@@ -82,7 +98,19 @@ export default function GraphQLBodyEditor({
     executableSchemaRef.current = executableSchema;
   }, [executableSchema]);
 
-  const extractedVariables = useMemo(() => parseVariables(query), [query]);
+  const onRunAtCursorRef = useRef(onRunAtCursor);
+  useEffect(() => {
+    onRunAtCursorRef.current = onRunAtCursor;
+  }, [onRunAtCursor]);
+
+  const operationState = useMemo(
+    () => resolveGraphQLOperationState(query, operationName),
+    [query, operationName]
+  );
+  const extractedVariables = useMemo(
+    () => parseVariables(query, operationName),
+    [query, operationName]
+  );
 
   useEffect(() => {
     if (extractedVariables.length > 0 && (!variables || variables === '{}')) {
@@ -107,6 +135,23 @@ export default function GraphQLBodyEditor({
     ) => {
       editorRef.current = { editor, monaco, model };
       setEditorGeneration((g) => g + 1);
+      if (onRunAtCursorRef.current && !runActionEditors.has(editor)) {
+        runActionEditors.add(editor);
+        // Per-editor action (addCommand keybindings leak across editor instances).
+        // Monaco swallows the keystroke, so the window-level send shortcut
+        // doesn't also fire.
+        editor.addAction({
+          id: 'restura.graphql.runOperationAtCursor',
+          label: 'Run GraphQL operation under cursor',
+          keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
+          run: (ed) => {
+            const position = ed.getPosition();
+            const current = ed.getModel();
+            if (!position || !current) return;
+            onRunAtCursorRef.current?.(current.getOffsetAt(position));
+          },
+        });
+      }
       if (!completionProviderRegistered) {
         registerGraphQLCompletionProvider(monaco, () => schemaRef.current?.schema ?? null);
         completionProviderRegistered = true;
@@ -191,6 +236,14 @@ export default function GraphQLBodyEditor({
             </div>
           )}
         </div>
+      )}
+
+      {onSelectOperation && (
+        <GraphQLOperationPicker
+          operations={operationState.operations}
+          selected={operationState.selected}
+          onSelect={onSelectOperation}
+        />
       )}
 
       {/* Query editor — rendered inside a CodeEditorFrame-like dark surface */}

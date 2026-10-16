@@ -153,7 +153,7 @@ function toJsonEnvelopeBody(body: HttpRequest['body']): HttpRequest['body'] {
   }
   const out = envelope
     ? { ...envelope, ...(storedVariables === undefined ? {} : { variables: storedVariables }) }
-    : buildGraphQLRequestBody(raw, storedVariables ?? {});
+    : buildGraphQLRequestBody(raw, storedVariables ?? {}, body.graphqlOperationName);
   return { ...body, type: 'json', raw: JSON.stringify(out) };
 }
 

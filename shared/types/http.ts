@@ -72,6 +72,12 @@ export interface RequestBody {
   raw?: string;
   /** Persisted GraphQL variables JSON for a GraphQL body; never used by other body types. */
   graphqlVariables?: string;
+  /**
+   * GraphQL only: the operation selected in a multi-operation document. Sent
+   * as `operationName` (HTTP and subscriptions); a stale name falls back to
+   * the document's first operation.
+   */
+  graphqlOperationName?: string;
   formData?: FormDataItem[];
   binary?: File;
   multipartParts?: MultipartPart[];
