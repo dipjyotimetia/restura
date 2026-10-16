@@ -7,9 +7,9 @@ import {
   filterTimeline,
   formatDelta,
   normalizeStreamEvent,
+  regexSearchTexts,
   type StreamEvent,
   type StreamEventInput,
-  validateTimelineRegex,
 } from './stream-timeline';
 
 let seq = 0;
@@ -28,7 +28,37 @@ function ev(partial: Partial<StreamEventInput> = {}): StreamEvent {
   );
 }
 
+describe('regexSearchTexts', () => {
+  it('returns the scan-limited payload and the label', () => {
+    const e = ev({ payload: 'p'.repeat(20 * 1024), label: 'topic' });
+    const [payload, label] = regexSearchTexts(e);
+    expect(payload).toHaveLength(16 * 1024);
+    expect(label).toBe('topic');
+    expect(regexSearchTexts(ev({}))[1]).toBe('');
+  });
+});
+
 describe('normalizeStreamEvent', () => {
+  it('caps oversized payloads before redaction and clips label, connection and meta', () => {
+    const e = normalizeStreamEvent(
+      {
+        protocol: 'kafka',
+        connectionId: 'c'.repeat(500),
+        direction: 'in',
+        label: 'l'.repeat(500),
+        payload: 'z'.repeat(2 * 1024 * 1024),
+        meta: { key: 'k'.repeat(500) },
+      },
+      1
+    );
+    expect(e.truncated).toBe(true);
+    expect(e.size).toBe(2 * 1024 * 1024);
+    expect(e.payload.length).toBeLessThan(70 * 1024);
+    expect(e.connectionId.length).toBeLessThanOrEqual(129);
+    expect(e.label!.length).toBeLessThanOrEqual(257);
+    expect(String(e.meta.key).length).toBeLessThanOrEqual(257);
+  });
+
   it('fills defaults, drops undefined meta and truncates huge payloads', () => {
     const e = normalizeStreamEvent(
       {
@@ -99,32 +129,6 @@ describe('appendToTimeline', () => {
   });
 });
 
-describe('validateTimelineRegex', () => {
-  it('accepts simple patterns', () => {
-    expect(validateTimelineRegex('order-\\d+')).toBeNull();
-    expect(validateTimelineRegex('(foo|bar)\\s')).toBeNull();
-  });
-
-  it('rejects nested quantifiers and quantified alternation (catastrophic backtracking)', () => {
-    expect(validateTimelineRegex('(a+)+$')).toMatch(/nested/i);
-    expect(validateTimelineRegex('(.*)*x')).toMatch(/nested/i);
-    expect(validateTimelineRegex('(a|aa)+')).toMatch(/nested|alternation/i);
-    expect(validateTimelineRegex('(\\w{2,})*')).toMatch(/nested/i);
-  });
-
-  it('rejects backreferences, overly long and syntactically invalid patterns', () => {
-    expect(validateTimelineRegex('(a)\\1')).toMatch(/backreference/i);
-    expect(validateTimelineRegex('a'.repeat(300))).toMatch(/long/i);
-    expect(validateTimelineRegex('([')).toMatch(/invalid/i);
-  });
-
-  it('ignores quantifier characters inside classes but catches nested quantified groups', () => {
-    expect(validateTimelineRegex('[(+*]+ok')).toBeNull();
-    expect(validateTimelineRegex('((ab)+c)+')).toMatch(/nested/i);
-    expect(validateTimelineRegex('((ab)c)+')).toBeNull();
-  });
-});
-
 describe('compileTimelineSearch', () => {
   const ws = ev({ payload: '{"type":"order","id":42}', label: 'orders' });
   const mq = ev({ protocol: 'mqtt', payload: 'temp=21', label: 'sensors/1' });
@@ -140,14 +144,6 @@ describe('compileTimelineSearch', () => {
     if (!r.ok) return;
     expect(r.match(mq)).toBe(true);
     expect(r.match(ws)).toBe(false);
-  });
-
-  it('regex search compiles safe patterns and reports unsafe ones', () => {
-    const r = compileTimelineSearch('regex', '"id":\\d{2}');
-    expect(r.ok && r.match(ws)).toBe(true);
-    expect(r.ok && r.match(mq)).toBe(false);
-    const bad = compileTimelineSearch('regex', '(a+)+');
-    expect(bad.ok).toBe(false);
   });
 
   it('jsonpath search matches events whose JSON payload yields a result', () => {

@@ -30,7 +30,7 @@ Select a row to see the full payload and its protocol metadata, such as the Kafk
 - **Connection.** Narrow the timeline to a single connection.
 - **Search modes:**
   - **Text**: case-insensitive match on the payload, label and connection id.
-  - **Regex**: a JavaScript regular expression, matched case-insensitively. To keep the UI responsive, patterns longer than 256 characters, backreferences, nested quantifiers like `(a+)+` and quantified alternations like `(a|aa)*` are rejected with an explanation. Only the first 16 KB of each payload is scanned.
+  - **Regex**: a JavaScript regular expression, matched case-insensitively against the label and the first 16 KB of each payload. Matching runs in a background worker with a 250 ms budget. A search that takes longer is stopped and reported as "Regex took too long", so a slow pattern can't freeze the app. Patterns that are known to backtrack badly are rejected up front with an explanation: patterns over 256 characters, backreferences, nested quantifiers like `(a+)+` or `(a?a?)+`, quantified alternations like `(a|aa)*`, and adjacent unbounded quantifiers like `\w+\w+` or `.*.*`.
   - **JSONPath**: an expression rooted at `$`, like `$.type` or `$[?(@.status == "failed")]`. An event matches when its JSON payload returns at least one result. Payloads that aren't JSON never match.
 
 ## Correlating events
@@ -55,7 +55,7 @@ Select an event and click **Set anchor**. The Δ column then shows every other e
 - **Pause.** The pause button in the timeline toolbar stops capture without disconnecting anything.
 
 <Aside type="note" title="Session-only and redacted">
-The timeline lives only in memory and is never persisted. Payloads are what each protocol's own message log already shows, after the console's redaction pass (credential-looking JSON fields, bearer tokens and session cookies are replaced with `[REDACTED]`). Exports contain the same redacted data.
+The timeline lives only in memory and is never persisted. Payloads are what each protocol's own message log already shows, after the console's redaction pass, which replaces credential-looking JSON fields, bearer tokens and session cookies with `[REDACTED]`. Redaction runs on the first 1 MB of a payload; anything beyond that is dropped, never shown. Exports contain the same redacted data.
 </Aside>
 
 ## Platform support

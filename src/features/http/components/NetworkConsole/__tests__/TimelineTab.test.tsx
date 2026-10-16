@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { emitStreamEvent, useStreamTimelineStore } from '@/store/useStreamTimelineStore';
 import TimelineTab from '../TimelineTab';
@@ -6,6 +6,30 @@ import TimelineTab from '../TimelineTab';
 const download = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/shared/console-export', () => ({ downloadExportFile: download }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+
+/**
+ * In-process stand-in for the `?worker` chunk: answers asynchronously with the
+ * real worker body, or never answers (`hang`) to exercise the time budget.
+ */
+const workerControl = vi.hoisted(() => ({ hang: false, spawned: 0 }));
+vi.mock('@/lib/shared/timeline-regex-worker-factory', async () => {
+  const { runRegexRequest } = await import('@/lib/shared/timeline-regex');
+  return {
+    createTimelineRegexWorker: () => {
+      workerControl.spawned += 1;
+      const w = {
+        onmessage: null as ((e: { data: unknown }) => void) | null,
+        onerror: null,
+        terminate: () => {},
+        postMessage: (req: Parameters<typeof runRegexRequest>[0]) => {
+          if (workerControl.hang) return;
+          setTimeout(() => w.onmessage?.({ data: runRegexRequest(req) }), 0);
+        },
+      };
+      return w;
+    },
+  };
+});
 
 function seed() {
   act(() => {
@@ -77,7 +101,7 @@ describe('TimelineTab', () => {
     expect(rows()).toHaveLength(1);
   });
 
-  it('searches by text, guarded regex and JSONPath', () => {
+  it('searches by text, worker-backed regex and JSONPath', async () => {
     seed();
     render(<TimelineTab />);
     const input = screen.getByLabelText('Search timeline');
@@ -89,7 +113,18 @@ describe('TimelineTab', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(/nested/i);
     expect(rows()).toHaveLength(0);
     fireEvent.change(input, { target: { value: '^broker' } });
-    expect(rows()).toHaveLength(1);
+    await waitFor(() => expect(rows()).toHaveLength(1));
+    // Events arriving later are searched incrementally.
+    act(() => {
+      emitStreamEvent({
+        protocol: 'sse',
+        connectionId: 's',
+        direction: 'in',
+        payload: 'broker up',
+      });
+      useStreamTimelineStore.getState().flush();
+    });
+    await waitFor(() => expect(rows()).toHaveLength(2));
 
     fireEvent.click(screen.getByRole('radio', { name: 'JSONPath' }));
     fireEvent.change(input, { target: { value: '$.cmd' } });
@@ -169,6 +204,23 @@ describe('TimelineTab', () => {
     expect(screen.getByText('(empty payload)')).toBeInTheDocument();
     fireEvent.click(rows()[499]!);
     expect(screen.getByText('Preview truncated at 64 KB.')).toBeInTheDocument();
+  });
+
+  it('a regex search that overruns its budget is reported, not hung on', async () => {
+    seed();
+    workerControl.hang = true;
+    try {
+      render(<TimelineTab />);
+      fireEvent.click(screen.getByRole('radio', { name: 'Regex' }));
+      fireEvent.change(screen.getByLabelText('Search timeline'), { target: { value: 'x+y' } });
+      expect(await screen.findByText('Searching…')).toBeInTheDocument();
+      expect(await screen.findByRole('alert', {}, { timeout: 2000 })).toHaveTextContent(
+        /took too long/
+      );
+      expect(rows()).toHaveLength(0);
+    } finally {
+      workerControl.hang = false;
+    }
   });
 
   it('toggles pause', () => {

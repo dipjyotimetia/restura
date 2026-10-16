@@ -67,28 +67,47 @@ export const EVENT_PAYLOAD_LIMIT = 64 * 1024;
 /** Fixed per-event overhead estimate (ids, numbers, object headers). */
 const EVENT_OVERHEAD_BYTES = 96;
 
+/**
+ * Redaction (JSON parse + token regexes) runs on at most this much of a
+ * payload, so one pathological multi-MB frame can't stall the flush. Large
+ * enough that realistic JSON still parses whole and gets key-based redaction.
+ */
+export const EVENT_SANITIZE_LIMIT = 1024 * 1024;
+/** Caps for the small string fields (labels are topics/event names; ids are uuids). */
+const LABEL_LIMIT = 256;
+const CONNECTION_ID_LIMIT = 128;
+const META_STRING_LIMIT = 256;
+
+const clip = (value: string, limit: number) =>
+  value.length > limit ? `${value.slice(0, limit)}…` : value;
+
 export function normalizeStreamEvent(input: StreamEventInput, seq: number): StreamEvent {
   const meta: Record<string, StreamMetaValue> = {};
   if (input.meta) {
     for (const [k, v] of Object.entries(input.meta)) {
-      if (v !== undefined) meta[k] = typeof v === 'string' ? sanitizeConsoleText(v) : v;
+      if (v === undefined) continue;
+      meta[clip(k, META_STRING_LIMIT)] =
+        typeof v === 'string' ? sanitizeConsoleText(clip(v, META_STRING_LIMIT)) : v;
     }
   }
-  const redacted = sanitizeConsoleText(input.payload);
-  const truncated = redacted.length > EVENT_PAYLOAD_LIMIT;
+  const oversized = input.payload.length > EVENT_SANITIZE_LIMIT;
+  const redacted = sanitizeConsoleText(
+    oversized ? input.payload.slice(0, EVENT_SANITIZE_LIMIT) : input.payload
+  );
+  const truncated = oversized || redacted.length > EVENT_PAYLOAD_LIMIT;
   const event: StreamEvent = {
     id: `${input.protocol}-${seq}`,
     seq,
     ts: input.ts ?? Date.now(),
     protocol: input.protocol,
-    connectionId: input.connectionId,
+    connectionId: clip(input.connectionId, CONNECTION_ID_LIMIT),
     direction: input.direction,
     kind: input.kind ?? (input.direction === 'system' ? 'system' : 'message'),
     payload: truncated ? truncateForPersist(redacted, EVENT_PAYLOAD_LIMIT) : redacted,
     size: input.size ?? input.payload.length,
     meta,
   };
-  if (input.label !== undefined) event.label = sanitizeConsoleText(input.label);
+  if (input.label !== undefined) event.label = sanitizeConsoleText(clip(input.label, LABEL_LIMIT));
   if (truncated) event.truncated = true;
   return event;
 }
@@ -149,72 +168,18 @@ export type TimelineSearchMode = 'text' | 'regex' | 'jsonpath';
 export type TimelineMatcher = (event: StreamEvent) => boolean;
 export type CompiledSearch = { ok: true; match: TimelineMatcher } | { ok: false; error: string };
 
-const MAX_REGEX_LENGTH = 256;
 /** Regex/JSONPath only inspect this much of each payload — bounds per-event cost. */
-const SEARCH_SCAN_LIMIT = 16 * 1024;
+export const SEARCH_SCAN_LIMIT = 16 * 1024;
 
 const matchAll: TimelineMatcher = () => true;
 
 /**
- * Reject patterns prone to catastrophic backtracking before they ever run on
- * the main thread. Conservative heuristics (false positives are fine — the
- * user can rephrase): a quantified group whose body itself contains a
- * quantifier or an alternation, and backreferences.
+ * The strings a regex search inspects for one event: the scan-limited
+ * payload and the label. Regex matching itself never runs on the main
+ * thread — see `@/lib/shared/timeline-regex`.
  */
-export function validateTimelineRegex(pattern: string): string | null {
-  if (pattern.length > MAX_REGEX_LENGTH) {
-    return `Pattern too long (max ${MAX_REGEX_LENGTH} characters)`;
-  }
-  if (/\\[1-9]|\\k</.test(pattern)) return 'Backreferences are not supported';
-  try {
-    new RegExp(pattern);
-  } catch (err) {
-    return `Invalid regex: ${String(err)}`;
-  }
-  // Walk groups with a stack; when a group closes and is followed by a
-  // quantifier, reject if its body contained a quantifier or a `|`.
-  const stack: Array<{ quantified: boolean; alternation: boolean }> = [];
-  let inClass = false;
-  for (let i = 0; i < pattern.length; i++) {
-    const ch = pattern[i];
-    if (ch === '\\') {
-      i += 1;
-      continue;
-    }
-    if (inClass) {
-      if (ch === ']') inClass = false;
-      continue;
-    }
-    if (ch === '[') {
-      inClass = true;
-      continue;
-    }
-    if (ch === '(') {
-      stack.push({ quantified: false, alternation: false });
-      continue;
-    }
-    const top = stack[stack.length - 1];
-    if (ch === '|' && top) {
-      top.alternation = true;
-      continue;
-    }
-    if ((ch === '*' || ch === '+' || ch === '{') && top) top.quantified = true;
-    if (ch === ')') {
-      const group = stack.pop();
-      const next = pattern[i + 1];
-      const followedByQuantifier = next === '*' || next === '+' || next === '{';
-      if (group && followedByQuantifier) {
-        if (group.quantified) return 'Nested quantifiers can hang the UI — simplify the pattern';
-        if (group.alternation) {
-          return 'Quantified alternation can hang the UI — simplify the pattern';
-        }
-      }
-      // A quantified group counts as a quantifier inside its parent.
-      const parent = stack[stack.length - 1];
-      if (parent && (followedByQuantifier || group?.quantified)) parent.quantified = true;
-    }
-  }
-  return null;
+export function regexSearchTexts(event: StreamEvent): [string, string] {
+  return [event.payload.slice(0, SEARCH_SCAN_LIMIT), event.label ?? ''];
 }
 
 const jsonCache = new WeakMap<StreamEvent, { value: unknown } | null>();
@@ -239,7 +204,14 @@ function parsedPayload(event: StreamEvent): { value: unknown } | null {
   return result;
 }
 
-export function compileTimelineSearch(mode: TimelineSearchMode, query: string): CompiledSearch {
+/**
+ * Synchronous matchers for the modes that are safe to run on the main thread.
+ * Regex mode is deliberately absent: it runs in a time-boxed worker.
+ */
+export function compileTimelineSearch(
+  mode: Exclude<TimelineSearchMode, 'regex'>,
+  query: string
+): CompiledSearch {
   const q = query.trim();
   if (!q) return { ok: true, match: matchAll };
   if (mode === 'text') {
@@ -250,15 +222,6 @@ export function compileTimelineSearch(mode: TimelineSearchMode, query: string): 
         e.payload.toLowerCase().includes(needle) ||
         (e.label ?? '').toLowerCase().includes(needle) ||
         e.connectionId.toLowerCase().includes(needle),
-    };
-  }
-  if (mode === 'regex') {
-    const problem = validateTimelineRegex(q);
-    if (problem) return { ok: false, error: problem };
-    const re = new RegExp(q, 'i');
-    return {
-      ok: true,
-      match: (e) => re.test(e.payload.slice(0, SEARCH_SCAN_LIMIT)) || re.test(e.label ?? ''),
     };
   }
   if (!q.startsWith('$')) return { ok: false, error: 'JSONPath must start with $' };

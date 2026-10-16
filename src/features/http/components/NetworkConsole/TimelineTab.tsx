@@ -33,6 +33,7 @@ import {
 } from '@/lib/shared/stream-timeline';
 import { cn } from '@/lib/shared/utils';
 import { useStreamTimelineStore } from '@/store/useStreamTimelineStore';
+import { useTimelineRegexMatches } from './useTimelineRegexMatches';
 
 const PROTOCOL_LABELS: Record<StreamProtocol, string> = {
   websocket: 'WS',
@@ -84,7 +85,22 @@ export default function TimelineTab() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [anchorId, setAnchorId] = useState<string | null>(null);
 
-  const search = useMemo(() => compileTimelineSearch(mode, deferredQuery), [mode, deferredQuery]);
+  // Text and JSONPath match synchronously; regex runs in a time-boxed worker.
+  const syncSearch = useMemo(
+    () =>
+      compileTimelineSearch(
+        mode === 'regex' ? 'text' : mode,
+        mode === 'regex' ? '' : deferredQuery
+      ),
+    [mode, deferredQuery]
+  );
+  const regex = useTimelineRegexMatches(events, deferredQuery, mode === 'regex');
+  const search =
+    mode !== 'regex'
+      ? syncSearch
+      : regex.error
+        ? ({ ok: false, error: regex.error } as const)
+        : ({ ok: true, match: regex.match } as const);
 
   const connections = useMemo(() => {
     const map = new Map<string, StreamProtocol>();
@@ -231,6 +247,11 @@ export default function TimelineTab() {
               JSONL
             </Button>
           </div>
+          {regex.pending && (
+            <p className="text-sp-11 text-sp-muted" aria-live="polite">
+              Searching…
+            </p>
+          )}
           {!search.ok && (
             <p role="alert" className="text-sp-11 text-red-500">
               {search.error}
