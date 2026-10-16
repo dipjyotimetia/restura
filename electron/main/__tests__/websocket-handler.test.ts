@@ -82,6 +82,7 @@ vi.mock('../security/safe-connect', () => ({
   createPinnedLookup: () => vi.fn(),
 }));
 
+import { decodeWsBinaryFrame, encodeWsBinaryFrame } from '@shared/protocol/ws-binary-codec';
 import { IPC } from '../../shared/channels';
 import {
   registerWebSocketHandlerIPC,
@@ -237,6 +238,40 @@ describe('websocket-handler', () => {
       message: 'ping',
     });
     expect(missing).toEqual({ success: false, error: 'Not connected' });
+  });
+
+  it('round-trips arbitrary binary bytes renderer→main→renderer via the shared base64 codec (#897)', async () => {
+    const { event } = makeEvent();
+    await handlerFor(IPC.ws.connect)(event, validConnect('bin-rt'));
+    const ws = wsMock.FakeWebSocket.instances[0]!;
+    const bytes = Uint8Array.from({ length: 256 }, (_, i) => i);
+
+    // Renderer → main: the payload the renderer puts on IPC.
+    const sent = await handlerFor(IPC.ws.send)(event, {
+      connectionId: 'bin-rt',
+      message: encodeWsBinaryFrame(bytes),
+      binary: true,
+    });
+    expect(sent).toEqual({ success: true });
+    const onWire = ws.send.mock.calls[0]![0] as Uint8Array;
+    expect(Array.from(onWire)).toEqual(Array.from(bytes));
+
+    // Server echoes the frame → main → renderer decodes the same bytes.
+    mockEmitTo.mockClear();
+    ws.fire('message', Buffer.from(onWire), true);
+    const emitted = mockEmitTo.mock.calls[0]![2] as { type: string; data: string };
+    expect(emitted.type).toBe('binary');
+    expect(Array.from(decodeWsBinaryFrame(emitted.data))).toEqual(Array.from(bytes));
+
+    // A non-base64 payload (the old hex format) is refused, not sent as garbage.
+    ws.send.mockClear();
+    const bad = await handlerFor(IPC.ws.send)(event, {
+      connectionId: 'bin-rt',
+      message: '48 69',
+      binary: true,
+    });
+    expect(bad.success).toBe(false);
+    expect(ws.send).not.toHaveBeenCalled();
   });
 
   it('explicit disconnect closes gracefully (1000) and suppresses the trailing close event', async () => {

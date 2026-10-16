@@ -1,3 +1,4 @@
+import { decodeWsBinaryFrame, encodeWsBinaryFrame } from '@shared/protocol/ws-binary-codec';
 import { createLogger } from '@shared/runtime/logger';
 import { ipcMain, type WebContents } from 'electron';
 import WebSocket from 'ws';
@@ -269,7 +270,7 @@ export function registerWebSocketHandlerIPC(): void {
         ws.on('message', (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
           if (connections.get(connectionId, webContentsId) !== entry) return;
           if (isBinary) {
-            // Binary frames are encoded as base64 for IPC transport
+            // Binary frames cross IPC as base64 (shared codec, same as the renderer)
             let buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
             if (materialize) {
               // Main-side-auth connection: scrub a server-reflected credential
@@ -280,7 +281,7 @@ export function registerWebSocketHandlerIPC(): void {
             }
             connections.emit(connectionId, webContentsId, 'message', {
               type: 'binary',
-              data: buf.toString('base64'),
+              data: encodeWsBinaryFrame(buf),
             });
           } else {
             // A server reflecting a main-resolved credential (#882) must not
@@ -360,9 +361,9 @@ export function registerWebSocketHandlerIPC(): void {
 
       try {
         if (config.binary) {
-          // Binary messages arrive from renderer as base64 (matching the receive encoding)
-          const buf = Buffer.from(config.message, 'base64');
-          entry.ws.send(buf);
+          // Binary messages arrive from the renderer as base64 (shared codec);
+          // a non-base64 payload throws here and is reported, never sent.
+          entry.ws.send(decodeWsBinaryFrame(config.message));
         } else {
           entry.ws.send(config.message);
         }
