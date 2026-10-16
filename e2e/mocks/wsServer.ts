@@ -1,9 +1,9 @@
 import { createServer, type Server as HttpServer, type RequestListener } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
-import { WebSocketServer, type WebSocket } from 'ws';
 import { useServer as useGraphqlWsServer } from 'graphql-ws/use/ws';
-import { schema as graphqlSchema } from './graphqlSchema';
+import { type WebSocket, WebSocketServer } from 'ws';
 import { bindLocalhost, closeServer } from '../utils/serverHelpers';
+import { schema as graphqlSchema } from './graphqlSchema';
 
 export interface MockWsServerHandle {
   port: number;
@@ -11,6 +11,8 @@ export interface MockWsServerHandle {
   connectionCount: () => number;
   receivedMessages: () => Array<{ kind: 'text' | 'binary'; payload: string }>;
   graphqlSubscribePayloads: () => Array<Record<string, unknown>>;
+  /** Close frames received from /echo clients (code + UTF-8 reason). */
+  clientCloses: () => Array<{ code: number; reason: string }>;
   reset: () => void;
   close: () => Promise<void>;
 }
@@ -19,6 +21,7 @@ export interface MockWsServerHandle {
  * Multi-purpose mock WebSocket server. Behaviors keyed by URL path:
  *
  *   /echo     — echoes every text/binary message back unchanged.
+ *   /echo-deflate — same echo, but the server accepts permessage-deflate.
  *   /chat     — broadcasts each text frame to all peers.
  *   /ping     — pings the client on `PING_ME` and reports tracked pongs on `REPORT`.
  *   /close    — closes with the `code`/`reason` taken from the path query.
@@ -31,6 +34,7 @@ export async function startMockWsServer(
   let connectionCount = 0;
   const received: Array<{ kind: 'text' | 'binary'; payload: string }> = [];
   const graphqlSubscribePayloads: Array<Record<string, unknown>> = [];
+  const clientCloses: Array<{ code: number; reason: string }> = [];
   const chatPeers = new Set<WebSocket>();
 
   // wss:// when given cert material — the WebSocket upgrade logic is identical
@@ -52,6 +56,9 @@ export async function startMockWsServer(
   // `connection` listener confuses both sides.
   const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false });
   const wssGraphql = new WebSocketServer({ noServer: true, perMessageDeflate: false });
+  // Accepts permessage-deflate so clients can verify the negotiated extension
+  // and the desktop per-connection compression toggle.
+  const wssDeflate = new WebSocketServer({ noServer: true, perMessageDeflate: true });
 
   // Negotiate the first subprotocol the client offers from a known list, so
   // tests can verify Sec-WebSocket-Protocol round-trips through the upgrade.
@@ -68,6 +75,11 @@ export async function startMockWsServer(
     if (target === wss && offered.length > 0 && !chosen) {
       socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
       socket.destroy();
+      return;
+    }
+    if (url.startsWith('/echo-deflate')) {
+      // Upgrade with compression, then reuse the plain server's /echo behaviour.
+      wssDeflate.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
       return;
     }
     target.handleUpgrade(req, socket, head, (ws) => target.emit('connection', ws, req));
@@ -88,6 +100,7 @@ export async function startMockWsServer(
     const url = req.url ?? '/';
 
     if (url.startsWith('/echo')) {
+      ws.once('close', (code, reason) => clientCloses.push({ code, reason: reason.toString() }));
       ws.on('message', (data, isBinary) => {
         const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
         if (isBinary) {
@@ -165,9 +178,11 @@ export async function startMockWsServer(
     connectionCount: () => connectionCount,
     receivedMessages: () => received.slice(),
     graphqlSubscribePayloads: () => graphqlSubscribePayloads.slice(),
+    clientCloses: () => clientCloses.slice(),
     reset: () => {
       connectionCount = 0;
       received.splice(0, received.length);
+      clientCloses.splice(0, clientCloses.length);
       graphqlSubscribePayloads.splice(0, graphqlSubscribePayloads.length);
       chatPeers.clear();
     },
@@ -179,7 +194,7 @@ export async function startMockWsServer(
       // it to wait indefinitely, blowing the 60-second Playwright teardown budget.
       // Fix: register each client's 'close' listener first, then await them all
       // before calling wss.close() so the clients set is guaranteed empty.
-      const terminated = [...wss.clients, ...wssGraphql.clients].map(
+      const terminated = [...wss.clients, ...wssGraphql.clients, ...wssDeflate.clients].map(
         (client) =>
           new Promise<void>((resolve) => {
             if (client.readyState === client.CLOSED) {
@@ -199,6 +214,7 @@ export async function startMockWsServer(
       await Promise.all([
         new Promise<void>((resolve) => wss.close(() => resolve())),
         new Promise<void>((resolve) => wssGraphql.close(() => resolve())),
+        new Promise<void>((resolve) => wssDeflate.close(() => resolve())),
       ]);
       await closeServer(httpServer);
     },

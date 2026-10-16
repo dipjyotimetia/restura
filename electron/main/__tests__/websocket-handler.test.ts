@@ -202,7 +202,10 @@ describe('websocket-handler', () => {
 
     const ws = wsMock.FakeWebSocket.instances[0]!;
     ws.fire('open');
-    expect(mockEmitTo).toHaveBeenCalledWith(senderId, 'ws:open:c1', { protocol: '' });
+    expect(mockEmitTo).toHaveBeenCalledWith(senderId, 'ws:open:c1', {
+      protocol: '',
+      extensions: '',
+    });
 
     ws.fire('message', Buffer.from('hi'), false);
     expect(mockEmitTo).toHaveBeenCalledWith(senderId, 'ws:message:c1', {

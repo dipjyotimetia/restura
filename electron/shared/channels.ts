@@ -64,6 +64,7 @@ export const IPC = {
     connect: 'ws:connect',
     send: 'ws:send',
     disconnect: 'ws:disconnect',
+    ping: 'ws:ping',
   },
   socketio: {
     connect: 'socketio:connect',
@@ -265,6 +266,8 @@ export const EVENT_PREFIX = {
     message: 'ws:message:',
     error: 'ws:error:',
     close: 'ws:close:',
+    pingReceived: 'ws:ping-received:',
+    pong: 'ws:pong:',
   },
   // Socket.IO event channels are NOT defined here. They have a pre-existing
   // single source of truth in `shared/socketio-constants.ts` (`socketioChannels`),

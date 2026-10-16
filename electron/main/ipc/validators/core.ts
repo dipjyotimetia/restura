@@ -585,6 +585,8 @@ export const WsConnectSchema = z.object({
   // (ADR-0007) — plaintext never crosses IPC.
   auth: AuthConfigSchema.optional(),
   secretVariables: StreamingSecretVariablesSchema.optional(),
+  /** Desktop-only (#923): false disables the permessage-deflate offer. */
+  perMessageDeflate: z.boolean().optional(),
 });
 
 export const WsSendSchema = z.object({
@@ -593,13 +595,10 @@ export const WsSendSchema = z.object({
   binary: z.boolean().optional(),
 });
 
-export const WsDisconnectSchema = z.object({
-  connectionId: WsConnectionIdSchema,
-});
+// WsDisconnectSchema / WsPingSchema (control frames) live in ./websocket-control.
 
 export type WsConnectConfig = z.infer<typeof WsConnectSchema>;
 export type WsSendConfig = z.infer<typeof WsSendSchema>;
-export type WsDisconnectConfig = z.infer<typeof WsDisconnectSchema>;
 
 // ===========================
 // Socket.IO Schemas

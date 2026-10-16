@@ -32,12 +32,16 @@ import {
   ToggleField,
   VariableText,
 } from '@/components/ui/spatial';
+import { WsDisconnectControl } from '@/features/websocket/components/WsDisconnectControl';
+import { WsPingControl } from '@/features/websocket/components/WsPingControl';
 import { websocketManager } from '@/features/websocket/lib/websocketManager';
+import type { WsCloseOptions } from '@/features/websocket/lib/wsControlFrames';
 import { wsExportName, wsToLogEntries } from '@/features/websocket/lib/wsLogExport';
 import type { WebSocketMessageType } from '@/features/websocket/store/useWebSocketStore';
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { filteredEmptyText } from '@/lib/shared/messageLog';
+import { isElectron } from '@/lib/shared/platform';
 import { modLabel } from '@/lib/shared/shortcuts';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
@@ -168,6 +172,7 @@ function WebSocketClient() {
     addMessage,
     setHeaders,
     setProtocols,
+    patchControlState,
   } = useWebSocketStore(
     useShallow((s) => ({
       ensureConnectionForTab: s.ensureConnectionForTab,
@@ -180,6 +185,7 @@ function WebSocketClient() {
       addMessage: s.addMessage,
       setHeaders: s.setHeaders,
       setProtocols: s.setProtocols,
+      patchControlState: s.patchControlState,
     }))
   );
 
@@ -215,7 +221,11 @@ function WebSocketClient() {
 
   const isConnected = connection.status === 'connected';
   const isConnecting = connection.status === 'connecting' || connection.status === 'reconnecting';
-  const configCount = connection.headers.length + connection.protocols.length;
+  const deflateDisabled = connection.perMessageDeflate === false;
+  const configCount =
+    connection.headers.length + connection.protocols.length + (deflateDisabled ? 1 : 0);
+  // What the server accepted on the current connection (#923).
+  const negotiated = isConnected ? connection.negotiated : undefined;
   const configOpen = configOpenOverride ?? configCount > 0;
 
   const handleConnect = () => {
@@ -233,8 +243,8 @@ function WebSocketClient() {
     }
   };
 
-  const handleDisconnect = () => {
-    websocketManager.disconnect(activeConnectionId);
+  const handleDisconnect = (close?: WsCloseOptions) => {
+    websocketManager.disconnect(activeConnectionId, true, close);
   };
 
   const handleSendMessage = () => {
@@ -314,6 +324,19 @@ function WebSocketClient() {
           />
         </div>
       </div>
+      <div className="flex items-center gap-2">
+        <ToggleField
+          checked={!deflateDisabled}
+          onChange={(v) => patchControlState(activeConnectionId, { perMessageDeflate: v })}
+          disabled={!isElectron()}
+          ariaLabel="Offer permessage-deflate compression"
+          size="sm"
+        />
+        <span className="text-sp-11 font-medium text-sp-muted">
+          Offer permessage-deflate compression
+        </span>
+        <DesktopOnlyBadge title="The browser always negotiates compression itself — the permessage-deflate offer can only be turned off in the desktop app." />
+      </div>
     </Floater>
   );
 
@@ -330,11 +353,21 @@ function WebSocketClient() {
           label="↓ Messages"
           value={<span style={{ color: 'var(--color-success)' }}>{counts.received}</span>}
         />
-        <Stat label="Latency" value="—" />
+        <Stat
+          label="Latency"
+          value={connection.lastPingRttMs !== undefined ? `${connection.lastPingRttMs} ms` : '—'}
+        />
         <Stat
           label="Protocol"
-          value={connection.protocols.length > 0 ? connection.protocols[0] : 'default'}
+          value={
+            negotiated
+              ? negotiated.protocol || 'none'
+              : connection.protocols.length > 0
+                ? connection.protocols[0]
+                : 'default'
+          }
         />
+        {negotiated?.extensions ? <Stat label="Extensions" value={negotiated.extensions} /> : null}
         <div className="flex-1" />
         <div className="flex items-center gap-2">
           <span className="sp-label">Auto-reconnect</span>
@@ -622,13 +655,13 @@ function WebSocketClient() {
           {statusLabel}
         </span>
         {isConnected || isConnecting ? (
-          <button
-            type="button"
-            onClick={handleDisconnect}
-            className="inline-flex items-center h-7 px-3 rounded-sp-btn font-medium text-sp-12 border border-danger/35 text-danger bg-transparent transition-colors hover:bg-danger/10"
-          >
-            Disconnect
-          </button>
+          <>
+            <WsPingControl
+              disabled={!isConnected}
+              onPing={(payload) => websocketManager.ping(activeConnectionId, payload)}
+            />
+            <WsDisconnectControl onDisconnect={handleDisconnect} />
+          </>
         ) : (
           <Button
             variant="cta"
