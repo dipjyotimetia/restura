@@ -13,6 +13,13 @@
  * One long-lived executor per connection (the sandbox bundle is initialised
  * once) and evaluations are serialised per connection. A bounded queue keeps a
  * flood of frames from piling up unbounded sandbox work.
+ *
+ * No variable scope is passed to the sandbox (`pm.environment.get` returns
+ * undefined): the watcher runs for background tabs too, and the only scope
+ * resolver available is the *active* tab's, which could expose another
+ * collection's (secret) variables. Frames larger than
+ * `MAX_FRAME_ASSERTION_BYTES` are skipped, and the sandbox is recreated after
+ * a runtime failure (e.g. out of memory).
  */
 
 import type { ScriptResult } from '@shared/scripts/script-executor';
@@ -23,10 +30,17 @@ import {
   type WebSocketConnection,
   type WebSocketMessage,
 } from '@/features/websocket/store/useWebSocketStore';
-import { getActiveStreamingVariableScope } from '@/lib/shared/streaming/messageVariables';
 
 /** Frames waiting for evaluation per connection before new ones are skipped. */
 export const MAX_PENDING_FRAME_ASSERTIONS = 50;
+/** Frames above this size are not evaluated (bounded sandbox work per frame). */
+export const MAX_FRAME_ASSERTION_BYTES = 256 * 1024;
+const RUNTIME_FAILURE = /out of memory|stack overflow|interrupted|InternalError/i;
+
+function usableScript(config: WebSocketConnection['frameAssertion']): string | null {
+  if (!config || config.enabled !== true || typeof config.script !== 'string') return null;
+  return config.script.trim() ? config.script : null;
+}
 
 export function toFrameAssertionResult(result: ScriptResult): FrameAssertionResult {
   const tests = result.tests ?? [];
@@ -73,19 +87,16 @@ export class FrameAssertionRunner {
   /** Reconcile sessions with the store and enqueue any newly received frames. */
   sync(connections: Record<string, WebSocketConnection>): void {
     for (const [id, session] of this.sessions) {
-      const conn = connections[id];
-      const config = conn?.frameAssertion;
-      if (!conn || !config?.enabled || !config.script.trim() || config.script !== session.script) {
-        this.dispose(id);
-      }
+      const script = usableScript(connections[id]?.frameAssertion);
+      if (script === null || script !== session.script) this.dispose(id);
     }
 
     for (const [id, conn] of Object.entries(connections)) {
-      const config = conn.frameAssertion;
-      if (!config?.enabled || !config.script.trim()) continue;
+      const script = usableScript(conn.frameAssertion);
+      if (script === null) continue;
       let session = this.sessions.get(id);
       if (!session) {
-        session = this.createSession(config.script, conn.messages);
+        session = this.createSession(script, conn.messages);
         this.sessions.set(id, session);
         continue; // frames already present when the script was enabled are skipped
       }
@@ -112,7 +123,7 @@ export class FrameAssertionRunner {
   }
 
   private createSession(script: string, messages: WebSocketMessage[]): Session {
-    const executor = this.factory(getActiveStreamingVariableScope().values);
+    const executor = this.factory({});
     const ready = executor.initialize();
     return {
       script,
@@ -123,6 +134,18 @@ export class FrameAssertionRunner {
       seen: new Set(messages.map((m) => m.id)),
       disposed: false,
     };
+  }
+
+  /** Runs inside the serialized tail, so no evaluation is using the old executor. */
+  private recreateExecutor(session: Session): void {
+    try {
+      session.executor.dispose();
+    } catch {
+      // A crashed runtime may fail to dispose; it is dropped either way.
+    }
+    session.executor = this.factory({});
+    session.ready = session.executor.initialize();
+    session.ready.catch(() => undefined);
   }
 
   private enqueueNew(connectionId: string, session: Session, messages: WebSocketMessage[]): void {
@@ -141,6 +164,14 @@ export class FrameAssertionRunner {
 
   private enqueue(connectionId: string, session: Session, message: WebSocketMessage): void {
     const store = useWebSocketStore.getState();
+    if (frameSize(message) > MAX_FRAME_ASSERTION_BYTES) {
+      store.setMessageAssertion(connectionId, message.id, {
+        status: 'error',
+        tests: [],
+        errors: ['Skipped: frame larger than 256 KB'],
+      });
+      return;
+    }
     if (session.pending >= MAX_PENDING_FRAME_ASSERTIONS) {
       store.setMessageAssertion(connectionId, message.id, {
         status: 'error',
@@ -166,11 +197,16 @@ export class FrameAssertionRunner {
           info: { requestName: 'WebSocket frame', eventName: 'test' },
         });
         if (session.disposed) return;
+        if (!result.success && (result.errors ?? []).some((e) => RUNTIME_FAILURE.test(e))) {
+          this.recreateExecutor(session);
+        }
         useWebSocketStore
           .getState()
           .setMessageAssertion(connectionId, message.id, toFrameAssertionResult(result));
       } catch (error) {
         if (session.disposed) return;
+        // A throw out of eval means the runtime itself is suspect — start fresh.
+        this.recreateExecutor(session);
         useWebSocketStore.getState().setMessageAssertion(connectionId, message.id, {
           status: 'error',
           tests: [],

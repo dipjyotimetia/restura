@@ -74,9 +74,16 @@ export const mqttTemplateSchema = z.object({
 export function sanitizeTemplates<T>(raw: unknown, schema: z.ZodType<T>): T[] {
   if (!Array.isArray(raw)) return [];
   const out: T[] = [];
+  const ids = new Set<string>();
   for (const entry of raw) {
     const parsed = schema.safeParse(entry);
-    if (parsed.success) out.push(parsed.data);
+    if (!parsed.success) continue;
+    // Every template schema requires a string id; duplicates would break
+    // rename/reorder/delete, so keep the first occurrence only.
+    const { id } = parsed.data as { id: string };
+    if (ids.has(id)) continue;
+    ids.add(id);
+    out.push(parsed.data);
   }
   return out;
 }
@@ -85,20 +92,26 @@ export function sanitizeTemplates<T>(raw: unknown, schema: z.ZodType<T>): T[] {
  * Persisted-store migration step body: give every persisted connection a
  * sanitized `templates` array. Shared by the three connection stores.
  */
-export function migrateConnectionTemplates<T>(state: unknown, schema: z.ZodType<T>): unknown {
+export function migrateConnectionTemplates<T>(
+  state: unknown,
+  schema: z.ZodType<T>,
+  extra?: (conn: Record<string, unknown>) => Record<string, unknown>
+): unknown {
   if (!state || typeof state !== 'object') return state;
   const record = state as { connections?: unknown };
   if (!record.connections || typeof record.connections !== 'object') return state;
+  // An array is not a valid id → connection map; drop it rather than mint
+  // index-keyed connections.
+  if (Array.isArray(record.connections)) return { ...record, connections: {} };
   const connections = Object.fromEntries(
-    Object.entries(record.connections as Record<string, unknown>).map(([id, conn]) => [
-      id,
-      conn && typeof conn === 'object'
-        ? {
-            ...(conn as Record<string, unknown>),
-            templates: sanitizeTemplates((conn as { templates?: unknown }).templates, schema),
-          }
-        : conn,
-    ])
+    Object.entries(record.connections as Record<string, unknown>).map(([id, conn]) => {
+      if (!conn || typeof conn !== 'object') return [id, conn];
+      const next = {
+        ...(conn as Record<string, unknown>),
+        templates: sanitizeTemplates((conn as { templates?: unknown }).templates, schema),
+      };
+      return [id, extra ? extra(next) : next];
+    })
   );
   return { ...record, connections };
 }

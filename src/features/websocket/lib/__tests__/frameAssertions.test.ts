@@ -4,19 +4,12 @@ import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore'
 import {
   type ExecutorFactory,
   FrameAssertionRunner,
+  MAX_FRAME_ASSERTION_BYTES,
   MAX_PENDING_FRAME_ASSERTIONS,
   startFrameAssertionWatcher,
   stopFrameAssertionWatcher,
   toFrameAssertionResult,
 } from '../frameAssertions';
-
-vi.mock('@/lib/shared/streaming/messageVariables', () => ({
-  getActiveStreamingVariableScope: () => ({
-    values: { expected: 'pong' },
-    secretNames: new Set(),
-    handleNames: new Set(),
-  }),
-}));
 
 const ok = (tests: ScriptResult['tests'] = []): ScriptResult => ({
   success: true,
@@ -89,7 +82,8 @@ describe('FrameAssertionRunner', () => {
     store().addMessage(id, 'received', 'before');
     store().setFrameAssertion(id, { enabled: true, script: 'pm.test()' });
     runner.sync(store().connections);
-    expect(instances[0]?.envVars).toEqual({ expected: 'pong' });
+    // No variable scope reaches the frame sandbox (no cross-tab secret exposure).
+    expect(instances[0]?.envVars).toEqual({});
 
     store().addMessage(id, 'sent', 'ping');
     store().addMessage(id, 'received', 'pong');
@@ -146,6 +140,116 @@ describe('FrameAssertionRunner', () => {
     runner.disposeAll();
   });
 
+  it('skips frames larger than the size cap without evaluating them', async () => {
+    const { factory, instances } = fakeFactory(async () => ok());
+    const runner = new FrameAssertionRunner(factory);
+    store().setFrameAssertion(id, { enabled: true, script: 'x' });
+    runner.sync(store().connections);
+    store().addMessage(id, 'received', 'x'.repeat(MAX_FRAME_ASSERTION_BYTES + 1));
+    runner.sync(store().connections);
+    await runner.idle(id);
+    expect(messages(id)[0]?.assertion?.errors[0]).toMatch(/larger than 256 KB/);
+    expect(instances[0]?.eval).not.toHaveBeenCalled();
+    runner.disposeAll();
+  });
+
+  it('recreates the sandbox after a runtime failure', async () => {
+    let calls = 0;
+    const { factory, instances } = fakeFactory(async () => {
+      calls++;
+      if (calls === 1) throw new Error('out of memory');
+      return ok([{ name: 't', passed: true }]);
+    });
+    const runner = new FrameAssertionRunner(factory);
+    store().setFrameAssertion(id, { enabled: true, script: 'x' });
+    runner.sync(store().connections);
+    store().addMessage(id, 'received', 'a');
+    store().addMessage(id, 'received', 'b');
+    runner.sync(store().connections);
+    await runner.idle(id);
+    expect(instances).toHaveLength(2);
+    expect(instances[0]?.dispose).toHaveBeenCalled();
+    expect(messages(id)[0]?.assertion?.status).toBe('error');
+    expect(messages(id)[1]?.assertion?.status).toBe('passed');
+    runner.disposeAll();
+  });
+
+  it('recreates the sandbox when eval reports a runtime failure, even if dispose throws', async () => {
+    let calls = 0;
+    const { factory, instances } = fakeFactory(async () => {
+      calls++;
+      return calls === 1
+        ? { ...ok(), success: false, errors: ['InternalError: out of memory'] }
+        : ok();
+    });
+    const runner = new FrameAssertionRunner(factory);
+    store().setFrameAssertion(id, { enabled: true, script: 'x' });
+    runner.sync(store().connections);
+    instances[0]?.dispose.mockImplementation(() => {
+      throw new Error('already freed');
+    });
+    store().addMessage(id, 'received', 'a');
+    store().addMessage(id, 'received', 'b');
+    runner.sync(store().connections);
+    await runner.idle(id);
+    expect(instances).toHaveLength(2);
+    expect(messages(id)[0]?.assertion?.status).toBe('error');
+    expect(messages(id)[1]?.assertion?.status).toBe('passed');
+    runner.disposeAll();
+  });
+
+  it('does not recreate the sandbox for ordinary script errors', async () => {
+    const { factory, instances } = fakeFactory(async () => ({
+      ...ok(),
+      success: false,
+      errors: ['ReferenceError: x is not defined'],
+    }));
+    const runner = new FrameAssertionRunner(factory);
+    store().setFrameAssertion(id, { enabled: true, script: 'x' });
+    runner.sync(store().connections);
+    store().addMessage(id, 'received', 'a');
+    runner.sync(store().connections);
+    await runner.idle(id);
+    expect(instances).toHaveLength(1);
+    runner.disposeAll();
+  });
+
+  it('drops results for frames whose session was disposed mid-flight', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const { factory } = fakeFactory(async () => {
+      await gate;
+      throw new Error('late');
+    });
+    const runner = new FrameAssertionRunner(factory);
+    store().setFrameAssertion(id, { enabled: true, script: 'x' });
+    runner.sync(store().connections);
+    store().addMessage(id, 'received', 'a');
+    store().addMessage(id, 'received', 'b');
+    runner.sync(store().connections);
+    const tail = runner.idle(id);
+    runner.dispose(id);
+    release();
+    await tail;
+    expect(messages(id).every((m) => m.assertion === undefined)).toBe(true);
+  });
+
+  it('is a no-op for unknown connections', async () => {
+    const runner = new FrameAssertionRunner(fakeFactory(async () => ok()).factory);
+    expect(() => runner.dispose('unknown')).not.toThrow();
+    await expect(runner.idle('unknown')).resolves.toBeUndefined();
+  });
+
+  it('ignores a malformed (non-string) script config', () => {
+    const { factory, instances } = fakeFactory(async () => ok());
+    const runner = new FrameAssertionRunner(factory);
+    store().setFrameAssertion(id, { enabled: true, script: 42 as unknown as string });
+    expect(() => runner.sync(store().connections)).not.toThrow();
+    expect(instances).toHaveLength(0);
+  });
+
   it('skips frames once the queue is full', async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((r) => {
@@ -173,7 +277,7 @@ describe('FrameAssertionRunner', () => {
     const runner = new FrameAssertionRunner();
     store().setFrameAssertion(id, {
       enabled: true,
-      script: `pm.test('type is pong', () => { pm.expect(pm.response.json().type).to.equal(pm.environment.get('expected')); });`,
+      script: `pm.test('type is pong', () => { pm.expect(pm.response.json().type).to.equal('pong'); }); pm.test('no env', () => { pm.expect(pm.environment.get('anything')).to.equal(undefined); });`,
     });
     runner.sync(store().connections);
     store().addMessage(id, 'received', '{"type":"pong"}');

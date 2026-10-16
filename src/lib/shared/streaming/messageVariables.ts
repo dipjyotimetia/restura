@@ -46,7 +46,7 @@ export function getActiveStreamingVariableScope(): StreamingVariableScope {
   return {
     values,
     secretNames: new Set(secretNames ?? []),
-    handleNames: new Set(Object.keys(secretVariables ?? {})),
+    handleNames: new Set(Object.keys(secretVariables)),
   };
 }
 

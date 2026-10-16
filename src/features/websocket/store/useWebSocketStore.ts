@@ -143,6 +143,21 @@ interface WebSocketState {
   getFilteredMessages: (connectionId: string) => WebSocketMessage[];
 }
 
+/** Migration guard: keep `frameAssertion` only when it has the expected shape. */
+function coerceFrameAssertion(conn: Record<string, unknown>): Record<string, unknown> {
+  const fa = conn.frameAssertion as { enabled?: unknown; script?: unknown } | undefined;
+  const { frameAssertion: _drop, ...rest } = conn;
+  if (
+    fa &&
+    typeof fa === 'object' &&
+    typeof fa.enabled === 'boolean' &&
+    typeof fa.script === 'string'
+  ) {
+    return { ...rest, frameAssertion: { enabled: fa.enabled, script: fa.script } };
+  }
+  return rest;
+}
+
 const DEFAULT_MAX_RECONNECT_ATTEMPTS = 5;
 const DEFAULT_RECONNECT_DELAY = 1000; // 1 second, will use exponential backoff
 const MAX_MESSAGES_PER_CONNECTION = 1000;
@@ -476,7 +491,7 @@ export const useWebSocketStore = create<WebSocketState>()(
           name: 'add-message-templates',
           fromVersion: 1,
           apply: (state) => ({
-            state: migrateConnectionTemplates(state, webSocketTemplateSchema),
+            state: migrateConnectionTemplates(state, webSocketTemplateSchema, coerceFrameAssertion),
           }),
         },
       ],

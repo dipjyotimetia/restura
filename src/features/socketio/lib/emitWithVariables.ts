@@ -45,7 +45,14 @@ export function emitWithVariables(
   const args = resolveStreamingText(input.args, scope);
 
   const parsed = parseEmitArgs(args.wire);
-  if (!parsed.ok) return parsed;
+  if (!parsed.ok) {
+    // V8 quotes the offending input in JSON.parse errors, so a parse error on
+    // the resolved text can leak a secret. Report the masked copy's error, or
+    // a generic one when only the secret value broke the JSON.
+    if (!args.usedSecret) return parsed;
+    const shown = parseEmitArgs(args.display);
+    return { ok: false, error: shown.ok ? 'Invalid JSON' : shown.error };
+  }
 
   const unresolved = [...new Set([...name.unresolved, ...args.unresolved])];
   if (unresolved.length > 0) {

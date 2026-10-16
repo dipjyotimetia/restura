@@ -45,7 +45,10 @@ describe('FrameAssertionDetails', () => {
       <FrameAssertionDetails
         result={{
           status: 'failed',
-          tests: [{ name: 'has type', passed: false, error: 'expected 1 to equal 2' }],
+          tests: [
+            { name: 'is json', passed: true },
+            { name: 'has type', passed: false, error: 'expected 1 to equal 2' },
+          ],
           errors: ['dup'],
         }}
       />

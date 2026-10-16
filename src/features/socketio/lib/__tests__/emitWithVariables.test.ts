@@ -76,6 +76,27 @@ describe('emitWithVariables', () => {
     });
   });
 
+  it('never echoes a secret in the JSON parse error', () => {
+    const out = emitWithVariables(
+      id,
+      { eventName: 'x', args: '{"t": {{token}} }', ack: false },
+      scope
+    );
+    expect(out.ok).toBe(false);
+    expect(out.ok ? '' : out.error).not.toContain('sekrit');
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('uses a generic error when only the resolved secret breaks the JSON', () => {
+    const quoty: StreamingVariableScope = {
+      ...scope,
+      values: { token: 'a"b' },
+      secretNames: new Set(['token']),
+    };
+    const out = emitWithVariables(id, { eventName: 'x', args: '["{{token}}"]', ack: false }, quoty);
+    expect(out).toEqual({ ok: false, error: 'Invalid JSON' });
+  });
+
   it('hides args entirely when the masked copy is not valid JSON', () => {
     const numeric: StreamingVariableScope = {
       ...scope,
