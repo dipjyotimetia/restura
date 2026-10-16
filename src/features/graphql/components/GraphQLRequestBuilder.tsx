@@ -68,8 +68,8 @@ import type { AuthConfig as AuthConfigType, GraphQLImportedSchema, HttpRequest }
 import { GraphQLSubscriptionErrors } from './GraphQLSubscriptionErrors';
 import { LoadSchemaDialog } from './LoadSchemaDialog';
 import SchemaExplorer from './SchemaExplorer';
-import { SubscriptionProtocolSelect } from './SubscriptionProtocolSelect';
 import { SubscriptionAuthNotice } from './SubscriptionAuthNotice';
+import { SubscriptionProtocolSelect } from './SubscriptionProtocolSelect';
 
 const REPLACE_IMPORTED_CONFIRM = {
   title: 'Replace imported schema?',

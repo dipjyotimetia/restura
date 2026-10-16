@@ -39,8 +39,9 @@ export function SubscriptionAuthNotice({ request }: { request: HttpRequest }) {
           data-testid="subscription-keychain-handshake-only"
         >
           Keychain-stored secrets are resolved by the desktop app at connect time and sent as
-          WebSocket handshake headers only — they are not included in the connection_init payload,
-          so servers that read auth only from connection_init won’t see them.
+          WebSocket handshake headers (or graphql-sse request headers) only — they are not included
+          in the connection_init payload, so servers that read auth only from connection_init won’t
+          see them.
         </p>
       )}
       {unapplied.map((message) => (

@@ -1,8 +1,8 @@
 /**
  * Main-side WebSocket handshake credential materialization (#878, #882).
  *
- * GraphQL subscriptions tunnel `graphql-ws` over the WebSocket IPC bridge.
- * When their auth is backed by a SecretRef handle / external secret, or the
+ * GraphQL subscriptions tunnel `graphql-ws` over the WebSocket IPC bridge and
+ * graphql-sse over the SSE IPC bridge. When their auth is backed by a SecretRef handle / external secret, or the
  * URL/headers/auth reference SecretRef-backed `{{vars}}`, the renderer sends
  * only the opaque refs (ADR-0007). This resolves them here, at wire time:
  *
@@ -16,7 +16,7 @@
  */
 
 import type { ProtocolAuthConfig, ProtocolSecretValue } from '@shared/protocol/types';
-import { isDeniedWsHeader } from '../ipc/validators/core';
+import { isDeniedStreamingHeader, isDeniedWsHeader } from '../ipc/validators/core';
 import { applyNonSignAtWireAuth } from './auth-applier';
 import { materializeExternalProtocolAuth } from './external-secret-materializer';
 import {
@@ -86,10 +86,30 @@ function replaceInAuth(auth: HeaderAuth, values: Record<string, string>): Header
   };
 }
 
-/** Handshake header names auth must never set (beyond the IPC schema's denylist). */
-function isForbiddenAuthHeader(name: string): boolean {
-  return isDeniedWsHeader(name) || /^sec-websocket-/i.test(name);
+/** Per-transport rules for where resolved credentials may go. */
+export interface StreamingAuthTransport {
+  /** URL schemes the final (secret-resolved) URL must use. */
+  allowedSchemes: readonly string[];
+  /** Header names applied auth must never set. */
+  isForbiddenHeader: (name: string) => boolean;
+  /** Noun used in error messages ("WebSocket", "SSE"). */
+  label: string;
 }
+
+/** WebSocket upgrade: the IPC denylist plus every `Sec-WebSocket-*` header. */
+export const WS_HANDSHAKE_TRANSPORT: StreamingAuthTransport = {
+  allowedSchemes: ['ws:', 'wss:'],
+  isForbiddenHeader: (name) => isDeniedWsHeader(name) || /^sec-websocket-/i.test(name),
+  label: 'WebSocket',
+};
+
+/** graphql-sse POST: the SSE IPC denylist plus body-framing headers. */
+export const SSE_REQUEST_TRANSPORT: StreamingAuthTransport = {
+  allowedSchemes: ['http:', 'https:'],
+  isForbiddenHeader: (name) =>
+    isDeniedStreamingHeader(name) || /^(content-length|content-type)$/i.test(name),
+  label: 'SSE',
+};
 
 // CR / LF / NUL in a header value would split or truncate the upgrade request.
 const INVALID_HEADER_VALUE = /[\r\n\0]/;
@@ -147,6 +167,18 @@ export async function materializeWsHandshakeAuth(
   config: WsHandshakeAuthConfig,
   signal?: AbortSignal
 ): Promise<MaterializedWsHandshake> {
+  return materializeStreamingAuth(config, WS_HANDSHAKE_TRANSPORT, signal);
+}
+
+/**
+ * Transport-parameterised core shared by the WebSocket and SSE IPC handlers
+ * (GraphQL subscriptions over graphql-ws / graphql-sse, #878/#882).
+ */
+export async function materializeStreamingAuth(
+  config: WsHandshakeAuthConfig,
+  transport: StreamingAuthTransport,
+  signal?: AbortSignal
+): Promise<MaterializedWsHandshake> {
   if (!needsWsHandshakeMaterialization(config)) {
     return { url: config.url, headers: config.headers ?? {}, redact: identity };
   }
@@ -190,8 +222,12 @@ export async function materializeWsHandshakeAuth(
     }
 
     for (const [key, value] of Object.entries(applied.headers)) {
-      if (isForbiddenAuthHeader(key)) {
-        throw new Error(`Auth header "${key}" is not allowed on a WebSocket handshake`);
+      if (transport.isForbiddenHeader(key)) {
+        throw new Error(
+          transport === WS_HANDSHAKE_TRANSPORT
+            ? `Auth header "${key}" is not allowed on a WebSocket handshake`
+            : `Auth header "${key}" is not allowed on an ${transport.label} request`
+        );
       }
       // Auth wins over a user header of the same name in any casing — never
       // send two Authorization headers.
@@ -220,10 +256,14 @@ export async function materializeWsHandshakeAuth(
   try {
     protocol = new URL(url).protocol;
   } catch {
-    throw new Error('Invalid WebSocket URL after resolving secrets');
+    throw new Error(`Invalid ${transport.label} URL after resolving secrets`);
   }
-  if (protocol !== 'ws:' && protocol !== 'wss:') {
-    throw new Error('Only ws: and wss: WebSocket URLs are allowed');
+  if (!transport.allowedSchemes.includes(protocol)) {
+    throw new Error(
+      transport === WS_HANDSHAKE_TRANSPORT
+        ? 'Only ws: and wss: WebSocket URLs are allowed'
+        : `Only ${transport.allowedSchemes.join(' and ')} ${transport.label} URLs are allowed`
+    );
   }
 
   return { url, headers, redact: createSecretRedactor(secrets) };

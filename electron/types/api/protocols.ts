@@ -173,6 +173,10 @@ export interface ElectronSseAPI {
     connectionId: string;
     url: string;
     headers?: Record<string, string>;
+    /** graphql-sse: header-shaped auth with SecretRef handles, resolved main-side (ADR-0007). */
+    auth?: import('../../../shared/types/auth').AuthConfig;
+    /** graphql-sse: SecretRef-backed `{{vars}}` referenced from url/headers/auth. */
+    secretVariables?: Record<string, ProtocolSecretValue>;
     /** POST this JSON body instead of a plain GET (GraphQL over SSE). */
     jsonBody?: string;
   }) => Promise<{ success: boolean; error?: string }>;

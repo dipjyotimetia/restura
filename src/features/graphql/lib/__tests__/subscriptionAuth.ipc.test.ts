@@ -109,6 +109,37 @@ describe('desktop subscription — handles never cross IPC as plaintext', () => 
     expect(sent.join('')).not.toContain(PLAINTEXT);
   });
 
+  it.each(['subscriptions-transport-ws', 'graphql-transport-ws'] as const)(
+    'forwards the handle descriptor on the %s protocol too',
+    async (protocol) => {
+      const { connects, sent } = installFakeElectron();
+      const handshake = buildSubscriptionHandshake({
+        request,
+        values: {},
+        secretVariables: {},
+        resolveVariables: (t) => t,
+        desktop: true,
+      });
+      const client = new GraphQLSubscriptionClient(handshake.url, handshake.headers, {
+        connectionParams: handshake.connectionParams,
+        ...(handshake.mainSide ? { mainSide: handshake.mainSide } : {}),
+      });
+      client.connect({
+        url: handshake.url,
+        query: 'subscription { tick }',
+        protocol,
+        onMessage: () => {},
+      });
+      await vi.waitFor(() => expect(sent.length).toBeGreaterThan(0));
+      client.disconnect();
+      expect(connects[0]?.auth).toEqual(request.auth);
+      expect(connects[0]?.headers?.Authorization).toBeUndefined();
+      const init = JSON.parse(sent[0]!) as { type: string; payload?: Record<string, string> };
+      expect(init.type).toBe('connection_init');
+      expect(init.payload?.Authorization).toBeUndefined();
+    }
+  );
+
   it('omits auth/secretVariables from the IPC payload when nothing is main-side', async () => {
     const { connects } = installFakeElectron();
     const client = new GraphQLSubscriptionClient('https://api.example.com/graphql', {

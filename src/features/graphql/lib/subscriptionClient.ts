@@ -143,6 +143,7 @@ export class GraphQLSubscriptionClient {
           {
             url: options.url,
             headers: this.headers,
+            ...(this.mainSide ? { mainSide: this.mainSide } : {}),
             ...this.operation(options),
           },
           sink
