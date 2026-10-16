@@ -4,6 +4,7 @@ import { persist } from 'zustand/middleware';
 import { capMessages } from '@/lib/shared/message-cap';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
+import { emitStreamEvent } from '@/store/useStreamTimelineStore';
 
 export type KafkaSecurityProtocol = 'PLAINTEXT' | 'SASL_PLAINTEXT' | 'SASL_SSL' | 'SSL';
 export type KafkaSaslMechanism = 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512' | 'OAUTHBEARER';
@@ -361,6 +362,22 @@ export const useKafkaStore = create<KafkaState>()(
             connectionId,
             label: next.topic,
             payload: next.value ?? '',
+          });
+          emitStreamEvent({
+            ts: next.timestamp,
+            protocol: 'kafka',
+            connectionId,
+            direction:
+              next.direction === 'sent' ? 'out' : next.direction === 'received' ? 'in' : 'system',
+            kind: next.error ? 'error' : undefined,
+            label: next.topic,
+            payload: next.value ?? '',
+            meta: {
+              partition: next.partition,
+              offset: next.offset,
+              key: next.key,
+              tombstone: next.tombstone,
+            },
           });
 
           return {

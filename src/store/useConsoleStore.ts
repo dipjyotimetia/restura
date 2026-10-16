@@ -166,7 +166,7 @@ const FRAME_PAYLOAD_LIMIT = 64 * 1024;
 // boundary. Entries cut here carry `bodyTruncated` so the UI can say so.
 const LIVE_BODY_LIMIT = 5 * 1024 * 1024;
 
-export type ConsoleTabId = 'network' | 'scripts' | 'frames' | 'disk';
+export type ConsoleTabId = 'network' | 'scripts' | 'frames' | 'timeline' | 'disk';
 
 /** Explicit console action policy. Frames are evidence only and never replayable. */
 export const CONSOLE_PROTOCOL_ACTIONS: Record<

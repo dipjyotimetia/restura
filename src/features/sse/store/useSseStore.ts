@@ -10,6 +10,7 @@ import {
 } from '@/features/sse/lib/streamSummary';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
+import { emitStreamEvent } from '@/store/useStreamTimelineStore';
 
 export type SseConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting';
 
@@ -180,6 +181,15 @@ export const useSseStore = create<SseState>()(
             payload: event.data,
             bytes: new TextEncoder().encode(event.data).length,
           });
+          emitStreamEvent({
+            ts: record.timestamp,
+            protocol: 'sse',
+            connectionId,
+            direction: 'in',
+            label: event.event,
+            payload: event.data,
+            meta: { lastEventId: event.lastEventId, retry: event.retry },
+          });
           // Persist most-recent lastEventId for resume
           const next: SseConnection = {
             ...c,
@@ -215,6 +225,13 @@ export const useSseStore = create<SseState>()(
             protocol: 'sse',
             direction: 'system',
             connectionId,
+            payload: message,
+          });
+          emitStreamEvent({
+            ts: entry.timestamp,
+            protocol: 'sse',
+            connectionId,
+            direction: 'system',
             payload: message,
           });
           return { connections: { ...s.connections, [connectionId]: { ...c, log } } };
