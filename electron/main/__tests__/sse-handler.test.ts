@@ -114,6 +114,54 @@ describe('sse-handler (StreamRegistry-backed)', () => {
     expect(channels).toContain('sse:close:c1');
   });
 
+  it('opens a plain GET with no body by default', async () => {
+    mockStreaming.mockResolvedValue({
+      ok: true,
+      response: { status: 200, statusText: 'OK', body: singleEventBody() },
+    });
+    const { event } = makeEvent(7);
+    await handlerFor('sse:connect')(event, { connectionId: 'g1', url: 'https://example.com/s' });
+    const spec = mockStreaming.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(spec.method).toBe('GET');
+    expect(spec).not.toHaveProperty('data');
+    expect(spec).not.toHaveProperty('bodyType');
+  });
+
+  it('POSTs a JSON body when jsonBody is set (graphql-sse, #889)', async () => {
+    mockStreaming.mockResolvedValue({
+      ok: true,
+      response: { status: 200, statusText: 'OK', body: singleEventBody() },
+    });
+    const { event } = makeEvent(7);
+    const body = JSON.stringify({ query: 'subscription { tick }' });
+    const res = await handlerFor('sse:connect')(event, {
+      connectionId: 'g2',
+      url: 'https://example.com/graphql/stream',
+      headers: { Authorization: 'Bearer t' },
+      jsonBody: body,
+    });
+    expect(res.success).toBe(true);
+    const spec = mockStreaming.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(spec).toMatchObject({
+      method: 'POST',
+      bodyType: 'json',
+      data: body,
+      headers: { Accept: 'text/event-stream', Authorization: 'Bearer t' },
+    });
+  });
+
+  it('still runs the SSRF pre-flight for a jsonBody POST', async () => {
+    mockResolveSafe.mockRejectedValueOnce(new Error('URL rejected by SSRF policy'));
+    const { event } = makeEvent(7);
+    const res = await handlerFor('sse:connect')(event, {
+      connectionId: 'g3',
+      url: 'http://169.254.169.254/graphql',
+      jsonBody: '{"query":"subscription { a }"}',
+    });
+    expect(res).toEqual({ success: false, error: 'URL rejected by SSRF policy' });
+    expect(mockStreaming).not.toHaveBeenCalled();
+  });
+
   it('propagates an upstream error as error + close', async () => {
     mockStreaming.mockResolvedValue({ ok: false, status: 502, payload: { error: 'bad upstream' } });
     const { event } = makeEvent(7);

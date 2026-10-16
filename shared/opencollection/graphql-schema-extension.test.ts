@@ -198,4 +198,64 @@ describe('OpenCollection imported GraphQL schema extension', () => {
     );
     expect(back.map((r) => r.graphqlSchema?.sdl)).toEqual([SCHEMA_A.sdl, SCHEMA_B.sdl]);
   });
+
+  describe('subscription protocol (#889)', () => {
+    it('round-trips a protocol-only request (no schema) through YAML', () => {
+      const req: HttpRequest = { ...gql('Sub'), graphqlSubscriptionProtocol: 'graphql-sse' };
+      const collection: Collection = {
+        id: 'c',
+        name: 'Subs',
+        items: [item(gql('Plain')), item(req)],
+      };
+      const oc = internalToOC(collection);
+      const ext = (oc.extensions as Record<string, unknown>)[GRAPHQL_EXTENSION_KEY] as {
+        schemas: Record<string, unknown>;
+        requests: Array<Record<string, unknown>>;
+      };
+      expect(ext.schemas).toEqual({});
+      expect(ext.requests).toEqual([{ path: ['Sub'], subscriptionProtocol: 'graphql-sse' }]);
+
+      const back = gqlRequests(
+        ocToInternal(parseOpenCollectionYAML(serializeOpenCollectionYAML(oc))).items
+      );
+      expect(back.map((r) => [r.name, r.graphqlSubscriptionProtocol, r.graphqlSchema])).toEqual([
+        ['Plain', undefined, undefined],
+        ['Sub', 'graphql-sse', undefined],
+      ]);
+    });
+
+    it('carries schema and protocol on one entry', () => {
+      const req: HttpRequest = {
+        ...gql('Both', SCHEMA_A),
+        graphqlSubscriptionProtocol: 'subscriptions-transport-ws',
+      };
+      const back = gqlRequests(
+        ocToInternal(
+          parseOpenCollectionYAML(
+            serializeOpenCollectionYAML(internalToOC({ id: 'c', name: 'X', items: [item(req)] }))
+          )
+        ).items
+      );
+      expect(back[0]?.graphqlSchema).toEqual(SCHEMA_A);
+      expect(back[0]?.graphqlSubscriptionProtocol).toBe('subscriptions-transport-ws');
+    });
+
+    it('degrades an unknown protocol to absent but still applies the schema', () => {
+      const back = importWithExtension({
+        schemas: { h: { sdl: SCHEMA_A.sdl } },
+        requests: [{ ...entry(['A1'], 'h'), subscriptionProtocol: 'graphql-mqtt' }],
+      });
+      expect(back[0]?.graphqlSubscriptionProtocol).toBeUndefined();
+      expect(back[0]?.graphqlSchema?.sdl).toBe(SCHEMA_A.sdl);
+    });
+
+    it('ignores a schema reference that lacks provenance', () => {
+      const back = importWithExtension({
+        schemas: { h: { sdl: SCHEMA_A.sdl } },
+        requests: [{ path: ['A1'], schema: 'h', subscriptionProtocol: 'auto' }],
+      });
+      expect(back[0]?.graphqlSchema).toBeUndefined();
+      expect(back[0]?.graphqlSubscriptionProtocol).toBe('auto');
+    });
+  });
 });

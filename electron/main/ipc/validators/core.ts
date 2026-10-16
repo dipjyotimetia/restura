@@ -693,6 +693,15 @@ export const SseConnectSchema = z.object({
       }
     )
     .optional(),
+  /**
+   * When present the stream is opened with `POST` and this string as an
+   * `application/json` body (GraphQL over SSE, #889); absent keeps the plain
+   * `GET` EventSource-style request. Capped like a WS frame (1 MB).
+   */
+  jsonBody: z
+    .string()
+    .max(1024 * 1024, 'SSE request body exceeds 1MB limit')
+    .optional(),
 });
 
 export const SseDisconnectSchema = z.object({

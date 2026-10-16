@@ -12,7 +12,7 @@ Restura's capability matrix is **data-driven**: there's a single source of truth
 ### Available on both web and desktop
 
 - HTTP / REST (all methods, body types).
-- GraphQL — queries, mutations, subscriptions over a `graphql-ws` WebSocket.
+- GraphQL — queries, mutations, subscriptions over WebSocket (`graphql-transport-ws` / legacy `subscriptions-transport-ws`) or `graphql-sse`.
 - gRPC unary + server streaming (via the Connect protocol).
 - WebSocket — connect, send/receive, full history.
 - Server-Sent Events — basic stream viewer with reconnection.

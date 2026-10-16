@@ -12,7 +12,7 @@ import { getElectronAPI } from '@/lib/shared/platform';
 
 type Listener = (...args: unknown[]) => void;
 type CloseHandler = (ev: { code: number; reason: string }) => void;
-type MessageHandler = (ev: { data: string }) => void;
+type MessageHandler = (ev: { data: unknown }) => void;
 type OpenErrorHandler = (ev: unknown) => void;
 
 const channel = (kind: string, id: string): string => `ws:${kind}:${id}`;

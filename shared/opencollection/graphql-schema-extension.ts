@@ -1,6 +1,12 @@
 import { z } from 'zod';
-import { graphqlImportedSchemaSchema } from '../schemas/app';
-import type { CollectionItem, GraphQLImportedSchema, HttpRequest, Request } from '../types';
+import { graphqlImportedSchemaSchema, graphqlSubscriptionProtocolSchema } from '../schemas/app';
+import type {
+  CollectionItem,
+  GraphQLImportedSchema,
+  GraphQLSubscriptionProtocol,
+  HttpRequest,
+  Request,
+} from '../types';
 import {
   applyByPath,
   createSamePathIndexer,
@@ -30,7 +36,14 @@ import {
  *         source: sdl
  *         fileName: api.graphqls
  *         importedAt: 1700000000000
+ *       - path: [Other request]
+ *         subscriptionProtocol: graphql-sse
  * ```
+ *
+ * Entries also carry the per-request subscription wire protocol (#889,
+ * `HttpRequest.graphqlSubscriptionProtocol`), which the canonical
+ * `GraphQLRequestSettings` (closed schema) has no slot for. An entry may
+ * carry a schema, a subscription protocol, or both.
  *
  * The walk / hash-dedupe / path-matching machinery is shared with
  * `x-restura-grpc` (see path-keyed-extension.ts).
@@ -41,8 +54,11 @@ interface GraphQLSchemaContent {
   sdl: string;
 }
 
-interface GraphQLExtensionRequestEntry extends PathKeyedEntry, Omit<GraphQLImportedSchema, 'sdl'> {
-  schema: string;
+interface GraphQLExtensionRequestEntry
+  extends PathKeyedEntry,
+    Partial<Omit<GraphQLImportedSchema, 'sdl'>> {
+  schema?: string;
+  subscriptionProtocol?: GraphQLSubscriptionProtocol;
 }
 
 export interface GraphQLExtension {
@@ -55,11 +71,17 @@ const isHttp = (r: Request): r is HttpRequest => r.type === 'http';
 /** Only the SDL is content; provenance must not split identical schemas. */
 const schemaContentOnly = (s: GraphQLSchemaContent): GraphQLSchemaContent => ({ sdl: s.sdl });
 
-const requestEntrySchema = graphqlImportedSchemaSchema.omit({ sdl: true }).extend({
-  path: z.array(z.string()),
-  index: z.number().int().nonnegative().optional(),
-  schema: z.string(),
-});
+const requestEntrySchema = graphqlImportedSchemaSchema
+  .omit({ sdl: true })
+  .partial()
+  .extend({
+    path: z.array(z.string()),
+    index: z.number().int().nonnegative().optional(),
+    schema: z.string().optional(),
+    // An unknown protocol (newer writer) degrades to "absent" (= auto) rather
+    // than dropping the whole entry — the schema half must still apply.
+    subscriptionProtocol: graphqlSubscriptionProtocolSchema.optional().catch(undefined),
+  });
 
 const schemaContentSchema = z.object({ sdl: z.string() });
 
@@ -74,16 +96,21 @@ export function buildGraphQLExtension(
     // Count every same-path HTTP request, not just schema-bearing ones, so a
     // REST sibling sharing the name path can't claim this entry on import.
     const index = indexFor(path);
-    if (!req.graphqlSchema) return;
-    const { sdl, source, fileName, importedAt } = req.graphqlSchema;
-    requests.push({
+    const protocol = req.graphqlSubscriptionProtocol;
+    if (!req.graphqlSchema && protocol === undefined) return;
+    const entry: GraphQLExtensionRequestEntry = {
       path,
       ...(index !== undefined ? { index } : {}),
-      schema: table.add({ sdl }),
-      source,
-      ...(fileName ? { fileName } : {}),
-      importedAt,
-    });
+    };
+    if (req.graphqlSchema) {
+      const { sdl, source, fileName, importedAt } = req.graphqlSchema;
+      entry.schema = table.add({ sdl });
+      entry.source = source;
+      if (fileName) entry.fileName = fileName;
+      entry.importedAt = importedAt;
+    }
+    if (protocol !== undefined) entry.subscriptionProtocol = protocol;
+    requests.push(entry);
   });
   return requests.length > 0 ? { schemas: table.schemas, requests } : undefined;
 }
@@ -103,11 +130,21 @@ export function applyGraphQLExtension(items: CollectionItem[] | undefined, raw: 
       const parsed = requestEntrySchema.safeParse(e);
       return parsed.success ? parsed.data : undefined;
     },
-    (req, { schema: hash, path: _path, index: _index, ...provenance }) => {
+    (req, entry) => {
+      if (entry.subscriptionProtocol !== undefined) {
+        req.graphqlSubscriptionProtocol = entry.subscriptionProtocol;
+      }
+      const { schema: hash, source, importedAt, fileName } = entry;
+      if (hash === undefined || source === undefined || importedAt === undefined) return;
       const content = schemaContentSchema.safeParse(ext.schemas[hash]);
       if (!content.success) return;
       // Both halves are already validated: the entry by requestEntrySchema, the SDL here.
-      req.graphqlSchema = { sdl: content.data.sdl, ...provenance };
+      req.graphqlSchema = {
+        sdl: content.data.sdl,
+        source,
+        ...(fileName !== undefined ? { fileName } : {}),
+        importedAt,
+      };
     }
   );
 }
