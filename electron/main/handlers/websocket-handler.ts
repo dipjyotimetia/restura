@@ -458,13 +458,23 @@ export function registerWebSocketHandlerIPC(): void {
       }
       const payload = config.payload ?? '';
       const wire = pingWirePayload(payload);
+      // Tracked before the write so even an instant pong is matched; dropped
+      // again if the write fails (sync throw while not OPEN, or the async
+      // error `ws` reports through the ping callback).
+      const pending: PendingPing = { wire, payload, sentAt: performance.now() };
+      entry.pendingPings.push(pending);
+      if (entry.pendingPings.length > MAX_PENDING_PINGS) entry.pendingPings.shift();
       try {
-        entry.ws.ping(Buffer.from(wire, 'utf8'));
+        await new Promise<void>((resolve, reject) => {
+          entry.ws.ping(Buffer.from(wire, 'utf8'), undefined, (err?: Error) =>
+            err ? reject(err) : resolve()
+          );
+        });
       } catch (err) {
+        const idx = entry.pendingPings.indexOf(pending);
+        if (idx !== -1) entry.pendingPings.splice(idx, 1);
         return { success: false, error: err instanceof Error ? err.message : 'Ping failed' };
       }
-      entry.pendingPings.push({ wire, payload, sentAt: performance.now() });
-      if (entry.pendingPings.length > MAX_PENDING_PINGS) entry.pendingPings.shift();
       return { success: true };
     })
   );

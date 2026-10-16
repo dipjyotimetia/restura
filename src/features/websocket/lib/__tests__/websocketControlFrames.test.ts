@@ -164,6 +164,23 @@ describe('desktop (IPC bridge)', () => {
     expect(lastMessage()).toBe('Ping received from server (auto-replied with pong)');
   });
 
+  it('clears the last ping RTT when the connection ends (no stale latency)', () => {
+    const { emit } = installElectronApi();
+    websocketManager.connect(connectionId, 'wss://echo.example.com/');
+    emit(`ws:open:${connectionId}`, { protocol: '', extensions: '' });
+    emit(`ws:pong:${connectionId}`, { data: '', rttMs: 12 });
+    expect(conn().lastPingRttMs).toBe(12);
+    websocketManager.disconnect(connectionId);
+    expect(conn().lastPingRttMs).toBeUndefined();
+
+    websocketManager.connect(connectionId, 'wss://echo.example.com/');
+    emit(`ws:open:${connectionId}`, { protocol: '', extensions: '' });
+    emit(`ws:pong:${connectionId}`, { data: '', rttMs: 8 });
+    useWebSocketStore.getState().setAutoReconnect(connectionId, false);
+    emit(`ws:close:${connectionId}`, { code: 1006, reason: '' });
+    expect(conn().lastPingRttMs).toBeUndefined();
+  });
+
   it('logs a failed ping and rejects an oversized payload without IPC', async () => {
     const { websocket, emit } = installElectronApi();
     websocketManager.connect(connectionId, 'wss://echo.example.com/');

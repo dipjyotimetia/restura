@@ -53,6 +53,14 @@ export function recordNegotiation(
   return parts.length > 0 ? ` (${parts.join('; ')})` : '';
 }
 
+/** Drop the last ping RTT once a connection ends so Latency never shows a stale value. */
+export function clearPingRtt(connectionId: string): void {
+  const s = useWebSocketStore.getState();
+  if (s.connections[connectionId]?.lastPingRttMs !== undefined) {
+    s.patchControlState(connectionId, { lastPingRttMs: undefined });
+  }
+}
+
 const payloadSuffix = (data: string) => (data ? ` (payload: ${data})` : '');
 
 /** Subscribe to the desktop `ws:pong:` / `ws:ping-received:` events (#919). */

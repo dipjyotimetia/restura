@@ -18,7 +18,8 @@ const wsMock = vi.hoisted(() => {
     options: Record<string, unknown> | undefined;
     send = vi.fn();
     close = vi.fn();
-    ping = vi.fn();
+    // Like `ws`: the optional callback reports the frame write result.
+    ping = vi.fn((_data?: unknown, _mask?: boolean, cb?: (err?: Error) => void) => cb?.());
     terminate = vi.fn();
     private listeners = new Map<string, Array<(...args: unknown[]) => void>>();
     constructor(_url: string, _protocols?: unknown, options?: Record<string, unknown>) {
@@ -153,7 +154,11 @@ describe('websocket-handler control frames', () => {
 
       const res = await handlerFor(IPC.ws.ping)(event, { connectionId: 'c1', payload: 'hello' });
       expect(res).toEqual({ success: true });
-      expect(ws.ping).toHaveBeenCalledWith(Buffer.from('hello', 'utf8'));
+      expect(ws.ping).toHaveBeenCalledWith(
+        Buffer.from('hello', 'utf8'),
+        undefined,
+        expect.any(Function)
+      );
 
       now.mockReturnValue(1_042.4);
       ws.fire('pong', Buffer.from('hello'));
@@ -215,6 +220,19 @@ describe('websocket-handler control frames', () => {
       ws.readyState = 3;
       const closed = await handlerFor(IPC.ws.ping)(event, { connectionId: 'c1' });
       expect(closed).toEqual({ success: false, error: 'Not connected' });
+    });
+
+    it('reports an asynchronous ping write failure and does not track it for RTT', async () => {
+      const { event, ws } = await openSocket();
+      ws.ping.mockImplementationOnce(
+        (_data?: unknown, _mask?: boolean, cb?: (err?: Error) => void) => {
+          setTimeout(() => cb?.(new Error('write EPIPE')), 0);
+        }
+      );
+      const res = await handlerFor(IPC.ws.ping)(event, { connectionId: 'c1', payload: 'lost' });
+      expect(res).toEqual({ success: false, error: 'write EPIPE' });
+      ws.fire('pong', Buffer.from('lost'));
+      expect(emitted('ws:pong:c1')).toEqual([{ data: 'lost' }]);
     });
 
     it('reports a ping failure from the socket', async () => {

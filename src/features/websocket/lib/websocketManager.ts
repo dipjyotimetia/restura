@@ -7,6 +7,7 @@ import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore'
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import {
   attachControlFrameListeners,
+  clearPingRtt,
   controlFrameChannels,
   describeClose,
   recordNegotiation,
@@ -194,6 +195,7 @@ class WebSocketManager {
 
   /** `close` (#915): optional RFC 6455 close code/reason; default 1000 "Client disconnected". */
   disconnect(connectionId: string, clearReconnect = true, close?: WsCloseOptions): void {
+    clearPingRtt(connectionId);
     // Clear any pending reconnect
     if (clearReconnect) {
       // Drop the resolved url/headers (may hold credentials) — nothing will replay them.
@@ -437,6 +439,7 @@ class WebSocketManager {
    */
   private handleClose(connectionId: string, code: number, reason: string, log = true): void {
     this.stopHeartbeat(connectionId);
+    clearPingRtt(connectionId);
     const state = useWebSocketStore.getState();
     const connection = state.connections[connectionId];
     if (log) {
