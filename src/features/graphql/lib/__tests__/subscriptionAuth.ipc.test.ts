@@ -20,7 +20,7 @@ interface CapturedConnect {
   secretVariables?: unknown;
 }
 
-function installFakeElectron() {
+function installFakeElectron({ ack = false }: { ack?: boolean } = {}) {
   const handlers = new Map<string, (payload?: unknown) => void>();
   const connects: CapturedConnect[] = [];
   const sent: string[] = [];
@@ -38,6 +38,15 @@ function installFakeElectron() {
     }),
     send: vi.fn(async (cfg: { connectionId: string; message: string }) => {
       sent.push(cfg.message);
+      // Ack connection_init so clients proceed to the subscribe/start frame.
+      if (ack && (JSON.parse(cfg.message) as { type?: string }).type === 'connection_init') {
+        queueMicrotask(() =>
+          handlers.get(`ws:message:${cfg.connectionId}`)?.({
+            type: 'text',
+            data: JSON.stringify({ type: 'connection_ack' }),
+          })
+        );
+      }
       return { success: true };
     }),
     disconnect: vi.fn(async () => ({ success: true })),
@@ -139,6 +148,35 @@ describe('desktop subscription — handles never cross IPC as plaintext', () => 
       expect(init.payload?.Authorization).toBeUndefined();
     }
   );
+
+  it('sends the selected operationName alongside main-side auth (#1107 x #882)', async () => {
+    const { connects, sent } = installFakeElectron({ ack: true });
+    const handshake = buildSubscriptionHandshake({
+      request,
+      values: {},
+      secretVariables: {},
+      resolveVariables: (t) => t,
+      desktop: true,
+    });
+    const client = new GraphQLSubscriptionClient(handshake.url, handshake.headers, {
+      connectionParams: handshake.connectionParams,
+      ...(handshake.mainSide ? { mainSide: handshake.mainSide } : {}),
+    });
+    client.connect({
+      url: handshake.url,
+      query: 'subscription A { a } subscription B { b }',
+      operationName: 'B',
+      protocol: 'subscriptions-transport-ws',
+      onMessage: () => {},
+    });
+    await vi.waitFor(() => expect(sent.length).toBeGreaterThan(1));
+    client.disconnect();
+    expect(connects[0]?.auth).toEqual(request.auth);
+    const start = sent
+      .map((frame) => JSON.parse(frame) as { type: string; payload?: { operationName?: string } })
+      .find((frame) => frame.type === 'start');
+    expect(start?.payload?.operationName).toBe('B');
+  });
 
   it('omits auth/secretVariables from the IPC payload when nothing is main-side', async () => {
     const { connects } = installFakeElectron();
