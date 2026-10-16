@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Response as ApiResponse, HttpRequest } from '@/types';
+import { parseGraphQLErrors, parseGraphQLErrorsFromBody } from '../graphqlErrors';
 import {
   buildGraphQLWireRequest,
   createIncrementalProgress,
@@ -207,6 +208,43 @@ describe('normalizeGraphQLResponse', () => {
     expect(out.bodyNotice).toMatch(/merged 2 multipart\/mixed parts/);
     // The body is JSON now, so the header says so (evidence/test scripts key off it).
     expect(out.headers).toEqual({ 'Content-Type': 'application/json; charset=utf-8' });
+  });
+
+  it('feeds errors from merged @defer parts to the GraphQL Errors panel', () => {
+    const body =
+      '\r\n---\r\nContent-Type: application/json\r\n\r\n{"data":{"a":1},"hasNext":true}\r\n---' +
+      '\r\nContent-Type: application/json\r\n\r\n{"incremental":[{"data":{"b":null},"path":[],' +
+      '"errors":[{"message":"slow failed","locations":[{"line":1,"column":12}],"path":["b"]}]}],"hasNext":false}\r\n---' +
+      '\r\n-----\r\n';
+    const out = normalizeGraphQLResponse(apiResponse({ body }));
+    const errors = parseGraphQLErrorsFromBody(out.body);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      message: 'slow failed',
+      locations: [{ line: 1, column: 12 }],
+      path: ['b'],
+    });
+  });
+
+  it('live snapshots carry part errors in the shape the Errors panel parses', () => {
+    const onSnapshot = vi.fn();
+    const progress = createIncrementalProgress(onSnapshot);
+    const enc = (t: string) => new TextEncoder().encode(t);
+    progress({
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-type': MULTIPART_CT },
+      chunk: enc(
+        '\r\n---\r\n\r\n{"data":{"a":1},"pending":[{"id":"0","path":[]}],"hasNext":true}\r\n---' +
+          '\r\n\r\n{"completed":[{"id":"0","errors":[{"message":"boom","locations":[{"line":2,"column":3}]}]}],"hasNext":false}\r\n---'
+      ),
+    });
+    const last = onSnapshot.mock.calls.at(-1)![0];
+    expect(parseGraphQLErrors(last.result)).toMatchObject([
+      { message: 'boom', locations: [{ line: 2, column: 3 }] },
+    ]);
+    const response = snapshotToResponse(last, 'r', Date.now());
+    expect(parseGraphQLErrorsFromBody(response.body)).toHaveLength(1);
   });
 
   it('drops the multipart Content-Length, which no longer matches the merged body', () => {

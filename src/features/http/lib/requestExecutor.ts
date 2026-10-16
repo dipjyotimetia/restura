@@ -70,6 +70,8 @@ export interface RequestExecutionResult {
    * error locations — back onto the unsubstituted editor text.
    */
   sentBody?: string;
+  /** Query params as sent, after `{{var}}` substitution (e.g. a GraphQL GET's `query`). */
+  sentParams?: Record<string, string>;
   refreshedAuth?: HttpRequest['auth'];
   /**
    * `pm.collectionVariables.set/unset` mutations from either script phase,
@@ -665,6 +667,7 @@ export async function executeRequest(
     envVars,
     sentHeaders,
     ...(spec.data !== undefined ? { sentBody: spec.data } : {}),
+    ...(spec.params && Object.keys(spec.params).length > 0 ? { sentParams: spec.params } : {}),
     ...(Object.keys(collectionVarsMutations).length > 0 ? { collectionVarsMutations } : {}),
   };
   if (effectiveAuth !== request.auth) {

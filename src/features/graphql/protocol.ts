@@ -222,9 +222,15 @@ export const graphqlProtocol: ProtocolModule = {
       ctx.onScriptResult(result.scriptResult);
     }
     // The Builder maps error locations against the substituted query text.
+    // A GraphQL GET carries the query in the URL, not the body: report it in
+    // the same `{ query }` envelope shape so location mapping works for both.
     const onSentBody = ctx.protocolOptions?.[GRAPHQL_SENT_BODY_OPTION];
-    if (typeof onSentBody === 'function' && result.sentBody !== undefined) {
-      (onSentBody as (body: string) => void)(result.sentBody);
+    const sentGetQuery = executable.method === 'GET' ? result.sentParams?.query : undefined;
+    const sentBody =
+      result.sentBody ??
+      (sentGetQuery !== undefined ? JSON.stringify({ query: sentGetQuery }) : undefined);
+    if (typeof onSentBody === 'function' && sentBody !== undefined) {
+      (onSentBody as (body: string) => void)(sentBody);
     }
     if (ctx.onAuthRefreshed && result.refreshedAuth) {
       ctx.onAuthRefreshed(result.refreshedAuth);

@@ -172,6 +172,38 @@ describe('graphqlProtocol envelope', () => {
     expect(JSON.parse(passed.request.body.raw!).operationName).toBe('B');
   });
 
+  it('reports a GET query (sent in the URL) as the sent body for error-location mapping', async () => {
+    const get = gqlRequest(ENVELOPE);
+    get.method = 'GET';
+    get.body = { type: 'graphql', raw: 'query Q { item(id: "{{id}}") { name } }' };
+    executeRequestMock.mockResolvedValue({
+      response: { status: 200 },
+      sentParams: { query: 'query Q { item(id: "42") { name } }', operationName: 'Q' },
+    });
+    const onSentBody = vi.fn();
+    await graphqlProtocol.runRequest(get, {
+      signal: new AbortController().signal,
+      variables: {},
+      protocolOptions: { onSentBody },
+    } as never);
+    expect(onSentBody).toHaveBeenCalledWith(
+      JSON.stringify({ query: 'query Q { item(id: "42") { name } }' })
+    );
+
+    // A POST never falls back to URL params.
+    onSentBody.mockClear();
+    executeRequestMock.mockResolvedValue({
+      response: { status: 200 },
+      sentParams: { query: 'not the body' },
+    });
+    await graphqlProtocol.runRequest(gqlRequest(ENVELOPE), {
+      signal: new AbortController().signal,
+      variables: {},
+      protocolOptions: { onSentBody },
+    } as never);
+    expect(onSentBody).not.toHaveBeenCalled();
+  });
+
   it('leaves operationName off an anonymous saved document, like interactive Send', async () => {
     const saved = gqlRequest('{ me { id } }');
     saved.body.type = 'graphql';

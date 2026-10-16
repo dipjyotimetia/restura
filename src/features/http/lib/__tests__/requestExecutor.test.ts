@@ -249,6 +249,19 @@ describe('executeRequest — body variables', () => {
     expect(result.sentBody).toBe('{"h":"api.dev","id":42}');
   });
 
+  it('reports the substituted query params as sent (GraphQL GET location mapping)', async () => {
+    const result = await executeRequest({
+      request: makeRequest({
+        params: [{ id: 'q', key: 'query', value: '{ item(id: "{{id}}") }', enabled: true }],
+      }),
+      envVars: { id: '42' },
+      globalSettings: settings,
+      resolveVariables: (text) => text,
+    });
+    expect(result.sentParams).toEqual({ query: '{ item(id: "42") }' });
+    expect(result.sentBody).toBeUndefined();
+  });
+
   it('resolves {{vars}} in form-data text fields but never in file content', async () => {
     await send({
       type: 'form-data',

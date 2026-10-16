@@ -24,6 +24,13 @@ import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import { formatQuery } from '@/features/graphql/lib/formatter';
 import {
+  GRAPHQL_SENT_BODY_OPTION,
+  parseGraphQLErrors,
+  parseGraphQLErrorsFromBody,
+  sentQueryFromBody,
+  summarizeGraphQLErrors,
+} from '@/features/graphql/lib/graphqlErrors';
+import {
   buildGraphQLWireRequest,
   graphqlMethodOf,
   hasIncrementalDirective,
@@ -31,13 +38,6 @@ import {
   snapshotToResponse,
   stoppedSnapshotResponse,
 } from '@/features/graphql/lib/graphqlHttp';
-import {
-  GRAPHQL_SENT_BODY_OPTION,
-  parseGraphQLErrors,
-  parseGraphQLErrorsFromBody,
-  sentQueryFromBody,
-  summarizeGraphQLErrors,
-} from '@/features/graphql/lib/graphqlErrors';
 import { exportSchemaToSDL } from '@/features/graphql/lib/introspection';
 import {
   applyOperationSelection,
@@ -274,6 +274,15 @@ function GraphQLRequestBuilder() {
                 startedAt
               );
               setCurrentResponseForTab(originTabId, lastSnapshot);
+              // Errors in a part (incremental `errors`, `completed[].errors`)
+              // reach the editor markers as they arrive, not only at the end.
+              useGraphQLErrorStore
+                .getState()
+                .publish(
+                  originTabId,
+                  query,
+                  parseGraphQLErrors((snapshot as IncrementalSnapshot).result)
+                );
             },
           }
         : undefined;
