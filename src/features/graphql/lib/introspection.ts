@@ -14,8 +14,68 @@ import { useSettingsStore } from '@/store/useSettingsStore';
 import type { HttpRequest } from '@/types';
 import type { GraphQLSchema, IntrospectionResult } from '../types';
 
-// Standard GraphQL introspection query (spec-compliant, from the official `graphql` library)
-const INTROSPECTION_QUERY = getIntrospectionQuery();
+/**
+ * Introspection query asking for everything the October 2021 spec (plus the
+ * `@oneOf` RFC) exposes: scalar `specifiedByURL`, directive `isRepeatable`,
+ * deprecated arguments / input fields, and `isOneOf` on input objects. Older
+ * servers reject these fields with validation errors, so `introspectSchema`
+ * steps down through {@link INTROSPECTION_QUERY_TIERS}.
+ */
+export const EXTENDED_INTROSPECTION_QUERY = getIntrospectionQuery({
+  descriptions: true,
+  specifiedByUrl: true,
+  directiveIsRepeatable: true,
+  inputValueDeprecation: true,
+  oneOf: true,
+});
+
+/**
+ * The Oct-2021 fields without `isOneOf` — for servers that implement the 2021
+ * spec but predate the `@oneOf` RFC (e.g. graphql-js 16.0–16.8).
+ */
+export const OCT2021_INTROSPECTION_QUERY = getIntrospectionQuery({
+  descriptions: true,
+  specifiedByUrl: true,
+  directiveIsRepeatable: true,
+  inputValueDeprecation: true,
+});
+
+/** The library-default query every spec-compliant server accepts. */
+export const LEGACY_INTROSPECTION_QUERY = getIntrospectionQuery();
+
+/** Tried in order; the next tier runs only when the server rejects the extended fields. */
+export const INTROSPECTION_QUERY_TIERS = [
+  EXTENDED_INTROSPECTION_QUERY,
+  OCT2021_INTROSPECTION_QUERY,
+  LEGACY_INTROSPECTION_QUERY,
+] as const;
+
+/**
+ * A tier is unsupported when the server answers with a validation rejection
+ * that names a field only the extended tiers ask for: graphql-js's
+ * `Cannot query field "isOneOf" on type "__Type"` / `Unknown argument
+ * "includeDeprecated" on field "__Field.args"`, graphql-java's
+ * `Field 'specifiedByURL' in type '__Type' is undefined` /
+ * `(FieldUndefined@[…])`, Hasura's `field 'isRepeatable' not found in type`, …
+ * Both parts must match. Anything else — introspection disabled, rate limits,
+ * auth or access denials (even one naming `isOneOf`) — is a real failure and is
+ * returned as-is.
+ */
+const EXTENDED_FIELD_PATTERN =
+  /\b(?:specifiedByU(?:RL|rl)|isRepeatable|isOneOf|includeDeprecated)\b/;
+const VALIDATION_REJECTION_PATTERN =
+  /cannot query field|unknown (?:argument|field)|is (?:undefined|not defined)|not found in type|does(?:n't| not) exist|no such (?:field|argument)|FieldUndefined|UnknownArgument/i;
+
+function isUnsupportedFieldError(message: string): boolean {
+  return EXTENDED_FIELD_PATTERN.test(message) && VALIDATION_REJECTION_PATTERN.test(message);
+}
+
+/**
+ * Non-2xx statuses on which a GraphQL error body can mean "this query failed
+ * validation" (GraphQL over HTTP's application/graphql-response+json uses 400;
+ * some servers use 422). Auth failures and the like are never retried.
+ */
+const VALIDATION_ERROR_STATUSES = new Set([400, 422]);
 
 export interface IntrospectionOptions {
   /**
@@ -34,7 +94,8 @@ export interface IntrospectionOptions {
 function buildIntrospectionRequest(
   endpoint: string,
   base: HttpRequest | undefined,
-  timeout: number
+  timeout: number,
+  query: string
 ): HttpRequest {
   const headers = [...(base?.headers ?? [])];
   const hasHeader = (name: string) =>
@@ -64,7 +125,7 @@ function buildIntrospectionRequest(
     url: endpoint,
     headers,
     params: base?.params ?? [],
-    body: { type: 'json', raw: JSON.stringify({ query: INTROSPECTION_QUERY }) },
+    body: { type: 'json', raw: JSON.stringify({ query }) },
     auth: base?.auth ?? { type: 'none' },
     settings: {
       ...resolveEffectiveSettings(base?.settings, useSettingsStore.getState().settings),
@@ -77,6 +138,103 @@ function buildIntrospectionRequest(
   return { ...request, auth: resolveEffectiveAuth(request.auth, inherited?.auth) };
 }
 
+interface IntrospectionAttempt {
+  result: IntrospectionResult;
+  /**
+   * True when the server answered with GraphQL errors and no `__schema` — the
+   * shape of a validation failure, e.g. an older server rejecting the
+   * extended fields. Only then is a retry with the default query worthwhile.
+   */
+  rejectedQuery: boolean;
+}
+
+function failure(endpoint: string, error: string): IntrospectionResult {
+  return { success: false, schema: null, error, endpoint, timestamp: Date.now() };
+}
+
+function parseJsonOrUndefined(body: string): unknown {
+  try {
+    return JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+}
+
+async function attemptIntrospection(
+  endpoint: string,
+  options: IntrospectionOptions,
+  timeout: number,
+  query: string
+): Promise<IntrospectionAttempt> {
+  // Same executor as Send (IPC on desktop, Worker on web) — never a
+  // renderer-direct fetch: the packaged-build CSP blocks it, and it would
+  // bypass the SSRF guard, header policy, and sign-at-wire auth. Going through
+  // it also gives introspection OAuth2 refresh, Secret reference handling and
+  // the cookie jar. Any refreshed auth is discarded: Refresh Schema doesn't
+  // write back to the tab.
+  const { values, secretVariables } = buildActiveRequestVariableResolution();
+  const { response, transportOk } = await executeRequest({
+    request: buildIntrospectionRequest(endpoint, options.request, timeout, query),
+    envVars: values,
+    secretVariables,
+    globalSettings: useSettingsStore.getState().settings,
+    resolveVariables: (text) => useEnvironmentStore.getState().resolveVariables(text),
+  });
+
+  if (!transportOk) {
+    return { result: failure(endpoint, response.body || 'Request failed'), rejectedQuery: false };
+  }
+
+  const ok = response.status >= 200 && response.status < 300;
+  const httpError = `HTTP ${response.status}: ${response.statusText}`;
+  if (!ok && !VALIDATION_ERROR_STATUSES.has(response.status)) {
+    return { result: failure(endpoint, httpError), rejectedQuery: false };
+  }
+
+  const raw: unknown = ok ? JSON.parse(response.body) : parseJsonOrUndefined(response.body);
+  const json = (raw ?? {}) as {
+    data?: { __schema: GraphQLSchema } | null;
+    errors?: Array<{ message: string }>;
+  };
+
+  if (Array.isArray(json.errors) && json.errors.length > 0) {
+    const errorMessage = json.errors.map((e) => e.message).join(', ');
+    return {
+      result: failure(endpoint, `GraphQL errors: ${errorMessage}`),
+      rejectedQuery:
+        !json.data?.__schema &&
+        json.errors.every((e) => isUnsupportedFieldError(String(e?.message ?? ''))),
+    };
+  }
+
+  if (!ok) {
+    return { result: failure(endpoint, httpError), rejectedQuery: false };
+  }
+
+  if (!json.data || !json.data.__schema) {
+    return {
+      result: failure(endpoint, 'Invalid introspection response: missing __schema'),
+      rejectedQuery: false,
+    };
+  }
+
+  const schema: GraphQLSchema = {
+    queryType: json.data.__schema.queryType,
+    mutationType: json.data.__schema.mutationType,
+    subscriptionType: json.data.__schema.subscriptionType,
+    types: json.data.__schema.types,
+    directives: json.data.__schema.directives,
+  };
+
+  // Spec-compliant `IntrospectionQuery` for `buildClientSchema`.
+  const introspection = (raw as { data: IntrospectionQuery }).data;
+
+  return {
+    result: { success: true, schema, introspection, endpoint, timestamp: Date.now() },
+    rejectedQuery: false,
+  };
+}
+
 export async function introspectSchema(
   endpoint: string,
   options: IntrospectionOptions = {}
@@ -84,86 +242,16 @@ export async function introspectSchema(
   const { timeout = 30000 } = options;
 
   try {
-    // Same executor as Send (IPC on desktop, Worker on web) — never a
-    // renderer-direct fetch: the packaged-build CSP blocks it, and it would
-    // bypass the SSRF guard, header policy, and sign-at-wire auth. Going through
-    // it also gives introspection OAuth2 refresh, Secret reference handling and
-    // the cookie jar. Any refreshed auth is discarded: Refresh Schema doesn't
-    // write back to the tab.
-    const { values, secretVariables } = buildActiveRequestVariableResolution();
-    const { response, transportOk } = await executeRequest({
-      request: buildIntrospectionRequest(endpoint, options.request, timeout),
-      envVars: values,
-      secretVariables,
-      globalSettings: useSettingsStore.getState().settings,
-      resolveVariables: (text) => useEnvironmentStore.getState().resolveVariables(text),
-    });
-
-    if (!transportOk) {
-      return {
-        success: false,
-        schema: null,
-        error: response.body || 'Request failed',
-        endpoint,
-        timestamp: Date.now(),
-      };
+    // Servers without @oneOf reject isOneOf; pre-2021 servers also reject
+    // specifiedByURL / isRepeatable / includeDeprecated args. Step down a
+    // tier only on those rejections; the default query is the last resort.
+    let result = failure(endpoint, 'Introspection failed');
+    for (const query of INTROSPECTION_QUERY_TIERS) {
+      const attempt = await attemptIntrospection(endpoint, options, timeout, query);
+      result = attempt.result;
+      if (!attempt.rejectedQuery) break;
     }
-
-    if (response.status < 200 || response.status >= 300) {
-      return {
-        success: false,
-        schema: null,
-        error: `HTTP ${response.status}: ${response.statusText}`,
-        endpoint,
-        timestamp: Date.now(),
-      };
-    }
-
-    const raw: unknown = JSON.parse(response.body);
-    const json = raw as {
-      data?: { __schema: GraphQLSchema } | null;
-      errors?: Array<{ message: string }>;
-    };
-
-    if (json.errors && json.errors.length > 0) {
-      const errorMessage = json.errors.map((e) => e.message).join(', ');
-      return {
-        success: false,
-        schema: null,
-        error: `GraphQL errors: ${errorMessage}`,
-        endpoint,
-        timestamp: Date.now(),
-      };
-    }
-
-    if (!json.data || !json.data.__schema) {
-      return {
-        success: false,
-        schema: null,
-        error: 'Invalid introspection response: missing __schema',
-        endpoint,
-        timestamp: Date.now(),
-      };
-    }
-
-    const schema: GraphQLSchema = {
-      queryType: json.data.__schema.queryType,
-      mutationType: json.data.__schema.mutationType,
-      subscriptionType: json.data.__schema.subscriptionType,
-      types: json.data.__schema.types,
-      directives: json.data.__schema.directives,
-    };
-
-    // Spec-compliant `IntrospectionQuery` for `buildClientSchema`.
-    const introspection = (raw as { data: IntrospectionQuery }).data;
-
-    return {
-      success: true,
-      schema,
-      introspection,
-      endpoint,
-      timestamp: Date.now(),
-    };
+    return result;
   } catch (error) {
     let errorMessage = 'Unknown error occurred';
 
@@ -175,13 +263,7 @@ export async function introspectSchema(
       }
     }
 
-    return {
-      success: false,
-      schema: null,
-      error: errorMessage,
-      endpoint,
-      timestamp: Date.now(),
-    };
+    return failure(endpoint, errorMessage);
   }
 }
 
