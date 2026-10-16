@@ -1,4 +1,10 @@
-import { buildSchema, getIntrospectionQuery, introspectionFromSchema, printSchema } from 'graphql';
+import {
+  buildSchema,
+  getIntrospectionQuery,
+  type IntrospectionQuery,
+  introspectionFromSchema,
+  printSchema,
+} from 'graphql';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // introspectSchema goes through executeRequest, which routes through the shared
@@ -20,7 +26,18 @@ vi.mock('@/lib/shared/activeRequestScopes', async (importOriginal) => ({
 import { useCookieStore } from '@/features/http/store/useCookieStore';
 import type { HttpRequest } from '@/types';
 import type { IntrospectionResult } from '../../types';
-import { buildSchemaFromIntrospection, introspectSchema } from '../introspection';
+import {
+  buildSchemaFromIntrospection,
+  EXTENDED_INTROSPECTION_QUERY,
+  introspectSchema,
+  LEGACY_INTROSPECTION_QUERY,
+  OCT2021_INTROSPECTION_QUERY,
+} from '../introspection';
+
+/** The `query` of every introspection request sent so far, in order. */
+function sentQueries(): string[] {
+  return mockExecute.mock.calls.map(([spec]) => JSON.parse(String(spec.data)).query);
+}
 
 const SAMPLE_SDL = /* GraphQL */ `
   type Query {
@@ -72,7 +89,7 @@ describe('introspectSchema', () => {
     useCookieStore.setState({ cookies: [] });
   });
 
-  it('posts the official getIntrospectionQuery() and applies the request auth and headers', async () => {
+  it('posts the extended getIntrospectionQuery() and applies the request auth and headers', async () => {
     mockExecute.mockResolvedValue(okIntrospectionResponse());
 
     const result = await introspectSchema('https://example.test/graphql', {
@@ -94,8 +111,13 @@ describe('introspectSchema', () => {
 
     // The tab's own query and scripts must not leak into the introspection call.
     const sentBody = JSON.parse(String(spec.data));
-    expect(sentBody.query).toBe(getIntrospectionQuery());
+    expect(sentBody.query).toBe(EXTENDED_INTROSPECTION_QUERY);
     expect(sentBody.query).toContain('__schema');
+    expect(sentBody.query).toContain('specifiedByURL');
+    expect(sentBody.query).toContain('isRepeatable');
+    expect(sentBody.query).toContain('isOneOf');
+    expect(sentBody.query).toContain('args(includeDeprecated: true)');
+    expect(sentBody.query).toContain('inputFields(includeDeprecated: true)');
 
     expect(result.success).toBe(true);
     expect(result.introspection?.__schema).toBeDefined();
@@ -220,6 +242,262 @@ describe('introspectSchema', () => {
     const result = await introspectSchema('https://example.test/graphql');
     expect(result.success).toBe(false);
     expect(result.error).toContain('401');
+  });
+});
+
+const EXTENDED_SDL = /* GraphQL */ `
+  directive @tag(name: String!) repeatable on FIELD_DEFINITION
+
+  scalar DateTime @specifiedBy(url: "https://scalars.graphql.org/andimarek/date-time")
+
+  input Filter @oneOf {
+    id: ID
+    name: String
+  }
+
+  input Paging {
+    limit: Int
+    first: Int @deprecated(reason: "Use limit")
+  }
+
+  type Query {
+    search(filter: Filter, paging: Paging, max: Int @deprecated(reason: "Use paging")): [String]
+    now: DateTime @tag(name: "a") @tag(name: "b")
+  }
+`;
+
+/** What a pre-2021 server returns when asked for fields it does not know. */
+function olderServerRejection(status = 200) {
+  return {
+    status,
+    statusText: status === 200 ? 'OK' : 'Bad Request',
+    headers: {},
+    data: {
+      errors: [
+        { message: 'Cannot query field "specifiedByURL" on type "__Type".' },
+        { message: 'Unknown argument "includeDeprecated" on field "__Field.args".' },
+      ],
+    },
+  };
+}
+
+describe('introspectSchema — extended fields and fallback', () => {
+  beforeEach(() => {
+    mockVariables.mockReturnValue({ values: {}, secretVariables: {} });
+    useCookieStore.setState({ cookies: [] });
+  });
+
+  afterEach(() => {
+    mockExecute.mockReset();
+    mockVariables.mockReset();
+  });
+
+  it('keeps specifiedByURL, repeatable directives, @oneOf and deprecated inputs in the result and SDL', async () => {
+    mockExecute.mockResolvedValue({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: { data: introspectionFromSchema(buildSchema(EXTENDED_SDL)) },
+    });
+
+    const result = await introspectSchema('https://example.test/graphql');
+
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(true);
+    const filter = result.schema?.types.find((t) => t.name === 'Filter');
+    expect(filter?.isOneOf).toBe(true);
+    const paging = result.schema?.types.find((t) => t.name === 'Paging');
+    expect(paging?.inputFields?.find((f) => f.name === 'first')).toMatchObject({
+      isDeprecated: true,
+      deprecationReason: 'Use limit',
+    });
+
+    const sdl = printSchema(buildSchemaFromIntrospection(result)!);
+    expect(sdl).toContain('directive @tag(name: String!) repeatable on FIELD_DEFINITION');
+    expect(sdl).toContain(
+      'scalar DateTime @specifiedBy(url: "https://scalars.graphql.org/andimarek/date-time")'
+    );
+    expect(sdl).toContain('input Filter @oneOf');
+    expect(sdl).toContain('first: Int @deprecated(reason: "Use limit")');
+    expect(sdl).toContain('max: Int @deprecated(reason: "Use paging")');
+  });
+
+  it.each([200, 400])(
+    'falls back to the default query when a pre-2021 server rejects the extended fields (HTTP %i)',
+    async (status) => {
+      const legacy = introspectionFromSchema(buildSchema(SAMPLE_SDL), {
+        specifiedByUrl: false,
+        directiveIsRepeatable: false,
+        inputValueDeprecation: false,
+        oneOf: false,
+      }) as IntrospectionQuery;
+      // Rejects both the @oneOf tier and the Oct-2021 tier.
+      mockExecute.mockResolvedValueOnce(olderServerRejection(status));
+      mockExecute.mockResolvedValueOnce(olderServerRejection(status));
+      mockExecute.mockResolvedValueOnce({
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        data: { data: legacy },
+      });
+
+      const result = await introspectSchema('https://example.test/graphql');
+
+      expect(sentQueries()).toEqual([
+        EXTENDED_INTROSPECTION_QUERY,
+        OCT2021_INTROSPECTION_QUERY,
+        LEGACY_INTROSPECTION_QUERY,
+      ]);
+      expect(LEGACY_INTROSPECTION_QUERY).toBe(getIntrospectionQuery());
+      expect(LEGACY_INTROSPECTION_QUERY).not.toContain('specifiedByURL');
+
+      expect(result.success).toBe(true);
+      expect(printSchema(buildSchemaFromIntrospection(result)!)).toContain('user(id: ID!): User');
+    }
+  );
+
+  it('keeps the Oct-2021 fields on a server that only lacks @oneOf (graphql-js 16.0–16.8)', async () => {
+    const withoutOneOf = introspectionFromSchema(buildSchema(EXTENDED_SDL.replace(' @oneOf', '')), {
+      oneOf: false,
+    }) as IntrospectionQuery;
+    mockExecute.mockResolvedValueOnce({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: { errors: [{ message: 'Cannot query field "isOneOf" on type "__Type".' }] },
+    });
+    mockExecute.mockResolvedValueOnce({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: { data: withoutOneOf },
+    });
+
+    const result = await introspectSchema('https://example.test/graphql');
+
+    expect(sentQueries()).toEqual([EXTENDED_INTROSPECTION_QUERY, OCT2021_INTROSPECTION_QUERY]);
+    expect(OCT2021_INTROSPECTION_QUERY).not.toContain('isOneOf');
+    expect(OCT2021_INTROSPECTION_QUERY).toContain('specifiedByURL');
+    expect(result.success).toBe(true);
+    const sdl = printSchema(buildSchemaFromIntrospection(result)!);
+    expect(sdl).toContain('directive @tag(name: String!) repeatable on FIELD_DEFINITION');
+    expect(sdl).toContain(
+      'scalar DateTime @specifiedBy(url: "https://scalars.graphql.org/andimarek/date-time")'
+    );
+    expect(sdl).toContain('first: Int @deprecated(reason: "Use limit")');
+  });
+
+  it('reports the default-query error when the last tier also fails', async () => {
+    mockExecute.mockResolvedValueOnce(olderServerRejection());
+    mockExecute.mockResolvedValueOnce(olderServerRejection());
+    mockExecute.mockResolvedValueOnce({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: { errors: [{ message: 'Introspection is disabled' }] },
+    });
+
+    const result = await introspectSchema('https://example.test/graphql');
+
+    expect(mockExecute).toHaveBeenCalledTimes(3);
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('GraphQL errors: Introspection is disabled');
+  });
+
+  it.each([
+    [200, 'GraphQL introspection is not allowed by Apollo Server'],
+    [200, 'Too many requests, please retry later'],
+    [400, 'Introspection is disabled'],
+  ])(
+    'surfaces unrelated GraphQL errors without retrying (HTTP %i: %s)',
+    async (status, message) => {
+      mockExecute.mockResolvedValueOnce({
+        status,
+        statusText: status === 200 ? 'OK' : 'Bad Request',
+        headers: {},
+        data: { errors: [{ message }] },
+      });
+
+      const result = await introspectSchema('https://example.test/graphql');
+
+      expect(mockExecute).toHaveBeenCalledTimes(1);
+      expect(result.success).toBe(false);
+      expect(result.error).toBe(`GraphQL errors: ${message}`);
+    }
+  );
+
+  it.each(['Access to isOneOf is denied', 'Field isRepeatable is restricted for your role'])(
+    'does not retry an unrelated error that merely names an extended field (%s)',
+    async (message) => {
+      mockExecute.mockResolvedValueOnce({
+        status: 200,
+        statusText: 'OK',
+        headers: {},
+        data: { errors: [{ message }] },
+      });
+
+      const result = await introspectSchema('https://example.test/graphql');
+
+      expect(mockExecute).toHaveBeenCalledTimes(1);
+      expect(result.success).toBe(false);
+      expect(result.error).toBe(`GraphQL errors: ${message}`);
+    }
+  );
+
+  it.each([
+    "Validation error (FieldUndefined@[__schema/types/isOneOf]) : Field 'isOneOf' in type '__Type' is undefined",
+    "field 'isOneOf' not found in type: '__Type'",
+    'Unknown field "isOneOf" on type "__Type"',
+  ])("steps down a tier on other servers' unsupported-field wording (%s)", async (message) => {
+    mockExecute.mockResolvedValueOnce({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: { errors: [{ message }] },
+    });
+    mockExecute.mockResolvedValueOnce(okIntrospectionResponse());
+
+    const result = await introspectSchema('https://example.test/graphql');
+
+    expect(sentQueries()).toEqual([EXTENDED_INTROSPECTION_QUERY, OCT2021_INTROSPECTION_QUERY]);
+    expect(result.success).toBe(true);
+  });
+
+  it('does not retry when an unsupported-field error is mixed with an unrelated one', async () => {
+    mockExecute.mockResolvedValueOnce({
+      status: 200,
+      statusText: 'OK',
+      headers: {},
+      data: {
+        errors: [
+          { message: 'Cannot query field "isOneOf" on type "__Type".' },
+          { message: 'Not authorised' },
+        ],
+      },
+    });
+
+    const result = await introspectSchema('https://example.test/graphql');
+
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(result.error).toContain('Not authorised');
+  });
+
+  it('does not retry on auth failures or transport errors', async () => {
+    mockExecute.mockResolvedValueOnce({
+      status: 401,
+      statusText: 'Unauthorized',
+      headers: {},
+      data: { errors: [{ message: 'Not authenticated' }] },
+    });
+    const unauth = await introspectSchema('https://example.test/graphql');
+    expect(unauth.success).toBe(false);
+    expect(mockExecute).toHaveBeenCalledTimes(1);
+
+    mockExecute.mockReset();
+    mockExecute.mockRejectedValueOnce(new Error('connect ECONNREFUSED'));
+    const down = await introspectSchema('https://example.test/graphql');
+    expect(down.success).toBe(false);
+    expect(mockExecute).toHaveBeenCalledTimes(1);
   });
 });
 

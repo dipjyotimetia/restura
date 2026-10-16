@@ -12,6 +12,10 @@ export interface GraphQLType {
   enumValues: GraphQLEnumValue[] | null;
   possibleTypes: GraphQLTypeRef[] | null;
   ofType: GraphQLTypeRef | null;
+  /** Scalars only; absent when the server only answered the default introspection query. */
+  specifiedByURL?: string | null;
+  /** Input objects only (`@oneOf`); absent when the server only answered the default query. */
+  isOneOf?: boolean;
 }
 
 export type GraphQLTypeKind =
@@ -44,6 +48,9 @@ export interface GraphQLInputValue {
   description: string | null;
   type: GraphQLTypeRef;
   defaultValue: string | null;
+  /** Deprecated arguments / input fields; absent when the server only answered the default query. */
+  isDeprecated?: boolean;
+  deprecationReason?: string | null;
 }
 
 export interface GraphQLEnumValue {
@@ -58,6 +65,8 @@ export interface GraphQLDirective {
   description: string | null;
   locations: string[];
   args: GraphQLInputValue[];
+  /** Absent when the server only answered the default introspection query. */
+  isRepeatable?: boolean;
 }
 
 export interface GraphQLSchema {
