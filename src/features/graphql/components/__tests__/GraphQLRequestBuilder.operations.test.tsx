@@ -151,7 +151,7 @@ describe('GraphQLRequestBuilder — operation picker + transport (#903)', () => 
     fireEvent.click(screen.getByRole('button', { name: /Subscribe/ }));
     expect(mocks.run).not.toHaveBeenCalled();
     expect(mocks.connect).toHaveBeenCalledWith(
-      expect.objectContaining({ query: DOC, operationName: 'Ticks' })
+      expect.objectContaining({ query: DOC, operationName: 'Ticks', protocol: 'auto' })
     );
   });
 

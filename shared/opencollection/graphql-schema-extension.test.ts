@@ -295,6 +295,62 @@ describe('OpenCollection imported GraphQL schema extension', () => {
       ]);
     });
 
+    it('carries schema, subscription protocol and operation on one entry in any combination', () => {
+      const all: HttpRequest = {
+        ...withOp('All', 'B', SCHEMA_A),
+        graphqlSubscriptionProtocol: 'graphql-sse',
+      };
+      const protoAndOp: HttpRequest = {
+        ...withOp('ProtoOp', 'A'),
+        graphqlSubscriptionProtocol: 'subscriptions-transport-ws',
+      };
+      const collection: Collection = {
+        id: 'c',
+        name: 'Combos',
+        items: [item(all), item(protoAndOp)],
+      };
+      const ext = (internalToOC(collection).extensions as Record<string, unknown>)[
+        GRAPHQL_EXTENSION_KEY
+      ] as { requests: Array<Record<string, unknown>> };
+      expect(ext.requests).toEqual([
+        expect.objectContaining({
+          path: ['All'],
+          source: 'sdl',
+          subscriptionProtocol: 'graphql-sse',
+          operationName: 'B',
+        }),
+        {
+          path: ['ProtoOp'],
+          subscriptionProtocol: 'subscriptions-transport-ws',
+          operationName: 'A',
+        },
+      ]);
+
+      const yaml = serializeOpenCollectionYAML(internalToOC(collection));
+      const back = gqlRequests(ocToInternal(parseOpenCollectionYAML(yaml)).items);
+      expect(
+        back.map((r) => [
+          r.name,
+          r.body.graphqlOperationName,
+          r.graphqlSubscriptionProtocol,
+          r.graphqlSchema,
+        ])
+      ).toEqual([
+        ['All', 'B', 'graphql-sse', SCHEMA_A],
+        ['ProtoOp', 'A', 'subscriptions-transport-ws', undefined],
+      ]);
+    });
+
+    it('degrades a malformed operation name to absent but applies the rest', () => {
+      const [a1] = importWithExtension({
+        schemas: { h: { sdl: SCHEMA_A.sdl } },
+        requests: [{ ...entry(['A1'], 'h'), operationName: 42, subscriptionProtocol: 'auto' }],
+      });
+      expect(a1?.body.graphqlOperationName).toBeUndefined();
+      expect(a1?.graphqlSchema?.sdl).toBe(SCHEMA_A.sdl);
+      expect(a1?.graphqlSubscriptionProtocol).toBe('auto');
+    });
+
     it('applies the operation even when the schema half of the entry is unusable', () => {
       const [a1] = importWithExtension({
         schemas: {},
