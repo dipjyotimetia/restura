@@ -381,13 +381,14 @@ export function registerWebSocketHandlerIPC(): void {
     IPC.ws.disconnect,
     createValidatedEventHandler(IPC.ws.disconnect, WsDisconnectSchema, async (config, event) => {
       const connectionId = config.connectionId;
-      // A connect still resolving main-side credentials is cancelled outright —
-      // it must not open a socket after the renderer asked to disconnect.
-      // (Plain connects keep their existing semantics.)
+      // A connect still pending (resolving main-side credentials or DNS) is
+      // cancelled outright — it must not open a socket after the renderer asked
+      // to disconnect (#908). Dropping the claim makes its post-await liveness
+      // check fail, so no transport is ever constructed.
       const pendingKey = ownerScopedKey(connectionId, event.sender.id);
       const pending = pendingConnections.get(pendingKey);
-      if (pending?.abort) {
-        pending.abort.abort();
+      if (pending) {
+        pending.abort?.abort();
         pendingConnections.delete(pendingKey);
       }
       const entry = connections.getForOwner(connectionId, event.sender.id);

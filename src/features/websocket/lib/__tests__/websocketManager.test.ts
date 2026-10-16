@@ -184,6 +184,78 @@ describe('WebSocketManager', () => {
     });
   });
 
+  describe('auto-reconnect (browser path, #902 shared lifecycle)', () => {
+    let connectionId: string;
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      vi.spyOn(Math, 'random').mockReturnValue(0);
+      connectionId = useWebSocketStore.getState().createConnection();
+      useWebSocketStore.setState((s) => ({
+        connections: {
+          ...s.connections,
+          [connectionId]: {
+            ...s.connections[connectionId]!,
+            maxReconnectAttempts: 2,
+            reconnectDelay: 100,
+          },
+        },
+      }));
+    });
+
+    afterEach(() => {
+      websocketManager.disconnect(connectionId);
+      useWebSocketStore.getState().removeConnection(connectionId);
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    const dropCurrent = () => {
+      const ws = websocketManager.getConnection(connectionId) as unknown as MockWebSocket;
+      ws.onclose?.({ code: 1006, reason: '' } as CloseEvent);
+      return ws;
+    };
+
+    it('honours maxReconnectAttempts across reconnects and replays headers/protocols', async () => {
+      websocketManager.connect(connectionId, 'ws://localhost:8080', ['chat']);
+      const first = dropCurrent();
+      await vi.advanceTimersByTimeAsync(100);
+      const second = websocketManager.getConnection(connectionId) as unknown as MockWebSocket;
+      expect(second).not.toBe(first);
+      expect(second.protocols).toEqual(['chat']);
+      expect(useWebSocketStore.getState().connections[connectionId]?.reconnectAttempts).toBe(1);
+
+      dropCurrent();
+      await vi.advanceTimersByTimeAsync(200);
+      dropCurrent();
+      const state = useWebSocketStore.getState().connections[connectionId];
+      expect(state?.status).toBe('disconnected');
+      expect(state?.reconnectAttempts).toBe(2);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(websocketManager.getConnection(connectionId)).toBeUndefined();
+    });
+
+    it('a disconnect during the reconnect wait settles disconnected', async () => {
+      websocketManager.connect(connectionId, 'ws://localhost:8080');
+      dropCurrent();
+      expect(useWebSocketStore.getState().connections[connectionId]?.status).toBe('reconnecting');
+      websocketManager.disconnect(connectionId);
+      expect(useWebSocketStore.getState().connections[connectionId]?.status).toBe('disconnected');
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(websocketManager.getConnection(connectionId)).toBeUndefined();
+    });
+
+    it('sends the heartbeat on the browser socket once open', async () => {
+      useWebSocketStore.getState().setHeartbeatConfig(connectionId, 1000, 'hb');
+      websocketManager.connect(connectionId, 'ws://localhost:8080');
+      const ws = websocketManager.getConnection(connectionId) as unknown as MockWebSocket;
+      ws.readyState = MockWebSocket.OPEN;
+      ws.onopen?.({} as Event);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(ws.send).toHaveBeenCalledWith('hb');
+    });
+  });
+
   describe('message sending', () => {
     let connectionId: string;
 
