@@ -1,4 +1,8 @@
-import { decodeWsBinaryFrame, encodeWsBinaryFrame } from '@shared/protocol/ws-binary-codec';
+import {
+  decodeWsBinaryFrame,
+  encodeWsBinaryFrame,
+  WS_IPC_MAX_MESSAGE_LENGTH,
+} from '@shared/protocol/ws-binary-codec';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Desktop binary frames (#897) and hex compose validation (#912).
@@ -60,6 +64,25 @@ describe('WebSocketManager desktop binary frames over IPC (#897)', () => {
     expect(cfg.binary).toBe(true);
     expect(cfg.message).toBe(Buffer.from(ALL_BYTES).toString('base64'));
     expect(Array.from(decodeWsBinaryFrame(cfg.message))).toEqual(Array.from(ALL_BYTES));
+  });
+
+  it('refuses a binary frame whose base64 exceeds the IPC send limit (nothing sent or logged)', () => {
+    // 800 KB of bytes → ~1.07 MB of base64, over the 1 MiB ws:send cap.
+    const tooBig = new Uint8Array(800 * 1024).buffer;
+    expect(encodeWsBinaryFrame(tooBig).length).toBeGreaterThan(WS_IPC_MAX_MESSAGE_LENGTH);
+
+    expect(websocketManager.send(connectionId, tooBig)).toBe(false);
+    expect(api.send).not.toHaveBeenCalled();
+    const msgs = useWebSocketStore.getState().connections[connectionId]!.messages;
+    expect(msgs.some((m) => m.type === 'sent')).toBe(false);
+    expect(msgs.at(-1)!.type).toBe('system');
+    expect(msgs.at(-1)!.content).toMatch(/too large/i);
+  });
+
+  it('still sends a binary frame just under the IPC limit', () => {
+    const maxBytes = (WS_IPC_MAX_MESSAGE_LENGTH / 4) * 3; // base64 length === limit
+    expect(websocketManager.send(connectionId, new Uint8Array(maxBytes).buffer)).toBe(true);
+    expect(api.send.mock.calls[0]![0].message.length).toBe(WS_IPC_MAX_MESSAGE_LENGTH);
   });
 
   it('keeps hex as the display format for sent binary frames', () => {

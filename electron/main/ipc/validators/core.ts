@@ -1,6 +1,7 @@
 import { GrpcReflectionMetadataSchema } from '@shared/protocol/grpc-schema';
 import { FormFieldSchema } from '@shared/protocol/proxy-schema';
 import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema';
+import { WS_IPC_MAX_MESSAGE_LENGTH } from '@shared/protocol/ws-binary-codec';
 import { httpVersionPreferenceSchema } from '@shared/schemas/app';
 import { z } from 'zod';
 
@@ -588,7 +589,7 @@ export const WsConnectSchema = z.object({
 
 export const WsSendSchema = z.object({
   connectionId: WsConnectionIdSchema,
-  message: z.string().max(1024 * 1024, 'Message exceeds 1MB limit'),
+  message: z.string().max(WS_IPC_MAX_MESSAGE_LENGTH, 'Message exceeds 1MB limit'),
   binary: z.boolean().optional(),
 });
 

@@ -1,4 +1,8 @@
-import { decodeWsBinaryFrame, encodeWsBinaryFrame } from '@shared/protocol/ws-binary-codec';
+import {
+  decodeWsBinaryFrame,
+  encodeWsBinaryFrame,
+  WS_IPC_MAX_MESSAGE_LENGTH,
+} from '@shared/protocol/ws-binary-codec';
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 
@@ -243,8 +247,18 @@ class WebSocketManager {
       const state = useWebSocketStore.getState();
       if (message instanceof ArrayBuffer) {
         // IPC carries base64 (shared codec, same as main); hex is display-only.
+        const encoded = encodeWsBinaryFrame(message);
+        if (encoded.length > WS_IPC_MAX_MESSAGE_LENGTH) {
+          // Main's ws:send schema would reject it silently — refuse up front.
+          state.addMessage(
+            connectionId,
+            'system',
+            `Binary frame too large to send (${message.byteLength} bytes; desktop limit is ${(WS_IPC_MAX_MESSAGE_LENGTH / 4) * 3} bytes)`
+          );
+          return false;
+        }
         const hexString = this.arrayBufferToHex(message);
-        api.websocket.send({ connectionId, message: encodeWsBinaryFrame(message), binary: true });
+        api.websocket.send({ connectionId, message: encoded, binary: true });
         state.addMessage(connectionId, 'sent', hexString, 'binary', message);
       } else {
         api.websocket.send({ connectionId, message });

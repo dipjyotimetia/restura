@@ -11,6 +11,14 @@
  */
 import { bytesToBase64 } from './binary';
 
+/**
+ * Max length (string chars) of a `ws:send` IPC message — enforced by main's
+ * `WsSendSchema`. Binary frames are checked against it *after* base64 encoding
+ * (~4/3 of the byte size) so the renderer can refuse an oversize frame instead
+ * of it failing validation silently in main.
+ */
+export const WS_IPC_MAX_MESSAGE_LENGTH = 1024 * 1024;
+
 const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
 /** Encode a binary frame's bytes for IPC transport (base64). */
