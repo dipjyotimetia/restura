@@ -60,6 +60,7 @@ vi.mock('sonner', () => ({
   toast: { dismiss: vi.fn(), error: vi.fn(), info: vi.fn(), success: vi.fn(), warning: vi.fn() },
 }));
 
+import { useGraphQLErrorStore } from '@/features/graphql/store/useGraphQLErrorStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import GraphQLRequestBuilder from '../GraphQLRequestBuilder';
 
@@ -214,5 +215,44 @@ describe('GraphQLRequestBuilder — operation picker + transport (#903)', () => 
     const unsubscribe = screen.getByRole('button', { name: /Unsubscribe/ });
     fireEvent.click(unsubscribe);
     expect(mocks.disconnect.mock.calls.length).toBe(disconnectsBefore + 1);
+  });
+
+  it('publishes response errors against the full sent document for the selected operation (#1106)', async () => {
+    seed({ graphqlOperationName: 'Rename' });
+    mocks.run.mockImplementationOnce(async (_req: HttpRequest, _p: string, opts?: unknown) => {
+      const sent = (
+        opts as { protocolOptions?: Record<string, (body: string) => void> } | undefined
+      )?.protocolOptions;
+      for (const cb of Object.values(sent ?? {})) {
+        cb(JSON.stringify({ query: DOC, variables: {}, operationName: 'Rename' }));
+      }
+      return {
+        response: {
+          id: 'x',
+          requestId: 'r',
+          status: 200,
+          statusText: 'OK',
+          headers: {},
+          body: JSON.stringify({
+            errors: [{ message: 'rename failed', locations: [{ line: 2, column: 45 }] }],
+          }),
+          size: 1,
+          time: 1,
+          timestamp: 0,
+        },
+      };
+    });
+    render(<GraphQLRequestBuilder />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Send GraphQL mutation' }));
+    });
+    expect(sentEnvelope()).toMatchObject({ operationName: 'Rename' });
+    const published = useGraphQLErrorStore.getState().byTab.tab;
+    expect(published?.query).toBe(DOC);
+    expect(published?.sentQuery).toBeUndefined(); // sent document == editor document
+    expect(published?.errors[0]).toMatchObject({
+      message: 'rename failed',
+      locations: [{ line: 2, column: 45 }],
+    });
   });
 });

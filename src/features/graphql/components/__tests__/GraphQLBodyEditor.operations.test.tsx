@@ -14,11 +14,13 @@ const monacoFake = vi.hoisted(() => {
     getPosition: () => ({ lineNumber: 1, column: 1 }) as unknown,
     getModel: () => ({ getOffsetAt: () => 42 }) as unknown,
   };
+  const setModelMarkers = vi.fn();
   return {
     actions,
     editor,
-    monaco: { KeyMod: { CtrlCmd: 2048 }, KeyCode: { Enter: 3 } },
-    model: {},
+    setModelMarkers,
+    monaco: { KeyMod: { CtrlCmd: 2048 }, KeyCode: { Enter: 3 }, editor: { setModelMarkers } },
+    model: { isDisposed: () => false },
   };
 });
 
@@ -45,7 +47,9 @@ vi.mock('@/features/graphql/lib/diagnosticsProvider', () => ({
   setupDebouncedDiagnostics: () => ({ dispose: () => {} }),
 }));
 
+import { useGraphQLErrorStore } from '@/features/graphql/store/useGraphQLErrorStore';
 import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
+import { useRequestStore } from '@/store/useRequestStore';
 import GraphQLBodyEditor from '../GraphQLBodyEditor';
 
 const MULTI = 'query A($id: ID!) { a(id: $id) }\nsubscription B($room: String!) { b(room: $room) }';
@@ -68,6 +72,7 @@ function renderEditor(props: Partial<Parameters<typeof GraphQLBodyEditor>[0]> = 
 describe('GraphQLBodyEditor — operations (#903)', () => {
   beforeEach(() => {
     monacoFake.actions.length = 0;
+    monacoFake.setModelMarkers.mockClear();
     useGraphQLSchemaStore.setState({ schemas: {}, loading: {} });
   });
 
@@ -104,5 +109,42 @@ describe('GraphQLBodyEditor — operations (#903)', () => {
     expect(action.keybindings).toEqual([2048 | 3]);
     action.run(monacoFake.editor);
     expect(onRunAtCursor).toHaveBeenCalledWith(42);
+  });
+
+  it('keeps response-error markers (#1106) working alongside the picker and Cmd+Enter action', () => {
+    useRequestStore.setState({
+      tabs: [
+        {
+          id: 'tab-1',
+          request: {
+            id: 'r',
+            name: 'R',
+            type: 'http',
+            method: 'POST',
+            url: 'https://gql.example/graphql',
+            headers: [],
+            params: [],
+            body: { type: 'graphql', raw: MULTI },
+            auth: { type: 'none' },
+          },
+          isDirty: false,
+        },
+      ],
+      activeTabId: 'tab-1',
+    });
+    useGraphQLErrorStore
+      .getState()
+      .publish('tab-1', MULTI, [
+        { index: 0, message: 'boom', locations: [{ line: 2, column: 1 }], path: null },
+      ]);
+    renderEditor({ operationName: 'B', onSelectOperation: vi.fn(), onRunAtCursor: vi.fn() });
+    const calls = monacoFake.setModelMarkers.mock.calls;
+    const last = calls.at(-1);
+    expect(last?.[1]).toBe('graphql-response-errors');
+    expect((last?.[2] as Array<{ message: string; startLineNumber: number }>)[0]).toMatchObject({
+      message: expect.stringContaining('boom'),
+      startLineNumber: 2,
+    });
+    expect(screen.getByRole('group', { name: 'GraphQL operations' })).toBeTruthy();
   });
 });
