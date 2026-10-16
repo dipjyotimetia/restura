@@ -57,6 +57,16 @@ describe('WebSocketManager desktop binary frames over IPC (#897)', () => {
     vi.clearAllMocks();
   });
 
+  it('logs the masked display copy for a binary frame while sending base64 bytes (#927)', () => {
+    const bytes = Uint8Array.from([0x73, 0x65, 0x63]).buffer;
+    websocketManager.send(connectionId, bytes, { display: '•••••• 21' });
+    expect(api.send).toHaveBeenCalledWith(
+      expect.objectContaining({ message: encodeWsBinaryFrame(bytes), binary: true })
+    );
+    const last = useWebSocketStore.getState().connections[connectionId]?.messages.at(-1);
+    expect(last?.content).toBe('•••••• 21');
+  });
+
   it('sends binary frames to main as base64, byte-for-byte', () => {
     expect(websocketManager.send(connectionId, ALL_BYTES.slice().buffer)).toBe(true);
 
