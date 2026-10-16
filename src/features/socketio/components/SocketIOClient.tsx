@@ -8,6 +8,7 @@ import {
   LogExportMenu,
   useFrozenView,
 } from '@/components/shared/messageLog/MessageLogControls';
+import { MessageTemplateList } from '@/components/shared/messageTemplates/MessageTemplateList';
 import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,6 +30,7 @@ import {
   ToggleField,
   VariableText,
 } from '@/components/ui/spatial';
+import { type EmitInput, emitWithVariables } from '@/features/socketio/lib/emitWithVariables';
 import { filterSocketIOEvents } from '@/features/socketio/lib/eventFilter';
 import {
   socketioExportName,
@@ -42,6 +44,11 @@ import {
 } from '@/features/socketio/store/useSocketIOStore';
 import { filteredEmptyText } from '@/lib/shared/messageLog';
 import { modLabel } from '@/lib/shared/shortcuts';
+import {
+  newTemplateId,
+  nextTemplateName,
+  type SocketIOEmitTemplate,
+} from '@/lib/shared/streaming/messageTemplates';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn } from '@/lib/shared/utils';
 import { useActiveTabId } from '@/store/selectors';
@@ -104,19 +111,6 @@ function argsSize(args: unknown[]): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function parseEmitArgs(
-  input: string
-): { ok: true; args: unknown[] } | { ok: false; error: string } {
-  const trimmed = input.trim();
-  if (!trimmed) return { ok: true, args: [] };
-  try {
-    const parsed = JSON.parse(trimmed);
-    return { ok: true, args: Array.isArray(parsed) ? parsed : [parsed] };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : 'Invalid JSON' };
-  }
 }
 
 function DirTag({ direction }: { direction: SocketIOEventDirection }) {
@@ -218,6 +212,7 @@ function SocketIOClient() {
   const [emitArgsText, setEmitArgsText] = useState('"hello"');
   const [emitError, setEmitError] = useState<string | null>(null);
   const [requestAck, setRequestAck] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [frozen, setFrozen] = useState(false);
   // null = auto (open only when something is configured); boolean = user override.
@@ -285,20 +280,24 @@ function SocketIOClient() {
     socketioManager.disconnect(activeConnectionId);
   };
 
-  const handleEmit = () => {
-    const parsed = parseEmitArgs(emitArgsText);
-    if (!parsed.ok) {
-      setEmitError(parsed.error);
-      return;
-    }
-    setEmitError(null);
-    socketioManager.emit(
-      activeConnectionId,
-      emitEventName.trim() || 'message',
-      parsed.args,
-      requestAck
-    );
+  // {{var}} resolution, unresolved warnings and secret masking: emitWithVariables (#974).
+  const emitInput = (input: EmitInput) => {
+    const out = emitWithVariables(activeConnectionId, input);
+    setEmitError(out.ok ? null : out.error);
   };
+  const handleEmit = () =>
+    emitInput({ eventName: emitEventName, args: emitArgsText, ack: requestAck });
+  const templates = connection.templates ?? [];
+  const createTemplate = (): SocketIOEmitTemplate | null =>
+    emitEventName.trim()
+      ? {
+          id: newTemplateId(),
+          name: nextTemplateName(templates, 'Emit'),
+          eventName: emitEventName,
+          args: emitArgsText,
+          ack: requestAck,
+        }
+      : null;
 
   const handleClear = () => {
     clearEvents(activeConnectionId);
@@ -635,6 +634,12 @@ function SocketIOClient() {
           <Floater radius="panel" className="flex flex-1 flex-col min-h-0 overflow-hidden">
             <div className="flex items-center gap-2 px-3 h-10 border-b border-sp-line shrink-0">
               <span className="text-sp-13 font-medium text-sp-text">Compose</span>
+              <CountToggle
+                label="Saved"
+                count={templates.length}
+                expanded={templatesOpen}
+                onToggle={() => setTemplatesOpen(!templatesOpen)}
+              />
               <div className="flex-1" />
               <span className="text-sp-11 text-sp-muted">Ack</span>
               <ToggleField
@@ -644,6 +649,24 @@ function SocketIOClient() {
                 ariaLabel="Request acknowledgement for emitted events"
               />
             </div>
+            {templatesOpen && (
+              <div className="shrink-0 border-b border-sp-line px-2 py-1.5">
+                <MessageTemplateList<SocketIOEmitTemplate>
+                  templates={templates}
+                  onChange={(next) => updateConnectionField(activeConnectionId, 'templates', next)}
+                  onLoad={(t) => {
+                    setEmitEventName(t.eventName);
+                    setEmitArgsText(t.args);
+                    setRequestAck(t.ack);
+                  }}
+                  onSend={(t) => emitInput({ eventName: t.eventName, args: t.args, ack: t.ack })}
+                  createFromComposer={createTemplate}
+                  canSend={isConnected}
+                  describe={(t) => `${t.eventName}${t.ack ? ' · ack' : ''} · ${t.args}`}
+                  noun="emit"
+                />
+              </div>
+            )}
             <div className="px-2 pt-2 shrink-0">
               <TextField
                 size="sm"

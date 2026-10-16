@@ -194,6 +194,7 @@ describe('buildActiveRequestValueMap', () => {
     expect(buildActiveRequestVariableResolution()).toEqual({
       values: {},
       secretVariables: { token: { kind: 'inline', value: 'desktop-only' } },
+      secretNames: [],
     });
 
     useEnvironmentStore.getState().setActiveEnvironment('sub');
@@ -201,7 +202,40 @@ describe('buildActiveRequestValueMap', () => {
     expect(buildActiveRequestVariableResolution()).toEqual({
       values: { token: 'sub' },
       secretVariables: {},
+      secretNames: [],
     });
+  });
+
+  it('reports secret-marked winners in secretNames, cleared by a later plaintext scope', () => {
+    useEnvironmentStore.setState({
+      environments: [
+        {
+          id: 'env',
+          name: 'E',
+          variables: [
+            { id: 's', key: 'token', value: 'tv', enabled: true, secret: true },
+            { id: 'o', key: 'overridden', value: 'sv', enabled: true, secret: true },
+          ],
+        },
+      ],
+      activeEnvironmentId: 'env',
+    });
+    useCollectionStore.setState({
+      collections: [
+        {
+          id: 'c1',
+          name: 'C',
+          items: [{ id: 'item-1', name: 'R', type: 'request', request: makeRequest() }],
+          variables: [{ id: 'cv', key: 'overridden', value: 'plain', enabled: true }],
+        },
+      ],
+    });
+    useRequestStore.getState().openTab(makeRequest(), { savedRequestId: 'item-1' });
+
+    const { values, secretNames } = buildActiveRequestVariableResolution();
+    expect(values.token).toBe('tv');
+    expect(values.overridden).toBe('plain');
+    expect(secretNames).toEqual(['token']);
   });
 
   it('returns no ancestors for an empty folder subtree', () => {

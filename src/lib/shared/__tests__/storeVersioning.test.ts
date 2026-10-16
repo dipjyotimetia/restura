@@ -40,6 +40,8 @@ const STORES: Record<string, PersistedStore> = {
   globals: useGlobalsStore as unknown as PersistedStore,
 };
 
+const REAL_V2_MIGRATIONS = new Set(['kafka', 'websocket', 'socketio', 'mqtt']);
+
 describe('framework-adopted store versioning', () => {
   for (const [label, store] of Object.entries(STORES)) {
     it(`${label} declares version >= 1 and a migrate function`, () => {
@@ -51,13 +53,13 @@ describe('framework-adopted store versioning', () => {
     it(`${label} migrate adopts a version-0 blob unchanged (no data loss on the bump)`, async () => {
       const opts = store.persist.getOptions();
       // Kafka has a real v1 → v2 shape migration whose connection records
-      // require a consumer object. Its dedicated store tests cover that
-      // transformation; use an empty-but-valid persisted shell here to retain
-      // this framework-level pass-through assertion.
-      const sample =
-        label === 'kafka'
-          ? { connections: {}, activeConnectionId: null }
-          : { connections: { x: { id: 'x' } }, activeConnectionId: 'x' };
+      // require a consumer object, and WebSocket / Socket.IO / MQTT add saved
+      // message templates to each connection in v1 → v2 (#974). Their dedicated
+      // tests cover those transformations; use an empty-but-valid persisted
+      // shell here to retain this framework-level pass-through assertion.
+      const sample = REAL_V2_MIGRATIONS.has(label)
+        ? { connections: {}, activeConnectionId: null }
+        : { connections: { x: { id: 'x' } }, activeConnectionId: 'x' };
       // The factory migrate is async (runMigrations + telemetry); with steps: []
       // it returns the persisted state unchanged.
       await expect(Promise.resolve(opts.migrate?.(sample, 0))).resolves.toEqual(sample);

@@ -14,6 +14,8 @@ Socket.IO isn't plain WebSocket — it has its own framing, namespacing, ack cal
 - **Auth payload + query params** on connect — editable while disconnected; the auth map is sent in the handshake `auth` field, query params on the connection URL.
   Both are edited in a key/value table with bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row; values are sent exactly as typed (no `{{variable}}` resolution).
 - **Emit events** — pick an event name, send a JSON / string / number payload.
+- **`{{variables}}` in emits** — the event name and the JSON args are resolved at emit time with the same scopes as HTTP (globals, environment, collection and folder variables, `{{$dynamic}}` helpers), before the args are parsed. Unresolved names are sent literally and flagged in the transcript; secret values are masked in the logged copy.
+- **Saved emits** — click **Saved** in the composer to keep named emits per connection (event name + args + ack flag). Save, rename, reorder and delete them; click to load into the composer, or send directly with the send button / <kbd>Shift</kbd>+<kbd>Enter</kbd>. They are stored unresolved.
 - **Listen** — subscribe to event names; live messages stream into the transcript. Reserved lifecycle events (`connect`, `disconnect`, `connect_error`, `reconnect*`) never show up as application events — they're rendered as system messages instead.
 - **Acks** — toggle **Ack** in the compose bar to request the callback-based response; the resolved ack args stream back into the transcript with an `ok` or `timeout` status (15s).
 - **Reconnect** — on/off, with configurable attempt count and delay; attempts, successes, and failures all show up as system events.

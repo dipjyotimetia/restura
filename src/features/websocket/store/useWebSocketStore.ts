@@ -3,12 +3,30 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
+import {
+  migrateConnectionTemplates,
+  type WebSocketMessageTemplate,
+  webSocketTemplateSchema,
+} from '@/lib/shared/streaming/messageTemplates';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import { emitStreamEvent } from '@/store/useStreamTimelineStore';
 import type { KeyValue } from '@/types';
 
 export type WebSocketMessageType = 'sent' | 'received' | 'system';
 export type WebSocketDataType = 'text' | 'binary';
+
+/** Outcome of the per-frame assertion script for one received frame (#931). */
+export interface FrameAssertionResult {
+  status: 'passed' | 'failed' | 'error';
+  tests: Array<{ name: string; passed: boolean; error?: string }>;
+  errors: string[];
+}
+
+/** Optional QuickJS script run against every received frame (#931). */
+export interface FrameAssertionConfig {
+  enabled: boolean;
+  script: string;
+}
 
 export interface WebSocketMessage {
   id: string;
@@ -17,6 +35,7 @@ export interface WebSocketMessage {
   content: string;
   binaryData?: ArrayBuffer;
   timestamp: number;
+  assertion?: FrameAssertionResult;
 }
 
 export interface WebSocketConnection {
@@ -40,6 +59,9 @@ export interface WebSocketConnection {
   negotiated?: { protocol: string; extensions: string } | undefined;
   /** Runtime-only (#919): round-trip time of the last answered desktop ping. */
   lastPingRttMs?: number | undefined;
+  /** Saved messages, stored unresolved — `{{var}}` is substituted at send time. */
+  templates: WebSocketMessageTemplate[];
+  frameAssertion?: FrameAssertionConfig;
 }
 
 /** Control-frame state patched by the manager / connection options (#919, #923). */
@@ -100,6 +122,14 @@ interface WebSocketState {
 
   /** Patch control-frame state (negotiated params, ping RTT, permessage-deflate). */
   patchControlState: (connectionId: string, patch: Partial<WebSocketControlState>) => void;
+  // Templates + frame assertions
+  setTemplates: (connectionId: string, templates: WebSocketMessageTemplate[]) => void;
+  setFrameAssertion: (connectionId: string, config: FrameAssertionConfig) => void;
+  setMessageAssertion: (
+    connectionId: string,
+    messageId: string,
+    result: FrameAssertionResult
+  ) => void;
 
   // Heartbeat
   setHeartbeatConfig: (connectionId: string, interval: number, message: string) => void;
@@ -142,6 +172,7 @@ export const useWebSocketStore = create<WebSocketState>()(
           createdAt: Date.now(),
           heartbeatInterval: 0,
           heartbeatMessage: 'ping',
+          templates: [],
         };
 
         set((state) => ({
@@ -355,6 +386,40 @@ export const useWebSocketStore = create<WebSocketState>()(
           };
         }),
 
+      setTemplates: (connectionId, templates) =>
+        set((state) => {
+          const connection = state.connections[connectionId];
+          if (!connection) return state;
+          return {
+            connections: { ...state.connections, [connectionId]: { ...connection, templates } },
+          };
+        }),
+
+      setFrameAssertion: (connectionId, frameAssertion) =>
+        set((state) => {
+          const connection = state.connections[connectionId];
+          if (!connection) return state;
+          return {
+            connections: {
+              ...state.connections,
+              [connectionId]: { ...connection, frameAssertion },
+            },
+          };
+        }),
+
+      setMessageAssertion: (connectionId, messageId, assertion) =>
+        set((state) => {
+          const connection = state.connections[connectionId];
+          if (!connection) return state;
+          const index = connection.messages.findIndex((m) => m.id === messageId);
+          if (index < 0) return state;
+          const messages = [...connection.messages];
+          messages[index] = { ...(messages[index] as WebSocketMessage), assertion };
+          return {
+            connections: { ...state.connections, [connectionId]: { ...connection, messages } },
+          };
+        }),
+
       setHeartbeatConfig: (connectionId, interval, message) =>
         set((state) => {
           const connection = state.connections[connectionId];
@@ -405,8 +470,16 @@ export const useWebSocketStore = create<WebSocketState>()(
     createPersistedStore<WebSocketState>({
       store: 'websocketConnections',
       persistName: 'websocket-storage',
-      version: 1,
-      steps: [],
+      version: 2,
+      steps: [
+        {
+          name: 'add-message-templates',
+          fromVersion: 1,
+          apply: (state) => ({
+            state: migrateConnectionTemplates(state, webSocketTemplateSchema),
+          }),
+        },
+      ],
       partialize: (state) => ({
         // Don't persist messages or connection status to avoid stale data
         connections: Object.fromEntries(

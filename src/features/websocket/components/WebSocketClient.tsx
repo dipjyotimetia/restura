@@ -9,6 +9,7 @@ import {
   LogExportMenu,
   useFrozenView,
 } from '@/components/shared/messageLog/MessageLogControls';
+import { MessageTemplateList } from '@/components/shared/messageTemplates/MessageTemplateList';
 import { StreamSplit } from '@/components/shared/StreamSplit';
 import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
@@ -34,6 +35,13 @@ import {
 } from '@/components/ui/spatial';
 import { WsDisconnectControl } from '@/features/websocket/components/WsDisconnectControl';
 import { WsPingControl } from '@/features/websocket/components/WsPingControl';
+import { startFrameAssertionWatcher } from '@/features/websocket/lib/frameAssertions';
+import {
+  sendComposedWebSocketMessage,
+  sendFormatToTemplateFormat,
+  templateFormatToSendFormat,
+  type WebSocketSendFormat,
+} from '@/features/websocket/lib/sendComposedMessage';
 import { websocketManager } from '@/features/websocket/lib/websocketManager';
 import type { WsCloseOptions } from '@/features/websocket/lib/wsControlFrames';
 import { wsExportName, wsToLogEntries } from '@/features/websocket/lib/wsLogExport';
@@ -43,12 +51,22 @@ import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { filteredEmptyText } from '@/lib/shared/messageLog';
 import { isElectron } from '@/lib/shared/platform';
 import { modLabel } from '@/lib/shared/shortcuts';
+import {
+  newTemplateId,
+  nextTemplateName,
+  type WebSocketMessageTemplate,
+} from '@/lib/shared/streaming/messageTemplates';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn, keyValuePairsToRecord } from '@/lib/shared/utils';
 import { useActiveTabId } from '@/store/selectors';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
+import {
+  FrameAssertionBadge,
+  FrameAssertionButton,
+  FrameAssertionDetails,
+} from './FrameAssertionControls';
 
-type SendFormat = 'json' | 'text' | 'binary';
+type SendFormat = WebSocketSendFormat;
 
 const formatDuration = (ms: number): string => {
   const seconds = Math.floor(ms / 1000);
@@ -150,6 +168,7 @@ function WebSocketClient() {
   const [frozen, setFrozen] = useState(false);
   // null = auto (open only when something is configured); boolean = user override.
   const [configOpenOverride, setConfigOpenOverride] = useState<boolean | null>(null);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
 
   const resolveVariables = useEnvironmentStore((s) => s.resolveVariables);
   const activeTabId = useActiveTabId();
@@ -169,10 +188,11 @@ function WebSocketClient() {
     setMessageFilter,
     setSearchQuery,
     getFilteredMessages,
-    addMessage,
     setHeaders,
     setProtocols,
     patchControlState,
+    setTemplates,
+    setFrameAssertion,
   } = useWebSocketStore(
     useShallow((s) => ({
       ensureConnectionForTab: s.ensureConnectionForTab,
@@ -182,16 +202,23 @@ function WebSocketClient() {
       setMessageFilter: s.setMessageFilter,
       setSearchQuery: s.setSearchQuery,
       getFilteredMessages: s.getFilteredMessages,
-      addMessage: s.addMessage,
       setHeaders: s.setHeaders,
       setProtocols: s.setProtocols,
       patchControlState: s.patchControlState,
+      setTemplates: s.setTemplates,
+      setFrameAssertion: s.setFrameAssertion,
     }))
   );
 
   useEffect(() => {
     if (activeTabId) ensureConnectionForTab(activeTabId);
   }, [activeTabId, ensureConnectionForTab]);
+
+  // App-wide and idempotent: per-frame assertion scripts (#931) keep running
+  // for background tabs, so the watcher is never torn down on unmount.
+  useEffect(() => {
+    startFrameAssertionWatcher();
+  }, []);
 
   // Counts (memoised so we don't walk the full message list on every render).
   const counts = useMemo(() => {
@@ -247,26 +274,21 @@ function WebSocketClient() {
     websocketManager.disconnect(activeConnectionId, true, close);
   };
 
+  // {{var}} resolution, unresolved warnings and secret masking live in the
+  // helper (#927); the composer keeps the unresolved text.
   const handleSendMessage = () => {
-    if (!message.trim()) return;
-
-    if (sendFormat === 'binary') {
-      try {
-        const buffer = websocketManager.hexToArrayBuffer(message);
-        websocketManager.send(activeConnectionId, buffer);
-        setMessage('');
-      } catch {
-        addMessage(
-          activeConnectionId,
-          'system',
-          `Invalid hex format: "${message.substring(0, 50)}${message.length > 50 ? '...' : ''}". Expected space-separated hex bytes (e.g., "48 65 6c 6c 6f")`
-        );
-      }
-    } else {
-      websocketManager.send(activeConnectionId, message);
-      setMessage('');
-    }
+    if (sendComposedWebSocketMessage(activeConnectionId, message, sendFormat)) setMessage('');
   };
+  const templates = connection.templates ?? [];
+  const createTemplate = (): WebSocketMessageTemplate | null =>
+    message.trim()
+      ? {
+          id: newTemplateId(),
+          name: nextTemplateName(templates, 'Message'),
+          body: message,
+          format: sendFormatToTemplateFormat(sendFormat),
+        }
+      : null;
 
   const handleClearMessages = () => {
     clearMessages(activeConnectionId);
@@ -423,6 +445,10 @@ function WebSocketClient() {
               </SelectContent>
             </Select>
             <FreezeToggle frozen={frozen} newCount={newCount} onChange={setFrozen} />
+            <FrameAssertionButton
+              config={connection.frameAssertion}
+              onChange={(config) => setFrameAssertion(activeConnectionId, config)}
+            />
             <LogExportMenu
               entries={() => wsToLogEntries(filteredMessages)}
               name={wsExportName(connection.url)}
@@ -486,8 +512,9 @@ function WebSocketClient() {
                     <span className="text-sp-dim text-sp-11">
                       {msg.dataType === 'binary' ? 'bin' : formatSize(msg.content)}
                     </span>
-                    <span className="truncate text-sp-12 text-sp-text">
-                      {previewContent(msg.content)}
+                    <span className="flex min-w-0 items-center text-sp-12 text-sp-text">
+                      <span className="truncate">{previewContent(msg.content)}</span>
+                      <FrameAssertionBadge result={msg.assertion} />
                     </span>
                   </button>
                 );
@@ -522,6 +549,7 @@ function WebSocketClient() {
             <div className="flex-1 min-h-0 overflow-hidden p-2">
               {selectedMessage ? (
                 <CodeEditorFrame gutter={false} className="h-full">
+                  <FrameAssertionDetails result={selectedMessage.assertion} />
                   <pre className="whitespace-pre-wrap break-words text-sp-12 text-sp-text">
                     {tryPrettyJson(selectedMessage.content)}
                   </pre>
@@ -538,6 +566,12 @@ function WebSocketClient() {
           <Floater radius="panel" className="flex flex-1 flex-col min-h-0 overflow-hidden">
             <div className="flex items-center gap-2 px-3 h-10 border-b border-sp-line shrink-0">
               <span className="text-sp-13 font-medium text-sp-text">Compose</span>
+              <CountToggle
+                label="Saved"
+                count={templates.length}
+                expanded={templatesOpen}
+                onToggle={() => setTemplatesOpen(!templatesOpen)}
+              />
               <div className="flex-1" />
               <Segmented<SendFormat>
                 size="sm"
@@ -551,6 +585,29 @@ function WebSocketClient() {
                 ]}
               />
             </div>
+            {templatesOpen && (
+              <div className="shrink-0 border-b border-sp-line px-2 py-1.5">
+                <MessageTemplateList<WebSocketMessageTemplate>
+                  templates={templates}
+                  onChange={(next) => setTemplates(activeConnectionId, next)}
+                  onLoad={(t) => {
+                    setMessage(t.body);
+                    setSendFormat(templateFormatToSendFormat(t.format));
+                  }}
+                  onSend={(t) =>
+                    sendComposedWebSocketMessage(
+                      activeConnectionId,
+                      t.body,
+                      templateFormatToSendFormat(t.format)
+                    )
+                  }
+                  createFromComposer={createTemplate}
+                  canSend={isConnected}
+                  describe={(t) => `${t.format} · ${previewContent(t.body)}`}
+                  noun="message"
+                />
+              </div>
+            )}
             <div className="flex-1 min-h-0 overflow-hidden p-2">
               <CodeEditorFrame gutter={false} className="h-full">
                 <textarea

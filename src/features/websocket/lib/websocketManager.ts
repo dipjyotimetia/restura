@@ -247,7 +247,15 @@ class WebSocketManager {
     }
   }
 
-  send(connectionId: string, message: string | ArrayBuffer): boolean {
+  /**
+   * `options.display` overrides the transcript copy of a sent frame — used to
+   * keep resolved secret `{{var}}` values out of the message log (#927).
+   */
+  send(
+    connectionId: string,
+    message: string | ArrayBuffer,
+    options: { display?: string } = {}
+  ): boolean {
     // Handle Electron-managed connections
     if (this.electronConnections.has(connectionId)) {
       const api = getElectronAPI();
@@ -268,10 +276,10 @@ class WebSocketManager {
         }
         const hexString = this.arrayBufferToHex(message);
         api.websocket.send({ connectionId, message: encoded, binary: true });
-        state.addMessage(connectionId, 'sent', hexString, 'binary', message);
+        state.addMessage(connectionId, 'sent', options.display ?? hexString, 'binary', message);
       } else {
         api.websocket.send({ connectionId, message });
-        state.addMessage(connectionId, 'sent', message, 'text');
+        state.addMessage(connectionId, 'sent', options.display ?? message, 'text');
       }
       return true;
     }
@@ -283,9 +291,9 @@ class WebSocketManager {
       const state = useWebSocketStore.getState();
       if (message instanceof ArrayBuffer) {
         const hexString = this.arrayBufferToHex(message);
-        state.addMessage(connectionId, 'sent', hexString, 'binary', message);
+        state.addMessage(connectionId, 'sent', options.display ?? hexString, 'binary', message);
       } else {
-        state.addMessage(connectionId, 'sent', message, 'text');
+        state.addMessage(connectionId, 'sent', options.display ?? message, 'text');
       }
       return true;
     }
