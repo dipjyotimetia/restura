@@ -1,0 +1,67 @@
+---
+title: Streaming timeline
+description: One filterable, searchable, exportable timeline that interleaves WebSocket, Socket.IO, SSE, Kafka and MQTT traffic from every open connection.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Event-driven systems rarely stay on one protocol: a WebSocket command produces a Kafka record, which fans out as an MQTT message and an SSE push. The **Timeline** tab in the console puts all of that traffic in one place, in arrival order, so you can follow a flow across protocols without juggling tabs.
+
+## Opening the timeline
+
+Expand the console at the bottom of the window (<kbd>⌘⇧C</kbd> / <kbd>Ctrl+Shift+C</kbd>) and choose the **Timeline** tab. Every message, event, record and lifecycle notice from **WebSocket**, **Socket.IO**, **SSE**, **Kafka** and **MQTT** connections lands here, from every connection that is open, not only the active tab.
+
+Each row shows:
+
+| Column | Meaning |
+| --- | --- |
+| Clock time | When the event was logged. |
+| Δ | Time since the previous visible event, or since the **anchor** when one is set. |
+| Direction | Inbound, outbound or system (connect, disconnect, errors). |
+| Protocol | WS, SIO, SSE, Kafka or MQTT. |
+| Label | Data type (WebSocket), event name (Socket.IO, SSE) or topic (Kafka, MQTT). |
+| Preview | The start of the payload. |
+
+Select a row to see the full payload and its protocol metadata, such as the Kafka partition and offset, MQTT QoS and retain flag, the SSE `lastEventId`, or the Socket.IO ack id and namespace.
+
+## Filtering and search
+
+- **Protocol chips.** Toggle one or more protocols, for example **WS** + **MQTT** to see a command and the device message it produced. **All** resets the selection.
+- **Connection.** Narrow the timeline to a single connection.
+- **Search modes:**
+  - **Text**: case-insensitive match on the payload, label and connection id.
+  - **Regex**: a JavaScript regular expression, matched case-insensitively against the label and the first 16 KB of each payload. Matching runs in a background worker with a 250 ms budget. A search that takes longer is stopped and reported as "Regex took too long", so a slow pattern can't freeze the app. Patterns that are known to backtrack badly are rejected up front with an explanation: patterns over 256 characters, backreferences, nested quantifiers like `(a+)+` or `(a?a?)+`, quantified alternations like `(a|aa)*`, and adjacent unbounded quantifiers that can match the same characters, like `\w+\w+` or `.*.*` (`\s*\d+` is fine).
+  - **JSONPath**: an expression rooted at `$`, like `$.type` or `$[?(@.status == "failed")]`. An event matches when its JSON payload returns at least one result. Payloads that aren't JSON never match.
+
+## Correlating events
+
+Select an event and click **Set anchor**. The Δ column then shows every other event's offset from the anchor, negative before it and positive after, so you can answer questions like "how long after this WebSocket command did the MQTT acknowledgement arrive?". Click **Clear anchor** to go back to previous-event deltas.
+
+## Exporting
+
+**JSONL** downloads the events that match the current filters, one JSON object per line:
+
+```json
+{"ts":1760000000123,"time":"2025-10-09T08:53:20.123Z","protocol":"mqtt","connectionId":"…","direction":"in","kind":"message","label":"devices/7","payload":"started","size":7,"meta":{"qos":1,"retain":false}}
+```
+
+`kind` is one of `message`, `system`, `ack` or `error`. `truncated: true` marks payloads that were cut at 64 KB.
+
+## Limits and performance
+
+- **Batched.** Events are queued and written to the timeline in one update every 100 ms, so a stream at 1,000 messages per second causes about 10 UI updates per second instead of 1,000.
+- **Byte- and count-capped.** The timeline keeps up to 5,000 events and about 8 MB, evicting the oldest first. The header shows how many events were evicted. Each payload preview is capped at 64 KB, and its true size is still recorded.
+- **Rendering.** The list renders the newest 500 matching rows. Narrow the filters or export to see the rest.
+- **Pause.** The pause button in the timeline toolbar stops capture without disconnecting anything.
+
+<Aside type="note" title="Session-only and redacted">
+The timeline lives only in memory and is never persisted. Payloads are what each protocol's own message log already shows, after the console's redaction pass, which replaces credential-looking JSON fields, bearer tokens and session cookies with `[REDACTED]`. Redaction runs on the first 1 MB of a payload; anything beyond that is dropped, never shown. Exports contain the same redacted data.
+</Aside>
+
+## Platform support
+
+The timeline is part of the shared renderer, so it works on the web app, the self-hosted server and the desktop app. Kafka and MQTT connections are desktop-only (browsers can't open raw TCP sockets). See the [capability matrix](/reference/capability-matrix/).
+
+## Related
+
+- [WebSocket](/protocols/websocket/) · [Socket.IO](/protocols/socket-io/) · [SSE](/protocols/sse/) · [Kafka](/protocols/kafka/) · [MQTT](/protocols/mqtt/)

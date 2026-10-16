@@ -4,6 +4,7 @@ import { persist } from 'zustand/middleware';
 import { capMessages, MAX_MESSAGES_PER_CONNECTION } from '@/lib/shared/message-cap';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
+import { emitStreamEvent } from '@/store/useStreamTimelineStore';
 
 /** 4 = MQTT 3.1.1, 5 = MQTT 5.0. */
 export type MqttProtocolVersion = 4 | 5;
@@ -159,6 +160,20 @@ function toConsoleFrame(connectionId: string, m: MqttMessage) {
     label: m.topic,
     payload: m.payload ?? '',
   };
+}
+
+function emitMqttTimeline(connectionId: string, m: MqttMessage) {
+  const frame = toConsoleFrame(connectionId, m);
+  emitStreamEvent({
+    ts: m.timestamp,
+    protocol: 'mqtt',
+    connectionId,
+    direction: frame.direction,
+    kind: m.error ? 'error' : undefined,
+    label: m.topic,
+    payload: frame.payload,
+    meta: { qos: m.qos, retain: m.retain, contentType: m.contentType, packetId: m.packetId },
+  });
 }
 
 function makeDefaultConnection(
@@ -338,6 +353,7 @@ export const useMqttStore = create<MqttState>()(
           };
 
           useConsoleStore.getState().addFrame(toConsoleFrame(connectionId, next));
+          emitMqttTimeline(connectionId, next);
 
           return {
             connections: {
@@ -358,6 +374,7 @@ export const useMqttStore = create<MqttState>()(
           }));
 
           useConsoleStore.getState().addFrames(built.map((m) => toConsoleFrame(connectionId, m)));
+          for (const m of built) emitMqttTimeline(connectionId, m);
 
           const merged = conn.messages.concat(built);
           const capped =

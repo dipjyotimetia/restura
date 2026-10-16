@@ -117,6 +117,7 @@ export default defineConfig({
             { label: 'Environments', slug: 'guides/environments' },
             { label: 'Workflows', slug: 'guides/workflows' },
             { label: 'Scripts', slug: 'guides/scripts' },
+            { label: 'Streaming timeline', slug: 'guides/streaming-timeline' },
             { label: 'Load testing', slug: 'guides/load-testing' },
             { label: 'Mock server', slug: 'guides/mock-server' },
             { label: 'AI assistant', slug: 'guides/ai-assistant' },

@@ -9,6 +9,7 @@ import {
   Play,
   Terminal,
   Trash2,
+  Waypoints,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { toast } from 'sonner';
@@ -34,13 +35,16 @@ import { modLabel } from '@/lib/shared/shortcuts';
 import { cn } from '@/lib/shared/utils';
 import type { ConsoleLog, ConsoleTabId, ConsoleTest } from '@/store/useConsoleStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
+import { useStreamTimelineStore } from '@/store/useStreamTimelineStore';
 import FramesTab from './FramesTab';
 import NetworkTab from './NetworkTab';
 import ScriptsTab from './ScriptsTab';
+import TimelineTab from './TimelineTab';
 
 const CLEAR_LABELS: Record<ConsoleTabId, string> = {
   network: 'network logs',
   frames: 'frames',
+  timeline: 'timeline',
   disk: 'disk log',
   scripts: 'console',
 };
@@ -82,6 +86,8 @@ export default function NetworkConsole({
   // the current safe frame evidence when the user explicitly requests NDJSON.
   const framesCount = useConsoleStore((s) => s.frames.length);
   const frames = useConsoleStore((s) => s.frames);
+  const timelineCount = useStreamTimelineStore((s) => s.events.length);
+  const clearTimeline = useStreamTimelineStore((s) => s.clear);
   const {
     entries,
     isExpanded,
@@ -170,6 +176,8 @@ export default function NetworkConsole({
       clearEntries();
     } else if (activeTab === 'frames') {
       clearFrames();
+    } else if (activeTab === 'timeline') {
+      clearTimeline();
     } else {
       onClearScripts?.();
     }
@@ -178,6 +186,7 @@ export default function NetworkConsole({
   const clearDisabled =
     (activeTab === 'network' && entries.length === 0) ||
     (activeTab === 'frames' && framesCount === 0) ||
+    (activeTab === 'timeline' && timelineCount === 0) ||
     (activeTab === 'scripts' && scriptLogs.length === 0 && (!tests || tests.length === 0));
 
   // Filtered set mirrors what NetworkTab currently shows. Computed here too so
@@ -220,6 +229,7 @@ export default function NetworkConsole({
   const renderActiveTab = () => {
     if (activeTab === 'network') return <NetworkTab />;
     if (activeTab === 'frames') return <FramesTab />;
+    if (activeTab === 'timeline') return <TimelineTab />;
     if (activeTab === 'disk' && showDiskTab) return <DiskTab />;
     return <ScriptsTab logs={scriptLogs} {...(tests !== undefined && { tests })} />;
   };
@@ -286,6 +296,15 @@ export default function NetworkConsole({
                     {framesCount > 0 && (
                       <Badge variant="secondary" className="ml-1.5 text-sp-11 h-4 px-1">
                         {framesCount}
+                      </Badge>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="timeline" className="text-sp-11 h-7 px-2 font-medium">
+                    <Waypoints className="h-3 w-3 mr-1.5" />
+                    Timeline
+                    {timelineCount > 0 && (
+                      <Badge variant="secondary" className="ml-1.5 text-sp-11 h-4 px-1">
+                        {timelineCount}
                       </Badge>
                     )}
                   </TabsTrigger>

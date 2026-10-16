@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { type FrameDirection, useConsoleStore } from '@/store/useConsoleStore';
+import { emitStreamEvent } from '@/store/useStreamTimelineStore';
 import type { KeyValue } from '@/types';
 import { filterSocketIOEvents } from '../lib/eventFilter';
 
@@ -259,6 +260,16 @@ export const useSocketIOStore = create<SocketIOState>()(
             connectionId,
             label: newEvent.eventName,
             payload: JSON.stringify(newEvent.args),
+          });
+          emitStreamEvent({
+            ts: newEvent.timestamp,
+            protocol: 'socketio',
+            connectionId,
+            direction: frameDirection,
+            kind: newEvent.direction === 'ack' ? 'ack' : undefined,
+            label: newEvent.eventName,
+            payload: JSON.stringify(newEvent.args),
+            meta: { ackId: newEvent.ackId, namespace: c.namespace },
           });
 
           return {

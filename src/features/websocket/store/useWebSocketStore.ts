@@ -4,6 +4,7 @@ import { persist } from 'zustand/middleware';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { useConsoleStore } from '@/store/useConsoleStore';
+import { emitStreamEvent } from '@/store/useStreamTimelineStore';
 import type { KeyValue } from '@/types';
 
 export type WebSocketMessageType = 'sent' | 'received' | 'system';
@@ -291,6 +292,15 @@ export const useWebSocketStore = create<WebSocketState>()(
             ...(dataType === 'binary' ? { label: 'binary' } : {}),
             payload: content,
             ...(binaryData ? { bytes: binaryData.byteLength } : {}),
+          });
+          emitStreamEvent({
+            ts: newMessage.timestamp,
+            protocol: 'websocket',
+            connectionId,
+            direction: type === 'sent' ? 'out' : type === 'received' ? 'in' : 'system',
+            label: dataType,
+            payload: content,
+            ...(binaryData ? { size: binaryData.byteLength } : {}),
           });
 
           return {

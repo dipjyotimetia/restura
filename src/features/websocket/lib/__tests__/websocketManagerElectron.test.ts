@@ -12,6 +12,7 @@ vi.mock('@/lib/shared/platform', () => ({
 
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { getElectronAPI } from '@/lib/shared/platform';
+import { useStreamTimelineStore } from '@/store/useStreamTimelineStore';
 import { websocketManager } from '../websocketManager';
 
 type Listener = (payload?: unknown) => void;
@@ -114,7 +115,9 @@ describe('websocketManager on Electron', () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(status(id)).toBe('disconnected');
       expect(conn(id)?.messages.at(-1)?.content).toContain('URL rejected by SSRF policy');
-      // An initial failure is not retried.
+      // An initial failure is not retried. Drain the streaming timeline's
+      // batched flush first so only reconnect timers are counted.
+      useStreamTimelineStore.getState().flush();
       expect(vi.getTimerCount()).toBe(0);
     });
 
