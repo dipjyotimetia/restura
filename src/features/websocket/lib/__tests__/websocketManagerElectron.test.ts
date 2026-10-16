@@ -240,6 +240,49 @@ describe('websocketManager on Electron', () => {
     });
   });
 
+  describe('lifecycle hygiene', () => {
+    const argsOf = (cid: string) =>
+      (websocketManager as unknown as { connectArgs: Map<string, unknown> }).connectArgs.get(cid);
+
+    it('forgets the resolved connect args (incl. headers) on a user disconnect', () => {
+      websocketManager.connect(id, 'ws://example.com', undefined, { Authorization: 'Bearer x' });
+      api.emit(`ws:open:${id}`);
+      expect(argsOf(id)).toBeDefined();
+      websocketManager.disconnect(id);
+      expect(argsOf(id)).toBeUndefined();
+    });
+
+    it('a manual connect during the reconnect wait cancels the stale timer', async () => {
+      websocketManager.connect(id, 'ws://example.com/old');
+      api.emit(`ws:open:${id}`);
+      api.emit(`ws:close:${id}`, { code: 1006, reason: '' });
+      expect(status(id)).toBe('reconnecting');
+
+      websocketManager.connect(id, 'ws://example.com/new');
+      api.emit(`ws:open:${id}`);
+      expect(status(id)).toBe('connected');
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(api.connect).toHaveBeenCalledTimes(2);
+      expect(status(id)).toBe('connected');
+    });
+
+    it('a rejected IPC heartbeat send is caught and stops the heartbeat', async () => {
+      const onUnhandled = vi.fn();
+      process.on('unhandledRejection', onUnhandled);
+      try {
+        api.send.mockRejectedValue(new Error('ipc gone'));
+        useWebSocketStore.getState().setHeartbeatConfig(id, 1000, 'ping');
+        websocketManager.connect(id, 'ws://example.com');
+        api.emit(`ws:open:${id}`);
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(api.send).toHaveBeenCalledTimes(1);
+        expect(onUnhandled).not.toHaveBeenCalled();
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+      }
+    });
+  });
+
   describe('heartbeat (#902)', () => {
     it('sends the heartbeat message over IPC on the configured interval', async () => {
       useWebSocketStore.getState().setHeartbeatConfig(id, 1000, 'ping!');

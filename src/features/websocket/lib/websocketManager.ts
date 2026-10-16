@@ -68,8 +68,9 @@ class WebSocketManager {
   /** `isReconnect` keeps the attempt counter so maxReconnectAttempts is honoured. */
   private open(connectionId: string, args: ConnectArgs, isReconnect: boolean): void {
     const { url, protocols, headers } = args;
-    // Close existing connection if any
-    this.disconnect(connectionId, false);
+    // Close existing connection if any. A manual connect also cancels a pending
+    // reconnect timer, which would otherwise later replace this connection.
+    this.disconnect(connectionId, !isReconnect);
     this.connectArgs.set(connectionId, args);
 
     const store = useWebSocketStore.getState();
@@ -177,6 +178,8 @@ class WebSocketManager {
   disconnect(connectionId: string, clearReconnect = true): void {
     // Clear any pending reconnect
     if (clearReconnect) {
+      // Drop the resolved url/headers (may hold credentials) — nothing will replay them.
+      this.connectArgs.delete(connectionId);
       const timeout = this.reconnectTimeouts.get(connectionId);
       if (timeout) {
         clearTimeout(timeout);
@@ -397,7 +400,8 @@ class WebSocketManager {
     if (this.electronConnections.has(connectionId)) {
       const api = getElectronAPI();
       if (!api?.websocket || !this.isConnected(connectionId)) return false;
-      void api.websocket.send({ connectionId, message });
+      // A rejected IPC send means the bridge is gone; stop instead of leaking rejections.
+      api.websocket.send({ connectionId, message }).catch(() => this.stopHeartbeat(connectionId));
       return true;
     }
     const ws = this.connections.get(connectionId);
