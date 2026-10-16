@@ -4,8 +4,10 @@ import {
   headerFieldValues,
   REQUEST_DENY,
   RESPONSE_DENY,
+  STREAM_FORWARD_DENY,
   sanitizeRequestHeaders,
   sanitizeResponseHeaders,
+  splitStreamForwardHeaders,
 } from './header-policy';
 
 describe('sanitizeRequestHeaders', () => {
@@ -138,5 +140,38 @@ describe('exported deny lists', () => {
     expect(RESPONSE_DENY.has('keep-alive')).toBe(true);
     expect(RESPONSE_DENY.has('trailer')).toBe(true);
     expect(RESPONSE_DENY.has('upgrade')).toBe(true);
+  });
+});
+
+describe('splitStreamForwardHeaders (#885)', () => {
+  it('withholds browser-actionable headers, drops hop-by-hop and Set-Cookie entirely', () => {
+    const { forward, withheld } = splitStreamForwardHeaders({
+      'Content-Type': 'text/event-stream',
+      Location: '/x',
+      'WWW-Authenticate': 'Basic',
+      'Clear-Site-Data': '"*"',
+      'Set-Cookie': 'a=1',
+      Connection: 'close',
+      'X-Custom': 'y',
+    });
+    expect(forward).toEqual({ 'Content-Type': 'text/event-stream', 'X-Custom': 'y' });
+    expect(withheld).toEqual({
+      Location: '/x',
+      'WWW-Authenticate': 'Basic',
+      'Clear-Site-Data': '"*"',
+    });
+  });
+
+  it('extends RESPONSE_DENY rather than duplicating it', () => {
+    for (const h of RESPONSE_DENY) expect(STREAM_FORWARD_DENY.has(h)).toBe(true);
+    for (const h of [
+      'strict-transport-security',
+      'alt-svc',
+      'refresh',
+      'link',
+      'public-key-pins',
+    ]) {
+      expect(STREAM_FORWARD_DENY.has(h)).toBe(true);
+    }
   });
 });

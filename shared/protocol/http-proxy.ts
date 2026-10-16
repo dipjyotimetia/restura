@@ -13,6 +13,7 @@ import {
   sanitizeResponseHeaders,
 } from './header-policy';
 import { checkHttpMethod } from './http-method';
+import { MAX_RESPONSE_SIZE } from './proxy-limits';
 import { RedirectPolicyError } from './redirect-follower';
 import type {
   ConnectionTimings,
@@ -23,7 +24,8 @@ import type {
 } from './types';
 import { validateURL } from './url-validation';
 
-export const MAX_RESPONSE_SIZE = 10 * 1024 * 1024;
+export { MAX_RESPONSE_SIZE, PROXY_STREAM_MARKER_HEADER } from './proxy-limits';
+
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 function byteLength(s: string): number {

@@ -30,6 +30,12 @@ import {
   sentQueryFromBody,
   summarizeGraphQLErrors,
 } from '@/features/graphql/lib/graphqlErrors';
+import {
+  buildGraphQLWireRequest,
+  graphqlMethodOf,
+  hasIncrementalDirective,
+} from '@/features/graphql/lib/graphqlHttp';
+import { createIncrementalSend } from '@/features/graphql/lib/incrementalSend';
 import { exportSchemaToSDL } from '@/features/graphql/lib/introspection';
 import {
   applyOperationSelection,
@@ -65,6 +71,7 @@ import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useUiStore } from '@/store/useUiStore';
 import type { AuthConfig as AuthConfigType, GraphQLImportedSchema, HttpRequest } from '@/types';
+import { GraphQLMethodToggle } from './GraphQLMethodToggle';
 import { GraphQLSubscriptionErrors } from './GraphQLSubscriptionErrors';
 import { LoadSchemaDialog } from './LoadSchemaDialog';
 import SchemaExplorer from './SchemaExplorer';
@@ -236,32 +243,31 @@ function GraphQLRequestBuilder() {
       return;
     }
 
+    const envelope = buildGraphQLRequestBody(query, parsedVariables, operationName);
+    const wire = buildGraphQLWireRequest(httpRequest, envelope);
+    if (!wire.ok) {
+      toast.error('Cannot send with GET', { description: wire.error });
+      return;
+    }
+    const wireRequest = wire.request;
+    const wireHeaders = wireRequest.headers;
+    const wireBody = JSON.stringify(envelope);
+
     setLoading(true);
     setScriptResultForTab(originTabId, null);
-    useUiStore
-      .getState()
-      .setInFlight({ tabId: originTabId, startedAt: Date.now(), cancel: abortRun });
+    const startedAt = Date.now();
+    useUiStore.getState().setInFlight({ tabId: originTabId, startedAt, cancel: abortRun });
 
-    const wireBody = JSON.stringify(buildGraphQLRequestBody(query, parsedVariables, operationName));
-    const wireHeaders = httpRequest.headers.slice();
-    const hasContentType = wireHeaders.some(
-      (h) => h.enabled && h.key.toLowerCase() === 'content-type'
-    );
-    if (!hasContentType) {
-      wireHeaders.push({
-        id: 'graphql-content-type',
-        key: 'Content-Type',
-        value: 'application/json',
-        enabled: true,
-      });
-    }
-    const wireRequest: HttpRequest = {
-      ...httpRequest,
-      method: 'POST',
-      headers: wireHeaders,
-      body: { ...httpRequest.body, type: 'json', raw: wireBody },
-    };
-
+    // @defer / @stream: render each merged part as it arrives (#885).
+    const incremental = createIncrementalSend({
+      enabled: hasIncrementalDirective(query, operationName),
+      requestId: httpRequest.id,
+      startedAt,
+      setResponse: (r) => setCurrentResponseForTab(originTabId, r),
+      publishErrors: (errors) =>
+        useGraphQLErrorStore.getState().publish(originTabId, query, errors),
+    });
+    const { stream } = incremental;
     try {
       let sentBody: string | undefined;
       const { response, scriptResult: runScripts } = await runViaRegistry(wireRequest, 'graphql', {
@@ -270,6 +276,7 @@ function GraphQLRequestBuilder() {
             sentBody = body;
           },
         },
+        ...(stream ? { stream } : {}),
       });
       setCurrentResponseForTab(originTabId, response);
 
@@ -289,7 +296,7 @@ function GraphQLRequestBuilder() {
       useConsoleStore.getState().addEntry(
         createProtocolConsoleEntry({
           protocol: 'graphql',
-          method: 'POST',
+          method: wire.method,
           url: wireRequest.url,
           headers: sentHeaders,
           body: wireBody,
@@ -323,7 +330,9 @@ function GraphQLRequestBuilder() {
         });
       }
     } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
+      const aborted = error instanceof Error && error.name === 'AbortError';
+      incremental.stop(aborted);
+      if (aborted) {
         toast.info('Request cancelled', { duration: 2000 });
       } else {
         const errorMessage = error instanceof Error ? error.message : 'Request failed';
@@ -525,17 +534,13 @@ function GraphQLRequestBuilder() {
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       {/* URL zone */}
       <div className="flex items-center gap-1 px-3 h-12 border-y border-sp-line bg-sp-surface-lo shrink-0">
-        <div
-          className={cn(
-            'flex items-center justify-center px-2 h-7 w-20 font-mono text-[11px] font-bold tracking-wider rounded shrink-0 border',
-            isSubscription
-              ? 'bg-violet-500/[0.12] border-violet-500/25 text-violet-400'
-              : 'bg-amber-500/[0.12] border-amber-500/25 text-amber-400'
-          )}
-          aria-label={isSubscription ? 'GraphQL subscription' : 'GraphQL query (POST)'}
-        >
-          {isSubscription ? 'SUB' : 'POST'}
-        </div>
+        <GraphQLMethodToggle
+          method={graphqlMethodOf(httpRequest)}
+          isSubscription={isSubscription}
+          query={query}
+          operationName={operationState.operationName}
+          onChange={(method) => updateRequest({ method })}
+        />
         <span className="text-sp-dim font-mono text-sm select-none shrink-0">›</span>
         <VariableUrlInput
           value={httpRequest.url}
@@ -673,8 +678,9 @@ function GraphQLRequestBuilder() {
             {activeTab === 'headers' && (
               <div className="p-3 overflow-auto h-full">
                 <p className="text-sp-11 text-sp-muted font-mono mb-3">
-                  Content-Type: application/json is automatically set. Auth header is injected from
-                  the Auth tab.
+                  Content-Type: application/json (POST) and a GraphQL-over-HTTP Accept header are
+                  set automatically unless you add your own. Auth header is injected from the Auth
+                  tab.
                 </p>
                 <KeyValueTable
                   items={httpRequest.headers}

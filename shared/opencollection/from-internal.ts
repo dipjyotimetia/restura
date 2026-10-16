@@ -13,6 +13,7 @@ import type {
 } from '../types';
 import { AUTH_EXTENSION_KEY, buildAuthExtension, stripAuthExtras } from './auth-extension';
 import { authFromInternal, unwrapAuthForCompare } from './auth-from-internal';
+import { graphqlDocumentFromInternal, graphqlMethodToOC } from './graphql-item';
 import { buildGraphQLExtension, GRAPHQL_EXTENSION_KEY } from './graphql-schema-extension';
 import { buildGrpcExtension, GRPC_EXTENSION_KEY } from './grpc-schema-extension';
 import { buildHttpExtension, HTTP_EXTENSION_KEY } from './http-settings-extension';
@@ -364,23 +365,8 @@ function requestFromInternal(name: string, r: Request): unknown {
     case 'http': {
       const hr = r as HttpRequest;
       if (hr.body.type === 'graphql') {
-        let query = hr.body.raw ?? '';
-        let variables = hr.body.graphqlVariables;
-        try {
-          const envelope = JSON.parse(query) as { query?: unknown; variables?: unknown };
-          if (typeof envelope.query === 'string') {
-            query = envelope.query;
-            if (variables === undefined && envelope.variables !== undefined) {
-              variables =
-                typeof envelope.variables === 'string'
-                  ? envelope.variables
-                  : JSON.stringify(envelope.variables);
-            }
-          }
-        } catch {
-          // Renderer-created GraphQL requests store query text directly.
-        }
-        const graphql: Record<string, unknown> = { url: hr.url };
+        const { query, variables } = graphqlDocumentFromInternal(hr.body);
+        const graphql: Record<string, unknown> = { ...graphqlMethodToOC(hr.method), url: hr.url };
         if (query) graphql.query = query;
         if (variables !== undefined) graphql.variables = variables;
         if (hr.headers?.length) graphql.headers = hr.headers.map(kvFromInternal);

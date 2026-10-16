@@ -224,6 +224,53 @@ const routes: Route[] = [
       json(res, result.status, result.body);
     },
   },
+  {
+    // GraphQL-over-HTTP GET: query / variables / operationName as URL params.
+    method: 'GET',
+    test: '/graphql',
+    handle: async ({ res, url }) => {
+      const variables = url.searchParams.get('variables');
+      const result = await handleGraphQL(
+        JSON.stringify({
+          query: url.searchParams.get('query') ?? '',
+          ...(variables ? { variables: JSON.parse(variables) } : {}),
+          operationName: url.searchParams.get('operationName') ?? undefined,
+        })
+      );
+      json(res, result.status, result.body);
+    },
+  },
+  {
+    // @defer incremental delivery, framed byte-for-byte like graphql-yoga's
+    // multipart result processor (boundary "-", deferSpec=20220824 payloads),
+    // with pauses between parts so the UI can render them as they arrive.
+    method: 'POST',
+    test: '/graphql-defer',
+    handle: ({ req, res }) => {
+      res.writeHead(200, { 'content-type': 'multipart/mixed; boundary="-"' });
+      const payloads = [
+        { data: { hello: 'world' }, hasNext: true },
+        { incremental: [{ data: { slow: 'done' }, path: [], label: 'slow' }], hasNext: true },
+        { incremental: [{ data: { slower: 'also done' }, path: [] }], hasNext: false },
+      ];
+      res.write('\r\n---');
+      let i = 0;
+      const writeNext = () => {
+        const chunk = JSON.stringify(payloads[i]);
+        res.write(
+          `\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(chunk)}\r\n\r\n${chunk}\r\n---`
+        );
+        i += 1;
+        if (i < payloads.length) {
+          timer = setTimeout(writeNext, 1500);
+        } else {
+          res.end('\r\n-----\r\n');
+        }
+      };
+      let timer = setTimeout(writeNext, 50);
+      req.on('close', () => clearTimeout(timer));
+    },
+  },
 
   // -- Cookies ---------------------------------------------------------------
   {

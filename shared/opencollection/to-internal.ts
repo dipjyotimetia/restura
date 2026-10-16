@@ -15,6 +15,7 @@ import type {
   SseRequest,
 } from '../types';
 import { AUTH_EXTENSION_KEY, applyAuthExtension } from './auth-extension';
+import { graphqlMethodFromOC } from './graphql-item';
 import { applyGraphQLExtension, GRAPHQL_EXTENSION_KEY } from './graphql-schema-extension';
 import { applyGrpcExtension, GRPC_EXTENSION_KEY } from './grpc-schema-extension';
 import { applyHttpExtension, HTTP_EXTENSION_KEY } from './http-settings-extension';
@@ -266,7 +267,7 @@ function graphqlToHttpRequest(item: Record<string, unknown>): HttpRequest {
     id: uuid(),
     name,
     type: 'http',
-    method: 'POST' as HttpMethod,
+    method: graphqlMethodFromOC(gql.method),
     url: (gql.url as string) ?? '',
     headers: ((gql.headers as unknown[]) ?? []).map(kvToInternal),
     params: [],

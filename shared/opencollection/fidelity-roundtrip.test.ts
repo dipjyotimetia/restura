@@ -355,6 +355,41 @@ describe('OpenCollection fidelity harness', () => {
   });
 });
 
+describe('GraphQL HTTP method round-trip (#885)', () => {
+  const gql = (method: HttpRequest['method']): HttpRequest => ({
+    id: `gql-${method}`,
+    name: `Q ${method}`,
+    type: 'http',
+    method,
+    url: 'https://api.example.test/graphql',
+    headers: [],
+    params: [],
+    body: { type: 'graphql', raw: 'query Q { me { id } }', graphqlVariables: '{}' },
+    auth: { type: 'none' },
+  });
+
+  it('keeps GET on a GraphQL item and emits it as the spec graphql.method', () => {
+    const collection: Collection = { id: 'c', name: 'G', items: [reqItem(gql('GET'), 'g')] };
+    const oc = internalToOC(collection) as { items: Array<{ graphql: Record<string, unknown> }> };
+    expect(oc.items[0]?.graphql.method).toBe('GET');
+    const back = roundTrip(collection);
+    expect((findRequest(back.items, 'Q GET') as HttpRequest).method).toBe('GET');
+  });
+
+  it('leaves POST implicit and imports a missing or unknown method as POST', () => {
+    const collection: Collection = {
+      id: 'c',
+      name: 'G',
+      items: [reqItem(gql('POST'), 'p'), reqItem({ ...gql('PUT'), name: 'Q PUT' }, 'u')],
+    };
+    const oc = internalToOC(collection) as { items: Array<{ graphql: Record<string, unknown> }> };
+    expect(oc.items[0]?.graphql).not.toHaveProperty('method');
+    const back = roundTrip(collection);
+    expect((findRequest(back.items, 'Q POST') as HttpRequest).method).toBe('POST');
+    expect((findRequest(back.items, 'Q PUT') as HttpRequest).method).toBe('POST');
+  });
+});
+
 describe('OAuth1 / NTLM / WSSE auth round-trip (#869)', () => {
   const bare = (auth: AuthConfig): Request[] => [
     { ...HTTP_FIXTURE, auth },

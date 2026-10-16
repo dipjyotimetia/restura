@@ -1,4 +1,5 @@
 import type { ProxyBodyType } from '@shared/protocol/body-builder';
+import { PROXY_STREAM_MARKER_HEADER } from '@shared/protocol/proxy-limits';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import {
   decodeSetCookieSideChannel,
@@ -15,6 +16,10 @@ import {
 } from '@/features/auth/lib/applyAuthHeaders';
 import { refreshOAuth2Auth } from '@/features/auth/lib/tokenRefresh';
 import { resolveEffectiveSettings } from '@/features/http/lib/effectiveSettings';
+import {
+  executeProxiedRequestWithProgress,
+  type ResponseProgressHandler,
+} from '@/features/http/lib/progressTransport';
 import { getEffectiveProxy, shouldBypassProxy } from '@/features/http/lib/proxyHelper';
 import {
   type HttpStreamEvent,
@@ -65,6 +70,8 @@ export interface RequestExecutionResult {
    * error locations — back onto the unsubstituted editor text.
    */
   sentBody?: string;
+  /** Query params as sent, after `{{var}}` substitution (e.g. a GraphQL GET's `query`). */
+  sentParams?: Record<string, string>;
   refreshedAuth?: HttpRequest['auth'];
   /**
    * `pm.collectionVariables.set/unset` mutations from either script phase,
@@ -97,6 +104,17 @@ export interface RequestExecutorOptions {
     folderPath: string[];
     collectionName: string;
   };
+  /**
+   * Live body progress. When set, the web transport streams the upstream body
+   * through the Worker and reports each chunk; desktop reports the buffered
+   * body once. The resolved response is still the complete, buffered one.
+   */
+  onResponseProgress?: ResponseProgressHandler;
+  /**
+   * Reshape the response before test scripts, history and the caller see it
+   * (GraphQL folds `multipart/mixed` incremental parts into one result).
+   */
+  transformResponse?: (response: ApiResponse) => ApiResponse;
 }
 
 interface BuiltSpec {
@@ -524,7 +542,14 @@ export async function executeRequest(
   let transportOk = false;
   try {
     signal?.throwIfAborted();
-    const proxyResponse = await executeProxiedRequest(spec, signal ? { signal } : {}, desktop);
+    const proxyResponse = options.onResponseProgress
+      ? await executeProxiedRequestWithProgress(
+          spec,
+          options.onResponseProgress,
+          signal ? { signal } : {},
+          desktop
+        )
+      : await executeProxiedRequest(spec, signal ? { signal } : {}, desktop);
     signal?.throwIfAborted();
     transportOk = true;
     if (!effectiveSettings.disableCookieJar) {
@@ -552,6 +577,7 @@ export async function executeRequest(
       ...(proxyResponse.bodyNotice !== undefined ? { bodyNotice: proxyResponse.bodyNotice } : {}),
       ...(proxyResponse.timings !== undefined ? { timings: proxyResponse.timings } : {}),
     };
+    if (options.transformResponse) responseData = options.transformResponse(responseData);
   } catch (err) {
     signal?.throwIfAborted();
     const endTime = Date.now();
@@ -641,6 +667,7 @@ export async function executeRequest(
     envVars,
     sentHeaders,
     ...(spec.data !== undefined ? { sentBody: spec.data } : {}),
+    ...(spec.params && Object.keys(spec.params).length > 0 ? { sentParams: spec.params } : {}),
     ...(Object.keys(collectionVarsMutations).length > 0 ? { collectionVarsMutations } : {}),
   };
   if (effectiveAuth !== request.auth) {
@@ -711,7 +738,7 @@ export async function executeStreamingRequest(
   );
   const headers: Record<string, string> = {};
   for (const [k, v] of response.headers.entries()) {
-    if (k !== SET_COOKIE_SIDE_CHANNEL_HEADER) headers[k] = v;
+    if (k !== SET_COOKIE_SIDE_CHANNEL_HEADER && k !== PROXY_STREAM_MARKER_HEADER) headers[k] = v;
   }
   if (setCookies.length > 0 && !effectiveSettings.disableCookieJar) {
     persistResponseCookies({ headers, setCookies }, spec.url);

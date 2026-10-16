@@ -1,5 +1,15 @@
+import { splitStreamForwardHeaders } from '@shared/protocol/header-policy';
 import { checkHttpMethod } from '@shared/protocol/http-method';
 import { executeHttpProxy, executeHttpProxyStreaming } from '@shared/protocol/http-proxy';
+import {
+  encodeHeaderSideChannel,
+  isBrowserActionableStatus,
+  PROXY_STREAM_MARKER_HEADER,
+  PROXY_STREAM_SIDE_CHANNEL_PREFIX,
+  PROXY_UPSTREAM_HEADERS_HEADER,
+  PROXY_UPSTREAM_STATUS_HEADER,
+  PROXY_UPSTREAM_STATUS_TEXT_HEADER,
+} from '@shared/protocol/proxy-limits';
 import {
   containsAuthHandle,
   type ProxyRequestBody,
@@ -248,22 +258,32 @@ export function createProxyHandler(
         return c.json(streamingResult.payload, streamingResult.status as 400 | 502 | 504);
       }
 
-      // Forward sanitised upstream headers verbatim to the renderer — except
-      // Set-Cookie: as a real header the browser would store the upstream's
-      // cookies on the Restura origin. Every cookie travels in the side channel
-      // instead; an upstream-sent side-channel header is dropped so it can't
-      // forge cookies into the renderer's jar.
-      for (const [k, v] of Object.entries(streamingResult.response.headers)) {
-        const lower = k.toLowerCase();
-        if (lower === 'set-cookie' || lower === SET_COOKIE_SIDE_CHANNEL_HEADER) continue;
+      // Forward sanitised upstream headers to the renderer, minus the ones the
+      // browser would act on against the Restura origin (STREAM_FORWARD_DENY:
+      // Set-Cookie, Clear-Site-Data, HSTS, Location, WWW-Authenticate, …).
+      // Withheld headers and cookies travel in side channels instead, and any
+      // upstream-sent `x-restura-*` header is dropped so it can't forge them.
+      const upstream = streamingResult.response;
+      const { forward, withheld } = splitStreamForwardHeaders(upstream.headers);
+      for (const [k, v] of Object.entries(forward)) {
+        if (k.toLowerCase().startsWith(PROXY_STREAM_SIDE_CHANNEL_PREFIX)) continue;
         c.header(k, v);
       }
-      const streamCookies = streamingResult.response.setCookies;
+      c.header(PROXY_STREAM_MARKER_HEADER, '1');
+      if (Object.keys(withheld).length > 0) {
+        c.header(PROXY_UPSTREAM_HEADERS_HEADER, encodeHeaderSideChannel(withheld));
+      }
+      const streamCookies = upstream.setCookies;
       if (streamCookies && streamCookies.length > 0) {
         c.header(SET_COOKIE_SIDE_CHANNEL_HEADER, encodeSetCookieSideChannel(streamCookies));
       }
-      // Forward the upstream status code (200 typical, but any 2xx/4xx/5xx is valid).
-      c.status(streamingResult.response.status as StatusCode);
+      // The real status always rides the side channel; statuses the browser
+      // would handle itself (3xx follow, 401/407 prompt) go out as 200.
+      c.header(PROXY_UPSTREAM_STATUS_HEADER, String(upstream.status));
+      if (upstream.statusText) {
+        c.header(PROXY_UPSTREAM_STATUS_TEXT_HEADER, encodeURIComponent(upstream.statusText));
+      }
+      c.status((isBrowserActionableStatus(upstream.status) ? 200 : upstream.status) as StatusCode);
 
       // Pipe upstream body through Hono's streaming helper. Hono's stream() takes
       // care of stream lifecycle (close, abort propagation) for us.

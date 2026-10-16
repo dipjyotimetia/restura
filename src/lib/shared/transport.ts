@@ -5,6 +5,11 @@
  * policy, body construction, and sign-at-wire auth. The renderer must
  * never speak HTTP to a user-supplied upstream directly.
  */
+import {
+  PROXY_UPSTREAM_HEADERS_HEADER,
+  PROXY_UPSTREAM_STATUS_HEADER,
+  PROXY_UPSTREAM_STATUS_TEXT_HEADER,
+} from '@shared/protocol/proxy-limits';
 import type { ProxyRequestBody } from '@shared/protocol/proxy-schema';
 import type { ResponseTimings } from '@shared/protocol/types';
 import axios, { type AxiosError } from 'axios';
@@ -116,9 +121,69 @@ export async function executeProxiedStreamingRequest(
       ...workerAuthHeaders(),
     },
     body: JSON.stringify(spec),
+    // The proxy never redirects a streamed reply (it masks 3xx to 200), but
+    // never let the browser follow one to an upstream-chosen URL regardless.
+    redirect: 'manual',
   };
   if (options.signal) init.signal = options.signal;
-  return fetch(`${workerBaseUrl()}/api/proxy`, init);
+  const response = await fetch(`${workerBaseUrl()}/api/proxy`, init);
+  if (response.type === 'opaqueredirect') {
+    throw new ProxyTransportError('Proxy returned an unexpected redirect');
+  }
+  return restoreUpstreamStatus(response);
+}
+
+/**
+ * Undo the proxy's browser-safety masking on a streamed reply: put back the
+ * upstream's real status / reason phrase and the headers it withheld (see
+ * `STREAM_FORWARD_DENY`), so consumers see what the upstream actually sent.
+ * A constructed Response carries no browser semantics — no redirect is
+ * followed and no auth prompt is shown. Replies without the side channel (the
+ * proxy's own errors, older Workers) pass through untouched.
+ */
+export function restoreUpstreamStatus(response: Response): Response {
+  const rawStatus = response.headers.get(PROXY_UPSTREAM_STATUS_HEADER);
+  if (rawStatus === null) return response;
+  const status = Number(rawStatus);
+  const headers = new Headers(response.headers);
+  headers.delete(PROXY_UPSTREAM_STATUS_HEADER);
+  headers.delete(PROXY_UPSTREAM_STATUS_TEXT_HEADER);
+  headers.delete(PROXY_UPSTREAM_HEADERS_HEADER);
+  const withheld = response.headers.get(PROXY_UPSTREAM_HEADERS_HEADER);
+  if (withheld) {
+    try {
+      const parsed: unknown = JSON.parse(withheld);
+      if (parsed && typeof parsed === 'object') {
+        for (const [k, v] of Object.entries(parsed)) {
+          if (typeof v === 'string') headers.set(k, v);
+        }
+      }
+    } catch {
+      // Malformed side channel — keep what was forwarded.
+    }
+  }
+  // The wrapper's own phrase ("OK" on a masked 200) never belongs to the
+  // upstream status; no text header means the upstream sent an empty phrase.
+  let statusText = '';
+  const rawText = response.headers.get(PROXY_UPSTREAM_STATUS_TEXT_HEADER);
+  if (rawText !== null) {
+    try {
+      statusText = decodeURIComponent(rawText);
+    } catch {
+      statusText = rawText;
+    }
+  }
+  const validStatus = Number.isInteger(status) && status >= 200 && status <= 599;
+  // A null-body status (204 / 205 / 304) cannot carry a body in the constructor.
+  const nullBody = status === 204 || status === 205 || status === 304;
+  const init = { status: validStatus ? status : response.status, headers };
+  const body = nullBody ? null : response.body;
+  try {
+    return new Response(body, { ...init, statusText });
+  } catch {
+    // A reason phrase the Response constructor rejects (non-Latin-1 etc.).
+    return new Response(body, init);
+  }
 }
 
 async function executeViaWorker(

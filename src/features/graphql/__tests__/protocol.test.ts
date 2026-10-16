@@ -160,6 +160,24 @@ describe('graphqlProtocol envelope', () => {
     expect(onSentBody).toHaveBeenCalledTimes(1);
   });
 
+  it('a saved GET runs the selected operation: query sent with operationName, mutation refused', async () => {
+    const doc = 'query ListUsers { users { id } }\nmutation AddUser { addUser { id } }';
+    const ctx = { signal: new AbortController().signal, variables: {} } as never;
+    const saved = gqlRequest(doc);
+    saved.method = 'GET';
+    saved.body = { type: 'graphql', raw: doc, graphqlOperationName: 'ListUsers' };
+    await graphqlProtocol.runRequest(saved, ctx);
+    const passed = executeRequestMock.mock.calls[0]![0] as { request: HttpRequest };
+    expect(passed.request.method).toBe('GET');
+    expect(Object.fromEntries(passed.request.params.map((p) => [p.key, p.value]))).toMatchObject({
+      query: doc,
+      operationName: 'ListUsers',
+    });
+
+    const mutation = { ...saved, body: { ...saved.body, graphqlOperationName: 'AddUser' } };
+    await expect(graphqlProtocol.runRequest(mutation, ctx)).rejects.toThrow(/mutation/);
+  });
+
   it('sends the operation selected on the saved request (#903)', async () => {
     const saved = gqlRequest('query A { a }\nquery B { b }');
     saved.body = { type: 'graphql', raw: saved.body.raw, graphqlOperationName: 'B' };
@@ -170,6 +188,38 @@ describe('graphqlProtocol envelope', () => {
 
     const passed = executeRequestMock.mock.calls[0]![0] as { request: HttpRequest };
     expect(JSON.parse(passed.request.body.raw!).operationName).toBe('B');
+  });
+
+  it('reports a GET query (sent in the URL) as the sent body for error-location mapping', async () => {
+    const get = gqlRequest(ENVELOPE);
+    get.method = 'GET';
+    get.body = { type: 'graphql', raw: 'query Q { item(id: "{{id}}") { name } }' };
+    executeRequestMock.mockResolvedValue({
+      response: { status: 200 },
+      sentParams: { query: 'query Q { item(id: "42") { name } }', operationName: 'Q' },
+    });
+    const onSentBody = vi.fn();
+    await graphqlProtocol.runRequest(get, {
+      signal: new AbortController().signal,
+      variables: {},
+      protocolOptions: { onSentBody },
+    } as never);
+    expect(onSentBody).toHaveBeenCalledWith(
+      JSON.stringify({ query: 'query Q { item(id: "42") { name } }' })
+    );
+
+    // A POST never falls back to URL params.
+    onSentBody.mockClear();
+    executeRequestMock.mockResolvedValue({
+      response: { status: 200 },
+      sentParams: { query: 'not the body' },
+    });
+    await graphqlProtocol.runRequest(gqlRequest(ENVELOPE), {
+      signal: new AbortController().signal,
+      variables: {},
+      protocolOptions: { onSentBody },
+    } as never);
+    expect(onSentBody).not.toHaveBeenCalled();
   });
 
   it('leaves operationName off an anonymous saved document, like interactive Send', async () => {
@@ -194,6 +244,55 @@ describe('graphqlProtocol envelope', () => {
 
     const passed = executeRequestMock.mock.calls[0]![0] as { secretVariables?: unknown };
     expect(passed.secretVariables).toEqual(secretVariables);
+  });
+
+  it('sends saved GraphQL with the GraphQL-over-HTTP Accept header', async () => {
+    const saved = gqlRequest('{ me { id } }');
+    saved.body.type = 'graphql';
+    await graphqlProtocol.runRequest(saved, {
+      signal: new AbortController().signal,
+      variables: {},
+    } as never);
+    const passed = executeRequestMock.mock.calls[0]![0] as { request: HttpRequest };
+    expect(passed.request.headers.find((h) => h.key === 'Accept')?.value).toBe(
+      'application/graphql-response+json, application/json;q=0.9'
+    );
+  });
+
+  it('sends a saved GET query as URL params and refuses a saved GET mutation', async () => {
+    const saved = gqlRequest('query Saved($id: ID!) { me(id: $id) { id } }');
+    saved.method = 'GET';
+    saved.body = { type: 'graphql', raw: saved.body.raw, graphqlVariables: '{"id":"42"}' };
+    const ctx = { signal: new AbortController().signal, variables: {} } as never;
+    await graphqlProtocol.runRequest(saved, ctx);
+    const passed = executeRequestMock.mock.calls[0]![0] as { request: HttpRequest };
+    expect(passed.request.method).toBe('GET');
+    expect(passed.request.body.type).toBe('none');
+    expect(Object.fromEntries(passed.request.params.map((p) => [p.key, p.value]))).toEqual({
+      query: 'query Saved($id: ID!) { me(id: $id) { id } }',
+      variables: '{"id":"42"}',
+      operationName: 'Saved',
+    });
+
+    const mutation = gqlRequest('mutation M { bump }');
+    mutation.method = 'GET';
+    mutation.body.type = 'graphql';
+    await expect(graphqlProtocol.runRequest(mutation, ctx)).rejects.toThrow(/POST/);
+  });
+
+  it('always folds multipart responses and wires live progress only for a streaming caller', async () => {
+    const ctx = { signal: new AbortController().signal, variables: {} };
+    await graphqlProtocol.runRequest(gqlRequest(ENVELOPE), ctx as never);
+    const plain = executeRequestMock.mock.calls[0]![0] as Record<string, unknown>;
+    expect(typeof plain.transformResponse).toBe('function');
+    expect(plain.onResponseProgress).toBeUndefined();
+
+    await graphqlProtocol.runRequest(gqlRequest(ENVELOPE), {
+      ...ctx,
+      stream: { onMessage: vi.fn() },
+    } as never);
+    const live = executeRequestMock.mock.calls[1]![0] as Record<string, unknown>;
+    expect(typeof live.onResponseProgress).toBe('function');
   });
 
   it('runRequest rejects a non-HTTP request shape', async () => {

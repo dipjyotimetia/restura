@@ -179,6 +179,8 @@ const graphqlRequest = z.object({
     name: z.string().min(1),
   }),
   graphql: z.object({
+    // Spec GraphQLRequestDetails.method; Restura emits it only for GET (#885).
+    method: z.string().optional(),
     url: z.string(),
     query: z.string().optional(),
     variables: z.string().optional(),
