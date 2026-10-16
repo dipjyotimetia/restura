@@ -2,6 +2,11 @@ import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
+import {
+  migrateConnectionTemplates,
+  type SocketIOEmitTemplate,
+  socketIOTemplateSchema,
+} from '@/lib/shared/streaming/messageTemplates';
 import { type FrameDirection, useConsoleStore } from '@/store/useConsoleStore';
 import { emitStreamEvent } from '@/store/useStreamTimelineStore';
 import type { KeyValue } from '@/types';
@@ -41,6 +46,8 @@ export interface SocketIOConnection {
   reconnectAttemptCount: number;
   events: SocketIOEvent[];
   subscribedEvents: string[];
+  /** Saved emits, stored unresolved — `{{var}}` is substituted at emit time. */
+  templates: SocketIOEmitTemplate[];
   createdAt: number;
   lastConnectedAt?: number;
 }
@@ -130,6 +137,7 @@ function emptyConnection(id: string, url: string): SocketIOConnection {
     reconnectAttemptCount: 0,
     events: [],
     subscribedEvents: [],
+    templates: [],
     createdAt: Date.now(),
   };
 }
@@ -295,6 +303,17 @@ export const useSocketIOStore = create<SocketIOState>()(
             timestamp: Date.now(),
           };
           events.push(ackRow);
+          // Ack rows reach the unified Timeline too (timeouts as errors).
+          emitStreamEvent({
+            ts: ackRow.timestamp,
+            protocol: 'socketio',
+            connectionId,
+            direction: 'in',
+            kind: status === 'timeout' ? 'error' : 'ack',
+            label: ackRow.eventName,
+            payload: JSON.stringify(args),
+            meta: { ackId, namespace: c.namespace },
+          });
           return {
             connections: { ...state.connections, [connectionId]: { ...c, events } },
           };
@@ -364,8 +383,16 @@ export const useSocketIOStore = create<SocketIOState>()(
     createPersistedStore<SocketIOState>({
       store: 'socketioConnections',
       persistName: 'socketio-storage',
-      version: 1,
-      steps: [],
+      version: 2,
+      steps: [
+        {
+          name: 'add-emit-templates',
+          fromVersion: 1,
+          apply: (state) => ({
+            state: migrateConnectionTemplates(state, socketIOTemplateSchema),
+          }),
+        },
+      ],
       partialize: (state) => ({
         connections: Object.fromEntries(
           Object.entries(state.connections).map(([id, c]) => [

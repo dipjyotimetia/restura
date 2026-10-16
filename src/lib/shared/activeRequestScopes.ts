@@ -8,12 +8,12 @@
  * mutations are layered on top by the caller at send time.
  */
 
+import type { SecretValue } from '@/lib/shared/secretRef';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import { useGlobalsStore } from '@/store/useGlobalsStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { CollectionItem, ScopedVariable } from '@/types';
-import type { SecretValue } from '@/lib/shared/secretRef';
 import { buildValueMap } from './variableScopes';
 
 export function findAncestorFolderVariables(
@@ -43,6 +43,8 @@ export function buildActiveRequestValueMap(): Record<string, string> {
 export function buildActiveRequestVariableResolution(): {
   values: Record<string, string>;
   secretVariables: Record<string, SecretValue>;
+  /** Keys whose winning value in `values` is marked secret (mask before display). */
+  secretNames: string[];
 } {
   const savedRequestId = useRequestStore.getState().getActiveTab()?.savedRequestId;
   const collectionRecord = savedRequestId
@@ -78,17 +80,21 @@ export function buildActiveRequestVariableResolution(): {
     collectionRecord,
     ...(folders ?? []),
   ];
+  const secretNames = new Set<string>();
   for (const scope of scopes) {
     for (const variable of scope ?? []) {
       if (!variable.enabled || !variable.key) continue;
       if (variable.secretRef !== undefined) {
         delete values[variable.key];
+        secretNames.delete(variable.key);
         secretVariables[variable.key] = variable.secretRef;
       } else {
         delete secretVariables[variable.key];
         values[variable.key] = variable.value;
+        if (variable.secret === true) secretNames.add(variable.key);
+        else secretNames.delete(variable.key);
       }
     }
   }
-  return { values, secretVariables };
+  return { values, secretVariables, secretNames: [...secretNames] };
 }

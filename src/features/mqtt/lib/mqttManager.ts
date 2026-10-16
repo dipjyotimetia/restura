@@ -220,6 +220,11 @@ class MqttManager {
     contentType?: string;
     responseTopic?: string;
     correlationData?: string;
+    /**
+     * Transcript copy of topic/payload — keeps resolved secret `{{var}}`
+     * values out of the message log (#974). Defaults to what was sent.
+     */
+    display?: { topic: string; payload: string };
   }): Promise<{ ok: true } | { ok: false; error: string }> {
     if (!isElectron()) return { ok: false, error: 'MQTT is desktop-only.' };
     const api = getElectronAPI();
@@ -245,7 +250,7 @@ class MqttManager {
       const msg = result.error ?? 'Publish failed';
       store.addMessage(params.connectionId, {
         direction: 'system',
-        topic: params.topic,
+        topic: params.display?.topic ?? params.topic,
         payload: msg,
         qos: params.qos,
         retain: params.retain,
@@ -256,8 +261,8 @@ class MqttManager {
 
     store.addMessage(params.connectionId, {
       direction: 'sent',
-      topic: params.topic,
-      payload: params.payload,
+      topic: params.display?.topic ?? params.topic,
+      payload: params.display?.payload ?? params.payload,
       qos: params.qos,
       retain: params.retain,
       ...(result.ack?.packetId !== undefined ? { packetId: result.ack.packetId } : {}),

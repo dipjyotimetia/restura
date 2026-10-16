@@ -2,6 +2,7 @@ import { Pause, Play, Plug, PlugZap, Send, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
+import { MessageTemplateList } from '@/components/shared/messageTemplates/MessageTemplateList';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,10 +25,16 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { mqttManager, mqttSecretKey } from '@/features/mqtt/lib/mqttManager';
+import { type PublishInput, publishWithVariables } from '@/features/mqtt/lib/publishWithVariables';
 import type { MqttMessage, MqttQoS } from '@/features/mqtt/store/useMqttStore';
 import { MQTT_SECRET_SENTINEL, useMqttStore } from '@/features/mqtt/store/useMqttStore';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
+import {
+  type MqttPublishTemplate,
+  newTemplateId,
+  nextTemplateName,
+} from '@/lib/shared/streaming/messageTemplates';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { useActiveTabId } from '@/store/selectors';
 import { MqttConnectionForm } from './MqttConnectionForm';
@@ -176,17 +183,27 @@ function MqttClient() {
   const handleDisconnect = async (): Promise<void> => {
     if (connection) await mqttManager.disconnect(connection.id);
   };
+  // {{var}} resolution, unresolved warnings and secret masking: publishWithVariables (#974).
+  const publishInput = async (input: PublishInput): Promise<void> => {
+    if (connection && input.topic) await publishWithVariables(connection.id, input);
+  };
   const handlePublish = async (): Promise<void> => {
     if (!connection || !pubTopic) return;
-    await mqttManager.publish({
-      connectionId: connection.id,
-      topic: pubTopic,
-      payload: pubPayload,
-      qos: pubQos,
-      retain: pubRetain,
-    });
+    await publishInput({ topic: pubTopic, payload: pubPayload, qos: pubQos, retain: pubRetain });
     setPubPayload('');
   };
+  const templates = connection?.templates ?? [];
+  const createTemplate = (): MqttPublishTemplate | null =>
+    pubTopic.trim()
+      ? {
+          id: newTemplateId(),
+          name: nextTemplateName(templates, 'Publish'),
+          topic: pubTopic,
+          payload: pubPayload,
+          qos: pubQos,
+          retain: pubRetain,
+        }
+      : null;
   const handleSubscribe = async (): Promise<void> => {
     if (!connection || !subTopic.trim()) return;
     await mqttManager.subscribe({
@@ -321,7 +338,25 @@ function MqttClient() {
             visibleMessages={visibleMessages}
           />
 
-          <TabsContent value="publish" className="flex-1 overflow-auto m-0">
+          <TabsContent value="publish" className="flex-1 overflow-auto m-0 space-y-2.5">
+            <Floater radius="panel" className="p-3">
+              <MessageTemplateList<MqttPublishTemplate>
+                templates={templates}
+                onChange={(next) => updateConnection(connection.id, { templates: next })}
+                onLoad={(t) => {
+                  setPubTopic(t.topic);
+                  setPubPayload(t.payload);
+                  setPubQos(t.qos);
+                  setPubRetain(t.retain);
+                }}
+                onSend={(t) => void publishInput(t)}
+                createFromComposer={createTemplate}
+                canSend={isConnected}
+                describe={(t) => `${t.topic} · QoS ${t.qos}${t.retain ? ' · retain' : ''}`}
+                noun="publish"
+                plural="publishes"
+              />
+            </Floater>
             <Floater radius="panel" className="p-3 space-y-3">
               <div className="space-y-2">
                 <Label className="text-xs sp-label">Topic</Label>

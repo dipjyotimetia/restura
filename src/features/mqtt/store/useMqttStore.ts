@@ -3,6 +3,11 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { capMessages, MAX_MESSAGES_PER_CONNECTION } from '@/lib/shared/message-cap';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
+import {
+  type MqttPublishTemplate,
+  migrateConnectionTemplates,
+  mqttTemplateSchema,
+} from '@/lib/shared/streaming/messageTemplates';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import { emitStreamEvent } from '@/store/useStreamTimelineStore';
 
@@ -86,6 +91,8 @@ export interface MqttConnection {
   // Active subscriptions
   subscriptions: MqttSubscription[];
   messages: MqttMessage[];
+  /** Saved publishes, stored unresolved — `{{var}}` is substituted at publish time. */
+  templates: MqttPublishTemplate[];
   createdAt: number;
   lastConnectedAt?: number;
 }
@@ -193,6 +200,7 @@ function makeDefaultConnection(
     status: 'disconnected',
     subscriptions: [],
     messages: [],
+    templates: [],
     createdAt: Date.now(),
   };
 }
@@ -423,8 +431,16 @@ export const useMqttStore = create<MqttState>()(
     createPersistedStore<MqttState>({
       store: 'mqttConnections',
       persistName: 'mqtt-storage',
-      version: 1,
-      steps: [],
+      version: 2,
+      steps: [
+        {
+          name: 'add-publish-templates',
+          fromVersion: 1,
+          apply: (state) => ({
+            state: migrateConnectionTemplates(state, mqttTemplateSchema),
+          }),
+        },
+      ],
       partialize: (state) => ({
         connections: Object.fromEntries(
           Object.entries(state.connections).map(([id, conn]) => [

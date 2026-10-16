@@ -92,8 +92,19 @@ class SocketIOManager {
     }
   }
 
-  emit(connectionId: string, eventName: string, args: unknown[], withAck = false): void {
+  /**
+   * `display` overrides the transcript copy of the emit — used to keep
+   * resolved secret `{{var}}` values out of the event log (#974).
+   */
+  emit(
+    connectionId: string,
+    eventName: string,
+    args: unknown[],
+    withAck = false,
+    display?: { eventName: string; args: unknown[] }
+  ): void {
     const store = useSocketIOStore.getState();
+    const logged = display ?? { eventName, args };
 
     if (this.electronConnections.has(connectionId)) {
       const api = getElectronAPI();
@@ -101,8 +112,7 @@ class SocketIOManager {
       const ackId = withAck ? uuidv4() : undefined;
       store.addEvent(connectionId, {
         direction: 'sent',
-        eventName,
-        args,
+        ...logged,
         ...(ackId ? { ackId } : {}),
       });
       void api.socketio.emit({ connectionId, eventName, args, ...(ackId ? { ackId } : {}) });
@@ -121,7 +131,7 @@ class SocketIOManager {
 
     if (withAck) {
       const ackId = uuidv4();
-      store.addEvent(connectionId, { direction: 'sent', eventName, args, ackId });
+      store.addEvent(connectionId, { direction: 'sent', ...logged, ackId });
 
       const pending = this.browserAcks.get(connectionId) ?? new Map<string, PendingAck>();
       const timer = setTimeout(() => {
@@ -148,7 +158,7 @@ class SocketIOManager {
         p.resolve(ackArgs);
       });
     } else {
-      store.addEvent(connectionId, { direction: 'sent', eventName, args });
+      store.addEvent(connectionId, { direction: 'sent', ...logged });
       socket.emit(eventName, ...args);
     }
   }
