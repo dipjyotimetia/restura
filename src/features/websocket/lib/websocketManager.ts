@@ -5,6 +5,15 @@ import {
 } from '@shared/protocol/ws-binary-codec';
 import { useWebSocketStore } from '@/features/websocket/store/useWebSocketStore';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
+import {
+  attachControlFrameListeners,
+  controlFrameChannels,
+  describeClose,
+  recordNegotiation,
+  sendElectronPing,
+  WEB_PING_UNSUPPORTED,
+  type WsCloseOptions,
+} from './wsControlFrames';
 
 /**
  * Remove all `ws:{open,message,error,close}:<connectionId>` IPC listeners.
@@ -21,6 +30,9 @@ export function cleanupWebSocketElectronListeners(
   api?.websocket?.removeAllListeners(`ws:message:${connectionId}`);
   api?.websocket?.removeAllListeners(`ws:error:${connectionId}`);
   api?.websocket?.removeAllListeners(`ws:close:${connectionId}`);
+  for (const channel of controlFrameChannels(connectionId)) {
+    api?.websocket?.removeAllListeners(channel);
+  }
 }
 
 interface ConnectArgs {
@@ -141,7 +153,7 @@ class WebSocketManager {
           this.connectionTimeouts.delete(connectionId);
         }
 
-        this.handleOpen(connectionId, url);
+        this.handleOpen(connectionId, url, ws.protocol, ws.extensions);
       };
 
       ws.onmessage = (event) => {
@@ -180,7 +192,8 @@ class WebSocketManager {
     }
   }
 
-  disconnect(connectionId: string, clearReconnect = true): void {
+  /** `close` (#915): optional RFC 6455 close code/reason; default 1000 "Client disconnected". */
+  disconnect(connectionId: string, clearReconnect = true, close?: WsCloseOptions): void {
     // Clear any pending reconnect
     if (clearReconnect) {
       // Drop the resolved url/headers (may hold credentials) — nothing will replay them.
@@ -209,9 +222,10 @@ class WebSocketManager {
     // so this also aborts an in-flight handshake (#908).
     if (this.electronConnections.has(connectionId)) {
       const api = getElectronAPI();
-      api?.websocket?.disconnect({ connectionId });
+      api?.websocket?.disconnect({ connectionId, ...close });
       this.releaseElectron(connectionId, api);
       const state = useWebSocketStore.getState();
+      if (close) state.addMessage(connectionId, 'system', describeClose(close));
       state.updateConnectionStatus(connectionId, 'disconnected');
       state.setReconnectAttempts(connectionId, 0);
       return;
@@ -220,10 +234,12 @@ class WebSocketManager {
     const ws = this.connections.get(connectionId);
     if (ws) {
       ws.onclose = null; // Prevent reconnect on intentional close
-      ws.close(1000, 'Client disconnected');
+      if (close) ws.close(close.code, close.reason ?? '');
+      else ws.close(1000, 'Client disconnected');
       this.connections.delete(connectionId);
 
       const state = useWebSocketStore.getState();
+      if (close) state.addMessage(connectionId, 'system', describeClose(close));
       state.updateConnectionStatus(connectionId, 'disconnected');
       state.setReconnectAttempts(connectionId, 0);
     }
@@ -274,6 +290,15 @@ class WebSocketManager {
     return false;
   }
 
+  /** Send a Ping control frame (#919). Desktop only — browsers expose no ping API. */
+  ping(connectionId: string, payload: string): boolean {
+    if (!this.electronConnections.has(connectionId)) {
+      useWebSocketStore.getState().addMessage(connectionId, 'system', WEB_PING_UNSUPPORTED);
+      return false;
+    }
+    return sendElectronPing(connectionId, payload, getElectronAPI());
+  }
+
   getConnection(connectionId: string): WebSocket | undefined {
     return this.connections.get(connectionId);
   }
@@ -311,9 +336,13 @@ class WebSocketManager {
     this.electronAttempts.set(connectionId, attempt);
     const isLive = () => this.electronAttempts.get(connectionId) === attempt;
 
-    api.websocket.on(`ws:open:${connectionId}`, () => {
-      if (isLive()) this.handleOpen(connectionId, url);
+    api.websocket.on(`ws:open:${connectionId}`, (payload: unknown) => {
+      // #923: main forwards the negotiated subprotocol + extensions.
+      const open = (payload ?? {}) as { protocol?: string; extensions?: string };
+      if (isLive()) this.handleOpen(connectionId, url, open.protocol, open.extensions);
     });
+
+    attachControlFrameListeners(connectionId, api);
 
     api.websocket.on(`ws:message:${connectionId}`, (payload: unknown) => {
       const msg = payload as { type: 'text' | 'binary'; data: string };
@@ -361,6 +390,10 @@ class WebSocketManager {
         url,
         headers,
         ...(protocols !== undefined ? { protocols } : {}),
+        // #923: desktop-only toggle; unset means the `ws` default (offered).
+        ...(store.connections[connectionId]?.perMessageDeflate === false
+          ? { perMessageDeflate: false }
+          : {}),
       })
       .then((res) => {
         if (res && !res.success) fail(res.error ?? 'Connection failed');
@@ -374,13 +407,22 @@ class WebSocketManager {
     cleanupWebSocketElectronListeners(connectionId, api);
   }
 
-  /** Transport-agnostic open: status, counters and heartbeat for both paths. */
-  private handleOpen(connectionId: string, url: string): void {
+  /**
+   * Transport-agnostic open: status, counters and heartbeat for both paths,
+   * plus the negotiated subprotocol / extensions (#923).
+   */
+  private handleOpen(
+    connectionId: string,
+    url: string,
+    protocol: string | undefined,
+    extensions: string | undefined
+  ): void {
     const state = useWebSocketStore.getState();
     state.updateConnectionStatus(connectionId, 'connected');
     state.setReconnectAttempts(connectionId, 0);
     state.setLastConnectedAt(connectionId, Date.now());
-    state.addMessage(connectionId, 'system', `Connected to ${url}`);
+    const negotiated = recordNegotiation(connectionId, protocol, extensions);
+    state.addMessage(connectionId, 'system', `Connected to ${url}${negotiated}`);
 
     const conn = state.connections[connectionId];
     if (conn && conn.heartbeatInterval > 0) {

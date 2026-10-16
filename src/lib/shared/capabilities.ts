@@ -28,6 +28,8 @@ export type CapabilityName =
   | 'websocket.basic'
   | 'websocket.customHeaders'
   | 'websocket.viaWorkerProxy'
+  | 'websocket.ping'
+  | 'websocket.perMessageDeflateToggle'
   | 'sse.basic'
   | 'sse.customHeaders'
   | 'mcp.basic'
@@ -183,6 +185,19 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     desktop: false,
     notes:
       'Worker routes exist (/api/ws-ticket, /api/ws) but the web renderer connects directly via the browser WebSocket API; desktop uses Node ws with the same guards',
+  },
+  'websocket.ping': {
+    label: 'WebSocket ping / pong frames (with RTT)',
+    web: false,
+    desktop: true,
+    notes:
+      'The browser WebSocket API exposes no ping/pong control frames; web disables the Ping control with an explanatory tooltip. Custom close code/reason and the negotiated subprotocol/extensions work on both',
+  },
+  'websocket.perMessageDeflateToggle': {
+    label: 'Disable WebSocket permessage-deflate per connection',
+    web: false,
+    desktop: true,
+    notes: 'The browser always negotiates compression itself; desktop can turn the offer off',
   },
   'sse.basic': { label: 'Server-Sent Events', web: true, desktop: true },
   'sse.customHeaders': {

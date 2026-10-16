@@ -33,7 +33,19 @@ export interface WebSocketConnection {
   lastConnectedAt?: number;
   heartbeatInterval: number; // ms, 0 = disabled
   heartbeatMessage: string;
+  /** Desktop-only (#923): false disables the permessage-deflate offer. Unset = on. */
+  perMessageDeflate?: boolean;
+  /** Runtime-only (#923): subprotocol/extensions the server accepted on the last open. */
+  negotiated?: { protocol: string; extensions: string } | undefined;
+  /** Runtime-only (#919): round-trip time of the last answered desktop ping. */
+  lastPingRttMs?: number | undefined;
 }
+
+/** Control-frame state patched by the manager / connection options (#919, #923). */
+export type WebSocketControlState = Pick<
+  WebSocketConnection,
+  'perMessageDeflate' | 'negotiated' | 'lastPingRttMs'
+>;
 
 interface WebSocketState {
   connections: Record<string, WebSocketConnection>;
@@ -84,6 +96,9 @@ interface WebSocketState {
 
   // Protocols
   setProtocols: (connectionId: string, protocols: string[]) => void;
+
+  /** Patch control-frame state (negotiated params, ping RTT, permessage-deflate). */
+  patchControlState: (connectionId: string, patch: Partial<WebSocketControlState>) => void;
 
   // Heartbeat
   setHeartbeatConfig: (connectionId: string, interval: number, message: string) => void;
@@ -321,6 +336,15 @@ export const useWebSocketStore = create<WebSocketState>()(
           };
         }),
 
+      patchControlState: (connectionId, patch) =>
+        set((state) => {
+          const connection = state.connections[connectionId];
+          if (!connection) return state;
+          return {
+            connections: { ...state.connections, [connectionId]: { ...connection, ...patch } },
+          };
+        }),
+
       setHeartbeatConfig: (connectionId, interval, message) =>
         set((state) => {
           const connection = state.connections[connectionId];
@@ -383,6 +407,8 @@ export const useWebSocketStore = create<WebSocketState>()(
               status: 'disconnected' as const,
               messages: [], // Don't persist messages
               reconnectAttempts: 0,
+              negotiated: undefined, // runtime-only (#923)
+              lastPingRttMs: undefined, // runtime-only (#919)
             },
           ])
         ),
