@@ -41,7 +41,7 @@ test.describe('GraphQL over HTTP', () => {
     await page.getByRole('button', { name: /GraphQL HTTP method: POST/ }).click();
 
     servers.http.reset();
-    await page.getByRole('button', { name: /Send GraphQL query/i }).click();
+    await page.getByRole('button', { name: /Send GraphQL mutation/i }).click();
     await expect(page.getByText(/GET can only send query operations/).first()).toBeVisible();
     expect(servers.http.requests().filter((r) => r.path.startsWith('/graphql'))).toHaveLength(0);
   });

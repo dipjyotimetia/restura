@@ -11,6 +11,8 @@
  *   extensions URL-encoded as query params). GET is refused for mutations and
  *   subscriptions — the spec forbids mutations over GET (they are not safe).
  */
+
+import { listGraphQLOperations, selectGraphQLOperation } from '@shared/graphql/operations';
 import {
   GraphQLIncrementalMerger,
   mergeMultipartGraphQLBody,
@@ -21,8 +23,6 @@ import {
   MultipartMixedParser,
   parseMultipartBoundary,
 } from '@shared/protocol/multipart-mixed-parser';
-import { Kind, type OperationDefinitionNode, parse } from 'graphql';
-import { extractOperationType } from '@/features/graphql/lib/queryParser';
 import type { ResponseProgress } from '@/features/http/lib/progressTransport';
 import { base64ToBytes } from '@/lib/shared/binaryBody';
 import type { Response as ApiResponse, HttpRequest, KeyValue } from '@/types';
@@ -49,47 +49,45 @@ export function graphqlMethodOf(request: Pick<HttpRequest, 'method'>): GraphQLHt
   return request.method === 'GET' ? 'GET' : 'POST';
 }
 
-/** True when the document uses `@defer` or `@stream` (comments ignored). */
-export function hasIncrementalDirective(query: string): boolean {
-  return /@(?:defer|stream)\b/.test(query.replace(/#[^\n\r]*/g, ''));
+/**
+ * The document text that runs for the selected operation: the operation
+ * itself plus every non-operation definition (fragments it may spread),
+ * with the other operations cut out. Uses the shared AST operation list
+ * (#1107; lexer fallback while the document doesn't parse).
+ */
+function selectedOperationSource(query: string, operationName?: string | null): string {
+  const { operations } = listGraphQLOperations(query);
+  const selected = selectGraphQLOperation(operations, operationName);
+  if (!selected) return query;
+  let out = '';
+  let cursor = 0;
+  for (const op of [...operations].sort((a, b) => a.start - b.start)) {
+    if (op === selected) continue;
+    out += query.slice(cursor, op.start);
+    cursor = Math.max(cursor, op.end);
+  }
+  return out + query.slice(cursor);
 }
 
 /**
- * The type of the operation that would execute, judged from the parsed
- * document so leading comments, fragments or earlier operations can't hide a
- * mutation. With several operations: the one named by `operationName`; if it
- * names none of them (or is absent), the most dangerous one present — GET must
- * never carry a document that could run a mutation.
+ * True when the selected operation (or a fragment it could spread) uses
+ * `@defer` or `@stream`; comments are ignored. A `@defer` in another
+ * operation of the same document doesn't count.
  */
-function executedOperationType(query: string, operationName?: string): string | null {
-  let operations: OperationDefinitionNode[];
-  try {
-    operations = parse(query).definitions.filter(
-      (d): d is OperationDefinitionNode => d.kind === Kind.OPERATION_DEFINITION
-    );
-  } catch {
-    // Unparseable (the user is mid-edit): fall back to the leading keyword.
-    return extractOperationType(query.replace(/#[^\n\r]*/g, ''));
-  }
-  const named = operationName
-    ? operations.find((op) => op.name?.value === operationName)
-    : operations.length === 1
-      ? operations[0]
-      : undefined;
-  if (named) return named.operation;
-  return (
-    operations.find((op) => op.operation === 'mutation')?.operation ??
-    operations.find((op) => op.operation === 'subscription')?.operation ??
-    null
+export function hasIncrementalDirective(query: string, operationName?: string | null): boolean {
+  return /@(?:defer|stream)\b/.test(
+    selectedOperationSource(query, operationName).replace(/#[^\n\r]*/g, '')
   );
 }
 
 /**
- * Why GET cannot carry this document, or null when it can. Anonymous
- * shorthand (`{ ... }`) counts as a query.
+ * Why GET cannot carry this document, or null when it can. Judged on the
+ * operation that will actually run — the selected one (`operationName`, as
+ * sent), else the first — via the shared AST operation list, so leading
+ * comments or fragments can't hide a mutation. Shorthand `{ … }` is a query.
  */
-export function getRefusalReason(query: string, operationName?: string): string | null {
-  const type = executedOperationType(query, operationName);
+export function getRefusalReason(query: string, operationName?: string | null): string | null {
+  const type = selectGraphQLOperation(listGraphQLOperations(query).operations, operationName)?.type;
   if (type === 'mutation' || type === 'subscription') {
     return `GET can only send query operations — switch the method to POST to send this ${type}.`;
   }
@@ -120,7 +118,9 @@ export function buildGraphQLWireRequest(
     headers.push({
       id: 'graphql-accept',
       key: 'Accept',
-      value: hasIncrementalDirective(envelope.query) ? GRAPHQL_INCREMENTAL_ACCEPT : GRAPHQL_ACCEPT,
+      value: hasIncrementalDirective(envelope.query, envelope.operationName)
+        ? GRAPHQL_INCREMENTAL_ACCEPT
+        : GRAPHQL_ACCEPT,
       enabled: true,
     });
   }

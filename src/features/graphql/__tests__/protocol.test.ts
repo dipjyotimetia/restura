@@ -160,6 +160,24 @@ describe('graphqlProtocol envelope', () => {
     expect(onSentBody).toHaveBeenCalledTimes(1);
   });
 
+  it('a saved GET runs the selected operation: query sent with operationName, mutation refused', async () => {
+    const doc = 'query ListUsers { users { id } }\nmutation AddUser { addUser { id } }';
+    const ctx = { signal: new AbortController().signal, variables: {} } as never;
+    const saved = gqlRequest(doc);
+    saved.method = 'GET';
+    saved.body = { type: 'graphql', raw: doc, graphqlOperationName: 'ListUsers' };
+    await graphqlProtocol.runRequest(saved, ctx);
+    const passed = executeRequestMock.mock.calls[0]![0] as { request: HttpRequest };
+    expect(passed.request.method).toBe('GET');
+    expect(Object.fromEntries(passed.request.params.map((p) => [p.key, p.value]))).toMatchObject({
+      query: doc,
+      operationName: 'ListUsers',
+    });
+
+    const mutation = { ...saved, body: { ...saved.body, graphqlOperationName: 'AddUser' } };
+    await expect(graphqlProtocol.runRequest(mutation, ctx)).rejects.toThrow(/mutation/);
+  });
+
   it('sends the operation selected on the saved request (#903)', async () => {
     const saved = gqlRequest('query A { a }\nquery B { b }');
     saved.body = { type: 'graphql', raw: saved.body.raw, graphqlOperationName: 'B' };

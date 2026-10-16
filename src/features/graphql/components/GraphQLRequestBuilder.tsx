@@ -34,10 +34,8 @@ import {
   buildGraphQLWireRequest,
   graphqlMethodOf,
   hasIncrementalDirective,
-  type IncrementalSnapshot,
-  snapshotToResponse,
-  stoppedSnapshotResponse,
 } from '@/features/graphql/lib/graphqlHttp';
+import { createIncrementalSend } from '@/features/graphql/lib/incrementalSend';
 import { exportSchemaToSDL } from '@/features/graphql/lib/introspection';
 import {
   applyOperationSelection,
@@ -260,32 +258,18 @@ function GraphQLRequestBuilder() {
     const startedAt = Date.now();
     useUiStore.getState().setInFlight({ tabId: originTabId, startedAt, cancel: abortRun });
 
-    // The latest live @defer / @stream snapshot, finalised if the run stops early.
-    let lastSnapshot: ReturnType<typeof snapshotToResponse> | undefined;
+    // @defer / @stream: render each merged part as it arrives (#885).
+    const incremental = createIncrementalSend({
+      enabled: hasIncrementalDirective(query, operationName),
+      requestId: httpRequest.id,
+      startedAt,
+      setResponse: (r) => setCurrentResponseForTab(originTabId, r),
+      publishErrors: (errors) =>
+        useGraphQLErrorStore.getState().publish(originTabId, query, errors),
+    });
+    const { stream } = incremental;
     try {
       let sentBody: string | undefined;
-      // @defer / @stream: render each merged multipart part as it arrives.
-      const stream = hasIncrementalDirective(query)
-        ? {
-            onMessage: (snapshot: unknown) => {
-              lastSnapshot = snapshotToResponse(
-                snapshot as IncrementalSnapshot,
-                httpRequest.id,
-                startedAt
-              );
-              setCurrentResponseForTab(originTabId, lastSnapshot);
-              // Errors in a part (incremental `errors`, `completed[].errors`)
-              // reach the editor markers as they arrive, not only at the end.
-              useGraphQLErrorStore
-                .getState()
-                .publish(
-                  originTabId,
-                  query,
-                  parseGraphQLErrors((snapshot as IncrementalSnapshot).result)
-                );
-            },
-          }
-        : undefined;
       const { response, scriptResult: runScripts } = await runViaRegistry(wireRequest, 'graphql', {
         protocolOptions: {
           [GRAPHQL_SENT_BODY_OPTION]: (body: string) => {
@@ -347,12 +331,7 @@ function GraphQLRequestBuilder() {
       }
     } catch (error) {
       const aborted = error instanceof Error && error.name === 'AbortError';
-      if (lastSnapshot) {
-        setCurrentResponseForTab(
-          originTabId,
-          stoppedSnapshotResponse(lastSnapshot, aborted ? 'cancelled' : 'failed')
-        );
-      }
+      incremental.stop(aborted);
       if (aborted) {
         toast.info('Request cancelled', { duration: 2000 });
       } else {
@@ -559,6 +538,7 @@ function GraphQLRequestBuilder() {
           method={graphqlMethodOf(httpRequest)}
           isSubscription={isSubscription}
           query={query}
+          operationName={operationState.operationName}
           onChange={(method) => updateRequest({ method })}
         />
         <span className="text-sp-dim font-mono text-sm select-none shrink-0">›</span>

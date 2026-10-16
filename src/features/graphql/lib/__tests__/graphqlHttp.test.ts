@@ -71,23 +71,60 @@ describe('graphqlMethodOf / hasIncrementalDirective / getRefusalReason', () => {
     expect(hasIncrementalDirective('{ a @deferred }')).toBe(false);
   });
 
-  it('judges the parsed document: comments, fragments and other operations cannot hide a mutation', () => {
+  it('looks for @defer / @stream in the selected operation and the fragments, not other operations', () => {
+    const doc = 'query Fast { a }\nquery Slow { a ... @defer { b } }';
+    expect(hasIncrementalDirective(doc, 'Fast')).toBe(false);
+    expect(hasIncrementalDirective(doc, 'Slow')).toBe(true);
+    expect(hasIncrementalDirective(doc)).toBe(false); // first operation runs
+    const withFragment = 'query A { ...F }\nquery B { z }\nfragment F on Q { list @stream }';
+    expect(hasIncrementalDirective(withFragment, 'A')).toBe(true);
+    expect(hasIncrementalDirective('')).toBe(false);
+    // The Accept header follows the selected operation.
+    const slow = buildGraphQLWireRequest(req(), { query: doc, operationName: 'Slow' });
+    const fast = buildGraphQLWireRequest(req(), { query: doc, operationName: 'Fast' });
+    if (!slow.ok || !fast.ok) throw new Error('unexpected refusal');
+    expect(headerMap(slow.request).Accept).toBe(GRAPHQL_INCREMENTAL_ACCEPT);
+    expect(headerMap(fast.request).Accept).toBe(GRAPHQL_ACCEPT);
+  });
+
+  it('judges the selected operation: comments and fragments cannot hide a mutation', () => {
     expect(getRefusalReason('# create\nmutation { x }')).toMatch(/mutation/);
     expect(getRefusalReason('fragment F on U { id } mutation M { x { ...F } }')).toMatch(
       /mutation/
     );
     expect(getRefusalReason('fragment F on U { id } query Q { x { ...F } }')).toBeNull();
-    // Several operations: the selected one decides; without a match, the most dangerous.
+    // Several operations: the selected one decides; no / stale selection → the
+    // first operation, exactly what Send runs (#1107 selectGraphQLOperation).
     const doc = 'query A { a } mutation B { b } subscription C { c }';
     expect(getRefusalReason(doc, 'A')).toBeNull();
     expect(getRefusalReason(doc, 'B')).toMatch(/mutation/);
     expect(getRefusalReason(doc, 'C')).toMatch(/subscription/);
-    expect(getRefusalReason(doc)).toMatch(/mutation/);
-    expect(getRefusalReason('query A { a } subscription C { c }', 'nope')).toMatch(/subscription/);
-    expect(getRefusalReason('query A { a } query B { b }')).toBeNull();
-    // Unparseable text falls back to the leading keyword (comments ignored).
+    expect(getRefusalReason(doc)).toBeNull();
+    expect(getRefusalReason('mutation B { b } query A { a }', 'gone')).toMatch(/mutation/);
+    // Unparseable text: the shared lexer fallback still finds the keyword.
     expect(getRefusalReason('# x\nmutation {')).toMatch(/mutation/);
     expect(getRefusalReason('query {')).toBeNull();
+  });
+
+  it('GET on a multi-operation document: selected query is sent, selected mutation refused', () => {
+    const doc = 'query ListUsers { users { id } }\nmutation AddUser { addUser { id } }';
+    const asQuery = buildGraphQLWireRequest(req({ method: 'GET' }), {
+      query: doc,
+      operationName: 'ListUsers',
+    });
+    if (!asQuery.ok) throw new Error(asQuery.error);
+    expect(paramMap(asQuery.request)).toEqual({ query: doc, operationName: 'ListUsers' });
+
+    const asMutation = buildGraphQLWireRequest(req({ method: 'GET' }), {
+      query: doc,
+      operationName: 'AddUser',
+    });
+    expect(asMutation).toEqual({ ok: false, error: expect.stringMatching(/mutation/) });
+
+    // POST carries the selected operationName in the JSON body either way.
+    const post = buildGraphQLWireRequest(req(), { query: doc, operationName: 'AddUser' });
+    if (!post.ok) throw new Error(post.error);
+    expect(JSON.parse(post.request.body.raw!).operationName).toBe('AddUser');
   });
 
   it('refuses mutations and subscriptions over GET, allows queries and shorthand', () => {
