@@ -59,6 +59,12 @@ export interface RequestExecutionResult {
   };
   envVars?: Record<string, string>;
   sentHeaders: Record<string, string>;
+  /**
+   * The raw-text body as sent, after `{{var}}` substitution (desktop secret
+   * tokens stay opaque). Lets callers map server coordinates — e.g. GraphQL
+   * error locations — back onto the unsubstituted editor text.
+   */
+  sentBody?: string;
   refreshedAuth?: HttpRequest['auth'];
   /**
    * `pm.collectionVariables.set/unset` mutations from either script phase,
@@ -634,6 +640,7 @@ export async function executeRequest(
     },
     envVars,
     sentHeaders,
+    ...(spec.data !== undefined ? { sentBody: spec.data } : {}),
     ...(Object.keys(collectionVarsMutations).length > 0 ? { collectionVarsMutations } : {}),
   };
   if (effectiveAuth !== request.auth) {

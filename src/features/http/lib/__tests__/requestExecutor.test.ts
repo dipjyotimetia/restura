@@ -242,8 +242,11 @@ describe('executeRequest — body variables', () => {
     });
 
   it('resolves {{vars}} in a raw body', async () => {
-    await send({ type: 'json', raw: '{"h":"{{host}}","id":{{id}}}' });
+    const result = await send({ type: 'json', raw: '{"h":"{{host}}","id":{{id}}}' });
     expect(sentSpec().data).toBe('{"h":"api.dev","id":42}');
+    // The substituted body is reported back so callers can map server
+    // coordinates (GraphQL error locations) onto the unsubstituted text.
+    expect(result.sentBody).toBe('{"h":"api.dev","id":42}');
   });
 
   it('resolves {{vars}} in form-data text fields but never in file content', async () => {

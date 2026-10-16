@@ -15,6 +15,7 @@
  * runner doesn't model long-lived streams yet (see Task 4.5 follow-up note).
  */
 import { v4 as uuidv4 } from 'uuid';
+import { GRAPHQL_SENT_BODY_OPTION } from '@/features/graphql/lib/graphqlErrors';
 import { buildGraphQLRequestBody } from '@/features/graphql/lib/queryParser';
 import { executeRequest } from '@/features/http/lib/requestExecutor';
 import type { ProtocolModule } from '@/features/registry/types';
@@ -191,6 +192,11 @@ export const graphqlProtocol: ProtocolModule = {
     });
     if (ctx.onScriptResult && result.scriptResult) {
       ctx.onScriptResult(result.scriptResult);
+    }
+    // The Builder maps error locations against the substituted query text.
+    const onSentBody = ctx.protocolOptions?.[GRAPHQL_SENT_BODY_OPTION];
+    if (typeof onSentBody === 'function' && result.sentBody !== undefined) {
+      (onSentBody as (body: string) => void)(result.sentBody);
     }
     if (ctx.onAuthRefreshed && result.refreshedAuth) {
       ctx.onAuthRefreshed(result.refreshedAuth);

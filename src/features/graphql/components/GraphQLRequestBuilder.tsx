@@ -24,12 +24,15 @@ import AuthConfiguration from '@/features/auth/components/AuthConfig';
 import { InheritedAuthHint } from '@/features/auth/components/InheritedAuthHint';
 import { buildAuthCredential } from '@/features/auth/lib/buildAuthCredential';
 import { formatQuery } from '@/features/graphql/lib/formatter';
-import { exportSchemaToSDL } from '@/features/graphql/lib/introspection';
 import {
-  buildGraphQLRequestBody,
-  extractGraphQLErrors,
-  extractOperationType,
-} from '@/features/graphql/lib/queryParser';
+  GRAPHQL_SENT_BODY_OPTION,
+  parseGraphQLErrors,
+  parseGraphQLErrorsFromBody,
+  sentQueryFromBody,
+  summarizeGraphQLErrors,
+} from '@/features/graphql/lib/graphqlErrors';
+import { exportSchemaToSDL } from '@/features/graphql/lib/introspection';
+import { buildGraphQLRequestBody, extractOperationType } from '@/features/graphql/lib/queryParser';
 import { describeSchemaProvenance } from '@/features/graphql/lib/schemaImport';
 import { GraphQLSubscriptionClient } from '@/features/graphql/lib/subscriptionClient';
 import {
@@ -38,6 +41,10 @@ import {
   type SubscriptionLogState,
 } from '@/features/graphql/lib/subscriptionLog';
 import { useEffectiveGraphQLSchema } from '@/features/graphql/lib/useEffectiveGraphQLSchema';
+import {
+  useGraphQLErrorStore,
+  useOnGraphQLErrorFocus,
+} from '@/features/graphql/store/useGraphQLErrorStore';
 import { useRequestRunner } from '@/features/registry/useRequestRunner';
 import ScriptsEditor from '@/features/scripts/components/ScriptsEditor';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
@@ -51,6 +58,7 @@ import { useGraphQLSchemaStore } from '@/store/useGraphQLSchemaStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import { useUiStore } from '@/store/useUiStore';
 import type { AuthConfig as AuthConfigType, GraphQLImportedSchema, HttpRequest } from '@/types';
+import { GraphQLSubscriptionErrors } from './GraphQLSubscriptionErrors';
 import { LoadSchemaDialog } from './LoadSchemaDialog';
 import SchemaExplorer from './SchemaExplorer';
 import { SubscriptionProtocolSelect } from './SubscriptionProtocolSelect';
@@ -106,6 +114,8 @@ function GraphQLRequestBuilder() {
     useConfirmDialog(REPLACE_IMPORTED_CONFIRM);
 
   const sendShortcut = useSendShortcut();
+  // An errors panel asked to reveal a query location — show the editor.
+  useOnGraphQLErrorFocus(activeTabId, () => setActiveTab('query'));
   if (!currentRequest) {
     return null;
   }
@@ -157,6 +167,8 @@ function GraphQLRequestBuilder() {
 
     setSubscriptionLog(emptySubscriptionLog);
     setIsSubscribed(true);
+    const originTabId = activeTabId;
+    if (originTabId) useGraphQLErrorStore.getState().clear(originTabId);
 
     const headers = buildHeaders();
     const client = new GraphQLSubscriptionClient(resolvedUrl, headers);
@@ -170,6 +182,10 @@ function GraphQLRequestBuilder() {
       protocol: httpRequest.graphqlSubscriptionProtocol ?? 'auto',
       onMessage: (msg) => {
         setSubscriptionLog((prev) => appendSubscriptionLog(prev, msg));
+        const nextErrors = msg.type === 'data' ? parseGraphQLErrors(msg.payload) : [];
+        if (originTabId && nextErrors.length > 0) {
+          useGraphQLErrorStore.getState().publish(originTabId, query, nextErrors);
+        }
         if (msg.type === 'complete') {
           setIsSubscribed(false);
           subscriptionClientRef.current = null;
@@ -235,7 +251,14 @@ function GraphQLRequestBuilder() {
     };
 
     try {
-      const { response, scriptResult: runScripts } = await runViaRegistry(wireRequest, 'graphql');
+      let sentBody: string | undefined;
+      const { response, scriptResult: runScripts } = await runViaRegistry(wireRequest, 'graphql', {
+        protocolOptions: {
+          [GRAPHQL_SENT_BODY_OPTION]: (body: string) => {
+            sentBody = body;
+          },
+        },
+      });
       setCurrentResponseForTab(originTabId, response);
 
       // Mirror interactive GraphQL sends into the unified console (previously
@@ -272,18 +295,20 @@ function GraphQLRequestBuilder() {
         })
       );
 
-      const graphqlErrors = extractGraphQLErrors(response.body);
+      // Locations index into the sent `query` → editor markers; the response
+      // panel's Errors tab lists every entry with click-through.
+      const graphqlErrors = parseGraphQLErrorsFromBody(response.body);
+      useGraphQLErrorStore
+        .getState()
+        .publish(originTabId, query, graphqlErrors, sentQueryFromBody(sentBody));
       if (response.status < 200 || response.status >= 300) {
         toast.error(`Request failed: ${response.status}`, {
           description: response.statusText,
         });
       } else if (graphqlErrors.length > 0) {
-        // HTTP 200 but the GraphQL envelope carries errors (possibly with
-        // partial data) — surface them instead of a misleading "completed".
-        toast.error(
-          `GraphQL returned ${graphqlErrors.length} error${graphqlErrors.length > 1 ? 's' : ''}`,
-          { description: graphqlErrors[0] }
-        );
+        toast.error(summarizeGraphQLErrors(graphqlErrors.length), {
+          description: 'See the Errors tab in the response panel.',
+        });
       }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
@@ -652,6 +677,10 @@ function GraphQLRequestBuilder() {
                     disabled={isSubscribed}
                   />
                 </div>
+                <GraphQLSubscriptionErrors
+                  messages={subscriptionLog.messages}
+                  tabId={activeTabId}
+                />
                 {subscriptionLog.messages.length === 0 ? (
                   <div className="text-center py-8 text-sp-muted font-mono text-sp-12">
                     {isSubscribed
