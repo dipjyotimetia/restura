@@ -11,6 +11,7 @@ import {
   validateIpcInput,
   WsConnectSchema,
   WsDisconnectSchema,
+  WsPingSchema,
   WsSendSchema,
 } from '../ipc/ipc-validators';
 import { ownerScopedKey, StreamRegistry } from '../ipc/stream-registry';
@@ -41,6 +42,45 @@ interface ActiveWebSocket {
   /** webContents ID of the renderer that opened this connection — used for targeted IPC emission */
   webContentsId: number;
   setExplicitlyClosed?: () => void;
+  /** Outstanding client pings (#919), oldest first, for pong → RTT matching. */
+  pendingPings: PendingPing[];
+}
+
+interface PendingPing {
+  /** Application data actually sent on the wire (and echoed by the pong). */
+  wire: string;
+  /** What the user typed — surfaced to the renderer instead of the wire nonce. */
+  payload: string;
+  sentAt: number;
+}
+
+let pingNonceCounter = 0;
+
+/**
+ * An empty user payload would let any empty (e.g. unsolicited) pong satisfy
+ * an outstanding ping and fake the RTT, so send a short unique nonce instead.
+ * User-supplied payloads go out unchanged. Well under the 125-byte limit.
+ */
+function pingWirePayload(payload: string): string {
+  if (payload) return payload;
+  pingNonceCounter = (pingNonceCounter + 1) % Number.MAX_SAFE_INTEGER;
+  return `restura-ping-${pingNonceCounter}`;
+}
+
+/** Bounds the outstanding-ping table so a silent peer can't grow it forever. */
+const MAX_PENDING_PINGS = 32;
+
+/**
+ * Match a pong to the oldest outstanding ping with the same application data
+ * (RFC 6455 §5.5.3: a Pong echoes the Ping's payload). Returns the RTT in
+ * whole ms, or undefined for an unsolicited pong.
+ */
+function takePong(entry: ActiveWebSocket, wire: string): { payload: string; rttMs?: number } {
+  const idx = entry.pendingPings.findIndex((p) => p.wire === wire);
+  const [match] = idx === -1 ? [] : entry.pendingPings.splice(idx, 1);
+  return match
+    ? { payload: match.payload, rttMs: Math.round(performance.now() - match.sentAt) }
+    : { payload: wire };
 }
 
 // Shared connection bookkeeping. dispose() flags the connection as explicitly
@@ -247,6 +287,8 @@ export function registerWebSocketHandlerIPC(): void {
           // downgrade wss→ws (or change path) and would replay keychain secrets.
           followRedirects: !materialize,
           handshakeTimeout: policyConfig.timeout,
+          // #923: per-connection toggle; `ws` offers permessage-deflate by default.
+          perMessageDeflate: config.perMessageDeflate ?? true,
           lookup: createPinnedLookup(pinned.host, pinned.ip),
         });
 
@@ -258,13 +300,43 @@ export function registerWebSocketHandlerIPC(): void {
           url: config.url,
           createdAt: Date.now(),
           webContentsId,
+          pendingPings: [],
         };
+
+        // Full negotiated Sec-WebSocket-Extensions (with parameters) from the
+        // 101 response; `ws.extensions` only carries the extension names.
+        let negotiatedExtensions: string | undefined;
+        ws.on('upgrade', (res: { headers: Record<string, string | string[] | undefined> }) => {
+          const header = res.headers['sec-websocket-extensions'];
+          negotiatedExtensions = Array.isArray(header) ? header.join(', ') : header;
+        });
 
         ws.on('open', () => {
           if (connections.get(connectionId, webContentsId) !== entry) return;
           // Surface the negotiated subprotocol so the renderer can satisfy callers
           // that verify it (graphql-transport-ws requires socket.protocol to match).
-          connections.emit(connectionId, webContentsId, 'open', { protocol: ws.protocol ?? '' });
+          // #923: also surface the negotiated extensions (e.g. permessage-deflate).
+          connections.emit(connectionId, webContentsId, 'open', {
+            protocol: redact(ws.protocol ?? ''),
+            extensions: redact(negotiatedExtensions ?? ws.extensions ?? ''),
+          });
+        });
+
+        // #919: control frames. `ws` auto-answers server pings (autoPong).
+        ws.on('ping', (data: Buffer) => {
+          if (connections.get(connectionId, webContentsId) !== entry) return;
+          connections.emit(connectionId, webContentsId, 'pingReceived', {
+            data: redact(data.toString('utf8')),
+          });
+        });
+
+        ws.on('pong', (data: Buffer) => {
+          if (connections.get(connectionId, webContentsId) !== entry) return;
+          const { payload, rttMs } = takePong(entry, data.toString('utf8'));
+          connections.emit(connectionId, webContentsId, 'pong', {
+            data: redact(payload),
+            ...(rttMs !== undefined ? { rttMs } : {}),
+          });
         });
 
         ws.on('message', (data: Buffer | ArrayBuffer | Buffer[], isBinary: boolean) => {
@@ -378,6 +450,36 @@ export function registerWebSocketHandlerIPC(): void {
   );
 
   ipcMain.handle(
+    IPC.ws.ping,
+    createValidatedEventHandler(IPC.ws.ping, WsPingSchema, async (config, event) => {
+      const entry = connections.getForOwner(config.connectionId, event.sender.id);
+      if (!entry || entry.ws.readyState !== WebSocket.OPEN) {
+        return { success: false, error: 'Not connected' };
+      }
+      const payload = config.payload ?? '';
+      const wire = pingWirePayload(payload);
+      // Tracked before the write so even an instant pong is matched; dropped
+      // again if the write fails (sync throw while not OPEN, or the async
+      // error `ws` reports through the ping callback).
+      const pending: PendingPing = { wire, payload, sentAt: performance.now() };
+      entry.pendingPings.push(pending);
+      if (entry.pendingPings.length > MAX_PENDING_PINGS) entry.pendingPings.shift();
+      try {
+        await new Promise<void>((resolve, reject) => {
+          entry.ws.ping(Buffer.from(wire, 'utf8'), undefined, (err?: Error) =>
+            err ? reject(err) : resolve()
+          );
+        });
+      } catch (err) {
+        const idx = entry.pendingPings.indexOf(pending);
+        if (idx !== -1) entry.pendingPings.splice(idx, 1);
+        return { success: false, error: err instanceof Error ? err.message : 'Ping failed' };
+      }
+      return { success: true };
+    })
+  );
+
+  ipcMain.handle(
     IPC.ws.disconnect,
     createValidatedEventHandler(IPC.ws.disconnect, WsDisconnectSchema, async (config, event) => {
       const connectionId = config.connectionId;
@@ -393,13 +495,15 @@ export function registerWebSocketHandlerIPC(): void {
       }
       const entry = connections.getForOwner(connectionId, event.sender.id);
       if (entry) {
-        // Graceful close (1000) for an explicit disconnect — distinct from the
+        // Graceful close for an explicit disconnect — distinct from the
         // hard terminate() that dispose() uses for teardown. The entry stays
         // tracked until the 'close' event removes it, so a peer that stalls the
         // close handshake is still visible to disposeAll/renderer-destroyed
         // teardown (ws's ~30s close timer bounds the wait).
         entry.setExplicitlyClosed?.();
-        entry.ws.close(1000, 'Client disconnected');
+        // #915: caller-chosen code/reason (validated per RFC 6455 by the schema).
+        if (config.code !== undefined) entry.ws.close(config.code, config.reason ?? '');
+        else entry.ws.close(1000, 'Client disconnected');
       }
       return { success: true };
     })

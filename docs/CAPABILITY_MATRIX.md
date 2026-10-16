@@ -28,6 +28,8 @@ rather than discover it experimentally.
 | WebSocket connect | ✅ | ✅ |  |
 | WebSocket custom request headers | ❌ | ✅ | Browser WS API forbids handshake headers; web connects directly and warns when headers would be dropped. The /api/ws-ticket → /api/ws Worker relay exists but is not wired into the renderer yet |
 | WS through Worker (SSRF gate, header policy) | ❌ | ❌ | Worker routes exist (/api/ws-ticket, /api/ws) but the web renderer connects directly via the browser WebSocket API; desktop uses Node ws with the same guards |
+| WebSocket ping / pong frames (with RTT) | ❌ | ✅ | The browser WebSocket API exposes no ping/pong control frames; web disables the Ping control with an explanatory tooltip. Custom close code/reason and the negotiated subprotocol/extensions work on both |
+| Disable WebSocket permessage-deflate per connection | ❌ | ✅ | The browser always negotiates compression itself; desktop can turn the offer off |
 | Server-Sent Events | ✅ | ✅ |  |
 | SSE with custom headers | ✅ | ✅ | Web streams via the Worker /api/proxy (fetch-based, not EventSource), so custom headers are forwarded |
 | MCP streamable-http / http-sse | ✅ | ✅ | http-sse transport is desktop-only; web supports streamable-http and rejects http-sse at connect time |

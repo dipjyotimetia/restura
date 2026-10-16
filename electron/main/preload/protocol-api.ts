@@ -26,6 +26,7 @@ export const protocolApi: ProtocolApi = {
   websocket: {
     connect: invoke<ElectronAPI['websocket']['connect']>(IPC.ws.connect),
     send: invoke<ElectronAPI['websocket']['send']>(IPC.ws.send),
+    ping: invoke<ElectronAPI['websocket']['ping']>(IPC.ws.ping),
     disconnect: invoke<ElectronAPI['websocket']['disconnect']>(IPC.ws.disconnect),
     ...channelEventBridge(CHANNEL_PREFIXES.ws),
   },
