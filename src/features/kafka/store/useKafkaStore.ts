@@ -7,10 +7,10 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { capMessages } from '@/lib/shared/message-cap';
+import { capMessages, MAX_MESSAGES_PER_CONNECTION } from '@/lib/shared/message-cap';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
 import { clearComposerDrafts } from '@/lib/shared/streaming/composerDrafts';
-import { useConsoleStore } from '@/store/useConsoleStore';
+import { type ConsoleFrame, useConsoleStore } from '@/store/useConsoleStore';
 import { emitStreamEvent } from '@/store/useStreamTimelineStore';
 
 export type KafkaSecurityProtocol = 'PLAINTEXT' | 'SASL_PLAINTEXT' | 'SASL_SSL' | 'SSL';
@@ -209,10 +209,12 @@ interface KafkaState {
   updateStatus: (id: string, status: KafkaConnection['status']) => void;
 
   // Messages
-  addMessage: (
-    connectionId: string,
-    message: Omit<KafkaMessage, 'id' | 'timestamp'> & { timestamp?: number }
-  ) => void;
+  addMessage: (connectionId: string, message: KafkaMessageInput) => void;
+  /**
+   * Append a batch in one store update (one console write, one re-render).
+   * Used by the consumer path, which buffers inbound records and flushes ~10 Hz.
+   */
+  addMessages: (connectionId: string, messages: KafkaMessageInput[]) => void;
   clearMessages: (connectionId: string) => void;
 
   // Filter
@@ -222,6 +224,40 @@ interface KafkaState {
   // Selectors
   getActiveConnection: () => KafkaConnection | null;
   getFilteredMessages: (connectionId: string) => KafkaMessage[];
+}
+
+export type KafkaMessageInput = Omit<KafkaMessage, 'id' | 'timestamp'> & { timestamp?: number };
+
+function buildKafkaMessage(message: KafkaMessageInput): KafkaMessage {
+  return { ...message, id: uuidv4(), timestamp: message.timestamp ?? Date.now() };
+}
+
+function frameDirection(direction: KafkaMessageDirection): 'out' | 'in' | 'system' {
+  return direction === 'sent' ? 'out' : direction === 'received' ? 'in' : 'system';
+}
+
+function toConsoleFrame(connectionId: string, m: KafkaMessage): Omit<ConsoleFrame, 'id'> {
+  return {
+    timestamp: m.timestamp,
+    protocol: 'kafka',
+    direction: frameDirection(m.direction),
+    connectionId,
+    label: m.topic,
+    payload: m.value ?? '',
+  };
+}
+
+function emitKafkaTimeline(connectionId: string, m: KafkaMessage): void {
+  emitStreamEvent({
+    ts: m.timestamp,
+    protocol: 'kafka',
+    connectionId,
+    direction: frameDirection(m.direction),
+    kind: m.error ? 'error' : undefined,
+    label: m.topic,
+    payload: m.value ?? '',
+    meta: { partition: m.partition, offset: m.offset, key: m.key, tombstone: m.tombstone },
+  });
 }
 
 function makeDefaultConnection(
@@ -424,43 +460,31 @@ export const useKafkaStore = create<KafkaState>()(
         set((state) => {
           const conn = state.connections[connectionId];
           if (!conn) return state;
-          const next: KafkaMessage = {
-            ...message,
-            id: uuidv4(),
-            timestamp: message.timestamp ?? Date.now(),
-          };
-
-          useConsoleStore.getState().addFrame({
-            timestamp: next.timestamp,
-            protocol: 'kafka',
-            direction:
-              next.direction === 'sent' ? 'out' : next.direction === 'received' ? 'in' : 'system',
-            connectionId,
-            label: next.topic,
-            payload: next.value ?? '',
-          });
-          emitStreamEvent({
-            ts: next.timestamp,
-            protocol: 'kafka',
-            connectionId,
-            direction:
-              next.direction === 'sent' ? 'out' : next.direction === 'received' ? 'in' : 'system',
-            kind: next.error ? 'error' : undefined,
-            label: next.topic,
-            payload: next.value ?? '',
-            meta: {
-              partition: next.partition,
-              offset: next.offset,
-              key: next.key,
-              tombstone: next.tombstone,
-            },
-          });
-
+          const next = buildKafkaMessage(message);
+          useConsoleStore.getState().addFrame(toConsoleFrame(connectionId, next));
+          emitKafkaTimeline(connectionId, next);
           return {
             connections: {
               ...state.connections,
               [connectionId]: { ...conn, messages: capMessages(conn.messages, next) },
             },
+          };
+        }),
+
+      addMessages: (connectionId, messages) =>
+        set((state) => {
+          const conn = state.connections[connectionId];
+          if (!conn || messages.length === 0) return state;
+          const built = messages.map(buildKafkaMessage);
+          useConsoleStore.getState().addFrames(built.map((m) => toConsoleFrame(connectionId, m)));
+          for (const m of built) emitKafkaTimeline(connectionId, m);
+          const merged = conn.messages.concat(built);
+          const capped =
+            merged.length > MAX_MESSAGES_PER_CONNECTION
+              ? merged.slice(merged.length - MAX_MESSAGES_PER_CONNECTION)
+              : merged;
+          return {
+            connections: { ...state.connections, [connectionId]: { ...conn, messages: capped } },
           };
         }),
 

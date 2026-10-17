@@ -576,6 +576,101 @@ describe('kafka-handler', () => {
     expect(commit).toHaveBeenCalled();
   });
 
+  describe('emit-queue backpressure (#938)', () => {
+    const record = (offset: number, commit = vi.fn(async () => {})) => ({
+      topic: 'orders',
+      partition: 0,
+      offset: BigInt(offset),
+      key: undefined,
+      value: Buffer.from(`v${offset}`),
+      headers: new Map(),
+      timestamp: BigInt(offset),
+      metadata: {},
+      commit,
+    });
+
+    async function subscribed(connectionId: string, commitPolicy: 'auto' | 'manual' = 'auto') {
+      const { event } = makeEvent();
+      await handlerFor(IPC.kafka.connect)(event, validConnect(connectionId));
+      await handlerFor(IPC.kafka.subscribe)(event, {
+        connectionId,
+        groupId: 'g',
+        topics: ['orders'],
+        mode: 'committed',
+        fallbackMode: 'latest',
+        commitPolicy,
+        isolation: 'read-uncommitted',
+        groupProtocol: 'classic',
+      });
+      const stream = FakeConsumer.instances[0]!.stream;
+      stream.pause.mockClear();
+      stream.resume.mockClear();
+      const delivered = () =>
+        mockEmitTo.mock.calls.filter((c) => c[1] === `kafka:message:${connectionId}`);
+      return { event, stream, delivered };
+    }
+
+    it('pauses the stream when the queue exceeds 500 and resumes once it drains', async () => {
+      const { stream, delivered } = await subscribed('bp');
+      for (let i = 0; i < 500; i += 1) stream.emit('data', record(i));
+      expect(stream.pause).not.toHaveBeenCalled();
+      stream.emit('data', record(500));
+      expect(stream.pause).toHaveBeenCalledTimes(1);
+      expect(stream.resume).not.toHaveBeenCalled();
+
+      await vi.waitFor(() => expect(delivered()).toHaveLength(501));
+      expect(stream.resume).toHaveBeenCalledTimes(1);
+      // Ordered delivery survives the pause/resume cycle.
+      expect(delivered().map((c) => c[2].offset)).toEqual(
+        Array.from({ length: 501 }, (_, i) => String(i))
+      );
+    });
+
+    it('a backpressure drain does not resume a consumer the user paused', async () => {
+      const { event, stream, delivered } = await subscribed('bp-user');
+      for (let i = 0; i < 501; i += 1) stream.emit('data', record(i));
+      expect(stream.pause).toHaveBeenCalledTimes(1);
+      await expect(
+        handlerFor(IPC.kafka.pauseConsumer)(event, { connectionId: 'bp-user' })
+      ).resolves.toEqual({ success: true });
+
+      await vi.waitFor(() => expect(delivered()).toHaveLength(501));
+      expect(stream.resume).not.toHaveBeenCalled();
+
+      await handlerFor(IPC.kafka.resumeConsumer)(event, { connectionId: 'bp-user' });
+      expect(stream.resume).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps manual-commit tokens valid for records delivered after a backpressure pause', async () => {
+      const { event, stream, delivered } = await subscribed('bp-commit', 'manual');
+      const commits = Array.from({ length: 502 }, () => vi.fn(async () => {}));
+      for (let i = 0; i < 502; i += 1) stream.emit('data', record(i, commits[i]));
+      expect(stream.pause).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => expect(delivered()).toHaveLength(502));
+
+      const last = delivered().at(-1)![2] as { commitToken: string; offset: string };
+      expect(last.offset).toBe('501');
+      await expect(
+        handlerFor(IPC.kafka.commitMessage)(event, {
+          connectionId: 'bp-commit',
+          commitToken: last.commitToken,
+        })
+      ).resolves.toEqual({ success: true });
+      expect(commits[501]).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects pause/resume when no consumer is subscribed', async () => {
+      const { event } = makeEvent();
+      await handlerFor(IPC.kafka.connect)(event, validConnect('idle'));
+      await expect(
+        handlerFor(IPC.kafka.pauseConsumer)(event, { connectionId: 'idle' })
+      ).resolves.toEqual({ success: false, error: 'No consumer is active.' });
+      await expect(
+        handlerFor(IPC.kafka.resumeConsumer)(event, { connectionId: 'idle' })
+      ).resolves.toEqual({ success: false, error: 'No consumer is active.' });
+    });
+  });
+
   it('emits consumed messages when the native message omits headers', async () => {
     const { event } = makeEvent();
     await handlerFor(IPC.kafka.connect)(event, validConnect('headerless'));

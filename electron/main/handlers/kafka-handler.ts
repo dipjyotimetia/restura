@@ -14,7 +14,6 @@ import {
   type KafkaCommitMessageConfig,
   KafkaCommitMessageSchema,
   KafkaConnectSchema,
-  KafkaConsumerControlSchema,
   KafkaDisconnectSchema,
   KafkaSubscribeSchema,
   KafkaUnsubscribeSchema,
@@ -25,6 +24,8 @@ import type { LogEntry } from '../lifecycle/request-logger';
 import { getExecutionPolicy } from '../security/execution-policy';
 import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
 import { registerKafkaAdminHandlers } from './kafka/admin-handlers';
+import { registerKafkaConsumerControlHandlers } from './kafka/consumer-control-handlers';
+import { ConsumerFlowControl } from './kafka/consumer-flow';
 import {
   browseConsumerOptions,
   onBrowseStreamFinished,
@@ -77,6 +78,8 @@ interface ActiveKafka extends KafkaProducerEntry {
   transactionalId?: string;
   /** Serializes async decode/emission in arrival order. */
   emitChain: Promise<void>;
+  /** User + backpressure pause reasons for the active consumer stream. */
+  flow?: ConsumerFlowControl;
   pendingCommits: Map<string, AppMessage>;
   manualCommit: boolean;
   wc?: WebContents;
@@ -155,6 +158,7 @@ async function closeConsumerAndStream(entry: ActiveKafka): Promise<void> {
       /* ignore */
     }
     entry.stream = undefined;
+    entry.flow = undefined;
   }
   if (entry.consumer) {
     try {
@@ -225,8 +229,14 @@ async function emitConsumedMessage(entry: ActiveKafka, msg: AppMessage): Promise
 }
 function bindStreamListeners(entry: ActiveKafka, stream: AppStream): void {
   stream.on('data', (msg: AppMessage) => {
+    // Bound the decode/emit queue: the flow controller pauses the stream above its bound.
+    const flow = entry.flow;
+    flow?.emitQueued();
     // One bad decode must not wedge the ordered emission chain.
-    entry.emitChain = entry.emitChain.then(() => emitConsumedMessage(entry, msg)).catch(() => {});
+    entry.emitChain = entry.emitChain
+      .then(() => emitConsumedMessage(entry, msg))
+      .catch(() => {})
+      .finally(() => flow?.emitSettled());
   });
 
   stream.on('error', (err: Error) => {
@@ -539,7 +549,9 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           await closeConsumerQuietly(consumer);
           return { success: false, error: 'Not connected' };
         }
+        entry.flow = new ConsumerFlowControl();
         bindStreamListeners(entry, stream);
+        entry.flow.attach(stream);
         entry.consumer = consumer;
         entry.stream = stream;
         entry.manualCommit = cfg.commitPolicy === 'manual';
@@ -580,39 +592,11 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
     })
   );
 
-  ipcMain.handle(
-    IPC.kafka.pauseConsumer,
-    createValidatedEventHandler(
-      IPC.kafka.pauseConsumer,
-      KafkaConsumerControlSchema,
-      async (cfg, event) => {
-        const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
-        if (!entry?.stream) return { success: false, error: 'No consumer is active.' };
-        entry.stream.pause();
-        emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, entry.connectionId), {
-          state: 'paused',
-        });
-        return { success: true };
-      }
-    )
-  );
-
-  ipcMain.handle(
-    IPC.kafka.resumeConsumer,
-    createValidatedEventHandler(
-      IPC.kafka.resumeConsumer,
-      KafkaConsumerControlSchema,
-      async (cfg, event) => {
-        const entry = activeConnections.getForOwner(cfg.connectionId, event.sender.id);
-        if (!entry?.stream) return { success: false, error: 'No consumer is active.' };
-        entry.stream.resume();
-        emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, entry.connectionId), {
-          state: 'resumed',
-        });
-        return { success: true };
-      }
-    )
-  );
+  registerKafkaConsumerControlHandlers({
+    getEntry: (connectionId, ownerId) => activeConnections.getForOwner(connectionId, ownerId),
+    emitStatus: (entry, payload) =>
+      emitToEntry(entry, kafkaChannel(KAFKA_CHANNEL.CONSUMER_STATUS, entry.connectionId), payload),
+  });
 
   ipcMain.handle(
     IPC.kafka.commitMessage,
