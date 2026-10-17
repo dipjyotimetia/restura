@@ -187,6 +187,12 @@ function embeddedV4FromGroups(groups: number[]): string | null {
   if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0xffff) {
     return `${(g6 >> 8) & 0xff}.${g6 & 0xff}.${(g7 >> 8) & 0xff}.${g7 & 0xff}`;
   }
+  // Deprecated IPv4-compatible ::/96 (`::a.b.c.d`). `::` and `::1` are handled
+  // as unspecified / loopback by the callers, so they are not decoded here.
+  if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0) {
+    if (g6 === 0 && g7 <= 1) return null;
+    return `${(g6 >> 8) & 0xff}.${g6 & 0xff}.${(g7 >> 8) & 0xff}.${g7 & 0xff}`;
+  }
   if (g0 === 0x2002) {
     return `${(g1 >> 8) & 0xff}.${g1 & 0xff}.${(g2 >> 8) & 0xff}.${g2 & 0xff}`;
   }
@@ -197,6 +203,12 @@ function embeddedV4FromGroups(groups: number[]): string | null {
 }
 
 const CLOUD_METADATA_IPV4 = '169.254.169.254';
+// AWS (fd00:ec2::254) and GCE (fd20:ce::254) IPv6 metadata endpoints, compared
+// as expanded groups so every textual form matches.
+const CLOUD_METADATA_IPV6_GROUPS: readonly (readonly number[])[] = [
+  [0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0254],
+  [0xfd20, 0x00ce, 0, 0, 0, 0, 0, 0x0254],
+];
 const CLOUD_METADATA_HOSTNAMES = ['metadata.google.internal', 'metadata', 'instance-data'];
 
 /**
@@ -213,6 +225,9 @@ export function isCloudMetadataHost(hostname: string): boolean {
   if (h.includes(':')) {
     const groups = expandIPv6(h);
     if (groups && embeddedV4FromGroups(groups) === CLOUD_METADATA_IPV4) return true;
+    if (groups && CLOUD_METADATA_IPV6_GROUPS.some((m) => m.every((g, i) => g === groups[i]))) {
+      return true;
+    }
   }
   return CLOUD_METADATA_HOSTNAMES.some((n) => h === n || h.endsWith('.' + n));
 }
@@ -256,10 +271,7 @@ export function validateURL(
     // loopback comparisons below see the bare address.
     .replace(/^\[(.*)\]$/, '$1');
 
-  if (
-    !allowLocalhost &&
-    (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1')
-  ) {
+  if (!allowLocalhost && isLoopbackAddress(hostname)) {
     return { valid: false, error: 'Localhost URLs are not allowed' };
   }
 
@@ -279,7 +291,7 @@ export function validateURL(
   }
 
   if (!allowPrivateIPs) {
-    const isLoopback = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+    const isLoopback = isLoopbackAddress(hostname);
     if (!(allowLocalhost && isLoopback) && isPrivateAddress(hostname)) {
       return { valid: false, error: `Private/internal IP addresses are not allowed: ${hostname}` };
     }
