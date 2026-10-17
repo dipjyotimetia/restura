@@ -249,7 +249,12 @@ export function validateURL(
   // Strip a trailing FQDN-root dot before policy comparison — `metadata.x.`
   // resolves identically to `metadata.x` but would slip past the exact-string
   // blocklist below.
-  const hostname = url.hostname.toLowerCase().replace(/\.+$/, '');
+  const hostname = url.hostname
+    .toLowerCase()
+    .replace(/\.+$/, '')
+    // WHATWG URL keeps the brackets on IPv6 hosts (`[::1]`); strip them so the
+    // loopback comparisons below see the bare address.
+    .replace(/^\[(.*)\]$/, '$1');
 
   if (
     !allowLocalhost &&

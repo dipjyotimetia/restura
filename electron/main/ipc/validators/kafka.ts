@@ -7,16 +7,23 @@ import { ConnectionIdSchema } from './core';
 
 export const KafkaConnectionIdSchema = ConnectionIdSchema;
 
-// host:port — loose syntactic check; real reachability is enforced by the
-// Kafka client when it dials the broker. We cap length and forbid junk so the
-// schema rejects obviously bad input early.
+// host:port or [ipv6]:port (RFC 3986 IP-literal) — loose syntactic check; real
+// reachability is enforced by the Kafka client when it dials the broker and the
+// SSRF policy by assertKafkaBrokersSafe. We cap length and forbid junk so the
+// schema rejects obviously bad input early. `@platformatic/kafka` strips the
+// brackets itself, so the literal is passed through unchanged.
+const KAFKA_HOST_PORT_RE = /^(?:[a-zA-Z0-9.-]+|\[[0-9a-fA-F:.]+\]):(\d{1,5})$/;
+
 const KafkaBrokerSchema = z
   .string()
   .min(3)
   .max(253)
-  .regex(/^[a-zA-Z0-9.-]+:\d{1,5}$/, 'Broker must be host:port (alphanumeric host, numeric port)')
+  .regex(
+    KAFKA_HOST_PORT_RE,
+    'Broker must be host:port or [ipv6]:port (alphanumeric host, numeric port)'
+  )
   .refine((broker) => {
-    const port = Number(broker.slice(broker.lastIndexOf(':') + 1));
+    const port = Number(KAFKA_HOST_PORT_RE.exec(broker)?.[1]);
     return Number.isInteger(port) && port >= 1 && port <= 65_535;
   }, 'Broker port must be between 1 and 65535');
 

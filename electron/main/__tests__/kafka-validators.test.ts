@@ -1,33 +1,63 @@
 import { describe, expect, it } from 'vitest';
 import {
-  KafkaConnectSchema,
   KafkaAlterQuotasSchema,
   KafkaAlterTopicConfigsSchema,
+  KafkaConnectSchema,
   KafkaCreateAclSchema,
   KafkaCreatePartitionsSchema,
-  KafkaDeleteAclsSchema,
-  KafkaDeleteRecordsSchema,
   KafkaCreateTopicSchema,
+  KafkaDeleteAclsSchema,
   KafkaDeleteGroupSchema,
+  KafkaDeleteRecordsSchema,
   KafkaDeleteTopicSchema,
   KafkaDisconnectSchema,
   KafkaInspectGroupSchema,
   KafkaInspectTopicSchema,
   KafkaListGroupsSchema,
   KafkaListTopicsSchema,
-  KafkaProduceSchema,
   KafkaProduceBatchSchema,
   KafkaProducerStreamOpenSchema,
   KafkaProducerStreamWriteSchema,
-  KafkaTransactionBeginSchema,
-  KafkaTransactionEndSchema,
+  KafkaProduceSchema,
   KafkaResetGroupOffsetsSchema,
   KafkaSubscribeSchema,
+  KafkaTransactionBeginSchema,
+  KafkaTransactionEndSchema,
   KafkaUnsubscribeSchema,
 } from '../ipc/ipc-validators';
 
 describe('Kafka IPC validators', () => {
   describe('KafkaConnectSchema', () => {
+    describe('IPv6 broker literals (#945)', () => {
+      const parse = (broker: string) =>
+        KafkaConnectSchema.safeParse({
+          connectionId: 'abc',
+          clientId: 'r',
+          bootstrapBrokers: [broker],
+          auth: { securityProtocol: 'PLAINTEXT' },
+        }).success;
+
+      it.each([
+        '[2001:db8::1]:9092',
+        '[::1]:9092',
+        '[2001:db8::10]:9093',
+        '[::ffff:127.0.0.1]:9092',
+      ])('accepts %s', (broker) => expect(parse(broker)).toBe(true));
+
+      it.each([
+        '[::1]',
+        '::1:9092',
+        '[::1]:99999',
+        '[::1]:0',
+        '[zz::1]:9092',
+        '[]:9092',
+        '[::1]:9092:1',
+        '[::1]x:9092',
+        '[::1:9092',
+        'host:99999',
+      ])('rejects %s', (broker) => expect(parse(broker)).toBe(false));
+    });
+
     it('accepts a minimal PLAINTEXT config', () => {
       const result = KafkaConnectSchema.safeParse({
         connectionId: 'abc-123',

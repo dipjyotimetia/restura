@@ -68,6 +68,30 @@ describe('assertKafkaBrokersSafe', () => {
     expect(() => assertKafkaBrokersSafe(['[2001:db8::1]:9092'])).not.toThrow();
   });
 
+  describe('IPv6 literals under a restrictive policy (#945)', () => {
+    const strict = { allowLocalhost: false, allowPrivateIPs: false };
+
+    it.each([
+      '[::1]:9092',
+      '[fd00::1]:9092',
+      '[fe80::1]:9092',
+      '[::ffff:127.0.0.1]:9092',
+      '[::ffff:10.0.0.1]:9092',
+    ])('blocks %s', (broker) => {
+      expect(() => assertKafkaBrokersSafe([broker], strict)).toThrow(/Kafka broker .* rejected/);
+    });
+
+    it('still accepts a public IPv6 literal under the restrictive policy', () => {
+      expect(() => assertKafkaBrokersSafe(['[2001:db8::1]:9092'], strict)).not.toThrow();
+    });
+
+    it('blocks IPv6 loopback when only localhost is disallowed', () => {
+      expect(() =>
+        assertKafkaBrokersSafe(['[::1]:9092'], { allowLocalhost: false, allowPrivateIPs: true })
+      ).toThrow(/rejected/);
+    });
+  });
+
   it('rejects broker strings carrying URL userinfo (credentials)', () => {
     // @platformatic/kafka treats the whole string as host:port, so
     // user:pass@... brokers fail downstream with a confusing error. Reject
