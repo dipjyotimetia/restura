@@ -358,3 +358,30 @@ describe('web session lifecycle (#888)', () => {
     }
   });
 });
+
+describe('desktop path records the SDK-negotiated version', () => {
+  afterEach(() => {
+    delete (window as { electron?: unknown }).electron;
+  });
+
+  it('stores protocolVersion from the IPC initialize result and makes no web calls', async () => {
+    const request = vi.fn().mockResolvedValue({
+      success: true,
+      result: { protocolVersion: '2026-07-28', capabilities: {} },
+    });
+    const disconnect = vi.fn().mockResolvedValue(undefined);
+    (window as { electron?: unknown }).electron = {
+      isElectron: true,
+      mcp: { request, disconnect },
+    };
+    const client = makeClient();
+    const res = await client.request('initialize', buildMcpInitializeParams());
+    expect(res.ok).toBe(true);
+    expect(client.protocolVersion).toBe('2026-07-28');
+    await client.disconnect();
+    expect(disconnect).toHaveBeenCalledWith({ connectionId: 'c1' });
+    // The SDK in main already sent notifications/initialized; nothing goes to /api/mcp.
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+});

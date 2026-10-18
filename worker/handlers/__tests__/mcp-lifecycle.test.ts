@@ -232,4 +232,18 @@ describe('/api/mcp/terminate', () => {
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it('returns 504 when the DELETE exceeds its timeout', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+          })
+      )
+    );
+    const res = await post('/mcp/terminate', { ...base, sessionId: 's', timeout: 5 });
+    expect(res.status).toBe(504);
+  });
 });

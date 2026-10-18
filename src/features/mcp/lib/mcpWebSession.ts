@@ -88,11 +88,6 @@ export class McpWebSession {
     return this.protocolVersion;
   }
 
-  /** Session id assigned by the server, if any. */
-  get currentSessionId(): string | undefined {
-    return this.sessionId;
-  }
-
   /**
    * Send one JSON-RPC message. `initialize` runs the full handshake;
    * `notifications/*` are sent without an id; everything else is a request.
