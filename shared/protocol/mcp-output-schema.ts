@@ -46,14 +46,22 @@ const MAX_STEPS = 100_000;
 const MAX_BRANCHES = 32;
 const MAX_PATTERN_LENGTH = 256;
 const MAX_PATTERN_VALUE_LENGTH = 4096;
-/** A quantified group that itself contains a quantifier, or a backreference. */
-const RISKY_PATTERN = /\([^)]*[+*}][^)]*\)[+*{]|\\[1-9]|\\k</;
+/**
+ * Conservative: any quantified group (covers nested quantifiers and overlapping
+ * alternations like `(a|a)*`), backreferences, or lookarounds. Over-skipping is
+ * intentional; skipped patterns are reported as a note, never as a failure.
+ */
+const RISKY_PATTERN = /\)\s*(?:[+*?]|\{\d)|\\[1-9]|\\k<|\(\?<?[=!]/;
+/** Stacked unbounded quantifiers (`a*a*a*b`) backtrack polynomially. */
+const UNBOUNDED_QUANTIFIER = /(?:[+*]|\{\d+,\})/g;
+const MAX_UNBOUNDED_QUANTIFIERS = 3;
 
 interface Ctx {
   root: Record<string, unknown>;
   steps: number;
   aborted: boolean;
-  refStack: Set<string>;
+  /** `$ref` targets being expanded, with the values they are expanded against. */
+  refStack: Map<string, Set<unknown>>;
   regexes: Map<string, RegExp | null>;
   notes: string[];
 }
@@ -116,7 +124,8 @@ function matchesPattern(ctx: Ctx, pattern: string, value: string): boolean | nul
   if (
     pattern.length > MAX_PATTERN_LENGTH ||
     value.length > MAX_PATTERN_VALUE_LENGTH ||
-    RISKY_PATTERN.test(pattern)
+    RISKY_PATTERN.test(pattern) ||
+    (pattern.match(UNBOUNDED_QUANTIFIER)?.length ?? 0) > MAX_UNBOUNDED_QUANTIFIERS
   ) {
     const note = 'pattern check skipped (pattern or value too long/complex)';
     if (!ctx.notes.includes(note)) ctx.notes.push(note);
@@ -168,12 +177,16 @@ function check(
   if (schema === false) return add('schema rejects every value');
   if (!isRecord(schema)) return;
 
-  if (typeof schema.$ref === 'string' && !ctx.refStack.has(schema.$ref)) {
+  // Only a re-entry of the same $ref against the SAME value is a cycle; a
+  // recursive schema legitimately re-enters a $ref for each child value.
+  if (typeof schema.$ref === 'string' && !ctx.refStack.get(schema.$ref)?.has(value)) {
     const target = resolveRef(ctx.root, schema.$ref);
     if (target) {
-      ctx.refStack.add(schema.$ref);
+      const active = ctx.refStack.get(schema.$ref) ?? new Set<unknown>();
+      ctx.refStack.set(schema.$ref, active);
+      active.add(value);
       check(ctx, target, value, path, issues, depth + 1);
-      ctx.refStack.delete(schema.$ref);
+      active.delete(value);
     }
   }
 
@@ -231,21 +244,22 @@ function check(
     const props = isRecord(schema.properties) ? schema.properties : {};
     if (Array.isArray(schema.required)) {
       for (const key of schema.required) {
-        if (typeof key === 'string' && !(key in value)) {
+        if (typeof key === 'string' && !Object.hasOwn(value, key)) {
           add('required property is missing', `${path}.${key}`);
         }
       }
     }
     for (const [key, sub] of Object.entries(props)) {
-      if (key in value) check(ctx, sub, value[key], `${path}.${key}`, issues, depth + 1);
+      if (Object.hasOwn(value, key))
+        check(ctx, sub, value[key], `${path}.${key}`, issues, depth + 1);
     }
     if (schema.additionalProperties === false) {
       for (const key of Object.keys(value)) {
-        if (!(key in props)) add('additional property is not allowed', `${path}.${key}`);
+        if (!Object.hasOwn(props, key)) add('additional property is not allowed', `${path}.${key}`);
       }
     } else if (isRecord(schema.additionalProperties)) {
       for (const [key, v] of Object.entries(value)) {
-        if (!(key in props)) {
+        if (!Object.hasOwn(props, key)) {
           check(ctx, schema.additionalProperties, v, `${path}.${key}`, issues, depth + 1);
         }
       }
@@ -286,7 +300,7 @@ export function checkAgainstSchema(schema: unknown, value: unknown): McpSchemaCh
     root: schema,
     steps: 0,
     aborted: false,
-    refStack: new Set(),
+    refStack: new Map(),
     regexes: new Map(),
     notes: [],
   };

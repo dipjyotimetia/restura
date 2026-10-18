@@ -25,9 +25,10 @@ function McpResult({ entry, tool }: { entry: McpInvocationLog; tool?: McpToolDes
   const isError = kind !== 'ok';
   const structured = structuredContentOf(entry.result);
   const [view, setView] = useState<'result' | 'structured'>('result');
-  const validation = tool?.outputSchema
-    ? validateToolOutput(tool.outputSchema, entry.result)
-    : ({ status: 'no-schema' } as const);
+  const validation =
+    tool?.outputSchema && kind === 'ok'
+      ? validateToolOutput(tool.outputSchema, entry.result)
+      : ({ status: 'no-schema' } as const);
   const showStructured = view === 'structured' && structured !== undefined;
   const payload: unknown = showStructured
     ? structured

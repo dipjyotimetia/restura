@@ -121,6 +121,25 @@ describe('McpResultPanel', () => {
       expect(await screen.findByTestId('editor')).toHaveTextContent(/^\{\s*"n": 3\s*\}$/);
     });
 
+    it('does not flag a schema violation on a protocol error', () => {
+      const id = useMcpStore.getState().createConnection('https://mcp.example.test');
+      act(() => {
+        useMcpStore.getState().setCapabilities(id, {
+          tools: [{ name: 'count', outputSchema: { type: 'object', required: ['n'] } }],
+          resources: [],
+          prompts: [],
+        });
+        useMcpStore.getState().appendLog(id, {
+          method: 'tools/call:count',
+          error: 'boom',
+          durationMs: 1,
+        });
+      });
+      render(<McpResultPanel />);
+      expect(screen.getByText('PROTOCOL ERROR')).toBeInTheDocument();
+      expect(screen.queryByTestId('mcp-output-schema-issues')).not.toBeInTheDocument();
+    });
+
     it('notes when the outputSchema is too complex to validate', () => {
       const id = useMcpStore.getState().createConnection('https://mcp.example.test');
       act(() => {

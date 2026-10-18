@@ -131,3 +131,43 @@ describe('validateToolOutput edge cases', () => {
     expect(validateToolOutput({ type: 'object' }, { structuredContent: 3 }).status).toBe('invalid');
   });
 });
+
+describe('review-feedback regressions', () => {
+  it('validates children of a recursive $ref schema', () => {
+    const schema = {
+      $ref: '#/$defs/node',
+      $defs: {
+        node: {
+          type: 'object',
+          required: ['v'],
+          properties: { v: { type: 'integer' }, next: { $ref: '#/$defs/node' } },
+        },
+      },
+    };
+    expect(bad(schema, { v: 1, next: { v: 2 } })).toHaveLength(0);
+    expect(bad(schema, { v: 1, next: { v: 'x' } })).toHaveLength(1);
+    expect(bad(schema, { v: 1, next: { next: { v: 3 } } })).toHaveLength(1);
+  });
+
+  it('still terminates on a self-referencing $ref', () => {
+    expect(bad({ $ref: '#' }, { a: 1 })).toEqual([]);
+  });
+
+  it('does not treat inherited Object.prototype names as present', () => {
+    expect(bad({ required: ['constructor'] }, {})).toHaveLength(1);
+    expect(bad({ properties: { toString: { type: 'string' } } }, {})).toHaveLength(0);
+    expect(bad({ additionalProperties: false }, JSON.parse('{"constructor":1}'))).toHaveLength(1);
+  });
+
+  it.each(['^(a|a)*$', '^(a+)+$', '^a*a*a*a*b$', '^(?=a)a$'])(
+    'skips risky pattern %s with a note instead of evaluating it',
+    (pattern) => {
+      const r = validateToolOutput(
+        { type: 'object', properties: { s: { type: 'string', pattern } } },
+        { structuredContent: { s: 'a'.repeat(30) + 'c' } }
+      );
+      expect(r.status).toBe('valid');
+      expect(r).toHaveProperty('notes');
+    }
+  );
+});
