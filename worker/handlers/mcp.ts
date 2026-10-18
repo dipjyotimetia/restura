@@ -299,6 +299,8 @@ export function createMcpHandler(nodeHostnameGuard?: NodeHostnameGuard) {
         ...(serverMessages.length > 0 ? { serverMessages } : {}),
       });
     } catch (err) {
+      // Client went away (user cancel): nothing to report to anyone.
+      if (clientSignal.aborted) return new Response(null, { status: 499 });
       if (controller.signal.aborted) {
         return c.json({ error: `Upstream timeout after ${timeoutMs}ms` }, 504);
       }

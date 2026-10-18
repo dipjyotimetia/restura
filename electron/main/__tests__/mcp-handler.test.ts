@@ -130,7 +130,7 @@ vi.mock('@modelcontextprotocol/client', () => ({
   },
 }));
 
-import { registerMcpHandlerIPC, stopMcpCleanup } from '../handlers/mcp-handler';
+import { mcpRateLimiter, registerMcpHandlerIPC, stopMcpCleanup } from '../handlers/mcp-handler';
 import { setExecutionPolicy } from '../security/execution-policy';
 
 type IpcHandler = (event: unknown, payload: unknown) => Promise<Record<string, unknown>>;
@@ -429,6 +429,26 @@ describe('mcp-handler (SDK-backed)', () => {
       expect(seen.signal!.aborted).toBe(false);
 
       await handlerFor('mcp:cancel')(owner.event, { connectionId: 'c', requestId: 9 });
+      await expect(pending).resolves.toEqual({ success: false, cancelled: true });
+    });
+
+    it('still cancels after the request rate limit is exhausted', async () => {
+      const owner = await connectOwner(9047);
+      const seen = hangUntilAborted(sdkState.clients[0]!);
+      const pending = handlerFor('mcp:request')(owner.event, {
+        connectionId: 'c',
+        method: 'tools/call',
+        params: { name: 'slow' },
+        requestId: 3,
+      });
+      await vi.waitFor(() => expect(seen.signal).toBeDefined());
+      for (let i = 0; i < 70; i++) mcpRateLimiter.check(9047);
+      await expect(
+        handlerFor('mcp:request')(owner.event, { connectionId: 'c', method: 'ping' })
+      ).rejects.toThrow();
+      await expect(
+        handlerFor('mcp:cancel')(owner.event, { connectionId: 'c', requestId: 3 })
+      ).resolves.toEqual({ success: true });
       await expect(pending).resolves.toEqual({ success: false, cancelled: true });
     });
 

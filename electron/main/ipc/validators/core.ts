@@ -778,7 +778,7 @@ export const McpRequestSchema = z.object({
   method: z.string().min(1).max(256),
   params: z.unknown().optional(),
   /** Caller-supplied request id (string or number per JSON-RPC spec) */
-  requestId: z.union([z.string(), z.number()]).optional(),
+  requestId: z.union([z.string().min(1).max(256), z.number()]).optional(),
   timeout: z.number().int().positive().max(300_000).optional(),
 });
 

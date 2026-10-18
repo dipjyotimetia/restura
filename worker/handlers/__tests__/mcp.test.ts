@@ -61,6 +61,20 @@ describe('mcp handler', () => {
     expect(json.error).toMatch(/method and id are required/);
   });
 
+  it('rejects a notification targeting a private/metadata IP', async () => {
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+    for (const url of ['http://169.254.169.254/mcp', 'http://10.0.0.5/mcp']) {
+      const res = await makeRequest({
+        url,
+        transport: 'streamable-http',
+        jsonRpc: { method: 'notifications/cancelled', params: { requestId: 1 } },
+      });
+      expect(res.status).toBe(400);
+    }
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it('forwards notifications/cancelled without an id and accepts the 202', async () => {
     const mockFetch = vi
       .fn()

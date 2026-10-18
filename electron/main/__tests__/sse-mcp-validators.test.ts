@@ -164,6 +164,18 @@ describe('McpRequestSchema', () => {
   });
 });
 
+describe('McpRequestSchema requestId bounds', () => {
+  it('rejects empty and oversized string request ids', () => {
+    expect(
+      McpRequestSchema.safeParse({ connectionId: 'a', method: 'm', requestId: '' }).success
+    ).toBe(false);
+    expect(
+      McpRequestSchema.safeParse({ connectionId: 'a', method: 'm', requestId: 'x'.repeat(257) })
+        .success
+    ).toBe(false);
+  });
+});
+
 describe('McpCancelSchema', () => {
   it('accepts a connection id with a string or numeric request id', () => {
     expect(McpCancelSchema.safeParse({ connectionId: 'a', requestId: 3 }).success).toBe(true);

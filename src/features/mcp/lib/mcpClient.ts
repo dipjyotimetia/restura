@@ -191,7 +191,9 @@ export class McpClient {
           let onAbort: () => void = () => undefined;
           const aborted = new Promise<'aborted'>((resolve) => {
             onAbort = () => {
-              void api.mcp.cancel({ connectionId: this.opts.connectionId, requestId });
+              void api.mcp
+                .cancel({ connectionId: this.opts.connectionId, requestId })
+                .catch(() => undefined);
               resolve('aborted');
             };
             signal.addEventListener('abort', onAbort, { once: true });

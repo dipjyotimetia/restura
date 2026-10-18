@@ -54,6 +54,8 @@ const log = createLogger('mcp');
  */
 
 export const mcpRateLimiter = createKeyedRateLimiter(60, 60_000);
+/** Separate, generous budget so an exhausted request limiter can never block a cancel. */
+export const mcpCancelRateLimiter = createKeyedRateLimiter(600, 60_000);
 const MAX_CONCURRENT_MCP = 20;
 const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
 
@@ -529,7 +531,7 @@ export function registerMcpHandlerIPC(): void {
   ipcMain.handle(
     IPC.mcp.cancel,
     rateLimited(
-      mcpRateLimiter,
+      mcpCancelRateLimiter,
       createValidatedEventHandler(IPC.mcp.cancel, McpCancelSchema, async (config, event) => {
         // Missing, already-finished, and wrong-owner ids are indistinguishable.
         const controller = sessions
