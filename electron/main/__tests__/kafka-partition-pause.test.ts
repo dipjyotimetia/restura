@@ -3,6 +3,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ConsumerFlowControl } from '../handlers/kafka/consumer-flow';
 import {
+  MAX_PAUSED_PARTITIONS,
   PartitionPauseSet,
   parsePartitionKey,
   partitionKey,
@@ -42,6 +43,18 @@ describe('PartitionPauseSet', () => {
     paused.setRewindPoint('orders', 9, 2n);
     expect(paused.isPaused('orders', 9)).toBe(false);
     expect(paused.resume('orders', 0)).toBe(2n);
+  });
+
+  it('forgets revoked partitions and refuses to grow past the cap', () => {
+    const paused = new PartitionPauseSet();
+    expect(paused.pause('orders', 0)).toBe(true);
+    expect(paused.pause('orders', 1)).toBe(true);
+    paused.retain(new Set(['orders:1']));
+    expect(paused.list()).toEqual([{ topic: 'orders', partition: 1 }]);
+    for (let i = 2; i <= MAX_PAUSED_PARTITIONS; i += 1) paused.pause('orders', i);
+    expect(paused.list()).toHaveLength(MAX_PAUSED_PARTITIONS);
+    expect(paused.pause('orders', 5_000)).toBe(false);
+    expect(paused.pause('orders', 1)).toBe(true); // already paused
   });
 
   it('a seek pins the resume point against records withheld afterwards', () => {

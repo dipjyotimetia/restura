@@ -11,8 +11,12 @@ import {
   type KafkaSeekConsumerConfig,
   KafkaSeekConsumerSchema,
 } from '../../ipc/ipc-validators';
-import type { ConsumerSessionEntry } from './consumer-session';
-import { partitionKey } from './partition-pause';
+import {
+  assignedKeys,
+  type ConsumerSessionEntry,
+  type KafkaConsumerSession,
+} from './consumer-session';
+import { MAX_PAUSED_PARTITIONS, partitionKey } from './partition-pause';
 
 /** The slice of a live Kafka connection the consumer controls need. */
 export interface KafkaConsumerControlEntry extends ConsumerSessionEntry {
@@ -76,10 +80,18 @@ export function registerKafkaConsumerControlHandlers<E extends KafkaConsumerCont
   handle(IPC.kafka.pausePartitions, KafkaPartitionControlSchema, async (cfg, event) => {
     const target = live(cfg.connectionId, event.sender.id);
     if (!target) return NO_CONSUMER;
-    const { session } = target;
-    const unknown = cfg.partitions.find((p) => !session.topics.includes(p.topic));
-    if (unknown) return notSubscribed(unknown.topic);
-    for (const p of cfg.partitions) session.partitions.pause(p.topic, p.partition);
+    const { entry, session } = target;
+    const invalid = checkPartitions(entry, session, cfg.partitions);
+    if (invalid) return invalid;
+    for (const p of cfg.partitions) {
+      if (!session.partitions.pause(p.topic, p.partition)) {
+        return {
+          success: false,
+          error: `At most ${MAX_PAUSED_PARTITIONS} partitions can be paused at once.`,
+          pausedPartitions: session.partitions.list(),
+        };
+      }
+    }
     return { success: true, pausedPartitions: session.partitions.list() };
   });
 
@@ -106,9 +118,9 @@ export function registerKafkaConsumerControlHandlers<E extends KafkaConsumerCont
         return rewinds;
       };
       try {
-        await session.reposition(entry, plan, manualMode(deps));
+        await session.reposition(entry, plan);
       } catch (err) {
-        // Keep the partitions paused (with their rewind points) so nothing is skipped.
+        // Keep the partitions paused with their rewind points, so a retry still rewinds.
         for (const [topic, partition, rewindTo] of restore) {
           session.partitions.pause(topic, partition);
           if (rewindTo !== undefined) session.partitions.setRewindPoint(topic, partition, rewindTo);
@@ -123,7 +135,8 @@ export function registerKafkaConsumerControlHandlers<E extends KafkaConsumerCont
     const target = live(cfg.connectionId, event.sender.id);
     if (!target) return NO_CONSUMER;
     const { entry, session } = target;
-    if (!session.topics.includes(cfg.topic)) return notSubscribed(cfg.topic);
+    const invalid = checkPartitions(entry, session, [cfg]);
+    if (invalid) return invalid;
     return session.runExclusive(async () => {
       try {
         const consumer = entry.consumer;
@@ -134,7 +147,7 @@ export function registerKafkaConsumerControlHandlers<E extends KafkaConsumerCont
           session.partitions.setRewindPoint(cfg.topic, cfg.partition, offset);
         } else {
           const key = partitionKey(cfg.topic, cfg.partition);
-          await session.reposition(entry, () => new Map([[key, offset]]), manualMode(deps));
+          await session.reposition(entry, () => new Map([[key, offset]]));
         }
         return { success: true, offset: offset.toString() };
       } catch (err) {
@@ -144,12 +157,25 @@ export function registerKafkaConsumerControlHandlers<E extends KafkaConsumerCont
   });
 }
 
-function notSubscribed(topic: string): Failure {
-  return { success: false, error: `Topic "${topic}" is not part of this subscription.` };
-}
-
-function manualMode(deps: { getKafka: () => typeof KafkaLib }): KafkaLib.MessagesStreamModeValue {
-  return deps.getKafka().MessagesStreamModes.MANUAL;
+/** Partitions must belong to the subscription *and* be assigned to this group member. */
+function checkPartitions(
+  entry: ConsumerSessionEntry,
+  session: KafkaConsumerSession,
+  partitions: ReadonlyArray<{ topic: string; partition: number }>
+): Failure | undefined {
+  const assigned = entry.consumer ? assignedKeys(entry.consumer) : undefined;
+  for (const { topic, partition } of partitions) {
+    if (!session.topics.includes(topic)) {
+      return { success: false, error: `Topic "${topic}" is not part of this subscription.` };
+    }
+    if (!assigned?.has(partitionKey(topic, partition))) {
+      return {
+        success: false,
+        error: `Partition ${partition} of "${topic}" is not assigned to this consumer.`,
+      };
+    }
+  }
+  return undefined;
 }
 
 /**

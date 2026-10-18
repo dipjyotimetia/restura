@@ -292,6 +292,40 @@ describe('kafkaManager (Electron path)', () => {
       );
     });
 
+    it('buffers at most 1000 records between flushes, keeping the newest', async () => {
+      vi.useFakeTimers();
+      const { emit, id, received } = await subscribed();
+      for (let i = 0; i < 1500; i += 1) emit(kafkaChannel(KAFKA_CHANNEL.MESSAGE, id), record(i));
+      vi.advanceTimersByTime(100);
+      const offsets = received().map((m) => m.offset);
+      expect(offsets).toHaveLength(1000);
+      expect(offsets[0]).toBe('500');
+      expect(offsets.at(-1)).toBe('1499');
+    });
+
+    it('drops records still waiting for a flush when the log is cleared', async () => {
+      vi.useFakeTimers();
+      const { emit, id, received } = await subscribed();
+      emit(kafkaChannel(KAFKA_CHANNEL.MESSAGE, id), record(1));
+      useKafkaStore.getState().clearMessages(id);
+      vi.advanceTimersByTime(100);
+      expect(received()).toHaveLength(0);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('prunes paused partitions that a rebalance moved to another member', async () => {
+      const { emit, id } = await subscribed();
+      useKafkaStore.getState().updateConsumer(id, { pausedPartitions: ['orders:0', 'orders:1'] });
+      emit(kafkaChannel(KAFKA_CHANNEL.CONSUMER_LAG, id), {
+        lag: [{ topic: 'orders', offsets: ['4', '-1'] }],
+      });
+      expect(useKafkaStore.getState().connections[id]!.consumer.pausedPartitions).toEqual([
+        'orders:0',
+      ]);
+      await kafkaManager.unsubscribe(id);
+      expect(useKafkaStore.getState().connections[id]!.consumer.pausedPartitions).toBeUndefined();
+    });
+
     it('holds records until the interval elapses and keeps manual-commit tokens', async () => {
       vi.useFakeTimers();
       const { emit, id, received } = await subscribed();

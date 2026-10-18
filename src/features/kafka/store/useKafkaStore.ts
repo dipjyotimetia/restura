@@ -151,6 +151,11 @@ export interface KafkaConsumerState {
   maxBytesPerPartition?: number;
   maxWaitTimeMs?: number;
   highWaterMark?: number;
+  /**
+   * Partitions (`topic:partition`) paused on the live consumer. Runtime-only:
+   * cleared whenever the subscription leaves 'subscribed' and never persisted.
+   */
+  pausedPartitions?: string[];
   status: 'idle' | 'subscribing' | 'subscribed' | 'error';
 }
 
@@ -224,6 +229,14 @@ interface KafkaState {
   // Selectors
   getActiveConnection: () => KafkaConnection | null;
   getFilteredMessages: (connectionId: string) => KafkaMessage[];
+}
+
+const clearListeners = new Set<(connectionId: string) => void>();
+
+/** Notified when a connection's message log is cleared (the inbound buffer drops pending records). */
+export function onKafkaMessagesCleared(listener: (connectionId: string) => void): () => void {
+  clearListeners.add(listener);
+  return () => clearListeners.delete(listener);
 }
 
 export type KafkaMessageInput = Omit<KafkaMessage, 'id' | 'timestamp'> & { timestamp?: number };
@@ -437,12 +450,10 @@ export const useKafkaStore = create<KafkaState>()(
         set((state) => {
           const conn = state.connections[id];
           if (!conn) return state;
-          return {
-            connections: {
-              ...state.connections,
-              [id]: { ...conn, consumer: { ...conn.consumer, ...patch } },
-            },
-          };
+          const consumer = { ...conn.consumer, ...patch };
+          // A subscription that ended (or restarts) starts with every partition running.
+          if (patch.status && patch.status !== 'subscribed') delete consumer.pausedPartitions;
+          return { connections: { ...state.connections, [id]: { ...conn, consumer } } };
         }),
 
       updateStatus: (id, status) =>
@@ -490,6 +501,8 @@ export const useKafkaStore = create<KafkaState>()(
 
       clearMessages: (connectionId) =>
         set((state) => {
+          // Drop records still buffered for the next flush, or they'd reappear.
+          for (const listener of clearListeners) listener(connectionId);
           const conn = state.connections[connectionId];
           if (!conn) return state;
           return {
@@ -553,7 +566,7 @@ export const useKafkaStore = create<KafkaState>()(
               messages: [] as KafkaMessage[],
               auth: redactSecrets(conn.auth),
               registry: conn.registry ? redactRegistry(conn.registry) : undefined,
-              consumer: { ...conn.consumer, status: 'idle' as const },
+              consumer: { ...conn.consumer, status: 'idle' as const, pausedPartitions: undefined },
             },
           ])
         ),

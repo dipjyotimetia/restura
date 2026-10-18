@@ -1,7 +1,7 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { KafkaConnection, KafkaMessage } from '../../store/useKafkaStore';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { type KafkaConnection, type KafkaMessage, useKafkaStore } from '../../store/useKafkaStore';
 import { KafkaPartitionControls } from '../KafkaPartitionControls';
 
 function makeConnection(
@@ -39,6 +39,19 @@ function makeConnection(
   };
 }
 
+function Harness() {
+  const connection = useKafkaStore((state) => state.connections['conn-1']);
+  return connection ? <KafkaPartitionControls connection={connection} /> : null;
+}
+
+/** Seed the store (when given a connection) and render the store-backed controls. */
+function renderControls(connection?: KafkaConnection) {
+  if (connection) {
+    useKafkaStore.setState({ connections: { [connection.id]: connection } });
+  }
+  return render(<Harness />);
+}
+
 const received = (partition: number, offset: string): KafkaMessage => ({
   id: `${partition}-${offset}`,
   direction: 'received',
@@ -67,6 +80,11 @@ function installKafkaApi() {
 
 describe('KafkaPartitionControls', () => {
   let kafka: ReturnType<typeof installKafkaApi>;
+  // Finish the persisted store's async rehydration first, or it can replace the
+  // seeded connections midway through a test.
+  beforeAll(async () => {
+    await useKafkaStore.persist.rehydrate();
+  });
   beforeEach(() => {
     kafka = installKafkaApi();
   });
@@ -75,18 +93,12 @@ describe('KafkaPartitionControls', () => {
   });
 
   it('renders nothing until the consumer is subscribed', () => {
-    const { container } = render(
-      <KafkaPartitionControls connection={makeConnection({ status: 'idle' })} />
-    );
+    const { container } = renderControls(makeConnection({ status: 'idle' }));
     expect(container).toBeEmptyDOMElement();
   });
 
   it('lists assigned partitions from lag plus partitions that delivered records', () => {
-    render(
-      <KafkaPartitionControls
-        connection={makeConnection({}, [received(0, '9'), received(0, '11'), received(3, '5')])}
-      />
-    );
+    renderControls(makeConnection({}, [received(0, '9'), received(0, '11'), received(3, '5')]));
     const rows = screen.getAllByRole('row').slice(1);
     expect(rows.map((r) => within(r).getAllByRole('cell')[1]!.textContent)).toEqual([
       'P0',
@@ -99,14 +111,14 @@ describe('KafkaPartitionControls', () => {
   });
 
   it('explains the empty state before any assignment', () => {
-    render(<KafkaPartitionControls connection={makeConnection({ lag: undefined })} />);
+    renderControls(makeConnection({ lag: undefined }));
     expect(screen.getByText(/Partitions appear once the consumer is assigned/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Seek' })).not.toBeInTheDocument();
   });
 
   it('pauses and resumes a single partition through IPC', async () => {
     const user = userEvent.setup();
-    render(<KafkaPartitionControls connection={makeConnection()} />);
+    renderControls(makeConnection());
 
     await user.click(screen.getByRole('button', { name: 'Pause orders partition 2' }));
     expect(kafka.pausePartitions).toHaveBeenCalledWith({
@@ -127,7 +139,7 @@ describe('KafkaPartitionControls', () => {
   it('surfaces rejected or failed partition calls as an error status', async () => {
     const user = userEvent.setup();
     kafka.pausePartitions.mockRejectedValueOnce(new Error('Rate limit exceeded'));
-    render(<KafkaPartitionControls connection={makeConnection()} />);
+    renderControls(makeConnection());
     await user.click(screen.getByRole('button', { name: 'Pause orders partition 0' }));
     expect(screen.getByRole('status')).toHaveTextContent('Rate limit exceeded');
     expect(screen.getByRole('button', { name: 'Pause orders partition 0' })).toBeInTheDocument();
@@ -144,7 +156,7 @@ describe('KafkaPartitionControls', () => {
 
   it('seeks the selected partition by offset', async () => {
     const user = userEvent.setup();
-    render(<KafkaPartitionControls connection={makeConnection()} />);
+    renderControls(makeConnection());
     const seek = screen.getByRole('button', { name: 'Seek' });
     expect(seek).toBeDisabled();
 
@@ -168,7 +180,7 @@ describe('KafkaPartitionControls', () => {
 
   it('seeks by timestamp and reports the resume point of a paused partition', async () => {
     const user = userEvent.setup();
-    render(<KafkaPartitionControls connection={makeConnection()} />);
+    renderControls(makeConnection());
     await user.click(screen.getByRole('button', { name: 'Pause orders partition 0' }));
 
     await user.selectOptions(screen.getByLabelText('To'), 'timestamp');
@@ -190,20 +202,36 @@ describe('KafkaPartitionControls', () => {
     expect(screen.getByRole('status')).toHaveTextContent('boom');
   });
 
-  it('forgets paused partitions when the subscription ends', async () => {
+  it('keeps paused partitions across a remount (tab switch) and forgets them when the subscription ends', async () => {
     const user = userEvent.setup();
-    const { rerender } = render(<KafkaPartitionControls connection={makeConnection()} />);
+    const first = renderControls(makeConnection());
     await user.click(screen.getByRole('button', { name: 'Pause orders partition 0' }));
-    rerender(<KafkaPartitionControls connection={makeConnection({ status: 'idle' })} />);
-    rerender(<KafkaPartitionControls connection={makeConnection()} />);
+    expect(useKafkaStore.getState().connections['conn-1']!.consumer.pausedPartitions).toEqual([
+      'orders:0',
+    ]);
+    first.unmount();
+    renderControls();
+    expect(screen.getByRole('button', { name: 'Resume orders partition 0' })).toBeInTheDocument();
+
+    await act(async () => {
+      useKafkaStore.getState().updateConsumer('conn-1', { status: 'idle' });
+    });
+    await act(async () => {
+      useKafkaStore.getState().updateConsumer('conn-1', { status: 'subscribed' });
+    });
     expect(screen.getByRole('button', { name: 'Pause orders partition 0' })).toBeInTheDocument();
-    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('');
+  });
+
+  it('keeps the status live region mounted before any action', () => {
+    renderControls(makeConnection());
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   it('reports a missing Electron bridge', async () => {
     delete (window as unknown as { electron?: unknown }).electron;
     const user = userEvent.setup();
-    render(<KafkaPartitionControls connection={makeConnection()} />);
+    renderControls(makeConnection());
     await user.click(screen.getByRole('button', { name: 'Pause orders partition 0' }));
     expect(screen.getByRole('status')).toHaveTextContent('Electron API unavailable.');
   });

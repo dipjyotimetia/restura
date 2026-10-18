@@ -1,5 +1,6 @@
 import type { KafkaMessageInput } from '@/features/kafka/store/useKafkaStore';
 import type { KafkaSchemaRefIpc } from '../../../../electron/types/electron-api';
+import { MAX_MESSAGES_PER_CONNECTION } from '@/lib/shared/message-cap';
 
 /**
  * Consumed records are buffered and flushed to the store on this interval
@@ -61,13 +62,17 @@ export class ConsumedMessageBuffer {
 
   constructor(
     private readonly sink: (connectionId: string, batch: KafkaMessageInput[]) => void,
-    private readonly intervalMs = KAFKA_FLUSH_INTERVAL_MS
+    private readonly intervalMs = KAFKA_FLUSH_INTERVAL_MS,
+    private readonly maxBuffered = MAX_MESSAGES_PER_CONNECTION
   ) {}
 
   push(connectionId: string, message: KafkaMessageInput): void {
     const buf = this.buffers.get(connectionId);
-    if (buf) buf.push(message);
-    else this.buffers.set(connectionId, [message]);
+    if (buf) {
+      buf.push(message);
+      // The store keeps only the newest N anyway; don't hold more between flushes.
+      if (buf.length > this.maxBuffered) buf.splice(0, buf.length - this.maxBuffered);
+    } else this.buffers.set(connectionId, [message]);
     if (!this.timers.has(connectionId)) {
       this.timers.set(
         connectionId,
@@ -76,15 +81,24 @@ export class ConsumedMessageBuffer {
     }
   }
 
+  /** Drop pending records without delivering them (the log was cleared). */
+  discard(connectionId: string): void {
+    this.cancelTimer(connectionId);
+    this.buffers.delete(connectionId);
+  }
+
   flush(connectionId: string): void {
-    const timer = this.timers.get(connectionId);
-    if (timer !== undefined) {
-      clearTimeout(timer);
-      this.timers.delete(connectionId);
-    }
+    this.cancelTimer(connectionId);
     const buf = this.buffers.get(connectionId);
     if (!buf || buf.length === 0) return;
     this.buffers.delete(connectionId);
     this.sink(connectionId, buf);
+  }
+
+  private cancelTimer(connectionId: string): void {
+    const timer = this.timers.get(connectionId);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this.timers.delete(connectionId);
   }
 }

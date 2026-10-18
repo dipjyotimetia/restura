@@ -31,7 +31,9 @@ export class ConsumerFlowControl {
 
   constructor(
     private readonly highWater = EMIT_QUEUE_HIGH_WATER,
-    private readonly lowWater = Math.floor(highWater / 2)
+    private readonly lowWater = highWater === EMIT_QUEUE_HIGH_WATER
+      ? EMIT_QUEUE_LOW_WATER
+      : Math.floor(highWater / 2)
   ) {}
 
   get userPaused(): boolean {

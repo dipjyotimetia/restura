@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,7 +9,7 @@ import {
   resumeKafkaPartitions,
   seekKafkaPartition,
 } from '@/features/kafka/lib/partitionControl';
-import type { KafkaConnection } from '@/features/kafka/store/useKafkaStore';
+import { type KafkaConnection, useKafkaStore } from '@/features/kafka/store/useKafkaStore';
 import { partitionColor } from './shared';
 
 interface PartitionRow extends KafkaTopicPartition {
@@ -66,19 +66,17 @@ function seekTarget(kind: SeekKind, draft: string): KafkaSeekTarget | undefined 
 export function KafkaPartitionControls({ connection }: { connection: KafkaConnection }) {
   const subscribed = connection.consumer.status === 'subscribed';
   const rows = useMemo(() => partitionRows(connection), [connection]);
-  const [paused, setPaused] = useState<ReadonlySet<string>>(new Set());
+  // In the store (not local state) so it survives tab switches; cleared when the subscription ends.
+  const paused = new Set(connection.consumer.pausedPartitions ?? []);
+  const ids = useId();
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<{ text: string; error?: boolean } | null>(null);
   const [seekKey, setSeekKey] = useState('');
   const [seekKind, setSeekKind] = useState<SeekKind>('offset');
   const [seekDraft, setSeekDraft] = useState('');
 
-  // A new subscription starts with every partition running.
   useEffect(() => {
-    if (!subscribed) {
-      setPaused(new Set());
-      setStatus(null);
-    }
+    if (!subscribed) setStatus(null);
   }, [subscribed]);
 
   if (!subscribed) return null;
@@ -98,7 +96,9 @@ export function KafkaPartitionControls({ connection }: { connection: KafkaConnec
       setStatus({ text: result.error, error: true });
       return;
     }
-    setPaused(new Set(result.paused.map((p) => rowKey(p.topic, p.partition))));
+    useKafkaStore.getState().updateConsumer(connection.id, {
+      pausedPartitions: result.paused.map((p) => rowKey(p.topic, p.partition)),
+    });
     setStatus({
       text: `${isPaused ? 'Resumed' : 'Paused'} ${row.topic} partition ${row.partition}`,
     });
@@ -126,10 +126,10 @@ export function KafkaPartitionControls({ connection }: { connection: KafkaConnec
 
   return (
     <section
-      aria-labelledby="kafka-consumer-partitions"
+      aria-labelledby={`${ids}-heading`}
       className="space-y-3 rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo"
     >
-      <h3 id="kafka-consumer-partitions" className="text-xs font-medium">
+      <h3 id={`${ids}-heading`} className="text-xs font-medium">
         Partitions
       </h3>
       {rows.length === 0 ? (
@@ -182,11 +182,11 @@ export function KafkaPartitionControls({ connection }: { connection: KafkaConnec
       {rows.length > 0 && (
         <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto_1fr_auto] md:items-end">
           <div className="space-y-1">
-            <Label htmlFor="kafka-seek-partition" className="text-xs sp-label">
+            <Label htmlFor={`${ids}-seek-partition`} className="text-xs sp-label">
               Seek partition
             </Label>
             <select
-              id="kafka-seek-partition"
+              id={`${ids}-seek-partition`}
               className="h-8 w-full rounded border border-sp-line bg-sp-surface px-2 text-xs font-mono"
               value={selected?.key ?? ''}
               onChange={(event) => setSeekKey(event.target.value)}
@@ -199,11 +199,11 @@ export function KafkaPartitionControls({ connection }: { connection: KafkaConnec
             </select>
           </div>
           <div className="space-y-1">
-            <Label htmlFor="kafka-seek-kind" className="text-xs sp-label">
+            <Label htmlFor={`${ids}-seek-kind`} className="text-xs sp-label">
               To
             </Label>
             <select
-              id="kafka-seek-kind"
+              id={`${ids}-seek-kind`}
               className="h-8 w-full rounded border border-sp-line bg-sp-surface px-2 text-xs"
               value={seekKind}
               onChange={(event) => {
@@ -216,11 +216,11 @@ export function KafkaPartitionControls({ connection }: { connection: KafkaConnec
             </select>
           </div>
           <div className="space-y-1">
-            <Label htmlFor="kafka-seek-value" className="text-xs sp-label">
+            <Label htmlFor={`${ids}-seek-value`} className="text-xs sp-label">
               {seekKind === 'offset' ? 'Offset' : 'Time'}
             </Label>
             <Input
-              id="kafka-seek-value"
+              id={`${ids}-seek-value`}
               type={seekKind === 'offset' ? 'text' : 'datetime-local'}
               inputMode={seekKind === 'offset' ? 'numeric' : undefined}
               placeholder={seekKind === 'offset' ? '0' : undefined}
@@ -234,14 +234,13 @@ export function KafkaPartitionControls({ connection }: { connection: KafkaConnec
           </Button>
         </div>
       )}
-      {status && (
-        <p
-          role="status"
-          className={`text-sp-11 ${status.error ? 'text-destructive' : 'text-sp-dim'}`}
-        >
-          {status.text}
-        </p>
-      )}
+      {/* Always mounted so screen readers announce each update. */}
+      <p
+        role="status"
+        className={`text-sp-11 ${status?.error ? 'text-destructive' : 'text-sp-dim'}`}
+      >
+        {status?.text}
+      </p>
     </section>
   );
 }

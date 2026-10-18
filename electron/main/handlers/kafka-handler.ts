@@ -25,7 +25,12 @@ import { getExecutionPolicy } from '../security/execution-policy';
 import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
 import { registerKafkaAdminHandlers } from './kafka/admin-handlers';
 import { registerKafkaConsumerControlHandlers } from './kafka/consumer-control-handlers';
-import { type ConsumerStreamHooks, KafkaConsumerSession } from './kafka/consumer-session';
+import {
+  type ConsumerStreamHooks,
+  fallbackModeValue,
+  type KafkaConsumerSession,
+  subscriptionSession,
+} from './kafka/consumer-session';
 import {
   browseConsumerOptions,
   onBrowseStreamFinished,
@@ -151,6 +156,7 @@ function emitToEntry(entry: ActiveKafka, channel: string, ...args: unknown[]): v
 }
 
 async function closeConsumerAndStream(entry: ActiveKafka): Promise<void> {
+  await entry.session?.close(); // final commit of delivered positions
   if (entry.stream) {
     try {
       await Promise.resolve(entry.stream.close());
@@ -191,13 +197,18 @@ async function closeConnection(entry: ActiveKafka): Promise<void> {
   entry.registry?.close();
 }
 
-async function emitConsumedMessage(entry: ActiveKafka, msg: AppMessage): Promise<void> {
+async function emitConsumedMessage(
+  entry: ActiveKafka,
+  msg: AppMessage,
+  signal?: AbortSignal
+): Promise<void> {
   const key = msg.key == null ? undefined : await decodeDisplayField(entry.registry, msg.key);
   const value =
     msg.value == null
       ? { value: '', encoding: 'utf8' as const }
       : await decodeDisplayField(entry.registry, msg.value);
-  if (activeConnections.get(entry.connectionId, entry.webContentsId) !== entry) return;
+  if (signal?.aborted || activeConnections.get(entry.connectionId, entry.webContentsId) !== entry)
+    return;
   let commitToken: string | undefined;
   if (entry.manualCommit) {
     commitToken = randomUUID();
@@ -233,7 +244,7 @@ function consumerStreamHooks(entry: ActiveKafka): ConsumerStreamHooks {
     if (isCurrent()) emitToEntry(entry, kafkaChannel(prefix, entry.connectionId), payload);
   };
   return {
-    deliver: (msg) => emitConsumedMessage(entry, msg),
+    deliver: (msg, signal) => emitConsumedMessage(entry, msg, signal),
     onError: (err) => emit(KAFKA_CHANNEL.ERROR, { scope: 'consumer', message: err.message }),
     onClose: () => emit(KAFKA_CHANNEL.CONSUMER_CLOSED, {}),
   };
@@ -452,7 +463,8 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           ...(cfg.groupProtocol !== 'consumer' && cfg.heartbeatIntervalMs
             ? { heartbeatInterval: cfg.heartbeatIntervalMs }
             : {}),
-          autocommit: cfg.commitPolicy === 'manual' ? false : (cfg.autoCommitIntervalMs ?? true),
+          // The session commits *delivered* positions itself (never withheld records).
+          autocommit: false,
           isolationLevel: cfg.isolation === 'read-committed' ? 1 : 0,
           ...(cfg.minBytes !== undefined ? { minBytes: cfg.minBytes } : {}),
           ...(cfg.maxBytes !== undefined ? { maxBytes: cfg.maxBytes } : {}),
@@ -515,19 +527,11 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           mode = M.LATEST;
         } else mode = M.COMMITTED;
 
+        const fallbackMode = fallbackModeValue(kafka, cfg.fallbackMode);
         const stream = await (consumer.consume({
           topics: cfg.topics,
           mode,
-          ...(cfg.fallbackMode
-            ? {
-                fallbackMode:
-                  cfg.fallbackMode === 'earliest'
-                    ? kafka.MessagesStreamFallbackModes.EARLIEST
-                    : cfg.fallbackMode === 'fail'
-                      ? kafka.MessagesStreamFallbackModes.FAIL
-                      : kafka.MessagesStreamFallbackModes.LATEST,
-              }
-            : {}),
+          ...(fallbackMode ? { fallbackMode } : {}),
           ...(offsets ? { offsets } : {}),
         }) as Promise<AppStream>);
 
@@ -536,7 +540,7 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           return { success: false, error: 'Not connected' };
         }
         entry.consumer = consumer;
-        entry.session = new KafkaConsumerSession(cfg.topics, consumerStreamHooks(entry));
+        entry.session = subscriptionSession(cfg, kafka, consumerStreamHooks(entry));
         entry.session.bind(entry, stream);
         entry.manualCommit = cfg.commitPolicy === 'manual';
         consumer.on('consumer:group:join', (payload) => {

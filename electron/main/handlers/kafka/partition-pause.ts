@@ -4,13 +4,19 @@
  * @platformatic/kafka (2.14) has no partition-level pause, so it is emulated:
  * records from a paused partition are withheld (never decoded or sent to the
  * renderer) and the first withheld offset is remembered as the rewind point.
- * Resuming the partition repositions the stream there (see
- * `consumer-reposition.ts`), so nothing is skipped. The partition keeps being
- * fetched while paused — the cost of emulation — but its records are discarded
- * before decode and never count against the emit queue.
+ * Resuming the partition repositions this member's stream there (see
+ * `consumer-session.ts`), so the withheld records are delivered after the
+ * resume. The partition keeps being fetched while paused — the cost of
+ * emulation — but its records are discarded before decode, never count against
+ * the emit queue, and are never auto-committed (`delivered-offset-committer.ts`).
+ * If the partition is revoked by a rebalance while paused, its pause state is
+ * dropped and the new owner starts from the group's committed offset.
  *
  * Independent of the whole-stream pause reasons in `consumer-flow.ts`.
  */
+
+/** Upper bound on simultaneously paused partitions per subscription. */
+export const MAX_PAUSED_PARTITIONS = 1_000;
 
 export interface TopicPartition {
   topic: string;
@@ -41,9 +47,18 @@ interface PausedPartition {
 export class PartitionPauseSet {
   readonly #paused = new Map<string, PausedPartition>();
 
-  pause(topic: string, partition: number): void {
+  /** Returns false when the set is already at its cap (the partition is not paused). */
+  pause(topic: string, partition: number): boolean {
     const key = partitionKey(topic, partition);
-    if (!this.#paused.has(key)) this.#paused.set(key, { pinned: false });
+    if (this.#paused.has(key)) return true;
+    if (this.#paused.size >= MAX_PAUSED_PARTITIONS) return false;
+    this.#paused.set(key, { pinned: false });
+    return true;
+  }
+
+  /** Forget partitions this member no longer owns (after a rebalance). */
+  retain(assigned: ReadonlySet<string>): void {
+    for (const key of this.#paused.keys()) if (!assigned.has(key)) this.#paused.delete(key);
   }
 
   isPaused(topic: string, partition: number): boolean {

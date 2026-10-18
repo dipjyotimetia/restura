@@ -9,7 +9,11 @@ import type {
   KafkaConnection,
   KafkaRegistry,
 } from '@/features/kafka/store/useKafkaStore';
-import { KAFKA_SECRET_SENTINEL, useKafkaStore } from '@/features/kafka/store/useKafkaStore';
+import {
+  KAFKA_SECRET_SENTINEL,
+  onKafkaMessagesCleared,
+  useKafkaStore,
+} from '@/features/kafka/store/useKafkaStore';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
 import { KAFKA_CHANNEL, kafkaChannel } from '../../../../electron/shared/kafka-channels';
@@ -202,6 +206,10 @@ class KafkaManager {
   private inbound = new ConsumedMessageBuffer((connectionId, batch) =>
     useKafkaStore.getState().addMessages(connectionId, batch)
   );
+  constructor() {
+    // Clearing the log must also drop records still waiting for the next flush.
+    onKafkaMessagesCleared((id) => this.inbound.discard(id));
+  }
 
   async connect(connection: KafkaConnection): Promise<{ ok: true } | { ok: false; error: string }> {
     if (!isElectron()) {
@@ -641,7 +649,19 @@ class KafkaManager {
     });
     api.kafka.on(kafkaChannel(KAFKA_CHANNEL.CONSUMER_LAG, connectionId), (payload: unknown) => {
       const event = payload as { lag?: { topic: string; offsets: string[] }[] };
-      if (event.lag) useKafkaStore.getState().updateConsumer(connectionId, { lag: event.lag });
+      if (!event.lag) return;
+      const store = useKafkaStore.getState();
+      const paused = store.connections[connectionId]?.consumer.pausedPartitions;
+      // Lag -1 = no longer assigned to this member: main already dropped its pause.
+      const assigned = (key: string) => {
+        const sep = key.lastIndexOf(':');
+        const topic = event.lag?.find((l) => l.topic === key.slice(0, sep));
+        return topic?.offsets[Number(key.slice(sep + 1))] !== '-1';
+      };
+      store.updateConsumer(connectionId, {
+        lag: event.lag,
+        ...(paused?.length ? { pausedPartitions: paused.filter(assigned) } : {}),
+      });
     });
   }
 

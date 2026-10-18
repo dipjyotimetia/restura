@@ -152,11 +152,18 @@ class FakeConsumer extends EventEmitter {
   });
   close = vi.fn(async () => {});
   startLagMonitoring = vi.fn();
+  /** Partitions the group assigned to this member. */
+  assignments: Array<{ topic: string; partitions: number[] }> | null = [
+    { topic: 'orders', partitions: [0, 1, 2] },
+  ];
+  commit = vi.fn(async (_options: { offsets: unknown[] }) => {});
+  committed = new Map<string, bigint[]>([['orders', [-1n, -1n, -1n, -1n]]]);
+  listCommittedOffsets = vi.fn(async (_options: unknown) => this.committed);
   /** Per-partition [log-start, log-end] used by seek clamping. */
   watermarks = { earliest: 10n, latest: 100n };
   listOffsets = vi.fn(async (options: { topics: string[]; timestamp: bigint }) => {
     const value = options.timestamp === -2n ? this.watermarks.earliest : this.watermarks.latest;
-    return new Map(options.topics.map((topic) => [topic, [value, value, value]]));
+    return new Map(options.topics.map((topic) => [topic, Array<bigint>(8).fill(value)]));
   });
   listOffsetsWithTimestamps = vi.fn(
     async (_options: unknown) =>
@@ -713,7 +720,11 @@ describe('kafka-handler', () => {
       commit,
     });
 
-    async function live(connectionId: string, commitPolicy: 'auto' | 'manual' = 'auto') {
+    async function live(
+      connectionId: string,
+      commitPolicy: 'auto' | 'manual' = 'auto',
+      extra: Record<string, unknown> = {}
+    ) {
       const { event } = makeEvent();
       await handlerFor(IPC.kafka.connect)(event, validConnect(connectionId));
       await handlerFor(IPC.kafka.subscribe)(event, {
@@ -725,6 +736,7 @@ describe('kafka-handler', () => {
         commitPolicy,
         isolation: 'read-uncommitted',
         groupProtocol: 'classic',
+        ...extra,
       });
       const consumer = FakeConsumer.instances[0]!;
       const stream = consumer.stream;
@@ -737,6 +749,129 @@ describe('kafka-handler', () => {
         handlerFor(channel)(event, { connectionId, ...payload });
       return { event, consumer, stream, delivered, call };
     }
+
+    it('runs the library without autocommit and commits only delivered positions', async () => {
+      const { event, consumer, stream, delivered, call } = await live('ac', 'auto', {
+        autoCommitIntervalMs: 50,
+      });
+      expect(consumer.options).toMatchObject({ autocommit: false });
+      await call(IPC.kafka.pausePartitions, { partitions: [{ topic: 'orders', partition: 1 }] });
+      stream.emit('data', { ...record(0, 7), leaderEpoch: 4 });
+      stream.emit('data', record(1, 20)); // withheld: must never be committed
+      stream.emit('data', { ...record(0, 8), leaderEpoch: 4 });
+      await vi.waitFor(() => expect(delivered()).toHaveLength(2));
+
+      await vi.waitFor(() =>
+        expect(consumer.commit).toHaveBeenCalledWith({
+          offsets: [{ topic: 'orders', partition: 0, offset: 9n, leaderEpoch: 4 }],
+        })
+      );
+      const committedPartitions = consumer.commit.mock.calls.flatMap((c) =>
+        (c[0].offsets as Array<{ partition: number }>).map((o) => o.partition)
+      );
+      expect(committedPartitions).not.toContain(1);
+      await handlerFor(IPC.kafka.unsubscribe)(event, { connectionId: 'ac' });
+      expect(
+        consumer.commit.mock.calls.flatMap((c) =>
+          (c[0].offsets as Array<{ partition: number }>).map((o) => o.partition)
+        )
+      ).not.toContain(1);
+    });
+
+    it('flushes delivered positions on unsubscribe, before the stream and consumer close', async () => {
+      const { event, consumer, stream, delivered } = await live('ac-close', 'auto', {
+        autoCommitIntervalMs: 3_600_000,
+      });
+      stream.emit('data', { ...record(0, 9), leaderEpoch: 4 });
+      await vi.waitFor(() => expect(delivered()).toHaveLength(1));
+      expect(consumer.commit).not.toHaveBeenCalled();
+      await handlerFor(IPC.kafka.unsubscribe)(event, { connectionId: 'ac-close' });
+      expect(consumer.commit).toHaveBeenCalledWith({
+        offsets: [{ topic: 'orders', partition: 0, offset: 10n, leaderEpoch: 4 }],
+      });
+      expect(consumer.commit.mock.invocationCallOrder[0]!).toBeLessThan(
+        stream.close.mock.invocationCallOrder[0]!
+      );
+      expect(consumer.commit.mock.invocationCallOrder[0]!).toBeLessThan(
+        consumer.close.mock.invocationCallOrder[0]!
+      );
+    });
+
+    it('leaves manual-commit subscriptions to explicit per-message commits', async () => {
+      const { event, consumer, stream, delivered } = await live('mc', 'manual');
+      expect(consumer.options).toMatchObject({ autocommit: false });
+      stream.emit('data', record(0, 7));
+      await vi.waitFor(() => expect(delivered()).toHaveLength(1));
+      await handlerFor(IPC.kafka.unsubscribe)(event, { connectionId: 'mc' });
+      expect(consumer.commit).not.toHaveBeenCalled();
+    });
+
+    it('after a seek, a rebalance starts newly assigned partitions at their committed offset', async () => {
+      const { consumer, call } = await live('rebalance');
+      await call(IPC.kafka.pausePartitions, { partitions: [{ topic: 'orders', partition: 2 }] });
+      await call(IPC.kafka.seekConsumer, {
+        topic: 'orders',
+        partition: 0,
+        target: { kind: 'offset', offset: '50' },
+      });
+      expect(consumer.consume).toHaveBeenCalledTimes(2);
+      const swapped = consumer.streams[1]!;
+      swapped.offsetsToFetch
+        .set('orders:0', 51n)
+        .set('orders:1', 20n)
+        .set('orders:2', 30n)
+        .set('orders:3', 99n); // library-filled LATEST for a partition it just got
+
+      // Rebalance: partition 2 revoked; 3 (committed 15) and 4 (no commit) assigned.
+      consumer.assignments = [{ topic: 'orders', partitions: [0, 1, 3, 4] }];
+      consumer.committed = new Map([['orders', [-1n, -1n, -1n, 15n, -1n]]]);
+      consumer.emit('consumer:group:join', {});
+      await vi.waitFor(() => expect(consumer.consume).toHaveBeenCalledTimes(3));
+
+      expect(consumer.listCommittedOffsets).toHaveBeenCalledWith({
+        topics: [{ topic: 'orders', partitions: [3, 4] }],
+      });
+      expect(consumer.consume).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          mode: 'MANUAL',
+          offsets: [
+            { topic: 'orders', partition: 0, offset: 51n },
+            { topic: 'orders', partition: 1, offset: 20n },
+            { topic: 'orders', partition: 3, offset: 15n },
+            // No commit → the subscription's fallback (latest watermark).
+            { topic: 'orders', partition: 4, offset: 100n },
+          ],
+        })
+      );
+      // The revoked partition's pause state is gone.
+      consumer.assignments = [{ topic: 'orders', partitions: [0, 1, 2, 3, 4] }];
+      await expect(
+        call(IPC.kafka.resumePartitions, { partitions: [{ topic: 'orders', partition: 2 }] })
+      ).resolves.toEqual({ success: true, pausedPartitions: [] });
+    });
+
+    it('before any seek, a rebalance only drops pause state for revoked partitions', async () => {
+      const { consumer, call } = await live('rebalance-native');
+      await call(IPC.kafka.pausePartitions, {
+        partitions: [
+          { topic: 'orders', partition: 1 },
+          { topic: 'orders', partition: 2 },
+        ],
+      });
+      consumer.assignments = [{ topic: 'orders', partitions: [0, 1] }];
+      consumer.emit('consumer:group:join', {});
+      await vi.waitFor(async () => {
+        const result = await call(IPC.kafka.pausePartitions, {
+          partitions: [{ topic: 'orders', partition: 1 }],
+        });
+        expect(result).toEqual({
+          success: true,
+          pausedPartitions: [{ topic: 'orders', partition: 1 }],
+        });
+      });
+      expect(consumer.consume).toHaveBeenCalledTimes(1);
+      expect(consumer.listCommittedOffsets).not.toHaveBeenCalled();
+    });
 
     it('withholds a paused partition while the others keep flowing', async () => {
       const { stream, delivered, call } = await live('pp');
@@ -776,6 +911,8 @@ describe('kafka-handler', () => {
           { topic: 'orders', partition: 0, offset: 8n },
           { topic: 'orders', partition: 1, offset: 20n },
         ],
+        // The subscription's fallback mode carries over to the replacement stream.
+        fallbackMode: 'LATEST',
       });
       // The replacement was opened before the old stream closed (no group rejoin).
       const next = consumer.streams[1]!;
@@ -1058,20 +1195,62 @@ describe('kafka-handler', () => {
       ).resolves.toEqual(notSubscribed);
     });
 
-    it('reports a seek failure (e.g. unknown partition) without swapping streams', async () => {
+    it('reports a seek failure (e.g. no watermark) without swapping streams', async () => {
       const { consumer, call } = await live('seek-missing');
       consumer.listOffsets.mockResolvedValueOnce(new Map([['orders', []]]));
       await expect(
         call(IPC.kafka.seekConsumer, {
           topic: 'orders',
-          partition: 9,
+          partition: 2,
           target: { kind: 'offset', offset: '1' },
         })
       ).resolves.toEqual({
         success: false,
-        error: 'Partition 9 of "orders" was not found.',
+        error: 'Partition 2 of "orders" was not found.',
       });
       expect(consumer.consume).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects pausing or seeking partitions not assigned to this member', async () => {
+      const { consumer, call } = await live('unassigned');
+      const notAssigned = {
+        success: false,
+        error: 'Partition 7 of "orders" is not assigned to this consumer.',
+      };
+      await expect(
+        call(IPC.kafka.pausePartitions, { partitions: [{ topic: 'orders', partition: 7 }] })
+      ).resolves.toEqual(notAssigned);
+      await expect(
+        call(IPC.kafka.seekConsumer, {
+          topic: 'orders',
+          partition: 7,
+          target: { kind: 'offset', offset: '1' },
+        })
+      ).resolves.toEqual(notAssigned);
+      // Before the first assignment nothing is assigned yet.
+      consumer.assignments = null;
+      await expect(
+        call(IPC.kafka.pausePartitions, { partitions: [{ topic: 'orders', partition: 0 }] })
+      ).resolves.toMatchObject({ success: false });
+      expect(consumer.consume).toHaveBeenCalledTimes(1);
+    });
+
+    it('caps the number of simultaneously paused partitions', async () => {
+      const { consumer, call } = await live('cap');
+      consumer.assignments = [
+        { topic: 'orders', partitions: Array.from({ length: 1001 }, (_, i) => i) },
+      ];
+      await expect(
+        call(IPC.kafka.pausePartitions, {
+          partitions: Array.from({ length: 1000 }, (_, i) => ({ topic: 'orders', partition: i })),
+        })
+      ).resolves.toMatchObject({ success: true });
+      await expect(
+        call(IPC.kafka.pausePartitions, { partitions: [{ topic: 'orders', partition: 1000 }] })
+      ).resolves.toMatchObject({
+        success: false,
+        error: 'At most 1000 partitions can be paused at once.',
+      });
     });
 
     it('validates payloads and rate-limits the partition and seek channels', async () => {
