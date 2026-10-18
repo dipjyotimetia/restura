@@ -225,6 +225,25 @@ describe('KafkaOffsetResetPanel', () => {
     expect(manager.deleteGroupOffsets).not.toHaveBeenCalled();
   });
 
+  it('does not carry specific offsets across topics that share partition numbers', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    const [scope, target] = screen.getAllByRole('combobox');
+    await user.selectOptions(target!, 'specific');
+    const auditP0 = screen.getByLabelText('Offset for partition 0');
+    expect(auditP0).toHaveValue('2');
+    await user.clear(auditP0);
+    await user.type(auditP0, '1');
+
+    await user.selectOptions(scope!, 'orders');
+    expect(screen.getByLabelText('Offset for partition 0')).toHaveValue('7');
+    expect(screen.getByLabelText('Offset for partition 1')).toHaveValue('0');
+
+    // Edits made on a topic survive switching away and back.
+    await user.selectOptions(scope!, 'audit');
+    expect(screen.getByLabelText('Offset for partition 0')).toHaveValue('1');
+  });
+
   it('switches away from specific when the all-topics scope is chosen', async () => {
     const user = userEvent.setup();
     renderPanel();

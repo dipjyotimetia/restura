@@ -23,6 +23,9 @@ import { partitionColor } from './shared';
 type AsyncResult = { ok: true } | { ok: false; error: string };
 type Run = <R extends AsyncResult>(action: () => Promise<R>) => Promise<R>;
 
+const partitionKey = (o: { topic: string; partition: number }): string =>
+  `${o.topic}/${o.partition}`;
+
 /** Scope sentinel — `*` is not a legal Kafka topic character, so it can't collide. */
 const ALL_TOPICS = '*';
 
@@ -75,7 +78,8 @@ export function KafkaOffsetResetPanel({
 }) {
   const [scope, setScope] = useState('');
   const [to, setTo] = useState<KafkaOffsetResetTarget>('latest');
-  const [specific, setSpecific] = useState<Record<number, string>>({});
+  // Keyed by `topic/partition` so edits never carry over between topics.
+  const [specific, setSpecific] = useState<Record<string, string>>({});
   const [dateTime, setDateTime] = useState('');
   const [shift, setShift] = useState('');
   const [confirm, setConfirm] = useState<'reset' | 'delete' | null>(null);
@@ -101,15 +105,15 @@ export function KafkaOffsetResetPanel({
     }
   }, [committedTopics, scope]);
 
+  // Seed each in-scope partition from its own committed offset; keep earlier edits.
   useEffect(() => {
-    setSpecific((current) =>
-      Object.fromEntries(
-        scopePartitions.map((offset) => [
-          offset.partition,
-          current[offset.partition] ?? offset.committed ?? '0',
-        ])
-      )
-    );
+    setSpecific((current) => {
+      const missing = scopePartitions.filter((o) => current[partitionKey(o)] === undefined);
+      if (missing.length === 0) return current;
+      const next = { ...current };
+      for (const o of missing) next[partitionKey(o)] = o.committed ?? '0';
+      return next;
+    });
   }, [scopePartitions]);
 
   // Choosing a different scope or target discards any shown result. (User-driven
@@ -141,7 +145,7 @@ export function KafkaOffsetResetPanel({
   const invalid =
     !scope ||
     (to === 'specific' &&
-      scopePartitions.some((o) => !/^\d+$/.test(specific[o.partition]?.trim() ?? ''))) ||
+      scopePartitions.some((o) => !/^\d+$/.test(specific[partitionKey(o)]?.trim() ?? ''))) ||
     (to === 'timestamp' && !(Number.isFinite(timestampMs) && timestampMs >= 0)) ||
     (to === 'shift' && !/^[+-]?\d{1,15}$/.test(shift.trim()));
 
@@ -154,7 +158,7 @@ export function KafkaOffsetResetPanel({
       ? {
           partitions: scopePartitions.map((o) => ({
             partition: o.partition,
-            offset: specific[o.partition]?.trim() ?? '',
+            offset: specific[partitionKey(o)]?.trim() ?? '',
           })),
         }
       : {}),
@@ -236,9 +240,9 @@ export function KafkaOffsetResetPanel({
           scopePartitions.map((offset) => (
             <Input
               key={offset.partition}
-              value={specific[offset.partition] ?? ''}
+              value={specific[partitionKey(offset)] ?? ''}
               onChange={(e) =>
-                setSpecific((current) => ({ ...current, [offset.partition]: e.target.value }))
+                setSpecific((current) => ({ ...current, [partitionKey(offset)]: e.target.value }))
               }
               inputMode="numeric"
               placeholder={`P${offset.partition} offset`}
