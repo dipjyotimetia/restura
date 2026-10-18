@@ -573,3 +573,34 @@ describe('export', () => {
     expect(json.endsWith('\n')).toBe(true);
   });
 });
+
+describe('markdown edge cases', () => {
+  it('renders approved tools, capability/listing diffs and an empty findings section', async () => {
+    const legacy: FakeServer = {
+      capabilities: { tools: {}, logging: {} },
+      tools: [goodTool],
+      resources: [{ uri: 'a://1', name: 'one' }],
+      prompts: [{ name: 'p' }],
+    };
+    const modern: FakeServer = {
+      protocolVersion: '2026-07-28',
+      serverInfo: { name: 'other', version: '2' },
+      capabilities: { tools: { listChanged: true }, completions: {} },
+      tools: [goodTool],
+      resources: [{ uri: 'a://2', name: 'two' }],
+      prompts: [{ name: 'p', description: 'd' }],
+    };
+    const report = await runMcpConformance(deps({ legacy, modern }), {
+      sampleCalls: 'selected',
+      approvedTools: ['echo'],
+    });
+    const md = conformanceReportToMarkdown(report);
+    expect(md).toContain('(approved: echo)');
+    expect(md).toContain('- Server info: differs');
+    expect(md).toContain('only legacy: `logging`');
+    expect(md).toContain('only modern: `completions`');
+
+    const clean = await runMcpConformance(deps({ legacy: {}, modern: {} }), { eras: [] });
+    expect(conformanceReportToMarkdown(clean)).toContain('No findings.');
+  });
+});
