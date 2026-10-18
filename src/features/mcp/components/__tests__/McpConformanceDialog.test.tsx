@@ -17,7 +17,7 @@ const report: McpConformanceReport = {
       era: 'legacy',
       status: 'ok',
       protocolVersion: '2025-06-18',
-      listing: { tools: [{ name: 'a' }], resources: [], prompts: [] },
+      listing: { tools: [{ name: 'a', fields: {} }], resources: [], prompts: [] },
       samples: [],
       findings: [],
       durationMs: 1,

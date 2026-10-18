@@ -16,6 +16,7 @@
  */
 import type { McpToolDescriptor } from '../types/streaming';
 import { computeMcpEraDiff, type McpEraDiff } from './mcp-conformance-report';
+import { clipText, hashJson, MAX_ERROR_TEXT, sanitizeText } from './mcp-conformance-text';
 import { validateAgainstSchema, validateToolOutput } from './mcp-output-schema';
 import { normalizeMcpToolDescriptor } from './mcp-tool-descriptor';
 
@@ -60,6 +61,10 @@ export interface McpConformanceOptions {
   maxPages?: number;
   /** Target label for the report; credentials/query are stripped. */
   target?: string;
+  /** Caller-supplied secrets (e.g. header values); exact occurrences (>= 8 chars) are scrubbed from the report. */
+  secrets?: string[];
+  /** Total-run abort (deadline / cancel): in-flight and later requests reject once aborted. */
+  signal?: AbortSignal;
 }
 
 export interface McpSampleCallRecord {
@@ -70,10 +75,21 @@ export interface McpSampleCallRecord {
   outputSchema?: 'valid' | 'invalid' | 'missing' | 'no-schema';
 }
 
+/**
+ * Report-side listing entry. Full descriptor bodies (schemas, descriptions) are
+ * server-controlled and unbounded, so the report keeps only the name plus a
+ * content hash per field; the cross-era diff compares hashes.
+ */
+export interface McpDescriptorSnapshot {
+  name: string;
+  title?: string;
+  fields: Record<string, string>;
+}
+
 export interface McpListingSnapshot {
-  tools: McpToolDescriptor[];
+  tools: McpDescriptorSnapshot[];
   resources: Array<{ uri: string; name?: string; mimeType?: string }>;
-  prompts: Array<{ name: string; description?: string; arguments?: unknown[] }>;
+  prompts: McpDescriptorSnapshot[];
 }
 
 export interface McpEraResult {
@@ -104,6 +120,8 @@ export interface McpConformanceReport {
 }
 
 const DEFAULT_MAX_PAGES = 50;
+const MAX_LIST_ITEMS = 1000;
+const MAX_FINDINGS = 500;
 export const MCP_MODERN_ERA_FLOOR = '2026-07-28';
 const VERSION_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -134,6 +152,57 @@ export function redactConformanceTarget(url: string): string {
   } catch {
     return '(invalid url)';
   }
+}
+
+/**
+ * Make every request on `session` reject once `signal` aborts (total-run
+ * deadline), including requests already in flight.
+ */
+function guardSession(
+  session: McpConformanceSession,
+  signal: AbortSignal | undefined
+): McpConformanceSession {
+  if (!signal) return session;
+  const aborted = () => new Error('Conformance run aborted (deadline reached)');
+  return {
+    protocolVersion: session.protocolVersion,
+    serverCapabilities: session.serverCapabilities,
+    serverInfo: session.serverInfo,
+    close: () => session.close(),
+    request(method, params) {
+      if (signal.aborted) return Promise.reject(aborted());
+      return new Promise((resolve, reject) => {
+        const onAbort = () => reject(aborted());
+        signal.addEventListener('abort', onAbort, { once: true });
+        session.request(method, params).then(
+          (v) => {
+            signal.removeEventListener('abort', onAbort);
+            resolve(v);
+          },
+          (e) => {
+            signal.removeEventListener('abort', onAbort);
+            reject(e);
+          }
+        );
+      });
+    },
+  };
+}
+
+/** Depth/width/length-bounded, sanitized copy of a server-provided JSON value. */
+function boundValue(value: unknown, secrets: readonly string[], depth = 0): unknown {
+  if (typeof value === 'string') return sanitizeText(value, secrets);
+  if (typeof value === 'number' || typeof value === 'boolean' || value === null) return value;
+  if (depth >= 4) return null;
+  if (Array.isArray(value)) return value.slice(0, 50).map((v) => boundValue(v, secrets, depth + 1));
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .slice(0, 100)
+        .map(([k, v]) => [sanitizeText(k, secrets, 100), boundValue(v, secrets, depth + 1)])
+    );
+  }
+  return null;
 }
 
 // ---------- capabilities ----------
@@ -198,6 +267,17 @@ async function listAll(
       return items;
     }
     items.push(...arr);
+    if (items.length >= MAX_LIST_ITEMS) {
+      if (items.length > MAX_LIST_ITEMS || res.nextCursor) {
+        add(
+          'warning',
+          'list.truncated',
+          `${method} returned more than ${MAX_LIST_ITEMS} items; the rest were not checked`,
+          method
+        );
+      }
+      return items.slice(0, MAX_LIST_ITEMS);
+    }
     const next = res.nextCursor;
     if (next === undefined || next === null) return items;
     if (typeof next !== 'string' || next === '') {
@@ -326,16 +406,16 @@ function checkResources(raw: unknown[], add: Add): McpListingSnapshot['resources
     }
     uris.add(r.uri);
     out.push({
-      uri: r.uri,
-      ...(typeof r.name === 'string' ? { name: r.name } : {}),
-      ...(typeof r.mimeType === 'string' ? { mimeType: r.mimeType } : {}),
+      uri: clipText(r.uri),
+      ...(typeof r.name === 'string' ? { name: clipText(r.name) } : {}),
+      ...(typeof r.mimeType === 'string' ? { mimeType: clipText(r.mimeType, 100) } : {}),
     });
   }
   return out;
 }
 
-function checkPrompts(raw: unknown[], add: Add): McpListingSnapshot['prompts'] {
-  const out: McpListingSnapshot['prompts'] = [];
+function checkPrompts(raw: unknown[], add: Add): McpDescriptorSnapshot[] {
+  const out: McpDescriptorSnapshot[] = [];
   const names = new Set<string>();
   for (const entry of raw) {
     const p = isRecord(entry) ? entry : {};
@@ -351,9 +431,11 @@ function checkPrompts(raw: unknown[], add: Add): McpListingSnapshot['prompts'] {
       add('error', 'prompts.arguments-malformed', 'Prompt arguments must be an array', p.name);
     }
     out.push({
-      name: p.name,
-      ...(typeof p.description === 'string' ? { description: p.description } : {}),
-      ...(Array.isArray(p.arguments) ? { arguments: p.arguments } : {}),
+      name: clipText(p.name),
+      fields: {
+        ...(typeof p.description === 'string' ? { description: hashJson(p.description) } : {}),
+        ...(Array.isArray(p.arguments) ? { arguments: hashJson(p.arguments) } : {}),
+      },
     });
   }
   return out;
@@ -400,6 +482,38 @@ export function synthesizeSample(schema: unknown, depth = 0): unknown {
   }
 }
 
+function snapshotTool(tool: McpToolDescriptor): McpDescriptorSnapshot {
+  const fields: Record<string, string> = {};
+  for (const key of [
+    'title',
+    'description',
+    'inputSchema',
+    'outputSchema',
+    'annotations',
+  ] as const) {
+    if (tool[key] !== undefined) fields[key] = hashJson(tool[key]);
+  }
+  return {
+    name: clipText(tool.name),
+    ...(tool.title ? { title: clipText(tool.title) } : {}),
+    fields,
+  };
+}
+
+/** True when the validator gave up on a pathological schema instead of judging it. */
+function tooComplex(issues: Array<{ message: string }>): boolean {
+  return issues.some((i) => /too (complex|deep|large)|exceed/i.test(i.message));
+}
+
+/** Validator calls must never take the run down: a throw is treated as "too complex". */
+function guarded<T>(fn: () => T): { ok: true; value: T } | { ok: false } {
+  try {
+    return { ok: true, value: fn() };
+  } catch {
+    return { ok: false };
+  }
+}
+
 type SampleDecision = { call: true } | { call: false; reason: string };
 
 function decideSample(
@@ -409,7 +523,8 @@ function decideSample(
 ): SampleDecision {
   if (mode === 'off') return { call: false, reason: 'sample calls disabled' };
   const a = tool.annotations;
-  if (a?.destructiveHint === true && a.readOnlyHint !== true) {
+  // A contradictory readOnlyHint + destructiveHint is untrustworthy: never call.
+  if (a?.destructiveHint === true) {
     return { call: false, reason: 'destructiveHint: never auto-invoked' };
   }
   if (a?.readOnlyHint === true) return { call: true };
@@ -456,7 +571,17 @@ async function sampleOne(
       add('info', 'tools.sample-tool-error', 'Sample call returned isError: true', tool.name);
       return { tool: tool.name, status: 'tool-error', durationMs };
     }
-    const validation = validateToolOutput(tool.outputSchema, result);
+    const checked = guarded(() => validateToolOutput(tool.outputSchema, result));
+    if (!checked.ok || (checked.value.status === 'invalid' && tooComplex(checked.value.issues))) {
+      add(
+        'info',
+        'tools.schema-too-complex',
+        'outputSchema is too complex to validate; skipped',
+        tool.name
+      );
+      return { tool: tool.name, status: 'ok', durationMs, outputSchema: 'no-schema' };
+    }
+    const validation = checked.value;
     if (validation.status === 'invalid' || validation.status === 'missing') {
       const code =
         validation.status === 'missing'
@@ -502,7 +627,14 @@ async function runSamples(
   now: () => number
 ): Promise<McpSampleCallRecord[]> {
   const records: McpSampleCallRecord[] = [];
+  const counts = new Map<string, number>();
+  for (const t of tools) counts.set(t.name, (counts.get(t.name) ?? 0) + 1);
   for (const tool of tools) {
+    // Duplicate names are ambiguous (which descriptor does the call hit?): never call.
+    if ((counts.get(tool.name) ?? 0) > 1) {
+      records.push({ tool: tool.name, status: 'skipped', reason: 'duplicate tool name' });
+      continue;
+    }
     const decision = decideSample(tool, opts.mode, opts.approved);
     if (!decision.call) {
       records.push({ tool: tool.name, status: 'skipped', reason: decision.reason });
@@ -517,7 +649,18 @@ async function runSamples(
       continue;
     }
     const args = synthesizeSample(tool.inputSchema ?? { type: 'object' });
-    if (args === undefined || validateAgainstSchema(tool.inputSchema, args).length > 0) {
+    const inputCheck = guarded(() => validateAgainstSchema(tool.inputSchema, args));
+    if (!inputCheck.ok || tooComplex(inputCheck.value)) {
+      records.push({ tool: tool.name, status: 'skipped', reason: 'inputSchema too complex' });
+      add(
+        'info',
+        'tools.schema-too-complex',
+        'inputSchema is too complex to validate; not called',
+        tool.name
+      );
+      continue;
+    }
+    if (args === undefined || inputCheck.value.length > 0) {
       records.push({
         tool: tool.name,
         status: 'skipped',
@@ -542,6 +685,8 @@ interface EraRunOptions {
   sampleCalls: McpSampleCallMode;
   maxPages: number;
   approved: Set<string>;
+  secrets: readonly string[];
+  signal?: AbortSignal;
 }
 
 function checkHandshake(era: McpEra, session: McpConformanceSession, add: Add) {
@@ -584,8 +729,28 @@ async function runEra(
   const now = deps.now ?? Date.now;
   const started = now();
   const findings: McpConformanceFinding[] = [];
-  const add: Add = (severity, code, message, subject) =>
-    findings.push({ code, severity, era, message, ...(subject ? { subject } : {}) });
+  let truncated = false;
+  const add: Add = (severity, code, message, subject) => {
+    if (findings.length >= MAX_FINDINGS) {
+      if (!truncated) {
+        truncated = true;
+        findings.push({
+          code: 'report.truncated',
+          severity: 'warning',
+          era,
+          message: `More than ${MAX_FINDINGS} findings; the rest were dropped`,
+        });
+      }
+      return;
+    }
+    findings.push({
+      code,
+      severity,
+      era,
+      message: sanitizeText(message, opts.secrets, MAX_ERROR_TEXT),
+      ...(subject ? { subject: sanitizeText(subject, opts.secrets) } : {}),
+    });
+  };
   const result: McpEraResult = {
     era,
     status: 'ok',
@@ -597,13 +762,13 @@ async function runEra(
 
   let session: McpConformanceSession;
   try {
-    session = await deps.open(era);
+    session = guardSession(await deps.open(era), opts.signal);
   } catch (err) {
     // A server that only speaks the other era is legitimate; only a legacy
     // failure (the baseline every client must support) is a violation.
     const modern = era === 'modern';
     result.status = modern ? 'unsupported' : 'failed';
-    result.error = errMessage(err);
+    result.error = sanitizeText(errMessage(err), opts.secrets, MAX_ERROR_TEXT);
     add(
       modern ? 'info' : 'error',
       modern ? 'era.unsupported' : 'era.connect-failed',
@@ -616,18 +781,19 @@ async function runEra(
   }
 
   try {
-    result.protocolVersion = session.protocolVersion;
+    result.protocolVersion = sanitizeText(String(session.protocolVersion), opts.secrets, 40);
     checkHandshake(era, session, add);
     const info = session.serverInfo;
+    const text = (v: string) => sanitizeText(v, opts.secrets);
     if (isRecord(info)) {
       result.serverInfo = {
-        ...(typeof info.name === 'string' ? { name: info.name } : {}),
-        ...(typeof info.version === 'string' ? { version: info.version } : {}),
-        ...(typeof info.title === 'string' ? { title: info.title } : {}),
+        ...(typeof info.name === 'string' ? { name: text(info.name) } : {}),
+        ...(typeof info.version === 'string' ? { version: text(info.version) } : {}),
+        ...(typeof info.title === 'string' ? { title: text(info.title) } : {}),
       };
     }
     const caps = checkCapabilities(session.serverCapabilities, add);
-    if (caps) result.capabilities = caps;
+    if (caps) result.capabilities = boundValue(caps, opts.secrets) as Record<string, unknown>;
 
     // Protocol hygiene: unknown methods must yield -32601 (Method not found).
     try {
@@ -650,9 +816,13 @@ async function runEra(
 
     // List only what the server advertised.
     const advertised = (k: string) => caps !== undefined && k in caps;
+    let fullTools: McpToolDescriptor[] = [];
     if (advertised('tools')) {
       const raw = await listAll(session, 'tools/list', 'tools', opts.maxPages, add);
-      if (raw) result.listing.tools = checkTools(raw, add);
+      if (raw) {
+        fullTools = checkTools(raw, add);
+        result.listing.tools = fullTools.map(snapshotTool);
+      }
     }
     if (advertised('resources')) {
       const raw = await listAll(session, 'resources/list', 'resources', opts.maxPages, add);
@@ -666,13 +836,31 @@ async function runEra(
       add('info', 'capabilities.empty', 'Server advertises no tools, resources or prompts');
     }
 
-    result.samples = await runSamples(
+    const clean = (v: string) => sanitizeText(v, opts.secrets);
+    const L = result.listing;
+    L.tools = L.tools.map((t) => ({
+      ...t,
+      name: clean(t.name),
+      ...(t.title ? { title: clean(t.title) } : {}),
+    }));
+    L.resources = L.resources.map((r) => ({
+      uri: clean(r.uri),
+      ...(r.name ? { name: clean(r.name) } : {}),
+      ...(r.mimeType ? { mimeType: clean(r.mimeType) } : {}),
+    }));
+    L.prompts = L.prompts.map((p) => ({ ...p, name: clean(p.name) }));
+    const samples = await runSamples(
       session,
-      result.listing.tools,
+      fullTools,
       { mode: opts.sampleCalls, approved: opts.approved },
       add,
       now
     );
+    result.samples = samples.map((r) => ({
+      ...r,
+      tool: sanitizeText(r.tool, opts.secrets),
+      ...(r.reason ? { reason: sanitizeText(r.reason, opts.secrets, MAX_ERROR_TEXT) } : {}),
+    }));
   } finally {
     await session.close().catch(() => undefined);
     result.durationMs = now() - started;
@@ -703,15 +891,18 @@ export async function runMcpConformance(
         sampleCalls,
         maxPages: options.maxPages ?? DEFAULT_MAX_PAGES,
         approved: new Set(approvedTools),
+        secrets: options.secrets ?? [],
+        ...(options.signal ? { signal: options.signal } : {}),
       })
     );
   }
   const diff = computeMcpEraDiff(results);
   const findings = [...results.flatMap((r) => r.findings), ...(diff?.findings ?? [])];
+  if (findings.length > MAX_FINDINGS * 2) findings.length = MAX_FINDINGS * 2;
   return {
     schemaVersion: 1,
     generatedAt: new Date((deps.now ?? Date.now)()).toISOString(),
-    target: redactConformanceTarget(options.target ?? ''),
+    target: sanitizeText(redactConformanceTarget(options.target ?? ''), options.secrets ?? []),
     options: { sampleCalls, approvedTools },
     eras: results,
     diff: diff?.diff ?? null,

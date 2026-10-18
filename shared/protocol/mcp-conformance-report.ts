@@ -3,6 +3,7 @@
  * (#911). Pure; imports only types from the engine (no runtime cycle).
  */
 import type { McpConformanceFinding, McpConformanceReport, McpEraResult } from './mcp-conformance';
+import { mdCode, mdText, stripControlKeepLayout } from './mcp-conformance-text';
 
 export interface McpNamedChange {
   name: string;
@@ -52,29 +53,27 @@ function flatten(value: unknown, prefix = '', out: Record<string, unknown> = {})
   return out;
 }
 
-function diffListing<T extends object>(
-  legacy: T[],
-  modern: T[],
-  key: (item: T) => string,
-  fields: (item: T) => Record<string, unknown>
-): McpListingDiff {
-  const l = new Map(legacy.map((i) => [key(i), i]));
-  const m = new Map(modern.map((i) => [key(i), i]));
+interface Keyed {
+  key: string;
+  fields: Record<string, unknown>;
+}
+
+function diffListing(legacy: Keyed[], modern: Keyed[]): McpListingDiff {
+  const l = new Map(legacy.map((i) => [i.key, i]));
+  const m = new Map(modern.map((i) => [i.key, i]));
   const changed: McpNamedChange[] = [];
   for (const [name, li] of l) {
     const mi = m.get(name);
     if (!mi) continue;
-    const lf = fields(li);
-    const mf = fields(mi);
-    const differing = [...new Set([...Object.keys(lf), ...Object.keys(mf)])]
-      .filter((f) => !deepEqual(lf[f], mf[f]))
+    const differing = [...new Set([...Object.keys(li.fields), ...Object.keys(mi.fields)])]
+      .filter((f) => !deepEqual(li.fields[f], mi.fields[f]))
       .sort();
     if (differing.length > 0) changed.push({ name, fields: differing });
   }
   return {
     onlyLegacy: [...l.keys()].filter((k) => !m.has(k)).sort(),
     onlyModern: [...m.keys()].filter((k) => !l.has(k)).sort(),
-    changed: changed.sort((a, b) => a.name.localeCompare(b.name)),
+    changed: changed.sort((x, y) => x.name.localeCompare(y.name)),
   };
 }
 
@@ -124,28 +123,22 @@ export function computeMcpEraDiff(
     },
     capabilities,
     tools: diffListing(
-      legacy.listing.tools,
-      modern.listing.tools,
-      (t) => t.name,
-      (t) => ({
-        title: t.title,
-        description: t.description,
-        inputSchema: t.inputSchema,
-        outputSchema: t.outputSchema,
-        annotations: t.annotations,
-      })
+      legacy.listing.tools.map((t) => ({ key: t.name, fields: t.fields })),
+      modern.listing.tools.map((t) => ({ key: t.name, fields: t.fields }))
     ),
     resources: diffListing(
-      legacy.listing.resources,
-      modern.listing.resources,
-      (r) => r.uri,
-      (r) => ({ name: r.name, mimeType: r.mimeType })
+      legacy.listing.resources.map((r) => ({
+        key: r.uri,
+        fields: { name: r.name, mimeType: r.mimeType },
+      })),
+      modern.listing.resources.map((r) => ({
+        key: r.uri,
+        fields: { name: r.name, mimeType: r.mimeType },
+      }))
     ),
     prompts: diffListing(
-      legacy.listing.prompts,
-      modern.listing.prompts,
-      (p) => p.name,
-      (p) => ({ description: p.description, arguments: p.arguments })
+      legacy.listing.prompts.map((p) => ({ key: p.name, fields: p.fields })),
+      modern.listing.prompts.map((p) => ({ key: p.name, fields: p.fields }))
     ),
   };
 
@@ -196,12 +189,11 @@ export function conformanceReportToJson(report: McpConformanceReport): string {
   return `${JSON.stringify(report, null, 2)}\n`;
 }
 
-function esc(text: string): string {
-  return text.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
-}
+/** Table-cell / inline text from an untrusted source. */
+const esc = mdText;
 
 function listLine(label: string, names: string[]): string[] {
-  return names.length > 0 ? [`- ${label}: ${names.map((n) => `\`${n}\``).join(', ')}`] : [];
+  return names.length > 0 ? [`- ${label}: ${names.map((n) => `\`${mdCode(n)}\``).join(', ')}`] : [];
 }
 
 function renderListingDiff(title: string, d: McpListingDiff): string[] {
@@ -212,7 +204,9 @@ function renderListingDiff(title: string, d: McpListingDiff): string[] {
     `- ${title}:`,
     ...listLine('  - only legacy', d.onlyLegacy),
     ...listLine('  - only modern', d.onlyModern),
-    ...d.changed.map((c) => `  - changed \`${c.name}\`: ${c.fields.join(', ')}`),
+    ...d.changed.map(
+      (c) => `  - changed \`${mdCode(c.name)}\`: ${c.fields.map(mdText).join(', ')}`
+    ),
   ];
 }
 
@@ -222,12 +216,12 @@ const ICON = { error: 'ERROR', warning: 'WARN', info: 'INFO' } as const;
 export function conformanceReportToMarkdown(report: McpConformanceReport): string {
   const out: string[] = [];
   out.push('# MCP conformance report', '');
-  out.push(`- Target: \`${report.target || 'unknown'}\``);
+  out.push(`- Target: \`${mdCode(report.target || 'unknown')}\``);
   out.push(`- Generated: ${report.generatedAt}`);
   out.push(
     `- Sample calls: ${report.options.sampleCalls}${
       report.options.approvedTools.length > 0
-        ? ` (approved: ${report.options.approvedTools.join(', ')})`
+        ? ` (approved: ${report.options.approvedTools.map(esc).join(', ')})`
         : ''
     }`
   );
@@ -244,7 +238,7 @@ export function conformanceReportToMarkdown(report: McpConformanceReport): strin
   out.push('| --- | --- | --- | --- | --- | --- | --- |');
   for (const e of report.eras) {
     out.push(
-      `| ${e.era} | ${e.status} | ${e.protocolVersion ?? '-'} | ${esc(serverLabel(e) ?? '-')} | ${e.listing.tools.length} | ${e.listing.resources.length} | ${e.listing.prompts.length} |`
+      `| ${e.era} | ${e.status} | ${esc(e.protocolVersion ?? '-')} | ${esc(serverLabel(e) ?? '-')} | ${e.listing.tools.length} | ${e.listing.resources.length} | ${e.listing.prompts.length} |`
     );
   }
   out.push('');
@@ -255,10 +249,10 @@ export function conformanceReportToMarkdown(report: McpConformanceReport): strin
   } else {
     const d = report.diff;
     out.push(
-      `- Protocol version: ${d.protocolVersion.legacy ?? '-'} vs ${d.protocolVersion.modern ?? '-'}`
+      `- Protocol version: ${esc(d.protocolVersion.legacy ?? '-')} vs ${esc(d.protocolVersion.modern ?? '-')}`
     );
     out.push(
-      `- Server info: ${d.serverInfo.differs ? `differs (${d.serverInfo.legacy ?? '-'} vs ${d.serverInfo.modern ?? '-'})` : 'identical'}`
+      `- Server info: ${d.serverInfo.differs ? `differs (${esc(d.serverInfo.legacy ?? '-')} vs ${esc(d.serverInfo.modern ?? '-')})` : 'identical'}`
     );
     const c = d.capabilities;
     if (c.onlyLegacy.length + c.onlyModern.length + c.changed.length === 0) {
@@ -305,5 +299,5 @@ export function conformanceReportToMarkdown(report: McpConformanceReport): strin
       out.push('');
     }
   }
-  return `${out.join('\n')}\n`;
+  return `${stripControlKeepLayout(out.join('\n'))}\n`;
 }

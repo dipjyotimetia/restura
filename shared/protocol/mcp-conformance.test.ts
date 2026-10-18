@@ -801,7 +801,9 @@ describe('descriptor and diff details', () => {
     };
     const report = await runMcpConformance({ open: async () => server }, { eras: ['legacy'] });
     expect(report.eras[0]?.listing.resources[0]?.mimeType).toBe('text/plain');
-    expect(report.eras[0]?.listing.prompts).toEqual([{ name: 'p', arguments: [{ name: 'x' }] }]);
+    expect(report.eras[0]?.listing.prompts.map((p) => [p.name, Object.keys(p.fields)])).toEqual([
+      ['p', ['arguments']],
+    ]);
   });
 
   it('diffs array-valued descriptor fields and partial serverInfo', async () => {
