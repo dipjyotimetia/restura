@@ -31,16 +31,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) return true;
-  if (Array.isArray(a) && Array.isArray(b)) {
-    return a.length === b.length && a.every((v, i) => deepEqual(v, b[i]));
-  }
-  if (isRecord(a) && isRecord(b)) {
-    const ka = Object.keys(a);
-    const kb = Object.keys(b);
-    return ka.length === kb.length && ka.every((k) => k in b && deepEqual(a[k], b[k]));
-  }
-  return false;
+  return a === b || JSON.stringify(a) === JSON.stringify(b);
 }
 
 /** Flatten nested capability objects to dotted leaf paths -> value. */
