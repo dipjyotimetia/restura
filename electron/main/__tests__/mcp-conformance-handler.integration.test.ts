@@ -69,8 +69,8 @@ describe('mcp-conformance-handler integration', () => {
     const byEra = Object.fromEntries(report.eras.map((e) => [e.era, e]));
     expect(byEra.legacy?.status).toBe('ok');
     expect(byEra.modern?.status).toBe('ok');
-    expect(byEra.modern?.protocolVersion >= '2026-07-28').toBe(true);
-    expect(byEra.legacy?.protocolVersion < '2026-07-28').toBe(true);
+    expect((byEra.modern?.protocolVersion ?? '') >= '2026-07-28').toBe(true);
+    expect((byEra.legacy?.protocolVersion ?? '9') < '2026-07-28').toBe(true);
     expect(byEra.legacy?.listing.tools.map((t) => t.name).sort()).toEqual([
       'add',
       'confirm-deploy',
