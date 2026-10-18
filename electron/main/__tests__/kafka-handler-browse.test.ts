@@ -41,7 +41,8 @@ class FakeProducer {
 
 class FakeConsumer extends EventEmitter {
   static instances: FakeConsumer[] = [];
-  static fetchPlan: Array<Array<{ offset: number; value: string }>> = [];
+  /** Records to return, an error to throw, or a promise that settles to either. */
+  static fetchPlan: Array<Array<{ offset: number; value: string }> | Error | Promise<Error>> = [];
   options: Record<string, unknown>;
   stream = Object.assign(new EventEmitter(), {
     pause: vi.fn(),
@@ -65,7 +66,9 @@ class FakeConsumer extends EventEmitter {
     ]),
   }));
   fetch = vi.fn(async () => {
-    const records = FakeConsumer.fetchPlan.shift();
+    const step = await FakeConsumer.fetchPlan.shift();
+    if (step instanceof Error) throw step;
+    const records = step;
     if (!records) await new Promise(() => {}); // long-poll that never returns
     return {
       responses: [
@@ -179,7 +182,6 @@ describe('kafka-handler browse mode', () => {
       membership: 'browse',
       topics: ['orders'],
       mode: 'earliest',
-      lagIntervalMs: 1000,
     });
     expect(result).toEqual({ success: true });
 
@@ -236,6 +238,11 @@ describe('kafka-handler browse mode', () => {
     await until(() => consumer.close.mock.calls.length > 0);
     expect(emitted(kafkaChannel(KAFKA_CHANNEL.MESSAGE, 'b2'))).toHaveLength(1);
     expect(emitted(kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, 'b2'))).toHaveLength(1);
+    // The last record reaches the renderer before the consumer is reported closed.
+    const channels = mockEmitTo.mock.calls.map((c) => c[1]);
+    expect(channels.lastIndexOf(kafkaChannel(KAFKA_CHANNEL.MESSAGE, 'b2'))).toBeLessThan(
+      channels.indexOf(kafkaChannel(KAFKA_CHANNEL.CONSUMER_CLOSED, 'b2'))
+    );
     // The slot is free again: a new subscribe is accepted.
     FakeConsumer.fetchPlan.push([{ offset: 2, value: 'c' }]);
     const again = await handlerFor(IPC.kafka.subscribe)(event, {
@@ -289,5 +296,59 @@ describe('kafka-handler browse mode', () => {
     expect(consumer.options).toMatchObject({ groupId: 'team-group' });
     expect(consumer.consume).toHaveBeenCalled();
     expect(consumer.listOffsets).not.toHaveBeenCalled();
+  });
+
+  it('releases the consumer after a fetch error so a new subscribe is accepted', async () => {
+    const event = await connected('b5');
+    FakeConsumer.fetchPlan.push(new Error('broker down'));
+    await handlerFor(IPC.kafka.subscribe)(event, {
+      connectionId: 'b5',
+      membership: 'browse',
+      topics: ['orders'],
+      mode: 'latest',
+    });
+    const consumer = FakeConsumer.instances[0]!;
+    await until(() => consumer.close.mock.calls.length > 0);
+    expect(emitted(kafkaChannel(KAFKA_CHANNEL.ERROR, 'b5'))).toEqual([
+      { scope: 'consumer', message: 'broker down' },
+    ]);
+    const again = await handlerFor(IPC.kafka.subscribe)(event, {
+      connectionId: 'b5',
+      membership: 'browse',
+      topics: ['orders'],
+      mode: 'latest',
+    });
+    expect(again.success).toBe(true);
+  });
+
+  it('disconnecting mid-fetch closes stream and consumer without an unhandled rejection', async () => {
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      const event = await connected('b6');
+      let fail!: (error: Error) => void;
+      FakeConsumer.fetchPlan.push(
+        new Promise<Error>((resolve) => {
+          fail = resolve;
+        })
+      );
+      await handlerFor(IPC.kafka.subscribe)(event, {
+        connectionId: 'b6',
+        membership: 'browse',
+        topics: ['orders'],
+        mode: 'latest',
+      });
+      const consumer = FakeConsumer.instances[0]!;
+      await until(() => consumer.fetch.mock.calls.length === 1);
+      await handlerFor(IPC.kafka.disconnect)(event, { connectionId: 'b6' });
+      expect(consumer.close).toHaveBeenCalled();
+      // The socket teardown makes the in-flight fetch reject after the fact.
+      fail(new Error('connection closed'));
+      await new Promise((r) => setTimeout(r, 20));
+      expect(unhandled).not.toHaveBeenCalled();
+      expect(emitted(kafkaChannel(KAFKA_CHANNEL.ERROR, 'b6'))).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
   });
 });

@@ -42,6 +42,9 @@ The **Consume** tab has a mode toggle. New Kafka tabs start in **Browse**.
 - **Timestamp** starts each partition at its first record at or after that time. A partition with nothing that new starts at its end and waits for new records.
 - **Specific offset** reads only the partitions you name. Offsets outside the retained range are clamped to the earliest or latest offset.
 - **Read committed** isolation is honoured, so `latest` is the last stable offset.
+- The set of partitions is fixed when you subscribe. Partitions added to the topic afterwards aren't picked up until you subscribe again.
+- If retention deletes records you haven't read yet, Browse moves that partition forward to its new earliest offset and carries on.
+- Browse connects to whichever partition leaders the cluster advertises, the same as Consumer group mode. The broker guard checks the bootstrap addresses, not the advertised leaders, so the residual risk in [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/) applies to both modes.
 
 **Consumer group** joins the group named in **Consumer group ID** and behaves like any other member. Use it when you want to resume from committed offsets, test a group's behaviour, or commit offsets on purpose. The [consumer-group inspector](#what-works) and the reset and delete actions work on any group in either mode.
 

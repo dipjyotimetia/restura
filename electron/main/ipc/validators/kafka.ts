@@ -243,7 +243,22 @@ const KafkaPartitionOffsetSchema = z.object({
 const KafkaGroupIdSchema = z.string().min(1).max(256);
 
 /** Fields that only make sense for a group member; browse mode refuses them. */
-const GROUP_ONLY_SUBSCRIBE_FIELDS = ['groupId', 'groupInstanceId', 'groupRemoteAssignor'] as const;
+const GROUP_ONLY_SUBSCRIBE_FIELDS = [
+  'groupId',
+  'groupInstanceId',
+  'groupRemoteAssignor',
+  'fallbackMode',
+  'autoCommitIntervalMs',
+  'sessionTimeoutMs',
+  'rebalanceTimeoutMs',
+  'heartbeatIntervalMs',
+  'lagIntervalMs',
+] as const;
+
+/** Kafka offsets and timestamps are signed 64-bit; browse turns them into BigInts. */
+const INT64_MAX = 9_223_372_036_854_775_807n;
+const exceedsInt64 = (value: string | undefined): boolean =>
+  value !== undefined && /^\d+$/.test(value) && BigInt(value) > INT64_MAX;
 
 function refineSubscribeMembership(
   cfg: {
@@ -252,6 +267,14 @@ function refineSubscribeMembership(
     groupId?: string | undefined;
     groupInstanceId?: string | undefined;
     groupRemoteAssignor?: string | undefined;
+    fallbackMode?: string | undefined;
+    autoCommitIntervalMs?: number | undefined;
+    sessionTimeoutMs?: number | undefined;
+    rebalanceTimeoutMs?: number | undefined;
+    heartbeatIntervalMs?: number | undefined;
+    lagIntervalMs?: number | undefined;
+    offsets?: Array<{ offset: string }> | undefined;
+    timestamp?: string | undefined;
     commitPolicy?: 'auto' | 'manual' | undefined;
     groupProtocol?: 'classic' | 'consumer' | undefined;
     lastN?: number | undefined;
@@ -283,6 +306,16 @@ function refineSubscribeMembership(
   if (cfg.groupProtocol === 'consumer') {
     issue('groupProtocol', 'Browse mode never uses a consumer group.');
   }
+  cfg.offsets?.forEach(({ offset }, index) => {
+    if (exceedsInt64(offset)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['offsets', index, 'offset'],
+        message: 'Offset exceeds the Kafka 64-bit maximum.',
+      });
+    }
+  });
+  if (exceedsInt64(cfg.timestamp)) issue('timestamp', 'Timestamp exceeds the 64-bit maximum.');
 }
 
 export const KafkaSubscribeSchema = z

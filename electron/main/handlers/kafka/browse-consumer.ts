@@ -28,6 +28,7 @@ type ConsumerOptions = KafkaLib.ConsumerOptions<Buffer, Buffer, Buffer, Buffer>;
 type Offsets = KafkaLib.Offsets;
 type OffsetsWithTimestamps = KafkaLib.OffsetsWithTimestamps;
 type FetchRequestTopic = KafkaLib.FetchOptions<Buffer, Buffer, Buffer, Buffer>['topics'][number];
+type FetchResponse = Awaited<ReturnType<Consumer['fetch']>>;
 
 /** Required by the Consumer constructor; never reaches a broker (see above). */
 export const BROWSE_PLACEHOLDER_GROUP_ID = '__restura_browse_no_group__';
@@ -36,6 +37,10 @@ export const BROWSE_PLACEHOLDER_GROUP_ID = '__restura_browse_no_group__';
 const DEFAULT_PARTITION_MAX_BYTES = 1_048_576;
 /** Back-off while every assigned partition is leaderless (e.g. mid-election). */
 const NO_LEADER_RETRY_MS = 250;
+/** Back-off for a leader whose fetch delivered nothing (idle topic, minBytes 0). */
+const EMPTY_FETCH_BACKOFF_MS = 200;
+/** Floor for the broker long-poll so an idle browse can't hammer the broker. */
+const MIN_MAX_WAIT_MS = 100;
 const IS_CONTROL_BATCH = 1 << 5;
 const LIST_OFFSETS_EARLIEST = -2n;
 const LIST_OFFSETS_LATEST = -1n;
@@ -143,7 +148,9 @@ export function browseConsumerOptions(
     isolationLevel: cfg.isolation === 'read-committed' ? 1 : 0,
     ...(cfg.minBytes !== undefined ? { minBytes: cfg.minBytes } : {}),
     ...(cfg.maxBytes !== undefined ? { maxBytes: cfg.maxBytes } : {}),
-    ...(cfg.maxWaitTimeMs !== undefined ? { maxWaitTime: cfg.maxWaitTimeMs } : {}),
+    ...(cfg.maxWaitTimeMs !== undefined
+      ? { maxWaitTime: Math.max(cfg.maxWaitTimeMs, MIN_MAX_WAIT_MS) }
+      : {}),
   } as ConsumerOptions;
 }
 
@@ -156,18 +163,50 @@ export interface BrowseStreamOptions {
 const neverCommits = (): Promise<void> =>
   Promise.reject(new Error('Browse mode never commits offsets.'));
 
+const partitionKey = (topic: string, partition: number): string => `${topic}:${partition}`;
+
+/** Walks the library's nested error tree (`errors[]` / `cause`) for a broker error code. */
+function hasApiError(error: unknown, apiId: string, seen = new Set<unknown>()): boolean {
+  if (!error || typeof error !== 'object' || seen.has(error)) return false;
+  seen.add(error);
+  const node = error as { apiId?: unknown; errors?: unknown; cause?: unknown };
+  if (node.apiId === apiId) return true;
+  if (Array.isArray(node.errors) && node.errors.some((e) => hasApiError(e, apiId, seen))) {
+    return true;
+  }
+  return hasApiError(node.cause, apiId, seen);
+}
+
+interface NodeRequest {
+  topics: FetchRequestTopic[];
+  /** topicId → topic name, for decoding the response. */
+  names: Map<string, string>;
+}
+
 /**
- * Group-less fetch loop exposed as an object-mode Readable. Readable supplies
- * pause/resume and backpressure: a round that fills the buffer stops the loop
- * until `_read()` asks for more.
+ * Group-less fetch loop exposed as an object-mode Readable, modelled on the
+ * library's MessagesStream: each partition leader runs its own fetch loop, so a
+ * quiet leader's long-poll never delays (or, on error, discards) another
+ * leader's records. A fetch that yields nothing backs that leader off briefly
+ * instead of spinning. When `push()` reports a full buffer, no new fetches are
+ * issued until `_read()` asks for more.
+ *
+ * `autoDestroy` is off: after a stop-after-N `end`, the owner flushes the
+ * records it is still forwarding and then calls `close()`, so `close` always
+ * follows the last record.
  */
 export class BrowseMessagesStream extends Readable {
   readonly #consumer: BrowseConsumer;
   readonly #positions = new Map<string, PartitionPosition>();
+  readonly #topics: string[];
   readonly #maxMessages: number | undefined;
   readonly #partitionMaxBytes: number;
+  readonly #inflightNodes = new Set<number>();
+  readonly #backoffs = new Map<number, ReturnType<typeof setTimeout>>();
   #delivered = 0;
-  #inflight = false;
+  #wantMore = false;
+  #planning = false;
+  #replan = false;
   #stopped = false;
 
   constructor(
@@ -175,9 +214,10 @@ export class BrowseMessagesStream extends Readable {
     positions: PartitionPosition[],
     options: BrowseStreamOptions = {}
   ) {
-    super({ objectMode: true, highWaterMark: options.highWaterMark ?? 1024 });
+    super({ objectMode: true, highWaterMark: options.highWaterMark ?? 1024, autoDestroy: false });
     this.#consumer = consumer;
-    for (const p of positions) this.#positions.set(`${p.topic}:${p.partition}`, { ...p });
+    for (const p of positions) this.#positions.set(partitionKey(p.topic, p.partition), { ...p });
+    this.#topics = Array.from(new Set(positions.map((p) => p.topic)));
     this.#maxMessages = options.maxMessages;
     this.#partitionMaxBytes = options.partitionMaxBytes ?? DEFAULT_PARTITION_MAX_BYTES;
   }
@@ -188,55 +228,79 @@ export class BrowseMessagesStream extends Readable {
   }
 
   override _read(): void {
-    this.#schedule();
+    this.#wantMore = true;
+    this.#plan();
   }
 
   override _destroy(error: Error | null, callback: (error?: Error | null) => void): void {
-    this.#stopped = true;
+    this.#stop();
     callback(error);
   }
 
   /** Mirrors MessagesStream.close(); the owning Consumer is closed separately. */
   close(): Promise<void> {
-    this.#stopped = true;
+    this.#stop();
     if (!this.destroyed) this.destroy();
     return Promise.resolve();
   }
 
-  #schedule(): void {
-    if (this.#inflight || this.#stopped) return;
-    this.#inflight = true;
-    this.#round().then(
-      (continueNow) => {
-        this.#inflight = false;
-        if (continueNow) setImmediate(() => this.#schedule());
-      },
-      (error: unknown) => {
-        this.#inflight = false;
-        if (!this.#stopped) this.destroy(error instanceof Error ? error : new Error(String(error)));
-      }
+  #stop(): void {
+    this.#stopped = true;
+    for (const timer of this.#backoffs.values()) clearTimeout(timer);
+    this.#backoffs.clear();
+  }
+
+  #fail(error: unknown): void {
+    if (this.#stopped) return;
+    this.destroy(error instanceof Error ? error : new Error(String(error)));
+  }
+
+  #backoff(node: number, ms: number): void {
+    if (this.#stopped || this.#backoffs.has(node)) return;
+    this.#backoffs.set(
+      node,
+      setTimeout(() => {
+        this.#backoffs.delete(node);
+        this.#plan();
+      }, ms)
     );
   }
 
-  /** One fetch per leader. Resolves true when the loop should run again immediately. */
-  async #round(): Promise<boolean> {
-    const topics = Array.from(new Set(Array.from(this.#positions.values(), (p) => p.topic)));
-    const metadata = await this.#consumer.metadata({ topics });
-    if (this.#stopped) return false;
+  /** Starts a fetch for every leader that is neither in flight nor backing off. */
+  #plan(): void {
+    if (this.#stopped || !this.#wantMore) return;
+    if (this.#planning) {
+      this.#replan = true;
+      return;
+    }
+    this.#planning = true;
+    this.#launch()
+      .catch((error: unknown) => this.#fail(error))
+      .finally(() => {
+        this.#planning = false;
+        if (this.#replan) {
+          this.#replan = false;
+          this.#plan();
+        }
+      });
+  }
 
-    const byNode = new Map<number, Map<string, FetchRequestTopic>>();
-    const topicNames = new Map<string, string>();
+  async #launch(): Promise<void> {
+    const metadata = await this.#consumer.metadata({ topics: this.#topics });
+    if (this.#stopped || !this.#wantMore) return;
+
+    const requests = new Map<number, NodeRequest>();
     for (const position of this.#positions.values()) {
       const topicMeta = metadata.topics.get(position.topic);
       const leader = topicMeta?.partitions[position.partition]?.leader;
       if (!topicMeta || leader === undefined || leader < 0) continue;
-      topicNames.set(topicMeta.id, position.topic);
-      let nodeTopics = byNode.get(leader);
-      if (!nodeTopics) byNode.set(leader, (nodeTopics = new Map()));
-      let request = nodeTopics.get(topicMeta.id);
-      if (!request)
-        nodeTopics.set(topicMeta.id, (request = { topicId: topicMeta.id, partitions: [] }));
-      request.partitions.push({
+      if (this.#inflightNodes.has(leader) || this.#backoffs.has(leader)) continue;
+      let request = requests.get(leader);
+      if (!request) requests.set(leader, (request = { topics: [], names: new Map() }));
+      request.names.set(topicMeta.id, position.topic);
+      let topic = request.topics.find((t) => t.topicId === topicMeta.id);
+      if (!topic) request.topics.push((topic = { topicId: topicMeta.id, partitions: [] }));
+      topic.partitions.push({
         partition: position.partition,
         fetchOffset: position.offset,
         currentLeaderEpoch: -1,
@@ -244,58 +308,112 @@ export class BrowseMessagesStream extends Readable {
         partitionMaxBytes: this.#partitionMaxBytes,
       });
     }
-    if (byNode.size === 0) {
-      await new Promise((resolve) => setTimeout(resolve, NO_LEADER_RETRY_MS));
-      return !this.#stopped;
+    for (const [node, request] of requests) this.#fetchNode(node, request);
+    // Every partition is leaderless right now (e.g. mid-election): look again shortly.
+    if (this.#inflightNodes.size === 0 && this.#backoffs.size === 0) {
+      this.#backoff(-1, NO_LEADER_RETRY_MS);
     }
+  }
 
-    const responses = await Promise.all(
-      Array.from(byNode, ([node, nodeTopics]) =>
-        this.#consumer.fetch({ node, topics: Array.from(nodeTopics.values()) })
-      )
-    );
-    if (this.#stopped) return false;
-
-    let canPush = true;
-    for (const response of responses) {
-      for (const topicResponse of response.responses) {
-        const topic = topicNames.get(topicResponse.topicId) ?? topicResponse.topicId;
-        for (const { partitionIndex, records } of topicResponse.partitions) {
-          const position = this.#positions.get(`${topic}:${partitionIndex}`);
-          if (!position || !records) continue;
-          for (const batch of records) {
-            const nextOffset = batch.firstOffset + BigInt(batch.lastOffsetDelta) + 1n;
-            if (!(batch.attributes & IS_CONTROL_BATCH)) {
-              for (const record of batch.records) {
-                const offset = batch.firstOffset + BigInt(record.offsetDelta);
-                if (offset < position.offset) continue;
-                canPush = this.push({
-                  topic,
-                  partition: partitionIndex,
-                  offset,
-                  key: record.key ?? undefined,
-                  value: record.value ?? undefined,
-                  headers: new Map(
-                    record.headers.map(([k, v]) => [k ?? Buffer.alloc(0), v ?? Buffer.alloc(0)])
-                  ),
-                  timestamp: batch.firstTimestamp + record.timestampDelta,
-                  leaderEpoch: batch.partitionLeaderEpoch,
-                  commit: neverCommits,
-                });
-                position.offset = offset + 1n;
-                if (this.#maxMessages !== undefined && ++this.#delivered >= this.#maxMessages) {
-                  this.#stopped = true;
-                  this.push(null);
-                  return false;
-                }
-              }
-            }
-            if (nextOffset > position.offset) position.offset = nextOffset;
+  #fetchNode(node: number, request: NodeRequest): void {
+    this.#inflightNodes.add(node);
+    this.#consumer.fetch({ node, topics: request.topics }).then(
+      (response) => {
+        this.#inflightNodes.delete(node);
+        if (this.#stopped) return;
+        const pushed = this.#ingest(response, request.names);
+        if (this.#stopped) return;
+        if (pushed === 0) this.#backoff(node, EMPTY_FETCH_BACKOFF_MS);
+        else this.#plan();
+      },
+      (error: unknown) => {
+        if (this.#stopped || !hasApiError(error, 'OFFSET_OUT_OF_RANGE')) {
+          this.#inflightNodes.delete(node);
+          this.#fail(error);
+          return;
+        }
+        // Retention (or truncation) moved the log under us: clamp and carry on.
+        // The node stays "in flight" so no fetch races the re-seek.
+        this.#reseek(request).then(
+          () => {
+            this.#inflightNodes.delete(node);
+            this.#plan();
+          },
+          (reseekError: unknown) => {
+            this.#inflightNodes.delete(node);
+            this.#fail(reseekError);
           }
+        );
+      }
+    );
+  }
+
+  /** Clamps every partition of a failed request into its current retained range. */
+  async #reseek(request: NodeRequest): Promise<void> {
+    const partitions: Record<string, number[]> = {};
+    for (const topic of request.topics) {
+      const name = request.names.get(topic.topicId) ?? topic.topicId;
+      partitions[name] = topic.partitions.map((p) => p.partition);
+    }
+    const topics = Object.keys(partitions);
+    const [earliest, latest] = await Promise.all([
+      this.#consumer.listOffsets({ topics, partitions, timestamp: LIST_OFFSETS_EARLIEST }),
+      this.#consumer.listOffsets({ topics, partitions, timestamp: LIST_OFFSETS_LATEST }),
+    ]);
+    for (const [topic, list] of Object.entries(partitions)) {
+      for (const partition of list) {
+        const position = this.#positions.get(partitionKey(topic, partition));
+        const lo = earliest.get(topic)?.[partition];
+        const hi = latest.get(topic)?.[partition];
+        if (position && lo !== undefined && hi !== undefined) {
+          position.offset = clamp(position.offset, lo, hi);
         }
       }
     }
-    return canPush;
+  }
+
+  /** Pushes one leader's records; returns how many were delivered. */
+  #ingest(response: FetchResponse, names: Map<string, string>): number {
+    let pushed = 0;
+    for (const topicResponse of response.responses) {
+      const topic = names.get(topicResponse.topicId) ?? topicResponse.topicId;
+      for (const { partitionIndex, records } of topicResponse.partitions) {
+        const position = this.#positions.get(partitionKey(topic, partitionIndex));
+        if (!position || !records) continue;
+        for (const batch of records) {
+          const nextOffset = batch.firstOffset + BigInt(batch.lastOffsetDelta) + 1n;
+          if (!(batch.attributes & IS_CONTROL_BATCH)) {
+            for (const record of batch.records) {
+              const offset = batch.firstOffset + BigInt(record.offsetDelta);
+              if (offset < position.offset) continue;
+              const hasRoom = this.push({
+                topic,
+                partition: partitionIndex,
+                offset,
+                key: record.key ?? undefined,
+                value: record.value ?? undefined,
+                headers: new Map(
+                  record.headers.map(([k, v]) => [k ?? Buffer.alloc(0), v ?? Buffer.alloc(0)])
+                ),
+                timestamp: batch.firstTimestamp + record.timestampDelta,
+                leaderEpoch: batch.partitionLeaderEpoch,
+                commit: neverCommits,
+              });
+              if (!hasRoom) this.#wantMore = false;
+              pushed++;
+              position.offset = offset + 1n;
+              if (this.#maxMessages !== undefined && ++this.#delivered >= this.#maxMessages) {
+                this.#stop();
+                this.push(null);
+                return pushed;
+              }
+            }
+          }
+          if (nextOffset > position.offset) position.offset = nextOffset;
+        }
+      }
+    }
+    return pushed;
   }
 }
 
@@ -330,4 +448,20 @@ export async function openBrowseStream(
     ...(cfg.highWaterMark !== undefined ? { highWaterMark: cfg.highWaterMark } : {}),
     partitionMaxBytes: cfg.maxBytesPerPartition ?? cfg.maxBytes ?? DEFAULT_PARTITION_MAX_BYTES,
   });
+}
+
+/**
+ * Calls `release` once when the stream ends (stop-after-N) or closes (fetch
+ * error, destroy), so the owner can forward queued records and then free the
+ * consumer slot.
+ */
+export function onBrowseStreamFinished(stream: BrowseMessagesStream, release: () => void): void {
+  let released = false;
+  const once = (): void => {
+    if (released) return;
+    released = true;
+    release();
+  };
+  stream.once('end', once);
+  stream.once('close', once);
 }

@@ -106,4 +106,31 @@ describe('KafkaSubscribeSchema — membership', () => {
   it('rejects an unknown membership', () => {
     expect(issuePaths(browse({ membership: 'assign' }))).toContain('membership');
   });
+
+  it('rejects group-only tuning in browse mode but keeps the legacy fromBeginning flag', () => {
+    for (const [field, value] of [
+      ['autoCommitIntervalMs', 500],
+      ['sessionTimeoutMs', 10_000],
+      ['rebalanceTimeoutMs', 10_000],
+      ['heartbeatIntervalMs', 3_000],
+      ['lagIntervalMs', 1_000],
+      ['fallbackMode', 'earliest'],
+    ] as const) {
+      expect(issuePaths(browse({ [field]: value }))).toContain(field);
+    }
+    expect(KafkaSubscribeSchema.safeParse(browse({ fromBeginning: true })).success).toBe(true);
+  });
+
+  it('caps browse offsets and timestamps at the signed 64-bit maximum', () => {
+    const max = '9223372036854775807';
+    const over = '9223372036854775808';
+    const offset = (value: string) =>
+      browse({ mode: 'manual', offsets: [{ topic: 'orders', partition: 0, offset: value }] });
+    expect(KafkaSubscribeSchema.safeParse(offset(max)).success).toBe(true);
+    expect(issuePaths(offset(over))).toContain('offsets.0.offset');
+    expect(
+      KafkaSubscribeSchema.safeParse(browse({ mode: 'timestamp', timestamp: max })).success
+    ).toBe(true);
+    expect(issuePaths(browse({ mode: 'timestamp', timestamp: over }))).toContain('timestamp');
+  });
 });

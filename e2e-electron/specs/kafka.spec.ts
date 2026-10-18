@@ -216,17 +216,23 @@ describeOrSkip('Desktop Kafka (live Redpanda broker)', () => {
       }
       await expect(page.getByText(/read-only, no consumer group/)).toBeVisible();
 
-      // Nothing joined, created or committed: the broker gained no group at all.
-      const groupsAfter = Array.from((await admin.listGroups()).keys());
-      expect(groupsAfter.filter((id) => !groupsBefore.has(id))).toEqual([]);
+      // Nothing joined, created or committed: no new Restura group (the generated
+      // `restura-<id8>` default) and never the browse placeholder. Groups other
+      // clients create on the shared broker meanwhile don't affect the check.
+      const newGroups = Array.from((await admin.listGroups()).keys()).filter(
+        (id) => !groupsBefore.has(id)
+      );
+      expect(newGroups.filter((id) => id.startsWith('restura-'))).toEqual([]);
+      expect(newGroups.filter((id) => id.includes('restura_browse'))).toEqual([]);
 
       await page.getByRole('tab', { name: 'Consume' }).click();
       await consume.getByRole('button', { name: 'Unsubscribe' }).click();
+      await expect(consume.getByText('Subscription: Idle')).toBeVisible();
       await page
         .getByRole('button', { name: /Disconnect/ })
         .first()
-        .click()
-        .catch(() => {});
+        .click();
+      await expect(page.getByRole('button', { name: 'Connect', exact: true })).toBeVisible();
     } finally {
       await admin.deleteTopics({ topics: [topic] }).catch(() => {});
       await producer.close().catch(() => {});

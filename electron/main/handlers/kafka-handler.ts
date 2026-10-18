@@ -26,7 +26,11 @@ import type { LogEntry } from '../lifecycle/request-logger';
 import { getExecutionPolicy } from '../security/execution-policy';
 import { assertKafkaBrokersSafe, assertRegistryUrlSafe } from '../security/kafka-broker-guard';
 import { registerKafkaAdminHandlers } from './kafka/admin-handlers';
-import { browseConsumerOptions, openBrowseStream } from './kafka/browse-consumer';
+import {
+  browseConsumerOptions,
+  onBrowseStreamFinished,
+  openBrowseStream,
+} from './kafka/browse-consumer';
 import { buildClientOptions, type KafkaClientOptions } from './kafka/client-options';
 import {
   type AppProducer,
@@ -34,7 +38,7 @@ import {
   type KafkaProducerEntry,
   registerKafkaProducerHandlers,
 } from './kafka/producer-handlers';
-import { decodeDisplayField } from './kafka-serde';
+import { decodeDisplayField, headersFromMap } from './kafka-serde';
 
 const log = createLogger('kafka');
 type SchemaRegistry = SchemaRegistryLib.SchemaRegistry;
@@ -147,14 +151,6 @@ function emitToEntry(entry: ActiveKafka, channel: string, ...args: unknown[]): v
   emitTo(entry.webContentsId, channel, ...args);
 }
 
-function headersFromMap(map: Map<Buffer, Buffer> | undefined): Record<string, string> {
-  if (!map) return {};
-  const out: Record<string, string> = {};
-  for (const [k, v] of map) {
-    out[k.toString('utf8')] = v.toString('utf8');
-  }
-  return out;
-}
 async function closeConsumerAndStream(entry: ActiveKafka): Promise<void> {
   if (entry.stream) {
     try {
@@ -441,9 +437,11 @@ export function registerKafkaHandlerIPC(onComplete?: (entry: LogEntry) => void):
           }
           bindStreamListeners(entry, stream as unknown as AppStream);
           Object.assign(entry, { consumer, stream, manualCommit: false });
-          // A stop-after-N limit ends the stream; release the consumer with it.
-          stream.once('end', () => {
-            if (entry.stream === (stream as unknown)) void closeConsumerAndStream(entry);
+          // Stop-after-N or a failure frees the slot once queued records are forwarded.
+          onBrowseStreamFinished(stream, () => {
+            void entry.emitChain.then(() =>
+              entry.stream === (stream as unknown) ? closeConsumerAndStream(entry) : undefined
+            );
           });
           return { success: true };
         }

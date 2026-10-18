@@ -139,6 +139,14 @@ describe('browseConsumerOptions', () => {
     expect(options.groupProtocol).toBeUndefined();
     expect(BROWSE_PLACEHOLDER_GROUP_ID.startsWith('restura-')).toBe(false);
   });
+
+  it('clamps a zero long-poll so an idle browse cannot hammer the broker', () => {
+    const options = browseConsumerOptions(
+      { clientId: 'c', bootstrapBrokers: ['b:9092'] },
+      browseCfg({ maxWaitTimeMs: 0, minBytes: 0 })
+    ) as unknown as Record<string, unknown>;
+    expect(options.maxWaitTime).toBe(100);
+  });
 });
 
 // --- Fetch loop ------------------------------------------------------------
@@ -166,12 +174,24 @@ function batch(firstOffset: number, values: string[], control = false): FakeBatc
   };
 }
 
+type FetchPlan = Record<string, Record<number, FakeBatch[]>>;
+/** Plan entry: a response, a thrown error, or a long-poll that never returns. */
+type PlanStep = FetchPlan | Error | typeof HANG;
+const HANG = Symbol('hang');
+
+const outOfRange = () =>
+  Object.assign(new Error('Fetch failed'), {
+    errors: [Object.assign(new Error('Offset out of range'), { apiId: 'OFFSET_OUT_OF_RANGE' })],
+  });
+
 /** A consumer that only exposes the group-less surface the browse loop may use. */
 function fakeConsumer(
-  fetchPlan: Array<Record<string, Record<number, FakeBatch[]>>>,
+  fetchPlan: PlanStep[],
   meta: Record<string, { id: string; leaders: number[] }> = {
     orders: { id: 'id-orders', leaders: [1, 2] },
-  }
+  },
+  /** Per-leader queues; a node without one falls back to the shared `fetchPlan`. */
+  nodePlans: Record<number, PlanStep[]> = {}
 ) {
   const fetchCalls: Array<{ node: number; topics: unknown }> = [];
   const forbidden = {
@@ -208,7 +228,10 @@ function fakeConsumer(
         topics: Array<{ topicId: string; partitions: Array<{ partition: number }> }>;
       }) => {
         fetchCalls.push({ node: options.node, topics: options.topics });
-        const plan = fetchPlan.shift() ?? {};
+        const step = (nodePlans[options.node] ?? fetchPlan).shift() ?? {};
+        if (step === HANG) await new Promise(() => {});
+        if (step instanceof Error) throw step;
+        const plan = step as FetchPlan;
         return {
           responses: options.topics.map((topic) => {
             const name =
@@ -217,6 +240,7 @@ function fakeConsumer(
               topicId: topic.topicId,
               partitions: topic.partitions.map(({ partition }) => ({
                 partitionIndex: partition,
+                lastStableOffset: 0n,
                 records: (plan[name]?.[partition] ?? []).map((b) => ({
                   firstOffset: BigInt(b.firstOffset),
                   lastOffsetDelta: b.lastOffsetDelta,
@@ -441,5 +465,201 @@ describe('openBrowseStream', () => {
       { topic: 'orders', partition: 1, offset: 10n },
     ]);
     await stream.close();
+  });
+});
+
+const waitFor = async (check: () => boolean): Promise<void> => {
+  for (let i = 0; i < 200 && !check(); i++) await new Promise((r) => setTimeout(r, 5));
+  expect(check()).toBe(true);
+};
+const single = { orders: { id: 'id-orders', leaders: [1] } };
+const at = (partition: number, offset: bigint) => ({ topic: 'orders', partition, offset });
+
+describe('BrowseMessagesStream — hardening', () => {
+  it('backs off after empty fetches instead of spinning', async () => {
+    vi.useFakeTimers();
+    try {
+      const { consumer } = fakeConsumer([], single);
+      const stream = new BrowseMessagesStream(consumer as unknown as BrowseConsumer, [at(0, 0n)]);
+      stream.resume();
+      await vi.advanceTimersByTimeAsync(1_000);
+      // ~one fetch per 200 ms back-off window, not thousands of setImmediate rounds.
+      expect(consumer.fetch.mock.calls.length).toBeGreaterThan(1);
+      expect(consumer.fetch.mock.calls.length).toBeLessThanOrEqual(7);
+      await stream.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps fetching a busy leader while another leader long-polls', async () => {
+    const busy = [0, 1, 2].map((i) => ({ orders: { 1: [batch(i, [`n2-${i}`])] } }));
+    const { consumer } = fakeConsumer([], undefined, { 1: [HANG], 2: busy });
+    const stream = new BrowseMessagesStream(consumer as unknown as BrowseConsumer, [
+      at(0, 0n),
+      at(1, 0n),
+    ]);
+    const messages = await collect(stream, 3);
+    await stream.close();
+    expect(messages.map((m) => m.value?.toString())).toEqual(['n2-0', 'n2-1', 'n2-2']);
+  });
+
+  it('keeps records already received from one leader when another leader fails', async () => {
+    const { consumer } = fakeConsumer([]);
+    consumer.fetch.mockImplementation(async (options: { node: number }) => {
+      if (options.node === 2) {
+        await new Promise((r) => setTimeout(r, 30));
+        throw new Error('node 2 down');
+      }
+      return {
+        responses: [
+          {
+            topicId: 'id-orders',
+            partitions: [
+              {
+                partitionIndex: 0,
+                lastStableOffset: 0n,
+                records: [
+                  {
+                    firstOffset: 0n,
+                    lastOffsetDelta: 0,
+                    firstTimestamp: 0n,
+                    attributes: 0,
+                    records: [
+                      {
+                        offsetDelta: 0,
+                        timestampDelta: 0n,
+                        key: null,
+                        value: Buffer.from('kept'),
+                        headers: [],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      } as never;
+    });
+    const stream = new BrowseMessagesStream(consumer as unknown as BrowseConsumer, [
+      at(0, 0n),
+      at(1, 0n),
+    ]);
+    const seen: string[] = [];
+    const failed = new Promise<Error>((resolve) => stream.once('error', resolve));
+    stream.on('data', (m: Collected) => seen.push(m.value?.toString() ?? ''));
+    expect((await failed).message).toBe('node 2 down');
+    expect(seen).toEqual(['kept']);
+  });
+
+  it('re-seeks an out-of-range partition into the retained range and continues', async () => {
+    const { consumer } = fakeConsumer(
+      [outOfRange(), { orders: { 0: [batch(4, ['after-retention'])] } }],
+      single
+    );
+    // Retention moved the log start to 4 while we were positioned at 1.
+    consumer.listOffsets.mockImplementation(async ({ timestamp }: { timestamp: bigint }) =>
+      timestamp === -2n ? offsets({ orders: [4] }) : offsets({ orders: [5] })
+    );
+    const stream = new BrowseMessagesStream(consumer as unknown as BrowseConsumer, [at(0, 1n)]);
+    const [message] = await collect(stream, 1);
+    await stream.close();
+    expect(message?.offset).toBe(4n);
+    expect(consumer.listOffsets).toHaveBeenCalledWith(
+      expect.objectContaining({ topics: ['orders'], partitions: { orders: [0] } })
+    );
+  });
+
+  it('stops fetching when the buffer is full and resumes on read', async () => {
+    const { consumer } = fakeConsumer(
+      [{ orders: { 0: [batch(0, ['a', 'b', 'c'])] } }, { orders: { 0: [batch(3, ['d'])] } }],
+      single
+    );
+    const stream = new BrowseMessagesStream(consumer as unknown as BrowseConsumer, [at(0, 0n)], {
+      highWaterMark: 2,
+    });
+    stream.read(0); // paused mode: start the loop without consuming
+    await waitFor(() => stream.readableLength === 3);
+    await new Promise((r) => setTimeout(r, 300)); // longer than the empty back-off
+    expect(consumer.fetch).toHaveBeenCalledTimes(1);
+
+    const drained = [stream.read(), stream.read(), stream.read()] as Collected[];
+    expect(drained.map((m) => m.value?.toString())).toEqual(['a', 'b', 'c']);
+    await waitFor(() => consumer.fetch.mock.calls.length >= 2);
+    await stream.close();
+  });
+
+  it('delivers exactly maxMessages across partitions on different leaders', async () => {
+    const { consumer } = fakeConsumer([], undefined, {
+      1: [{ orders: { 0: [batch(0, ['p0-0', 'p0-1', 'p0-2'])] } }],
+      2: [{ orders: { 1: [batch(0, ['p1-0', 'p1-1', 'p1-2'])] } }],
+    });
+    const stream = new BrowseMessagesStream(
+      consumer as unknown as BrowseConsumer,
+      [at(0, 0n), at(1, 0n)],
+      { maxMessages: 4 }
+    );
+    const messages = await collect(stream, 99);
+    expect(messages).toHaveLength(4);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(stream.readableEnded).toBe(true);
+    await stream.close();
+  });
+
+  it('never pushes a response that lands after close()', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { consumer } = fakeConsumer([{ orders: { 0: [batch(0, ['late'])] } }], single);
+    const original = consumer.fetch.getMockImplementation()!;
+    consumer.fetch.mockImplementation(async (options) => {
+      await gate;
+      return original(options);
+    });
+    const stream = new BrowseMessagesStream(consumer as unknown as BrowseConsumer, [at(0, 0n)]);
+    const data = vi.fn();
+    const error = vi.fn();
+    stream.on('data', data);
+    stream.on('error', error);
+    await waitFor(() => consumer.fetch.mock.calls.length === 1);
+    await stream.close();
+    release();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(data).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it('does not end on its own so the owner can flush and close it', async () => {
+    const { consumer } = fakeConsumer([{ orders: { 0: [batch(0, ['a'])] } }], single);
+    const stream = new BrowseMessagesStream(consumer as unknown as BrowseConsumer, [at(0, 0n)], {
+      maxMessages: 1,
+    });
+    const closed = vi.fn();
+    stream.on('close', closed);
+    await collect(stream, 99);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(closed).not.toHaveBeenCalled();
+    await stream.close();
+    await waitFor(() => closed.mock.calls.length === 1);
+  });
+
+  it('advances past a read_committed range whose aborted data was filtered out', async () => {
+    // The library drops aborted batches only when their abort marker is in the
+    // same response, and keeps that control batch, so the position still moves.
+    const { consumer, fetchCalls } = fakeConsumer(
+      [
+        { orders: { 0: [batch(5, ['abort-marker'], true)] } },
+        { orders: { 0: [batch(6, ['committed'])] } },
+      ],
+      single
+    );
+    const stream = new BrowseMessagesStream(consumer as unknown as BrowseConsumer, [at(0, 0n)]);
+    const [message] = await collect(stream, 1);
+    await stream.close();
+    expect(message?.offset).toBe(6n);
+    const second = (fetchCalls[1]?.topics as Array<{ partitions: { fetchOffset: bigint }[] }>)[0];
+    expect(second?.partitions[0]?.fetchOffset).toBe(6n);
   });
 });
