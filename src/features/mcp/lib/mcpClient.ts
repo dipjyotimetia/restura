@@ -293,6 +293,18 @@ export class McpClient {
     return this.request('resources/read', { uri });
   }
 
+  /**
+   * Desktop main picks the era-correct wire method: `resources/subscribe` on
+   * 2025-era servers, a `subscriptions/listen` stream on 2026-07-28 (#872).
+   */
+  subscribeResource(uri: string): Promise<McpCall> {
+    return this.request('resources/subscribe', { uri });
+  }
+
+  unsubscribeResource(uri: string): Promise<McpCall> {
+    return this.request('resources/unsubscribe', { uri });
+  }
+
   getPrompt(name: string, args?: Record<string, string>): Promise<McpCall> {
     return this.request('prompts/get', { name, ...(args ? { arguments: args } : {}) });
   }

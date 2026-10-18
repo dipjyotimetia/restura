@@ -17,6 +17,15 @@ const tool: McpToolDescriptor = {
 };
 
 describe('McpInvokeForm', () => {
+  it('explains where server events appear when the Events tab is active', () => {
+    render(
+      <McpInvokeForm tab="events" tool={null} prompt={null} onCall={vi.fn()} onGet={vi.fn()} />
+    );
+    expect(
+      screen.getByText('Server notifications stream into the Events list.')
+    ).toBeInTheDocument();
+  });
+
   it('keeps schema flattening at the invocation boundary', () => {
     expect(flattenMcpArgumentFields(tool.inputSchema)).toEqual([
       {
