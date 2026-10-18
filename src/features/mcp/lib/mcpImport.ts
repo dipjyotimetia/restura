@@ -1,8 +1,4 @@
-import {
-  McpConfigParseError,
-  type ParsedMcpEntry,
-  parseMcpConfigText,
-} from '@shared/mcp-import/mcp-config-parser';
+import { type ParsedMcpEntry, parseMcpConfigText } from '@shared/mcp-import/mcp-config-parser';
 import {
   buildHttpDraft,
   type McpImportDraft,
@@ -50,7 +46,7 @@ export function scanPastedConfig(
         entries: [],
         inputs: [],
         warnings: [],
-        error: err instanceof McpConfigParseError ? err.message : 'Could not parse the config',
+        error: (err as Error).message,
       },
     };
   }

@@ -95,6 +95,11 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Own entries without prototype-polluting names. */
+function safeEntries(obj: Record<string, unknown>): Array<[string, unknown]> {
+  return Object.entries(obj).filter(([name]) => !FORBIDDEN_KEYS.has(name));
+}
+
 interface PlaceholderCtx {
   warnings: string[];
   inputsUsed: Set<string>;
@@ -144,8 +149,7 @@ function readNameValues(
     return [];
   }
   const out: ParsedMcpNameValue[] = [];
-  for (const [name, value] of Object.entries(raw)) {
-    if (FORBIDDEN_KEYS.has(name)) continue;
+  for (const [name, value] of safeEntries(raw)) {
     if (out.length >= max) {
       ctx.warnings.push(`${what} limited to ${max} entries`);
       break;
@@ -211,7 +215,7 @@ function parseEntry(
   }
   if (kind === 'unknown') {
     return invalid(
-      `Unsupported server type "${sanitizeImportLabel(typeField ?? transportField ?? '', 40)}"`
+      `Unsupported server type "${sanitizeImportLabel(String(typeField ?? transportField), 40)}"`
     );
   }
 
@@ -319,8 +323,7 @@ export function parseMcpConfigText(text: string): ParsedMcpConfig {
       continue;
     }
     formats.push(format);
-    for (const [rawName, raw] of Object.entries(map)) {
-      if (FORBIDDEN_KEYS.has(rawName)) continue;
+    for (const [rawName, raw] of safeEntries(map)) {
       if (entries.length >= MCP_IMPORT_LIMITS.maxServers) {
         throw new McpConfigParseError(`More than ${MCP_IMPORT_LIMITS.maxServers} servers`);
       }

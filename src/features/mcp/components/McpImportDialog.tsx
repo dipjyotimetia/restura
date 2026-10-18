@@ -27,15 +27,13 @@ import {
 } from '@/features/mcp/lib/mcpImport';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 
+type ElectronAPI = NonNullable<ReturnType<typeof getElectronAPI>>;
+
 const MAX_UPLOAD_BYTES = 1024 * 1024;
 
-interface Scan {
-  sources: McpImportPreviewSource[];
-  /** Desktop: main-side session id. */
-  sessionId: string | null;
-  /** Web: locally parsed entries. */
-  webEntries: Map<string, ParsedMcpEntry> | null;
-}
+type Scan =
+  | { kind: 'desktop'; sources: McpImportPreviewSource[]; sessionId: string }
+  | { kind: 'web'; sources: McpImportPreviewSource[]; entries: Map<string, ParsedMcpEntry> };
 
 function selectable(entry: McpImportPreviewEntry, desktop: boolean): boolean {
   if (entry.kind === 'invalid') return false;
@@ -136,14 +134,14 @@ export function McpImportDialog() {
   };
 
   const scanDesktop = async (source: 'detect' | 'pick') => {
-    const api = getElectronAPI()?.mcp;
-    if (!api?.importScan) return;
     setBusy(true);
     setNotice(null);
     try {
+      // Desktop-only buttons call this; a missing bridge surfaces as the catch notice.
+      const api = (getElectronAPI() as ElectronAPI).mcp;
       const result = await api.importScan({ source });
-      if (result.sources.length === 0 && source === 'pick') return; // cancelled
-      showScan({ sources: result.sources, sessionId: result.sessionId, webEntries: null });
+      if (result.sources.length === 0 && source === 'pick') return; // picker cancelled
+      showScan({ kind: 'desktop', sources: result.sources, sessionId: result.sessionId ?? '' });
     } catch {
       setNotice('Could not read MCP configuration.');
     } finally {
@@ -153,11 +151,10 @@ export function McpImportDialog() {
 
   const scanWeb = (text: string, label: string) => {
     const { source, entries } = scanPastedConfig(text, label);
-    showScan({ sources: [source], sessionId: null, webEntries: entries });
+    showScan({ kind: 'web', sources: [source], entries });
   };
 
-  const onUpload = async (file: File | undefined) => {
-    if (!file) return;
+  const onUpload = async (file: File) => {
     if (file.size > MAX_UPLOAD_BYTES) {
       setNotice('That file is larger than 1 MB and was not read.');
       return;
@@ -165,21 +162,19 @@ export function McpImportDialog() {
     scanWeb(await file.text(), file.name);
   };
 
-  const doImport = async () => {
-    if (!scan) return;
+  const doImport = async (current: Scan) => {
     const keys = [...selected];
     setBusy(true);
     try {
       let drafts: McpImportDraft[] = [];
       let skipped: Array<{ name: string; reason: string }> = [];
-      if (desktop && scan.sessionId) {
-        const api = getElectronAPI()?.mcp;
-        if (!api?.importCommit) throw new Error('unavailable');
-        const result = await api.importCommit({ sessionId: scan.sessionId, keys });
+      if (current.kind === 'desktop') {
+        const api = (getElectronAPI() as ElectronAPI).mcp;
+        const result = await api.importCommit({ sessionId: current.sessionId, keys });
         drafts = result.drafts;
         skipped = result.skipped;
-      } else if (scan.webEntries) {
-        drafts = webDraftsFor(scan.webEntries, keys);
+      } else {
+        drafts = webDraftsFor(current.entries, keys);
       }
       if (drafts.length > 0) addDraftsAsCollection(drafts);
       if (skipped.length > 0) {
@@ -275,7 +270,7 @@ export function McpImportDialog() {
                   type="file"
                   accept=".json,.jsonc,application/json"
                   aria-label="Upload MCP config"
-                  onChange={(event) => void onUpload(event.target.files?.[0])}
+                  onChange={(event) => void onUpload(event.target.files?.[0] as File)}
                 />
               </label>
             </div>
@@ -329,7 +324,10 @@ export function McpImportDialog() {
               Back
             </Button>
           )}
-          <Button onClick={doImport} disabled={busy || !scan || selected.size === 0}>
+          <Button
+            onClick={() => void doImport(scan as Scan)}
+            disabled={busy || !scan || selected.size === 0}
+          >
             Import {selected.size > 0 ? `${selected.size} selected` : ''}
           </Button>
         </DialogFooter>
