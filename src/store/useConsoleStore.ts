@@ -112,7 +112,7 @@ export type ConsoleNativeDraft =
       kind: 'mcp';
       credentialsOmitted: true;
       url: string;
-      transport: 'streamable-http' | 'http-sse';
+      transport: 'streamable-http' | 'http-sse' | 'stdio';
       headers: Record<string, string>;
       method?: string;
       params?: string;

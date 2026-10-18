@@ -139,7 +139,15 @@ export type FileSseRequest = z.infer<typeof fileSseRequestSchema>;
 export const fileMcpRequestSchema = z.object({
   name: z.string().min(1),
   url: z.string(),
-  transport: z.enum(['streamable-http', 'http-sse']),
+  transport: z.enum(['streamable-http', 'http-sse', 'stdio']),
+  stdio: z
+    .object({
+      command: z.string(),
+      args: z.array(z.string()).optional(),
+      cwd: z.string().optional(),
+      env: z.array(fileKeyValueSchema).optional(),
+    })
+    .optional(),
   headers: z.array(fileKeyValueSchema).optional(),
   auth: fileAuthConfigSchema.optional(),
   defaultMethod: z.string().optional(),

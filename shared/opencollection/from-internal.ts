@@ -17,6 +17,7 @@ import { graphqlDocumentFromInternal, graphqlMethodToOC } from './graphql-item';
 import { buildGraphQLExtension, GRAPHQL_EXTENSION_KEY } from './graphql-schema-extension';
 import { buildGrpcExtension, GRPC_EXTENSION_KEY } from './grpc-schema-extension';
 import { buildHttpExtension, HTTP_EXTENSION_KEY } from './http-settings-extension';
+import { mcpStdioToOC } from './mcp-stdio-extension';
 import type { OpenCollection } from './schemas';
 import { authToInternal, groupScripts, ocVariableToKeyValue } from './to-internal';
 
@@ -455,6 +456,7 @@ function sseToOC(name: string, r: SseRequest): unknown {
 /** Every `McpRequest` field is carried (#863), incl. the saved operation. */
 function mcpToOC(name: string, r: McpRequest): unknown {
   const mcp: Record<string, unknown> = { url: r.url, transport: r.transport };
+  if (r.stdio) mcp.stdio = mcpStdioToOC(r.stdio);
   if (r.headers?.length) {
     mcp.headers = r.headers.map(kvFromInternal);
   }

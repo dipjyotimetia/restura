@@ -1,13 +1,6 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import { extname, join, relative } from 'node:path';
-import * as yaml from 'js-yaml';
-import { v4 as uuidv4 } from 'uuid';
 import { isConfiguredAuth, resolveEffectiveAuth } from '@shared/auth/inheritance';
-import {
-  loadCollectionFromDir,
-  loadCollectionFromFile,
-} from '@shared/opencollection/node/fs-reader';
-import { ocToInternal } from '@shared/opencollection/to-internal';
 import {
   fileCollectionMetaSchema,
   fileGrpcRequestSchema,
@@ -16,6 +9,11 @@ import {
   fileSseRequestSchema,
   getRequestTypeFromFilename,
 } from '@shared/collections/legacy-file-schema';
+import {
+  loadCollectionFromDir,
+  loadCollectionFromFile,
+} from '@shared/opencollection/node/fs-reader';
+import { ocToInternal } from '@shared/opencollection/to-internal';
 import type {
   AuthConfig,
   Collection,
@@ -25,6 +23,8 @@ import type {
   McpRequest,
   SseRequest,
 } from '@shared/types';
+import * as yaml from 'js-yaml';
+import { v4 as uuidv4 } from 'uuid';
 
 export interface LoadedRequest {
   /** Absolute path to the source file when loaded from a directory layout. */
@@ -394,6 +394,14 @@ function parseLegacyRequest(
         })),
         auth: (parsed.auth as McpRequest['auth']) ?? { type: 'none' },
       };
+      if (parsed.stdio) {
+        // Carried for fidelity only; the MCP executor refuses stdio.
+        out.stdio = {
+          command: parsed.stdio.command,
+          args: parsed.stdio.args ?? [],
+          ...(parsed.stdio.cwd !== undefined ? { cwd: parsed.stdio.cwd } : {}),
+        };
+      }
       if (parsed.defaultMethod) out.defaultMethod = parsed.defaultMethod;
       if (parsed.defaultParams) out.defaultParams = parsed.defaultParams;
       if (parsed.preRequestScript !== undefined) out.preRequestScript = parsed.preRequestScript;

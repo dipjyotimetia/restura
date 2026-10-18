@@ -19,6 +19,7 @@ import { graphqlMethodFromOC } from './graphql-item';
 import { applyGraphQLExtension, GRAPHQL_EXTENSION_KEY } from './graphql-schema-extension';
 import { applyGrpcExtension, GRPC_EXTENSION_KEY } from './grpc-schema-extension';
 import { applyHttpExtension, HTTP_EXTENSION_KEY } from './http-settings-extension';
+import { mcpStdioFromOC, mcpTransportFromOC } from './mcp-stdio-extension';
 import type { OpenCollection } from './schemas';
 
 /**
@@ -743,8 +744,7 @@ function mcpEntryToInternal(entry: Record<string, unknown>): McpRequest {
   const mcpCfg = (entry.mcp ?? {}) as Record<string, unknown>;
   const name = info.name ?? 'MCP';
   const scripts = extractScripts(entry, name);
-  const transport =
-    (mcpCfg.transport as 'streamable-http' | 'http-sse' | undefined) ?? 'streamable-http';
+  const transport = mcpTransportFromOC(mcpCfg.transport);
   const req: McpRequest = {
     id: uuid(),
     name,
@@ -754,6 +754,8 @@ function mcpEntryToInternal(entry: Record<string, unknown>): McpRequest {
     headers: ((mcpCfg.headers as unknown[]) ?? []).map(kvToInternal),
     auth: authToInternal(mcpCfg.auth),
   };
+  const stdio = mcpStdioFromOC(mcpCfg.stdio);
+  if (stdio) req.stdio = stdio;
   if (typeof mcpCfg.defaultMethod === 'string') req.defaultMethod = mcpCfg.defaultMethod;
   // Exported as a JSON string; tolerate a hand-written YAML mapping too.
   if (typeof mcpCfg.defaultParams === 'string') req.defaultParams = mcpCfg.defaultParams;

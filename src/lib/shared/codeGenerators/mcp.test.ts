@@ -37,3 +37,41 @@ describe('MCP TypeScript code generator', () => {
     expect(generated).not.toContain('as any');
   });
 });
+
+describe('MCP stdio code generation', () => {
+  const stdioRequest: McpRequest = {
+    ...request('stdio'),
+    url: '',
+    stdio: {
+      command: 'npx',
+      args: ['-y', '', '@scope/server'],
+      cwd: '/srv',
+      env: [{ id: 'e', key: 'TOKEN', value: 'secret-value', enabled: true }],
+    },
+  };
+
+  it('emits a StdioClientTransport client without env values', () => {
+    const generated = mcpCodeGenerators.typescriptSdk.generate({ request: stdioRequest });
+    expect(generated).toContain(
+      "import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';"
+    );
+    expect(generated).toContain('command: "npx"');
+    expect(generated).toContain('args: ["-y","@scope/server"]');
+    expect(generated).toContain('cwd: "/srv"');
+    expect(generated).not.toContain('secret-value');
+  });
+
+  it('omits cwd when unset', () => {
+    const { cwd: _cwd, ...noCwd } = stdioRequest.stdio!;
+    const generated = mcpCodeGenerators.typescriptSdk.generate({
+      request: { ...stdioRequest, stdio: noCwd },
+    });
+    expect(generated).not.toContain('cwd:');
+  });
+
+  it('explains that there is no cURL equivalent', () => {
+    expect(mcpCodeGenerators.curl.generate({ request: stdioRequest })).toMatch(
+      /no HTTP request to express as cURL/
+    );
+  });
+});

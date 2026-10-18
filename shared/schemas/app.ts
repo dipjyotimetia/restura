@@ -285,13 +285,28 @@ export const sseRequestSchema = z.object({
   testScript: z.string().optional(),
 });
 
+// MCP stdio launch config (desktop-only transport). Persisted/imported shape
+// only — spawn-time bounds and consent are enforced by the Electron main
+// process (electron/main/ipc/validators/mcp-stdio.ts), never trusted from here.
+export const mcpStdioEnvVarSchema = keyValueSchema.extend({
+  secretRef: secretValueSchema.optional(),
+});
+
+export const mcpStdioConfigSchema = z.object({
+  command: z.string(),
+  args: z.array(z.string()),
+  cwd: z.string().optional(),
+  env: z.array(mcpStdioEnvVarSchema).optional(),
+});
+
 // MCP Request Schema
 export const mcpRequestSchema = z.object({
   id: z.string(),
   name: z.string().min(1, 'Name is required'),
   type: z.literal('mcp'),
   url: z.string(),
-  transport: z.enum(['streamable-http', 'http-sse']),
+  transport: z.enum(['streamable-http', 'http-sse', 'stdio']),
+  stdio: mcpStdioConfigSchema.optional(),
   headers: z.array(keyValueSchema),
   auth: authConfigSchema,
   defaultMethod: z.string().optional(),
