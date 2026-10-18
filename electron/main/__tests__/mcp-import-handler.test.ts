@@ -30,27 +30,27 @@ import { __setSecretStoreForTests, type SecretStoreShape } from '../security/sec
 
 type Handler = (event: unknown, payload?: unknown) => Promise<unknown>;
 
-function memorySecretStore(): SecretStoreShape & {
-  data: Record<string, { value: string; label?: string }>;
-} {
-  const data: Record<string, { value: string; label?: string; createdAt: number }> = {};
+type SecretData = Record<string, { value: string; label?: string; createdAt: number }>;
+
+function memorySecretStore(): SecretStoreShape & { data: SecretData } {
+  const data: SecretData = {};
   return {
     data,
-    get: (k) => data[k],
-    set: (k, v) => {
+    get: (k: string) => data[k],
+    set: (k: string, v: SecretData[string]) => {
       data[k] = v;
     },
-    delete: (k) => {
+    delete: (k: string) => {
       delete data[k];
     },
     clear: () => {
       for (const k of Object.keys(data)) delete data[k];
     },
-    has: (k) => k in data,
+    has: (k: string) => k in data,
     get store() {
       return data;
     },
-  } as never;
+  };
 }
 
 const ABS = path.resolve('/tmp');
