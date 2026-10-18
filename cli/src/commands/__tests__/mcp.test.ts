@@ -165,3 +165,77 @@ describe('restura mcp conformance against the dual-era mock', () => {
     expect(report.diff).not.toBeNull();
   });
 });
+
+describe('restura mcp conformance hardening', () => {
+  it('rejects URLs with embedded credentials', async () => {
+    const deps = fakeDeps(async () => okSession());
+    await expect(
+      executeMcpConformanceCommand('https://user:pw@h.example/mcp', baseOpts, deps)
+    ).rejects.toThrow(/credentials/);
+    await expect(executeMcpConformanceCommand('not a url', baseOpts, deps)).rejects.toThrow(
+      /Invalid MCP server URL/
+    );
+    expect(deps.createDeps).not.toHaveBeenCalled();
+  });
+
+  it('fails clearly when a proxy environment variable is set', async () => {
+    const deps = fakeDeps(async () => okSession(), { HTTPS_PROXY: 'http://proxy:3128' });
+    await expect(
+      executeMcpConformanceCommand('https://h.example/mcp', baseOpts, deps)
+    ).rejects.toThrow(/HTTPS_PROXY/);
+    expect(deps.createDeps).not.toHaveBeenCalled();
+  });
+
+  it('strips ANSI/control sequences and scrubs header secrets from stdout', async () => {
+    const secret = 'sk-live-very-secret';
+    const deps = fakeDeps(
+      async () =>
+        okSession({
+          serverInfo: {
+            name: `\u001b]0;pwned\u0007\u001b[31mevil\u001b[0m ${secret}`,
+            version: '1',
+          },
+        }),
+      { TOK: secret }
+    );
+    await executeMcpConformanceCommand(
+      'https://h.example/mcp',
+      { ...baseOpts, headerEnv: ['Authorization=TOK'] },
+      deps
+    );
+    const out = deps.out.join('');
+    expect(out).not.toContain('\u001b');
+    expect(out).not.toContain('\u0007');
+    expect(out).not.toContain(secret);
+    expect(out).toContain('evil');
+  });
+
+  it('times out a server that accepts the connection and never answers', async () => {
+    const { createServer } = await import('node:net');
+    const sockets: import('node:net').Socket[] = [];
+    const server = createServer((s) => sockets.push(s)).listen(0, '127.0.0.1');
+    await new Promise((r) => server.once('listening', r));
+    const port = (server.address() as import('node:net').AddressInfo).port;
+    try {
+      const out: string[] = [];
+      const started = Date.now();
+      const code = await executeMcpConformanceCommand(
+        `http://127.0.0.1:${port}/mcp`,
+        { ...baseOpts, eras: 'legacy', format: 'json', timeout: '300', allowLocalhost: true },
+        {
+          environment: {},
+          createDeps: createSdkConformanceDeps,
+          writeFile: async () => {},
+          stdout: (t) => out.push(t),
+          stderr: () => {},
+        }
+      );
+      expect(Date.now() - started).toBeLessThan(5000);
+      expect(code).toBe(1);
+      expect(JSON.parse(out.join('')).eras[0].status).toBe('failed');
+    } finally {
+      for (const s of sockets) s.destroy();
+      server.close();
+    }
+  });
+});

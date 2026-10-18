@@ -15,12 +15,14 @@ import {
   conformanceReportToJson,
   conformanceReportToMarkdown,
 } from '@shared/protocol/mcp-conformance-report';
+import { stripControlKeepLayout } from '@shared/protocol/mcp-conformance-text';
 import { validateMcpSpec } from '@shared/protocol/mcp-proxy';
 import type { Command } from 'commander';
 import { z } from 'zod';
 import { createPinnedMcpFetchSession } from '../runner/pinnedMcpFetch.js';
 
 const MODERN_PIN = '2026-07-28';
+const PROXY_VARS = ['HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy'] as const;
 const GENERIC_RESULT = z.unknown();
 
 export interface McpConformanceCommandOpts {
@@ -77,11 +79,24 @@ export function createSdkConformanceDeps(config: {
           versionNegotiation: { mode: era === 'legacy' ? 'legacy' : { pin: MODERN_PIN } },
         }
       );
+      // Bound the connect (SSE endpoint discovery included): a server that accepts
+      // the socket and then goes quiet must not hang the run.
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
-        await client.connect(transport, { timeout: config.timeoutMs });
+        await Promise.race([
+          client.connect(transport, { timeout: config.timeoutMs }),
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(
+              () => reject(new Error(`Connection timeout after ${config.timeoutMs}ms`)),
+              config.timeoutMs
+            );
+          }),
+        ]);
       } catch (error) {
         await Promise.allSettled([client.close(), pinned.dispose()]);
         throw error;
+      } finally {
+        if (timer) clearTimeout(timer);
       }
       const opts = { timeout: config.timeoutMs };
       return {
@@ -206,8 +221,28 @@ export async function executeMcpConformanceCommand(
     throw new Error('--approve-tool requires --sample-calls selected');
   }
 
-  // Same SSRF preflight as the agent MCP client: scheme, credentials, metadata
-  // endpoints and (unless --allow-localhost) loopback/private ranges.
+  // The pinned transport dials directly; a proxy would bypass the DNS pinning.
+  // Fail clearly up front instead of reporting the modern era as unsupported.
+  const proxyVar = PROXY_VARS.find((name) => dependencies.environment[name]);
+  if (proxyVar) {
+    throw new Error(
+      `restura mcp conformance cannot run with ${proxyVar} set: its DNS-pinned direct ` +
+        'transport does not support HTTP proxying; unset the proxy for this run'
+    );
+  }
+  // Credentials in the URL would be echoed into logs and shell history: use --header-env.
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(`Invalid MCP server URL: ${url}`);
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error('MCP server URL must not contain credentials; use --header or --header-env');
+  }
+
+  // Same SSRF preflight as the agent MCP client: scheme, metadata endpoints and
+  // (unless --allow-localhost) loopback/private ranges.
   const validation = validateMcpSpec(
     {
       url,
@@ -232,6 +267,9 @@ export async function executeMcpConformanceCommand(
     sampleCalls,
     approvedTools,
     target: url,
+    secrets: Object.values(validation.headers),
+    // Hard stop for the whole run, whatever the server does.
+    signal: AbortSignal.timeout(Math.max(120_000, timeoutMs * 4)),
   });
   await deps.dispose?.();
 
@@ -241,7 +279,8 @@ export async function executeMcpConformanceCommand(
     await dependencies.writeFile(opts.output, text);
     dependencies.stderr(`Conformance report written to ${opts.output}\n`);
   } else {
-    dependencies.stdout(text);
+    // Terminal output: never let server-derived text inject ANSI/OSC sequences.
+    dependencies.stdout(stripControlKeepLayout(text));
   }
   const { errors, warnings, info } = report.summary;
   dependencies.stderr(`${errors} error(s), ${warnings} warning(s), ${info} note(s)\n`);

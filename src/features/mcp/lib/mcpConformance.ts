@@ -80,6 +80,7 @@ async function runViaWorker(input: McpConformanceRunInput): Promise<McpConforman
       sampleCalls: input.sampleCalls,
       approvedTools: input.approvedTools,
       target: input.url,
+      secrets: Object.values(input.headers),
     }
   );
   return { ok: true, report };

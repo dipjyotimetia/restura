@@ -39,7 +39,7 @@ const SAMPLE_OPTIONS: Array<{ value: McpSampleCallMode; label: string; hint: str
   {
     value: 'read-only',
     label: 'Read-only tools',
-    hint: 'Calls tools annotated readOnlyHint with minimal arguments',
+    hint: 'Calls tools the server claims are read-only (readOnlyHint) with minimal arguments; the claim is not verified',
   },
   {
     value: 'selected',
