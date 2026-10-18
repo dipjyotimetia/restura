@@ -8,6 +8,8 @@ import {
   capResponse,
   createMcpOAuthFetch,
   MAX_REDIRECTS,
+  mcpOAuthCarveOut,
+  mcpOAuthUrlPolicy,
 } from '../security/mcp-oauth-fetch';
 
 /**
@@ -186,11 +188,63 @@ describe('createMcpOAuthFetch (real loopback server)', () => {
     expect(hits).toEqual([]);
   });
 
+  it('a remote MCP server cannot steer OAuth fetches to loopback (PRM / registration / token)', async () => {
+    policy(true); // localhost allowed globally …
+    const remote = mcpOAuthCarveOut('https://mcp.example.com/mcp', '93.184.216.34');
+    const guarded = createMcpOAuthFetch({ policy: () => mcpOAuthUrlPolicy(remote) });
+    for (const path of ['/.well-known/oauth-protected-resource', '/register', '/token']) {
+      await expect(guarded(`${base}${path}`, { method: 'POST' })).rejects.toThrow(/Loopback/);
+    }
+    expect(hits).toEqual([]);
+    // … while a loopback MCP server may use a loopback AS.
+    const local = mcpOAuthCarveOut('http://127.0.0.1:1/mcp', '127.0.0.1');
+    const ok = await createMcpOAuthFetch({ policy: () => mcpOAuthUrlPolicy(local) })(`${base}/ok`);
+    expect(ok.status).toBe(200);
+  });
+
   it('aborts with the session signal', async () => {
     const controller = new AbortController();
     controller.abort();
     await expect(
       createMcpOAuthFetch({ signal: controller.signal })(`${base}/ok`)
     ).rejects.toThrow();
+  });
+});
+
+describe('mcpOAuthCarveOut / mcpOAuthUrlPolicy', () => {
+  beforeEach(() => {
+    setExecutionPolicy({
+      security: { allowLocalhost: true, allowPrivateIPs: true },
+      proxy: { enabled: false, type: 'http', host: '', port: 8080, bypassList: [] },
+      timeout: 30_000,
+      tls: { verifySsl: true, serverCipherOrder: false },
+      certificates: { clientCertificates: [], caCertificates: [] },
+    });
+  });
+
+  it('grants localhost only to a loopback server and private only to a private server', () => {
+    expect(
+      mcpOAuthUrlPolicy(mcpOAuthCarveOut('https://mcp.example.com/', '93.184.216.34'))
+    ).toEqual({ allowLocalhost: false, allowPrivateIPs: false });
+    expect(mcpOAuthUrlPolicy(mcpOAuthCarveOut('http://localhost:3000/mcp', '127.0.0.1'))).toEqual({
+      allowLocalhost: true,
+      allowPrivateIPs: false,
+    });
+    expect(mcpOAuthUrlPolicy(mcpOAuthCarveOut('https://mcp.lan/mcp', '10.1.2.3'))).toEqual({
+      allowLocalhost: false,
+      allowPrivateIPs: true,
+    });
+    // A hostname that resolved to loopback counts as loopback.
+    expect(mcpOAuthCarveOut('https://dev.test/mcp', '127.0.0.1').serverIsLoopback).toBe(true);
+    // Without a resolved IP, a literal private host is still recognised.
+    expect(mcpOAuthCarveOut('https://192.168.1.4/mcp').serverIsPrivate).toBe(true);
+  });
+
+  it('never exceeds the global policy', () => {
+    policy(false);
+    expect(mcpOAuthUrlPolicy(mcpOAuthCarveOut('http://127.0.0.1/mcp', '127.0.0.1'))).toEqual({
+      allowLocalhost: false,
+      allowPrivateIPs: false,
+    });
   });
 });

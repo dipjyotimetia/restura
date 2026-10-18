@@ -293,6 +293,7 @@ describe('MCP OAuth 2.1 flow config (#856)', () => {
           clientId: 'c',
           clientSecret: { kind: 'inline', value: 's' },
           redirectUri: ' http://127.0.0.1:8765/cb ',
+          issuer: ' https://as.example.com ',
         },
       },
       { desktop: true }
@@ -304,6 +305,7 @@ describe('MCP OAuth 2.1 flow config (#856)', () => {
           clientId: 'c',
           clientSecret: { kind: 'inline', value: 's' },
           redirectUri: 'http://127.0.0.1:8765/cb',
+          issuer: 'https://as.example.com',
         },
       },
     });

@@ -19,6 +19,7 @@ vi.mock('../security/encrypted-key', () => ({
 
 import { createMcpOAuthSession } from '../security/mcp-oauth-connect';
 import {
+  describeOAuthError,
   isMcpOAuthReauthRequired,
   McpOAuthReauthRequiredError,
   McpOAuthSession,
@@ -119,9 +120,11 @@ describe('mcp-oauth-store', () => {
 describe('parseLoopbackRedirect', () => {
   it('accepts loopback http with an explicit port', () => {
     expect(parseLoopbackRedirect('http://127.0.0.1:8765/callback').port).toBe(8765);
-    expect(parseLoopbackRedirect('http://localhost:8765/cb').port).toBe(8765);
   });
   it.each([
+    // The receiver binds 127.0.0.1 only — `localhost` / [::1] may not reach it.
+    'http://localhost:8765/cb',
+    'http://[::1]:8765/cb',
     'https://127.0.0.1:8765/cb',
     'http://example.com:8765/cb',
     'http://127.0.0.1/cb',
@@ -146,6 +149,38 @@ describe('createMcpOAuthSession (connect-time config)', () => {
     ).toThrow(/loopback/);
   });
 
+  it('refuses OAuth for a plain-http, non-loopback MCP server', () => {
+    expect(() => createMcpOAuthSession('http://mcp.example.com/mcp', auth({}))).toThrow(
+      /https server URL/
+    );
+    expect(() =>
+      createMcpOAuthSession('http://127.0.0.1:9/mcp', auth({}), { fetchFn: noFetch })
+    ).not.toThrow();
+  });
+
+  it('requires an https issuer with a client secret (binds the secret to one AS)', () => {
+    const { id } = storeSecretHandle({ value: 'bound-secret-value' });
+    const withSecret = { clientId: 'c', clientSecret: { kind: 'handle', id } };
+    expect(() => createMcpOAuthSession(SERVER, auth(withSecret))).toThrow(/issuer/);
+    expect(() =>
+      createMcpOAuthSession(SERVER, auth({ ...withSecret, issuer: 'http://as.example.com' }))
+    ).toThrow(/https/);
+    expect(() =>
+      createMcpOAuthSession(SERVER, auth({ ...withSecret, issuer: 'https://as.example.com?x' }))
+    ).toThrow(/query/);
+    const session = createMcpOAuthSession(
+      SERVER,
+      auth({ ...withSecret, issuer: 'https://as.example.com' }),
+      { fetchFn: noFetch }
+    );
+    expect(session.provider.clientInformation()).toEqual({
+      client_id: 'c',
+      client_secret: 'bound-secret-value',
+      issuer: 'https://as.example.com',
+    });
+    session.dispose();
+  });
+
   it('needs a client id for a client secret, resolves handles, refuses missing / external ones', () => {
     expect(() => createMcpOAuthSession(SERVER, auth({ clientSecret: 'shh-secret' }))).toThrow(
       /needs a client id/
@@ -165,7 +200,12 @@ describe('createMcpOAuthSession (connect-time config)', () => {
     const { id } = storeSecretHandle({ value: 'client-secret-value' });
     const session = createMcpOAuthSession(
       SERVER,
-      auth({ clientId: 'c', clientSecret: { kind: 'handle', id }, scope: 'mcp:read mcp:write' }),
+      auth({
+        clientId: 'c',
+        clientSecret: { kind: 'handle', id },
+        scope: 'mcp:read mcp:write',
+        issuer: 'https://as.example.com',
+      }),
       { fetchFn: noFetch }
     );
     expect(session.redact('x client-secret-value y')).toBe('x [redacted] y');
@@ -173,7 +213,11 @@ describe('createMcpOAuthSession (connect-time config)', () => {
       client_id: string;
       client_secret?: string;
     };
-    expect(info).toEqual({ client_id: 'c', client_secret: 'client-secret-value' });
+    expect(info).toEqual({
+      client_id: 'c',
+      client_secret: 'client-secret-value',
+      issuer: 'https://as.example.com',
+    });
     expect(session.provider.clientMetadata.scope).toBe('mcp:read mcp:write');
     session.dispose();
   });
@@ -318,11 +362,99 @@ describe('McpOAuthSession', () => {
     await expect(session.authorize({})).rejects.toThrow(/closed/);
   });
 
-  it('recognises the re-auth error by type and message', () => {
+  it('recognises the re-auth error by type / flag / cause, never by message text', () => {
     expect(isMcpOAuthReauthRequired(new McpOAuthReauthRequiredError())).toBe(true);
+    expect(
+      isMcpOAuthReauthRequired(new Error('wrapped', { cause: new McpOAuthReauthRequiredError() }))
+    ).toBe(true);
+    // A server-controlled message can't forge the prompt.
     expect(isMcpOAuthReauthRequired(new Error(new McpOAuthReauthRequiredError().message))).toBe(
-      true
+      false
     );
     expect(isMcpOAuthReauthRequired(new Error('other'))).toBe(false);
+    expect(isMcpOAuthReauthRequired(null)).toBe(false);
+  });
+
+  it('pins a public static client to the first issuer it signs in with (TOFU)', async () => {
+    const session = new McpOAuthSession(
+      { serverUrl: SERVER, clientId: 'pub' },
+      { fetchFn: noFetch }
+    );
+    expect(session.provider.clientInformation()).toEqual({ client_id: 'pub' });
+    await session.provider.saveTokens({
+      access_token: 'tofu-access',
+      token_type: 'Bearer',
+      issuer: 'https://as-one.example.com',
+    } as never);
+    expect(loadMcpOAuthRecord(SERVER, 'pub')?.staticClientIssuer).toBe(
+      'https://as-one.example.com'
+    );
+    expect(session.provider.clientInformation()).toEqual({
+      client_id: 'pub',
+      issuer: 'https://as-one.example.com',
+    });
+    // A later sign-in with another issuer does not move the pin.
+    await session.provider.saveTokens({
+      access_token: 'tofu-access-2',
+      token_type: 'Bearer',
+      issuer: 'https://as-two.example.com',
+    } as never);
+    expect(loadMcpOAuthRecord(SERVER, 'pub')?.staticClientIssuer).toBe(
+      'https://as-one.example.com'
+    );
+    session.dispose();
+  });
+
+  it('a non-interactive session needs re-auth once its record is signed out', async () => {
+    saveMcpOAuthRecord(SERVER, undefined, {
+      tokens: { access_token: 'live-access', token_type: 'Bearer' },
+    });
+    const session = new McpOAuthSession({ serverUrl: SERVER }, { fetchFn: noFetch });
+    session.endInteractive();
+    expect(await session.authProvider.token()).toBe('live-access');
+    memory.clear(); // sign-out / Settings → Secrets delete
+    await expect(session.authProvider.token()).rejects.toBeInstanceOf(McpOAuthReauthRequiredError);
+    expect(session.reauthRequired).toBe(true);
+    session.dispose();
+  });
+
+  it('redacts tokens rotated by another session after a reload', async () => {
+    saveMcpOAuthRecord(SERVER, undefined, {
+      tokens: { access_token: 'first-access', token_type: 'Bearer' },
+    });
+    const session = new McpOAuthSession({ serverUrl: SERVER }, { fetchFn: noFetch });
+    saveMcpOAuthRecord(SERVER, undefined, {
+      tokens: {
+        access_token: 'rotated-elsewhere',
+        token_type: 'Bearer',
+        refresh_token: 'rt-rotated',
+      },
+    });
+    expect(await session.authProvider.token()).toBe('rotated-elsewhere');
+    expect(session.redact('rotated-elsewhere rt-rotated')).toBe('[redacted] [redacted]');
+    session.dispose();
+  });
+
+  it('maps OAuth failures to a code and a short, control-free message', () => {
+    const long = Object.assign(new Error(`bad\r\n${'x'.repeat(1000)}`), { code: 'invalid_client' });
+    const out = describeOAuthError(long);
+    expect(out.startsWith('MCP OAuth failed (invalid_client): bad x')).toBe(true);
+    expect(out.length).toBeLessThan(400);
+    expect(out).not.toMatch(/[\r\n]/);
+    expect(describeOAuthError(Object.assign(new Error('m'), { code: 'evil code<>' }))).toBe(
+      'MCP OAuth failed (Error): m'
+    );
+    expect(describeOAuthError('plain')).toBe('MCP OAuth failed (Error): plain');
+  });
+
+  it('blocks a loopback authorization URL for a remote MCP server (remote → local pivot)', async () => {
+    const session = new McpOAuthSession(
+      { serverUrl: SERVER },
+      { fetchFn: noFetch, openExternal: async () => undefined }
+    );
+    await expect(
+      session.provider.redirectToAuthorization(new URL('http://127.0.0.1:9999/authorize'))
+    ).rejects.toThrow(/Loopback/);
+    session.dispose();
   });
 });

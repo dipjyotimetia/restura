@@ -215,7 +215,11 @@ describe('MCP OAuth 2.1 (main-side provider, real servers)', () => {
     const { id } = storeSecretHandle({ value: 's3cret-client-value', label: 'client' });
     const { res } = await connect(
       mcp,
-      oauthAuth({ clientId: 'restura-static', clientSecret: { kind: 'handle', id } })
+      oauthAuth({
+        clientId: 'restura-static',
+        clientSecret: { kind: 'handle', id },
+        issuer: as.issuer,
+      })
     );
     expect(res).toEqual({ success: true });
     expect(as.registrations).toHaveLength(0);
@@ -229,6 +233,51 @@ describe('MCP OAuth 2.1 (main-side provider, real servers)', () => {
     // The static secret is not copied into the OAuth record.
     const record = [...memory.values()].find((r) => r.scope === MCP_OAUTH_SECRET_SCOPE)!;
     expect(record.value).not.toContain('s3cret-client-value');
+  });
+
+  it('never sends a static client secret to an AS other than the configured issuer', async () => {
+    // The MCP server's PRM names this (attacker-controlled) AS …
+    await startPair({ staticClients: { 'restura-static': 'bound-client-secret' } });
+    const { id } = storeSecretHandle({ value: 'bound-client-secret', label: 'client' });
+    const { res } = await connect(
+      mcp,
+      oauthAuth({
+        clientId: 'restura-static',
+        clientSecret: { kind: 'handle', id },
+        // … but the client is registered with another one.
+        issuer: 'https://legit-as.example.com',
+      })
+    );
+    expect(res.success).toBe(false);
+    expect(String(res.error)).toMatch(/MCP OAuth failed \(AuthorizationServerMismatchError\)/);
+    expect(as.tokenRequests).toHaveLength(0);
+    expect(as.authorizeRequests).toHaveLength(0);
+    expect(openExternal).not.toHaveBeenCalled();
+    expect(rendererTraffic([res])).not.toContain('bound-client-secret');
+  });
+
+  it('refuses a static client secret without an issuer', async () => {
+    await startPair({ staticClients: { 'restura-static': 'unbound-secret' } });
+    const { id } = storeSecretHandle({ value: 'unbound-secret', label: 'client' });
+    const { res } = await connect(
+      mcp,
+      oauthAuth({ clientId: 'restura-static', clientSecret: { kind: 'handle', id } })
+    );
+    expect(res.success).toBe(false);
+    expect(String(res.error)).toMatch(/issuer/);
+    expect(as.tokenRequests).toHaveLength(0);
+  });
+
+  it('sign-out ends a live session: the next request asks for a fresh sign-in', async () => {
+    await startPair();
+    const { res, connectionId } = await connect(mcp, oauthAuth());
+    expect(res.success).toBe(true);
+    openExternal.mockClear();
+    expect(await ipc('mcp:oauth:signOut', { url: mcp.url })).toEqual({ success: true });
+    const listed = await ipc('mcp:request', { connectionId, method: 'tools/list' });
+    expect(listed.success).toBe(false);
+    expect(listed.authRequired).toBe(true);
+    expect(openExternal).not.toHaveBeenCalled();
   });
 
   it('refreshes an expired access token with the refresh_token grant (no browser)', async () => {

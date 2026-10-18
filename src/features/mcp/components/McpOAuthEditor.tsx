@@ -93,6 +93,21 @@ export function McpOAuthEditor({ auth, onChange, serverUrl, disabled }: McpOAuth
           />
         </div>
       )}
+      {clientId && (
+        <div>
+          <label htmlFor="mcp-oauth-issuer" className="text-sm font-medium mb-1.5 block">
+            Authorization server issuer
+          </label>
+          <Input
+            id="mcp-oauth-issuer"
+            value={oauth2.issuer ?? ''}
+            onChange={(event) => update({ issuer: event.target.value })}
+            placeholder="https://auth.example.com — required with a client secret"
+            className="font-mono"
+            disabled={disabled}
+          />
+        </div>
+      )}
       <div>
         <label htmlFor="mcp-oauth-scope" className="text-sm font-medium mb-1.5 block">
           Scope

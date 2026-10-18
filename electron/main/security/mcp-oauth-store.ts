@@ -33,6 +33,8 @@ export interface McpOAuthRecord {
   staticClientId?: string;
   /** DCR registration (RFC 7591 response), stamped with its issuer. */
   registration?: StoredOAuthClientInformation;
+  /** Static public client: issuer pinned on the first successful sign-in. */
+  staticClientIssuer?: string;
   /** Redirect URI the DCR registration was made with (port reuse). */
   registeredRedirectUrl?: string;
   tokens?: StoredOAuthTokens;

@@ -227,10 +227,12 @@ export function registerMcpHandlerIPC(): void {
       // desktop-only; permit localhost (developers commonly run MCP servers
       // locally). SNI/Host stay on the original hostname.
       let pinnedFetch: typeof globalThis.fetch;
+      let pinnedIp: string;
       try {
         const pinned = await resolveSafeAddress(policyConfig.url, {
           ...getExecutionPolicy().security,
         });
+        pinnedIp = pinned.ip;
         pinnedFetch = createPolicyPinnedFetch(policyConfig, pinned);
       } catch (err) {
         return { success: false, error: errorMessage(err) };
@@ -253,9 +255,12 @@ export function registerMcpHandlerIPC(): void {
         // #856: interactive OAuth 2.1 — tokens are acquired, stored and
         // refreshed in main; nothing token-shaped is ever sent back.
         try {
-          oauth = createMcpOAuthSession(policyConfig.url, config.auth ?? {}, {
-            onAuthorizationWait: deadline.pause,
-          });
+          oauth = createMcpOAuthSession(
+            policyConfig.url,
+            config.auth ?? {},
+            { onAuthorizationWait: deadline.pause },
+            pinnedIp
+          );
         } catch (err) {
           deadline.clear();
           return { success: false, error: `MCP auth setup failed: ${errorMessage(err)}` };

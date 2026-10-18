@@ -23,7 +23,7 @@
  * any other hostname — so an OAuth endpoint can never ride the MCP pin.
  */
 
-import { isLoopbackAddress, validateURL } from '@shared/protocol/url-validation';
+import { isLoopbackAddress, isPrivateAddress, validateURL } from '@shared/protocol/url-validation';
 import { getExecutionPolicy } from './execution-policy';
 import {
   assertPinnedFetchCanHonorPolicy,
@@ -42,6 +42,35 @@ export type OAuthFetchLike = (url: string | URL, init?: RequestInit) => Promise<
 export interface OAuthUrlPolicy {
   allowLocalhost: boolean;
   allowPrivateIPs?: boolean;
+}
+
+/**
+ * What the MCP server itself is allowed to be, which bounds where its OAuth
+ * endpoints may live: a remote server must not steer the client to loopback
+ * or LAN endpoints (remote → local pivot), so the desktop localhost / private
+ * carve-outs only apply when the MCP server is itself loopback / private.
+ */
+export interface McpOAuthCarveOut {
+  serverIsLoopback: boolean;
+  serverIsPrivate: boolean;
+}
+
+/** Derive the carve-out from the MCP server URL and its validated, pinned IP. */
+export function mcpOAuthCarveOut(serverUrl: string, resolvedIp?: string): McpOAuthCarveOut {
+  const host = new URL(serverUrl).hostname;
+  const serverIsLoopback =
+    isLoopbackHost(host) || (resolvedIp !== undefined && isLoopbackAddress(resolvedIp));
+  const ip = resolvedIp ?? stripBrackets(host);
+  return { serverIsLoopback, serverIsPrivate: !serverIsLoopback && isPrivateAddress(ip) };
+}
+
+/** The OAuth endpoint policy: the global security policy, narrowed by the carve-out. */
+export function mcpOAuthUrlPolicy(carve: McpOAuthCarveOut): OAuthUrlPolicy {
+  const global = getExecutionPolicy().security;
+  return {
+    allowLocalhost: global.allowLocalhost && carve.serverIsLoopback,
+    allowPrivateIPs: global.allowPrivateIPs === true && carve.serverIsPrivate,
+  };
 }
 
 function stripBrackets(host: string): string {
@@ -144,6 +173,11 @@ export interface McpOAuthFetchOptions {
   signal?: AbortSignal;
   maxBytes?: number;
   timeoutMs?: number;
+  /**
+   * Endpoint policy, re-read per request. Defaults to the global security
+   * policy; MCP sessions pass {@link mcpOAuthUrlPolicy} for their server.
+   */
+  policy?: () => OAuthUrlPolicy;
 }
 
 /**
@@ -159,11 +193,14 @@ export function createMcpOAuthFetch(options: McpOAuthFetchOptions = {}): OAuthFe
     let url = requestUrl(input as string | URL | Request);
     const method = (init?.method ?? 'GET').toUpperCase();
     for (let hop = 0; ; hop++) {
-      const security = getExecutionPolicy().security;
+      const security = options.policy?.() ?? getExecutionPolicy().security;
       const target = assertOAuthEndpointUrl(url, security);
       const transport = resolvePolicyTransport({ url: target.href });
       assertPinnedFetchCanHonorPolicy(transport);
-      const pinned = await resolveSafeAddress(target.href, { ...security });
+      const pinned = await resolveSafeAddress(target.href, {
+        allowLocalhost: security.allowLocalhost,
+        allowPrivateIPs: security.allowPrivateIPs === true,
+      });
       const pinnedFetch = createPolicyPinnedFetch(transport, pinned);
 
       const signals = [AbortSignal.timeout(timeoutMs)];

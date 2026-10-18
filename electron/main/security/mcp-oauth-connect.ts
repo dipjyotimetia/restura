@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { IPC } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { createValidatedEventHandler } from '../ipc/ipc-validators';
+import { isLoopbackHost, type McpOAuthCarveOut, mcpOAuthCarveOut } from './mcp-oauth-fetch';
 import { type McpOAuthDeps, McpOAuthSession, parseLoopbackRedirect } from './mcp-oauth-provider';
 import { clearMcpOAuthRecord, type McpOAuthStatus, mcpOAuthStatus } from './mcp-oauth-store';
 import { unwrapSecretValueMain } from './secret-handle-store';
@@ -42,15 +43,41 @@ export interface McpOAuthAuthInput {
         clientSecret?: unknown;
         scope?: string | undefined;
         redirectUri?: string | undefined;
+        issuer?: string | undefined;
       }
     | undefined;
+}
+
+/** Issuer identifiers are https URLs without query / fragment (RFC 8414 §2). */
+function parseIssuer(raw: string, carveOut: McpOAuthCarveOut): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error('Authorization server issuer is not a valid URL');
+  }
+  const loopbackDev =
+    url.protocol === 'http:' && carveOut.serverIsLoopback && isLoopbackHost(url.hostname);
+  if ((url.protocol !== 'https:' && !loopbackDev) || url.search || url.hash || url.username) {
+    throw new Error('Authorization server issuer must be an https URL without query or fragment');
+  }
+  return raw;
 }
 
 export function createMcpOAuthSession(
   serverUrl: string,
   auth: McpOAuthAuthInput,
-  deps: McpOAuthDeps = {}
+  deps: McpOAuthDeps = {},
+  /** The MCP server's validated, pinned IP (bounds where OAuth endpoints may live). */
+  resolvedIp?: string
 ): McpOAuthSession {
+  const carveOut = mcpOAuthCarveOut(serverUrl, resolvedIp);
+  const server = new URL(serverUrl);
+  if (server.protocol !== 'https:' && !carveOut.serverIsLoopback) {
+    throw new Error(
+      'MCP OAuth needs an https server URL (plain http is allowed only for a loopback development server)'
+    );
+  }
   const o = auth.oauth2 ?? {};
   const clientId = o.clientId?.trim() || undefined;
   if (clientId && !CLIENT_ID_RE.test(clientId)) {
@@ -78,6 +105,13 @@ export function createMcpOAuthSession(
       throw new Error('The OAuth client secret is unavailable (missing or revoked keychain entry)');
     }
   }
+  const rawIssuer = o.issuer?.trim() || undefined;
+  const issuer = rawIssuer ? parseIssuer(rawIssuer, carveOut) : undefined;
+  if (clientSecret && !issuer) {
+    throw new Error(
+      'Enter the authorization server issuer for a client with a secret — Restura only sends the secret to that server'
+    );
+  }
 
   return new McpOAuthSession(
     {
@@ -86,6 +120,8 @@ export function createMcpOAuthSession(
       ...(clientSecret ? { clientSecret } : {}),
       ...(scope ? { scope } : {}),
       ...(redirectUrl ? { redirectUrl } : {}),
+      ...(issuer ? { issuer } : {}),
+      carveOut,
     },
     deps
   );
@@ -132,9 +168,4 @@ export function registerMcpOAuthIPC(): void {
       })
     )
   );
-}
-
-export function unregisterMcpOAuthIPC(): void {
-  ipcMain.removeHandler(IPC.mcp.oauthStatus);
-  ipcMain.removeHandler(IPC.mcp.oauthSignOut);
 }

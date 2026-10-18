@@ -43,10 +43,12 @@ import {
   type StoredOAuthClientInformation,
   type StoredOAuthTokens,
 } from '@modelcontextprotocol/client';
-import { getExecutionPolicy } from './execution-policy';
 import {
   assertOAuthEndpointUrl,
   createMcpOAuthFetch,
+  type McpOAuthCarveOut,
+  mcpOAuthCarveOut,
+  mcpOAuthUrlPolicy,
   type OAuthFetchLike,
 } from './mcp-oauth-fetch';
 import {
@@ -78,11 +80,40 @@ export class McpOAuthReauthRequiredError extends Error {
   }
 }
 
+/** Type / flag check, following `cause` in case a transport wraps the error. */
 export function isMcpOAuthReauthRequired(err: unknown): boolean {
-  return (
-    err instanceof McpOAuthReauthRequiredError ||
-    (err instanceof Error && err.message.includes(REAUTH_MESSAGE))
-  );
+  for (let e: unknown = err, depth = 0; e && depth < 4; depth++) {
+    if (e instanceof McpOAuthReauthRequiredError) return true;
+    if (typeof e === 'object' && (e as { reauthRequired?: unknown }).reauthRequired === true) {
+      return true;
+    }
+    e = (e as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+const MAX_OAUTH_ERROR_CHARS = 300;
+
+/**
+ * Collapse an OAuth / registration / discovery failure to `code: short
+ * message` before it reaches the renderer or logs — AS / RS error bodies are
+ * attacker-controlled (and can be large).
+ */
+export function describeOAuthError(err: unknown): string {
+  const e = err as { code?: unknown; name?: unknown; message?: unknown } | null;
+  const code =
+    typeof e?.code === 'string' && /^[\w.-]{1,64}$/.test(e.code)
+      ? e.code
+      : typeof e?.name === 'string' && /^[\w.-]{1,64}$/.test(e.name)
+        ? e.name
+        : 'Error';
+  const raw = typeof e?.message === 'string' ? e.message : String(err);
+  const message = raw.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim();
+  const short =
+    message.length > MAX_OAUTH_ERROR_CHARS
+      ? `${message.slice(0, MAX_OAUTH_ERROR_CHARS)}…`
+      : message;
+  return `MCP OAuth failed (${code}): ${short}`;
 }
 
 export interface McpOAuthConfig {
@@ -96,6 +127,13 @@ export interface McpOAuthConfig {
   scope?: string;
   /** Exact loopback redirect URI for an AS that requires a fixed one. */
   redirectUrl?: string;
+  /**
+   * Issuer the static client is registered with. Required with a client
+   * secret; for a public static client the first successful sign-in pins it.
+   */
+  issuer?: string;
+  /** Where OAuth endpoints may live, derived from the MCP server (remote → local pivot guard). */
+  carveOut?: McpOAuthCarveOut;
 }
 
 export interface McpOAuthDeps {
@@ -116,8 +154,9 @@ export function parseLoopbackRedirect(raw: string): { url: URL; port: number } {
   } catch {
     throw new Error('Redirect URI is not a valid URL');
   }
-  const host = url.hostname.replace(/^\[|\]$/g, '');
-  if (url.protocol !== 'http:' || (host !== '127.0.0.1' && host !== 'localhost')) {
+  // The receiver listens on 127.0.0.1 only: `localhost` may resolve to ::1
+  // (or be remapped), and [::1] would need an IPv6 listener.
+  if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1') {
     throw new Error(
       'MCP OAuth redirect URI must be a loopback http://127.0.0.1:<port>/… address (RFC 8252)'
     );
@@ -161,17 +200,27 @@ export class McpOAuthSession {
   private receiver: LoopbackReceiver | undefined;
   private pendingCallback: Promise<URLSearchParams> | undefined;
   private record: McpOAuthRecord | undefined;
+  /** A stored record backed this session — a later store miss means sign-out. */
+  private hadRecord = false;
+  private readonly carveOut: McpOAuthCarveOut;
 
   constructor(
     private readonly config: McpOAuthConfig,
     private readonly deps: McpOAuthDeps = {}
   ) {
     if (config.redirectUrl) parseLoopbackRedirect(config.redirectUrl);
-    this.fetchFn = deps.fetchFn ?? createMcpOAuthFetch({ signal: this.abort.signal });
+    this.carveOut = config.carveOut ?? mcpOAuthCarveOut(config.serverUrl);
+    this.fetchFn =
+      deps.fetchFn ??
+      createMcpOAuthFetch({
+        signal: this.abort.signal,
+        policy: () => mcpOAuthUrlPolicy(this.carveOut),
+      });
     this.openExternal = deps.openExternal ?? defaultOpenExternal;
     this.startReceiver = deps.startReceiver ?? startLoopbackReceiver;
     this.now = deps.now ?? Date.now;
     this.record = loadMcpOAuthRecord(config.serverUrl, config.clientId);
+    this.hadRecord = this.record !== undefined;
     this.redirect =
       config.redirectUrl ?? this.record?.registeredRedirectUrl ?? placeholderRedirect();
     this.track(config.clientSecret);
@@ -213,6 +262,31 @@ export class McpOAuthSession {
 
   private persist(patch: Parameters<typeof saveMcpOAuthRecord>[2]): void {
     this.record = saveMcpOAuthRecord(this.config.serverUrl, this.config.clientId, patch);
+    this.hadRecord = true;
+  }
+
+  /**
+   * Re-read the stored record. If one backed this session and it is gone
+   * (sign-out, or deleted in Settings → Secrets), a non-interactive session
+   * must not keep using the in-memory copy — it needs a fresh sign-in.
+   */
+  private reloadRecord(): void {
+    const fresh = loadMcpOAuthRecord(this.config.serverUrl, this.config.clientId);
+    if (!fresh && this.hadRecord) {
+      this.record = undefined;
+      if (!this.interactive) {
+        this.reauthRequired = true;
+        throw new McpOAuthReauthRequiredError();
+      }
+      this.hadRecord = false;
+    }
+    this.record = fresh;
+    this.trackRecord(fresh);
+  }
+
+  /** The static client's AS binding: configured issuer, else the TOFU pin. */
+  private staticIssuer(): string | undefined {
+    return this.config.issuer ?? this.record?.staticClientIssuer;
   }
 
   private buildProvider(): OAuthClientProvider {
@@ -246,9 +320,14 @@ export class McpOAuthSession {
       },
       clientInformation: (): StoredOAuthClientInformation | undefined => {
         if (isStatic) {
+          // Stamped with the bound issuer: if discovery lands on another AS
+          // the SDK throws AuthorizationServerMismatchError before any token
+          // request, so the client secret is never sent elsewhere.
+          const issuer = session.staticIssuer();
           return {
             client_id: session.config.clientId!,
             ...(session.config.clientSecret ? { client_secret: session.config.clientSecret } : {}),
+            ...(issuer ? { issuer } : {}),
           };
         }
         const reg = session.record?.registration;
@@ -271,7 +350,13 @@ export class McpOAuthSession {
             ? { refresh_token: session.record.tokens.refresh_token }
             : {}),
         };
+        // Public static client: trust-on-first-use pin of the AS it signed in with.
+        const pin =
+          isStatic && !session.staticIssuer() && typeof tokens.issuer === 'string'
+            ? { staticClientIssuer: tokens.issuer }
+            : {};
         session.persist({
+          ...pin,
           tokens: merged,
           expiresAt:
             typeof tokens.expires_in === 'number'
@@ -285,7 +370,10 @@ export class McpOAuthSession {
           session.reauthRequired = true;
           throw new McpOAuthReauthRequiredError();
         }
-        const url = assertOAuthEndpointUrl(authorizationUrl.href, getExecutionPolicy().security);
+        const url = assertOAuthEndpointUrl(
+          authorizationUrl.href,
+          mcpOAuthUrlPolicy(session.carveOut)
+        );
         session.deps.onAuthorizationWait?.(true);
         await session.openExternal(url.href);
       },
@@ -304,6 +392,7 @@ export class McpOAuthSession {
         if (scope === 'all') {
           clearMcpOAuthRecord(session.config.serverUrl, session.config.clientId);
           session.record = undefined;
+          session.hadRecord = false;
           session.codeVerifierValue = undefined;
           session.discovery = undefined;
           return;
@@ -326,6 +415,7 @@ export class McpOAuthSession {
   }
 
   private async currentToken(): Promise<string | undefined> {
+    this.reloadRecord();
     const tokens = this.record?.tokens;
     if (!tokens?.access_token) return undefined;
     const expiresAt = this.record?.expiresAt;
@@ -381,7 +471,7 @@ export class McpOAuthSession {
     scope?: string | undefined;
   }): Promise<void> {
     if (this.abort.signal.aborted) throw new Error('MCP connection closed');
-    this.record = loadMcpOAuthRecord(this.config.serverUrl, this.config.clientId) ?? this.record;
+    this.reloadRecord();
     const scope = opts.scope ?? this.config.scope;
     const base = {
       serverUrl: this.config.serverUrl,
@@ -407,6 +497,9 @@ export class McpOAuthSession {
         ...(iss !== null ? { iss } : {}),
       });
       if (done !== 'AUTHORIZED') throw new Error('Authorization did not complete');
+    } catch (err) {
+      if (isMcpOAuthReauthRequired(err)) throw err;
+      throw new Error(describeOAuthError(err));
     } finally {
       this.deps.onAuthorizationWait?.(false);
       this.receiver?.close();

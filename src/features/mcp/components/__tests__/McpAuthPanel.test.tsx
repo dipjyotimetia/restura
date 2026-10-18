@@ -195,6 +195,10 @@ describe('McpAuthPanel OAuth 2.1 (#856)', () => {
         clientSecret: { kind: 'inline', value: 'sec' },
       },
     });
+    fireEvent.change(screen.getByLabelText('Authorization server issuer'), {
+      target: { value: 'https://as.example.com' },
+    });
+    expect(onChange.mock.lastCall?.[0].oauth2.issuer).toBe('https://as.example.com');
     fireEvent.change(screen.getByLabelText('Redirect URI'), {
       target: { value: 'http://127.0.0.1:8765/cb' },
     });

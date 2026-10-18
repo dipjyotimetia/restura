@@ -94,6 +94,7 @@ export function pickMcpAuth(auth: AuthConfig): AuthConfig {
               : {}),
             ...(o?.scope?.trim() ? { scope: o.scope.trim() } : {}),
             ...(o?.redirectUri?.trim() ? { redirectUri: o.redirectUri.trim() } : {}),
+            ...(o?.issuer?.trim() ? { issuer: o.issuer.trim() } : {}),
           },
         };
       }
