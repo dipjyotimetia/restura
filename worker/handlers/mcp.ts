@@ -46,6 +46,66 @@ interface JsonRpcReply {
  * requests) forwarded alongside a reply. The byte cap still bounds the total.
  */
 const MAX_SERVER_MESSAGES = 100;
+/** A single forwarded server message larger than this is skipped. */
+const MAX_SERVER_MESSAGE_BYTES = 256 * 1024;
+/** Prefix of a non-2xx upstream body echoed back for diagnostics. */
+const MAX_ERROR_BODY_BYTES = 2048;
+
+class ResponseTooLargeError extends Error {}
+
+/**
+ * Read a body with a hard byte cap, rejecting before buffering past it.
+ * A declared Content-Length over the cap is refused without reading.
+ */
+async function readBodyCapped(res: Response, byteCap: number): Promise<string> {
+  const declared = Number(res.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > byteCap) {
+    await res.body?.cancel().catch(() => {});
+    throw new ResponseTooLargeError(`Response exceeds ${byteCap} byte cap`);
+  }
+  if (!res.body) return '';
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  let text = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > byteCap) throw new ResponseTooLargeError(`Response exceeds ${byteCap} byte cap`);
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+}
+
+/** Read at most `limit` bytes of a body (diagnostics only), then stop. */
+async function readBodyPrefix(res: Response, limit: number): Promise<string> {
+  if (!res.body) return '';
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (total < limit) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      total += value.byteLength;
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+  }
+  const buf = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    buf.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(buf.subarray(0, limit));
+}
 
 interface SseReplyResult {
   reply: JsonRpcReply;
@@ -84,7 +144,11 @@ async function readSseForReply(
     const msg = parsed as JsonRpcReply & { method?: unknown };
     const isResponse = msg.method === undefined && ('result' in msg || 'error' in msg);
     if (isResponse && msg.id === expectedId) return msg;
-    if (typeof msg.method === 'string' && serverMessages.length < MAX_SERVER_MESSAGES) {
+    if (
+      typeof msg.method === 'string' &&
+      serverMessages.length < MAX_SERVER_MESSAGES &&
+      data.length <= MAX_SERVER_MESSAGE_BYTES
+    ) {
       serverMessages.push(msg);
     }
     return null;
@@ -157,12 +221,13 @@ export function createMcpHandler(nodeHostnameGuard?: NodeHostnameGuard) {
         body,
         signal: controller.signal,
       });
-      clearTimeout(timer);
+      // The timer stays armed until the body is fully read (cleared in
+      // `finally`) so a slowly dripping body can't outlive the timeout.
 
       const advertisedSession = upstream.headers.get('mcp-session-id');
 
       if (!upstream.ok) {
-        const text = await upstream.text();
+        const text = await readBodyPrefix(upstream, MAX_ERROR_BODY_BYTES);
         return c.json(
           {
             error: `Upstream HTTP ${upstream.status} ${upstream.statusText}`,
@@ -170,7 +235,7 @@ export function createMcpHandler(nodeHostnameGuard?: NodeHostnameGuard) {
             // expired" (MCP Session Management → re-initialize) from other
             // upstream failures without parsing the message (#888).
             upstreamStatus: upstream.status,
-            upstreamBody: text.slice(0, 2048),
+            upstreamBody: text,
           },
           502
         );
@@ -191,9 +256,14 @@ export function createMcpHandler(nodeHostnameGuard?: NodeHostnameGuard) {
       let serverMessages: unknown[] = [];
 
       if (ct.includes('application/json')) {
-        const text = await upstream.text();
-        if (text.length > MAX_RESPONSE_BYTES) {
-          return c.json({ error: 'Response too large' }, 413);
+        let text: string;
+        try {
+          text = await readBodyCapped(upstream, MAX_RESPONSE_BYTES);
+        } catch (err) {
+          if (err instanceof ResponseTooLargeError) {
+            return c.json({ error: 'Response too large' }, 413);
+          }
+          throw err;
         }
         try {
           reply = JSON.parse(text) as JsonRpcReply;
@@ -211,6 +281,7 @@ export function createMcpHandler(nodeHostnameGuard?: NodeHostnameGuard) {
             MAX_RESPONSE_BYTES
           ));
         } catch (err) {
+          if (controller.signal.aborted) throw err; // mapped to 504 below
           return c.json({ error: err instanceof Error ? err.message : 'SSE read failed' }, 502);
         }
       } else {
@@ -224,11 +295,12 @@ export function createMcpHandler(nodeHostnameGuard?: NodeHostnameGuard) {
         ...(serverMessages.length > 0 ? { serverMessages } : {}),
       });
     } catch (err) {
-      clearTimeout(timer);
       if (controller.signal.aborted) {
         return c.json({ error: `Upstream timeout after ${timeoutMs}ms` }, 504);
       }
       return c.json({ error: err instanceof Error ? err.message : 'Upstream fetch failed' }, 502);
+    } finally {
+      clearTimeout(timer);
     }
   };
 }

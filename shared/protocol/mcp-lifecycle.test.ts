@@ -126,6 +126,17 @@ describe('JSON-RPC notifications (#862)', () => {
   });
 });
 
+describe('URL userinfo', () => {
+  it('rejects credentials embedded in the MCP URL', () => {
+    const r = validateMcpSpec(
+      { ...base, url: 'https://u:p@mcp.example.com/mcp', jsonRpc: { method: 'tools/list', id: 1 } },
+      false
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.status).toBe(400);
+  });
+});
+
 describe('validateMcpTerminateSpec (#888)', () => {
   it('targets the MCP endpoint with session + version headers and no Content-Type', () => {
     const r = validateMcpTerminateSpec(

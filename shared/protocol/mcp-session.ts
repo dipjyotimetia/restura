@@ -31,7 +31,7 @@ export const McpTerminateBodySchema = z.object({
   transport: z.string().min(1),
   postEndpoint: z.string().optional(),
   sessionId: z.string().min(1).max(1024),
-  protocolVersion: z.string().optional(),
+  protocolVersion: z.string().max(64).optional(),
   headers: z.record(z.string(), z.string()).optional(),
   timeout: z.number().int().min(0).max(300_000).optional(),
 });

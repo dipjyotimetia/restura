@@ -19,7 +19,7 @@ export const McpRequestBodySchema = z.object({
   url: z.string().min(1),
   transport: z.string().min(1),
   postEndpoint: z.string().optional(),
-  sessionId: z.string().optional(),
+  sessionId: z.string().max(1024).optional(),
   protocolVersion: z.string().max(64).optional(),
   headers: z.record(z.string(), z.string()).optional(),
   jsonRpc: z

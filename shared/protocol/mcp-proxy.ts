@@ -141,6 +141,11 @@ export function validateMcpSpec(
     allowLocalhost: opts.allowLocalhost,
   });
   if (!v.valid) return { ok: false, status: 400, error: `Invalid URL: ${v.error}` };
+  // Userinfo in an MCP URL is never sent (fetch refuses it) and would only
+  // leak into logs; credentials belong in headers.
+  if (hasUserinfo(targetUrl)) {
+    return { ok: false, status: 400, error: 'Invalid URL: credentials in URL are not allowed' };
+  }
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -163,6 +168,15 @@ export function validateMcpSpec(
   const timeoutMs = Math.min(spec.timeout ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
 
   return { ok: true, targetUrl, headers, body, timeoutMs, isNotification };
+}
+
+function hasUserinfo(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    return u.username !== '' || u.password !== '';
+  } catch {
+    return false; // unparsable URLs were already rejected by validateURL
+  }
 }
 
 /**

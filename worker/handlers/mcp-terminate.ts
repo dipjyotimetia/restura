@@ -22,9 +22,14 @@ import { parseJsonBody } from '../shared/validate-body';
  * client-initiated termination) and `404` (session already gone) are reported
  * as `ok` with `terminated: false` rather than as errors.
  */
+/** Terminate bodies are tiny (url, session id, headers); cap them. */
+const MAX_TERMINATE_BODY_BYTES = 64 * 1024;
+
 export function createMcpTerminateHandler(nodeHostnameGuard?: NodeHostnameGuard) {
   return async function mcpTerminateHandler(c: Context<{ Bindings: Env }>) {
-    const parsed = await parseJsonBody(c.req.raw, McpTerminateBodySchema);
+    const parsed = await parseJsonBody(c.req.raw, McpTerminateBodySchema, {
+      maxBytes: MAX_TERMINATE_BODY_BYTES,
+    });
     if (!parsed.ok) {
       return c.json({ error: parsed.error }, parsed.status);
     }

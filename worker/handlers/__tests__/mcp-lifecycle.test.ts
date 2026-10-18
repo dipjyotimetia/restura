@@ -246,4 +246,160 @@ describe('/api/mcp/terminate', () => {
     const res = await post('/mcp/terminate', { ...base, sessionId: 's', timeout: 5 });
     expect(res.status).toBe(504);
   });
+
+  it.each([
+    'http://127.0.0.1:8080/mcp',
+    'http://localhost/mcp',
+    'http://[::1]/mcp',
+    'http://169.254.169.254/latest/meta-data',
+    'http://metadata.google.internal/computeMetadata/v1',
+    'http://10.0.0.5/mcp',
+    'http://192.168.1.10/mcp',
+    'https://user:pass@mcp.example.com/mcp',
+  ])('rejects SSRF target %s with 400 before any fetch', async (url) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const res = await post('/mcp/terminate', { url, transport: 'streamable-http', sessionId: 's' });
+    expect(res.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects an over-long protocolVersion at the schema', async () => {
+    const res = await post('/mcp/terminate', {
+      ...base,
+      sessionId: 's',
+      protocolVersion: 'a'.repeat(65),
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
+/** A body that emits `chunks` and then never closes (until aborted). */
+function drippingBody(chunks: string[], signal?: AbortSignal | null): ReadableStream<Uint8Array> {
+  const enc = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      for (const c of chunks) controller.enqueue(enc.encode(c));
+      signal?.addEventListener('abort', () => controller.error(new Error('aborted')));
+    },
+  });
+}
+
+describe('/api/mcp bounded reads', () => {
+  it('caps forwarded server messages at 100', async () => {
+    const notes = Array.from({ length: 150 }, (_, i) => ({
+      jsonrpc: '2.0',
+      method: 'notifications/progress',
+      params: { progress: i },
+    }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(sse([...notes, { jsonrpc: '2.0', id: 1, result: {} }]))
+    );
+    const res = await post('/mcp', { ...base, jsonRpc: { method: 'tools/call', id: 1 } });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { serverMessages: unknown[] };
+    expect(json.serverMessages).toHaveLength(100);
+  });
+
+  it('skips an individual server message larger than 256 KB', async () => {
+    const huge = {
+      jsonrpc: '2.0',
+      method: 'notifications/message',
+      params: { data: 'x'.repeat(300 * 1024) },
+    };
+    const small = { jsonrpc: '2.0', method: 'notifications/progress', params: { progress: 1 } };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(sse([huge, small, { jsonrpc: '2.0', id: 1, result: {} }]))
+    );
+    const res = await post('/mcp', { ...base, jsonRpc: { method: 'tools/call', id: 1 } });
+    const json = (await res.json()) as { serverMessages: unknown[] };
+    expect(json.serverMessages).toEqual([small]);
+  });
+
+  it('SSE body over the byte cap returns 502', async () => {
+    const pad = {
+      jsonrpc: '2.0',
+      method: 'notifications/message',
+      params: { d: 'y'.repeat(1 << 20) },
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(sse(Array.from({ length: 6 }, () => pad))));
+    const res = await post('/mcp', { ...base, jsonRpc: { method: 'tools/call', id: 1 } });
+    expect(res.status).toBe(502);
+    expect(((await res.json()) as { error: string }).error).toMatch(/byte cap/);
+  });
+
+  it('JSON body with an oversized Content-Length is refused (413) without reading', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(drippingBody(['{']), {
+          status: 200,
+          headers: { 'content-type': 'application/json', 'content-length': String(6 << 20) },
+        })
+      )
+    );
+    const res = await post('/mcp', { ...base, jsonRpc: { method: 'tools/list', id: 1 } });
+    expect(res.status).toBe(413);
+  });
+
+  it('streamed JSON body over the cap (no Content-Length) is refused (413)', async () => {
+    const chunk = 'z'.repeat(1 << 20);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              const enc = new TextEncoder();
+              for (let i = 0; i < 6; i++) controller.enqueue(enc.encode(chunk));
+              controller.close();
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      )
+    );
+    const res = await post('/mcp', { ...base, jsonRpc: { method: 'tools/list', id: 1 } });
+    expect(res.status).toBe(413);
+  });
+
+  it('non-2xx error body is truncated to a 2 KB prefix', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('e'.repeat(1 << 20), { status: 500 }))
+    );
+    const res = await post('/mcp', { ...base, jsonRpc: { method: 'tools/list', id: 1 } });
+    expect(res.status).toBe(502);
+    const json = (await res.json()) as { upstreamBody: string; upstreamStatus: number };
+    expect(json.upstreamBody.length).toBe(2048);
+    expect(json.upstreamStatus).toBe(500);
+  });
+
+  it.each([
+    [
+      'text/event-stream',
+      ['event: message\ndata: {"jsonrpc":"2.0","method":"notifications/x"}\n\n'],
+    ],
+    ['application/json', ['{"jsonrpc":']],
+  ])('times out (504) while a %s body is still dripping', async (contentType, chunks) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((_url: string, init: RequestInit) =>
+        Promise.resolve(
+          new Response(drippingBody(chunks, init.signal), {
+            status: 200,
+            headers: { 'content-type': contentType },
+          })
+        )
+      )
+    );
+    const res = await post('/mcp', {
+      ...base,
+      timeout: 50,
+      jsonRpc: { method: 'tools/call', id: 1 },
+    });
+    expect(res.status).toBe(504);
+  });
 });
