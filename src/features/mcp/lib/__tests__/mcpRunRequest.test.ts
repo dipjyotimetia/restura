@@ -114,4 +114,41 @@ describe('disposeMcpClientPool', () => {
     expect(disconnect).toHaveBeenCalledTimes(1);
     expect(pool.size).toBe(0);
   });
+
+  it('does not hang the run on a connect / disconnect that never settles', async () => {
+    const pool = new Map<string, Promise<McpClient>>([
+      ['stuck-connect', new Promise<McpClient>(() => {})],
+      [
+        'stuck-disconnect',
+        Promise.resolve({ disconnect: () => new Promise(() => {}) } as unknown as McpClient),
+      ],
+    ]);
+    const started = Date.now();
+    await disposeMcpClientPool(pool, 20);
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(pool.size).toBe(0);
+  });
+});
+
+describe('runMcpRequest — abort (pooled calls)', () => {
+  it('rejects with AbortError as soon as the run is stopped, even while the call is pending', async () => {
+    const runJsonRpc = vi.fn<McpRunJsonRpc>(() => new Promise(() => {}));
+    const controller = new AbortController();
+    const pending = runMcpRequest(
+      req(),
+      ctx({
+        signal: controller.signal,
+        protocolOptions: { mcpClientPool: new Map<string, Promise<McpClient>>() },
+      }),
+      runJsonRpc
+    );
+    await vi.waitFor(() => expect(runJsonRpc).toHaveBeenCalled());
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  });
+
+  it('passes a settled call through unchanged (errors included)', async () => {
+    const runJsonRpc = vi.fn<McpRunJsonRpc>().mockRejectedValue(new Error('kaboom'));
+    await expect(runMcpRequest(req(), ctx(), runJsonRpc)).rejects.toThrow('kaboom');
+  });
 });

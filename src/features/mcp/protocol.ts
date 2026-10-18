@@ -139,10 +139,17 @@ async function createAndInitClient(mcp: McpRequest, method: string): Promise<Mcp
   // `initialize` themselves.
   if (method !== 'initialize') {
     const init = await initializeClient(client);
-    if (!init.ok) throw new McpInitError(init.error, init.jsonRpcError);
+    if (!init.ok) {
+      // Never leak a half-open connection (desktop IPC session) on a failed init.
+      await client.disconnect().catch(() => undefined);
+      throw new McpInitError(init.error, init.jsonRpcError);
+    }
   } else {
     const conn = await client.connect();
-    if (!conn.ok) throw new McpInitError(conn.error);
+    if (!conn.ok) {
+      await client.disconnect().catch(() => undefined);
+      throw new McpInitError(conn.error);
+    }
   }
   return client;
 }

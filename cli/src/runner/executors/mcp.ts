@@ -121,12 +121,11 @@ export async function executeMcp(
   // Pooled (a `restura run`): one initialized session per server for the
   // whole run, closed by the runner. Unpooled: a session for this call only.
   const pool = opts.mcpSessions;
+  const sessionKey = mcpSessionKey(url, req.transport, validation.headers);
   const start = Date.now();
   let session: CliMcpSession | undefined;
   try {
-    session = pool
-      ? await pool.get(mcpSessionKey(url, req.transport, validation.headers), open)
-      : await open();
+    session = pool ? await pool.get(sessionKey, open) : await open();
     const reply = buildMcpRunReply(
       await session.request(method, parsedParams.params, {
         timeoutMs: validation.timeoutMs,
@@ -147,6 +146,9 @@ export async function executeMcp(
     if (reply.outcome !== 'result') outcome.protocolError = reply.statusText;
     return outcome;
   } catch (err) {
+    // A transport-level failure (JSON-RPC errors are returned, not thrown)
+    // may have broken the session: evict it so a retry / later item reconnects.
+    pool?.evict(sessionKey);
     return {
       status: 0,
       passed: false,

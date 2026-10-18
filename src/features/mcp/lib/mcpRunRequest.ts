@@ -65,15 +65,56 @@ function isPool(value: unknown): value is McpRunClientPool {
 }
 
 /** Disconnect every pooled client (run end). Never throws. */
-export async function disposeMcpClientPool(pool: Map<string, Promise<McpClient>>): Promise<void> {
+/** How long run-end teardown waits on a stuck connect / disconnect. */
+export const MCP_POOL_DISPOSE_TIMEOUT_MS = 5000;
+
+/** Resolve after `ms` without keeping anything alive past the race. */
+function timeout(ms: number): { promise: Promise<void>; clear: () => void } {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const promise = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  return { promise, clear: () => clearTimeout(timer) };
+}
+
+/**
+ * Disconnect every pooled client (run end). Never throws, and never hangs the
+ * run on a connect / disconnect that does not settle (bounded by `timeoutMs`).
+ */
+export async function disposeMcpClientPool(
+  pool: Map<string, Promise<McpClient>>,
+  timeoutMs = MCP_POOL_DISPOSE_TIMEOUT_MS
+): Promise<void> {
   const entries = [...pool.values()];
   pool.clear();
-  await Promise.allSettled(
+  const done = Promise.allSettled(
     entries.map(async (pending) => {
       const client = await pending;
       await client.disconnect();
     })
   );
+  const limit = timeout(timeoutMs);
+  await Promise.race([done, limit.promise]);
+  limit.clear();
+}
+
+/** Reject with an AbortError as soon as `signal` aborts (pooled calls ignore it). */
+function raceAbort<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(new DOMException('Request aborted', 'AbortError'));
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new DOMException('Request aborted', 'AbortError'));
+    signal.addEventListener('abort', onAbort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (err: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(err);
+      }
+    );
+  });
 }
 
 /** Substitute `{{var}}` in every stringy MCP field. Pure. */
@@ -188,16 +229,24 @@ export async function runMcpRequest(
   }
 
   const started = Date.now();
-  const call = await runJsonRpc(request, ctx, {
-    method,
-    ...(params.params !== undefined ? { params: params.params } : {}),
-    ...(isPool(pool)
-      ? {
-          clientPool: pool,
-          cacheKey: mcpSessionKey(request.url, request.transport, enabledHeaders(request)),
-        }
-      : {}),
-  });
+  // A pooled client is shared, so runJsonRpc does not tear it down on abort;
+  // race the call so Stop still ends this item promptly.
+  const call = await raceAbort(
+    runJsonRpc(request, ctx, {
+      method,
+      ...(params.params !== undefined ? { params: params.params } : {}),
+      ...(isPool(pool)
+        ? {
+            clientPool: pool,
+            // Session identity = resolved url + transport + headers. If MCP
+            // `auth` is ever applied here it MUST become part of this key, or
+            // items with different credentials would share one session.
+            cacheKey: mcpSessionKey(request.url, request.transport, enabledHeaders(request)),
+          }
+        : {}),
+    }),
+    ctx.signal
+  );
   const time = Date.now() - started;
 
   if (!call.ok && !call.jsonRpcError) {

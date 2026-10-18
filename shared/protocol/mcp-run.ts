@@ -43,6 +43,15 @@ function isToolError(result: unknown): boolean {
   );
 }
 
+/** Server-supplied text shown in status lines / reports is capped (#901 L7). */
+export const MAX_MCP_ERROR_TEXT = 1024;
+
+function truncateServerText(text: string): string {
+  return text.length > MAX_MCP_ERROR_TEXT
+    ? `${text.slice(0, MAX_MCP_ERROR_TEXT)}… (truncated)`
+    : text;
+}
+
 /**
  * Same wording as the CLI/registry tool-error path (#868):
  * `MCP tool error (isError: true): <first text block>`.
@@ -58,7 +67,9 @@ export function mcpToolErrorMessage(result: unknown): string {
         .map((b) => b.text)
         .join('\n')
     : '';
-  return text ? `MCP tool error (isError: true): ${text}` : 'MCP tool error (isError: true)';
+  return text
+    ? `MCP tool error (isError: true): ${truncateServerText(text)}`
+    : 'MCP tool error (isError: true)';
 }
 
 export function buildMcpRunReply(input: McpRunReplyInput): McpRunReply {
@@ -66,7 +77,7 @@ export function buildMcpRunReply(input: McpRunReplyInput): McpRunReply {
     return {
       outcome: 'jsonrpc-error',
       body: JSON.stringify({ jsonrpc: '2.0', error: input.error }, null, 2),
-      statusText: jsonRpcErrorToMessage(input.error),
+      statusText: truncateServerText(jsonRpcErrorToMessage(input.error)),
     };
   }
   const toolError = isToolError(input.result);

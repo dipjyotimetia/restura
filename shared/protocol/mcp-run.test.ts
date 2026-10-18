@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildMcpRunReply,
+  MAX_MCP_ERROR_TEXT,
   mcpMissingMethodMessage,
   mcpSessionKey,
   parseMcpRunParams,
@@ -33,6 +34,19 @@ describe('buildMcpRunReply (#901)', () => {
       },
     });
     expect(reply.statusText).toBe('MCP tool error (isError: true): boom\nagain');
+  });
+
+  it('truncates oversized server error text in the status line', () => {
+    const big = 'x'.repeat(10_000);
+    const tool = buildMcpRunReply({
+      result: { isError: true, content: [{ type: 'text', text: big }] },
+    });
+    expect(tool.statusText.length).toBeLessThan(MAX_MCP_ERROR_TEXT + 100);
+    expect(tool.statusText).toMatch(/truncated\)$/);
+    const rpc = buildMcpRunReply({ error: { code: -1, message: big } });
+    expect(rpc.statusText.length).toBeLessThan(MAX_MCP_ERROR_TEXT + 100);
+    // The body (what scripts see) is untouched.
+    expect(JSON.parse(rpc.body).error.message).toBe(big);
   });
 
   it('does not treat a truthy non-boolean isError as a tool error', () => {

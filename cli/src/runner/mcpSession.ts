@@ -6,9 +6,9 @@ import {
 } from '@modelcontextprotocol/client';
 import type { JsonRpcError } from '@shared/protocol/mcp-proxy';
 import type { McpRunReplyInput } from '@shared/protocol/mcp-run';
-import { validateURL } from '@shared/protocol/url-validation';
 import { type Dispatcher, fetch as undiciFetch } from 'undici';
 import { z } from 'zod';
+import { resolvePinnedMcpAddress } from './pinnedMcpFetch.js';
 
 /**
  * One MCP session for `restura run` (#901), on the official SDK client: it
@@ -44,15 +44,39 @@ const ANY_RESULT = z.unknown();
 const SDK_OWNED_HEADERS = new Set(['content-type', 'accept']);
 
 /**
- * Every URL the SDK touches (incl. the POST endpoint a legacy SSE server
- * announces) is checked against the shared SSRF guard, and redirects are
- * refused rather than followed to an unvalidated host.
+ * Cap on bytes read from any one MCP response (a JSON reply, or the whole of
+ * an SSE stream). Same ceiling as the desktop HTTP body limit.
  */
-function guardedFetch(options: CliMcpSessionOptions): typeof globalThis.fetch {
+export const MAX_MCP_RESPONSE_BYTES = 50 * 1024 * 1024;
+
+function byteCap(maxBytes: number): TransformStream<Uint8Array, Uint8Array> {
+  let total = 0;
+  return new TransformStream({
+    transform(chunk, controller) {
+      total += chunk.byteLength;
+      if (total > maxBytes) {
+        controller.error(new Error(`MCP response exceeds ${maxBytes} byte cap`));
+        return;
+      }
+      controller.enqueue(chunk);
+    },
+  });
+}
+
+/**
+ * Every URL the SDK touches (incl. the POST endpoint a legacy SSE server
+ * announces, and the terminating DELETE) passes the CLI's DNS pre-flight SSRF
+ * guard (`resolvePinnedMcpAddress`: literal + every resolved record checked).
+ * Redirects are refused without following `Location`, and response bodies
+ * are bounded.
+ */
+export function createGuardedMcpFetch(
+  options: Pick<CliMcpSessionOptions, 'allowLocalhost' | 'dispatcher'>,
+  maxBytes = MAX_MCP_RESPONSE_BYTES
+): typeof globalThis.fetch {
   return (async (input, init) => {
     const rawUrl = typeof input === 'string' || input instanceof URL ? input.toString() : input.url;
-    const checked = validateURL(rawUrl, { allowLocalhost: options.allowLocalhost });
-    if (!checked.valid) throw new Error(`MCP URL rejected: ${checked.error}`);
+    await resolvePinnedMcpAddress(rawUrl, options.allowLocalhost);
     const response = await undiciFetch(rawUrl, {
       ...(init as Parameters<typeof undiciFetch>[1]),
       ...(options.dispatcher ? { dispatcher: options.dispatcher } : {}),
@@ -64,7 +88,20 @@ function guardedFetch(options: CliMcpSessionOptions): typeof globalThis.fetch {
         `MCP server redirected (HTTP ${response.status}); redirects are not followed`
       );
     }
-    return response as unknown as Response;
+    const declared = Number(response.headers.get('content-length') ?? '');
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      await response.body?.cancel();
+      throw new Error(`MCP response exceeds ${maxBytes} byte cap`);
+    }
+    if (!response.body) return response as unknown as Response;
+    return new Response(
+      (response.body as unknown as ReadableStream<Uint8Array>).pipeThrough(byteCap(maxBytes)),
+      {
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers),
+      }
+    );
   }) as typeof globalThis.fetch;
 }
 
@@ -80,7 +117,7 @@ export async function openCliMcpSession(options: CliMcpSessionOptions): Promise<
   const headers = Object.fromEntries(
     Object.entries(options.headers).filter(([k]) => !SDK_OWNED_HEADERS.has(k.toLowerCase()))
   );
-  const transportOptions = { fetch: guardedFetch(options), requestInit: { headers } };
+  const transportOptions = { fetch: createGuardedMcpFetch(options), requestInit: { headers } };
   const transport =
     options.transport === 'http-sse'
       ? new SSEClientTransport(new URL(options.url), transportOptions)
@@ -154,6 +191,17 @@ export class CliMcpSessionPool {
       if (this.sessions.get(key) === pending) this.sessions.delete(key);
     });
     return pending;
+  }
+
+  /**
+   * Drop (and close) a session after a transport-level failure so a retry or
+   * a later item reconnects instead of reusing a broken session.
+   */
+  evict(key: string): void {
+    const pending = this.sessions.get(key);
+    if (!pending) return;
+    this.sessions.delete(key);
+    void pending.then((s) => s.close()).catch(() => {});
   }
 
   async dispose(): Promise<void> {

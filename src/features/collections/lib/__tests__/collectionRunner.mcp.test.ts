@@ -214,4 +214,47 @@ describe('collection runner — MCP (#901)', () => {
     expect(result.requests[0]?.error).toMatch(/not valid JSON/);
     expect(wire.instances).toHaveLength(0);
   });
+
+  const opts = (requests: McpRequest[]) => ({
+    collection,
+    scopeName: 'C',
+    runnables: requests.map((request, i) => ({ itemId: `i${i}`, name: request.name, request })),
+    baseVars: { host: 'mcp.example.test', token: 't0k', greeting: 'hello' },
+    iterations: 1,
+    dataRows: [],
+    delayMs: 0,
+    stopOnFailure: false,
+  });
+
+  it('disposes pooled sessions when the run throws', async () => {
+    await expect(
+      runCollection(
+        opts([mcpReq()]),
+        () => {},
+        new AbortController().signal,
+        () => {
+          throw new Error('listener blew up');
+        }
+      )
+    ).rejects.toThrow('listener blew up');
+    expect(wire.instances).toHaveLength(1);
+    expect(wire.disconnects).toBe(1);
+  });
+
+  it('Stop aborts a pending pooled call and still disposes the session', async () => {
+    const controller = new AbortController();
+    wire.reply = () => {
+      controller.abort();
+      return new Promise(() => {});
+    };
+    const result = await runCollection(
+      opts([mcpReq(), mcpReq({ id: 'b' })]),
+      () => {},
+      controller.signal
+    );
+    expect(result.outcome).toBe('aborted');
+    expect(result.requests[0]).toMatchObject({ status: 'failed' });
+    expect(result.requests[0]?.error).toMatch(/abort/i);
+    expect(wire.disconnects).toBe(1);
+  });
 });
