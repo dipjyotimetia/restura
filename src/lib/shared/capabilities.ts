@@ -212,7 +212,7 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: true,
     desktop: true,
     notes:
-      'http-sse transport is desktop-only; web supports streamable-http and rejects http-sse at connect time',
+      'http-sse transport is desktop-only; web supports streamable-http and rejects http-sse at connect time. Web runs the initialize/initialized handshake, MCP-Protocol-Version, DELETE on disconnect and one re-initialize on 404 session expiry, and surfaces server messages interleaved in a reply; it has no standalone GET listening stream and no Last-Event-ID resumption (desktop only)',
   },
   'grpc.basic': {
     label: 'gRPC unary + streaming',

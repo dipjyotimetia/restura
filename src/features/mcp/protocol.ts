@@ -17,6 +17,7 @@ import { v4 as uuidv4 } from 'uuid';
 import type { ProtocolModule } from '@/features/registry/types';
 import type { McpRequest, Request } from '@/types';
 import { McpClient } from './lib/mcpClient';
+import { buildMcpInitializeParams } from './lib/mcpWebSession';
 
 function createDefaultMcpRequest(): McpRequest {
   return {
@@ -80,11 +81,10 @@ async function initializeClient(
 > {
   const conn = await client.connect();
   if (!conn.ok) return { ok: false, error: conn.error };
-  const init = await client.request('initialize', {
-    protocolVersion: '2024-11-05',
-    capabilities: {},
-    clientInfo: { name: 'restura-graph-executor', version: '0.1.0' },
-  });
+  const init = await client.request(
+    'initialize',
+    buildMcpInitializeParams('restura-graph-executor')
+  );
   if (!init.ok) {
     return {
       ok: false,
