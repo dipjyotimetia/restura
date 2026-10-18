@@ -71,4 +71,39 @@ describe('IPv6 / loopback normalisation in validateURL', () => {
     }
     expect(isLoopbackAddress('2001:db8::1')).toBe(false);
   });
+
+  it.each(['2130706433', '127.1', '0', '0x7f.1', '017700000001', '0x7f000001', '127.0.1'])(
+    'blocks non-canonical IPv4 loopback %s when localhost is disallowed',
+    (host) => {
+      expect(check(host, noLocal)).toBe(false);
+    }
+  );
+
+  it.each(['2852039166', '169.254.43518', '0xa9fea9fe', '0251.0376.0251.0376'])(
+    'blocks non-canonical metadata IPv4 %s',
+    (host) => {
+      expect(check(host, { allowLocalhost: true, allowPrivateIPs: true })).toBe(false);
+    }
+  );
+
+  it('blocks non-canonical private IPv4 when private IPs are disallowed', () => {
+    const opts = { allowLocalhost: true, allowPrivateIPs: false };
+    expect(check('167772161', opts)).toBe(false);
+    expect(check('10.1', opts)).toBe(false);
+  });
+
+  it('does not treat a public non-canonical IPv4 or a dotted hostname as private', () => {
+    expect(check('134744072', noLocal)).toBe(true);
+    expect(check('127.example.com', noLocal)).toBe(true);
+  });
+
+  it('matches custom bracketed IPv6 blockedHostnames entries', () => {
+    const r = validateURL('kafka://[2001:db8::1]:9092', {
+      allowedSchemes: ['kafka:'],
+      allowLocalhost: true,
+      allowPrivateIPs: true,
+      blockedHostnames: ['[2001:db8::1]'],
+    });
+    expect(r.valid).toBe(false);
+  });
 });

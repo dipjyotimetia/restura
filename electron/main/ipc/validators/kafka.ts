@@ -1,3 +1,4 @@
+import { isIPv6 } from 'node:net';
 import { z } from 'zod';
 import { ConnectionIdSchema } from './core';
 
@@ -22,6 +23,11 @@ const KafkaBrokerSchema = z
     KAFKA_HOST_PORT_RE,
     'Broker must be host:port or [ipv6]:port (alphanumeric host, numeric port)'
   )
+  .refine((broker) => {
+    // Bracketed hosts must hold a syntactically valid IPv6 address.
+    if (broker.startsWith('[')) return isIPv6(broker.slice(1, broker.indexOf(']')));
+    return true;
+  }, 'Broker IPv6 literal is not a valid address')
   .refine((broker) => {
     const port = Number(KAFKA_HOST_PORT_RE.exec(broker)?.[1]);
     return Number.isInteger(port) && port >= 1 && port <= 65_535;

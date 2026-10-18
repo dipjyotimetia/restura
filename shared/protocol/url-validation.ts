@@ -232,6 +232,41 @@ export function isCloudMetadataHost(hostname: string): boolean {
   return CLOUD_METADATA_HOSTNAMES.some((n) => h === n || h.endsWith('.' + n));
 }
 
+/**
+ * Canonicalise inet_aton-style IPv4 hosts (`2130706433`, `127.1`, `0x7f.1`,
+ * octal parts) to dotted-quad. The WHATWG parser does this only for special
+ * schemes (http/https/ws/wss); for others (kafka:, mqtt:) the host is left as-is
+ * but the OS resolver still interprets it that way on connect. Returns the input
+ * unchanged when it is not a numeric IPv4 form.
+ */
+function canonicalizeNumericIPv4(host: string): string {
+  const part = '(?:0[xX][0-9a-fA-F]*|\\d+)';
+  if (!new RegExp(`^${part}(?:\\.${part}){0,3}$`).test(host)) return host;
+  const nums: number[] = [];
+  for (const p of host.split('.')) {
+    let n: number;
+    if (/^0[xX]/.test(p)) n = p.length === 2 ? 0 : parseInt(p.slice(2), 16);
+    else if (p.length > 1 && p.startsWith('0')) {
+      if (!/^[0-7]+$/.test(p)) return host;
+      n = parseInt(p, 8);
+    } else n = Number(p);
+    if (!Number.isFinite(n)) return host;
+    nums.push(n);
+  }
+  const last = nums.pop()!;
+  if (nums.some((n) => n > 255) || last >= 256 ** (4 - nums.length)) return host;
+  let value = last;
+  nums.forEach((n, i) => {
+    value += n * 256 ** (3 - i);
+  });
+  return [24, 16, 8, 0].map((shift) => Math.floor(value / 2 ** shift) % 256).join('.');
+}
+
+/** Strip IPv6 brackets and lowercase so bracketed/unbracketed forms compare equal. */
+function normalizeHostForCompare(host: string): string {
+  return host.toLowerCase().replace(/^\[(.*)\]$/, '$1');
+}
+
 export function validateURL(
   urlString: string,
   options: URLValidationOptions = {}
@@ -264,12 +299,13 @@ export function validateURL(
   // Strip a trailing FQDN-root dot before policy comparison — `metadata.x.`
   // resolves identically to `metadata.x` but would slip past the exact-string
   // blocklist below.
-  const hostname = url.hostname
+  let hostname = url.hostname
     .toLowerCase()
     .replace(/\.+$/, '')
     // WHATWG URL keeps the brackets on IPv6 hosts (`[::1]`); strip them so the
     // loopback comparisons below see the bare address.
     .replace(/^\[(.*)\]$/, '$1');
+  hostname = canonicalizeNumericIPv4(hostname);
 
   if (!allowLocalhost && isLoopbackAddress(hostname)) {
     return { valid: false, error: 'Localhost URLs are not allowed' };
@@ -283,7 +319,7 @@ export function validateURL(
   }
 
   for (const blocked of blockedHostnames) {
-    const b = blocked.toLowerCase();
+    const b = normalizeHostForCompare(blocked);
     if (allowLocalhost && (b === 'localhost' || b === '127.0.0.1')) continue;
     if (hostname === b || hostname.endsWith('.' + b)) {
       return { valid: false, error: `Hostname "${hostname}" is blocked for security reasons` };
