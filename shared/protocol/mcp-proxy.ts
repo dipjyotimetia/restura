@@ -1,4 +1,10 @@
 import { sanitizeRequestHeaders } from './header-policy';
+import {
+  isMcpNotificationMethod,
+  isValidMcpProtocolVersion,
+  MCP_PROTOCOL_VERSION_HEADER,
+  MCP_SESSION_ID_HEADER,
+} from './mcp-version';
 import { validateURL } from './url-validation';
 
 /**
@@ -18,8 +24,15 @@ export interface McpSpec {
   transport: McpTransport;
   postEndpoint?: string;
   sessionId?: string;
+  /**
+   * Protocol version negotiated by `initialize`. When set, every request
+   * except `initialize` itself carries `MCP-Protocol-Version` (MCP
+   * 2025-06-18 Streamable HTTP, #865).
+   */
+  protocolVersion?: string;
   headers?: Record<string, string>;
-  jsonRpc: { method: string; params?: unknown; id: string | number };
+  /** `id` may be omitted only for `notifications/*` methods (JSON-RPC notification). */
+  jsonRpc: { method: string; params?: unknown; id?: string | number };
   timeout?: number;
 }
 
@@ -30,6 +43,8 @@ export type McpValidation =
       headers: Record<string, string>;
       body: string;
       timeoutMs: number;
+      /** True when the envelope is a JSON-RPC notification (no id, no reply expected). */
+      isNotification: boolean;
     }
   | { ok: false; status: number; error: string };
 
@@ -99,8 +114,16 @@ export function validateMcpSpec(
       error: 'Invalid `transport` (expected "streamable-http" or "http-sse")',
     };
   }
-  if (!spec.jsonRpc || typeof spec.jsonRpc.method !== 'string' || spec.jsonRpc.id === undefined) {
+  if (!spec.jsonRpc || typeof spec.jsonRpc.method !== 'string') {
     return { ok: false, status: 400, error: 'Invalid `jsonRpc` (method and id are required)' };
+  }
+  const isNotification =
+    spec.jsonRpc.id === undefined && isMcpNotificationMethod(spec.jsonRpc.method);
+  if (spec.jsonRpc.id === undefined && !isNotification) {
+    return { ok: false, status: 400, error: 'Invalid `jsonRpc` (method and id are required)' };
+  }
+  if (spec.protocolVersion !== undefined && !isValidMcpProtocolVersion(spec.protocolVersion)) {
+    return { ok: false, status: 400, error: 'Invalid `protocolVersion`' };
   }
 
   const targetUrl =
@@ -124,16 +147,33 @@ export function validateMcpSpec(
     Accept: 'application/json, text/event-stream',
     ...sanitizeRequestHeaders(spec.headers, 'mcp'),
   };
-  if (spec.sessionId) headers['Mcp-Session-Id'] = spec.sessionId;
+  if (spec.sessionId) setHeader(headers, MCP_SESSION_ID_HEADER, spec.sessionId);
+  // The version header is negotiated BY initialize, so it is never sent on it.
+  if (spec.protocolVersion && spec.jsonRpc.method !== 'initialize') {
+    setHeader(headers, MCP_PROTOCOL_VERSION_HEADER, spec.protocolVersion);
+  }
 
   const body = JSON.stringify({
     jsonrpc: '2.0',
-    id: spec.jsonRpc.id,
+    ...(isNotification ? {} : { id: spec.jsonRpc.id }),
     method: spec.jsonRpc.method,
     ...(spec.jsonRpc.params !== undefined ? { params: spec.jsonRpc.params } : {}),
   });
 
   const timeoutMs = Math.min(spec.timeout ?? DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS);
 
-  return { ok: true, targetUrl, headers, body, timeoutMs };
+  return { ok: true, targetUrl, headers, body, timeoutMs, isNotification };
+}
+
+/**
+ * Set a header, replacing any case-variant the caller supplied, so a
+ * user-entered `mcp-protocol-version` can't be joined with the negotiated
+ * value into a comma-list by `Headers`.
+ */
+function setHeader(headers: Record<string, string>, name: string, value: string): void {
+  const lower = name.toLowerCase();
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === lower) delete headers[key];
+  }
+  headers[name] = value;
 }
