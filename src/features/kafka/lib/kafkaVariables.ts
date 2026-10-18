@@ -47,16 +47,19 @@ export function warnUnresolved(connectionId: string, topic: string, names: strin
 export type KafkaProduceInput = Parameters<typeof kafkaManager.produce>[0];
 
 /**
- * Produce with `{{var}}` resolution. `json` substitutes JSON-aware inside the
- * value (a value containing quotes stays one string literal).
+ * Produce with `{{var}}` resolution. `json` / `keyJson` substitute JSON-aware
+ * inside the value / key (a value containing quotes stays one string literal).
  */
 export function produceWithVariables(
   input: KafkaProduceInput,
-  options: { json?: boolean } = {},
+  options: { json?: boolean; keyJson?: boolean } = {},
   scope: StreamingVariableScope = getActiveStreamingVariableScope()
 ): ReturnType<typeof kafkaManager.produce> {
   const topic = resolveStreamingText(input.topic, scope);
-  const key = input.key !== undefined ? resolveStreamingText(input.key, scope) : undefined;
+  const key =
+    input.key !== undefined
+      ? resolveStreamingText(input.key, scope, { json: options.keyJson === true })
+      : undefined;
   const value =
     input.value !== null
       ? resolveStreamingText(input.value, scope, { json: options.json === true })

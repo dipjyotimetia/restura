@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { mqttSecretKey } from '@/features/mqtt/lib/mqttManager';
 import type { MqttQoS } from '@/features/mqtt/store/useMqttStore';
 import {
+  clearPendingSecrets,
   getMqttComposerDraft,
   setMqttComposerDraft,
   setPendingSecret,
@@ -40,6 +41,12 @@ export function useMqttComposer(connectionId: string | null) {
     setPubRetain(seed?.pubRetain ?? false);
     setSubTopic(seed?.subTopic ?? '');
     setSubQos(seed?.subQos ?? 0);
+  }, [connectionId]);
+
+  // The credential drafts reset on a switch / unmount, so their pending copies go too.
+  useEffect(() => {
+    if (!connectionId) return;
+    return () => clearPendingSecrets(connectionId);
   }, [connectionId]);
 
   useEffect(() => {

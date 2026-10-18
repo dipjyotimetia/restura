@@ -328,6 +328,22 @@ describe('preset save-back, credential lifecycle and runner reporting (#984 revi
     expect(vault.has(`mqtt:preset-${MQTT.id}:password`)).toBe(false);
   });
 
+  it('keeps copying after a failed preset and reports the failure (#1130 review)', async () => {
+    vault.set(`mqtt:preset-${MQTT.id}:password`, 'mpw');
+    const source = [item(KAFKA), item(MQTT)];
+    const clone = [duplicateRequestItem(item(KAFKA), []), duplicateRequestItem(item(MQTT), [])];
+    let reads = 0;
+    storage.failReads = false;
+    const original = vault.get.bind(vault);
+    const spy = vi.spyOn(vault, 'get').mockImplementation((key: string) => {
+      if (key.startsWith('kafka:') && reads++ === 0) throw new Error('locked');
+      return original(key);
+    });
+    await expect(copyBrokerPresetSecrets(source, clone)).rejects.toThrow('1 preset');
+    spy.mockRestore();
+    expect(vault.get(`mqtt:preset-${clone[1]!.request!.id}:password`)).toBe('mpw');
+  });
+
   it('lists presets skipped by a collection or folder run', () => {
     const items: CollectionItem[] = [
       item(KAFKA),

@@ -10,7 +10,7 @@ import type {
 import { KAFKA_SECRET_SENTINEL, useKafkaStore } from '@/features/kafka/store/useKafkaStore';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
-import { setPendingSecret } from '@/lib/shared/streaming/composerDrafts';
+import { clearPendingSecrets, setPendingSecret } from '@/lib/shared/streaming/composerDrafts';
 import { useActiveTabId } from '@/store/selectors';
 
 /**
@@ -73,6 +73,11 @@ export function useKafkaConnection() {
     setPendingSecret(kafkaSecretKey(connectionId, 'tls-passphrase'), tlsPassphraseDraft);
     setPendingSecret(kafkaSecretKey(connectionId, 'registry-password'), registryPasswordDraft);
   }, [connectionId, oauth, saslPasswordDraft, tlsPassphraseDraft, registryPasswordDraft]);
+  // The drafts reset on a switch / unmount, so their pending copies go too.
+  useEffect(() => {
+    if (!connectionId) return;
+    return () => clearPendingSecrets(connectionId);
+  }, [connectionId]);
 
   const connect = async (): Promise<void> => {
     if (!connection) return;

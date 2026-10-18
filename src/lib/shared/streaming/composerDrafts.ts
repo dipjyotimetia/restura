@@ -72,11 +72,20 @@ export function getPendingSecret(storageKey: string): string | undefined {
   return pendingSecrets.get(storageKey);
 }
 
+/**
+ * Drop a connection's pending (typed, unconnected) credentials. Called when its
+ * form stops showing them (switch / unmount), so a later save can never store a
+ * credential the user no longer sees.
+ */
+export function clearPendingSecrets(connectionId: string): void {
+  for (const key of pendingSecrets.keys()) {
+    if (key.includes(`:${connectionId}:`)) pendingSecrets.delete(key);
+  }
+}
+
 /** Drop every draft and pending credential of a removed connection. */
 export function clearComposerDrafts(connectionId: string): void {
   kafkaDrafts.delete(connectionId);
   mqttDrafts.delete(connectionId);
-  for (const key of pendingSecrets.keys()) {
-    if (key.includes(`:${connectionId}:`)) pendingSecrets.delete(key);
-  }
+  clearPendingSecrets(connectionId);
 }

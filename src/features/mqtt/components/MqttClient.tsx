@@ -199,7 +199,6 @@ function MqttClient() {
   const handlePublish = async (): Promise<void> => {
     if (!connection || !pubTopic) return;
     await publishInput({ topic: pubTopic, payload: pubPayload, qos: pubQos, retain: pubRetain });
-    setPubPayload('');
   };
   const templates = connection?.templates ?? [];
   const createTemplate = (): MqttPublishTemplate | null =>
@@ -220,7 +219,6 @@ function MqttClient() {
       topicFilter: resolveMqttText(connection.id, subTopic.trim()),
       qos: subQos,
     });
-    setSubTopic('');
   };
   const handleUnsubscribe = async (topicFilter: string): Promise<void> => {
     if (connection) await mqttManager.unsubscribe(connection.id, topicFilter);

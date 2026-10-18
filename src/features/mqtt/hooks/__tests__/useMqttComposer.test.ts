@@ -51,6 +51,9 @@ describe('useMqttComposer (#984)', () => {
     expect(getMqttComposerDraft('conn-c')?.pubTopic ?? '').toBe('');
     expect(getPendingSecret(mqttSecretKey('conn-c', 'tls-passphrase'))).toBeUndefined();
 
+    // The credential typed for conn-b is no longer shown, so it is no longer pending.
+    expect(getPendingSecret(mqttSecretKey('conn-b', 'tls-passphrase'))).toBeUndefined();
+
     rerender({ id: null });
     expect(result.current.subQos).toBe(0);
   });

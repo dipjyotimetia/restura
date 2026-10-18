@@ -181,13 +181,23 @@ export async function copyBrokerPresetSecrets(
   const to: BrokerRequest[] = [];
   walkPresets(source, (p) => from.push(p));
   walkPresets(clone, (p) => to.push(p));
+  let failed = 0;
   for (const [i, original] of from.entries()) {
     const copy = to[i];
     if (!copy || copy.type !== original.type || copy.id === original.id) continue;
-    if (original.type === 'kafka') await copyKafkaPresetSecrets(original.id, copy.id);
-    else await copyMqttPresetSecrets(original.id, copy.id);
+    try {
+      if (original.type === 'kafka') await copyKafkaPresetSecrets(original.id, copy.id);
+      else await copyMqttPresetSecrets(original.id, copy.id);
+    } catch {
+      // Keep copying the remaining presets; report once at the end.
+      failed++;
+    }
   }
+  if (failed > 0) throw new Error(`Could not copy credentials for ${failed} preset(s)`);
 }
+
+export const DUPLICATE_CREDENTIALS_FAILED =
+  'Duplicated without some credentials — re-enter them after opening the copy';
 
 function findItemById(items: CollectionItem[], id: string): CollectionItem | undefined {
   for (const item of items) {

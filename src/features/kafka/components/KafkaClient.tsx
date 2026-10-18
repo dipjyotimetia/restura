@@ -192,10 +192,10 @@ export function KafkaClient() {
         ...(valueSchema.value !== undefined ? { valueSchemaId: valueSchema.value } : {}),
         ...(keySchema.value !== undefined ? { keySchemaId: keySchema.value } : {}),
       },
-      { json: produceValueEncoding === 'json' }
+      { json: produceValueEncoding === 'json', keyJson: produceKeyEncoding === 'json' }
     );
-    if (result.ok) setProduceValue('');
-    else setProduceError(result.error);
+    // The payload stays in the composer: it is the preset's template (#984).
+    if (!result.ok) setProduceError(result.error);
   };
   const handleConsumeModeChange = (mode: ConsumeMode): void => {
     setConsumeMode(mode);

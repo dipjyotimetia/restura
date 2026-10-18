@@ -18,7 +18,11 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { type OwsStoredWorkflow, useWorkflowStore } from '@/store/useWorkflowStore';
 import type { ActivePanel, CollectionItem } from '@/types';
 import { useCollectionSidebarCommands } from '../hooks/useCollectionSidebarCommands';
-import { copyBrokerPresetSecrets, reapBrokerPresetSecretsForItem } from '../lib/brokerPresets';
+import {
+  copyBrokerPresetSecrets,
+  DUPLICATE_CREDENTIALS_FAILED,
+  reapBrokerPresetSecretsForItem,
+} from '../lib/brokerPresets';
 import { duplicateRequestItem, makeFolderItem, makeRequestItem } from '../lib/itemFactory';
 import {
   folderPathTo,
@@ -300,7 +304,9 @@ function Sidebar({ activePanel }: SidebarProps) {
       const dup = duplicateRequestItem(item, siblingNames(collectionId, parentId));
       addItemToCollection(collectionId, dup, parentId);
       // Kafka / MQTT presets: credentials follow the copy (#984).
-      void copyBrokerPresetSecrets([item], [dup]);
+      copyBrokerPresetSecrets([item], [dup]).catch(() => {
+        toast.error(DUPLICATE_CREDENTIALS_FAILED);
+      });
     },
     [addItemToCollection]
   );

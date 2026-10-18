@@ -77,6 +77,16 @@ describe('kafka {{var}} resolution (#984)', () => {
     });
   });
 
+  it('JSON-escapes a variable inside a JSON-mode key (#1130 review)', async () => {
+    await produceWithVariables(
+      { connectionId: id, topic: 't', key: '{"k":"{{quote}}"}', value: 'v', acks: 1 },
+      { keyJson: true },
+      scope
+    );
+    expect(produce).toHaveBeenCalledWith(expect.objectContaining({ key: '{"k":"a\\"b"}' }));
+    expect(JSON.parse(produce.mock.calls[0]![0].key as string)).toEqual({ k: 'a"b' });
+  });
+
   it('passes tombstones through and omits display when no secret was used', async () => {
     await produceWithVariables(
       { connectionId: id, topic: '{{nope}}', value: null, acks: 0 },

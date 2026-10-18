@@ -297,6 +297,8 @@ describe('KafkaClient orchestration', () => {
     expect(mocks.produce).toHaveBeenLastCalledWith(
       expect.objectContaining({ topic: 'orders', key: 'k-1', value: 'seeded' })
     );
+    // A successful send keeps the payload, so a later save-back keeps the template.
+    expect(getKafkaProduceDraft(connection.id)?.value).toBe('seeded');
     await user.click(screen.getByRole('button', { name: 'Configure structured record' }));
     expect(getKafkaProduceDraft(connection.id)).toMatchObject({
       value: '{"event":"created"}',
