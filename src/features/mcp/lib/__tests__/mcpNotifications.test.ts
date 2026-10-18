@@ -82,6 +82,12 @@ describe('classifyMcpNotification', () => {
       summary: '{"rows":3}',
       detail: '{"rows":3}',
     });
+    const long = classifyMcpNotification({
+      method: 'notifications/message',
+      params: { data: 'x'.repeat(500) },
+    });
+    expect(long?.summary).toHaveLength(200);
+    expect(long).toMatchObject({ detail: 'x'.repeat(500) });
     expect(classifyMcpNotification({ method: 'notifications/message', params: {} })?.summary).toBe(
       '(no data)'
     );

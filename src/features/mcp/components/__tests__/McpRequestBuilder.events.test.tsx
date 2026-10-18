@@ -19,11 +19,13 @@ vi.mock('@/features/mcp/components/McpConnectionPanel', () => ({
     onConnect,
     onDisconnect,
     onToggleCatalog,
+    onRefresh,
   }: {
     connection: McpConnection;
     onConnect: () => Promise<void>;
     onDisconnect: () => Promise<void>;
     onToggleCatalog: () => void;
+    onRefresh: () => Promise<void>;
   }) => (
     <div>
       <output aria-label="status">{connection.status}</output>
@@ -33,6 +35,9 @@ vi.mock('@/features/mcp/components/McpConnectionPanel', () => ({
       </button>
       <button type="button" onClick={() => void onDisconnect()}>
         Disconnect
+      </button>
+      <button type="button" onClick={() => void onRefresh()}>
+        Refresh
       </button>
       <button type="button" onClick={onToggleCatalog}>
         Browse
@@ -166,6 +171,14 @@ describe('McpRequestBuilder server events (desktop)', () => {
       'Connection closed: socket hang up'
     );
     expect(bridge.listenerCount()).toBe(0);
+  });
+
+  it('keeps delivering server events after a manual Refresh', async () => {
+    await connect();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await waitFor(() => expect(screen.getByLabelText('status')).toHaveTextContent('connected'));
+    act(() => bridge.emit(`mcp:close:${connectionId()}`, { reason: 'stream ended' }));
+    expect(screen.getByLabelText('status')).toHaveTextContent('error');
   });
 
   it('reports a clean server close as the reason', async () => {

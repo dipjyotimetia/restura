@@ -315,7 +315,9 @@ export default function McpRequestBuilder() {
     }
     // Subscribe BEFORE connect: main can emit during the handshake.
     useMcpNotificationStore.getState().resetSubscriptions(active.id);
-    attachServerEvents(active.id, isCurrent);
+    // Refresh bumps the generation but keeps the session, so events are keyed
+    // on session (client) identity rather than the discovery generation.
+    attachServerEvents(active.id, () => clientRef.current?.client === client);
     const open = await client.connect();
     if (!isCurrent()) return;
     if (!open.ok) {

@@ -116,13 +116,17 @@ export function classifyMcpNotification(raw: unknown): McpNotificationDraft | nu
       const level = str(params.level) ?? 'info';
       const logger = str(params.logger);
       const data = params.data;
-      const text = typeof data === 'string' ? data : truncateDetail(data);
+      const detail = truncateDetail(data);
+      const text = typeof data === 'string' ? data : detail;
+      const summary = `${logger ? `[${logger}] ` : ''}${text ?? '(no data)'}`;
       return {
         kind: 'log',
         method,
         level,
-        summary: `${logger ? `[${logger}] ` : ''}${text ?? '(no data)'}`.slice(0, 200),
-        ...(typeof data === 'string' ? {} : { detail: truncateDetail(data) }),
+        summary: summary.slice(0, 200),
+        ...(detail !== undefined && (typeof data !== 'string' || summary.length > 200)
+          ? { detail }
+          : {}),
       };
     }
     case 'notifications/resources/updated': {
