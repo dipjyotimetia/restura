@@ -59,7 +59,7 @@ export function parseUriTemplate(template: string): UriTemplatePart[] {
       break;
     }
     const body = template.slice(i + 1, end);
-    const first = body[0] ?? '';
+    const first = body.charAt(0);
     const operator = first !== '' && OPERATORS.includes(first) ? first : '';
     const specs = (operator ? body.slice(1) : body).split(',');
     const variables: UriTemplateVariable[] = [];
