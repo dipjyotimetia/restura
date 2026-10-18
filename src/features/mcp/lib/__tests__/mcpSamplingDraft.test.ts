@@ -157,4 +157,58 @@ describe('draftSamplingWithAi', () => {
       error: expect.stringContaining('desktop'),
     });
   });
+
+  it('sends only the fields the request and provider config carry', async () => {
+    useAiChatStore.setState({
+      activeProvider: 'openai-compatible',
+      providerConfigs: {
+        openai: null,
+        anthropic: null,
+        openrouter: null,
+        'openai-compatible': {
+          provider: 'openai-compatible',
+          defaultModel: 'local',
+          baseUrlOverride: 'http://localhost:11434/v1',
+        },
+      },
+    });
+    ai.chat.mockImplementationOnce(async (spec: { streamId: string }) => {
+      queueMicrotask(() => {
+        chunkListeners.get(spec.streamId)?.({ type: 'delta', text: 'ok' });
+        endListeners.get(spec.streamId)?.({ reason: 'done' });
+      });
+      return { ok: true, streamId: spec.streamId };
+    });
+    const view = describeSamplingRequest({
+      messages: [{ role: 'user', content: { type: 'text', text: 'q' } }],
+    });
+    await expect(draftSamplingWithAi(view)).resolves.toEqual({
+      ok: true,
+      text: 'ok',
+      model: 'local',
+    });
+    const spec = ai.chat.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(spec.baseUrlOverride).toBe('http://localhost:11434/v1');
+    expect(spec).not.toHaveProperty('apiKeyHandleId');
+    expect(spec).not.toHaveProperty('maxOutputTokens');
+    expect(spec.messages).toEqual([{ role: 'user', content: 'q' }]);
+  });
+});
+
+describe('describeSamplingRequest edge cases', () => {
+  it('tolerates malformed messages and content blocks', () => {
+    expect(
+      describeSamplingRequest({
+        messages: [null, { role: 'user', content: [null, { type: 'audio' }, {}] }],
+        modelPreferences: { hints: 'nope' },
+      })
+    ).toEqual({
+      messages: [
+        { role: 'user', text: '' },
+        { role: 'user', text: '\n[audio content omitted]\n[unknown content omitted]' },
+      ],
+      modelHints: [],
+      priorities: [],
+    });
+  });
 });

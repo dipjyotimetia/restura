@@ -250,3 +250,70 @@ describe('McpRootsPanel', () => {
     expect(await screen.findByText('Not allowed')).toBeInTheDocument();
   });
 });
+
+describe('McpClientRequestDialog — edge cases', () => {
+  it('falls back for malformed elicitation params and never submits without a form', () => {
+    render(<McpClientRequestDialog connectionId="conn-1" />);
+    queue('elicitation', null, ELICIT_ID);
+    expect(screen.getByText('The server is requesting input.')).toBeInTheDocument();
+    const form = screen.getByRole('button', { name: 'Accept' }).closest('form');
+    if (!form) throw new Error('form missing');
+    fireEvent.submit(form);
+    expect(mcp.respondClientRequest).not.toHaveBeenCalled();
+  });
+
+  it('shows a form-level error when main rejects without field errors', async () => {
+    mcp.respondClientRequest.mockResolvedValueOnce({ success: false, error: 'Bridge gone' });
+    render(<McpClientRequestDialog connectionId="conn-1" />);
+    queue('elicitation', { message: 'm', requestedSchema: { properties: {} } }, ELICIT_ID);
+    fireEvent.click(screen.getByRole('button', { name: 'Decline' }));
+    expect(await screen.findByText('Bridge gone')).toBeInTheDocument();
+  });
+
+  it('dismissing a sampling prompt rejects it and shows request settings', async () => {
+    render(<McpClientRequestDialog connectionId="conn-1" />);
+    queue('sampling', { messages: [], temperature: 0.7, includeContext: 'none' }, SAMPLE_ID);
+    expect(screen.getByText('temperature: 0.7')).toBeInTheDocument();
+    expect(screen.getByText('includeContext: none')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await waitFor(() =>
+      expect(mcp.respondClientRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ kind: 'sampling', response: { action: 'reject' } })
+      )
+    );
+  });
+
+  it('surfaces an AI draft failure without touching the response', async () => {
+    const ai = {
+      chat: vi.fn(async () => ({ ok: false, error: 'no key' })),
+      onChunk: vi.fn(() => () => undefined),
+      onEnd: vi.fn(() => () => undefined),
+    };
+    (window as unknown as { electron: unknown }).electron = { isElectron: true, mcp, ai };
+    useAiChatStore.setState({
+      activeProvider: 'openai',
+      providerConfigs: {
+        openai: { provider: 'openai', defaultModel: 'gpt-test' },
+        anthropic: null,
+        openrouter: null,
+        'openai-compatible': null,
+      },
+    });
+    render(<McpClientRequestDialog connectionId="conn-1" />);
+    queue('sampling', { messages: [] }, SAMPLE_ID);
+    fireEvent.click(screen.getByRole('button', { name: /Draft with gpt-test/ }));
+    expect(await screen.findByText('no key')).toBeInTheDocument();
+    expect(screen.getByLabelText('Sampling response')).toHaveValue('');
+  });
+
+  it('roots panel edits only the targeted row', async () => {
+    const onSave = vi.fn(async () => ({ ok: true as const }));
+    render(<McpRootsPanel roots={[{ uri: 'file:///a' }, { uri: 'file:///b' }]} onSave={onSave} />);
+    fireEvent.click(screen.getByRole('button', { name: /Roots/ }));
+    fireEvent.change(screen.getByLabelText('Root 2 name'), { target: { value: 'b' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save roots' }));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith([{ uri: 'file:///a' }, { uri: 'file:///b', name: 'b' }])
+    );
+  });
+});

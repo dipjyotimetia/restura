@@ -77,4 +77,38 @@ describe('buildElicitationContent', () => {
       },
     });
   });
+
+  it('reports a parse error even when the remaining content is schema-valid', () => {
+    expect(buildElicitationContent(schema, fields, { confirm: 'true', count: 'x' })).toEqual({
+      ok: false,
+      errors: { count: 'Enter a valid integer.' },
+    });
+  });
+});
+
+describe('buildElicitationForm edge cases', () => {
+  it('defaults untyped properties to string and reads titled multi-select options', () => {
+    expect(
+      buildElicitationForm({
+        properties: {
+          free: {},
+          pick: { type: 'array', items: { anyOf: [{ const: 'x', title: 'X' }] } },
+          flag: { type: 'boolean', default: true },
+        },
+      })
+    ).toEqual({
+      fields: [
+        { name: 'free', type: 'string', required: false, isComplex: false },
+        {
+          name: 'pick',
+          type: 'array',
+          required: false,
+          isComplex: true,
+          description: 'One of: x',
+        },
+        { name: 'flag', type: 'boolean', required: false, isComplex: false },
+      ],
+      initialValues: { flag: 'true' },
+    });
+  });
 });

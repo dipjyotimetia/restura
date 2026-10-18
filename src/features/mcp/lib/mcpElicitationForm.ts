@@ -26,7 +26,7 @@ function describeChoices(values: unknown[]): string {
 export function buildElicitationForm(requestedSchema: unknown): ElicitationFormModel | null {
   const schema = parseElicitationSchema(requestedSchema);
   if (!schema) return null;
-  const required = new Set(schema.required ?? []);
+  const required = new Set(schema.required);
   const fields: McpArgumentField[] = [];
   const initialValues: Record<string, string> = {};
   for (const [name, prop] of Object.entries(schema.properties)) {

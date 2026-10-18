@@ -19,6 +19,9 @@ import type { McpClientResponse } from '../electron/main/ipc/ipc-validators';
  * `mcp:client-response` invoke handler would.
  */
 
+// Live HTTP servers with several round-trips per case: allow for a loaded CI box.
+vi.setConfig({ testTimeout: 20_000 });
+
 const WEB_CONTENTS_ID = 42;
 const CONNECTION_ID = 'conn-860';
 

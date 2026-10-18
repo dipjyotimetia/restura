@@ -179,4 +179,37 @@ describe('roots', () => {
     expect(isValidRootUri('https://a')).toBe(false);
     expect(isValidRootUri('not a uri')).toBe(false);
   });
+
+  it('stringifies non-Error IPC failures', async () => {
+    mcp.setRoots.mockRejectedValueOnce('boom');
+    await expect(pushMcpRoots('conn-1', [])).resolves.toEqual({ ok: false, error: 'boom' });
+    mcp.respondClientRequest.mockRejectedValueOnce('bad');
+    await expect(
+      respondToElicitation(
+        {
+          requestId: REQUEST_ID,
+          connectionId: 'conn-1',
+          kind: 'elicitation',
+          params: {},
+          receivedAt: 0,
+        },
+        { action: 'cancel' }
+      )
+    ).resolves.toEqual({ ok: false, error: 'bad' });
+  });
+});
+
+describe('useMcpClientRequestStore', () => {
+  it('ignores duplicate request ids', () => {
+    const request = {
+      requestId: REQUEST_ID,
+      connectionId: 'conn-1',
+      kind: 'sampling' as const,
+      params: {},
+      receivedAt: 0,
+    };
+    useMcpClientRequestStore.getState().add(request);
+    useMcpClientRequestStore.getState().add({ ...request, receivedAt: 1 });
+    expect(useMcpClientRequestStore.getState().requests).toEqual([request]);
+  });
 });
