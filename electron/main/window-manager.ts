@@ -1,14 +1,14 @@
+import { createLogger } from '@shared/runtime/logger';
 import { app, BrowserWindow, ipcMain, Menu, shell } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { z } from 'zod';
-import { createLogger } from '@shared/runtime/logger';
 import { IPC } from '../shared/channels';
 import { gitRateLimiter } from './handlers/git-handler';
 import { grpcRateLimiter } from './handlers/grpc-handler';
 import { httpRateLimiter } from './handlers/http-handler';
 import { kafkaRateLimiter } from './handlers/kafka-handler';
-import { mcpRateLimiter } from './handlers/mcp-handler';
+import { mcpCancelRateLimiter, mcpRateLimiter } from './handlers/mcp-handler';
 import { mqttRateLimiter } from './handlers/mqtt-handler';
 import { socketIoRateLimiter } from './handlers/socketio-handler';
 import { sseRateLimiter } from './handlers/sse-handler';
@@ -225,6 +225,7 @@ export function createMainWindow(isDev: boolean): BrowserWindow {
       socketIoRateLimiter,
       sseRateLimiter,
       mcpRateLimiter,
+      mcpCancelRateLimiter,
       kafkaRateLimiter,
       mqttRateLimiter,
       gitRateLimiter,
