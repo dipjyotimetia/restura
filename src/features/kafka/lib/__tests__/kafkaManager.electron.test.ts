@@ -314,7 +314,11 @@ describe('kafkaManager (Electron path)', () => {
         skipped: [{ topic: 'orders', partition: 1, reason: 'no-committed-offset' }],
       });
     kafka.deleteGroupOffsets
-      .mockResolvedValueOnce({ success: true, deleted: [{ topic: 'orders', partitions: [0] }] })
+      .mockResolvedValueOnce({
+        success: true,
+        deleted: [{ topic: 'orders', partitions: [0] }],
+        skipped: [{ topic: 'gone', partition: 0, reason: 'unknown-topic' }],
+      })
       .mockResolvedValueOnce({ success: true })
       .mockResolvedValueOnce({ success: false });
     kafka.deleteGroup
@@ -405,8 +409,13 @@ describe('kafkaManager (Electron path)', () => {
     await expect(kafkaManager.deleteGroupOffsets(del)).resolves.toEqual({
       ok: true,
       deleted: [{ topic: 'orders', partitions: [0] }],
+      skipped: [{ topic: 'gone', partition: 0, reason: 'unknown-topic' }],
     });
-    await expect(kafkaManager.deleteGroupOffsets(del)).resolves.toEqual({ ok: true, deleted: [] });
+    await expect(kafkaManager.deleteGroupOffsets(del)).resolves.toEqual({
+      ok: true,
+      deleted: [],
+      skipped: [],
+    });
     await expect(kafkaManager.deleteGroupOffsets(del)).resolves.toEqual({
       ok: false,
       error: 'Delete offsets failed',

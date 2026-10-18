@@ -71,6 +71,7 @@ describe('KafkaOffsetResetPanel', () => {
     manager.deleteGroupOffsets.mockResolvedValue({
       ok: true,
       deleted: [{ topic: 'audit', partitions: [0] }],
+      skipped: [],
     });
   });
 
@@ -106,7 +107,7 @@ describe('KafkaOffsetResetPanel', () => {
       })
     );
     expect(await screen.findByText(/Preview \(not applied\)/)).toBeVisible();
-    expect(screen.getByText(/1 skipped \(no committed offset\): orders\/P1/)).toBeVisible();
+    expect(screen.getByText(/1 skipped: orders\/P1 \(no committed offset\)/)).toBeVisible();
     expect(screen.getByText('clamped to earliest')).toBeVisible();
     expect(onChanged).not.toHaveBeenCalled();
 
@@ -139,7 +140,7 @@ describe('KafkaOffsetResetPanel', () => {
     const input = screen.getByLabelText('Reset date/time');
     await user.type(input, '2026-01-02T03:04:05');
     await user.click(screen.getByRole('button', { name: 'Reset' }));
-    await user.click(screen.getByRole('button', { name: 'Confirm reset' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm reset (orders)' }));
     await waitFor(() =>
       expect(manager.resetGroupOffsets).toHaveBeenCalledWith({
         connectionId: 'c1',
@@ -168,6 +169,49 @@ describe('KafkaOffsetResetPanel', () => {
     expect(onChanged).toHaveBeenCalledOnce();
   });
 
+  it('reports deleted topics skipped by an all-topics delete', async () => {
+    manager.deleteGroupOffsets.mockResolvedValueOnce({
+      ok: true,
+      deleted: [{ topic: 'audit', partitions: [0] }],
+      skipped: [{ topic: 'gone', partition: 0, reason: 'unknown-topic' }],
+    });
+    const user = userEvent.setup();
+    renderPanel();
+    await user.selectOptions(screen.getAllByRole('combobox')[0]!, '*');
+    await user.click(screen.getByRole('button', { name: /Delete offsets/ }));
+    await user.click(
+      screen.getByRole('button', { name: /Confirm delete offsets \(all committed topics\)/ })
+    );
+    expect(
+      await screen.findByText(
+        'Deleted committed offsets for 1 partition(s); skipped 1 on deleted topics.'
+      )
+    ).toBeVisible();
+  });
+
+  it('clears applied results and delete notes when the scope or target changes', async () => {
+    manager.resetGroupOffsets.mockResolvedValueOnce({
+      ok: true,
+      offsets: [{ topic: 'audit', partition: 0, previous: '2', offset: '4' }],
+      skipped: [],
+      dryRun: false,
+    });
+    const user = userEvent.setup();
+    renderPanel();
+    const [scope, target] = screen.getAllByRole('combobox');
+    await user.click(screen.getByRole('button', { name: 'Reset' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm reset (audit)' }));
+    expect(await screen.findByText(/Applied/)).toBeVisible();
+    await user.selectOptions(target!, 'earliest');
+    expect(screen.queryByTestId('kafka-offset-outcome')).toBeNull();
+
+    await user.click(screen.getByRole('button', { name: /Delete offsets/ }));
+    await user.click(screen.getByRole('button', { name: /Confirm delete offsets/ }));
+    expect(await screen.findByText(/Deleted committed offsets/)).toBeVisible();
+    await user.selectOptions(scope!, 'orders');
+    expect(screen.queryByText(/Deleted committed offsets/)).toBeNull();
+  });
+
   it('cancels pending confirmations without mutating', async () => {
     const user = userEvent.setup();
     renderPanel();
@@ -186,10 +230,10 @@ describe('KafkaOffsetResetPanel', () => {
     renderPanel();
     const [scope, target] = screen.getAllByRole('combobox');
     await user.selectOptions(target!, 'specific');
-    expect(screen.getByTitle('Offset for partition 0')).toHaveValue('2');
+    expect(screen.getByLabelText('Offset for partition 0')).toHaveValue('2');
     await user.selectOptions(scope!, '*');
     expect(target).toHaveValue('latest');
-    expect(screen.queryByTitle('Offset for partition 0')).toBeNull();
+    expect(screen.queryByLabelText('Offset for partition 0')).toBeNull();
   });
 
   it('does not refresh or show an outcome when the mutations fail', async () => {

@@ -13,6 +13,10 @@ import type {
  * Semantics (mirrors `kafka-consumer-groups.sh --reset-offsets` where sensible):
  * - Scope: a single `topic` covers every partition of that topic (metadata);
  *   `allTopics` covers every topic/partition the group has a committed offset for.
+ *   Committed topics that no longer exist on the cluster are skipped and reported
+ *   (`unknown-topic`) rather than failing the whole batch.
+ * - A partition the broker leaves out of a ListOffsets response is an error, never
+ *   a silent reset to 0.
  * - `timestamp`: ListOffsets with the epoch-ms timestamp → the earliest offset whose
  *   record timestamp is >= it. When the broker reports -1 (no such record) the
  *   partition falls back to the latest offset (note `timestamp-fallback-latest`).
@@ -29,6 +33,7 @@ export type OffsetAdmin = Pick<
   | 'describeGroups'
   | 'listConsumerGroupOffsets'
   | 'listOffsets'
+  | 'listTopics'
   | 'metadata'
   | 'alterConsumerGroupOffsets'
   | 'deleteConsumerGroupOffsets'
@@ -117,6 +122,29 @@ function committedScope(committed: Committed): Scope {
   );
 }
 
+/**
+ * Drop committed topics that have since been deleted from the cluster (ListOffets /
+ * OffsetDelete would fail the whole request on them), recording them as skipped.
+ */
+async function dropDeletedTopics(
+  admin: OffsetAdmin,
+  scope: Scope,
+  skipped: OffsetResetSkip[]
+): Promise<void> {
+  const existing = new Set(await admin.listTopics({ includeInternals: true }));
+  for (const [topic, partitions] of scope) {
+    if (existing.has(topic)) continue;
+    for (const partition of partitions) skipped.push({ topic, partition, reason: 'unknown-topic' });
+    scope.delete(topic);
+  }
+}
+
+const offsetAt = (offsets: Map<string, bigint>, topic: string, partition: number): bigint => {
+  const offset = offsets.get(`${topic}/${partition}`);
+  if (offset === undefined) throw new Error(`Missing offset for ${topic}-${partition}`);
+  return offset;
+};
+
 async function topicPartitions(admin: OffsetAdmin, topic: string): Promise<number[]> {
   const metadata = await admin.metadata({
     topics: [topic],
@@ -148,6 +176,11 @@ async function listAt(
   return offsets;
 }
 
+const noCommitsOnExistingTopics = (groupId: string): Error =>
+  new Error(
+    `Consumer group "${groupId}" has no committed offsets for existing topics (all committed topics were deleted).`
+  );
+
 const noCommits = (groupId: string, topic?: string): Error =>
   new Error(
     `Consumer group "${groupId}" has no committed offsets${topic ? ` for topic "${topic}"` : ''}.`
@@ -175,15 +208,17 @@ export async function planOffsetReset(
     };
   }
 
+  const skipped: OffsetResetSkip[] = [];
   let scope: Scope;
   if (cfg.allTopics) {
     scope = committedScope(committed);
     if (scope.size === 0) throw noCommits(cfg.groupId);
+    await dropDeletedTopics(admin, scope, skipped);
+    if (scope.size === 0) throw noCommitsOnExistingTopics(cfg.groupId);
   } else {
     scope = new Map([[cfg.topic!, await topicPartitions(admin, cfg.topic!)]]);
   }
 
-  const skipped: OffsetResetSkip[] = [];
   if (cfg.to === 'shift') {
     // Only partitions with a committed offset can be shifted.
     for (const [topic, partitions] of scope) {
@@ -209,25 +244,24 @@ export async function planOffsetReset(
   const offsets: OffsetResetRow[] = [];
   for (const [topic, partitions] of scope) {
     for (const partition of partitions) {
-      const key = `${topic}/${partition}`;
       const previous = previousOf(topic, partition);
       let target: { offset: bigint; note?: OffsetResetNote };
       if (cfg.to === 'earliest') {
-        target = { offset: earliest!.get(key) ?? 0n };
+        target = { offset: offsetAt(earliest!, topic, partition) };
       } else if (cfg.to === 'latest') {
-        target = { offset: latest!.get(key) ?? 0n };
+        target = { offset: offsetAt(latest!, topic, partition) };
       } else if (cfg.to === 'timestamp') {
-        const found = atTimestamp!.get(key) ?? -1n;
+        const found = offsetAt(atTimestamp!, topic, partition);
         target =
           found >= 0n
             ? { offset: found }
-            : { offset: latest!.get(key) ?? 0n, note: 'timestamp-fallback-latest' };
+            : { offset: offsetAt(latest!, topic, partition), note: 'timestamp-fallback-latest' };
       } else {
         target = clampShift(
           committed.get(topic)!.get(partition)!,
           BigInt(cfg.shift!),
-          earliest!.get(key) ?? 0n,
-          latest!.get(key) ?? 0n
+          offsetAt(earliest!, topic, partition),
+          offsetAt(latest!, topic, partition)
         );
       }
       offsets.push({
@@ -268,19 +302,26 @@ export async function resetGroupOffsets(
 export async function deleteGroupOffsets(
   admin: OffsetAdmin,
   cfg: KafkaDeleteGroupOffsetsConfig
-): Promise<{ deleted: { topic: string; partitions: number[] }[] }> {
+): Promise<{ deleted: { topic: string; partitions: number[] }[]; skipped: OffsetResetSkip[] }> {
   await assertGroupInactive(admin, cfg.groupId, 'delete offsets for');
   const scope = committedScope(await readCommitted(admin, cfg.groupId));
+  const skipped: OffsetResetSkip[] = [];
   let topics: { name: string; partitionIndexes: number[] }[];
   if (cfg.allTopics) {
+    if (scope.size > 0) await dropDeletedTopics(admin, scope, skipped);
     topics = Array.from(scope, ([name, partitionIndexes]) => ({ name, partitionIndexes }));
   } else {
     const partitionIndexes = cfg.partitions ?? scope.get(cfg.topic!) ?? [];
     topics = partitionIndexes.length > 0 ? [{ name: cfg.topic!, partitionIndexes }] : [];
   }
-  if (topics.length === 0) throw noCommits(cfg.groupId, cfg.topic);
+  if (topics.length === 0) {
+    throw skipped.length > 0
+      ? noCommitsOnExistingTopics(cfg.groupId)
+      : noCommits(cfg.groupId, cfg.topic);
+  }
   const deleted = await admin.deleteConsumerGroupOffsets({ groupId: cfg.groupId, topics });
   return {
     deleted: deleted.map((topic) => ({ topic: topic.name, partitions: topic.partitionIndexes })),
+    skipped,
   };
 }

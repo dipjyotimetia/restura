@@ -22,6 +22,10 @@ interface FakeOpts {
   watermarks?: Watermarks;
   /** offsets returned for a positive timestamp lookup, per topic/partition (-1n = none). */
   byTimestamp?: Record<string, Record<number, bigint>>;
+  /** Topics that still exist on the cluster (default: every committed/partitioned topic). */
+  existingTopics?: string[];
+  /** `topic/partition` keys the broker leaves out of ListOffsets responses. */
+  omitFromListOffsets?: string[];
 }
 
 function fakeAdmin(opts: FakeOpts = {}) {
@@ -46,6 +50,12 @@ function fakeAdmin(opts: FakeOpts = {}) {
         })),
       },
     ]),
+    listTopics: vi.fn(
+      async () =>
+        opts.existingTopics ?? [
+          ...new Set([...Object.keys(opts.committed ?? {}), ...Object.keys(opts.partitions ?? {})]),
+        ]
+    ),
     metadata: vi.fn(async ({ topics }: { topics: string[] }) => ({
       topics: new Map(
         topics
@@ -59,19 +69,32 @@ function fakeAdmin(opts: FakeOpts = {}) {
       }: {
         topics: { name: string; partitions: { partitionIndex: number; timestamp: bigint }[] }[];
       }) =>
-        topics.map((topic) => ({
-          name: topic.name,
-          partitions: topic.partitions.map(({ partitionIndex, timestamp }) => {
-            const marks = watermarks[topic.name]?.[partitionIndex] ?? { earliest: 0n, latest: 0n };
-            const offset =
-              timestamp === EARLIEST
-                ? marks.earliest
-                : timestamp === LATEST
-                  ? marks.latest
-                  : (opts.byTimestamp?.[topic.name]?.[partitionIndex] ?? -1n);
-            return { partitionIndex, offset, timestamp, leaderEpoch: 0 };
-          }),
-        }))
+        topics.map((topic) => {
+          if (opts.existingTopics && !opts.existingTopics.includes(topic.name)) {
+            throw new Error(`Unknown topic ${topic.name}`);
+          }
+          return {
+            name: topic.name,
+            partitions: topic.partitions
+              .filter(
+                ({ partitionIndex }) =>
+                  !opts.omitFromListOffsets?.includes(`${topic.name}/${partitionIndex}`)
+              )
+              .map(({ partitionIndex, timestamp }) => {
+                const marks = watermarks[topic.name]?.[partitionIndex] ?? {
+                  earliest: 0n,
+                  latest: 0n,
+                };
+                const offset =
+                  timestamp === EARLIEST
+                    ? marks.earliest
+                    : timestamp === LATEST
+                      ? marks.latest
+                      : (opts.byTimestamp?.[topic.name]?.[partitionIndex] ?? -1n);
+                return { partitionIndex, offset, timestamp, leaderEpoch: 0 };
+              }),
+          };
+        })
     ),
     alterConsumerGroupOffsets: vi.fn(async () => undefined),
     deleteConsumerGroupOffsets: vi.fn(
@@ -114,6 +137,14 @@ describe('Kafka offset reset — schema', () => {
     expect(
       ok({ allTopics: true, to: 'specific', partitions: [{ partition: 0, offset: '1' }] })
     ).toBe(false);
+  });
+
+  it('caps specific offsets at the int64 maximum', () => {
+    const specific = (offset: string) =>
+      ok({ topic: 'orders', to: 'specific', partitions: [{ partition: 0, offset }] });
+    expect(specific('9223372036854775807')).toBe(true);
+    expect(specific('9223372036854775808')).toBe(false);
+    expect(specific('99999999999999999999')).toBe(false);
   });
 
   it('validates delete-offsets scope', () => {
@@ -293,6 +324,7 @@ describe('resetGroupOffsets', () => {
       to: 'latest',
     });
     expect(admin.metadata).not.toHaveBeenCalled();
+    expect(result.skipped).toEqual([]);
     expect(result.offsets).toEqual([
       { topic: 'audit', partition: 0, previous: '3', offset: '7' },
       { topic: 'orders', partition: 0, previous: '50', offset: '100' },
@@ -303,6 +335,119 @@ describe('resetGroupOffsets', () => {
         { name: 'audit', partitionOffsets: [{ partition: 0, offset: 7n }] },
         { name: 'orders', partitionOffsets: [{ partition: 0, offset: 100n }] },
       ],
+    });
+  });
+
+  it('throws instead of defaulting to 0 when the broker omits a partition offset', async () => {
+    for (const to of ['earliest', 'latest', 'timestamp', 'shift'] as const) {
+      const admin = fakeAdmin({
+        partitions: { orders: 2 },
+        committed: { orders: { 0: 50n, 1: 20n } },
+        watermarks,
+        byTimestamp: { orders: { 0: 42n } },
+        omitFromListOffsets: ['orders/1'],
+      });
+      await expect(
+        resetGroupOffsets(admin, TIMESTAMPS, {
+          ...base,
+          topic: 'orders',
+          to,
+          timestamp: 1,
+          shift: 1,
+        })
+      ).rejects.toThrow('Missing offset for orders-1');
+      expect(admin.alterConsumerGroupOffsets).not.toHaveBeenCalled();
+    }
+  });
+
+  it('skips committed topics that no longer exist when resetting all topics', async () => {
+    const admin = fakeAdmin({
+      committed: { orders: { 0: 50n }, gone: { 0: 3n, 1: 4n } },
+      existingTopics: ['orders'],
+      watermarks,
+    });
+    const result = await resetGroupOffsets(admin, TIMESTAMPS, {
+      ...base,
+      allTopics: true,
+      to: 'latest',
+    });
+    expect(result.offsets).toEqual([
+      { topic: 'orders', partition: 0, previous: '50', offset: '100' },
+    ]);
+    expect(result.skipped).toEqual([
+      { topic: 'gone', partition: 0, reason: 'unknown-topic' },
+      { topic: 'gone', partition: 1, reason: 'unknown-topic' },
+    ]);
+    expect(admin.alterConsumerGroupOffsets).toHaveBeenCalledWith({
+      groupId: 'g',
+      topics: [{ name: 'orders', partitionOffsets: [{ partition: 0, offset: 100n }] }],
+    });
+  });
+
+  it('errors when every committed topic has been deleted', async () => {
+    const admin = fakeAdmin({ committed: { gone: { 0: 3n } }, existingTopics: [] });
+    await expect(
+      resetGroupOffsets(admin, TIMESTAMPS, { ...base, allTopics: true, to: 'earliest' })
+    ).rejects.toThrow(/no committed offsets for existing topics/i);
+  });
+
+  it('resets all topics to a timestamp with per-partition fallback', async () => {
+    const admin = fakeAdmin({
+      committed: { orders: { 0: 50n, 1: 5n }, audit: { 0: 3n } },
+      watermarks,
+      byTimestamp: { orders: { 0: 60n, 1: -1n }, audit: { 0: 1n } },
+    });
+    const result = await resetGroupOffsets(admin, TIMESTAMPS, {
+      ...base,
+      allTopics: true,
+      to: 'timestamp',
+      timestamp: 1_700_000_000_000,
+    });
+    expect(result.offsets).toEqual([
+      { topic: 'audit', partition: 0, previous: '3', offset: '1' },
+      { topic: 'orders', partition: 0, previous: '50', offset: '60' },
+      {
+        topic: 'orders',
+        partition: 1,
+        previous: '5',
+        offset: '40',
+        note: 'timestamp-fallback-latest',
+      },
+    ]);
+  });
+
+  it('keeps offsets above 2^53 exact through shift', async () => {
+    const big = 9_007_199_254_740_993n; // 2^53 + 1 — not representable as a double
+    const admin = fakeAdmin({
+      partitions: { huge: 1 },
+      committed: { huge: { 0: big } },
+      watermarks: { huge: { 0: { earliest: big - 10n, latest: big + 1n } } },
+    });
+    const plusOne = await resetGroupOffsets(admin, TIMESTAMPS, {
+      ...base,
+      topic: 'huge',
+      to: 'shift',
+      shift: 1,
+    });
+    expect(plusOne.offsets[0]).toEqual({
+      topic: 'huge',
+      partition: 0,
+      previous: '9007199254740993',
+      offset: '9007199254740994',
+    });
+    expect(admin.alterConsumerGroupOffsets).toHaveBeenLastCalledWith({
+      groupId: 'g',
+      topics: [{ name: 'huge', partitionOffsets: [{ partition: 0, offset: big + 1n }] }],
+    });
+    const plusTwo = await resetGroupOffsets(admin, TIMESTAMPS, {
+      ...base,
+      topic: 'huge',
+      to: 'shift',
+      shift: 2,
+    });
+    expect(plusTwo.offsets[0]).toMatchObject({
+      offset: '9007199254740994',
+      note: 'clamped-latest',
     });
   });
 
@@ -379,6 +524,19 @@ describe('deleteGroupOffsets', () => {
         { name: 'orders', partitionIndexes: [0] },
       ],
     });
+  });
+
+  it('skips deleted topics when deleting offsets for all topics', async () => {
+    const admin = fakeAdmin({
+      committed: { orders: { 0: 1n }, gone: { 0: 2n } },
+      existingTopics: ['orders'],
+    });
+    const result = await deleteGroupOffsets(admin, { ...base, allTopics: true });
+    expect(admin.deleteConsumerGroupOffsets).toHaveBeenCalledWith({
+      groupId: 'g',
+      topics: [{ name: 'orders', partitionIndexes: [0] }],
+    });
+    expect(result.skipped).toEqual([{ topic: 'gone', partition: 0, reason: 'unknown-topic' }]);
   });
 
   it('errors when there is nothing committed to delete', async () => {

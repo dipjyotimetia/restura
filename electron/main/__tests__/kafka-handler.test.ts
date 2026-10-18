@@ -720,7 +720,11 @@ describe('kafka-handler', () => {
       groupId: 'g',
       topic: 'orders',
     });
-    expect(deleted).toEqual({ success: true, deleted: [{ topic: 'orders', partitions: [0] }] });
+    expect(deleted).toEqual({
+      success: true,
+      deleted: [{ topic: 'orders', partitions: [0] }],
+      skipped: [],
+    });
     expect(FakeAdmin.instances.at(-1)!.deleteConsumerGroupOffsets).toHaveBeenCalledWith({
       groupId: 'g',
       topics: [{ name: 'orders', partitionIndexes: [0] }],

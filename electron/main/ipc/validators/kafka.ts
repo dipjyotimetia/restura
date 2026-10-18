@@ -236,7 +236,16 @@ export const KafkaTransactionEndSchema = z.object({
 const KafkaPartitionOffsetSchema = z.object({
   topic: KafkaTopicSchema,
   partition: z.number().int().nonnegative().max(2_147_483_647),
-  offset: z.string().min(1).max(20).regex(/^\d+$/, 'Offset must be a non-negative integer string'),
+  offset: z
+    .string()
+    .min(1)
+    .max(20)
+    .regex(/^\d+$/, 'Offset must be a non-negative integer string')
+    .refine(
+      // Only meaningful once the regex passed (zod v4 runs every check).
+      (v) => !/^\d+$/.test(v) || BigInt(v) <= 9_223_372_036_854_775_807n,
+      'Offset exceeds the int64 maximum'
+    ),
 });
 
 // Consumer-group id — reused by subscribe and the group admin ops.

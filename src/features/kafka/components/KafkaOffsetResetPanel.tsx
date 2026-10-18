@@ -34,6 +34,11 @@ const TARGET_LABELS: Record<KafkaOffsetResetTarget, string> = {
   shift: 'shift by ±N',
 };
 
+const SKIP_LABELS: Record<KafkaOffsetResetSkip['reason'], string> = {
+  'no-committed-offset': 'no committed offset',
+  'unknown-topic': 'topic deleted',
+};
+
 const NOTE_LABELS: Record<NonNullable<KafkaOffsetResetRow['note']>, string> = {
   'timestamp-fallback-latest': 'no record at/after time → latest',
   'clamped-earliest': 'clamped to earliest',
@@ -107,6 +112,21 @@ export function KafkaOffsetResetPanel({
     );
   }, [scopePartitions]);
 
+  // Choosing a different scope or target discards any shown result. (User-driven
+  // only: the scope effect above also fires when a refresh drops a topic.)
+  const clearResults = (): void => {
+    setOutcome(null);
+    setDeletedNote(null);
+  };
+  const changeScope = (value: string): void => {
+    clearResults();
+    setScope(value);
+  };
+  const changeTarget = (value: string): void => {
+    clearResults();
+    setTo(value as KafkaOffsetResetTarget);
+  };
+
   // Any input change invalidates a pending confirmation and a stale preview.
   useEffect(() => {
     setConfirm(null);
@@ -170,7 +190,9 @@ export function KafkaOffsetResetPanel({
     );
     if (!result.ok) return;
     const count = result.deleted.reduce((sum, t) => sum + t.partitions.length, 0);
-    setDeletedNote(`Deleted committed offsets for ${count} partition(s).`);
+    const skippedNote =
+      result.skipped.length > 0 ? `; skipped ${result.skipped.length} on deleted topics` : '';
+    setDeletedNote(`Deleted committed offsets for ${count} partition(s)${skippedNote}.`);
     await onChanged();
   };
 
@@ -181,7 +203,7 @@ export function KafkaOffsetResetPanel({
     <div className="space-y-2 rounded-sp-btn border border-sp-line p-2">
       <Label className="text-xs sp-label">Reset offsets</Label>
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={scope} onValueChange={setScope}>
+        <Select value={scope} onValueChange={changeScope}>
           <SelectTrigger className="h-8 w-44 text-xs font-mono" aria-label="Reset scope">
             <SelectValue placeholder="topic" />
           </SelectTrigger>
@@ -196,7 +218,7 @@ export function KafkaOffsetResetPanel({
             ))}
           </SelectContent>
         </Select>
-        <Select value={to} onValueChange={(v) => setTo(v as KafkaOffsetResetTarget)}>
+        <Select value={to} onValueChange={changeTarget}>
           <SelectTrigger className="h-8 w-36 text-xs" aria-label="Reset target">
             <SelectValue />
           </SelectTrigger>
@@ -222,6 +244,7 @@ export function KafkaOffsetResetPanel({
               placeholder={`P${offset.partition} offset`}
               className="h-8 w-28 text-xs font-mono"
               title={`Offset for partition ${offset.partition}`}
+              aria-label={`Offset for partition ${offset.partition}`}
             />
           ))}
         {to === 'timestamp' && (
@@ -262,7 +285,7 @@ export function KafkaOffsetResetPanel({
               onClick={() => void submitReset(false)}
               disabled={busy}
             >
-              {allTopics ? 'Confirm reset (all topics)' : 'Confirm reset'}
+              {allTopics ? 'Confirm reset (all topics)' : `Confirm reset (${scope})`}
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setConfirm(null)}>
               Cancel
@@ -320,8 +343,8 @@ function OffsetOutcomeTable({ outcome }: { outcome: Outcome }) {
         {outcome.kind === 'preview' ? 'Preview (not applied)' : 'Applied'} —{' '}
         {outcome.offsets.length} partition(s)
         {outcome.skipped.length > 0 &&
-          `, ${outcome.skipped.length} skipped (no committed offset): ${outcome.skipped
-            .map((s) => `${s.topic}/P${s.partition}`)
+          `, ${outcome.skipped.length} skipped: ${outcome.skipped
+            .map((s) => `${s.topic}/P${s.partition} (${SKIP_LABELS[s.reason]})`)
             .join(', ')}`}
       </span>
       {outcome.offsets.length > 0 && (

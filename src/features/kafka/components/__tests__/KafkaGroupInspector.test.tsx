@@ -91,14 +91,14 @@ describe('KafkaGroupInspector', () => {
 
     const resetMode = screen.getAllByRole('combobox')[1]!;
     await user.selectOptions(resetMode, 'specific');
-    const offsetInput = screen.getByTitle('Offset for partition 0');
+    const offsetInput = screen.getByLabelText('Offset for partition 0');
     await user.clear(offsetInput);
     await user.type(offsetInput, 'invalid');
     expect(screen.getByRole('button', { name: 'Reset' })).toBeDisabled();
     await user.clear(offsetInput);
     await user.type(offsetInput, '3');
     await user.click(screen.getByRole('button', { name: 'Reset' }));
-    await user.click(screen.getByRole('button', { name: 'Confirm reset' }));
+    await user.click(screen.getByRole('button', { name: 'Confirm reset (orders)' }));
     await waitFor(() =>
       expect(manager.resetGroupOffsets).toHaveBeenCalledWith({
         connectionId: 'connection-1',
@@ -117,6 +117,21 @@ describe('KafkaGroupInspector', () => {
     await waitFor(() => expect(onDeleted).toHaveBeenCalledOnce());
     await user.click(screen.getByRole('button', { name: 'Close group inspector' }));
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('resets offset-panel state when switching to another group', async () => {
+    const user = userEvent.setup();
+    const props = { connectionId: 'connection-1', onClose: vi.fn(), onDeleted: vi.fn() };
+    const { rerender } = render(<KafkaGroupInspector {...props} groupId="orders-workers" />);
+    await screen.findByText('STABLE');
+    await user.selectOptions(screen.getAllByRole('combobox')[1]!, 'earliest');
+    await user.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(await screen.findByTestId('kafka-offset-outcome')).toBeVisible();
+
+    rerender(<KafkaGroupInspector {...props} groupId="billing-workers" />);
+    await waitFor(() => expect(manager.inspectGroup).toHaveBeenCalledTimes(2));
+    expect(screen.queryByTestId('kafka-offset-outcome')).toBeNull();
+    expect(screen.getAllByRole('combobox')[1]).toHaveValue('latest');
   });
 
   it('renders idle groups with no offsets and surfaces native failures', async () => {

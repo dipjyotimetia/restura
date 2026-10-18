@@ -402,11 +402,14 @@ export interface KafkaOffsetResetRow {
   note?: 'timestamp-fallback-latest' | 'clamped-earliest' | 'clamped-latest';
 }
 
-/** A partition left untouched by a shift reset because it had no committed offset. */
+/**
+ * A partition left untouched: a shift reset with no committed offset to move, or
+ * (all-topics scope) a committed topic that has since been deleted.
+ */
 export interface KafkaOffsetResetSkip {
   topic: string;
   partition: number;
-  reason: 'no-committed-offset';
+  reason: 'no-committed-offset' | 'unknown-topic';
 }
 
 export interface ElectronKafkaAPI {
@@ -550,6 +553,7 @@ export interface ElectronKafkaAPI {
   }) => Promise<{
     success: boolean;
     deleted?: { topic: string; partitions: number[] }[];
+    skipped?: KafkaOffsetResetSkip[];
     error?: string;
   }>;
   /** Delete a consumer group (group must be empty/inactive). */

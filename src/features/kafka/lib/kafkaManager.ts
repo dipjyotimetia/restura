@@ -529,16 +529,19 @@ class KafkaManager {
     };
   }
 
-  async deleteGroupOffsets(
-    params: KafkaDeleteGroupOffsetsParams
-  ): Promise<
-    { ok: true; deleted: { topic: string; partitions: number[] }[] } | { ok: false; error: string }
+  async deleteGroupOffsets(params: KafkaDeleteGroupOffsetsParams): Promise<
+    | {
+        ok: true;
+        deleted: { topic: string; partitions: number[] }[];
+        skipped: KafkaOffsetResetSkip[];
+      }
+    | { ok: false; error: string }
   > {
     const api = getElectronAPI();
     if (!api) return { ok: false, error: 'Electron API unavailable.' };
     const result = await api.kafka.deleteGroupOffsets(params);
     if (!result.success) return { ok: false, error: result.error ?? 'Delete offsets failed' };
-    return { ok: true, deleted: result.deleted ?? [] };
+    return { ok: true, deleted: result.deleted ?? [], skipped: result.skipped ?? [] };
   }
 
   async deleteGroup(

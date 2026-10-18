@@ -198,6 +198,8 @@ export function KafkaGroupInspector({
       {/* Reset / delete committed offsets */}
       {offsets && (
         <KafkaOffsetResetPanel
+          // Remount per group so preview/applied results and inputs never leak.
+          key={`${connectionId}:${groupId}`}
           connectionId={connectionId}
           groupId={groupId}
           offsets={offsets}

@@ -15,7 +15,7 @@ import { Badge } from '@astrojs/starlight/components';
 - **Export the log** — download the current filtered messages as JSON or NDJSON (one message per line).
 - **Topic inspector** — per-partition earliest/latest watermarks (and the approximate message count) plus the topic's broker config.
 - **Consumer-group inspector** — members and state, committed offset per partition, and **consumer lag** (topic log-end minus the group's committed offset) — computed on demand for any group, no active subscription needed.
-- **Reset consumer-group offsets** — for one committed topic or **all committed topics** of the group, to:
+- **Reset consumer-group offsets** — for one committed topic or **all committed topics** of the group (committed topics that have since been deleted are skipped and listed), to:
   - **earliest** / **latest** — the partition's log start / end;
   - **specific** — explicit per-partition offsets (single topic only);
   - **date/time** — each partition's first record at or after the chosen local time (Kafka `ListOffsets` by timestamp). A partition with no record at or after that time resets to **latest**;
