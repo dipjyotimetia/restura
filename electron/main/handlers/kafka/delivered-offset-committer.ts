@@ -29,7 +29,9 @@ export class DeliveredOffsetCommitter {
   constructor(
     private readonly commit: (offsets: CommitPartition[]) => Promise<void>,
     intervalMs: number,
-    private readonly onError: (err: Error) => void
+    private readonly onError: (err: Error) => void,
+    /** Partitions this member currently owns; others are dropped at flush, never retried. */
+    private readonly owned?: () => ReadonlySet<string> | undefined
   ) {
     this.#timer = setInterval(() => void this.flush(), intervalMs);
     this.#timer.unref?.();
@@ -54,8 +56,12 @@ export class DeliveredOffsetCommitter {
   flush(): Promise<void> {
     this.#chain = this.#chain.then(async () => {
       if (this.#pending.size === 0) return;
-      const offsets = [...this.#pending.values()];
+      const owned = this.owned?.();
+      const offsets = [...this.#pending.entries()]
+        .filter(([key]) => !owned || owned.has(key))
+        .map(([, offset]) => offset);
       this.#pending.clear();
+      if (offsets.length === 0) return;
       try {
         await this.commit(offsets);
         this.#failing = false;

@@ -23,10 +23,15 @@ class FakeStream extends EventEmitter {
   offsetsToFetch = new Map([['orders:0', 5n]]);
 }
 
-function setup(options: { swapTimeoutMs?: number; decodeTimeoutMs?: number } = {}) {
+function setup(
+  options: { swapTimeoutMs?: number; decodeTimeoutMs?: number; autoCommitIntervalMs?: number } = {}
+) {
   const stream = new FakeStream();
   const consumer = Object.assign(new EventEmitter(), {
-    assignments: [{ topic: 'orders', partitions: [0] }],
+    assignments: [{ topic: 'orders', partitions: [0] }] as Array<{
+      topic: string;
+      partitions: number[];
+    }>,
     consume: vi.fn(),
     commit: vi.fn(async () => {}),
   });
@@ -99,6 +104,62 @@ describe('KafkaConsumerSession timeouts', () => {
       })
     );
     await vi.waitFor(() => expect(hooks.deliver).toHaveBeenCalledTimes(2));
+  });
+
+  it('abandons a swap when the session is closed while the replacement opens', async () => {
+    const { stream, consumer, entry, session } = setup();
+    let resolveLate!: (s: FakeStream) => void;
+    consumer.consume.mockReturnValue(
+      new Promise((resolve) => {
+        resolveLate = resolve;
+      })
+    );
+    const seek = session.reposition(entry, () => new Map([['orders:0', 1n]]));
+    const outcome = expect(seek).rejects.toThrow('The consumer was closed while repositioning.');
+    await vi.advanceTimersByTimeAsync(0);
+    await session.close();
+    const late = new FakeStream();
+    resolveLate(late);
+    await outcome;
+    expect(entry.stream).toBe(stream);
+    expect(late.close).toHaveBeenCalledTimes(1);
+    expect(late.resume).not.toHaveBeenCalled();
+    expect(late.listenerCount('data')).toBe(0);
+  });
+
+  it('does not commit records delivered after their partition was revoked', async () => {
+    const { stream, consumer, hooks, session } = setup({ autoCommitIntervalMs: 60_000 });
+    let finishDelivery!: () => void;
+    hooks.deliver.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishDelivery = resolve;
+        })
+    );
+    stream.emit('data', record(1)); // queued while orders:0 is still ours
+    await vi.advanceTimersByTimeAsync(0);
+    consumer.assignments = [{ topic: 'orders', partitions: [1] }];
+    consumer.emit('consumer:group:join', {});
+    await vi.advanceTimersByTimeAsync(0);
+    finishDelivery();
+    await vi.advanceTimersByTimeAsync(0);
+    await session.close();
+    expect(consumer.commit).not.toHaveBeenCalled();
+  });
+
+  it('drops positions for partitions no longer assigned at flush time', async () => {
+    const { stream, consumer, session } = setup({ autoCommitIntervalMs: 60_000 });
+    consumer.assignments = [{ topic: 'orders', partitions: [0, 1] }];
+    stream.emit('data', record(1));
+    stream.emit('data', { ...record(4), partition: 1 });
+    await vi.advanceTimersByTimeAsync(0);
+    // Revoked without a join event having been processed yet.
+    consumer.assignments = [{ topic: 'orders', partitions: [1] }];
+    await session.close();
+    expect(consumer.commit).toHaveBeenCalledTimes(1);
+    expect(consumer.commit).toHaveBeenCalledWith({
+      offsets: [{ topic: 'orders', partition: 1, offset: 5n, leaderEpoch: 0 }],
+    });
   });
 
   it('maps fallback strings to library values', () => {

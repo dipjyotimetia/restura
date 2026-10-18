@@ -77,6 +77,18 @@ describe('DeliveredOffsetCommitter', () => {
     await committer.close();
   });
 
+  it('drops (does not retry) positions for partitions not owned at flush time', async () => {
+    const commit = vi.fn(async () => {});
+    let owned = new Set(['orders:0']);
+    const committer = new DeliveredOffsetCommitter(commit, 1_000, vi.fn(), () => owned);
+    committer.delivered('orders', 1, 1n, 0);
+    await committer.flush();
+    expect(commit).not.toHaveBeenCalled();
+    owned = new Set(['orders:0', 'orders:1']);
+    await committer.close();
+    expect(commit).not.toHaveBeenCalled();
+  });
+
   it('drops queued positions for revoked partitions', async () => {
     const commit = vi.fn(async () => {});
     const committer = new DeliveredOffsetCommitter(commit, 1_000, vi.fn());

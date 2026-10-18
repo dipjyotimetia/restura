@@ -95,6 +95,8 @@ export class KafkaConsumerSession {
   /** Partitions positioned by the last swap; undefined while the stream runs in its subscribe mode. */
   #positioned: Set<string> | undefined;
   #closed = false;
+  /** Bumped on every group join; a delivery queued under an older assignment never commits. */
+  #assignmentGeneration = 0;
 
   constructor(
     private readonly options: ConsumerSessionOptions,
@@ -114,9 +116,10 @@ export class KafkaConsumerSession {
       // Paused partitions are withheld before decode, never queue an emit and never commit.
       if (!this.partitions.admit(msg.topic, msg.partition, msg.offset)) return;
       this.flow.emitQueued();
+      const generation = this.#assignmentGeneration;
       // One bad decode must not wedge the ordered emission chain.
       entry.emitChain = entry.emitChain
-        .then(() => this.#deliver(msg))
+        .then(() => this.#deliver(msg, generation))
         .catch(() => {})
         .finally(() => this.flow.emitSettled());
     });
@@ -207,7 +210,12 @@ export class KafkaConsumerSession {
       if (entry.stream === old && entry.session === this) this.flow.attach(old);
       throw err;
     }
-    if (entry.stream !== old || entry.consumer !== consumer || entry.session !== this) {
+    if (
+      this.#closed ||
+      entry.stream !== old ||
+      entry.consumer !== consumer ||
+      entry.session !== this
+    ) {
       await closeQuietly(next);
       throw new Error('The consumer was closed while repositioning.');
     }
@@ -225,12 +233,13 @@ export class KafkaConsumerSession {
       this.#committer = new DeliveredOffsetCommitter(
         (offsets) => consumer.commit({ offsets }),
         this.options.autoCommitIntervalMs,
-        this.hooks.onError
+        this.hooks.onError,
+        () => assignedKeys(consumer)
       );
     }
   }
 
-  async #deliver(msg: SessionMessage): Promise<void> {
+  async #deliver(msg: SessionMessage, generation: number): Promise<void> {
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<'timeout'>((resolve) => {
@@ -245,6 +254,8 @@ export class KafkaConsumerSession {
         timeout,
       ]);
       if (outcome === 'delivered') {
+        // A rebalance since this record was queued may have revoked its partition.
+        if (generation !== this.#assignmentGeneration) return;
         this.#committer?.delivered(msg.topic, msg.partition, msg.offset, msg.leaderEpoch ?? -1);
       } else {
         this.hooks.onError(
@@ -259,6 +270,7 @@ export class KafkaConsumerSession {
   }
 
   #onGroupJoin = (): void => {
+    this.#assignmentGeneration += 1;
     void this.runExclusive(() => this.#rebalanced()).catch((err: unknown) => {
       this.hooks.onError(err instanceof Error ? err : new Error(String(err)));
     });
