@@ -74,6 +74,19 @@ describe('mcp-result', () => {
     expect(isMcpToolError('x')).toBe(false);
     expect(mcpToolErrorText({ content: [{ type: 'text', text: 'bad' }] })).toBe('bad');
     expect(mcpToolErrorText({})).toBe('tool reported isError');
+    expect(mcpToolErrorText(null)).toBe('tool reported isError');
+    expect(
+      mcpToolErrorText({
+        content: [
+          { type: 'image' },
+          null,
+          { type: 'text', text: 'a' },
+          { type: 'text' },
+          { type: 'text', text: 'b' },
+        ],
+      })
+    ).toBe('a b');
+    expect(mcpToolErrorText({ content: [{ type: 'image' }] })).toBe('tool reported isError');
   });
 });
 
