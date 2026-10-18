@@ -49,7 +49,7 @@ const KafkaOAuthExtensionsSchema = z
       .max(256)
       .refine(
         isValidOAuthExtensionKey,
-        'Extension keys must contain only letters (RFC 7628) and must not be "auth"'
+        'Extension keys must contain only letters (RFC 7628); "auth" is the bearer-token field, not an extension'
       ),
     z
       .string()
@@ -57,7 +57,7 @@ const KafkaOAuthExtensionsSchema = z
       .max(1024)
       .refine(
         isValidOAuthExtensionValue,
-        'Extension values must be printable ASCII (spaces, tabs and line breaks allowed)'
+        'Extension values must be non-empty printable ASCII (spaces, tabs and line breaks allowed); Kafka rejects empty values'
       )
   )
   .refine(

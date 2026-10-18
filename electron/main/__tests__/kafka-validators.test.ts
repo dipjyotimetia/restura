@@ -315,7 +315,8 @@ describe('Kafka IPC validators', () => {
         expect(parse(withExt({ logicalCluster: 'lkc-1' }))).toBe(true);
         expect(parse(withExt({ a: 'x\x01auth=Bearer forged' }))).toBe(false);
         expect(parse(withExt({ 'a\nb': 'x' }))).toBe(false);
-        // RFC 7628 grammar: letters-only keys, reserved "auth", non-empty values.
+        // RFC 7628: letters-only keys; `auth` is the authenticator's own field.
+        // Non-empty values are an application limit (RFC allows empty, Apache Kafka rejects it).
         expect(parse(withExt({ auth: 'x' }))).toBe(false);
         expect(parse(withExt({ 'a=b': 'x' }))).toBe(false);
         expect(parse(withExt({ 'logical-cluster': 'x' }))).toBe(false);

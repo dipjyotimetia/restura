@@ -5,15 +5,27 @@ import { isLoopbackAddress, isPrivateAddress } from './url-validation';
  * process token fetcher and the renderer form (#918).
  */
 
-/** Upper bound on SASL/OAUTHBEARER extensions per connection. */
+/**
+ * Upper bound on SASL/OAUTHBEARER extensions per connection. An application
+ * limit (RFC 7628 sets none) that bounds the IPC payload.
+ */
 export const MAX_OAUTH_EXTENSIONS = 32;
 
 /**
- * OAUTHBEARER extension grammar (RFC 7628 §3.1, as enforced by Kafka brokers):
- * `key = 1*ALPHA`, with `auth` reserved for the bearer token itself, and
- * `value = 1*(VCHAR / SP / HTAB / CR / LF)`. Extensions are framed with `\x01`
- * separators, so anything outside this grammar could inject extra fields or a
- * second `auth=` entry — and would fail broker-side with an opaque error.
+ * OAUTHBEARER extension rules. Extensions are framed with `\x01` separators,
+ * so anything outside this grammar could inject extra fields.
+ *
+ * From RFC 7628 §3.1:
+ * - `key = 1*ALPHA`;
+ * - `auth` is not an extension — it is the protocol field the authenticator
+ *   supplies (`auth=Bearer <token>`), so a user extension with that key would
+ *   add a second, conflicting `auth=` field;
+ * - value characters are `VCHAR / SP / HTAB / CR / LF` (no `\x01`).
+ *
+ * Application limit, stricter than the RFC (which permits empty values):
+ * values must be non-empty. Apache Kafka's OAUTHBEARER implementation validates
+ * extension values against `[\x21-\x7E \t\r\n]+`, so an empty value would
+ * only fail later as an opaque SASL authentication error.
  */
 export function isValidOAuthExtensionKey(key: string): boolean {
   return /^[A-Za-z]+$/.test(key) && key.toLowerCase() !== 'auth';
