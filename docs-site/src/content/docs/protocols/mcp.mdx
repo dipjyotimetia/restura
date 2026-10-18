@@ -214,7 +214,7 @@ While a tool call or prompt fetch is in flight, the Invoke form shows a **Cancel
 A saved MCP request is one operation: the method and params you build in the invoke form (for example `tools/call` with `{"name":"echo","arguments":{"text":"hi"}}`). Saved requests run in the **collection runner** (desktop and web) and in [`restura run`](/reference/cli/) with pre-request and test scripts, so you can regression-test an MCP server the same way you test an HTTP API.
 
 - **One session per server per run.** The runner connects and initializes once per server (same URL, transport and headers), reuses that session for every MCP item, and closes it when the run ends.
-- **`{{variables}}`** resolve in the URL, headers, method and params. A pre-request script can set them, for example to choose the tool arguments for the call.
+- **`{{variables}}`** resolve in the URL, headers, method and params. A pre-request script can set them, for example to choose the tool arguments for the call. In params, variables are substituted as text before the JSON is parsed, the same as in HTTP bodies. A value containing quotes or other JSON syntax changes the params structure, so only use trusted values there.
 - **The response body is the JSON-RPC reply**, without the transport id, so a test can tell the outcomes apart:
 
 ```js
