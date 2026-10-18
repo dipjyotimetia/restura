@@ -3,8 +3,10 @@ import { DEFAULT_INHERITED_ENV_VARS } from '@modelcontextprotocol/client/stdio';
 import { describe, expect, it } from 'vitest';
 import {
   buildStdioChildEnv,
+  cmdShimArgError,
   hasControlChars,
   isExecutionSensitiveEnvName,
+  isUncOrDevicePath,
   minimalEnvAllowlist,
 } from '../security/mcp-stdio-policy';
 
@@ -51,9 +53,9 @@ describe('stdio child environment allowlist', () => {
     );
   });
 
-  it('matches Windows env names case-insensitively, keeps the safe set, and lets user vars win', () => {
+  it('canonicalises Windows env names so the user value deterministically wins', () => {
     const env = buildStdioChildEnv(
-      { Path: 'C:\\custom' },
+      { Path: 'C:\\custom', systemroot: 'C:\\Win2', MyVar: 'x' },
       {
         Path: 'C:\\Windows',
         SystemRoot: 'C:\\Windows',
@@ -64,11 +66,15 @@ describe('stdio child environment allowlist', () => {
       'win32'
     );
     expect(env).toEqual({
-      Path: 'C:\\custom',
-      SystemRoot: 'C:\\Windows',
+      PATH: 'C:\\custom',
+      SYSTEMROOT: 'C:\\Win2',
       USERPROFILE: 'C:\\Users\\u',
       APPDATA: 'C:\\Users\\u\\AppData\\Roaming',
+      MyVar: 'x',
     });
+    // No case-variant duplicates survive for the SDK merge to shadow.
+    const upper = Object.keys(env).map((k) => k.toUpperCase());
+    expect(new Set(upper).size).toBe(upper.length);
   });
 
   it('never includes app-only vars in the allowlist', () => {
@@ -99,7 +105,40 @@ describe('isExecutionSensitiveEnvName', () => {
     'PIP_INDEX_URL',
     'UV_INDEX_URL',
     'GIT_SSH_COMMAND',
+    'GIT_TOKEN',
     'BASH_ENV',
+    'DOTNET_STARTUP_HOOKS',
+    'COR_PROFILER_PATH',
+    'CORECLR_PROFILER',
+    'GCONV_PATH',
+    'XDG_CONFIG_HOME',
+    'XDG_CACHE_HOME',
+    'HTTP_PROXY',
+    'https_proxy',
+    'ALL_PROXY',
+    'SSL_CERT_FILE',
+    'REQUESTS_CA_BUNDLE',
+    'CURL_CA_BUNDLE',
+    'PAGER',
+    'GIT_PAGER',
+    'EDITOR',
+    'VISUAL',
+    'GIT_ASKPASS',
+    'SSH_ASKPASS',
+    'MAVEN_OPTS',
+    'GRADLE_OPTS',
+    'JAVA_HOME',
+    'COREPACK_HOME',
+    'PNPM_HOME',
+    'BUNDLE_GEMFILE',
+    'GEM_HOME',
+    'CONDA_PREFIX',
+    'VIRTUAL_ENV',
+    'PHPRC',
+    'LUA_INIT',
+    'LUA_INIT_5_4',
+    'DOCKER_HOST',
+    'DOCKER_CERT_PATH',
   ])('%s is sensitive', (name) => expect(isExecutionSensitiveEnvName(name)).toBe(true));
   it.each(['GITHUB_TOKEN', 'NODE_AUTH_TOKEN', 'GOOGLE_API_KEY', 'API_KEY', 'LOG_LEVEL'])(
     '%s is not (may be a secret handle)',
@@ -107,12 +146,43 @@ describe('isExecutionSensitiveEnvName', () => {
   );
 });
 
-describe('hasControlChars', () => {
-  it('flags C0 controls except TAB, and DEL', () => {
-    expect(hasControlChars('a\tb')).toBe(false);
-    expect(hasControlChars('a\nb')).toBe(true);
-    expect(hasControlChars('a\0b')).toBe(true);
-    expect(hasControlChars('a\u007fb')).toBe(true);
+describe('hasControlChars (dialog-spoofing characters)', () => {
+  it.each([
+    ['TAB', 'a\tb'],
+    ['LF', 'a\nb'],
+    ['NUL', 'a\0b'],
+    ['DEL', 'a\u007fb'],
+    ['NEL', 'a\u0085b'],
+    ['RLO', 'a\u202Eb'],
+    ['LRI', 'a\u2066b'],
+    ['ZWSP', 'a\u200Bb'],
+    ['ZWJ', 'a\u200Db'],
+    ['BOM', '\uFEFFa'],
+    ['LS', 'a\u2028b'],
+    ['PS', 'a\u2029b'],
+  ])('flags %s', (_label, value) => expect(hasControlChars(value)).toBe(true));
+
+  it('accepts ordinary text, including non-ASCII letters', () => {
     expect(hasControlChars('plain -- --flag=1 "q"')).toBe(false);
+    expect(hasControlChars('/Users/zoë/プロジェクト')).toBe(false);
+  });
+});
+
+describe('isUncOrDevicePath', () => {
+  it.each(['\\\\server\\share', '//server/share', '\\\\?\\C:\\x', '\\\\.\\pipe\\x', '\\/mixed'])(
+    '%s is UNC/device',
+    (p) => expect(isUncOrDevicePath(p)).toBe(true)
+  );
+  it.each(['C:\\dir', '/usr/bin', '\\single'])('%s is not', (p) =>
+    expect(isUncOrDevicePath(p)).toBe(false)
+  );
+});
+
+describe('cmdShimArgError', () => {
+  it('refuses quotes, percent and bang in .cmd/.bat arguments', () => {
+    expect(cmdShimArgError(['-y', '@scope/server', 'C:\\data dir'])).toBeUndefined();
+    expect(cmdShimArgError(['ok', 'a"b'])).toMatch(/Argument 1/);
+    expect(cmdShimArgError(['%PATH%'])).toMatch(/Argument 0/);
+    expect(cmdShimArgError(['wow!'])).toMatch(/Argument 0/);
   });
 });

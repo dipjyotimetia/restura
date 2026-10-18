@@ -4,8 +4,9 @@
  * Spawning a local process from data that can arrive in an imported
  * collection is a new trust boundary. This module owns the pure, testable
  * pieces of that policy: input bounds, the execution-sensitive env names,
- * and the child-environment allowlist. Consent lives in
- * `mcp-stdio-consent.ts`; process lifecycle in `handlers/mcp-stdio-session.ts`.
+ * the dialog-spoofing character set, and the child-environment allowlist.
+ * Consent lives in `mcp-stdio-consent.ts`; command resolution in
+ * `mcp-stdio-resolve.ts`; process lifecycle in `handlers/mcp-stdio-session.ts`.
  */
 
 import { DEFAULT_INHERITED_ENV_VARS } from '@modelcontextprotocol/client/stdio';
@@ -79,18 +80,31 @@ export function minimalEnvAllowlist(platform: NodeJS.Platform = process.platform
 
 /**
  * Build the complete child environment: the minimal allowlist read from the
- * parent env, then the user's variables on top. On Windows env names are
- * case-insensitive, so the lookup is too. Values that look like exported
- * bash functions (`() {`) are skipped — same rule as the SDK (Shellshock).
+ * parent env, then the user's variables on top. Values that look like
+ * exported bash functions (`() {`) are skipped — same rule as the SDK
+ * (Shellshock).
+ *
+ * Windows env names are case-insensitive but a JS object is not: if the child
+ * env held both `Path` and `PATH`, which one the process sees would depend on
+ * ordering (and the SDK merges its own `PATH` underneath). Every name that
+ * matches an allowlisted variable case-insensitively is therefore emitted
+ * under the allowlist's canonical spelling, so the user's value
+ * deterministically replaces the inherited one.
  */
 export function buildStdioChildEnv(
   userEnv: Record<string, string>,
   parentEnv: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform
 ): Record<string, string> {
+  const allowlist = minimalEnvAllowlist(platform);
+  const canonical = (name: string): string => {
+    if (platform !== 'win32') return name;
+    const upper = name.toUpperCase();
+    return allowlist.find((allowed) => allowed.toUpperCase() === upper) ?? name;
+  };
   const env: Record<string, string> = {};
   const parentKeys = Object.keys(parentEnv);
-  for (const name of minimalEnvAllowlist(platform)) {
+  for (const name of allowlist) {
     const key =
       platform === 'win32'
         ? parentKeys.find((candidate) => candidate.toUpperCase() === name.toUpperCase())
@@ -100,11 +114,11 @@ export function buildStdioChildEnv(
     if (key === undefined) continue;
     const value = parentEnv[key];
     if (value === undefined || value.startsWith('()')) continue;
-    env[key] = value;
+    env[name] = value;
   }
-  for (const [name, value] of Object.entries(userEnv)) {
+  for (const [rawName, value] of Object.entries(userEnv)) {
+    const name = canonical(rawName);
     if (platform === 'win32') {
-      // Drop an inherited spelling of the same name so the user's value wins.
       for (const existing of Object.keys(env)) {
         if (existing.toUpperCase() === name.toUpperCase()) delete env[existing];
       }
@@ -115,11 +129,12 @@ export function buildStdioChildEnv(
 }
 
 /**
- * Env vars that change WHAT runs (loader injection, interpreter startup
- * hooks, package-registry redirection, search paths). Their values must be
- * inline (never a secret handle) so the consent dialog can show them, and
- * they are always displayed in full there. Note every env value is part of
- * the consent key regardless — this list only governs display + handle use.
+ * Env vars that change WHAT runs or WHERE it connects (loader injection,
+ * interpreter/runtime startup hooks, package-registry and config redirection,
+ * search paths, proxies, trust stores, helper programs). Their values must be
+ * plain (never a secret handle) so the consent dialog can show them, and they
+ * are always displayed in full there. Every env value is part of the consent
+ * key regardless — this list governs display and handle use.
  */
 const EXECUTION_SENSITIVE_EXACT = new Set([
   'PATH',
@@ -138,6 +153,9 @@ const EXECUTION_SENSITIVE_EXACT = new Set([
   'JAVA_TOOL_OPTIONS',
   '_JAVA_OPTIONS',
   'JDK_JAVA_OPTIONS',
+  'JAVA_HOME',
+  'MAVEN_OPTS',
+  'GRADLE_OPTS',
   'CLASSPATH',
   'ELECTRON_RUN_AS_NODE',
   'NODE_OPTIONS',
@@ -150,26 +168,54 @@ const EXECUTION_SENSITIVE_EXACT = new Set([
   'BUN_INSTALL',
   'BUN_CONFIG_REGISTRY',
   'DENO_DIR',
-  'GIT_SSH',
-  'GIT_SSH_COMMAND',
-  'GIT_EXEC_PATH',
-  'GIT_CONFIG_GLOBAL',
   'GOFLAGS',
   'GOPATH',
   'GOROOT',
   'GOPROXY',
   'CARGO_HOME',
   'RUSTUP_HOME',
-  'DOCKER_HOST',
-  'DOCKER_CONFIG',
+  'DOTNET_STARTUP_HOOKS',
+  'GCONV_PATH',
+  'XDG_CONFIG_HOME',
+  'XDG_CACHE_HOME',
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'ALL_PROXY',
+  'NO_PROXY',
+  'SSL_CERT_FILE',
+  'SSL_CERT_DIR',
+  'REQUESTS_CA_BUNDLE',
+  'CURL_CA_BUNDLE',
+  'PAGER',
+  'EDITOR',
+  'VISUAL',
+  'SSH_ASKPASS',
+  'VIRTUAL_ENV',
+  'PHPRC',
 ]);
 /**
- * Prefix families where (almost) every member changes what runs. Kept narrow
- * on purpose: a broad prefix (e.g. `NODE_`, `GO`) would also catch secrets
- * such as `NODE_AUTH_TOKEN` / `GOOGLE_API_KEY` and forbid storing them as
- * secret handles.
+ * Prefix families where (almost) every member changes what runs. A broad
+ * prefix also forces secrets in that family (e.g. a `GIT_` token) to be plain
+ * values; that is the deliberate trade-off for these families.
  */
-const EXECUTION_SENSITIVE_PREFIXES = ['LD_', 'DYLD_', 'NPM_CONFIG_', 'PYTHON', 'PIP_', 'UV_'];
+const EXECUTION_SENSITIVE_PREFIXES = [
+  'LD_',
+  'DYLD_',
+  'NPM_CONFIG_',
+  'PYTHON',
+  'PIP_',
+  'UV_',
+  'GIT_',
+  'COR_PROFILER',
+  'CORECLR_PROFILER',
+  'COREPACK_',
+  'PNPM_',
+  'BUNDLE_',
+  'GEM_',
+  'CONDA_',
+  'DOCKER_',
+  'LUA_INIT',
+];
 
 export function isExecutionSensitiveEnvName(name: string): boolean {
   const upper = name.toUpperCase();
@@ -177,9 +223,41 @@ export function isExecutionSensitiveEnvName(name: string): boolean {
   return EXECUTION_SENSITIVE_PREFIXES.some((prefix) => upper.startsWith(prefix));
 }
 
-/** C0 control characters (except TAB) and DEL — never valid in argv/paths we accept. */
-const CONTROL_CHARS = /[\u0000-\u0008\u000a-\u001f\u007f]/;
+/**
+ * Characters that can make the consent dialog misrepresent what runs: every
+ * Unicode control (Cc: C0, DEL, C1 including U+0085), format character (Cf:
+ * bidi overrides and isolates, zero-width characters, BOM, soft hyphen) and
+ * the line/paragraph separators (Zl/Zp: U+2028/U+2029). Rejected in the
+ * command, arguments, working directory and every displayed value or label.
+ */
+const SPOOFING_CHARS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 
 export function hasControlChars(value: string): boolean {
-  return CONTROL_CHARS.test(value);
+  return SPOOFING_CHARS.test(value);
+}
+
+/**
+ * Windows UNC and device-namespace paths (two leading slashes or backslashes,
+ * which covers `\\server\share`, `//server`, `\\?\` and `\\.\`). As a working
+ * directory or command these reach network shares or raw devices.
+ */
+export function isUncOrDevicePath(value: string): boolean {
+  return /^[\\/]{2}/.test(value);
+}
+
+/** Characters cmd.exe can still interpret inside cross-spawn's quoting. */
+const CMD_UNSAFE_ARG_CHARS = /["%!]/;
+
+/**
+ * On Windows a `.cmd`/`.bat` target runs through `cmd.exe /d /s /c`.
+ * cross-spawn quotes and caret-escapes each argument, but a batch file
+ * re-parses its own arguments (`%*`, `%1`), where quotes and `%`/`!`
+ * expansion are not reliably neutralised. Such arguments are refused for
+ * these targets.
+ */
+export function cmdShimArgError(args: readonly string[]): string | undefined {
+  const bad = args.findIndex((arg) => CMD_UNSAFE_ARG_CHARS.test(arg));
+  return bad === -1
+    ? undefined
+    : `Argument ${bad} contains a double quote, % or !, which cannot be passed safely to a .cmd/.bat launcher`;
 }

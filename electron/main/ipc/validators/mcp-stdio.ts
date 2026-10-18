@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   hasControlChars,
   isExecutionSensitiveEnvName,
+  isUncOrDevicePath,
   MCP_STDIO_LIMITS as L,
 } from '../../security/mcp-stdio-policy';
 import { McpConnectionIdSchema } from './core';
@@ -11,26 +12,34 @@ import { McpConnectionIdSchema } from './core';
 // MCP stdio transport (#854, ADR 0030) — desktop only
 // ===========================
 
+/** Unicode Cc/Cf/Zl/Zp (controls, bidi/zero-width format chars, separators). */
 const noControlChars = (value: string) => !hasControlChars(value);
+const notUncOnWindows = (value: string) =>
+  process.platform !== 'win32' || !isUncOrDevicePath(value);
 
 const StdioCommandSchema = z
   .string()
   .min(1, 'Command is required')
   .max(L.commandMaxLength)
   .refine((v) => v.trim() === v, { message: 'Command must not have leading/trailing whitespace' })
-  .refine(noControlChars, { message: 'Command must not contain control characters' });
+  .refine(noControlChars, {
+    message: 'Command must not contain control, format or line-separator characters',
+  })
+  .refine(notUncOnWindows, { message: 'Network (UNC) and device paths are not allowed' });
 
-const StdioArgSchema = z
-  .string()
-  .max(L.argMaxLength)
-  .refine(noControlChars, { message: 'Arguments must not contain control characters' });
+const StdioArgSchema = z.string().max(L.argMaxLength).refine(noControlChars, {
+  message: 'Arguments must not contain control, format or line-separator characters',
+});
 
 const StdioCwdSchema = z
   .string()
   .min(1)
   .max(L.cwdMaxLength)
-  .refine(noControlChars, { message: 'Working directory must not contain control characters' })
-  .refine((v) => path.isAbsolute(v), { message: 'Working directory must be an absolute path' });
+  .refine(noControlChars, {
+    message: 'Working directory must not contain control, format or line-separator characters',
+  })
+  .refine((v) => path.isAbsolute(v), { message: 'Working directory must be an absolute path' })
+  .refine(notUncOnWindows, { message: 'Network (UNC) and device paths are not allowed' });
 
 const EnvNameSchema = z
   .string()
@@ -43,7 +52,10 @@ const EnvNameSchema = z
 const EnvPlainValueSchema = z
   .string()
   .max(L.envValueMaxLength)
-  .refine((v) => !v.includes('\0'), { message: 'Environment values must not contain NUL' });
+  // Plain values are shown in the consent dialog, so the same spoofing rule applies.
+  .refine(noControlChars, {
+    message: 'Environment values must not contain control, format or line-separator characters',
+  });
 
 /**
  * A value is plaintext, an inline SecretRef, or a secret-store handle that
@@ -58,7 +70,8 @@ const EnvValueSchema = z.union([
     .object({
       kind: z.literal('handle'),
       id: z.string().min(1).max(128),
-      label: z.string().max(256).optional(),
+      // Ignored for display: main shows the label stored with the handle.
+      label: z.string().max(256).refine(noControlChars).optional(),
     })
     .strict(),
 ]);

@@ -31,9 +31,11 @@ vi.mock('../ipc/ipc-utils', async (importOriginal) => {
 import { registerMcpHandlerIPC, stopMcpCleanup } from '../handlers/mcp-handler';
 import { liveStdioChildCount } from '../handlers/mcp-stdio-session';
 import {
+  __setStdioConsentMacKeyProviderForTests,
   __setStdioConsentStoreForTests,
   type ConsentStoreShape,
 } from '../security/mcp-stdio-consent';
+import { __setSecretStoreForTests, type SecretStoreShape } from '../security/secret-handle-store';
 
 type IpcHandler = (event: unknown, payload?: unknown) => Promise<Record<string, unknown>>;
 
@@ -130,6 +132,7 @@ describe('MCP stdio transport (real process)', () => {
   beforeEach(() => {
     tmp = mkdtempSync(path.join(tmpdir(), 'mcp-stdio-'));
     __setStdioConsentStoreForTests(memoryConsentStore());
+    __setStdioConsentMacKeyProviderForTests(() => Buffer.alloc(32, 7));
     mockShowMessageBox.mockResolvedValue({ response: ALWAYS, checkboxChecked: false });
   });
 
@@ -140,6 +143,8 @@ describe('MCP stdio transport (real process)', () => {
 
   afterAll(() => {
     __setStdioConsentStoreForTests(null);
+    __setStdioConsentMacKeyProviderForTests(null);
+    __setSecretStoreForTests(null);
   });
 
   it('prompts once, connects, calls tools, and kills the child on disconnect', async () => {
@@ -272,24 +277,120 @@ describe('MCP stdio transport (real process)', () => {
       transport: 'stdio',
       command: path.join(tmp, 'definitely-not-a-binary'),
     });
-    expect(res.success).toBe(false);
+    expect(res).toEqual({ success: false, error: expect.stringMatching(/not found/) });
+    expect(mockShowMessageBox).not.toHaveBeenCalled();
     expect(liveStdioChildCount()).toBe(0);
   });
 
-  it('refuses a working directory that does not exist before prompting', async () => {
+  it('does not touch the working directory before consent; a missing one fails after it', async () => {
     const event = makeEvent();
+    mockShowMessageBox.mockResolvedValue({ response: CANCEL, checkboxChecked: false });
+    const denied = await handlerFor('mcp:connect')(
+      event,
+      stdioPayload('s-cwd', { cwd: path.join(tmp, 'missing') })
+    );
+    expect(denied.error).toMatch(/not approved/);
+    mockShowMessageBox.mockResolvedValue({ response: ALWAYS, checkboxChecked: false });
     const res = await handlerFor('mcp:connect')(
       event,
       stdioPayload('s-cwd', { cwd: path.join(tmp, 'missing') })
     );
     expect(res).toEqual({ success: false, error: expect.stringMatching(/Working directory/) });
+    expect(mockShowMessageBox).toHaveBeenCalledTimes(2);
+  });
+
+  it('resolves a bare command on PATH (never the cwd) and spawns the resolved file', async () => {
+    const event = makeEvent();
+    const res = await handlerFor('mcp:connect')(event, {
+      ...stdioPayload('s-bare'),
+      command: 'node',
+      env: { PATH: path.dirname(process.execPath) },
+    });
+    expect(res).toEqual({ success: true });
+    const options = mockShowMessageBox.mock.calls[0]!.at(-1) as { detail: string };
+    expect(options.detail).toContain(
+      `Program: ${JSON.stringify(path.join(path.dirname(process.execPath), 'node'))}`
+    );
+    expect(options.detail).toContain('(requested as "node")');
+  });
+
+  it('refuses an unknown secret handle before prompting, and uses a known one', async () => {
+    const records: Record<string, { value: string; createdAt: number; label?: string }> = {
+      'h-known': { value: 'tok-123', createdAt: 1, label: 'Real label' },
+    };
+    const secretStore: SecretStoreShape = {
+      get: (k) => records[k],
+      set: (k, v) => {
+        records[k] = v;
+      },
+      delete: (k) => {
+        delete records[k];
+      },
+      clear: () => {},
+      has: (k) => k in records,
+      store: records,
+    };
+    __setSecretStoreForTests(secretStore);
+    const event = makeEvent();
+    const missing = await handlerFor('mcp:connect')(
+      event,
+      stdioPayload('s-h1', { env: { API_TOKEN: { kind: 'handle', id: 'h-unknown' } } })
+    );
+    expect(missing).toEqual({ success: false, error: expect.stringMatching(/not found/) });
     expect(mockShowMessageBox).not.toHaveBeenCalled();
+
+    const ok = await handlerFor('mcp:connect')(
+      event,
+      stdioPayload('s-h2', {
+        env: { API_TOKEN: { kind: 'handle', id: 'h-known', label: 'spoofed label' } },
+      })
+    );
+    expect(ok).toEqual({ success: true });
+    const detail = (mockShowMessageBox.mock.calls[0]!.at(-1) as { detail: string }).detail;
+    expect(detail).toContain('"Real label"');
+    expect(detail).not.toContain('spoofed label');
+    expect(detail).not.toContain('tok-123');
+    expect((await callText(event, 's-h2', 'env-keys')).split(',')).toContain('API_TOKEN');
+
+    // Rotating the secret behind the handle re-prompts.
+    await handlerFor('mcp:disconnect')(event, { connectionId: 's-h2' });
+    records['h-known'] = { ...records['h-known']!, value: 'tok-456' };
+    await handlerFor('mcp:connect')(
+      event,
+      stdioPayload('s-h2', { env: { API_TOKEN: { kind: 'handle', id: 'h-known' } } })
+    );
+    expect(mockShowMessageBox).toHaveBeenCalledTimes(2);
+  });
+
+  it('caps running stdio servers even when connects race their consent dialogs', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    mockShowMessageBox.mockImplementation(async () => {
+      await gate;
+      return { response: 1, checkboxChecked: false };
+    });
+    const events = Array.from({ length: 10 }, () => makeEvent());
+    const pending = events.map((event, i) =>
+      handlerFor('mcp:connect')(event, stdioPayload(`cap-${i}`))
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    release();
+    const results = await Promise.all(pending);
+    const ok = results.filter((r) => r.success).length;
+    expect(ok).toBe(8);
+    expect(results.filter((r) => String(r.error).includes('Too many')).length).toBe(2);
+    expect(liveStdioChildCount()).toBe(8);
   });
 
   it('revoke clears persisted approvals so the next launch prompts again', async () => {
     const event = makeEvent();
     await handlerFor('mcp:connect')(event, stdioPayload('s-rev'));
     await handlerFor('mcp:disconnect')(event, { connectionId: 's-rev' });
+    await expect(handlerFor('mcp:stdio:revoke-approvals')(event, { all: true })).rejects.toThrow(
+      /Invalid IPC payload/
+    );
     expect(await handlerFor('mcp:stdio:revoke-approvals')(event)).toEqual({
       success: true,
       revoked: 1,

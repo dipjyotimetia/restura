@@ -26,6 +26,16 @@ describe('McpStdioConnectSchema', () => {
   });
 
   it.each([
+    ['bidi override in an argument', { args: ['safe‮exe.txt'] }],
+    ['bidi isolate in the command', { command: 'np⁦x' }],
+    ['zero-width space in an argument', { args: ['--root​'] }],
+    ['BOM in cwd', { cwd: `${ABS}/﻿dir` }],
+    ['line separator in an argument', { args: ['a b'] }],
+    ['paragraph separator in the command', { command: 'npx ' }],
+    ['NEL (C1) in an argument', { args: ['a\u0085b'] }],
+    ['TAB in an argument', { args: ['a\tb'] }],
+    ['bidi override in an env value', { env: { MODE: 'x‮y' } }],
+    ['control char in a handle label', { env: { T: { kind: 'handle', id: 'h', label: 'a‮' } } }],
     ['NUL in command', { command: 'np\0x' }],
     ['newline in command', { command: 'npx\nrm' }],
     ['leading whitespace', { command: ' npx' }],
@@ -99,6 +109,26 @@ describe('McpStdioConnectSchema', () => {
       parse({ env: { PATH: '/opt/bin:/usr/bin', NODE_OPTIONS: '--max-old-space-size=512' } })
         .success
     ).toBe(true);
+  });
+});
+
+describe('McpStdioConnectSchema on Windows', () => {
+  const realPlatform = process.platform;
+  const setPlatform = (p: string) => Object.defineProperty(process, 'platform', { value: p });
+
+  it.each([
+    ['UNC cwd', { cwd: '\\\\server\\share\\dir' }],
+    ['forward-slash UNC cwd', { cwd: '//server/share' }],
+    ['device-namespace cwd', { cwd: '\\\\?\\C:\\dir' }],
+    ['device cwd', { cwd: '\\\\.\\PhysicalDrive0' }],
+    ['UNC command', { command: '\\\\server\\share\\srv.exe' }],
+  ])('rejects %s', (_label, extra) => {
+    setPlatform('win32');
+    try {
+      expect(parse(extra).success).toBe(false);
+    } finally {
+      setPlatform(realPlatform);
+    }
   });
 });
 

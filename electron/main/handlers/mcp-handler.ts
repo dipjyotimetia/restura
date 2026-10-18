@@ -1,5 +1,6 @@
 import { createLogger } from '@shared/runtime/logger';
 import { type IpcMainInvokeEvent, ipcMain, type WebContents } from 'electron';
+import { z } from 'zod';
 import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
 import { bindRendererCleanup, disposeByOwner } from '../ipc/connection-cleanup';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
@@ -7,6 +8,7 @@ import { emitTo, errorMessage } from '../ipc/ipc-utils';
 import {
   assertTrustedSender,
   createValidatedEventHandler,
+  createValidatedHandler,
   isStdioConnectPayload,
   McpConnectSchema,
   McpDisconnectSchema,
@@ -378,10 +380,16 @@ export function registerMcpHandlerIPC(): void {
     })
   );
 
-  ipcMain.handle(IPC.mcp.revokeStdioApprovals, (event) => {
-    assertTrustedSender(IPC.mcp.revokeStdioApprovals, event);
-    return { success: true, revoked: revokeAllStdioConsents() };
-  });
+  ipcMain.handle(
+    IPC.mcp.revokeStdioApprovals,
+    rateLimited(
+      mcpRateLimiter,
+      createValidatedHandler(IPC.mcp.revokeStdioApprovals, z.undefined(), () => ({
+        success: true,
+        revoked: revokeAllStdioConsents(),
+      }))
+    )
+  );
 }
 
 const MAX_CONCURRENT_STDIO = 8;
@@ -419,6 +427,7 @@ async function connectStdio(
     const result = await connectStdioSdkClient({
       config,
       owner: event.sender,
+      requester: key,
       maxConcurrentChildren: MAX_CONCURRENT_STDIO,
       isCurrent: isCurrentClaim,
       session,

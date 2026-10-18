@@ -10,6 +10,7 @@
  */
 
 import { type ChildProcess, spawn } from 'node:child_process';
+import * as path from 'node:path';
 
 /** The subset of `ChildProcess` this module relies on (keeps tests honest). */
 export type TrackedChild = Pick<
@@ -79,7 +80,10 @@ function waitForExit(child: TrackedChild, ms: number): Promise<boolean> {
  */
 function killTreeWindows(pid: number): void {
   try {
-    const killer = spawn('taskkill', ['/PID', String(pid), '/T', '/F'], {
+    // Absolute path: never resolve taskkill through PATH or the cwd.
+    const systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT ?? 'C:\\Windows';
+    const taskkill = path.win32.join(systemRoot, 'System32', 'taskkill.exe');
+    const killer = spawn(taskkill, ['/PID', String(pid), '/T', '/F'], {
       shell: false,
       windowsHide: true,
       stdio: 'ignore',
