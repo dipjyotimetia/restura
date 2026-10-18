@@ -97,6 +97,13 @@ export class KafkaConsumerSession {
   #closed = false;
   /** Bumped on every group join; a delivery queued under an older assignment never commits. */
   #assignmentGeneration = 0;
+  /** Bumped by every successful stream swap. */
+  #streamGeneration = 0;
+  /**
+   * Partition key → stream generation of its last seek. A delivery queued under
+   * an older generation is a pre-seek record and must not move the commit.
+   */
+  readonly #soughtAt = new Map<string, number>();
 
   constructor(
     private readonly options: ConsumerSessionOptions,
@@ -117,9 +124,10 @@ export class KafkaConsumerSession {
       if (!this.partitions.admit(msg.topic, msg.partition, msg.offset)) return;
       this.flow.emitQueued();
       const generation = this.#assignmentGeneration;
+      const streamGeneration = this.#streamGeneration;
       // One bad decode must not wedge the ordered emission chain.
       entry.emitChain = entry.emitChain
-        .then(() => this.#deliver(msg, generation))
+        .then(() => this.#deliver(msg, generation, streamGeneration))
         .catch(() => {})
         .finally(() => this.flow.emitSettled());
     });
@@ -220,6 +228,8 @@ export class KafkaConsumerSession {
       throw new Error('The consumer was closed while repositioning.');
     }
     this.#positioned = new Set(offsets.map((o) => partitionKey(o.topic, o.partition)));
+    this.#streamGeneration += 1;
+    for (const key of overrides.keys()) this.#soughtAt.set(key, this.#streamGeneration);
     this.bind(entry, next);
     await closeQuietly(old);
   }
@@ -239,7 +249,7 @@ export class KafkaConsumerSession {
     }
   }
 
-  async #deliver(msg: SessionMessage, generation: number): Promise<void> {
+  async #deliver(msg: SessionMessage, generation: number, streamGeneration: number): Promise<void> {
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<'timeout'>((resolve) => {
@@ -256,6 +266,10 @@ export class KafkaConsumerSession {
       if (outcome === 'delivered') {
         // A rebalance since this record was queued may have revoked its partition.
         if (generation !== this.#assignmentGeneration) return;
+        // A record from before a seek of its partition: the seek, not this record,
+        // defines the position (the seek target itself is never committed undelivered).
+        const sought = this.#soughtAt.get(partitionKey(msg.topic, msg.partition));
+        if (sought !== undefined && streamGeneration < sought) return;
         this.#committer?.delivered(msg.topic, msg.partition, msg.offset, msg.leaderEpoch ?? -1);
       } else {
         this.hooks.onError(
@@ -292,12 +306,24 @@ export class KafkaConsumerSession {
       this.#positioned = assigned;
       return;
     }
-    const starts = await this.#startPositions(consumer, added);
+    const { starts, missing } = await this.#startPositions(consumer, added);
+    if (missing && this.options.fallback === 'fail') {
+      // Same contract as the library's COMMITTED + FAIL mode: no silent jump to a watermark.
+      entry.stream?.destroy(
+        new Error(
+          `Topic ${missing.topic} has no committed offset on partition ${missing.partition} and the fallback mode is "fail".`
+        )
+      );
+      return;
+    }
     await this.reposition(entry, () => starts);
   }
 
   /** Committed offsets for newly assigned partitions, or the fallback when none exists. */
-  async #startPositions(consumer: SessionConsumer, keys: string[]): Promise<Map<string, bigint>> {
+  async #startPositions(
+    consumer: SessionConsumer,
+    keys: string[]
+  ): Promise<{ starts: Map<string, bigint>; missing?: { topic: string; partition: number } }> {
     const byTopic = new Map<string, number[]>();
     for (const key of keys) {
       const tp = parsePartitionKey(key);
@@ -315,6 +341,9 @@ export class KafkaConsumerSession {
           starts.set(partitionKey(topic, partition), offset);
         else missing.push({ topic, partition });
       }
+    }
+    if (missing.length > 0 && this.options.fallback === 'fail') {
+      return { starts, ...(missing[0] ? { missing: missing[0] } : {}) };
     }
     if (missing.length > 0) {
       const timestamps = this.options.kafka.ListOffsetTimestamps;
@@ -334,7 +363,7 @@ export class KafkaConsumerSession {
           starts.set(partitionKey(topic, partition), offset);
       }
     }
-    return starts;
+    return { starts };
   }
 }
 

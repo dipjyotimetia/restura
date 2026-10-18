@@ -5,6 +5,7 @@ import type * as KafkaLib from '@platformatic/kafka';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   type ConsumerSessionEntry,
+  type ConsumerSessionOptions,
   fallbackModeValue,
   KafkaConsumerSession,
 } from '../handlers/kafka/consumer-session';
@@ -24,7 +25,12 @@ class FakeStream extends EventEmitter {
 }
 
 function setup(
-  options: { swapTimeoutMs?: number; decodeTimeoutMs?: number; autoCommitIntervalMs?: number } = {}
+  options: Partial<
+    Pick<
+      ConsumerSessionOptions,
+      'swapTimeoutMs' | 'decodeTimeoutMs' | 'autoCommitIntervalMs' | 'fallback'
+    >
+  > = {}
 ) {
   const stream = new FakeStream();
   const consumer = Object.assign(new EventEmitter(), {
@@ -160,6 +166,60 @@ describe('KafkaConsumerSession timeouts', () => {
     expect(consumer.commit).toHaveBeenCalledWith({
       offsets: [{ topic: 'orders', partition: 1, offset: 5n, leaderEpoch: 0 }],
     });
+  });
+
+  it('a seek fences old-stream deliveries of the sought partition from the commit', async () => {
+    const { stream, consumer, entry, hooks, session } = setup({ autoCommitIntervalMs: 60_000 });
+    consumer.assignments = [{ topic: 'orders', partitions: [0, 1] }];
+    const pending: Array<() => void> = [];
+    hooks.deliver.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          pending.push(resolve);
+        })
+    );
+    // Old-stream records queued before a backward seek on orders:0.
+    stream.emit('data', record(99));
+    stream.emit('data', { ...record(7), partition: 1 });
+    const next = new FakeStream();
+    consumer.consume.mockResolvedValue(next);
+    await session.reposition(entry, () => new Map([['orders:0', 10n]]));
+    expect(entry.stream).toBe(next);
+
+    // The stale deliveries complete after the swap.
+    for (let i = 0; i < 10 && pending.length < 2; i += 1) await vi.advanceTimersByTimeAsync(0);
+    while (pending.length > 0) {
+      pending.shift()!();
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    await session.close();
+    // orders:1 was not sought: its delivered position still commits. orders:0's
+    // pre-seek position must not (nor is the seek target committed undelivered).
+    expect(consumer.commit).toHaveBeenCalledTimes(1);
+    expect(consumer.commit).toHaveBeenCalledWith({
+      offsets: [{ topic: 'orders', partition: 1, offset: 8n, leaderEpoch: 0 }],
+    });
+  });
+
+  it("keeps the 'fail' fallback after a swap: a rebalance without a commit stops the stream", async () => {
+    const { consumer, entry, hooks, session } = setup({ fallback: 'fail' });
+    const listOffsets = vi.fn();
+    Object.assign(consumer, {
+      listCommittedOffsets: vi.fn(async () => new Map([['orders', [-1n, -1n]]])),
+      listOffsets,
+    });
+    const next = Object.assign(new FakeStream(), { destroy: vi.fn() });
+    consumer.consume.mockResolvedValue(next);
+    await session.reposition(entry, () => new Map([['orders:0', 1n]]));
+    consumer.assignments = [{ topic: 'orders', partitions: [0, 1] }];
+    consumer.emit('consumer:group:join', {});
+    await vi.waitFor(() => expect(next.destroy).toHaveBeenCalledTimes(1));
+    expect(next.destroy.mock.calls[0]![0].message).toBe(
+      'Topic orders has no committed offset on partition 1 and the fallback mode is "fail".'
+    );
+    expect(listOffsets).not.toHaveBeenCalled();
+    expect(consumer.consume).toHaveBeenCalledTimes(1);
+    expect(hooks.onError).not.toHaveBeenCalled();
   });
 
   it('maps fallback strings to library values', () => {
