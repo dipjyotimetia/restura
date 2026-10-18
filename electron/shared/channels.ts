@@ -79,6 +79,10 @@ export const IPC = {
     connect: 'mcp:connect',
     request: 'mcp:request',
     disconnect: 'mcp:disconnect',
+    /** Renderer → main answer to a server→client request (elicitation / sampling). */
+    clientResponse: 'mcp:client-response',
+    /** Replace a connection's roots; sends notifications/roots/list_changed. */
+    setRoots: 'mcp:set-roots',
   },
   kafka: {
     connect: 'kafka:connect',
@@ -285,6 +289,10 @@ export const EVENT_PREFIX = {
     notification: 'mcp:notification:',
     error: 'mcp:error:',
     close: 'mcp:close:',
+    /** Main → renderer: a server→client request awaiting the user (elicitation / sampling). */
+    clientRequest: 'mcp:client-request:',
+    /** Main → renderer: a pending client request was cancelled, timed out, or its connection closed. */
+    clientRequestCancelled: 'mcp:client-request-cancelled:',
   },
   kafka: {
     connected: 'kafka:connected:',

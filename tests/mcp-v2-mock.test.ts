@@ -30,10 +30,12 @@ describe('v2 MCP mock server', () => {
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name).sort()).toEqual([
       'add',
+      'ask-model',
       'confirm-deploy',
       'echo',
       'fail',
       'header-echo',
+      'list-roots',
     ]);
 
     await client.close();

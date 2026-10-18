@@ -2,6 +2,8 @@ import {
   Client,
   type ClientNotification,
   type ClientRequest,
+  type CreateMessageResult,
+  type ElicitResult,
   SSEClientTransport,
   StreamableHTTPClientTransport,
 } from '@modelcontextprotocol/client';
@@ -30,6 +32,18 @@ export interface McpSdkClient {
   getServerCapabilities(): unknown;
   getServerVersion(): unknown;
   setEvents(events: McpSdkClientEvents): void;
+  sendRootsListChanged(): Promise<void>;
+}
+
+/**
+ * Server→client request handlers (#860). When supplied, the client advertises
+ * the elicitation (form mode), sampling and roots{listChanged} capabilities;
+ * the same handlers also fulfil 2026-07-28 `input_required` rounds.
+ */
+export interface McpSdkClientRequestHandlers {
+  elicit(params: unknown, signal: AbortSignal): Promise<Record<string, unknown>>;
+  createMessage(params: unknown, signal: AbortSignal): Promise<Record<string, unknown>>;
+  listRoots(): { roots: Array<{ uri: string; name?: string | undefined }> };
 }
 
 export interface McpSdkConnectOptions {
@@ -37,6 +51,7 @@ export interface McpSdkConnectOptions {
   transport: McpSdkTransport;
   transportOptions: McpSdkTransportOptions;
   events?: McpSdkClientEvents;
+  clientRequests?: McpSdkClientRequestHandlers;
   onClientCreated?: (client: McpSdkClient) => void;
 }
 
@@ -46,15 +61,24 @@ const CLIENT_INFO = { name: 'restura', version: '1.0.0' };
 // result schema for that opt-in path so a remote JSON-RPC error still reaches
 // the caller instead of failing local request validation.
 const EXTENSION_RESULT_SCHEMA = z.unknown();
+// URL-mode elicitation is deliberately not advertised: it asks the client to
+// open a server-chosen URL, which needs its own consent/SSRF design.
+const CLIENT_REQUEST_CAPABILITIES = {
+  elicitation: { form: {} },
+  sampling: {},
+  roots: { listChanged: true },
+};
 
 class ResturaMcpSdkClient implements McpSdkClient {
   private readonly transport: StreamableHTTPClientTransport | SSEClientTransport;
-  private readonly client = new Client(CLIENT_INFO, {
-    capabilities: {},
-    versionNegotiation: { mode: 'auto' },
-  });
+  private readonly client: Client;
 
   constructor(options: McpSdkConnectOptions) {
+    this.client = new Client(CLIENT_INFO, {
+      capabilities: options.clientRequests ? CLIENT_REQUEST_CAPABILITIES : {},
+      versionNegotiation: { mode: 'auto' },
+    });
+    if (options.clientRequests) installClientRequestHandlers(this.client, options.clientRequests);
     this.transport =
       options.transport === 'streamable-http'
         ? new StreamableHTTPClientTransport(options.url, options.transportOptions)
@@ -144,11 +168,31 @@ class ResturaMcpSdkClient implements McpSdkClient {
     return this.client.getServerVersion();
   }
 
+  sendRootsListChanged(): Promise<void> {
+    return this.client.sendRootsListChanged();
+  }
+
   setEvents(events: McpSdkClientEvents): void {
     this.client.fallbackNotificationHandler = events.onNotification;
     this.client.onerror = events.onError;
     this.client.onclose = events.onClose;
   }
+}
+
+function installClientRequestHandlers(client: Client, handlers: McpSdkClientRequestHandlers) {
+  // The SDK validates request params and result envelopes for elicitation and
+  // sampling; the handlers own the human round-trip and content validation.
+  client.setRequestHandler(
+    'elicitation/create',
+    async (request, ctx) =>
+      (await handlers.elicit(request.params, ctx.mcpReq.signal)) as ElicitResult
+  );
+  client.setRequestHandler(
+    'sampling/createMessage',
+    async (request, ctx) =>
+      (await handlers.createMessage(request.params, ctx.mcpReq.signal)) as CreateMessageResult
+  );
+  client.setRequestHandler('roots/list', () => handlers.listRoots());
 }
 
 export async function connectMcpSdkClient(options: McpSdkConnectOptions): Promise<McpSdkClient> {
