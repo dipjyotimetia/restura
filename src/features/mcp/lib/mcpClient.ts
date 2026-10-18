@@ -2,6 +2,7 @@ import { jsonRpcErrorToMessage, parseJsonRpcError } from '@shared/protocol/mcp-p
 import { normalizeMcpToolDescriptor } from '@shared/protocol/mcp-tool-descriptor';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import type {
+  AuthConfig,
   McpJsonSchema,
   McpPromptDescriptor,
   McpResourceDescriptor,
@@ -54,6 +55,12 @@ interface McpClientOptions {
   url: string;
   transport: McpTransportType;
   headers: Record<string, string>;
+  /**
+   * Desktop only (#896): header-shaped auth Electron main resolves at connect
+   * time (SecretRef handles stay opaque here). On web, credentials are already
+   * applied into `headers` — see `buildMcpConnectAuth`.
+   */
+  auth?: AuthConfig;
   /** Stable identifier for the connection (used to key Electron IPC sessions) */
   connectionId: string;
   /** Web: receives server-originated messages interleaved in SSE replies. */
@@ -106,6 +113,7 @@ export class McpClient {
         url: this.opts.url,
         transport: this.opts.transport,
         headers: this.opts.headers,
+        ...(this.opts.auth ? { auth: this.opts.auth } : {}),
       });
       return res.success ? { ok: true } : { ok: false, error: res.error ?? 'Connect failed' };
     }

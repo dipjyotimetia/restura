@@ -5,6 +5,7 @@ import {
   displayHost,
   McpClientRequestDialog,
 } from '@/features/mcp/components/McpClientRequestDialog';
+import { resolveInheritedAuthFor } from '@/features/auth/lib/resolveInheritedAuthFor';
 import { McpConnectionPanel } from '@/features/mcp/components/McpConnectionPanel';
 import {
   McpDiscoveryPanel,
@@ -15,6 +16,7 @@ import { McpRootsPanel } from '@/features/mcp/components/McpRootsPanel';
 import { useMcpClientRequests } from '@/features/mcp/hooks/useMcpClientRequests';
 import { useMcpConnectionActions } from '@/features/mcp/hooks/useMcpConnectionActions';
 import { useMcpServerEvents } from '@/features/mcp/hooks/useMcpServerEvents';
+import { buildMcpConnectAuth } from '@/features/mcp/lib/mcpAuth';
 import { type McpCall, McpClient } from '@/features/mcp/lib/mcpClient';
 import { pushMcpRoots } from '@/features/mcp/lib/mcpClientRequests';
 import { supportsMcpServerEvents } from '@/features/mcp/lib/mcpEventBridge';
@@ -222,15 +224,25 @@ export default function McpRequestBuilder() {
   const resources = active.capabilities?.resources ?? [];
   const prompts = active.capabilities?.prompts ?? [];
 
-  const buildClient = () => {
+  const buildClient = (): McpClient | { error: string } => {
     const rawHeaders = keyValuePairsToRecord(request.headers);
     const headers = Object.fromEntries(
       Object.entries(rawHeaders).map(([key, value]) => [key, resolveVariables(value)])
     );
+    // #896: apply McpRequest.auth (inline on web, main-resolved on desktop).
+    const auth = buildMcpConnectAuth({
+      auth: request.auth,
+      inherited: resolveInheritedAuthFor(request),
+      headers,
+      resolve: resolveVariables,
+      desktop: isElectron(),
+    });
+    if (!auth.ok) return { error: auth.error };
     return new McpClient({
       url: resolveVariables(request.url),
       transport: request.transport,
-      headers,
+      headers: auth.headers,
+      ...(auth.mainSideAuth ? { auth: auth.mainSideAuth } : {}),
       connectionId: active.id,
     });
   };
@@ -298,8 +310,13 @@ export default function McpRequestBuilder() {
     clientRef.current = null;
     void previousSession?.client.disconnect();
     resetConnectionSession(active.id);
+    const built = buildClient();
+    if ('error' in built) {
+      setStatus(active.id, 'error', built.error);
+      return;
+    }
     setStatus(active.id, 'connecting');
-    const client = buildClient();
+    const client = built;
     clientRef.current = { connectionId: active.id, client };
     const isCurrent = () =>
       clientGenerationRef.current === generation && clientRef.current?.client === client;
@@ -418,6 +435,9 @@ export default function McpRequestBuilder() {
         onUrlChange={(url) => update({ url })}
         onTransportChange={(transport) => update({ transport })}
         onHeadersChange={(headers) => update({ headers })}
+        requestId={request.id}
+        auth={request.auth ?? { type: 'none' }}
+        onAuthChange={(auth) => update({ auth })}
         onConnect={handleConnect}
         onDisconnect={handleDisconnect}
         onRefresh={handleRefresh}

@@ -36,6 +36,7 @@ export type CapabilityName =
   | 'mcp.clientRequests'
   | 'mcp.serverNotifications'
   | 'mcp.resourceSubscriptions'
+  | 'mcp.auth'
   | 'grpc.basic'
   | 'grpc.reflection'
   | 'grpc.web'
@@ -237,6 +238,13 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     desktop: true,
     notes:
       'Subscribe/Unsubscribe toggle when the server advertises resources.subscribe; 2025-era servers use resources/subscribe, 2026-07-28 servers a per-resource subscriptions/listen stream (max 32 per connection). Needs the desktop server→client channel',
+  },
+  'mcp.auth': {
+    label: 'MCP connection auth (Bearer / API-key header)',
+    web: true,
+    desktop: true,
+    notes:
+      'Desktop can store the credential as an OS-keychain or external SecretRef handle, resolved in the main process at connect time; web is inline-only and never persists MCP credentials to IndexedDB (re-enter after reload)',
   },
   'grpc.basic': {
     label: 'gRPC unary + streaming',

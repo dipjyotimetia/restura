@@ -9,7 +9,15 @@ import {
 import SecretInput from '../SecretInput';
 import type { AuthEditorProps } from './types';
 
-export function ApiKeyAuthEditor({ auth, onChange }: AuthEditorProps) {
+interface ApiKeyAuthEditorProps extends AuthEditorProps {
+  /**
+   * Header placement only — hides the "Add to" selector. Protocols whose auth
+   * may never ride the query string (MCP, #896) set this.
+   */
+  headerOnly?: boolean;
+}
+
+export function ApiKeyAuthEditor({ auth, onChange, headerOnly = false }: ApiKeyAuthEditorProps) {
   const apiKey = auth.apiKey ?? { key: '', value: '', in: 'header' as const };
 
   return (
@@ -39,25 +47,27 @@ export function ApiKeyAuthEditor({ auth, onChange }: AuthEditorProps) {
           storageLabel="apiKey.value"
         />
       </div>
-      <div>
-        <label htmlFor="auth-apikey-in" className="text-sm font-medium mb-2 block">
-          Add to
-        </label>
-        <Select
-          value={auth.apiKey?.in || 'header'}
-          onValueChange={(placement: 'header' | 'query') =>
-            onChange({ ...auth, apiKey: { ...apiKey, in: placement } })
-          }
-        >
-          <SelectTrigger id="auth-apikey-in">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="header">Header</SelectItem>
-            <SelectItem value="query">Query Params</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      {!headerOnly && (
+        <div>
+          <label htmlFor="auth-apikey-in" className="text-sm font-medium mb-2 block">
+            Add to
+          </label>
+          <Select
+            value={auth.apiKey?.in || 'header'}
+            onValueChange={(placement: 'header' | 'query') =>
+              onChange({ ...auth, apiKey: { ...apiKey, in: placement } })
+            }
+          >
+            <SelectTrigger id="auth-apikey-in">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="header">Header</SelectItem>
+              <SelectItem value="query">Query Params</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
     </div>
   );
 }
