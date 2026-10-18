@@ -2,12 +2,22 @@ import { useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { kafkaManager, kafkaSecretKey } from '@/features/kafka/lib/kafkaManager';
 import { resolveKafkaList, warnUnresolved } from '@/features/kafka/lib/kafkaVariables';
+import {
+  type KafkaHandleSecretDrafts,
+  type KafkaHandleSecretField,
+  persistKafkaSaslSecrets,
+} from '@/features/kafka/lib/kafkaSaslSecrets';
 import type {
   KafkaAuth,
   KafkaRegistry,
   KafkaSecurityProtocol,
 } from '@/features/kafka/store/useKafkaStore';
-import { KAFKA_SECRET_SENTINEL, useKafkaStore } from '@/features/kafka/store/useKafkaStore';
+import {
+  isKafkaPasswordSasl,
+  isKafkaStaticOAuthSasl,
+  KAFKA_SECRET_SENTINEL,
+  useKafkaStore,
+} from '@/features/kafka/store/useKafkaStore';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
 import { clearPendingSecrets, setPendingSecret } from '@/lib/shared/streaming/composerDrafts';
@@ -46,6 +56,9 @@ export function useKafkaConnection() {
   const [registryPasswordDraft, setRegistryPasswordDraft] = useState('');
   const [registryTokenDraft, setRegistryTokenDraft] = useState('');
   const [brokerDraft, setBrokerDraft] = useState('');
+  const [secretDrafts, setSecretDrafts] = useState<KafkaHandleSecretDrafts>({});
+  const setSecretDraft = (field: KafkaHandleSecretField, value: string): void =>
+    setSecretDrafts((current) => ({ ...current, [field]: value }));
 
   useEffect(() => {
     setSaslPasswordDraft('');
@@ -53,6 +66,7 @@ export function useKafkaConnection() {
     setRegistryPasswordDraft('');
     setRegistryTokenDraft('');
     setBrokerDraft('');
+    setSecretDrafts({});
   }, [activeConnectionId]);
 
   // Typed-but-not-yet-stored credentials, so Save to Collection before
@@ -84,29 +98,35 @@ export function useKafkaConnection() {
   const connect = async (): Promise<void> => {
     if (!connection) return;
     let nextAuth = connection.auth;
-    if (saslPasswordDraft && nextAuth.sasl) {
-      const currentSasl = nextAuth.sasl;
-      const isOAuth = currentSasl.mechanism === 'OAUTHBEARER';
-      secureStorage.set(
-        kafkaSecretKey(connection.id, isOAuth ? 'oauth-token' : 'sasl-password'),
-        saslPasswordDraft
-      );
-      if (currentSasl.mechanism === 'OAUTHBEARER') {
-        nextAuth = {
-          ...nextAuth,
-          sasl: {
-            mechanism: 'OAUTHBEARER',
-            token: KAFKA_SECRET_SENTINEL,
-            ...(currentSasl.extensions ? { extensions: currentSasl.extensions } : {}),
-          },
-        };
-      } else {
-        nextAuth = {
-          ...nextAuth,
-          sasl: { ...currentSasl, password: KAFKA_SECRET_SENTINEL },
-        };
-      }
+    const currentSasl = nextAuth.sasl;
+    if (saslPasswordDraft && isKafkaStaticOAuthSasl(currentSasl)) {
+      secureStorage.set(kafkaSecretKey(connection.id, 'oauth-token'), saslPasswordDraft);
+      nextAuth = { ...nextAuth, sasl: { ...currentSasl, token: KAFKA_SECRET_SENTINEL } };
       setSaslPasswordDraft('');
+    } else if (saslPasswordDraft && isKafkaPasswordSasl(currentSasl)) {
+      secureStorage.set(kafkaSecretKey(connection.id, 'sasl-password'), saslPasswordDraft);
+      nextAuth = { ...nextAuth, sasl: { ...currentSasl, password: KAFKA_SECRET_SENTINEL } };
+      setSaslPasswordDraft('');
+    }
+    if (nextAuth.sasl) {
+      try {
+        const sasl = await persistKafkaSaslSecrets(
+          nextAuth.sasl,
+          secretDrafts,
+          connection.name,
+          getElectronAPI()?.secrets?.store
+        );
+        if (sasl !== nextAuth.sasl) {
+          nextAuth = { ...nextAuth, sasl };
+          setSecretDrafts({});
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to store Kafka credentials';
+        useKafkaStore
+          .getState()
+          .addMessage(connection.id, { direction: 'system', topic: '', value: msg, error: msg });
+        return;
+      }
     }
     if (tlsPassphraseDraft) {
       secureStorage.set(kafkaSecretKey(connection.id, 'tls-passphrase'), tlsPassphraseDraft);
@@ -223,6 +243,8 @@ export function useKafkaConnection() {
     setRegistryPasswordDraft,
     registryTokenDraft,
     setRegistryTokenDraft,
+    secretDrafts,
+    setSecretDraft,
     patchRegistry,
     addBroker,
     removeBroker,
@@ -246,6 +268,8 @@ export type KafkaConnectionFormController = Pick<
   | 'setRegistryPasswordDraft'
   | 'registryTokenDraft'
   | 'setRegistryTokenDraft'
+  | 'secretDrafts'
+  | 'setSecretDraft'
   | 'patchRegistry'
   | 'addBroker'
   | 'removeBroker'

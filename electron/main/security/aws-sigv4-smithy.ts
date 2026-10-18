@@ -32,6 +32,34 @@ function isHashableBody(body: unknown): boolean {
   return typeof body === 'string' || body instanceof ArrayBuffer || ArrayBuffer.isView(body);
 }
 
+export interface SmithySigV4Credentials {
+  accessKeyId: string;
+  secretAccessKey: string;
+  sessionToken?: string | undefined;
+}
+
+/**
+ * The single place desktop code builds a `@smithy/signature-v4` signer from
+ * explicit, already-resolved credentials. Shared by the HTTP SigV4 auth path
+ * and the Kafka AWS MSK IAM token signer.
+ */
+export function createSmithySignatureV4(
+  credentials: SmithySigV4Credentials,
+  region: string,
+  service: string
+): SignatureV4 {
+  return new SignatureV4({
+    credentials: {
+      accessKeyId: credentials.accessKeyId,
+      secretAccessKey: credentials.secretAccessKey,
+      ...(credentials.sessionToken ? { sessionToken: credentials.sessionToken } : {}),
+    },
+    region,
+    service,
+    sha256: Sha256,
+  });
+}
+
 export const smithySigV4Signer: SigV4Signer = async (args, creds) => {
   const url = new URL(args.url);
 
@@ -59,12 +87,11 @@ export const smithySigV4Signer: SigV4Signer = async (args, creds) => {
     ...(hashable && args.body !== undefined ? { body: args.body } : {}),
   });
 
-  const signer = new SignatureV4({
-    credentials: { accessKeyId: creds.accessKey, secretAccessKey: creds.secretKey },
-    region: creds.region,
-    service: creds.service,
-    sha256: Sha256,
-  });
+  const signer = createSmithySignatureV4(
+    { accessKeyId: creds.accessKey, secretAccessKey: creds.secretKey },
+    creds.region,
+    creds.service
+  );
 
   const signed = await signer.sign(request);
 

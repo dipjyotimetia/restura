@@ -189,6 +189,71 @@ describe('Kafka IPC validators', () => {
       ).toBe(false);
     });
 
+    describe('SASL mechanisms beyond PLAIN/SCRAM (#918)', () => {
+      const base = { connectionId: 'abc', clientId: 'r', bootstrapBrokers: ['b:9092'] };
+      const parse = (sasl: unknown, securityProtocol = 'SASL_SSL') =>
+        KafkaConnectSchema.safeParse({ ...base, auth: { securityProtocol, sasl } }).success;
+      const handle = { kind: 'handle', id: '00000000-0000-4000-8000-000000000001' };
+
+      it('accepts OAUTHBEARER client-credentials with a SecretRef client secret', () => {
+        const cc = {
+          mechanism: 'OAUTHBEARER',
+          mode: 'client-credentials',
+          tokenEndpoint: 'https://idp.example.com/oauth2/token',
+          clientId: 'kafka',
+          clientSecret: handle,
+          scope: 'kafka:produce',
+          extensions: { logicalCluster: 'lkc-1' },
+        };
+        expect(parse(cc)).toBe(true);
+        expect(parse({ ...cc, mode: undefined })).toBe(false);
+        expect(parse({ ...cc, tokenEndpoint: 'ftp://idp.example.com/token' })).toBe(false);
+        expect(parse({ ...cc, clientSecret: '' })).toBe(false);
+        expect(parse({ ...cc, clientSecret: { kind: 'inline', value: '' } })).toBe(false);
+        expect(parse({ ...cc, clientSecret: undefined })).toBe(false);
+        // An explicit static mode keeps the legacy token shape.
+        expect(parse({ mechanism: 'OAUTHBEARER', mode: 'static', token: 't' })).toBe(true);
+      });
+
+      it('accepts GSSAPI with validated Kerberos names', () => {
+        expect(parse({ mechanism: 'GSSAPI' })).toBe(true);
+        expect(
+          parse({ mechanism: 'GSSAPI', serviceName: 'kafka', principal: 'svc/host@CORP.EXAMPLE' })
+        ).toBe(true);
+        expect(parse({ mechanism: 'GSSAPI', serviceName: 'kafka@evil' })).toBe(false);
+        expect(parse({ mechanism: 'GSSAPI', principal: 'bad principal' })).toBe(false);
+      });
+
+      it('accepts AWS_MSK_IAM with static handles or a named profile, over SASL_SSL only', () => {
+        const staticCreds = {
+          mechanism: 'AWS_MSK_IAM',
+          region: 'us-east-1',
+          credentials: {
+            source: 'static',
+            accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+            secretAccessKey: handle,
+            sessionToken: handle,
+          },
+        };
+        expect(parse(staticCreds)).toBe(true);
+        expect(
+          parse({
+            mechanism: 'AWS_MSK_IAM',
+            region: 'eu-west-1',
+            credentials: { source: 'profile', profile: 'msk-dev' },
+          })
+        ).toBe(true);
+        expect(parse({ ...staticCreds, region: 'not a region' })).toBe(false);
+        expect(
+          parse({
+            ...staticCreds,
+            credentials: { ...staticCreds.credentials, accessKeyId: 'lower' },
+          })
+        ).toBe(false);
+        expect(parse(staticCreds, 'SASL_PLAINTEXT')).toBe(false);
+      });
+    });
+
     it('rejects bad broker syntax', () => {
       const result = KafkaConnectSchema.safeParse({
         connectionId: 'abc',

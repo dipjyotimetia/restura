@@ -8,6 +8,13 @@ import type {
   KafkaCompression,
   KafkaConnection,
   KafkaRegistry,
+  KafkaSasl,
+} from '@/features/kafka/store/useKafkaStore';
+import {
+  isKafkaPasswordSasl,
+  isKafkaStaticOAuthSasl,
+  KAFKA_SECRET_SENTINEL,
+  useKafkaStore,
 } from '@/features/kafka/store/useKafkaStore';
 import {
   KAFKA_SECRET_SENTINEL,
@@ -28,6 +35,7 @@ import type {
   KafkaPartitionWatermark,
   KafkaRecordFieldIpc,
   KafkaRegistryIpc,
+  KafkaSaslIpc,
   KafkaTopicConfigEntry,
 } from '../../../../electron/types/electron-api';
 import { isKafkaBrowse, type KafkaSubscribePayload, toBrowseSubscribe } from './kafkaBrowse';
@@ -92,6 +100,75 @@ async function resolveRegistry(
 }
 
 /**
+ * Resolve the persisted SASL block into its IPC shape. Legacy password/static
+ * token secrets are read from secureStorage (sentinel); SecretRef handles for
+ * OAuth client secrets and AWS keys are forwarded as handles and resolved only
+ * in main. Returns null when a required credential is missing.
+ */
+async function resolveSasl(connectionId: string, sasl: KafkaSasl): Promise<KafkaSaslIpc | null> {
+  if (isKafkaPasswordSasl(sasl)) {
+    const password =
+      sasl.password === KAFKA_SECRET_SENTINEL
+        ? ((await readSecret(connectionId, 'sasl-password')) ?? '')
+        : sasl.password;
+    return password ? { mechanism: sasl.mechanism, username: sasl.username, password } : null;
+  }
+  if (isKafkaStaticOAuthSasl(sasl)) {
+    const token =
+      sasl.token === KAFKA_SECRET_SENTINEL
+        ? ((await readSecret(connectionId, 'oauth-token')) ?? '')
+        : sasl.token;
+    if (!token) return null;
+    return {
+      mechanism: 'OAUTHBEARER',
+      token,
+      ...(sasl.extensions ? { extensions: sasl.extensions } : {}),
+    };
+  }
+  if (sasl.mechanism === 'OAUTHBEARER') {
+    const tokenEndpoint = sasl.tokenEndpoint.trim();
+    const clientId = sasl.clientId.trim();
+    if (!tokenEndpoint || !clientId || !sasl.clientSecret) return null;
+    return {
+      mechanism: 'OAUTHBEARER',
+      mode: 'client-credentials',
+      tokenEndpoint,
+      clientId,
+      clientSecret: sasl.clientSecret,
+      ...(sasl.scope?.trim() ? { scope: sasl.scope.trim() } : {}),
+      ...(sasl.extensions ? { extensions: sasl.extensions } : {}),
+    };
+  }
+  if (sasl.mechanism === 'GSSAPI') {
+    return {
+      mechanism: 'GSSAPI',
+      ...(sasl.serviceName?.trim() ? { serviceName: sasl.serviceName.trim() } : {}),
+      ...(sasl.principal?.trim() ? { principal: sasl.principal.trim() } : {}),
+    };
+  }
+  const region = sasl.region.trim();
+  if (!region) return null;
+  if (sasl.credentialSource === 'profile') {
+    const profile = sasl.profile?.trim();
+    return profile
+      ? { mechanism: 'AWS_MSK_IAM', region, credentials: { source: 'profile', profile } }
+      : null;
+  }
+  const accessKeyId = sasl.accessKeyId?.trim();
+  if (!accessKeyId || !sasl.secretAccessKey) return null;
+  return {
+    mechanism: 'AWS_MSK_IAM',
+    region,
+    credentials: {
+      source: 'static',
+      accessKeyId,
+      secretAccessKey: sasl.secretAccessKey,
+      ...(sasl.sessionToken ? { sessionToken: sasl.sessionToken } : {}),
+    },
+  };
+}
+
+/**
  * Resolve the persisted KafkaAuth (which holds sentinels for secrets and
  * file paths for TLS material) into the wire-format expected by the Electron
  * IPC handler (which expects plaintext + file contents).
@@ -151,30 +228,8 @@ async function resolveAuth(connectionId: string, auth: KafkaAuth): Promise<Kafka
   }
 
   if (!auth.sasl) return null;
-  const sasl: Extract<KafkaAuthIpc, { securityProtocol: 'SASL_PLAINTEXT' }>['sasl'] =
-    auth.sasl.mechanism === 'OAUTHBEARER'
-      ? {
-          mechanism: 'OAUTHBEARER',
-          token:
-            auth.sasl.token === KAFKA_SECRET_SENTINEL
-              ? ((await readSecret(connectionId, 'oauth-token')) ?? '')
-              : auth.sasl.token,
-          ...(auth.sasl.extensions ? { extensions: auth.sasl.extensions } : {}),
-        }
-      : {
-          mechanism: auth.sasl.mechanism,
-          username: auth.sasl.username,
-          password:
-            auth.sasl.password === KAFKA_SECRET_SENTINEL
-              ? ((await readSecret(connectionId, 'sasl-password')) ?? '')
-              : auth.sasl.password,
-        };
-  if (
-    (sasl.mechanism === 'OAUTHBEARER' && !sasl.token) ||
-    (sasl.mechanism !== 'OAUTHBEARER' && !sasl.password)
-  ) {
-    return null;
-  }
+  const sasl = await resolveSasl(connectionId, auth.sasl);
+  if (!sasl) return null;
 
   if (auth.securityProtocol === 'SASL_PLAINTEXT') {
     return { securityProtocol: 'SASL_PLAINTEXT', sasl };
@@ -233,7 +288,7 @@ class KafkaManager {
     }
     if (!ipcAuth) {
       store.updateStatus(connection.id, 'disconnected');
-      const msg = 'Missing SASL password or TLS material — re-enter credentials.';
+      const msg = 'Missing SASL credentials or TLS material — re-enter credentials.';
       store.addMessage(connection.id, { direction: 'system', topic: '', value: msg, error: msg });
       return { ok: false, error: msg };
     }

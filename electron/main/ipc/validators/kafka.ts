@@ -34,7 +34,44 @@ const KafkaBrokerSchema = z
     return Number.isInteger(port) && port >= 1 && port <= 65_535;
   }, 'Broker port must be between 1 and 65535');
 
-const KafkaSaslSchema = z.discriminatedUnion('mechanism', [
+const KafkaOAuthExtensionsSchema = z
+  .record(z.string().min(1).max(256), z.string().max(1024))
+  .optional();
+
+// Secret-bearing fields added for #918 accept the canonical SecretValue union
+// (plain string | inline | handle | external). The renderer sends handles, so
+// plaintext is resolved here in main only (ADR-0007).
+const KafkaSecretValueSchema = protocolSecretValueSchema.refine(
+  (value) =>
+    typeof value === 'string'
+      ? value.length > 0
+      : value.kind !== 'inline' || value.value.length > 0,
+  'Secret is required'
+);
+
+const KafkaTokenEndpointSchema = z
+  .url('Invalid OAuth token endpoint')
+  .max(2048)
+  .refine((url) => /^https?:\/\//i.test(url), 'OAuth token endpoint must be http(s)');
+
+// Service and principal names flow into the native GSSAPI library (the service
+// becomes the SPN `service@broker-host`) — keep them to the characters Kerberos
+// names actually use.
+const KafkaKerberosServiceSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9._-]+$/, 'Invalid Kerberos service name');
+const KafkaKerberosPrincipalSchema = z
+  .string()
+  .min(1)
+  .max(256)
+  .regex(
+    /^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)?(?:@[A-Za-z0-9._-]+)?$/,
+    'Invalid Kerberos principal'
+  );
+
+const KafkaSaslSchema = z.union([
   z.object({
     mechanism: z.literal('PLAIN'),
     username: z.string().min(1).max(256),
@@ -50,15 +87,63 @@ const KafkaSaslSchema = z.discriminatedUnion('mechanism', [
     username: z.string().min(1).max(256),
     password: z.string().min(1).max(1024),
   }),
+  // Static bearer token. `mode` is optional so pre-#918 configs keep parsing.
   z.object({
     mechanism: z.literal('OAUTHBEARER'),
+    mode: z.literal('static').optional(),
     token: z
       .string()
       .min(1)
       .max(16 * 1024),
-    extensions: z.record(z.string().min(1).max(256), z.string().max(1024)).optional(),
+    extensions: KafkaOAuthExtensionsSchema,
+  }),
+  // OAuth 2.0 client-credentials: main fetches + refreshes the token.
+  z.object({
+    mechanism: z.literal('OAUTHBEARER'),
+    mode: z.literal('client-credentials'),
+    tokenEndpoint: KafkaTokenEndpointSchema,
+    clientId: z.string().min(1).max(512),
+    clientSecret: KafkaSecretValueSchema,
+    scope: z.string().max(1024).optional(),
+    extensions: KafkaOAuthExtensionsSchema,
+  }),
+  z.object({
+    mechanism: z.literal('GSSAPI'),
+    serviceName: KafkaKerberosServiceSchema.optional(),
+    principal: KafkaKerberosPrincipalSchema.optional(),
+  }),
+  // AWS MSK IAM — signed as a SigV4 presigned token over SASL/OAUTHBEARER.
+  z.object({
+    mechanism: z.literal('AWS_MSK_IAM'),
+    region: z
+      .string()
+      .min(1)
+      .max(32)
+      .regex(/^[a-z]{2}(-[a-z]+)+-\d+$/, 'Invalid AWS region'),
+    credentials: z.discriminatedUnion('source', [
+      z.object({
+        source: z.literal('static'),
+        accessKeyId: z
+          .string()
+          .min(16)
+          .max(128)
+          .regex(/^[A-Z0-9]+$/, 'Invalid AWS access key id'),
+        secretAccessKey: KafkaSecretValueSchema,
+        sessionToken: KafkaSecretValueSchema.optional(),
+      }),
+      z.object({
+        source: z.literal('profile'),
+        profile: z
+          .string()
+          .min(1)
+          .max(128)
+          .regex(/^[A-Za-z0-9._+=,@-]+$/, 'Invalid AWS profile name'),
+      }),
+    ]),
   }),
 ]);
+
+export type KafkaSaslConfig = z.infer<typeof KafkaSaslSchema>;
 
 const KafkaTlsSchema = z.object({
   ca: z
@@ -155,7 +240,14 @@ export const KafkaConnectSchema = z
   .refine((cfg) => cfg.transactionalId === undefined || cfg.idempotent === true, {
     message: 'Producer transactions require idempotent mode.',
     path: ['transactionalId'],
-  });
+  })
+  .refine(
+    (cfg) =>
+      !('sasl' in cfg.auth) ||
+      cfg.auth.sasl.mechanism !== 'AWS_MSK_IAM' ||
+      cfg.auth.securityProtocol === 'SASL_SSL',
+    { message: 'AWS MSK IAM requires SASL_SSL.', path: ['auth', 'securityProtocol'] }
+  );
 
 // Topic naming rules per Kafka: max 249 chars, [a-zA-Z0-9._-]; we also forbid
 // leading dot/dash for sanity.

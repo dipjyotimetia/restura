@@ -435,6 +435,135 @@ describe('kafkaManager (Electron path)', () => {
     );
   });
 
+  it('forwards SecretRef handles (never plaintext) for client-credentials, MSK IAM and GSSAPI', async () => {
+    const { kafka } = installElectronMock();
+    const id = useKafkaStore.getState().createConnection();
+    const store = useKafkaStore.getState();
+    const handle = { kind: 'handle' as const, id: 'h-1', label: 'Kafka / OAuth client secret' };
+    const lastAuth = () =>
+      (kafka.connect.mock.calls.at(-1) as unknown as [{ auth: unknown }])[0].auth;
+
+    store.updateAuth(id, {
+      securityProtocol: 'SASL_SSL',
+      sasl: {
+        mechanism: 'OAUTHBEARER',
+        mode: 'client-credentials',
+        tokenEndpoint: ' https://idp.example.com/token ',
+        clientId: ' kafka-client ',
+        clientSecret: handle,
+        scope: ' kafka ',
+        extensions: { logicalCluster: 'lkc-1' },
+      },
+    });
+    await kafkaManager.connect(useKafkaStore.getState().connections[id]!);
+    expect(lastAuth()).toEqual({
+      securityProtocol: 'SASL_SSL',
+      sasl: {
+        mechanism: 'OAUTHBEARER',
+        mode: 'client-credentials',
+        tokenEndpoint: 'https://idp.example.com/token',
+        clientId: 'kafka-client',
+        clientSecret: handle,
+        scope: 'kafka',
+        extensions: { logicalCluster: 'lkc-1' },
+      },
+    });
+
+    store.updateAuth(id, {
+      securityProtocol: 'SASL_SSL',
+      sasl: {
+        mechanism: 'AWS_MSK_IAM',
+        region: 'us-east-1',
+        credentialSource: 'static',
+        accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+        secretAccessKey: handle,
+        sessionToken: handle,
+      },
+    });
+    await kafkaManager.connect(useKafkaStore.getState().connections[id]!);
+    expect(lastAuth()).toEqual({
+      securityProtocol: 'SASL_SSL',
+      sasl: {
+        mechanism: 'AWS_MSK_IAM',
+        region: 'us-east-1',
+        credentials: {
+          source: 'static',
+          accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+          secretAccessKey: handle,
+          sessionToken: handle,
+        },
+      },
+    });
+
+    store.updateAuth(id, {
+      securityProtocol: 'SASL_SSL',
+      sasl: {
+        mechanism: 'AWS_MSK_IAM',
+        region: 'eu-west-1',
+        credentialSource: 'profile',
+        profile: 'dev',
+      },
+    });
+    await kafkaManager.connect(useKafkaStore.getState().connections[id]!);
+    expect(lastAuth()).toEqual({
+      securityProtocol: 'SASL_SSL',
+      sasl: {
+        mechanism: 'AWS_MSK_IAM',
+        region: 'eu-west-1',
+        credentials: { source: 'profile', profile: 'dev' },
+      },
+    });
+
+    store.updateAuth(id, {
+      securityProtocol: 'SASL_PLAINTEXT',
+      sasl: { mechanism: 'GSSAPI', serviceName: ' kafka ', principal: 'alice@CORP' },
+    });
+    await kafkaManager.connect(useKafkaStore.getState().connections[id]!);
+    expect(lastAuth()).toEqual({
+      securityProtocol: 'SASL_PLAINTEXT',
+      sasl: { mechanism: 'GSSAPI', serviceName: 'kafka', principal: 'alice@CORP' },
+    });
+    store.updateAuth(id, { securityProtocol: 'SASL_PLAINTEXT', sasl: { mechanism: 'GSSAPI' } });
+    await kafkaManager.connect(useKafkaStore.getState().connections[id]!);
+    expect(lastAuth()).toEqual({
+      securityProtocol: 'SASL_PLAINTEXT',
+      sasl: { mechanism: 'GSSAPI' },
+    });
+  });
+
+  it('refuses to connect when a required SASL credential is missing', async () => {
+    const { kafka } = installElectronMock();
+    const id = useKafkaStore.getState().createConnection();
+    const store = useKafkaStore.getState();
+    const incomplete = [
+      {
+        mechanism: 'OAUTHBEARER',
+        mode: 'client-credentials',
+        tokenEndpoint: 'https://i/t',
+        clientId: 'c',
+      },
+      { mechanism: 'OAUTHBEARER', token: '' },
+      { mechanism: 'PLAIN', username: 'u', password: '' },
+      { mechanism: 'AWS_MSK_IAM', region: '', credentialSource: 'profile', profile: 'p' },
+      { mechanism: 'AWS_MSK_IAM', region: 'us-east-1', credentialSource: 'profile' },
+      {
+        mechanism: 'AWS_MSK_IAM',
+        region: 'us-east-1',
+        credentialSource: 'static',
+        accessKeyId: 'AKIA',
+      },
+    ] as const;
+    for (const sasl of incomplete) {
+      store.updateAuth(id, { securityProtocol: 'SASL_SSL', sasl: sasl as never });
+      const result = await kafkaManager.connect(useKafkaStore.getState().connections[id]!);
+      expect(result).toEqual({
+        ok: false,
+        error: 'Missing SASL credentials or TLS material — re-enter credentials.',
+      });
+    }
+    expect(kafka.connect).not.toHaveBeenCalled();
+  });
+
   it('forwards the complete native consumer policy and lifecycle telemetry', async () => {
     const { kafka, emit } = installElectronMock();
     const id = useKafkaStore.getState().createConnection();

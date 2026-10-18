@@ -43,6 +43,9 @@ export type CapabilityName =
   | 'grpc.web'
   | 'kafka.basic'
   | 'kafka.schemaRegistry'
+  | 'kafka.saslOAuthRefresh'
+  | 'kafka.saslMskIam'
+  | 'kafka.saslGssapi'
   | 'mqtt.basic'
   | 'socketio.basic'
   | 'ai.basic'
@@ -289,6 +292,26 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     desktop: true,
     notes:
       'Desktop main-process client: Basic or Bearer (SecretRef) auth, Settings TLS policy (custom CA, mTLS, verify) for HTTPS, broker-aligned SSRF policy (per-socket DNS checks refuse metadata and disabled loopback), no credentials over public plain HTTP; Avro/JSON Schema example generation, Protobuf view-only',
+  'kafka.saslOAuthRefresh': {
+    label: 'Kafka SASL/OAUTHBEARER client-credentials (auto-refresh)',
+    web: false,
+    desktop: true,
+    notes:
+      'Token fetched in main through the SSRF-guarded, DNS-pinned fetch and refreshed 30s before expiry; client secret is a SecretRef handle',
+  },
+  'kafka.saslMskIam': {
+    label: 'Kafka AWS MSK IAM',
+    web: false,
+    desktop: true,
+    notes:
+      'SigV4-presigned OAUTHBEARER token; access keys (SecretRef handles) or a named AWS profile; SASL_SSL only',
+  },
+  'kafka.saslGssapi': {
+    label: 'Kafka SASL/GSSAPI (Kerberos)',
+    web: false,
+    desktop: false,
+    notes:
+      'Authenticator is wired, but the native kerberos module is not bundled; connections fail with an explicit error',
   },
   'mqtt.basic': {
     label: 'MQTT publish / subscribe',

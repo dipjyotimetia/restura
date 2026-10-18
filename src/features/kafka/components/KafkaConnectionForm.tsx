@@ -17,24 +17,15 @@ import { TabsContent } from '@/components/ui/tabs';
 import SecretInput from '@/features/auth/components/SecretInput';
 import type { KafkaConnectionFormController } from '../hooks/useKafkaConnection';
 import { registryTransportWarning } from '../lib/registryTransport';
-import type {
-  KafkaConnection,
-  KafkaSaslMechanism,
-  KafkaSecurityProtocol,
-} from '../store/useKafkaStore';
+import type { KafkaConnection, KafkaSecurityProtocol } from '../store/useKafkaStore';
 import { KAFKA_SECRET_SENTINEL } from '../store/useKafkaStore';
+import { KafkaSaslFields } from './KafkaSaslFields';
 
 const SECURITY_PROTOCOLS: KafkaSecurityProtocol[] = [
   'PLAINTEXT',
   'SASL_PLAINTEXT',
   'SASL_SSL',
   'SSL',
-];
-const SASL_MECHANISMS: KafkaSaslMechanism[] = [
-  'PLAIN',
-  'SCRAM-SHA-256',
-  'SCRAM-SHA-512',
-  'OAUTHBEARER',
 ];
 
 interface KafkaConnectionFormProps {
@@ -49,8 +40,6 @@ export function KafkaConnectionForm({ connection, controller }: KafkaConnectionF
     updateAuth,
     brokerDraft,
     setBrokerDraft,
-    saslPasswordDraft,
-    setSaslPasswordDraft,
     tlsPassphraseDraft,
     setTlsPassphraseDraft,
     registryPasswordDraft,
@@ -134,67 +123,11 @@ export function KafkaConnectionForm({ connection, controller }: KafkaConnectionF
         {(connection.auth.securityProtocol === 'SASL_PLAINTEXT' ||
           connection.auth.securityProtocol === 'SASL_SSL') &&
           connection.auth.sasl && (
-            <div className="space-y-2 rounded-sp-btn border border-sp-line p-3 bg-sp-surface-lo">
-              <Label className="text-xs sp-label">SASL</Label>
-              <Select
-                value={connection.auth.sasl.mechanism}
-                onValueChange={(value) => {
-                  const mechanism = value as KafkaSaslMechanism;
-                  updateAuth(connection.id, {
-                    ...connection.auth,
-                    sasl:
-                      mechanism === 'OAUTHBEARER'
-                        ? { mechanism, token: '' }
-                        : { mechanism, username: '', password: '' },
-                  });
-                }}
-              >
-                <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SASL_MECHANISMS.map((mechanism) => (
-                    <SelectItem key={mechanism} value={mechanism}>
-                      {mechanism}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {connection.auth.sasl.mechanism !== 'OAUTHBEARER' && (
-                <Input
-                  value={connection.auth.sasl.username}
-                  onChange={(event) => {
-                    const current = connection.auth.sasl;
-                    if (!current || current.mechanism === 'OAUTHBEARER') return;
-                    updateAuth(connection.id, {
-                      ...connection.auth,
-                      sasl: {
-                        mechanism: current.mechanism,
-                        password: current.password,
-                        username: event.target.value,
-                      },
-                    });
-                  }}
-                  placeholder="Username"
-                  className="h-8 text-xs font-mono"
-                />
-              )}
-              <Input
-                type="password"
-                value={saslPasswordDraft}
-                onChange={(event) => setSaslPasswordDraft(event.target.value)}
-                placeholder={
-                  (connection.auth.sasl.mechanism === 'OAUTHBEARER'
-                    ? connection.auth.sasl.token
-                    : connection.auth.sasl.password) === KAFKA_SECRET_SENTINEL
-                    ? `${connection.auth.sasl.mechanism === 'OAUTHBEARER' ? 'Token' : 'Password'} (stored — leave blank to keep)`
-                    : connection.auth.sasl.mechanism === 'OAUTHBEARER'
-                      ? 'Bearer token'
-                      : 'Password'
-                }
-                className="h-8 text-xs font-mono"
-              />
-            </div>
+            <KafkaSaslFields
+              connection={connection}
+              sasl={connection.auth.sasl}
+              controller={controller}
+            />
           )}
 
         {(connection.auth.securityProtocol === 'SASL_SSL' ||

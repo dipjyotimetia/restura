@@ -14,7 +14,14 @@ import { type ConsoleFrame, useConsoleStore } from '@/store/useConsoleStore';
 import { emitStreamEvent } from '@/store/useStreamTimelineStore';
 
 export type KafkaSecurityProtocol = 'PLAINTEXT' | 'SASL_PLAINTEXT' | 'SASL_SSL' | 'SSL';
-export type KafkaSaslMechanism = 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512' | 'OAUTHBEARER';
+export type KafkaSaslMechanism =
+  | 'PLAIN'
+  | 'SCRAM-SHA-256'
+  | 'SCRAM-SHA-512'
+  | 'OAUTHBEARER'
+  | 'GSSAPI'
+  | 'AWS_MSK_IAM';
+export type KafkaPasswordMechanism = 'PLAIN' | 'SCRAM-SHA-256' | 'SCRAM-SHA-512';
 export type KafkaCompression = 'none' | 'gzip' | 'snappy' | 'lz4' | 'zstd';
 export type KafkaAcks = 0 | 1 | -1;
 
@@ -25,19 +32,86 @@ export type KafkaAcks = 0 | 1 | -1;
  */
 export const KAFKA_SECRET_SENTINEL = '__restura_secret__';
 
+/**
+ * Opaque reference to a secret held in the main-process SecretRef handle store
+ * (ADR-0007). The renderer never sees the plaintext — main resolves it at
+ * connect / token-refresh time. Only handles are ever persisted.
+ */
+export interface KafkaSecretHandle {
+  kind: 'handle';
+  id: string;
+  label?: string;
+}
+
+export interface KafkaOAuthClientCredentialsSasl {
+  mechanism: 'OAUTHBEARER';
+  mode: 'client-credentials';
+  tokenEndpoint: string;
+  clientId: string;
+  clientSecret?: KafkaSecretHandle;
+  scope?: string;
+  extensions?: Record<string, string>;
+}
+
+export interface KafkaMskIamSasl {
+  mechanism: 'AWS_MSK_IAM';
+  region: string;
+  credentialSource: 'static' | 'profile';
+  accessKeyId?: string;
+  secretAccessKey?: KafkaSecretHandle;
+  sessionToken?: KafkaSecretHandle;
+  /** Named profile from ~/.aws/config|credentials (resolved in main). */
+  profile?: string;
+}
+
 export type KafkaSasl =
   | {
-      mechanism: Exclude<KafkaSaslMechanism, 'OAUTHBEARER'>;
+      mechanism: KafkaPasswordMechanism;
       username: string;
       /** Persisted as the sentinel; real value comes from secureStorage */
       password: string;
     }
   | {
       mechanism: 'OAUTHBEARER';
+      /** Absent on configs saved before client-credentials support. */
+      mode?: 'static';
       /** Persisted as the sentinel; real value comes from secureStorage */
       token: string;
       extensions?: Record<string, string>;
-    };
+    }
+  | KafkaOAuthClientCredentialsSasl
+  | { mechanism: 'GSSAPI'; serviceName?: string; principal?: string }
+  | KafkaMskIamSasl;
+
+export function isKafkaPasswordSasl(
+  sasl: KafkaSasl | undefined
+): sasl is Extract<KafkaSasl, { mechanism: KafkaPasswordMechanism }> {
+  return (
+    sasl?.mechanism === 'PLAIN' ||
+    sasl?.mechanism === 'SCRAM-SHA-256' ||
+    sasl?.mechanism === 'SCRAM-SHA-512'
+  );
+}
+
+export function isKafkaStaticOAuthSasl(
+  sasl: KafkaSasl | undefined
+): sasl is Extract<KafkaSasl, { mechanism: 'OAUTHBEARER'; token: string }> {
+  return sasl?.mechanism === 'OAUTHBEARER' && sasl.mode !== 'client-credentials';
+}
+
+/** Default SASL block when the user picks a mechanism in the connection form. */
+export function defaultKafkaSasl(mechanism: KafkaSaslMechanism): KafkaSasl {
+  switch (mechanism) {
+    case 'OAUTHBEARER':
+      return { mechanism, mode: 'static', token: '' };
+    case 'GSSAPI':
+      return { mechanism, serviceName: 'kafka' };
+    case 'AWS_MSK_IAM':
+      return { mechanism, region: '', credentialSource: 'static' };
+    default:
+      return { mechanism, username: '', password: '' };
+  }
+}
 
 export interface KafkaTls {
   caPath?: string;
@@ -577,22 +651,69 @@ export const useKafkaStore = create<KafkaState>()(
   )
 );
 
+/** Keep only opaque handles — anything else must never reach persistence. */
+function onlyHandle(value: unknown): KafkaSecretHandle | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const ref = value as { kind?: unknown; id?: unknown; label?: unknown };
+  if (ref.kind !== 'handle' || typeof ref.id !== 'string') return undefined;
+  return {
+    kind: 'handle',
+    id: ref.id,
+    ...(typeof ref.label === 'string' ? { label: ref.label } : {}),
+  };
+}
+
+export function redactKafkaSasl(sasl: KafkaSasl): KafkaSasl {
+  if (isKafkaPasswordSasl(sasl)) {
+    return {
+      mechanism: sasl.mechanism,
+      username: sasl.username,
+      password: sasl.password ? KAFKA_SECRET_SENTINEL : '',
+    };
+  }
+  if (isKafkaStaticOAuthSasl(sasl)) {
+    return {
+      mechanism: 'OAUTHBEARER',
+      ...(sasl.mode ? { mode: sasl.mode } : {}),
+      token: sasl.token ? KAFKA_SECRET_SENTINEL : '',
+      ...(sasl.extensions ? { extensions: sasl.extensions } : {}),
+    };
+  }
+  if (sasl.mechanism === 'OAUTHBEARER') {
+    const clientSecret = onlyHandle(sasl.clientSecret);
+    return {
+      mechanism: 'OAUTHBEARER',
+      mode: 'client-credentials',
+      tokenEndpoint: sasl.tokenEndpoint,
+      clientId: sasl.clientId,
+      ...(clientSecret ? { clientSecret } : {}),
+      ...(sasl.scope ? { scope: sasl.scope } : {}),
+      ...(sasl.extensions ? { extensions: sasl.extensions } : {}),
+    };
+  }
+  if (sasl.mechanism === 'GSSAPI') {
+    return {
+      mechanism: 'GSSAPI',
+      ...(sasl.serviceName ? { serviceName: sasl.serviceName } : {}),
+      ...(sasl.principal ? { principal: sasl.principal } : {}),
+    };
+  }
+  const secretAccessKey = onlyHandle(sasl.secretAccessKey);
+  const sessionToken = onlyHandle(sasl.sessionToken);
+  return {
+    mechanism: 'AWS_MSK_IAM',
+    region: sasl.region,
+    credentialSource: sasl.credentialSource,
+    ...(sasl.accessKeyId ? { accessKeyId: sasl.accessKeyId } : {}),
+    ...(secretAccessKey ? { secretAccessKey } : {}),
+    ...(sessionToken ? { sessionToken } : {}),
+    ...(sasl.profile ? { profile: sasl.profile } : {}),
+  };
+}
+
 function redactSecrets(auth: KafkaAuth): KafkaAuth {
   const next: KafkaAuth = { securityProtocol: auth.securityProtocol };
-  if (auth.sasl) {
-    next.sasl =
-      auth.sasl.mechanism === 'OAUTHBEARER'
-        ? {
-            mechanism: 'OAUTHBEARER',
-            token: auth.sasl.token ? KAFKA_SECRET_SENTINEL : '',
-            ...(auth.sasl.extensions ? { extensions: auth.sasl.extensions } : {}),
-          }
-        : {
-            mechanism: auth.sasl.mechanism,
-            username: auth.sasl.username,
-            password: auth.sasl.password ? KAFKA_SECRET_SENTINEL : '',
-          };
-  }
+  if (auth.sasl) next.sasl = redactKafkaSasl(auth.sasl);
   if (auth.tls) {
     const tls: KafkaTls = {};
     if (auth.tls.caPath !== undefined) tls.caPath = auth.tls.caPath;
