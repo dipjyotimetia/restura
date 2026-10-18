@@ -43,6 +43,24 @@ function isToolError(result: unknown): boolean {
   );
 }
 
+/**
+ * Same wording as the CLI/registry tool-error path (#868):
+ * `MCP tool error (isError: true): <first text block>`.
+ */
+export function mcpToolErrorMessage(result: unknown): string {
+  const content = (result as { content?: unknown }).content;
+  const text = Array.isArray(content)
+    ? content
+        .filter((b): b is { type: 'text'; text: string } => {
+          const block = b as { type?: unknown; text?: unknown } | null;
+          return block?.type === 'text' && typeof block.text === 'string';
+        })
+        .map((b) => b.text)
+        .join('\n')
+    : '';
+  return text ? `MCP tool error (isError: true): ${text}` : 'MCP tool error (isError: true)';
+}
+
 export function buildMcpRunReply(input: McpRunReplyInput): McpRunReply {
   if ('error' in input) {
     return {
@@ -56,7 +74,7 @@ export function buildMcpRunReply(input: McpRunReplyInput): McpRunReply {
     outcome: toolError ? 'tool-error' : 'result',
     // `result` is required on a JSON-RPC reply; normalise a missing one to null.
     body: JSON.stringify({ jsonrpc: '2.0', result: input.result ?? null }, null, 2),
-    statusText: toolError ? 'Tool error (result.isError: true)' : 'OK',
+    statusText: toolError ? mcpToolErrorMessage(input.result) : 'OK',
   };
 }
 

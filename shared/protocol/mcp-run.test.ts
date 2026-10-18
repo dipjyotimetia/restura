@@ -17,8 +17,22 @@ describe('buildMcpRunReply (#901)', () => {
   it('classifies a tool result with isError: true as a tool error', () => {
     const reply = buildMcpRunReply({ result: { isError: true, content: [] } });
     expect(reply.outcome).toBe('tool-error');
-    expect(reply.statusText).toMatch(/isError/);
+    expect(reply.statusText).toBe('MCP tool error (isError: true)');
     expect(JSON.parse(reply.body).result.isError).toBe(true);
+  });
+
+  it('names the tool error with its text content (same wording as #868)', () => {
+    const reply = buildMcpRunReply({
+      result: {
+        isError: true,
+        content: [
+          { type: 'text', text: 'boom' },
+          { type: 'image', data: 'x' },
+          { type: 'text', text: 'again' },
+        ],
+      },
+    });
+    expect(reply.statusText).toBe('MCP tool error (isError: true): boom\nagain');
   });
 
   it('does not treat a truthy non-boolean isError as a tool error', () => {
