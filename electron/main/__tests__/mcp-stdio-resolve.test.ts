@@ -66,6 +66,27 @@ describe('resolveStdioCommand (POSIX, real filesystem)', () => {
   });
 });
 
+describe('resolveStdioCommand (macOS automount roots)', () => {
+  it('refuses /net and /Network commands and PATH entries without probing them', async () => {
+    const probed: string[] = [];
+    const probe: ExecutableProbe = async (file) => {
+      probed.push(file);
+      return true;
+    };
+    expect(
+      await resolveStdioCommand('/net/host/bin/srv', { PATH: '' }, 'darwin', probe)
+    ).toMatchObject({ ok: false, error: expect.stringMatching(/automount/) });
+    const res = await resolveStdioCommand(
+      'srv',
+      { PATH: '/net/host/bin:/Network/x:/usr/local/bin' },
+      'darwin',
+      probe
+    );
+    expect(res).toMatchObject({ ok: true, command: { path: '/usr/local/bin/srv' } });
+    expect(probed).toEqual(['/usr/local/bin/srv']);
+  });
+});
+
 describe('resolveStdioCommand (Windows rules, simulated filesystem)', () => {
   const files = new Set([
     'C:\\Tools\\npx.cmd',

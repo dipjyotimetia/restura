@@ -30,7 +30,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { isSecretFieldName } from '@shared/secrets/key-value-redaction';
 import { app, BrowserWindow, dialog, safeStorage, type WebContents } from 'electron';
-import { isExecutionSensitiveEnvName } from './mcp-stdio-policy';
+import { escapeSpoofingChars, isExecutionSensitiveEnvName } from './mcp-stdio-policy';
 
 // electron-store v9+ is ESM-only; require() returns the module namespace under Node 22+
 const Store = require('electron-store').default;
@@ -122,22 +122,39 @@ function safeStorageUsable(): boolean {
 const defaultMacKeyProvider: MacKeyProvider = () => {
   if (!safeStorageUsable()) return null;
   const file = path.join(app.getPath('userData'), MAC_KEY_FILE);
+  let sealed: Buffer;
   try {
-    const sealed = fs.readFileSync(file);
+    sealed = fs.readFileSync(file);
+  } catch (err) {
+    // Only a missing file mints a new key. Any other read error leaves the
+    // file alone and disables remembered approvals for this session.
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') return null;
+    return mintMacKey(file);
+  }
+  try {
     const hex = safeStorage.decryptString(sealed);
     if (/^[0-9a-f]{64}$/.test(hex)) return Buffer.from(hex, 'hex');
   } catch {
-    // Missing, unreadable or undecryptable: mint a new key below. Previous
-    // approvals then no longer verify, which fails closed (prompts again).
+    // fall through
   }
+  // Present but not a valid sealed key (keychain changed, file damaged or
+  // replaced): do not overwrite it. Every launch prompts for this session.
+  return null;
+};
+
+function mintMacKey(file: string): Buffer | null {
   try {
     const key = crypto.randomBytes(32);
-    fs.writeFileSync(file, safeStorage.encryptString(key.toString('hex')), { mode: 0o600 });
+    // 'wx': never replace a file that appeared in the meantime.
+    fs.writeFileSync(file, safeStorage.encryptString(key.toString('hex')), {
+      mode: 0o600,
+      flag: 'wx',
+    });
     return key;
   } catch {
     return null;
   }
-};
+}
 
 let macKeyProvider: MacKeyProvider = defaultMacKeyProvider;
 let cachedMacKey: Buffer | null | undefined;
@@ -217,17 +234,26 @@ function persistApproval(key: string, spec: StdioLaunchSpec): void {
 
 /** JSON-quote, cutting long text with an explicit marker. */
 function quoted(text: string): { text: string; cut: boolean } {
-  if (text.length <= CONSENT_DISPLAY_MAX_CHARS) return { text: JSON.stringify(text), cut: false };
+  const cut = text.length > CONSENT_DISPLAY_MAX_CHARS;
+  const shown = escapeSpoofingChars(
+    JSON.stringify(cut ? text.slice(0, CONSENT_DISPLAY_MAX_CHARS) : text)
+  );
+  if (!cut) return { text: shown, cut: false };
   const more = text.length - CONSENT_DISPLAY_MAX_CHARS;
-  return {
-    text: `${JSON.stringify(text.slice(0, CONSENT_DISPLAY_MAX_CHARS))} … (${more} more characters not shown)`,
-    cut: true,
-  };
+  return { text: `${shown} … (${more} more characters not shown)`, cut: true };
 }
 
-/** Plain values are shown in full unless the NAME looks like a credential. */
-function hidesValue(name: string): boolean {
-  return isSecretFieldName(name) && !isExecutionSensitiveEnvName(name);
+/** Looks like a filesystem path: always worth showing, whatever the name. */
+function looksLikePath(value: string): boolean {
+  return /^(\/|~\/|[A-Za-z]:[\\/]|\\\\)/.test(value);
+}
+
+/**
+ * Plain values are shown in full unless the NAME looks like a credential;
+ * execution-sensitive names and path-like values are always shown.
+ */
+function hidesValue(name: string, value: string): boolean {
+  return isSecretFieldName(name) && !isExecutionSensitiveEnvName(name) && !looksLikePath(value);
 }
 
 export interface StdioConsentDetail {
@@ -266,7 +292,7 @@ export function formatStdioConsentDetail(spec: StdioLaunchSpec): StdioConsentDet
       entries.push(
         `  ${name} = <from the secret store${value.label ? `: ${show(value.label)}` : ''}>`
       );
-    } else if (hidesValue(name)) {
+    } else if (hidesValue(name, value.value)) {
       entries.push(`  ${name} = <${value.value.length} characters, hidden>`);
     } else {
       entries.push(`  ${name} = ${show(value.value)}`);

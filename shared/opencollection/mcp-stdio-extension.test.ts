@@ -42,6 +42,16 @@ describe('MCP stdio OpenCollection carriage', () => {
     });
   });
 
+  it('round-trips the secret flag', () => {
+    const parsed = mcpStdioFromOC({
+      command: 'srv',
+      env: [{ name: 'API_KEY', value: '', secret: true }],
+    });
+    expect(parsed?.env?.[0]).toMatchObject({ key: 'API_KEY', value: '', secret: true });
+    const oc = mcpStdioToOC(parsed!);
+    expect(oc.env).toEqual([{ name: 'API_KEY', value: '', secret: true }]);
+  });
+
   it('carries no consent state: an imported approval flag is dropped', () => {
     const parsed = mcpStdioFromOC({ command: 'srv', approved: true, consentKey: 'abc' });
     expect(parsed).toEqual({ command: 'srv', args: [] });

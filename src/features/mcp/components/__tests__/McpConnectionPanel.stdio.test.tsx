@@ -107,6 +107,20 @@ describe('MCP stdio transport UI', () => {
     expect(props.onStdioChange).toHaveBeenLastCalledWith({ command: '', args: [], cwd: '/srv' });
   });
 
+  it('edits the command and environment rows', () => {
+    platform.electron = true;
+    const props = renderPanel(connection(), { command: '', args: [] });
+    fireEvent.change(screen.getByLabelText('MCP stdio command'), { target: { value: 'npx' } });
+    expect(props.onStdioChange).toHaveBeenLastCalledWith({ command: 'npx', args: [] });
+    fireEvent.click(screen.getByRole('button', { name: /Launch settings/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Add variable/ }));
+    expect(props.onStdioChange).toHaveBeenLastCalledWith({
+      command: '',
+      args: [],
+      env: [expect.objectContaining({ key: '', value: '', enabled: true })],
+    });
+  });
+
   it('clearing the working directory removes the field', () => {
     platform.electron = true;
     const props = renderPanel(connection(), { command: 'srv', args: [], cwd: '/srv' });

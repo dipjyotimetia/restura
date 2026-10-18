@@ -36,6 +36,7 @@ import { IPC } from '../../shared/channels';
 import { createKeyedRateLimiter, rateLimited } from '../ipc/ipc-rate-limiter';
 import { assertTrustedSender } from '../ipc/ipc-validators';
 import { getOrCreateEncryptedKey } from './encrypted-key';
+import { hasControlChars } from './mcp-stdio-policy';
 
 // electron-store v9+ is ESM-only; require() returns the module namespace under Node 22+
 const Store = require('electron-store').default;
@@ -159,7 +160,14 @@ const StoreInputSchema = z.object({
     .string()
     .min(1)
     .max(64 * 1024),
-  label: z.string().max(256).optional(),
+  // Labels are shown in native consent dialogs: no control/format/separator chars.
+  label: z
+    .string()
+    .max(256)
+    .refine((v) => !hasControlChars(v), {
+      message: 'Label must not contain control, format or line-separator characters',
+    })
+    .optional(),
   scope: z.string().max(128).optional(),
   // Optional id allows the renderer to update an existing handle in place.
   id: z.uuid().optional(),

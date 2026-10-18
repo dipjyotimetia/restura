@@ -1,7 +1,9 @@
 import * as path from 'node:path';
+import { isSecretFieldName } from '@shared/secrets/key-value-redaction';
 import { z } from 'zod';
 import {
   hasControlChars,
+  hasControlCharsInValue,
   isExecutionSensitiveEnvName,
   isUncOrDevicePath,
   MCP_STDIO_LIMITS as L,
@@ -53,8 +55,9 @@ const EnvPlainValueSchema = z
   .string()
   .max(L.envValueMaxLength)
   // Plain values are shown in the consent dialog, so the same spoofing rule applies.
-  .refine(noControlChars, {
-    message: 'Environment values must not contain control, format or line-separator characters',
+  .refine((v) => !hasControlCharsInValue(v), {
+    message:
+      'Environment values must not contain control, format or separator characters (TAB and line breaks are allowed)',
   });
 
 /**
@@ -107,11 +110,13 @@ export const McpStdioConnectSchema = z
     (cfg) =>
       Object.entries(cfg.env ?? {}).every(
         ([name, value]) =>
-          !isExecutionSensitiveEnvName(name) || typeof value === 'string' || value.kind === 'inline'
+          typeof value === 'string' ||
+          value.kind === 'inline' ||
+          (isSecretFieldName(name) && !isExecutionSensitiveEnvName(name))
       ),
     {
       message:
-        'Execution-sensitive environment variables (PATH, NODE_OPTIONS, LD_*, …) must use a plain value so the consent prompt can show it',
+        'Only credential-named, non-execution-sensitive environment variables may come from the secret store; others must be plain values so the consent prompt can show them',
       path: ['env'],
     }
   );

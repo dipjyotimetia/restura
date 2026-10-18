@@ -26,16 +26,19 @@ describe('McpStdioConnectSchema', () => {
   });
 
   it.each([
-    ['bidi override in an argument', { args: ['safe‮exe.txt'] }],
-    ['bidi isolate in the command', { command: 'np⁦x' }],
-    ['zero-width space in an argument', { args: ['--root​'] }],
-    ['BOM in cwd', { cwd: `${ABS}/﻿dir` }],
-    ['line separator in an argument', { args: ['a b'] }],
-    ['paragraph separator in the command', { command: 'npx ' }],
+    ['bidi override in an argument', { args: ['safe\u202Eexe.txt'] }],
+    ['bidi isolate in the command', { command: 'np\u2066x' }],
+    ['zero-width space in an argument', { args: ['--root\u200B'] }],
+    ['BOM in cwd', { cwd: `${ABS}/\uFEFFdir` }],
+    ['line separator in an argument', { args: ['a\u2028b'] }],
+    ['paragraph separator in the command', { command: 'npx\u2029' }],
     ['NEL (C1) in an argument', { args: ['a\u0085b'] }],
     ['TAB in an argument', { args: ['a\tb'] }],
-    ['bidi override in an env value', { env: { MODE: 'x‮y' } }],
-    ['control char in a handle label', { env: { T: { kind: 'handle', id: 'h', label: 'a‮' } } }],
+    ['bidi override in an env value', { env: { MODE: 'x\u202Ey' } }],
+    [
+      'control char in a handle label',
+      { env: { T: { kind: 'handle', id: 'h', label: 'a\u202E' } } },
+    ],
     ['NUL in command', { command: 'np\0x' }],
     ['newline in command', { command: 'npx\nrm' }],
     ['leading whitespace', { command: ' npx' }],
@@ -109,6 +112,24 @@ describe('McpStdioConnectSchema', () => {
       parse({ env: { PATH: '/opt/bin:/usr/bin', NODE_OPTIONS: '--max-old-space-size=512' } })
         .success
     ).toBe(true);
+  });
+});
+
+describe('McpStdioConnectSchema env values', () => {
+  it('allows TAB and line breaks in env values (not in args)', () => {
+    expect(parse({ env: { PEM: 'line1\nline2\r\n\tend' } }).success).toBe(true);
+    expect(parse({ env: { PEM: { kind: 'inline', value: 'a\nb' } } }).success).toBe(true);
+    expect(parse({ args: ['a\nb'] }).success).toBe(false);
+  });
+
+  it('allows secret-store handles only for credential-named, non-sensitive variables', () => {
+    const handle = { kind: 'handle', id: 'h' };
+    expect(parse({ env: { GITHUB_TOKEN: handle } }).success).toBe(true);
+    expect(parse({ env: { API_KEY: handle } }).success).toBe(true);
+    expect(parse({ env: { LOG_LEVEL: handle } }).success).toBe(false);
+    expect(parse({ env: { ROOT_DIR: handle } }).success).toBe(false);
+    expect(parse({ env: { GIT_TOKEN: handle } }).success).toBe(false);
+    expect(parse({ env: { KUBECONFIG: handle } }).success).toBe(false);
   });
 });
 

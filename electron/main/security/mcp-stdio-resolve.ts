@@ -12,7 +12,7 @@
 
 import { promises as fs, constants as fsConstants } from 'node:fs';
 import * as nodePath from 'node:path';
-import { isUncOrDevicePath } from './mcp-stdio-policy';
+import { isAutomountPath, isUncOrDevicePath } from './mcp-stdio-policy';
 
 export interface ResolvedStdioCommand {
   /** Absolute path that is shown, hashed, and spawned. */
@@ -64,6 +64,9 @@ export async function resolveStdioCommand(
   if (isWin && isUncOrDevicePath(command)) {
     return { ok: false, error: 'Network (UNC) and device paths are not allowed as the command' };
   }
+  if (isAutomountPath(command, platform)) {
+    return { ok: false, error: 'Network automount paths are not allowed as the command' };
+  }
 
   // Windows: try the name as given when it already has a launchable
   // extension, otherwise each PATHEXT extension (restricted to the four we
@@ -95,7 +98,13 @@ export async function resolveStdioCommand(
     const dirs = (envValue(childEnv, 'PATH', platform) ?? '')
       .split(isWin ? ';' : ':')
       .map((d) => d.trim().replace(/^"(.*)"$/, '$1'))
-      .filter((d) => d !== '' && p.isAbsolute(d) && !(isWin && isUncOrDevicePath(d)));
+      .filter(
+        (d) =>
+          d !== '' &&
+          p.isAbsolute(d) &&
+          !(isWin && isUncOrDevicePath(d)) &&
+          !isAutomountPath(d, platform)
+      );
     candidates = dirs.flatMap((dir) => candidatesFor(p.join(dir, command)));
   }
 

@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -64,11 +64,18 @@ describe('stdio consent MAC key (safeStorage-sealed)', () => {
     rmSync(env.userData, { recursive: true, force: true });
   });
 
-  it('a tampered key file is replaced, so old approvals stop verifying (fail closed)', () => {
-    const first = stdioConsentKey(spec);
+  it('an undecryptable key file is left alone and approvals are off for the session', () => {
+    expect(stdioConsentKey(spec)).not.toBeNull();
     writeFileSync(keyFile(), 'not-a-sealed-blob');
     __setStdioConsentMacKeyProviderForTests(null);
-    expect(stdioConsentKey(spec)).not.toBe(first);
+    expect(stdioConsentKey(spec)).toBeNull();
+    expect(readFileSync(keyFile()).toString()).toBe('not-a-sealed-blob');
+  });
+
+  it('a non-ENOENT read error does not mint a new key', () => {
+    // A directory where the key file should be: readFileSync fails with EISDIR.
+    mkdirSync(keyFile());
+    expect(stdioConsentKey(spec)).toBeNull();
   });
 
   it('is unavailable without safeStorage, or with the Linux basic_text backend', () => {

@@ -12,6 +12,7 @@ import {
   ShellUrlSchema,
   WriteFileSchema,
 } from '../ipc/ipc-validators';
+import { isMainOwnedUserDataFile } from './userdata-guard';
 
 // Security: Maximum file size to prevent memory exhaustion
 const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
@@ -148,12 +149,8 @@ export function isPathSafe(filePath: string): boolean {
     // blobs (dotfiles). The renderer-facing fs channels must never read or
     // overwrite them, or a compromised renderer could forge main's own
     // decisions. Subdirectories (e.g. userData/collections) stay reachable.
-    const sameDir = (a: string, b: string) =>
-      process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
-    if (sameDir(path.dirname(resolved), userDataPath)) {
-      const base = path.basename(resolved);
-      if (base.startsWith('.') || base.toLowerCase().endsWith('.json')) return false;
-    }
+    // Compared on a canonical form (realpath, Win32 name aliases, case).
+    if (isMainOwnedUserDataFile(resolved, userDataPath)) return false;
 
     // $HOME-specific denylist
     if (resolved === homePath || resolved.startsWith(homePath + path.sep)) {

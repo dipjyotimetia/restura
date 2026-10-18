@@ -303,6 +303,37 @@ describe('formatStdioConsentDetail', () => {
     expect(detail).toContain('TOKEN = <from the secret store: "gh">');
   });
 
+  it('escapes control/format/separator characters at the display sink', () => {
+    const { detail } = formatStdioConsentDetail({
+      ...spec,
+      resolvedPath: '/opt/bin/\u202Etxt.exe',
+      cwd: '/home/me\u2028/x',
+      env: {
+        TOKEN: { kind: 'handle', id: 'h', label: 'prod\u202Ekey', digest: 'd' },
+        NOTE: plain('line1\nline2\tend'),
+      },
+    });
+    expect(detail).not.toMatch(/[\u202E\u2028]/);
+    expect(detail).toContain('\\u{202E}txt.exe');
+    expect(detail).toContain('/home/me\\u{2028}/x');
+    expect(detail).toContain('prod\\u{202E}key');
+    expect(detail).toContain('NOTE = "line1\\nline2\\tend"');
+  });
+
+  it('never hides a path-like value, even under a credential-like name', () => {
+    const { detail } = formatStdioConsentDetail({
+      ...spec,
+      env: {
+        SECRET_FILE: plain('/home/me/.ssh/id_ed25519'),
+        WIN_KEY: plain('C:\\keys\\a.pem'),
+        API_KEY: plain('abc'),
+      },
+    });
+    expect(detail).toContain('SECRET_FILE = "/home/me/.ssh/id_ed25519"');
+    expect(detail).toContain('WIN_KEY = "C:\\\\keys\\\\a.pem"');
+    expect(detail).toContain('API_KEY = <3 characters, hidden>');
+  });
+
   it('notes cmd.exe routing', () => {
     expect(formatStdioConsentDetail({ ...spec, viaCmd: true }).detail).toMatch(/cmd\.exe/);
   });

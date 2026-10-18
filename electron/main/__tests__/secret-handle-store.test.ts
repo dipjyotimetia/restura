@@ -190,6 +190,16 @@ describe('secret-handle-store', () => {
       expect(badId.ok).toBe(false);
     });
 
+    it('rejects labels with control, bidi or separator characters (shown in consent dialogs)', async () => {
+      const event = trustedEvent(103);
+      for (const label of ['prod\u202Ekey', 'a\u2028b', 'x\u200By', 'tab\there']) {
+        const result = await handlers.get('secret:store')!(event, { value: 'v', label });
+        expect(result.ok).toBe(false);
+      }
+      const ok = await handlers.get('secret:store')!(event, { value: 'v', label: 'Prod key ✓' });
+      expect(ok.ok).toBe(true);
+    });
+
     it('rejects an untrusted sender frame', async () => {
       const event = {
         senderFrame: { url: 'https://attacker.example/', parent: null },

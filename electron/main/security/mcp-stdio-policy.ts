@@ -192,6 +192,13 @@ const EXECUTION_SENSITIVE_EXACT = new Set([
   'SSH_ASKPASS',
   'VIRTUAL_ENV',
   'PHPRC',
+  'PERLLIB',
+  'PERL5DB',
+  'KUBECONFIG',
+  'AWS_CONFIG_FILE',
+  'CLOUDSDK_CONFIG',
+  'TF_CLI_CONFIG_FILE',
+  'GOOGLE_APPLICATION_CREDENTIALS',
 ]);
 /**
  * Prefix families where (almost) every member changes what runs. A broad
@@ -237,12 +244,45 @@ export function hasControlChars(value: string): boolean {
 }
 
 /**
+ * Env VALUES may legitimately be multi-line (a PEM block, a JSON config), so
+ * TAB/LF/CR are allowed there; every other spoofing character is not. The
+ * consent dialog escapes whatever it displays (see escapeSpoofingChars).
+ */
+export function hasControlCharsInValue(value: string): boolean {
+  return SPOOFING_CHARS.test(value.replace(/[\t\n\r]/g, ''));
+}
+
+const SPOOFING_CHARS_GLOBAL = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
+
+/**
+ * Display-sink escaping: replace every control, format and separator
+ * character with a visible `\u{XXXX}` so nothing shown in a native dialog can
+ * reorder, hide or break lines — including text that never passed the IPC
+ * validator (stored handle labels, an inherited PATH, the home directory).
+ */
+export function escapeSpoofingChars(text: string): string {
+  return text.replace(
+    SPOOFING_CHARS_GLOBAL,
+    (ch) => `\\u{${(ch.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')}}`
+  );
+}
+
+/**
  * Windows UNC and device-namespace paths (two leading slashes or backslashes,
  * which covers `\\server\share`, `//server`, `\\?\` and `\\.\`). As a working
  * directory or command these reach network shares or raw devices.
  */
 export function isUncOrDevicePath(value: string): boolean {
   return /^[\\/]{2}/.test(value);
+}
+
+/**
+ * macOS automount roots (`/net/<host>/…`, `/Network/…`). Merely probing a path
+ * there can trigger a network mount, so commands and PATH entries under them
+ * are refused before any filesystem access.
+ */
+export function isAutomountPath(value: string, platform: NodeJS.Platform): boolean {
+  return platform === 'darwin' && /^\/(net|Network)(\/|$)/i.test(value);
 }
 
 /** Characters cmd.exe can still interpret inside cross-spawn's quoting. */

@@ -6,6 +6,7 @@ import {
   countStdioEnvInlineSecrets,
   redactOcStdioEnv,
   redactStdioEnvRows,
+  stdioEnvOf,
 } from './stdio-env-redaction';
 
 const row = (key: string, value: string, extra: Partial<McpStdioEnvVar> = {}): McpStdioEnvVar => ({
@@ -53,6 +54,19 @@ describe('stdio env redaction', () => {
     ).toBe(0);
   });
 
+  it('handles string secretRefs, legacy key names and missing env', () => {
+    expect(countStdioEnvInlineSecrets([row('A', '', { secretRef: 'plain-ref' })])).toBe(1);
+    expect(countStdioEnvInlineSecrets([row('A', '', { secretRef: '' })])).toBe(0);
+    expect(redactOcStdioEnv([{ key: 'PASSWORD', value: 'p' }, { value: 'x' }])).toEqual([
+      { key: 'PASSWORD', value: '', secret: true },
+      { value: 'x' },
+    ]);
+    expect(stdioEnvOf({})).toBeUndefined();
+    expect(stdioEnvOf({ stdio: 'npx' })).toBeUndefined();
+    expect(stdioEnvOf({ stdio: { command: 'srv' } })).toBeUndefined();
+    expect(stdioEnvOf({ stdio: { env: [] } })).toEqual([]);
+  });
+
   it('redacts the OpenCollection wire shape inside passthrough bags', () => {
     const out = redactOcStdioEnv([
       { name: 'API_TOKEN', value: 'tok' },
@@ -70,12 +84,16 @@ describe('stdio env redaction', () => {
     ]);
   });
 
-  it('the OC serializer never writes plaintext credentials', () => {
-    const oc = mcpStdioToOC({ command: 'srv', args: [], env });
-    const text = JSON.stringify(oc);
-    expect(text).not.toMatch(/sk-live-123|flagged|plaintext-ref/);
-    expect(text).toContain('"debug"');
-    expect(text).toContain('"h-1"');
+  it('the OC serializer is verbatim (like headers); redaction is the redaction layer’s job', () => {
+    const verbatim = JSON.stringify(mcpStdioToOC({ command: 'srv', args: [], env }));
+    expect(verbatim).toContain('sk-live-123');
+    expect(verbatim).toContain('"secret":true');
+    const redacted = JSON.stringify(
+      mcpStdioToOC({ command: 'srv', args: [], env: redactStdioEnvRows(env) })
+    );
+    expect(redacted).not.toMatch(/sk-live-123|flagged|plaintext-ref/);
+    expect(redacted).toContain('"debug"');
+    expect(redacted).toContain('"h-1"');
   });
 
   it('collection export redaction and the inline-secret counter cover stdio.env', () => {

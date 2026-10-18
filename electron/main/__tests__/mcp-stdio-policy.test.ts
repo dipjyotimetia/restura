@@ -4,7 +4,10 @@ import { describe, expect, it } from 'vitest';
 import {
   buildStdioChildEnv,
   cmdShimArgError,
+  escapeSpoofingChars,
   hasControlChars,
+  hasControlCharsInValue,
+  isAutomountPath,
   isExecutionSensitiveEnvName,
   isUncOrDevicePath,
   minimalEnvAllowlist,
@@ -139,6 +142,13 @@ describe('isExecutionSensitiveEnvName', () => {
     'LUA_INIT_5_4',
     'DOCKER_HOST',
     'DOCKER_CERT_PATH',
+    'KUBECONFIG',
+    'AWS_CONFIG_FILE',
+    'CLOUDSDK_CONFIG',
+    'TF_CLI_CONFIG_FILE',
+    'PERLLIB',
+    'PERL5DB',
+    'GOOGLE_APPLICATION_CREDENTIALS',
   ])('%s is sensitive', (name) => expect(isExecutionSensitiveEnvName(name)).toBe(true));
   it.each(['GITHUB_TOKEN', 'NODE_AUTH_TOKEN', 'GOOGLE_API_KEY', 'API_KEY', 'LOG_LEVEL'])(
     '%s is not (may be a secret handle)',
@@ -165,6 +175,31 @@ describe('hasControlChars (dialog-spoofing characters)', () => {
   it('accepts ordinary text, including non-ASCII letters', () => {
     expect(hasControlChars('plain -- --flag=1 "q"')).toBe(false);
     expect(hasControlChars('/Users/zoë/プロジェクト')).toBe(false);
+  });
+});
+
+describe('escapeSpoofingChars / hasControlCharsInValue', () => {
+  it('replaces every control/format/separator character with a visible escape', () => {
+    expect(escapeSpoofingChars('a\u202Eb\u2028c\u200Bd\nX')).toBe(
+      'a\\u{202E}b\\u{2028}c\\u{200B}d\\u{000A}X'
+    );
+    expect(escapeSpoofingChars('plain /usr/bin')).toBe('plain /usr/bin');
+  });
+
+  it('allows TAB/LF/CR in values but nothing else', () => {
+    expect(hasControlCharsInValue('a\tb\nc\r')).toBe(false);
+    expect(hasControlCharsInValue('a\u202Eb')).toBe(true);
+    expect(hasControlCharsInValue('a\0b')).toBe(true);
+  });
+});
+
+describe('isAutomountPath', () => {
+  it('flags macOS automount roots only on darwin', () => {
+    expect(isAutomountPath('/net/host/share/bin', 'darwin')).toBe(true);
+    expect(isAutomountPath('/Network/Servers/x', 'darwin')).toBe(true);
+    expect(isAutomountPath('/net', 'darwin')).toBe(true);
+    expect(isAutomountPath('/netstuff/bin', 'darwin')).toBe(false);
+    expect(isAutomountPath('/net/host', 'linux')).toBe(false);
   });
 });
 

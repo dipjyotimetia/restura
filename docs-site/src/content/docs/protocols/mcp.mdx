@@ -31,7 +31,7 @@ Point Restura at any MCP server and explore it like any other request target.
 
 Connect starts the process, runs the MCP handshake, and lists the server's tools, prompts and resources, just like the HTTP transports. The server's **stderr** appears under the connection bar (the newest 64 KB; output beyond 512 KB per session is dropped), and a failed start shows the end of stderr in the error.
 
-Arguments, the command and the working directory can't contain control characters, invisible formatting characters (such as right-to-left overrides or zero-width spaces) or line breaks. Relative command paths such as `./server` aren't accepted. On Windows, network (`\\server\share`) paths aren't accepted for the command or the working directory.
+Arguments, the command and the working directory can't contain control characters, invisible formatting characters (such as right-to-left overrides or zero-width spaces) or line breaks. Environment values may contain tabs and line breaks (for example a PEM block) but no other such characters. Relative command paths such as `./server` aren't accepted. On Windows, network (`\\server\share`) paths aren't accepted for the command or the working directory.
 
 #### Consent: you approve every new command line
 
@@ -52,9 +52,10 @@ Any change to the program, an argument, the working directory or an environment 
 
 How environment values appear in the dialog:
 
-- Values are shown in full, except values whose name looks like a credential (for example `API_KEY` or `GITHUB_TOKEN`). Those are hidden but still count as part of the command line.
+- Values are shown in full, except values whose name looks like a credential (for example `API_KEY` or `GITHUB_TOKEN`). Those are hidden but still count as part of the command line. A value that looks like a file path is always shown.
 - Variables that change what runs or where it connects are always shown in full and must be plain values, not secret-store references. Examples: `PATH`, `NODE_OPTIONS`, `LD_*` / `DYLD_*`, `NPM_CONFIG_*`, `PYTHON*`, `GIT_*`, proxy and CA-bundle variables.
-- Secret-store variables show the label saved with the secret.
+- Secret-store variables show the label saved with the secret. Only variables with credential-like names can come from the secret store.
+- Invisible or control characters are shown as `\u{...}` escapes, so the dialog can't be made to read differently from what runs.
 
 Very long arguments or values are cut in the dialog with a "more characters not shown" note. In that case only **Allow once** is offered.
 
@@ -73,7 +74,7 @@ Approving a command line doesn't vouch for the code it runs. The program file, t
 On macOS, an app started from the Dock gets a short `PATH` that may not include Homebrew or nvm, so `npx` can fail with "not found". Use an absolute command path, for example `/opt/homebrew/bin/npx`, or set `PATH` in **Environment**.
 :::
 
-When you export or save a collection to files, environment values with credential-like names are written without their value, and only references to the secret store are kept.
+Environment values are exported like request headers. When secrets are excluded from an export, and always when a collection is saved to files, values with credential-like names are written without their value, and only references to the secret store are kept.
 
 stdio is not available in the web app, the self-hosted server, or the CLI. A saved stdio request opened there explains that it needs the desktop app, and `restura run` fails the item without starting anything. The design and its residual risks are recorded in [ADR 0030](/architecture/adrs/0030-mcp-stdio-transport/).
 

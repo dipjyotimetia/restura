@@ -1,6 +1,5 @@
 import { v4 as uuid } from 'uuid';
-import { isSecretHandle, secretValueSchema } from '../secrets/secret-ref';
-import { redactStdioEnvRows } from '../secrets/stdio-env-redaction';
+import { secretValueSchema } from '../secrets/secret-ref';
 import type { McpStdioConfig, McpStdioEnvVar, McpTransportType } from '../types';
 
 /**
@@ -22,15 +21,15 @@ export function mcpStdioToOC(stdio: McpStdioConfig): Record<string, unknown> {
   const out: Record<string, unknown> = { command: stdio.command, args: [...stdio.args] };
   if (stdio.cwd !== undefined) out.cwd = stdio.cwd;
   if (stdio.env?.length) {
-    // Exported and file-synced collections never carry plaintext credentials
-    // (ADR 0007): credential-named values are written value-less with
-    // `secret: true`; only opaque handle references are kept.
-    out.env = redactStdioEnvRows(stdio.env).map((e) => {
+    // Serialised verbatim, like headers. Credential redaction belongs to the
+    // redaction layer (redactCollectionSecrets), which exports and the file
+    // collection writer apply, honouring the export "include secrets" choice.
+    out.env = stdio.env.map((e) => {
       const entry: Record<string, unknown> = { name: e.key, value: e.value };
       if (e.enabled === false) entry.enabled = false;
       if (e.description) entry.description = e.description;
       if (e.secret) entry.secret = true;
-      if (isSecretHandle(e.secretRef)) entry.secretRef = e.secretRef;
+      if (e.secretRef !== undefined) entry.secretRef = e.secretRef;
       return entry;
     });
   }
