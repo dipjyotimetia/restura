@@ -13,6 +13,8 @@ export function useMcpConnectionActions() {
       resetConnectionSession: state.resetConnectionSession,
       appendLog: state.appendLog,
       clearLog: state.clearLog,
+      appendStderr: state.appendStderr,
+      clearStderr: state.clearStderr,
     }))
   );
 }

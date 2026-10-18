@@ -33,6 +33,7 @@ export type CapabilityName =
   | 'sse.basic'
   | 'sse.customHeaders'
   | 'mcp.basic'
+  | 'mcp.stdio'
   | 'grpc.basic'
   | 'grpc.reflection'
   | 'grpc.web'
@@ -213,6 +214,13 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     desktop: true,
     notes:
       'http-sse transport is desktop-only; web supports streamable-http and rejects http-sse at connect time',
+  },
+  'mcp.stdio': {
+    label: 'MCP stdio transport (local server process)',
+    web: false,
+    desktop: true,
+    notes:
+      'Desktop main process spawns the command without a shell after a per-launch native consent prompt; the child gets an allowlisted environment, and is killed on disconnect/quit. Web and the CLI never spawn processes',
   },
   'grpc.basic': {
     label: 'gRPC unary + streaming',

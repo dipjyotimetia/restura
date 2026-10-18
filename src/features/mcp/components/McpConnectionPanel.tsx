@@ -4,9 +4,17 @@ import { KeyValueTable } from '@/components/shared/KeyValueTable';
 import { VariableUrlInput } from '@/components/shared/VariableUrlInput';
 import { Button } from '@/components/ui/button';
 import { Floater, ProtoChip, Segmented, VariableText } from '@/components/ui/spatial';
+import {
+  EMPTY_STDIO_CONFIG,
+  McpStderrPanel,
+  McpStdioFields,
+} from '@/features/mcp/components/McpStdioFields';
+import { MCP_STDIO_WEB_ERROR } from '@/features/mcp/lib/mcpStdioLaunch';
 import type { McpConnection } from '@/features/mcp/store/useMcpStore';
+import { isCapableHere } from '@/lib/shared/capabilities';
+import { isElectron } from '@/lib/shared/platform';
 import { cn } from '@/lib/shared/utils';
-import type { KeyValue, McpTransportType } from '@/types';
+import type { KeyValue, McpStdioConfig, McpTransportType } from '@/types';
 
 interface McpConnectionPanelProps {
   connection: McpConnection;
@@ -15,15 +23,27 @@ interface McpConnectionPanelProps {
   onUrlChange: (url: string) => void;
   onTransportChange: (transport: McpTransportType) => void;
   onHeadersChange: (headers: KeyValue[]) => void;
+  /** stdio launch config (desktop only); undefined until first edited. */
+  stdio?: McpStdioConfig | undefined;
+  onStdioChange?: (stdio: McpStdioConfig) => void;
+  onClearStderr?: () => void;
   onConnect: () => Promise<void>;
   onDisconnect: () => Promise<void>;
   onRefresh: () => Promise<void>;
 }
 
-const transportOptions = [
-  { value: 'streamable-http' as const, label: 'Streamable HTTP' },
-  { value: 'http-sse' as const, label: 'HTTP + SSE' },
+const remoteTransportOptions: Array<{ value: McpTransportType; label: string }> = [
+  { value: 'streamable-http', label: 'Streamable HTTP' },
+  { value: 'http-sse', label: 'HTTP + SSE' },
 ];
+const stdioTransportOption = { value: 'stdio' as const, label: 'stdio' };
+
+/** stdio spawns a local process: offered only where the capability exists (desktop). */
+export function mcpTransportOptions(desktop: boolean) {
+  return isCapableHere('mcp.stdio', desktop)
+    ? [...remoteTransportOptions, stdioTransportOption]
+    : remoteTransportOptions;
+}
 
 /** Connection configuration and lifecycle controls. The request builder owns the client instance. */
 export function McpConnectionPanel({
@@ -33,6 +53,9 @@ export function McpConnectionPanel({
   onUrlChange,
   onTransportChange,
   onHeadersChange,
+  stdio,
+  onStdioChange,
+  onClearStderr,
   onConnect,
   onDisconnect,
   onRefresh,
@@ -41,6 +64,13 @@ export function McpConnectionPanel({
   const isConnected = connection.status === 'connected';
   const isBusy = connection.status === 'connecting';
   const isError = connection.status === 'error';
+  const desktop = isElectron();
+  const isStdio = connection.transport === 'stdio';
+  const stdioConfig = stdio ?? EMPTY_STDIO_CONFIG;
+  const updateStdio = (next: McpStdioConfig) => onStdioChange?.(next);
+  const canConnect = isStdio
+    ? desktop && stdioConfig.command.trim() !== ''
+    : connection.url.trim() !== '';
 
   return (
     <>
@@ -52,7 +82,18 @@ export function McpConnectionPanel({
         >
           <ProtoChip protocol="MCP" />
           <span className="text-sp-dim font-mono text-sp-13 select-none">›</span>
-          {isConnected ? (
+          {isStdio ? (
+            <VariableUrlInput
+              placeholder="Command, e.g. npx or /usr/local/bin/my-mcp-server"
+              value={stdioConfig.command}
+              onValueChange={(command) => updateStdio({ ...stdioConfig, command })}
+              variableScope="connection"
+              disabled={isBusy || isConnected}
+              aria-label="MCP stdio command"
+              className="flex-1 min-w-[140px] h-7"
+              textClassName="px-1 text-sp-12 placeholder:italic"
+            />
+          ) : isConnected ? (
             <div className="flex-1 min-w-[140px] px-1 font-mono text-sp-12 text-sp-text truncate">
               <VariableText text={connection.url} emptyLabel="No URL" />
             </div>
@@ -97,7 +138,7 @@ export function McpConnectionPanel({
               size="cta"
               onClick={onConnect}
               loading={isBusy}
-              disabled={!connection.url.trim()}
+              disabled={!canConnect}
             >
               <Play className="h-3.5 w-3.5" />
               Connect
@@ -118,12 +159,20 @@ export function McpConnectionPanel({
             {connection.lastError}
           </div>
         )}
+        {isStdio && !desktop && (
+          <p className="mt-2 px-3 text-sp-12 text-sp-dim" role="note">
+            {MCP_STDIO_WEB_ERROR}.
+          </p>
+        )}
+        {isStdio && connection.stderr && (
+          <McpStderrPanel stderr={connection.stderr} onClear={() => onClearStderr?.()} />
+        )}
       </div>
 
       <div className="px-3 pb-2 shrink-0 flex items-stretch gap-2">
         <div className="flex items-center px-2 rounded-sp-panel shrink-0 bg-sp-surface border border-sp-line">
           <Segmented<McpTransportType>
-            options={transportOptions}
+            options={mcpTransportOptions(desktop)}
             value={connection.transport}
             onChange={onTransportChange}
             size="sm"
@@ -154,8 +203,8 @@ export function McpConnectionPanel({
             aria-expanded={headersOpen}
           >
             <span className="sp-label">
-              Headers
-              {connection.headers.length > 0 && (
+              {isStdio ? 'Launch settings' : 'Headers'}
+              {!isStdio && connection.headers.length > 0 && (
                 <span className="ml-1.5 font-mono normal-case text-sp-dim">
                   ({connection.headers.length})
                 </span>
@@ -167,7 +216,14 @@ export function McpConnectionPanel({
               <ChevronRight className="h-3.5 w-3.5 text-sp-dim" />
             )}
           </button>
-          {headersOpen && (
+          {headersOpen && isStdio && (
+            <McpStdioFields
+              stdio={stdioConfig}
+              onChange={updateStdio}
+              disabled={isBusy || isConnected}
+            />
+          )}
+          {headersOpen && !isStdio && (
             <div className="px-3 py-2 border-t border-sp-line">
               <KeyValueTable
                 items={connection.headers}

@@ -160,6 +160,21 @@ describe('MCP agent tool adapter', () => {
     );
   });
 
+  it('refuses stdio profiles without spawning a client (not wired for agents yet)', async () => {
+    useMcpStore.setState((state) => ({
+      connections: {
+        ...state.connections,
+        local: { ...state.connections.profile!, id: 'local', url: '', transport: 'stdio' },
+      },
+    }));
+    const factory = vi.fn(() => client);
+    const adapter = createMcpAgentToolSourceAdapter(factory);
+    await expect(adapter.resolve({ kind: 'mcp', connectionId: 'local' })).rejects.toThrow(
+      /stdio MCP connections are not supported/
+    );
+    expect(factory).not.toHaveBeenCalled();
+  });
+
   it('rejects non-MCP sources during resolution too', async () => {
     const adapter = createMcpAgentToolSourceAdapter(() => client);
     await expect(adapter.resolve({ kind: 'fixture', fixtureId: 'fixture' })).rejects.toThrow(

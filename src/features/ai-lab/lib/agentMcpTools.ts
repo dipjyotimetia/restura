@@ -1,7 +1,7 @@
 import {
+  type AgentToolSourceAdapter,
   ContentBlockSchema,
   createMcpTools,
-  type AgentToolSourceAdapter,
   type ToolSource,
 } from '@shared/agent-lab';
 import { McpClient } from '@/features/mcp/lib/mcpClient';
@@ -68,10 +68,15 @@ export function createMcpAgentToolSourceAdapter(
     operation: (client: McpAgentClient) => Promise<Result>
   ): Promise<Result> => {
     const profile = sourceProfile(source);
+    if (profile.transport === 'stdio') {
+      // Not wired yet: agent tool sources only speak the remote transports.
+      throw new Error('stdio MCP connections are not supported as agent tool sources yet');
+    }
+    const transport = profile.transport;
     const environment = useEnvironmentStore.getState();
     const client = factory({
       url: environment.resolveVariables(profile.url),
-      transport: profile.transport,
+      transport,
       headers: Object.fromEntries(
         Object.entries(keyValuePairsToRecord(profile.headers)).map(([key, value]) => [
           key,

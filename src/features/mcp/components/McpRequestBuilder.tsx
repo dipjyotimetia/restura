@@ -14,6 +14,7 @@ import {
   parseMcpOperation,
   serializeMcpOperation,
 } from '@/features/mcp/lib/mcpOperation';
+import { buildStdioLaunch } from '@/features/mcp/lib/mcpStdioLaunch';
 import { useMcpStore } from '@/features/mcp/store/useMcpStore';
 import { useSendShortcut } from '@/hooks/useSendShortcut';
 import { keyValuePairsToRecord } from '@/lib/shared/utils';
@@ -62,6 +63,8 @@ export default function McpRequestBuilder() {
     resetConnectionSession,
     appendLog,
     clearLog,
+    appendStderr,
+    clearStderr,
   } = useMcpConnectionActions();
   const request = useActiveRequest('mcp');
   const activeTabId = useActiveTabId();
@@ -163,16 +166,26 @@ export default function McpRequestBuilder() {
     const headers = Object.fromEntries(
       Object.entries(rawHeaders).map(([key, value]) => [key, resolveVariables(value)])
     );
+    const connectionId = active.id;
     return new McpClient({
       url: resolveVariables(request.url),
       transport: request.transport,
       headers,
-      connectionId: active.id,
+      connectionId,
+      ...(request.transport === 'stdio'
+        ? {
+            stdio: buildStdioLaunch(request.stdio, resolveVariables),
+            onStderr: (text: string) => appendStderr(connectionId, text),
+          }
+        : {}),
     });
   };
 
   // Keep the store log and unified console in one callback so every interactive
   // MCP invocation has identical result visibility.
+  // stdio has no URL; label console entries by command only (args may hold secrets).
+  const consoleUrl =
+    request.transport === 'stdio' ? `stdio:${request.stdio?.command ?? ''}` : request.url;
   const logCall = (method: string, params: unknown, result: McpCall): void => {
     appendLog(active.id, {
       method,
@@ -195,7 +208,7 @@ export default function McpRequestBuilder() {
       createProtocolConsoleEntry({
         protocol: 'mcp',
         method,
-        url: request.url,
+        url: consoleUrl,
         ...(params !== undefined ? { body: JSON.stringify(params, null, 2) } : {}),
         response: {
           id: uuidv4(),
@@ -228,6 +241,7 @@ export default function McpRequestBuilder() {
     clientRef.current = null;
     void previousSession?.client.disconnect();
     resetConnectionSession(active.id);
+    clearStderr(active.id);
     setStatus(active.id, 'connecting');
     const client = buildClient();
     clientRef.current = { connectionId: active.id, client };
@@ -288,7 +302,7 @@ export default function McpRequestBuilder() {
 
   sendShortcut.current =
     active.status === 'disconnected' || active.status === 'error'
-      ? request.url.trim()
+      ? (request.transport === 'stdio' ? request.stdio?.command.trim() : request.url.trim())
         ? () => void handleConnect()
         : null
       : null;
@@ -307,6 +321,9 @@ export default function McpRequestBuilder() {
         onUrlChange={(url) => update({ url })}
         onTransportChange={(transport) => update({ transport })}
         onHeadersChange={(headers) => update({ headers })}
+        stdio={request.stdio}
+        onStdioChange={(stdio) => update({ stdio })}
+        onClearStderr={() => clearStderr(active.id)}
         onConnect={handleConnect}
         onDisconnect={handleDisconnect}
         onRefresh={handleRefresh}
