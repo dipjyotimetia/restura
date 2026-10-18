@@ -18,16 +18,18 @@ import {
 
 const TOKEN = 'web-plaintext-mcp-token-789';
 const HEADER_TOKEN = 'web-plaintext-header-secret-012';
+const URL_SECRET = 'web-plaintext-url-secret-345';
 
 function mcpRequest(id = 'mcp-req-1'): McpRequest {
   return {
     id,
     name: 'Remote MCP',
     type: 'mcp',
-    url: 'https://mcp.example.com/mcp',
+    url: `https://user:${URL_SECRET}@mcp.example.com/mcp?api_key=${URL_SECRET}`,
     transport: 'streamable-http',
     headers: [
       { id: 'h1', key: 'Authorization', value: `Bearer ${HEADER_TOKEN}`, enabled: true },
+      { id: 'h0', key: 'X-Auth', value: HEADER_TOKEN, enabled: true },
       { id: 'h2', key: 'X-Tenant', value: 'tenant-visible', enabled: true },
     ],
     auth: { type: 'bearer', bearer: { token: { kind: 'inline', value: TOKEN } } },
@@ -60,13 +62,14 @@ describe('MCP credentials are not persisted to web IndexedDB (#896)', () => {
   });
 
   it('MCP connection profile headers are stored redacted', async () => {
-    const id = useMcpStore.getState().createConnection('https://mcp.example.com/mcp');
+    const id = useMcpStore.getState().createConnection(mcpRequest().url);
     useMcpStore.getState().setHeaders(id, mcpRequest().headers);
     // In-memory state keeps the credential for this session.
     expect(useMcpStore.getState().connections[id]?.headers[0]?.value).toContain(HEADER_TOKEN);
 
     const stored = await rawRow('mcpConnections', 'mcp-storage');
     expect(stored).not.toContain(HEADER_TOKEN);
+    expect(stored).not.toContain(URL_SECRET);
   });
 
   it('MCP request tabs are stored without header or auth plaintext', async () => {
@@ -75,6 +78,7 @@ describe('MCP credentials are not persisted to web IndexedDB (#896)', () => {
     const stored = await rawRow('requestTabs', 'request-storage');
     expect(stored).not.toContain(TOKEN);
     expect(stored).not.toContain(HEADER_TOKEN);
+    expect(stored).not.toContain(URL_SECRET);
   });
 
   it('saved MCP requests in collections are stored without plaintext', async () => {
@@ -90,6 +94,7 @@ describe('MCP credentials are not persisted to web IndexedDB (#896)', () => {
     const stored = await rawRow('collections', 'collection-storage');
     expect(stored).not.toContain(TOKEN);
     expect(stored).not.toContain(HEADER_TOKEN);
+    expect(stored).not.toContain(URL_SECRET);
   });
 });
 

@@ -159,17 +159,36 @@ const OC_ROW_LIST_KEYS = new Set(['headers', 'params', 'metadata']);
 function redactOcRows(rows: unknown[]): unknown[] {
   return rows.map((row) => {
     if (!isPlainObject(row)) return redactOcBag(row);
-    const name =
-      typeof row.name === 'string' ? row.name : typeof row.key === 'string' ? row.key : '';
-    if (
-      typeof row.value === 'string' &&
-      row.value !== '' &&
-      (row.secret === true || isSecretFieldName(name))
-    ) {
-      return { ...row, value: '' };
-    }
+    if (isPlaintextSecretOcRow(row)) return { ...row, value: '' };
     return redactOcBag(row);
   });
+}
+
+/** A value that is exactly one `{{var}}` reference — a pointer, not a secret. */
+const SINGLE_VARIABLE_REFERENCE = /^\{\{\s*[^{}\s]+\s*\}\}$/;
+
+/**
+ * A cached OC `{ name, value }` row holding plaintext credential material.
+ * A value that is entirely one `{{var}}` reference is left alone — it names
+ * where the secret lives, and blanking it would needlessly rewrite the
+ * git-native files of opaque (WebSocket / Socket.IO) items. Bag-only policy;
+ * the typed model's `redactSecretKeyValues` is unchanged.
+ */
+function isPlaintextSecretOcRow(row: Record<string, unknown>): boolean {
+  const name = typeof row.name === 'string' ? row.name : typeof row.key === 'string' ? row.key : '';
+  return (
+    typeof row.value === 'string' &&
+    row.value !== '' &&
+    !SINGLE_VARIABLE_REFERENCE.test(row.value.trim()) &&
+    (row.secret === true || isSecretFieldName(name))
+  );
+}
+
+function countOcRowSecrets(rows: unknown[]): number {
+  return rows.reduce<number>(
+    (n, row) => (isPlainObject(row) && isPlaintextSecretOcRow(row) ? n + 1 : n),
+    0
+  );
 }
 
 /** Preserve unknown OC fields/extensions while blanking credentials in cached bags. */
@@ -313,6 +332,13 @@ function countOcBagInlineSecrets(node: unknown, opaque = false, modelled = false
     // everything else (incl. `proxy` → `proxy.config.auth`) so nested config
     // secrets like the proxy password are reached.
     if (key === 'auth' || key === 'passphrase') continue;
+    // Credential header / param / metadata rows. Only bag-only material
+    // counts: a modelled node's rows are already counted on the typed request
+    // (`countSecretKeyValues`), so counting the bag copy would double-report.
+    if (inOpaque && OC_ROW_LIST_KEYS.has(key) && Array.isArray(value)) {
+      count += countOcRowSecrets(value);
+      continue;
+    }
     count += countOcBagInlineSecrets(value, inOpaque, MODELLED_OC_EXTENSION_LISTS.has(key));
   }
   return count;

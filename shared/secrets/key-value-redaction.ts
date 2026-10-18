@@ -62,6 +62,10 @@ const SECRET_SEGMENTS = new Set([
   'sas',
   'otp',
   'totp',
+  // Gateway-style credential headers (`X-Auth`, `X-MCP-Auth`, `X-Gateway-Authz`).
+  // Whole-segment match only, so `X-Author` / `authorName` stay visible.
+  'auth',
+  'authz',
 ]);
 
 // `token` / `key` are credential-bearing UNLESS qualified by a pagination or

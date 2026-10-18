@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { internalToOC } from '../../opencollection/from-internal';
 import { ocToInternal } from '../../opencollection/to-internal';
 import type { Collection, McpRequest } from '../../types';
-import { redactCollectionSecrets } from '../collection-redaction';
-import { redactMcpCollectionCredentials, redactMcpCredentials } from '../mcp-credential-redaction';
+import { countCollectionInlineSecrets, redactCollectionSecrets } from '../collection-redaction';
+import {
+  redactMcpCollectionCredentials,
+  redactMcpCredentials,
+  redactUrlCredentialsForStorage,
+} from '../mcp-credential-redaction';
 
 const TOKEN = 'mcp-plaintext-token-123';
 const API_KEY = 'mcp-plaintext-key-456';
@@ -161,5 +165,94 @@ describe('collection export redaction covers MCP headers + auth', () => {
     const exported = JSON.stringify(internalToOC(redactCollectionSecrets(collection)));
     expect(exported).not.toContain(TOKEN);
     expect(exported).not.toContain(API_KEY);
+  });
+});
+
+describe('redactUrlCredentialsForStorage (security review M1a)', () => {
+  it.each([
+    ['https://user:pa55@mcp.example.com/mcp', 'https://mcp.example.com/mcp'],
+    ['https://tok@mcp.example.com/mcp?x=1', 'https://mcp.example.com/mcp?x=1'],
+    [
+      'https://mcp.example.com/mcp?api_key=K&tenant=acme&access_token=T#frag',
+      'https://mcp.example.com/mcp?api_key=&tenant=acme&access_token=#frag',
+    ],
+    ['{{base}}/mcp?token=abc&page_token=p2', '{{base}}/mcp?token=&page_token=p2'],
+    [
+      'https://mcp.example.com/mcp?token={{mcpToken}}',
+      'https://mcp.example.com/mcp?token={{mcpToken}}',
+    ],
+    ['https://mcp.example.com/mcp?flag&auth=', 'https://mcp.example.com/mcp?flag&auth='],
+    ['https://mcp.example.com/mcp?%E0%A4%A=1', 'https://mcp.example.com/mcp?%E0%A4%A=1'],
+    ['https://mcp.example.com/mcp', 'https://mcp.example.com/mcp'],
+  ])('%s → %s', (input, expected) => {
+    expect(redactUrlCredentialsForStorage(input)).toBe(expected);
+  });
+
+  it('redactMcpCredentials scrubs the URL and gateway-style X-Auth headers', () => {
+    const out = redactMcpCredentials({
+      url: `https://u:${TOKEN}@mcp.example.com/mcp?key=${API_KEY}`,
+      headers: [
+        { key: 'X-Auth', value: TOKEN, enabled: true },
+        { key: 'X-MCP-Auth', value: TOKEN, enabled: true },
+        { key: 'X-Gateway-Authz', value: TOKEN, enabled: true },
+        { key: 'X-Author', value: 'alice', enabled: true },
+      ],
+    });
+    const serialized = JSON.stringify(out);
+    expect(serialized).not.toContain(TOKEN);
+    expect(serialized).not.toContain(API_KEY);
+    expect(out.headers?.[3]?.value).toBe('alice');
+  });
+
+  it('scrubs URL credentials in cached root x-restura-mcp entries', () => {
+    const oc = ocWithMcpCredentials();
+    const entry = oc.extensions['x-restura-mcp'][0] as { mcp: { url: string } };
+    entry.mcp.url = `https://mcp.example.com/mcp?api_key=${API_KEY}`;
+    const out = redactMcpCollectionCredentials(ocToInternal(oc as never));
+    expect(JSON.stringify(out)).not.toContain(API_KEY);
+  });
+});
+
+describe('opaque (non-MCP) _oc bag rows — export redaction + warning count (L2/L3)', () => {
+  const wsCollection = (): Collection =>
+    ({
+      id: 'c',
+      name: 'C',
+      items: [
+        {
+          id: 'ws',
+          name: 'Live (WebSocket)',
+          type: 'folder',
+          items: [],
+          _oc: {
+            info: { type: 'websocket', name: 'Live' },
+            websocket: {
+              url: 'wss://ws.example.com',
+              headers: [
+                { name: 'Authorization', value: '{{wsToken}}' },
+                { name: 'X-Auth', value: 'ws-plaintext-secret' },
+                { name: 'X-Tenant', value: 'acme' },
+              ],
+            },
+          },
+        },
+      ],
+    }) as unknown as Collection;
+
+  it('blanks plaintext credential rows but keeps single {{var}} references', () => {
+    const out = JSON.stringify(redactCollectionSecrets(wsCollection()));
+    expect(out).not.toContain('ws-plaintext-secret');
+    expect(out).toContain('{{wsToken}}');
+    expect(out).toContain('acme');
+  });
+
+  it('counts bag-only plaintext credential rows so the export warning fires', () => {
+    expect(countCollectionInlineSecrets(wsCollection())).toBe(1);
+  });
+
+  it('does not double-count rows of a modelled (MCP) bag already counted on the typed request', () => {
+    const imported = ocToInternal(ocWithMcpCredentials() as never);
+    // Typed: the Authorization header + the api-key value; root bag rows aren't re-counted.
+    expect(countCollectionInlineSecrets(imported)).toBe(2);
   });
 });
