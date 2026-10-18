@@ -44,12 +44,14 @@ export function useKafkaConnection() {
   const [saslPasswordDraft, setSaslPasswordDraft] = useState('');
   const [tlsPassphraseDraft, setTlsPassphraseDraft] = useState('');
   const [registryPasswordDraft, setRegistryPasswordDraft] = useState('');
+  const [registryTokenDraft, setRegistryTokenDraft] = useState('');
   const [brokerDraft, setBrokerDraft] = useState('');
 
   useEffect(() => {
     setSaslPasswordDraft('');
     setTlsPassphraseDraft('');
     setRegistryPasswordDraft('');
+    setRegistryTokenDraft('');
     setBrokerDraft('');
   }, [activeConnectionId]);
 
@@ -124,6 +126,13 @@ export function useKafkaConnection() {
         auth: { ...(nextRegistry.auth ?? {}), password: KAFKA_SECRET_SENTINEL },
       };
       setRegistryPasswordDraft('');
+      updateConnection(connection.id, { registry: nextRegistry });
+    }
+    if (nextRegistry && registryTokenDraft) {
+      // Inline bearer tokens follow the same secureStorage + sentinel path.
+      secureStorage.set(kafkaSecretKey(connection.id, 'registry-token'), registryTokenDraft);
+      nextRegistry = { ...nextRegistry, bearerToken: KAFKA_SECRET_SENTINEL };
+      setRegistryTokenDraft('');
       updateConnection(connection.id, { registry: nextRegistry });
     }
 
@@ -212,6 +221,8 @@ export function useKafkaConnection() {
     setTlsPassphraseDraft,
     registryPasswordDraft,
     setRegistryPasswordDraft,
+    registryTokenDraft,
+    setRegistryTokenDraft,
     patchRegistry,
     addBroker,
     removeBroker,
@@ -233,6 +244,8 @@ export type KafkaConnectionFormController = Pick<
   | 'setTlsPassphraseDraft'
   | 'registryPasswordDraft'
   | 'setRegistryPasswordDraft'
+  | 'registryTokenDraft'
+  | 'setRegistryTokenDraft'
   | 'patchRegistry'
   | 'addBroker'
   | 'removeBroker'

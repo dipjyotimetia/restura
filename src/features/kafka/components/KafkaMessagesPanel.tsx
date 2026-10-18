@@ -22,7 +22,7 @@ import { getElectronAPI } from '@/lib/shared/platform';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { cn } from '@/lib/shared/utils';
 import type { KafkaConnection } from '../store/useKafkaStore';
-import { KAFKA_PINK, partitionColor } from './shared';
+import { KAFKA_PINK, partitionColor, schemaLabel } from './shared';
 
 function PartitionPill({ partition, count }: { partition: number; count?: number }) {
   const color = partitionColor(partition);
@@ -364,6 +364,7 @@ export function KafkaMessagesPanel({
                     <div className="space-y-1">
                       <div className="sp-label">
                         Key{selectedMessage.keyEncoding === 'base64' ? ' · Base64' : ''}
+                        {schemaLabel(selectedMessage.keySchema)}
                       </div>
                       <div className="font-mono text-sp-12 text-sp-text break-all">
                         {selectedMessage.key}
@@ -434,6 +435,7 @@ export function KafkaMessagesPanel({
                         : selectedMessage.valueEncoding === 'base64'
                           ? ' · Base64'
                           : ''}
+                      {schemaLabel(selectedMessage.valueSchema)}
                     </div>
                     {(() => {
                       const formatted = selectedMessage.tombstone

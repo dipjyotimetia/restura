@@ -10,6 +10,8 @@ export type KafkaPayloadEncoding = 'utf8' | 'base64';
 export interface KafkaDisplayField {
   value: string;
   encoding: KafkaPayloadEncoding;
+  /** Registry schema that decoded the field (id, plus subject/version when known). */
+  schema?: { id: number; subject?: string; version?: number };
 }
 
 /**
@@ -83,6 +85,8 @@ export interface SchemaEncoder {
 }
 export interface SchemaDecoder {
   decode(buffer: Buffer): Promise<unknown>;
+  /** Optional id → subject/version lookup (cached by the registry client). */
+  describeSchemaId?(id: number): Promise<{ id: number; subject?: string; version?: number }>;
 }
 
 /**
@@ -139,7 +143,12 @@ export async function decodeDisplayField(
 ): Promise<KafkaDisplayField> {
   if (registry && isConfluentEncoded(buf)) {
     try {
-      return { value: valueToString(await registry.decode(buf)), encoding: 'utf8' };
+      const value = valueToString(await registry.decode(buf));
+      const id = buf.readUInt32BE(1);
+      const schema = registry.describeSchemaId
+        ? await registry.describeSchemaId(id).catch(() => ({ id }))
+        : { id };
+      return { value, encoding: 'utf8', schema };
     } catch {
       /* fall through to raw bytes */
     }

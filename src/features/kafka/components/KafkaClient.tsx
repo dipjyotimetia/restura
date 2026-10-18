@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ConnectionBadge, Floater, ProtoChip, VariableText } from '@/components/ui/spatial';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { isValidManualOffset } from '@/features/kafka/lib/kafkaConsumerValidation';
-import { kafkaManager } from '@/features/kafka/lib/kafkaManager';
+import { type KafkaSubjectSelection, kafkaManager } from '@/features/kafka/lib/kafkaManager';
 import {
   validateJsonPayload,
   validateKafkaHeaders,
@@ -68,6 +68,10 @@ export function KafkaClient() {
   const [producePartition, setProducePartition] = useState('');
   const [produceSchemaId, setProduceSchemaId] = useState('');
   const [produceKeySchemaId, setProduceKeySchemaId] = useState('');
+  const [produceValueSubject, setProduceValueSubject] = useState<KafkaSubjectSelection | null>(
+    null
+  );
+  const [produceKeySubject, setProduceKeySubject] = useState<KafkaSubjectSelection | null>(null);
   const [produceError, setProduceError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -85,6 +89,8 @@ export function KafkaClient() {
     setProduceValueEncoding(seed?.valueEncoding ?? 'utf8');
     setProduceHeaders(seed?.headers ?? []);
     setProducePartition(seed?.partition ?? '');
+    setProduceValueSubject(null);
+    setProduceKeySubject(null);
     setProduceError(null);
   }, [activeConnectionId]);
 
@@ -157,11 +163,13 @@ export function KafkaClient() {
         return;
       }
     }
-    if (produceValueEncoding === 'base64' && valueSchema.value !== undefined) {
+    const valueSubject = connection.registry ? produceValueSubject : null;
+    const keySubject = connection.registry ? produceKeySubject : null;
+    if (produceValueEncoding === 'base64' && (valueSchema.value !== undefined || valueSubject)) {
       setProduceError('A Base64 value cannot also use a Schema Registry schema.');
       return;
     }
-    if (produceKeyEncoding === 'base64' && keySchema.value !== undefined) {
+    if (produceKeyEncoding === 'base64' && (keySchema.value !== undefined || keySubject)) {
       setProduceError('A Base64 key cannot also use a Schema Registry schema.');
       return;
     }
@@ -191,6 +199,8 @@ export function KafkaClient() {
         ...(partition !== undefined ? { partition } : {}),
         ...(valueSchema.value !== undefined ? { valueSchemaId: valueSchema.value } : {}),
         ...(keySchema.value !== undefined ? { keySchemaId: keySchema.value } : {}),
+        ...(valueSubject ? { valueSubject } : {}),
+        ...(keySubject ? { keySubject } : {}),
       },
       { json: produceValueEncoding === 'json', keyJson: produceKeyEncoding === 'json' }
     );
@@ -363,6 +373,10 @@ export function KafkaClient() {
             setProduceSchemaId={setProduceSchemaId}
             produceKeySchemaId={produceKeySchemaId}
             setProduceKeySchemaId={setProduceKeySchemaId}
+            produceValueSubject={produceValueSubject}
+            setProduceValueSubject={setProduceValueSubject}
+            produceKeySubject={produceKeySubject}
+            setProduceKeySubject={setProduceKeySubject}
             produceError={produceError}
             produceTombstone={produceTombstone}
             setProduceTombstone={setProduceTombstone}

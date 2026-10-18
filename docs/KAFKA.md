@@ -5,7 +5,7 @@ Kafka is a desktop-only client because browser targets cannot open Kafka TCP con
 ## Produce
 
 - Records use explicit UTF-8, Base64, Schema Registry, or null field variants. An empty UTF-8/Base64 payload is different from a null tombstone.
-- Keys and values can use independent encodings and Schema Registry IDs.
+- Keys and values can use independent encodings and Schema Registry schemas, named either by numeric schema ID or by `{ subject, version }` where version is a number or `latest`. The main process resolves subjects to IDs (`getLatestSchemaId` / `getRegistryId`) at send time; an unknown subject fails the produce with the registry's error.
 - Headers preserve their raw bytes; the message inspector exposes Base64 alongside the UTF-8 convenience view.
 - A record may set a partition and precision-safe epoch-millisecond timestamp.
 - Interactive batches accept up to 1,000 typed records.
@@ -27,9 +27,18 @@ Persisted v1 connections keep their earliest/latest choice during the v2 migrati
 
 ## Authentication
 
-Supported SASL mechanisms are PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, and static-token OAUTHBEARER. Passwords, TLS passphrases, registry passwords, and OAuth tokens are stored through desktop secure storage and replaced by sentinels in persisted renderer state.
+Supported SASL mechanisms are PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, and static-token OAUTHBEARER. Passwords, TLS passphrases, registry passwords, inline registry bearer tokens, and OAuth tokens are stored through desktop secure storage and replaced by sentinels in persisted renderer state.
 
 GSSAPI and custom authentication callbacks are intentionally not exposed because they require executable callback/provider code rather than bounded declarative configuration.
+
+## Schema Registry
+
+The registry client lives in `electron/main/handlers/kafka/registry.ts`, one per connection. Every registry request — library encode/decode/resolve and the read-only browse IPC (`kafka:registry-list-subjects`, `kafka:registry-list-versions`, `kafka:registry-get-schema`; validated and rate-limited) — goes through a single Node agent that:
+
+- carries the execution policy's host-selected TLS material for HTTPS registries (`resolveSchemaRegistryExecutionPolicy`: custom CA, mTLS client certificate, verify toggle, TLS version/ciphers); an active proxy fails closed;
+- resolves the registry hostname through the DNS guard on every new socket with the same `allowLocalhost` / `allowPrivateIPs` policy as the brokers, and refuses any other hostname.
+
+Auth is HTTP Basic (unchanged; the untyped legacy IPC shape still means Basic) or Bearer. The bearer token is a `SecretValue`: inline tokens follow the sentinel + secure-storage path, keychain handles and external references cross IPC as references and are resolved only in main (ADR-0007). Consumed registry-decoded fields carry `{ id, subject?, version? }`, looked up once per schema ID via `/schemas/ids/{id}/versions` and cached.
 
 ## Administration
 

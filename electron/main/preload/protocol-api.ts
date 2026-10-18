@@ -98,6 +98,15 @@ export const protocolApi: ProtocolApi = {
     deleteAcls: invoke<ElectronAPI['kafka']['deleteAcls']>(IPC.kafka.deleteAcls),
     describeQuotas: invoke<ElectronAPI['kafka']['describeQuotas']>(IPC.kafka.describeQuotas),
     alterQuotas: invoke<ElectronAPI['kafka']['alterQuotas']>(IPC.kafka.alterQuotas),
+    registryListSubjects: invoke<ElectronAPI['kafka']['registryListSubjects']>(
+      IPC.kafka.registryListSubjects
+    ),
+    registryListVersions: invoke<ElectronAPI['kafka']['registryListVersions']>(
+      IPC.kafka.registryListVersions
+    ),
+    registryGetSchema: invoke<ElectronAPI['kafka']['registryGetSchema']>(
+      IPC.kafka.registryGetSchema
+    ),
     ...channelEventBridge(CHANNEL_PREFIXES.kafka),
   },
   mqtt: {

@@ -38,6 +38,7 @@ const KAFKA_FIELDS: Record<KafkaSecretField, true> = {
   'oauth-token': true,
   'tls-passphrase': true,
   'registry-password': true,
+  'registry-token': true,
 };
 const MQTT_FIELDS: Record<MqttSecretField, true> = {
   password: true,

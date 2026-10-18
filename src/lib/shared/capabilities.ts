@@ -42,6 +42,7 @@ export type CapabilityName =
   | 'grpc.reflection'
   | 'grpc.web'
   | 'kafka.basic'
+  | 'kafka.schemaRegistry'
   | 'mqtt.basic'
   | 'socketio.basic'
   | 'ai.basic'
@@ -281,6 +282,13 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: false,
     desktop: true,
     notes: 'Native broker protocol; no browser TCP',
+  },
+  'kafka.schemaRegistry': {
+    label: 'Kafka Confluent Schema Registry (subject produce, browse, decode)',
+    web: false,
+    desktop: true,
+    notes:
+      'Desktop main-process client: Basic or Bearer (SecretRef) auth, Settings TLS policy (custom CA, mTLS, verify) for HTTPS, DNS-validated against the network policy; Avro/JSON Schema example generation, Protobuf view-only',
   },
   'mqtt.basic': {
     label: 'MQTT publish / subscribe',

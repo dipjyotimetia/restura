@@ -63,6 +63,35 @@ describe('useKafkaConnection', () => {
     expect(useKafkaStore.getState().connectionByTabId).toHaveProperty('kafka-tab');
   });
 
+  it('stores an inline registry bearer token draft as a sentinel before connecting', async () => {
+    const { result } = renderHook(() => useKafkaConnection());
+    const connection = result.current.connection!;
+
+    act(() => {
+      result.current.updateConnection(connection.id, {
+        registry: { url: 'https://registry.example.test', authType: 'bearer' },
+      });
+      result.current.setRegistryTokenDraft('bearer-secret');
+    });
+    await act(async () => {
+      await result.current.connect();
+    });
+
+    expect(mocks.setSecret).toHaveBeenCalledWith(
+      `kafka:${connection.id}:registry-token`,
+      'bearer-secret'
+    );
+    expect(mocks.connect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        registry: expect.objectContaining({
+          authType: 'bearer',
+          bearerToken: KAFKA_SECRET_SENTINEL,
+        }),
+      })
+    );
+    expect(result.current.registryTokenDraft).toBe('');
+  });
+
   it('stores connection secret drafts as sentinels before connecting', async () => {
     const { result } = renderHook(() => useKafkaConnection());
     const connection = result.current.connection!;

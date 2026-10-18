@@ -1,26 +1,26 @@
 import type * as KafkaLib from '@platformatic/kafka';
 import { ipcMain } from 'electron';
-import type { SchemaRegistry } from '@kafkajs/confluent-schema-registry';
 import { IPC } from '../../../shared/channels';
 import type { KafkaAck } from '../../../types/api/protocols';
+import { errorMessage } from '../../ipc/ipc-utils';
 import {
   createValidatedEventHandler,
   type KafkaProduceBatchConfig,
   KafkaProduceBatchSchema,
   type KafkaProduceConfig,
-  KafkaProduceSchema,
+  KafkaProducerStreamCloseSchema,
   type KafkaProducerStreamOpenConfig,
   KafkaProducerStreamOpenSchema,
   type KafkaProducerStreamWriteConfig,
   KafkaProducerStreamWriteSchema,
-  KafkaProducerStreamCloseSchema,
+  KafkaProduceSchema,
   type KafkaTransactionBeginConfig,
   KafkaTransactionBeginSchema,
   type KafkaTransactionEndConfig,
   KafkaTransactionEndSchema,
 } from '../../ipc/ipc-validators';
-import { errorMessage } from '../../ipc/ipc-utils';
 import { decodeWirePayload, encodeSchemaField } from '../kafka-serde';
+import { type KafkaRegistryClient, resolveFieldSchemaId } from './registry';
 
 export type AppProducer = KafkaLib.Producer<Buffer, Buffer, Buffer, Buffer>;
 type AppProducerStream = KafkaLib.ProducerStream<Buffer, Buffer, Buffer, Buffer>;
@@ -34,7 +34,7 @@ export interface KafkaProducerEntry {
   transaction?: AppTransaction;
   idempotent: boolean;
   transactionalId?: string;
-  registry?: SchemaRegistry;
+  registry?: KafkaRegistryClient;
 }
 
 async function encodeRecordField(
@@ -47,7 +47,9 @@ async function encodeRecordField(
     if (!entry.registry) {
       return { error: 'A schema field requires a Schema Registry on this connection.' };
     }
-    const encoded = await encodeSchemaField(entry.registry, field.schemaId, field.data, name);
+    const resolved = await resolveFieldSchemaId(entry.registry, field);
+    if ('error' in resolved) return resolved;
+    const encoded = await encodeSchemaField(entry.registry, resolved.schemaId, field.data, name);
     return 'error' in encoded
       ? encoded
       : { value: Buffer.isBuffer(encoded.value) ? encoded.value : Buffer.from(encoded.value) };

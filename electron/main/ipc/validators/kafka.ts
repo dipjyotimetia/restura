@@ -1,4 +1,5 @@
 import { isIPv6 } from 'node:net';
+import { protocolSecretValueSchema } from '@shared/protocol/secret-value-schema';
 import { z } from 'zod';
 import { ConnectionIdSchema } from './core';
 
@@ -96,17 +97,46 @@ const KafkaAuthSchema = z.discriminatedUnion('securityProtocol', [
 export const KafkaCompressionSchema = z.enum(['none', 'gzip', 'snappy', 'lz4', 'zstd']);
 export const KafkaAcksSchema = z.union([z.literal(0), z.literal(1), z.literal(-1)]);
 
-// Confluent Schema Registry. `url` is SSRF-guarded at connect; auth holds the
-// already-resolved plaintext (kafkaManager resolves secret sentinels first).
-const KafkaRegistrySchema = z.object({
-  url: z.url('Invalid Schema Registry URL').max(2048),
-  auth: z
-    .object({
-      username: z.string().max(256).optional(),
-      password: z.string().max(1024).optional(),
-    })
+// Confluent Schema Registry. `url` is SSRF-guarded (string + DNS) at connect.
+// Basic auth holds already-resolved plaintext (kafkaManager resolves secret
+// sentinels first); a bearer token is a SecretValue so a keychain handle or
+// external reference is resolved only in main (ADR-0007).
+const KafkaRegistryBasicFields = {
+  username: z.string().max(256).optional(),
+  password: z.string().max(1024).optional(),
+};
+const KafkaRegistryAuthSchema = z.union([
+  z.discriminatedUnion('type', [
+    z.object({ type: z.literal('basic'), ...KafkaRegistryBasicFields }).strict(),
+    z
+      .object({ type: z.literal('bearer'), token: protocolSecretValueSchema })
+      .strict()
+      .refine(
+        (auth) =>
+          typeof auth.token === 'string'
+            ? auth.token.length > 0
+            : auth.token.kind !== 'inline' || auth.token.value.length > 0,
+        { message: 'A bearer token is required.', path: ['token'] }
+      ),
+  ]),
+  // Untyped legacy shape — HTTP Basic, exactly as before bearer support.
+  z
+    .object(KafkaRegistryBasicFields)
     .strict()
-    .optional(),
+    .transform((auth) => ({ type: 'basic' as const, ...auth })),
+]);
+
+const KafkaRegistrySchema = z.object({
+  url: z
+    .url('Invalid Schema Registry URL')
+    .max(2048)
+    // Credentials belong in the auth block; URL userinfo would become implicit Basic auth.
+    .refine((url) => {
+      if (!URL.canParse(url)) return true; // z.url already reported it
+      const parsed = new URL(url);
+      return !parsed.username && !parsed.password;
+    }, 'Put Schema Registry credentials in the auth settings, not the URL'),
+  auth: KafkaRegistryAuthSchema.optional(),
 });
 
 export const KafkaConnectSchema = z
@@ -161,14 +191,54 @@ const KafkaDataFieldSchema = (max: number) =>
     z.object({ encoding: z.literal('base64'), data: strictBase64(max) }).strict(),
   ]);
 
+// Registry subject names are free-form strings; cap length and forbid control
+// characters (they are interpolated into registry REST paths, URL-encoded).
+export const KafkaRegistrySubjectSchema = z
+  .string()
+  .min(1)
+  .max(512)
+  .regex(/^[^\u0000-\u001f\u007f]+$/, 'Subject must not contain control characters')
+  // `.` / `..` would be normalised away as dot-segments in the REST path.
+  .refine((subject) => subject !== '.' && subject !== '..', 'Subject cannot be "." or ".."');
+export const KafkaRegistryVersionSchema = z.union([
+  z.number().int().positive().max(2_147_483_647),
+  z.literal('latest'),
+]);
+
+// A schema-encoded field names its schema either by registry ID or by
+// subject + version ('latest' allowed); main resolves the subject to an ID.
 const KafkaSchemaFieldSchema = (max: number) =>
   z
     .object({
       encoding: z.literal('schema'),
-      schemaId: z.number().int().positive(),
+      schemaId: z.number().int().positive().optional(),
+      subject: KafkaRegistrySubjectSchema.optional(),
+      version: KafkaRegistryVersionSchema.optional(),
       data: z.string().max(max),
     })
-    .strict();
+    .strict()
+    .superRefine((field, ctx) => {
+      const bySubject = field.subject !== undefined || field.version !== undefined;
+      if (field.schemaId !== undefined && bySubject) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['schemaId'],
+          message: 'Use either schemaId or subject + version, not both.',
+        });
+      } else if (field.schemaId === undefined && !bySubject) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['schemaId'],
+          message: 'A schema field requires schemaId or subject + version.',
+        });
+      } else if (bySubject && (field.subject === undefined || field.version === undefined)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [field.subject === undefined ? 'subject' : 'version'],
+          message: 'Subject-based schema fields require both subject and version.',
+        });
+      }
+    });
 
 export const KafkaRecordFieldSchema = z.discriminatedUnion('encoding', [
   ...KafkaDataFieldSchema(KAFKA_MAX_VALUE_BYTES).options,
@@ -732,7 +802,31 @@ export const KafkaAlterQuotasSchema = z
     }
   });
 
+// ---------------------------------------------------------------------------
+// Schema Registry browsing (subject picker / schema viewer). Read-only; each
+// call reuses the live connection's guarded, TLS-policy-aware registry client.
+// ---------------------------------------------------------------------------
+
+export const KafkaRegistryListSubjectsSchema = z
+  .object({ connectionId: KafkaConnectionIdSchema })
+  .strict();
+
+export const KafkaRegistryListVersionsSchema = z
+  .object({ connectionId: KafkaConnectionIdSchema, subject: KafkaRegistrySubjectSchema })
+  .strict();
+
+export const KafkaRegistryGetSchemaSchema = z
+  .object({
+    connectionId: KafkaConnectionIdSchema,
+    subject: KafkaRegistrySubjectSchema,
+    version: KafkaRegistryVersionSchema,
+  })
+  .strict();
+
 export type KafkaConnectConfig = z.infer<typeof KafkaConnectSchema>;
+export type KafkaRegistryConfig = NonNullable<KafkaConnectConfig['registry']>;
+export type KafkaRegistryListVersionsConfig = z.infer<typeof KafkaRegistryListVersionsSchema>;
+export type KafkaRegistryGetSchemaConfig = z.infer<typeof KafkaRegistryGetSchemaSchema>;
 export type KafkaProduceConfig = z.infer<typeof KafkaProduceSchema>;
 export type KafkaProduceBatchConfig = z.infer<typeof KafkaProduceBatchSchema>;
 export type KafkaProducerStreamOpenConfig = z.infer<typeof KafkaProducerStreamOpenSchema>;

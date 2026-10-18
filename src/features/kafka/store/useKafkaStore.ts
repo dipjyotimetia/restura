@@ -1,3 +1,9 @@
+import {
+  isExternalSecretRef,
+  isSecretHandle,
+  type SecretValue,
+  unwrapSecret,
+} from '@shared/secrets/secret-ref';
 import { v4 as uuidv4 } from 'uuid';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
@@ -52,14 +58,29 @@ export interface KafkaAuth {
  * Confluent Schema Registry config. When set, the consumer decodes
  * Avro/Protobuf/JSON Schema messages via the registry. Auth secrets persist as
  * the sentinel; real values live in secureStorage (resolved by kafkaManager).
+ * HTTPS uses the Settings TLS policy (custom CA, mTLS, verify) for its host.
  */
 export interface KafkaRegistry {
   url: string;
+  /** Registry auth scheme; absent means HTTP Basic (the pre-bearer shape). */
+  authType?: 'basic' | 'bearer';
   auth?: {
     username?: string;
     /** Persisted as the sentinel; real value comes from secureStorage */
     password?: string;
   };
+  /**
+   * Bearer token (ADR-0007): keychain handles / external references persist
+   * as-is and resolve only in main; an inline token persists as the sentinel.
+   */
+  bearerToken?: SecretValue;
+}
+
+/** Registry schema that decoded a consumed field. */
+export interface KafkaSchemaRef {
+  id: number;
+  subject?: string;
+  version?: number;
 }
 
 export interface KafkaProducedAck {
@@ -80,8 +101,10 @@ export interface KafkaMessage {
   offset?: string;
   key?: string;
   keyEncoding?: KafkaPayloadEncoding;
+  keySchema?: KafkaSchemaRef;
   value: string;
   valueEncoding?: KafkaPayloadEncoding;
+  valueSchema?: KafkaSchemaRef;
   tombstone?: boolean;
   headers?: Record<string, string>;
   binaryHeaders?: { key: string; value: string }[];
@@ -546,10 +569,19 @@ function redactSecrets(auth: KafkaAuth): KafkaAuth {
   return next;
 }
 
-function redactRegistry(registry: KafkaRegistry): KafkaRegistry {
-  if (!registry.auth) return { url: registry.url };
-  const auth: NonNullable<KafkaRegistry['auth']> = {};
-  if (registry.auth.username !== undefined) auth.username = registry.auth.username;
-  if (registry.auth.password) auth.password = KAFKA_SECRET_SENTINEL;
-  return { url: registry.url, auth };
+export function redactRegistry(registry: KafkaRegistry): KafkaRegistry {
+  const next: KafkaRegistry = { url: registry.url };
+  if (registry.authType) next.authType = registry.authType;
+  if (registry.auth) {
+    const auth: NonNullable<KafkaRegistry['auth']> = {};
+    if (registry.auth.username !== undefined) auth.username = registry.auth.username;
+    if (registry.auth.password) auth.password = KAFKA_SECRET_SENTINEL;
+    next.auth = auth;
+  }
+  const token = registry.bearerToken;
+  if (isSecretHandle(token) || isExternalSecretRef(token)) next.bearerToken = token;
+  else if (unwrapSecret(token)) {
+    next.bearerToken = KAFKA_SECRET_SENTINEL;
+  }
+  return next;
 }

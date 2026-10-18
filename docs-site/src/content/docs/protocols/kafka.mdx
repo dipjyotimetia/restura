@@ -32,7 +32,19 @@ import { Badge } from '@astrojs/starlight/components';
 - **Compression** — gzip / snappy / lz4 / zstd negotiated automatically.
 - **Save to a collection** — **Save to Collection** on a Kafka tab stores a shareable *connection preset* (brokers, auth mode, TLS paths, client id, produce topic / key / payload template / headers, consumer group and topics). Opening it from the sidebar opens this panel prefilled. Passwords, OAuth tokens and key passphrases stay in the encrypted local store and are never exported. See [Kafka and MQTT connection presets](/guides/collections/#kafka-and-mqtt-connection-presets).
 - **`{{variables}}`** — bootstrap brokers (at connect), consumer group and topics (at subscribe), and the produced topic, key, value and header names/values (at send) are resolved with the same scopes as HTTP. In **JSON** mode a value substituted inside a string literal is JSON-escaped. Unresolved names are sent literally and flagged in the message log; secret values are masked in the logged copy.
-- **Confluent Schema Registry** — point a connection at a registry URL (optional Basic auth); produce schema-encoded **keys and values** by schema ID, and consume with automatic Avro / Protobuf / JSON decode of both. Powered by `@kafkajs/confluent-schema-registry`.
+- **Confluent Schema Registry** — point a connection at a registry URL (HTTP Basic or Bearer auth, HTTPS with your custom CA / mTLS); produce schema-encoded **keys and values** by **subject + version** (or `latest`) or by raw schema ID, browse subjects and view schemas, and consume with automatic Avro / Protobuf / JSON decode of both. Powered by `@kafkajs/confluent-schema-registry`. See [Schema Registry](#schema-registry).
+
+## Schema Registry
+
+Enable **Schema Registry** on the connection form and enter the registry URL.
+
+- **Auth** — choose **HTTP Basic** (username + password, stored encrypted) or **Bearer token** (for OAuth-fronted registries such as Confluent Cloud with OAuth, Apicurio or Karapace behind a gateway). The bearer token field supports inline entry, a keychain-stored secret handle, or an external secret reference; handles and external references are resolved only in the desktop main process and never reach the renderer.
+- **TLS** — HTTPS registries use the same TLS selection as the brokers' policy: the host-matched (or global) **custom CA** and **client certificate** (mTLS) from **Settings → Certificates**, plus the **Verify SSL certificates** toggle and TLS version / cipher settings. An active global proxy is not supported for the registry connection and fails the connect rather than bypassing the proxy.
+- **Network policy** — the registry URL is checked against the **Settings → Security** localhost / private-network toggles both as written and after DNS resolution (every new socket re-validates the resolved addresses), and cloud-metadata endpoints are always refused. A registry on a Docker or VPC hostname that resolves to a private address needs **Allow private / internal IPs** enabled.
+
+**Producing with a subject.** In the producer, set the key or value **schema** to **Registry subject**. The subject list is filtered to `<topic>-value` / `<topic>-key` by default (and pre-selected when it exists); pick a **version** or `latest`. The desktop app resolves the subject and version to a schema ID when you publish, so `latest` always follows the newest registered version. The selected schema is shown read-only next to the editor, and **Generate example** fills the payload with a JSON skeleton for **Avro** and **JSON Schema** subjects (Protobuf schemas are viewable but not yet generated). The numeric **Schema ID** mode is still available.
+
+**Consuming.** Registry-decoded keys and values show which schema decoded them — `Schema 12 (orders-value v3)` — when the registry can map the ID back to a subject and version (looked up once per ID and cached).
 
 ## Consume modes
 
@@ -63,12 +75,12 @@ Saved connections from before Browse mode existed keep **Consumer group** mode i
 
 ## Broker guard
 
-Every broker address (and Schema Registry URL) runs through a pre-flight [SSRF check](/architecture/security/) (`electron/main/security/kafka-broker-guard.ts`) before the connection opens. Like MQTT — and **unlike** the HTTP guard — private and loopback addresses are **allowed**, because Kafka brokers and registries routinely live on LAN / VPC networks. The guard rejects only cloud-metadata endpoints (`169.254.169.254` and friends, `metadata.google.internal`, …) and malformed addresses, so a malicious or misconfigured `bootstrap.servers` can't aim traffic at your machine's metadata endpoint. It's **pre-flight only** — it doesn't mitigate a true DNS-rebind during connect (the residual gap in [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/)).
+Every broker address and Schema Registry URL runs through a pre-flight [SSRF check](/architecture/security/) (`electron/main/security/kafka-broker-guard.ts`) before the connection opens, using the **Settings → Security** localhost / private-network policy. Cloud-metadata endpoints (`169.254.169.254` and friends, `metadata.google.internal`, …) and malformed addresses are always rejected, so a malicious or misconfigured `bootstrap.servers` can't aim traffic at your machine's metadata endpoint. For brokers the check is **pre-flight only** on the address as written — the Kafka client resolves hostnames itself, so it doesn't mitigate a true DNS-rebind during connect (the residual gap in [ADR 0006](/architecture/adrs/0006-connection-and-dns-hardening/)). Schema Registry connections additionally validate every DNS answer at connect time (see above).
 
 ## Tips
 
 - Set the **client ID** (defaults to `restura`) to make your activity easy to spot in broker logs.
-- For schema-encoded payloads, set the connection's **Schema Registry URL**, then pick a **value** and/or **key schema ID** when producing — the field is parsed as JSON, Confluent-encoded, and decoded again automatically on consume. Schema encoding and raw Base64 are intentionally mutually exclusive for the same field.
+- For schema-encoded payloads, set the connection's **Schema Registry URL**, then pick a **value** and/or **key** subject (or schema ID) when producing — the field is parsed as JSON, Confluent-encoded, and decoded again automatically on consume. Schema encoding and raw Base64 are intentionally mutually exclusive for the same field.
 - Use **JSON** mode to validate a JSON document before publishing its UTF-8 text. Use **Base64 bytes** for arbitrary binary payloads; Restura accepts canonical Base64 only and displays consumed non-UTF-8 fields as Base64 so they can be copied without byte loss.
 
 ## Related

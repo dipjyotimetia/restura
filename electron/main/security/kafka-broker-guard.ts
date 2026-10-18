@@ -52,8 +52,10 @@ export function assertKafkaBrokersSafe(
  * as the brokers (registries live on the same private/VPC networks), unless the
  * active global execution policy narrows that allowance. Cloud-metadata
  * endpoints and blocked hostnames are always rejected.
- * String-policy only — the same residual DNS-rebind gap as the broker guard
- * applies (documented in ADR-0006).
+ * String-policy layer only: the registry client (handlers/kafka/registry.ts)
+ * additionally validates every DNS answer per socket through a guarded agent
+ * `lookup`, so registries — unlike brokers — are not exposed to the ADR-0006
+ * DNS-rebind gap.
  */
 export function assertRegistryUrlSafe(
   url: string,
