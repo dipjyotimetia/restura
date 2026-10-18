@@ -502,6 +502,7 @@ describe('kafkaManager (Electron path)', () => {
         region: 'eu-west-1',
         credentialSource: 'profile',
         profile: 'dev',
+        allowNonAwsBrokerHosts: true,
       },
     });
     await kafkaManager.connect(useKafkaStore.getState().connections[id]!);
@@ -510,6 +511,7 @@ describe('kafkaManager (Electron path)', () => {
       sasl: {
         mechanism: 'AWS_MSK_IAM',
         region: 'eu-west-1',
+        allowNonAwsBrokerHosts: true,
         credentials: { source: 'profile', profile: 'dev' },
       },
     });

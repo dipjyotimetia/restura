@@ -7,8 +7,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import type { KafkaConnectionFormController } from '../hooks/useKafkaConnection';
-import type { KafkaHandleSecretField } from '../lib/kafkaSaslSecrets';
+import { type KafkaHandleSecretField, kafkaSaslPreflightError } from '../lib/kafkaSaslSecrets';
 import type {
   KafkaConnection,
   KafkaSasl,
@@ -22,20 +23,27 @@ import {
   KAFKA_SECRET_SENTINEL,
 } from '../store/useKafkaStore';
 
-const SASL_MECHANISMS: Array<{ value: KafkaSaslMechanism; label: string }> = [
+const SASL_MECHANISMS: Array<{ value: KafkaSaslMechanism; label: string; disabled?: boolean }> = [
   { value: 'PLAIN', label: 'PLAIN' },
   { value: 'SCRAM-SHA-256', label: 'SCRAM-SHA-256' },
   { value: 'SCRAM-SHA-512', label: 'SCRAM-SHA-512' },
   { value: 'OAUTHBEARER', label: 'OAUTHBEARER' },
-  { value: 'GSSAPI', label: 'GSSAPI (Kerberos)' },
   { value: 'AWS_MSK_IAM', label: 'AWS MSK IAM' },
+  // The authenticator exists in main, but the native `kerberos` module it needs
+  // is not bundled with the desktop build, so the option is not selectable.
+  { value: 'GSSAPI', label: 'GSSAPI (Kerberos) — not available in this build', disabled: true },
 ];
 
 const fieldClass = 'h-8 text-xs font-mono';
 
 type SaslFieldsController = Pick<
   KafkaConnectionFormController,
-  'updateAuth' | 'saslPasswordDraft' | 'setSaslPasswordDraft' | 'secretDrafts' | 'setSecretDraft'
+  | 'updateAuth'
+  | 'replaceSasl'
+  | 'saslPasswordDraft'
+  | 'setSaslPasswordDraft'
+  | 'secretDrafts'
+  | 'setSecretDraft'
 >;
 
 interface KafkaSaslFieldsProps {
@@ -46,10 +54,32 @@ interface KafkaSaslFieldsProps {
 
 /** Mechanism picker + per-mechanism SASL fields for the Kafka connection form. */
 export function KafkaSaslFields({ connection, sasl, controller }: KafkaSaslFieldsProps) {
-  const { updateAuth, saslPasswordDraft, setSaslPasswordDraft, secretDrafts, setSecretDraft } =
-    controller;
+  const {
+    updateAuth,
+    replaceSasl,
+    saslPasswordDraft,
+    setSaslPasswordDraft,
+    secretDrafts,
+    setSecretDraft,
+  } = controller;
+  /** Field edits within the same mechanism keep drafts and handles. */
   const setSasl = (next: KafkaSasl): void =>
     updateAuth(connection.id, { ...connection.auth, sasl: next });
+  const preflight = kafkaSaslPreflightError(
+    sasl,
+    connection.auth.securityProtocol,
+    connection.bootstrapBrokers
+  );
+
+  const textInput = (label: string, value: string, onChange: (next: string) => void) => (
+    <Input
+      aria-label={label}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder={label}
+      className={fieldClass}
+    />
+  );
 
   const handleSecretInput = (
     field: KafkaHandleSecretField,
@@ -71,14 +101,18 @@ export function KafkaSaslFields({ connection, sasl, controller }: KafkaSaslField
       <Label className="text-xs sp-label">SASL</Label>
       <Select
         value={sasl.mechanism}
-        onValueChange={(value) => setSasl(defaultKafkaSasl(value as KafkaSaslMechanism))}
+        onValueChange={(value) => replaceSasl(defaultKafkaSasl(value as KafkaSaslMechanism))}
       >
         <SelectTrigger className="h-8 text-xs" aria-label="SASL mechanism">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
           {SASL_MECHANISMS.map((mechanism) => (
-            <SelectItem key={mechanism.value} value={mechanism.value}>
+            <SelectItem
+              key={mechanism.value}
+              value={mechanism.value}
+              {...(mechanism.disabled ? { disabled: true } : {})}
+            >
               {mechanism.label}
             </SelectItem>
           ))}
@@ -87,14 +121,10 @@ export function KafkaSaslFields({ connection, sasl, controller }: KafkaSaslField
 
       {isKafkaPasswordSasl(sasl) && (
         <>
-          <Input
-            value={sasl.username}
-            onChange={(event) => setSasl({ ...sasl, username: event.target.value })}
-            placeholder="Username"
-            className={fieldClass}
-          />
+          {textInput('Username', sasl.username, (username) => setSasl({ ...sasl, username }))}
           <Input
             type="password"
+            aria-label="Password"
             value={saslPasswordDraft}
             onChange={(event) => setSaslPasswordDraft(event.target.value)}
             placeholder={
@@ -111,7 +141,7 @@ export function KafkaSaslFields({ connection, sasl, controller }: KafkaSaslField
         <Select
           value={sasl.mode ?? 'static'}
           onValueChange={(mode) =>
-            setSasl(
+            replaceSasl(
               mode === 'client-credentials'
                 ? {
                     mechanism: 'OAUTHBEARER',
@@ -136,6 +166,7 @@ export function KafkaSaslFields({ connection, sasl, controller }: KafkaSaslField
       {isKafkaStaticOAuthSasl(sasl) && (
         <Input
           type="password"
+          aria-label="Bearer token"
           value={saslPasswordDraft}
           onChange={(event) => setSaslPasswordDraft(event.target.value)}
           placeholder={
@@ -149,64 +180,55 @@ export function KafkaSaslFields({ connection, sasl, controller }: KafkaSaslField
 
       {sasl.mechanism === 'OAUTHBEARER' && sasl.mode === 'client-credentials' && (
         <>
-          <Input
-            value={sasl.tokenEndpoint}
-            onChange={(event) => setSasl({ ...sasl, tokenEndpoint: event.target.value })}
-            placeholder="Token endpoint (https://idp.example.com/oauth2/token)"
-            className={fieldClass}
-          />
-          <Input
-            value={sasl.clientId}
-            onChange={(event) => setSasl({ ...sasl, clientId: event.target.value })}
-            placeholder="Client ID"
-            className={fieldClass}
-          />
+          {textInput(
+            'Token endpoint (https://idp.example.com/oauth2/token)',
+            sasl.tokenEndpoint,
+            (tokenEndpoint) => setSasl({ ...sasl, tokenEndpoint })
+          )}
+          {textInput('Client ID', sasl.clientId, (clientId) => setSasl({ ...sasl, clientId }))}
           {handleSecretInput('oauthClientSecret', sasl.clientSecret, 'Client secret')}
-          <Input
-            value={sasl.scope ?? ''}
-            onChange={(event) => setSasl({ ...sasl, scope: event.target.value })}
-            placeholder="Scope (optional)"
-            className={fieldClass}
-          />
+          {textInput('Scope (optional)', sasl.scope ?? '', (scope) => setSasl({ ...sasl, scope }))}
           <p className="text-sp-11 text-sp-muted">
-            The token is fetched by the desktop app and refreshed before it expires.
+            The token is fetched by the desktop app over https and refreshed before it expires.
           </p>
         </>
       )}
 
       {sasl.mechanism === 'GSSAPI' && (
         <>
-          <Input
-            value={sasl.serviceName ?? ''}
-            onChange={(event) => setSasl({ ...sasl, serviceName: event.target.value })}
-            placeholder="Kerberos service name (default: kafka)"
-            className={fieldClass}
-          />
-          <Input
-            value={sasl.principal ?? ''}
-            onChange={(event) => setSasl({ ...sasl, principal: event.target.value })}
-            placeholder="Client principal (optional, e.g. alice@EXAMPLE.COM)"
-            className={fieldClass}
-          />
+          {textInput(
+            'Kerberos service name (default: kafka)',
+            sasl.serviceName ?? '',
+            (serviceName) => setSasl({ ...sasl, serviceName })
+          )}
+          {textInput(
+            'Client principal (optional, e.g. alice@EXAMPLE.COM)',
+            sasl.principal ?? '',
+            (principal) => setSasl({ ...sasl, principal })
+          )}
           <p className="text-sp-11 text-sp-muted">
-            Uses your existing Kerberos ticket (kinit). Requires the native kerberos module, which
-            this build of Restura does not bundle.
+            GSSAPI needs the native kerberos module, which this build of Restura does not bundle, so
+            connections will fail.
           </p>
         </>
       )}
 
       {sasl.mechanism === 'AWS_MSK_IAM' && (
         <>
-          <Input
-            value={sasl.region}
-            onChange={(event) => setSasl({ ...sasl, region: event.target.value })}
-            placeholder="AWS region (e.g. us-east-1)"
-            className={fieldClass}
-          />
+          {textInput('AWS region (e.g. us-east-1)', sasl.region, (region) =>
+            setSasl({ ...sasl, region })
+          )}
           <Select
             value={sasl.credentialSource}
             onValueChange={(value) =>
-              setSasl({ ...sasl, credentialSource: value as 'static' | 'profile' })
+              // Switching source drops the other source's key id, profile and
+              // stored secret handles.
+              replaceSasl({
+                mechanism: 'AWS_MSK_IAM',
+                region: sasl.region,
+                credentialSource: value as 'static' | 'profile',
+                ...(sasl.allowNonAwsBrokerHosts ? { allowNonAwsBrokerHosts: true } : {}),
+              })
             }
           >
             <SelectTrigger className="h-8 text-xs" aria-label="AWS credentials source">
@@ -218,26 +240,44 @@ export function KafkaSaslFields({ connection, sasl, controller }: KafkaSaslField
             </SelectContent>
           </Select>
           {sasl.credentialSource === 'profile' ? (
-            <Input
-              value={sasl.profile ?? ''}
-              onChange={(event) => setSasl({ ...sasl, profile: event.target.value })}
-              placeholder="Profile name (from ~/.aws/config)"
-              className={fieldClass}
-            />
+            textInput('Profile name (from ~/.aws/config)', sasl.profile ?? '', (profile) =>
+              setSasl({ ...sasl, profile })
+            )
           ) : (
             <>
-              <Input
-                value={sasl.accessKeyId ?? ''}
-                onChange={(event) => setSasl({ ...sasl, accessKeyId: event.target.value })}
-                placeholder="Access key ID"
-                className={fieldClass}
-              />
+              {textInput('Access key ID', sasl.accessKeyId ?? '', (accessKeyId) =>
+                setSasl({ ...sasl, accessKeyId })
+              )}
               {handleSecretInput('awsSecretAccessKey', sasl.secretAccessKey, 'Secret access key')}
               {handleSecretInput('awsSessionToken', sasl.sessionToken, 'Session token (optional)')}
             </>
           )}
+          <div className="flex items-center gap-2">
+            <Switch
+              id={`kafka-msk-non-aws-${connection.id}`}
+              checked={sasl.allowNonAwsBrokerHosts === true}
+              onCheckedChange={(checked) =>
+                setSasl({ ...sasl, allowNonAwsBrokerHosts: checked ? true : undefined })
+              }
+            />
+            <Label htmlFor={`kafka-msk-non-aws-${connection.id}`} className="text-xs">
+              Allow non-AWS broker hostnames (PrivateLink / custom DNS)
+            </Label>
+          </div>
+          {sasl.allowNonAwsBrokerHosts === true && (
+            <p className="text-sp-11 text-warning" role="note">
+              The signed AWS token for these credentials will be sent to every bootstrap broker.
+              Only enable this for brokers you control.
+            </p>
+          )}
           <p className="text-sp-11 text-sp-muted">Requires SASL_SSL (the MSK IAM listener).</p>
         </>
+      )}
+
+      {preflight && (
+        <p className="text-sp-11 text-destructive" role="alert">
+          {preflight}
+        </p>
       )}
     </div>
   );

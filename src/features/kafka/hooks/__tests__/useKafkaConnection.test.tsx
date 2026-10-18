@@ -257,6 +257,9 @@ describe('useKafkaConnection', () => {
     const connection = result.current.connection!;
 
     act(() => {
+      result.current.updateConnection(connection.id, {
+        bootstrapBrokers: ['b-1.demo.c2.kafka.us-east-1.amazonaws.com:9098'],
+      });
       result.current.updateAuth(connection.id, {
         securityProtocol: 'SASL_SSL',
         sasl: {
@@ -275,6 +278,81 @@ describe('useKafkaConnection', () => {
     expect(messages.at(-1)).toMatchObject({
       direction: 'system',
       error: expect.stringContaining('keychain locked'),
+    });
+  });
+
+  it('replaceSasl discards drafts, deletes orphaned handles and forces SASL_SSL for MSK IAM', async () => {
+    const deleteSecret = vi.fn(async () => ({ ok: true }));
+    mocks.electronApi = { secrets: { store: mocks.storeSecret, delete: deleteSecret } };
+    const { result } = renderHook(() => useKafkaConnection());
+    const connection = result.current.connection!;
+    const handle = { kind: 'handle' as const, id: 'old-handle' };
+
+    act(() => {
+      result.current.updateAuth(connection.id, {
+        securityProtocol: 'SASL_PLAINTEXT',
+        sasl: {
+          mechanism: 'OAUTHBEARER',
+          mode: 'client-credentials',
+          tokenEndpoint: 'https://idp/token',
+          clientId: 'c',
+          clientSecret: handle,
+        },
+      });
+      result.current.setSaslPasswordDraft('typed');
+      result.current.setSecretDraft('oauthClientSecret', 'typed-secret');
+    });
+
+    // Field-level edits that keep the handle do not delete it.
+    act(() =>
+      result.current.replaceSasl({
+        mechanism: 'OAUTHBEARER',
+        mode: 'client-credentials',
+        tokenEndpoint: 'https://idp/token2',
+        clientId: 'c',
+        clientSecret: handle,
+      })
+    );
+    expect(deleteSecret).not.toHaveBeenCalled();
+    expect(result.current.secretDrafts).toEqual({});
+    expect(result.current.saslPasswordDraft).toBe('');
+
+    act(() =>
+      result.current.replaceSasl({
+        mechanism: 'AWS_MSK_IAM',
+        region: 'us-east-1',
+        credentialSource: 'profile',
+      })
+    );
+    expect(deleteSecret).toHaveBeenCalledWith('old-handle');
+    expect(result.current.connection?.auth.securityProtocol).toBe('SASL_SSL');
+    expect(result.current.connection?.auth.tls).toEqual({});
+
+    // Without an Electron API there is nothing to delete; the switch still applies.
+    mocks.electronApi = null;
+    act(() => result.current.replaceSasl({ mechanism: 'PLAIN', username: '', password: '' }));
+    expect(result.current.connection?.auth.sasl?.mechanism).toBe('PLAIN');
+    expect(result.current.connection?.auth.securityProtocol).toBe('SASL_SSL');
+  });
+
+  it('blocks connect with an inline reason when MSK IAM preconditions fail', async () => {
+    const { result } = renderHook(() => useKafkaConnection());
+    const connection = result.current.connection!;
+    act(() => {
+      result.current.updateAuth(connection.id, {
+        securityProtocol: 'SASL_PLAINTEXT',
+        sasl: {
+          mechanism: 'AWS_MSK_IAM',
+          region: 'us-east-1',
+          credentialSource: 'profile',
+          profile: 'p',
+        },
+      });
+    });
+    await act(async () => result.current.connect());
+    expect(mocks.connect).not.toHaveBeenCalled();
+    expect(useKafkaStore.getState().connections[connection.id]!.messages.at(-1)).toMatchObject({
+      error: expect.stringContaining('requires the SASL_SSL'),
     });
   });
 });

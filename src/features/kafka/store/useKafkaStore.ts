@@ -62,6 +62,11 @@ export interface KafkaMskIamSasl {
   sessionToken?: KafkaSecretHandle;
   /** Named profile from ~/.aws/config|credentials (resolved in main). */
   profile?: string;
+  /**
+   * Explicit opt-in to send the signed MSK IAM token to brokers that are not
+   * `*.kafka.<region>.amazonaws.com` hosts (PrivateLink / custom DNS).
+   */
+  allowNonAwsBrokerHosts?: boolean;
 }
 
 export type KafkaSasl =
@@ -708,6 +713,7 @@ export function redactKafkaSasl(sasl: KafkaSasl): KafkaSasl {
     ...(secretAccessKey ? { secretAccessKey } : {}),
     ...(sessionToken ? { sessionToken } : {}),
     ...(sasl.profile ? { profile: sasl.profile } : {}),
+    ...(sasl.allowNonAwsBrokerHosts === true ? { allowNonAwsBrokerHosts: true } : {}),
   };
 }
 

@@ -1,3 +1,4 @@
+import { findNonMskBrokers } from '@shared/protocol/kafka-sasl-policy';
 import type { KafkaSasl, KafkaSecretHandle } from '@/features/kafka/store/useKafkaStore';
 
 /**
@@ -99,4 +100,37 @@ export async function persistKafkaSaslSecrets(
   }
 
   return sasl;
+}
+
+/** Ids of the SecretRef handles a SASL block references. */
+export function kafkaSaslHandleIds(sasl: KafkaSasl | undefined): string[] {
+  if (!sasl) return [];
+  if (sasl.mechanism === 'OAUTHBEARER' && sasl.mode === 'client-credentials') {
+    return sasl.clientSecret ? [sasl.clientSecret.id] : [];
+  }
+  if (sasl.mechanism === 'AWS_MSK_IAM') {
+    return [sasl.secretAccessKey?.id, sasl.sessionToken?.id].filter(
+      (id): id is string => typeof id === 'string'
+    );
+  }
+  return [];
+}
+
+/**
+ * Connect-time SASL checks the main process also enforces, surfaced early so
+ * the user gets an actionable message instead of an IPC validation error.
+ */
+export function kafkaSaslPreflightError(
+  sasl: KafkaSasl | undefined,
+  securityProtocol: string,
+  bootstrapBrokers: readonly string[]
+): string | undefined {
+  if (sasl?.mechanism !== 'AWS_MSK_IAM') return undefined;
+  if (securityProtocol !== 'SASL_SSL')
+    return 'AWS MSK IAM requires the SASL_SSL security protocol.';
+  if (sasl.allowNonAwsBrokerHosts === true || !sasl.region.trim()) return undefined;
+  const outside = findNonMskBrokers(bootstrapBrokers, sasl.region.trim());
+  return outside.length > 0
+    ? `These brokers are not AWS MSK endpoints in ${sasl.region.trim()}: ${outside.join(', ')}. Enable "Allow non-AWS broker hostnames" only for PrivateLink or custom DNS you trust.`
+    : undefined;
 }

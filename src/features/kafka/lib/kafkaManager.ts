@@ -148,10 +148,16 @@ async function resolveSasl(connectionId: string, sasl: KafkaSasl): Promise<Kafka
   }
   const region = sasl.region.trim();
   if (!region) return null;
+  const optIn = sasl.allowNonAwsBrokerHosts === true ? { allowNonAwsBrokerHosts: true } : {};
   if (sasl.credentialSource === 'profile') {
     const profile = sasl.profile?.trim();
     return profile
-      ? { mechanism: 'AWS_MSK_IAM', region, credentials: { source: 'profile', profile } }
+      ? {
+          mechanism: 'AWS_MSK_IAM',
+          region,
+          ...optIn,
+          credentials: { source: 'profile', profile },
+        }
       : null;
   }
   const accessKeyId = sasl.accessKeyId?.trim();
@@ -159,6 +165,7 @@ async function resolveSasl(connectionId: string, sasl: KafkaSasl): Promise<Kafka
   return {
     mechanism: 'AWS_MSK_IAM',
     region,
+    ...optIn,
     credentials: {
       source: 'static',
       accessKeyId,

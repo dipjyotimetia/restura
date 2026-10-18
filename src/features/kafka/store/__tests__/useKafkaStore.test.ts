@@ -373,6 +373,7 @@ describe('useKafkaStore', () => {
           region: 'eu-west-1',
           credentialSource: 'profile',
           profile: 'dev',
+          allowNonAwsBrokerHosts: true,
           secretAccessKey: 'plain' as never,
         })
       ).toEqual({
@@ -380,6 +381,7 @@ describe('useKafkaStore', () => {
         region: 'eu-west-1',
         credentialSource: 'profile',
         profile: 'dev',
+        allowNonAwsBrokerHosts: true,
       });
       expect(
         redactKafkaSasl({

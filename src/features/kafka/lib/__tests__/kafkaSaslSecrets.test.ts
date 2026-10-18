@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { KafkaSasl } from '@/features/kafka/store/useKafkaStore';
-import { persistKafkaSaslSecrets, type StoreSecretFn } from '../kafkaSaslSecrets';
+import {
+  kafkaSaslHandleIds,
+  kafkaSaslPreflightError,
+  persistKafkaSaslSecrets,
+  type StoreSecretFn,
+} from '../kafkaSaslSecrets';
 
 function okStore(): ReturnType<typeof vi.fn<StoreSecretFn>> {
   let next = 0;
@@ -86,5 +91,61 @@ describe('persistKafkaSaslSecrets', () => {
     await expect(
       persistKafkaSaslSecrets(cc, { oauthClientSecret: 'x' }, 'n', failing)
     ).rejects.toThrow('Failed to store Kafka n / OAuth client secret: keychain locked');
+  });
+});
+
+describe('kafkaSaslHandleIds', () => {
+  it('lists handles referenced by client-credentials and MSK IAM blocks only', () => {
+    expect(kafkaSaslHandleIds(undefined)).toEqual([]);
+    expect(kafkaSaslHandleIds({ mechanism: 'PLAIN', username: 'u', password: 'p' })).toEqual([]);
+    expect(
+      kafkaSaslHandleIds({
+        mechanism: 'OAUTHBEARER',
+        mode: 'client-credentials',
+        tokenEndpoint: 't',
+        clientId: 'c',
+        clientSecret: { kind: 'handle', id: 'a' },
+      })
+    ).toEqual(['a']);
+    expect(
+      kafkaSaslHandleIds({
+        mechanism: 'OAUTHBEARER',
+        mode: 'client-credentials',
+        tokenEndpoint: 't',
+        clientId: 'c',
+      })
+    ).toEqual([]);
+    expect(
+      kafkaSaslHandleIds({
+        mechanism: 'AWS_MSK_IAM',
+        region: 'r',
+        credentialSource: 'static',
+        secretAccessKey: { kind: 'handle', id: 'b' },
+        sessionToken: { kind: 'handle', id: 'c' },
+      })
+    ).toEqual(['b', 'c']);
+  });
+});
+
+describe('kafkaSaslPreflightError', () => {
+  const msk: KafkaSasl = {
+    mechanism: 'AWS_MSK_IAM',
+    region: 'us-east-1',
+    credentialSource: 'profile',
+  };
+  const mskBroker = ['b-1.x.c2.kafka.us-east-1.amazonaws.com:9098'];
+
+  it('passes non-MSK mechanisms and well-formed MSK configs', () => {
+    expect(kafkaSaslPreflightError(undefined, 'PLAINTEXT', [])).toBeUndefined();
+    expect(kafkaSaslPreflightError(msk, 'SASL_SSL', mskBroker)).toBeUndefined();
+    expect(kafkaSaslPreflightError({ ...msk, region: '' }, 'SASL_SSL', ['x:1'])).toBeUndefined();
+  });
+
+  it('flags SASL_PLAINTEXT and non-MSK brokers unless opted out', () => {
+    expect(kafkaSaslPreflightError(msk, 'SASL_PLAINTEXT', mskBroker)).toMatch(/SASL_SSL/);
+    expect(kafkaSaslPreflightError(msk, 'SASL_SSL', ['evil:9098'])).toMatch(/evil:9098/);
+    expect(
+      kafkaSaslPreflightError({ ...msk, allowNonAwsBrokerHosts: true }, 'SASL_SSL', ['evil:9098'])
+    ).toBeUndefined();
   });
 });

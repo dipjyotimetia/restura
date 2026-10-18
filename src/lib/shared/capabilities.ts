@@ -297,21 +297,21 @@ export const CAPABILITIES: Record<CapabilityName, CapabilityRow> = {
     web: false,
     desktop: true,
     notes:
-      'Token fetched in main through the SSRF-guarded, DNS-pinned fetch and refreshed 30s before expiry; client secret is a SecretRef handle',
+      'Token fetched in main over https through the SSRF-guarded, DNS-pinned fetch; refreshed once < max(30s, 25% of lifetime) remains; client secret is a kafka-scoped SecretRef handle',
   },
   'kafka.saslMskIam': {
     label: 'Kafka AWS MSK IAM',
     web: false,
     desktop: true,
     notes:
-      'SigV4-presigned OAUTHBEARER token; access keys (SecretRef handles) or a named AWS profile; SASL_SSL only',
+      'SigV4-presigned OAUTHBEARER token; access keys (SecretRef handles) or a named AWS profile; SASL_SSL only; brokers must be MSK hosts in the region unless explicitly opted out',
   },
   'kafka.saslGssapi': {
     label: 'Kafka SASL/GSSAPI (Kerberos)',
     web: false,
     desktop: false,
     notes:
-      'Authenticator is wired, but the native kerberos module is not bundled; connections fail with an explicit error',
+      'Authenticator is implemented, but the native kerberos module is not bundled; the option is disabled in the form',
   },
   'mqtt.basic': {
     label: 'MQTT publish / subscribe',

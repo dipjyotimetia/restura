@@ -5,11 +5,14 @@ import { resolveKafkaList, warnUnresolved } from '@/features/kafka/lib/kafkaVari
 import {
   type KafkaHandleSecretDrafts,
   type KafkaHandleSecretField,
+  kafkaSaslHandleIds,
+  kafkaSaslPreflightError,
   persistKafkaSaslSecrets,
 } from '@/features/kafka/lib/kafkaSaslSecrets';
 import type {
   KafkaAuth,
   KafkaRegistry,
+  KafkaSasl,
   KafkaSecurityProtocol,
 } from '@/features/kafka/store/useKafkaStore';
 import {
@@ -95,8 +98,45 @@ export function useKafkaConnection() {
     return () => clearPendingSecrets(connectionId);
   }, [connectionId]);
 
+  const reportSystemError = (connectionId: string, msg: string): void => {
+    useKafkaStore
+      .getState()
+      .addMessage(connectionId, { direction: 'system', topic: '', value: msg, error: msg });
+  };
+
+  /**
+   * Replace the SASL block (mechanism / OAuth mode / AWS credential source
+   * switch). Typed secret drafts are discarded so they can't leak into a
+   * different field, handles the new block no longer references are deleted,
+   * and AWS MSK IAM forces SASL_SSL.
+   */
+  const replaceSasl = (next: KafkaSasl): void => {
+    if (!connection) return;
+    const keep = new Set(kafkaSaslHandleIds(next));
+    const api = getElectronAPI();
+    for (const id of kafkaSaslHandleIds(connection.auth.sasl)) {
+      if (!keep.has(id)) void api?.secrets?.delete(id)?.catch(() => undefined);
+    }
+    setSaslPasswordDraft('');
+    setSecretDrafts({});
+    const nextAuth: KafkaAuth =
+      next.mechanism === 'AWS_MSK_IAM' && connection.auth.securityProtocol !== 'SASL_SSL'
+        ? { securityProtocol: 'SASL_SSL', sasl: next, tls: connection.auth.tls ?? {} }
+        : { ...connection.auth, sasl: next };
+    updateAuth(connection.id, nextAuth);
+  };
+
   const connect = async (): Promise<void> => {
     if (!connection) return;
+    const preflight = kafkaSaslPreflightError(
+      connection.auth.sasl,
+      connection.auth.securityProtocol,
+      connection.bootstrapBrokers
+    );
+    if (preflight) {
+      reportSystemError(connection.id, preflight);
+      return;
+    }
     let nextAuth = connection.auth;
     const currentSasl = nextAuth.sasl;
     if (saslPasswordDraft && isKafkaStaticOAuthSasl(currentSasl)) {
@@ -121,10 +161,10 @@ export function useKafkaConnection() {
           setSecretDrafts({});
         }
       } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Failed to store Kafka credentials';
-        useKafkaStore
-          .getState()
-          .addMessage(connection.id, { direction: 'system', topic: '', value: msg, error: msg });
+        reportSystemError(
+          connection.id,
+          err instanceof Error ? err.message : 'Failed to store Kafka credentials'
+        );
         return;
       }
     }
@@ -245,6 +285,7 @@ export function useKafkaConnection() {
     setRegistryTokenDraft,
     secretDrafts,
     setSecretDraft,
+    replaceSasl,
     patchRegistry,
     addBroker,
     removeBroker,
@@ -270,6 +311,7 @@ export type KafkaConnectionFormController = Pick<
   | 'setRegistryTokenDraft'
   | 'secretDrafts'
   | 'setSecretDraft'
+  | 'replaceSasl'
   | 'patchRegistry'
   | 'addBroker'
   | 'removeBroker'

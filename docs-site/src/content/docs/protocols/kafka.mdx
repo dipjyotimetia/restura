@@ -31,11 +31,11 @@ import { Badge } from '@astrojs/starlight/components';
 - **Multiple brokers** — bootstrap list, broker discovery happens through the cluster.
 - **SASL** over `SASL_PLAINTEXT` or `SASL_SSL`:
   - `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512` — username and password.
-  - `OAUTHBEARER` with a **static token** (no automatic refresh), or with the OAuth 2.0 **client-credentials** flow — token endpoint, client ID, client secret, optional scope. The desktop app fetches the token and refreshes it 30 seconds before it expires, so long-running consumers survive broker re-authentication. The token endpoint follows the same [SSRF policy](/architecture/security/) as HTTP requests (private addresses need "allow private IPs").
-  - `AWS_MSK_IAM` — access keys (optional session token) or a named AWS profile; signed with SigV4 and sent as MSK's OAUTHBEARER token. Requires `SASL_SSL`.
-  - `GSSAPI` (Kerberos) — uses your existing ticket (`kinit`). Needs the native `kerberos` module, which the desktop build doesn't bundle yet, so connections fail with an explicit error for now.
+  - `OAUTHBEARER` with a **static token** (no automatic refresh), or with the OAuth 2.0 **client-credentials** flow — token endpoint, client ID, client secret, optional scope. The desktop app fetches the token and refreshes it once less than a quarter of its lifetime (at least 30 seconds) remains, so broker re-authentication always gets a fresh token. The token endpoint must use `https` (plain `http` only for `localhost` or a private IP) and follows the same [SSRF policy](/architecture/security/) as HTTP requests.
+  - `AWS_MSK_IAM` — access keys (optional session token) or a named AWS profile; signed with SigV4 and sent as MSK's OAUTHBEARER token. Requires `SASL_SSL`, and the bootstrap brokers must be MSK endpoints in the chosen region. For PrivateLink or custom DNS, turn on **Allow non-AWS broker hostnames** — only for brokers you control, because the signed token is sent to every broker in the list.
+  - `GSSAPI` (Kerberos) — listed but **not available in this build**: it needs the native `kerberos` module, which the desktop app doesn't bundle yet.
 
-  The OAuth client secret and AWS keys are stored as OS-keychain handles; the UI never reads them back.
+  The OAuth client secret and AWS keys are stored as OS-keychain handles scoped to Kafka; the UI never reads them back.
 - **TLS** — pick `SSL` for TLS without SASL (encryption plus optional client-certificate mTLS), or layer it under `SASL_SSL`; server certificate validation either way.
 - **Compression** — gzip / snappy / lz4 / zstd negotiated automatically.
 - **Save to a collection** — **Save to Collection** on a Kafka tab stores a shareable *connection preset* (brokers, auth mode, TLS paths, client id, produce topic / key / payload template / headers, consumer group and topics). Opening it from the sidebar opens this panel prefilled. Passwords, OAuth tokens and key passphrases stay in the encrypted local store and are never exported. See [Kafka and MQTT connection presets](/guides/collections/#kafka-and-mqtt-connection-presets).
