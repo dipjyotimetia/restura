@@ -84,6 +84,8 @@ const MAX_LIST_ENTRIES = 10_000;
 const MAX_CACHE_ENTRIES = 512;
 /** Budget for the id → subject/version label lookup on the consume path. */
 export const SCHEMA_LABEL_TIMEOUT_MS = 2_000;
+/** How long a transient label failure is cached before the id is retried. */
+export const SCHEMA_LABEL_RETRY_MS = 30_000;
 const REGISTRY_ACCEPT = 'application/vnd.schemaregistry.v1+json, application/json';
 
 type LookupCallback = (
@@ -102,7 +104,8 @@ type LookupCallback = (
 export async function resolveRegistryAddresses(
   hostname: string,
   policy: BrokerSecurityPolicy,
-  resolve: AddressResolver = systemResolver
+  resolve: AddressResolver = systemResolver,
+  requirePrivate = false
 ): Promise<LookupAddress[]> {
   let records: LookupAddress[];
   try {
@@ -119,8 +122,20 @@ export async function resolveRegistryAddresses(
       allowPrivateLiteralHost: true,
       loopbackNeedsLocalhost: true,
     });
+    // Credentials over plain HTTP: every socket must land on a private /
+    // loopback address, so a later DNS change can't expose them in clear.
+    if (requirePrivate && !isPrivateAddress(record.address) && !isLoopbackAddress(record.address)) {
+      throw new Error(
+        `Schema Registry credentials require HTTPS: ${hostname} resolved to public address ${record.address}`
+      );
+    }
   }
   return records;
+}
+
+function isLocalhostName(host: string): boolean {
+  const lower = host.toLowerCase();
+  return lower === 'localhost' || lower.endsWith('.localhost');
 }
 
 /**
@@ -131,7 +146,8 @@ export async function resolveRegistryAddresses(
 export function createGuardedLookup(
   host: string,
   policy: BrokerSecurityPolicy,
-  resolve: AddressResolver = systemResolver
+  resolve: AddressResolver = systemResolver,
+  requirePrivate = false
 ): (hostname: string, options: unknown, callback?: unknown) => void {
   return (hostname, optsOrCb, maybeCb) => {
     const callback = (typeof optsOrCb === 'function' ? optsOrCb : maybeCb) as
@@ -144,7 +160,7 @@ export function createGuardedLookup(
       callback(new Error(`Schema Registry lookup refused unexpected host "${hostname}"`), '');
       return;
     }
-    resolveRegistryAddresses(hostname, policy, resolve).then(
+    resolveRegistryAddresses(hostname, policy, resolve, requirePrivate).then(
       (records) => {
         const first = records[0] as LookupAddress;
         if (all)
@@ -163,7 +179,8 @@ export function createGuardedLookup(
 export function buildRegistryAgentOptions(
   registryUrl: string,
   policy: BrokerSecurityPolicy,
-  resolve: AddressResolver = systemResolver
+  resolve: AddressResolver = systemResolver,
+  requirePrivate = false
 ): https.AgentOptions & { timeout: number } {
   const url = new URL(registryUrl);
   const { timeout, tls } = resolveSchemaRegistryExecutionPolicy(registryUrl);
@@ -171,7 +188,12 @@ export function buildRegistryAgentOptions(
     keepAlive: true,
     maxSockets: 8,
     timeout,
-    lookup: createGuardedLookup(url.hostname, policy, resolve) as https.AgentOptions['lookup'],
+    lookup: createGuardedLookup(
+      url.hostname,
+      policy,
+      resolve,
+      requirePrivate
+    ) as https.AgentOptions['lookup'],
     ...(tls ?? {}),
   };
 }
@@ -409,7 +431,11 @@ export async function createKafkaRegistryClient(
 ): Promise<KafkaRegistryClient> {
   const resolveAddresses = deps.resolve ?? systemResolver;
   const baseUrl = new URL(cfg.url);
-  const agentOptions = buildRegistryAgentOptions(cfg.url, policy, resolveAddresses);
+  const hasCredentials =
+    cfg.auth?.type === 'bearer' || Boolean(cfg.auth?.type === 'basic' && cfg.auth.username);
+  const requirePrivate =
+    baseUrl.protocol === 'http:' && hasCredentials && !isLocalhostName(hostOf(baseUrl));
+  const agentOptions = buildRegistryAgentOptions(cfg.url, policy, resolveAddresses, requirePrivate);
   // String-level policy (same as brokers: literal private IPs follow the
   // network policy, metadata always refused), then a DNS pre-flight for
   // hostnames with the broker-aligned answer checks.
@@ -419,8 +445,6 @@ export async function createKafkaRegistryClient(
     net.isIP(host) === 0
       ? (await resolveRegistryAddresses(host, policy, resolveAddresses)).map((r) => r.address)
       : [host];
-  const hasCredentials =
-    cfg.auth?.type === 'bearer' || Boolean(cfg.auth?.type === 'basic' && cfg.auth.username);
   assertCredentialsTransportAllowed(baseUrl, hasCredentials, resolved);
   const authorization = await registryAuthorization(cfg.auth);
   const agent = capResponseBytes(
@@ -494,6 +518,9 @@ export async function createKafkaRegistryClient(
 
   const subjectPath = (subject: string) => `/subjects/${encodeURIComponent(subject)}`;
   const idRefs = new Map<number, Promise<RegistrySchemaRef>>();
+  // Transient label failures are remembered briefly so a hung registry costs
+  // one bounded wait per id per cooldown, not one per consumed record.
+  const retryLabelAt = new Map<number, number>();
   const pinnedIds = new Map<string, number>();
 
   return {
@@ -528,7 +555,9 @@ export async function createKafkaRegistryClient(
 
     describeSchemaId(id) {
       const cached = idRefs.get(id);
-      if (cached) return cached;
+      const retryAt = retryLabelAt.get(id);
+      if (cached && (retryAt === undefined || Date.now() < retryAt)) return cached;
+      retryLabelAt.delete(id);
       const lookup = getJson(`/schemas/ids/${id}/versions`, SCHEMA_LABEL_TIMEOUT_MS).then(
         (raw): RegistrySchemaRef => {
           const first = Array.isArray(raw) ? (raw[0] as Record<string, unknown>) : undefined;
@@ -537,11 +566,14 @@ export async function createKafkaRegistryClient(
             : { id };
         },
         (err: unknown): RegistrySchemaRef => {
-          // Older registries lack this endpoint (404/405): cache the miss so
-          // decode stays cheap. Transient failures are evicted and retried.
+          // Older registries lack this endpoint (404/405): cache the miss for
+          // good. Transient failures and timeouts are cached for a cooldown,
+          // then retried.
           const permanent =
             err instanceof RegistryHttpError && (err.status === 404 || err.status === 405);
-          if (!permanent && idRefs.get(id) === lookup) idRefs.delete(id);
+          if (!permanent && idRefs.get(id) === lookup) {
+            boundedSet(retryLabelAt, id, Date.now() + SCHEMA_LABEL_RETRY_MS);
+          }
           return { id };
         }
       );

@@ -1,5 +1,5 @@
 import { RefreshCw, Sparkles } from 'lucide-react';
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -71,14 +71,19 @@ export function SchemaRegistryFieldPicker({
   const api = getElectronAPI()?.kafka;
   const versionSelectId = useId();
 
+  // Only the newest request in the current session may update the list.
+  const subjectsRequest = useRef(0);
   const loadSubjects = useCallback(async () => {
     if (!api) return;
+    const requestId = ++subjectsRequest.current;
     setError(null);
     try {
       const result = await api.registryListSubjects({ connectionId });
+      if (requestId !== subjectsRequest.current) return;
       if (result.success) setSubjects(result.subjects ?? []);
       else setError(result.error ?? 'Could not list subjects.');
     } catch (err) {
+      if (requestId !== subjectsRequest.current) return;
       setError(errorText(err, 'Could not list subjects.'));
     }
   }, [api, connectionId]);
@@ -86,6 +91,7 @@ export function SchemaRegistryFieldPicker({
   // A disconnect invalidates everything fetched for the previous session.
   useEffect(() => {
     if (!connected) {
+      subjectsRequest.current += 1;
       setSubjects(null);
       setVersions([]);
       setSchema(null);

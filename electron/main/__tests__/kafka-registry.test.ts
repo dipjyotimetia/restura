@@ -30,6 +30,7 @@ import {
   registryAuthorization,
   resolveFieldSchemaId,
   resolveRegistryAddresses,
+  SCHEMA_LABEL_RETRY_MS,
 } from '../handlers/kafka/registry';
 import { decodeDisplayField } from '../handlers/kafka-serde';
 import { setExecutionPolicy } from '../security/execution-policy';
@@ -424,6 +425,44 @@ describe('createKafkaRegistryClient', () => {
     ).rejects.toThrow(/Schema Registry URL rejected/);
   });
 
+  it('re-enforces the plain-HTTP credential rule on every new socket', async () => {
+    const port = (server.address() as AddressInfo).port;
+    let answer = '127.0.0.1';
+    const dns: AddressResolver = async () => [{ address: answer, family: 4 }];
+    const registry = await createKafkaRegistryClient(
+      { url: `http://registry.corp.test:${port}`, auth: { type: 'bearer', token: 't' } },
+      localPolicy,
+      { resolve: dns }
+    );
+    clients.push(registry);
+    expect(await registry.listSubjects()).toHaveLength(3);
+
+    // The name later moves to a public address (DNS change / VPN drop / rebind).
+    answer = '93.184.216.34';
+    registry.close(); // force a fresh socket
+    seen.length = 0;
+    await expect(registry.listVersions('orders-value')).rejects.toThrow(
+      /credentials require HTTPS: registry.corp.test resolved to public address 93.184.216.34/
+    );
+    expect(seen).toHaveLength(0);
+  });
+
+  it('applies the private-answer requirement only when requested', () => {
+    const lookup = (requirePrivate: boolean) =>
+      new Promise<Error | null>((done) => {
+        createGuardedLookup(
+          'r.example.com',
+          localPolicy,
+          fakeDns('93.184.216.34'),
+          requirePrivate
+        )('r.example.com', {}, (err: Error | null) => done(err));
+      });
+    return Promise.all([
+      expect(lookup(false)).resolves.toBeNull(),
+      expect(lookup(true)).resolves.toBeInstanceOf(Error),
+    ]);
+  });
+
   it('refuses credentials over plain HTTP to a public registry', async () => {
     await expect(
       createKafkaRegistryClient(
@@ -526,18 +565,29 @@ describe('createKafkaRegistryClient', () => {
     expect(seen).toHaveLength(0);
   });
 
-  it('evicts transient label-lookup failures instead of caching them', async () => {
+  it('caches transient label failures for a cooldown, then retries', async () => {
     flakyLabelCalls = 0;
     const registry = await client();
-    expect(await registry.describeSchemaId(6)).toEqual({ id: 6 });
-    expect(await registry.describeSchemaId(6)).toEqual({
-      id: 6,
-      subject: 'flaky-value',
-      version: 1,
-    });
-    expect(flakyLabelCalls).toBe(2);
-    await registry.describeSchemaId(6);
-    expect(flakyLabelCalls).toBe(2);
+    const now = vi.spyOn(Date, 'now');
+    try {
+      now.mockReturnValue(1_000_000);
+      expect(await registry.describeSchemaId(6)).toEqual({ id: 6 });
+      // Within the cooldown: no new request, so consumption never re-waits.
+      expect(await registry.describeSchemaId(6)).toEqual({ id: 6 });
+      expect(flakyLabelCalls).toBe(1);
+
+      now.mockReturnValue(1_000_000 + SCHEMA_LABEL_RETRY_MS);
+      expect(await registry.describeSchemaId(6)).toEqual({
+        id: 6,
+        subject: 'flaky-value',
+        version: 1,
+      });
+      expect(flakyLabelCalls).toBe(2);
+      await registry.describeSchemaId(6);
+      expect(flakyLabelCalls).toBe(2);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it('encodes generated Avro examples with bytes and fixed fields', async () => {

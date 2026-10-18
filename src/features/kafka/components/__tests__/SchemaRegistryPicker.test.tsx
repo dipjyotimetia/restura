@@ -370,4 +370,40 @@ describe('SchemaRegistryFieldPicker', () => {
     expect(list).toHaveAttribute('tabindex', '0');
     expect(list.querySelectorAll('li')).toHaveLength(100);
   });
+
+  it('ignores subject lists that arrive after a disconnect or a newer refresh', async () => {
+    let finishStale!: (value: unknown) => void;
+    api.registryListSubjects.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishStale = resolve;
+        })
+    );
+    const user = userEvent.setup();
+    const { rerender } = render(<Harness topic="" />);
+    await user.selectOptions(sourceSelect(), 'subject');
+    rerender(<Harness topic="" connected={false} />);
+    finishStale({ success: true, subjects: ['stale-subject'] });
+    rerender(<Harness topic="" connected />);
+    expect(await screen.findByRole('button', { name: 'orders-value' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'stale-subject' })).toBeNull();
+
+    // Overlapping refreshes: the older response must not win.
+    let finishOld!: (value: unknown) => void;
+    api.registryListSubjects
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishOld = resolve;
+          })
+      )
+      .mockResolvedValueOnce({ success: true, subjects: ['newest-subject'] });
+    await user.click(screen.getByRole('button', { name: 'Refresh value subjects' }));
+    await user.click(screen.getByRole('button', { name: 'Refresh value subjects' }));
+    expect(await screen.findByRole('button', { name: 'newest-subject' })).toBeVisible();
+    finishOld({ success: false, error: 'old failure' });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.getByRole('button', { name: 'newest-subject' })).toBeVisible();
+    expect(screen.queryByText('old failure')).toBeNull();
+  });
 });
