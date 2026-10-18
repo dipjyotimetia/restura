@@ -138,17 +138,53 @@ describe('web initialize handshake (#862)', () => {
     expect(client.protocolVersion).toBe(MCP_LATEST_PROTOCOL_VERSION);
   });
 
-  it('ignores a header-unsafe negotiated version', async () => {
-    route((call) =>
-      call.body.jsonRpc?.method === 'initialize'
-        ? json({ ok: true, jsonRpc: { result: { protocolVersion: 'bad\r\nversion' } } })
-        : json({ ok: true, jsonRpc: { result: {} } })
-    );
+  it.each(['bad\r\nversion', '2024-10-07'])(
+    'fails initialize for an unsupported/unsafe negotiated version (%j) and releases the session',
+    async (version) => {
+      route((call) =>
+        call.body.jsonRpc?.method === 'initialize'
+          ? json({
+              ok: true,
+              sessionId: 'sess-x',
+              jsonRpc: { result: { protocolVersion: version } },
+            })
+          : json({ ok: true, jsonRpc: { result: {} } })
+      );
+      const client = makeClient();
+      const out = await client.request('initialize', {
+        protocolVersion: MCP_LATEST_PROTOCOL_VERSION,
+      });
+      expect(JSON.stringify(out)).toMatch(/Unsupported MCP protocol version|error/i);
+      expect(client.protocolVersion).toBeUndefined();
+      expect(methods()).not.toContain('notifications/initialized');
+      expect(
+        calls.some((c) => c.path === '/api/mcp/terminate' && c.body.sessionId === 'sess-x')
+      ).toBe(true);
+    }
+  );
+
+  it('disconnect during an in-flight initialize terminates the new session and stops the handshake', async () => {
+    let release: (r: Response) => void = () => {};
+    route((call) => {
+      if (call.body.jsonRpc?.method === 'initialize') {
+        return new Promise<Response>((res) => {
+          release = res;
+        });
+      }
+      return json({ ok: true, jsonRpc: { result: {} } });
+    });
     const client = makeClient();
-    await client.request('initialize', { protocolVersion: 'also bad' });
-    expect(client.protocolVersion).toBeUndefined();
-    await client.request('tools/list');
-    expect(calls.at(-1)?.body.protocolVersion).toBeUndefined();
+    const pending = client.request('initialize', { protocolVersion: MCP_LATEST_PROTOCOL_VERSION });
+    await Promise.resolve();
+    await client.disconnect();
+    release(
+      json({ ok: true, sessionId: 'late', jsonRpc: { result: { protocolVersion: '2025-06-18' } } })
+    );
+    await pending;
+    expect(methods()).not.toContain('notifications/initialized');
+    expect(calls.some((c) => c.path === '/api/mcp/terminate' && c.body.sessionId === 'late')).toBe(
+      true
+    );
   });
 
   it('fails initialize when notifications/initialized is rejected', async () => {

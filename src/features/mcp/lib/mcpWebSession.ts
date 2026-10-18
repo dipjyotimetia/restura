@@ -3,6 +3,7 @@ import {
   isMcpNotificationMethod,
   isValidMcpProtocolVersion,
   MCP_LATEST_PROTOCOL_VERSION,
+  MCP_SUPPORTED_PROTOCOL_VERSIONS,
 } from '@shared/protocol/mcp-version';
 import { workerAuthHeaders, workerBaseUrl } from '@/lib/shared/platform';
 import type { McpTransportType } from '@/types';
@@ -77,6 +78,8 @@ export class McpWebSession {
   private initializeParams: unknown;
   /** Shared in-flight 404 re-initialize, so concurrent expiries open one session. */
   private reinitInFlight: Promise<McpWebOutcome> | undefined;
+  /** Bumped by terminate(); responses from an older epoch must not (re)create a session. */
+  private epoch = 0;
 
   constructor(
     private readonly opts: McpWebSessionOptions,
@@ -136,6 +139,7 @@ export class McpWebSession {
   async terminate(): Promise<void> {
     const sessionId = this.sessionId;
     const protocolVersion = this.protocolVersion;
+    this.epoch++;
     this.sessionId = undefined;
     this.protocolVersion = undefined;
     this.initializeParams = undefined;
@@ -154,13 +158,34 @@ export class McpWebSession {
       void this.sendTerminate(previous, previousVersion);
     }
 
+    const epoch = this.epoch;
     const init = await this.post('initialize', params, timeout);
     if (!init.ok) return init;
+    // Disconnected while initialize was in flight: post() already released the
+    // orphaned server session; don't continue the handshake.
+    if (epoch !== this.epoch)
+      return { ok: false, error: 'MCP session terminated during initialize' };
 
     const negotiated = (init.result as { protocolVersion?: unknown } | undefined)?.protocolVersion;
     const offered = (params as { protocolVersion?: unknown } | undefined)?.protocolVersion;
-    if (isValidMcpProtocolVersion(negotiated)) this.protocolVersion = negotiated;
-    else if (isValidMcpProtocolVersion(offered)) this.protocolVersion = offered;
+    if (negotiated !== undefined && negotiated !== null) {
+      // Lifecycle: the client SHOULD disconnect when it doesn't support the
+      // server's version. Release the session the server just opened.
+      if (
+        !isValidMcpProtocolVersion(negotiated) ||
+        !MCP_SUPPORTED_PROTOCOL_VERSIONS.includes(negotiated)
+      ) {
+        const sid = this.sessionId;
+        this.sessionId = undefined;
+        if (sid && this.opts.transport === 'streamable-http')
+          void this.sendTerminate(sid, undefined);
+        return {
+          ok: false,
+          error: `Unsupported MCP protocol version negotiated by server: ${String(negotiated).slice(0, 64)}`,
+        };
+      }
+      this.protocolVersion = negotiated;
+    } else if (isValidMcpProtocolVersion(offered)) this.protocolVersion = offered;
     this.initializeParams = params;
 
     // Lifecycle: the client MUST send `initialized` before any other request.
@@ -176,6 +201,7 @@ export class McpWebSession {
   private async post(method: string, params: unknown, timeout?: number): Promise<McpWebOutcome> {
     const isNotification = isMcpNotificationMethod(method);
     const isInitialize = method === 'initialize';
+    const epoch = this.epoch;
     const response = await fetch(`${workerBaseUrl()}/api/mcp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...workerAuthHeaders() },
@@ -194,7 +220,11 @@ export class McpWebSession {
       }),
     });
     const body = (await response.json()) as ProxyBody;
-    if (body.sessionId) this.sessionId = body.sessionId;
+    if (body.sessionId) {
+      if (epoch === this.epoch) this.sessionId = body.sessionId;
+      else if (this.opts.transport === 'streamable-http')
+        void this.sendTerminate(body.sessionId, undefined);
+    }
 
     if (!response.ok) {
       return {
