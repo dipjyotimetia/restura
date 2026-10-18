@@ -142,6 +142,10 @@ export async function startLoopbackReceiver(
   server.keepAliveTimeout = 1;
 
   const close = (): void => {
+    if (!settled) {
+      settled = true;
+      rejectWait?.(new OAuthCallbackError('Authorization was cancelled'));
+    }
     if (timer) clearTimeout(timer);
     options.signal?.removeEventListener('abort', onAbort);
     server.close();

@@ -101,6 +101,19 @@ export async function startMockMcpServer(
     port?: number;
     /** When set, any request whose `Authorization` differs gets a 401 (#896). */
     requireAuthorization?: string;
+    /**
+     * OAuth-protected resource mode (#856): `isAuthorized` decides each
+     * request's `Authorization`; a rejected request gets 401 +
+     * `WWW-Authenticate: Bearer resource_metadata="…"`, and the RFC 9728
+     * document is served at `/.well-known/oauth-protected-resource/mcp`.
+     */
+    oauth?: {
+      isAuthorized: (authorization: string) => boolean;
+      authorizationServers: string[];
+      scopesSupported?: string[];
+      /** Override the advertised `resource_metadata` URL (SSRF tests). */
+      resourceMetadataUrl?: string;
+    };
   } = {}
 ): Promise<MockMcpServerHandle> {
   const methodsReceived: string[] = [];
@@ -157,6 +170,7 @@ export async function startMockMcpServer(
   // forwards it without us opting into stateful session management.
   const advertisedSessionId = randomUUID();
 
+  let port = 0;
   const server: Server = createServer((req, res) => {
     void (async () => {
       applyCors(res, {
@@ -167,7 +181,31 @@ export async function startMockMcpServer(
       res.setHeader('mcp-session-id', advertisedSessionId);
       if (handlePreflight(req, res)) return;
 
+      if (opts.oauth && req.url?.startsWith('/.well-known/oauth-protected-resource')) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            resource: `http://127.0.0.1:${port}/mcp`,
+            authorization_servers: opts.oauth.authorizationServers,
+            ...(opts.oauth.scopesSupported ? { scopes_supported: opts.oauth.scopesSupported } : {}),
+            bearer_methods_supported: ['header'],
+          })
+        );
+        return;
+      }
+
       authorizationsReceived.push(req.headers.authorization ?? '');
+      if (opts.oauth && !opts.oauth.isAuthorized(req.headers.authorization ?? '')) {
+        const metadataUrl =
+          opts.oauth.resourceMetadataUrl ??
+          `http://127.0.0.1:${port}/.well-known/oauth-protected-resource/mcp`;
+        res.writeHead(401, {
+          'content-type': 'application/json',
+          'www-authenticate': `Bearer resource_metadata="${metadataUrl}"`,
+        });
+        res.end(JSON.stringify({ error: 'invalid_token' }));
+        return;
+      }
       if (
         opts.requireAuthorization !== undefined &&
         req.headers.authorization !== opts.requireAuthorization
@@ -204,7 +242,7 @@ export async function startMockMcpServer(
     });
   });
 
-  const port = await bindLocalhost(server, opts.port);
+  port = await bindLocalhost(server, opts.port);
 
   return {
     port,
