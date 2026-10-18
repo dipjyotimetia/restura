@@ -162,6 +162,57 @@ describe('McpAuthPanel OAuth 2.1 (#856)', () => {
     );
   });
 
+  it('desktop: shows expiry, edits secret / redirect, and degrades when status fails', async () => {
+    const oauthStatus = vi
+      .fn()
+      .mockResolvedValueOnce({
+        signedIn: true,
+        canRefresh: false,
+        expiresAt: Date.UTC(2030, 0, 1),
+        dynamicallyRegistered: false,
+      })
+      .mockRejectedValue(new Error('ipc down'));
+    (window as { electron?: unknown }).electron = { isElectron: true, mcp: { oauthStatus } };
+    const onChange = vi.fn();
+    const auth: AuthConfig = { type: 'oauth2', oauth2: { ...flow.oauth2!, clientId: 'cid' } };
+    const { rerender } = render(
+      <McpAuthPanel
+        requestId="r"
+        auth={auth}
+        onChange={onChange}
+        serverUrl="https://a.example/mcp"
+      />
+    );
+    expect(await screen.findByText(/token expires/)).toBeInTheDocument();
+    expect(oauthStatus).toHaveBeenCalledWith({ url: 'https://a.example/mcp', clientId: 'cid' });
+    fireEvent.change(screen.getByLabelText(/Client secret/), { target: { value: 'sec' } });
+    expect(onChange).toHaveBeenLastCalledWith({
+      type: 'oauth2',
+      oauth2: {
+        accessToken: '',
+        grantType: 'authorization_code',
+        clientId: 'cid',
+        clientSecret: { kind: 'inline', value: 'sec' },
+      },
+    });
+    fireEvent.change(screen.getByLabelText('Redirect URI'), {
+      target: { value: 'http://127.0.0.1:8765/cb' },
+    });
+    expect(onChange.mock.lastCall?.[0].oauth2.redirectUri).toBe('http://127.0.0.1:8765/cb');
+    // A status failure (or a non-http URL) falls back to "not signed in".
+    rerender(
+      <McpAuthPanel
+        requestId="r"
+        auth={auth}
+        onChange={onChange}
+        serverUrl="https://b.example/mcp"
+      />
+    );
+    expect(await screen.findByText(/Not signed in/)).toBeInTheDocument();
+    rerender(<McpAuthPanel requestId="r" auth={auth} onChange={onChange} serverUrl="{{unset}}" />);
+    expect(await screen.findByText(/Not signed in/)).toBeInTheDocument();
+  });
+
   it('desktop: shows the client-secret field only for a static client id', () => {
     (window as { electron?: unknown }).electron = { isElectron: true, mcp: {} };
     renderPanel(flow);

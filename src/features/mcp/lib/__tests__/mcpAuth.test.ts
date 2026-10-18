@@ -283,6 +283,45 @@ describe('MCP OAuth 2.1 flow config (#856)', () => {
     });
   });
 
+  it('desktop: forwards a fixed redirect URI and an inline client secret, drops an empty one', () => {
+    const withRedirect = build(
+      {
+        type: 'oauth2',
+        oauth2: {
+          accessToken: '',
+          grantType: 'authorization_code',
+          clientId: 'c',
+          clientSecret: { kind: 'inline', value: 's' },
+          redirectUri: ' http://127.0.0.1:8765/cb ',
+        },
+      },
+      { desktop: true }
+    );
+    expect(withRedirect).toMatchObject({
+      ok: true,
+      mainSideAuth: {
+        oauth2: {
+          clientId: 'c',
+          clientSecret: { kind: 'inline', value: 's' },
+          redirectUri: 'http://127.0.0.1:8765/cb',
+        },
+      },
+    });
+    const emptySecret = build(
+      {
+        type: 'oauth2',
+        oauth2: {
+          accessToken: '',
+          grantType: 'authorization_code',
+          clientId: 'c',
+          clientSecret: { kind: 'inline', value: '' },
+        },
+      },
+      { desktop: true }
+    );
+    expect(emptySecret.ok && emptySecret.mainSideAuth?.oauth2?.clientSecret).toBeFalsy();
+  });
+
   it('desktop: a dynamic-registration flow sends no client fields', () => {
     const out = build(
       {

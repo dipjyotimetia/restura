@@ -47,23 +47,8 @@ function authForType(type: McpEditorAuthType, current: AuthConfig): AuthConfig {
         apiKey: { ...(current.apiKey ?? { key: 'X-API-Key', value: '' }), in: 'header' },
       };
     case 'oauth2':
-      return {
-        type,
-        oauth2: {
-          accessToken: '',
-          grantType: 'authorization_code',
-          ...(isMcpOAuthFlow(current) && current.oauth2
-            ? {
-                ...(current.oauth2.clientId ? { clientId: current.oauth2.clientId } : {}),
-                ...(current.oauth2.clientSecret
-                  ? { clientSecret: current.oauth2.clientSecret }
-                  : {}),
-                ...(current.oauth2.scope ? { scope: current.oauth2.scope } : {}),
-                ...(current.oauth2.redirectUri ? { redirectUri: current.oauth2.redirectUri } : {}),
-              }
-            : {}),
-        },
-      };
+      // The sign-in flow config: no token of its own (Electron main acquires it).
+      return { type, oauth2: { accessToken: '', grantType: 'authorization_code' } };
     default:
       return { type: 'none' };
   }
@@ -117,12 +102,7 @@ export function McpAuthPanel({
       />
       {auth.type === 'bearer' && <BearerAuthEditor auth={auth} onChange={onChange} />}
       {oauthFlow && desktop && (
-        <McpOAuthEditor
-          auth={auth}
-          onChange={onChange}
-          serverUrl={serverUrl}
-          {...(disabled !== undefined ? { disabled } : {})}
-        />
+        <McpOAuthEditor auth={auth} onChange={onChange} serverUrl={serverUrl} disabled={disabled} />
       )}
       {oauthFlow && !desktop && (
         <UnappliedAuthNotice message={MCP_OAUTH_DESKTOP_ONLY_MESSAGE} testId="mcp-oauth-web" />

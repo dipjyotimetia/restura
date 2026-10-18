@@ -377,6 +377,11 @@ describe('MCP OAuth 2.1 flow config redaction (#856)', () => {
     expect(JSON.stringify(redactMcpCredentials(oauthRequest()))).not.toContain(CLIENT_SECRET);
   });
 
+  it('tolerates a legacy sparse collection without items', () => {
+    const sparse = { id: 'c', name: 'Legacy' } as unknown as Collection;
+    expect(redactMcpCollectionCredentials(sparse)).toEqual({ id: 'c', name: 'Legacy' });
+  });
+
   it('keeps a keychain-handle client secret as an opaque ref', () => {
     const request = mcpRequest({
       auth: {

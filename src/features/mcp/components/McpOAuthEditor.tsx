@@ -3,7 +3,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import SecretInput from '@/features/auth/components/SecretInput';
 import { getElectronAPI } from '@/lib/shared/platform';
-import { unwrapSecret } from '@/lib/shared/secretRef';
 import { useEnvironmentStore } from '@/store/useEnvironmentStore';
 import type { AuthConfig } from '@/types';
 
@@ -88,9 +87,7 @@ export function McpOAuthEditor({ auth, onChange, serverUrl, disabled }: McpOAuth
           <SecretInput
             id="mcp-oauth-client-secret"
             value={oauth2.clientSecret}
-            onChange={(clientSecret) =>
-              update(unwrapSecret(clientSecret) === '' ? { clientSecret: '' } : { clientSecret })
-            }
+            onChange={(clientSecret) => update({ clientSecret })}
             placeholder="Optional — public clients use PKCE only"
             storageLabel="mcp.oauth2.clientSecret"
           />
