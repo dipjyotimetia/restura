@@ -18,8 +18,9 @@ function structuredContentOf(result: unknown): unknown {
 }
 
 function McpResult({ entry }: { entry: McpInvocationLog }) {
+  const isCancelled = entry.cancelled === true;
   const kind = classifyMcpOutcome(entry);
-  const isError = kind !== 'ok';
+  const isError = kind !== 'ok' && !isCancelled;
   const structured = structuredContentOf(entry.result);
   const [view, setView] = useState<'result' | 'structured'>('result');
   const validation =
@@ -27,9 +28,11 @@ function McpResult({ entry }: { entry: McpInvocationLog }) {
       ? validateToolOutput(entry.outputSchema, entry.result)
       : ({ status: 'no-schema' } as const);
   const showStructured = view === 'structured' && structured !== undefined;
-  const payload: unknown = showStructured
-    ? structured
-    : entry.error !== undefined
+  const payload: unknown = isCancelled
+    ? { cancelled: true, reason: entry.error }
+    : showStructured
+      ? structured
+      : entry.error !== undefined
       ? {
           error: entry.error,
           ...(entry.jsonRpcError ? { jsonRpcError: entry.jsonRpcError } : {}),
@@ -47,13 +50,21 @@ function McpResult({ entry }: { entry: McpInvocationLog }) {
           <span
             className="inline-flex items-center gap-1 px-1.5 h-5 rounded-[5px] font-mono font-bold text-sp-9 tracking-wider"
             style={{
-              color: isError ? 'var(--color-danger)' : 'var(--color-success)',
-              background: isError
-                ? 'color-mix(in srgb, var(--color-danger) 14%, transparent)'
-                : 'color-mix(in srgb, var(--color-success) 14%, transparent)',
+              color: isCancelled
+                ? 'var(--color-warning)'
+                : isError
+                  ? 'var(--color-danger)'
+                  : 'var(--color-success)',
+              background: `color-mix(in srgb, ${
+                isCancelled
+                  ? 'var(--color-warning)'
+                  : isError
+                    ? 'var(--color-danger)'
+                    : 'var(--color-success)'
+              } 14%, transparent)`,
             }}
           >
-            {BADGE_LABEL[kind]}
+            {isCancelled ? 'cancelled' : BADGE_LABEL[kind]}
           </span>
           {structured !== undefined && (
             <button

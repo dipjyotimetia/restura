@@ -270,6 +270,7 @@ export default function McpRequestBuilder() {
         ? { result: result.result }
         : {
             error: result.error,
+            ...(result.cancelled ? { cancelled: true } : {}),
             ...(result.jsonRpcError ? { jsonRpcError: result.jsonRpcError } : {}),
           }),
       durationMs: result.durationMs,
@@ -290,7 +291,7 @@ export default function McpRequestBuilder() {
           id: uuidv4(),
           requestId: active.id,
           status: result.ok ? 200 : 0,
-          statusText: result.ok ? 'OK' : (result.error ?? 'Error'),
+          statusText: result.ok ? 'OK' : result.cancelled ? 'Cancelled' : (result.error ?? 'Error'),
           headers: {},
           body: body ?? '',
           size: body ? new TextEncoder().encode(body).length : 0,
@@ -531,16 +532,16 @@ export default function McpRequestBuilder() {
                 persistOperation({ kind: 'prompt', name: selectedPromptName, arguments: args });
               }
             }}
-            onCall={async (tool, args) => {
+            onCall={async (tool, args, signal) => {
               const client = getCurrentClient();
               if (!client) return;
-              const result = await client.callTool(tool.name, args);
+              const result = await client.callTool(tool.name, args, signal);
               logCall(`tools/call:${tool.name}`, args, result, tool.outputSchema);
             }}
-            onGet={async (prompt, args) => {
+            onGet={async (prompt, args, signal) => {
               const client = getCurrentClient();
               if (!client) return;
-              const result = await client.getPrompt(prompt.name, args);
+              const result = await client.getPrompt(prompt.name, args, signal);
               logCall(`prompts/get:${prompt.name}`, args, result);
             }}
           />

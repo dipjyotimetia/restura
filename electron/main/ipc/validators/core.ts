@@ -786,6 +786,13 @@ export const McpDisconnectSchema = z.object({
   connectionId: McpConnectionIdSchema,
 });
 
+/** Cancel one in-flight `mcp:request`, identified by the renderer-supplied `requestId`. */
+export const McpCancelSchema = z.object({
+  connectionId: McpConnectionIdSchema,
+  requestId: z.union([z.string().min(1).max(256), z.number()]),
+});
+
 export type McpConnectConfig = z.infer<typeof McpConnectSchema>;
 export type McpRequestConfig = z.infer<typeof McpRequestSchema>;
+export type McpCancelConfig = z.infer<typeof McpCancelSchema>;
 export type McpDisconnectConfig = z.infer<typeof McpDisconnectSchema>;

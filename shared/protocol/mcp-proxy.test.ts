@@ -39,6 +39,25 @@ describe('validateMcpSpec', () => {
     expect(r.ok).toBe(false);
   });
 
+  it('allows a notification without an id and omits id from the envelope', () => {
+    const r = validateMcpSpec(
+      {
+        url: 'https://example.com',
+        transport: 'streamable-http',
+        jsonRpc: { method: 'notifications/cancelled', params: { requestId: 3 } },
+      },
+      false
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(JSON.parse(r.body)).toEqual({
+        jsonrpc: '2.0',
+        method: 'notifications/cancelled',
+        params: { requestId: 3 },
+      });
+    }
+  });
+
   it('rejects http-sse without postEndpoint', () => {
     const r = validateMcpSpec(
       {

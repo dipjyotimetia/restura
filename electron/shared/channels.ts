@@ -78,6 +78,7 @@ export const IPC = {
   mcp: {
     connect: 'mcp:connect',
     request: 'mcp:request',
+    cancel: 'mcp:cancel',
     disconnect: 'mcp:disconnect',
     /** Renderer → main answer to a server→client request (elicitation / sampling). */
     clientResponse: 'mcp:client-response',

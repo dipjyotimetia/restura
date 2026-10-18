@@ -27,8 +27,12 @@ export interface McpCallError {
   /** #856: the desktop OAuth sign-in lapsed and couldn't refresh — prompt to reconnect. */
   authRequired?: boolean;
   jsonRpcError?: { code: number; message: string; data?: unknown };
+  /** True when the user cancelled the call; distinct from a failure. */
+  cancelled?: true;
   durationMs: number;
 }
+
+export { MCP_CANCEL_REASON } from './mcpWebSession';
 
 export type McpCall<T = unknown> = McpCallResult<T> | McpCallError;
 
@@ -154,23 +158,56 @@ export class McpClient {
   async request<T = unknown>(
     method: string,
     params?: unknown,
-    timeout?: number
+    timeout?: number,
+    signal?: AbortSignal
   ): Promise<McpCall<T>> {
     const start = performance.now();
     const requestId = this.nextId++;
+    const cancelled = (): McpCallError => ({
+      ok: false,
+      error: 'Request cancelled',
+      cancelled: true,
+      durationMs: performance.now() - start,
+    });
+    if (signal?.aborted) return cancelled();
     try {
       if (isElectron()) {
         const api = getElectronAPI();
         if (!api?.mcp) {
           return { ok: false, error: 'Electron MCP API not available', durationMs: 0 };
         }
-        const res = await api.mcp.request({
+        const pending = api.mcp.request({
           connectionId: this.opts.connectionId,
           method,
           ...(params !== undefined ? { params } : {}),
           requestId,
           ...(timeout !== undefined ? { timeout } : {}),
         });
+        let res: Awaited<typeof pending>;
+        if (signal) {
+          // Main aborts the SDK request (which sends notifications/cancelled).
+          // Settle immediately so a late response can never overwrite the
+          // cancelled state.
+          let onAbort: () => void = () => undefined;
+          const aborted = new Promise<'aborted'>((resolve) => {
+            onAbort = () => {
+              void api.mcp.cancel({ connectionId: this.opts.connectionId, requestId });
+              resolve('aborted');
+            };
+            signal.addEventListener('abort', onAbort, { once: true });
+          });
+          pending.catch(() => undefined);
+          try {
+            const outcome = await Promise.race([pending, aborted]);
+            if (outcome === 'aborted') return cancelled();
+            res = outcome;
+          } finally {
+            signal.removeEventListener('abort', onAbort);
+          }
+        } else {
+          res = await pending;
+        }
+        if (res.cancelled) return cancelled();
         const durationMs = performance.now() - start;
         if (res.success) {
           if (method === 'initialize') {
@@ -193,7 +230,7 @@ export class McpClient {
 
       // Web: `initialize` runs the full handshake (incl. notifications/initialized);
       // later calls carry Mcp-Session-Id + MCP-Protocol-Version and survive one 404.
-      const outcome = await this.web.call(method, params, timeout);
+      const outcome = await this.web.call(method, params, timeout, signal);
       const durationMs = performance.now() - start;
       if (!outcome.ok) {
         const jsonRpcError = parseJsonRpcError(outcome.rawJsonRpcError);
@@ -212,6 +249,9 @@ export class McpClient {
         ...(outcome.serverMessages ? { serverMessages: outcome.serverMessages } : {}),
       };
     } catch (err) {
+      // An abort (user cancel) rejects the fetch / body read; report it as
+      // cancelled, never as a failure, and drop whatever the server sends later.
+      if (signal?.aborted) return cancelled();
       return {
         ok: false,
         error: err instanceof Error ? err.message : 'Unknown error',
@@ -301,12 +341,12 @@ export class McpClient {
   }
 
   /** Convenience wrappers for the common per-capability calls. */
-  callTool(name: string, args: unknown): Promise<McpCall> {
-    return this.request('tools/call', { name, arguments: args });
+  callTool(name: string, args: unknown, signal?: AbortSignal): Promise<McpCall> {
+    return this.request('tools/call', { name, arguments: args }, undefined, signal);
   }
 
-  readResource(uri: string): Promise<McpCall> {
-    return this.request('resources/read', { uri });
+  readResource(uri: string, signal?: AbortSignal): Promise<McpCall> {
+    return this.request('resources/read', { uri }, undefined, signal);
   }
 
   /**
@@ -321,8 +361,13 @@ export class McpClient {
     return this.request('resources/unsubscribe', { uri });
   }
 
-  getPrompt(name: string, args?: Record<string, string>): Promise<McpCall> {
-    return this.request('prompts/get', { name, ...(args ? { arguments: args } : {}) });
+  getPrompt(name: string, args?: Record<string, string>, signal?: AbortSignal): Promise<McpCall> {
+    return this.request(
+      'prompts/get',
+      { name, ...(args ? { arguments: args } : {}) },
+      undefined,
+      signal
+    );
   }
 }
 

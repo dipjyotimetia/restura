@@ -207,6 +207,10 @@ export function createMcpHandler(nodeHostnameGuard?: NodeHostnameGuard) {
     const { targetUrl, headers, body, timeoutMs, isNotification } = validation;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    // Stop the upstream call when the browser aborts its fetch (user cancel).
+    const clientSignal = c.req.raw.signal;
+    if (clientSignal.aborted) controller.abort();
+    else clientSignal.addEventListener('abort', () => controller.abort(), { once: true });
 
     try {
       if (nodeHostnameGuard) {
@@ -277,7 +281,7 @@ export function createMcpHandler(nodeHostnameGuard?: NodeHostnameGuard) {
         try {
           ({ reply, serverMessages } = await readSseForReply(
             upstream.body,
-            raw.jsonRpc.id,
+            raw.jsonRpc.id as string | number,
             MAX_RESPONSE_BYTES
           ));
         } catch (err) {

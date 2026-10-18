@@ -125,6 +125,13 @@ The web and self-hosted builds don't have these features. Their Worker proxy han
 
 The same URL validation, DNS pinning, header policy, and Electron IPC validation apply before the SDK is allowed to connect.
 
+### Cancelling a call
+
+While a tool call or prompt fetch is in flight, the Invoke form shows a **Cancel** button. Cancelling follows the MCP *Cancellation* utility: the client sends `notifications/cancelled` with the cancelled request's id and a reason, and any response that arrives afterwards is ignored. The result panel and call log show the call as **cancelled**, not as an error.
+
+- **Desktop**: the renderer calls the validated, owner-scoped `mcp:cancel` IPC channel, which aborts the SDK request signal; the SDK emits `notifications/cancelled`.
+- **Web and self-hosted**: the browser aborts its `/api/mcp` fetch and posts a separate `notifications/cancelled` notification (with the session id when the server issued one) through the same proxy.
+
 ## As an MCP server
 
 Restura can also _be_ an MCP server for an agent like Claude. The server ships today but fails closed — it exposes no saved data until collection sync and consent controls land ([progress](/overview/delivery-plan/#plan-mcp-server)).

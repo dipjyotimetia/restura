@@ -161,4 +161,20 @@ describe('McpResultPanel', () => {
       expect(alert).toHaveTextContent('$.n: expected integer, got string');
     });
   });
+
+  it('shows a cancelled call as "cancelled", distinct from an error', async () => {
+    const id = useMcpStore.getState().createConnection('https://mcp.example.test');
+    act(() => {
+      useMcpStore.getState().appendLog(id, {
+        method: 'tools/call',
+        error: 'Request cancelled',
+        cancelled: true,
+        durationMs: 2,
+      });
+    });
+    render(<McpResultPanel />);
+    expect(await screen.findByTestId('editor')).toHaveTextContent('"cancelled": true');
+    expect(screen.getByText('cancelled')).toBeInTheDocument();
+    expect(screen.queryByText('isError: true')).toBeNull();
+  });
 });

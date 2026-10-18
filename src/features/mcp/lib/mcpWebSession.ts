@@ -31,6 +31,9 @@ import type { McpTransportType } from '@/types';
  * stream and SSE resumption (`Last-Event-ID`) — see the MCP docs page.
  */
 
+/** `reason` sent in `notifications/cancelled` when the user aborts a call. */
+export const MCP_CANCEL_REASON = 'Cancelled by user';
+
 /** clientInfo sent in `initialize` — the real app version, not a placeholder. */
 export function mcpClientInfo(name = 'restura'): { name: string; version: string } {
   return { name, version: import.meta.env.VITE_APP_VERSION || '0.0.0' };
@@ -97,11 +100,16 @@ export class McpWebSession {
    * Send one JSON-RPC message. `initialize` runs the full handshake;
    * `notifications/*` are sent without an id; everything else is a request.
    */
-  async call(method: string, params: unknown, timeout?: number): Promise<McpWebOutcome> {
+  async call(
+    method: string,
+    params: unknown,
+    timeout?: number,
+    signal?: AbortSignal
+  ): Promise<McpWebOutcome> {
     if (method === 'initialize') return this.initialize(params, timeout);
 
     const usedSession = this.sessionId;
-    const first = await this.post(method, params, timeout);
+    const first = await this.post(method, params, timeout, signal);
     if (
       first.ok ||
       first.upstreamStatus !== 404 ||
@@ -122,7 +130,7 @@ export class McpWebSession {
         return { ...reinit, error: `MCP session expired; re-initialize failed: ${reinit.error}` };
       }
     }
-    return this.post(method, params, timeout);
+    return this.post(method, params, timeout, signal);
   }
 
   private async reinitialize(timeout?: number): Promise<McpWebOutcome> {
@@ -207,28 +215,48 @@ export class McpWebSession {
     return init;
   }
 
-  private async post(method: string, params: unknown, timeout?: number): Promise<McpWebOutcome> {
+  private async post(
+    method: string,
+    params: unknown,
+    timeout?: number,
+    signal?: AbortSignal
+  ): Promise<McpWebOutcome> {
     const isNotification = isMcpNotificationMethod(method);
     const isInitialize = method === 'initialize';
     const epoch = this.epoch;
     const gen = this.initGen;
-    const response = await fetch(`${workerBaseUrl()}/api/mcp`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...workerAuthHeaders() },
-      body: JSON.stringify({
-        url: this.opts.url,
-        transport: this.opts.transport,
-        headers: this.opts.headers,
-        ...(this.sessionId && !isInitialize ? { sessionId: this.sessionId } : {}),
-        ...(this.protocolVersion && !isInitialize ? { protocolVersion: this.protocolVersion } : {}),
-        jsonRpc: {
-          method,
-          ...(isNotification ? {} : { id: this.nextId() }),
-          ...(params !== undefined ? { params } : {}),
-        },
-        ...(timeout !== undefined ? { timeout } : {}),
-      }),
-    });
+    const requestId = isNotification ? undefined : this.nextId();
+    // Aborting the fetch alone leaves the server running the call, so tell it
+    // via `notifications/cancelled` (fire-and-forget; it may already be done).
+    const onAbort = () => {
+      if (requestId !== undefined) this.sendCancelNotification(requestId);
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    let response: Response;
+    try {
+      response = await fetch(`${workerBaseUrl()}/api/mcp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...workerAuthHeaders() },
+        body: JSON.stringify({
+          url: this.opts.url,
+          transport: this.opts.transport,
+          headers: this.opts.headers,
+          ...(this.sessionId && !isInitialize ? { sessionId: this.sessionId } : {}),
+          ...(this.protocolVersion && !isInitialize
+            ? { protocolVersion: this.protocolVersion }
+            : {}),
+          jsonRpc: {
+            method,
+            ...(requestId === undefined ? {} : { id: requestId }),
+            ...(params !== undefined ? { params } : {}),
+          },
+          ...(timeout !== undefined ? { timeout } : {}),
+        }),
+        ...(signal ? { signal } : {}),
+      });
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+    }
     const body = (await response.json()) as ProxyBody;
     if (body.sessionId) {
       if (epoch === this.epoch && (!isInitialize || gen === this.initGen))
@@ -261,6 +289,24 @@ export class McpWebSession {
       result: body.jsonRpc?.result,
       ...(serverMessages ? { serverMessages } : {}),
     };
+  }
+
+  private sendCancelNotification(requestId: number): void {
+    void fetch(`${workerBaseUrl()}/api/mcp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...workerAuthHeaders() },
+      body: JSON.stringify({
+        url: this.opts.url,
+        transport: this.opts.transport,
+        headers: this.opts.headers,
+        ...(this.sessionId ? { sessionId: this.sessionId } : {}),
+        ...(this.protocolVersion ? { protocolVersion: this.protocolVersion } : {}),
+        jsonRpc: {
+          method: 'notifications/cancelled',
+          params: { requestId, reason: MCP_CANCEL_REASON },
+        },
+      }),
+    }).catch(() => undefined);
   }
 
   private async sendTerminate(sessionId: string, protocolVersion: string | undefined) {
