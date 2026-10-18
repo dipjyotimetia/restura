@@ -1,3 +1,4 @@
+import { isMcpOAuthFlow } from '@shared/protocol/mcp-auth';
 import { createLogger } from '@shared/runtime/logger';
 import { ipcMain, type WebContents } from 'electron';
 import { EVENT_PREFIX, eventChannel, IPC } from '../../shared/channels';
@@ -19,6 +20,8 @@ import {
   needsMcpConnectAuth,
   redactDeep,
 } from '../security/mcp-connect-auth';
+import { createMcpOAuthSession, registerMcpOAuthIPC } from '../security/mcp-oauth-connect';
+import { isMcpOAuthReauthRequired, type McpOAuthSession } from '../security/mcp-oauth-provider';
 import {
   assertPinnedFetchCanHonorPolicy,
   createPolicyPinnedFetch,
@@ -70,6 +73,8 @@ interface McpSession {
   redact: (text: string) => string;
   /** Deep variant of `redact` for server-controlled JSON (results, error data, notifications). */
   scrub: <T>(value: T) => T;
+  /** MCP OAuth 2.1 session (#856) — tokens live here, in main only. */
+  oauth?: McpOAuthSession;
   /** Set before an intentional close so onclose/onerror don't emit events. */
   disposed: boolean;
 }
@@ -78,6 +83,7 @@ function disposeSession(s: McpSession): void {
   if (s.disposed) return;
   s.disposed = true;
   s.clientRequests?.dispose();
+  s.oauth?.dispose();
   // Best-effort DELETE so well-behaved streamable-HTTP servers can free the session.
   void s.client?.terminateSession().catch(() => {});
   // close() also closes the selected client transport.
@@ -150,8 +156,40 @@ function cancelPendingMcpClaimForOwner(connectionId: string, webContentsId: numb
   return true;
 }
 
+/**
+ * Connect deadline that pauses while the user is signing in in the system
+ * browser (#856) — the loopback receiver enforces its own, longer timeout.
+ */
+function createConnectDeadline(timeoutMs: number) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let fail: ((err: Error) => void) | undefined;
+  const arm = () => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = setTimeout(
+      () => fail?.(new Error(`Connection timeout after ${timeoutMs}ms`)),
+      timeoutMs
+    );
+  };
+  return {
+    promise: new Promise<never>((_resolve, reject) => {
+      fail = reject;
+      arm();
+    }),
+    pause: (waiting: boolean) => {
+      if (!waiting) return arm();
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+    },
+    clear: () => {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+    },
+  };
+}
+
 export function registerMcpHandlerIPC(): void {
   registerMcpClientRequestIPC();
+  registerMcpOAuthIPC();
   ipcMain.handle(IPC.mcp.connect, async (event, rawConfig: unknown) => {
     assertTrustedSender(IPC.mcp.connect, event);
     const config = validateIpcInput(McpConnectSchema, rawConfig, IPC.mcp.connect);
@@ -208,7 +246,23 @@ export function registerMcpHandlerIPC(): void {
       // the rate / capacity gates AND the SSRF guard, so a blocked URL never
       // triggers a keychain or vault lookup. Header only: the URL pinned above
       // is never changed.
-      if (needsMcpConnectAuth(config)) {
+      const deadline = createConnectDeadline(policyConfig.timeout);
+      deadline.promise.catch(() => undefined);
+      let oauth: McpOAuthSession | undefined;
+      if (isMcpOAuthFlow(config.auth)) {
+        // #856: interactive OAuth 2.1 — tokens are acquired, stored and
+        // refreshed in main; nothing token-shaped is ever sent back.
+        try {
+          oauth = createMcpOAuthSession(policyConfig.url, config.auth ?? {}, {
+            onAuthorizationWait: deadline.pause,
+          });
+        } catch (err) {
+          deadline.clear();
+          return { success: false, error: `MCP auth setup failed: ${errorMessage(err)}` };
+        }
+        redact = oauth.redact;
+        hasResolvedSecrets = true;
+      } else if (needsMcpConnectAuth(config)) {
         try {
           const materialized = await materializeMcpConnectAuth({
             url: policyConfig.url,
@@ -219,10 +273,12 @@ export function registerMcpHandlerIPC(): void {
           redact = materialized.redact;
           hasResolvedSecrets = true;
         } catch (err) {
+          deadline.clear();
           // Materializer errors are plaintext-free by construction.
           return { success: false, error: `MCP auth setup failed: ${errorMessage(err)}` };
         }
         if (pendingSessions.get(key)?.token !== claim.token) {
+          deadline.clear();
           return { success: false, error: 'Not connected' };
         }
       }
@@ -236,6 +292,7 @@ export function registerMcpHandlerIPC(): void {
       const transportOptions = {
         fetch: pinnedFetch as (url: string | URL, init?: RequestInit) => Promise<Response>,
         requestInit: { headers },
+        ...(oauth ? { authProvider: oauth.authProvider } : {}),
       };
       const session: McpSession = {
         connectionId: config.connectionId,
@@ -244,6 +301,7 @@ export function registerMcpHandlerIPC(): void {
         createdAt: Date.now(),
         redact,
         scrub,
+        ...(oauth ? { oauth } : {}),
         disposed: false,
         clientRequests: new McpClientRequestBridge(config.connectionId, webContentsId),
       };
@@ -279,6 +337,7 @@ export function registerMcpHandlerIPC(): void {
       };
 
       if (pendingSessions.get(key)?.token !== claim.token) {
+        deadline.clear();
         disposeSession(session);
         return { success: false, error: 'Not connected' };
       }
@@ -287,7 +346,6 @@ export function registerMcpHandlerIPC(): void {
       try {
         // v2 probes for modern protocol support and falls back internally to
         // the legacy initialize handshake when the peer is 2025-era.
-        let connectTimeoutId: ReturnType<typeof setTimeout> | undefined;
         try {
           await Promise.race([
             connectMcpSdkClient({
@@ -303,16 +361,13 @@ export function registerMcpHandlerIPC(): void {
             }).then((client) => {
               session.client = client;
             }),
-            new Promise<never>((_resolve, reject) => {
-              connectTimeoutId = setTimeout(
-                () => reject(new Error(`Connection timeout after ${policyConfig.timeout}ms`)),
-                policyConfig.timeout
-              );
-            }),
+            deadline.promise,
           ]);
         } finally {
-          if (connectTimeoutId !== undefined) clearTimeout(connectTimeoutId);
+          deadline.clear();
         }
+        // A lapsed OAuth session now prompts the renderer instead of popping a browser.
+        oauth?.endInteractive();
         // Guard the connect-time race: if onclose/onerror fired DURING the
         // handshake, `session.disposed` is already true but the session was not in
         // the registry yet, so onclose's `sessions.get(...) === session` guard
@@ -323,6 +378,7 @@ export function registerMcpHandlerIPC(): void {
           if (pendingSessions.get(key)?.token === claim.token) {
             void session.client?.close().catch(() => {});
           }
+          oauth?.dispose();
           log.warn('connect closed during initialization', {
             connectionId: config.connectionId,
           });
@@ -349,9 +405,16 @@ export function registerMcpHandlerIPC(): void {
           session.clientRequests?.dispose();
           void session.client?.close().catch(() => {});
         }
+        oauth?.dispose();
         const message = redact(errorMessage(err));
         log.warn('connect failed', { connectionId: config.connectionId, error: message });
-        return { success: false, error: message };
+        return {
+          success: false,
+          error: message,
+          ...(oauth && (oauth.reauthRequired || isMcpOAuthReauthRequired(err))
+            ? { authRequired: true }
+            : {}),
+        };
       }
     } finally {
       releaseMcpClaim(config.connectionId, claim);
@@ -411,7 +474,16 @@ export function registerMcpHandlerIPC(): void {
               },
             };
           }
-          return { success: false, error: session.redact(errorMessage(err)) };
+          // #856: a refresh failed mid-session — tell the renderer to prompt
+          // for a fresh sign-in (reconnect) rather than retrying blindly.
+          const authRequired =
+            session.oauth !== undefined &&
+            (session.oauth.reauthRequired || isMcpOAuthReauthRequired(err));
+          return {
+            success: false,
+            error: session.redact(errorMessage(err)),
+            ...(authRequired ? { authRequired: true } : {}),
+          };
         }
       })
     )

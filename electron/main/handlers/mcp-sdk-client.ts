@@ -1,4 +1,5 @@
 import {
+  type AuthProvider,
   Client,
   type ClientNotification,
   type ClientRequest,
@@ -15,6 +16,8 @@ export type McpSdkTransport = 'streamable-http' | 'http-sse';
 export interface McpSdkTransportOptions {
   fetch: (url: string | URL, init?: RequestInit) => Promise<Response>;
   requestInit: RequestInit;
+  /** MCP OAuth 2.1 (#856): main-side token source + 401 handler. */
+  authProvider?: AuthProvider;
 }
 
 export interface McpSdkClientEvents {

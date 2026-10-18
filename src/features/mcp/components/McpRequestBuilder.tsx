@@ -42,6 +42,8 @@ import { useRequestStore } from '@/store/useRequestStore';
 import type { McpRequest } from '@/types';
 
 const NO_ROOTS: McpRoot[] = [];
+const MCP_REAUTH_PROMPT =
+  'Your MCP sign-in expired and could not be refreshed — click Connect to sign in again.';
 
 interface McpClientSession {
   connectionId: string;
@@ -255,6 +257,11 @@ export default function McpRequestBuilder() {
     result: McpCall,
     outputSchema?: unknown
   ): void => {
+    // #856: the desktop OAuth session lapsed and couldn't refresh — prompt a
+    // fresh sign-in (Connect re-runs the browser flow).
+    if (!result.ok && result.authRequired) {
+      setStatus(active.id, 'error', MCP_REAUTH_PROMPT);
+    }
     appendLog(active.id, {
       method,
       params,
@@ -339,7 +346,7 @@ export default function McpRequestBuilder() {
     if (!isCurrent()) return;
     if (!open.ok) {
       detachServerEvents();
-      setStatus(active.id, 'error', open.error);
+      setStatus(active.id, 'error', open.authRequired ? MCP_REAUTH_PROMPT : open.error);
       return;
     }
     const capabilities = await client.discoverCapabilities();

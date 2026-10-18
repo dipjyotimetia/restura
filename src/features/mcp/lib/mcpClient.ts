@@ -24,6 +24,8 @@ export interface McpCallResult<T = unknown> {
 export interface McpCallError {
   ok: false;
   error: string;
+  /** #856: the desktop OAuth sign-in lapsed and couldn't refresh — prompt to reconnect. */
+  authRequired?: boolean;
   jsonRpcError?: { code: number; message: string; data?: unknown };
   durationMs: number;
 }
@@ -104,7 +106,7 @@ export class McpClient {
    * receive the `endpoint` event); a no-op for streamable-http but still
    * useful to surface auth errors early.
    */
-  async connect(): Promise<{ ok: true } | { ok: false; error: string }> {
+  async connect(): Promise<{ ok: true } | { ok: false; error: string; authRequired?: boolean }> {
     if (isElectron()) {
       const api = getElectronAPI();
       if (!api?.mcp) return { ok: false, error: 'Electron MCP API not available' };
@@ -115,7 +117,12 @@ export class McpClient {
         headers: this.opts.headers,
         ...(this.opts.auth ? { auth: this.opts.auth } : {}),
       });
-      return res.success ? { ok: true } : { ok: false, error: res.error ?? 'Connect failed' };
+      if (res.success) return { ok: true };
+      return {
+        ok: false,
+        error: res.error ?? 'Connect failed',
+        ...(res.authRequired ? { authRequired: true } : {}),
+      };
     }
 
     // Web mode: streamable-http requires no setup; http-sse needs the persistent stream.
@@ -179,6 +186,7 @@ export class McpClient {
             ? jsonRpcErrorToMessage(jsonRpcError)
             : (res.error ?? 'MCP request failed'),
           ...(jsonRpcError ? { jsonRpcError } : {}),
+          ...(res.authRequired ? { authRequired: true } : {}),
           durationMs,
         };
       }

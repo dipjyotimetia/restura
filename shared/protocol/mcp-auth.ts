@@ -11,20 +11,62 @@
  * header). Credentials MUST NOT ride the query string, and sign-at-wire
  * schemes (Digest, OAuth 1.0, AWS SigV4, NTLM, WSSE) have no MCP analogue.
  *
- * Extension point: OAuth 2.1 for MCP (#856 — PKCE, protected-resource
- * metadata discovery, dynamic client registration, tokens held as SecretRef
- * handles in main) adds `'oauth2'` to {@link MCP_EDITOR_AUTH_TYPES} and owns
- * token acquisition; the wire path below already applies an `oauth2` access
- * token as `Authorization: <tokenType> <token>`.
+ * OAuth 2.1 for MCP (#856, ADR 0031): an `oauth2` auth WITHOUT an access
+ * token is the interactive MCP authorization flow ({@link isMcpOAuthFlow}) —
+ * PKCE, protected-resource metadata discovery, dynamic or static client
+ * registration, tokens held only in Electron main. It is desktop-only
+ * ({@link MCP_DESKTOP_ONLY_AUTH_TYPES}). An `oauth2` auth that already
+ * carries an access token (imported / inherited) keeps the plain header path:
+ * `Authorization: <tokenType> <token>`.
  */
 
-/**
- * Auth types the MCP auth editor offers. Order is the selector order.
- * #856 appends `'oauth2'` here.
- */
-export const MCP_EDITOR_AUTH_TYPES = ['none', 'bearer', 'api-key'] as const;
+/** Auth types the MCP auth editor offers. Order is the selector order. */
+export const MCP_EDITOR_AUTH_TYPES = ['none', 'bearer', 'api-key', 'oauth2'] as const;
 
 export type McpEditorAuthType = (typeof MCP_EDITOR_AUTH_TYPES)[number];
+
+/**
+ * Editor types only the desktop harness can run: the OAuth flow needs a
+ * system browser, a loopback redirect listener and main-process token
+ * storage (ADR 0031). The web editor hides them.
+ */
+export const MCP_DESKTOP_ONLY_AUTH_TYPES: ReadonlySet<McpEditorAuthType> = new Set(['oauth2']);
+
+/** Structural view of the OAuth fields the MCP flow reads. */
+export interface McpOAuthLike {
+  type: string;
+  oauth2?:
+    | {
+        accessToken?: unknown;
+        grantType?: string | undefined;
+        clientId?: string | undefined;
+        scope?: string | undefined;
+        redirectUri?: string | undefined;
+      }
+    | undefined;
+}
+
+/**
+ * True when `auth` asks for the interactive MCP OAuth 2.1 flow: `oauth2`,
+ * `grantType: 'authorization_code'` (what the MCP editor writes) and no
+ * access token of its own (empty string / absent / empty inline ref). An
+ * oauth2 auth that carries a token (or a handle / external ref to one) is a
+ * static header instead; other grant types keep their existing handling
+ * (e.g. the CLI's client_credentials fetch).
+ */
+export function isMcpOAuthFlow(auth: McpOAuthLike | undefined): boolean {
+  if (auth?.type !== 'oauth2' || auth.oauth2?.grantType !== 'authorization_code') return false;
+  const token = auth.oauth2?.accessToken;
+  if (token === undefined || token === null || token === '') return true;
+  if (typeof token === 'object') {
+    const ref = token as { kind?: unknown; value?: unknown };
+    return ref.kind === 'inline' && (ref.value === undefined || ref.value === '');
+  }
+  return false;
+}
+
+export const MCP_OAUTH_DESKTOP_ONLY_MESSAGE =
+  'MCP OAuth sign-in needs the Restura desktop app (system browser + loopback redirect, tokens kept in the OS keychain). In the browser, paste an access token as Bearer auth instead.';
 
 /**
  * Header-shaped auth types every harness applies to an MCP connection. A
