@@ -99,13 +99,18 @@ export function getUriTemplateVariables(template: string): string[] {
   return names;
 }
 
-/** Whether a variable may legitimately be left blank (form-style `;`, `?`, `&` operators). */
+/**
+ * Whether a variable may legitimately be left blank: it must appear, and every
+ * occurrence must use a form-style operator (`;`, `?`, `&`). Any path-style
+ * occurrence (e.g. `{id}` alongside `{?id}`) makes it required.
+ */
 export function isOptionalUriTemplateVariable(template: string, name: string): boolean {
-  return parseUriTemplate(template).some(
-    (p) =>
-      p.kind === 'expression' &&
-      ';?&'.includes(p.operator || '\0') &&
-      p.variables.some((v) => v.name === name)
+  const occurrences = parseUriTemplate(template).filter(
+    (p) => p.kind === 'expression' && p.variables.some((v) => v.name === name)
+  );
+  return (
+    occurrences.length > 0 &&
+    occurrences.every((p) => p.kind === 'expression' && ';?&'.includes(p.operator || '\0'))
   );
 }
 

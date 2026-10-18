@@ -52,5 +52,7 @@ describe('uriTemplate', () => {
   it('flags only form-style variables as optional', () => {
     expect(isOptionalUriTemplateVariable('x/{id}{?page}', 'id')).toBe(false);
     expect(isOptionalUriTemplateVariable('x/{id}{?page}', 'page')).toBe(true);
+    expect(isOptionalUriTemplateVariable('users:///{id}{?id}', 'id')).toBe(false);
+    expect(isOptionalUriTemplateVariable('x/{a}', 'missing')).toBe(false);
   });
 });
