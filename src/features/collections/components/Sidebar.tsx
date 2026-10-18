@@ -18,6 +18,7 @@ import { useRequestStore } from '@/store/useRequestStore';
 import { type OwsStoredWorkflow, useWorkflowStore } from '@/store/useWorkflowStore';
 import type { ActivePanel, CollectionItem } from '@/types';
 import { useCollectionSidebarCommands } from '../hooks/useCollectionSidebarCommands';
+import { copyBrokerPresetSecrets, reapBrokerPresetSecretsForItem } from '../lib/brokerPresets';
 import { duplicateRequestItem, makeFolderItem, makeRequestItem } from '../lib/itemFactory';
 import {
   folderPathTo,
@@ -298,13 +299,18 @@ function Sidebar({ activePanel }: SidebarProps) {
       const parentId = collection ? parentFolderIdOf(collection.items, item.id) : undefined;
       const dup = duplicateRequestItem(item, siblingNames(collectionId, parentId));
       addItemToCollection(collectionId, dup, parentId);
+      // Kafka / MQTT presets: credentials follow the copy (#984).
+      void copyBrokerPresetSecrets([item], [dup]);
     },
     [addItemToCollection]
   );
 
   const handleConfirmItemDelete = useCallback(() => {
     if (itemToDelete) {
+      const items = getCollectionById(itemToDelete.collectionId)?.items ?? [];
       for (const itemId of itemToDelete.itemIds) {
+        // Kafka / MQTT presets: drop their stored credentials too (#984).
+        reapBrokerPresetSecretsForItem(items, itemId);
         removeCollectionItem(itemToDelete.collectionId, itemId);
       }
       setSelectedKeys((prev) => (prev.size === 0 ? prev : new Set()));

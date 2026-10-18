@@ -1,5 +1,6 @@
 import type { AuthConfig, Collection, CollectionItem } from '../types';
 import { SECRET_FIELDS_BY_AUTH_BLOCK } from './auth-fields';
+import { countBrokerPresetSecrets, redactBrokerPreset } from './broker-preset-redaction';
 import {
   countSecretKeyValues,
   redactSecretKeyValues,
@@ -315,13 +316,8 @@ function redactItem(item: CollectionItem): CollectionItem {
     if (Array.isArray(req.metadata))
       req.metadata = redactSecretKeyValues(req.metadata as SecretableRow[]);
     if ('auth' in req) req.auth = redactAuthConfigSecrets(req.auth as AuthConfig);
-    // Kafka presets (#984) carry record headers under `produce`; the preset
-    // types hold no credentials otherwise (secrets live in secure storage).
-    const produce = req.produce as { headers?: SecretableRow[] } | undefined;
-    if (produce && Array.isArray(produce.headers)) {
-      req.produce = { ...produce, headers: redactSecretKeyValues(produce.headers) };
-    }
-    next.request = req as unknown as typeof next.request;
+    // Kafka / MQTT presets (#984): URL userinfo, record headers, user properties.
+    next.request = redactBrokerPreset(req as unknown as NonNullable<typeof next.request>);
   }
   return next;
 }
@@ -381,9 +377,7 @@ export function countCollectionInlineSecrets(collection: Collection): number {
         count += countSecretKeyValues(req.headers as SecretableRow[] | undefined);
         count += countSecretKeyValues(req.params as SecretableRow[] | undefined);
         count += countSecretKeyValues(req.metadata as SecretableRow[] | undefined);
-        count += countSecretKeyValues(
-          (req.produce as { headers?: SecretableRow[] } | undefined)?.headers
-        );
+        count += countBrokerPresetSecrets(item.request);
       }
       if (item.items) walk(item.items);
     }

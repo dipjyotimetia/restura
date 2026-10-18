@@ -54,3 +54,29 @@ export function getMqttComposerDraft(connectionId: string | null): MqttComposerD
 export function setMqttComposerDraft(connectionId: string, draft: MqttComposerDraft): void {
   mqttDrafts.set(connectionId, draft);
 }
+
+/**
+ * Credentials typed into a connection form but not yet stored (they move to
+ * secure storage on Connect). Kept in memory only — never persisted — so Save
+ * to Collection before connecting can still hand them to the preset's secure
+ * storage scope. Keyed by the protocol's secure-storage key for the field.
+ */
+const pendingSecrets = new Map<string, string>();
+
+export function setPendingSecret(storageKey: string, value: string): void {
+  if (value) pendingSecrets.set(storageKey, value);
+  else pendingSecrets.delete(storageKey);
+}
+
+export function getPendingSecret(storageKey: string): string | undefined {
+  return pendingSecrets.get(storageKey);
+}
+
+/** Drop every draft and pending credential of a removed connection. */
+export function clearComposerDrafts(connectionId: string): void {
+  kafkaDrafts.delete(connectionId);
+  mqttDrafts.delete(connectionId);
+  for (const key of pendingSecrets.keys()) {
+    if (key.includes(`:${connectionId}:`)) pendingSecrets.delete(key);
+  }
+}

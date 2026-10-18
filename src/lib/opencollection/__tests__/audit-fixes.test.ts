@@ -9,6 +9,7 @@ import type {
   Request,
   SseRequest,
 } from '@/types';
+import { requestOf } from '../../../../tests/helpers/requestOf';
 import { internalToOC } from '../from-internal';
 import { parseOpenCollectionYAML, serializeOpenCollectionYAML } from '../serializer';
 import { ocToInternal } from '../to-internal';
@@ -104,7 +105,7 @@ function flattenRequests(items: CollectionItem[]): Request[] {
   const out: Request[] = [];
   for (const it of items) {
     if (it.type === 'folder') out.push(...flattenRequests(it.items ?? []));
-    else if (it.request) out.push(it.request as Request);
+    else if (it.request) out.push(requestOf(it));
   }
   return out;
 }

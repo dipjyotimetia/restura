@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ECHO_URLS } from '@/lib/shared/echo-defaults';
 import { useCollectionStore } from '@/store/useCollectionStore';
-import type { CollectionItem, Request } from '@/types';
+import type { CollectionItem } from '@/types';
+import { requestOf } from '../../../../../tests/helpers/requestOf';
 import { addSampleCollection } from '../addSampleCollection';
 import { buildSampleCollection, SAMPLE_COLLECTION_NAME } from '../sampleCollection';
 
@@ -15,7 +16,7 @@ describe('buildSampleCollection', () => {
     const c = buildSampleCollection();
     expect(c.name).toBe(SAMPLE_COLLECTION_NAME);
     expect(c.items.some((i) => i.type === 'folder' && i.name === 'HTTP')).toBe(true);
-    const reqs = requests(c.items).map((i) => i.request as Request);
+    const reqs = requests(c.items).map(requestOf);
     expect(reqs.map((r) => r.type).sort()).toEqual(['grpc', 'http', 'http', 'http', 'sse']);
     for (const r of reqs) {
       expect(Object.values(ECHO_URLS)).toContain(r.url);

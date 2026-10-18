@@ -35,7 +35,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { saveToCollectionBlockedReason } from '@/features/collections/lib/collectable';
-import { saveTabBackToCollection } from '@/features/collections/lib/saveBack';
+import { isBrokerPresetTab, saveTabBackToCollection } from '@/features/collections/lib/saveBack';
 import { CAPABILITIES } from '@/lib/shared/capabilities';
 import { isElectron } from '@/lib/shared/platform';
 import { useOverflowFade } from '@/lib/shared/useOverflowFade';
@@ -248,7 +248,7 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
   const handleSaveBack = (tabId: string, savedRequestId: string) => {
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
-    if (saveTabBackToCollection(tab.request, savedRequestId)) {
+    if (saveTabBackToCollection(tab.request, savedRequestId, tab)) {
       clearTabDirty?.(tabId);
     }
   };
@@ -469,7 +469,9 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                       Save to Collection…
                     </ContextMenuItem>
                   )}
-                  {tab.isDirty && tab.savedRequestId && (
+                  {/* Kafka / MQTT edits live in the connection store and never mark
+                      the tab dirty, so a preset-linked tab can always save (#984). */}
+                  {(tab.isDirty || isBrokerPresetTab(tab)) && tab.savedRequestId && (
                     <ContextMenuItem onClick={() => handleSaveBack(tab.id, tab.savedRequestId!)}>
                       Save changes
                     </ContextMenuItem>
@@ -616,7 +618,13 @@ export function TabStrip({ onSaveToCollection, onChangeMode }: TabStripProps) {
                     // Unbound: hand off to the save dialog and leave the tab open.
                     if (pendingTab.savedRequestId) {
                       e.preventDefault();
-                      if (saveTabBackToCollection(pendingTab.request, pendingTab.savedRequestId)) {
+                      if (
+                        saveTabBackToCollection(
+                          pendingTab.request,
+                          pendingTab.savedRequestId,
+                          pendingTab
+                        )
+                      ) {
                         closeTab(pendingTab.id);
                       }
                     } else {

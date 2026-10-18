@@ -1,4 +1,4 @@
-import type { BrokerRequest } from './broker';
+import { type BrokerRequest, isBrokerRequest } from './broker';
 import type { GrpcRequest } from './grpc';
 import type { HttpRequest, Response } from './http';
 import type { ScriptResult } from './scripts';
@@ -87,4 +87,9 @@ export interface RequestTab {
    * transient. Stripped by `partialize` in `useRequestStore`.
    */
   streamingEvents?: AsyncIterable<StreamEventLike>;
+}
+
+/** Narrow a saved collection request to one a workspace tab can hold (not a broker preset). */
+export function isTabRequest(request: CollectionRequest | undefined): request is Request {
+  return request !== undefined && !isBrokerRequest(request);
 }

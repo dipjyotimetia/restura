@@ -31,7 +31,6 @@ import type { MqttMessage, MqttQoS } from '@/features/mqtt/store/useMqttStore';
 import { MQTT_SECRET_SENTINEL, useMqttStore } from '@/features/mqtt/store/useMqttStore';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
-import { getMqttComposerDraft, setMqttComposerDraft } from '@/lib/shared/streaming/composerDrafts';
 import {
   type MqttPublishTemplate,
   newTemplateId,
@@ -39,6 +38,7 @@ import {
 } from '@/lib/shared/streaming/messageTemplates';
 import { useRapidAppendFlag } from '@/lib/shared/useRapidAppendFlag';
 import { useActiveTabId } from '@/store/selectors';
+import { useMqttComposer } from '../hooks/useMqttComposer';
 import { MqttConnectionForm } from './MqttConnectionForm';
 import { MqttMessagesPanel } from './MqttMessagesPanel';
 import { MqttSubscriptionsPanel } from './MqttSubscriptionsPanel';
@@ -112,47 +112,33 @@ function MqttClient() {
     if (activeTabId && isDesktop) ensureConnectionForTab(activeTabId);
   }, [activeTabId, ensureConnectionForTab, isDesktop]);
 
-  const [passwordDraft, setPasswordDraft] = useState('');
-  const [passphraseDraft, setPassphraseDraft] = useState('');
-  const [pubTopic, setPubTopic] = useState('');
-  const [pubPayload, setPubPayload] = useState('');
-  const [pubQos, setPubQos] = useState<MqttQoS>(0);
-  const [pubRetain, setPubRetain] = useState(false);
-  const [subTopic, setSubTopic] = useState('');
-  const [subQos, setSubQos] = useState<MqttQoS>(0);
+  // Composer + credential drafts, seeded from / mirrored to collection presets (#984).
+  const {
+    passwordDraft,
+    setPasswordDraft,
+    passphraseDraft,
+    setPassphraseDraft,
+    pubTopic,
+    setPubTopic,
+    pubPayload,
+    setPubPayload,
+    pubQos,
+    setPubQos,
+    pubRetain,
+    setPubRetain,
+    subTopic,
+    setSubTopic,
+    subQos,
+    setSubQos,
+  } = useMqttComposer(activeConnectionId);
   const [activeTab, setActiveTab] = useState('messages');
   const [paused, setPaused] = useState(false);
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
 
   useEffect(() => {
-    setPasswordDraft('');
-    setPassphraseDraft('');
-    // A collection preset (#984) seeds the composer before the panel mounts.
-    const seed = getMqttComposerDraft(activeConnectionId);
-    setPubTopic(seed?.pubTopic ?? '');
-    setPubPayload(seed?.pubPayload ?? '');
-    if (seed) {
-      setPubQos(seed.pubQos);
-      setPubRetain(seed.pubRetain);
-      setSubQos(seed.subQos);
-    }
-    setSubTopic(seed?.subTopic ?? '');
     setSelectedMessageId(null);
     setPaused(false);
   }, [activeConnectionId]);
-
-  // Mirror the composer so Save to Collection can capture it (#984).
-  useEffect(() => {
-    if (!activeConnectionId) return;
-    setMqttComposerDraft(activeConnectionId, {
-      pubTopic,
-      pubPayload,
-      pubQos,
-      pubRetain,
-      subTopic,
-      subQos,
-    });
-  }, [activeConnectionId, pubTopic, pubPayload, pubQos, pubRetain, subTopic, subQos]);
 
   const connectionId = connection?.id;
   const connectionMessages = connection?.messages;

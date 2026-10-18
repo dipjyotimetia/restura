@@ -131,3 +131,8 @@ export type BrokerRequestType = BrokerRequest['type'];
 export function isBrokerRequest(request: { type: string } | undefined): request is BrokerRequest {
   return request?.type === 'kafka' || request?.type === 'mqtt';
 }
+
+/** Connection-mode tab kinds that save as broker presets. */
+export function isBrokerMode(mode: string | undefined): mode is BrokerRequestType {
+  return mode === 'kafka' || mode === 'mqtt';
+}

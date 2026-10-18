@@ -9,7 +9,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { Collection, CollectionItem, Environment, Request } from '@/types';
+import type { Collection, CollectionItem, Environment } from '@/types';
+import { requestOf } from '../../../../../tests/helpers/requestOf';
 import { exportBrunoCollection, exportBrunoRequest } from '../bruno-exporter';
 import { importBrunoCollection } from '../importers/bruno';
 
@@ -178,15 +179,15 @@ describe('Bruno exporter — round trip', () => {
     const items = reimported.collection.items;
     // Items may be reordered alphabetically by Bruno's filename layout; index by name.
     const byName = new Map(items.map((i) => [i.name, i]));
-    expect((byName.get('basic')?.request as Request).auth).toEqual({
+    expect(requestOf(byName.get('basic')).auth).toEqual({
       type: 'basic',
       basic: { username: 'admin', password: 's3cret' },
     });
-    expect((byName.get('bearer')?.request as Request).auth).toEqual({
+    expect(requestOf(byName.get('bearer')).auth).toEqual({
       type: 'bearer',
       bearer: { token: 'tok-123' },
     });
-    const apikeyAuth = (byName.get('apikey')?.request as Request).auth;
+    const apikeyAuth = requestOf(byName.get('apikey')).auth;
     expect(apikeyAuth).toMatchObject({
       type: 'api-key',
       apiKey: { key: 'X-Api-Key', value: 'abcd', in: 'header' },

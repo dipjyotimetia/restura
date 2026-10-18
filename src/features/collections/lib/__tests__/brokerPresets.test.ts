@@ -7,12 +7,23 @@ import {
   getKafkaProduceDraft,
   getMqttComposerDraft,
   setKafkaProduceDraft,
+  setPendingSecret,
 } from '@/lib/shared/streaming/composerDrafts';
+import { useCollectionStore } from '@/store/useCollectionStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { CollectionItem, KafkaRequest, MqttRequest } from '@/types';
-import { openBrokerPreset, snapshotBrokerTab } from '../brokerPresets';
+import {
+  copyBrokerPresetSecrets,
+  openBrokerPreset,
+  reapBrokerPresetSecrets,
+  reapBrokerPresetSecretsForItem,
+  snapshotBrokerTab,
+} from '../brokerPresets';
 import { exportToInsomnia, exportToPostman, getCollectionExportWarnings } from '../exporters';
+import { skippedBrokerPresets } from '../flattenRunnables';
+import { duplicateCollection, duplicateRequestItem } from '../itemFactory';
 import { openCollectionItem } from '../openCollectionItem';
+import { saveTabBackToCollection } from '../saveBack';
 
 const platform = vi.hoisted(() => ({ electron: true }));
 vi.mock('@/lib/shared/platform', async (importOriginal) => {
@@ -23,7 +34,8 @@ vi.mock('@/lib/shared/platform', async (importOriginal) => {
 const vault = vi.hoisted(() => new Map<string, string>());
 const storage = vi.hoisted(() => ({ failReads: false }));
 const toastError = vi.hoisted(() => vi.fn());
-vi.mock('sonner', () => ({ toast: { error: toastError } }));
+const toastWarning = vi.hoisted(() => vi.fn());
+vi.mock('sonner', () => ({ toast: { error: toastError, warning: toastWarning } }));
 vi.mock('@/lib/shared/secure-storage', () => ({
   secureStorage: {
     get: (key: string) => vault.get(key) ?? null,
@@ -235,5 +247,106 @@ describe('non-OpenCollection exports of Kafka / MQTT presets (#984)', () => {
       ])
     );
     expect(getCollectionExportWarnings(collection, 'opencollection')).toEqual([]);
+  });
+});
+
+describe('preset save-back, credential lifecycle and runner reporting (#984 review)', () => {
+  beforeEach(() => {
+    platform.electron = true;
+    storage.failReads = false;
+    toastError.mockClear();
+    toastWarning.mockClear();
+    vault.clear();
+    useRequestStore.setState({ tabs: [], activeTabId: null, isLoading: false });
+    useKafkaStore.setState({ connections: {}, activeConnectionId: null, connectionByTabId: {} });
+    useMqttStore.setState({ connections: {}, activeConnectionId: null, connectionByTabId: {} });
+    useCollectionStore.setState({
+      collections: [{ id: 'c', name: 'C', items: [item(KAFKA), item(MQTT)] }],
+    });
+  });
+
+  it('restores credentials before the tab opens (no Connect race)', async () => {
+    vault.set(kafkaSecretKey(kafkaPresetSecretScope(KAFKA.id), 'sasl-password'), 'pw');
+    const pending = openBrokerPreset('item-k', KAFKA);
+    expect(useRequestStore.getState().tabs).toHaveLength(0);
+    const tabId = await pending;
+    const connectionId = useKafkaStore.getState().connectionByTabId[tabId]!;
+    expect(useKafkaStore.getState().connections[connectionId]?.auth.sasl).toMatchObject({
+      password: KAFKA_SECRET_SENTINEL,
+    });
+  });
+
+  it('Ctrl+S on a preset tab updates the preset in place, keeping its id and credentials', async () => {
+    const tabId = await openBrokerPreset(`item-${KAFKA.id}`, KAFKA);
+    const connectionId = useKafkaStore.getState().connectionByTabId[tabId]!;
+    useKafkaStore.getState().updateConnection(connectionId, {
+      bootstrapBrokers: ['u:p@new:9092'],
+      defaultTopic: 'orders.v2',
+    });
+    setPendingSecret(kafkaSecretKey(connectionId, 'sasl-password'), 'new-pw');
+    const tab = useRequestStore.getState().tabs[0]!;
+
+    expect(saveTabBackToCollection(tab.request, `item-${KAFKA.id}`, tab)).toBe(true);
+    const saved = useCollectionStore.getState().collections[0]?.items[0]?.request as KafkaRequest;
+    expect(saved.id).toBe(KAFKA.id);
+    expect(saved.produce.topic).toBe('orders.v2');
+    expect(saved.connection.bootstrapBrokers).toEqual(['new:9092']);
+    expect(toastWarning).toHaveBeenCalledOnce();
+    await vi.waitFor(() =>
+      expect(vault.get(kafkaSecretKey(kafkaPresetSecretScope(KAFKA.id), 'sasl-password'))).toBe(
+        'new-pw'
+      )
+    );
+
+    // Without the tab, a preset is never overwritten by the HTTP placeholder.
+    expect(saveTabBackToCollection(tab.request, `item-${KAFKA.id}`)).toBe(false);
+    expect(saveTabBackToCollection(tab.request, `item-${MQTT.id}`, tab)).toBe(false);
+  });
+
+  it('reaps preset credentials for deleted items and copies them for duplicates', async () => {
+    const kScope = kafkaSecretKey(kafkaPresetSecretScope(KAFKA.id), 'sasl-password');
+    vault.set(kScope, 'pw');
+    vault.set(`mqtt:${`preset-${MQTT.id}`}:password`, 'mpw');
+
+    const folder: CollectionItem = { id: 'f', name: 'F', type: 'folder', items: [item(KAFKA)] };
+    const dup = duplicateRequestItem(item(KAFKA), []);
+    await copyBrokerPresetSecrets([item(KAFKA)], [dup]);
+    expect(
+      vault.get(kafkaSecretKey(kafkaPresetSecretScope(dup.request!.id), 'sasl-password'))
+    ).toBe('pw');
+    const collection = { id: 'c', name: 'C', items: [folder, item(MQTT)] };
+    const dupCollection = duplicateCollection(collection, []);
+    await copyBrokerPresetSecrets(collection.items, dupCollection.items);
+    const dupMqtt = dupCollection.items[1]!.request!;
+    expect(vault.get(`mqtt:preset-${dupMqtt.id}:password`)).toBe('mpw');
+    await copyBrokerPresetSecrets([item(KAFKA)], [item(KAFKA)]);
+
+    reapBrokerPresetSecretsForItem([folder], 'f');
+    expect(vault.has(kScope)).toBe(false);
+    reapBrokerPresetSecretsForItem([folder], 'missing');
+    reapBrokerPresetSecrets([item(MQTT)]);
+    expect(vault.has(`mqtt:preset-${MQTT.id}:password`)).toBe(false);
+  });
+
+  it('lists presets skipped by a collection or folder run', () => {
+    const items: CollectionItem[] = [
+      item(KAFKA),
+      { id: 'f', name: 'F', type: 'folder', items: [item(MQTT)] },
+    ];
+    expect(skippedBrokerPresets(items)).toEqual(['Orders', 'Sensors']);
+    expect(skippedBrokerPresets(items, 'f')).toEqual(['Sensors']);
+    expect(skippedBrokerPresets(items, 'nope')).toEqual([]);
+  });
+
+  it('strips userinfo from a snapshot of an MQTT tab', () => {
+    const tabId = useRequestStore.getState().openTabWithMode('mqtt');
+    const connectionId = useMqttStore.getState().ensureConnectionForTab(tabId);
+    useMqttStore.getState().updateConnection(connectionId, { brokerUrl: 'mqtt://u:p@h:1883' });
+    const snap = snapshotBrokerTab({ id: tabId, modeOverride: 'mqtt' }, 'S', 'fixed-id')!;
+    expect(snap.strippedUserinfo).toBe(true);
+    expect(snap.request).toMatchObject({
+      id: 'fixed-id',
+      connection: { brokerUrl: 'mqtt://h:1883' },
+    });
   });
 });

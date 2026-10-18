@@ -2,13 +2,14 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import Ajv from 'ajv';
 import { describe, expect, it } from 'vitest';
+import { requestOf } from '../../tests/helpers/requestOf';
 import type { AuthConfig, Collection, CollectionItem, Request } from '../types';
 import { AUTH_EXTENSION_KEY } from './auth-extension';
 import { internalToOC } from './from-internal';
 import { parseOpenCollectionYAML, serializeOpenCollectionYAML } from './serializer';
 import { ocToInternal } from './to-internal';
 
-const authOf = (item: CollectionItem | undefined) => (item?.request as Request | undefined)?.auth;
+const authOf = (item: CollectionItem | undefined) => requestOf(item).auth;
 
 /**
  * The VS Code extension validates root `opencollection.yml` against the

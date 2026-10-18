@@ -27,6 +27,7 @@ import type { Collection, OpenAPIDocument } from '@/types';
 import type { RunnerScope } from '../components/CollectionRunnerDialog';
 import type { SettingsTarget } from '../components/CollectionSettingsDialog';
 import type { ExportFormat } from '../components/SidebarCollectionsPanel';
+import { copyBrokerPresetSecrets } from '../lib/brokerPresets';
 import { duplicateCollection } from '../lib/itemFactory';
 import { buildMockRoutes, buildMockRoutesFromSpec, mergeMockRoutes } from '../lib/mockRoutes';
 import { isNameTaken, siblingNamesOfItem, uniqueName } from '../lib/names';
@@ -201,13 +202,14 @@ export function useCollectionSidebarCommands() {
   const handleDuplicateCollection = useCallback((collectionId: string) => {
     const store = useCollectionStore.getState();
     const collection = store.getCollectionById(collectionId);
-    if (collection)
-      store.addCollection(
-        duplicateCollection(
-          collection,
-          store.collections.map((item) => item.name)
-        )
-      );
+    if (!collection) return;
+    const dup = duplicateCollection(
+      collection,
+      store.collections.map((item) => item.name)
+    );
+    store.addCollection(dup);
+    // Kafka / MQTT presets: credentials follow the copy (#984).
+    void copyBrokerPresetSecrets(collection.items, dup.items);
   }, []);
 
   const handleToggleMock = useCallback(async (collectionId: string) => {

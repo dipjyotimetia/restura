@@ -166,3 +166,21 @@ export function flattenRunnables(
     path.flatMap((folder) => (folder.variables ? [folder.variables] : []))
   );
 }
+
+/**
+ * Names of the Kafka / MQTT connection presets (#984) in a run scope. They are
+ * not runnable requests, so the runner leaves them out; the dialog reports
+ * them as skipped (the CLI prints the same notice).
+ */
+export function skippedBrokerPresets(items: CollectionItem[], folderId?: string): string[] {
+  const scope = folderId ? (findFolderPath(items, folderId)?.at(-1)?.items ?? []) : items;
+  const out: string[] = [];
+  const walk = (level: CollectionItem[]) => {
+    for (const item of level) {
+      if (item.request && isBrokerRequest(item.request)) out.push(item.name);
+      if (item.items) walk(item.items);
+    }
+  };
+  walk(scope);
+  return out;
+}

@@ -2,8 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { kafkaSecretKey } from '@/features/kafka/lib/kafkaManager';
 import {
   applyKafkaPreset,
+  copyKafkaPresetSecrets,
   kafkaPresetFromConnection,
   kafkaPresetSecretScope,
+  readKafkaPresetSecrets,
+  reapKafkaPresetSecrets,
   restoreKafkaPresetSecrets,
   storeKafkaPresetSecrets,
 } from '@/features/kafka/lib/kafkaPreset';
@@ -11,7 +14,9 @@ import { KAFKA_SECRET_SENTINEL, useKafkaStore } from '@/features/kafka/store/use
 import {
   getKafkaProduceDraft,
   getMqttComposerDraft,
+  getPendingSecret,
   setKafkaProduceDraft,
+  setPendingSecret,
 } from '@/lib/shared/streaming/composerDrafts';
 import { kafkaRequestSchema } from '@/lib/shared/validations';
 
@@ -252,5 +257,52 @@ describe('kafka preset optional fields', () => {
     expect(preset.produce.partition).toBeUndefined();
     expect(getKafkaProduceDraft(null)).toBeUndefined();
     expect(getMqttComposerDraft(null)).toBeUndefined();
+  });
+});
+
+describe('kafka preset credential lifecycle (#984 review)', () => {
+  beforeEach(() => {
+    vault.clear();
+    useKafkaStore.setState({ connections: {}, activeConnectionId: null, connectionByTabId: {} });
+  });
+
+  it('saves credentials typed before connecting and plaintext field values', async () => {
+    const id = useKafkaStore.getState().createConnection();
+    useKafkaStore.getState().updateAuth(id, {
+      securityProtocol: 'SASL_SSL',
+      sasl: { mechanism: 'PLAIN', username: 'u', password: '' },
+      tls: { passphrase: 'plain-pp' },
+    });
+    setPendingSecret(kafkaSecretKey(id, 'sasl-password'), 'typed-pw');
+    await storeKafkaPresetSecrets(useKafkaStore.getState().connections[id]!, 'req-p');
+    const scope = kafkaPresetSecretScope('req-p');
+    expect(vault.get(kafkaSecretKey(scope, 'sasl-password'))).toBe('typed-pw');
+    expect(vault.get(kafkaSecretKey(scope, 'tls-passphrase'))).toBe('plain-pp');
+    expect(vault.has(kafkaSecretKey(scope, 'registry-password'))).toBe(false);
+  });
+
+  it('reaps and copies a preset scope', async () => {
+    vault.set(kafkaSecretKey(kafkaPresetSecretScope('a'), 'oauth-token'), 'tok');
+    await copyKafkaPresetSecrets('a', 'b');
+    expect(vault.get(kafkaSecretKey(kafkaPresetSecretScope('b'), 'oauth-token'))).toBe('tok');
+    expect(await readKafkaPresetSecrets('b')).toEqual({ 'oauth-token': 'tok' });
+    reapKafkaPresetSecrets('a');
+    expect(await readKafkaPresetSecrets('a')).toEqual({});
+  });
+
+  it('clears drafts and pending credentials when the connection goes away', () => {
+    const id = useKafkaStore.getState().createConnection();
+    setKafkaProduceDraft(id, {
+      key: '',
+      keyEncoding: 'utf8',
+      value: 'v',
+      valueEncoding: 'utf8',
+      headers: [],
+      partition: '',
+    });
+    setPendingSecret(kafkaSecretKey(id, 'sasl-password'), 'pw');
+    useKafkaStore.getState().removeConnection(id);
+    expect(getKafkaProduceDraft(id)).toBeUndefined();
+    expect(getPendingSecret(kafkaSecretKey(id, 'sasl-password'))).toBeUndefined();
   });
 });

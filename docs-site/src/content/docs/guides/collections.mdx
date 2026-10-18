@@ -23,9 +23,11 @@ WebSocket and Socket.IO sessions can't be saved to a collection yet — Save to 
 
 On desktop, **Save to Collection** on a Kafka or MQTT tab stores a *connection preset*: the broker connection (brokers / URL, auth mode, TLS file paths, client id) plus what you were about to send or receive — the Kafka topic, key, payload template, headers and consumer group/topics, or the MQTT publish / subscribe drafts and saved publish templates. Opening the preset from the sidebar (it shows a **KAFKA** / **MQTT** badge) opens the matching panel prefilled; it doesn't connect until you press **Connect**.
 
-- **Credentials stay local.** SASL passwords, OAuth tokens, TLS key passphrases and MQTT passwords are copied into the desktop's encrypted store under the preset, never into the collection. They're never exported, written to a git-native collection or shared — a teammate enters their own after importing.
+- **Credentials stay local.** SASL passwords, OAuth tokens, TLS key passphrases and MQTT passwords (including ones typed but not yet connected) are copied into the desktop's encrypted store under the preset, never into the collection. They're never exported, written to a git-native collection or shared — a teammate enters their own after importing. Deleting a preset (or its folder / collection) removes them; duplicating copies them. A `user:password@` part typed into a broker or registry address is not saved — use the password fields.
+- **Save changes** (tab menu or <kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>S</kbd>) on a tab opened from a preset updates that preset in place.
+- The collection runner and the CLI skip presets (the runner lists how many).
 - **Per-environment presets.** Brokers, topics, keys, payloads and headers can hold `{{variables}}`; they're resolved from the active environment when you connect, produce, subscribe or publish (unresolved ones are sent as typed and flagged in the message log).
-- Presets export through OpenCollection (`x-restura-kafka` / `x-restura-mqtt`, see the [reference](/reference/opencollection/#restura-extensions)) and git-native collections. Postman, Insomnia and Bruno exports write a named "not supported" stub instead, and the CLI skips presets with a notice.
+- Presets export through OpenCollection (`x-restura-kafka` / `x-restura-mqtt`, see the [reference](/reference/opencollection/#restura-extensions)) and git-native collections. Postman, Insomnia and Bruno exports write a named "not supported" stub instead.
 - On the web build, imported presets are listed but open the desktop-only panel.
 
 ## Inheritance

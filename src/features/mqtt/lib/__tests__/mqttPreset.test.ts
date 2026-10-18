@@ -2,13 +2,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mqttSecretKey } from '@/features/mqtt/lib/mqttManager';
 import {
   applyMqttPreset,
+  copyMqttPresetSecrets,
   mqttPresetFromConnection,
   mqttPresetSecretScope,
+  readMqttPresetSecrets,
+  reapMqttPresetSecrets,
   restoreMqttPresetSecrets,
   storeMqttPresetSecrets,
 } from '@/features/mqtt/lib/mqttPreset';
 import { MQTT_SECRET_SENTINEL, useMqttStore } from '@/features/mqtt/store/useMqttStore';
-import { getMqttComposerDraft, setMqttComposerDraft } from '@/lib/shared/streaming/composerDrafts';
+import {
+  getMqttComposerDraft,
+  setMqttComposerDraft,
+  setPendingSecret,
+} from '@/lib/shared/streaming/composerDrafts';
 import { mqttRequestSchema } from '@/lib/shared/validations';
 
 const vault = vi.hoisted(() => new Map<string, string>());
@@ -132,5 +139,44 @@ describe('mqtt collection presets (#984)', () => {
     expect(vault.has(mqttSecretKey(mqttPresetSecretScope('r'), 'password'))).toBe(false);
     await restoreMqttPresetSecrets('r', 'missing-connection');
     expect(useMqttStore.getState().connections['missing-connection']).toBeUndefined();
+  });
+});
+
+describe('mqtt preset credential lifecycle (#984 review)', () => {
+  beforeEach(() => {
+    vault.clear();
+    useMqttStore.setState({ connections: {}, activeConnectionId: null, connectionByTabId: {} });
+  });
+
+  it('saves credentials typed before connecting and plaintext field values', async () => {
+    const id = useMqttStore.getState().createConnection();
+    useMqttStore.getState().updateConnection(id, { password: 'plain-pw' });
+    useMqttStore.getState().updateTls(id, { caPath: '/ca' });
+    setPendingSecret(mqttSecretKey(id, 'tls-passphrase'), 'typed-pp');
+    await storeMqttPresetSecrets(useMqttStore.getState().connections[id]!, 'req-m');
+    const scope = mqttPresetSecretScope('req-m');
+    expect(vault.get(mqttSecretKey(scope, 'password'))).toBe('plain-pw');
+    expect(vault.get(mqttSecretKey(scope, 'tls-passphrase'))).toBe('typed-pp');
+  });
+
+  it('reaps and copies a preset scope, and drops drafts with the connection', async () => {
+    vault.set(mqttSecretKey(mqttPresetSecretScope('a'), 'password'), 'pw');
+    await copyMqttPresetSecrets('a', 'b');
+    expect(await readMqttPresetSecrets('b')).toEqual({ password: 'pw' });
+    reapMqttPresetSecrets('a');
+    expect(await readMqttPresetSecrets('a')).toEqual({});
+
+    const tabId = 'tab-x';
+    const id = useMqttStore.getState().ensureConnectionForTab(tabId);
+    setMqttComposerDraft(id, {
+      pubTopic: 't',
+      pubPayload: '',
+      pubQos: 0,
+      pubRetain: false,
+      subTopic: '',
+      subQos: 0,
+    });
+    useMqttStore.getState().cleanupConnectionForTab(tabId);
+    expect(getMqttComposerDraft(id)).toBeUndefined();
   });
 });

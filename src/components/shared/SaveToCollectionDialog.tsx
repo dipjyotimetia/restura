@@ -20,14 +20,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { snapshotBrokerTab } from '@/features/collections/lib/brokerPresets';
+import {
+  snapshotBrokerTab,
+  USERINFO_STRIPPED_WARNING,
+} from '@/features/collections/lib/brokerPresets';
 import { saveToCollectionBlockedReason } from '@/features/collections/lib/collectable';
 import { isNameTaken, siblingNamesForParent } from '@/features/collections/lib/names';
 import { useCollectionStore } from '@/store/useCollectionStore';
 import { useRequestStore } from '@/store/useRequestStore';
 import type { CollectionItem } from '@/types';
-
-const isBrokerMode = (mode: string): boolean => mode === 'kafka' || mode === 'mqtt';
+import { isBrokerMode } from '@/types';
 
 interface FolderEntry {
   id: string;
@@ -122,7 +124,7 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
     // Kafka / MQTT tabs save a secret-free connection preset (#984) built from
     // the live panel connection, not the tab's HTTP placeholder request.
     const broker = tab.modeOverride ? snapshotBrokerTab(tab, effectiveRequestName) : null;
-    if (tab.modeOverride && isBrokerMode(tab.modeOverride) && !broker) {
+    if (isBrokerMode(tab.modeOverride) && !broker) {
       toast.error('Open the connection panel once before saving it to a collection');
       return;
     }
@@ -154,6 +156,7 @@ export function SaveToCollectionDialog({ tabId, open, onOpenChange }: SaveToColl
       safeFolderId
     );
     if (broker) {
+      if (broker.strippedUserinfo) toast.warning(USERINFO_STRIPPED_WARNING);
       // Credentials go to the preset's secure-storage scope, never the item.
       void broker.persistSecrets().catch(() => {
         toast.error('Saved without credentials — re-enter them after opening the preset');

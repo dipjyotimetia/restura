@@ -1,5 +1,5 @@
 import { Plug, PlugZap, Trash2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { withErrorBoundary } from '@/components/shared/ErrorBoundary';
 import { Button } from '@/components/ui/button';
 import { ConnectionBadge, Floater, ProtoChip, VariableText } from '@/components/ui/spatial';
@@ -88,9 +88,16 @@ export function KafkaClient() {
     setProduceError(null);
   }, [activeConnectionId]);
 
-  // Mirror the produce draft so Save to Collection can capture it (#984).
+  // Mirror the produce draft so Save to Collection can capture it (#984). The
+  // first commit after a connection switch still holds the previous
+  // connection's draft, so it is skipped rather than written under the new id.
+  const mirroredFor = useRef<string | null>(null);
   useEffect(() => {
     if (!connection) return;
+    if (mirroredFor.current !== connection.id) {
+      mirroredFor.current = connection.id;
+      return;
+    }
     setKafkaProduceDraft(connection.id, {
       key: produceKey,
       keyEncoding: produceKeyEncoding,

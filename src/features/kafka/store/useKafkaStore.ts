@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { capMessages } from '@/lib/shared/message-cap';
 import { createPersistedStore } from '@/lib/shared/persistence/createPersistedStore';
+import { clearComposerDrafts } from '@/lib/shared/streaming/composerDrafts';
 import { useConsoleStore } from '@/store/useConsoleStore';
 import { emitStreamEvent } from '@/store/useStreamTimelineStore';
 
@@ -276,6 +277,7 @@ export const useKafkaStore = create<KafkaState>()(
       cleanupConnectionForTab: (tabId) => {
         const connectionId = get().connectionByTabId[tabId];
         if (!connectionId) return;
+        clearComposerDrafts(connectionId);
         set((state) => {
           const { [connectionId]: _drop, ...restConns } = state.connections;
           const { [tabId]: _dropTab, ...restMap } = state.connectionByTabId;
@@ -290,6 +292,7 @@ export const useKafkaStore = create<KafkaState>()(
 
       removeConnection: (id) =>
         set((state) => {
+          clearComposerDrafts(id);
           const { [id]: _removed, ...rest } = state.connections;
           const nextMap = Object.fromEntries(
             Object.entries(state.connectionByTabId).filter(([, cid]) => cid !== id)

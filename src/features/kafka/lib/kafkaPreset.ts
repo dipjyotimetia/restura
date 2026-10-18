@@ -20,6 +20,7 @@ import {
 import { secureStorage } from '@/lib/shared/secure-storage';
 import {
   getKafkaProduceDraft,
+  getPendingSecret,
   type KafkaProduceDraft,
   setKafkaProduceDraft,
 } from '@/lib/shared/streaming/composerDrafts';
@@ -171,25 +172,30 @@ export function applyKafkaPreset(connectionId: string, preset: KafkaRequest): vo
   });
 }
 
-/** Copy every stored secret field from one scope to another; returns the copied fields. */
-async function copySecrets(fromScope: string, toScope: string): Promise<Set<KafkaSecretField>> {
-  const copied = new Set<KafkaSecretField>();
-  for (const field of SECRET_FIELDS) {
-    const value = await secureStorage.getAsync(kafkaSecretKey(fromScope, field));
-    if (value) {
-      secureStorage.set(kafkaSecretKey(toScope, field), value);
-      copied.add(field);
-    } else {
-      secureStorage.remove(kafkaSecretKey(toScope, field));
-    }
-  }
-  return copied;
+export type KafkaPresetSecrets = Partial<Record<KafkaSecretField, string>>;
+
+/**
+ * The value a connection holds for one credential field: the stored secret
+ * when the field carries the sentinel, a credential typed but not yet
+ * connected (pending draft), or plaintext sitting on the field itself.
+ */
+async function heldSecret(
+  connectionId: string,
+  field: KafkaSecretField,
+  value: string | undefined
+): Promise<string | null> {
+  const key = kafkaSecretKey(connectionId, field);
+  const pending = getPendingSecret(key);
+  if (pending) return pending;
+  if (value === KAFKA_SECRET_SENTINEL) return secureStorage.getAsync(key);
+  return value ? value : null;
 }
 
 /**
- * Save side: copy the credentials a live connection has stored (sentinel
- * fields only) into the preset's scope. Fields the connection does not hold
- * are cleared from the preset scope so a re-save never keeps a stale secret.
+ * Save side: copy the credentials a live connection holds into the preset's
+ * scope — stored (sentinel) values, credentials typed before connecting, and
+ * plaintext on the field. Fields the connection does not hold are cleared from
+ * the preset scope so a re-save never keeps a stale secret.
  */
 export async function storeKafkaPresetSecrets(
   conn: KafkaConnection,
@@ -197,48 +203,83 @@ export async function storeKafkaPresetSecrets(
 ): Promise<void> {
   const target = kafkaPresetSecretScope(requestId);
   const sasl = conn.auth.sasl;
-  const held: Record<KafkaSecretField, boolean> = {
-    'sasl-password': sasl?.mechanism !== 'OAUTHBEARER' && sasl?.password === KAFKA_SECRET_SENTINEL,
-    'oauth-token': sasl?.mechanism === 'OAUTHBEARER' && sasl.token === KAFKA_SECRET_SENTINEL,
-    'tls-passphrase': conn.auth.tls?.passphrase === KAFKA_SECRET_SENTINEL,
-    'registry-password': conn.registry?.auth?.password === KAFKA_SECRET_SENTINEL,
+  const fieldValue: Record<KafkaSecretField, string | undefined> = {
+    'sasl-password': sasl && sasl.mechanism !== 'OAUTHBEARER' ? sasl.password : undefined,
+    'oauth-token': sasl?.mechanism === 'OAUTHBEARER' ? sasl.token : undefined,
+    'tls-passphrase': conn.auth.tls?.passphrase,
+    'registry-password': conn.registry?.auth?.password,
   };
   for (const field of SECRET_FIELDS) {
-    const value = held[field] ? await secureStorage.getAsync(kafkaSecretKey(conn.id, field)) : null;
+    const value = await heldSecret(conn.id, field, fieldValue[field]);
     if (value) secureStorage.set(kafkaSecretKey(target, field), value);
     else secureStorage.remove(kafkaSecretKey(target, field));
   }
 }
 
+/** Read the credentials stored for a preset (absent fields omitted). */
+export async function readKafkaPresetSecrets(requestId: string): Promise<KafkaPresetSecrets> {
+  const scope = kafkaPresetSecretScope(requestId);
+  const out: KafkaPresetSecrets = {};
+  for (const field of SECRET_FIELDS) {
+    const value = await secureStorage.getAsync(kafkaSecretKey(scope, field));
+    if (value) out[field] = value;
+  }
+  return out;
+}
+
 /**
- * Open side: copy a preset's stored credentials onto the tab connection and
- * mark the matching fields with the sentinel so the manager resolves them.
+ * Write preset credentials onto a tab connection (synchronously) and mark the
+ * matching fields with the sentinel so the manager resolves them at connect.
  */
-export async function restoreKafkaPresetSecrets(
-  requestId: string,
-  connectionId: string
-): Promise<void> {
-  const copied = await copySecrets(kafkaPresetSecretScope(requestId), connectionId);
-  if (copied.size === 0) return;
+export function applyKafkaPresetSecrets(connectionId: string, secrets: KafkaPresetSecrets): void {
+  const fields = SECRET_FIELDS.filter((field) => secrets[field]);
+  if (fields.length === 0) return;
+  for (const field of fields) {
+    secureStorage.set(kafkaSecretKey(connectionId, field), secrets[field] as string);
+  }
   const store = useKafkaStore.getState();
   const conn = store.connections[connectionId];
   if (!conn) return;
   const auth: KafkaAuth = { ...conn.auth };
-  if (auth.sasl?.mechanism === 'OAUTHBEARER' && copied.has('oauth-token')) {
+  if (auth.sasl?.mechanism === 'OAUTHBEARER' && secrets['oauth-token']) {
     auth.sasl = { ...auth.sasl, token: KAFKA_SECRET_SENTINEL };
-  } else if (auth.sasl && auth.sasl.mechanism !== 'OAUTHBEARER' && copied.has('sasl-password')) {
+  } else if (auth.sasl && auth.sasl.mechanism !== 'OAUTHBEARER' && secrets['sasl-password']) {
     auth.sasl = { ...auth.sasl, password: KAFKA_SECRET_SENTINEL };
   }
-  if (auth.tls && copied.has('tls-passphrase')) {
+  if (auth.tls && secrets['tls-passphrase']) {
     auth.tls = { ...auth.tls, passphrase: KAFKA_SECRET_SENTINEL };
   }
   store.updateAuth(connectionId, auth);
-  if (conn.registry && copied.has('registry-password')) {
+  if (conn.registry && secrets['registry-password']) {
     store.updateConnection(connectionId, {
       registry: {
         ...conn.registry,
         auth: { ...(conn.registry.auth ?? {}), password: KAFKA_SECRET_SENTINEL },
       },
     });
+  }
+}
+
+/** Open side: copy a preset's stored credentials onto the tab connection. */
+export async function restoreKafkaPresetSecrets(
+  requestId: string,
+  connectionId: string
+): Promise<void> {
+  applyKafkaPresetSecrets(connectionId, await readKafkaPresetSecrets(requestId));
+}
+
+/** Delete every credential stored for a preset (preset deleted). */
+export function reapKafkaPresetSecrets(requestId: string): void {
+  const scope = kafkaPresetSecretScope(requestId);
+  for (const field of SECRET_FIELDS) secureStorage.remove(kafkaSecretKey(scope, field));
+}
+
+/** Copy a preset's credentials to another preset id (duplicate). */
+export async function copyKafkaPresetSecrets(fromId: string, toId: string): Promise<void> {
+  const secrets = await readKafkaPresetSecrets(fromId);
+  const scope = kafkaPresetSecretScope(toId);
+  for (const field of SECRET_FIELDS) {
+    const value = secrets[field];
+    if (value) secureStorage.set(kafkaSecretKey(scope, field), value);
   }
 }
