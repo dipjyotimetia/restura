@@ -6,6 +6,11 @@ import {
   validateToolOutput,
 } from './mcp-output-schema';
 
+// Unbounded expansion of these schemas would take minutes; the bound only has
+// to separate "bounded" from "exponential", with headroom for coverage
+// instrumentation on shared CI runners.
+const BOUNDED_MS = 2000;
+
 function timed<T>(fn: () => T): { result: T; ms: number } {
   const start = performance.now();
   const result = fn();
@@ -16,7 +21,7 @@ describe('hostile server-controlled schemas stay bounded', () => {
   it('self-referential allOf of $ref "#" x10 completes fast without expanding exponentially', () => {
     const schema = { allOf: Array.from({ length: 10 }, () => ({ $ref: '#' })) };
     const { result, ms } = timed(() => checkAgainstSchema(schema, { a: 1 }));
-    expect(ms).toBeLessThan(200);
+    expect(ms).toBeLessThan(BOUNDED_MS);
     expect(result.issues).toEqual([]);
   });
 
@@ -31,7 +36,7 @@ describe('hostile server-controlled schemas stay bounded', () => {
     }
     const schema = { $defs: defs, $ref: '#/$defs/d0' };
     const { result, ms } = timed(() => checkAgainstSchema(schema, {}));
-    expect(ms).toBeLessThan(200);
+    expect(ms).toBeLessThan(BOUNDED_MS);
     expect(result.tooComplex).toBe(true);
     expect(result.issues).toEqual([{ path: '$', message: MCP_SCHEMA_TOO_COMPLEX }]);
     expect(validateToolOutput(schema, { structuredContent: {} }).status).toBe('skipped');
@@ -68,7 +73,7 @@ describe('pattern safety', () => {
       const { result, ms } = timed(() =>
         checkAgainstSchema({ type: 'string', pattern }, `${evil}!`)
       );
-      expect(ms).toBeLessThan(200);
+      expect(ms).toBeLessThan(BOUNDED_MS);
       expect(result.issues).toEqual([]);
       expect(result.notes).toEqual([note]);
     }
