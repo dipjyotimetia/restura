@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "remote-sse": {
+      "url": "https://mcp.example.com/sse",
+      "type": "sse",
+      "headers": { "Authorization": "Bearer abc123", "X-Team": "core" }
+    },
+    "remote-http": {
+      "url": "https://mcp.example.com/mcp",
+      "headers": { "X-Api-Key": "${env:EXAMPLE_KEY}" }
+    },
+    "local": {
+      "command": "uvx",
+      "args": ["mcp-server-git"],
+      "env": { "API_KEY": "${env:LOCAL_KEY}" }
+    }
+  }
+}

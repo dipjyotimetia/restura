@@ -8,6 +8,7 @@ import {
   stopCaptureBridge,
   unregisterCaptureBridgeIPC,
 } from './handlers/capture-bridge-handler';
+import { registerDeepLinkImportIPC } from './handlers/deep-link-import-handler';
 import { registerGitHandlerIPC, setGitDirectoryAllowlist } from './handlers/git-handler';
 import { registerGrpcHandlerIPC, stopStreamCleanup } from './handlers/grpc-handler';
 import { registerGrpcReflectionIPC } from './handlers/grpc-reflection-handler';
@@ -15,6 +16,7 @@ import { registerHttpHandlerIPC } from './handlers/http-handler';
 import { registerKafkaHandlerIPC, stopKafkaCleanup } from './handlers/kafka-handler';
 import { loadMcpDispatchContext } from './handlers/mcp-context-loader';
 import { registerMcpHandlerIPC, stopMcpCleanup } from './handlers/mcp-handler';
+import { registerMcpImportIPC, unregisterMcpImportIPC } from './handlers/mcp-import-handler';
 import { startStdioMcpServer } from './handlers/mcp-server-handler';
 import {
   registerMockServerIPC,
@@ -28,7 +30,6 @@ import { registerSseHandlerIPC, stopSseCleanup } from './handlers/sse-handler';
 import { registerWebSocketHandlerIPC, stopWebSocketCleanup } from './handlers/websocket-handler';
 import { registerAutoUpdaterIPC, setupAutoUpdater } from './lifecycle/auto-updater';
 import { registerDeepLinkHandler } from './lifecycle/deep-link-handler';
-import { registerDeepLinkImportIPC } from './handlers/deep-link-import-handler';
 import { initLogging } from './lifecycle/logging';
 import { logRequest, registerRequestLoggerIPC } from './lifecycle/request-logger';
 import { initSentry } from './lifecycle/sentry';
@@ -37,11 +38,11 @@ import { readConsentSync, registerTelemetryConsentIPC } from './lifecycle/teleme
 import { registerWindowControlsIPC } from './lifecycle/window-controls';
 import { registerNotificationIPC } from './notifications';
 import { registerExecutionPolicyIPC } from './security/execution-policy';
-import { registerKeychainStatusIPC } from './security/keychain-status-handler';
 import {
   registerExternalSecretProfileIPC,
   unregisterExternalSecretProfileIPC,
 } from './security/external-secret-profile-store';
+import { registerKeychainStatusIPC } from './security/keychain-status-handler';
 import { registerSecretHandleIPC, unregisterSecretHandleIPC } from './security/secret-handle-store';
 import { registerBrunoExportHandlerIPC } from './storage/bruno-export-handler';
 import {
@@ -158,6 +159,10 @@ const IPC_MODULES: IpcModule[] = [
   { register: () => registerSocketIoHandlerIPC(), dispose: () => stopSocketIoCleanup() },
   { register: () => registerSseHandlerIPC(), dispose: () => stopSseCleanup() },
   { register: () => registerMcpHandlerIPC(), dispose: () => stopMcpCleanup() },
+  {
+    register: () => registerMcpImportIPC(getMainWindow),
+    dispose: () => unregisterMcpImportIPC(),
+  },
   { register: () => registerKafkaHandlerIPC(logRequest), dispose: () => stopKafkaCleanup() },
   { register: () => registerMqttHandlerIPC(logRequest), dispose: () => stopMqttCleanup() },
   { register: () => registerRequestLoggerIPC() },

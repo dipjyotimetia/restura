@@ -33,7 +33,7 @@ const StdioArgSchema = z.string().max(L.argMaxLength).refine(noControlChars, {
   message: 'Arguments must not contain control, format or line-separator characters',
 });
 
-const StdioCwdSchema = z
+export const StdioCwdSchema = z
   .string()
   .min(1)
   .max(L.cwdMaxLength)

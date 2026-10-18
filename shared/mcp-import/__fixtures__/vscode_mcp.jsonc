@@ -1,0 +1,26 @@
+{
+  // VS Code allows comments and trailing commas
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "perplexity-key",
+      "description": "Perplexity API Key",
+      "password": true
+    }
+  ],
+  "servers": {
+    "perplexity": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "server-perplexity-ask"],
+      "env": { "PERPLEXITY_API_KEY": "${input:perplexity-key}", "HOME_DIR": "${env:HOME}" },
+      "cwd": "${workspaceFolder}"
+    },
+    "github-remote": {
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": { "Authorization": "Bearer ${input:perplexity-key}" }
+    },
+    "weird": { "type": "websocket", "url": "ws://x" }
+  }
+}
