@@ -1,92 +1,27 @@
-import {
-  isMcpOAuthFlow,
-  isMcpTransportHeader,
-  mcpAuthUnsupportedReason,
-} from '@shared/protocol/mcp-auth';
 import { validateMcpSpec } from '@shared/protocol/mcp-proxy';
-import { isMcpToolError, mcpToolErrorText } from '@shared/protocol/mcp-result';
-import type { AuthConfig, McpRequest } from '@shared/types';
-import { request as undiciRequest } from 'undici';
-import { v4 as uuidv4 } from 'uuid';
+import {
+  buildMcpRunReply,
+  mcpMissingMethodMessage,
+  mcpSessionKey,
+  parseMcpRunParams,
+} from '@shared/protocol/mcp-run';
+import type { McpRequest } from '@shared/types';
 import type { LoadedRequest } from '../collectionLoader';
+import { type CliMcpSession, openCliMcpSession } from '../mcpSession';
 import { resolveVarsDeep } from '../varResolver';
 import { applyAuthHeaders, resolveOAuth2Token } from './auth';
-import { materializeExternalSecretsInAuth } from './external-secret-materializer';
 import type { ExecuteOptions, ExecuteOutcome } from './types';
 
 /**
- * MCP (Model Context Protocol) executor. Fires a one-shot JSON-RPC POST and
- * captures the response. `validateMcpSpec` from the shared proxy handles URL
- * validation, header sanitisation, and envelope construction — we just dispatch.
+ * MCP (Model Context Protocol) executor (#901). Runs the saved operation
+ * (`defaultMethod` + `defaultParams`) over a real MCP session — initialize
+ * once per server per run (pooled by the runner), then the call — and returns
+ * the JSON-RPC envelope as the response body, exactly like the in-app
+ * collection runner (`@shared/protocol/mcp-run`):
  *
- * Subscription / streaming MCP transports are out of scope for CLI v0.2 — we
- * run the request as a single round trip even when `transport: http-sse`.
+ *   rs.response.json().result          — the result (incl. `isError`)
+ *   rs.response.json().error           — a JSON-RPC error { code, message, data }
  */
-/**
- * Resolve `{{vars}}` in the header-shaped credential fields BEFORE headers are
- * built (Basic is base64-encoded and `apiKey.key` is a header name), matching
- * the app's `resolveAuthVariables`. Non-string / non-inline values pass through.
- */
-function resolveMcpAuthVars(auth: AuthConfig | undefined, vars: Record<string, string>) {
-  if (!auth) return auth;
-  const r = (v: string) => resolveVarsDeep(v, vars);
-  const secret = <T>(v: T): T => {
-    if (typeof v === 'string') return r(v) as T;
-    if (v && typeof v === 'object' && (v as { kind?: string }).kind === 'inline') {
-      return {
-        ...(v as object),
-        value: r((v as unknown as { value: string }).value),
-      } as T;
-    }
-    return v;
-  };
-  switch (auth.type) {
-    case 'bearer':
-      return auth.bearer
-        ? {
-            ...auth,
-            bearer: { ...auth.bearer, token: secret(auth.bearer.token) },
-          }
-        : auth;
-    case 'basic':
-      return auth.basic
-        ? {
-            ...auth,
-            basic: {
-              username: r(auth.basic.username),
-              password: secret(auth.basic.password),
-            },
-          }
-        : auth;
-    case 'api-key':
-      return auth.apiKey
-        ? {
-            ...auth,
-            apiKey: {
-              ...auth.apiKey,
-              key: r(auth.apiKey.key),
-              value: secret(auth.apiKey.value),
-            },
-          }
-        : auth;
-    case 'oauth2':
-      return auth.oauth2
-        ? {
-            ...auth,
-            oauth2: {
-              ...auth.oauth2,
-              accessToken: secret(auth.oauth2.accessToken),
-              ...(auth.oauth2.tokenType !== undefined
-                ? { tokenType: r(auth.oauth2.tokenType) }
-                : {}),
-            },
-          }
-        : auth;
-    default:
-      return auth;
-  }
-}
-
 export async function executeMcp(
   item: LoadedRequest,
   opts: ExecuteOptions
@@ -102,19 +37,6 @@ export async function executeMcp(
   }
   const req = item.request as McpRequest;
 
-  // The stdio transport launches a local process. That is a desktop-only
-  // capability gated by an interactive consent prompt (ADR 0030); the CLI
-  // must never spawn processes from collection data, so refuse before any I/O.
-  if (req.transport === 'stdio') {
-    return {
-      status: 0,
-      passed: false,
-      durationMs: 0,
-      bodyBytes: 0,
-      errorMessage: `MCP stdio transport is desktop-only; "${req.name}" was not run (the CLI never launches local processes from a collection).`,
-    };
-  }
-
   // A saved MCP request is ONE operation (`defaultMethod` + `defaultParams`).
   // Without a method there is nothing meaningful to run — fail the item loudly
   // instead of silently substituting `ping` (#877), before any I/O.
@@ -125,10 +47,7 @@ export async function executeMcp(
       passed: false,
       durationMs: 0,
       bodyBytes: 0,
-      errorMessage:
-        `No MCP method configured for "${req.name}". Set defaultMethod (e.g. "tools/call", ` +
-        `"resources/read", "prompts/get") and defaultParams (e.g. {"name":"<tool>","arguments":{}}) ` +
-        'on the request — open it in Restura, build the operation, and save it to the collection again.',
+      errorMessage: mcpMissingMethodMessage(req.name),
     };
   }
 
@@ -137,39 +56,13 @@ export async function executeMcp(
   for (const h of req.headers ?? []) {
     if (h.enabled && h.key) headers[h.key] = resolveVarsDeep(h.value, opts.vars);
   }
-  // Header-based auth (Bearer / Basic / API-key / OAuth2) under the shared MCP
-  // policy (#896): an unsupported scheme or an `in: query` API key fails the
-  // item instead of silently going out unauthenticated. A handle ref throws;
-  // external refs resolve through the configured provider (HTTP parity).
+  // Header-based auth (Bearer / Basic / API-key / OAuth2). MCP has no query
+  // channel, so api-key `in: query` is unsupported here. A handle ref throws.
   try {
-    const unsupported = mcpAuthUnsupportedReason(req.auth);
-    if (unsupported) throw new Error(unsupported);
-    // #856: the OAuth 2.1 browser sign-in is desktop-only; CI passes a token.
-    if (isMcpOAuthFlow(req.auth)) {
-      throw new Error(
-        'MCP OAuth sign-in is interactive (desktop app only) — in CI set oauth2.accessToken from a variable or use Bearer auth'
-      );
-    }
-    const externalMaterializedAuth = await materializeExternalSecretsInAuth(
-      req.auth,
-      opts.externalSecretResolver
-    );
-    const resolvedAuth = await resolveOAuth2Token(externalMaterializedAuth, opts.vars, {
+    const resolvedAuth = await resolveOAuth2Token(req.auth, opts.vars, {
       allowLocalhost: opts.allowLocalhost,
-      ...(opts.oauthFetch ? { fetch: opts.oauthFetch } : {}),
     });
-    const authHeaders: Record<string, string> = {};
-    applyAuthHeaders(resolveMcpAuthVars(resolvedAuth, opts.vars), authHeaders, {});
-    for (const [key, value] of Object.entries(authHeaders)) {
-      if (isMcpTransportHeader(key)) {
-        throw new Error(`Auth header "${key}" is reserved by the MCP transport`);
-      }
-      // Auth wins over a same-named user header in any casing.
-      for (const existing of Object.keys(headers)) {
-        if (existing.toLowerCase() === key.toLowerCase()) delete headers[existing];
-      }
-      headers[key] = value;
-    }
+    applyAuthHeaders(resolvedAuth, headers, {});
   } catch (err) {
     return {
       status: 0,
@@ -180,34 +73,31 @@ export async function executeMcp(
     };
   }
 
-  // Build a JSON-RPC envelope from defaultMethod/defaultParams. Real MCP usage
-  // would walk a script-driven dialog; the CLI's contract is "send one call".
-  let params: unknown = undefined;
-  if (req.defaultParams) {
-    const resolved = resolveVarsDeep(req.defaultParams, opts.vars);
-    try {
-      params = JSON.parse(resolved);
-    } catch {
-      params = resolved; // pass through verbatim if not JSON
-    }
+  const parsedParams = parseMcpRunParams(
+    req.defaultParams ? resolveVarsDeep(req.defaultParams, opts.vars) : undefined
+  );
+  if (!parsedParams.ok) {
+    return {
+      status: 0,
+      passed: false,
+      durationMs: 0,
+      bodyBytes: 0,
+      errorMessage: parsedParams.error,
+    };
   }
-  const id = uuidv4();
 
+  // Shared URL guard + header sanitisation; the SDK session owns the wire.
   const validation = validateMcpSpec(
     {
       url,
       transport: req.transport,
-      // The CLI fires a single JSON-RPC POST. For the http-sse transport the
-      // shared validator requires an explicit POST endpoint (it otherwise only
-      // has the SSE GET url); for a one-shot call that endpoint is the url.
       ...(req.transport === 'http-sse' ? { postEndpoint: url } : {}),
       headers,
-      jsonRpc: { method, params, id },
+      jsonRpc: { method, id: 0 },
       timeout: opts.timeoutMs,
     },
     opts.allowLocalhost
   );
-
   if (!validation.ok) {
     return {
       status: validation.status,
@@ -218,58 +108,43 @@ export async function executeMcp(
     };
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), validation.timeoutMs);
-  const start = Date.now();
-  try {
-    const response = await undiciRequest(validation.targetUrl, {
-      method: 'POST',
+  const open = () =>
+    openCliMcpSession({
+      url,
+      transport: req.transport,
       headers: validation.headers,
-      body: validation.body,
-      signal: controller.signal,
+      allowLocalhost: opts.allowLocalhost,
+      timeoutMs: validation.timeoutMs,
       ...(opts.dispatcher ? { dispatcher: opts.dispatcher } : {}),
+      ...(opts.signal ? { signal: opts.signal } : {}),
     });
-    const status = response.statusCode;
-    const text = await response.body.text();
-    const responseHeaders: Record<string, string> = {};
-    for (const [k, v] of Object.entries(response.headers)) {
-      if (v === undefined) continue;
-      responseHeaders[k] = Array.isArray(v) ? v.join(', ') : String(v);
-    }
-
-    let passed = status >= 200 && status < 300;
-    let errorMessage: string | undefined;
-    // A 2xx with a JSON-RPC `error` field is still a failure from the caller's POV.
-    if (passed) {
-      try {
-        const parsed = JSON.parse(text);
-        if (parsed && typeof parsed === 'object' && 'error' in parsed && parsed.error) {
-          passed = false;
-          const e = parsed.error as { message?: string; code?: number };
-          errorMessage = `JSON-RPC error ${e.code ?? ''}: ${e.message ?? text}`;
-        } else if (parsed && typeof parsed === 'object' && isMcpToolError(parsed.result)) {
-          // Tool execution errors ride a *successful* JSON-RPC response with
-          // `result.isError: true` (MCP 2025-06-18). Fail the item, and word it
-          // differently from a protocol error so reports can tell them apart.
-          passed = false;
-          errorMessage = `MCP tool error (isError: true): ${mcpToolErrorText(parsed.result)}`;
-        }
-      } catch {
-        // Non-JSON body — leave passed as is; the script can decide.
-      }
-    } else {
-      errorMessage = `MCP upstream returned ${status}`;
-    }
-
+  // Pooled (a `restura run`): one initialized session per server for the
+  // whole run, closed by the runner. Unpooled: a session for this call only.
+  const pool = opts.mcpSessions;
+  const start = Date.now();
+  let session: CliMcpSession | undefined;
+  try {
+    session = pool
+      ? await pool.get(mcpSessionKey(url, req.transport, validation.headers), open)
+      : await open();
+    const reply = buildMcpRunReply(
+      await session.request(method, parsedParams.params, {
+        timeoutMs: validation.timeoutMs,
+        ...(opts.signal ? { signal: opts.signal } : {}),
+      })
+    );
     const outcome: ExecuteOutcome = {
-      status,
-      passed,
+      // The JSON-RPC call completed; HTTP-level failures throw below.
+      status: 200,
+      passed: reply.outcome === 'result',
       durationMs: Date.now() - start,
-      bodyBytes: text.length,
-      responseHeaders,
-      responseBody: text,
+      bodyBytes: Buffer.byteLength(reply.body),
+      responseHeaders: {},
+      responseBody: reply.body,
     };
-    if (errorMessage) outcome.errorMessage = errorMessage;
+    // JSON-RPC errors and tool `isError` results stay assertable: they fail
+    // the item only when no test assertion decides (see runner).
+    if (reply.outcome !== 'result') outcome.protocolError = reply.statusText;
     return outcome;
   } catch (err) {
     return {
@@ -280,6 +155,6 @@ export async function executeMcp(
       errorMessage: err instanceof Error ? err.message : String(err),
     };
   } finally {
-    clearTimeout(timer);
+    if (!pool) await session?.close();
   }
 }

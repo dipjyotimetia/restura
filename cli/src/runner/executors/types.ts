@@ -2,6 +2,7 @@ import type { Fetcher } from '@shared/protocol/types';
 import type { ExternalSecretResolver } from '@shared/secrets/external-secret-resolver';
 import type { Dispatcher } from 'undici';
 import type { LoadedRequest } from '../collectionLoader';
+import type { CliMcpSessionPool } from '../mcpSession';
 
 /** Streaming event captured from SSE or WebSocket runs. */
 export interface StreamEvent {
@@ -33,6 +34,12 @@ export interface ExecuteOutcome {
   /** gRPC trailing metadata (`rs.response.trailers` in test scripts). */
   responseTrailers?: Record<string, string>;
   errorMessage?: string;
+  /**
+   * A protocol-level failure test assertions may override (MCP: a JSON-RPC
+   * error or a tool result with `isError: true`). Unlike `errorMessage` it
+   * does not force a fail; the runner reports it only when no assertion ran.
+   */
+  protocolError?: string;
   grpcStatus?: GrpcStatusInfo;
   streamEvents?: StreamEvent[];
 }
@@ -57,6 +64,8 @@ export interface ExecuteOptions {
   fetcher?: Fetcher;
   /** DNS-pinned fetch for OAuth token exchange in security-sensitive agent tools. */
   oauthFetch?: typeof globalThis.fetch;
+  /** Run-scoped MCP sessions: initialize once per server, closed at run end. */
+  mcpSessions?: CliMcpSessionPool;
   /** Explicit external-secret resolver; omitted profiles fail closed. */
   externalSecretResolver?: ExternalSecretResolver;
 }
