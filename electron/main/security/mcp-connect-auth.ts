@@ -49,6 +49,29 @@ export interface MaterializedMcpConnect {
 
 const identity: SecretRedactor = (text) => text;
 
+/**
+ * Apply a {@link SecretRedactor} to every string (values and keys) in a
+ * JSON-shaped value — JSON-RPC results, error `data` and notifications are
+ * server-controlled and may echo the resolved credential back. Returns a
+ * fresh copy; cycles collapse to `null`. Non-plain objects pass through.
+ */
+export function redactDeep<T>(value: T, redact: SecretRedactor): T {
+  const seen = new WeakSet<object>();
+  const walk = (v: unknown): unknown => {
+    if (typeof v === 'string') return redact(v);
+    if (!v || typeof v !== 'object') return v;
+    if (seen.has(v)) return null;
+    seen.add(v);
+    if (Array.isArray(v)) return v.map(walk);
+    const proto = Object.getPrototypeOf(v);
+    if (proto !== Object.prototype && proto !== null) return v;
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(v)) out[redact(key)] = walk(child);
+    return out;
+  };
+  return walk(value) as T;
+}
+
 /** True when the connect carries auth that must be resolved main-side. */
 export function needsMcpConnectAuth(config: McpConnectAuthConfig): boolean {
   return config.auth !== undefined && config.auth.type !== 'none';

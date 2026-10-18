@@ -22,6 +22,7 @@ import {
   MCP_REQUEST_TRANSPORT,
   materializeMcpConnectAuth,
   needsMcpConnectAuth,
+  redactDeep,
 } from '../security/mcp-connect-auth';
 
 type Auth = Parameters<typeof materializeMcpConnectAuth>[0]['auth'];
@@ -140,5 +141,28 @@ describe('materializeMcpConnectAuth (#896)', () => {
     expect(MCP_REQUEST_TRANSPORT.isForbiddenHeader('mcp-protocol-version')).toBe(true);
     expect(MCP_REQUEST_TRANSPORT.isForbiddenHeader('proxy-authorization')).toBe(true);
     expect(MCP_REQUEST_TRANSPORT.isForbiddenHeader('Authorization')).toBe(false);
+  });
+});
+
+describe('redactDeep', () => {
+  const redact = (text: string) => text.split('tok').join('[redacted]');
+
+  it('scrubs strings and keys at any depth without mutating the input', () => {
+    const input = { a: ['x tok', { tok: 1, n: null, b: true }], s: 'tok' };
+    expect(redactDeep(input, redact)).toEqual({
+      a: ['x [redacted]', { '[redacted]': 1, n: null, b: true }],
+      s: '[redacted]',
+    });
+    expect(input.s).toBe('tok');
+    expect(redactDeep('tok', redact)).toBe('[redacted]');
+    expect(redactDeep(42, redact)).toBe(42);
+  });
+
+  it('collapses cycles and passes non-plain objects through', () => {
+    const cyclic: Record<string, unknown> = { v: 'tok' };
+    cyclic.self = cyclic;
+    expect(redactDeep(cyclic, redact)).toEqual({ v: '[redacted]', self: null });
+    const date = new Date(0);
+    expect(redactDeep({ date }, redact).date).toBe(date);
   });
 });
