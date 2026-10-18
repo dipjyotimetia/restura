@@ -8,16 +8,18 @@ import { Floater, SubTabBar, SubTabPanel } from '@/components/ui/spatial';
 import { McpNotificationsPanel } from '@/features/mcp/components/McpNotificationsPanel';
 import { McpToolHintBadges } from '@/features/mcp/components/McpToolHintBadges';
 import type { McpNotificationEntry } from '@/features/mcp/lib/mcpNotifications';
+import { McpTemplatesPanel } from '@/features/mcp/components/McpTemplatesPanel';
 import type { McpInvocationLog } from '@/features/mcp/store/useMcpStore';
 import { cn } from '@/lib/shared/utils';
 import type {
   McpJsonSchema,
   McpPromptDescriptor,
   McpResourceDescriptor,
+  McpResourceTemplateDescriptor,
   McpToolDescriptor,
 } from '@/types';
 
-export type McpDiscoveryTab = 'tools' | 'resources' | 'prompts' | 'log' | 'events';
+export type McpDiscoveryTab = 'tools' | 'resources' | 'templates' | 'prompts' | 'log' | 'events';
 
 /** Desktop-only: server→client notifications pane (#858). */
 export interface McpDiscoveryEvents {
@@ -34,6 +36,10 @@ export interface McpResourceSubscriptionControls {
 interface McpDiscoveryPanelProps {
   tools: McpToolDescriptor[];
   resources: McpResourceDescriptor[];
+  /** Present only when the server advertises `resources`; hides the Templates tab otherwise. */
+  templates?: McpResourceTemplateDescriptor[] | undefined;
+  selectedTemplateUri?: string | null | undefined;
+  onTemplateSelect?: ((uriTemplate: string) => void) | undefined;
   prompts: McpPromptDescriptor[];
   log: McpInvocationLog[];
   selectedToolName: string | null;
@@ -55,6 +61,9 @@ interface McpDiscoveryPanelProps {
 export function McpDiscoveryPanel({
   tools,
   resources,
+  templates,
+  selectedTemplateUri,
+  onTemplateSelect,
   prompts,
   log,
   selectedToolName,
@@ -79,6 +88,9 @@ export function McpDiscoveryPanel({
         tabs={[
           { value: 'tools', label: 'Tools', count: tools.length },
           { value: 'resources', label: 'Resources', count: resources.length },
+          ...(templates
+            ? [{ value: 'templates' as const, label: 'Templates', count: templates.length }]
+            : []),
           { value: 'prompts', label: 'Prompts', count: prompts.length },
           { value: 'log', label: 'Log', count: log.length },
           ...(events
@@ -109,6 +121,13 @@ export function McpDiscoveryPanel({
             resources={resources}
             onRead={onReadResource}
             subscriptions={resourceSubscriptions}
+          />
+        )}
+        {tab === 'templates' && (
+          <McpTemplatesPanel
+            templates={templates ?? []}
+            selected={selectedTemplateUri ?? null}
+            onSelect={(uri) => onTemplateSelect?.(uri)}
           />
         )}
         {tab === 'prompts' && (

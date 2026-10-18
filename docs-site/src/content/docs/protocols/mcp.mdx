@@ -22,6 +22,9 @@ Point Restura at any MCP server and explore it like any other request target.
 - **Structured output** — when a tool declares an `outputSchema`, the result panel validates `structuredContent` against it and flags mismatches (or a missing `structuredContent`); you can view `structuredContent` on its own.
 - **Connection headers** — bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row; values resolve `{{variables}}`.
 - **List prompts / list resources** — for servers that expose them.
+- **Resource templates** — when the server advertises `resources`, a Templates tab lists `resources/templates/list`. Selecting one opens a form with a field per RFC 6570 URI-template variable (levels 1–3, values percent-encoded), a live preview of the expanded URI, and Read.
+- **Argument completion** — when the server advertises `completions`, prompt arguments and template parameters suggest values via `completion/complete` (debounced, previously entered arguments sent as context).
+- **Log level and ping** — a Ping action shows the round-trip time; when the server advertises `logging`, a picker sends `logging/setLevel`. Both calls appear in the Log tab. These work on web, self-hosted, and desktop.
 
 ### Authentication
 

@@ -14,10 +14,18 @@ import {
 import { McpInvokeForm } from '@/features/mcp/components/McpInvokeForm';
 import { McpRootsPanel } from '@/features/mcp/components/McpRootsPanel';
 import { useMcpClientRequests } from '@/features/mcp/hooks/useMcpClientRequests';
+import { McpLogLevelPicker } from '@/features/mcp/components/McpLogLevelPicker';
+import { McpPingButton } from '@/features/mcp/components/McpPingButton';
+import { McpTemplateForm } from '@/features/mcp/components/McpTemplateForm';
 import { useMcpConnectionActions } from '@/features/mcp/hooks/useMcpConnectionActions';
 import { useMcpServerEvents } from '@/features/mcp/hooks/useMcpServerEvents';
 import { buildMcpConnectAuth } from '@/features/mcp/lib/mcpAuth';
-import { type McpCall, McpClient } from '@/features/mcp/lib/mcpClient';
+import {
+  type McpCall,
+  McpClient,
+  type McpCompletionRef,
+  type McpLogLevel,
+} from '@/features/mcp/lib/mcpClient';
 import { pushMcpRoots } from '@/features/mcp/lib/mcpClientRequests';
 import { supportsMcpServerEvents } from '@/features/mcp/lib/mcpEventBridge';
 import { errorEntry } from '@/features/mcp/lib/mcpNotifications';
@@ -93,6 +101,7 @@ export default function McpRequestBuilder() {
   const clientRef = useRef<McpClientSession | null>(null);
   const clientGenerationRef = useRef(0);
   const [showCatalog, setShowCatalog] = useState(false);
+  const [selectedTemplateUri, setSelectedTemplateUri] = useState<string | null>(null);
   const operation = request ? parseMcpOperation(request) : null;
   const [discoveryTab, setDiscoveryTab] = useState<McpDiscoveryTab>(() =>
     discoveryTabFor(operation)
@@ -225,6 +234,12 @@ export default function McpRequestBuilder() {
   const tools = active.capabilities?.tools ?? [];
   const resources = active.capabilities?.resources ?? [];
   const prompts = active.capabilities?.prompts ?? [];
+  const advertised = active.capabilities?.capabilities;
+  const discoveredTemplates = active.capabilities?.resourceTemplates ?? [];
+  const templates =
+    advertised?.resources || discoveredTemplates.length > 0 ? discoveredTemplates : undefined;
+  const supportsCompletion = advertised?.completions !== undefined;
+  const supportsLogging = advertised?.logging !== undefined;
 
   const buildClient = (): McpClient | { error: string } => {
     const rawHeaders = keyValuePairsToRecord(request.headers);
@@ -422,6 +437,39 @@ export default function McpRequestBuilder() {
     }
   };
 
+  // Completion is non-interactive plumbing: not written to the call log/console.
+  const completeWith =
+    (ref: McpCompletionRef) =>
+    async (
+      argument: { name: string; value: string },
+      context: Record<string, string>
+    ): Promise<string[]> => {
+      const client = getCurrentClient();
+      if (!client) return [];
+      const filled = Object.fromEntries(Object.entries(context).filter(([, v]) => v !== ''));
+      return client.complete(ref, argument, filled);
+    };
+
+  const handlePing = async () => {
+    const client = getCurrentClient();
+    if (!client) return { ok: false, durationMs: 0, error: 'Not connected' };
+    const result = await client.ping();
+    logCall('ping', undefined, result);
+    return result.ok
+      ? { ok: true, durationMs: result.durationMs }
+      : { ok: false, durationMs: result.durationMs, error: result.error };
+  };
+
+  const handleSetLogLevel = async (level: McpLogLevel) => {
+    const client = getCurrentClient();
+    if (!client) return { ok: false, error: 'Not connected' };
+    const result = await client.setLogLevel(level);
+    logCall('logging/setLevel', { level }, result);
+    return result.ok ? { ok: true } : { ok: false, error: result.error };
+  };
+
+  const selectedTemplate = templates?.find((t) => t.uriTemplate === selectedTemplateUri) ?? null;
+
   sendShortcut.current =
     active.status === 'disconnected' || active.status === 'error'
       ? request.url.trim()
@@ -466,11 +514,21 @@ export default function McpRequestBuilder() {
         serverHost={displayHost(resolveVariables(request.url))}
       />
 
+      {active.status === 'connected' && (
+        <div className="flex items-center gap-3 px-3 pb-2 shrink-0">
+          <McpPingButton onPing={handlePing} />
+          {supportsLogging && <McpLogLevelPicker onSetLevel={handleSetLogLevel} />}
+        </div>
+      )}
+
       <div className="flex-1 flex gap-2.5 px-3 pb-3 overflow-hidden min-h-0">
         {showCatalog && (
           <McpDiscoveryPanel
             tools={tools}
             resources={resources}
+            templates={templates}
+            selectedTemplateUri={selectedTemplateUri}
+            onTemplateSelect={setSelectedTemplateUri}
             prompts={prompts}
             log={active.log}
             selectedToolName={selectedToolName}
@@ -516,35 +574,60 @@ export default function McpRequestBuilder() {
           elevation="float"
           className="flex-1 min-w-0 bg-sp-surface border border-sp-line flex flex-col overflow-hidden min-h-0"
         >
-          <McpInvokeForm
-            tab={discoveryTab}
-            tool={tools.find((tool) => tool.name === selectedToolName) ?? null}
-            prompt={prompts.find((prompt) => prompt.name === selectedPromptName) ?? null}
-            toolArguments={operation?.kind === 'tool' ? operation.arguments : undefined}
-            onToolArgumentsChange={(args) => {
-              if (selectedToolName) {
-                persistOperation({ kind: 'tool', name: selectedToolName, arguments: args });
+          {discoveryTab === 'templates' ? (
+            <McpTemplateForm
+              template={selectedTemplate}
+              onRead={async (uri) => {
+                persistOperation({ kind: 'resource', uri });
+                const client = getCurrentClient();
+                if (!client) return;
+                const result = await client.readResource(uri);
+                logCall('resources/read', { uri }, result);
+              }}
+              onComplete={
+                supportsCompletion
+                  ? (uriTemplate, argument, context) =>
+                      completeWith({ type: 'ref/resource', uri: uriTemplate })(argument, context)
+                  : undefined
               }
-            }}
-            promptArguments={operation?.kind === 'prompt' ? operation.arguments : undefined}
-            onPromptArgumentsChange={(args) => {
-              if (selectedPromptName) {
-                persistOperation({ kind: 'prompt', name: selectedPromptName, arguments: args });
+            />
+          ) : (
+            <McpInvokeForm
+              tab={discoveryTab}
+              tool={tools.find((tool) => tool.name === selectedToolName) ?? null}
+              prompt={prompts.find((prompt) => prompt.name === selectedPromptName) ?? null}
+              toolArguments={operation?.kind === 'tool' ? operation.arguments : undefined}
+              onToolArgumentsChange={(args) => {
+                if (selectedToolName) {
+                  persistOperation({ kind: 'tool', name: selectedToolName, arguments: args });
+                }
+              }}
+              promptArguments={operation?.kind === 'prompt' ? operation.arguments : undefined}
+              onPromptArgumentsChange={(args) => {
+                if (selectedPromptName) {
+                  persistOperation({ kind: 'prompt', name: selectedPromptName, arguments: args });
+                }
+              }}
+              onCall={async (tool, args, signal) => {
+                const client = getCurrentClient();
+                if (!client) return;
+                const result = await client.callTool(tool.name, args, signal);
+                logCall(`tools/call:${tool.name}`, args, result, tool.outputSchema);
+              }}
+              onGet={async (prompt, args, signal) => {
+                const client = getCurrentClient();
+                if (!client) return;
+                const result = await client.getPrompt(prompt.name, args, signal);
+                logCall(`prompts/get:${prompt.name}`, args, result);
+              }}
+              onCompletePrompt={
+                supportsCompletion
+                  ? (promptName, argument, context) =>
+                      completeWith({ type: 'ref/prompt', name: promptName })(argument, context)
+                  : undefined
               }
-            }}
-            onCall={async (tool, args, signal) => {
-              const client = getCurrentClient();
-              if (!client) return;
-              const result = await client.callTool(tool.name, args, signal);
-              logCall(`tools/call:${tool.name}`, args, result, tool.outputSchema);
-            }}
-            onGet={async (prompt, args, signal) => {
-              const client = getCurrentClient();
-              if (!client) return;
-              const result = await client.getPrompt(prompt.name, args, signal);
-              logCall(`prompts/get:${prompt.name}`, args, result);
-            }}
-          />
+            />
+          )}
         </Floater>
       </div>
     </div>

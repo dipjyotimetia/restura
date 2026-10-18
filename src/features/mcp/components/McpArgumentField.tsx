@@ -1,4 +1,6 @@
 import { CodeEditorFrame, TextField } from '@/components/ui/spatial';
+import { useMcpCompletionField } from '@/features/mcp/components/McpCompletionSuggestions';
+import type { McpCompleteFn } from '@/features/mcp/hooks/useMcpCompletion';
 
 export interface McpArgumentField {
   name: string;
@@ -15,9 +17,18 @@ interface McpArgumentFieldProps {
   value: string;
   error?: string;
   onChange: (value: string) => void;
+  /** `completion/complete` lookup (prompt / resource-template arguments only). */
+  complete?: McpCompleteFn;
 }
 
-export function McpArgumentField({ field, value, error, onChange }: McpArgumentFieldProps) {
+export function McpArgumentField({
+  field,
+  value,
+  error,
+  onChange,
+  complete,
+}: McpArgumentFieldProps) {
+  const completion = useMcpCompletionField(complete, value, onChange);
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-2 flex-wrap">
@@ -61,6 +72,7 @@ export function McpArgumentField({ field, value, error, onChange }: McpArgumentF
           {...(field.sensitive ? { type: 'password', autoComplete: 'off' } : {})}
           placeholder={field.type === 'boolean' ? 'true / false' : field.type}
           className="w-full"
+          {...completion.focusProps}
         />
       )}
       {field.sensitive && (
@@ -68,6 +80,7 @@ export function McpArgumentField({ field, value, error, onChange }: McpArgumentF
           This looks like a secret. Restura never needs you to type passwords or keys here.
         </p>
       )}
+      {!field.isComplex && completion.suggestions}
       {error && (
         <p id={`${field.name}-error`} className="text-sp-11-5 text-rose-400" role="alert">
           {error}

@@ -4,17 +4,17 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ConfirmDialog } from '@/components/shared/ConfirmDialog';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { TextField } from '@/components/ui/spatial';
 import {
   McpArgumentField,
   type McpArgumentField as McpArgumentFieldType,
 } from '@/features/mcp/components/McpArgumentField';
 import { McpToolHintBadges } from '@/features/mcp/components/McpToolHintBadges';
+import { McpCompletableTextField } from '@/features/mcp/components/McpCompletableTextField';
 import { parseMcpArgument } from '@/features/mcp/lib/mcpArgumentValidation';
 import { generateMcpTemplate } from '@/features/mcp/lib/mcpClient';
 import type { McpJsonSchema, McpPromptDescriptor, McpToolDescriptor } from '@/types';
 
-export type McpInvokeTab = 'tools' | 'resources' | 'prompts' | 'log' | 'events';
+export type McpInvokeTab = 'tools' | 'resources' | 'templates' | 'prompts' | 'log' | 'events';
 
 interface McpInvokeFormProps {
   tab: McpInvokeTab;
@@ -42,6 +42,12 @@ interface McpInvokeFormProps {
   promptArguments?: Record<string, string> | undefined;
   /** Reports the current prompt arguments on every edit. */
   onPromptArgumentsChange?: (args: Record<string, string>) => void;
+  /** `completion/complete` for a prompt argument; omitted when the server lacks the capability. */
+  onCompletePrompt?: (
+    promptName: string,
+    argument: { name: string; value: string },
+    context: Record<string, string>
+  ) => Promise<string[]>;
 }
 
 /** The invocation surface deliberately delegates transport work to the builder-owned client. */
@@ -55,6 +61,7 @@ export function McpInvokeForm({
   onToolArgumentsChange,
   promptArguments,
   onPromptArgumentsChange,
+  onCompletePrompt,
 }: McpInvokeFormProps) {
   if (tab === 'tools')
     return (
@@ -72,6 +79,7 @@ export function McpInvokeForm({
         onGet={onGet}
         initialArguments={promptArguments}
         onArgumentsChange={onPromptArgumentsChange}
+        onComplete={onCompletePrompt}
       />
     );
   return <EmptyMcpInvokeForm tab={tab} />;
@@ -327,11 +335,13 @@ function InvokePromptForm({
   onGet,
   initialArguments,
   onArgumentsChange,
+  onComplete,
 }: {
   prompt: McpPromptDescriptor | null;
   onGet: McpInvokeFormProps['onGet'];
   initialArguments?: Record<string, string> | undefined;
   onArgumentsChange?: ((args: Record<string, string>) => void) | undefined;
+  onComplete?: McpInvokeFormProps['onCompletePrompt'] | undefined;
 }) {
   const [args, setArgs] = useState<Record<string, string>>({});
   const [running, setRunning] = useState(false);
@@ -397,16 +407,22 @@ function InvokePromptForm({
                 {argument.description && (
                   <div className="text-sp-11-5 text-sp-muted">{argument.description}</div>
                 )}
-                <TextField
-                  mono
+                <McpCompletableTextField
+                  label={argument.name}
                   value={args[argument.name] ?? ''}
-                  onChange={(event) => {
-                    const next = { ...args, [argument.name]: event.target.value };
+                  onChange={(value) => {
+                    const next = { ...args, [argument.name]: value };
                     setArgs(next);
                     onArgumentsChange?.(next);
                   }}
-                  placeholder=""
-                  className="w-full"
+                  complete={
+                    onComplete
+                      ? (value) => {
+                          const { [argument.name]: _self, ...context } = args;
+                          return onComplete(prompt.name, { name: argument.name, value }, context);
+                        }
+                      : undefined
+                  }
                 />
               </div>
             ))
@@ -471,11 +487,13 @@ function EmptyMcpInvokeForm({ tab }: { tab: McpInvokeTab }) {
   const hint =
     tab === 'resources'
       ? 'Select a resource from the list and press Read.'
-      : tab === 'log'
-        ? 'The latest call appears in the Result panel.'
-        : tab === 'events'
-          ? 'Server notifications stream into the Events list.'
-          : 'Pick a tool or prompt.';
+      : tab === 'templates'
+        ? 'Select a resource template to fill in its parameters.'
+        : tab === 'log'
+          ? 'The latest call appears in the Result panel.'
+          : tab === 'events'
+            ? 'Server notifications stream into the Events list.'
+            : 'Pick a tool or prompt.';
   return (
     <div className="flex-1 grid place-items-center">
       <div className="text-center text-sp-muted text-sp-12">{hint}</div>
