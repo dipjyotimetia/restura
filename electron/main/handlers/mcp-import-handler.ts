@@ -1,4 +1,5 @@
 import * as crypto from 'node:crypto';
+import { constants as fsConstants } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import {
@@ -52,25 +53,38 @@ import { displayPath, knownMcpConfigSources } from './mcp-import-paths';
 const importRateLimiter = createKeyedRateLimiter(20, 60_000);
 const SESSION_TTL_MS = 10 * 60_000;
 const MAX_SESSIONS = 16;
+const MAX_SESSIONS_PER_OWNER = 4;
 
 interface ImportSession {
   ownerId: number;
   createdAt: number;
   /** key -> parsed entry (raw values, main only). */
   entries: Map<string, ParsedMcpEntry>;
+  timer: ReturnType<typeof setTimeout>;
 }
 
 const sessions = new Map<string, ImportSession>();
 
-function pruneSessions(now = Date.now()): void {
-  for (const [id, s] of sessions) {
-    if (now - s.createdAt > SESSION_TTL_MS) sessions.delete(id);
+function dropSession(id: string): void {
+  const session = sessions.get(id);
+  if (!session) return;
+  clearTimeout(session.timer);
+  sessions.delete(id);
+}
+
+function addSession(ownerId: number, entries: Map<string, ParsedMcpEntry>): string {
+  // Oldest first (Map preserves insertion order): evict per owner, then globally.
+  const owned = [...sessions].filter(([, s]) => s.ownerId === ownerId);
+  for (const [id] of owned.slice(0, Math.max(0, owned.length - MAX_SESSIONS_PER_OWNER + 1))) {
+    dropSession(id);
   }
-  while (sessions.size > MAX_SESSIONS) {
-    const oldest = sessions.keys().next().value;
-    if (oldest === undefined) break;
-    sessions.delete(oldest);
-  }
+  while (sessions.size >= MAX_SESSIONS) dropSession(sessions.keys().next().value as string);
+  const id = crypto.randomUUID();
+  // An unref'd timer expires the session without keeping the app alive.
+  const timer = setTimeout(() => dropSession(id), SESSION_TTL_MS);
+  timer.unref();
+  sessions.set(id, { ownerId, createdAt: Date.now(), entries, timer });
+  return id;
 }
 
 /** A stdio env row becomes a secret handle only when it is safe to hide from the consent prompt. */
@@ -79,6 +93,8 @@ export function envIsHandleBacked(row: { name: string; value: string }): boolean
     row.value !== '' &&
     row.value.length <= MCP_STDIO_LIMITS.envValueMaxLength &&
     !isPlaceholderOnly(row.value) &&
+    // A value containing a Restura variable must stay plain so it can still resolve.
+    !row.value.includes('{{') &&
     isSecretFieldName(row.name) &&
     !isExecutionSensitiveEnvName(row.name)
   );
@@ -90,17 +106,27 @@ export function importHandleLabel(serverName: string, varName: string): string {
   return hasControlChars(label) || label === '' ? 'Imported MCP secret' : `MCP import: ${label}`;
 }
 
-async function readBounded(file: string): Promise<string> {
-  const handle = await fs.open(file, 'r');
+async function readBounded(file: string, rejectSymlink: boolean): Promise<string> {
+  if (rejectSymlink && (await fs.lstat(file)).isSymbolicLink()) {
+    throw new McpConfigParseError('Symbolic links are not followed');
+  }
+  // O_NONBLOCK so opening a FIFO cannot hang; the type is checked on the fd.
+  const handle = await fs.open(file, fsConstants.O_RDONLY | (fsConstants.O_NONBLOCK ?? 0));
   try {
-    const stat = await handle.stat();
-    if (!stat.isFile()) throw new McpConfigParseError('Not a regular file');
-    if (stat.size > MCP_IMPORT_LIMITS.maxBytes) {
-      throw new McpConfigParseError(
-        `Config is larger than ${MCP_IMPORT_LIMITS.maxBytes / 1024} KB and was not read`
-      );
+    if (!(await handle.stat()).isFile()) throw new McpConfigParseError('Not a regular file');
+    // Read at most maxBytes + 1 regardless of what stat said (the file can grow).
+    const limit = MCP_IMPORT_LIMITS.maxBytes;
+    const buffer = Buffer.alloc(limit + 1);
+    let total = 0;
+    while (total < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, total, buffer.length - total, total);
+      if (bytesRead === 0) break;
+      total += bytesRead;
     }
-    return await handle.readFile({ encoding: 'utf8' });
+    if (total > limit) {
+      throw new McpConfigParseError(`Config is larger than ${limit / 1024} KB and was not read`);
+    }
+    return buffer.toString('utf8', 0, total);
   } finally {
     await handle.close();
   }
@@ -111,6 +137,8 @@ interface SourceFile {
   file: string;
   /** Detected locations that are absent are skipped silently. */
   optional: boolean;
+  /** Detected files must be regular files, not symlinks (a picked file is the user's choice). */
+  rejectSymlink?: boolean;
 }
 
 /** Read + parse files into preview sources and the main-only entry table. */
@@ -124,7 +152,7 @@ export async function scanSourceFiles(
     const location = sanitizeImportLabel(displayPath(src.file, home), 300);
     let text: string;
     try {
-      text = await readBounded(src.file);
+      text = await readBounded(src.file, src.rejectSymlink === true);
     } catch (err) {
       if (src.optional && (err as NodeJS.ErrnoException).code === 'ENOENT') continue;
       sources.push({
@@ -169,7 +197,7 @@ export async function scanSourceFiles(
   return { sources, entries };
 }
 
-type StdioBuild = { draft: McpImportDraft } | { reason: string };
+type StdioBuild = { draft: McpImportDraft; handleIds: string[] } | { reason: string };
 
 /**
  * Validate a stdio entry against the same schema `mcp:connect` enforces, then
@@ -219,6 +247,7 @@ export function buildStdioDraft(entry: ParsedMcpStdioEntry): StdioBuild {
       };
     });
     return {
+      handleIds: stored,
       draft: {
         name: entry.name,
         transport: 'stdio',
@@ -233,9 +262,9 @@ export function buildStdioDraft(entry: ParsedMcpStdioEntry): StdioBuild {
         warnings,
       },
     };
-  } catch {
+  } catch (err) {
     for (const id of stored) deleteSecretHandle(id);
-    return { reason: 'Could not store a secret value' };
+    throw err;
   }
 }
 
@@ -245,21 +274,30 @@ export function commitEntries(
 ): McpImportCommitResult {
   const drafts: McpImportDraft[] = [];
   const skipped: McpImportCommitResult['skipped'] = [];
-  for (const key of new Set(keys)) {
-    const entry = entries.get(key);
-    if (!entry) {
-      skipped.push({ key, name: '', reason: 'Not part of this scan' });
-      continue;
+  const written: string[] = [];
+  try {
+    for (const key of new Set(keys)) {
+      const entry = entries.get(key);
+      if (!entry) {
+        skipped.push({ key, name: '', reason: 'Not part of this scan' });
+      } else if (entry.kind === 'invalid') {
+        skipped.push({ key, name: entry.name, reason: entry.reason });
+      } else if (entry.kind === 'http') {
+        drafts.push(buildHttpDraft(entry));
+      } else {
+        const built = buildStdioDraft(entry);
+        if ('draft' in built) {
+          drafts.push(built.draft);
+          written.push(...built.handleIds);
+        } else {
+          skipped.push({ key, name: entry.name, reason: built.reason });
+        }
+      }
     }
-    if (entry.kind === 'invalid') {
-      skipped.push({ key, name: entry.name, reason: entry.reason });
-    } else if (entry.kind === 'http') {
-      drafts.push(buildHttpDraft(entry));
-    } else {
-      const built = buildStdioDraft(entry);
-      if ('draft' in built) drafts.push(built.draft);
-      else skipped.push({ key, name: entry.name, reason: built.reason });
-    }
+  } catch (err) {
+    // A failed batch leaves no secret behind: nothing reached the renderer.
+    for (const id of written) deleteSecretHandle(id);
+    throw err;
   }
   return { drafts, skipped };
 }
@@ -295,16 +333,14 @@ export function registerMcpImportIPC(getMainWindow: () => BrowserWindow | null):
             files = [{ label: 'Selected file', file, optional: false }];
           } else {
             files = knownMcpConfigSources(process.platform, os.homedir(), process.env.APPDATA).map(
-              (s) => ({ ...s, optional: true })
+              (s) => ({ ...s, optional: true, rejectSymlink: true })
             );
           }
           const { sources, entries } = await scanSourceFiles(files);
           if (entries.size === 0) return { sessionId: null, sources };
-          pruneSessions();
-          const sessionId = crypto.randomUUID();
-          sessions.set(sessionId, { ownerId: event.sender.id, createdAt: Date.now(), entries });
+          const sessionId = addSession(event.sender.id, entries);
           bindRendererCleanup(sessions, event.sender, (deadId) => {
-            for (const [id, s] of sessions) if (s.ownerId === deadId) sessions.delete(id);
+            for (const [id, s] of sessions) if (s.ownerId === deadId) dropSession(id);
           });
           return { sessionId, sources };
         }
@@ -320,14 +356,15 @@ export function registerMcpImportIPC(getMainWindow: () => BrowserWindow | null):
         IPC.mcp.importCommit,
         McpImportCommitSchema,
         (input, event): McpImportCommitResult => {
-          pruneSessions();
           const session = sessions.get(input.sessionId);
           // Missing, expired and foreign sessions are indistinguishable.
           if (!session || session.ownerId !== event.sender.id) {
             throw new Error('Import session expired; scan again');
           }
-          sessions.delete(input.sessionId);
-          return commitEntries(session.entries, input.keys);
+          // The session survives a failed commit (retry) and is spent only on success.
+          const result = commitEntries(session.entries, input.keys);
+          dropSession(input.sessionId);
+          return result;
         }
       )
     )
@@ -337,7 +374,7 @@ export function registerMcpImportIPC(getMainWindow: () => BrowserWindow | null):
 export function unregisterMcpImportIPC(): void {
   ipcMain.removeHandler(IPC.mcp.importScan);
   ipcMain.removeHandler(IPC.mcp.importCommit);
-  sessions.clear();
+  for (const id of [...sessions.keys()]) dropSession(id);
 }
 
 /** Test seam. */
@@ -348,7 +385,5 @@ export function __seedMcpImportSessionForTests(
   ownerId: number,
   entries: Map<string, ParsedMcpEntry>
 ): string {
-  const id = crypto.randomUUID();
-  sessions.set(id, { ownerId, createdAt: Date.now(), entries });
-  return id;
+  return addSession(ownerId, entries);
 }

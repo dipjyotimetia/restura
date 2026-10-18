@@ -88,8 +88,8 @@ function EntryRow({
               : `Sensitive values hidden: ${secretNames.join(', ')}`}
           </div>
         )}
-        {entry.warnings.map((w) => (
-          <div key={w} className="text-sp-11 text-amber-400">
+        {entry.warnings.map((w, i) => (
+          <div key={i} className="text-sp-11 text-amber-400">
             {w}
           </div>
         ))}
@@ -154,7 +154,8 @@ export function McpImportDialog() {
     showScan({ kind: 'web', sources: [source], entries });
   };
 
-  const onUpload = async (file: File) => {
+  const onUpload = async (file: File | undefined) => {
+    if (!file) return; // chooser cancelled
     if (file.size > MAX_UPLOAD_BYTES) {
       setNotice('That file is larger than 1 MB and was not read.');
       return;
@@ -231,7 +232,10 @@ export function McpImportDialog() {
             confirm
             {desktop
               ? ', and local servers still ask for approval before they first start.'
-              : '. Only remote (HTTP) servers can be imported on the web.'}
+              : '. Only remote (HTTP) servers can be imported on the web.'}{' '}
+            Values of credential-named variables and headers are hidden here; other values are
+            shown. Credentials in arguments and URLs are masked in this preview only and are
+            imported exactly as written.
           </DialogDescription>
         </DialogHeader>
 
@@ -270,7 +274,7 @@ export function McpImportDialog() {
                   type="file"
                   accept=".json,.jsonc,application/json"
                   aria-label="Upload MCP config"
-                  onChange={(event) => void onUpload(event.target.files?.[0] as File)}
+                  onChange={(event) => void onUpload(event.target.files?.[0])}
                 />
               </label>
             </div>
@@ -284,8 +288,8 @@ export function McpImportDialog() {
 
         {scan && (
           <div className="max-h-[50vh] overflow-y-auto flex flex-col gap-3">
-            {scan.sources.map((source) => (
-              <section key={`${source.label}:${source.location}`}>
+            {scan.sources.map((source, index) => (
+              <section key={index}>
                 <h3 className="text-sp-12 font-medium text-sp-text">
                   {source.label}
                   {source.location && (
@@ -297,8 +301,8 @@ export function McpImportDialog() {
                     {source.error}
                   </p>
                 )}
-                {source.warnings.map((w) => (
-                  <p key={w} className="text-sp-11 text-amber-400">
+                {source.warnings.map((w, i) => (
+                  <p key={i} className="text-sp-11 text-amber-400">
                     {w}
                   </p>
                 ))}

@@ -17,6 +17,16 @@ export const MCP_IMPORT_LIMITS = {
   maxEnvEntries: 100,
   maxHeaders: 100,
   maxWarnings: 200,
+  /** Per-entry warning cap; extra distinct warnings collapse into "and N more". */
+  maxEntryWarnings: 10,
+  /** Same bounds as the desktop `mcp:connect` stdio schema. */
+  maxCommandLength: 4096,
+  maxArgLength: 8192,
+  maxArgsTotalLength: 64 * 1024,
+  maxCwdLength: 4096,
+  maxEnvNameLength: 256,
+  maxValueLength: 32 * 1024,
+  maxUrlLength: 8192,
 } as const;
 
 export type McpImportTransport = 'streamable-http' | 'http-sse';
@@ -103,6 +113,23 @@ function safeEntries(obj: Record<string, unknown>): Array<[string, unknown]> {
 interface PlaceholderCtx {
   warnings: string[];
   inputsUsed: Set<string>;
+  /** Distinct warnings beyond the per-entry cap. */
+  overflow: number;
+}
+
+/** Deduplicated, capped warning sink: untrusted input cannot flood the preview. */
+function warn(ctx: PlaceholderCtx, message: string): void {
+  if (ctx.warnings.includes(message)) return;
+  if (ctx.warnings.length >= MCP_IMPORT_LIMITS.maxEntryWarnings) {
+    ctx.overflow += 1;
+    return;
+  }
+  ctx.warnings.push(message);
+}
+
+/** Own-property read: never walks the prototype chain. */
+function own(obj: Record<string, unknown>, key: string): unknown {
+  return Object.hasOwn(obj, key) ? obj[key] : undefined;
 }
 
 /**
@@ -121,12 +148,13 @@ export function mapPlaceholders(text: string, ctx: PlaceholderCtx): string {
     const envMatch = /^env:(.+)$/.exec(inner);
     if (envMatch?.[1]) {
       const name = envMatch[1].replace(SAFE_VAR, '_');
-      ctx.warnings.push(
+      warn(
+        ctx,
         `\${env:${name}} was not read from this machine; it maps to the Restura variable {{${name}}}`
       );
       return `{{${name}}}`;
     }
-    ctx.warnings.push(`Placeholder ${sanitizeImportLabel(match, 60)} is not resolved`);
+    warn(ctx, `Placeholder ${sanitizeImportLabel(match, 60)} is not resolved`);
     return match;
   });
 }
@@ -145,20 +173,25 @@ function readNameValues(
 ): ParsedMcpNameValue[] {
   if (raw === undefined || raw === null) return [];
   if (!isPlainObject(raw)) {
-    ctx.warnings.push(`${what} must be an object and was ignored`);
+    warn(ctx, `${what} must be an object and was ignored`);
     return [];
   }
   const out: ParsedMcpNameValue[] = [];
   for (const [name, value] of safeEntries(raw)) {
     if (out.length >= max) {
-      ctx.warnings.push(`${what} limited to ${max} entries`);
+      warn(ctx, `${what} limited to ${max} entries`);
       break;
     }
     const text = stringify(value);
+    if (
+      name.length > MCP_IMPORT_LIMITS.maxEnvNameLength ||
+      (text?.length ?? 0) > MCP_IMPORT_LIMITS.maxValueLength
+    ) {
+      warn(ctx, `${what} "${sanitizeImportLabel(name, 60)}" is too long and was skipped`);
+      continue;
+    }
     if (text === undefined) {
-      ctx.warnings.push(
-        `${what} "${sanitizeImportLabel(name, 60)}" is not a string and was skipped`
-      );
+      warn(ctx, `${what} "${sanitizeImportLabel(name, 60)}" is not a string and was skipped`);
       continue;
     }
     out.push({ name, value: mapPlaceholders(text, ctx) });
@@ -192,10 +225,20 @@ function parseEntry(
   raw: unknown,
   inputsUsed: Set<string>
 ): ParsedMcpEntry {
-  const warnings: string[] = [];
-  const ctx: PlaceholderCtx = { warnings, inputsUsed };
+  const ctx: PlaceholderCtx = { warnings: [], inputsUsed, overflow: 0 };
+  const entry = parseEntryInner(index, rawName, raw, ctx);
+  if (ctx.overflow > 0) entry.warnings.push(`and ${ctx.overflow} more warnings`);
+  return entry;
+}
+
+function parseEntryInner(
+  index: number,
+  rawName: string,
+  raw: unknown,
+  ctx: PlaceholderCtx
+): ParsedMcpEntry {
   const name = sanitizeImportLabel(rawName) || `server-${index + 1}`;
-  const base = { key: String(index), name, warnings };
+  const base = { key: String(index), name, warnings: ctx.warnings };
   const invalid = (reason: string): ParsedMcpInvalidEntry => ({
     ...base,
     kind: 'invalid',
@@ -203,12 +246,16 @@ function parseEntry(
     reason,
   });
   if (!isPlainObject(raw)) return invalid('Entry is not an object');
-  const disabled = raw.disabled === true || raw.enabled === false;
+  const disabled = own(raw, 'disabled') === true || own(raw, 'enabled') === false;
 
-  const typeField = typeof raw.type === 'string' ? raw.type : undefined;
-  const transportField = typeof raw.transport === 'string' ? raw.transport : undefined;
-  const hasUrl = typeof raw.url === 'string' && raw.url !== '';
-  const hasCommand = typeof raw.command === 'string' && raw.command !== '';
+  const rawType = own(raw, 'type');
+  const rawTransport = own(raw, 'transport');
+  const rawUrl = own(raw, 'url');
+  const rawCommand = own(raw, 'command');
+  const typeField = typeof rawType === 'string' ? rawType : undefined;
+  const transportField = typeof rawTransport === 'string' ? rawTransport : undefined;
+  const hasUrl = typeof rawUrl === 'string' && rawUrl !== '';
+  const hasCommand = typeof rawCommand === 'string' && rawCommand !== '';
   let kind = mapTransport(typeField ?? transportField);
   if (typeField === undefined && transportField === undefined) {
     kind = hasCommand && !hasUrl ? 'stdio' : 'streamable-http';
@@ -221,7 +268,10 @@ function parseEntry(
 
   if (kind === 'stdio') {
     if (!hasCommand) return invalid('stdio entry has no command');
-    const argsRaw = raw.args;
+    if ((rawCommand as string).length > MCP_IMPORT_LIMITS.maxCommandLength) {
+      return invalid('command is too long');
+    }
+    const argsRaw = own(raw, 'args');
     let args: string[] = [];
     if (argsRaw !== undefined) {
       if (!Array.isArray(argsRaw)) return invalid('args must be an array of strings');
@@ -230,24 +280,41 @@ function parseEntry(
       }
       const mapped = argsRaw.map(stringify);
       if (mapped.some((a) => a === undefined)) return invalid('args must be an array of strings');
-      args = (mapped as string[]).map((a) => mapPlaceholders(a, ctx));
+      const texts = mapped as string[];
+      if (
+        texts.some((a) => a.length > MCP_IMPORT_LIMITS.maxArgLength) ||
+        texts.reduce((n, a) => n + a.length, 0) > MCP_IMPORT_LIMITS.maxArgsTotalLength
+      ) {
+        return invalid('arguments are too long');
+      }
+      args = texts.map((a) => mapPlaceholders(a, ctx));
     }
+    const rawCwd = own(raw, 'cwd');
     const entry: ParsedMcpStdioEntry = {
       ...base,
       kind: 'stdio',
       disabled,
-      command: mapPlaceholders(raw.command as string, ctx),
+      command: mapPlaceholders(rawCommand as string, ctx),
       args,
-      env: readNameValues(raw.env, 'env', MCP_IMPORT_LIMITS.maxEnvEntries, ctx),
+      env: readNameValues(own(raw, 'env'), 'env', MCP_IMPORT_LIMITS.maxEnvEntries, ctx),
     };
-    if (typeof raw.cwd === 'string' && raw.cwd !== '') entry.cwd = mapPlaceholders(raw.cwd, ctx);
-    if (raw.envFile !== undefined) {
-      warnings.push('envFile is not imported; add its variables to the env table');
+    if (typeof rawCwd === 'string' && rawCwd !== '') {
+      if (rawCwd.length > MCP_IMPORT_LIMITS.maxCwdLength) {
+        warn(ctx, 'Working directory is too long and was dropped');
+      } else {
+        entry.cwd = mapPlaceholders(rawCwd, ctx);
+      }
+    }
+    if (own(raw, 'envFile') !== undefined) {
+      warn(ctx, 'envFile is not imported; add its variables to the env table');
     }
     return entry;
   }
 
-  const url = hasUrl ? mapPlaceholders(raw.url as string, ctx).trim() : '';
+  if (hasUrl && (rawUrl as string).length > MCP_IMPORT_LIMITS.maxUrlLength) {
+    return invalid('url is too long');
+  }
+  const url = hasUrl ? mapPlaceholders(rawUrl as string, ctx).trim() : '';
   if (!url) return invalid('HTTP entry has no url');
   if (!HTTP_URL.test(url)) return invalid('url must start with http:// or https://');
   return {
@@ -256,7 +323,7 @@ function parseEntry(
     disabled,
     url,
     transport: kind,
-    headers: readNameValues(raw.headers, 'headers', MCP_IMPORT_LIMITS.maxHeaders, ctx),
+    headers: readNameValues(own(raw, 'headers'), 'headers', MCP_IMPORT_LIMITS.maxHeaders, ctx),
   };
 }
 
@@ -268,21 +335,37 @@ function readInputs(raw: unknown, warnings: string[]): ParsedMcpInput[] {
   }
   const out: ParsedMcpInput[] = [];
   for (const item of raw.slice(0, 50)) {
-    if (!isPlainObject(item) || typeof item.id !== 'string' || !item.id) continue;
+    const id = isPlainObject(item) ? own(item, 'id') : undefined;
+    if (!isPlainObject(item) || typeof id !== 'string' || !id) continue;
+    const description = own(item, 'description');
     const input: ParsedMcpInput = {
-      id: item.id.replace(SAFE_VAR, '_'),
-      password: item.password === true,
+      id: id.replace(SAFE_VAR, '_'),
+      password: own(item, 'password') === true,
     };
-    if (typeof item.description === 'string') {
-      input.description = sanitizeImportLabel(item.description, 120);
+    if (typeof description === 'string') {
+      input.description = sanitizeImportLabel(description, 120);
     }
     out.push(input);
   }
   return out;
 }
 
-/** Parse the text of an MCP client config. Throws McpConfigParseError for unusable input. */
+/**
+ * Parse the text of an MCP client config. Throws McpConfigParseError for
+ * unusable input; any unexpected failure (for example a RangeError on
+ * pathological nesting) is reported with a generic message.
+ */
 export function parseMcpConfigText(text: string): ParsedMcpConfig {
+  try {
+    return parseMcpConfigTextUnsafe(text);
+  } catch (err) {
+    throw err instanceof McpConfigParseError
+      ? err
+      : new McpConfigParseError('Could not parse the config');
+  }
+}
+
+function parseMcpConfigTextUnsafe(text: string): ParsedMcpConfig {
   if (new TextEncoder().encode(text).length > MCP_IMPORT_LIMITS.maxBytes) {
     throw new McpConfigParseError(
       `Config is larger than ${MCP_IMPORT_LIMITS.maxBytes / 1024} KB and was not read`
@@ -299,13 +382,15 @@ export function parseMcpConfigText(text: string): ParsedMcpConfig {
   if (!isPlainObject(root)) throw new McpConfigParseError('Config must be a JSON object');
 
   const maps: Array<{ format: McpImportFormat; map: unknown }> = [];
-  if ('mcpServers' in root) maps.push({ format: 'mcpServers', map: root.mcpServers });
-  if ('servers' in root) maps.push({ format: 'vscode', map: root.servers });
-  const mcpSection = root.mcp;
-  if (isPlainObject(mcpSection) && 'servers' in mcpSection) {
+  if (Object.hasOwn(root, 'mcpServers')) maps.push({ format: 'mcpServers', map: root.mcpServers });
+  if (Object.hasOwn(root, 'servers')) maps.push({ format: 'vscode', map: root.servers });
+  const mcpSection = own(root, 'mcp');
+  if (isPlainObject(mcpSection) && Object.hasOwn(mcpSection, 'servers')) {
     maps.push({ format: 'vscode-settings', map: mcpSection.servers });
   }
-  if ('mcp.servers' in root) maps.push({ format: 'vscode-settings', map: root['mcp.servers'] });
+  if (Object.hasOwn(root, 'mcp.servers')) {
+    maps.push({ format: 'vscode-settings', map: root['mcp.servers'] });
+  }
   if (maps.length === 0) {
     throw new McpConfigParseError(
       'No MCP servers found: expected a "mcpServers", "servers" or "mcp.servers" object'
@@ -330,8 +415,9 @@ export function parseMcpConfigText(text: string): ParsedMcpConfig {
       entries.push(parseEntry(index++, rawName, raw, inputsUsed));
     }
   }
-  const inputs = readInputs(root.inputs, warnings);
+  const inputs = readInputs(own(root, 'inputs'), warnings);
   for (const id of inputsUsed) {
+    if (warnings.length >= MCP_IMPORT_LIMITS.maxWarnings) break;
     if (!inputs.some((i) => i.id === id)) {
       warnings.push(`\${input:${id}} has no matching entry in "inputs"`);
     }

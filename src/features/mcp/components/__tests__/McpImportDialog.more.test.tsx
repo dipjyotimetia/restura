@@ -90,6 +90,17 @@ describe('McpImportDialog more states', () => {
   });
 });
 
+describe('upload chooser', () => {
+  it('ignores a cancelled chooser', async () => {
+    render(<McpImportDialog />);
+    openDialog();
+    const input = await screen.findByLabelText('Upload MCP config');
+    Object.defineProperty(input, 'files', { value: [], configurable: true });
+    fireEvent.change(input);
+    expect(screen.getByLabelText('MCP config JSON')).toBeTruthy();
+  });
+});
+
 describe('draftToMcpRequest', () => {
   it('maps headers, working directory and plain + handle env rows', () => {
     const request = draftToMcpRequest({

@@ -37,5 +37,8 @@ export function knownMcpConfigSources(
 
 /** Collapse the home directory to `~` for display only. */
 export function displayPath(file: string, home: string): string {
-  return file.startsWith(home) ? `~${file.slice(home.length)}` : file;
+  const rest = file.slice(home.length);
+  return file.startsWith(home) && (rest === '' || rest.startsWith('/') || rest.startsWith('\\'))
+    ? `~${rest}`
+    : file;
 }
