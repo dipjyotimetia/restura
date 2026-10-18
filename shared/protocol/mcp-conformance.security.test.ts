@@ -2,16 +2,22 @@ import { describe, expect, it, vi } from 'vitest';
 
 // A validator that gives up on one schema and throws on another (#911 M1 handling).
 vi.mock('./mcp-output-schema', () => ({
+  MCP_SCHEMA_TOO_COMPLEX: 'schema too complex — validation skipped',
   validateAgainstSchema: (schema: { x?: string }) => {
     if (schema?.x === 'throw') throw new Error('boom');
-    if (schema?.x === 'complex') return [{ path: '$', message: 'schema too complex to validate' }];
+    if (schema?.x === 'complex')
+      return [{ path: '$', message: 'schema too complex — validation skipped' }];
     return [];
   },
   validateToolOutput: (schema: { x?: string } | undefined) => {
     if (schema?.x === 'throw') throw new Error('boom');
     if (schema?.x === 'complex') {
-      return { status: 'invalid', issues: [{ path: '$', message: 'schema too complex' }] };
+      return {
+        status: 'skipped',
+        issues: [{ path: '$', message: 'schema too complex — validation skipped' }],
+      };
     }
+    if (schema?.x === 'notes') return { status: 'valid', notes: ['pattern check skipped'] };
     return { status: 'valid' };
   },
 }));
@@ -108,6 +114,16 @@ describe('conformance engine hardening', () => {
       'out-complex',
       'out-throw',
     ]);
+    expect(report.summary.errors).toBe(0);
+  });
+
+  it('reports validator notes as info, not violations', async () => {
+    const report = await runMcpConformance(
+      { open: async () => session({ tools: [tool('n', { outputSchema: { x: 'notes' } })] }) },
+      { eras: ['legacy'], sampleCalls: 'read-only' }
+    );
+    const f = report.findings.find((x) => x.code === 'tools.schema-check-note');
+    expect(f?.severity).toBe('info');
     expect(report.summary.errors).toBe(0);
   });
 

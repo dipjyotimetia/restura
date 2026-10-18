@@ -72,7 +72,7 @@ export interface McpSampleCallRecord {
   status: 'ok' | 'tool-error' | 'protocol-error' | 'skipped';
   reason?: string;
   durationMs?: number;
-  outputSchema?: 'valid' | 'invalid' | 'missing' | 'no-schema';
+  outputSchema?: 'valid' | 'invalid' | 'missing' | 'no-schema' | 'skipped';
 }
 
 /**

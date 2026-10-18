@@ -12,7 +12,11 @@ import type {
   McpSampleCallRecord,
 } from './mcp-conformance';
 import { clipText, hashJson } from './mcp-conformance-text';
-import { validateAgainstSchema, validateToolOutput } from './mcp-output-schema';
+import {
+  MCP_SCHEMA_TOO_COMPLEX,
+  validateAgainstSchema,
+  validateToolOutput,
+} from './mcp-output-schema';
 
 type Add = (severity: McpFindingSeverity, code: string, message: string, subject?: string) => void;
 
@@ -85,7 +89,7 @@ export function snapshotTool(tool: McpToolDescriptor): McpDescriptorSnapshot {
 
 /** True when the validator gave up on a pathological schema instead of judging it. */
 function tooComplex(issues: Array<{ message: string }>): boolean {
-  return issues.some((i) => /too (complex|deep|large)|exceed/i.test(i.message));
+  return issues.some((i) => i.message === MCP_SCHEMA_TOO_COMPLEX);
 }
 
 /** Validator calls must never take the run down: a throw is treated as "too complex". */
@@ -155,16 +159,20 @@ async function sampleOne(
       return { tool: tool.name, status: 'tool-error', durationMs };
     }
     const checked = guarded(() => validateToolOutput(tool.outputSchema, result));
-    if (!checked.ok || (checked.value.status === 'invalid' && tooComplex(checked.value.issues))) {
+    if (!checked.ok || checked.value.status === 'skipped') {
       add(
         'info',
         'tools.schema-too-complex',
         'outputSchema is too complex to validate; skipped',
         tool.name
       );
-      return { tool: tool.name, status: 'ok', durationMs, outputSchema: 'no-schema' };
+      return { tool: tool.name, status: 'ok', durationMs, outputSchema: 'skipped' };
     }
     const validation = checked.value;
+    // Non-fatal validator observations (e.g. a skipped pattern check) are informational.
+    if ('notes' in validation && validation.notes) {
+      for (const note of validation.notes) add('info', 'tools.schema-check-note', note, tool.name);
+    }
     if (validation.status === 'invalid' || validation.status === 'missing') {
       const code =
         validation.status === 'missing'
