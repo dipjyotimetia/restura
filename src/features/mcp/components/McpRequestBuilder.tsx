@@ -338,8 +338,9 @@ export default function McpRequestBuilder() {
         <McpRootsPanel
           roots={active.roots ?? NO_ROOTS}
           onSave={async (roots) => {
-            setRoots(active.id, roots);
-            return pushMcpRoots(active.id, roots);
+            const result = await pushMcpRoots(active.id, roots);
+            if (result.ok) setRoots(active.id, roots);
+            return result;
           }}
         />
       )}

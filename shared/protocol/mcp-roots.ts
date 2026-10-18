@@ -12,7 +12,9 @@ export function isLocalFileRootUri(uri: string): boolean {
       (url.hostname === '' || url.hostname === 'localhost') &&
       url.username === '' &&
       url.password === '' &&
-      url.pathname.length > 1
+      url.pathname.length > 1 &&
+      // file:////host/share is a UNC share spelled with an empty host.
+      !url.pathname.startsWith('//')
     );
   } catch {
     return false;

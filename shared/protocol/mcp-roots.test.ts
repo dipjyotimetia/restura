@@ -11,6 +11,8 @@ describe('isLocalFileRootUri', () => {
     '',
     'file:///',
     'file://fileserver/share',
+    'file:////fileserver/share',
+    'file://localhost//fileserver/share',
     'file://user:pass@localhost/a',
     'file://user@localhost/a',
     'https://example.com/a',
