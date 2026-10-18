@@ -120,4 +120,27 @@ describe('normalizeMcpToolDescriptor', () => {
       false
     );
   });
+
+  it('covers malformed descriptor inputs', () => {
+    expect(normalizeMcpToolDescriptor(null)).toBeNull();
+    expect(normalizeMcpToolDescriptor([])).toBeNull();
+    expect(normalizeMcpToolDescriptor({ name: '' })).toBeNull();
+    expect(normalizeMcpToolDescriptor({ name: 5 })).toBeNull();
+    expect(normalizeMcpToolDescriptor({ name: 'a', annotations: [] })).toEqual({ name: 'a' });
+    expect(normalizeMcpToolDescriptor({ name: 'a', annotations: { title: '' } })).toEqual({
+      name: 'a',
+    });
+    expect(
+      normalizeMcpToolDescriptor({
+        name: 'a',
+        title: '',
+        description: 'd',
+        inputSchema: { type: 'object' },
+      })
+    ).toEqual({ name: 'a', description: 'd', inputSchema: { type: 'object' } });
+    expect(
+      normalizeMcpToolDescriptor({ name: 'a', title: 'T', annotations: { title: 'U' } })?.title
+    ).toBe('T');
+    expect(mcpToolDisplayName({ name: 'n' })).toBe('n');
+  });
 });

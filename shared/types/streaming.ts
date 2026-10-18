@@ -107,6 +107,7 @@ export interface McpJsonSchema {
   format?: string;
   $ref?: string;
   oneOf?: McpJsonSchema[];
+  allOf?: McpJsonSchema[];
   anyOf?: McpJsonSchema[];
   additionalProperties?: boolean | McpJsonSchema;
 }

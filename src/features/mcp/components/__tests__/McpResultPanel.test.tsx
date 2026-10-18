@@ -60,6 +60,33 @@ describe('McpResultPanel', () => {
     expect(await screen.findByTestId('editor')).toHaveTextContent('disk full');
   });
 
+  it('includes the jsonRpcError, formats KB sizes, and toggles back to the full result', async () => {
+    const id = useMcpStore.getState().createConnection('https://mcp.example.test');
+    act(() => {
+      useMcpStore.getState().appendLog(id, {
+        method: 'tools/call:big',
+        result: { content: [], structuredContent: { blob: 'x'.repeat(2000) } },
+        durationMs: 1,
+      });
+    });
+    const { unmount } = render(<McpResultPanel />);
+    expect(screen.getByText(/KB$/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Show structuredContent' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Show full result' }));
+    expect(await screen.findByTestId('editor')).toHaveTextContent('"content"');
+    unmount();
+    act(() => {
+      useMcpStore.getState().appendLog(id, {
+        method: 'tools/call:x',
+        error: 'rpc',
+        jsonRpcError: { code: -32602, message: 'bad params' },
+        durationMs: 1,
+      });
+    });
+    render(<McpResultPanel />);
+    expect(await screen.findByTestId('editor')).toHaveTextContent('-32602');
+  });
+
   describe('structuredContent vs outputSchema (#880)', () => {
     function setup(structuredContent: unknown) {
       const id = useMcpStore.getState().createConnection('https://mcp.example.test');
@@ -92,6 +119,29 @@ describe('McpResultPanel', () => {
       expect(screen.getByTestId('mcp-output-schema-ok')).toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: 'Show structuredContent' }));
       expect(await screen.findByTestId('editor')).toHaveTextContent(/^\{\s*"n": 3\s*\}$/);
+    });
+
+    it('notes when the outputSchema is too complex to validate', () => {
+      const id = useMcpStore.getState().createConnection('https://mcp.example.test');
+      act(() => {
+        useMcpStore.getState().setCapabilities(id, {
+          tools: [
+            {
+              name: 'count',
+              outputSchema: { allOf: Array.from({ length: 40 }, () => ({ type: 'object' })) },
+            },
+          ],
+          resources: [],
+          prompts: [],
+        });
+        useMcpStore.getState().appendLog(id, {
+          method: 'tools/call:count',
+          result: { content: [], structuredContent: {} },
+          durationMs: 1,
+        });
+      });
+      render(<McpResultPanel />);
+      expect(screen.getByTestId('mcp-output-schema-skipped')).toBeInTheDocument();
     });
 
     it('flags a structuredContent that violates the outputSchema', () => {

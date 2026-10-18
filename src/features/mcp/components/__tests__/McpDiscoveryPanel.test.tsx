@@ -13,6 +13,7 @@ function renderPanel(log: React.ComponentProps<typeof McpDiscoveryPanel>['log'] 
         },
         { name: 'peek', annotations: { readOnlyHint: true } },
         { name: 'plain' },
+        { name: 'quiet', annotations: { idempotentHint: false } },
       ]}
       resources={[]}
       prompts={[]}

@@ -91,6 +91,14 @@ function McpResult({ entry, tool }: { entry: McpInvocationLog; tool?: McpToolDes
           </ul>
         </div>
       )}
+      {validation.status === 'skipped' && (
+        <div
+          data-testid="mcp-output-schema-skipped"
+          className="px-3 py-1 border-b border-sp-line text-sp-11 font-mono shrink-0 text-sp-muted"
+        >
+          outputSchema too complex to validate — skipped
+        </div>
+      )}
       {validation.status === 'valid' && (
         <div
           data-testid="mcp-output-schema-ok"
