@@ -44,7 +44,10 @@ export function getCollectionExportWarnings(
       } else if (format === 'postman' && item.request.params.some((param) => !param.enabled)) {
         warnings.add('Postman export omits disabled query parameters');
       }
-      if (format === 'insomnia' && (item.request.preRequestScript || item.request.testScript)) {
+      const scripted =
+        'preRequestScript' in item.request &&
+        (item.request.preRequestScript || item.request.testScript);
+      if (format === 'insomnia' && scripted) {
         warnings.add('Insomnia export omits request scripts');
       }
     }

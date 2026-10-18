@@ -12,7 +12,7 @@ function flattenRequests(items: CollectionItem[]): Request[] {
   const out: Request[] = [];
   const walk = (list: CollectionItem[]): void => {
     for (const it of list) {
-      if (it.type === 'request' && it.request) out.push(it.request);
+      if (it.type === 'request' && it.request) out.push(it.request as Request);
       if (it.items) walk(it.items);
     }
   };

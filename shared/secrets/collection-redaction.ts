@@ -202,7 +202,12 @@ function countNonEmptyStrings(obj: Record<string, unknown>, fields: Set<string>)
 const MODELLED_OC_ITEM_TYPES = new Set(['http', 'graphql', 'grpc']);
 
 /** OC extension lists whose entries `placeExtensionItems` imports as typed requests. */
-const MODELLED_OC_EXTENSION_LISTS = new Set(['x-restura-sse', 'x-restura-mcp']);
+const MODELLED_OC_EXTENSION_LISTS = new Set([
+  'x-restura-sse',
+  'x-restura-mcp',
+  'x-restura-kafka',
+  'x-restura-mqtt',
+]);
 
 /** True for an OC item node that `itemToInternal` keeps only as an opaque `_oc` bag. */
 function isOpaqueOcItem(obj: Record<string, unknown>): boolean {
@@ -310,6 +315,12 @@ function redactItem(item: CollectionItem): CollectionItem {
     if (Array.isArray(req.metadata))
       req.metadata = redactSecretKeyValues(req.metadata as SecretableRow[]);
     if ('auth' in req) req.auth = redactAuthConfigSecrets(req.auth as AuthConfig);
+    // Kafka presets (#984) carry record headers under `produce`; the preset
+    // types hold no credentials otherwise (secrets live in secure storage).
+    const produce = req.produce as { headers?: SecretableRow[] } | undefined;
+    if (produce && Array.isArray(produce.headers)) {
+      req.produce = { ...produce, headers: redactSecretKeyValues(produce.headers) };
+    }
     next.request = req as unknown as typeof next.request;
   }
   return next;
@@ -370,6 +381,9 @@ export function countCollectionInlineSecrets(collection: Collection): number {
         count += countSecretKeyValues(req.headers as SecretableRow[] | undefined);
         count += countSecretKeyValues(req.params as SecretableRow[] | undefined);
         count += countSecretKeyValues(req.metadata as SecretableRow[] | undefined);
+        count += countSecretKeyValues(
+          (req.produce as { headers?: SecretableRow[] } | undefined)?.headers
+        );
       }
       if (item.items) walk(item.items);
     }

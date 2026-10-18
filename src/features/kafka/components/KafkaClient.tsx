@@ -11,6 +11,12 @@ import {
   validateKafkaHeaders,
   validateOptionalSchemaId,
 } from '@/features/kafka/lib/kafkaProducerValidation';
+import {
+  produceWithVariables,
+  resolveKafkaList,
+  warnUnresolved,
+} from '@/features/kafka/lib/kafkaVariables';
+import { getKafkaProduceDraft, setKafkaProduceDraft } from '@/lib/shared/streaming/composerDrafts';
 import { useKafkaConnection } from '../hooks/useKafkaConnection';
 import { KafkaAdminPanel } from './KafkaAdminPanel';
 import { KafkaConnectionForm } from './KafkaConnectionForm';
@@ -70,15 +76,38 @@ export function KafkaClient() {
     setConsumerPaused(false);
     setTopicDraft('');
     setTimestampDraft('');
-    setProduceKey('');
-    setProduceKeyEncoding('utf8');
-    setProduceValue('');
+    // A collection preset (#984) seeds the draft before the panel mounts.
+    const seed = getKafkaProduceDraft(activeConnectionId);
+    setProduceKey(seed?.key ?? '');
+    setProduceKeyEncoding(seed?.keyEncoding ?? 'utf8');
+    setProduceValue(seed?.value ?? '');
     setProduceTombstone(false);
-    setProduceValueEncoding('utf8');
-    setProduceHeaders([]);
-    setProducePartition('');
+    setProduceValueEncoding(seed?.valueEncoding ?? 'utf8');
+    setProduceHeaders(seed?.headers ?? []);
+    setProducePartition(seed?.partition ?? '');
     setProduceError(null);
   }, [activeConnectionId]);
+
+  // Mirror the produce draft so Save to Collection can capture it (#984).
+  useEffect(() => {
+    if (!connection) return;
+    setKafkaProduceDraft(connection.id, {
+      key: produceKey,
+      keyEncoding: produceKeyEncoding,
+      value: produceValue,
+      valueEncoding: produceValueEncoding,
+      headers: produceHeaders,
+      partition: producePartition,
+    });
+  }, [
+    connection?.id,
+    produceKey,
+    produceKeyEncoding,
+    produceValue,
+    produceValueEncoding,
+    produceHeaders,
+    producePartition,
+  ]);
 
   useEffect(() => {
     if (connection) {
@@ -140,20 +169,24 @@ export function KafkaClient() {
       return;
     }
     setProduceError(null);
-    const result = await kafkaManager.produce({
-      connectionId: connection.id,
-      topic: connection.defaultTopic,
-      ...(produceKey ? { key: produceKey } : {}),
-      ...(produceKey ? { keyEncoding: produceKeyEncoding === 'base64' ? 'base64' : 'utf8' } : {}),
-      value: produceTombstone ? null : produceValue,
-      valueEncoding: produceValueEncoding === 'base64' ? 'base64' : 'utf8',
-      acks: connection.acks,
-      ...(connection.compression !== 'none' ? { compression: connection.compression } : {}),
-      ...(Object.keys(headers.value).length > 0 ? { headers: headers.value } : {}),
-      ...(partition !== undefined ? { partition } : {}),
-      ...(valueSchema.value !== undefined ? { valueSchemaId: valueSchema.value } : {}),
-      ...(keySchema.value !== undefined ? { keySchemaId: keySchema.value } : {}),
-    });
+    // {{var}} resolution + secret masking at send time (#984).
+    const result = await produceWithVariables(
+      {
+        connectionId: connection.id,
+        topic: connection.defaultTopic,
+        ...(produceKey ? { key: produceKey } : {}),
+        ...(produceKey ? { keyEncoding: produceKeyEncoding === 'base64' ? 'base64' : 'utf8' } : {}),
+        value: produceTombstone ? null : produceValue,
+        valueEncoding: produceValueEncoding === 'base64' ? 'base64' : 'utf8',
+        acks: connection.acks,
+        ...(connection.compression !== 'none' ? { compression: connection.compression } : {}),
+        ...(Object.keys(headers.value).length > 0 ? { headers: headers.value } : {}),
+        ...(partition !== undefined ? { partition } : {}),
+        ...(valueSchema.value !== undefined ? { valueSchemaId: valueSchema.value } : {}),
+        ...(keySchema.value !== undefined ? { keySchemaId: keySchema.value } : {}),
+      },
+      { json: produceValueEncoding === 'json' }
+    );
     if (result.ok) setProduceValue('');
     else setProduceError(result.error);
   };
@@ -172,15 +205,20 @@ export function KafkaClient() {
     const offsetsValid = useManual && isValidManualOffset(offsetPartition, offsetValue);
     const timestampMs = useTimestamp ? new Date(timestampDraft).getTime() : NaN;
     const mode = useManual ? 'manual' : useTimestamp ? 'timestamp' : consumeMode;
+    const topics = resolveKafkaList(connection.consumer.topics);
+    const groupId = resolveKafkaList([connection.consumer.groupId]);
+    warnUnresolved(connection.id, '', [...new Set([...topics.unresolved, ...groupId.unresolved])]);
     await kafkaManager.subscribe({
       connectionId: connection.id,
-      groupId: connection.consumer.groupId,
-      topics: connection.consumer.topics,
+      groupId: groupId.values[0] ?? connection.consumer.groupId,
+      topics: topics.values,
+      // Keep the {{var}} templates in the persisted consumer state (#984).
+      stored: { groupId: connection.consumer.groupId, topics: connection.consumer.topics },
       fromBeginning: connection.consumer.fromBeginning,
       mode,
       ...(offsetsValid
         ? {
-            offsets: connection.consumer.topics.map((topic) => ({
+            offsets: topics.values.map((topic) => ({
               topic,
               partition: Number(offsetPartition),
               offset: offsetValue.trim(),

@@ -56,6 +56,7 @@ rather than discover it experimentally.
 | AI Lab pluggable code sandboxes | ❌ | ❌ | Unsupported: the provider contract and registry are implemented, but no Docker or hosted sandbox provider ships yet |
 | Filesystem-backed collections | ❌ | ✅ |  |
 | Git operations on collections | ❌ | ✅ | System-Git status, diff, staging, commits, branches, fetch/pull/push, and explicit resumable merges for registered OpenCollection directories; structured YAML conflict resolution validates before staging |
+| Kafka / MQTT connection presets in collections | ❌ | ✅ | Save a Kafka or MQTT tab to a collection and reopen it prefilled; {{var}} resolved at send time. Presets round-trip through OpenCollection (x-restura-kafka / x-restura-mqtt) and git-native collections; credentials stay in the desktop secure store and are never exported. Web lists imported presets but opens the desktop-only panel; the CLI skips them |
 | Workflows | ✅ | ✅ | Safe sequential, guarded, loop, and recovery controls execute with typed data/output, timeout/cancellation, and binding-only HTTP or GraphQL saved-request calls. GraphQL mutations require explicit approval. Other controls, event/process tasks, inline transport configuration, and unsupported transports are rejected before persistence or execution. |
 | Local mock server | ❌ | ✅ | Binds a localhost HTTP listener; no browser TCP |
 | Browser capture desktop bridge | ❌ | ✅ | Loopback receiver for the Restura capture extension; no browser TCP listener |

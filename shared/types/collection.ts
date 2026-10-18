@@ -1,8 +1,8 @@
+import type { SecretValue } from '../secrets/secret-ref';
 import type { AuthConfig } from './auth';
 import type { KeyValue } from './common';
-import type { SecretValue } from '../secrets/secret-ref';
 import type { Response } from './http';
-import type { Request } from './request';
+import type { CollectionRequest, Request } from './request';
 
 /** A variable that belongs to an environment, collection, or folder scope. */
 export interface ScopedVariable extends KeyValue {
@@ -28,7 +28,7 @@ export interface CollectionItem {
   id: string;
   name: string;
   type: 'folder' | 'request';
-  request?: Request;
+  request?: CollectionRequest;
   items?: CollectionItem[];
   /** Variables inherited by requests nested beneath this folder. */
   variables?: ScopedVariable[];

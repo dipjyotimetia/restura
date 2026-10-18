@@ -19,7 +19,7 @@ Adopt **OpenCollection** as Restura's native read/write format, implemented in `
 
 - The spec's TypeScript types (`spec-types.ts`) are **generated** from the vendored JSON Schema, not hand-written. `npm run gen:opencollection-types` regenerates them and `npm run verify:opencollection-types` is a CI gate that fails the build if the committed types drift.
 - Protocols map as follows: HTTP, GraphQL (an HTTP item with a `graphql` body), gRPC, and WebSocket are first-class OpenCollection items. Socket.IO, SSE, and MCP ride along in `extensions` as `x-restura-socketio` / `x-restura-sse` / `x-restura-mcp`, preserved across import/export (see the amendment below).
-- Connection-based protocols (Kafka, MQTT) have no per-request shape, so they are deliberately **not** represented in a collection.
+- Connection-based protocols (Kafka, MQTT) have no per-request shape, so they are deliberately **not** represented in a collection. *(Superseded by the 2026-10-18 amendment: they are saved as connection presets.)*
 - `to-internal.ts` / `from-internal.ts` convert between the OpenCollection document and Restura's internal model. An `_oc` bag preserves original fields the internal model can't represent, so an unedited imported item re-exports verbatim even for features Restura doesn't surface in its UI.
 
 ## Amendment (2026-10-12): vendor-extension shape
@@ -36,6 +36,15 @@ The per-request HTTP version preference ([#864](https://github.com/dipjyotimetia
 
 Import applies **only** `httpVersion`. `HttpRequest.settings` became a partial override (`RequestSettingsOverride`) resolved field by field against the workspace defaults, so importing a version preference no longer pins timeout, redirect, and TLS-verification values on the request. Unknown or malformed entries are ignored and the request stays on `auto`.
 
+## Amendment (2026-10-18): Kafka / MQTT connection presets
+
+Superseding the "Kafka, MQTT … not represented" bullet above ([#984](https://github.com/dipjyotimetia/restura/issues/984)): a Kafka or MQTT tab can be saved as a **connection preset** — the broker connection plus the operation drafts (Kafka produce/consume, MQTT publish/subscribe and saved publishes). Internally they are `KafkaRequest` / `MqttRequest` (`shared/types/broker.ts`), members of `CollectionRequest` but not of the tab `Request` union: opening one seeds a connection-mode tab instead of becoming a tab request.
+
+- **Extensions, same shape as SSE/MCP.** Presets ride in root `x-restura-kafka` / `x-restura-mqtt` lists with a `folderPath` (`shared/opencollection/broker-items.ts`); they are covered by the fidelity harness and validate against the strict schema.
+- **No secret material in the preset.** The preset types have no password/token/passphrase fields at all, the Zod schemas strip any that ride along, and the exporters pick fields explicitly. Credentials are copied into the desktop secure store under a preset-scoped key (`kafka:preset-<requestId>:<field>`, `mqtt:…`) and copied back onto the tab connection when the preset is opened, so they never reach collection persistence, OpenCollection exports or git-native files. A different machine — or a re-import, which mints new ids — re-enters them.
+- **`{{var}}` resolves at send time** (brokers / broker URL at connect, topics at subscribe, topic/key/payload/headers at send); presets store values unresolved.
+- Postman / Insomnia / Bruno exports emit a named non-runnable stub with a warning; the CLI skips presets with a notice.
+
 ## Consequences
 
 **Positive**
@@ -48,7 +57,7 @@ Import applies **only** `httpVersion`. `HttpRequest.settings` became a partial o
 
 - Two layouts (bundled + directory) double the reader/writer surface and its tests.
 - The `_oc` preservation bag adds complexity to the converters — the price of byte-stable round-trips.
-- Kafka/MQTT can't be saved to a collection, which can surprise users who expect "everything" to persist.
+- Kafka/MQTT presets carry no credentials, so a shared preset needs its password/token re-entered on each machine (and after a re-import).
 
 ## Related
 

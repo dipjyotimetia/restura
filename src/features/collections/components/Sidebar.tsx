@@ -26,6 +26,7 @@ import {
   siblingNamesForParent,
   uniqueName,
 } from '../lib/names';
+import { openCollectionItem } from '../lib/openCollectionItem';
 import { filterCollectionTree, historyItemMatches } from '../lib/sidebarSearch';
 import { CollectionDirectoryPicker } from './CollectionDirectoryPicker';
 import { selectionKey, type TreeActions, type TreeState } from './CollectionTree';
@@ -264,18 +265,9 @@ function Sidebar({ activePanel }: SidebarProps) {
     [getHistoryById, openTab, switchTab]
   );
 
-  const handleOpenCollectionItem = useCallback(
-    (item: CollectionItem) => {
-      if (item.type !== 'request' || !item.request) return;
-      const existing = useRequestStore.getState().tabs.find((t) => t.savedRequestId === item.id);
-      if (existing) {
-        switchTab(existing.id);
-        return;
-      }
-      openTab(item.request, { savedRequestId: item.id });
-    },
-    [openTab, switchTab]
-  );
+  const handleOpenCollectionItem = useCallback((item: CollectionItem) => {
+    openCollectionItem(item);
+  }, []);
 
   const handleAddFolder = useCallback(
     (collectionId: string, parentId?: string) => {
@@ -294,9 +286,9 @@ function Sidebar({ activePanel }: SidebarProps) {
       addItemToCollection(collectionId, item, parentId);
       revealLocation(collectionId, parentId);
       // Land the user in the builder for the new saved request.
-      if (item.request) openTab(item.request, { savedRequestId: item.id, switchTo: true });
+      openCollectionItem(item);
     },
-    [addItemToCollection, revealLocation, openTab]
+    [addItemToCollection, revealLocation]
   );
 
   const handleDuplicateItem = useCallback(

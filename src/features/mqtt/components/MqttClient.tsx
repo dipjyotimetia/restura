@@ -25,11 +25,13 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { mqttManager, mqttSecretKey } from '@/features/mqtt/lib/mqttManager';
+import { resolveMqttText } from '@/features/mqtt/lib/mqttVariables';
 import { type PublishInput, publishWithVariables } from '@/features/mqtt/lib/publishWithVariables';
 import type { MqttMessage, MqttQoS } from '@/features/mqtt/store/useMqttStore';
 import { MQTT_SECRET_SENTINEL, useMqttStore } from '@/features/mqtt/store/useMqttStore';
 import { getElectronAPI, isElectron } from '@/lib/shared/platform';
 import { secureStorage } from '@/lib/shared/secure-storage';
+import { getMqttComposerDraft, setMqttComposerDraft } from '@/lib/shared/streaming/composerDrafts';
 import {
   type MqttPublishTemplate,
   newTemplateId,
@@ -125,12 +127,32 @@ function MqttClient() {
   useEffect(() => {
     setPasswordDraft('');
     setPassphraseDraft('');
-    setPubTopic('');
-    setPubPayload('');
-    setSubTopic('');
+    // A collection preset (#984) seeds the composer before the panel mounts.
+    const seed = getMqttComposerDraft(activeConnectionId);
+    setPubTopic(seed?.pubTopic ?? '');
+    setPubPayload(seed?.pubPayload ?? '');
+    if (seed) {
+      setPubQos(seed.pubQos);
+      setPubRetain(seed.pubRetain);
+      setSubQos(seed.subQos);
+    }
+    setSubTopic(seed?.subTopic ?? '');
     setSelectedMessageId(null);
     setPaused(false);
   }, [activeConnectionId]);
+
+  // Mirror the composer so Save to Collection can capture it (#984).
+  useEffect(() => {
+    if (!activeConnectionId) return;
+    setMqttComposerDraft(activeConnectionId, {
+      pubTopic,
+      pubPayload,
+      pubQos,
+      pubRetain,
+      subTopic,
+      subQos,
+    });
+  }, [activeConnectionId, pubTopic, pubPayload, pubQos, pubRetain, subTopic, subQos]);
 
   const connectionId = connection?.id;
   const connectionMessages = connection?.messages;
@@ -177,7 +199,8 @@ function MqttClient() {
       next = { ...next, tls };
       setPassphraseDraft('');
     }
-    await mqttManager.connect(next);
+    // The broker URL may hold {{var}} tokens (e.g. from a collection preset, #984).
+    await mqttManager.connect({ ...next, brokerUrl: resolveMqttText(next.id, next.brokerUrl) });
   };
 
   const handleDisconnect = async (): Promise<void> => {
@@ -208,7 +231,7 @@ function MqttClient() {
     if (!connection || !subTopic.trim()) return;
     await mqttManager.subscribe({
       connectionId: connection.id,
-      topicFilter: subTopic.trim(),
+      topicFilter: resolveMqttText(connection.id, subTopic.trim()),
       qos: subQos,
     });
     setSubTopic('');

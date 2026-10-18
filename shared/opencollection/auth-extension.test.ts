@@ -8,6 +8,8 @@ import { internalToOC } from './from-internal';
 import { parseOpenCollectionYAML, serializeOpenCollectionYAML } from './serializer';
 import { ocToInternal } from './to-internal';
 
+const authOf = (item: CollectionItem | undefined) => (item?.request as Request | undefined)?.auth;
+
 /**
  * The VS Code extension validates root `opencollection.yml` against the
  * vendored strict OC JSON schema (extension/vscode/package.json
@@ -137,10 +139,10 @@ describe('x-restura-auth sidecar', () => {
     expect(back.auth).toEqual(NTLM);
     const folder = back.items.find((i) => i.name === 'Secure');
     expect(folder?.auth).toEqual(WSSE);
-    expect(back.items.find((i) => i.name === 'Root oauth1')?.request?.auth).toEqual(OAUTH1);
+    expect(authOf(back.items.find((i) => i.name === 'Root oauth1'))).toEqual(OAUTH1);
     const nested = folder?.items ?? [];
-    expect(nested.find((i) => i.name === 'Nested ntlm')?.request?.auth).toEqual(NTLM);
-    expect(nested.find((i) => i.name === 'Nested grpc')?.request?.auth).toEqual(WSSE);
+    expect(authOf(nested.find((i) => i.name === 'Nested ntlm'))).toEqual(NTLM);
+    expect(authOf(nested.find((i) => i.name === 'Nested grpc'))).toEqual(WSSE);
   });
 
   it('an unchanged import re-exports byte-identically', () => {

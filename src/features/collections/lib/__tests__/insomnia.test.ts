@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { InsomniaCollection, InsomniaV5Document } from '@/types';
+import type { InsomniaCollection, InsomniaV5Document, Request } from '@/types';
 import { getInsomniaVersion, importInsomniaCollection } from '../importers/insomnia';
 import { validateImportedCollection } from '../importers/validateImported';
 
@@ -269,7 +269,7 @@ describe('importInsomniaCollection', () => {
       ])
     );
 
-    const auths = result.collection.items.map((i) => i.request!.auth);
+    const auths = result.collection.items.map((i) => (i.request as Request).auth);
     expect(auths[0]?.type).toBe('basic');
     expect(auths[0]?.basic?.username).toBe('u');
     expect(auths[1]?.type).toBe('bearer');
@@ -295,7 +295,7 @@ describe('importInsomniaCollection', () => {
       ])
     );
 
-    expect(result.collection.items[0]?.request?.auth.type).toBe('none');
+    expect((result.collection.items[0]?.request as Request).auth.type).toBe('none');
     expect(result.warnings).toEqual([
       { kind: 'unsupported-auth', authType: 'ntlm', requestName: 'NTLM call' },
     ]);
@@ -355,7 +355,7 @@ describe('importInsomniaCollection — v5', () => {
 
     const [rootReq, folderA] = result.collection.items;
     expect(rootReq?.type).toBe('request');
-    expect(rootReq?.request?.url).toBe('https://example.com/root');
+    expect((rootReq?.request as Request).url).toBe('https://example.com/root');
 
     expect(folderA?.type).toBe('folder');
     expect(folderA?.items).toHaveLength(2);
@@ -433,7 +433,7 @@ describe('importInsomniaCollection — v5', () => {
         },
       ])
     );
-    expect(result.collection.items[0]?.request?.auth.type).toBe('none');
+    expect((result.collection.items[0]?.request as Request).auth.type).toBe('none');
     expect(result.warnings).toEqual([
       { kind: 'unsupported-auth', authType: 'awsv4', requestName: 'AWS call' },
     ]);
@@ -450,7 +450,7 @@ describe('importInsomniaCollection — v5', () => {
         },
       ])
     );
-    const auth = result.collection.items[0]?.request?.auth;
+    const auth = (result.collection.items[0]?.request as Request).auth;
     expect(auth?.type).toBe('oauth2');
     expect(auth?.oauth2?.grantType).toBe('client_credentials');
   });
@@ -466,7 +466,7 @@ describe('importInsomniaCollection — v5', () => {
         },
       ])
     );
-    const auth = result.collection.items[0]?.request?.auth;
+    const auth = (result.collection.items[0]?.request as Request).auth;
     expect(auth?.type).toBe('oauth2');
     // implicit is not in our enum; it must be omitted (not passed through raw),
     // otherwise collectionSchema.safeParse rejects and the whole import is lost.

@@ -1,3 +1,4 @@
+import type { BrokerRequest } from './broker';
 import type { GrpcRequest } from './grpc';
 import type { HttpRequest, Response } from './http';
 import type { ScriptResult } from './scripts';
@@ -21,8 +22,15 @@ export type RequestMode =
   | 'mqtt'
   | 'socketio';
 
-// Union type for any request
+// Union type for any request a workspace tab can hold.
 export type Request = HttpRequest | GrpcRequest | SseRequest | McpRequest;
+
+/**
+ * Every kind a collection item can save: tab requests plus the Kafka / MQTT
+ * connection presets (#984). Presets are collection-only — opening one seeds a
+ * connection-mode tab (`modeOverride`) instead of becoming a tab request.
+ */
+export type CollectionRequest = Request | BrokerRequest;
 
 // Multi-tab request tab
 /**

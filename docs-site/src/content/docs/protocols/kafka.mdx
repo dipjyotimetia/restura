@@ -21,6 +21,8 @@ import { Badge } from '@astrojs/starlight/components';
 - **SASL** — `PLAIN`, `SCRAM-SHA-256`, `SCRAM-SHA-512` over `SASL_PLAINTEXT` or `SASL_SSL`.
 - **TLS** — pick `SSL` for TLS without SASL (encryption plus optional client-certificate mTLS), or layer it under `SASL_SSL`; server certificate validation either way.
 - **Compression** — gzip / snappy / lz4 / zstd negotiated automatically.
+- **Save to a collection** — **Save to Collection** on a Kafka tab stores a shareable *connection preset* (brokers, auth mode, TLS paths, client id, produce topic / key / payload template / headers, consumer group and topics). Opening it from the sidebar opens this panel prefilled. Passwords, OAuth tokens and key passphrases stay in the encrypted local store and are never exported. See [Kafka and MQTT connection presets](/guides/collections/#kafka-and-mqtt-connection-presets).
+- **`{{variables}}`** — bootstrap brokers (at connect), consumer group and topics (at subscribe), and the produced topic, key, value and header names/values (at send) are resolved with the same scopes as HTTP. In **JSON** mode a value substituted inside a string literal is JSON-escaped. Unresolved names are sent literally and flagged in the message log; secret values are masked in the logged copy.
 - **Confluent Schema Registry** — point a connection at a registry URL (optional Basic auth); produce schema-encoded **keys and values** by schema ID, and consume with automatic Avro / Protobuf / JSON decode of both. Powered by `@kafkajs/confluent-schema-registry`.
 
 ## Broker guard

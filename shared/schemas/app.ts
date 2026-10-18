@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { HTTP_METHOD_TOKEN_RE, MAX_HTTP_METHOD_LENGTH } from '../protocol/http-method';
 import { secretValueSchema } from '../secrets/secret-ref';
 import { GRAPHQL_SUBSCRIPTION_PROTOCOLS, HTTP_VERSION_PREFERENCES } from '../types/http';
+import { kafkaRequestSchema, mqttRequestSchema } from './broker';
+import { keyValueSchema } from './key-value';
 
 // HTTP Method Schema
 // Any RFC 9110 token (#857). CONNECT/TRACE/TRACK are deliberately NOT rejected here:
@@ -18,14 +20,8 @@ export const urlSchema = z
   .url({ message: 'Invalid URL format' })
   .or(z.string().regex(/^https?:\/\//, { message: 'URL must start with http:// or https://' }));
 
-// Key-Value Schema
-export const keyValueSchema = z.object({
-  id: z.string(),
-  key: z.string(),
-  value: z.string(),
-  enabled: z.boolean(),
-  description: z.string().optional(),
-});
+export { kafkaRequestSchema, mqttRequestSchema } from './broker';
+export { keyValueSchema } from './key-value';
 
 /** Variables with scope/export metadata. Request headers and params remain KeyValue. */
 export const scopedVariableSchema = keyValueSchema.extend({
@@ -342,12 +338,14 @@ export const collectionItemSchema: z.ZodType<any> = z.lazy(() =>
     type: z.enum(['folder', 'request']),
     request: z
       // Discriminated on `type` so a malformed request reports the real
-      // mismatch (and validates in one pass) instead of trying all four arms.
+      // mismatch (and validates in one pass) instead of trying every arm.
       .discriminatedUnion('type', [
         httpRequestSchema,
         grpcRequestSchema,
         sseRequestSchema,
         mcpRequestSchema,
+        kafkaRequestSchema,
+        mqttRequestSchema,
       ])
       .optional(),
     items: z.array(collectionItemSchema).optional(),

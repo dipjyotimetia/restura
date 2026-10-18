@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { exportToOpenCollection } from '@/features/collections/lib/exporters';
 import { ocToInternal } from '@/lib/opencollection/to-internal';
-import type { AuthConfig, Collection, CollectionItem, HttpRequest } from '@/types';
+import type { AuthConfig, Collection, CollectionItem, HttpRequest, Request } from '@/types';
 import {
   countCollectionInlineSecrets,
   redactAuthConfigSecrets,
@@ -109,14 +109,14 @@ describe('redactCollectionSecrets', () => {
       region: 'r',
       service: 's',
     });
-    expect(folder.items![0]!.request!.auth.basic?.password).toBe('');
-    expect(out.items[1]!.request!.auth.apiKey?.value).toBe('');
+    expect((folder.items![0]!.request as Request).auth.basic?.password).toBe('');
+    expect((out.items[1]!.request as Request).auth.apiKey?.value).toBe('');
   });
 
   it('does not mutate the original tree', () => {
     redactCollectionSecrets(collection);
     expect(collection.auth?.bearer?.token).toBe('collection-token');
-    expect(collection.items[0]!.items![0]!.request!.auth.basic?.password).toBe('p');
+    expect((collection.items[0]!.items![0]!.request as Request).auth.basic?.password).toBe('p');
   });
 
   it('sanitises auth-bearing OpenCollection _oc bags and keeps auth-free ones', () => {

@@ -2,21 +2,29 @@ import type {
   AuthConfig,
   Collection,
   CollectionItem,
+  CollectionRequest,
   GrpcMethodType,
   GrpcRequest,
   HttpRequest,
   KeyValue,
-  McpRequest,
-  Request,
   RequestBody,
-  SseRequest,
 } from '../types';
 import { AUTH_EXTENSION_KEY, buildAuthExtension, stripAuthExtras } from './auth-extension';
 import { authFromInternal, unwrapAuthForCompare } from './auth-from-internal';
+import { KAFKA_EXTENSION_KEY, MQTT_EXTENSION_KEY } from './broker-items';
+import {
+  buildScripts,
+  collectNestedStreamItems,
+  type ExtensionLists,
+  nonEmpty,
+  pushStreamItem,
+  runtimeFromInternal,
+} from './extension-items';
 import { graphqlDocumentFromInternal, graphqlMethodToOC } from './graphql-item';
 import { buildGraphQLExtension, GRAPHQL_EXTENSION_KEY } from './graphql-schema-extension';
 import { buildGrpcExtension, GRPC_EXTENSION_KEY } from './grpc-schema-extension';
 import { buildHttpExtension, HTTP_EXTENSION_KEY } from './http-settings-extension';
+import { kvFromInternal } from './key-value';
 import type { OpenCollection } from './schemas';
 import { authToInternal, groupScripts, ocVariableToKeyValue } from './to-internal';
 
@@ -93,20 +101,19 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
     return c._oc as OpenCollection;
   }
 
-  const sseItems: unknown[] = [];
-  const mcpItems: unknown[] = [];
+  const lists: ExtensionLists = { sse: [], mcp: [], kafka: [], mqtt: [] };
   const items: unknown[] = [];
 
   for (const it of c.items ?? []) {
     const wit = it as WithOC<CollectionItem>;
     if (it.type === 'folder') {
-      items.push(folderFromInternal(wit, [it.name], sseItems, mcpItems));
+      items.push(folderFromInternal(wit, [it.name], lists));
       continue;
     }
     const r = it.request;
     if (!r) continue;
 
-    if (pushStreamItem(wit, [], sseItems, mcpItems)) continue;
+    if (pushStreamItem(wit, [], lists)) continue;
     items.push(wit._oc ?? requestFromInternal(it.name, r));
   }
 
@@ -116,8 +123,10 @@ export function internalToOC(c: WithOC<Collection>): OpenCollection {
   // snapshots / timeouts (x-restura-grpc), imported GraphQL schemas
   // (x-restura-graphql) and httpVersion (x-restura-http).
   const managed: Record<string, unknown> = {
-    'x-restura-sse': sseItems.length > 0 ? sseItems : undefined,
-    'x-restura-mcp': mcpItems.length > 0 ? mcpItems : undefined,
+    'x-restura-sse': nonEmpty(lists.sse),
+    'x-restura-mcp': nonEmpty(lists.mcp),
+    [KAFKA_EXTENSION_KEY]: nonEmpty(lists.kafka),
+    [MQTT_EXTENSION_KEY]: nonEmpty(lists.mqtt),
     'x-restura-contract': c.contractSpec,
     [AUTH_EXTENSION_KEY]: buildAuthExtension(c),
     [GRPC_EXTENSION_KEY]: buildGrpcExtension(c.items),
@@ -258,64 +267,10 @@ function applyRequestDefaultsScripts(
   setRequestDefault(node, 'scripts', merged.length > 0 ? merged : undefined);
 }
 
-/**
- * Route an SSE / MCP request into its root extension list. OpenCollection has
- * no native SSE/MCP item, so these live in root `extensions` regardless of
- * where they sit in the tree; `folderPath` (ancestor folder names) records the
- * folder so `to-internal` can re-nest it (#866). The path is always stamped
- * fresh — a cached `_oc` entry keeps its bytes but never a stale location.
- * Returns false for any other request type.
- */
-function pushStreamItem(
-  it: WithOC<CollectionItem>,
-  folderPath: string[],
-  sseItems: unknown[],
-  mcpItems: unknown[]
-): boolean {
-  const r = it.request;
-  if (r?.type === 'sse') {
-    sseItems.push(withFolderPath(it._oc ?? sseToOC(it.name, r), folderPath));
-    return true;
-  }
-  if (r?.type === 'mcp') {
-    mcpItems.push(withFolderPath(it._oc ?? mcpToOC(it.name, r), folderPath));
-    return true;
-  }
-  return false;
-}
-
-function withFolderPath(entry: unknown, folderPath: string[]): unknown {
-  const out = { ...(entry as Record<string, unknown>) };
-  if (folderPath.length > 0) out.folderPath = folderPath;
-  else delete out.folderPath;
-  return out;
-}
-
-/**
- * Collect the SSE / MCP descendants of a folder that is being emitted verbatim
- * from its `_oc` bag. The bag is an OC folder, which cannot hold them, so they
- * must still reach the root extension lists.
- */
-function collectNestedStreamItems(
-  items: CollectionItem[] | undefined,
-  folderPath: string[],
-  sseItems: unknown[],
-  mcpItems: unknown[]
-): void {
-  for (const child of items ?? []) {
-    if (child.type === 'folder') {
-      collectNestedStreamItems(child.items, [...folderPath, child.name], sseItems, mcpItems);
-      continue;
-    }
-    pushStreamItem(child as WithOC<CollectionItem>, folderPath, sseItems, mcpItems);
-  }
-}
-
 function folderFromInternal(
   it: WithOC<CollectionItem>,
   folderPath: string[],
-  sseItems: unknown[],
-  mcpItems: unknown[]
+  lists: ExtensionLists
 ): unknown {
   // Verbatim shortcut only while the folder's default auth AND scripts still
   // match the cached bag — an in-app edit to either forces a rebuild (children
@@ -325,7 +280,7 @@ function folderFromInternal(
   const scriptsSame = scriptsUnchanged(it._oc, it.preRequestScript, it.testScript);
   const variablesSame = folderVariablesUnchanged(it._oc, it.variables);
   if (it._oc && authSame && scriptsSame && variablesSame) {
-    collectNestedStreamItems(it.items, folderPath, sseItems, mcpItems);
+    collectNestedStreamItems(it.items, folderPath, lists);
     return it._oc;
   }
   const out: Record<string, unknown> = it._oc
@@ -335,7 +290,7 @@ function folderFromInternal(
   for (const child of it.items ?? []) {
     const wchild = child as WithOC<CollectionItem>;
     if (child.type === 'folder') {
-      childItems.push(folderFromInternal(wchild, [...folderPath, child.name], sseItems, mcpItems));
+      childItems.push(folderFromInternal(wchild, [...folderPath, child.name], lists));
       continue;
     }
     const r = child.request;
@@ -343,7 +298,7 @@ function folderFromInternal(
       childItems.push(wchild._oc ?? { info: { name: child.name } });
       continue;
     }
-    if (pushStreamItem(wchild, folderPath, sseItems, mcpItems)) continue;
+    if (pushStreamItem(wchild, folderPath, lists)) continue;
     childItems.push(wchild._oc ?? requestFromInternal(child.name, r));
   }
   out.items = childItems;
@@ -360,7 +315,7 @@ function folderFromInternal(
   return out;
 }
 
-function requestFromInternal(name: string, r: Request): unknown {
+function requestFromInternal(name: string, r: CollectionRequest): unknown {
   switch (r.type) {
     case 'http': {
       const hr = r as HttpRequest;
@@ -421,64 +376,13 @@ function requestFromInternal(name: string, r: Request): unknown {
     }
     case 'sse':
     case 'mcp':
-      // SSE / MCP must be routed into extensions by the caller.
+    case 'kafka':
+    case 'mqtt':
+      // SSE / MCP / Kafka / MQTT must be routed into extensions by the caller.
       throw new Error(
-        `internalToOC: SSE/MCP requests must be emitted via extensions, not requestFromInternal`
+        `internalToOC: ${r.type} requests must be emitted via extensions, not requestFromInternal`
       );
   }
-}
-
-/**
- * Every `SseRequest` field is carried (#863); scripts use the same
- * `runtime.scripts` container as HTTP/gRPC items. The fidelity harness
- * (`fidelity-roundtrip.test.ts`) fails type-check when a field is added to
- * the type without being classified there.
- */
-function sseToOC(name: string, r: SseRequest): unknown {
-  const sse: Record<string, unknown> = { url: r.url };
-  if (r.headers?.length) {
-    sse.headers = r.headers.map(kvFromInternal);
-  }
-  if (r.params?.length) {
-    sse.params = r.params.map(kvFromInternal);
-  }
-  if (r.eventFilter?.length) sse.eventFilter = r.eventFilter;
-  if (typeof r.reconnectOnResume === 'boolean') sse.reconnectOnResume = r.reconnectOnResume;
-  const auth = authFromInternal(r.auth);
-  if (auth) sse.auth = auth;
-  const out: Record<string, unknown> = { info: { type: 'sse', name }, sse };
-  const runtime = runtimeFromInternal(r.preRequestScript, r.testScript);
-  if (runtime) out.runtime = runtime;
-  return out;
-}
-
-/** Every `McpRequest` field is carried (#863), incl. the saved operation. */
-function mcpToOC(name: string, r: McpRequest): unknown {
-  const mcp: Record<string, unknown> = { url: r.url, transport: r.transport };
-  if (r.headers?.length) {
-    mcp.headers = r.headers.map(kvFromInternal);
-  }
-  if (r.defaultMethod !== undefined) mcp.defaultMethod = r.defaultMethod;
-  if (r.defaultParams !== undefined) mcp.defaultParams = r.defaultParams;
-  const auth = authFromInternal(r.auth);
-  if (auth) mcp.auth = auth;
-  const out: Record<string, unknown> = { info: { type: 'mcp', name }, mcp };
-  const runtime = runtimeFromInternal(r.preRequestScript, r.testScript);
-  if (runtime) out.runtime = runtime;
-  return out;
-}
-
-function kvFromInternal(k: KeyValue): unknown {
-  const out: Record<string, unknown> = {
-    name: k.key,
-    value: k.value,
-  };
-  // Emit `enabled: false` so a disabled header/param/metadata round-trips as
-  // disabled rather than vanishing on re-import. (The OC httpHeader/httpParam
-  // schema carries `enabled`, defaulting to true.)
-  if (k.enabled === false) out.enabled = false;
-  if (k.description) out.description = k.description;
-  return out;
 }
 
 function bodyFromInternal(body: RequestBody): unknown {
@@ -575,21 +479,23 @@ function allFolderAuthsUnchanged(items: CollectionItem[] | undefined): boolean {
  * bag *presence*, so a root-level removal — where every survivor keeps its bag
  * and the store strips nothing (ancestorPath is empty at the root) — slips past
  * it and the cached document re-emits the deleted item. A count reconciliation
- * catches it. The root carries the sse/mcp ↔ extensions asymmetry: sse/mcp
+ * catches it. The root carries the extension-item asymmetry: sse/mcp/kafka/mqtt
  * requests live in `c.items` internally but under
- * `extensions['x-restura-sse'|'x-restura-mcp']` in `c._oc` (NOT `c._oc.items`),
- * so the two partitions reconcile separately. Opaque extensions
- * (x-restura-socketio/kafka/mqtt) have no live counterpart and are not counted.
+ * `extensions['x-restura-sse'|'-mcp'|'-kafka'|'-mqtt']` in `c._oc` (NOT
+ * `c._oc.items`), so the two partitions reconcile separately. Opaque extensions
+ * (x-restura-socketio) have no live counterpart and are not counted.
  * Count is sufficient: adds are already caught by `allItemsHaveOcBag` (the new
  * item lacks a bag); only a removal strictly drops the count. Nested removals
  * are handled by ancestor `_oc`-stripping in the store, so this stays root-only.
  */
+const EXTENSION_REQUEST_TYPES = new Set(['sse', 'mcp', 'kafka', 'mqtt']);
+
 function rootStructureUnchanged(c: WithOC<Collection>): boolean {
   const cached = c._oc as OpenCollection | undefined;
   if (!cached) return true;
   const live = c.items ?? [];
   const liveStream = live.filter(
-    (it) => it.type === 'request' && (it.request?.type === 'sse' || it.request?.type === 'mcp')
+    (it) => it.type === 'request' && EXTENSION_REQUEST_TYPES.has(it.request?.type ?? '')
   ).length;
   const liveNonStream = live.length - liveStream;
   const ext = (cached.extensions ?? {}) as Record<string, unknown>;
@@ -604,7 +510,11 @@ function rootStructureUnchanged(c: WithOC<Collection>): boolean {
           return !Array.isArray(p) || p.length === 0;
         }).length
       : 0;
-  const cachedStream = rootEntries(ext['x-restura-sse']) + rootEntries(ext['x-restura-mcp']);
+  const cachedStream =
+    rootEntries(ext['x-restura-sse']) +
+    rootEntries(ext['x-restura-mcp']) +
+    rootEntries(ext[KAFKA_EXTENSION_KEY]) +
+    rootEntries(ext[MQTT_EXTENSION_KEY]);
   return liveNonStream === (cached.items ?? []).length && liveStream === cachedStream;
 }
 
@@ -736,39 +646,6 @@ function allFolderScriptsUnchanged(items: CollectionItem[] | undefined): boolean
     }
     return allFolderScriptsUnchanged(it.items);
   });
-}
-
-/**
- * Build an OpenCollection `Script[]` from the internal preRequestScript /
- * testScript fields. Returns undefined when neither is set so callers can omit
- * the container (request `runtime` or collection/folder `request.scripts`)
- * entirely and keep the YAML compact.
- */
-function buildScripts(
-  preRequest?: string,
-  test?: string
-): Array<{ type: string; code: string }> | undefined {
-  const scripts: Array<{ type: string; code: string }> = [];
-  if (preRequest && preRequest.trim().length > 0) {
-    scripts.push({ type: 'before-request', code: preRequest });
-  }
-  if (test && test.trim().length > 0) {
-    scripts.push({ type: 'tests', code: test });
-  }
-  return scripts.length === 0 ? undefined : scripts;
-}
-
-/**
- * Build a request-level `runtime` object with `scripts: Script[]` from the
- * internal preRequestScript / testScript fields. Returns undefined if neither
- * is set, so the caller can omit the `runtime` key entirely.
- */
-function runtimeFromInternal(
-  preRequest?: string,
-  test?: string
-): Record<string, unknown> | undefined {
-  const scripts = buildScripts(preRequest, test);
-  return scripts ? { scripts } : undefined;
 }
 
 function methodTypeFromInternal(t: GrpcMethodType): string {

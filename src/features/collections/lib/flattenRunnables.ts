@@ -1,5 +1,6 @@
 import { isConfiguredAuth } from '@/features/auth/lib/authInheritance';
 import type { AuthConfig, CollectionItem, Request, ScopedVariable } from '@/types';
+import { isBrokerRequest } from '@/types';
 
 /**
  * A single executable leaf extracted from a collection tree, preserving the
@@ -71,6 +72,8 @@ function flatten(
   const out: RunnableRequest[] = [];
   for (const item of items) {
     if (item.type === 'request' && item.request) {
+      // Kafka / MQTT presets (#984) are connection presets, not runnable requests.
+      if (isBrokerRequest(item.request)) continue;
       out.push({
         itemId: item.id,
         name: item.name,

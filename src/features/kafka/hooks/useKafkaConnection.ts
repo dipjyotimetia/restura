@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { kafkaManager, kafkaSecretKey } from '@/features/kafka/lib/kafkaManager';
+import { resolveKafkaList, warnUnresolved } from '@/features/kafka/lib/kafkaVariables';
 import type {
   KafkaAuth,
   KafkaRegistry,
@@ -99,7 +100,16 @@ export function useKafkaConnection() {
       updateConnection(connection.id, { registry: nextRegistry });
     }
 
-    await kafkaManager.connect({ ...connection, auth: nextAuth, registry: nextRegistry });
+    // Brokers may hold {{var}} tokens (e.g. from a collection preset, #984);
+    // resolve them at connect time — the stored list stays unresolved.
+    const brokers = resolveKafkaList(connection.bootstrapBrokers);
+    warnUnresolved(connection.id, '', brokers.unresolved);
+    await kafkaManager.connect({
+      ...connection,
+      bootstrapBrokers: brokers.values,
+      auth: nextAuth,
+      registry: nextRegistry,
+    });
   };
 
   const disconnect = async (): Promise<void> => {

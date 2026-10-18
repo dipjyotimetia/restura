@@ -104,7 +104,7 @@ function flattenRequests(items: CollectionItem[]): Request[] {
   const out: Request[] = [];
   for (const it of items) {
     if (it.type === 'folder') out.push(...flattenRequests(it.items ?? []));
-    else if (it.request) out.push(it.request);
+    else if (it.request) out.push(it.request as Request);
   }
   return out;
 }

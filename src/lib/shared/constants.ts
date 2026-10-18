@@ -30,6 +30,8 @@ export const PROTOCOL_LABELS: Record<string, string> = {
   websocket: 'WS',
   sse: 'SSE',
   mcp: 'MCP',
+  kafka: 'KAFKA',
+  mqtt: 'MQTT',
 };
 
 // Per-protocol badge color, used in the sidebar request list and history
@@ -40,4 +42,6 @@ export const PROTOCOL_COLORS: Record<string, string> = {
   websocket: 'bg-violet-500/10 text-violet-600 dark:text-violet-400 border border-violet-500/20',
   sse: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/20',
   mcp: 'bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20',
+  kafka: 'bg-pink-500/10 text-pink-600 dark:text-pink-400 border border-pink-500/20',
+  mqtt: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20',
 };
