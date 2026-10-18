@@ -20,9 +20,15 @@ import { parseJsonBody } from '../shared/validate-body';
  * keeps the SSE-decoding and the upstream fetch — those are Worker-runtime
  * concerns.
  *
- * For long-lived MCP subscriptions (server-pushed notifications without a
- * matching request), the renderer should use the existing /api/proxy SSE-friendly
- * path or run in Electron — this handler is intentionally one-shot.
+ * Server-originated messages interleaved in an SSE reply (progress, logging,
+ * server→client requests) are returned as `serverMessages`. Notifications
+ * (`notifications/*`, no id) are forwarded and answered `{ ok, accepted }`.
+ *
+ * Web limitations: there is no standalone GET listening stream (unsolicited
+ * server messages outside a request are not delivered) and no SSE resumption
+ * via `Last-Event-ID` — this handler is intentionally one-shot. Use the desktop
+ * app for long-lived subscriptions. Session termination lives in
+ * `./mcp-terminate.ts` (`POST /api/mcp/terminate`).
  */
 
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024; // 5 MB cap on JSON-RPC replies
@@ -35,27 +41,51 @@ interface JsonRpcReply {
 }
 
 /**
+ * Cap on server-originated messages (notifications such as
+ * `notifications/progress` / `notifications/message`, or server→client
+ * requests) forwarded alongside a reply. The byte cap still bounds the total.
+ */
+const MAX_SERVER_MESSAGES = 100;
+
+interface SseReplyResult {
+  reply: JsonRpcReply;
+  /** JSON-RPC messages the server interleaved before the matching reply (#888). */
+  serverMessages: unknown[];
+}
+
+/**
  * Read an SSE-framed response and pull out the first JSON-RPC reply matching
- * the expected id. Aborts cleanly if the stream ends without a match.
+ * the expected id. Every other JSON-RPC message seen before it (server
+ * notifications / requests related to this call) is collected so the renderer
+ * can surface it instead of it being silently dropped. Aborts cleanly if the
+ * stream ends without a match.
  *
  * Delegates SSE event-frame parsing to the canonical shared parser; this
  * function only owns the byte-cap accounting and the JSON-RPC id matching.
  */
 async function readSseForReply(
   body: ReadableStream<Uint8Array>,
-  expectedId: string | number,
+  expectedId: string | number | undefined,
   byteCap: number
-): Promise<JsonRpcReply> {
+): Promise<SseReplyResult> {
   const reader = body.getReader();
   const parser = new SseParser();
+  const serverMessages: unknown[] = [];
   let totalBytes = 0;
 
   const tryMatch = (data: string): JsonRpcReply | null => {
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(data) as JsonRpcReply;
-      if (parsed.id === expectedId) return parsed;
+      parsed = JSON.parse(data);
     } catch {
-      /* non-JSON event — skip */
+      return null; /* non-JSON event — skip */
+    }
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const msg = parsed as JsonRpcReply & { method?: unknown };
+    const isResponse = msg.method === undefined && ('result' in msg || 'error' in msg);
+    if (isResponse && msg.id === expectedId) return msg;
+    if (typeof msg.method === 'string' && serverMessages.length < MAX_SERVER_MESSAGES) {
+      serverMessages.push(msg);
     }
     return null;
   };
@@ -69,13 +99,13 @@ async function readSseForReply(
 
       for (const event of parser.feed(value)) {
         const match = tryMatch(event.data);
-        if (match) return match;
+        if (match) return { reply: match, serverMessages };
       }
     }
     // Drain any trailing partial event (stream ended without a final blank line).
     for (const event of parser.flush()) {
       const match = tryMatch(event.data);
-      if (match) return match;
+      if (match) return { reply: match, serverMessages };
     }
     throw new Error('SSE stream ended without a matching JSON-RPC reply');
   } finally {
@@ -110,7 +140,7 @@ export function createMcpHandler(nodeHostnameGuard?: NodeHostnameGuard) {
       return c.json({ error: validation.error }, validation.status as 400);
     }
 
-    const { targetUrl, headers, body, timeoutMs } = validation;
+    const { targetUrl, headers, body, timeoutMs, isNotification } = validation;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -136,14 +166,29 @@ export function createMcpHandler(nodeHostnameGuard?: NodeHostnameGuard) {
         return c.json(
           {
             error: `Upstream HTTP ${upstream.status} ${upstream.statusText}`,
+            // Structured status so the renderer can tell a 404 "session
+            // expired" (MCP Session Management → re-initialize) from other
+            // upstream failures without parsing the message (#888).
+            upstreamStatus: upstream.status,
             upstreamBody: text.slice(0, 2048),
           },
           502
         );
       }
 
+      // Notifications get `202 Accepted` with no body — nothing to unwrap.
+      if (isNotification) {
+        await upstream.body?.cancel().catch(() => {});
+        return c.json({
+          ok: true,
+          accepted: true,
+          ...(advertisedSession ? { sessionId: advertisedSession } : {}),
+        });
+      }
+
       const ct = upstream.headers.get('content-type') ?? '';
       let reply: JsonRpcReply;
+      let serverMessages: unknown[] = [];
 
       if (ct.includes('application/json')) {
         const text = await upstream.text();
@@ -160,7 +205,11 @@ export function createMcpHandler(nodeHostnameGuard?: NodeHostnameGuard) {
           return c.json({ error: 'Upstream SSE response has no body' }, 502);
         }
         try {
-          reply = await readSseForReply(upstream.body, raw.jsonRpc.id, MAX_RESPONSE_BYTES);
+          ({ reply, serverMessages } = await readSseForReply(
+            upstream.body,
+            raw.jsonRpc.id,
+            MAX_RESPONSE_BYTES
+          ));
         } catch (err) {
           return c.json({ error: err instanceof Error ? err.message : 'SSE read failed' }, 502);
         }
@@ -172,6 +221,7 @@ export function createMcpHandler(nodeHostnameGuard?: NodeHostnameGuard) {
         ok: true,
         jsonRpc: reply,
         ...(advertisedSession ? { sessionId: advertisedSession } : {}),
+        ...(serverMessages.length > 0 ? { serverMessages } : {}),
       });
     } catch (err) {
       clearTimeout(timer);
