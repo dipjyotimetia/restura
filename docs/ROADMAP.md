@@ -18,7 +18,7 @@ This is an honest picture of what's done, what's being worked on, and what's nex
 - Server-Sent Events — live stream viewer; manual reconnect resumes with `Last-Event-ID`
 - Kafka — typed produce/consume, batching, streams, transactions, guarded admin, SASL/OAuth + TLS (desktop)
 - MQTT — publish/subscribe, QoS levels, TLS (desktop)
-- MCP — proxy to any MCP server over streamable HTTP; the legacy HTTP+SSE transport is desktop-only (Restura-as-an-MCP-server is in progress; see below)
+- MCP — proxy to any MCP server over streamable HTTP; the legacy HTTP+SSE transport and local stdio servers (started after a per-command-line consent prompt, [ADR 0030](adr/0030-mcp-stdio-transport.md)) are desktop-only (Restura-as-an-MCP-server is in progress; see below)
 
 ### Auth
 

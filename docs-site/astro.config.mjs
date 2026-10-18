@@ -248,6 +248,10 @@ export default defineConfig({
                   label: '0029 — Digest auth via challenge-retry',
                   slug: 'architecture/adrs/0029-digest-auth-challenge-retry',
                 },
+                {
+                  label: '0030 — MCP stdio transport',
+                  slug: 'architecture/adrs/0030-mcp-stdio-transport',
+                },
               ],
             },
           ],

@@ -1,6 +1,6 @@
 ---
 title: Model Context Protocol (MCP)
-description: Connect to any MCP server over streamable HTTP (or HTTP+SSE on desktop) and inspect its tools, prompts, and resources.
+description: Connect to any MCP server over streamable HTTP, or over HTTP+SSE and local stdio processes on desktop, and inspect its tools, prompts, and resources.
 ---
 
 import { Badge } from '@astrojs/starlight/components';
@@ -13,6 +13,7 @@ Point Restura at any MCP server and explore it like any other request target.
 
 - **`streamable-http`** transport — the modern wire shape.
 - **`http-sse`** transport — older shape; <Badge text="desktop only" variant="caution" /> the web build supports only `streamable-http`.
+- **`stdio`** transport <Badge text="desktop only" variant="caution" /> — start a local MCP server (`npx`, `uvx`, `docker run`, a binary) and talk to it over stdin/stdout. See [Local servers over stdio](#local-servers-over-stdio).
 - **`{{variables}}` in the URL** — autocompleted and highlighted (unresolved names are flagged). Resolved from the active environment and globals at connect time.
 - **List tools** — see the server's exposed tool catalogue with schemas.
 - **Invoke a tool** — fill in the JSON schema, send, watch the streamed result.
@@ -20,9 +21,45 @@ Point Restura at any MCP server and explore it like any other request target.
 - **Connection headers** — bulk edit (one `key: value` per line, `//` to disable a row) and an optional description per row; values resolve `{{variables}}`.
 - **List prompts / list resources** — for servers that expose them.
 
+### Local servers over stdio
+
+<Badge text="desktop only" variant="caution" /> Most MCP servers are local programs. Choose the **stdio** transport, enter the **command** (a name on your `PATH`, such as `npx`, or an absolute path), then open **Launch settings**:
+
+- **Arguments** — one per line, passed to the program exactly as written. Blank lines are ignored. No shell is involved, so quotes, `$VARS`, `*` and `|` are not interpreted.
+- **Working directory** — an absolute path. It defaults to your home directory.
+- **Environment** — the extra variables the server needs, such as an API key. Values resolve `{{variables}}`. A variable can also come from the desktop secret store; the app resolves it when the server starts, and the value never appears in the request or an exported collection.
+
+Connect starts the process, runs the MCP handshake, and lists the server's tools, prompts and resources, just like the HTTP transports. The server's **stderr** appears under the connection bar (the newest 64 KB; output beyond 512 KB per session is dropped), and a failed start shows the end of stderr in the error.
+
+#### Consent: you approve every new command line
+
+Starting a program is a different kind of risk from sending a request: the program runs with your user account and can read and change your files. Before Restura starts a command line it has not run before, the desktop app shows a system dialog with the exact command, every argument, the working directory and the environment variables:
+
+- **Cancel** (the default) — nothing starts.
+- **Allow once** — start it this time and ask again next time.
+- **Always allow** — remember this exact command line on this computer.
+
+Any change to the command, an argument, the working directory or an environment variable (name or value) is a new command line and asks again. Values of variables that change what runs, such as `PATH`, `NODE_OPTIONS`, `LD_*` / `DYLD_*`, `NPM_CONFIG_*` and `PYTHON*`, are shown in full and must be plain values. Other values are hidden in the dialog but still count as part of the command line. A value from the secret store counts by reference, so rotating that secret doesn't ask again.
+
+Approvals are stored by the desktop app itself. A collection, an imported file, or anything else in the request can't carry or pre-grant an approval: an imported stdio request still asks the first time you connect. **Forget approvals** under **Launch settings** clears every remembered approval.
+
+Approving a command line doesn't vouch for the code it runs. `npx -y some-package` runs whatever that package publishes at the time.
+
+#### What the process gets
+
+- **A minimal environment, not the app's.** The server receives `PATH`, `HOME` (or the Windows equivalents such as `USERPROFILE` and `SystemRoot`), `SHELL`, `TERM`, `USER`, the temp directory and your locale settings, plus the variables you set. Tokens and credentials in Restura's own environment are not passed on.
+- **No shell.** The program is started directly. On Windows, `.cmd` launchers such as `npx.cmd` run through `cmd.exe` with every argument escaped, and line breaks are not allowed in arguments.
+- **It stops when you do.** Disconnecting, closing the tab or window, or quitting Restura stops the process. If it ignores the request to exit, it is killed after one second. On Windows the whole process tree is ended. At most 8 stdio servers run at once.
+
+:::note
+On macOS, an app started from the Dock gets a short `PATH` that may not include Homebrew or nvm, so `npx` can fail with "not found". Use an absolute command path, for example `/opt/homebrew/bin/npx`, or set `PATH` in **Environment**.
+:::
+
+stdio is not available in the web app, the self-hosted server, or the CLI. A saved stdio request opened there explains that it needs the desktop app, and `restura run` fails the item without starting anything. The design and its residual risks are recorded in [ADR 0030](/architecture/adrs/0030-mcp-stdio-transport/).
+
 ### Desktop protocol compatibility
 
-The desktop app connects with the current MCP v2 client. Its automatic version negotiation supports both modern v2 servers and legacy MCP servers during the connection handshake, so saved MCP requests do not need a protocol-version setting.
+The desktop app connects with the current MCP v2 client. Its automatic version negotiation supports both modern v2 servers and legacy MCP servers during the connection handshake, so saved MCP requests do not need a protocol-version setting. stdio servers are the exception: they connect with the standard `initialize` handshake, because the client's automatic negotiation would start a second, hidden copy of the server to probe it.
 
 Legacy negotiation is handled inside the v2 client. Restura does not construct a second SDK client or retry authentication, TLS, DNS/SSRF policy, network, or timeout failures, so those errors remain visible rather than being masked by another connection attempt.
 
