@@ -32,6 +32,62 @@ function httpItem(seq: number, name: string, method: string, url: string, auth?:
   };
 }
 
+/**
+ * Runnable MCP operations (#901): each carries its saved method + params and a
+ * test script, so "Run collection" in the app and `restura run` assert on the
+ * JSON-RPC envelope: `rs.response.json().result` (incl. `isError`) or
+ * `rs.response.json().error`. They share one session per run.
+ */
+function mcpItem(name: string, url: string, method: string, params: Json, test: string[]): Json {
+  return {
+    info: { type: 'mcp', name },
+    mcp: {
+      url,
+      transport: 'streamable-http',
+      defaultMethod: method,
+      defaultParams: JSON.stringify(params),
+    },
+    runtime: { scripts: [{ type: 'tests', code: test.join('\n') }] },
+  };
+}
+
+export function mcpItems(url: string): Json[] {
+  return [
+    mcpItem('MCP echo', url, 'tools/call', { name: 'echo', arguments: { text: 'hello' } }, [
+      "rs.test('echo tool replies', () => {",
+      '  const { result } = rs.response.json();',
+      '  rs.expect(result.isError).to.not.equal(true);',
+      "  rs.expect(result.content[0].text).to.equal('echo:hello');",
+      '});',
+    ]),
+    mcpItem(
+      'MCP tool error (isError)',
+      url,
+      'tools/call',
+      { name: 'fail', arguments: { reason: 'expected' } },
+      [
+        "rs.test('tool failure is reported in-band', () => {",
+        '  const { result } = rs.response.json();',
+        '  rs.expect(result.isError).to.equal(true);',
+        "  rs.expect(result.content[0].text).to.include('expected');",
+        '});',
+      ]
+    ),
+    mcpItem('MCP unknown method (JSON-RPC error)', url, 'tools/unknown', {}, [
+      "rs.test('server rejects the method', () => {",
+      '  const { error } = rs.response.json();',
+      '  rs.expect(error.code).to.equal(-32601);',
+      '});',
+    ]),
+    mcpItem('MCP read resource', url, 'resources/read', { uri: 'restura://readme' }, [
+      "rs.test('resource text', () => {",
+      '  const { result } = rs.response.json();',
+      "  rs.expect(result.contents[0].text).to.include('restura mock');",
+      '});',
+    ]),
+  ];
+}
+
 export function buildCollection(host = 'localhost'): Json {
   const http = `http://${host}:${PORTS.http}`;
   // The renderer's validateGrpcUrl requires an http(s):// scheme before it will
@@ -102,12 +158,7 @@ export function buildCollection(host = 'localhost'): Json {
           sse: { url: `${http}/stream/sse` },
         },
       ],
-      'x-restura-mcp': [
-        {
-          info: { type: 'mcp', name: 'MCP echo' },
-          mcp: { url: mcp, transport: 'streamable-http' },
-        },
-      ],
+      'x-restura-mcp': mcpItems(mcp),
       'x-restura-http': {
         requests: [
           { path: [H2C_NAME], httpVersion: 'h2c-prior-knowledge' },

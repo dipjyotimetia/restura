@@ -101,7 +101,10 @@ servers validate:
 OpenCollection format supports, with auth that round-trips cleanly:
 
 - HTTP: no-auth, **Basic**, **Bearer**, **API key (header + query)**, **AWS SigV4**
-- GraphQL, gRPC (UnaryEcho via reflection), SSE, MCP
+- GraphQL, gRPC (UnaryEcho via reflection), SSE
+- MCP: four runnable operations with test scripts (tool call, tool `isError`
+  result, JSON-RPC error, resource read). Run them with **Run collection**.
+  See the MCP protocol docs for the response contract.
 
 URLs are literal `localhost` ports, so it works without selecting an environment.
 
